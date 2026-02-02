@@ -1,5 +1,5 @@
 import AppKit
-import SwiftTerm
+import GhosttyKit
 
 /// Tab-based terminal controller using pure AppKit
 class TerminalTabViewController: NSViewController {

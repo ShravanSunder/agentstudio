@@ -4,19 +4,35 @@ import PackageDescription
 let package = Package(
     name: "AgentStudio",
     platforms: [
-        .macOS(.v13)
+        .macOS(.v14)
     ],
     products: [
         .executable(name: "AgentStudio", targets: ["AgentStudio"])
     ],
-    dependencies: [
-        .package(url: "https://github.com/migueldeicaza/SwiftTerm.git", exact: "1.2.5")
-    ],
+    dependencies: [],
     targets: [
         .executableTarget(
             name: "AgentStudio",
-            dependencies: ["SwiftTerm"],
-            path: "Sources/AgentStudio"
+            dependencies: ["GhosttyKit"],
+            path: "Sources/AgentStudio",
+            linkerSettings: [
+                .linkedFramework("Metal"),
+                .linkedFramework("MetalKit"),
+                .linkedFramework("QuartzCore"),
+                .linkedFramework("CoreText"),
+                .linkedFramework("CoreGraphics"),
+                .linkedFramework("Foundation"),
+                .linkedFramework("AppKit"),
+                .linkedFramework("UniformTypeIdentifiers"),
+                .linkedFramework("Carbon"),
+                .linkedFramework("CoreServices"),
+                .linkedLibrary("z"),
+                .linkedLibrary("c++")
+            ]
+        ),
+        .binaryTarget(
+            name: "GhosttyKit",
+            path: "Frameworks/GhosttyKit.xcframework"
         )
     ]
 )
