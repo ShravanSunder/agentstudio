@@ -32,10 +32,15 @@ zig version
 
 ## Quick Start
 
-1. **Clone the repository:**
+1. **Clone the repository with submodules:**
 ```bash
-git clone <your-repo-url>
+git clone --recurse-submodules https://github.com/ShravanSunder/agentstudio.git
 cd agent-studio
+```
+
+Or if you already cloned without submodules:
+```bash
+git submodule update --init --recursive
 ```
 
 2. **Build Ghostty and generate the XCFramework:**
