@@ -25,24 +25,25 @@ cd "$GHOSTTY_DIR"
 
 # Clean previous builds
 echo "🧹 Cleaning previous builds..."
-rm -rf .zig-cache zig-out macos/build
+rm -rf .zig-cache zig-out macos/build macos/*.xcframework
 
-# Build Ghostty for macOS
+# Build Ghostty XCFramework for macOS
 echo "🏗️  Building Ghostty XCFramework..."
-zig build -Doptimize=ReleaseFast
+zig build -Doptimize=ReleaseFast -Demit-xcframework=true
 
-# Build the XCFramework
-cd macos
-echo "📦 Creating XCFramework..."
-./build.sh
-
-# Copy XCFramework to Frameworks directory
+# Copy XCFramework from macos/ to Frameworks directory
 echo "📋 Copying XCFramework to Frameworks directory..."
 mkdir -p "$FRAMEWORKS_DIR"
 rm -rf "$FRAMEWORKS_DIR/GhosttyKit.xcframework"
-cp -R "GhosttyKit.xcframework" "$FRAMEWORKS_DIR/"
 
-echo "✅ Build complete!"
-echo "GhosttyKit.xcframework is now available at: $FRAMEWORKS_DIR/GhosttyKit.xcframework"
-echo ""
-echo "You can now build your Swift package with: swift build"
+if [ -d "macos/GhosttyKit.xcframework" ]; then
+    cp -R "macos/GhosttyKit.xcframework" "$FRAMEWORKS_DIR/"
+    echo "✅ Build complete!"
+    echo "GhosttyKit.xcframework is now available at: $FRAMEWORKS_DIR/GhosttyKit.xcframework"
+    echo ""
+    echo "You can now build your Swift package with: swift build"
+else
+    echo "❌ Error: XCFramework not found at macos/GhosttyKit.xcframework"
+    echo "Build may have failed. Check the output above."
+    exit 1
+fi
