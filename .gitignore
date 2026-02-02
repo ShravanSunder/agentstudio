@@ -1,6 +1,7 @@
 # Build artifacts
 .build/
 DerivedData/
+tmp/
 
 # Xcode
 *.xcodeproj
