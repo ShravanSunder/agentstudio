@@ -1,0 +1,165 @@
+import AppKit
+import SwiftUI
+
+class AppDelegate: NSObject, NSApplicationDelegate {
+    var mainWindowController: MainWindowController?
+
+    func applicationDidFinishLaunching(_ notification: Notification) {
+        // Initialize services
+        _ = SessionManager.shared
+
+        // Create main window
+        mainWindowController = MainWindowController()
+        mainWindowController?.showWindow(nil)
+
+        // Set up main menu
+        setupMainMenu()
+    }
+
+    func applicationShouldTerminateAfterLastWindowClosed(_ sender: NSApplication) -> Bool {
+        return false  // Keep running for menu bar / dock
+    }
+
+    func applicationWillTerminate(_ notification: Notification) {
+        // Save state before quitting
+        Task { @MainActor in
+            SessionManager.shared.save()
+        }
+    }
+
+    func applicationSupportsSecureRestorableState(_ app: NSApplication) -> Bool {
+        return true
+    }
+
+    // MARK: - Menu Setup
+
+    private func setupMainMenu() {
+        let mainMenu = NSMenu()
+
+        // App menu
+        let appMenu = NSMenu()
+        appMenu.addItem(NSMenuItem(title: "About AgentStudio", action: #selector(NSApplication.orderFrontStandardAboutPanel(_:)), keyEquivalent: ""))
+        appMenu.addItem(NSMenuItem.separator())
+        appMenu.addItem(NSMenuItem(title: "Settings...", action: #selector(openSettings), keyEquivalent: ","))
+        appMenu.addItem(NSMenuItem.separator())
+        appMenu.addItem(NSMenuItem(title: "Hide AgentStudio", action: #selector(NSApplication.hide(_:)), keyEquivalent: "h"))
+        let hideOthersItem = NSMenuItem(title: "Hide Others", action: #selector(NSApplication.hideOtherApplications(_:)), keyEquivalent: "h")
+        hideOthersItem.keyEquivalentModifierMask = [.command, .option]
+        appMenu.addItem(hideOthersItem)
+        appMenu.addItem(NSMenuItem(title: "Show All", action: #selector(NSApplication.unhideAllApplications(_:)), keyEquivalent: ""))
+        appMenu.addItem(NSMenuItem.separator())
+        appMenu.addItem(NSMenuItem(title: "Quit AgentStudio", action: #selector(NSApplication.terminate(_:)), keyEquivalent: "q"))
+
+        let appMenuItem = NSMenuItem()
+        appMenuItem.submenu = appMenu
+        mainMenu.addItem(appMenuItem)
+
+        // File menu
+        let fileMenu = NSMenu(title: "File")
+        fileMenu.addItem(NSMenuItem(title: "New Tab", action: #selector(newTab), keyEquivalent: "t"))
+        fileMenu.addItem(NSMenuItem(title: "Close Tab", action: #selector(closeTab), keyEquivalent: "w"))
+        fileMenu.addItem(NSMenuItem.separator())
+        let addProjectItem = NSMenuItem(title: "Add Project...", action: #selector(addProject), keyEquivalent: "O")
+        addProjectItem.keyEquivalentModifierMask = [.command, .shift]
+        fileMenu.addItem(addProjectItem)
+
+        let fileMenuItem = NSMenuItem()
+        fileMenuItem.submenu = fileMenu
+        mainMenu.addItem(fileMenuItem)
+
+        // Edit menu
+        let editMenu = NSMenu(title: "Edit")
+        editMenu.addItem(NSMenuItem(title: "Undo", action: Selector(("undo:")), keyEquivalent: "z"))
+        editMenu.addItem(NSMenuItem(title: "Redo", action: Selector(("redo:")), keyEquivalent: "Z"))
+        editMenu.addItem(NSMenuItem.separator())
+        editMenu.addItem(NSMenuItem(title: "Cut", action: #selector(NSText.cut(_:)), keyEquivalent: "x"))
+        editMenu.addItem(NSMenuItem(title: "Copy", action: #selector(NSText.copy(_:)), keyEquivalent: "c"))
+        editMenu.addItem(NSMenuItem(title: "Paste", action: #selector(NSText.paste(_:)), keyEquivalent: "v"))
+        editMenu.addItem(NSMenuItem(title: "Select All", action: #selector(NSText.selectAll(_:)), keyEquivalent: "a"))
+
+        let editMenuItem = NSMenuItem()
+        editMenuItem.submenu = editMenu
+        mainMenu.addItem(editMenuItem)
+
+        // View menu
+        let viewMenu = NSMenu(title: "View")
+        viewMenu.addItem(NSMenuItem(title: "Toggle Sidebar", action: #selector(toggleSidebar), keyEquivalent: "s"))
+        viewMenu.items.last?.keyEquivalentModifierMask = [.command, .control]
+        viewMenu.addItem(NSMenuItem.separator())
+        viewMenu.addItem(NSMenuItem(title: "Enter Full Screen", action: #selector(NSWindow.toggleFullScreen(_:)), keyEquivalent: "f"))
+        viewMenu.items.last?.keyEquivalentModifierMask = [.command, .control]
+
+        let viewMenuItem = NSMenuItem()
+        viewMenuItem.submenu = viewMenu
+        mainMenu.addItem(viewMenuItem)
+
+        // Window menu
+        let windowMenu = NSMenu(title: "Window")
+        windowMenu.addItem(NSMenuItem(title: "Minimize", action: #selector(NSWindow.performMiniaturize(_:)), keyEquivalent: "m"))
+        windowMenu.addItem(NSMenuItem(title: "Zoom", action: #selector(NSWindow.performZoom(_:)), keyEquivalent: ""))
+        windowMenu.addItem(NSMenuItem.separator())
+        windowMenu.addItem(NSMenuItem(title: "Bring All to Front", action: #selector(NSApplication.arrangeInFront(_:)), keyEquivalent: ""))
+
+        // Tab switching shortcuts (Cmd+1 through Cmd+9)
+        windowMenu.addItem(NSMenuItem.separator())
+        for i in 1...9 {
+            let item = NSMenuItem(title: "Select Tab \(i)", action: #selector(selectTab(_:)), keyEquivalent: "\(i)")
+            item.tag = i - 1  // 0-indexed
+            windowMenu.addItem(item)
+        }
+
+        let windowMenuItem = NSMenuItem()
+        windowMenuItem.submenu = windowMenu
+        mainMenu.addItem(windowMenuItem)
+
+        // Help menu
+        let helpMenu = NSMenu(title: "Help")
+        helpMenu.addItem(NSMenuItem(title: "AgentStudio Help", action: #selector(NSApplication.showHelp(_:)), keyEquivalent: "?"))
+
+        let helpMenuItem = NSMenuItem()
+        helpMenuItem.submenu = helpMenu
+        mainMenu.addItem(helpMenuItem)
+
+        NSApp.mainMenu = mainMenu
+        NSApp.windowsMenu = windowMenu
+        NSApp.helpMenu = helpMenu
+    }
+
+    // MARK: - Menu Actions
+
+    @objc private func openSettings() {
+        // Open settings window
+        let settingsView = SettingsView()
+        let hostingController = NSHostingController(rootView: settingsView)
+        let window = NSWindow(contentViewController: hostingController)
+        window.title = "Settings"
+        window.styleMask = [.titled, .closable]
+        window.setContentSize(NSSize(width: 450, height: 300))
+        window.center()
+        window.makeKeyAndOrderFront(nil)
+    }
+
+    @objc private func newTab() {
+        NotificationCenter.default.post(name: .newTabRequested, object: nil)
+    }
+
+    @objc private func closeTab() {
+        NotificationCenter.default.post(name: .closeTabRequested, object: nil)
+    }
+
+    @objc private func addProject() {
+        NotificationCenter.default.post(name: .addProjectRequested, object: nil)
+    }
+
+    @objc private func toggleSidebar() {
+        mainWindowController?.toggleSidebar()
+    }
+
+    @objc private func selectTab(_ sender: NSMenuItem) {
+        NotificationCenter.default.post(
+            name: .selectTabAtIndex,
+            object: nil,
+            userInfo: ["index": sender.tag]
+        )
+    }
+}
