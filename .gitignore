@@ -16,3 +16,25 @@ xcuserdata/
 # IDE
 .idea/
 *.swp
+**/*.tmp   
+
+
+# Node.js
+node_modules/
+
+# Ghostty build artifacts and cache
+vendor/ghostty/.zig-cache/
+vendor/ghostty/macos/build/
+vendor/ghostty/zig-out/
+vendor/ghostty/vendor/
+vendor/ghostty/.git/
+
+# Built frameworks (regenerate via build script)
+Frameworks/*.xcframework/
+vendor/*.app/
+
+# Build artifacts
+*.dSYM/
+*.a
+*.pcm
+*.o
