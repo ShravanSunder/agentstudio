@@ -240,13 +240,25 @@ extension Ghostty {
         // MARK: - Input Handling
 
         override func keyDown(with event: NSEvent) {
+            let action = event.isARepeat ? GHOSTTY_ACTION_REPEAT : GHOSTTY_ACTION_PRESS
+
+            // Set up text accumulator for interpretKeyEvents
             keyTextAccumulator = []
             defer { keyTextAccumulator = nil }
 
+            // Process through input system for IME/dead keys
             self.interpretKeyEvents([event])
 
-            if let accumulator = keyTextAccumulator, accumulator.isEmpty {
-                sendKeyEvent(event, action: GHOSTTY_ACTION_PRESS)
+            // Send key event(s) to Ghostty
+            if let list = keyTextAccumulator, !list.isEmpty {
+                // Text was composed - send each piece
+                for text in list {
+                    sendKeyEvent(event, action: action, text: text)
+                }
+            } else {
+                // No composed text - send key with ghosttyCharacters
+                // This handles control characters properly (Ghostty encodes them)
+                sendKeyEvent(event, action: action, text: ghosttyCharacters(from: event))
             }
         }
 
@@ -258,7 +270,60 @@ extension Ghostty {
             sendKeyEvent(event, action: GHOSTTY_ACTION_PRESS)
         }
 
-        private func sendKeyEvent(_ event: NSEvent, action: ghostty_input_action_e) {
+        override func performKeyEquivalent(with event: NSEvent) -> Bool {
+            guard event.type == .keyDown else { return false }
+            guard focused else { return false }
+
+            let mods = event.modifierFlags.intersection(.deviceIndependentFlagsMask)
+
+            // ANY Cmd combination goes to macOS - don't intercept
+            // This includes: Cmd+*, Cmd+Shift+*, Cmd+Ctrl+*, Cmd+Arrow, etc.
+            if mods.contains(.command) {
+                return false
+            }
+
+            // Ctrl+* keys must be handled here to prevent AppKit from swallowing them
+            if mods.contains(.control) {
+                // Special case: Ctrl+Return - prevent default context menu
+                if event.charactersIgnoringModifiers == "\r" {
+                    self.keyDown(with: event)
+                    return true
+                }
+
+                // Special case: Ctrl+/ - convert to Ctrl+_ (prevents macOS beep)
+                if event.charactersIgnoringModifiers == "/" {
+                    if let modifiedEvent = NSEvent.keyEvent(
+                        with: .keyDown,
+                        location: event.locationInWindow,
+                        modifierFlags: event.modifierFlags,
+                        timestamp: event.timestamp,
+                        windowNumber: event.windowNumber,
+                        context: nil,
+                        characters: "_",
+                        charactersIgnoringModifiers: "_",
+                        isARepeat: event.isARepeat,
+                        keyCode: event.keyCode
+                    ) {
+                        self.keyDown(with: modifiedEvent)
+                        return true
+                    }
+                }
+
+                // All other Ctrl+* keys go directly to keyDown
+                self.keyDown(with: event)
+                return true
+            }
+
+            // Shift+*, Option+*, plain keys - don't intercept, let them flow to keyDown
+            return false
+        }
+
+        override func doCommand(by selector: Selector) {
+            // Intentionally empty - prevents system beeps for unhandled commands
+            // All key input goes through keyDown, not through command selectors
+        }
+
+        private func sendKeyEvent(_ event: NSEvent, action: ghostty_input_action_e, text: String? = nil) {
             guard let surface = surface else { return }
 
             var keyEvent = ghostty_input_key_s()
@@ -267,8 +332,32 @@ extension Ghostty {
             keyEvent.keycode = UInt32(event.keyCode)
             keyEvent.composing = false
 
-            if let chars = event.characters, !chars.isEmpty {
-                chars.withCString { ptr in
+            // Compute unshifted codepoint (key without modifiers)
+            if event.type == .keyDown || event.type == .keyUp {
+                if let chars = event.characters(byApplyingModifiers: []),
+                   let codepoint = chars.unicodeScalars.first {
+                    keyEvent.unshifted_codepoint = codepoint.value
+                }
+            }
+
+            // Compute consumed mods (mods that contributed to text translation)
+            // Control and command never contribute to text translation
+            let consumedMods = event.modifierFlags.subtracting([.control, .command])
+            keyEvent.consumed_mods = ghosttyMods(from: consumedMods)
+
+            // Determine the text to send
+            // For control characters (< 0x20), don't send text - Ghostty handles encoding
+            let textToSend: String?
+            if let providedText = text {
+                textToSend = providedText
+            } else {
+                textToSend = ghosttyCharacters(from: event)
+            }
+
+            // Only send text if it's not a control character
+            if let text = textToSend, !text.isEmpty,
+               let codepoint = text.utf8.first, codepoint >= 0x20 {
+                text.withCString { ptr in
                     keyEvent.text = ptr
                     ghostty_surface_key(surface, keyEvent)
                 }
@@ -276,6 +365,26 @@ extension Ghostty {
                 keyEvent.text = nil
                 ghostty_surface_key(surface, keyEvent)
             }
+        }
+
+        /// Returns text for key event, filtering control characters
+        /// Control character mapping is handled by Ghostty's KeyEncoder
+        private func ghosttyCharacters(from event: NSEvent) -> String? {
+            guard let characters = event.characters else { return nil }
+
+            if characters.count == 1, let scalar = characters.unicodeScalars.first {
+                // Control characters < 0x20: strip control modifier, let Ghostty handle encoding
+                if scalar.value < 0x20 {
+                    return event.characters(byApplyingModifiers: event.modifierFlags.subtracting(.control))
+                }
+
+                // Function keys in PUA range: don't send
+                if scalar.value >= 0xF700 && scalar.value <= 0xF8FF {
+                    return nil
+                }
+            }
+
+            return characters
         }
 
         private func ghosttyMods(from flags: NSEvent.ModifierFlags) -> ghostty_input_mods_e {
@@ -396,6 +505,32 @@ extension Ghostty {
             }
         }
 
+        // MARK: - Edit Menu Responders
+
+        @objc func copy(_ sender: Any?) {
+            guard let surface = surface else { return }
+            let action = "copy_to_clipboard"
+            action.withCString { ptr in
+                _ = ghostty_surface_binding_action(surface, ptr, UInt(action.utf8.count))
+            }
+        }
+
+        @objc func paste(_ sender: Any?) {
+            guard let surface = surface else { return }
+            let action = "paste_from_clipboard"
+            action.withCString { ptr in
+                _ = ghostty_surface_binding_action(surface, ptr, UInt(action.utf8.count))
+            }
+        }
+
+        @objc override func selectAll(_ sender: Any?) {
+            guard let surface = surface else { return }
+            let action = "select_all"
+            action.withCString { ptr in
+                _ = ghostty_surface_binding_action(surface, ptr, UInt(action.utf8.count))
+            }
+        }
+
         // MARK: - Public API
 
         /// Send text to the terminal as if it was typed
@@ -430,6 +565,8 @@ extension Ghostty {
 
 extension Ghostty.SurfaceView: NSTextInputClient {
     func insertText(_ string: Any, replacementRange: NSRange) {
+        // Must have a current event
+        guard NSApp.currentEvent != nil else { return }
         guard let surface = surface else { return }
 
         let text: String
@@ -441,8 +578,18 @@ extension Ghostty.SurfaceView: NSTextInputClient {
             return
         }
 
-        keyTextAccumulator?.append(text)
+        // Clear marked text since we're inserting final text
+        unmarkText()
 
+        // If we have an accumulator, we're in a keyDown event - just accumulate
+        // The keyDown handler will send the key event with the accumulated text
+        if var acc = keyTextAccumulator {
+            acc.append(text)
+            keyTextAccumulator = acc
+            return
+        }
+
+        // Not in keyDown - send text directly (e.g., from paste or programmatic input)
         text.withCString { ptr in
             ghostty_surface_text(surface, ptr, UInt(text.utf8.count))
         }
