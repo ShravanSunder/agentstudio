@@ -9,6 +9,10 @@ if ghostty_init(UInt(CommandLine.argc), CommandLine.unsafeArgv) != GHOSTTY_SUCCE
 
 // Create NSApplication first
 let app = NSApplication.shared
+
+// Set activation policy to make it a proper GUI app (required for CLI-launched binaries)
+app.setActivationPolicy(.regular)
+
 let delegate = AppDelegate()
 app.delegate = delegate
 
@@ -17,5 +21,8 @@ let ghosttyInitialized = Ghostty.initialize()
 if !ghosttyInitialized {
     print("Warning: Failed to initialize Ghostty terminal engine")
 }
+
+// Activate the app to bring it to front
+app.activate(ignoringOtherApps: true)
 
 _ = NSApplicationMain(CommandLine.argc, CommandLine.unsafeArgv)

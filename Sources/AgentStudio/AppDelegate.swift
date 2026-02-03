@@ -56,8 +56,12 @@ class AppDelegate: NSObject, NSApplicationDelegate {
 
         // File menu
         let fileMenu = NSMenu(title: "File")
-        fileMenu.addItem(NSMenuItem(title: "New Tab", action: #selector(newTab), keyEquivalent: "t"))
-        fileMenu.addItem(NSMenuItem(title: "Close Tab", action: #selector(closeTab), keyEquivalent: "w"))
+        let newTabItem = NSMenuItem(title: "New Tab", action: #selector(newTab), keyEquivalent: "t")
+        newTabItem.keyEquivalentModifierMask = [.command, .shift]
+        fileMenu.addItem(newTabItem)
+        let closeTabItem = NSMenuItem(title: "Close Tab", action: #selector(closeTab), keyEquivalent: "w")
+        closeTabItem.keyEquivalentModifierMask = [.command, .shift]
+        fileMenu.addItem(closeTabItem)
         fileMenu.addItem(NSMenuItem.separator())
         let addProjectItem = NSMenuItem(title: "Add Project...", action: #selector(addProject), keyEquivalent: "O")
         addProjectItem.keyEquivalentModifierMask = [.command, .shift]
@@ -84,10 +88,10 @@ class AppDelegate: NSObject, NSApplicationDelegate {
         // View menu
         let viewMenu = NSMenu(title: "View")
         viewMenu.addItem(NSMenuItem(title: "Toggle Sidebar", action: #selector(toggleSidebar), keyEquivalent: "s"))
-        viewMenu.items.last?.keyEquivalentModifierMask = [.command, .control]
+        viewMenu.items.last?.keyEquivalentModifierMask = [.command, .shift]
         viewMenu.addItem(NSMenuItem.separator())
         viewMenu.addItem(NSMenuItem(title: "Enter Full Screen", action: #selector(NSWindow.toggleFullScreen(_:)), keyEquivalent: "f"))
-        viewMenu.items.last?.keyEquivalentModifierMask = [.command, .control]
+        viewMenu.items.last?.keyEquivalentModifierMask = [.command, .shift]
 
         let viewMenuItem = NSMenuItem()
         viewMenuItem.submenu = viewMenu

@@ -4,7 +4,6 @@
 macOS terminal application embedding Ghostty terminal emulator with project/worktree management.
 
 ## Structure
-
 ```
 agent-studio/
 ├── Sources/AgentStudio/      # Swift source
@@ -15,6 +14,7 @@ agent-studio/
 ├── Frameworks/               # Generated: GhosttyKit.xcframework (not in git)
 ├── vendor/ghostty/           # Git submodule: Ghostty source
 ├── scripts/                  # Build automation
+├── docs/                     # Detailed documentation
 └── tmp/                      # Temporary docs and status files
 ```
 
@@ -28,12 +28,20 @@ agent-studio/
 2. Copies `macos/GhosttyKit.xcframework` → `Frameworks/`
 3. `swift build` - Links against xcframework
 
-## Vendor Directory
-- `vendor/ghostty/` - Git submodule pointing to ghostty-org/ghostty
-- Build artifacts inside are ignored by .gitignore
-- Submodule tracks specific commit, not files
+## Architectural Guidance
+Agent Studio follows an **AppKit-main** architecture, hosting SwiftUI views where declarative UI is most effective. This provides direct control over the macOS lifecycle and key handling while leveraging SwiftUI for complex layouts.
 
-## Integration
-- **GhosttySurfaceView** wraps Ghostty C API in AppKit view
-- **SessionManager** manages terminal sessions/tabs
-- **WorktrunkService** integrates git worktree workflows
+- **Deep Dive**: [AppKit + SwiftUI Hybrid UI](docs/architecture/app_architecture.md)
+- **Style Guide**: [macOS Design & Style](docs/guides/style_guide.md)
+
+## Agent Resources
+Use DeepWiki and official documentation to gather grounded context on core dependencies.
+
+- **Guide**: [Agent Resources & Research](docs/guides/agent_resources.md)
+- **Core Repos**: `ghostty-org/ghostty`, `swiftlang/swift`
+
+## Visual Verification (Mandatory)
+To ensure high product quality, agents **must** visually verify all UI/UX changes and bug fixes.
+
+- **Requirement**: Use [Peekaboo](https://github.com/steipete/Peekaboo) to capture screenshots or snapshots of the running application.
+- **Definition of Done**: A task is **NOT DONE** until the agent has visually inspected the work using Peekaboo to confirm it looks correct and the fix is verified in the actual UI.

@@ -1,7 +1,7 @@
 import AppKit
 import GhosttyKit
 
-/// Custom terminal view wrapping Ghostty's SurfaceView with Zellij integration
+/// Custom terminal view wrapping Ghostty's SurfaceView
 class AgentStudioTerminalView: NSView {
     let worktree: Worktree
     let project: Project
@@ -19,9 +19,8 @@ class AgentStudioTerminalView: NSView {
         self.project = project
         super.init(frame: NSRect(x: 0, y: 0, width: 800, height: 600))
 
-        self.wantsLayer = true
-        self.layer?.backgroundColor = NSColor(red: 0.1, green: 0.1, blue: 0.12, alpha: 1.0).cgColor
-
+        // Note: Do NOT set wantsLayer or backgroundColor here
+        // Let Ghostty manage its own layer rendering
         setupGhosttyTerminal()
     }
 
@@ -42,24 +41,12 @@ class AgentStudioTerminalView: NSView {
             return
         }
 
-        // Create Zellij command
-        let sessionName = worktree.zellijSessionName(projectName: project.name)
-        let zellijPath = findZellij()
-
-        guard FileManager.default.isExecutableFile(atPath: zellijPath) else {
-            showZellijNotFoundError()
-            return
-        }
-
-        // Create the command to run in the terminal
-        // We'll use the shell to run Zellij with proper environment
+        // Start an interactive login shell in the worktree directory
         let shell = getDefaultShell()
-        let zellijCommand = "cd '\(worktree.path.path)' && exec '\(zellijPath)' attach --create '\(sessionName)'"
 
-        // Create surface configuration
         let config = Ghostty.SurfaceConfiguration(
             workingDirectory: worktree.path.path,
-            command: "\(shell) -i -l -c \"\(zellijCommand)\""
+            command: "\(shell) -i -l"
         )
 
         // Create the Ghostty surface view
@@ -105,25 +92,6 @@ class AgentStudioTerminalView: NSView {
         return "/bin/zsh"
     }
 
-    private func findZellij() -> String {
-        let paths = [
-            "/opt/homebrew/bin/zellij",
-            "/usr/local/bin/zellij",
-            "/run/current-system/sw/bin/zellij",
-            "\(NSHomeDirectory())/.nix-profile/bin/zellij",
-            "\(NSHomeDirectory())/.cargo/bin/zellij",
-            "/usr/bin/zellij"
-        ]
-
-        for path in paths {
-            if FileManager.default.isExecutableFile(atPath: path) {
-                return path
-            }
-        }
-
-        return "/opt/homebrew/bin/zellij"
-    }
-
     // MARK: - Error Handling
 
     private func showGhosttyError() {
@@ -132,17 +100,6 @@ class AgentStudioTerminalView: NSView {
             alert.messageText = "Terminal Initialization Failed"
             alert.informativeText = "Failed to initialize the Ghostty terminal engine."
             alert.alertStyle = .critical
-            alert.addButton(withTitle: "OK")
-            alert.runModal()
-        }
-    }
-
-    private func showZellijNotFoundError() {
-        DispatchQueue.main.async {
-            let alert = NSAlert()
-            alert.messageText = "Zellij Not Found"
-            alert.informativeText = "Zellij is required for AgentStudio terminals.\n\nInstall with: brew install zellij"
-            alert.alertStyle = .warning
             alert.addButton(withTitle: "OK")
             alert.runModal()
         }
@@ -157,13 +114,6 @@ class AgentStudioTerminalView: NSView {
             object: self,
             userInfo: ["worktreeId": worktree.id, "exitCode": exitCode as Any]
         )
-    }
-
-    /// Detach from Zellij session (preserves session for later reattach)
-    func detachFromZellij() {
-        guard isProcessRunning, let surface = ghosttySurface else { return }
-        // Send Ctrl-O d to detach from Zellij
-        surface.sendText("\u{0F}d")
     }
 
     /// Terminate the terminal process
@@ -183,10 +133,19 @@ class AgentStudioTerminalView: NSView {
     override var acceptsFirstResponder: Bool { true }
 
     override func becomeFirstResponder() -> Bool {
-        if let surface = ghosttySurface {
-            window?.makeFirstResponder(surface)
-            return true
+        if let surface = ghosttySurface, let window = window {
+            return window.makeFirstResponder(surface)
         }
         return super.becomeFirstResponder()
+    }
+
+    // MARK: - Hit Testing
+
+    override func hitTest(_ point: NSPoint) -> NSView? {
+        // Always return the Ghostty surface for hit testing so it gets all mouse events
+        if let surface = ghosttySurface, bounds.contains(point) {
+            return surface
+        }
+        return super.hitTest(point)
     }
 }

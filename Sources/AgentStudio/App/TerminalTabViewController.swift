@@ -78,7 +78,7 @@ class TerminalTabViewController: NSViewController {
         titleLabel.textColor = .labelColor
 
         // Subtitle
-        let subtitleLabel = NSTextField(wrappingLabelWithString: "Manage your AI agent worktrees with integrated terminal sessions.\nDouble-click a worktree to open a Zellij terminal.")
+        let subtitleLabel = NSTextField(wrappingLabelWithString: "Manage your AI agent worktrees with integrated terminal sessions.\nDouble-click a worktree to open a terminal.")
         subtitleLabel.font = NSFont.systemFont(ofSize: 13)
         subtitleLabel.textColor = .secondaryLabelColor
         subtitleLabel.alignment = .center
@@ -171,7 +171,7 @@ class TerminalTabViewController: NSViewController {
 
     func closeTerminal(for worktreeId: UUID) {
         guard let terminal = terminals[worktreeId] else { return }
-        terminal.detachFromZellij()
+        terminal.terminateProcess()
 
         // Find and remove the tab
         for (tabItem, id) in tabToWorktree {

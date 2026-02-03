@@ -33,6 +33,7 @@ vendor/ghostty/.git/
 # Built frameworks (regenerate via build script)
 Frameworks/*.xcframework/
 vendor/*.app/
+AgentStudio.app/
 
 # Build artifacts
 *.dSYM/

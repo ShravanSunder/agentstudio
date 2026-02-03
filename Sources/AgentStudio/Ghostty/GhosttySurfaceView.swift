@@ -2,6 +2,7 @@ import Foundation
 import AppKit
 import GhosttyKit
 import Combine
+import QuartzCore
 
 extension Ghostty {
     /// Configuration for creating a new surface
@@ -43,9 +44,8 @@ extension Ghostty {
             self.ghosttyApp = app
             super.init(frame: NSRect(x: 0, y: 0, width: 800, height: 600))
 
-            // Configure the view
-            self.wantsLayer = true
-            self.layerContentsRedrawPolicy = .duringViewResize
+            // Note: Ghostty's Metal renderer will set up the layer properly
+            // when creating the surface. Do NOT set wantsLayer before that.
 
             // Create surface
             guard let ghosttyApp = app.app else {
@@ -136,22 +136,46 @@ extension Ghostty {
         override func viewDidMoveToWindow() {
             super.viewDidMoveToWindow()
 
-            if let screen = window?.screen {
-                updateScaleFactor(screen.backingScaleFactor)
+            // Set clipsToBounds to prevent content overflow
+            self.clipsToBounds = true
+
+            if let window = window {
+                updateForWindow(window)
             }
         }
 
         override func viewDidChangeBackingProperties() {
             super.viewDidChangeBackingProperties()
 
-            if let screen = window?.screen {
-                updateScaleFactor(screen.backingScaleFactor)
-            }
+            guard let window = window else { return }
+
+            // Update layer's contentsScale to match backing scale factor
+            // This prevents scaling artifacts on Retina displays
+            CATransaction.begin()
+            CATransaction.setDisableActions(true)
+            layer?.contentsScale = window.backingScaleFactor
+            CATransaction.commit()
+
+            updateForWindow(window)
         }
 
-        private func updateScaleFactor(_ scaleFactor: CGFloat) {
+        private func updateForWindow(_ window: NSWindow) {
             guard let surface = surface else { return }
+
+            let scaleFactor = window.backingScaleFactor
+
+            // Update Ghostty's content scale
             ghostty_surface_set_content_scale(surface, Double(scaleFactor), Double(scaleFactor))
+
+            // Also update size when scale changes
+            let backingSize = convertToBacking(frame.size)
+            if backingSize.width > 0 && backingSize.height > 0 {
+                ghostty_surface_set_size(
+                    surface,
+                    UInt32(backingSize.width),
+                    UInt32(backingSize.height)
+                )
+            }
         }
 
         override func setFrameSize(_ newSize: NSSize) {
@@ -311,10 +335,9 @@ extension Ghostty {
             guard let surface = surface else { return }
 
             let pos = convert(event.locationInWindow, from: nil)
-            let backingPos = convertToBacking(pos)
-
             let mods = ghosttyMods(from: event.modifierFlags)
-            ghostty_surface_mouse_pos(surface, backingPos.x, backingPos.y, mods)
+            // Use view coordinates with Y-axis flipped (Ghostty expects origin at top-left)
+            ghostty_surface_mouse_pos(surface, pos.x, frame.height - pos.y, mods)
         }
 
         private func ghosttyMouseButton(from buttonNumber: Int) -> ghostty_input_mouse_button_e {

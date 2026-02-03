@@ -12,11 +12,6 @@ struct Worktree: Codable, Identifiable, Hashable {
     var isOpen: Bool
     var lastOpened: Date?
 
-    /// Zellij session name derived from project and worktree name
-    func zellijSessionName(projectName: String) -> String {
-        "\(projectName)-\(name)"
-    }
-
     init(
         id: UUID = UUID(),
         name: String,
