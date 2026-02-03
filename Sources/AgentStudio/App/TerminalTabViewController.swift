@@ -25,17 +25,14 @@ class TerminalTabViewController: NSViewController {
         containerView.addSubview(emptyView)
         self.emptyStateView = emptyView
 
-        // Add leading padding so split view drag handle is accessible
-        let leadingPadding: CGFloat = 8
-
         NSLayoutConstraint.activate([
             tabView.topAnchor.constraint(equalTo: containerView.topAnchor),
-            tabView.leadingAnchor.constraint(equalTo: containerView.leadingAnchor, constant: leadingPadding),
+            tabView.leadingAnchor.constraint(equalTo: containerView.leadingAnchor),
             tabView.trailingAnchor.constraint(equalTo: containerView.trailingAnchor),
             tabView.bottomAnchor.constraint(equalTo: containerView.bottomAnchor),
 
             emptyView.topAnchor.constraint(equalTo: containerView.topAnchor),
-            emptyView.leadingAnchor.constraint(equalTo: containerView.leadingAnchor, constant: leadingPadding),
+            emptyView.leadingAnchor.constraint(equalTo: containerView.leadingAnchor),
             emptyView.trailingAnchor.constraint(equalTo: containerView.trailingAnchor),
             emptyView.bottomAnchor.constraint(equalTo: containerView.bottomAnchor)
         ])
