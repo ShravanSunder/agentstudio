@@ -1,13 +1,15 @@
 import AppKit
+import SwiftUI
 
 /// Main window controller for AgentStudio
 class MainWindowController: NSWindowController {
     private var splitViewController: MainSplitViewController?
+    private var sidebarAccessory: NSTitlebarAccessoryViewController?
 
     convenience init() {
         let window = NSWindow(
             contentRect: NSRect(x: 0, y: 0, width: 1200, height: 800),
-            styleMask: [.titled, .closable, .miniaturizable, .resizable, .fullSizeContentView],
+            styleMask: [.titled, .closable, .miniaturizable, .resizable],
             backing: .buffered,
             defer: false
         )
@@ -29,8 +31,16 @@ class MainWindowController: NSWindowController {
         self.splitViewController = splitVC
         window.contentViewController = splitVC
 
-        // Set up toolbar
+        // Set up titlebar and toolbar
+        setupTitlebarAccessory()
         setupToolbar()
+    }
+
+    // MARK: - Titlebar Accessory
+
+    private func setupTitlebarAccessory() {
+        // Sidebar toggle is now in the sidebar itself (SidebarContentView)
+        // No titlebar accessory needed
     }
 
     // MARK: - Toolbar
@@ -49,6 +59,10 @@ class MainWindowController: NSWindowController {
     func toggleSidebar() {
         splitViewController?.toggleSidebar(nil)
     }
+
+    @objc private func toggleSidebarAction() {
+        toggleSidebar()
+    }
 }
 
 // MARK: - NSToolbarDelegate
@@ -56,10 +70,8 @@ class MainWindowController: NSWindowController {
 extension MainWindowController: NSToolbarDelegate {
     func toolbarDefaultItemIdentifiers(_ toolbar: NSToolbar) -> [NSToolbarItem.Identifier] {
         return [
-            .toggleSidebar,
             .flexibleSpace,
-            .addProject,
-            .refresh
+            .addProject
         ]
     }
 
@@ -69,36 +81,14 @@ extension MainWindowController: NSToolbarDelegate {
 
     func toolbar(_ toolbar: NSToolbar, itemForItemIdentifier itemIdentifier: NSToolbarItem.Identifier, willBeInsertedIntoToolbar flag: Bool) -> NSToolbarItem? {
         switch itemIdentifier {
-        case .toggleSidebar:
-            let item = NSToolbarItem(itemIdentifier: itemIdentifier)
-            item.label = "Toggle Sidebar"
-            item.paletteLabel = "Toggle Sidebar"
-            item.toolTip = "Toggle Sidebar"
-            item.isBordered = true
-            item.image = NSImage(systemSymbolName: "sidebar.left", accessibilityDescription: "Toggle Sidebar")
-            item.action = #selector(toggleSidebarAction)
-            item.target = self
-            return item
-
         case .addProject:
             let item = NSToolbarItem(itemIdentifier: itemIdentifier)
             item.label = "Add Project"
             item.paletteLabel = "Add Project"
-            item.toolTip = "Add a project"
+            item.toolTip = "Add a project (⌘⇧O)"
             item.isBordered = true
             item.image = NSImage(systemSymbolName: "folder.badge.plus", accessibilityDescription: "Add Project")
             item.action = #selector(addProjectAction)
-            item.target = self
-            return item
-
-        case .refresh:
-            let item = NSToolbarItem(itemIdentifier: itemIdentifier)
-            item.label = "Refresh"
-            item.paletteLabel = "Refresh"
-            item.toolTip = "Refresh worktrees"
-            item.isBordered = true
-            item.image = NSImage(systemSymbolName: "arrow.clockwise", accessibilityDescription: "Refresh")
-            item.action = #selector(refreshAction)
             item.target = self
             return item
 
@@ -107,16 +97,8 @@ extension MainWindowController: NSToolbarDelegate {
         }
     }
 
-    @objc private func toggleSidebarAction() {
-        toggleSidebar()
-    }
-
     @objc private func addProjectAction() {
         NotificationCenter.default.post(name: .addProjectRequested, object: nil)
-    }
-
-    @objc private func refreshAction() {
-        NotificationCenter.default.post(name: .refreshWorktreesRequested, object: nil)
     }
 }
 
@@ -124,6 +106,4 @@ extension MainWindowController: NSToolbarDelegate {
 
 extension NSToolbarItem.Identifier {
     static let addProject = NSToolbarItem.Identifier("addProject")
-    static let refresh = NSToolbarItem.Identifier("refresh")
 }
-

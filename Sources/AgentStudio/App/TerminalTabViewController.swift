@@ -1,23 +1,59 @@
 import AppKit
+import SwiftUI
 import GhosttyKit
 
-/// Tab-based terminal controller using pure AppKit
+/// Tab-based terminal controller with custom Ghostty-style tab bar
 class TerminalTabViewController: NSViewController {
-    private var tabView: NSTabView!
-    private var terminals: [UUID: AgentStudioTerminalView] = [:]
-    private var tabToWorktree: [NSTabViewItem: UUID] = [:]
+    // MARK: - Properties
+
+    private var tabBarHostingView: NSHostingView<CustomTabBar>!
+    private var terminalContainer: NSView!
     private var emptyStateView: NSView?
+
+    /// Observable state for the tab bar
+    private let tabBarState = TabBarState()
+
+    /// Map of worktree ID to terminal view
+    private var terminals: [UUID: AgentStudioTerminalView] = [:]
+
+    /// Map of tab ID to worktree ID
+    private var tabToWorktree: [UUID: UUID] = [:]
+
+    // MARK: - View Lifecycle
 
     override func loadView() {
         let containerView = NSView()
         containerView.wantsLayer = true
 
-        // Create tab view
-        tabView = NSTabView()
-        tabView.tabViewType = .topTabsBezelBorder
-        tabView.translatesAutoresizingMaskIntoConstraints = false
-        tabView.delegate = self
-        containerView.addSubview(tabView)
+        // Create terminal container FIRST (so it's behind tab bar)
+        terminalContainer = NSView()
+        terminalContainer.wantsLayer = true
+        terminalContainer.translatesAutoresizingMaskIntoConstraints = false
+        terminalContainer.layer?.cornerRadius = 8
+        terminalContainer.layer?.masksToBounds = true
+        containerView.addSubview(terminalContainer)
+
+        // Create custom tab bar AFTER (so it's on top visually)
+        let tabBar = CustomTabBar(
+            state: tabBarState,
+            onSelect: { [weak self] tabId in
+                self?.selectTab(id: tabId)
+            },
+            onClose: { [weak self] tabId in
+                self?.closeTab(id: tabId)
+            },
+            onAdd: nil
+        )
+        tabBarHostingView = NSHostingView(rootView: tabBar)
+        tabBarHostingView.translatesAutoresizingMaskIntoConstraints = false
+        tabBarHostingView.wantsLayer = true
+        // Use preferredContentSize: respects our explicit height constraint while showing full content
+        // - [] causes zero height (no sizing info)
+        // - [.minSize, .maxSize] causes clipping (conflicts with fixed constraint)
+        // - [.preferredContentSize] uses ideal size but lets our constraint win
+        tabBarHostingView.sizingOptions = [.preferredContentSize]
+        tabBarHostingView.safeAreaRegions = []
+        containerView.addSubview(tabBarHostingView)
 
         // Create empty state view
         let emptyView = createEmptyStateView()
@@ -26,11 +62,19 @@ class TerminalTabViewController: NSViewController {
         self.emptyStateView = emptyView
 
         NSLayoutConstraint.activate([
-            tabView.topAnchor.constraint(equalTo: containerView.topAnchor),
-            tabView.leadingAnchor.constraint(equalTo: containerView.leadingAnchor),
-            tabView.trailingAnchor.constraint(equalTo: containerView.trailingAnchor),
-            tabView.bottomAnchor.constraint(equalTo: containerView.bottomAnchor),
+            // Tab bar at top
+            tabBarHostingView.topAnchor.constraint(equalTo: containerView.topAnchor),
+            tabBarHostingView.leadingAnchor.constraint(equalTo: containerView.leadingAnchor),
+            tabBarHostingView.trailingAnchor.constraint(equalTo: containerView.trailingAnchor),
+            tabBarHostingView.heightAnchor.constraint(equalToConstant: 36),
 
+            // Terminal container below tab bar
+            terminalContainer.topAnchor.constraint(equalTo: tabBarHostingView.bottomAnchor),
+            terminalContainer.leadingAnchor.constraint(equalTo: containerView.leadingAnchor),
+            terminalContainer.trailingAnchor.constraint(equalTo: containerView.trailingAnchor),
+            terminalContainer.bottomAnchor.constraint(equalTo: containerView.bottomAnchor),
+
+            // Empty state fills container
             emptyView.topAnchor.constraint(equalTo: containerView.topAnchor),
             emptyView.leadingAnchor.constraint(equalTo: containerView.leadingAnchor),
             emptyView.trailingAnchor.constraint(equalTo: containerView.trailingAnchor),
@@ -40,6 +84,25 @@ class TerminalTabViewController: NSViewController {
         view = containerView
         updateEmptyState()
     }
+
+    override func viewDidLoad() {
+        super.viewDidLoad()
+
+        // Listen for process termination
+        NotificationCenter.default.addObserver(
+            self,
+            selector: #selector(handleProcessTerminated(_:)),
+            name: .terminalProcessTerminated,
+            object: nil
+        )
+    }
+
+    deinit {
+        NotificationCenter.default.removeObserver(self)
+    }
+
+
+    // MARK: - Empty State
 
     private func createEmptyStateView() -> NSView {
         let container = NSView()
@@ -89,11 +152,11 @@ class TerminalTabViewController: NSViewController {
         hintLabel.font = NSFont.systemFont(ofSize: 11)
         hintLabel.textColor = .tertiaryLabelColor
 
-        // Add Project button with accent color
+        // Add Project button
         let addButton = NSButton(title: "Add Project...", target: self, action: #selector(addProjectAction))
         addButton.bezelStyle = .rounded
         addButton.controlSize = .large
-        addButton.keyEquivalent = "\r"  // Make it the default button
+        addButton.keyEquivalent = "\r"
 
         stackView.addArrangedSubview(iconContainer)
         stackView.addArrangedSubview(titleLabel)
@@ -101,7 +164,6 @@ class TerminalTabViewController: NSViewController {
         stackView.addArrangedSubview(addButton)
         stackView.addArrangedSubview(hintLabel)
 
-        // Add custom spacing
         stackView.setCustomSpacing(24, after: iconContainer)
         stackView.setCustomSpacing(8, after: titleLabel)
         stackView.setCustomSpacing(24, after: subtitleLabel)
@@ -124,23 +186,32 @@ class TerminalTabViewController: NSViewController {
 
     private func updateEmptyState() {
         let hasTerminals = !terminals.isEmpty
-        tabView.isHidden = !hasTerminals
+        tabBarHostingView.isHidden = !hasTerminals
+        terminalContainer.isHidden = !hasTerminals
         emptyStateView?.isHidden = hasTerminals
+    }
+
+    /// Convenience accessors for tab state
+    private var tabItems: [TabItem] {
+        get { tabBarState.tabs }
+        set { tabBarState.tabs = newValue }
+    }
+
+    private var activeTabId: UUID? {
+        get { tabBarState.activeTabId }
+        set { tabBarState.activeTabId = newValue }
     }
 
     // MARK: - Terminal Management
 
     func openTerminal(for worktree: Worktree, in project: Project) {
         // Check if already open
-        if let existingTerminal = terminals[worktree.id] {
-            // Find and select the tab
-            for (tabItem, worktreeId) in tabToWorktree {
-                if worktreeId == worktree.id {
-                    tabView.selectTabViewItem(tabItem)
-                    existingTerminal.window?.makeFirstResponder(existingTerminal)
-                    return
-                }
+        if terminals[worktree.id] != nil {
+            // Find and select the existing tab
+            if let tabItem = tabItems.first(where: { tabToWorktree[$0.id] == worktree.id }) {
+                selectTab(id: tabItem.id)
             }
+            return
         }
 
         // Create new terminal
@@ -148,42 +219,70 @@ class TerminalTabViewController: NSViewController {
             worktree: worktree,
             project: project
         )
+        terminalView.translatesAutoresizingMaskIntoConstraints = false
         terminals[worktree.id] = terminalView
 
         // Create tab item
-        let tabItem = NSTabViewItem()
-        tabItem.label = worktree.name
-        tabItem.view = terminalView
-        tabItem.toolTip = worktree.path.path
+        let tabItem = TabItem(
+            id: UUID(),
+            title: worktree.name,
+            worktreeId: worktree.id
+        )
+        tabItems.append(tabItem)
+        tabToWorktree[tabItem.id] = worktree.id
 
-        tabToWorktree[tabItem] = worktree.id
+        // Add terminal to container (hidden initially)
+        terminalContainer.addSubview(terminalView)
+        NSLayoutConstraint.activate([
+            terminalView.topAnchor.constraint(equalTo: terminalContainer.topAnchor),
+            terminalView.leadingAnchor.constraint(equalTo: terminalContainer.leadingAnchor),
+            terminalView.trailingAnchor.constraint(equalTo: terminalContainer.trailingAnchor),
+            terminalView.bottomAnchor.constraint(equalTo: terminalContainer.bottomAnchor)
+        ])
 
-        tabView.addTabViewItem(tabItem)
-        tabView.selectTabViewItem(tabItem)
+        // Select the new tab
+        selectTab(id: tabItem.id)
 
         updateEmptyState()
-
-        // Make terminal first responder
-        DispatchQueue.main.async {
-            terminalView.window?.makeFirstResponder(terminalView)
-        }
+        // Tab bar updates automatically via @Published
     }
 
     func closeTerminal(for worktreeId: UUID) {
         guard let terminal = terminals[worktreeId] else { return }
-        terminal.terminateProcess()
 
-        // Find and remove the tab
-        for (tabItem, id) in tabToWorktree {
-            if id == worktreeId {
-                tabView.removeTabViewItem(tabItem)
-                tabToWorktree.removeValue(forKey: tabItem)
-                break
+        // Find the tab
+        guard let tabItem = tabItems.first(where: { tabToWorktree[$0.id] == worktreeId }) else { return }
+
+        closeTab(id: tabItem.id)
+    }
+
+    private func closeTab(id tabId: UUID) {
+        guard let tabIndex = tabItems.firstIndex(where: { $0.id == tabId }),
+              let worktreeId = tabToWorktree[tabId],
+              let terminal = terminals[worktreeId] else {
+            return
+        }
+
+        // Terminate and remove terminal
+        terminal.terminateProcess()
+        terminal.removeFromSuperview()
+        terminals.removeValue(forKey: worktreeId)
+
+        // Remove tab
+        tabItems.remove(at: tabIndex)
+        tabToWorktree.removeValue(forKey: tabId)
+
+        // Select another tab if this was active
+        if activeTabId == tabId {
+            if let nextTab = tabItems.first {
+                selectTab(id: nextTab.id)
+            } else {
+                activeTabId = nil
             }
         }
 
-        terminals.removeValue(forKey: worktreeId)
         updateEmptyState()
+        // Tab bar updates automatically via @Published
 
         // Update session manager
         Task { @MainActor in
@@ -193,70 +292,50 @@ class TerminalTabViewController: NSViewController {
         }
     }
 
-    func closeActiveTab() {
-        guard let selectedItem = tabView.selectedTabViewItem,
-              let worktreeId = tabToWorktree[selectedItem] else {
+    private func selectTab(id tabId: UUID) {
+        guard let worktreeId = tabToWorktree[tabId],
+              let terminal = terminals[worktreeId] else {
             return
         }
-        closeTerminal(for: worktreeId)
+
+        // Hide all terminals except selected
+        for (wId, term) in terminals {
+            term.isHidden = (wId != worktreeId)
+        }
+
+        activeTabId = tabId
+        // Tab bar updates automatically via @Published
+
+        // Make terminal first responder
+        DispatchQueue.main.async {
+            terminal.window?.makeFirstResponder(terminal)
+        }
+
+        // Update session manager
+        Task { @MainActor in
+            if let tab = SessionManager.shared.openTabs.first(where: { $0.worktreeId == worktreeId }) {
+                SessionManager.shared.activeTabId = tab.id
+            }
+        }
+    }
+
+    func closeActiveTab() {
+        guard let activeId = activeTabId else { return }
+        closeTab(id: activeId)
     }
 
     func selectTab(at index: Int) {
-        guard index >= 0 && index < tabView.numberOfTabViewItems else { return }
-        tabView.selectTabViewItem(at: index)
+        guard index >= 0 && index < tabItems.count else { return }
+        selectTab(id: tabItems[index].id)
     }
 
-    // MARK: - Tab Close Handling
-
-    override func viewDidLoad() {
-        super.viewDidLoad()
-
-        // Listen for process termination
-        NotificationCenter.default.addObserver(
-            self,
-            selector: #selector(handleProcessTerminated(_:)),
-            name: .terminalProcessTerminated,
-            object: nil
-        )
-    }
+    // MARK: - Process Termination
 
     @objc private func handleProcessTerminated(_ notification: Notification) {
         guard let userInfo = notification.userInfo,
               let worktreeId = userInfo["worktreeId"] as? UUID else {
             return
         }
-
-        // Clean up when process terminates
         closeTerminal(for: worktreeId)
     }
-
-    deinit {
-        NotificationCenter.default.removeObserver(self)
-    }
 }
-
-// MARK: - NSTabViewDelegate
-
-extension TerminalTabViewController: NSTabViewDelegate {
-    func tabView(_ tabView: NSTabView, didSelect tabViewItem: NSTabViewItem?) {
-        guard let tabItem = tabViewItem,
-              let worktreeId = tabToWorktree[tabItem] else {
-            return
-        }
-
-        // Update active tab in session manager
-        Task { @MainActor in
-            if let tab = SessionManager.shared.openTabs.first(where: { $0.worktreeId == worktreeId }) {
-                SessionManager.shared.activeTabId = tab.id
-            }
-        }
-
-        // Make terminal first responder
-        if let terminal = terminals[worktreeId] {
-            DispatchQueue.main.async {
-                terminal.window?.makeFirstResponder(terminal)
-            }
-        }
-    }
-}
-
