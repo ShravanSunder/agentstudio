@@ -9,13 +9,13 @@ class MainWindowController: NSWindowController {
     convenience init() {
         let window = NSWindow(
             contentRect: NSRect(x: 0, y: 0, width: 1200, height: 800),
-            styleMask: [.titled, .closable, .miniaturizable, .resizable],
+            styleMask: [.titled, .closable, .miniaturizable, .resizable, .fullSizeContentView],
             backing: .buffered,
             defer: false
         )
         window.title = "AgentStudio"
-        window.titlebarAppearsTransparent = false
-        window.titleVisibility = .visible
+        window.titlebarAppearsTransparent = true
+        window.titleVisibility = .hidden
         window.minSize = NSSize(width: 800, height: 500)
 
         // Center on screen
@@ -39,8 +39,21 @@ class MainWindowController: NSWindowController {
     // MARK: - Titlebar Accessory
 
     private func setupTitlebarAccessory() {
-        // Sidebar toggle is now in the sidebar itself (SidebarContentView)
-        // No titlebar accessory needed
+        // Sidebar toggle button - fixed position next to traffic lights (standard macOS pattern)
+        let toggleButton = NSButton(frame: NSRect(x: 0, y: 0, width: 36, height: 28))
+        toggleButton.image = NSImage(systemSymbolName: "sidebar.left", accessibilityDescription: "Toggle Sidebar")
+        toggleButton.bezelStyle = .accessoryBarAction
+        toggleButton.isBordered = false
+        toggleButton.target = self
+        toggleButton.action = #selector(toggleSidebarAction)
+        toggleButton.toolTip = "Toggle Sidebar (⌘\\)"
+
+        let accessoryVC = NSTitlebarAccessoryViewController()
+        accessoryVC.view = toggleButton
+        accessoryVC.layoutAttribute = .left
+
+        window?.addTitlebarAccessoryViewController(accessoryVC)
+        self.sidebarAccessory = accessoryVC
     }
 
     // MARK: - Toolbar

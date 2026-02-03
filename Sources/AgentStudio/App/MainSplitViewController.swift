@@ -128,21 +128,7 @@ struct SidebarContentView: View {
 
     var body: some View {
         VStack(spacing: 0) {
-            // Sidebar header with collapse button
-            HStack {
-                Spacer()
-                Button(action: toggleSidebar) {
-                    Image(systemName: "sidebar.left")
-                        .font(.system(size: 13))
-                        .foregroundStyle(.secondary)
-                }
-                .buttonStyle(.plain)
-                .help("Toggle Sidebar (⌘\\)")
-            }
-            .padding(.horizontal, 12)
-            .padding(.vertical, 8)
-
-            // Main list content
+            // Main list content (toggle button is now in titlebar)
             List {
                 Section("Projects") {
                     ForEach(sessionManager.projects) { project in

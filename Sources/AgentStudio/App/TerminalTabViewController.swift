@@ -62,8 +62,8 @@ class TerminalTabViewController: NSViewController {
         self.emptyStateView = emptyView
 
         NSLayoutConstraint.activate([
-            // Tab bar at top
-            tabBarHostingView.topAnchor.constraint(equalTo: containerView.topAnchor),
+            // Tab bar at top - use safeAreaLayoutGuide to respect titlebar
+            tabBarHostingView.topAnchor.constraint(equalTo: containerView.safeAreaLayoutGuide.topAnchor),
             tabBarHostingView.leadingAnchor.constraint(equalTo: containerView.leadingAnchor),
             tabBarHostingView.trailingAnchor.constraint(equalTo: containerView.trailingAnchor),
             tabBarHostingView.heightAnchor.constraint(equalToConstant: 36),
@@ -74,8 +74,8 @@ class TerminalTabViewController: NSViewController {
             terminalContainer.trailingAnchor.constraint(equalTo: containerView.trailingAnchor),
             terminalContainer.bottomAnchor.constraint(equalTo: containerView.bottomAnchor),
 
-            // Empty state fills container
-            emptyView.topAnchor.constraint(equalTo: containerView.topAnchor),
+            // Empty state fills container (respects safe area)
+            emptyView.topAnchor.constraint(equalTo: containerView.safeAreaLayoutGuide.topAnchor),
             emptyView.leadingAnchor.constraint(equalTo: containerView.leadingAnchor),
             emptyView.trailingAnchor.constraint(equalTo: containerView.trailingAnchor),
             emptyView.bottomAnchor.constraint(equalTo: containerView.bottomAnchor)

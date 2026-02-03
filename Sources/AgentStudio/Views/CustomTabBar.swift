@@ -52,14 +52,8 @@ struct CustomTabBar: View {
         .padding(.horizontal, 8)
         .frame(maxWidth: .infinity)
         .frame(height: 36)
-        .background(Color(nsColor: .windowBackgroundColor))
-        .overlay(alignment: .bottom) {
-            // Subtle bottom border
-            Rectangle()
-                .fill(Color(nsColor: .separatorColor))
-                .frame(height: 1)
-        }
-        // Ignore safe area to prevent top clipping
+        // Transparent background - blends with terminal area
+        .background(Color.clear)
         .ignoresSafeArea()
     }
 }
