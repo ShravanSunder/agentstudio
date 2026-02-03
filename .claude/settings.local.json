@@ -1,0 +1,10 @@
+{
+  "permissions": {
+    "allow": [
+      "mcp__codex__codex",
+      "WebSearch",
+      "WebFetch(domain:raw.githubusercontent.com)",
+      "Bash(zellij:*)"
+    ]
+  }
+}
