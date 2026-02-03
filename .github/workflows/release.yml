@@ -18,6 +18,11 @@ jobs:
         with:
           submodules: recursive
 
+      - name: Setup Xcode
+        uses: maxim-lobanov/setup-xcode@v1
+        with:
+          xcode-version: '15.4'
+
       - name: Setup Zig
         uses: goto-bus-stop/setup-zig@v2
         with:
@@ -44,7 +49,7 @@ jobs:
       - name: Build Ghostty XCFramework
         run: |
           cd vendor/ghostty
-          zig build -Doptimize=ReleaseFast -Demit-xcframework=true
+          zig build -Doptimize=ReleaseFast -Demit-xcframework=true -Dxcframework-target=native
 
       - name: Copy XCFramework
         run: |
