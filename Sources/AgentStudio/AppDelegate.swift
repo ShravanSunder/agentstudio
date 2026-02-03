@@ -62,6 +62,23 @@ class AppDelegate: NSObject, NSApplicationDelegate {
         return false  // Keep running for menu bar / dock
     }
 
+    func applicationShouldHandleReopen(_ sender: NSApplication, hasVisibleWindows flag: Bool) -> Bool {
+        // Reopen main window when clicking dock icon
+        if !flag {
+            showOrCreateMainWindow()
+        }
+        return true
+    }
+
+    private func showOrCreateMainWindow() {
+        if let window = mainWindowController?.window, window.isVisible {
+            window.makeKeyAndOrderFront(nil)
+        } else {
+            mainWindowController = MainWindowController()
+            mainWindowController?.showWindow(nil)
+        }
+    }
+
     func applicationWillTerminate(_ notification: Notification) {
         // Save state before quitting
         Task { @MainActor in
@@ -98,12 +115,16 @@ class AppDelegate: NSObject, NSApplicationDelegate {
 
         // File menu
         let fileMenu = NSMenu(title: "File")
+        fileMenu.addItem(NSMenuItem(title: "New Window", action: #selector(newWindow), keyEquivalent: "n"))
         let newTabItem = NSMenuItem(title: "New Tab", action: #selector(newTab), keyEquivalent: "t")
         newTabItem.keyEquivalentModifierMask = [.command, .shift]
         fileMenu.addItem(newTabItem)
-        let closeTabItem = NSMenuItem(title: "Close Tab", action: #selector(closeTab), keyEquivalent: "w")
-        closeTabItem.keyEquivalentModifierMask = [.command, .shift]
-        fileMenu.addItem(closeTabItem)
+        fileMenu.addItem(NSMenuItem.separator())
+        // Cmd+W closes tab (standard terminal behavior)
+        fileMenu.addItem(NSMenuItem(title: "Close Tab", action: #selector(closeTab), keyEquivalent: "w"))
+        let closeWindowItem = NSMenuItem(title: "Close Window", action: #selector(closeWindow), keyEquivalent: "W")
+        closeWindowItem.keyEquivalentModifierMask = [.command, .shift]
+        fileMenu.addItem(closeWindowItem)
         fileMenu.addItem(NSMenuItem.separator())
         let addProjectItem = NSMenuItem(title: "Add Project...", action: #selector(addProject), keyEquivalent: "O")
         addProjectItem.keyEquivalentModifierMask = [.command, .shift]
@@ -185,12 +206,20 @@ class AppDelegate: NSObject, NSApplicationDelegate {
         window.makeKeyAndOrderFront(nil)
     }
 
+    @objc private func newWindow() {
+        showOrCreateMainWindow()
+    }
+
     @objc private func newTab() {
         NotificationCenter.default.post(name: .newTabRequested, object: nil)
     }
 
     @objc private func closeTab() {
         NotificationCenter.default.post(name: .closeTabRequested, object: nil)
+    }
+
+    @objc private func closeWindow() {
+        NSApp.keyWindow?.close()
     }
 
     @objc private func addProject() {

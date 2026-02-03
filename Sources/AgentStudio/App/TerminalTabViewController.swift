@@ -248,7 +248,8 @@ class TerminalTabViewController: NSViewController {
     }
 
     func closeTerminal(for worktreeId: UUID) {
-        guard let terminal = terminals[worktreeId] else { return }
+        // Check if terminal still exists (might already be closed)
+        guard terminals[worktreeId] != nil else { return }
 
         // Find the tab
         guard let tabItem = tabItems.first(where: { tabToWorktree[$0.id] == worktreeId }) else { return }
