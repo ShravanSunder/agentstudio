@@ -1,0 +1,93 @@
+name: Release
+
+on:
+  push:
+    tags:
+      - 'v*'
+
+env:
+  ZIG_VERSION: '0.15.2'
+
+jobs:
+  build:
+    runs-on: macos-14
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          submodules: recursive
+
+      - name: Setup Zig
+        uses: goto-bus-stop/setup-zig@v2
+        with:
+          version: ${{ env.ZIG_VERSION }}
+
+      - name: Cache Zig
+        uses: actions/cache@v4
+        with:
+          path: |
+            ~/.cache/zig
+            vendor/ghostty/.zig-cache
+          key: ${{ runner.os }}-zig-${{ env.ZIG_VERSION }}-${{ hashFiles('vendor/ghostty/build.zig.zon') }}
+          restore-keys: |
+            ${{ runner.os }}-zig-${{ env.ZIG_VERSION }}-
+
+      - name: Cache Swift
+        uses: actions/cache@v4
+        with:
+          path: .build
+          key: ${{ runner.os }}-swift-${{ hashFiles('Package.resolved') }}
+          restore-keys: |
+            ${{ runner.os }}-swift-
+
+      - name: Build Ghostty XCFramework
+        run: |
+          cd vendor/ghostty
+          zig build -Doptimize=ReleaseFast -Demit-xcframework=true
+
+      - name: Copy XCFramework
+        run: |
+          mkdir -p Frameworks
+          cp -R vendor/ghostty/macos/GhosttyKit.xcframework Frameworks/
+
+      - name: Build AgentStudio
+        run: swift build -c release
+
+      - name: Create App Bundle
+        run: |
+          APP_DIR="AgentStudio.app/Contents"
+          mkdir -p "$APP_DIR/MacOS"
+          mkdir -p "$APP_DIR/Resources"
+          mkdir -p "$APP_DIR/Frameworks"
+
+          # Copy binary
+          cp .build/release/AgentStudio "$APP_DIR/MacOS/"
+
+          # Copy Info.plist
+          cp Sources/AgentStudio/Resources/Info.plist "$APP_DIR/"
+
+          # Copy app icon
+          cp Sources/AgentStudio/Resources/AppIcon.icns "$APP_DIR/Resources/"
+
+          # Copy GhosttyKit framework
+          cp -R Frameworks/GhosttyKit.xcframework "$APP_DIR/Frameworks/"
+
+      - name: Ad-hoc Sign
+        run: codesign --force --deep --sign - AgentStudio.app
+
+      - name: Create ZIP Archive
+        run: |
+          VERSION=${GITHUB_REF#refs/tags/}
+          zip -r "AgentStudio-${VERSION}-macos.zip" AgentStudio.app
+          echo "ARTIFACT_NAME=AgentStudio-${VERSION}-macos.zip" >> $GITHUB_ENV
+
+      - name: Create Release
+        uses: softprops/action-gh-release@v1
+        with:
+          files: ${{ env.ARTIFACT_NAME }}
+          generate_release_notes: true
+          draft: false
+          prerelease: ${{ contains(github.ref, 'alpha') || contains(github.ref, 'beta') }}
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}

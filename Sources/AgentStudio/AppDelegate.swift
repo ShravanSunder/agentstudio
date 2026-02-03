@@ -8,12 +8,54 @@ class AppDelegate: NSObject, NSApplicationDelegate {
         // Initialize services
         _ = SessionManager.shared
 
+        // Check for worktrunk dependency
+        checkWorktrunkInstallation()
+
         // Create main window
         mainWindowController = MainWindowController()
         mainWindowController?.showWindow(nil)
 
         // Set up main menu
         setupMainMenu()
+    }
+
+    // MARK: - Dependency Check
+
+    private func checkWorktrunkInstallation() {
+        guard !WorktrunkService.shared.isInstalled else { return }
+
+        let alert = NSAlert()
+        alert.messageText = "Worktrunk Not Installed"
+        alert.informativeText = "AgentStudio uses Worktrunk for git worktree management. Would you like to install it via Homebrew?"
+        alert.alertStyle = .warning
+        alert.addButton(withTitle: "Install with Homebrew")
+        alert.addButton(withTitle: "Copy Command")
+        alert.addButton(withTitle: "Later")
+
+        let response = alert.runModal()
+
+        switch response {
+        case .alertFirstButtonReturn:
+            // Open Terminal and run install
+            let script = """
+                tell application "Terminal"
+                    activate
+                    do script "\(WorktrunkService.shared.installCommand)"
+                end tell
+                """
+            if let appleScript = NSAppleScript(source: script) {
+                var error: NSDictionary?
+                appleScript.executeAndReturnError(&error)
+            }
+
+        case .alertSecondButtonReturn:
+            // Copy command to clipboard
+            NSPasteboard.general.clearContents()
+            NSPasteboard.general.setString(WorktrunkService.shared.installCommand, forType: .string)
+
+        default:
+            break
+        }
     }
 
     func applicationShouldTerminateAfterLastWindowClosed(_ sender: NSApplication) -> Bool {

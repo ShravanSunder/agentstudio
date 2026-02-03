@@ -6,6 +6,22 @@ final class WorktrunkService {
 
     private init() {}
 
+    // MARK: - Installation Check
+
+    /// Check if worktrunk (wt) is installed
+    var isInstalled: Bool {
+        let paths = [
+            "/opt/homebrew/bin/wt",
+            "/usr/local/bin/wt"
+        ]
+        return paths.contains { FileManager.default.fileExists(atPath: $0) }
+    }
+
+    /// Get the homebrew install command
+    var installCommand: String {
+        "brew install shravansunder/tap/worktrunk"
+    }
+
     // MARK: - Worktree Discovery
 
     /// Discovers all worktrees for a repository using worktrunk

@@ -72,6 +72,9 @@ cp "$PROJECT_ROOT/.build/release/AgentStudio" "$APP_DIR/MacOS/"
 # Copy Info.plist
 cp "$PROJECT_ROOT/Sources/AgentStudio/Resources/Info.plist" "$APP_DIR/"
 
+# Copy app icon
+cp "$PROJECT_ROOT/Sources/AgentStudio/Resources/AppIcon.icns" "$APP_DIR/Resources/"
+
 # Copy GhosttyKit framework
 cp -R "$FRAMEWORKS_DIR/GhosttyKit.xcframework" "$APP_DIR/Frameworks/"
 
