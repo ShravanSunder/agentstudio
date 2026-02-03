@@ -81,6 +81,9 @@ class AgentStudioTerminalView: NSView {
     }
 
     @objc private func handleSurfaceClose(_ notification: Notification) {
+        // Only notify if we weren't manually terminated (isProcessRunning would still be true)
+        // When manually closed via terminateProcess(), isProcessRunning is set false BEFORE requestClose
+        guard isProcessRunning else { return }
         isProcessRunning = false
         handleProcessTerminated(exitCode: 0)
     }
@@ -124,8 +127,9 @@ class AgentStudioTerminalView: NSView {
     /// Terminate the terminal process
     func terminateProcess() {
         guard isProcessRunning else { return }
-        ghosttySurface?.requestClose()
+        // Set flag BEFORE requestClose to prevent handleSurfaceClose from posting notification
         isProcessRunning = false
+        ghosttySurface?.requestClose()
     }
 
     /// Check if process is still running

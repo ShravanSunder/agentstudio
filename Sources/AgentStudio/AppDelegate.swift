@@ -8,6 +8,9 @@ class AppDelegate: NSObject, NSApplicationDelegate {
         // Initialize services
         _ = SessionManager.shared
 
+        // Check for worktrunk dependency
+        checkWorktrunkInstallation()
+
         // Create main window
         mainWindowController = MainWindowController()
         mainWindowController?.showWindow(nil)
@@ -16,8 +19,64 @@ class AppDelegate: NSObject, NSApplicationDelegate {
         setupMainMenu()
     }
 
+    // MARK: - Dependency Check
+
+    private func checkWorktrunkInstallation() {
+        guard !WorktrunkService.shared.isInstalled else { return }
+
+        let alert = NSAlert()
+        alert.messageText = "Worktrunk Not Installed"
+        alert.informativeText = "AgentStudio uses Worktrunk for git worktree management. Would you like to install it via Homebrew?"
+        alert.alertStyle = .warning
+        alert.addButton(withTitle: "Install with Homebrew")
+        alert.addButton(withTitle: "Copy Command")
+        alert.addButton(withTitle: "Later")
+
+        let response = alert.runModal()
+
+        switch response {
+        case .alertFirstButtonReturn:
+            // Open Terminal and run install
+            let script = """
+                tell application "Terminal"
+                    activate
+                    do script "\(WorktrunkService.shared.installCommand)"
+                end tell
+                """
+            if let appleScript = NSAppleScript(source: script) {
+                var error: NSDictionary?
+                appleScript.executeAndReturnError(&error)
+            }
+
+        case .alertSecondButtonReturn:
+            // Copy command to clipboard
+            NSPasteboard.general.clearContents()
+            NSPasteboard.general.setString(WorktrunkService.shared.installCommand, forType: .string)
+
+        default:
+            break
+        }
+    }
+
     func applicationShouldTerminateAfterLastWindowClosed(_ sender: NSApplication) -> Bool {
         return false  // Keep running for menu bar / dock
+    }
+
+    func applicationShouldHandleReopen(_ sender: NSApplication, hasVisibleWindows flag: Bool) -> Bool {
+        // Reopen main window when clicking dock icon
+        if !flag {
+            showOrCreateMainWindow()
+        }
+        return true
+    }
+
+    private func showOrCreateMainWindow() {
+        if let window = mainWindowController?.window, window.isVisible {
+            window.makeKeyAndOrderFront(nil)
+        } else {
+            mainWindowController = MainWindowController()
+            mainWindowController?.showWindow(nil)
+        }
     }
 
     func applicationWillTerminate(_ notification: Notification) {
@@ -56,12 +115,16 @@ class AppDelegate: NSObject, NSApplicationDelegate {
 
         // File menu
         let fileMenu = NSMenu(title: "File")
+        fileMenu.addItem(NSMenuItem(title: "New Window", action: #selector(newWindow), keyEquivalent: "n"))
         let newTabItem = NSMenuItem(title: "New Tab", action: #selector(newTab), keyEquivalent: "t")
         newTabItem.keyEquivalentModifierMask = [.command, .shift]
         fileMenu.addItem(newTabItem)
-        let closeTabItem = NSMenuItem(title: "Close Tab", action: #selector(closeTab), keyEquivalent: "w")
-        closeTabItem.keyEquivalentModifierMask = [.command, .shift]
-        fileMenu.addItem(closeTabItem)
+        fileMenu.addItem(NSMenuItem.separator())
+        // Cmd+W closes tab (standard terminal behavior)
+        fileMenu.addItem(NSMenuItem(title: "Close Tab", action: #selector(closeTab), keyEquivalent: "w"))
+        let closeWindowItem = NSMenuItem(title: "Close Window", action: #selector(closeWindow), keyEquivalent: "W")
+        closeWindowItem.keyEquivalentModifierMask = [.command, .shift]
+        fileMenu.addItem(closeWindowItem)
         fileMenu.addItem(NSMenuItem.separator())
         let addProjectItem = NSMenuItem(title: "Add Project...", action: #selector(addProject), keyEquivalent: "O")
         addProjectItem.keyEquivalentModifierMask = [.command, .shift]
@@ -143,12 +206,20 @@ class AppDelegate: NSObject, NSApplicationDelegate {
         window.makeKeyAndOrderFront(nil)
     }
 
+    @objc private func newWindow() {
+        showOrCreateMainWindow()
+    }
+
     @objc private func newTab() {
         NotificationCenter.default.post(name: .newTabRequested, object: nil)
     }
 
     @objc private func closeTab() {
         NotificationCenter.default.post(name: .closeTabRequested, object: nil)
+    }
+
+    @objc private func closeWindow() {
+        NSApp.keyWindow?.close()
     }
 
     @objc private func addProject() {

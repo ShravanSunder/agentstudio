@@ -143,7 +143,8 @@ extension Ghostty {
         static func handleAction(_ appPtr: ghostty_app_t, target: ghostty_target_s, action: ghostty_action_s) -> Bool {
             switch action.tag {
             case GHOSTTY_ACTION_QUIT:
-                NSApplication.shared.terminate(nil)
+                // Don't quit - AgentStudio manages its own window lifecycle
+                // Ghostty sends this when all surfaces are closed, but we want to stay running
                 return true
 
             case GHOSTTY_ACTION_NEW_WINDOW:

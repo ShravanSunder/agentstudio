@@ -15,4 +15,7 @@ extension Notification.Name {
     // Terminal management
     static let openWorktreeRequested = Notification.Name("openWorktreeRequested")
     static let terminalProcessTerminated = Notification.Name("terminalProcessTerminated")
+
+    // Sidebar management
+    static let toggleSidebarRequested = Notification.Name("toggleSidebarRequested")
 }

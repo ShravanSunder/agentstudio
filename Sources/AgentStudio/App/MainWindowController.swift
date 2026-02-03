@@ -1,8 +1,10 @@
 import AppKit
+import SwiftUI
 
 /// Main window controller for AgentStudio
 class MainWindowController: NSWindowController {
     private var splitViewController: MainSplitViewController?
+    private var sidebarAccessory: NSTitlebarAccessoryViewController?
 
     convenience init() {
         let window = NSWindow(
@@ -12,8 +14,8 @@ class MainWindowController: NSWindowController {
             defer: false
         )
         window.title = "AgentStudio"
-        window.titlebarAppearsTransparent = false
-        window.titleVisibility = .visible
+        window.titlebarAppearsTransparent = true
+        window.titleVisibility = .hidden
         window.minSize = NSSize(width: 800, height: 500)
 
         // Center on screen
@@ -29,8 +31,29 @@ class MainWindowController: NSWindowController {
         self.splitViewController = splitVC
         window.contentViewController = splitVC
 
-        // Set up toolbar
+        // Set up titlebar and toolbar
+        setupTitlebarAccessory()
         setupToolbar()
+    }
+
+    // MARK: - Titlebar Accessory
+
+    private func setupTitlebarAccessory() {
+        // Sidebar toggle button - fixed position next to traffic lights (standard macOS pattern)
+        let toggleButton = NSButton(frame: NSRect(x: 0, y: 0, width: 36, height: 28))
+        toggleButton.image = NSImage(systemSymbolName: "sidebar.left", accessibilityDescription: "Toggle Sidebar")
+        toggleButton.bezelStyle = .accessoryBarAction
+        toggleButton.isBordered = false
+        toggleButton.target = self
+        toggleButton.action = #selector(toggleSidebarAction)
+        toggleButton.toolTip = "Toggle Sidebar (⌘\\)"
+
+        let accessoryVC = NSTitlebarAccessoryViewController()
+        accessoryVC.view = toggleButton
+        accessoryVC.layoutAttribute = .left
+
+        window?.addTitlebarAccessoryViewController(accessoryVC)
+        self.sidebarAccessory = accessoryVC
     }
 
     // MARK: - Toolbar
@@ -49,6 +72,10 @@ class MainWindowController: NSWindowController {
     func toggleSidebar() {
         splitViewController?.toggleSidebar(nil)
     }
+
+    @objc private func toggleSidebarAction() {
+        toggleSidebar()
+    }
 }
 
 // MARK: - NSToolbarDelegate
@@ -56,10 +83,8 @@ class MainWindowController: NSWindowController {
 extension MainWindowController: NSToolbarDelegate {
     func toolbarDefaultItemIdentifiers(_ toolbar: NSToolbar) -> [NSToolbarItem.Identifier] {
         return [
-            .toggleSidebar,
             .flexibleSpace,
-            .addProject,
-            .refresh
+            .addProject
         ]
     }
 
@@ -69,36 +94,14 @@ extension MainWindowController: NSToolbarDelegate {
 
     func toolbar(_ toolbar: NSToolbar, itemForItemIdentifier itemIdentifier: NSToolbarItem.Identifier, willBeInsertedIntoToolbar flag: Bool) -> NSToolbarItem? {
         switch itemIdentifier {
-        case .toggleSidebar:
-            let item = NSToolbarItem(itemIdentifier: itemIdentifier)
-            item.label = "Toggle Sidebar"
-            item.paletteLabel = "Toggle Sidebar"
-            item.toolTip = "Toggle Sidebar"
-            item.isBordered = true
-            item.image = NSImage(systemSymbolName: "sidebar.left", accessibilityDescription: "Toggle Sidebar")
-            item.action = #selector(toggleSidebarAction)
-            item.target = self
-            return item
-
         case .addProject:
             let item = NSToolbarItem(itemIdentifier: itemIdentifier)
             item.label = "Add Project"
             item.paletteLabel = "Add Project"
-            item.toolTip = "Add a project"
+            item.toolTip = "Add a project (⌘⇧O)"
             item.isBordered = true
             item.image = NSImage(systemSymbolName: "folder.badge.plus", accessibilityDescription: "Add Project")
             item.action = #selector(addProjectAction)
-            item.target = self
-            return item
-
-        case .refresh:
-            let item = NSToolbarItem(itemIdentifier: itemIdentifier)
-            item.label = "Refresh"
-            item.paletteLabel = "Refresh"
-            item.toolTip = "Refresh worktrees"
-            item.isBordered = true
-            item.image = NSImage(systemSymbolName: "arrow.clockwise", accessibilityDescription: "Refresh")
-            item.action = #selector(refreshAction)
             item.target = self
             return item
 
@@ -107,16 +110,8 @@ extension MainWindowController: NSToolbarDelegate {
         }
     }
 
-    @objc private func toggleSidebarAction() {
-        toggleSidebar()
-    }
-
     @objc private func addProjectAction() {
         NotificationCenter.default.post(name: .addProjectRequested, object: nil)
-    }
-
-    @objc private func refreshAction() {
-        NotificationCenter.default.post(name: .refreshWorktreesRequested, object: nil)
     }
 }
 
@@ -124,6 +119,4 @@ extension MainWindowController: NSToolbarDelegate {
 
 extension NSToolbarItem.Identifier {
     static let addProject = NSToolbarItem.Identifier("addProject")
-    static let refresh = NSToolbarItem.Identifier("refresh")
 }
-

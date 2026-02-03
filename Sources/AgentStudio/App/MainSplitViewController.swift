@@ -60,6 +60,17 @@ class MainSplitViewController: NSSplitViewController {
             name: .selectTabAtIndex,
             object: nil
         )
+
+        NotificationCenter.default.addObserver(
+            self,
+            selector: #selector(handleToggleSidebar(_:)),
+            name: .toggleSidebarRequested,
+            object: nil
+        )
+    }
+
+    @objc private func handleToggleSidebar(_ notification: Notification) {
+        toggleSidebar(nil)
     }
 
     @objc private func handleOpenWorktree(_ notification: Notification) {
@@ -85,6 +96,15 @@ class MainSplitViewController: NSSplitViewController {
         terminalTabViewController?.selectTab(at: index)
     }
 
+    // MARK: - Subtle Divider
+
+    override func splitView(_ splitView: NSSplitView, effectiveRect proposedEffectiveRect: NSRect, forDrawnRect drawnRect: NSRect, ofDividerAt dividerIndex: Int) -> NSRect {
+        // Make the divider very thin/subtle
+        var rect = proposedEffectiveRect
+        rect.size.width = 1
+        return rect
+    }
+
     deinit {
         NotificationCenter.default.removeObserver(self)
     }
@@ -107,43 +127,54 @@ struct SidebarContentView: View {
     @State private var expandedProjects: Set<UUID> = []
 
     var body: some View {
-        List {
-            Section("Projects") {
-                ForEach(sessionManager.projects) { project in
-                    DisclosureGroup(
-                        isExpanded: Binding(
-                            get: { expandedProjects.contains(project.id) },
-                            set: { isExpanded in
-                                if isExpanded {
-                                    expandedProjects.insert(project.id)
-                                } else {
-                                    expandedProjects.remove(project.id)
-                                }
-                            }
-                        )
-                    ) {
-                        ForEach(project.worktrees) { worktree in
-                            WorktreeRowView(
-                                worktree: worktree,
-                                onOpen: {
-                                    openWorktree(worktree, in: project)
+        VStack(spacing: 0) {
+            // Main list content (toggle button is now in titlebar)
+            List {
+                Section("Projects") {
+                    ForEach(sessionManager.projects) { project in
+                        DisclosureGroup(
+                            isExpanded: Binding(
+                                get: { expandedProjects.contains(project.id) },
+                                set: { isExpanded in
+                                    if isExpanded {
+                                        expandedProjects.insert(project.id)
+                                    } else {
+                                        expandedProjects.remove(project.id)
+                                    }
                                 }
                             )
+                        ) {
+                            ForEach(project.worktrees) { worktree in
+                                WorktreeRowView(
+                                    worktree: worktree,
+                                    onOpen: {
+                                        openWorktree(worktree, in: project)
+                                    }
+                                )
+                            }
+                        } label: {
+                            ProjectRowView(project: project)
                         }
-                    } label: {
-                        ProjectRowView(project: project)
                     }
                 }
             }
+            .listStyle(.sidebar)
+
         }
-        .listStyle(.sidebar)
         .frame(minWidth: 200)
+        .background(Color(nsColor: .windowBackgroundColor))
+        // Subtle shadow on right edge only
+        .shadow(color: .black.opacity(0.2), radius: 4, x: 2, y: 0)
         .onReceive(NotificationCenter.default.publisher(for: .addProjectRequested)) { _ in
             addProject()
         }
         .onReceive(NotificationCenter.default.publisher(for: .refreshWorktreesRequested)) { _ in
             refreshWorktrees()
         }
+    }
+
+    private func toggleSidebar() {
+        NotificationCenter.default.post(name: .toggleSidebarRequested, object: nil)
     }
 
     private func openWorktree(_ worktree: Worktree, in project: Project) {

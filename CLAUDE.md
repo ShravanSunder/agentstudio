@@ -28,6 +28,41 @@ agent-studio/
 2. Copies `macos/GhosttyKit.xcframework` → `Frameworks/`
 3. `swift build` - Links against xcframework
 
+## Development Workflow (CRITICAL)
+
+### ⚠️ UX-First Approach (MANDATORY)
+
+**STOP. Before implementing ANY UI/UX change, you MUST:**
+
+1. **Talk to the user FIRST** - Discuss the UX problem, understand the user's intent, and align on the desired experience
+2. **Do NOT assume** you understand what the user wants visually or experientially
+3. **Ask clarifying questions** about look, feel, interaction patterns, and edge cases
+
+This is non-negotiable. Swift compile times are long (minutes, not seconds). A wrong assumption about UX wastes significant time. Get alignment BEFORE writing code.
+
+### Why This Matters
+
+- **Swift compile times are slow** - Each iteration costs real time
+- **Swift/AppKit patterns are nuanced** - Solutions require research, not guessing
+- **UX is subjective** - Only the user knows what they want
+
+### Research Before Implementation
+
+For UX design and fixes, **always** use MCP research tools BEFORE coding:
+
+1. **Perplexity tools** - Look up macOS UX patterns, AppKit/SwiftUI solutions, design conventions
+2. **DeepWiki** - Query `ghostty-org/ghostty` and `swiftlang/swift` for implementation patterns
+
+Never guess at UX solutions. Research first, discuss with user, then implement.
+
+### Development Loop
+
+1. **Understand** - Talk to user, clarify UX requirements
+2. **Research** - Use Perplexity/DeepWiki to find grounded solutions
+3. **Propose** - Share approach with user before coding
+4. **Implement** - Write code only after alignment
+5. **Verify** - Use Peekaboo to visually confirm
+
 ## Architectural Guidance
 Agent Studio follows an **AppKit-main** architecture, hosting SwiftUI views where declarative UI is most effective. This provides direct control over the macOS lifecycle and key handling while leveraging SwiftUI for complex layouts.
 
