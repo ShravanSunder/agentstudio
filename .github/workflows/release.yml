@@ -49,7 +49,7 @@ jobs:
       - name: Build Ghostty XCFramework
         run: |
           cd vendor/ghostty
-          zig build -Doptimize=ReleaseFast -Demit-xcframework=true -Dxcframework-target=native
+          zig build -Doptimize=ReleaseFast -Demit-xcframework=true -Demit-macos-app=false -Dxcframework-target=native
 
       - name: Copy XCFramework
         run: |
