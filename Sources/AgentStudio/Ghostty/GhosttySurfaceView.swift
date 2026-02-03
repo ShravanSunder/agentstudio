@@ -38,6 +38,9 @@ extension Ghostty {
         /// Text accumulator for key events
         private var keyTextAccumulator: [String]? = nil
 
+        /// Content size for the terminal (may differ from frame during resize)
+        private var contentSize: NSSize = .zero
+
         // MARK: - Initialization
 
         init(app: App, config: SurfaceConfiguration? = nil) {
@@ -89,6 +92,8 @@ extension Ghostty {
                 ghosttyLogger.error("Failed to create ghostty surface")
             } else {
                 ghosttyLogger.info("Ghostty surface created successfully")
+                // Set initial size using backing coordinates
+                sizeDidChange(frame.size)
             }
         }
 
@@ -136,46 +141,80 @@ extension Ghostty {
         override func viewDidMoveToWindow() {
             super.viewDidMoveToWindow()
 
-            // Set clipsToBounds to prevent content overflow
-            self.clipsToBounds = true
-
-            if let window = window {
-                updateForWindow(window)
+            if let screen = window?.screen {
+                updateScaleFactor(screen.backingScaleFactor)
             }
+        }
+
+        override func updateTrackingAreas() {
+            super.updateTrackingAreas()
+            // Remove all existing tracking areas
+            for area in trackingAreas {
+                removeTrackingArea(area)
+            }
+            // Add new tracking area covering the entire view
+            let trackingArea = NSTrackingArea(
+                rect: bounds,
+                options: [.mouseEnteredAndExited, .mouseMoved, .inVisibleRect, .activeAlways],
+                owner: self,
+                userInfo: nil
+            )
+            addTrackingArea(trackingArea)
+        }
+
+        override func mouseEntered(with event: NSEvent) {
+            // Send current position when cursor enters the view
+            sendMousePos(event)
+        }
+
+        override func mouseExited(with event: NSEvent) {
+            guard let surface = surface else { return }
+            let mods = ghosttyMods(from: event.modifierFlags)
+            // Send -1,-1 to indicate cursor left the viewport
+            ghostty_surface_mouse_pos(surface, -1, -1, mods)
         }
 
         override func viewDidChangeBackingProperties() {
             super.viewDidChangeBackingProperties()
 
             guard let window = window else { return }
-
-            // Update layer's contentsScale to match backing scale factor
-            // This prevents scaling artifacts on Retina displays
-            CATransaction.begin()
-            CATransaction.setDisableActions(true)
-            layer?.contentsScale = window.backingScaleFactor
-            CATransaction.commit()
-
-            updateForWindow(window)
-        }
-
-        private func updateForWindow(_ window: NSWindow) {
-            guard let surface = surface else { return }
-
             let scaleFactor = window.backingScaleFactor
 
-            // Update Ghostty's content scale
-            ghostty_surface_set_content_scale(surface, Double(scaleFactor), Double(scaleFactor))
+            // Update layer's contentsScale within a CATransaction to disable animations
+            CATransaction.begin()
+            CATransaction.setDisableActions(true)
+            layer?.contentsScale = scaleFactor
+            CATransaction.commit()
 
-            // Also update size when scale changes
-            let backingSize = convertToBacking(frame.size)
-            if backingSize.width > 0 && backingSize.height > 0 {
+            guard let surface = surface else { return }
+
+            // Calculate x and y scale factors separately (official pattern)
+            let fbFrame = convertToBacking(frame)
+            let xScale = fbFrame.size.width / frame.size.width
+            let yScale = fbFrame.size.height / frame.size.height
+            ghostty_surface_set_content_scale(surface, xScale, yScale)
+
+            // Refresh size using contentSize (official pattern)
+            if contentSize.width > 0 && contentSize.height > 0 {
+                let scaledSize = convertToBacking(contentSize)
                 ghostty_surface_set_size(
                     surface,
-                    UInt32(backingSize.width),
-                    UInt32(backingSize.height)
+                    UInt32(scaledSize.width),
+                    UInt32(scaledSize.height)
                 )
             }
+        }
+
+        private func updateScaleFactor(_ scaleFactor: CGFloat) {
+            guard let surface = surface else { return }
+
+            // Update layer's contentsScale
+            CATransaction.begin()
+            CATransaction.setDisableActions(true)
+            layer?.contentsScale = scaleFactor
+            CATransaction.commit()
+
+            ghostty_surface_set_content_scale(surface, Double(scaleFactor), Double(scaleFactor))
         }
 
         override func setFrameSize(_ newSize: NSSize) {
@@ -186,6 +225,9 @@ extension Ghostty {
         func sizeDidChange(_ size: NSSize) {
             guard let surface = surface else { return }
             guard size.width > 0 && size.height > 0 else { return }
+
+            // Track content size (official pattern)
+            contentSize = size
 
             let backingSize = convertToBacking(size)
             ghostty_surface_set_size(
@@ -328,7 +370,7 @@ extension Ghostty {
             guard let surface = surface else { return }
             let mods = ghosttyMods(from: event.modifierFlags)
             ghostty_surface_mouse_button(surface, action, button, mods)
-            sendMousePos(event)
+            // Note: Official Ghostty does NOT call sendMousePos after button events
         }
 
         private func sendMousePos(_ event: NSEvent) {

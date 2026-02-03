@@ -64,6 +64,11 @@ class AgentStudioTerminalView: NSView {
         self.ghosttySurface = surface
         self.isProcessRunning = true
 
+        // Make this view layer-backed AFTER the surface is created
+        // This ensures proper layer compositing with the child's IOSurfaceLayer
+        self.wantsLayer = true
+        self.layer?.backgroundColor = NSColor.clear.cgColor
+
         // Listen for surface close
         NotificationCenter.default.addObserver(
             self,
