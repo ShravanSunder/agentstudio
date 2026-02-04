@@ -121,14 +121,14 @@ class DraggableTabBarHostingView: NSView, NSDraggingSource {
 
     // MARK: - View Hit Testing
 
+    /// Claim tab areas for drag handling. When we return `self`, we own the full
+    /// mouse event sequence—forwarding to subviews causes infinite loops.
+    /// See docs/architecture/app_architecture.md for details.
     override func hitTest(_ point: NSPoint) -> NSView? {
-        // Check if point is within a tab - if so, return self to handle drag
-        // Otherwise let hosting view handle it (for add button, etc.)
         let localPoint = convert(point, from: superview)
         let frames = currentTabFrames
 
         if !frames.isEmpty && tabAtPoint(localPoint) != nil {
-            // We'll handle this click/drag ourselves
             return self
         }
         return super.hitTest(point)
