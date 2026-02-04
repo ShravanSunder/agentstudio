@@ -386,22 +386,25 @@ class TerminalTabViewController: NSViewController {
         // Get worktree and project from metadata
         guard let worktreeId = restored.metadata.worktreeId,
               let projectId = restored.metadata.projectId,
-              let worktree = SessionManager.shared.worktrees.first(where: { $0.id == worktreeId }),
-              let project = SessionManager.shared.projects.first(where: { $0.id == projectId }) else {
+              let project = SessionManager.shared.projects.first(where: { $0.id == projectId }),
+              let worktree = project.worktrees.first(where: { $0.id == worktreeId }) else {
             ghosttyLogger.warning("Could not find worktree/project for restored surface")
             // Still destroy the orphan surface
             SurfaceManager.shared.destroy(restored.id)
             return
         }
 
-        // Create terminal view and attach the restored surface
-        let terminalView = AgentStudioTerminalView(worktree: worktree, project: project)
+        // Create terminal view using restore initializer (doesn't create new surface)
+        let terminalView = AgentStudioTerminalView(
+            worktree: worktree,
+            project: project,
+            restoredSurfaceId: restored.id
+        )
         terminalView.translatesAutoresizingMaskIntoConstraints = false
 
-        // Attach restored surface to the new terminal view
+        // Attach restored surface to the terminal view
         if let surfaceView = SurfaceManager.shared.attach(restored.id, to: terminalView.containerId) {
             terminalView.displaySurface(surfaceView)
-            terminalView.surfaceId = restored.id
         }
 
         terminals[worktree.id] = terminalView

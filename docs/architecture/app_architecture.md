@@ -203,7 +203,12 @@ Agent Studio embeds Ghostty terminal surfaces via libghostty. The `SurfaceManage
 | `SurfaceManager.withSurface()` | Safe operation wrapper |
 | `ghostty_surface_set_occlusion()` | Pause/resume rendering |
 | `ghostty_surface_process_exited()` | Check if shell has exited |
-| `ghostty_surface_needs_confirm_quit()` | Check if process is running |
+| `ghostty_surface_needs_confirm_quit()` | Check if child processes exist (not just shell) |
+
+> **Note on `ghostty_surface_needs_confirm_quit()`**: This API returns `true` only when there are
+> child processes running under the shell (e.g., a long-running command like Claude Code). An idle
+> shell prompt returns `false` even though the shell process itself is still running. Use
+> `ghostty_surface_process_exited()` to check if the shell itself has terminated.
 
 ### Health Monitoring
 

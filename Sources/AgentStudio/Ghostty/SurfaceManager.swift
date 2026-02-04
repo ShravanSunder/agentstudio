@@ -21,8 +21,34 @@ final class SurfaceManager: ObservableObject {
 
     // MARK: - Delegates
 
-    weak var healthDelegate: SurfaceHealthDelegate?
+    /// Health delegates (multiple supported via weak hash table)
+    private var healthDelegates = NSHashTable<AnyObject>.weakObjects()
+
     weak var lifecycleDelegate: SurfaceLifecycleDelegate?
+
+    /// Add a health delegate
+    func addHealthDelegate(_ delegate: SurfaceHealthDelegate) {
+        healthDelegates.add(delegate as AnyObject)
+    }
+
+    /// Remove a health delegate
+    func removeHealthDelegate(_ delegate: SurfaceHealthDelegate) {
+        healthDelegates.remove(delegate as AnyObject)
+    }
+
+    /// Notify all health delegates of a health change
+    private func notifyHealthDelegates(_ surfaceId: UUID, healthChanged health: SurfaceHealth) {
+        for delegate in healthDelegates.allObjects {
+            (delegate as? SurfaceHealthDelegate)?.surface(surfaceId, healthChanged: health)
+        }
+    }
+
+    /// Notify all health delegates of an error
+    private func notifyHealthDelegatesError(_ surfaceId: UUID, error: SurfaceError) {
+        for delegate in healthDelegates.allObjects {
+            (delegate as? SurfaceHealthDelegate)?.surface(surfaceId, didEncounterError: error)
+        }
+    }
 
     // MARK: - Configuration
 
@@ -99,7 +125,8 @@ final class SurfaceManager: ObservableObject {
                 logger.warning("Surface creation retry \(attempt)/\(self.maxCreationRetries)")
             }
 
-            guard let app = Ghostty.shared.app else {
+            // Check if Ghostty is initialized (don't call .shared which fatalErrors)
+            guard Ghostty.isInitialized else {
                 logger.error("Ghostty app not initialized")
                 if attempt == maxCreationRetries {
                     return .failure(.ghosttyNotInitialized)
@@ -107,7 +134,8 @@ final class SurfaceManager: ObservableObject {
                 continue
             }
 
-            let surfaceView = Ghostty.SurfaceView(app: app, config: mutableConfig)
+            // Create surface view using Ghostty.App (not ghostty_app_t)
+            let surfaceView = Ghostty.SurfaceView(app: Ghostty.shared, config: mutableConfig)
 
             // Verify surface was created successfully
             guard surfaceView.surface != nil else {
@@ -555,7 +583,7 @@ extension SurfaceManager {
 
         // Only notify on change
         if previousHealth != health {
-            healthDelegate?.surface(id, healthChanged: health)
+            notifyHealthDelegates(id, healthChanged: health)
             logger.info("Surface \(id) health changed: \(String(describing: health))")
 
             // Handle dead surfaces
@@ -568,8 +596,8 @@ extension SurfaceManager {
     private func handleDeadSurface(_ id: UUID) {
         logger.error("Surface died unexpectedly: \(id)")
 
-        // Notify delegate
-        healthDelegate?.surface(id, didEncounterError: .surfaceDied)
+        // Notify all delegates
+        notifyHealthDelegatesError(id, error: .surfaceDied)
 
         // Don't remove from collections - let the UI handle it
         // The container can show error state and offer restart

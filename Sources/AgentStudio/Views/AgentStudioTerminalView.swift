@@ -23,6 +23,7 @@ class AgentStudioTerminalView: NSView, SurfaceContainer, SurfaceHealthDelegate {
         ghosttySurface?.title ?? worktree.name
     }
 
+    /// Standard initializer - creates a new terminal surface
     init(worktree: Worktree, project: Project) {
         self.worktree = worktree
         self.project = project
@@ -31,6 +32,19 @@ class AgentStudioTerminalView: NSView, SurfaceContainer, SurfaceHealthDelegate {
         // Note: Do NOT set wantsLayer or backgroundColor here
         // Let Ghostty manage its own layer rendering
         setupTerminal()
+    }
+
+    /// Restore initializer - for attaching an existing surface (undo close)
+    /// Does NOT create a new surface; caller must attach one via displaySurface()
+    init(worktree: Worktree, project: Project, restoredSurfaceId: UUID) {
+        self.worktree = worktree
+        self.project = project
+        self.surfaceId = restoredSurfaceId
+        super.init(frame: NSRect(x: 0, y: 0, width: 800, height: 600))
+
+        // Register for health updates
+        SurfaceManager.shared.addHealthDelegate(self)
+        self.isProcessRunning = true
     }
 
     required init?(coder: NSCoder) {
@@ -79,7 +93,7 @@ class AgentStudioTerminalView: NSView, SurfaceContainer, SurfaceHealthDelegate {
             displaySurface(managed.surface)
 
             // Register for health updates
-            SurfaceManager.shared.healthDelegate = self
+            SurfaceManager.shared.addHealthDelegate(self)
 
             self.isProcessRunning = true
             ghosttyLogger.info("Terminal created via SurfaceManager for worktree: \(self.worktree.name)")
