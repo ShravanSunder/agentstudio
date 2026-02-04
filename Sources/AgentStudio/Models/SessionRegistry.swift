@@ -164,25 +164,30 @@ final class SessionRegistry: @unchecked Sendable {
 
         logger.info("Initializing SessionRegistry...")
 
-        // Detect Zellij availability
-        await config.detectZellijAvailability()
+        // Detect Zellij availability and socket directory
+        await config.detectZellij()
 
-        // Create appropriate backend
-        backend = createBackend()
-        logger.info("Session backend: \(self.backend.type.rawValue)")
+        // Only initialize backend if session restore is enabled
+        guard config.sessionRestoreEnabled else {
+            logger.info("Session restore disabled, skipping Zellij initialization")
+            isInitialized = true
+            return
+        }
 
-        // Load checkpoint if restore is enabled and backend supports it
-        if config.restoreEnabled && backend.supportsRestore {
-            if let checkpoint = loadCheckpoint() {
-                populateFromCheckpoint(checkpoint)
-            }
+        // Create Zellij backend
+        backend = ZellijBackend()
+        logger.info("Session backend: Zellij")
+
+        // Load checkpoint
+        if let checkpoint = loadCheckpoint() {
+            populateFromCheckpoint(checkpoint)
         }
 
         isInitialized = true
         logger.info("SessionRegistry initialized with \(self.sessions.count) sessions")
 
-        // Start background verification if backend supports restore
-        if backend.supportsRestore && !sessions.isEmpty {
+        // Start background verification
+        if !sessions.isEmpty {
             await verifyAllSessions()
             startHealthChecks()
         }
@@ -239,7 +244,7 @@ final class SessionRegistry: @unchecked Sendable {
         }
 
         // Create tab via backend
-        guard backend.supportsTabs else {
+        guard backend != nil else {
             // For backends without tab support, create a virtual tab
             let entry = TabEntry(
                 id: 1,
@@ -256,9 +261,7 @@ final class SessionRegistry: @unchecked Sendable {
         let handle = SessionHandle(
             id: session.id,
             projectId: session.projectId,
-            displayName: session.displayName,
-            backendType: backend.type
-        )
+            displayName: session.displayName        )
 
         let tabHandle = try await backend.createTab(in: handle, for: worktree)
 
@@ -285,9 +288,7 @@ final class SessionRegistry: @unchecked Sendable {
         let handle = SessionHandle(
             id: session.id,
             projectId: session.projectId,
-            displayName: session.displayName,
-            backendType: backend.type
-        )
+            displayName: session.displayName        )
 
         var tabHandle: TabHandle?
         if let tab = tab {
@@ -308,9 +309,7 @@ final class SessionRegistry: @unchecked Sendable {
         let handle = SessionHandle(
             id: session.id,
             projectId: session.projectId,
-            displayName: session.displayName,
-            backendType: backend.type
-        )
+            displayName: session.displayName        )
 
         try await backend.destroySession(handle)
         sessions.removeValue(forKey: session.id)
@@ -441,20 +440,6 @@ final class SessionRegistry: @unchecked Sendable {
 
     // MARK: - Private Methods
 
-    private func createBackend() -> SessionBackend {
-        switch config.backend {
-        case .zellij:
-            guard config.zellijAvailable else {
-                logger.warning("Zellij requested but not available, falling back to none")
-                return NoneBackend()
-            }
-            return ZellijBackend()
-
-        case .none:
-            return NoneBackend()
-        }
-    }
-
     private var checkpointURL: URL {
         FileManager.default.homeDirectoryForCurrentUser
             .appending(path: ".agentstudio/session-checkpoint.json")
@@ -500,7 +485,7 @@ final class SessionRegistry: @unchecked Sendable {
                     workingDirectory: tabData.workingDirectory,
                     restoreCommand: tabData.restoreCommand,
                     originalOrder: tabData.order ?? 0,
-                    initialStatus: backend.supportsTabs ? .unknown : .unsupported
+                    initialStatus: .unknown
                 )
 
                 setupTabEffectHandler(for: tabEntry, in: entry)
@@ -600,7 +585,7 @@ final class SessionRegistry: @unchecked Sendable {
     private func handleTabEffect(_ effect: TabEffect, for tabEntry: TabEntry, in sessionEntry: SessionEntry) async {
         switch effect {
         case .queryTabExists(let sessionId):
-            guard backend.supportsTabs else {
+            guard backend != nil else {
                 await tabEntry.machine.send(.disable)
                 return
             }
@@ -609,7 +594,7 @@ final class SessionRegistry: @unchecked Sendable {
                 id: sessionId,
                 projectId: sessionEntry.projectId,
                 displayName: sessionEntry.displayName,
-                backendType: backend.type
+                backendType: .zellij
             )
 
             do {
@@ -645,7 +630,7 @@ final class SessionRegistry: @unchecked Sendable {
     }
 
     private func verifyTabs(for session: SessionEntry) async {
-        guard backend.supportsTabs else { return }
+        guard backend != nil else { return }
 
         for (_, tab) in session.tabs {
             if tab.status == .unknown {
@@ -662,7 +647,7 @@ final class SessionRegistry: @unchecked Sendable {
                 id: entry.id,
                 projectId: entry.projectId,
                 displayName: entry.displayName,
-                backendType: backend.type
+                backendType: .zellij
             )
 
             let healthy = await backend.healthCheck(handle)

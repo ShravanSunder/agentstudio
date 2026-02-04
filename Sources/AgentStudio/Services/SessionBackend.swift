@@ -1,13 +1,13 @@
 // SessionBackend.swift
 // AgentStudio
 //
-// Protocol for session management backends (Zellij, tmux, none, etc.)
+// Protocol for Zellij session management.
 
 import Foundation
 
 // MARK: - Session Handle
 
-/// Handle to a managed session (backend-agnostic).
+/// Handle to a managed Zellij session.
 struct SessionHandle: Identifiable, Hashable, Sendable, Codable {
     /// Unique session identifier (e.g., "agentstudio--abc12345")
     let id: String
@@ -17,9 +17,6 @@ struct SessionHandle: Identifiable, Hashable, Sendable, Codable {
 
     /// Display name (usually repo name)
     let displayName: String
-
-    /// Backend type that created this handle
-    let backendType: SessionBackendType
 
     /// Generate session ID from project UUID.
     static func sessionId(for projectId: UUID) -> String {
@@ -49,23 +46,14 @@ struct TabHandle: Identifiable, Hashable, Sendable, Codable {
 
 // MARK: - Backend Protocol
 
-/// Protocol for session management backends.
-/// Implementations provide session lifecycle, tab management, and health checking.
+/// Protocol for Zellij session management.
+/// Used for dependency injection and testing.
 protocol SessionBackend: Sendable {
 
-    // MARK: - Properties
-
-    /// Backend type identifier.
-    var type: SessionBackendType { get }
+    // MARK: - Availability
 
     /// Check if backend is available and functional.
     var isAvailable: Bool { get async }
-
-    /// Whether this backend supports session persistence/restore.
-    var supportsRestore: Bool { get }
-
-    /// Whether this backend supports multiple tabs per session.
-    var supportsTabs: Bool { get }
 
     // MARK: - Session Lifecycle
 
@@ -96,7 +84,7 @@ protocol SessionBackend: Sendable {
 
     // MARK: - Fast Checks (no process spawn)
 
-    /// Check if a session socket/file exists (fast filesystem check).
+    /// Check if a session socket exists (fast filesystem check).
     func socketExists(_ sessionId: String) -> Bool
 
     /// Discover orphan sessions (sessions not in our registry).
@@ -107,60 +95,15 @@ protocol SessionBackend: Sendable {
     /// Check if a session exists and can be attached to.
     func sessionExists(_ sessionId: String) async -> Bool
 
-    /// Resurrect a dead session (for backends that support it).
+    /// Resurrect a dead session.
     func resurrectSession(_ sessionId: String) async throws
-}
-
-// MARK: - Default Implementations
-
-extension SessionBackend {
-
-    // Default: no restore support
-    var supportsRestore: Bool { false }
-
-    // Default: no tab support
-    var supportsTabs: Bool { false }
-
-    // Default tab operations throw unsupported error
-    func createTab(in session: SessionHandle, for worktree: Worktree) async throws -> TabHandle {
-        throw SessionBackendError.tabsNotSupported(type)
-    }
-
-    func getTabNames(_ session: SessionHandle) async throws -> [String] {
-        throw SessionBackendError.tabsNotSupported(type)
-    }
-
-    func closeTab(_ tab: TabHandle) async throws {
-        throw SessionBackendError.tabsNotSupported(type)
-    }
-
-    // Default: no socket-based checks
-    func socketExists(_ sessionId: String) -> Bool {
-        false
-    }
-
-    func discoverOrphanSessions(excluding known: Set<String>) -> [String] {
-        []
-    }
-
-    // Default: no session existence check
-    func sessionExists(_ sessionId: String) async -> Bool {
-        false
-    }
-
-    // Default: no resurrection support
-    func resurrectSession(_ sessionId: String) async throws {
-        throw SessionBackendError.restoreNotSupported(type)
-    }
 }
 
 // MARK: - Backend Errors
 
-/// Errors that can occur during backend operations.
+/// Errors that can occur during session backend operations.
 enum SessionBackendError: Error, LocalizedError, Equatable {
-    case notAvailable(SessionBackendType, reason: String)
-    case tabsNotSupported(SessionBackendType)
-    case restoreNotSupported(SessionBackendType)
+    case notAvailable(reason: String)
     case sessionNotFound(String)
     case tabNotFound(sessionId: String, tabId: Int)
     case operationFailed(operation: String, reason: String)
@@ -169,12 +112,8 @@ enum SessionBackendError: Error, LocalizedError, Equatable {
 
     var errorDescription: String? {
         switch self {
-        case .notAvailable(let type, let reason):
-            return "\(type.displayName) backend not available: \(reason)"
-        case .tabsNotSupported(let type):
-            return "\(type.displayName) backend does not support tabs"
-        case .restoreNotSupported(let type):
-            return "\(type.displayName) backend does not support session restore"
+        case .notAvailable(let reason):
+            return "Zellij not available: \(reason)"
         case .sessionNotFound(let id):
             return "Session not found: \(id)"
         case .tabNotFound(let sessionId, let tabId):
@@ -186,29 +125,5 @@ enum SessionBackendError: Error, LocalizedError, Equatable {
         case .alreadyExists(let id):
             return "Session already exists: \(id)"
         }
-    }
-}
-
-// MARK: - Backend Factory
-
-/// Factory for creating session backends.
-enum SessionBackendFactory {
-
-    /// Create a backend based on configuration.
-    @MainActor
-    static func create(for type: SessionBackendType) -> SessionBackend {
-        switch type {
-        case .zellij:
-            return ZellijBackend()
-        case .none:
-            return NoneBackend()
-        }
-    }
-
-    /// Create the appropriate backend based on current configuration.
-    @MainActor
-    static func createFromConfiguration() -> SessionBackend {
-        let config = SessionConfiguration.shared
-        return create(for: config.backend)
     }
 }

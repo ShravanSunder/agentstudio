@@ -11,10 +11,6 @@ final class ZellijBackend: SessionBackend, @unchecked Sendable {
 
     // MARK: - Properties
 
-    let type: SessionBackendType = .zellij
-    let supportsRestore: Bool = true
-    let supportsTabs: Bool = true
-
     private let config: SessionConfiguration
     private let executor: ProcessExecutor
     private let logger = Logger(subsystem: "AgentStudio", category: "ZellijBackend")
@@ -176,8 +172,7 @@ final class ZellijBackend: SessionBackend, @unchecked Sendable {
         return SessionHandle(
             id: sessionId,
             projectId: project.id,
-            displayName: project.name,
-            backendType: .zellij
+            displayName: project.name
         )
     }
 

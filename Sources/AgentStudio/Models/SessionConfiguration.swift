@@ -1,52 +1,21 @@
 // SessionConfiguration.swift
 // AgentStudio
 //
-// Central configuration for session management with environment variable
-// and user settings support.
+// Central configuration for Zellij session management.
+// Session restore is either enabled (requires Zellij) or disabled entirely.
 
 import Foundation
 import OSLog
 
-// MARK: - Backend Type
-
-/// Session backend type for terminal multiplexing.
-enum SessionBackendType: String, Codable, CaseIterable, Sendable {
-    case zellij = "zellij"      // Full Zellij session management
-    case none = "none"          // Direct shell, no multiplexer
-    // Future: case tmux = "tmux"
-
-    var displayName: String {
-        switch self {
-        case .zellij:
-            return "Zellij (recommended)"
-        case .none:
-            return "None (basic shell)"
-        }
-    }
-
-    var supportsRestore: Bool {
-        switch self {
-        case .zellij:
-            return true
-        case .none:
-            return false
-        }
-    }
-
-    var supportsTabs: Bool {
-        switch self {
-        case .zellij:
-            return true
-        case .none:
-            return false
-        }
-    }
-}
-
 // MARK: - Session Configuration
 
-/// Central configuration for session management.
-/// Reads from environment variables (highest priority), user settings, and auto-detection.
+/// Central configuration for Zellij session management.
+///
+/// Session restore has two modes:
+/// - **Enabled**: Zellij is required. Sessions persist across app restarts.
+/// - **Disabled**: No session management. Each terminal is independent.
+///
+/// Configuration priority: Environment variables > User settings > Defaults
 @MainActor
 @Observable
 final class SessionConfiguration: @unchecked Sendable {
@@ -58,17 +27,21 @@ final class SessionConfiguration: @unchecked Sendable {
     // MARK: - Environment Variable Keys
 
     private enum EnvKey {
-        static let backend = "AGENTSTUDIO_SESSION_BACKEND"
+        /// Enable/disable session restore (true/false/1/0)
         static let restore = "AGENTSTUDIO_SESSION_RESTORE"
+        /// Custom path to Zellij binary
         static let zellijPath = "AGENTSTUDIO_ZELLIJ_PATH"
+        /// Zellij's socket directory (mirrors Zellij's own env var)
         static let socketDir = "ZELLIJ_SOCK_DIR"
+        /// XDG runtime directory (standard on Linux)
+        static let xdgRuntimeDir = "XDG_RUNTIME_DIR"
+        /// Health check interval in seconds
         static let healthCheckInterval = "AGENTSTUDIO_HEALTH_CHECK_INTERVAL"
     }
 
     // MARK: - User Defaults Keys
 
     private enum DefaultsKey {
-        static let backend = "sessionBackend"
         static let restore = "sessionRestoreEnabled"
         static let zellijPath = "zellijPath"
         static let healthCheckInterval = "healthCheckInterval"
@@ -85,7 +58,7 @@ final class SessionConfiguration: @unchecked Sendable {
 
     private let logger = Logger(subsystem: "AgentStudio", category: "SessionConfiguration")
 
-    // MARK: - Cached Detection Results
+    // MARK: - Detection Results
 
     /// Whether Zellij is available on this system.
     private(set) var zellijAvailable: Bool = false
@@ -93,43 +66,35 @@ final class SessionConfiguration: @unchecked Sendable {
     /// Detected Zellij version string.
     private(set) var zellijVersion: String?
 
+    /// Detected socket directory from Zellij.
+    private(set) var detectedSocketDir: URL?
+
     /// Whether detection has been performed.
     private(set) var detectionComplete: Bool = false
 
     // MARK: - Computed Configuration
 
-    /// Effective backend type (env var > user setting > auto-detect).
-    var backend: SessionBackendType {
-        // 1. Environment variable (highest priority)
-        if let envValue = env(EnvKey.backend),
-           let type = SessionBackendType(rawValue: envValue.lowercased()) {
-            return type
-        }
-
-        // 2. User setting
-        if let stored = UserDefaults.standard.string(forKey: DefaultsKey.backend),
-           let type = SessionBackendType(rawValue: stored) {
-            return type
-        }
-
-        // 3. Auto-detect: use Zellij if available, otherwise none
-        return zellijAvailable ? .zellij : .none
-    }
-
     /// Whether session restore is enabled.
-    var restoreEnabled: Bool {
+    /// When enabled, Zellij is required. When disabled, no session management occurs.
+    var sessionRestoreEnabled: Bool {
         // 1. Environment variable (highest priority)
         if let envValue = env(EnvKey.restore) {
-            return envValue.lowercased() == "true" || envValue == "1"
+            let enabled = envValue.lowercased() == "true" || envValue == "1"
+            // If enabled via env var but Zellij not available, log warning
+            if enabled && detectionComplete && !zellijAvailable {
+                logger.warning("Session restore enabled via env var but Zellij not available")
+            }
+            return enabled && zellijAvailable
         }
 
         // 2. User setting
         if UserDefaults.standard.object(forKey: DefaultsKey.restore) != nil {
-            return UserDefaults.standard.bool(forKey: DefaultsKey.restore)
+            let enabled = UserDefaults.standard.bool(forKey: DefaultsKey.restore)
+            return enabled && zellijAvailable
         }
 
-        // 3. Default: enabled only if backend supports it
-        return backend.supportsRestore && Defaults.restoreEnabled
+        // 3. Default: enabled if Zellij is available
+        return zellijAvailable && Defaults.restoreEnabled
     }
 
     /// Path to Zellij binary.
@@ -150,12 +115,24 @@ final class SessionConfiguration: @unchecked Sendable {
     }
 
     /// Zellij socket directory.
+    /// Mirrors Zellij's own socket directory discovery logic.
     var socketDir: URL {
+        // 1. Use detected socket dir from Zellij if available
+        if let detected = detectedSocketDir {
+            return detected
+        }
+
+        // 2. ZELLIJ_SOCK_DIR env var (same as Zellij uses)
         if let envValue = env(EnvKey.socketDir), !envValue.isEmpty {
             return URL(fileURLWithPath: envValue)
         }
 
-        // Default: /tmp/zellij-{uid}/
+        // 3. XDG_RUNTIME_DIR/zellij (Linux standard)
+        if let xdgRuntime = env(EnvKey.xdgRuntimeDir), !xdgRuntime.isEmpty {
+            return URL(fileURLWithPath: xdgRuntime).appendingPathComponent("zellij")
+        }
+
+        // 4. Fallback: /tmp/zellij-{uid}/ (Zellij's default)
         let uid = getuid()
         return URL(fileURLWithPath: "/tmp/zellij-\(uid)")
     }
@@ -184,41 +161,108 @@ final class SessionConfiguration: @unchecked Sendable {
 
     // MARK: - Detection
 
-    /// Detect Zellij availability. Call once at startup.
-    func detectZellijAvailability() async {
+    /// Detect Zellij availability and configuration. Call once at startup.
+    func detectZellij() async {
         guard !detectionComplete else { return }
 
-        logger.info("Detecting Zellij availability...")
+        logger.info("Detecting Zellij...")
 
+        // Step 1: Check if Zellij is available and get version
+        let versionResult = await runZellijCommand(["--version"])
+
+        if versionResult.succeeded {
+            zellijVersion = versionResult.output.trimmingCharacters(in: .whitespacesAndNewlines)
+            zellijAvailable = true
+            logger.info("Zellij detected: \(self.zellijVersion ?? "unknown")")
+
+            // Step 2: Detect socket directory using setup --check
+            await detectSocketDirectory()
+        } else {
+            zellijAvailable = false
+            logger.info("Zellij not available")
+        }
+
+        detectionComplete = true
+    }
+
+    /// Detect socket directory by querying Zellij's setup.
+    private func detectSocketDirectory() async {
+        // Method 1: Try to get socket dir from Zellij setup --check
+        // This outputs configuration info including socket directory
+        let setupResult = await runZellijCommand(["setup", "--check"])
+
+        if setupResult.succeeded {
+            // Parse output for socket directory info
+            // Format varies by version, look for common patterns
+            let output = setupResult.output
+
+            // Look for "ZELLIJ_SOCK_DIR" or socket-related info
+            if let socketLine = output.components(separatedBy: .newlines)
+                .first(where: { $0.contains("socket") || $0.contains("SOCK_DIR") }) {
+                // Extract path from the line
+                if let pathMatch = socketLine.range(of: "/[^\\s]+", options: .regularExpression) {
+                    let path = String(socketLine[pathMatch])
+                    detectedSocketDir = URL(fileURLWithPath: path)
+                    logger.info("Detected socket directory: \(path)")
+                    return
+                }
+            }
+        }
+
+        // Method 2: Check if socket directory exists at expected locations
+        let candidates = [
+            env(EnvKey.socketDir).map { URL(fileURLWithPath: $0) },
+            env(EnvKey.xdgRuntimeDir).map { URL(fileURLWithPath: $0).appendingPathComponent("zellij") },
+            URL(fileURLWithPath: "/tmp/zellij-\(getuid())")
+        ].compactMap { $0 }
+
+        for candidate in candidates {
+            if FileManager.default.fileExists(atPath: candidate.path) {
+                detectedSocketDir = candidate
+                logger.info("Found socket directory: \(candidate.path)")
+                return
+            }
+        }
+
+        // Method 3: Create a test session to discover socket dir
+        // This is more invasive but guaranteed to work
+        let listResult = await runZellijCommand(["list-sessions"])
+        if listResult.succeeded {
+            // If list-sessions works, Zellij has created its socket dir
+            // Re-check the candidates
+            for candidate in candidates {
+                if FileManager.default.fileExists(atPath: candidate.path) {
+                    detectedSocketDir = candidate
+                    logger.info("Found socket directory after list-sessions: \(candidate.path)")
+                    return
+                }
+            }
+        }
+
+        logger.info("Using default socket directory: \(self.socketDir.path)")
+    }
+
+    /// Run a Zellij command and return the result.
+    private func runZellijCommand(_ arguments: [String]) async -> (succeeded: Bool, output: String) {
         let process = Process()
         process.executableURL = URL(fileURLWithPath: "/usr/bin/env")
-        process.arguments = [zellijPath, "--version"]
+        process.arguments = [zellijPath] + arguments
 
         let pipe = Pipe()
         process.standardOutput = pipe
-        process.standardError = FileHandle.nullDevice
+        process.standardError = pipe
 
         do {
             try process.run()
             process.waitUntilExit()
 
-            if process.terminationStatus == 0 {
-                let data = pipe.fileHandleForReading.readDataToEndOfFile()
-                let output = String(data: data, encoding: .utf8)?
-                    .trimmingCharacters(in: .whitespacesAndNewlines)
-                zellijVersion = output
-                zellijAvailable = true
-                logger.info("Zellij detected: \(output ?? "unknown version")")
-            } else {
-                zellijAvailable = false
-                logger.info("Zellij not available (exit code: \(process.terminationStatus))")
-            }
-        } catch {
-            zellijAvailable = false
-            logger.warning("Zellij detection failed: \(error.localizedDescription)")
-        }
+            let data = pipe.fileHandleForReading.readDataToEndOfFile()
+            let output = String(data: data, encoding: .utf8) ?? ""
 
-        detectionComplete = true
+            return (process.terminationStatus == 0, output)
+        } catch {
+            return (false, error.localizedDescription)
+        }
     }
 
     /// Reset detection state (for testing).
@@ -226,18 +270,13 @@ final class SessionConfiguration: @unchecked Sendable {
         detectionComplete = false
         zellijAvailable = false
         zellijVersion = nil
+        detectedSocketDir = nil
     }
 
     // MARK: - Setters (for UI preferences)
 
-    /// Set the session backend type.
-    func setBackend(_ type: SessionBackendType) {
-        UserDefaults.standard.set(type.rawValue, forKey: DefaultsKey.backend)
-        logger.info("Session backend set to: \(type.rawValue)")
-    }
-
     /// Set whether session restore is enabled.
-    func setRestoreEnabled(_ enabled: Bool) {
+    func setSessionRestoreEnabled(_ enabled: Bool) {
         UserDefaults.standard.set(enabled, forKey: DefaultsKey.restore)
         logger.info("Session restore enabled: \(enabled)")
     }
@@ -265,27 +304,16 @@ final class SessionConfiguration: @unchecked Sendable {
     // MARK: - Validation
 
     /// Validate current configuration and return any errors.
-    func validate() async -> [ConfigurationError] {
+    func validate() -> [ConfigurationError] {
         var errors: [ConfigurationError] = []
 
-        // If Zellij backend is requested, ensure it's available
-        if backend == .zellij && !zellijAvailable {
-            // Check if explicitly requested via env var
-            if env(EnvKey.backend)?.lowercased() == "zellij" {
-                errors.append(.zellijNotAvailable(
-                    "Zellij backend requested but not available at path: \(zellijPath)"
-                ))
-            }
-        }
-
-        // Validate socket directory exists (if using Zellij)
-        if backend == .zellij && zellijAvailable {
-            let socketDirPath = socketDir.path
-            var isDir: ObjCBool = false
-            if !FileManager.default.fileExists(atPath: socketDirPath, isDirectory: &isDir) {
-                // Socket dir may not exist yet - Zellij creates it
-                logger.debug("Socket directory does not exist yet: \(socketDirPath)")
-            }
+        // If restore is explicitly requested but Zellij not available
+        if let envValue = env(EnvKey.restore),
+           (envValue.lowercased() == "true" || envValue == "1"),
+           !zellijAvailable {
+            errors.append(.zellijNotAvailable(
+                "Session restore enabled but Zellij not found at: \(zellijPath)"
+            ))
         }
 
         return errors
@@ -304,7 +332,6 @@ final class SessionConfiguration: @unchecked Sendable {
 enum ConfigurationError: Error, LocalizedError, Equatable {
     case zellijNotAvailable(String)
     case invalidSocketDir(String)
-    case invalidConfiguration(String)
 
     var errorDescription: String? {
         switch self {
@@ -312,18 +339,6 @@ enum ConfigurationError: Error, LocalizedError, Equatable {
             return "Zellij not available: \(message)"
         case .invalidSocketDir(let message):
             return "Invalid socket directory: \(message)"
-        case .invalidConfiguration(let message):
-            return "Invalid configuration: \(message)"
         }
-    }
-}
-
-// MARK: - Debug Description
-
-extension SessionConfiguration: CustomDebugStringConvertible {
-    nonisolated var debugDescription: String {
-        // Note: This is a simplified description for logging
-        // Full state access requires @MainActor
-        return "SessionConfiguration()"
     }
 }
