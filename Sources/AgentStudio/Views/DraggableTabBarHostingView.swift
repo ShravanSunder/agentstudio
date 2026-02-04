@@ -11,7 +11,8 @@ extension NSPasteboard.PasteboardType {
 // MARK: - Draggable Tab Bar Container
 
 /// Container view that wraps NSHostingView and handles drag-to-reorder for tabs.
-/// Uses composition instead of subclassing to avoid NSHostingView's sealed NSDraggingSource methods.
+/// Uses NSPanGestureRecognizer to detect drags while letting SwiftUI handle all other
+/// interactions (clicks, close buttons, right-clicks, hover).
 class DraggableTabBarHostingView: NSView, NSDraggingSource {
 
     // MARK: - Properties
@@ -26,10 +27,12 @@ class DraggableTabBarHostingView: NSView, NSDraggingSource {
     /// Currently dragging tab ID (for drag source tracking)
     private var draggingTabId: UUID?
 
-    /// Track mouse down for drag detection
-    private var mouseDownPoint: NSPoint?
-    private var mouseDownTabId: UUID?
-    private let minimumDragDistance: CGFloat = 5.0
+    /// Pan gesture recognizer for drag detection
+    private var panGesture: NSPanGestureRecognizer!
+
+    /// Track the tab being dragged and the original event for drag session
+    private var panStartTabId: UUID?
+    private var panStartEvent: NSEvent?
 
     // MARK: - Initialization
 
@@ -51,6 +54,11 @@ class DraggableTabBarHostingView: NSView, NSDraggingSource {
 
         // Register as drag destination
         registerForDraggedTypes([.agentStudioTab])
+
+        // Set up pan gesture recognizer for drag detection
+        panGesture = NSPanGestureRecognizer(target: self, action: #selector(handlePan(_:)))
+        panGesture.delaysPrimaryMouseButtonEvents = false
+        addGestureRecognizer(panGesture)
     }
 
     required init?(coder: NSCoder) {
@@ -119,79 +127,34 @@ class DraggableTabBarHostingView: NSView, NSDraggingSource {
         return state.tabs.count
     }
 
-    // MARK: - View Hit Testing
+    // MARK: - Pan Gesture Handler
 
-    /// Claim tab areas for drag handling. When we return `self`, we own the full
-    /// mouse event sequence—forwarding to subviews causes infinite loops.
-    /// See docs/architecture/app_architecture.md for details.
-    override func hitTest(_ point: NSPoint) -> NSView? {
-        let localPoint = convert(point, from: superview)
-        let frames = currentTabFrames
+    @objc private func handlePan(_ gesture: NSPanGestureRecognizer) {
+        let location = gesture.location(in: self)
 
-        if !frames.isEmpty && tabAtPoint(localPoint) != nil {
-            return self
-        }
-        return super.hitTest(point)
-    }
-
-    // MARK: - Mouse Events (Drag Initiation)
-
-    override func mouseDown(with event: NSEvent) {
-        let point = convert(event.locationInWindow, from: nil)
-
-        // Check if clicking on a tab - track for potential drag
-        if let tabId = tabAtPoint(point) {
-            mouseDownPoint = point
-            mouseDownTabId = tabId
-            // We handle this ourselves - DO NOT forward to hostingView (causes infinite loop)
-            return
-        }
-
-        mouseDownPoint = nil
-        mouseDownTabId = nil
-        // If we get here, hitTest should have returned hostingView, not us
-    }
-
-    override func mouseDragged(with event: NSEvent) {
-        let point = convert(event.locationInWindow, from: nil)
-
-        // Check if we should start a drag
-        if let startPoint = mouseDownPoint,
-           let tabId = mouseDownTabId,
-           draggingTabId == nil {
-            let distance = hypot(point.x - startPoint.x, point.y - startPoint.y)
-            if distance >= minimumDragDistance {
-                debugLog("[DraggableTabBar] Starting drag after \(String(format: "%.1f", distance))px movement")
-                mouseDownPoint = nil
-                mouseDownTabId = nil
-                startDrag(tabId: tabId, at: point, event: event)
-                return
+        switch gesture.state {
+        case .began:
+            // Check if pan started on a tab
+            if let tabId = tabAtPoint(location) {
+                panStartTabId = tabId
+                panStartEvent = NSApp.currentEvent
             }
-        }
 
-        super.mouseDragged(with: event)
-    }
-
-    override func mouseUp(with event: NSEvent) {
-        // If we were tracking a tab click (not a drag), select the tab now
-        if let tabId = mouseDownTabId {
-            // Find the tab and select it
-            if let state = tabBarState,
-               state.tabs.contains(where: { $0.id == tabId }) {
-                state.activeTabId = tabId
-                // Post notification for the controller to switch terminal
-                NotificationCenter.default.post(
-                    name: .selectTabById,
-                    object: nil,
-                    userInfo: ["tabId": tabId]
-                )
+        case .changed:
+            // Start drag session once we have enough movement
+            if let tabId = panStartTabId, draggingTabId == nil {
+                startDrag(tabId: tabId, at: location, event: panStartEvent ?? NSApp.currentEvent!)
+                panStartTabId = nil
+                panStartEvent = nil
             }
-        }
 
-        // Clear tracking state
-        mouseDownPoint = nil
-        mouseDownTabId = nil
-        super.mouseUp(with: event)
+        case .ended, .cancelled:
+            panStartTabId = nil
+            panStartEvent = nil
+
+        default:
+            break
+        }
     }
 
     // MARK: - Drag Initiation
