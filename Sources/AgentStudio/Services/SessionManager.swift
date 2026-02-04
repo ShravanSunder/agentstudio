@@ -188,6 +188,16 @@ final class SessionManager: ObservableObject {
         save()
     }
 
+    /// Reorder tabs based on new worktree order
+    func reorderTabs(_ worktreeIds: [UUID]) {
+        for (index, worktreeId) in worktreeIds.enumerated() {
+            if let tabIndex = openTabs.firstIndex(where: { $0.worktreeId == worktreeId }) {
+                openTabs[tabIndex].order = index
+            }
+        }
+        save()
+    }
+
     /// Switch to a specific tab
     func switchToTab(_ tab: OpenTab) {
         activeTabId = tab.id

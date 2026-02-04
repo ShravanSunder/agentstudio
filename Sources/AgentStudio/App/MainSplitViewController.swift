@@ -35,6 +35,33 @@ class MainSplitViewController: NSSplitViewController {
 
         // Set up notification observers
         setupNotificationObservers()
+
+        // Restore previously open tabs
+        restoreSessionTabs()
+    }
+
+    private func restoreSessionTabs() {
+        // Get the sorted open tabs from session manager
+        let sortedTabs = SessionManager.shared.openTabs.sorted { $0.order < $1.order }
+
+        debugLog("[MainSplitVC] Restoring \(sortedTabs.count) tabs from session")
+
+        for tab in sortedTabs {
+            guard let worktree = SessionManager.shared.worktree(for: tab),
+                  let project = SessionManager.shared.project(for: tab) else {
+                continue
+            }
+
+            debugLog("[MainSplitVC] Restoring tab: \(worktree.name)")
+            terminalTabViewController?.openTerminal(for: worktree, in: project)
+        }
+
+        // Select the active tab if it exists
+        if let activeTabId = SessionManager.shared.activeTabId,
+           let activeTab = SessionManager.shared.openTabs.first(where: { $0.id == activeTabId }),
+           let index = sortedTabs.firstIndex(where: { $0.id == activeTab.id }) {
+            terminalTabViewController?.selectTab(at: index)
+        }
     }
 
     // MARK: - Notification Observers

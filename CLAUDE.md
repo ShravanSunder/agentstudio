@@ -64,7 +64,8 @@ Never guess at UX solutions. Research first, discuss with user, then implement.
 5. **Verify** - Use Peekaboo to visually confirm
 
 ## Architectural Guidance
-Agent Studio follows an **AppKit-main** architecture, hosting SwiftUI views where declarative UI is most effective. This provides direct control over the macOS lifecycle and key handling while leveraging SwiftUI for complex layouts.
+Agent Studio follows an **AppKit-main** architecture, hosting SwiftUI views where declarative UI is most effective. This provides direct control over the macOS lifecycle and key handling while leveraging SwiftUI for complex layouts.  We are only targetting latest macOS 26 version.
+
 
 - **Deep Dive**: [AppKit + SwiftUI Hybrid UI](docs/architecture/app_architecture.md)
 - **Style Guide**: [macOS Design & Style](docs/guides/style_guide.md)

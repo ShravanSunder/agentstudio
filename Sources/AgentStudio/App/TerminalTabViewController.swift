@@ -6,7 +6,7 @@ import GhosttyKit
 class TerminalTabViewController: NSViewController {
     // MARK: - Properties
 
-    private var tabBarHostingView: NSHostingView<CustomTabBar>!
+    private var tabBarHostingView: DraggableTabBarHostingView!
     private var terminalContainer: NSView!
     private var emptyStateView: NSView?
 
@@ -42,17 +42,17 @@ class TerminalTabViewController: NSViewController {
             onClose: { [weak self] tabId in
                 self?.closeTab(id: tabId)
             },
+            onTabFramesChanged: { [weak self] frames in
+                self?.tabBarHostingView?.updateTabFrames(frames)
+            },
             onAdd: nil
         )
-        tabBarHostingView = NSHostingView(rootView: tabBar)
+        tabBarHostingView = DraggableTabBarHostingView(rootView: tabBar)
+        tabBarHostingView.configure(state: tabBarState) { [weak self] fromId, toIndex in
+            self?.handleTabReorder(fromId: fromId, toIndex: toIndex)
+        }
         tabBarHostingView.translatesAutoresizingMaskIntoConstraints = false
         tabBarHostingView.wantsLayer = true
-        // Use preferredContentSize: respects our explicit height constraint while showing full content
-        // - [] causes zero height (no sizing info)
-        // - [.minSize, .maxSize] causes clipping (conflicts with fixed constraint)
-        // - [.preferredContentSize] uses ideal size but lets our constraint win
-        tabBarHostingView.sizingOptions = [.preferredContentSize]
-        tabBarHostingView.safeAreaRegions = []
         containerView.addSubview(tabBarHostingView)
 
         // Create empty state view
@@ -95,6 +95,22 @@ class TerminalTabViewController: NSViewController {
             name: .terminalProcessTerminated,
             object: nil
         )
+
+        // Listen for tab selection by ID (from drag view)
+        NotificationCenter.default.addObserver(
+            self,
+            selector: #selector(handleSelectTabById(_:)),
+            name: .selectTabById,
+            object: nil
+        )
+    }
+
+    @objc private func handleSelectTabById(_ notification: Notification) {
+        guard let userInfo = notification.userInfo,
+              let tabId = userInfo["tabId"] as? UUID else {
+            return
+        }
+        selectTab(id: tabId)
     }
 
     deinit {
@@ -328,6 +344,17 @@ class TerminalTabViewController: NSViewController {
     func selectTab(at index: Int) {
         guard index >= 0 && index < tabItems.count else { return }
         selectTab(id: tabItems[index].id)
+    }
+
+    // MARK: - Tab Reordering
+
+    private func handleTabReorder(fromId: UUID, toIndex: Int) {
+        tabBarState.moveTab(fromId: fromId, toIndex: toIndex)
+
+        // Persist new order
+        Task { @MainActor in
+            SessionManager.shared.reorderTabs(tabBarState.tabs.map { $0.worktreeId })
+        }
     }
 
     // MARK: - Process Termination
