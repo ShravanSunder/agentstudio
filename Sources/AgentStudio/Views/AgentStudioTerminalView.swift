@@ -9,14 +9,23 @@ class AgentStudioTerminalView: NSView {
     private var isProcessRunning = false
     private var titleObserver: NSKeyValueObservation?
 
+    /// Custom command to run (e.g., zellij attach). If nil, uses default shell.
+    private let customCommand: String?
+
     /// The current terminal title
     var title: String {
         ghosttySurface?.title ?? worktree.name
     }
 
-    init(worktree: Worktree, project: Project) {
+    /// Initialize with optional custom command (e.g., for Zellij attach)
+    /// - Parameters:
+    ///   - worktree: The worktree this terminal is for
+    ///   - project: The project containing the worktree
+    ///   - command: Optional command to run. If nil, runs default shell.
+    init(worktree: Worktree, project: Project, command: String? = nil) {
         self.worktree = worktree
         self.project = project
+        self.customCommand = command
         super.init(frame: NSRect(x: 0, y: 0, width: 800, height: 600))
 
         // Note: Do NOT set wantsLayer or backgroundColor here
@@ -41,12 +50,19 @@ class AgentStudioTerminalView: NSView {
             return
         }
 
-        // Start an interactive login shell in the worktree directory
-        let shell = getDefaultShell()
+        // Use custom command (e.g., zellij attach) if provided, otherwise default shell
+        let command: String
+        if let customCommand = customCommand {
+            command = customCommand
+            ghosttyLogger.info("Using custom command: \(customCommand)")
+        } else {
+            let shell = getDefaultShell()
+            command = "\(shell) -i -l"
+        }
 
         let config = Ghostty.SurfaceConfiguration(
             workingDirectory: worktree.path.path,
-            command: "\(shell) -i -l"
+            command: command
         )
 
         // Create the Ghostty surface view

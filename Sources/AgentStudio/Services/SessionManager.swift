@@ -23,6 +23,16 @@ final class SessionManager: ObservableObject {
     private let worktrunkService = WorktrunkService.shared
     private let zellijService = ZellijService.shared
 
+    /// Tabs restored from checkpoint, waiting for UI to be ready
+    private var pendingRestoredTabs: [(worktree: Worktree, project: Project)] = []
+
+    /// Get and clear pending restored tabs (call from UI when ready)
+    func drainPendingRestoredTabs() -> [(worktree: Worktree, project: Project)] {
+        let tabs = pendingRestoredTabs
+        pendingRestoredTabs = []
+        return tabs
+    }
+
     // MARK: - Initialization
 
     private init() {
@@ -60,6 +70,72 @@ final class SessionManager: ObservableObject {
            let state = try? JSONDecoder().decode(AppState.self, from: data) {
             self.openTabs = state.openTabs
             self.activeTabId = state.activeTabId
+        }
+
+        // Validate and fix any state inconsistencies
+        validateAndReconcileState()
+    }
+
+    /// Validate and reconcile state between openTabs and worktree.isOpen flags
+    /// Fixes inconsistencies caused by crashes or interrupted saves
+    private func validateAndReconcileState() {
+        var stateChanged = false
+
+        // Step 1: Remove orphan tabs (tabs referencing non-existent worktrees)
+        let tabCountBefore = openTabs.count
+        openTabs.removeAll { tab in
+            let worktreeExists = projects.contains { project in
+                project.id == tab.projectId && project.worktrees.contains { $0.id == tab.worktreeId }
+            }
+            if !worktreeExists {
+                logger.warning("Removing orphan tab for worktree \(tab.worktreeId)")
+            }
+            return !worktreeExists
+        }
+        if openTabs.count != tabCountBefore {
+            stateChanged = true
+        }
+
+        // Step 2: Reconcile worktree.isOpen with openTabs presence
+        let openWorktreeIds = Set(openTabs.map(\.worktreeId))
+
+        for i in projects.indices {
+            for j in projects[i].worktrees.indices {
+                let worktreeId = projects[i].worktrees[j].id
+                let shouldBeOpen = openWorktreeIds.contains(worktreeId)
+                let currentlyOpen = projects[i].worktrees[j].isOpen
+
+                if currentlyOpen != shouldBeOpen {
+                    logger.warning("Fixing isOpen for worktree \(worktreeId): was \(currentlyOpen), should be \(shouldBeOpen)")
+                    projects[i].worktrees[j].isOpen = shouldBeOpen
+                    stateChanged = true
+                }
+            }
+        }
+
+        // Step 3: Validate activeTabId references a valid tab
+        if let activeId = activeTabId {
+            if !openTabs.contains(where: { $0.id == activeId }) {
+                logger.warning("activeTabId \(activeId) references non-existent tab, resetting")
+                activeTabId = openTabs.first?.id
+                stateChanged = true
+            }
+        }
+
+        // Step 4: Re-order tabs if needed
+        for i in openTabs.indices {
+            if openTabs[i].order != i {
+                openTabs[i].order = i
+                stateChanged = true
+            }
+        }
+
+        // Save fixes if any changes were made
+        if stateChanged {
+            logger.info("State reconciliation complete, saving fixed state")
+            save()
+        } else {
+            logger.debug("State validation passed, no fixes needed")
         }
     }
 
@@ -134,12 +210,15 @@ final class SessionManager: ObservableObject {
     }
 
     /// Merge existing worktree state with newly discovered worktrees
+    /// NOTE: isOpen is NOT preserved here - it will be reconciled by validateAndReconcileState()
     private func mergeWorktrees(existing: [Worktree], discovered: [Worktree]) -> [Worktree] {
         return discovered.map { newWorktree in
-            // Preserve existing state (isOpen, agent, etc.) if this worktree existed before
+            // Preserve existing state (agent, status, etc.) if this worktree existed before
+            // isOpen is deliberately NOT preserved - it will be set based on actual openTabs
             if let existingWorktree = existing.first(where: { $0.path == newWorktree.path }) {
                 var merged = newWorktree
-                merged.isOpen = existingWorktree.isOpen
+                // Keep isOpen = false; validateAndReconcileState() will set it based on openTabs
+                merged.isOpen = false
                 merged.agent = existingWorktree.agent
                 merged.status = existingWorktree.status
                 merged.lastOpened = existingWorktree.lastOpened
@@ -307,35 +386,52 @@ final class SessionManager: ObservableObject {
             logger.info("Restoring \(checkpoint.sessions.count) sessions from checkpoint")
 
             for sessionData in checkpoint.sessions {
-                // Skip if session already running (Zellij may have resurrected it)
-                if await zellijService.sessionExists(sessionData.id) {
-                    logger.info("Session \(sessionData.id) already running, skipping")
-                    continue
-                }
-
                 // Find project
                 guard let project = projects.first(where: { $0.id == sessionData.projectId }) else {
                     logger.warning("Project \(sessionData.projectId) not found, skipping session")
                     continue
                 }
 
-                // Recreate session
-                let session = try await zellijService.createSession(for: project)
+                // Check if session already running (Zellij may have resurrected it)
+                let session: ZellijSession
+                if await zellijService.sessionExists(sessionData.id) {
+                    logger.info("Session \(sessionData.id) already running, reattaching")
+                    // Reattach to existing session
+                    session = ZellijSession(id: sessionData.id, projectId: project.id, displayName: sessionData.displayName)
+                    zellijService.registerSession(session)
+                } else {
+                    // Recreate session
+                    session = try await zellijService.createSession(for: project)
+                }
 
-                // Recreate tabs
+                // Restore tabs from checkpoint
                 for tabData in sessionData.tabs {
                     guard let worktree = project.worktrees.first(where: { $0.id == tabData.worktreeId }) else {
                         logger.warning("Worktree \(tabData.worktreeId) not found, skipping tab")
                         continue
                     }
 
-                    var tab = try await zellijService.createTab(in: session, for: worktree)
-                    tab.restoreCommand = tabData.restoreCommand
+                    // Check if tab already exists in Zellij
+                    let existingTabs = try await zellijService.getTabNames(for: session)
+                    if existingTabs.contains(tabData.name) {
+                        // Tab exists, just register it in our model
+                        let workingDirURL = URL(fileURLWithPath: tabData.workingDirectory)
+                        let tab = ZellijTab(id: tabData.id, name: tabData.name, worktreeId: worktree.id, workingDirectory: workingDirURL)
+                        zellijService.registerTab(tab, in: session)
+                        logger.info("Reattached to existing tab '\(tabData.name)' in session \(session.id)")
 
-                    // Re-run command if specified
-                    if let cmd = tabData.restoreCommand, !cmd.isEmpty {
-                        try await zellijService.sendText(cmd + "\n", to: session)
-                        logger.info("Re-executed command '\(cmd)' in tab \(tab.name)")
+                        // Queue tab for UI to open later
+                        pendingRestoredTabs.append((worktree: worktree, project: project))
+                    } else {
+                        // Tab doesn't exist, create it
+                        var tab = try await zellijService.createTab(in: session, for: worktree)
+                        tab.restoreCommand = tabData.restoreCommand
+
+                        // Re-run command if specified
+                        if let cmd = tabData.restoreCommand, !cmd.isEmpty {
+                            try await zellijService.sendText(cmd + "\n", to: session)
+                            logger.info("Re-executed command '\(cmd)' in tab \(tab.name)")
+                        }
                     }
                 }
             }
@@ -355,13 +451,12 @@ final class SessionManager: ObservableObject {
             logger.error("Failed to setup Zellij configs: \(error)")
         }
 
-        // Check for running sessions or restore from checkpoint
+        // Discover running sessions
         let runningSessions = await zellijService.discoverSessions()
-        if runningSessions.isEmpty {
-            logger.info("No running sessions found, restoring from checkpoint")
-            await restoreFromCheckpoint()
-        } else {
-            logger.info("Found \(runningSessions.count) running sessions")
-        }
+        logger.info("Found \(runningSessions.count) running sessions")
+
+        // Always restore from checkpoint to recreate UI tabs
+        // (even if Zellij sessions are running, we need the tab info)
+        await restoreFromCheckpoint()
     }
 }

@@ -11,17 +11,17 @@ class AppDelegate: NSObject, NSApplicationDelegate {
         // Check for worktrunk dependency
         checkWorktrunkInstallation()
 
-        // Initialize Zellij session management
+        // Set up main menu (sync)
+        setupMainMenu()
+
+        // Initialize Zellij session management, then show window
         Task { @MainActor in
             await SessionManager.shared.initializeZellij()
+
+            // Create and show main window AFTER Zellij is initialized
+            mainWindowController = MainWindowController()
+            mainWindowController?.showWindow(nil)
         }
-
-        // Create main window
-        mainWindowController = MainWindowController()
-        mainWindowController?.showWindow(nil)
-
-        // Set up main menu
-        setupMainMenu()
     }
 
     // MARK: - Dependency Check
@@ -87,10 +87,9 @@ class AppDelegate: NSObject, NSApplicationDelegate {
     func applicationWillTerminate(_ notification: Notification) {
         // Save state and Zellij checkpoint before quitting
         // Note: Zellij sessions are NOT killed - they persist for reconnection
-        Task { @MainActor in
-            SessionManager.shared.save()
-            SessionManager.shared.saveCheckpoint()
-        }
+        // Must be synchronous - async Task won't complete before app exits
+        SessionManager.shared.save()
+        SessionManager.shared.saveCheckpoint()
     }
 
     func applicationSupportsSecureRestorableState(_ app: NSApplication) -> Bool {

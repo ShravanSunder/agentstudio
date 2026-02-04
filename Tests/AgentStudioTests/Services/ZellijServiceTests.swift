@@ -213,6 +213,100 @@ struct ZellijServiceTests {
 
         #expect(installed == false)
     }
+
+    // MARK: - Timeout Tests
+
+    @Test("Create session throws timeout error when Zellij hangs")
+    @MainActor
+    func createSessionTimeout() async throws {
+        let executor = MockProcessExecutor()
+        executor.mockSuccess("list-sessions", stdout: "")
+        // Simulate attach command that takes longer than timeout (10s)
+        executor.mockTimeout("attach", delay: 15.0)
+
+        let service = ZellijService(executor: executor)
+        let project = Project(
+            name: "timeout-project",
+            repoPath: URL(fileURLWithPath: "/tmp/timeout"),
+            worktrees: []
+        )
+
+        // Should throw ZellijError.timeout
+        await #expect(throws: ZellijError.self) {
+            try await service.createSession(for: project)
+        }
+    }
+
+    @Test("Session exists returns false on timeout (safe fallback)")
+    @MainActor
+    func sessionExistsTimeoutFallback() async {
+        let executor = MockProcessExecutor()
+        // Simulate list-sessions that takes longer than timeout (5s)
+        executor.mockTimeout("list-sessions", delay: 10.0)
+
+        let service = ZellijService(executor: executor)
+        let exists = await service.sessionExists("agentstudio--test")
+
+        // Should return false as safe fallback when timed out
+        #expect(exists == false)
+    }
+
+    @Test("Discover sessions returns empty on timeout (safe fallback)")
+    @MainActor
+    func discoverSessionsTimeoutFallback() async {
+        let executor = MockProcessExecutor()
+        // Simulate list-sessions that takes longer than timeout (5s)
+        executor.mockTimeout("list-sessions", delay: 10.0)
+
+        let service = ZellijService(executor: executor)
+        let sessions = await service.discoverSessions()
+
+        // Should return empty array as safe fallback
+        #expect(sessions.isEmpty)
+    }
+
+    @Test("Create tab throws timeout error when Zellij hangs")
+    @MainActor
+    func createTabTimeout() async throws {
+        let executor = MockProcessExecutor()
+        executor.mockSuccess("list-sessions", stdout: "")
+        executor.mockSuccess("attach", stdout: "")
+        // Simulate new-tab command that takes longer than timeout (10s)
+        executor.mockTimeout("action new-tab", delay: 15.0)
+
+        let service = ZellijService(executor: executor)
+        let project = Project(
+            name: "tab-timeout-project",
+            repoPath: URL(fileURLWithPath: "/tmp/tab-timeout"),
+            worktrees: []
+        )
+
+        let session = try await service.createSession(for: project)
+        let worktree = Worktree(
+            name: "worktree",
+            path: URL(fileURLWithPath: "/tmp/worktree"),
+            branch: "feature-branch"
+        )
+
+        // Should throw ZellijError.timeout
+        await #expect(throws: ZellijError.self) {
+            try await service.createTab(in: session, for: worktree)
+        }
+    }
+
+    @Test("isZellijInstalled returns false on timeout")
+    @MainActor
+    func zellijInstalledTimeout() async {
+        let executor = MockProcessExecutor()
+        // Simulate which command that times out
+        executor.mockTimeout("which zellij", delay: 10.0)
+
+        let service = ZellijService(executor: executor)
+        let installed = await service.isZellijInstalled()
+
+        // Should return false when timed out
+        #expect(installed == false)
+    }
 }
 
 @Suite("ZellijService Integration Tests")

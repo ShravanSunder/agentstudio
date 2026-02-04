@@ -214,10 +214,49 @@ class TerminalTabViewController: NSViewController {
             return
         }
 
-        // Create new terminal
+        // Get Zellij attach command asynchronously, then create terminal
+        Task { @MainActor in
+            let command = await getZellijAttachCommand(for: worktree, in: project)
+            createTerminal(for: worktree, in: project, command: command)
+        }
+    }
+
+    /// Get Zellij attach command for session persistence
+    private func getZellijAttachCommand(for worktree: Worktree, in project: Project) async -> String? {
+        do {
+            // Create Zellij session and tab for this worktree
+            let session = try await SessionManager.shared.getOrCreateSession(for: project)
+            _ = try await SessionManager.shared.getOrCreateTab(in: session, for: worktree)
+            let command = ZellijService.shared.attachCommand(for: session)
+            return command
+        } catch let error as ZellijError {
+            // Handle specific Zellij errors with appropriate logging
+            switch error {
+            case .timeout(let operation):
+                ghosttyLogger.error("Zellij operation timed out: \(operation). Falling back to shell.")
+            case .notInstalled:
+                ghosttyLogger.warning("Zellij is not installed. Using default shell.")
+            default:
+                ghosttyLogger.error("Zellij error: \(error.localizedDescription). Falling back to shell.")
+            }
+            return nil
+        } catch {
+            // Fall back to regular shell if any other error occurs
+            ghosttyLogger.error("Failed to setup Zellij session: \(error). Falling back to shell.")
+            return nil
+        }
+    }
+
+    /// Create the terminal view with optional custom command
+    private func createTerminal(for worktree: Worktree, in project: Project, command: String?) {
+        // Double-check we didn't create it while waiting for Zellij
+        guard terminals[worktree.id] == nil else { return }
+
+        // Create new terminal with Zellij attach command (or nil for default shell)
         let terminalView = AgentStudioTerminalView(
             worktree: worktree,
-            project: project
+            project: project,
+            command: command
         )
         terminalView.translatesAutoresizingMaskIntoConstraints = false
         terminals[worktree.id] = terminalView

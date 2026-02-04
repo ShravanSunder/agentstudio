@@ -35,6 +35,16 @@ class MainSplitViewController: NSSplitViewController {
 
         // Set up notification observers
         setupNotificationObservers()
+
+        // Open any tabs restored from checkpoint
+        Task { @MainActor in
+            // Small delay to ensure TerminalTabViewController is fully ready
+            try? await Task.sleep(for: .milliseconds(100))
+            let restoredTabs = SessionManager.shared.drainPendingRestoredTabs()
+            for (worktree, project) in restoredTabs {
+                terminalTabViewController?.openTerminal(for: worktree, in: project)
+            }
+        }
     }
 
     // MARK: - Notification Observers
