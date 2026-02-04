@@ -1,0 +1,14 @@
+// Agent Studio: Invisible Zellij Configuration
+// All keys pass through, no visible UI chrome
+
+default_mode "locked"
+keybinds clear-defaults=true { }
+pane_frames false
+simplified_ui true
+show_startup_tips false
+show_release_notes false
+session_serialization true
+serialize_pane_viewport true
+scrollback_lines_to_serialize 10000
+mouse_mode false
+scroll_buffer_size 50000

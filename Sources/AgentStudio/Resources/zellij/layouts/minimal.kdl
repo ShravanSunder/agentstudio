@@ -1,0 +1,4 @@
+// Minimal layout - single pane, no bars
+layout {
+    pane
+}

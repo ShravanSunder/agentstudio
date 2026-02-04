@@ -11,6 +11,11 @@ class AppDelegate: NSObject, NSApplicationDelegate {
         // Check for worktrunk dependency
         checkWorktrunkInstallation()
 
+        // Initialize Zellij session management
+        Task { @MainActor in
+            await SessionManager.shared.initializeZellij()
+        }
+
         // Create main window
         mainWindowController = MainWindowController()
         mainWindowController?.showWindow(nil)
@@ -80,9 +85,11 @@ class AppDelegate: NSObject, NSApplicationDelegate {
     }
 
     func applicationWillTerminate(_ notification: Notification) {
-        // Save state before quitting
+        // Save state and Zellij checkpoint before quitting
+        // Note: Zellij sessions are NOT killed - they persist for reconnection
         Task { @MainActor in
             SessionManager.shared.save()
+            SessionManager.shared.saveCheckpoint()
         }
     }
 
