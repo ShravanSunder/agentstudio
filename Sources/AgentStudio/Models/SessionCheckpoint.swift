@@ -35,6 +35,7 @@ struct SessionCheckpoint: Codable, Sendable {
         let id: String
         let projectId: UUID
         let displayName: String
+        let repoPath: String?
         let tabs: [TabData]
         let lastKnownAlive: Date?
 
@@ -42,12 +43,14 @@ struct SessionCheckpoint: Codable, Sendable {
             id: String,
             projectId: UUID,
             displayName: String,
+            repoPath: String? = nil,
             tabs: [TabData],
             lastKnownAlive: Date? = nil
         ) {
             self.id = id
             self.projectId = projectId
             self.displayName = displayName
+            self.repoPath = repoPath
             self.tabs = tabs
             self.lastKnownAlive = lastKnownAlive
         }
@@ -99,19 +102,20 @@ struct SessionCheckpoint: Codable, Sendable {
         self.version = Self.currentVersion
         self.timestamp = Date()
         self.zellijSocketDir = nil
-        self.sessions = sessions.enumerated().map { (sessionIndex, session) in
+        self.sessions = sessions.map { session in
             SessionData(
                 id: session.id,
                 projectId: session.projectId,
                 displayName: session.displayName,
-                tabs: session.tabs.enumerated().map { (tabIndex, tab) in
+                repoPath: nil, // Legacy sessions don't have repoPath
+                tabs: session.tabs.map { tab in
                     TabData(
                         id: tab.id,
                         name: tab.name,
                         worktreeId: tab.worktreeId,
                         workingDirectory: tab.workingDirectory.path,
                         restoreCommand: tab.restoreCommand,
-                        order: tabIndex
+                        order: tab.id // Use tab id as order for legacy
                     )
                 },
                 lastKnownAlive: Date()
@@ -130,23 +134,24 @@ struct SessionCheckpoint: Codable, Sendable {
 
         // Handle v1 → v2 migration
         if version < 2 {
-            // v1 format: no zellijSocketDir, no order, no lastKnownAlive
+            // v1 format: no zellijSocketDir, no order, no lastKnownAlive, no repoPath
             self.zellijSocketDir = nil
 
             let v1Sessions = try container.decode([SessionDataV1].self, forKey: .sessions)
-            self.sessions = v1Sessions.enumerated().map { (sessionIndex, v1Session) in
+            self.sessions = v1Sessions.map { v1Session in
                 SessionData(
                     id: v1Session.id,
                     projectId: v1Session.projectId,
                     displayName: v1Session.displayName,
-                    tabs: v1Session.tabs.enumerated().map { (tabIndex, v1Tab) in
+                    repoPath: nil, // Not available in v1
+                    tabs: v1Session.tabs.map { v1Tab in
                         TabData(
                             id: v1Tab.id,
                             name: v1Tab.name,
                             worktreeId: v1Tab.worktreeId,
                             workingDirectory: v1Tab.workingDirectory,
                             restoreCommand: v1Tab.restoreCommand,
-                            order: tabIndex
+                            order: v1Tab.id // Use tab id as order for v1
                         )
                     },
                     lastKnownAlive: nil

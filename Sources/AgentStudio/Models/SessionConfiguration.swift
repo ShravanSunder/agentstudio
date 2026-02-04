@@ -242,7 +242,10 @@ final class SessionConfiguration: @unchecked Sendable {
         logger.info("Using default socket directory: \(self.socketDir.path)")
     }
 
-    /// Run a Zellij command and return the result.
+    /// Timeout for detection operations
+    private static let detectionTimeout: TimeInterval = 5.0
+
+    /// Run a Zellij command and return the result with timeout.
     private func runZellijCommand(_ arguments: [String]) async -> (succeeded: Bool, output: String) {
         let process = Process()
         process.executableURL = URL(fileURLWithPath: "/usr/bin/env")
@@ -254,15 +257,33 @@ final class SessionConfiguration: @unchecked Sendable {
 
         do {
             try process.run()
-            process.waitUntilExit()
-
-            let data = pipe.fileHandleForReading.readDataToEndOfFile()
-            let output = String(data: data, encoding: .utf8) ?? ""
-
-            return (process.terminationStatus == 0, output)
         } catch {
             return (false, error.localizedDescription)
         }
+
+        // Run with timeout
+        let timeoutTask = Task {
+            try await Task.sleep(nanoseconds: UInt64(Self.detectionTimeout * 1_000_000_000))
+            if process.isRunning {
+                process.terminate()
+            }
+        }
+
+        // Wait for process in a detached task to avoid blocking
+        let result = await withCheckedContinuation { (continuation: CheckedContinuation<(Bool, String), Never>) in
+            DispatchQueue.global().async {
+                process.waitUntilExit()
+                timeoutTask.cancel()
+
+                let data = pipe.fileHandleForReading.readDataToEndOfFile()
+                let output = String(data: data, encoding: .utf8) ?? ""
+                let succeeded = process.terminationStatus == 0
+
+                continuation.resume(returning: (succeeded, output))
+            }
+        }
+
+        return result
     }
 
     /// Reset detection state (for testing).

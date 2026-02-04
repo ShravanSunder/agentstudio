@@ -24,6 +24,9 @@ final class SessionEntry: Identifiable, @unchecked Sendable {
     /// Display name (usually repo name)
     var displayName: String
 
+    /// Repository path (for session recreation)
+    var repoPath: URL?
+
     /// State machine managing session lifecycle
     let machine: Machine<SessionStatus>
 
@@ -43,10 +46,11 @@ final class SessionEntry: Identifiable, @unchecked Sendable {
 
     // MARK: - Initialization
 
-    init(id: String, projectId: UUID, displayName: String, initialStatus: SessionStatus = .unknown) {
+    init(id: String, projectId: UUID, displayName: String, repoPath: URL? = nil, initialStatus: SessionStatus = .unknown) {
         self.id = id
         self.projectId = projectId
         self.displayName = displayName
+        self.repoPath = repoPath
         self.machine = Machine(initial: initialStatus)
     }
 }
@@ -214,6 +218,7 @@ final class SessionRegistry: @unchecked Sendable {
             id: handle.id,
             projectId: handle.projectId,
             displayName: handle.displayName,
+            repoPath: project.repoPath,
             initialStatus: .alive
         )
 
@@ -390,7 +395,7 @@ final class SessionRegistry: @unchecked Sendable {
 
     /// Save checkpoint to disk.
     func saveCheckpoint() {
-        guard backend?.supportsRestore == true else { return }
+        guard backend != nil else { return }
 
         let sessionsData = sessions.values.compactMap { entry -> SessionCheckpoint.SessionData? in
             guard entry.status == .alive else { return nil }
@@ -412,6 +417,7 @@ final class SessionRegistry: @unchecked Sendable {
                 id: entry.id,
                 projectId: entry.projectId,
                 displayName: entry.displayName,
+                repoPath: entry.repoPath?.path,
                 tabs: tabsData,
                 lastKnownAlive: Date()
             )
@@ -470,6 +476,7 @@ final class SessionRegistry: @unchecked Sendable {
                 id: sessionData.id,
                 projectId: sessionData.projectId,
                 displayName: sessionData.displayName,
+                repoPath: sessionData.repoPath.map { URL(fileURLWithPath: $0) },
                 initialStatus: .unknown
             )
 
@@ -544,11 +551,23 @@ final class SessionRegistry: @unchecked Sendable {
 
         case .createSession(let sessionId, let projectId):
             do {
-                // We need project info - for now just use what we have
+                // Use stored repoPath or fall back to first tab's workingDirectory
+                let repoPath: URL
+                if let storedPath = entry.repoPath {
+                    repoPath = storedPath
+                } else if let firstTab = entry.tabs.values.first {
+                    repoPath = URL(fileURLWithPath: firstTab.workingDirectory)
+                } else {
+                    throw SessionBackendError.operationFailed(
+                        operation: "createSession",
+                        reason: "No repoPath available for session \(sessionId)"
+                    )
+                }
+
                 let project = Project(
                     id: projectId,
                     name: entry.displayName,
-                    repoPath: URL(fileURLWithPath: "/tmp") // Placeholder
+                    repoPath: repoPath
                 )
                 _ = try await backend.createSession(for: project)
                 await entry.machine.send(.recoverySucceeded(sessionId: sessionId))
@@ -614,8 +633,31 @@ final class SessionRegistry: @unchecked Sendable {
             }
 
         case .createTab(let sessionId, let worktreeId):
-            // This would need the actual worktree - simplified for now
-            logger.info("Tab creation requested for \(worktreeId) in \(sessionId)")
+            guard backend != nil else {
+                await tabEntry.machine.send(.creationFailed(reason: "No backend available"))
+                return
+            }
+
+            // Create a minimal Worktree from tab entry info
+            let worktree = Worktree(
+                id: worktreeId,
+                branch: tabEntry.name,
+                path: URL(fileURLWithPath: tabEntry.workingDirectory),
+                isActive: false
+            )
+
+            let handle = SessionHandle(
+                id: sessionId,
+                projectId: sessionEntry.projectId,
+                displayName: sessionEntry.displayName
+            )
+
+            do {
+                let tabHandle = try await backend.createTab(in: handle, for: worktree)
+                await tabEntry.machine.send(.createSucceeded(tabId: tabHandle.id))
+            } catch {
+                await tabEntry.machine.send(.createFailed(reason: error.localizedDescription))
+            }
 
         case .updateTabId(let tabId):
             tabEntry.id = tabId

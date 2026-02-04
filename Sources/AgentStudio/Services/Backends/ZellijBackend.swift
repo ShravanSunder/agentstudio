@@ -242,8 +242,18 @@ final class ZellijBackend: SessionBackend, @unchecked Sendable {
         }
 
         // Get tab ID by querying tab names (new tab is last)
+        // Note: Zellij tabs are 1-indexed, so count gives the correct ID for the last tab
         let tabNames = try await getTabNames(session)
-        let tabId = tabNames.count
+
+        // If query fails (returns empty), fall back to tab ID 1
+        // This can happen with background sessions - the tab was created but we can't query
+        let tabId: Int
+        if tabNames.isEmpty {
+            logger.warning("Could not query tab names after creation - defaulting to tab 1")
+            tabId = 1
+        } else {
+            tabId = tabNames.count
+        }
 
         logger.info("Created tab '\(worktree.branch)' (id: \(tabId)) in session \(session.id)")
 
