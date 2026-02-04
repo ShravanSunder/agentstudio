@@ -8,6 +8,13 @@ class AppDelegate: NSObject, NSApplicationDelegate {
         // Initialize services
         _ = SessionManager.shared
 
+        // Load surface checkpoint (for future restore capability)
+        if let checkpoint = SurfaceManager.shared.loadCheckpoint() {
+            ghosttyLogger.info("Loaded surface checkpoint with \(checkpoint.surfaces.count) surfaces")
+            // Note: Actual surface restoration happens when tabs are opened
+            // The checkpoint is used to restore metadata, not running processes
+        }
+
         // Check for worktrunk dependency
         checkWorktrunkInstallation()
 
@@ -83,6 +90,10 @@ class AppDelegate: NSObject, NSApplicationDelegate {
         // Save state before quitting
         Task { @MainActor in
             SessionManager.shared.save()
+
+            // Save surface checkpoint for potential restore
+            SurfaceManager.shared.saveCheckpoint()
+            ghosttyLogger.info("Saved surface checkpoint on app termination")
         }
     }
 
@@ -138,6 +149,10 @@ class AppDelegate: NSObject, NSApplicationDelegate {
         let editMenu = NSMenu(title: "Edit")
         editMenu.addItem(NSMenuItem(title: "Undo", action: Selector(("undo:")), keyEquivalent: "z"))
         editMenu.addItem(NSMenuItem(title: "Redo", action: Selector(("redo:")), keyEquivalent: "Z"))
+        editMenu.addItem(NSMenuItem.separator())
+        let undoCloseTabItem = NSMenuItem(title: "Undo Close Tab", action: #selector(undoCloseTab), keyEquivalent: "T")
+        undoCloseTabItem.keyEquivalentModifierMask = [.command, .shift]
+        editMenu.addItem(undoCloseTabItem)
         editMenu.addItem(NSMenuItem.separator())
         editMenu.addItem(NSMenuItem(title: "Cut", action: #selector(NSText.cut(_:)), keyEquivalent: "x"))
         editMenu.addItem(NSMenuItem(title: "Copy", action: #selector(NSText.copy(_:)), keyEquivalent: "c"))
@@ -216,6 +231,10 @@ class AppDelegate: NSObject, NSApplicationDelegate {
 
     @objc private func closeTab() {
         NotificationCenter.default.post(name: .closeTabRequested, object: nil)
+    }
+
+    @objc private func undoCloseTab() {
+        NotificationCenter.default.post(name: .undoCloseTabRequested, object: nil)
     }
 
     @objc private func closeWindow() {

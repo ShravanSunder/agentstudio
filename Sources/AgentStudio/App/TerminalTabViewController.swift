@@ -103,6 +103,14 @@ class TerminalTabViewController: NSViewController {
             name: .selectTabById,
             object: nil
         )
+
+        // Listen for undo close tab
+        NotificationCenter.default.addObserver(
+            self,
+            selector: #selector(handleUndoCloseTab),
+            name: .undoCloseTabRequested,
+            object: nil
+        )
     }
 
     @objc private func handleSelectTabById(_ notification: Notification) {
@@ -365,5 +373,61 @@ class TerminalTabViewController: NSViewController {
             return
         }
         closeTerminal(for: worktreeId)
+    }
+
+    // MARK: - Undo Close Tab
+
+    @objc private func handleUndoCloseTab() {
+        guard let restored = SurfaceManager.shared.undoClose() else {
+            ghosttyLogger.info("No tabs to restore")
+            return
+        }
+
+        // Get worktree and project from metadata
+        guard let worktreeId = restored.metadata.worktreeId,
+              let projectId = restored.metadata.projectId,
+              let worktree = SessionManager.shared.worktrees.first(where: { $0.id == worktreeId }),
+              let project = SessionManager.shared.projects.first(where: { $0.id == projectId }) else {
+            ghosttyLogger.warning("Could not find worktree/project for restored surface")
+            // Still destroy the orphan surface
+            SurfaceManager.shared.destroy(restored.id)
+            return
+        }
+
+        // Create terminal view and attach the restored surface
+        let terminalView = AgentStudioTerminalView(worktree: worktree, project: project)
+        terminalView.translatesAutoresizingMaskIntoConstraints = false
+
+        // Attach restored surface to the new terminal view
+        if let surfaceView = SurfaceManager.shared.attach(restored.id, to: terminalView.containerId) {
+            terminalView.displaySurface(surfaceView)
+            terminalView.surfaceId = restored.id
+        }
+
+        terminals[worktree.id] = terminalView
+
+        // Create tab item
+        let tabItem = TabItem(
+            id: UUID(),
+            title: worktree.name,
+            worktreeId: worktree.id
+        )
+        tabItems.append(tabItem)
+        tabToWorktree[tabItem.id] = worktree.id
+
+        // Add terminal to container
+        terminalContainer.addSubview(terminalView)
+        NSLayoutConstraint.activate([
+            terminalView.topAnchor.constraint(equalTo: terminalContainer.topAnchor),
+            terminalView.leadingAnchor.constraint(equalTo: terminalContainer.leadingAnchor),
+            terminalView.trailingAnchor.constraint(equalTo: terminalContainer.trailingAnchor),
+            terminalView.bottomAnchor.constraint(equalTo: terminalContainer.bottomAnchor)
+        ])
+
+        // Select the restored tab
+        selectTab(id: tabItem.id)
+
+        updateEmptyState()
+        ghosttyLogger.info("Restored tab for worktree: \(worktree.name)")
     }
 }
