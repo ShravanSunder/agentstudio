@@ -14,11 +14,16 @@ class AppDelegate: NSObject, NSApplicationDelegate {
         // Set up main menu (sync)
         setupMainMenu()
 
-        // Initialize Zellij session management, then show window
+        // Initialize session management, then show window
         Task { @MainActor in
+            // Initialize new SessionRegistry (skip-discovery architecture)
+            // This detects Zellij, discovers socket dir, and loads checkpoint
+            await SessionRegistry.shared.initialize()
+
+            // Initialize legacy Zellij session management (for backward compatibility)
             await SessionManager.shared.initializeZellij()
 
-            // Create and show main window AFTER Zellij is initialized
+            // Create and show main window AFTER sessions are initialized
             mainWindowController = MainWindowController()
             mainWindowController?.showWindow(nil)
         }
@@ -90,6 +95,12 @@ class AppDelegate: NSObject, NSApplicationDelegate {
         // Must be synchronous - async Task won't complete before app exits
         SessionManager.shared.save()
         SessionManager.shared.saveCheckpoint()
+
+        // Save new SessionRegistry checkpoint
+        SessionRegistry.shared.saveCheckpoint()
+
+        // Stop health checks
+        SessionRegistry.shared.stopHealthChecks()
     }
 
     func applicationSupportsSecureRestorableState(_ app: NSApplication) -> Bool {

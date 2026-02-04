@@ -593,8 +593,7 @@ final class SessionRegistry: @unchecked Sendable {
             let handle = SessionHandle(
                 id: sessionId,
                 projectId: sessionEntry.projectId,
-                displayName: sessionEntry.displayName,
-                backendType: .zellij
+                displayName: sessionEntry.displayName
             )
 
             do {
@@ -646,8 +645,7 @@ final class SessionRegistry: @unchecked Sendable {
             let handle = SessionHandle(
                 id: entry.id,
                 projectId: entry.projectId,
-                displayName: entry.displayName,
-                backendType: .zellij
+                displayName: entry.displayName
             )
 
             let healthy = await backend.healthCheck(handle)
