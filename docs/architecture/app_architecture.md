@@ -106,7 +106,138 @@ Overriding `hitTest` to claim events creates problems:
 
 See `DraggableTabBarHostingView.swift` for the gesture recognizer pattern applied to tab bar drag-to-reorder.
 
+---
+
+## Surface Management Architecture
+
+Agent Studio embeds Ghostty terminal surfaces via libghostty. The `SurfaceManager` provides a robust lifecycle management layer with crash isolation.
+
+### Architecture Overview
+
+```
+┌─────────────────────────────────────────────────────────────────┐
+│  App                                                            │
+│  - Owns SurfaceManager (singleton)                              │
+│  - Lifecycle: launch → run → quit                               │
+├─────────────────────────────────────────────────────────────────┤
+│  Window                                                         │
+│  - Contains tabs                                                │
+│  - Delegates surface display to tabs                            │
+├─────────────────────────────────────────────────────────────────┤
+│  Tab (Composition)                                              │
+│  - Displays a surface (does NOT own it)                         │
+│  - Requests surface from SurfaceManager                         │
+│  - Returns surface on close                                     │
+├─────────────────────────────────────────────────────────────────┤
+│  SurfaceManager (Always Present)                                │
+│  - OWNS all surfaces                                            │
+│  - Lifecycle: create, attach, detach, hide, undo, destroy       │
+│  - Checkpoints surface CONFIG on quit                           │
+│  - Restores surfaces on launch                                  │
+├─────────────────────────────────────────────────────────────────┤
+│  Ghostty.SurfaceView                                            │
+│  - Rendering + PTY                                              │
+│  - Dies with app (unless zellij)                                │
+├─────────────────────────────────────────────────────────────────┤
+│  SessionService (Optional - if zellij exists)                   │
+│  - Surface runs: zellij attach <session>                        │
+│  - PTY ownership moves to zellij server                         │
+│  - Survives app quit                                            │
+└─────────────────────────────────────────────────────────────────┘
+```
+
+### Surface States
+
+| State | Description | Rendering | PTY |
+|-------|-------------|-----------|-----|
+| **Active** | Attached to visible container | Enabled | Alive |
+| **Hidden** | Detached, no container | Paused (occlusion) | Alive |
+| **PendingUndo** | In undo stack with TTL | Paused | Alive |
+| **Destroyed** | ARC released | N/A | Freed |
+
+### Crash Isolation Design
+
+**Goal:** One terminal crash must NEVER bring down the app.
+
+```
+╔══════════════════════════════════════════════════════════════════╗
+║  CRASH ISOLATION STRATEGY                                        ║
+╠══════════════════════════════════════════════════════════════════╣
+║                                                                  ║
+║  1. PREVENTION                                                   ║
+║     - Defensive API wrappers (withSurface)                       ║
+║     - Validate surface pointers before use                       ║
+║     - Retry surface creation on failure                          ║
+║                                                                  ║
+║  2. DETECTION                                                    ║
+║     - Subscribe to Ghostty health notifications                  ║
+║     - Periodic health checks (timer-based)                       ║
+║     - Check process exit status                                  ║
+║                                                                  ║
+║  3. RECOVERY                                                     ║
+║     - Show error overlay in affected tab only                    ║
+║     - Offer restart button                                       ║
+║     - Other tabs continue working                                ║
+║                                                                  ║
+║  LIMITATION: Zig panics on main thread WILL crash the app.       ║
+║  We minimize this risk but can't eliminate it without IPC.       ║
+╚══════════════════════════════════════════════════════════════════╝
+```
+
+### Decision Matrix: Session Persistence
+
+| Approach | Process Survives Quit | Complexity | When to Use |
+|----------|----------------------|------------|-------------|
+| **Pure Ghostty** | No | Low | Quick terminals, dev tools |
+| **Zellij Integration** | Yes | Medium | Long-running tasks (Claude) |
+| **Process Isolation (XPC)** | Yes | High | Future consideration |
+
+### Key APIs
+
+| API | Purpose |
+|-----|---------|
+| `SurfaceManager.createSurface()` | Create with retry and error handling |
+| `SurfaceManager.attach(to:)` | Attach to container, resume rendering |
+| `SurfaceManager.detach(reason:)` | Hide, close (undo-able), or move |
+| `SurfaceManager.undoClose()` | Restore last closed surface |
+| `SurfaceManager.withSurface()` | Safe operation wrapper |
+| `ghostty_surface_set_occlusion()` | Pause/resume rendering |
+| `ghostty_surface_process_exited()` | Check if shell has exited |
+| `ghostty_surface_needs_confirm_quit()` | Check if process is running |
+
+### Health Monitoring
+
+Ghostty provides renderer health notifications. SurfaceManager subscribes to these and performs periodic health checks:
+
+```swift
+// Health states
+enum SurfaceHealth {
+    case healthy
+    case unhealthy(reason: UnhealthyReason)
+    case processExited(exitCode: Int32?)
+    case dead  // Surface pointer is nil/invalid
+}
+
+// Detection
+- Ghostty.Notification.didUpdateRendererHealth
+- Periodic check: ghostty_surface_process_exited()
+- Surface pointer validation
+```
+
+### Files
+
+| File | Purpose |
+|------|---------|
+| `Ghostty/SurfaceManager.swift` | Lifecycle management, health monitoring |
+| `Ghostty/SurfaceTypes.swift` | Types, protocols, checkpoints |
+| `Ghostty/Ghostty.swift` | App wrapper, notifications |
+| `Ghostty/GhosttySurfaceView.swift` | Surface view, input handling |
+| `Views/SurfaceErrorOverlay.swift` | Error state UI |
+
+---
+
 ## Key Resources
 - **WWDC22**: [Use SwiftUI with AppKit](https://developer.apple.com/videos/play/wwdc2022/10075/) (Essential for layout/sizing patterns)
 - **WWDC19**: [Integrating SwiftUI](https://developer.apple.com/videos/play/wwdc2019/231/) (Foundational hosting concepts)
 - **SwiftUI Lab**: [The Power of the Hosting+Representable Combo](https://swiftui-lab.com/a-powerful-combo/)
+- **Ghostty**: [ghostty-org/ghostty](https://github.com/ghostty-org/ghostty) (Terminal emulator source)
