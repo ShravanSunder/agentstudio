@@ -30,6 +30,11 @@ let package = Package(
                 .linkedLibrary("c++")
             ]
         ),
+        .testTarget(
+            name: "AgentStudioTests",
+            dependencies: ["AgentStudio"],
+            path: "Tests/AgentStudioTests"
+        ),
         .binaryTarget(
             name: "GhosttyKit",
             path: "Frameworks/GhosttyKit.xcframework"
