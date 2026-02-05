@@ -1,11 +1,15 @@
 import AppKit
 import SwiftUI
+import UniformTypeIdentifiers
 
 // MARK: - Pasteboard Type
 
 extension NSPasteboard.PasteboardType {
-    // Use a simple string identifier instead of UTType to avoid Info.plist requirement
-    static let agentStudioTab = NSPasteboard.PasteboardType("com.agentstudio.tab.internal")
+    // Internal tab reordering within tab bar
+    static let agentStudioTabInternal = NSPasteboard.PasteboardType("com.agentstudio.tab.internal")
+
+    // For SwiftUI drop compatibility (matches UTType.agentStudioTab)
+    static let agentStudioTabDrop = NSPasteboard.PasteboardType(UTType.agentStudioTab.identifier)
 }
 
 // MARK: - Draggable Tab Bar Container
@@ -52,8 +56,8 @@ class DraggableTabBarHostingView: NSView, NSDraggingSource {
             hostingView.bottomAnchor.constraint(equalTo: bottomAnchor)
         ])
 
-        // Register as drag destination
-        registerForDraggedTypes([.agentStudioTab])
+        // Register as drag destination for both internal and drop formats
+        registerForDraggedTypes([.agentStudioTabInternal, .agentStudioTabDrop])
 
         // Set up pan gesture recognizer for drag detection
         panGesture = NSPanGestureRecognizer(target: self, action: #selector(handlePan(_:)))
@@ -165,9 +169,24 @@ class DraggableTabBarHostingView: NSView, NSDraggingSource {
         // Update state to show drag visual immediately
         tabBarState?.draggingTabId = tabId
 
-        // Create pasteboard item
+        // Create pasteboard item with both formats
         let pasteboardItem = NSPasteboardItem()
-        pasteboardItem.setString(tabId.uuidString, forType: .agentStudioTab)
+
+        // Internal format for tab bar reordering
+        pasteboardItem.setString(tabId.uuidString, forType: .agentStudioTabInternal)
+
+        // SwiftUI-compatible format for terminal split drops
+        if let tab = tabBarState?.tabs.first(where: { $0.id == tabId }) {
+            let payload = TabDragPayload(
+                tabId: tabId,
+                worktreeId: tab.primaryWorktreeId,
+                projectId: tab.primaryProjectId,
+                title: tab.title
+            )
+            if let payloadData = try? JSONEncoder().encode(payload) {
+                pasteboardItem.setData(payloadData, forType: .agentStudioTabDrop)
+            }
+        }
 
         // Create dragging item
         let draggingItem = NSDraggingItem(pasteboardWriter: pasteboardItem)
@@ -244,7 +263,7 @@ class DraggableTabBarHostingView: NSView, NSDraggingSource {
     // MARK: - NSDraggingDestination
 
     override func draggingEntered(_ sender: NSDraggingInfo) -> NSDragOperation {
-        guard sender.draggingPasteboard.types?.contains(.agentStudioTab) == true else {
+        guard sender.draggingPasteboard.types?.contains(.agentStudioTabInternal) == true else {
             return []
         }
 
@@ -264,7 +283,7 @@ class DraggableTabBarHostingView: NSView, NSDraggingSource {
     }
 
     override func performDragOperation(_ sender: NSDraggingInfo) -> Bool {
-        guard let idString = sender.draggingPasteboard.string(forType: .agentStudioTab),
+        guard let idString = sender.draggingPasteboard.string(forType: .agentStudioTabInternal),
               let tabId = UUID(uuidString: idString),
               let targetIndex = tabBarState?.dropTargetIndex else {
             return false

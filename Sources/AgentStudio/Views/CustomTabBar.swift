@@ -1,13 +1,63 @@
 import SwiftUI
 import AppKit
+import UniformTypeIdentifiers
 
 /// Represents a single tab in the tab bar
-/// Designed to be extensible for future pane support
+/// Supports split panes via SplitTree
 struct TabItem: Identifiable, Equatable {
     let id: UUID
     var title: String
-    var worktreeId: UUID
-    // Future: var panes: [PaneItem] for split support
+    var primaryWorktreeId: UUID   // Primary worktree (for backwards compat)
+    var primaryProjectId: UUID    // Primary project
+    var splitTree: TerminalSplitTree  // Pane arrangement
+    var activePaneId: UUID?       // Currently focused pane
+
+    /// Legacy initializer for single-pane tabs
+    init(id: UUID = UUID(), title: String, worktreeId: UUID, projectId: UUID) {
+        self.id = id
+        self.title = title
+        self.primaryWorktreeId = worktreeId
+        self.primaryProjectId = projectId
+
+        // Create single-pane split tree
+        let pane = TerminalPaneView(
+            id: UUID(),
+            worktreeId: worktreeId,
+            projectId: projectId,
+            title: title
+        )
+        self.splitTree = TerminalSplitTree(view: pane)
+        self.activePaneId = pane.id
+    }
+
+    /// Full initializer with split tree
+    init(id: UUID = UUID(), title: String, primaryWorktreeId: UUID, primaryProjectId: UUID, splitTree: TerminalSplitTree, activePaneId: UUID?) {
+        self.id = id
+        self.title = title
+        self.primaryWorktreeId = primaryWorktreeId
+        self.primaryProjectId = primaryProjectId
+        self.splitTree = splitTree
+        self.activePaneId = activePaneId
+    }
+
+    /// Get all pane IDs in this tab
+    var allPaneIds: [UUID] {
+        splitTree.allViews.map { $0.id }
+    }
+
+    /// Check if this tab has splits
+    var isSplit: Bool {
+        splitTree.isSplit
+    }
+
+    /// Concatenated title for split tabs (e.g., "Tab1 | Tab2")
+    var displayTitle: String {
+        let titles = splitTree.allViews.map { $0.title }
+        if titles.count > 1 {
+            return titles.joined(separator: " | ")
+        }
+        return title
+    }
 }
 
 /// Observable state for the tab bar
@@ -143,11 +193,11 @@ struct TabPillView: View {
 
     private var tabContent: some View {
         HStack(spacing: 6) {
-            Image(systemName: "terminal")
+            Image(systemName: tab.isSplit ? "square.split.2x1" : "terminal")
                 .font(.system(size: 11))
                 .foregroundStyle(isActive ? .primary : .secondary)
 
-            Text(tab.title)
+            Text(tab.displayTitle)
                 .font(.system(size: 12))
                 .lineLimit(1)
                 .foregroundStyle(isActive ? .primary : .secondary)
@@ -225,8 +275,8 @@ struct CustomTabBar_Previews: PreviewProvider {
     static var previews: some View {
         let state = TabBarState()
         state.tabs = [
-            TabItem(id: UUID(), title: "master", worktreeId: UUID()),
-            TabItem(id: UUID(), title: "feature-branch", worktreeId: UUID()),
+            TabItem(id: UUID(), title: "master", worktreeId: UUID(), projectId: UUID()),
+            TabItem(id: UUID(), title: "feature-branch", worktreeId: UUID(), projectId: UUID()),
         ]
 
         return VStack(spacing: 0) {

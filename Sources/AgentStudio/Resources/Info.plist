@@ -24,5 +24,32 @@
     <string>14.0</string>
     <key>NSHighResolutionCapable</key>
     <true/>
+    <key>UTExportedTypeDeclarations</key>
+    <array>
+        <dict>
+            <key>UTTypeIdentifier</key>
+            <string>com.agentstudio.tab</string>
+            <key>UTTypeDescription</key>
+            <string>Agent Studio Tab</string>
+            <key>UTTypeConformsTo</key>
+            <array>
+                <string>public.data</string>
+            </array>
+            <key>UTTypeTagSpecification</key>
+            <dict/>
+        </dict>
+        <dict>
+            <key>UTTypeIdentifier</key>
+            <string>com.agentstudio.newtab</string>
+            <key>UTTypeDescription</key>
+            <string>Agent Studio New Tab</string>
+            <key>UTTypeConformsTo</key>
+            <array>
+                <string>public.data</string>
+            </array>
+            <key>UTTypeTagSpecification</key>
+            <dict/>
+        </dict>
+    </array>
 </dict>
 </plist>
