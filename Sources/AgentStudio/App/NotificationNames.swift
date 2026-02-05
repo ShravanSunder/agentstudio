@@ -6,6 +6,7 @@ extension Notification.Name {
     // Tab management
     static let newTabRequested = Notification.Name("newTabRequested")
     static let closeTabRequested = Notification.Name("closeTabRequested")
+    static let undoCloseTabRequested = Notification.Name("undoCloseTabRequested")
     static let selectTabAtIndex = Notification.Name("selectTabAtIndex")
     static let selectTabById = Notification.Name("selectTabById")
 

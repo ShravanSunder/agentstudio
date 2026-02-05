@@ -5,6 +5,21 @@ import Combine
 import QuartzCore
 
 extension Ghostty {
+    /// Errors that can occur during surface creation
+    enum SurfaceCreationError: Error, LocalizedError {
+        case failedToCreate
+        case appNotInitialized
+
+        var errorDescription: String? {
+            switch self {
+            case .failedToCreate:
+                return "Failed to create terminal surface"
+            case .appNotInitialized:
+                return "Ghostty app not initialized"
+            }
+        }
+    }
+
     /// Configuration for creating a new surface
     struct SurfaceConfiguration {
         var workingDirectory: String?
@@ -40,6 +55,22 @@ extension Ghostty {
 
         /// Content size for the terminal (may differ from frame during resize)
         private var contentSize: NSSize = .zero
+
+        /// Health state of the renderer (for crash isolation)
+        private(set) var healthy: Bool = true {
+            didSet {
+                if healthy != oldValue {
+                    NotificationCenter.default.post(
+                        name: Ghostty.Notification.didUpdateRendererHealth,
+                        object: self,
+                        userInfo: ["healthy": healthy]
+                    )
+                }
+            }
+        }
+
+        /// Any error during surface initialization
+        private(set) var error: Error?
 
         // MARK: - Initialization
 
@@ -90,6 +121,8 @@ extension Ghostty {
 
             if self.surface == nil {
                 ghosttyLogger.error("Failed to create ghostty surface")
+                self.error = SurfaceCreationError.failedToCreate
+                self.healthy = false
             } else {
                 ghosttyLogger.info("Ghostty surface created successfully")
                 // Set initial size using backing coordinates
