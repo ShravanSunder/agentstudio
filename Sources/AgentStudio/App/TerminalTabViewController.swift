@@ -300,6 +300,63 @@ class TerminalTabViewController: NSViewController {
         updateEmptyState()
     }
 
+    /// Restore a tab from persisted OpenTab data, including split tree layout
+    func restoreTab(from openTab: OpenTab) {
+        // Try to decode saved split tree
+        if let splitTreeData = openTab.splitTreeData,
+           let savedTree = try? JSONDecoder().decode(TerminalSplitTree.self, from: splitTreeData) {
+            // Restore with saved split layout
+            restoreTabWithTree(openTab: openTab, savedTree: savedTree)
+        } else {
+            // Legacy: single worktree, create fresh
+            guard let worktree = SessionManager.shared.worktree(for: openTab),
+                  let project = SessionManager.shared.project(for: openTab) else {
+                return
+            }
+            openTerminal(for: worktree, in: project)
+        }
+    }
+
+    private func restoreTabWithTree(openTab: OpenTab, savedTree: TerminalSplitTree) {
+        // Create terminal views for each pane in the tree
+        for pane in savedTree.allViews {
+            // Find the worktree and project for this pane
+            guard let project = SessionManager.shared.projects.first(where: { $0.id == pane.projectId }),
+                  let worktree = project.worktrees.first(where: { $0.id == pane.worktreeId }) else {
+                ghosttyLogger.warning("Could not find worktree for pane \(pane.id)")
+                continue
+            }
+
+            // Create terminal view for this pane
+            let terminalView = AgentStudioTerminalView(
+                worktree: worktree,
+                project: project
+            )
+            terminalView.translatesAutoresizingMaskIntoConstraints = false
+            paneViews[pane.id] = terminalView
+        }
+
+        // Get primary worktree info for tab display
+        guard let firstPane = savedTree.allViews.first,
+              let project = SessionManager.shared.projects.first(where: { $0.id == firstPane.projectId }),
+              let worktree = project.worktrees.first(where: { $0.id == firstPane.worktreeId }) else {
+            return
+        }
+
+        // Create tab item with restored split tree
+        let tabItem = TabItem(
+            id: openTab.id,  // Preserve original tab ID
+            title: worktree.name,
+            primaryWorktreeId: worktree.id,
+            primaryProjectId: project.id,
+            splitTree: savedTree,
+            activePaneId: openTab.activePaneId ?? firstPane.id
+        )
+        tabItems.append(tabItem)
+
+        updateEmptyState()
+    }
+
     func closeTerminal(for worktreeId: UUID) {
         // Find the tab containing this worktree
         guard let tabItem = tabItems.first(where: { tab in

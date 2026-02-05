@@ -58,30 +58,45 @@ struct TerminalPaneLeaf: View {
 // MARK: - NSViewRepresentable for Terminal
 
 /// Bridges AgentStudioTerminalView (NSView) into SwiftUI.
+/// Uses Coordinator pattern to maintain a stable container and prevent IOSurface reparenting crashes.
 struct TerminalViewRepresentable: NSViewRepresentable {
     let terminalView: AgentStudioTerminalView
 
+    func makeCoordinator() -> Coordinator {
+        Coordinator(terminalView: terminalView)
+    }
+
     func makeNSView(context: Context) -> NSView {
-        // Create a container that will hold the terminal
-        let container = NSView()
-        container.wantsLayer = true
-
-        // Add terminal as subview
-        terminalView.translatesAutoresizingMaskIntoConstraints = false
-        container.addSubview(terminalView)
-
-        NSLayoutConstraint.activate([
-            terminalView.topAnchor.constraint(equalTo: container.topAnchor),
-            terminalView.leadingAnchor.constraint(equalTo: container.leadingAnchor),
-            terminalView.trailingAnchor.constraint(equalTo: container.trailingAnchor),
-            terminalView.bottomAnchor.constraint(equalTo: container.bottomAnchor)
-        ])
-
-        return container
+        // Return the stable container from coordinator - never create a new one
+        return context.coordinator.container
     }
 
     func updateNSView(_ nsView: NSView, context: Context) {
-        // Terminal updates are handled by the view itself
+        // Terminal is already attached in coordinator, no updates needed
+    }
+
+    class Coordinator {
+        let container: NSView
+
+        init(terminalView: AgentStudioTerminalView) {
+            container = NSView()
+            container.wantsLayer = true
+
+            // Only add once, never reparent
+            // This prevents IOSurface crashes when SwiftUI recreates views
+            if terminalView.superview !== container {
+                terminalView.removeFromSuperview()
+                terminalView.translatesAutoresizingMaskIntoConstraints = false
+                container.addSubview(terminalView)
+
+                NSLayoutConstraint.activate([
+                    terminalView.topAnchor.constraint(equalTo: container.topAnchor),
+                    terminalView.leadingAnchor.constraint(equalTo: container.leadingAnchor),
+                    terminalView.trailingAnchor.constraint(equalTo: container.trailingAnchor),
+                    terminalView.bottomAnchor.constraint(equalTo: container.bottomAnchor)
+                ])
+            }
+        }
     }
 }
 

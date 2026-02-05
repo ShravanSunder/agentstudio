@@ -47,13 +47,9 @@ class MainSplitViewController: NSSplitViewController {
         debugLog("[MainSplitVC] Restoring \(sortedTabs.count) tabs from session")
 
         for tab in sortedTabs {
-            guard let worktree = SessionManager.shared.worktree(for: tab),
-                  let project = SessionManager.shared.project(for: tab) else {
-                continue
-            }
-
-            debugLog("[MainSplitVC] Restoring tab: \(worktree.name)")
-            terminalTabViewController?.openTerminal(for: worktree, in: project)
+            // Use restoreTab which handles split tree restoration
+            debugLog("[MainSplitVC] Restoring tab: \(tab.id) (has splitTree: \(tab.splitTreeData != nil))")
+            terminalTabViewController?.restoreTab(from: tab)
         }
 
         // Select the active tab if it exists
