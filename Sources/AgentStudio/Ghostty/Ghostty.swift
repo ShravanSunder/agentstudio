@@ -163,12 +163,12 @@ extension Ghostty {
             ghostty_app_tick(app)
         }
 
-        @objc private func applicationDidBecomeActive(_ notification: Notification) {
+        @objc private func applicationDidBecomeActive(_ notification: NSNotification) {
             guard let app = app else { return }
             ghostty_app_set_focus(app, true)
         }
 
-        @objc private func applicationDidResignActive(_ notification: Notification) {
+        @objc private func applicationDidResignActive(_ notification: NSNotification) {
             guard let app = app else { return }
             ghostty_app_set_focus(app, false)
         }

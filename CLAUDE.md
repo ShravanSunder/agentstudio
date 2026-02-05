@@ -28,6 +28,13 @@ agent-studio/
 2. Copies `macos/GhosttyKit.xcframework` → `Frameworks/`
 3. `swift build` - Links against xcframework
 
+### Launching the App
+
+**Always launch from the build directory directly:**
+```bash
+.build/release/AgentStudio
+```
+
 ## Development Workflow (CRITICAL)
 
 ### ⚠️ UX-First Approach (MANDATORY)
