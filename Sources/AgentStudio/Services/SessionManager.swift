@@ -210,6 +210,14 @@ final class SessionManager: ObservableObject {
         activeTabId = sortedTabs[index].id
     }
 
+    /// Update a tab's split tree data (for auto-save)
+    func updateTabSplitTree(_ tabId: UUID, splitTreeData: Data?, activePaneId: UUID?) {
+        guard let index = openTabs.firstIndex(where: { $0.id == tabId }) else { return }
+        openTabs[index].splitTreeData = splitTreeData
+        openTabs[index].activePaneId = activePaneId
+        save()
+    }
+
     /// Update worktree open status
     private func updateWorktreeStatus(_ worktreeId: UUID, isOpen: Bool) {
         for i in projects.indices {

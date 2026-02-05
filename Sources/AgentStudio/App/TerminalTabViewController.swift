@@ -294,6 +294,9 @@ class TerminalTabViewController: NSViewController {
         // Select the new tab (this will update the split container)
         selectTab(id: tabItem.id)
 
+        // Auto-save the new tab's split tree
+        saveSplitTree(for: tabItem)
+
         updateEmptyState()
     }
 
@@ -487,6 +490,16 @@ class TerminalTabViewController: NSViewController {
 
         // Refresh the view
         showTab(tabId)
+
+        // Auto-save split tree to SessionManager
+        saveSplitTree(for: tab)
+    }
+
+    /// Save a tab's split tree to SessionManager for persistence
+    private func saveSplitTree(for tab: TabItem) {
+        let encoder = JSONEncoder()
+        let splitTreeData = try? encoder.encode(tab.splitTree)
+        SessionManager.shared.updateTabSplitTree(tab.id, splitTreeData: splitTreeData, activePaneId: tab.activePaneId)
     }
 
     private func handleDrop(payload: SplitDropPayload, destination: TerminalPaneView, zone: DropZone, tab: inout TabItem) {
@@ -604,27 +617,31 @@ class TerminalTabViewController: NSViewController {
             terminalView.displaySurface(surfaceView)
         }
 
-        terminals[worktree.id] = terminalView
+        // Create pane and store the view
+        let paneId = UUID()
+        paneViews[paneId] = terminalView
 
-        // Create tab item
+        // Create single-pane split tree
+        let pane = TerminalPaneView(
+            id: paneId,
+            worktreeId: worktree.id,
+            projectId: project.id,
+            title: worktree.name
+        )
+        let splitTree = TerminalSplitTree(view: pane)
+
+        // Create tab item with the split tree
         let tabItem = TabItem(
             id: UUID(),
             title: worktree.name,
-            worktreeId: worktree.id
+            primaryWorktreeId: worktree.id,
+            primaryProjectId: project.id,
+            splitTree: splitTree,
+            activePaneId: paneId
         )
         tabItems.append(tabItem)
-        tabToWorktree[tabItem.id] = worktree.id
 
-        // Add terminal to container
-        terminalContainer.addSubview(terminalView)
-        NSLayoutConstraint.activate([
-            terminalView.topAnchor.constraint(equalTo: terminalContainer.topAnchor),
-            terminalView.leadingAnchor.constraint(equalTo: terminalContainer.leadingAnchor),
-            terminalView.trailingAnchor.constraint(equalTo: terminalContainer.trailingAnchor),
-            terminalView.bottomAnchor.constraint(equalTo: terminalContainer.bottomAnchor)
-        ])
-
-        // Select the restored tab
+        // Select the restored tab (this will update the split container)
         selectTab(id: tabItem.id)
 
         updateEmptyState()

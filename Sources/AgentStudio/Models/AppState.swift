@@ -27,19 +27,25 @@ struct AppState: Codable {
 /// An open terminal tab
 struct OpenTab: Codable, Identifiable, Hashable {
     let id: UUID
-    var worktreeId: UUID
+    var worktreeId: UUID  // Primary worktree (legacy, for backwards compat)
     var projectId: UUID
     var order: Int
+    var splitTreeData: Data?  // Encoded TerminalSplitTree for split layouts
+    var activePaneId: UUID?   // Currently focused pane
 
     init(
         id: UUID = UUID(),
         worktreeId: UUID,
         projectId: UUID,
-        order: Int
+        order: Int,
+        splitTreeData: Data? = nil,
+        activePaneId: UUID? = nil
     ) {
         self.id = id
         self.worktreeId = worktreeId
         self.projectId = projectId
         self.order = order
+        self.splitTreeData = splitTreeData
+        self.activePaneId = activePaneId
     }
 }
