@@ -110,87 +110,193 @@ See `DraggableTabBarHostingView.swift` for the gesture recognizer pattern applie
 
 ## Surface Management Architecture
 
-Agent Studio embeds Ghostty terminal surfaces via libghostty. The `SurfaceManager` provides a robust lifecycle management layer with crash isolation.
+Agent Studio embeds Ghostty terminal surfaces via libghostty. The `SurfaceManager` provides lifecycle management with crash isolation and undo support.
 
-### Architecture Overview
+### Core Design: Ownership Separation
 
-```
-┌─────────────────────────────────────────────────────────────────┐
-│  App                                                            │
-│  - Owns SurfaceManager (singleton)                              │
-│  - Lifecycle: launch → run → quit                               │
-├─────────────────────────────────────────────────────────────────┤
-│  Window                                                         │
-│  - Contains tabs                                                │
-│  - Delegates surface display to tabs                            │
-├─────────────────────────────────────────────────────────────────┤
-│  Tab (Composition)                                              │
-│  - Displays a surface (does NOT own it)                         │
-│  - Requests surface from SurfaceManager                         │
-│  - Returns surface on close                                     │
-├─────────────────────────────────────────────────────────────────┤
-│  SurfaceManager (Always Present)                                │
-│  - OWNS all surfaces                                            │
-│  - Lifecycle: create, attach, detach, hide, undo, destroy       │
-│  - Checkpoints surface CONFIG on quit                           │
-│  - Restores surfaces on launch                                  │
-├─────────────────────────────────────────────────────────────────┤
-│  Ghostty.SurfaceView                                            │
-│  - Rendering + PTY                                              │
-│  - Dies with app (unless zellij)                                │
-├─────────────────────────────────────────────────────────────────┤
-│  SessionService (Optional - if zellij exists)                   │
-│  - Surface runs: zellij attach <session>                        │
-│  - PTY ownership moves to zellij server                         │
-│  - Survives app quit                                            │
-└─────────────────────────────────────────────────────────────────┘
-```
-
-### Surface States
-
-| State | Description | Rendering | PTY |
-|-------|-------------|-----------|-----|
-| **Active** | Attached to visible container | Enabled | Alive |
-| **Hidden** | Detached, no container | Paused (occlusion) | Alive |
-| **PendingUndo** | In undo stack with TTL | Paused | Alive |
-| **Destroyed** | ARC released | N/A | Freed |
-
-### Crash Isolation Design
-
-**Goal:** One terminal crash must NEVER bring down the app.
+The key architectural decision is **separation of ownership from display**:
+- `SurfaceManager` **owns** all surfaces (creation, lifecycle, destruction)
+- `AgentStudioTerminalView` containers only **display** surfaces
+- Containers implement `SurfaceContainer` protocol to receive surfaces
 
 ```
-╔══════════════════════════════════════════════════════════════════╗
-║  CRASH ISOLATION STRATEGY                                        ║
-╠══════════════════════════════════════════════════════════════════╣
-║                                                                  ║
-║  1. PREVENTION                                                   ║
-║     - Defensive API wrappers (withSurface)                       ║
-║     - Validate surface pointers before use                       ║
-║     - Retry surface creation on failure                          ║
-║                                                                  ║
-║  2. DETECTION                                                    ║
-║     - Subscribe to Ghostty health notifications                  ║
-║     - Periodic health checks (timer-based)                       ║
-║     - Check process exit status                                  ║
-║                                                                  ║
-║  3. RECOVERY                                                     ║
-║     - Show error overlay in affected tab only                    ║
-║     - Offer restart button                                       ║
-║     - Other tabs continue working                                ║
-║                                                                  ║
-║  LIMITATION: Zig panics on main thread WILL crash the app.       ║
-║  We minimize this risk but can't eliminate it without IPC.       ║
-╚══════════════════════════════════════════════════════════════════╝
+┌─────────────────────────────────────────────────────────────────────┐
+│                        SurfaceManager                               │
+│                     (OWNS all surfaces)                             │
+│                                                                     │
+│  ┌─────────────────┐ ┌─────────────────┐ ┌─────────────────┐       │
+│  │ activeSurfaces  │ │ hiddenSurfaces  │ │   undoStack     │       │
+│  │  [UUID: Surf]   │ │  [UUID: Surf]   │ │ [UndoEntry]     │       │
+│  │                 │ │                 │ │                 │       │
+│  │  Rendering: ON  │ │  Rendering: OFF │ │ TTL: 5 minutes  │       │
+│  └────────┬────────┘ └────────┬────────┘ └────────┬────────┘       │
+│           │                   │                   │                 │
+│           └───────────────────┴───────────────────┘                 │
+│                      Surface lives in ONE                           │
+└─────────────────────────────────────────────────────────────────────┘
+                              │
+                    attach() / detach()
+                              │
+                              ▼
+┌─────────────────────────────────────────────────────────────────────┐
+│                    AgentStudioTerminalView                          │
+│                  (DISPLAYS, does not own)                           │
+│                                                                     │
+│   containerId: UUID  ←─ unique per view                             │
+│   surfaceId: UUID?   ←─ which surface is displayed here             │
+│                                                                     │
+│   displaySurface(surfaceView)  ←─ called by attach()                │
+│   removeSurface()              ←─ called by detach()                │
+└─────────────────────────────────────────────────────────────────────┘
 ```
 
-### Decision Matrix: Session Persistence
+### State Machine
 
-| Approach | Process Survives Quit | Complexity | When to Use |
-|----------|----------------------|------------|-------------|
-| **Pure Ghostty** | No | Low | Quick terminals, dev tools |
-| **Zellij Integration** | Yes | Medium | Long-running tasks (Claude) |
-| **Process Isolation (XPC)** | Yes | High | Future consideration |
+A surface exists in **exactly one** collection. The collection determines the state:
+
+```
+                          createSurface()
+                               │
+                               ▼
+                    ┌──────────────────┐
+                    │     HIDDEN       │ ← Surface starts here
+                    │  hiddenSurfaces  │
+                    │  (rendering OFF) │
+                    └────────┬─────────┘
+                             │
+              attach()       │        detach(.hide)
+              ┌──────────────┴──────────────┐
+              │                             │
+              ▼                             │
+    ┌──────────────────┐                    │
+    │     ACTIVE       │ ◄──────────────────┘
+    │  activeSurfaces  │
+    │  (rendering ON)  │
+    └────────┬─────────┘
+             │
+             │ detach(.close)
+             ▼
+    ┌──────────────────┐
+    │  PENDING UNDO    │ ← TTL = 5 minutes
+    │    undoStack     │
+    │  (rendering OFF) │
+    └────────┬─────────┘
+             │
+    ┌────────┴─────────┐
+    │                  │
+    │ undoClose()      │ TTL expires
+    │                  │ OR destroy()
+    ▼                  ▼
+    HIDDEN         DESTROYED
+    (reattachable) (ARC freed)
+```
+
+### Tab Close → Undo Flow
+
+```
+User closes tab
+       │
+       ▼
+┌──────────────────────────────────────────────────────────────┐
+│ AgentStudioTerminalView.requestClose()                       │
+│   └─► SurfaceManager.detach(surfaceId, reason: .close)       │
+│         │                                                    │
+│         ├─► Remove from activeSurfaces                       │
+│         ├─► ghostty_surface_set_occlusion(false)  // pause   │
+│         ├─► Create SurfaceUndoEntry with TTL                 │
+│         ├─► Schedule expiration Task                         │
+│         └─► Append to undoStack                              │
+└──────────────────────────────────────────────────────────────┘
+
+User presses Cmd+Shift+T
+       │
+       ▼
+┌──────────────────────────────────────────────────────────────┐
+│ TerminalTabViewController.handleUndoCloseTab()               │
+│   └─► SurfaceManager.undoClose()                             │
+│         │                                                    │
+│         ├─► Pop from undoStack                               │
+│         ├─► Cancel expiration Task                           │
+│         └─► Move to hiddenSurfaces                           │
+│                                                              │
+│   └─► Create AgentStudioTerminalView(restoredSurfaceId:)     │
+│         │  (does NOT create new surface!)                    │
+│         │                                                    │
+│   └─► SurfaceManager.attach(surfaceId, to: containerId)      │
+│         │                                                    │
+│         ├─► Move from hiddenSurfaces → activeSurfaces        │
+│         ├─► ghostty_surface_set_occlusion(true)  // resume   │
+│         └─► Return surfaceView                               │
+│                                                              │
+│   └─► terminalView.displaySurface(surfaceView)               │
+└──────────────────────────────────────────────────────────────┘
+```
+
+### Health Monitoring Architecture
+
+```
+┌────────────────────────────────────────────────────────────────────┐
+│                     Health Detection (2 layers)                    │
+├────────────────────────────────────────────────────────────────────┤
+│                                                                    │
+│  Layer 1: Event-Driven (instant)                                   │
+│  ┌─────────────────────────────────────────────────────────────┐   │
+│  │ Ghostty.Notification.didUpdateRendererHealth                │   │
+│  │              │                                              │   │
+│  │              ▼                                              │   │
+│  │  surfaceViewToId[ObjectIdentifier] → UUID                   │   │
+│  │              │                                              │   │
+│  │              ▼                                              │   │
+│  │  updateHealth(surfaceId, .healthy/.unhealthy)               │   │
+│  └─────────────────────────────────────────────────────────────┘   │
+│                                                                    │
+│  Layer 2: Polling (every 2 seconds)                                │
+│  ┌─────────────────────────────────────────────────────────────┐   │
+│  │ Timer → checkAllSurfacesHealth()                            │   │
+│  │              │                                              │   │
+│  │              ├─► surface.surface == nil?  → .dead           │   │
+│  │              ├─► ghostty_surface_process_exited? → .exited  │   │
+│  │              └─► !surface.healthy? → .unhealthy             │   │
+│  └─────────────────────────────────────────────────────────────┘   │
+│                                                                    │
+├────────────────────────────────────────────────────────────────────┤
+│                   Health Delegate Pattern                          │
+├────────────────────────────────────────────────────────────────────┤
+│                                                                    │
+│  SurfaceManager                                                    │
+│    healthDelegates = NSHashTable<AnyObject>.weakObjects()          │
+│                         │                                          │
+│    notifyHealthDelegates(surfaceId, health)                        │
+│                         │                                          │
+│           ┌─────────────┼─────────────┐                            │
+│           ▼             ▼             ▼                            │
+│      Terminal 1    Terminal 2    Terminal 3                        │
+│      (Tab A)       (Tab B)       (Tab C)                           │
+│                                                                    │
+│  Each tab filters: guard surfaceId == self.surfaceId               │
+│  Weak refs: auto-cleanup when tabs close                           │
+└────────────────────────────────────────────────────────────────────┘
+```
+
+### Detach Reasons
+
+| Reason | Target | Expires | Rendering | Use Case |
+|--------|--------|---------|-----------|----------|
+| `.hide` | hiddenSurfaces | No | Paused | Background terminal |
+| `.close` | undoStack | Yes (5 min) | Paused | Tab closed (undo-able) |
+| `.move` | hiddenSurfaces | No | Paused | Tab drag reorder |
+
+### Restore Initializer Pattern
+
+```swift
+// WRONG: Creates orphan surface
+let view = AgentStudioTerminalView(worktree: w, project: p)
+view.displaySurface(restoredSurface)  // Original surface from view is orphaned!
+
+// RIGHT: Skip surface creation for restore
+let view = AgentStudioTerminalView(worktree: w, project: p, restoredSurfaceId: id)
+view.displaySurface(restoredSurface)  // No orphan, view has no surface yet
+```
 
 ### Key APIs
 
@@ -201,43 +307,27 @@ Agent Studio embeds Ghostty terminal surfaces via libghostty. The `SurfaceManage
 | `SurfaceManager.detach(reason:)` | Hide, close (undo-able), or move |
 | `SurfaceManager.undoClose()` | Restore last closed surface |
 | `SurfaceManager.withSurface()` | Safe operation wrapper |
-| `ghostty_surface_set_occlusion()` | Pause/resume rendering |
-| `ghostty_surface_process_exited()` | Check if shell has exited |
-| `ghostty_surface_needs_confirm_quit()` | Check if child processes exist (not just shell) |
 
-> **Note on `ghostty_surface_needs_confirm_quit()`**: This API returns `true` only when there are
-> child processes running under the shell (e.g., a long-running command like Claude Code). An idle
-> shell prompt returns `false` even though the shell process itself is still running. Use
-> `ghostty_surface_process_exited()` to check if the shell itself has terminated.
+### Crash Isolation
 
-### Health Monitoring
+**Goal:** One terminal crash must NEVER bring down the app.
 
-Ghostty provides renderer health notifications. SurfaceManager subscribes to these and performs periodic health checks:
+| Layer | Mechanism |
+|-------|-----------|
+| **Prevention** | `withSurface()` wrapper validates pointers, retry on creation failure |
+| **Detection** | Dual-layer health monitoring (events + polling) |
+| **Recovery** | Error overlay in affected tab only, restart button, other tabs unaffected |
 
-```swift
-// Health states
-enum SurfaceHealth {
-    case healthy
-    case unhealthy(reason: UnhealthyReason)
-    case processExited(exitCode: Int32?)
-    case dead  // Surface pointer is nil/invalid
-}
-
-// Detection
-- Ghostty.Notification.didUpdateRendererHealth
-- Periodic check: ghostty_surface_process_exited()
-- Surface pointer validation
-```
+> **Limitation:** Zig panics on main thread will crash the app. We minimize this risk but can't eliminate it without IPC.
 
 ### Files
 
 | File | Purpose |
 |------|---------|
-| `Ghostty/SurfaceManager.swift` | Lifecycle management, health monitoring |
-| `Ghostty/SurfaceTypes.swift` | Types, protocols, checkpoints |
-| `Ghostty/Ghostty.swift` | App wrapper, notifications |
-| `Ghostty/GhosttySurfaceView.swift` | Surface view, input handling |
-| `Views/SurfaceErrorOverlay.swift` | Error state UI |
+| `Ghostty/SurfaceManager.swift` | Singleton owner, lifecycle, health monitoring |
+| `Ghostty/SurfaceTypes.swift` | SurfaceState, ManagedSurface, protocols |
+| `Views/AgentStudioTerminalView.swift` | Container, implements SurfaceContainer + SurfaceHealthDelegate |
+| `Views/SurfaceErrorOverlay.swift` | Error state UI with restart/close |
 
 ---
 
