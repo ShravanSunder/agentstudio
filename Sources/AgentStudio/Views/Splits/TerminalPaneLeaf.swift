@@ -24,6 +24,7 @@ struct TerminalPaneLeaf: View {
                     RoundedRectangle(cornerRadius: 4)
                         .strokeBorder(Color.accentColor.opacity(0.5), lineWidth: 2)
                         .padding(1)
+                        .allowsHitTesting(false)
                 }
 
                 // Drop zone overlay

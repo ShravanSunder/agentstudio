@@ -128,7 +128,7 @@ final class SessionManager: ObservableObject {
     }
 
     /// Merge existing worktree state with newly discovered worktrees
-    private func mergeWorktrees(existing: [Worktree], discovered: [Worktree]) -> [Worktree] {
+    func mergeWorktrees(existing: [Worktree], discovered: [Worktree]) -> [Worktree] {
         return discovered.map { newWorktree in
             // Preserve existing state (isOpen, agent, etc.) if this worktree existed before
             if let existingWorktree = existing.first(where: { $0.path == newWorktree.path }) {
@@ -251,6 +251,43 @@ final class SessionManager: ObservableObject {
     func project(containing worktree: Worktree) -> Project? {
         projects.first { project in
             project.worktrees.contains { $0.id == worktree.id }
+        }
+    }
+
+    // MARK: - Static Lookup Helpers (for testability)
+
+    /// Find worktree for a tab across a project list
+    nonisolated static func findWorktree(for tab: OpenTab, in projects: [Project]) -> Worktree? {
+        projects
+            .first { $0.id == tab.projectId }?
+            .worktrees
+            .first { $0.id == tab.worktreeId }
+    }
+
+    /// Find project for a tab
+    nonisolated static func findProject(for tab: OpenTab, in projects: [Project]) -> Project? {
+        projects.first { $0.id == tab.projectId }
+    }
+
+    /// Find project containing a worktree
+    nonisolated static func findProject(containing worktree: Worktree, in projects: [Project]) -> Project? {
+        projects.first { project in
+            project.worktrees.contains { $0.id == worktree.id }
+        }
+    }
+
+    /// Merge existing worktree state with discovered worktrees (static version for testability)
+    nonisolated static func mergeWorktrees(existing: [Worktree], discovered: [Worktree]) -> [Worktree] {
+        discovered.map { newWorktree in
+            if let existingWorktree = existing.first(where: { $0.path == newWorktree.path }) {
+                var merged = newWorktree
+                merged.isOpen = existingWorktree.isOpen
+                merged.agent = existingWorktree.agent
+                merged.status = existingWorktree.status
+                merged.lastOpened = existingWorktree.lastOpened
+                return merged
+            }
+            return newWorktree
         }
     }
 }
