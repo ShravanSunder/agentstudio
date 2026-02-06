@@ -31,7 +31,15 @@ final class AgentStudioTerminalView: NSView, SurfaceContainer, SurfaceHealthDele
 
         // Note: Do NOT set wantsLayer or backgroundColor here
         // Let Ghostty manage its own layer rendering
-        setupTerminal()
+
+        if SessionRegistry.shared.configuration.isOperational {
+            // Session restore enabled: create tmux session+tab first, then open terminal
+            Task { @MainActor in
+                await setupTerminalWithSessionRestore()
+            }
+        } else {
+            setupTerminal()
+        }
     }
 
     /// Restore initializer - for attaching an existing surface (undo close)
@@ -62,18 +70,40 @@ final class AgentStudioTerminalView: NSView, SurfaceContainer, SurfaceHealthDele
 
     // MARK: - Terminal Setup
 
-    private func setupTerminal() {
-        // Create surface via SurfaceManager
-        let shell = getDefaultShell()
+    /// Register pane session for tracking, then let the surface handle create+attach
+    /// via `tmux new-session -A` (creates if missing, attaches if exists).
+    private func setupTerminalWithSessionRestore() async {
+        let registry = SessionRegistry.shared
+        let sessionId = TmuxBackend.sessionId(projectId: project.id, worktreeId: worktree.id)
+
+        // Register session for health tracking (don't create via ProcessExecutor)
+        registry.registerPaneSession(
+            id: sessionId,
+            projectId: project.id,
+            worktreeId: worktree.id,
+            displayName: worktree.name,
+            workingDirectory: worktree.path
+        )
+
+        // Let the surface handle create+attach via new-session -A
+        if let attachCmd = registry.attachCommand(for: worktree, in: project) {
+            setupTerminal(command: attachCmd)
+        } else {
+            setupTerminal()  // fallback to direct shell
+        }
+    }
+
+    private func setupTerminal(command: String? = nil) {
+        let cmd = command ?? "\(getDefaultShell()) -i -l"
 
         let config = Ghostty.SurfaceConfiguration(
             workingDirectory: worktree.path.path,
-            command: "\(shell) -i -l"
+            command: cmd
         )
 
         let metadata = SurfaceMetadata(
             workingDirectory: worktree.path,
-            command: "\(shell) -i -l",
+            command: cmd,
             title: worktree.name,
             worktreeId: worktree.id,
             projectId: project.id

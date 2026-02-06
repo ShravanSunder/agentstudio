@@ -5,8 +5,19 @@ class AppDelegate: NSObject, NSApplicationDelegate {
     var mainWindowController: MainWindowController?
 
     func applicationDidFinishLaunching(_ notification: Notification) {
+        // Set GHOSTTY_RESOURCES_DIR before any GhosttyKit initialization.
+        // This lets GhosttyKit find xterm-ghostty terminfo in both dev and bundle builds.
+        if let resourcesDir = SessionConfiguration.resolveTerminfoDir() {
+            setenv("GHOSTTY_RESOURCES_DIR", resourcesDir, 0)  // 0 = don't overwrite if already set
+        }
+
         // Initialize services
         _ = SessionManager.shared
+
+        // Initialize session restore (ghost tmux)
+        Task { @MainActor in
+            await SessionRegistry.shared.initialize()
+        }
 
         // Load surface checkpoint (for future restore capability)
         if let checkpoint = SurfaceManager.shared.loadCheckpoint() {
@@ -87,6 +98,10 @@ class AppDelegate: NSObject, NSApplicationDelegate {
     }
 
     func applicationWillTerminate(_ notification: Notification) {
+        // Save session restore checkpoint before quitting
+        SessionRegistry.shared.saveCheckpoint()
+        SessionRegistry.shared.stopHealthChecks()
+
         // Save state before quitting
         Task { @MainActor in
             SessionManager.shared.save()

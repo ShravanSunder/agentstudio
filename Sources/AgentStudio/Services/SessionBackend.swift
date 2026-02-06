@@ -1,0 +1,143 @@
+import Foundation
+
+// MARK: - Handle Types
+
+/// Identifies a tmux session that backs a single terminal pane.
+/// Each terminal pane (worktree) gets its own isolated tmux session.
+struct PaneSessionHandle: Equatable, Sendable, Codable, Hashable {
+    /// tmux session name, e.g. `agentstudio--a1b2c3d4--e5f6g7h8`
+    let id: String
+    let projectId: UUID
+    let worktreeId: UUID
+    let displayName: String
+    let workingDirectory: URL
+}
+
+// MARK: - SessionBackend Protocol
+
+/// Backend-agnostic protocol for managing per-pane terminal sessions.
+/// Each terminal pane gets its own isolated session.
+protocol SessionBackend: Sendable {
+
+    /// Whether the backend binary (tmux) is available on the system.
+    var isAvailable: Bool { get async }
+
+    // MARK: Pane Session Lifecycle
+
+    /// Create a new background session for the given worktree.
+    func createPaneSession(projectId: UUID, worktree: Worktree) async throws -> PaneSessionHandle
+
+    /// Returns the shell command to attach to a pane session.
+    func attachCommand(for handle: PaneSessionHandle) -> String
+
+    /// Destroy a pane session.
+    func destroyPaneSession(_ handle: PaneSessionHandle) async throws
+
+    /// Fast health check — returns true if the session is alive.
+    func healthCheck(_ handle: PaneSessionHandle) async -> Bool
+
+    // MARK: Discovery
+
+    /// Check if the backend socket/server is running.
+    func socketExists() -> Bool
+
+    /// Check if a specific session exists.
+    func sessionExists(_ handle: PaneSessionHandle) async -> Bool
+
+    /// Find orphan sessions (agentstudio-prefixed) not tracked by the registry.
+    func discoverOrphanSessions(excluding knownIds: Set<String>) async -> [String]
+
+    /// Destroy a session by its ID string (for orphan cleanup).
+    func destroySessionById(_ sessionId: String) async throws
+}
+
+// MARK: - SessionBackendError
+
+enum SessionBackendError: Error, LocalizedError {
+    case notAvailable
+    case timeout
+    case operationFailed(String)
+    case sessionNotFound(String)
+
+    var errorDescription: String? {
+        switch self {
+        case .notAvailable:
+            return "Session backend (tmux) is not installed"
+        case .timeout:
+            return "Operation timed out"
+        case .operationFailed(let detail):
+            return "Operation failed: \(detail)"
+        case .sessionNotFound(let id):
+            return "Session not found: \(id)"
+        }
+    }
+}
+
+// MARK: - ProcessExecutor Protocol
+
+/// Testable wrapper for CLI execution. In production, runs Process.
+/// In tests, returns canned responses.
+protocol ProcessExecutor: Sendable {
+    func execute(
+        command: String,
+        args: [String],
+        cwd: URL?,
+        environment: [String: String]?
+    ) async throws -> ProcessResult
+}
+
+/// Result of a CLI command execution.
+struct ProcessResult: Sendable {
+    let exitCode: Int
+    let stdout: String
+    let stderr: String
+
+    var succeeded: Bool { exitCode == 0 }
+}
+
+// MARK: - DefaultProcessExecutor
+
+/// Production executor that spawns real processes.
+struct DefaultProcessExecutor: ProcessExecutor {
+    func execute(
+        command: String,
+        args: [String],
+        cwd: URL?,
+        environment: [String: String]?
+    ) async throws -> ProcessResult {
+        let process = Process()
+        process.executableURL = URL(fileURLWithPath: "/usr/bin/env")
+        process.arguments = [command] + args
+
+        if let cwd {
+            process.currentDirectoryURL = cwd
+        }
+
+        // Merge provided environment with inherited, ensuring brew paths
+        var env = ProcessInfo.processInfo.environment
+        if let override = environment {
+            env.merge(override) { _, new in new }
+        }
+        if let path = env["PATH"] {
+            env["PATH"] = "/opt/homebrew/bin:/usr/local/bin:\(path)"
+        }
+        process.environment = env
+
+        let stdoutPipe = Pipe()
+        let stderrPipe = Pipe()
+        process.standardOutput = stdoutPipe
+        process.standardError = stderrPipe
+
+        try process.run()
+        process.waitUntilExit()
+
+        let stdoutData = stdoutPipe.fileHandleForReading.readDataToEndOfFile()
+        let stderrData = stderrPipe.fileHandleForReading.readDataToEndOfFile()
+
+        return ProcessResult(
+            exitCode: Int(process.terminationStatus),
+            stdout: String(data: stdoutData, encoding: .utf8)?.trimmingCharacters(in: .whitespacesAndNewlines) ?? "",
+            stderr: String(data: stderrData, encoding: .utf8)?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+        )
+    }
+}
