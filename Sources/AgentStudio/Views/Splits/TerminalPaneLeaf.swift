@@ -4,28 +4,20 @@ import UniformTypeIdentifiers
 
 /// Renders a single terminal pane with drop zone support for splitting.
 struct TerminalPaneLeaf: View {
-    let pane: TerminalPaneView
-    let terminalView: AgentStudioTerminalView?
+    let terminalView: AgentStudioTerminalView
     let isActive: Bool
+    let isSplit: Bool
     let action: (SplitOperation) -> Void
 
     @State private var dropZone: DropZone?
     @State private var isTargeted: Bool = false
+    @State private var isHovered: Bool = false
 
     var body: some View {
         GeometryReader { geometry in
-            ZStack {
+            ZStack(alignment: .topTrailing) {
                 // Terminal view
-                if let terminalView {
-                    TerminalViewRepresentable(terminalView: terminalView)
-                } else {
-                    // Placeholder if terminal not yet created
-                    Color(nsColor: .windowBackgroundColor)
-                        .overlay {
-                            ProgressView()
-                                .progressViewStyle(.circular)
-                        }
-                }
+                TerminalViewRepresentable(terminalView: terminalView)
 
                 // Focus border for active pane
                 if isActive {
@@ -39,14 +31,34 @@ struct TerminalPaneLeaf: View {
                     zone.overlay(in: geometry)
                         .allowsHitTesting(false)
                 }
+
+                // Close pane button (only when split)
+                if isSplit && (isHovered || isActive) {
+                    Button {
+                        action(.closePane(paneId: terminalView.id))
+                    } label: {
+                        Image(systemName: "xmark.circle.fill")
+                            .font(.system(size: 14))
+                            .foregroundStyle(.secondary)
+                            .background(Circle().fill(.black.opacity(0.5)))
+                    }
+                    .buttonStyle(.plain)
+                    .padding(6)
+                    .transition(.opacity)
+                }
             }
             .contentShape(Rectangle())
             .onTapGesture {
-                action(.focus(paneId: pane.id))
+                action(.focus(paneId: terminalView.id))
+            }
+            .onHover { hovering in
+                withAnimation(.easeInOut(duration: 0.15)) {
+                    isHovered = hovering
+                }
             }
             .onDrop(of: [.agentStudioTab, .agentStudioNewTab], delegate: SplitDropDelegate(
                 viewSize: geometry.size,
-                destination: pane,
+                destination: terminalView,
                 dropZone: $dropZone,
                 isTargeted: $isTargeted,
                 action: action
@@ -58,45 +70,16 @@ struct TerminalPaneLeaf: View {
 // MARK: - NSViewRepresentable for Terminal
 
 /// Bridges AgentStudioTerminalView (NSView) into SwiftUI.
-/// Uses Coordinator pattern to maintain a stable container and prevent IOSurface reparenting crashes.
+/// Returns the stable swiftUIContainer — same NSView every time, preventing IOSurface reparenting.
 struct TerminalViewRepresentable: NSViewRepresentable {
     let terminalView: AgentStudioTerminalView
 
-    func makeCoordinator() -> Coordinator {
-        Coordinator(terminalView: terminalView)
-    }
-
     func makeNSView(context: Context) -> NSView {
-        // Return the stable container from coordinator - never create a new one
-        return context.coordinator.container
+        terminalView.swiftUIContainer
     }
 
     func updateNSView(_ nsView: NSView, context: Context) {
-        // Terminal is already attached in coordinator, no updates needed
-    }
-
-    class Coordinator {
-        let container: NSView
-
-        init(terminalView: AgentStudioTerminalView) {
-            container = NSView()
-            container.wantsLayer = true
-
-            // Only add once, never reparent
-            // This prevents IOSurface crashes when SwiftUI recreates views
-            if terminalView.superview !== container {
-                terminalView.removeFromSuperview()
-                terminalView.translatesAutoresizingMaskIntoConstraints = false
-                container.addSubview(terminalView)
-
-                NSLayoutConstraint.activate([
-                    terminalView.topAnchor.constraint(equalTo: container.topAnchor),
-                    terminalView.leadingAnchor.constraint(equalTo: container.leadingAnchor),
-                    terminalView.trailingAnchor.constraint(equalTo: container.trailingAnchor),
-                    terminalView.bottomAnchor.constraint(equalTo: container.bottomAnchor)
-                ])
-            }
-        }
+        // Nothing — container is stable, terminal manages itself
     }
 }
 
@@ -105,7 +88,7 @@ struct TerminalViewRepresentable: NSViewRepresentable {
 /// Handles drag-and-drop for split pane creation.
 private struct SplitDropDelegate: DropDelegate {
     let viewSize: CGSize
-    let destination: TerminalPaneView
+    let destination: AgentStudioTerminalView
     @Binding var dropZone: DropZone?
     @Binding var isTargeted: Bool
     let action: (SplitOperation) -> Void

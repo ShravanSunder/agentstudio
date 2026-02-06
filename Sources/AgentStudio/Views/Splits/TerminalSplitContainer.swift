@@ -2,11 +2,31 @@ import SwiftUI
 import AppKit
 
 /// Operations that can be performed on the split tree.
-enum SplitOperation: Equatable {
+enum SplitOperation {
     case resize(paneId: UUID, ratio: CGFloat)
     case equalize
-    case drop(payload: SplitDropPayload, destination: TerminalPaneView, zone: DropZone)
+    case drop(payload: SplitDropPayload, destination: AgentStudioTerminalView, zone: DropZone)
     case focus(paneId: UUID)
+    case closePane(paneId: UUID)
+}
+
+extension SplitOperation: Equatable {
+    static func == (lhs: Self, rhs: Self) -> Bool {
+        switch (lhs, rhs) {
+        case (.resize(let p1, let r1), .resize(let p2, let r2)):
+            return p1 == p2 && r1 == r2
+        case (.equalize, .equalize):
+            return true
+        case (.drop(let pl1, let d1, let z1), .drop(let pl2, let d2, let z2)):
+            return pl1 == pl2 && d1 === d2 && z1 == z2
+        case (.focus(let p1), .focus(let p2)):
+            return p1 == p2
+        case (.closePane(let p1), .closePane(let p2)):
+            return p1 == p2
+        default:
+            return false
+        }
+    }
 }
 
 /// Payload for drag-and-drop split operations.
@@ -22,7 +42,6 @@ struct SplitDropPayload: Equatable, Codable {
 /// SwiftUI container that renders a SplitTree of terminal panes.
 struct TerminalSplitContainer: View {
     let tree: TerminalSplitTree
-    let terminalViews: [UUID: AgentStudioTerminalView]  // paneId → NSView
     let activePaneId: UUID?
     let action: (SplitOperation) -> Void
 
@@ -30,10 +49,11 @@ struct TerminalSplitContainer: View {
         if let node = tree.root {
             SplitSubtreeView(
                 node: node,
-                terminalViews: terminalViews,
+                isSplit: tree.isSplit,
                 activePaneId: activePaneId,
                 action: action
             )
+            .id(node.structuralIdentity)  // Prevents view recreation on ratio changes
         } else {
             // Empty tree - show placeholder
             ContentUnavailableView(
@@ -48,17 +68,17 @@ struct TerminalSplitContainer: View {
 /// Recursively renders a node in the split tree.
 fileprivate struct SplitSubtreeView: View {
     let node: TerminalSplitTree.Node
-    let terminalViews: [UUID: AgentStudioTerminalView]
+    let isSplit: Bool
     let activePaneId: UUID?
     let action: (SplitOperation) -> Void
 
     var body: some View {
         switch node {
-        case .leaf(let pane):
+        case .leaf(let terminalView):
             TerminalPaneLeaf(
-                pane: pane,
-                terminalView: terminalViews[pane.id],
-                isActive: pane.id == activePaneId,
+                terminalView: terminalView,
+                isActive: terminalView.id == activePaneId,
+                isSplit: isSplit,
                 action: action
             )
 
@@ -70,7 +90,7 @@ fileprivate struct SplitSubtreeView: View {
                 left: {
                     SplitSubtreeView(
                         node: split.left,
-                        terminalViews: terminalViews,
+                        isSplit: true,
                         activePaneId: activePaneId,
                         action: action
                     )
@@ -78,7 +98,7 @@ fileprivate struct SplitSubtreeView: View {
                 right: {
                     SplitSubtreeView(
                         node: split.right,
-                        terminalViews: terminalViews,
+                        isSplit: true,
                         activePaneId: activePaneId,
                         action: action
                     )
@@ -114,8 +134,8 @@ extension TerminalSplitTree.Node {
     /// Get the ID of the first pane in this node (for identifying the split).
     var firstPaneId: UUID? {
         switch self {
-        case .leaf(let pane):
-            return pane.id
+        case .leaf(let terminalView):
+            return terminalView.id
         case .split(let split):
             return split.left.firstPaneId
         }

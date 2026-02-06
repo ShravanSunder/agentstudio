@@ -12,24 +12,6 @@ struct TabItem: Identifiable, Equatable {
     var splitTree: TerminalSplitTree  // Pane arrangement
     var activePaneId: UUID?       // Currently focused pane
 
-    /// Legacy initializer for single-pane tabs
-    init(id: UUID = UUID(), title: String, worktreeId: UUID, projectId: UUID) {
-        self.id = id
-        self.title = title
-        self.primaryWorktreeId = worktreeId
-        self.primaryProjectId = projectId
-
-        // Create single-pane split tree
-        let pane = TerminalPaneView(
-            id: UUID(),
-            worktreeId: worktreeId,
-            projectId: projectId,
-            title: title
-        )
-        self.splitTree = TerminalSplitTree(view: pane)
-        self.activePaneId = pane.id
-    }
-
     /// Full initializer with split tree
     init(id: UUID = UUID(), title: String, primaryWorktreeId: UUID, primaryProjectId: UUID, splitTree: TerminalSplitTree, activePaneId: UUID?) {
         self.id = id
@@ -275,8 +257,8 @@ struct CustomTabBar_Previews: PreviewProvider {
     static var previews: some View {
         let state = TabBarState()
         state.tabs = [
-            TabItem(id: UUID(), title: "master", worktreeId: UUID(), projectId: UUID()),
-            TabItem(id: UUID(), title: "feature-branch", worktreeId: UUID(), projectId: UUID()),
+            TabItem(id: UUID(), title: "master", primaryWorktreeId: UUID(), primaryProjectId: UUID(), splitTree: TerminalSplitTree(), activePaneId: nil),
+            TabItem(id: UUID(), title: "feature-branch", primaryWorktreeId: UUID(), primaryProjectId: UUID(), splitTree: TerminalSplitTree(), activePaneId: nil),
         ]
 
         return VStack(spacing: 0) {

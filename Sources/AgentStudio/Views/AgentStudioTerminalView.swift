@@ -3,13 +3,13 @@ import GhosttyKit
 
 /// Custom terminal view wrapping Ghostty's SurfaceView via SurfaceManager
 /// Implements SurfaceContainer protocol for lifecycle management
-class AgentStudioTerminalView: NSView, SurfaceContainer, SurfaceHealthDelegate {
+final class AgentStudioTerminalView: NSView, SurfaceContainer, SurfaceHealthDelegate {
     let worktree: Worktree
     let project: Project
 
     // MARK: - SurfaceContainer Protocol
 
-    let containerId: UUID = UUID()
+    private(set) var containerId: UUID = UUID()
     var surfaceId: UUID?
 
     // MARK: - Private State
@@ -282,6 +282,17 @@ class AgentStudioTerminalView: NSView, SurfaceContainer, SurfaceHealthDelegate {
         return SurfaceManager.shared.hasProcessExited(surfaceId)
     }
 
+    // MARK: - Layout
+
+    override func layout() {
+        super.layout()
+        // Ensure Ghostty surface knows its new size after split/resize.
+        // Auto Layout propagates frame changes to the surface subview,
+        // but this is a safety net for SwiftUI structural identity rebuilds.
+        guard let surface = ghosttySurface, bounds.size.width > 0, bounds.size.height > 0 else { return }
+        surface.sizeDidChange(surface.bounds.size)
+    }
+
     // MARK: - First Responder
 
     override var acceptsFirstResponder: Bool { true }
@@ -320,5 +331,74 @@ class AgentStudioTerminalView: NSView, SurfaceContainer, SurfaceHealthDelegate {
             return surface
         }
         return super.hitTest(point)
+    }
+
+    // MARK: - SwiftUI Bridging
+
+    /// Stable container for SwiftUI bridging.
+    /// NSViewRepresentable returns this instead of creating new containers.
+    /// The terminal view is added once and never reparented,
+    /// preventing IOSurface crashes when SwiftUI recreates views.
+    private(set) lazy var swiftUIContainer: NSView = {
+        let container = NSView()
+        container.wantsLayer = true
+        container.layer?.backgroundColor = NSColor.clear.cgColor
+        self.translatesAutoresizingMaskIntoConstraints = false
+        container.addSubview(self)
+        NSLayoutConstraint.activate([
+            self.topAnchor.constraint(equalTo: container.topAnchor),
+            self.leadingAnchor.constraint(equalTo: container.leadingAnchor),
+            self.trailingAnchor.constraint(equalTo: container.trailingAnchor),
+            self.bottomAnchor.constraint(equalTo: container.bottomAnchor),
+        ])
+        return container
+    }()
+}
+
+// MARK: - Identifiable
+
+extension AgentStudioTerminalView: Identifiable {
+    typealias ID = UUID
+    var id: UUID { containerId }
+}
+
+// MARK: - Codable
+
+extension AgentStudioTerminalView: Codable {
+    private enum CodingKeys: String, CodingKey {
+        case worktreeId
+        case projectId
+        case containerId
+        case title
+    }
+
+    convenience init(from decoder: Decoder) throws {
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+        let worktreeId = try container.decode(UUID.self, forKey: .worktreeId)
+        let projectId = try container.decode(UUID.self, forKey: .projectId)
+        let savedContainerId = try container.decode(UUID.self, forKey: .containerId)
+
+        // Look up worktree and project from SessionManager
+        guard let project = SessionManager.shared.projects.first(where: { $0.id == projectId }),
+              let worktree = project.worktrees.first(where: { $0.id == worktreeId }) else {
+            throw DecodingError.dataCorrupted(
+                DecodingError.Context(
+                    codingPath: decoder.codingPath,
+                    debugDescription: "Could not find worktree \(worktreeId) or project \(projectId)"
+                )
+            )
+        }
+
+        self.init(worktree: worktree, project: project)
+        // Preserve the original containerId so activePaneId still maps correctly
+        self.containerId = savedContainerId
+    }
+
+    func encode(to encoder: Encoder) throws {
+        var container = encoder.container(keyedBy: CodingKeys.self)
+        try container.encode(worktree.id, forKey: .worktreeId)
+        try container.encode(project.id, forKey: .projectId)
+        try container.encode(containerId, forKey: .containerId)
+        try container.encode(title, forKey: .title)
     }
 }

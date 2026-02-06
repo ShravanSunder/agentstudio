@@ -13,34 +13,8 @@ class TerminalTabViewController: NSViewController {
     /// Observable state for the tab bar
     private let tabBarState = TabBarState()
 
-    /// Map of pane ID to terminal view (panes across all tabs)
-    private var paneViews: [UUID: AgentStudioTerminalView] = [:]
-
     /// SwiftUI hosting view for the split container
     private var splitHostingView: NSHostingView<AnyView>?
-
-    /// Legacy compatibility - computed from pane views
-    private var terminals: [UUID: AgentStudioTerminalView] {
-        // Build worktreeId -> terminal map from all tabs
-        var result: [UUID: AgentStudioTerminalView] = [:]
-        for tab in tabItems {
-            for pane in tab.splitTree.allViews {
-                if let view = paneViews[pane.id] {
-                    result[pane.worktreeId] = view
-                }
-            }
-        }
-        return result
-    }
-
-    /// Legacy compatibility - computed from tabs
-    private var tabToWorktree: [UUID: UUID] {
-        var result: [UUID: UUID] = [:]
-        for tab in tabItems {
-            result[tab.id] = tab.primaryWorktreeId
-        }
-        return result
-    }
 
     // MARK: - View Lifecycle
 
@@ -232,7 +206,7 @@ class TerminalTabViewController: NSViewController {
     }
 
     private func updateEmptyState() {
-        let hasTerminals = !paneViews.isEmpty
+        let hasTerminals = !tabItems.isEmpty
         tabBarHostingView.isHidden = !hasTerminals
         terminalContainer.isHidden = !hasTerminals
         emptyStateView?.isHidden = hasTerminals
@@ -254,7 +228,7 @@ class TerminalTabViewController: NSViewController {
     func openTerminal(for worktree: Worktree, in project: Project) {
         // Check if already open in any tab
         if let existingTab = tabItems.first(where: { tab in
-            tab.splitTree.allViews.contains { $0.worktreeId == worktree.id }
+            tab.splitTree.allViews.contains { $0.worktree.id == worktree.id }
         }) {
             selectTab(id: existingTab.id)
             return
@@ -267,18 +241,8 @@ class TerminalTabViewController: NSViewController {
         )
         terminalView.translatesAutoresizingMaskIntoConstraints = false
 
-        // Create pane and store the view
-        let paneId = UUID()
-        paneViews[paneId] = terminalView
-
-        // Create single-pane split tree
-        let pane = TerminalPaneView(
-            id: paneId,
-            worktreeId: worktree.id,
-            projectId: project.id,
-            title: worktree.name
-        )
-        let splitTree = TerminalSplitTree(view: pane)
+        // Create single-pane split tree with the view directly
+        let splitTree = TerminalSplitTree(view: terminalView)
 
         // Create tab item with the split tree
         let tabItem = TabItem(
@@ -287,7 +251,7 @@ class TerminalTabViewController: NSViewController {
             primaryWorktreeId: worktree.id,
             primaryProjectId: project.id,
             splitTree: splitTree,
-            activePaneId: paneId
+            activePaneId: terminalView.id
         )
         tabItems.append(tabItem)
 
@@ -318,39 +282,18 @@ class TerminalTabViewController: NSViewController {
     }
 
     private func restoreTabWithTree(openTab: OpenTab, savedTree: TerminalSplitTree) {
-        // Create terminal views for each pane in the tree
-        for pane in savedTree.allViews {
-            // Find the worktree and project for this pane
-            guard let project = SessionManager.shared.projects.first(where: { $0.id == pane.projectId }),
-                  let worktree = project.worktrees.first(where: { $0.id == pane.worktreeId }) else {
-                ghosttyLogger.warning("Could not find worktree for pane \(pane.id)")
-                continue
-            }
+        // The decoded tree already contains AgentStudioTerminalView instances
+        // (created by AgentStudioTerminalView.init(from decoder:) which looks up
+        // worktree/project from SessionManager and creates fresh terminals)
+        guard let firstView = savedTree.allViews.first else { return }
 
-            // Create terminal view for this pane
-            let terminalView = AgentStudioTerminalView(
-                worktree: worktree,
-                project: project
-            )
-            terminalView.translatesAutoresizingMaskIntoConstraints = false
-            paneViews[pane.id] = terminalView
-        }
-
-        // Get primary worktree info for tab display
-        guard let firstPane = savedTree.allViews.first,
-              let project = SessionManager.shared.projects.first(where: { $0.id == firstPane.projectId }),
-              let worktree = project.worktrees.first(where: { $0.id == firstPane.worktreeId }) else {
-            return
-        }
-
-        // Create tab item with restored split tree
         let tabItem = TabItem(
-            id: openTab.id,  // Preserve original tab ID
-            title: worktree.name,
-            primaryWorktreeId: worktree.id,
-            primaryProjectId: project.id,
+            id: openTab.id,
+            title: firstView.title,
+            primaryWorktreeId: firstView.worktree.id,
+            primaryProjectId: firstView.project.id,
             splitTree: savedTree,
-            activePaneId: openTab.activePaneId ?? firstPane.id
+            activePaneId: openTab.activePaneId ?? firstView.id
         )
         tabItems.append(tabItem)
 
@@ -360,17 +303,17 @@ class TerminalTabViewController: NSViewController {
     func closeTerminal(for worktreeId: UUID) {
         // Find the tab containing this worktree
         guard let tabItem = tabItems.first(where: { tab in
-            tab.splitTree.allViews.contains { $0.worktreeId == worktreeId }
+            tab.splitTree.allViews.contains { $0.worktree.id == worktreeId }
         }) else {
             return
         }
 
         // Find the pane with this worktree
-        guard let pane = tabItem.splitTree.allViews.first(where: { $0.worktreeId == worktreeId }) else {
+        guard let terminalView = tabItem.splitTree.allViews.first(where: { $0.worktree.id == worktreeId }) else {
             return
         }
 
-        closePane(paneId: pane.id, inTab: tabItem.id)
+        closePane(paneId: terminalView.id, inTab: tabItem.id)
     }
 
     private func closePane(paneId: UUID, inTab tabId: UUID) {
@@ -378,18 +321,15 @@ class TerminalTabViewController: NSViewController {
 
         var tab = tabItems[tabIndex]
 
-        // Get the pane to close
-        guard let pane = tab.splitTree.find(id: paneId) else { return }
+        // Get the terminal view from the tree
+        guard let terminalView = tab.splitTree.find(id: paneId) else { return }
 
         // Terminate the terminal
-        if let terminal = paneViews[paneId] {
-            terminal.terminateProcess()
-            terminal.removeFromSuperview()
-            paneViews.removeValue(forKey: paneId)
-        }
+        terminalView.terminateProcess()
+        terminalView.removeFromSuperview()
 
         // Remove pane from split tree
-        if let newTree = tab.splitTree.removing(view: pane) {
+        if let newTree = tab.splitTree.removing(view: terminalView) {
             // Update the tab with new tree
             tab.splitTree = newTree
 
@@ -413,7 +353,7 @@ class TerminalTabViewController: NSViewController {
 
         // Update session manager
         Task { @MainActor in
-            if let sessionTab = SessionManager.shared.openTabs.first(where: { $0.worktreeId == pane.worktreeId }) {
+            if let sessionTab = SessionManager.shared.openTabs.first(where: { $0.worktreeId == terminalView.worktree.id }) {
                 SessionManager.shared.closeTab(sessionTab)
             }
         }
@@ -424,13 +364,10 @@ class TerminalTabViewController: NSViewController {
 
         let tab = tabItems[tabIndex]
 
-        // Terminate all terminals in this tab
-        for pane in tab.splitTree.allViews {
-            if let terminal = paneViews[pane.id] {
-                terminal.terminateProcess()
-                terminal.removeFromSuperview()
-                paneViews.removeValue(forKey: pane.id)
-            }
+        // Terminate all terminals in this tab (views are in the tree directly)
+        for terminalView in tab.splitTree.allViews {
+            terminalView.terminateProcess()
+            terminalView.removeFromSuperview()
         }
 
         // Remove tab
@@ -453,8 +390,8 @@ class TerminalTabViewController: NSViewController {
 
         // Update session manager
         Task { @MainActor in
-            for pane in tab.splitTree.allViews {
-                if let sessionTab = SessionManager.shared.openTabs.first(where: { $0.worktreeId == pane.worktreeId }) {
+            for terminalView in tab.splitTree.allViews {
+                if let sessionTab = SessionManager.shared.openTabs.first(where: { $0.worktreeId == terminalView.worktree.id }) {
                     SessionManager.shared.closeTab(sessionTab)
                 }
             }
@@ -479,10 +416,9 @@ class TerminalTabViewController: NSViewController {
     private func showTab(_ tabId: UUID) {
         guard let tab = tabItems.first(where: { $0.id == tabId }) else { return }
 
-        // Create the SwiftUI split container
+        // Create the SwiftUI split container (no dictionary needed — views are in the tree)
         let splitContainer = TerminalSplitContainer(
             tree: tab.splitTree,
-            terminalViews: paneViews,
             activePaneId: tab.activePaneId
         ) { [weak self] operation in
             self?.handleSplitOperation(operation, tabId: tabId)
@@ -509,11 +445,15 @@ class TerminalTabViewController: NSViewController {
             splitHostingView = hostingView
         }
 
-        // Focus the active pane
+        // Focus the active pane (delayed to allow SwiftUI layout after structural identity changes)
         if let activePaneId = tab.activePaneId,
-           let terminal = paneViews[activePaneId] {
-            DispatchQueue.main.async {
+           let terminal = tab.splitTree.find(id: activePaneId) {
+            DispatchQueue.main.asyncAfter(deadline: .now() + 0.1) { [weak terminal] in
+                guard let terminal = terminal, terminal.window != nil else { return }
                 terminal.window?.makeFirstResponder(terminal)
+                if let surfaceId = terminal.surfaceId {
+                    SurfaceManager.shared.setFocus(surfaceId, focused: true)
+                }
             }
         }
     }
@@ -524,12 +464,13 @@ class TerminalTabViewController: NSViewController {
         guard let tabIndex = tabItems.firstIndex(where: { $0.id == tabId }) else { return }
 
         var tab = tabItems[tabIndex]
+        var needsSelect = false
 
         switch operation {
         case .resize(let paneId, let ratio):
             // Find the pane and update the split ratio
-            if let pane = tab.splitTree.find(id: paneId) {
-                tab.splitTree = tab.splitTree.resizing(view: pane, ratio: Double(ratio))
+            if let terminalView = tab.splitTree.find(id: paneId) {
+                tab.splitTree = tab.splitTree.resizing(view: terminalView, ratio: Double(ratio))
             }
 
         case .equalize:
@@ -540,13 +481,29 @@ class TerminalTabViewController: NSViewController {
 
         case .drop(let payload, let destination, let zone):
             handleDrop(payload: payload, destination: destination, zone: zone, tab: &tab)
+            needsSelect = true
+
+        case .closePane(let paneId):
+            // Re-find tab index before delegating (closePane manages its own state)
+            if let updatedIndex = tabItems.firstIndex(where: { $0.id == tabId }) {
+                tabItems[updatedIndex] = tab
+            }
+            closePane(paneId: paneId, inTab: tabId)
+            return
         }
 
-        // Save updated tab
-        tabItems[tabIndex] = tab
+        // Re-find tab index (may have shifted if handleDrop removed a source tab)
+        if let updatedIndex = tabItems.firstIndex(where: { $0.id == tabId }) {
+            tabItems[updatedIndex] = tab
+        }
 
-        // Refresh the view
-        showTab(tabId)
+        // For drop operations, use selectTab to ensure activeTabId is updated
+        // (handleDrop may have removed the source tab, leaving activeTabId stale)
+        if needsSelect {
+            selectTab(id: tabId)
+        } else {
+            showTab(tabId)
+        }
 
         // Auto-save split tree to SessionManager
         saveSplitTree(for: tab)
@@ -559,46 +516,50 @@ class TerminalTabViewController: NSViewController {
         SessionManager.shared.updateTabSplitTree(tab.id, splitTreeData: splitTreeData, activePaneId: tab.activePaneId)
     }
 
-    private func handleDrop(payload: SplitDropPayload, destination: TerminalPaneView, zone: DropZone, tab: inout TabItem) {
+    private func handleDrop(payload: SplitDropPayload, destination: AgentStudioTerminalView, zone: DropZone, tab: inout TabItem) {
         switch payload.kind {
-        case .existingTab(let draggedTabId, let worktreeId, let projectId, let title):
-            // Moving an existing tab into a split
-            // First, remove it from its source tab (if it's from another tab)
-            if tabItems.contains(where: { $0.id == draggedTabId }) {
-                // Find and close the source tab (the terminal will be moved, not destroyed)
-                if let sourceIndex = tabItems.firstIndex(where: { $0.id == draggedTabId }) {
-                    // Don't destroy the terminal - we'll reuse it
-                    // Just remove the tab
-                    tabItems.remove(at: sourceIndex)
+        case .existingTab(_, let worktreeId, _, _):
+            // Find the existing terminal view across all tabs
+            let existingTerminal = tabItems.flatMap { $0.splitTree.allViews }
+                .first { $0.worktree.id == worktreeId }
+
+            guard let terminalView = existingTerminal else { return }
+
+            // Remove from source tab (find by checking which tab contains this view)
+            if let sourceIndex = tabItems.firstIndex(where: { $0.splitTree.allViews.contains { $0.id == terminalView.id } }) {
+                // Don't remove from the destination tab itself
+                if tabItems[sourceIndex].id != tab.id {
+                    var sourceTab = tabItems[sourceIndex]
+                    if let newTree = sourceTab.splitTree.removing(view: terminalView) {
+                        // Source tab still has other panes
+                        sourceTab.splitTree = newTree
+                        if sourceTab.activePaneId == terminalView.id {
+                            sourceTab.activePaneId = newTree.allViews.first?.id
+                        }
+                        sourceTab.title = sourceTab.displayTitle
+                        tabItems[sourceIndex] = sourceTab
+                    } else {
+                        // Source tab is now empty — remove it
+                        tabItems.remove(at: sourceIndex)
+                    }
                 }
             }
 
-            // Create new pane for the dropped tab
-            let newPaneId = UUID()
-
-            // Create terminal if needed (might need to look up existing)
-            if let existingTerminal = terminals.first(where: { $0.key == worktreeId })?.value {
-                paneViews[newPaneId] = existingTerminal
-            }
-
-            let newPane = TerminalPaneView(
-                id: newPaneId,
-                worktreeId: worktreeId,
-                projectId: projectId,
-                title: title
-            )
-
             // Insert into split tree
-            if let newTree = try? tab.splitTree.inserting(view: newPane, at: destination, direction: zone.newDirection) {
+            if let newTree = try? tab.splitTree.inserting(view: terminalView, at: destination, direction: zone.newDirection) {
                 tab.splitTree = newTree
-                tab.activePaneId = newPaneId
+                tab.activePaneId = terminalView.id
                 tab.title = tab.displayTitle
+
+                // Notify SurfaceManager of the move (updates lastActiveAt and focus state)
+                if let surfaceId = terminalView.surfaceId {
+                    SurfaceManager.shared.attach(surfaceId, to: terminalView.containerId)
+                }
             }
 
         case .newTerminal:
             // Create a new terminal in the split
             // For now, this requires user interaction to select a worktree
-            // We'll post a notification to request a new terminal selection
             NotificationCenter.default.post(
                 name: .newTabRequested,
                 object: nil,
@@ -674,18 +635,8 @@ class TerminalTabViewController: NSViewController {
             terminalView.displaySurface(surfaceView)
         }
 
-        // Create pane and store the view
-        let paneId = UUID()
-        paneViews[paneId] = terminalView
-
-        // Create single-pane split tree
-        let pane = TerminalPaneView(
-            id: paneId,
-            worktreeId: worktree.id,
-            projectId: project.id,
-            title: worktree.name
-        )
-        let splitTree = TerminalSplitTree(view: pane)
+        // Create single-pane split tree with the view directly
+        let splitTree = TerminalSplitTree(view: terminalView)
 
         // Create tab item with the split tree
         let tabItem = TabItem(
@@ -694,7 +645,7 @@ class TerminalTabViewController: NSViewController {
             primaryWorktreeId: worktree.id,
             primaryProjectId: project.id,
             splitTree: splitTree,
-            activePaneId: paneId
+            activePaneId: terminalView.id
         )
         tabItems.append(tabItem)
 
