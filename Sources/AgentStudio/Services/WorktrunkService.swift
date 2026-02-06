@@ -53,7 +53,7 @@ final class WorktrunkService {
             return nil
         }
 
-        // Filter entries belonging to this project
+        // Filter entries belonging to this repo
         let filtered = entries.filter { entry in
             entry.path.contains(projectName)
         }

@@ -410,6 +410,87 @@ extension SplitTree: Codable {
     }
 }
 
+// MARK: - Navigation
+
+/// Direction for pane focus navigation.
+/// Standalone type decoupled from SplitTree's generic parameter.
+enum SplitFocusDirection {
+    case left, right, up, down
+}
+
+extension SplitTree {
+    /// Find the neighbor pane in the given direction from the pane with the given ID.
+    func neighbor(of id: ViewType.ID, direction: SplitFocusDirection) -> ViewType? {
+        guard let root else { return nil }
+        return root.neighbor(of: id, direction: direction)
+    }
+
+    /// Get the next pane in left-to-right order (wraps around).
+    func nextView(after id: ViewType.ID) -> ViewType? {
+        let views = allViews
+        guard let index = views.firstIndex(where: { $0.id == id }) else { return nil }
+        let nextIndex = (index + 1) % views.count
+        return views[nextIndex]
+    }
+
+    /// Get the previous pane in left-to-right order (wraps around).
+    func previousView(before id: ViewType.ID) -> ViewType? {
+        let views = allViews
+        guard let index = views.firstIndex(where: { $0.id == id }) else { return nil }
+        let prevIndex = (index - 1 + views.count) % views.count
+        return views[prevIndex]
+    }
+}
+
+extension SplitTree.Node {
+    /// Find a neighbor in a given direction from the node with the given ID.
+    /// Walks up the tree to find a split where the target is on the appropriate side,
+    /// then walks down the other side to find the nearest leaf.
+    func neighbor(of id: ViewType.ID, direction: SplitFocusDirection) -> ViewType? {
+        switch self {
+        case .leaf:
+            return nil
+
+        case .split(let split):
+            let leftContains = split.left.contains(id: id)
+            let rightContains = split.right.contains(id: id)
+
+            switch direction {
+            case .left:
+                if split.direction == .horizontal && rightContains {
+                    // Target is on the right, neighbor is rightmost leaf of left subtree
+                    return split.left.allViews.last
+                }
+            case .right:
+                if split.direction == .horizontal && leftContains {
+                    // Target is on the left, neighbor is leftmost leaf of right subtree
+                    return split.right.allViews.first
+                }
+            case .up:
+                if split.direction == .vertical && rightContains {
+                    // Target is on the bottom, neighbor is bottom-most of top subtree
+                    return split.left.allViews.last
+                }
+            case .down:
+                if split.direction == .vertical && leftContains {
+                    // Target is on the top, neighbor is top-most of bottom subtree
+                    return split.right.allViews.first
+                }
+            }
+
+            // Recurse into the subtree containing the target
+            if leftContains {
+                return split.left.neighbor(of: id, direction: direction)
+            }
+            if rightContains {
+                return split.right.neighbor(of: id, direction: direction)
+            }
+
+            return nil
+        }
+    }
+}
+
 // MARK: - Structural Identity
 
 extension SplitTree.Node {

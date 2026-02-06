@@ -137,9 +137,9 @@ class AppDelegate: NSObject, NSApplicationDelegate {
         closeWindowItem.keyEquivalentModifierMask = [.command, .shift]
         fileMenu.addItem(closeWindowItem)
         fileMenu.addItem(NSMenuItem.separator())
-        let addProjectItem = NSMenuItem(title: "Add Project...", action: #selector(addProject), keyEquivalent: "O")
-        addProjectItem.keyEquivalentModifierMask = [.command, .shift]
-        fileMenu.addItem(addProjectItem)
+        let addRepoItem = NSMenuItem(title: "Add Repo...", action: #selector(addRepo), keyEquivalent: "O")
+        addRepoItem.keyEquivalentModifierMask = [.command, .shift]
+        fileMenu.addItem(addRepoItem)
 
         let fileMenuItem = NSMenuItem()
         fileMenuItem.submenu = fileMenu
@@ -241,8 +241,8 @@ class AppDelegate: NSObject, NSApplicationDelegate {
         NSApp.keyWindow?.close()
     }
 
-    @objc private func addProject() {
-        NotificationCenter.default.post(name: .addProjectRequested, object: nil)
+    @objc private func addRepo() {
+        NotificationCenter.default.post(name: .addRepoRequested, object: nil)
     }
 
     @objc private func toggleSidebar() {

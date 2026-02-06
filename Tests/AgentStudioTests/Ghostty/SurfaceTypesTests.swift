@@ -111,7 +111,7 @@ final class SurfaceTypesTests: XCTestCase {
             command: "zsh",
             title: "My Terminal",
             worktreeId: wtId,
-            projectId: pId
+            repoId: pId
         )
 
         // Act
@@ -122,7 +122,7 @@ final class SurfaceTypesTests: XCTestCase {
         XCTAssertEqual(decoded.title, "My Terminal")
         XCTAssertEqual(decoded.command, "zsh")
         XCTAssertEqual(decoded.worktreeId, wtId)
-        XCTAssertEqual(decoded.projectId, pId)
+        XCTAssertEqual(decoded.repoId, pId)
     }
 
     func test_surfaceMetadata_codable_nilOptionals_roundTrip() throws {
@@ -132,7 +132,7 @@ final class SurfaceTypesTests: XCTestCase {
             command: nil,
             title: "Terminal",
             worktreeId: nil,
-            projectId: nil
+            repoId: nil
         )
 
         // Act

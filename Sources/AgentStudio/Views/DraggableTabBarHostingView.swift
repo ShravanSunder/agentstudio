@@ -134,6 +134,12 @@ class DraggableTabBarHostingView: NSView, NSDraggingSource {
     // MARK: - Pan Gesture Handler
 
     @objc private func handlePan(_ gesture: NSPanGestureRecognizer) {
+        // Tab drag requires management mode (Ctrl+Opt held)
+        guard ManagementModeMonitor.shared.isActive else {
+            gesture.state = .cancelled
+            return
+        }
+
         let location = gesture.location(in: self)
 
         switch gesture.state {
@@ -180,7 +186,7 @@ class DraggableTabBarHostingView: NSView, NSDraggingSource {
             let payload = TabDragPayload(
                 tabId: tabId,
                 worktreeId: tab.primaryWorktreeId,
-                projectId: tab.primaryProjectId,
+                repoId: tab.primaryRepoId,
                 title: tab.title
             )
             if let payloadData = try? JSONEncoder().encode(payload) {

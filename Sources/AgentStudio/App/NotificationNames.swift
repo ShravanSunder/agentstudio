@@ -10,8 +10,8 @@ extension Notification.Name {
     static let selectTabAtIndex = Notification.Name("selectTabAtIndex")
     static let selectTabById = Notification.Name("selectTabById")
 
-    // Project management
-    static let addProjectRequested = Notification.Name("addProjectRequested")
+    // Repo management
+    static let addRepoRequested = Notification.Name("addRepoRequested")
     static let refreshWorktreesRequested = Notification.Name("refreshWorktreesRequested")
 
     // Terminal management

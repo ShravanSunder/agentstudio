@@ -1,7 +1,7 @@
 import Foundation
 import SwiftUI
 
-/// A git worktree within a project
+/// A git worktree within a repo
 struct Worktree: Codable, Identifiable, Hashable {
     let id: UUID
     var name: String

@@ -5,13 +5,16 @@ import UniformTypeIdentifiers
 /// Renders a single terminal pane with drop zone support for splitting.
 struct TerminalPaneLeaf: View {
     let terminalView: AgentStudioTerminalView
+    let tabId: UUID
     let isActive: Bool
     let isSplit: Bool
-    let action: (SplitOperation) -> Void
+    let action: (PaneAction) -> Void
+    let shouldAcceptDrop: (UUID, DropZone) -> Bool
+    let onDrop: (SplitDropPayload, UUID, DropZone) -> Void
 
     @State private var dropZone: DropZone?
     @State private var isTargeted: Bool = false
-    @State private var isHovered: Bool = false
+    @ObservedObject private var managementMode = ManagementModeMonitor.shared
 
     var body: some View {
         GeometryReader { geometry in
@@ -27,16 +30,24 @@ struct TerminalPaneLeaf: View {
                         .allowsHitTesting(false)
                 }
 
+                // Management mode border on all panes
+                if managementMode.isActive && isSplit {
+                    RoundedRectangle(cornerRadius: 4)
+                        .strokeBorder(Color.white.opacity(0.1), lineWidth: 1)
+                        .padding(1)
+                        .allowsHitTesting(false)
+                }
+
                 // Drop zone overlay
                 if isTargeted, let zone = dropZone {
                     zone.overlay(in: geometry)
                         .allowsHitTesting(false)
                 }
 
-                // Close pane button (only when split)
-                if isSplit && (isHovered || isActive) {
+                // Close pane button (management mode only)
+                if isSplit && managementMode.isActive {
                     Button {
-                        action(.closePane(paneId: terminalView.id))
+                        action(.closePane(tabId: tabId, paneId: terminalView.id))
                     } label: {
                         Image(systemName: "xmark.circle.fill")
                             .font(.system(size: 14))
@@ -50,19 +61,15 @@ struct TerminalPaneLeaf: View {
             }
             .contentShape(Rectangle())
             .onTapGesture {
-                action(.focus(paneId: terminalView.id))
-            }
-            .onHover { hovering in
-                withAnimation(.easeInOut(duration: 0.15)) {
-                    isHovered = hovering
-                }
+                action(.focusPane(tabId: tabId, paneId: terminalView.id))
             }
             .onDrop(of: [.agentStudioTab, .agentStudioNewTab], delegate: SplitDropDelegate(
                 viewSize: geometry.size,
                 destination: terminalView,
                 dropZone: $dropZone,
                 isTargeted: $isTargeted,
-                action: action
+                shouldAcceptDrop: shouldAcceptDrop,
+                onDrop: onDrop
             ))
         }
     }
@@ -92,20 +99,25 @@ private struct SplitDropDelegate: DropDelegate {
     let destination: AgentStudioTerminalView
     @Binding var dropZone: DropZone?
     @Binding var isTargeted: Bool
-    let action: (SplitOperation) -> Void
+    let shouldAcceptDrop: (UUID, DropZone) -> Bool
+    let onDrop: (SplitDropPayload, UUID, DropZone) -> Void
 
     func validateDrop(info: DropInfo) -> Bool {
         info.hasItemsConforming(to: [.agentStudioTab, .agentStudioNewTab])
     }
 
     func dropEntered(info: DropInfo) {
-        isTargeted = true
-        dropZone = DropZone.calculate(at: info.location, in: viewSize)
+        let zone = DropZone.calculate(at: info.location, in: viewSize)
+        dropZone = zone
+        isTargeted = shouldAcceptDrop(destination.id, zone)
     }
 
     func dropUpdated(info: DropInfo) -> DropProposal? {
-        dropZone = DropZone.calculate(at: info.location, in: viewSize)
-        return DropProposal(operation: .move)
+        let zone = DropZone.calculate(at: info.location, in: viewSize)
+        dropZone = zone
+        let accepted = shouldAcceptDrop(destination.id, zone)
+        isTargeted = accepted
+        return DropProposal(operation: accepted ? .move : .cancel)
     }
 
     func dropExited(info: DropInfo) {
@@ -135,10 +147,10 @@ private struct SplitDropDelegate: DropDelegate {
                     let splitPayload = SplitDropPayload(kind: .existingTab(
                         tabId: payload.tabId,
                         worktreeId: payload.worktreeId,
-                        projectId: payload.projectId,
+                        repoId: payload.repoId,
                         title: payload.title
                     ))
-                    action(.drop(payload: splitPayload, destination: destination, zone: zone))
+                    onDrop(splitPayload, destination.id, zone)
                 }
             }
             return true
@@ -147,7 +159,7 @@ private struct SplitDropDelegate: DropDelegate {
         if provider.hasItemConformingToTypeIdentifier(UTType.agentStudioNewTab.identifier) {
             DispatchQueue.main.async {
                 let splitPayload = SplitDropPayload(kind: .newTerminal)
-                action(.drop(payload: splitPayload, destination: destination, zone: zone))
+                onDrop(splitPayload, destination.id, zone)
             }
             return true
         }
@@ -172,7 +184,7 @@ extension UTType {
 struct TabDragPayload: Codable, Transferable {
     let tabId: UUID
     let worktreeId: UUID
-    let projectId: UUID
+    let repoId: UUID
     let title: String
 
     static var transferRepresentation: some TransferRepresentation {

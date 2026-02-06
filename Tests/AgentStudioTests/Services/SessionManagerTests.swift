@@ -7,36 +7,36 @@ final class SessionManagerTests: XCTestCase {
 
     private var worktreeA: Worktree!
     private var worktreeB: Worktree!
-    private var project: Project!
-    private var projects: [Project]!
+    private var repo: Repo!
+    private var repos: [Repo]!
 
     override func setUp() {
         super.setUp()
         worktreeA = makeWorktree(name: "main", path: "/tmp/repo/main", branch: "main")
         worktreeB = makeWorktree(name: "feature", path: "/tmp/repo/feature", branch: "feature")
-        project = makeProject(worktrees: [worktreeA, worktreeB])
-        projects = [project]
+        repo = makeRepo(worktrees: [worktreeA, worktreeB])
+        repos = [repo]
     }
 
     // MARK: - findWorktree(for:in:)
 
     func test_findWorktree_matchingTab_returnsWorktree() {
         // Arrange
-        let tab = makeOpenTab(worktreeId: worktreeA.id, projectId: project.id)
+        let tab = makeOpenTab(worktreeId: worktreeA.id, repoId: repo.id)
 
         // Act
-        let result = SessionManager.findWorktree(for: tab, in: projects)
+        let result = SessionManager.findWorktree(for: tab, in: repos)
 
         // Assert
         XCTAssertEqual(result?.id, worktreeA.id)
     }
 
-    func test_findWorktree_wrongProjectId_returnsNil() {
+    func test_findWorktree_wrongRepoId_returnsNil() {
         // Arrange
-        let tab = makeOpenTab(worktreeId: worktreeA.id, projectId: UUID())
+        let tab = makeOpenTab(worktreeId: worktreeA.id, repoId: UUID())
 
         // Act
-        let result = SessionManager.findWorktree(for: tab, in: projects)
+        let result = SessionManager.findWorktree(for: tab, in: repos)
 
         // Assert
         XCTAssertNil(result)
@@ -44,18 +44,18 @@ final class SessionManagerTests: XCTestCase {
 
     func test_findWorktree_wrongWorktreeId_returnsNil() {
         // Arrange
-        let tab = makeOpenTab(worktreeId: UUID(), projectId: project.id)
+        let tab = makeOpenTab(worktreeId: UUID(), repoId: repo.id)
 
         // Act
-        let result = SessionManager.findWorktree(for: tab, in: projects)
+        let result = SessionManager.findWorktree(for: tab, in: repos)
 
         // Assert
         XCTAssertNil(result)
     }
 
-    func test_findWorktree_emptyProjects_returnsNil() {
+    func test_findWorktree_emptyRepos_returnsNil() {
         // Arrange
-        let tab = makeOpenTab(worktreeId: worktreeA.id, projectId: project.id)
+        let tab = makeOpenTab(worktreeId: worktreeA.id, repoId: repo.id)
 
         // Act
         let result = SessionManager.findWorktree(for: tab, in: [])
@@ -64,46 +64,46 @@ final class SessionManagerTests: XCTestCase {
         XCTAssertNil(result)
     }
 
-    // MARK: - findProject(for:in:)
+    // MARK: - findRepo(for:in:)
 
-    func test_findProject_matchingTab_returnsProject() {
+    func test_findRepo_matchingTab_returnsRepo() {
         // Arrange
-        let tab = makeOpenTab(worktreeId: worktreeA.id, projectId: project.id)
+        let tab = makeOpenTab(worktreeId: worktreeA.id, repoId: repo.id)
 
         // Act
-        let result = SessionManager.findProject(for: tab, in: projects)
+        let result = SessionManager.findRepo(for: tab, in: repos)
 
         // Assert
-        XCTAssertEqual(result?.id, project.id)
+        XCTAssertEqual(result?.id, repo.id)
     }
 
-    func test_findProject_wrongProjectId_returnsNil() {
+    func test_findRepo_wrongRepoId_returnsNil() {
         // Arrange
-        let tab = makeOpenTab(worktreeId: worktreeA.id, projectId: UUID())
+        let tab = makeOpenTab(worktreeId: worktreeA.id, repoId: UUID())
 
         // Act
-        let result = SessionManager.findProject(for: tab, in: projects)
+        let result = SessionManager.findRepo(for: tab, in: repos)
 
         // Assert
         XCTAssertNil(result)
     }
 
-    // MARK: - findProject(containing:in:)
+    // MARK: - findRepo(containing:in:)
 
-    func test_findProjectContaining_existingWorktree_returnsProject() {
+    func test_findRepoContaining_existingWorktree_returnsRepo() {
         // Act
-        let result = SessionManager.findProject(containing: worktreeA, in: projects)
+        let result = SessionManager.findRepo(containing: worktreeA, in: repos)
 
         // Assert
-        XCTAssertEqual(result?.id, project.id)
+        XCTAssertEqual(result?.id, repo.id)
     }
 
-    func test_findProjectContaining_orphanWorktree_returnsNil() {
+    func test_findRepoContaining_orphanWorktree_returnsNil() {
         // Arrange
         let orphan = makeWorktree(name: "orphan")
 
         // Act
-        let result = SessionManager.findProject(containing: orphan, in: projects)
+        let result = SessionManager.findRepo(containing: orphan, in: repos)
 
         // Assert
         XCTAssertNil(result)
