@@ -35,7 +35,7 @@ enum PaneAction: Equatable, Hashable {
     // Split operations
     case insertPane(source: PaneSource, targetTabId: UUID,
                     targetPaneId: UUID, direction: SplitNewDirection)
-    case resizePane(tabId: UUID, paneId: UUID, ratio: CGFloat)
+    case resizePane(tabId: UUID, splitId: UUID, ratio: Double)
     case equalizePanes(tabId: UUID)
 
     /// Move ALL panes from sourceTab into targetTab at targetPaneId position.

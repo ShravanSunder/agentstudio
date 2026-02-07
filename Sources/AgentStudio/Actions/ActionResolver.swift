@@ -50,14 +50,14 @@ enum ActionResolver {
 
         // Pane lifecycle
         case .closePane:
-            guard let (tabId, paneId) = activeTabAndPane(tabs: tabs, activeTabId: activeTabId)
+            guard let (tab, paneId) = activeTabAndPane(tabs: tabs, activeTabId: activeTabId)
             else { return nil }
-            return .closePane(tabId: tabId, paneId: paneId)
+            return .closePane(tabId: tab.id, paneId: paneId)
 
         case .extractPaneToTab:
-            guard let (tabId, paneId) = activeTabAndPane(tabs: tabs, activeTabId: activeTabId)
+            guard let (tab, paneId) = activeTabAndPane(tabs: tabs, activeTabId: activeTabId)
             else { return nil }
-            return .extractPaneToTab(tabId: tabId, paneId: paneId)
+            return .extractPaneToTab(tabId: tab.id, paneId: paneId)
 
         case .equalizePanes:
             guard let tabId = activeTabId else { return nil }
@@ -74,16 +74,14 @@ enum ActionResolver {
             return resolveFocusDirection(.down, tabs: tabs, activeTabId: activeTabId)
 
         case .focusNextPane:
-            guard let (tabId, paneId) = activeTabAndPane(tabs: tabs, activeTabId: activeTabId),
-                  let tab = tabs.first(where: { $0.id == tabId }),
+            guard let (tab, paneId) = activeTabAndPane(tabs: tabs, activeTabId: activeTabId),
                   let nextId = tab.nextPaneId(after: paneId) else { return nil }
-            return .focusPane(tabId: tabId, paneId: nextId)
+            return .focusPane(tabId: tab.id, paneId: nextId)
 
         case .focusPrevPane:
-            guard let (tabId, paneId) = activeTabAndPane(tabs: tabs, activeTabId: activeTabId),
-                  let tab = tabs.first(where: { $0.id == tabId }),
+            guard let (tab, paneId) = activeTabAndPane(tabs: tabs, activeTabId: activeTabId),
                   let prevId = tab.previousPaneId(before: paneId) else { return nil }
-            return .focusPane(tabId: tabId, paneId: prevId)
+            return .focusPane(tabId: tab.id, paneId: prevId)
 
         // Split directions (create new terminal)
         case .splitRight:
@@ -173,11 +171,11 @@ enum ActionResolver {
 
     private static func activeTabAndPane<T: ResolvableTab>(
         tabs: [T], activeTabId: UUID?
-    ) -> (UUID, UUID)? {
+    ) -> (T, UUID)? {
         guard let tabId = activeTabId,
               let tab = tabs.first(where: { $0.id == tabId }),
               let paneId = tab.activePaneId else { return nil }
-        return (tabId, paneId)
+        return (tab, paneId)
     }
 
     private static func selectTabByIndex<T: ResolvableTab>(
@@ -207,22 +205,21 @@ enum ActionResolver {
         _ direction: SplitFocusDirection,
         tabs: [T], activeTabId: UUID?
     ) -> PaneAction? {
-        guard let (tabId, paneId) = activeTabAndPane(tabs: tabs, activeTabId: activeTabId),
-              let tab = tabs.first(where: { $0.id == tabId }),
+        guard let (tab, paneId) = activeTabAndPane(tabs: tabs, activeTabId: activeTabId),
               let neighborId = tab.neighborPaneId(of: paneId, direction: direction)
         else { return nil }
-        return .focusPane(tabId: tabId, paneId: neighborId)
+        return .focusPane(tabId: tab.id, paneId: neighborId)
     }
 
     private static func resolveSplit<T: ResolvableTab>(
         _ direction: SplitNewDirection,
         tabs: [T], activeTabId: UUID?
     ) -> PaneAction? {
-        guard let (tabId, paneId) = activeTabAndPane(tabs: tabs, activeTabId: activeTabId)
+        guard let (tab, paneId) = activeTabAndPane(tabs: tabs, activeTabId: activeTabId)
         else { return nil }
         return .insertPane(
             source: .newTerminal,
-            targetTabId: tabId,
+            targetTabId: tab.id,
             targetPaneId: paneId,
             direction: direction
         )

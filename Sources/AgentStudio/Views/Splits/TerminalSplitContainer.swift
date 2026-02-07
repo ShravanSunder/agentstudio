@@ -17,6 +17,8 @@ struct TerminalSplitContainer: View {
     let tabId: UUID
     let activePaneId: UUID?
     let action: (PaneAction) -> Void
+    /// Called when a resize drag ends to persist the current split tree state.
+    let onPersist: (() -> Void)?
     let shouldAcceptDrop: (UUID, DropZone) -> Bool
     let onDrop: (SplitDropPayload, UUID, DropZone) -> Void
 
@@ -28,6 +30,7 @@ struct TerminalSplitContainer: View {
                 isSplit: tree.isSplit,
                 activePaneId: activePaneId,
                 action: action,
+                onPersist: onPersist,
                 shouldAcceptDrop: shouldAcceptDrop,
                 onDrop: onDrop
             )
@@ -51,6 +54,7 @@ fileprivate struct SplitSubtreeView: View {
     let isSplit: Bool
     let activePaneId: UUID?
     let action: (PaneAction) -> Void
+    let onPersist: (() -> Void)?
     let shouldAcceptDrop: (UUID, DropZone) -> Bool
     let onDrop: (SplitDropPayload, UUID, DropZone) -> Void
 
@@ -78,6 +82,7 @@ fileprivate struct SplitSubtreeView: View {
                         isSplit: true,
                         activePaneId: activePaneId,
                         action: action,
+                        onPersist: onPersist,
                         shouldAcceptDrop: shouldAcceptDrop,
                         onDrop: onDrop
                     )
@@ -89,12 +94,17 @@ fileprivate struct SplitSubtreeView: View {
                         isSplit: true,
                         activePaneId: activePaneId,
                         action: action,
+                        onPersist: onPersist,
                         shouldAcceptDrop: shouldAcceptDrop,
                         onDrop: onDrop
                     )
                 },
                 onEqualize: {
                     action(.equalizePanes(tabId: tabId))
+                },
+                onResizeEnd: {
+                    // Persist only when drag ends — avoids I/O on every pixel of movement
+                    onPersist?()
                 }
             )
         }
@@ -106,28 +116,13 @@ fileprivate struct SplitSubtreeView: View {
     }
 
     private func ratioBinding(for split: TerminalSplitTree.Node.Split) -> Binding<CGFloat> {
-        Binding(
+        let splitId = split.id
+        return Binding(
             get: { CGFloat(split.ratio) },
             set: { newRatio in
-                // Find a pane in this split to identify it
-                if let paneId = split.left.firstPaneId {
-                    action(.resizePane(tabId: tabId, paneId: paneId, ratio: newRatio))
-                }
+                action(.resizePane(tabId: tabId, splitId: splitId, ratio: Double(newRatio)))
             }
         )
     }
 }
 
-// MARK: - Helper Extensions
-
-extension TerminalSplitTree.Node {
-    /// Get the ID of the first pane in this node (for identifying the split).
-    var firstPaneId: UUID? {
-        switch self {
-        case .leaf(let terminalView):
-            return terminalView.id
-        case .split(let split):
-            return split.left.firstPaneId
-        }
-    }
-}

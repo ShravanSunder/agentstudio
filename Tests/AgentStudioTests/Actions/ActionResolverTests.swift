@@ -174,8 +174,8 @@ final class ActionResolverTests: XCTestCase {
 
         // Verify validator rejects self-merge
         let validation = ActionValidator.validate(result!, state: snapshot)
-        if case .failure(.selfInsertion) = validation { return }
-        XCTFail("Expected selfInsertion error from validator")
+        if case .failure(.selfTabMerge) = validation { return }
+        XCTFail("Expected selfTabMerge error from validator")
     }
 
     // MARK: - resolve(command:) — Tab Lifecycle

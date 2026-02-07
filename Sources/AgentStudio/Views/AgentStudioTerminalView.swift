@@ -34,6 +34,15 @@ final class AgentStudioTerminalView: NSView, SurfaceContainer, SurfaceHealthDele
         setupTerminal()
     }
 
+    /// Restoring initializer — defers terminal setup until the view is displayed.
+    /// Used by the Codable decode path to avoid spawning orphaned processes.
+    init(worktree: Worktree, repo: Repo, restoring: Bool) {
+        self.worktree = worktree
+        self.repo = repo
+        super.init(frame: NSRect(x: 0, y: 0, width: 800, height: 600))
+        // Terminal setup is deferred to viewDidMoveToWindow
+    }
+
     /// Restore initializer - for attaching an existing surface (undo close)
     /// Does NOT create a new surface; caller must attach one via displaySurface()
     init(worktree: Worktree, repo: Repo, restoredSurfaceId: UUID) {
@@ -282,6 +291,17 @@ final class AgentStudioTerminalView: NSView, SurfaceContainer, SurfaceHealthDele
         return SurfaceManager.shared.hasProcessExited(surfaceId)
     }
 
+    // MARK: - Deferred Setup
+
+    override func viewDidMoveToWindow() {
+        super.viewDidMoveToWindow()
+        // Lazily set up terminal when the view enters a window for the first time.
+        // This handles restored views that deferred setupTerminal().
+        if window != nil && surfaceId == nil && ghosttySurface == nil {
+            setupTerminal()
+        }
+    }
+
     // MARK: - Layout
 
     override func layout() {
@@ -389,7 +409,10 @@ extension AgentStudioTerminalView: Codable {
             )
         }
 
-        self.init(worktree: worktree, repo: repo)
+        // Use the base NSView init — do NOT call self.init(worktree:repo:) which
+        // spawns a shell process immediately. Terminal setup is deferred until the
+        // view is displayed, preventing orphaned processes on restore.
+        self.init(worktree: worktree, repo: repo, restoring: true)
         // Preserve the original containerId so activePaneId still maps correctly
         self.containerId = savedContainerId
     }

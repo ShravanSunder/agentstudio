@@ -1,6 +1,6 @@
 import Foundation
 
-/// Wrapper proving an action has passed validation.
+/// Wrapper that proves an action has passed validation.
 /// Only ActionValidator can create instances (fileprivate init).
 struct ValidatedAction: Equatable {
     let action: PaneAction
@@ -16,9 +16,10 @@ enum ActionValidationError: Error, Equatable {
     case paneNotFound(paneId: UUID, tabId: UUID)
     case tabNotSplit(tabId: UUID)
     case singlePaneTab(tabId: UUID)
-    case selfInsertion(paneId: UUID)
+    case selfPaneInsertion(paneId: UUID)
+    case selfTabMerge(sourceTabId: UUID)
     case sourcePaneNotFound(paneId: UUID, sourceTabId: UUID)
-    case invalidRatio(ratio: CGFloat)
+    case invalidRatio(ratio: Double)
 }
 
 /// Pure-function validation engine.
@@ -99,17 +100,14 @@ enum ActionValidator {
                 }
                 // Self-insertion check: can't drop a pane onto itself
                 guard sourcePaneId != targetPaneId else {
-                    return .failure(.selfInsertion(paneId: sourcePaneId))
+                    return .failure(.selfPaneInsertion(paneId: sourcePaneId))
                 }
             }
             return .success(ValidatedAction(action))
 
-        case .resizePane(let tabId, let paneId, let ratio):
+        case .resizePane(let tabId, _, let ratio):
             guard let tab = state.tab(tabId) else {
                 return .failure(.tabNotFound(tabId: tabId))
-            }
-            guard tab.paneIds.contains(paneId) else {
-                return .failure(.paneNotFound(paneId: paneId, tabId: tabId))
             }
             guard tab.isSplit else {
                 return .failure(.tabNotSplit(tabId: tabId))
@@ -139,7 +137,7 @@ enum ActionValidator {
                 return .failure(.paneNotFound(paneId: targetPaneId, tabId: targetTabId))
             }
             guard sourceTabId != targetTabId else {
-                return .failure(.selfInsertion(paneId: targetPaneId))
+                return .failure(.selfTabMerge(sourceTabId: sourceTabId))
             }
             return .success(ValidatedAction(action))
         }

@@ -21,9 +21,9 @@ final class ManagementModeMonitor: ObservableObject {
         startMonitoring()
     }
 
-    deinit {
-        stopMonitoring()
-    }
+    // No deinit needed — singleton lives for the app's lifetime.
+    // The previous deinit used MainActor.assumeIsolated which is undefined
+    // behavior if deinit runs off the main thread.
 
     private func startMonitoring() {
         flagsMonitor = NSEvent.addLocalMonitorForEvents(matching: .flagsChanged) { [weak self] event in
@@ -32,12 +32,10 @@ final class ManagementModeMonitor: ObservableObject {
         }
     }
 
-    nonisolated func stopMonitoring() {
-        MainActor.assumeIsolated {
-            if let monitor = flagsMonitor {
-                NSEvent.removeMonitor(monitor)
-                flagsMonitor = nil
-            }
+    func stopMonitoring() {
+        if let monitor = flagsMonitor {
+            NSEvent.removeMonitor(monitor)
+            flagsMonitor = nil
         }
     }
 

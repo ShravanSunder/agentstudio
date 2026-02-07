@@ -244,9 +244,17 @@ class TerminalTabViewController: NSViewController, CommandHandler {
         // Create single-pane split tree with the view directly
         let splitTree = TerminalSplitTree(view: terminalView)
 
+        // Reuse the OpenTab ID from SessionManager so persistence stays in sync
+        let tabId: UUID
+        if let existingOpenTab = SessionManager.shared.openTabs.first(where: { $0.worktreeId == worktree.id }) {
+            tabId = existingOpenTab.id
+        } else {
+            tabId = UUID()
+        }
+
         // Create tab item with the split tree
         let tabItem = TabItem(
-            id: UUID(),
+            id: tabId,
             title: worktree.name,
             primaryWorktreeId: worktree.id,
             primaryRepoId: repo.id,
@@ -342,6 +350,9 @@ class TerminalTabViewController: NSViewController, CommandHandler {
             tab.title = tab.displayTitle
             tabBarState.replaceTab(at: tabIndex, with: tab)
 
+            // Persist the updated split tree
+            saveSplitTree(for: tab)
+
             // Refresh the split view
             showTab(tabId)
         } else {
@@ -388,9 +399,11 @@ class TerminalTabViewController: NSViewController, CommandHandler {
         }
 
         alert.beginSheetModal(for: window) { [weak self] response in
-            if response == .alertFirstButtonReturn {
-                self?.performCloseTab(at: tabIndex, tab: tab)
-            }
+            guard response == .alertFirstButtonReturn, let self else { return }
+            // Re-lookup by ID — tabs may have been reordered/closed while alert was open
+            guard let currentIndex = self.tabItems.firstIndex(where: { $0.id == tabId }) else { return }
+            let currentTab = self.tabItems[currentIndex]
+            self.performCloseTab(at: currentIndex, tab: currentTab)
         }
     }
 
@@ -454,6 +467,11 @@ class TerminalTabViewController: NSViewController, CommandHandler {
             activePaneId: tab.activePaneId,
             action: { [weak self] action in
                 self?.dispatchAction(action)
+            },
+            onPersist: { [weak self] in
+                guard let self,
+                      let currentTab = self.tabItems.first(where: { $0.id == tabId }) else { return }
+                self.saveSplitTree(for: currentTab)
             },
             shouldAcceptDrop: { [weak self] destPaneId, zone in
                 guard let self else { return false }
@@ -521,10 +539,10 @@ class TerminalTabViewController: NSViewController, CommandHandler {
             splitHostingView = hostingView
         }
 
-        // Focus the active pane (delayed to allow SwiftUI layout after structural identity changes)
+        // Focus the active pane on next run loop (allows SwiftUI layout to complete)
         if let activePaneId = tab.activePaneId,
            let terminal = tab.splitTree.find(id: activePaneId) {
-            DispatchQueue.main.asyncAfter(deadline: .now() + 0.1) { [weak terminal] in
+            DispatchQueue.main.async { [weak terminal] in
                 guard let terminal = terminal, terminal.window != nil else { return }
                 terminal.window?.makeFirstResponder(terminal)
                 if let surfaceId = terminal.surfaceId {
@@ -539,7 +557,10 @@ class TerminalTabViewController: NSViewController, CommandHandler {
     /// Save a tab's split tree to SessionManager for persistence
     private func saveSplitTree(for tab: TabItem) {
         let encoder = JSONEncoder()
-        let splitTreeData = try? encoder.encode(tab.splitTree)
+        guard let splitTreeData = try? encoder.encode(tab.splitTree) else {
+            ghosttyLogger.error("Failed to encode split tree for tab \(tab.id)")
+            return
+        }
         SessionManager.shared.updateTabSplitTree(tab.id, splitTreeData: splitTreeData, activePaneId: tab.activePaneId)
     }
 
@@ -557,8 +578,8 @@ class TerminalTabViewController: NSViewController, CommandHandler {
         switch ActionValidator.validate(action, state: snapshot) {
         case .success(let validated):
             executeValidated(validated)
-        case .failure:
-            break // Action rejected by validation
+        case .failure(let error):
+            ghosttyLogger.warning("Action rejected: \(error)")
         }
     }
 
@@ -592,14 +613,13 @@ class TerminalTabViewController: NSViewController, CommandHandler {
             executeInsertPane(source: source, targetTabId: targetTabId,
                             targetPaneId: targetPaneId, direction: direction)
 
-        case .resizePane(let tabId, let paneId, let ratio):
-            guard let tabIndex = tabItems.firstIndex(where: { $0.id == tabId }),
-                  let terminalView = tabItems[tabIndex].splitTree.find(id: paneId) else { return }
+        case .resizePane(let tabId, let splitId, let ratio):
+            guard let tabIndex = tabItems.firstIndex(where: { $0.id == tabId }) else { return }
             var tab = tabItems[tabIndex]
-            tab.splitTree = tab.splitTree.resizing(view: terminalView, ratio: Double(ratio))
+            tab.splitTree = tab.splitTree.resizing(splitId: splitId, ratio: ratio)
             tabBarState.replaceTab(at: tabIndex, with: tab)
             showTab(tabId)
-            saveSplitTree(for: tab)
+            // Persistence is handled by onResizeEnd — not on every pixel of drag
 
         case .equalizePanes(let tabId):
             guard let tabIndex = tabItems.firstIndex(where: { $0.id == tabId }) else { return }
@@ -634,9 +654,17 @@ class TerminalTabViewController: NSViewController, CommandHandler {
             guard let terminalView = tabItems.flatMap({ $0.splitTree.allViews })
                 .first(where: { $0.id == sourcePaneId }) else { return }
 
-            // Remove from source tab if different from target
-            if sourceTabId != targetTabId,
-               let sourceIndex = tabItems.firstIndex(where: { $0.id == sourceTabId }) {
+            if sourceTabId == targetTabId {
+                // Same-tab move: remove from current position first to avoid duplicate node
+                if let cleaned = tab.splitTree.removing(view: terminalView) {
+                    tab.splitTree = cleaned
+                } else {
+                    // Only pane in the tree — nothing to move
+                    return
+                }
+                tabBarState.replaceTab(at: tabIndex, with: tab)
+            } else if let sourceIndex = tabItems.firstIndex(where: { $0.id == sourceTabId }) {
+                // Cross-tab move: remove from source tab
                 var sourceTab = tabItems[sourceIndex]
                 if let newTree = sourceTab.splitTree.removing(view: terminalView) {
                     sourceTab.splitTree = newTree
@@ -654,9 +682,12 @@ class TerminalTabViewController: NSViewController, CommandHandler {
             guard let updatedIndex = tabItems.firstIndex(where: { $0.id == targetTabId }) else { return }
             tab = tabItems[updatedIndex]
 
+            // Re-find destination pane (tree structure may have changed)
+            guard let updatedDestination = tab.splitTree.find(id: targetPaneId) else { return }
+
             // Insert into target
             if let newTree = try? tab.splitTree.inserting(
-                view: terminalView, at: destination, direction: newDirection
+                view: terminalView, at: updatedDestination, direction: newDirection
             ) {
                 tab.splitTree = newTree
                 tab.activePaneId = terminalView.id
@@ -697,17 +728,14 @@ class TerminalTabViewController: NSViewController, CommandHandler {
         let sourceViews = sourceTab.splitTree.allViews
         guard !sourceViews.isEmpty else { return }
 
-        // Remove source tab (don't terminate — views are being transferred)
-        tabBarState.removeTab(at: sourceIndex)
-
-        // Re-find target tab (index may have shifted)
+        // Find target tab BEFORE removing source (so index is still valid)
         guard let targetIndex = tabItems.firstIndex(where: { $0.id == targetTabId }),
               let targetPane = tabItems[targetIndex].splitTree.find(id: targetPaneId) else { return }
 
         var tab = tabItems[targetIndex]
         let newDirection = splitTreeDirection(from: direction)
 
-        // Insert source views sequentially into target tab's tree
+        // Insert source views into target tab's tree FIRST (before removing source tab)
         var insertTarget = targetPane
         for sourceView in sourceViews {
             if let surfaceId = sourceView.surfaceId {
@@ -724,6 +752,13 @@ class TerminalTabViewController: NSViewController, CommandHandler {
         tab.activePaneId = sourceViews.first?.id
         tab.title = tab.displayTitle
         tabBarState.replaceTab(at: targetIndex, with: tab)
+
+        // Remove source tab AFTER views are safely inserted into target
+        // Re-lookup source index since replaceTab above may not have shifted it,
+        // but removeTab at an earlier index would shift targetIndex
+        if let currentSourceIndex = tabItems.firstIndex(where: { $0.id == sourceTabId }) {
+            tabBarState.removeTab(at: currentSourceIndex)
+        }
 
         selectTab(id: targetTabId)
         saveSplitTree(for: tab)

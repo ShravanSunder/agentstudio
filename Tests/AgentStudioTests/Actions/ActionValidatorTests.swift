@@ -272,11 +272,11 @@ final class ActionValidatorTests: XCTestCase {
         let result = ActionValidator.validate(action, state: snapshot)
 
         // Assert
-        if case .failure(.selfInsertion(let id)) = result {
+        if case .failure(.selfPaneInsertion(let id)) = result {
             XCTAssertEqual(id, paneId)
             return
         }
-        XCTFail("Expected selfInsertion error")
+        XCTFail("Expected selfPaneInsertion error")
     }
 
     func test_insertPane_existingPane_differentTarget_succeeds() {
@@ -380,12 +380,13 @@ final class ActionValidatorTests: XCTestCase {
 
     func test_resizePane_validRatio_succeeds() {
         // Arrange
-        let (tab, tabId, paneIds) = makeMultiPaneTab()
+        let (tab, tabId, _) = makeMultiPaneTab()
         let snapshot = makeSnapshot(tabs: [tab])
+        let splitId = UUID()
 
         // Act
         let result = ActionValidator.validate(
-            .resizePane(tabId: tabId, paneId: paneIds[0], ratio: 0.5),
+            .resizePane(tabId: tabId, splitId: splitId, ratio: 0.5),
             state: snapshot
         )
 
@@ -395,12 +396,13 @@ final class ActionValidatorTests: XCTestCase {
 
     func test_resizePane_ratioTooLow_fails() {
         // Arrange
-        let (tab, tabId, paneIds) = makeMultiPaneTab()
+        let (tab, tabId, _) = makeMultiPaneTab()
         let snapshot = makeSnapshot(tabs: [tab])
+        let splitId = UUID()
 
         // Act
         let result = ActionValidator.validate(
-            .resizePane(tabId: tabId, paneId: paneIds[0], ratio: 0.05),
+            .resizePane(tabId: tabId, splitId: splitId, ratio: 0.05),
             state: snapshot
         )
 
@@ -411,12 +413,13 @@ final class ActionValidatorTests: XCTestCase {
 
     func test_resizePane_ratioTooHigh_fails() {
         // Arrange
-        let (tab, tabId, paneIds) = makeMultiPaneTab()
+        let (tab, tabId, _) = makeMultiPaneTab()
         let snapshot = makeSnapshot(tabs: [tab])
+        let splitId = UUID()
 
         // Act
         let result = ActionValidator.validate(
-            .resizePane(tabId: tabId, paneId: paneIds[0], ratio: 0.95),
+            .resizePane(tabId: tabId, splitId: splitId, ratio: 0.95),
             state: snapshot
         )
 
@@ -427,12 +430,13 @@ final class ActionValidatorTests: XCTestCase {
 
     func test_resizePane_singlePaneTab_fails() {
         // Arrange
-        let (tab, tabId, paneId) = makeSinglePaneTab()
+        let (tab, tabId, _) = makeSinglePaneTab()
         let snapshot = makeSnapshot(tabs: [tab])
+        let splitId = UUID()
 
         // Act
         let result = ActionValidator.validate(
-            .resizePane(tabId: tabId, paneId: paneId, ratio: 0.5),
+            .resizePane(tabId: tabId, splitId: splitId, ratio: 0.5),
             state: snapshot
         )
 
@@ -562,8 +566,8 @@ final class ActionValidatorTests: XCTestCase {
         let result = ActionValidator.validate(action, state: snapshot)
 
         // Assert
-        if case .failure(.selfInsertion) = result { return }
-        XCTFail("Expected selfInsertion error")
+        if case .failure(.selfTabMerge) = result { return }
+        XCTFail("Expected selfTabMerge error")
     }
 
     // MARK: - ValidatedAction preserves action

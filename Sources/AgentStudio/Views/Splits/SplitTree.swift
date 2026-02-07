@@ -15,10 +15,19 @@ struct SplitTree<ViewType: NSView & Codable & Identifiable> {
         case split(Split)
 
         struct Split: Equatable, Codable {
+            let id: UUID
             let direction: SplitViewDirection
-            var ratio: Double  // 0.0-1.0, position of divider
+            let ratio: Double  // 0.0-1.0, position of divider
             let left: Node
             let right: Node
+
+            init(id: UUID = UUID(), direction: SplitViewDirection, ratio: Double, left: Node, right: Node) {
+                self.id = id
+                self.direction = direction
+                self.ratio = ratio
+                self.left = left
+                self.right = right
+            }
         }
     }
 
@@ -75,7 +84,13 @@ struct SplitTree<ViewType: NSView & Codable & Identifiable> {
         return nil
     }
 
-    /// Update the ratio of a split node containing the given view.
+    /// Update the ratio of a split node identified by split ID.
+    func resizing(splitId: UUID, ratio: Double) -> Self {
+        guard let root else { return self }
+        return SplitTree(root: root.resizing(splitId: splitId, ratio: ratio))
+    }
+
+    /// Update the ratio of a split node containing the given view (legacy pane-based lookup).
     func resizing(view: ViewType, ratio: Double) -> Self {
         guard let root else { return self }
         return SplitTree(root: root.resizing(view: view, ratio: ratio))
@@ -136,7 +151,7 @@ extension SplitTree.Node {
             let newLeaf = Self.leaf(view: view)
             let existingLeaf = Self.leaf(view: existingView)
 
-            return .split(.init(
+            return .split(Split(
                 direction: splitDirection,
                 ratio: 0.5,
                 left: newViewOnLeft ? newLeaf : existingLeaf,
@@ -146,7 +161,8 @@ extension SplitTree.Node {
         case .split(let split):
             // Try to find target in left subtree
             if split.left.contains(id: target.id) {
-                return .split(.init(
+                return .split(Split(
+                    id: split.id,
                     direction: split.direction,
                     ratio: split.ratio,
                     left: try split.left.inserting(view: view, at: target, direction: direction),
@@ -156,7 +172,8 @@ extension SplitTree.Node {
 
             // Try right subtree
             if split.right.contains(id: target.id) {
-                return .split(.init(
+                return .split(Split(
+                    id: split.id,
                     direction: split.direction,
                     ratio: split.ratio,
                     left: split.left,
@@ -182,7 +199,8 @@ extension SplitTree.Node {
             let newRight = split.right.removing(view: view)
 
             if let left = newLeft, let right = newRight {
-                return .split(.init(
+                return .split(Split(
+                    id: split.id,
                     direction: split.direction,
                     ratio: split.ratio,
                     left: left,
@@ -201,7 +219,34 @@ extension SplitTree.Node {
         }
     }
 
-    /// Update ratio for a split containing the given view.
+    /// Update ratio for the split with the given ID.
+    func resizing(splitId: UUID, ratio: Double) -> Self {
+        switch self {
+        case .leaf:
+            return self
+
+        case .split(let split):
+            if split.id == splitId {
+                return .split(Split(
+                    id: split.id,
+                    direction: split.direction,
+                    ratio: max(0.1, min(0.9, ratio)),
+                    left: split.left,
+                    right: split.right
+                ))
+            }
+
+            return .split(Split(
+                id: split.id,
+                direction: split.direction,
+                ratio: split.ratio,
+                left: split.left.resizing(splitId: splitId, ratio: ratio),
+                right: split.right.resizing(splitId: splitId, ratio: ratio)
+            ))
+        }
+    }
+
+    /// Update ratio for a split containing the given view (legacy pane-based lookup).
     func resizing(view: ViewType, ratio: Double) -> Self {
         switch self {
         case .leaf:
@@ -212,7 +257,8 @@ extension SplitTree.Node {
             let rightContains = split.right.containsDirectly(id: view.id)
 
             if leftContains || rightContains {
-                return .split(.init(
+                return .split(Split(
+                    id: split.id,
                     direction: split.direction,
                     ratio: max(0.1, min(0.9, ratio)),
                     left: split.left,
@@ -220,7 +266,8 @@ extension SplitTree.Node {
                 ))
             }
 
-            return .split(.init(
+            return .split(Split(
+                id: split.id,
                 direction: split.direction,
                 ratio: split.ratio,
                 left: split.left.resizing(view: view, ratio: ratio),
@@ -236,7 +283,8 @@ extension SplitTree.Node {
             return self
 
         case .split(let split):
-            return .split(.init(
+            return .split(Split(
+                id: split.id,
                 direction: split.direction,
                 ratio: 0.5,
                 left: split.left.equalized(),
@@ -256,7 +304,7 @@ extension SplitTree.Node {
         }
     }
 
-    /// Check if this node directly contains a view (not in children).
+    /// Check if this node is a leaf with the given view ID (does not recurse into children).
     func containsDirectly(id: ViewType.ID) -> Bool {
         if case .leaf(let view) = self {
             return view.id == id
@@ -444,8 +492,8 @@ extension SplitTree {
 
 extension SplitTree.Node {
     /// Find a neighbor in a given direction from the node with the given ID.
-    /// Walks up the tree to find a split where the target is on the appropriate side,
-    /// then walks down the other side to find the nearest leaf.
+    /// Recursively descends through splits: when the target is in one subtree and
+    /// the split direction matches, the nearest leaf in the opposite subtree is returned.
     func neighbor(of id: ViewType.ID, direction: SplitFocusDirection) -> ViewType? {
         switch self {
         case .leaf:

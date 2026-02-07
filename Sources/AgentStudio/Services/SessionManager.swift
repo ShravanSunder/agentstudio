@@ -1,5 +1,8 @@
 import Foundation
 import Combine
+import os.log
+
+private let sessionLogger = Logger(subsystem: "com.agentstudio", category: "SessionManager")
 
 /// Manages application state persistence and restoration
 @MainActor
@@ -30,7 +33,11 @@ final class SessionManager: ObservableObject {
         workspacesDir = appSupport.appending(path: "workspaces")
 
         // Create directories if needed
-        try? FileManager.default.createDirectory(at: workspacesDir, withIntermediateDirectories: true)
+        do {
+            try FileManager.default.createDirectory(at: workspacesDir, withIntermediateDirectories: true)
+        } catch {
+            sessionLogger.error("Failed to create workspaces directory \(self.workspacesDir.path): \(error)")
+        }
 
         // Initialize with empty workspace, then load
         workspace = Workspace()
@@ -67,19 +74,28 @@ final class SessionManager: ObservableObject {
 
     /// Load workspace from the workspaces directory
     private func loadWorkspace() -> Workspace? {
-        guard let contents = try? FileManager.default.contentsOfDirectory(
-            at: workspacesDir,
-            includingPropertiesForKeys: nil,
-            options: .skipsHiddenFiles
-        ) else { return nil }
+        let contents: [URL]
+        do {
+            contents = try FileManager.default.contentsOfDirectory(
+                at: workspacesDir,
+                includingPropertiesForKeys: nil,
+                options: .skipsHiddenFiles
+            )
+        } catch {
+            sessionLogger.error("Failed to list workspaces directory: \(error)")
+            return nil
+        }
 
         let workspaceFiles = contents.filter { $0.pathExtension == "json" }
 
         // Phase 1: single workspace — load the first one found
         for fileURL in workspaceFiles {
-            if let data = try? Data(contentsOf: fileURL),
-               let loaded = try? JSONDecoder().decode(Workspace.self, from: data) {
+            do {
+                let data = try Data(contentsOf: fileURL)
+                let loaded = try JSONDecoder().decode(Workspace.self, from: data)
                 return loaded
+            } catch {
+                sessionLogger.error("Failed to load workspace file \(fileURL.lastPathComponent): \(error)")
             }
         }
         return nil
@@ -95,8 +111,11 @@ final class SessionManager: ObservableObject {
         let encoder = JSONEncoder()
         encoder.outputFormatting = [.prettyPrinted, .sortedKeys]
 
-        if let data = try? encoder.encode(workspace) {
-            try? data.write(to: workspaceURL, options: .atomic)
+        do {
+            let data = try encoder.encode(workspace)
+            try data.write(to: workspaceURL, options: .atomic)
+        } catch {
+            sessionLogger.error("Failed to save workspace to \(self.workspaceURL.lastPathComponent): \(error)")
         }
     }
 

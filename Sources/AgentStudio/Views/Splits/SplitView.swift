@@ -18,6 +18,9 @@ struct SplitView<L: View, R: View>: View {
     /// Called when the divider is double-tapped to equalize splits
     let onEqualize: () -> Void
 
+    /// Called when a drag resize ends (for persistence)
+    let onResizeEnd: (() -> Void)?
+
     /// The minimum size (in points) of a split
     let minSize: CGFloat = 10
 
@@ -68,7 +71,8 @@ struct SplitView<L: View, R: View>: View {
         resizeIncrements: NSSize = .init(width: 1, height: 1),
         @ViewBuilder left: (() -> L),
         @ViewBuilder right: (() -> R),
-        onEqualize: @escaping () -> Void
+        onEqualize: @escaping () -> Void,
+        onResizeEnd: (() -> Void)? = nil
     ) {
         self.direction = direction
         self._split = split
@@ -76,6 +80,7 @@ struct SplitView<L: View, R: View>: View {
         self.left = left()
         self.right = right()
         self.onEqualize = onEqualize
+        self.onResizeEnd = onResizeEnd
     }
 
     private func dragGesture(_ size: CGSize, splitterPoint: CGPoint) -> some Gesture {
@@ -90,6 +95,9 @@ struct SplitView<L: View, R: View>: View {
                     let new = min(max(minSize, gesture.location.y), size.height - minSize)
                     split = new / size.height
                 }
+            }
+            .onEnded { _ in
+                onResizeEnd?()
             }
     }
 
