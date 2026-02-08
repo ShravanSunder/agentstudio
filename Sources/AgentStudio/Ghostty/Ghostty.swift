@@ -259,7 +259,7 @@ extension Ghostty {
     }
 }
 
-// MARK: - Notification Names (Backwards Compatibility)
+// MARK: - Notification Name Aliases
 
 extension Notification.Name {
     static let ghosttyNewWindow = Ghostty.Notification.ghosttyNewWindow

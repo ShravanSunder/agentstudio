@@ -201,7 +201,9 @@ struct SidebarContentView: View {
     }
 
     private func openWorktree(_ worktree: Worktree, in repo: Repo) {
-        sessionManager.openTab(for: worktree, in: repo)
+        // Tab record creation is handled by openTerminal() via addTabRecord()
+        // only when a new tab is actually created, avoiding orphan OpenTab records
+        // when the worktree is already visible in a split pane.
         NotificationCenter.default.post(
             name: .openWorktreeRequested,
             object: nil,

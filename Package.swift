@@ -15,6 +15,15 @@ let package = Package(
             name: "AgentStudio",
             dependencies: ["GhosttyKit"],
             path: "Sources/AgentStudio",
+            exclude: [
+                "Resources/Info.plist",
+            ],
+            resources: [
+                .copy("Resources/AppIcon.icns"),
+                .copy("Resources/AppIcon.iconset"),
+                .copy("Resources/tmux"),
+                .copy("Resources/terminfo"),
+            ],
             linkerSettings: [
                 .linkedFramework("Metal"),
                 .linkedFramework("MetalKit"),

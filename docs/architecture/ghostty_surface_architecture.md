@@ -32,7 +32,7 @@ The key architectural decision is **separation of ownership from display**:
 │                    AgentStudioTerminalView                          │
 │                  (DISPLAYS, does not own)                           │
 │                                                                     │
-│   containerId: UUID  ←─ unique per view                             │
+│   paneAttachmentId: UUID  ←─ unique per view                        │
 │   surfaceId: UUID?   ←─ which surface is displayed here             │
 │                                                                     │
 │   displaySurface(surfaceView)  ←─ called by attach()                │
@@ -112,7 +112,7 @@ User presses Cmd+Shift+T
 │   └─► Create AgentStudioTerminalView(restoredSurfaceId:)     │
 │         │  (does NOT create new surface!)                    │
 │         │                                                    │
-│   └─► SurfaceManager.attach(surfaceId, to: containerId)      │
+│   └─► SurfaceManager.attach(surfaceId, to: paneAttachmentId) │
 │         │                                                    │
 │         ├─► Move from hiddenSurfaces → activeSurfaces        │
 │         ├─► ghostty_surface_set_occlusion(true)  // resume   │
@@ -218,3 +218,11 @@ view.displaySurface(restoredSurface)  // No orphan, view has no surface yet
 | `Ghostty/SurfaceTypes.swift` | SurfaceState, ManagedSurface, protocols |
 | `Views/AgentStudioTerminalView.swift` | Container, implements SurfaceContainer + SurfaceHealthDelegate |
 | `Views/SurfaceErrorOverlay.swift` | Error state UI with restart/close |
+
+## Session Restore
+
+Terminal surfaces are backed by headless tmux sessions that persist across app restarts. When a surface restarts (via error overlay), it reattaches to its tmux session rather than spawning a new shell.
+
+For the full session restore architecture, lifecycle flow, and tmux configuration, see:
+
+**[Session Restore Architecture](session_lifecycle.md)**
