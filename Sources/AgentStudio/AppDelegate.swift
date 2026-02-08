@@ -14,11 +14,6 @@ class AppDelegate: NSObject, NSApplicationDelegate {
         // Initialize services
         _ = SessionManager.shared
 
-        // Initialize session restore (ghost tmux)
-        Task { @MainActor in
-            await SessionRegistry.shared.initialize()
-        }
-
         // Load surface checkpoint (for future restore capability)
         if let checkpoint = SurfaceManager.shared.loadCheckpoint() {
             ghosttyLogger.info("Loaded surface checkpoint with \(checkpoint.surfaces.count) surfaces")
@@ -29,12 +24,22 @@ class AppDelegate: NSObject, NSApplicationDelegate {
         // Check for worktrunk dependency
         checkWorktrunkInstallation()
 
-        // Create main window
-        mainWindowController = MainWindowController()
-        mainWindowController?.showWindow(nil)
-
-        // Set up main menu
+        // Set up main menu (doesn't depend on session restore)
         setupMainMenu()
+
+        // Initialize session restore THEN create window.
+        // Window creation must wait because terminal views check
+        // SessionRegistry.isOperational during viewDidLoad.
+        // Note: initialize() is non-throwing and returns promptly when
+        // session restore is disabled. If it stalls (rare — stuck tmux probe),
+        // the user can dock-click to trigger showOrCreateMainWindow().
+        Task { @MainActor in
+            await SessionRegistry.shared.initialize()
+            if self.mainWindowController == nil {
+                self.mainWindowController = MainWindowController()
+                self.mainWindowController?.showWindow(nil)
+            }
+        }
     }
 
     // MARK: - Dependency Check

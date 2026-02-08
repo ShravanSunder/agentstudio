@@ -1,4 +1,7 @@
 import Foundation
+import os
+
+private let tmuxLogger = Logger(subsystem: "com.agentstudio", category: "TmuxBackend")
 
 /// tmux-based implementation of SessionBackend.
 /// Creates one isolated tmux session per terminal pane on a custom socket (`-L agentstudio`),
@@ -41,6 +44,7 @@ final class TmuxBackend: SessionBackend {
                 )
                 return result.succeeded
             } catch {
+                tmuxLogger.debug("tmux availability check failed: \(error.localizedDescription)")
                 return false
             }
         }
@@ -83,11 +87,11 @@ final class TmuxBackend: SessionBackend {
     func attachCommand(for handle: PaneSessionHandle) -> String {
         let config = Self.shellEscape(ghostConfigPath)
         let cwd = Self.shellEscape(handle.workingDirectory.path)
-        return "tmux -L \(Self.socketName) -f \(config) new-session -A -s \(handle.id) -c \(cwd)"
+        let sessionId = Self.shellEscape(handle.id)
+        return "tmux -L \(Self.socketName) -f \(config) new-session -A -s \(sessionId) -c \(cwd)"
     }
 
-    /// Single-quote a path for safe shell interpolation.
-    /// Session IDs and socket name are deterministic hex/constants and don't need escaping.
+    /// Single-quote a string for safe shell interpolation.
     private static func shellEscape(_ path: String) -> String {
         "'" + path.replacingOccurrences(of: "'", with: "'\\''") + "'"
     }
@@ -117,6 +121,7 @@ final class TmuxBackend: SessionBackend {
             )
             return result.succeeded
         } catch {
+            tmuxLogger.debug("Health check failed for session \(handle.id): \(error.localizedDescription)")
             return false
         }
     }
@@ -151,6 +156,7 @@ final class TmuxBackend: SessionBackend {
                 .filter { $0.hasPrefix(Self.sessionPrefix) }
                 .filter { !knownIds.contains($0) }
         } catch {
+            tmuxLogger.warning("Failed to discover orphan sessions: \(error.localizedDescription)")
             return []
         }
     }

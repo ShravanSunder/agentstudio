@@ -1,4 +1,7 @@
 import Foundation
+import os
+
+private let sessionLogger = Logger(subsystem: "com.agentstudio", category: "SessionRegistry")
 
 /// Central orchestrator for pane session lifecycle management.
 /// Owns all state machines, drives them through the SessionBackend,
@@ -11,6 +14,7 @@ final class SessionRegistry {
     private(set) var backend: (any SessionBackend)?
     private(set) var entries: [String: PaneEntry] = [:]
     private var healthCheckTasks: [String: Task<Void, Never>] = [:]
+    private var creationsInProgress: Set<String> = []
 
     private init() {
         self.configuration = .detect()
@@ -31,6 +35,9 @@ final class SessionRegistry {
         configuration = .detect()
 
         guard configuration.isOperational else {
+            if configuration.isEnabled {
+                sessionLogger.warning("Session restore enabled but tmux not found")
+            }
             backend = nil
             return
         }
@@ -41,11 +48,13 @@ final class SessionRegistry {
         )
 
         guard await tmuxBackend.isAvailable else {
+            sessionLogger.warning("tmux found at \(self.configuration.tmuxPath ?? "?") but not responding")
             backend = nil
             return
         }
 
         backend = tmuxBackend
+        sessionLogger.info("Session restore initialized")
 
         // Load checkpoint and verify surviving sessions
         if let checkpoint = SessionCheckpoint.load(), !checkpoint.isStale() {
@@ -55,7 +64,11 @@ final class SessionRegistry {
 
     // MARK: - Pane Session Management
 
-    /// Get an existing pane session for a worktree, or create one.
+    /// Create a pane session via the backend and track it.
+    ///
+    /// Unlike `registerPaneSession`, this method creates the tmux session directly
+    /// via `backend.createPaneSession()`. The `registerPaneSession` method is used
+    /// when the terminal surface creates the session via `new-session -A`.
     func getOrCreatePaneSession(
         for worktree: Worktree,
         in repo: Repo
@@ -71,19 +84,23 @@ final class SessionRegistry {
             throw SessionBackendError.notAvailable
         }
 
+        // Reentrancy guard: await points below yield, allowing reentrant calls
+        guard !creationsInProgress.contains(expectedId) else {
+            throw SessionBackendError.operationFailed("Session \(expectedId) creation already in progress")
+        }
+        creationsInProgress.insert(expectedId)
+        defer { creationsInProgress.remove(expectedId) }
+
         let handle = try await backend.createPaneSession(projectId: repo.id, worktree: worktree)
-        let machine = Machine<SessionStatus>(initialState: .unknown)
+
+        // Session is already created by the backend — start machine in .alive
+        let machine = Machine<SessionStatus>(initialState: .alive)
         machine.setEffectHandler { [weak self] effect in
             await self?.handleSessionEffect(effect, sessionId: handle.id)
         }
 
         let entry = PaneEntry(handle: handle, machine: machine)
         entries[handle.id] = entry
-
-        // Drive to alive
-        await machine.send(.create)
-        await machine.send(.created)
-
         scheduleHealthCheck(for: handle.id)
         saveCheckpoint()
 
@@ -109,6 +126,11 @@ final class SessionRegistry {
             workingDirectory: workingDirectory
         )
 
+        guard handle.hasValidId else {
+            sessionLogger.error("Rejected session registration with invalid ID: \(id)")
+            return
+        }
+
         let machine = Machine<SessionStatus>(initialState: .alive)
         machine.setEffectHandler { [weak self] effect in
             await self?.handleSessionEffect(effect, sessionId: id)
@@ -116,6 +138,15 @@ final class SessionRegistry {
 
         entries[id] = PaneEntry(handle: handle, machine: machine)
         scheduleHealthCheck(for: id)
+        saveCheckpoint()
+    }
+
+    /// Remove a pane session from tracking. Cancels its health check
+    /// but does NOT destroy the backend session (caller decides).
+    func unregisterPaneSession(id: String) {
+        healthCheckTasks[id]?.cancel()
+        healthCheckTasks.removeValue(forKey: id)
+        entries.removeValue(forKey: id)
         saveCheckpoint()
     }
 
@@ -145,7 +176,11 @@ final class SessionRegistry {
         }
 
         let checkpoint = SessionCheckpoint(sessions: sessionData)
-        try? checkpoint.save()
+        do {
+            try checkpoint.save()
+        } catch {
+            sessionLogger.error("Failed to save session checkpoint: \(error.localizedDescription)")
+        }
     }
 
     // MARK: - Cleanup
@@ -164,7 +199,11 @@ final class SessionRegistry {
         guard let backend else { return }
 
         for entry in entries.values {
-            try? await backend.destroyPaneSession(entry.handle)
+            do {
+                try await backend.destroyPaneSession(entry.handle)
+            } catch {
+                sessionLogger.error("Failed to destroy session \(entry.handle.id): \(error.localizedDescription)")
+            }
         }
         entries.removeAll()
 
@@ -249,11 +288,14 @@ final class SessionRegistry {
             }
 
         case .createSession:
-            // Session already created via getOrCreatePaneSession
-            break
+            sessionLogger.warning("createSession effect fired for session \(sessionId) — creation should be handled by the caller")
 
         case .destroySession:
-            try? await backend.destroyPaneSession(entry.handle)
+            do {
+                try await backend.destroyPaneSession(entry.handle)
+            } catch {
+                sessionLogger.error("Failed to destroy session \(sessionId): \(error.localizedDescription)")
+            }
 
         case .scheduleHealthCheck:
             scheduleHealthCheck(for: sessionId)
@@ -270,8 +312,12 @@ final class SessionRegistry {
                 await entry.machine.send(.recoveryFailed(reason: "Session did not recover"))
             }
 
-        case .notifyAlive, .notifyDead, .notifyFailed:
-            break
+        case .notifyAlive:
+            sessionLogger.debug("Session \(sessionId) is alive")
+        case .notifyDead:
+            sessionLogger.warning("Session \(sessionId) has died")
+        case .notifyFailed(let reason):
+            sessionLogger.error("Session \(sessionId) failed: \(reason)")
         }
     }
 
@@ -284,6 +330,7 @@ final class SessionRegistry {
     ) {
         stopHealthChecks()
         entries.removeAll()
+        creationsInProgress.removeAll()
         if let configuration { self.configuration = configuration }
         self.backend = backend
     }

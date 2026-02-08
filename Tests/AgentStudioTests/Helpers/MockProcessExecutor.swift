@@ -1,5 +1,10 @@
 import Foundation
+import XCTest
 @testable import AgentStudio
+
+enum MockExecutorError: Error {
+    case noResponseQueued
+}
 
 /// Mock executor that records calls and returns canned responses.
 final class MockProcessExecutor: ProcessExecutor, @unchecked Sendable {
@@ -36,7 +41,8 @@ final class MockProcessExecutor: ProcessExecutor, @unchecked Sendable {
         calls.append(Call(command: command, args: args))
 
         guard responseIndex < responses.count else {
-            return ProcessResult(exitCode: 0, stdout: "", stderr: "")
+            XCTFail("MockProcessExecutor: no response queued for call #\(responseIndex + 1): \(command) \(args)")
+            throw MockExecutorError.noResponseQueued
         }
 
         let result = responses[responseIndex]

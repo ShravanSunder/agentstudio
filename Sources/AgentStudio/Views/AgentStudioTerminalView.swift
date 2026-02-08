@@ -331,7 +331,13 @@ final class AgentStudioTerminalView: NSView, SurfaceContainer, SurfaceHealthDele
         // Lazily set up terminal when the view enters a window for the first time.
         // This handles restored views that deferred setupTerminal().
         if window != nil && surfaceId == nil && ghosttySurface == nil {
-            setupTerminal()
+            if SessionRegistry.shared.configuration.isOperational {
+                Task { @MainActor in
+                    await setupTerminalWithSessionRestore()
+                }
+            } else {
+                setupTerminal()
+            }
         }
     }
 

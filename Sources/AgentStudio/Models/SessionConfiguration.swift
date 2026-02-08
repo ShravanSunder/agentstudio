@@ -86,12 +86,37 @@ struct SessionConfiguration: Sendable {
     // MARK: - Private
 
     private static func findTmux() -> String? {
+        // Check well-known locations first (faster than spawning a process)
         let candidates = [
             "/opt/homebrew/bin/tmux",
             "/usr/local/bin/tmux",
             "/usr/bin/tmux",
         ]
-        return candidates.first { FileManager.default.isExecutableFile(atPath: $0) }
+        if let found = candidates.first(where: { FileManager.default.isExecutableFile(atPath: $0) }) {
+            return found
+        }
+
+        // Fallback: check PATH via which
+        let process = Process()
+        process.executableURL = URL(fileURLWithPath: "/usr/bin/which")
+        process.arguments = ["tmux"]
+        let pipe = Pipe()
+        process.standardOutput = pipe
+        process.standardError = FileHandle.nullDevice
+        do {
+            try process.run()
+            process.waitUntilExit()
+            guard process.terminationStatus == 0 else { return nil }
+            let data = pipe.fileHandleForReading.readDataToEndOfFile()
+            let path = String(data: data, encoding: .utf8)?
+                .trimmingCharacters(in: .whitespacesAndNewlines)
+            if let path, !path.isEmpty, FileManager.default.isExecutableFile(atPath: path) {
+                return path
+            }
+        } catch {
+            // which not available or failed
+        }
+        return nil
     }
 
     private static func resolveGhostConfigPath() -> String {

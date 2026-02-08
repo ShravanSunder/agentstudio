@@ -141,7 +141,7 @@ final class TmuxBackendTests: XCTestCase {
         // Assert
         XCTAssertEqual(
             cmd,
-            "tmux -L agentstudio -f '/tmp/ghost.conf' new-session -A -s agentstudio--abc12345--def67890 -c '/tmp'"
+            "tmux -L agentstudio -f '/tmp/ghost.conf' new-session -A -s 'agentstudio--abc12345--def67890' -c '/tmp'"
         )
     }
 

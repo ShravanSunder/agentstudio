@@ -2,15 +2,29 @@ import Foundation
 
 // MARK: - Handle Types
 
-/// Identifies a tmux session that backs a single terminal pane.
-/// Each terminal pane (worktree) gets its own isolated tmux session.
+/// Identifies a backend session that backs a single terminal pane.
+/// Each terminal pane (worktree) gets its own isolated session.
 struct PaneSessionHandle: Equatable, Sendable, Codable, Hashable {
-    /// tmux session name, e.g. `agentstudio--a1b2c3d4--e5f6g7h8`
+    /// Backend session identifier, e.g. `agentstudio--a1b2c3d4--e5f6g7h8`
     let id: String
     let projectId: UUID
     let worktreeId: UUID
     let displayName: String
     let workingDirectory: URL
+
+    /// Whether the id matches the expected `agentstudio--<8hex>--<8hex>` format.
+    var hasValidId: Bool {
+        // Format: "agentstudio--" (13) + 8hex + "--" (2) + 8hex = 31 chars total
+        guard id.count == 31, id.hasPrefix("agentstudio--") else { return false }
+        let suffix = String(id.dropFirst(13)) // "xxxxxxxx--yyyyyyyy"
+        let segments = suffix.components(separatedBy: "--")
+        guard segments.count == 2,
+              segments[0].count == 8,
+              segments[1].count == 8 else { return false }
+        let hexChars = CharacterSet(charactersIn: "0123456789abcdef")
+        return segments[0].unicodeScalars.allSatisfy { hexChars.contains($0) }
+            && segments[1].unicodeScalars.allSatisfy { hexChars.contains($0) }
+    }
 }
 
 // MARK: - SessionBackend Protocol
@@ -129,13 +143,23 @@ struct DefaultProcessExecutor: ProcessExecutor {
         process.standardError = stderrPipe
 
         try process.run()
-        process.waitUntilExit()
 
+        // Read pipe data BEFORE waiting for exit to prevent deadlock.
+        // If the child fills the pipe buffer (~64KB), it blocks on write.
+        // Reading first drains the buffer so the child can proceed to exit.
         let stdoutData = stdoutPipe.fileHandleForReading.readDataToEndOfFile()
         let stderrData = stderrPipe.fileHandleForReading.readDataToEndOfFile()
 
+        // Await termination without blocking the cooperative thread pool.
+        // terminationHandler fires on a background queue after the process exits.
+        let exitStatus: Int32 = try await withCheckedThrowingContinuation { continuation in
+            process.terminationHandler = { proc in
+                continuation.resume(returning: proc.terminationStatus)
+            }
+        }
+
         return ProcessResult(
-            exitCode: Int(process.terminationStatus),
+            exitCode: Int(exitStatus),
             stdout: String(data: stdoutData, encoding: .utf8)?.trimmingCharacters(in: .whitespacesAndNewlines) ?? "",
             stderr: String(data: stderrData, encoding: .utf8)?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
         )
