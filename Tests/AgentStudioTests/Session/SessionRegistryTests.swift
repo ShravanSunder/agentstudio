@@ -269,4 +269,261 @@ final class SessionRegistryTests: XCTestCase {
         // Assert
         XCTAssertFalse(handle.hasValidId)
     }
+
+    // MARK: - getOrCreatePaneSession
+
+    func test_getOrCreatePaneSession_returnsExistingAliveEntry() async throws {
+        // Arrange
+        let worktree = makeWorktree()
+        let repo = makeRepo()
+        let sessionId = TmuxBackend.sessionId(projectId: repo.id, worktreeId: worktree.id)
+
+        registry.registerPaneSession(
+            id: sessionId,
+            projectId: repo.id,
+            worktreeId: worktree.id,
+            displayName: worktree.name,
+            workingDirectory: worktree.path
+        )
+
+        // Act
+        let entry = try await registry.getOrCreatePaneSession(for: worktree, in: repo)
+
+        // Assert — should return existing, not create new
+        XCTAssertEqual(entry.handle.id, sessionId)
+        XCTAssertTrue(mockBackend.createCalls.isEmpty, "Should not call backend.create for existing alive entry")
+    }
+
+    func test_getOrCreatePaneSession_throwsWhenNoBackend() async {
+        // Arrange — reset with nil backend
+        registry._resetForTesting(
+            configuration: SessionConfiguration(
+                isEnabled: true,
+                tmuxPath: "/usr/bin/tmux",
+                ghostConfigPath: "/tmp/ghost.conf",
+                healthCheckInterval: 30,
+                socketDirectory: "/tmp",
+                socketName: "agentstudio",
+                maxCheckpointAge: 604800
+            ),
+            backend: nil
+        )
+
+        let worktree = makeWorktree()
+        let repo = makeRepo()
+
+        // Act & Assert
+        do {
+            _ = try await registry.getOrCreatePaneSession(for: worktree, in: repo)
+            XCTFail("Expected SessionBackendError.notAvailable")
+        } catch let error as SessionBackendError {
+            if case .notAvailable = error {
+                // Expected
+            } else {
+                XCTFail("Expected .notAvailable, got \(error)")
+            }
+        } catch {
+            XCTFail("Unexpected error type: \(error)")
+        }
+    }
+
+    func test_getOrCreatePaneSession_createsViaBackend() async throws {
+        // Arrange
+        let worktree = makeWorktree()
+        let repo = makeRepo()
+        let expectedId = TmuxBackend.sessionId(projectId: repo.id, worktreeId: worktree.id)
+        let handle = PaneSessionHandle(
+            id: expectedId,
+            projectId: repo.id,
+            worktreeId: worktree.id,
+            displayName: worktree.name,
+            workingDirectory: worktree.path
+        )
+        mockBackend.createResult = .success(handle)
+
+        // Act
+        let entry = try await registry.getOrCreatePaneSession(for: worktree, in: repo)
+
+        // Assert
+        XCTAssertEqual(entry.handle.id, expectedId)
+        XCTAssertEqual(mockBackend.createCalls.count, 1)
+        XCTAssertNotNil(registry.entries[expectedId])
+    }
+
+    // MARK: - destroyAll Error Handling
+
+    func test_destroyAll_continuesOnPerSessionFailure() async {
+        // Arrange — register two sessions, mock throws on destroy
+        registry.registerPaneSession(
+            id: "agentstudio--a1b2c3d4--e5f6a7b8",
+            projectId: UUID(),
+            worktreeId: UUID(),
+            displayName: "first",
+            workingDirectory: URL(fileURLWithPath: "/tmp")
+        )
+        registry.registerPaneSession(
+            id: "agentstudio--11111111--22222222",
+            projectId: UUID(),
+            worktreeId: UUID(),
+            displayName: "second",
+            workingDirectory: URL(fileURLWithPath: "/tmp")
+        )
+        mockBackend.throwOnDestroy = true
+
+        // Act — should not crash despite backend throwing
+        await registry.destroyAll()
+
+        // Assert — entries should be cleared regardless
+        XCTAssertTrue(registry.entries.isEmpty)
+        XCTAssertEqual(mockBackend.destroyCalls.count, 2)
+    }
+
+    // MARK: - saveCheckpoint Round-Trip
+
+    func test_saveCheckpoint_roundTripsEntries() {
+        // Arrange
+        let sessionId = "agentstudio--a1b2c3d4--e5f6a7b8"
+        let projectId = UUID()
+        let worktreeId = UUID()
+
+        registry.registerPaneSession(
+            id: sessionId,
+            projectId: projectId,
+            worktreeId: worktreeId,
+            displayName: "test-roundtrip",
+            workingDirectory: URL(fileURLWithPath: "/tmp")
+        )
+
+        // Act
+        registry.saveCheckpoint()
+
+        // Assert — load checkpoint and verify contents
+        let loaded = SessionCheckpoint.load()
+        XCTAssertNotNil(loaded)
+        XCTAssertEqual(loaded?.sessions.count, 1)
+        XCTAssertEqual(loaded?.sessions.first?.sessionId, sessionId)
+        XCTAssertEqual(loaded?.sessions.first?.displayName, "test-roundtrip")
+    }
+
+    // MARK: - Restore from Checkpoint (via initialize)
+
+    func test_restoreFromCheckpoint_populatesAliveEntries() async {
+        // Arrange — create a checkpoint with one session
+        let sessionId = "agentstudio--a1b2c3d4--e5f6a7b8"
+        let projectId = UUID()
+        let worktreeId = UUID()
+        let checkpoint = SessionCheckpoint(sessions: [
+            .init(
+                sessionId: sessionId,
+                projectId: projectId,
+                worktreeId: worktreeId,
+                displayName: "surviving",
+                workingDirectory: URL(fileURLWithPath: "/tmp"),
+                lastKnownAlive: Date()
+            ),
+        ])
+
+        // Mock: session is alive in tmux
+        mockBackend.sessionExistsResult = true
+
+        // Act
+        await registry.restoreFromCheckpoint(checkpoint)
+
+        // Assert
+        XCTAssertEqual(registry.entries.count, 1)
+        XCTAssertNotNil(registry.entries[sessionId])
+        XCTAssertEqual(registry.entries[sessionId]?.machine.state, .alive)
+    }
+
+    func test_restoreFromCheckpoint_skipsDeadSessions() async {
+        // Arrange
+        let sessionId = "agentstudio--a1b2c3d4--e5f6a7b8"
+        let checkpoint = SessionCheckpoint(sessions: [
+            .init(
+                sessionId: sessionId,
+                projectId: UUID(),
+                worktreeId: UUID(),
+                displayName: "dead-session",
+                workingDirectory: URL(fileURLWithPath: "/tmp"),
+                lastKnownAlive: Date()
+            ),
+        ])
+
+        // Mock: session is NOT alive in tmux
+        mockBackend.sessionExistsResult = false
+
+        // Act
+        await registry.restoreFromCheckpoint(checkpoint)
+
+        // Assert — dead session should not be restored
+        XCTAssertTrue(registry.entries.isEmpty)
+    }
+
+    // MARK: - Effect Handler: Recovery
+
+    func test_effectHandler_attemptRecovery_succeeds() async {
+        // Arrange
+        let sessionId = "agentstudio--a1b2c3d4--e5f6a7b8"
+        registry.registerPaneSession(
+            id: sessionId,
+            projectId: UUID(),
+            worktreeId: UUID(),
+            displayName: "test",
+            workingDirectory: URL(fileURLWithPath: "/tmp")
+        )
+        guard let entry = registry.entries[sessionId] else {
+            XCTFail("Entry not found"); return
+        }
+
+        // Move to dead state
+        await entry.machine.send(.healthCheckFailed)
+        XCTAssertEqual(entry.machine.state, .dead)
+
+        // Mock: healthCheck returns true (session recovered)
+        mockBackend.healthCheckResult = true
+
+        // Act
+        await entry.machine.send(.attemptRecovery)
+
+        // Allow effects to execute
+        try? await Task.sleep(for: .milliseconds(100))
+
+        // Assert — should have transitioned through recovering → alive
+        XCTAssertEqual(entry.machine.state, .alive)
+    }
+
+    func test_effectHandler_attemptRecovery_fails() async {
+        // Arrange
+        let sessionId = "agentstudio--a1b2c3d4--e5f6a7b8"
+        registry.registerPaneSession(
+            id: sessionId,
+            projectId: UUID(),
+            worktreeId: UUID(),
+            displayName: "test",
+            workingDirectory: URL(fileURLWithPath: "/tmp")
+        )
+        guard let entry = registry.entries[sessionId] else {
+            XCTFail("Entry not found"); return
+        }
+
+        // Move to dead state
+        await entry.machine.send(.healthCheckFailed)
+        XCTAssertEqual(entry.machine.state, .dead)
+
+        // Mock: healthCheck returns false (session did not recover)
+        mockBackend.healthCheckResult = false
+
+        // Act
+        await entry.machine.send(.attemptRecovery)
+
+        // Allow effects to execute
+        try? await Task.sleep(for: .milliseconds(100))
+
+        // Assert — should have transitioned to failed
+        if case .failed = entry.machine.state {
+            // Expected
+        } else {
+            XCTFail("Expected .failed state, got \(entry.machine.state)")
+        }
+    }
 }

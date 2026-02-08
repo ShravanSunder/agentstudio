@@ -27,8 +27,8 @@ struct SessionConfiguration: Sendable {
     // MARK: - Factory
 
     /// Detect configuration from the current environment.
-    static func detect() -> SessionConfiguration {
-        let env = ProcessInfo.processInfo.environment
+    static func detect(environment: [String: String] = ProcessInfo.processInfo.environment) -> SessionConfiguration {
+        let env = environment
 
         let isEnabled = env["AGENTSTUDIO_SESSION_RESTORE"]
             .map { $0.lowercased() == "true" || $0 == "1" }

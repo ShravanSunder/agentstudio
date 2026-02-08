@@ -9,6 +9,8 @@ final class MockSessionBackend: SessionBackend, @unchecked Sendable {
     var socketExistsResult: Bool = true
     var orphanSessions: [String] = []
 
+    var throwOnDestroy: Bool = false
+
     var createCalls: [(UUID, Worktree)] = []
     var destroyCalls: [PaneSessionHandle] = []
     var healthCheckCalls: [PaneSessionHandle] = []
@@ -32,6 +34,9 @@ final class MockSessionBackend: SessionBackend, @unchecked Sendable {
 
     func destroyPaneSession(_ handle: PaneSessionHandle) async throws {
         destroyCalls.append(handle)
+        if throwOnDestroy {
+            throw SessionBackendError.operationFailed("Mock destroy failure")
+        }
     }
 
     func healthCheck(_ handle: PaneSessionHandle) async -> Bool {

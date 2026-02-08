@@ -218,3 +218,11 @@ view.displaySurface(restoredSurface)  // No orphan, view has no surface yet
 | `Ghostty/SurfaceTypes.swift` | SurfaceState, ManagedSurface, protocols |
 | `Views/AgentStudioTerminalView.swift` | Container, implements SurfaceContainer + SurfaceHealthDelegate |
 | `Views/SurfaceErrorOverlay.swift` | Error state UI with restart/close |
+
+## Session Restore
+
+Terminal surfaces are backed by headless tmux sessions that persist across app restarts. When a surface restarts (via error overlay), it reattaches to its tmux session rather than spawning a new shell.
+
+For the full session restore architecture, lifecycle flow, and tmux configuration, see:
+
+**[Session Restore Architecture](session_lifecycle.md)**

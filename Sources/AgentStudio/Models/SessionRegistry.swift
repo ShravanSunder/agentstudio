@@ -213,7 +213,7 @@ final class SessionRegistry {
 
     // MARK: - Private: Checkpoint Restore
 
-    private func restoreFromCheckpoint(_ checkpoint: SessionCheckpoint) async {
+    func restoreFromCheckpoint(_ checkpoint: SessionCheckpoint) async {
         guard let backend else { return }
 
         for sessionData in checkpoint.sessions {

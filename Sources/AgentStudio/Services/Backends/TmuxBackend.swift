@@ -15,10 +15,12 @@ final class TmuxBackend: SessionBackend {
 
     private let executor: ProcessExecutor
     private let ghostConfigPath: String
+    private let socket: String
 
-    init(executor: ProcessExecutor = DefaultProcessExecutor(), ghostConfigPath: String) {
+    init(executor: ProcessExecutor = DefaultProcessExecutor(), ghostConfigPath: String, socketName: String = TmuxBackend.socketName) {
         self.executor = executor
         self.ghostConfigPath = ghostConfigPath
+        self.socket = socketName
     }
 
     // MARK: - Session ID Generation
@@ -58,7 +60,7 @@ final class TmuxBackend: SessionBackend {
         let result = try await executor.execute(
             command: "tmux",
             args: [
-                "-L", Self.socketName,
+                "-L", socket,
                 "-f", ghostConfigPath,
                 "new-session",
                 "-d",                           // detached (headless)
@@ -88,7 +90,7 @@ final class TmuxBackend: SessionBackend {
         let config = Self.shellEscape(ghostConfigPath)
         let cwd = Self.shellEscape(handle.workingDirectory.path)
         let sessionId = Self.shellEscape(handle.id)
-        return "tmux -L \(Self.socketName) -f \(config) new-session -A -s \(sessionId) -c \(cwd)"
+        return "tmux -L \(socket) -f \(config) new-session -A -s \(sessionId) -c \(cwd)"
     }
 
     /// Single-quote a string for safe shell interpolation.
@@ -99,7 +101,7 @@ final class TmuxBackend: SessionBackend {
     func destroyPaneSession(_ handle: PaneSessionHandle) async throws {
         let result = try await executor.execute(
             command: "tmux",
-            args: ["-L", Self.socketName, "kill-session", "-t", handle.id],
+            args: ["-L", socket, "kill-session", "-t", handle.id],
             cwd: nil,
             environment: nil
         )
@@ -115,7 +117,7 @@ final class TmuxBackend: SessionBackend {
         do {
             let result = try await executor.execute(
                 command: "tmux",
-                args: ["-L", Self.socketName, "has-session", "-t", handle.id],
+                args: ["-L", socket, "has-session", "-t", handle.id],
                 cwd: nil,
                 environment: nil
             )
@@ -132,7 +134,7 @@ final class TmuxBackend: SessionBackend {
         let uid = getuid()
         let socketDir = ProcessInfo.processInfo.environment["TMUX_TMPDIR"]
             ?? "/tmp/tmux-\(uid)"
-        return FileManager.default.fileExists(atPath: socketDir + "/\(Self.socketName)")
+        return FileManager.default.fileExists(atPath: socketDir + "/\(socket)")
     }
 
     func sessionExists(_ handle: PaneSessionHandle) async -> Bool {
@@ -143,7 +145,7 @@ final class TmuxBackend: SessionBackend {
         do {
             let result = try await executor.execute(
                 command: "tmux",
-                args: ["-L", Self.socketName, "list-sessions", "-F", "#{session_name}"],
+                args: ["-L", socket, "list-sessions", "-F", "#{session_name}"],
                 cwd: nil,
                 environment: nil
             )
@@ -164,7 +166,7 @@ final class TmuxBackend: SessionBackend {
     func destroySessionById(_ sessionId: String) async throws {
         let result = try await executor.execute(
             command: "tmux",
-            args: ["-L", Self.socketName, "kill-session", "-t", sessionId],
+            args: ["-L", socket, "kill-session", "-t", sessionId],
             cwd: nil,
             environment: nil
         )

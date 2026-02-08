@@ -40,5 +40,6 @@ AgentStudio.app/
 *.a
 *.pcm
 *.o
+*.profraw
 .claude/settings.local.json
 .claude/ralph-loop.local.md
