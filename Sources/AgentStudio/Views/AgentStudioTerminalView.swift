@@ -3,19 +3,19 @@ import GhosttyKit
 
 /// Custom terminal view wrapping Ghostty's SurfaceView via SurfaceManager
 /// Implements SurfaceContainer protocol for lifecycle management
-class AgentStudioTerminalView: NSView, SurfaceContainer, SurfaceHealthDelegate {
+final class AgentStudioTerminalView: NSView, SurfaceContainer, SurfaceHealthDelegate {
     let worktree: Worktree
-    let project: Project
+    let repo: Repo
 
     // MARK: - SurfaceContainer Protocol
 
-    let containerId: UUID = UUID()
+    private(set) var containerId: UUID
     var surfaceId: UUID?
 
     // MARK: - Private State
 
     private var ghosttySurface: Ghostty.SurfaceView?
-    private var isProcessRunning = false
+    private(set) var isProcessRunning = false
     private var errorOverlay: SurfaceErrorOverlayView?
 
     /// The current terminal title
@@ -24,9 +24,10 @@ class AgentStudioTerminalView: NSView, SurfaceContainer, SurfaceHealthDelegate {
     }
 
     /// Standard initializer - creates a new terminal surface
-    init(worktree: Worktree, project: Project) {
+    init(worktree: Worktree, repo: Repo) {
+        self.containerId = UUID()
         self.worktree = worktree
-        self.project = project
+        self.repo = repo
         super.init(frame: NSRect(x: 0, y: 0, width: 800, height: 600))
 
         // Note: Do NOT set wantsLayer or backgroundColor here
@@ -34,11 +35,22 @@ class AgentStudioTerminalView: NSView, SurfaceContainer, SurfaceHealthDelegate {
         setupTerminal()
     }
 
+    /// Restoring initializer — defers terminal setup until the view is displayed.
+    /// Used by the Codable decode path to avoid spawning orphaned processes.
+    init(worktree: Worktree, repo: Repo, restoring: Bool, containerId: UUID = UUID()) {
+        self.containerId = containerId
+        self.worktree = worktree
+        self.repo = repo
+        super.init(frame: NSRect(x: 0, y: 0, width: 800, height: 600))
+        // Terminal setup is deferred to viewDidMoveToWindow
+    }
+
     /// Restore initializer - for attaching an existing surface (undo close)
     /// Does NOT create a new surface; caller must attach one via displaySurface()
-    init(worktree: Worktree, project: Project, restoredSurfaceId: UUID) {
+    init(worktree: Worktree, repo: Repo, restoredSurfaceId: UUID) {
+        self.containerId = UUID()
         self.worktree = worktree
-        self.project = project
+        self.repo = repo
         self.surfaceId = restoredSurfaceId
         super.init(frame: NSRect(x: 0, y: 0, width: 800, height: 600))
 
@@ -76,7 +88,7 @@ class AgentStudioTerminalView: NSView, SurfaceContainer, SurfaceHealthDelegate {
             command: "\(shell) -i -l",
             title: worktree.name,
             worktreeId: worktree.id,
-            projectId: project.id
+            repoId: repo.id
         )
 
         // Create surface via manager
@@ -282,6 +294,28 @@ class AgentStudioTerminalView: NSView, SurfaceContainer, SurfaceHealthDelegate {
         return SurfaceManager.shared.hasProcessExited(surfaceId)
     }
 
+    // MARK: - Deferred Setup
+
+    override func viewDidMoveToWindow() {
+        super.viewDidMoveToWindow()
+        // Lazily set up terminal when the view enters a window for the first time.
+        // This handles restored views that deferred setupTerminal().
+        if window != nil && surfaceId == nil && ghosttySurface == nil {
+            setupTerminal()
+        }
+    }
+
+    // MARK: - Layout
+
+    override func layout() {
+        super.layout()
+        // Ensure Ghostty surface knows its new size after split/resize.
+        // Auto Layout propagates frame changes to the surface subview,
+        // but this is a safety net for SwiftUI structural identity rebuilds.
+        guard let surface = ghosttySurface, bounds.size.width > 0, bounds.size.height > 0 else { return }
+        surface.sizeDidChange(surface.bounds.size)
+    }
+
     // MARK: - First Responder
 
     override var acceptsFirstResponder: Bool { true }
@@ -320,5 +354,75 @@ class AgentStudioTerminalView: NSView, SurfaceContainer, SurfaceHealthDelegate {
             return surface
         }
         return super.hitTest(point)
+    }
+
+    // MARK: - SwiftUI Bridging
+
+    /// Stable container for SwiftUI bridging.
+    /// NSViewRepresentable returns this instead of creating new containers.
+    /// The terminal view is added once and never reparented,
+    /// preventing IOSurface crashes when SwiftUI recreates views.
+    private(set) lazy var swiftUIContainer: NSView = {
+        let container = NSView()
+        container.wantsLayer = true
+        container.layer?.backgroundColor = NSColor.clear.cgColor
+        self.translatesAutoresizingMaskIntoConstraints = false
+        container.addSubview(self)
+        NSLayoutConstraint.activate([
+            self.topAnchor.constraint(equalTo: container.topAnchor),
+            self.leadingAnchor.constraint(equalTo: container.leadingAnchor),
+            self.trailingAnchor.constraint(equalTo: container.trailingAnchor),
+            self.bottomAnchor.constraint(equalTo: container.bottomAnchor),
+        ])
+        return container
+    }()
+}
+
+// MARK: - Identifiable
+
+extension AgentStudioTerminalView: Identifiable {
+    typealias ID = UUID
+    var id: UUID { containerId }
+}
+
+// MARK: - Codable
+
+extension AgentStudioTerminalView: Codable {
+    private enum CodingKeys: String, CodingKey {
+        case worktreeId
+        case repoId
+        case containerId
+        case title
+    }
+
+    convenience init(from decoder: Decoder) throws {
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+        let worktreeId = try container.decode(UUID.self, forKey: .worktreeId)
+        let repoId = try container.decode(UUID.self, forKey: .repoId)
+        let savedContainerId = try container.decode(UUID.self, forKey: .containerId)
+
+        // Look up worktree and repo from SessionManager
+        guard let repo = SessionManager.shared.repos.first(where: { $0.id == repoId }),
+              let worktree = repo.worktrees.first(where: { $0.id == worktreeId }) else {
+            throw DecodingError.dataCorrupted(
+                DecodingError.Context(
+                    codingPath: decoder.codingPath,
+                    debugDescription: "Could not find worktree \(worktreeId) or repo \(repoId)"
+                )
+            )
+        }
+
+        // Use the base NSView init — do NOT call self.init(worktree:repo:) which
+        // spawns a shell process immediately. Terminal setup is deferred until the
+        // view is displayed, preventing orphaned processes on restore.
+        self.init(worktree: worktree, repo: repo, restoring: true, containerId: savedContainerId)
+    }
+
+    func encode(to encoder: Encoder) throws {
+        var container = encoder.container(keyedBy: CodingKeys.self)
+        try container.encode(worktree.id, forKey: .worktreeId)
+        try container.encode(repo.id, forKey: .repoId)
+        try container.encode(containerId, forKey: .containerId)
+        try container.encode(title, forKey: .title)
     }
 }

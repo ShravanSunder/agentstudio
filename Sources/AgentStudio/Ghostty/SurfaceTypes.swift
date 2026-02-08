@@ -51,7 +51,7 @@ struct SurfaceMetadata: Codable, Equatable {
     var command: String?
     var title: String
     var worktreeId: UUID?
-    var projectId: UUID?
+    var repoId: UUID?
     var createdAt: Date
     var lastActiveAt: Date
 
@@ -60,13 +60,13 @@ struct SurfaceMetadata: Codable, Equatable {
         command: String? = nil,
         title: String = "Terminal",
         worktreeId: UUID? = nil,
-        projectId: UUID? = nil
+        repoId: UUID? = nil
     ) {
         self.workingDirectory = workingDirectory
         self.command = command
         self.title = title
         self.worktreeId = worktreeId
-        self.projectId = projectId
+        self.repoId = repoId
         self.createdAt = Date()
         self.lastActiveAt = Date()
     }

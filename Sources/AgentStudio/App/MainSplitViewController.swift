@@ -47,13 +47,9 @@ class MainSplitViewController: NSSplitViewController {
         debugLog("[MainSplitVC] Restoring \(sortedTabs.count) tabs from session")
 
         for tab in sortedTabs {
-            guard let worktree = SessionManager.shared.worktree(for: tab),
-                  let project = SessionManager.shared.project(for: tab) else {
-                continue
-            }
-
-            debugLog("[MainSplitVC] Restoring tab: \(worktree.name)")
-            terminalTabViewController?.openTerminal(for: worktree, in: project)
+            // Use restoreTab which handles split tree restoration
+            debugLog("[MainSplitVC] Restoring tab: \(tab.id) (has splitTree: \(tab.splitTreeData != nil))")
+            terminalTabViewController?.restoreTab(from: tab)
         }
 
         // Select the active tab if it exists
@@ -103,11 +99,11 @@ class MainSplitViewController: NSSplitViewController {
     @objc private func handleOpenWorktree(_ notification: Notification) {
         guard let userInfo = notification.userInfo,
               let worktree = userInfo["worktree"] as? Worktree,
-              let project = userInfo["project"] as? Project else {
+              let repo = userInfo["repo"] as? Repo else {
             return
         }
 
-        terminalTabViewController?.openTerminal(for: worktree, in: project)
+        terminalTabViewController?.openTerminal(for: worktree, in: repo)
     }
 
     @objc private func handleCloseTab(_ notification: Notification) {
@@ -151,36 +147,36 @@ struct SidebarViewWrapper: View {
 /// The actual sidebar content
 struct SidebarContentView: View {
     @ObservedObject var sessionManager: SessionManager
-    @State private var expandedProjects: Set<UUID> = []
+    @State private var expandedRepos: Set<UUID> = []
 
     var body: some View {
         VStack(spacing: 0) {
             // Main list content (toggle button is now in titlebar)
             List {
-                Section("Projects") {
-                    ForEach(sessionManager.projects) { project in
+                Section("Repos") {
+                    ForEach(sessionManager.repos) { repo in
                         DisclosureGroup(
                             isExpanded: Binding(
-                                get: { expandedProjects.contains(project.id) },
+                                get: { expandedRepos.contains(repo.id) },
                                 set: { isExpanded in
                                     if isExpanded {
-                                        expandedProjects.insert(project.id)
+                                        expandedRepos.insert(repo.id)
                                     } else {
-                                        expandedProjects.remove(project.id)
+                                        expandedRepos.remove(repo.id)
                                     }
                                 }
                             )
                         ) {
-                            ForEach(project.worktrees) { worktree in
+                            ForEach(repo.worktrees) { worktree in
                                 WorktreeRowView(
                                     worktree: worktree,
                                     onOpen: {
-                                        openWorktree(worktree, in: project)
+                                        openWorktree(worktree, in: repo)
                                     }
                                 )
                             }
                         } label: {
-                            ProjectRowView(project: project)
+                            RepoRowView(repo: repo)
                         }
                     }
                 }
@@ -192,8 +188,8 @@ struct SidebarContentView: View {
         .background(Color(nsColor: .windowBackgroundColor))
         // Subtle shadow on right edge only
         .shadow(color: .black.opacity(0.2), radius: 4, x: 2, y: 0)
-        .onReceive(NotificationCenter.default.publisher(for: .addProjectRequested)) { _ in
-            addProject()
+        .onReceive(NotificationCenter.default.publisher(for: .addRepoRequested)) { _ in
+            addRepo()
         }
         .onReceive(NotificationCenter.default.publisher(for: .refreshWorktreesRequested)) { _ in
             refreshWorktrees()
@@ -204,39 +200,39 @@ struct SidebarContentView: View {
         NotificationCenter.default.post(name: .toggleSidebarRequested, object: nil)
     }
 
-    private func openWorktree(_ worktree: Worktree, in project: Project) {
-        sessionManager.openTab(for: worktree, in: project)
+    private func openWorktree(_ worktree: Worktree, in repo: Repo) {
+        sessionManager.openTab(for: worktree, in: repo)
         NotificationCenter.default.post(
             name: .openWorktreeRequested,
             object: nil,
-            userInfo: ["worktree": worktree, "project": project]
+            userInfo: ["worktree": worktree, "repo": repo]
         )
     }
 
-    private func addProject() {
+    private func addRepo() {
         let panel = NSOpenPanel()
         panel.canChooseFiles = false
         panel.canChooseDirectories = true
         panel.allowsMultipleSelection = false
         panel.message = "Select a git repository"
-        panel.prompt = "Add Project"
+        panel.prompt = "Add Repo"
 
         if panel.runModal() == .OK, let url = panel.url {
-            _ = sessionManager.addProject(at: url)
+            _ = sessionManager.addRepo(at: url)
         }
     }
 
     private func refreshWorktrees() {
-        for project in sessionManager.projects {
-            sessionManager.refreshWorktrees(for: project)
+        for repo in sessionManager.repos {
+            sessionManager.refreshWorktrees(for: repo)
         }
     }
 }
 
-// MARK: - Project Row View
+// MARK: - Repo Row View
 
-struct ProjectRowView: View {
-    let project: Project
+struct RepoRowView: View {
+    let repo: Repo
 
     var body: some View {
         HStack(spacing: 8) {
@@ -244,14 +240,14 @@ struct ProjectRowView: View {
                 .font(.system(size: 14))
                 .foregroundStyle(.orange)
 
-            Text(project.name)
+            Text(repo.name)
                 .font(.system(size: 13, weight: .medium))
                 .lineLimit(1)
 
             Spacer()
 
             // Worktree count badge
-            Text("\(project.worktrees.count)")
+            Text("\(repo.worktrees.count)")
                 .font(.system(size: 10, weight: .medium))
                 .foregroundStyle(.secondary)
                 .padding(.horizontal, 6)
@@ -276,7 +272,7 @@ struct WorktreeRowView: View {
             Circle()
                 .fill(statusColor)
                 .frame(width: 8, height: 8)
-                .animation(.easeInOut(duration: 0.2), value: worktree.isOpen)
+                .animation(.easeInOut(duration: 0.2), value: worktree.status)
 
             // Branch icon
             Image(systemName: "arrow.triangle.branch")
@@ -287,7 +283,7 @@ struct WorktreeRowView: View {
             Text(worktree.name)
                 .font(.system(size: 12))
                 .lineLimit(1)
-                .foregroundStyle(worktree.isOpen ? .primary : .secondary)
+                .foregroundStyle(.primary)
 
             Spacer()
 
@@ -344,9 +340,6 @@ struct WorktreeRowView: View {
     }
 
     private var statusColor: Color {
-        if worktree.isOpen {
-            return .green
-        }
         switch worktree.status {
         case .idle: return .secondary.opacity(0.4)
         case .running: return .green

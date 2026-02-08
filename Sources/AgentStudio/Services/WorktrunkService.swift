@@ -53,7 +53,7 @@ final class WorktrunkService {
             return nil
         }
 
-        // Filter entries belonging to this project
+        // Filter entries belonging to this repo
         let filtered = entries.filter { entry in
             entry.path.contains(projectName)
         }
@@ -83,7 +83,7 @@ final class WorktrunkService {
     }
 
     /// Parse `git worktree list --porcelain` output
-    private func parseGitWorktreeList(_ output: String) -> [Worktree] {
+    func parseGitWorktreeList(_ output: String) -> [Worktree] {
         var worktrees: [Worktree] = []
         var currentPath: String?
         var currentBranch: String?
@@ -206,7 +206,7 @@ final class WorktrunkService {
 // MARK: - Worktrunk JSON Models
 
 /// JSON entry from `wt list --format=json`
-private struct WorktrunkEntry: Codable {
+struct WorktrunkEntry: Codable {
     let path: String
     let branch: String
     let head: String?

@@ -1,0 +1,80 @@
+import Foundation
+@testable import AgentStudio
+
+// MARK: - Worktree Factory
+
+func makeWorktree(
+    id: UUID = UUID(),
+    name: String = "feature-branch",
+    path: String = "/tmp/test-repo/feature-branch",
+    branch: String = "feature-branch",
+    agent: AgentType? = nil,
+    status: WorktreeStatus = .idle
+) -> Worktree {
+    Worktree(
+        id: id,
+        name: name,
+        path: URL(fileURLWithPath: path),
+        branch: branch,
+        agent: agent,
+        status: status
+    )
+}
+
+// MARK: - Repo Factory
+
+func makeRepo(
+    id: UUID = UUID(),
+    name: String = "test-repo",
+    repoPath: String = "/tmp/test-repo",
+    worktrees: [Worktree] = [],
+    createdAt: Date = Date(timeIntervalSince1970: 1_000_000),
+    updatedAt: Date = Date(timeIntervalSince1970: 1_000_000)
+) -> Repo {
+    Repo(
+        id: id,
+        name: name,
+        repoPath: URL(fileURLWithPath: repoPath),
+        worktrees: worktrees,
+        createdAt: createdAt,
+        updatedAt: updatedAt
+    )
+}
+
+// MARK: - OpenTab Factory
+
+func makeOpenTab(
+    id: UUID = UUID(),
+    worktreeId: UUID = UUID(),
+    repoId: UUID = UUID(),
+    order: Int = 0,
+    splitTreeData: Data? = nil,
+    activePaneId: UUID? = nil
+) -> OpenTab {
+    OpenTab(
+        id: id,
+        worktreeId: worktreeId,
+        repoId: repoId,
+        order: order,
+        splitTreeData: splitTreeData,
+        activePaneId: activePaneId
+    )
+}
+
+// MARK: - SurfaceMetadata Factory
+
+func makeSurfaceMetadata(
+    workingDirectory: String? = "/tmp/test-dir",
+    command: String? = nil,
+    title: String = "Terminal",
+    worktreeId: UUID? = nil,
+    repoId: UUID? = nil
+) -> SurfaceMetadata {
+    SurfaceMetadata(
+        workingDirectory: workingDirectory.map { URL(fileURLWithPath: $0) },
+        command: command,
+        title: title,
+        worktreeId: worktreeId,
+        repoId: repoId
+    )
+}

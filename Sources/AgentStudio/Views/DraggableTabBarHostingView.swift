@@ -1,11 +1,18 @@
 import AppKit
 import SwiftUI
+import UniformTypeIdentifiers
 
 // MARK: - Pasteboard Type
 
 extension NSPasteboard.PasteboardType {
-    // Use a simple string identifier instead of UTType to avoid Info.plist requirement
-    static let agentStudioTab = NSPasteboard.PasteboardType("com.agentstudio.tab.internal")
+    // Internal tab reordering within tab bar
+    static let agentStudioTabInternal = NSPasteboard.PasteboardType("com.agentstudio.tab.internal")
+
+    // For SwiftUI drop compatibility (matches UTType.agentStudioTab)
+    static let agentStudioTabDrop = NSPasteboard.PasteboardType(UTType.agentStudioTab.identifier)
+
+    // For pane drag-to-tab-bar (extract pane to new tab)
+    static let agentStudioPaneDrop = NSPasteboard.PasteboardType(UTType.agentStudioPane.identifier)
 }
 
 // MARK: - Draggable Tab Bar Container
@@ -52,8 +59,8 @@ class DraggableTabBarHostingView: NSView, NSDraggingSource {
             hostingView.bottomAnchor.constraint(equalTo: bottomAnchor)
         ])
 
-        // Register as drag destination
-        registerForDraggedTypes([.agentStudioTab])
+        // Register as drag destination for internal reorder, tab drop, and pane drop
+        registerForDraggedTypes([.agentStudioTabInternal, .agentStudioTabDrop, .agentStudioPaneDrop])
 
         // Set up pan gesture recognizer for drag detection
         panGesture = NSPanGestureRecognizer(target: self, action: #selector(handlePan(_:)))
@@ -130,6 +137,12 @@ class DraggableTabBarHostingView: NSView, NSDraggingSource {
     // MARK: - Pan Gesture Handler
 
     @objc private func handlePan(_ gesture: NSPanGestureRecognizer) {
+        // Tab drag requires management mode (Ctrl+Opt held)
+        guard ManagementModeMonitor.shared.isActive else {
+            gesture.state = .cancelled
+            return
+        }
+
         let location = gesture.location(in: self)
 
         switch gesture.state {
@@ -165,9 +178,24 @@ class DraggableTabBarHostingView: NSView, NSDraggingSource {
         // Update state to show drag visual immediately
         tabBarState?.draggingTabId = tabId
 
-        // Create pasteboard item
+        // Create pasteboard item with both formats
         let pasteboardItem = NSPasteboardItem()
-        pasteboardItem.setString(tabId.uuidString, forType: .agentStudioTab)
+
+        // Internal format for tab bar reordering
+        pasteboardItem.setString(tabId.uuidString, forType: .agentStudioTabInternal)
+
+        // SwiftUI-compatible format for terminal split drops
+        if let tab = tabBarState?.tabs.first(where: { $0.id == tabId }) {
+            let payload = TabDragPayload(
+                tabId: tabId,
+                worktreeId: tab.primaryWorktreeId,
+                repoId: tab.primaryRepoId,
+                title: tab.title
+            )
+            if let payloadData = try? JSONEncoder().encode(payload) {
+                pasteboardItem.setData(payloadData, forType: .agentStudioTabDrop)
+            }
+        }
 
         // Create dragging item
         let draggingItem = NSDraggingItem(pasteboardWriter: pasteboardItem)
@@ -244,7 +272,8 @@ class DraggableTabBarHostingView: NSView, NSDraggingSource {
     // MARK: - NSDraggingDestination
 
     override func draggingEntered(_ sender: NSDraggingInfo) -> NSDragOperation {
-        guard sender.draggingPasteboard.types?.contains(.agentStudioTab) == true else {
+        let types = sender.draggingPasteboard.types ?? []
+        guard types.contains(.agentStudioTabInternal) || types.contains(.agentStudioPaneDrop) else {
             return []
         }
 
@@ -264,16 +293,31 @@ class DraggableTabBarHostingView: NSView, NSDraggingSource {
     }
 
     override func performDragOperation(_ sender: NSDraggingInfo) -> Bool {
-        guard let idString = sender.draggingPasteboard.string(forType: .agentStudioTab),
-              let tabId = UUID(uuidString: idString),
-              let targetIndex = tabBarState?.dropTargetIndex else {
-            return false
+        let pasteboard = sender.draggingPasteboard
+
+        // Handle internal tab reorder
+        if let idString = pasteboard.string(forType: .agentStudioTabInternal),
+           let tabId = UUID(uuidString: idString),
+           let targetIndex = tabBarState?.dropTargetIndex {
+            onReorder?(tabId, targetIndex)
+            return true
         }
 
-        // Execute reorder
-        onReorder?(tabId, targetIndex)
+        // Handle pane drop → extract pane to new tab
+        if let paneData = pasteboard.data(forType: .agentStudioPaneDrop),
+           let payload = try? JSONDecoder().decode(PaneDragPayload.self, from: paneData) {
+            NotificationCenter.default.post(
+                name: .extractPaneRequested,
+                object: nil,
+                userInfo: [
+                    "tabId": payload.tabId,
+                    "paneId": payload.paneId
+                ]
+            )
+            return true
+        }
 
-        return true
+        return false
     }
 
     private func updateDropTarget(for sender: NSDraggingInfo) {

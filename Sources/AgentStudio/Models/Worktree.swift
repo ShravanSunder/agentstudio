@@ -1,7 +1,7 @@
 import Foundation
 import SwiftUI
 
-/// A git worktree within a project
+/// A git worktree within a repo
 struct Worktree: Codable, Identifiable, Hashable {
     let id: UUID
     var name: String
@@ -9,8 +9,6 @@ struct Worktree: Codable, Identifiable, Hashable {
     var branch: String
     var agent: AgentType?
     var status: WorktreeStatus
-    var isOpen: Bool
-    var lastOpened: Date?
 
     init(
         id: UUID = UUID(),
@@ -18,9 +16,7 @@ struct Worktree: Codable, Identifiable, Hashable {
         path: URL,
         branch: String,
         agent: AgentType? = nil,
-        status: WorktreeStatus = .idle,
-        isOpen: Bool = false,
-        lastOpened: Date? = nil
+        status: WorktreeStatus = .idle
     ) {
         self.id = id
         self.name = name
@@ -28,8 +24,6 @@ struct Worktree: Codable, Identifiable, Hashable {
         self.branch = branch
         self.agent = agent
         self.status = status
-        self.isOpen = isOpen
-        self.lastOpened = lastOpened
     }
 }
 

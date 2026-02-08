@@ -1,7 +1,7 @@
 import Foundation
 
-/// A git repository project that may contain multiple worktrees
-struct Project: Codable, Identifiable, Hashable {
+/// A git repository that may contain multiple worktrees
+struct Repo: Codable, Identifiable, Hashable {
     let id: UUID
     var name: String
     var repoPath: URL
