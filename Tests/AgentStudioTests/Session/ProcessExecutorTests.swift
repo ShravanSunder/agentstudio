@@ -99,6 +99,49 @@ final class ProcessExecutorTests: XCTestCase {
         }
     }
 
+    // MARK: - Timeout
+
+    func test_execute_timeoutTerminatesHangingProcess() async throws {
+        // Arrange — executor with a 2-second timeout
+        let shortTimeoutExecutor = DefaultProcessExecutor(timeout: 2)
+
+        // Act — `sleep 60` would hang for 60s, but timeout should kill it in ~2s
+        do {
+            _ = try await shortTimeoutExecutor.execute(
+                command: "sleep",
+                args: ["60"],
+                cwd: nil,
+                environment: nil
+            )
+            XCTFail("Expected ProcessError.timedOut to be thrown")
+        } catch let error as ProcessError {
+            // Assert
+            if case .timedOut(let cmd, let seconds) = error {
+                XCTAssertEqual(cmd, "sleep")
+                XCTAssertEqual(seconds, 2)
+            } else {
+                XCTFail("Expected .timedOut, got: \(error)")
+            }
+        }
+    }
+
+    func test_execute_normalCommandDoesNotTimeout() async throws {
+        // Arrange — short timeout but the command finishes quickly
+        let shortTimeoutExecutor = DefaultProcessExecutor(timeout: 5)
+
+        // Act
+        let result = try await shortTimeoutExecutor.execute(
+            command: "echo",
+            args: ["fast"],
+            cwd: nil,
+            environment: nil
+        )
+
+        // Assert — should succeed normally, no timeout
+        XCTAssertEqual(result.stdout, "fast")
+        XCTAssertTrue(result.succeeded)
+    }
+
     // MARK: - Regression: Fast Exit (Group 8)
 
     func test_execute_fastExitDoesNotHang() async throws {

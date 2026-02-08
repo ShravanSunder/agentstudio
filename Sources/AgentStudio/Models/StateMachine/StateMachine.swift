@@ -1,4 +1,7 @@
 import Foundation
+import os
+
+private let machineLogger = Logger(subsystem: "com.agentstudio", category: "StateMachine")
 
 // MARK: - MachineState Protocol
 
@@ -36,6 +39,10 @@ struct Transition<State: Equatable, Effect> {
 final class Machine<State: MachineState> {
     typealias EffectHandler = (State.Effect) async -> Void
 
+    /// Maximum events drained per send() call. Protects against infinite loops
+    /// from pathological effect handlers that re-send events cyclically.
+    static var maxQueueDepth: Int { 50 }
+
     private(set) var state: State
     private var effectHandler: EffectHandler?
     private var isProcessing = false
@@ -65,8 +72,16 @@ final class Machine<State: MachineState> {
 
         await processEvent(event)
 
-        // Drain queued events that arrived during effect execution
+        // Drain queued events that arrived during effect execution.
+        // Cap iterations to catch runaway effect→event cycles.
+        var drained = 0
         while !eventQueue.isEmpty {
+            guard drained < Self.maxQueueDepth else {
+                machineLogger.error("StateMachine queue depth exceeded \(Self.maxQueueDepth) — possible cycle. Dropping \(self.eventQueue.count) queued events.")
+                eventQueue.removeAll()
+                break
+            }
+            drained += 1
             let next = eventQueue.removeFirst()
             await processEvent(next)
         }

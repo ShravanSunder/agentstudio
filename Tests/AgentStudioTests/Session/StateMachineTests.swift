@@ -90,6 +90,34 @@ final class StateMachineTests: XCTestCase {
         XCTAssertTrue(result)
     }
 
+    // MARK: - Queue Depth Guard
+
+    func test_machine_capsQueueDepthOnRunaway() async {
+        // Arrange — use a handler that always re-sends an event, creating a cycle
+        let machine = Machine<SessionStatus>(initialState: .alive)
+        var effectCount = 0
+        machine.setEffectHandler { [weak machine] effect in
+            effectCount += 1
+            // Every effect re-sends .healthCheckPassed which triggers .scheduleHealthCheck
+            // which calls this handler again — a runaway cycle
+            if case .scheduleHealthCheck = effect {
+                await machine?.send(.healthCheckPassed)
+            }
+        }
+
+        // Act — .healthCheckPassed from .alive produces .scheduleHealthCheck effect
+        // which triggers the handler, which sends .healthCheckPassed again → cycle
+        await machine.send(.healthCheckPassed)
+
+        // Assert — machine should have capped at maxQueueDepth instead of looping forever.
+        // Each healthCheckPassed → scheduleHealthCheck → handler sends healthCheckPassed,
+        // so effectCount tracks how many cycles occurred.
+        XCTAssertLessThanOrEqual(effectCount, Machine<SessionStatus>.maxQueueDepth + 1,
+            "Queue depth guard should cap runaway cycles")
+        // Machine should still be in a valid state (alive, since healthCheckPassed→alive)
+        XCTAssertEqual(machine.state, .alive)
+    }
+
     // MARK: - Force State
 
     func test_machine_forceState_overridesCurrentState() {

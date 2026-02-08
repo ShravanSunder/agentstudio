@@ -5,10 +5,13 @@ import XCTest
 final class SessionRegistryTests: XCTestCase {
     private var registry: SessionRegistry!
     private var mockBackend: MockSessionBackend!
+    private var tempCheckpointPath: URL!
 
     override func setUp() {
         super.setUp()
         mockBackend = MockSessionBackend()
+        tempCheckpointPath = FileManager.default.temporaryDirectory
+            .appendingPathComponent("test-checkpoint-\(UUID().uuidString).json")
         registry = SessionRegistry.shared
         registry._resetForTesting(
             configuration: SessionConfiguration(
@@ -20,12 +23,14 @@ final class SessionRegistryTests: XCTestCase {
                 socketName: "agentstudio",
                 maxCheckpointAge: 604800
             ),
-            backend: mockBackend
+            backend: mockBackend,
+            checkpointPath: tempCheckpointPath
         )
     }
 
     override func tearDown() {
         registry._resetForTesting()
+        try? FileManager.default.removeItem(at: tempCheckpointPath)
         super.tearDown()
     }
 
@@ -428,8 +433,8 @@ final class SessionRegistryTests: XCTestCase {
         // Act
         registry.saveCheckpoint()
 
-        // Assert — load checkpoint and verify contents
-        let loaded = SessionCheckpoint.load()
+        // Assert — load checkpoint from the temp path and verify contents
+        let loaded = SessionCheckpoint.load(from: tempCheckpointPath)
         XCTAssertNotNil(loaded)
         XCTAssertEqual(loaded?.sessions.count, 1)
         XCTAssertEqual(loaded?.sessions.first?.sessionId, sessionId)

@@ -1,4 +1,7 @@
 import Foundation
+import os
+
+private let processLogger = Logger(subsystem: "com.agentstudio", category: "ProcessExecutor")
 
 // MARK: - Handle Types
 
@@ -112,10 +115,34 @@ struct ProcessResult: Sendable {
     var succeeded: Bool { exitCode == 0 }
 }
 
+// MARK: - ProcessError
+
+enum ProcessError: Error, LocalizedError {
+    case timedOut(command: String, seconds: TimeInterval)
+
+    var errorDescription: String? {
+        switch self {
+        case .timedOut(let command, let seconds):
+            return "Process '\(command)' timed out after \(Int(seconds))s"
+        }
+    }
+}
+
 // MARK: - DefaultProcessExecutor
 
-/// Production executor that spawns real processes.
+/// Production executor that spawns real processes on a background thread.
+///
+/// Blocking Foundation calls (`readDataToEndOfFile`, `waitUntilExit`) are
+/// dispatched to `DispatchQueue.global()` so they never block the MainActor.
+/// A configurable timeout terminates hung processes.
 struct DefaultProcessExecutor: ProcessExecutor {
+    /// Default timeout for process execution.
+    let timeout: TimeInterval
+
+    init(timeout: TimeInterval = 15) {
+        self.timeout = timeout
+    }
+
     func execute(
         command: String,
         args: [String],
@@ -147,21 +174,54 @@ struct DefaultProcessExecutor: ProcessExecutor {
 
         try process.run()
 
-        // Read pipes FIRST to prevent buffer deadlock.
-        // If the child fills the pipe buffer (~64KB), it blocks on write.
-        // Reading first drains the buffer so the child can proceed to exit.
-        let stdoutData = stdoutPipe.fileHandleForReading.readDataToEndOfFile()
-        let stderrData = stderrPipe.fileHandleForReading.readDataToEndOfFile()
-
-        // Safe to call waitUntilExit() now — pipes are fully drained so no
-        // deadlock is possible. For short-lived commands (tmux), the process
-        // has already exited by the time readDataToEndOfFile() returns EOF.
-        process.waitUntilExit()
-
-        return ProcessResult(
-            exitCode: Int(process.terminationStatus),
-            stdout: String(data: stdoutData, encoding: .utf8)?.trimmingCharacters(in: .whitespacesAndNewlines) ?? "",
-            stderr: String(data: stderrData, encoding: .utf8)?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+        // Schedule a timeout that terminates the process if it hangs.
+        let timeoutSeconds = timeout
+        let timeoutWork = DispatchWorkItem { [process] in
+            if process.isRunning {
+                processLogger.warning("Process '\(command)' exceeded \(Int(timeoutSeconds))s timeout — terminating")
+                process.terminate()
+            }
+        }
+        DispatchQueue.global().asyncAfter(
+            deadline: .now() + timeoutSeconds,
+            execute: timeoutWork
         )
+
+        // Offload blocking I/O to a background thread so the MainActor is never blocked.
+        let result: ProcessResult = try await withCheckedThrowingContinuation { continuation in
+            DispatchQueue.global(qos: .userInitiated).async {
+                // Read pipes FIRST to prevent buffer deadlock.
+                // If the child fills the pipe buffer (~64KB), it blocks on write.
+                // Reading first drains the buffer so the child can proceed to exit.
+                let stdoutData = stdoutPipe.fileHandleForReading.readDataToEndOfFile()
+                let stderrData = stderrPipe.fileHandleForReading.readDataToEndOfFile()
+
+                // Safe to call waitUntilExit() now — pipes are fully drained.
+                process.waitUntilExit()
+
+                // Cancel the timeout since the process exited normally.
+                timeoutWork.cancel()
+
+                let exitCode = Int(process.terminationStatus)
+
+                // SIGTERM (15) from our timeout → report as timeout error
+                if exitCode == 15 || (exitCode == 143 /* 128+15 */) {
+                    continuation.resume(throwing: ProcessError.timedOut(
+                        command: command, seconds: timeoutSeconds
+                    ))
+                    return
+                }
+
+                continuation.resume(returning: ProcessResult(
+                    exitCode: exitCode,
+                    stdout: String(data: stdoutData, encoding: .utf8)?
+                        .trimmingCharacters(in: .whitespacesAndNewlines) ?? "",
+                    stderr: String(data: stderrData, encoding: .utf8)?
+                        .trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+                ))
+            }
+        }
+
+        return result
     }
 }

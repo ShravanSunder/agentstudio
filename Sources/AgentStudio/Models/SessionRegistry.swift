@@ -13,6 +13,7 @@ final class SessionRegistry {
     private(set) var configuration: SessionConfiguration
     private(set) var backend: (any SessionBackend)?
     private(set) var entries: [String: PaneEntry] = [:]
+    private(set) var checkpointPath: URL = SessionCheckpoint.defaultPath
     private var healthCheckTasks: [String: Task<Void, Never>] = [:]
     private var creationsInProgress: Set<String> = []
 
@@ -215,7 +216,7 @@ final class SessionRegistry {
 
         let checkpoint = SessionCheckpoint(sessions: sessionData)
         do {
-            try checkpoint.save()
+            try checkpoint.save(to: checkpointPath)
         } catch {
             sessionLogger.error("Failed to save session checkpoint: \(error.localizedDescription)")
         }
@@ -410,14 +411,19 @@ final class SessionRegistry {
     // MARK: - Testing Support
 
     /// Reset for testing. Not for production use.
+    ///
+    /// - Warning: Not safe for parallel test execution across test classes.
+    ///   All test classes that use this method share the singleton and must run serially.
     func _resetForTesting(
         configuration: SessionConfiguration? = nil,
-        backend: (any SessionBackend)? = nil
+        backend: (any SessionBackend)? = nil,
+        checkpointPath: URL? = nil
     ) {
         stopHealthChecks()
         entries.removeAll()
         creationsInProgress.removeAll()
         if let configuration { self.configuration = configuration }
         self.backend = backend
+        if let checkpointPath { self.checkpointPath = checkpointPath }
     }
 }
