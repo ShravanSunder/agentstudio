@@ -114,6 +114,14 @@ class TerminalTabViewController: NSViewController, CommandHandler {
             name: .undoCloseTabRequested,
             object: nil
         )
+
+        // Listen for pane extract (from tab bar pane drop)
+        NotificationCenter.default.addObserver(
+            self,
+            selector: #selector(handleExtractPaneRequested(_:)),
+            name: .extractPaneRequested,
+            object: nil
+        )
     }
 
     @objc private func handleSelectTabById(_ notification: Notification) {
@@ -263,6 +271,13 @@ class TerminalTabViewController: NSViewController, CommandHandler {
         )
         tabBarState.appendTab(tabItem)
 
+        // Ensure SessionManager has a record for this tab
+        SessionManager.shared.addTabRecord(
+            id: tabItem.id,
+            worktreeId: worktree.id,
+            repoId: repo.id
+        )
+
         // Select the new tab (this will update the split container)
         selectTab(id: tabItem.id)
 
@@ -362,12 +377,6 @@ class TerminalTabViewController: NSViewController, CommandHandler {
 
         updateEmptyState()
 
-        // Update session manager
-        Task { @MainActor in
-            if let sessionTab = SessionManager.shared.openTabs.first(where: { $0.worktreeId == terminalView.worktree.id }) {
-                SessionManager.shared.closeTab(sessionTab)
-            }
-        }
     }
 
     private func closeTab(id tabId: UUID) {
@@ -434,11 +443,7 @@ class TerminalTabViewController: NSViewController, CommandHandler {
 
         // Update session manager
         Task { @MainActor in
-            for terminalView in tab.splitTree.allViews {
-                if let sessionTab = SessionManager.shared.openTabs.first(where: { $0.worktreeId == terminalView.worktree.id }) {
-                    SessionManager.shared.closeTab(sessionTab)
-                }
-            }
+            SessionManager.shared.closeTabById(tab.id)
         }
     }
 
@@ -673,8 +678,10 @@ class TerminalTabViewController: NSViewController, CommandHandler {
                     }
                     sourceTab.title = sourceTab.displayTitle
                     tabBarState.replaceTab(at: sourceIndex, with: sourceTab)
+                    saveSplitTree(for: sourceTab)
                 } else {
                     tabBarState.removeTab(at: sourceIndex)
+                    SessionManager.shared.removeTabRecord(sourceTabId)
                 }
             }
 
@@ -701,6 +708,7 @@ class TerminalTabViewController: NSViewController, CommandHandler {
 
             selectTab(id: targetTabId)
             saveSplitTree(for: tab)
+            SessionManager.shared.syncTabOrder(tabIds: tabBarState.tabs.map(\.id))
 
         case .newTerminal:
             // Post notification for new terminal creation
@@ -759,6 +767,10 @@ class TerminalTabViewController: NSViewController, CommandHandler {
         if let currentSourceIndex = tabItems.firstIndex(where: { $0.id == sourceTabId }) {
             tabBarState.removeTab(at: currentSourceIndex)
         }
+
+        // Sync session: remove source tab record, update order
+        SessionManager.shared.removeTabRecord(sourceTabId)
+        SessionManager.shared.syncTabOrder(tabIds: tabBarState.tabs.map(\.id))
 
         selectTab(id: targetTabId)
         saveSplitTree(for: tab)
@@ -859,6 +871,18 @@ class TerminalTabViewController: NSViewController, CommandHandler {
         let insertIndex = min(tabIndex, tabItems.count)
         tabBarState.insertTabs(newTabs, at: insertIndex)
 
+        // Sync session: remove original, add individual tabs
+        SessionManager.shared.removeTabRecord(tab.id)
+        for newTab in newTabs {
+            SessionManager.shared.addTabRecord(
+                id: newTab.id,
+                worktreeId: newTab.primaryWorktreeId,
+                repoId: newTab.primaryRepoId
+            )
+            saveSplitTree(for: newTab)
+        }
+        SessionManager.shared.syncTabOrder(tabIds: tabBarState.tabs.map(\.id))
+
         // Select the tab that contains the previously active pane
         let activeTab = newTabs.first { $0.activePaneId == tab.activePaneId } ?? newTabs.first
         if let activeTab {
@@ -919,6 +943,15 @@ class TerminalTabViewController: NSViewController, CommandHandler {
         )
         tabBarState.insertTabs([newTab], at: tabIndex + 1)
 
+        // Sync session: add extracted tab
+        SessionManager.shared.addTabRecord(
+            id: newTab.id,
+            worktreeId: newTab.primaryWorktreeId,
+            repoId: newTab.primaryRepoId
+        )
+        saveSplitTree(for: newTab)
+        SessionManager.shared.syncTabOrder(tabIds: tabBarState.tabs.map(\.id))
+
         // Refresh source tab display
         showTab(activeId)
         saveSplitTree(for: tab)
@@ -936,6 +969,58 @@ class TerminalTabViewController: NSViewController, CommandHandler {
             return
         }
         closeTerminal(for: worktreeId)
+    }
+
+    @objc private func handleExtractPaneRequested(_ notification: Notification) {
+        guard let userInfo = notification.userInfo,
+              let tabId = userInfo["tabId"] as? UUID,
+              let paneId = userInfo["paneId"] as? UUID else {
+            return
+        }
+        extractPaneToTab(paneId: paneId, fromTabId: tabId)
+    }
+
+    /// Extract a specific pane from a specific tab (used by tab bar pane drop)
+    private func extractPaneToTab(paneId: UUID, fromTabId: UUID) {
+        guard let tabIndex = tabItems.firstIndex(where: { $0.id == fromTabId }) else { return }
+
+        var tab = tabItems[tabIndex]
+        guard let terminalView = tab.splitTree.find(id: paneId),
+              tab.splitTree.allViews.count > 1 else { return }
+
+        // Remove pane from source tab
+        guard let newTree = tab.splitTree.removing(view: terminalView) else { return }
+        tab.splitTree = newTree
+        if tab.activePaneId == paneId {
+            tab.activePaneId = newTree.allViews.first?.id
+        }
+        tab.title = tab.displayTitle
+        tabBarState.replaceTab(at: tabIndex, with: tab)
+
+        // Create new single-pane tab
+        let newSplitTree = TerminalSplitTree(view: terminalView)
+        let newTab = TabItem(
+            title: terminalView.title,
+            primaryWorktreeId: terminalView.worktree.id,
+            primaryRepoId: terminalView.repo.id,
+            splitTree: newSplitTree,
+            activePaneId: terminalView.id
+        )
+        tabBarState.insertTabs([newTab], at: tabIndex + 1)
+
+        // Sync session
+        SessionManager.shared.addTabRecord(
+            id: newTab.id,
+            worktreeId: newTab.primaryWorktreeId,
+            repoId: newTab.primaryRepoId
+        )
+        saveSplitTree(for: newTab)
+        SessionManager.shared.syncTabOrder(tabIds: tabBarState.tabs.map(\.id))
+
+        showTab(fromTabId)
+        saveSplitTree(for: tab)
+        selectTab(id: newTab.id)
+        updateEmptyState()
     }
 
     // MARK: - Undo Close Tab
@@ -1054,6 +1139,15 @@ class TerminalTabViewController: NSViewController, CommandHandler {
             activePaneId: terminalView.id
         )
         tabBarState.appendTab(tabItem)
+
+        // Sync session: add restored tab record
+        SessionManager.shared.addTabRecord(
+            id: tabItem.id,
+            worktreeId: tabItem.primaryWorktreeId,
+            repoId: tabItem.primaryRepoId
+        )
+        saveSplitTree(for: tabItem)
+        SessionManager.shared.syncTabOrder(tabIds: tabBarState.tabs.map(\.id))
 
         // Select the restored tab (this will update the split container)
         selectTab(id: tabItem.id)

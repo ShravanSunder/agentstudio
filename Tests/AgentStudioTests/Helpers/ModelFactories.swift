@@ -9,9 +9,7 @@ func makeWorktree(
     path: String = "/tmp/test-repo/feature-branch",
     branch: String = "feature-branch",
     agent: AgentType? = nil,
-    status: WorktreeStatus = .idle,
-    isOpen: Bool = false,
-    lastOpened: Date? = nil
+    status: WorktreeStatus = .idle
 ) -> Worktree {
     Worktree(
         id: id,
@@ -19,9 +17,7 @@ func makeWorktree(
         path: URL(fileURLWithPath: path),
         branch: branch,
         agent: agent,
-        status: status,
-        isOpen: isOpen,
-        lastOpened: lastOpened
+        status: status
     )
 }
 

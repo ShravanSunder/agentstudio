@@ -136,6 +136,14 @@ enum ActionResolver {
                 )
             }
 
+        case .existingPane(let paneId, let sourceTabId):
+            return .insertPane(
+                source: .existingPane(paneId: paneId, sourceTabId: sourceTabId),
+                targetTabId: destinationTabId,
+                targetPaneId: destinationPaneId,
+                direction: direction
+            )
+
         case .newTerminal:
             return .insertPane(
                 source: .newTerminal,

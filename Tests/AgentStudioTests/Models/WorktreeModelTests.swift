@@ -76,8 +76,7 @@ final class WorktreeModelTests: XCTestCase {
             name: "feature-x",
             branch: "feature-x",
             agent: .claude,
-            status: .running,
-            isOpen: true
+            status: .running
         )
 
         // Act
@@ -90,12 +89,11 @@ final class WorktreeModelTests: XCTestCase {
         XCTAssertEqual(decoded.branch, original.branch)
         XCTAssertEqual(decoded.agent, .claude)
         XCTAssertEqual(decoded.status, .running)
-        XCTAssertEqual(decoded.isOpen, true)
     }
 
     func test_worktree_codable_nilOptionals_roundTrip() throws {
         // Arrange
-        let original = makeWorktree(agent: nil, lastOpened: nil)
+        let original = makeWorktree(agent: nil)
 
         // Act
         let data = try JSONEncoder().encode(original)
@@ -103,7 +101,6 @@ final class WorktreeModelTests: XCTestCase {
 
         // Assert
         XCTAssertNil(decoded.agent)
-        XCTAssertNil(decoded.lastOpened)
     }
 
     // MARK: - Worktree Hashable
@@ -127,7 +124,5 @@ final class WorktreeModelTests: XCTestCase {
         // Assert
         XCTAssertNil(wt.agent)
         XCTAssertEqual(wt.status, .idle)
-        XCTAssertFalse(wt.isOpen)
-        XCTAssertNil(wt.lastOpened)
     }
 }

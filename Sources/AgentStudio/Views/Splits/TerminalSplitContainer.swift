@@ -5,6 +5,7 @@ import AppKit
 struct SplitDropPayload: Equatable, Codable {
     enum Kind: Equatable, Codable {
         case existingTab(tabId: UUID, worktreeId: UUID, repoId: UUID, title: String)
+        case existingPane(paneId: UUID, sourceTabId: UUID)
         case newTerminal
     }
 

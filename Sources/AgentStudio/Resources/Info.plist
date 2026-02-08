@@ -50,6 +50,18 @@
             <key>UTTypeTagSpecification</key>
             <dict/>
         </dict>
+        <dict>
+            <key>UTTypeIdentifier</key>
+            <string>com.agentstudio.pane</string>
+            <key>UTTypeDescription</key>
+            <string>Agent Studio Pane</string>
+            <key>UTTypeConformsTo</key>
+            <array>
+                <string>public.data</string>
+            </array>
+            <key>UTTypeTagSpecification</key>
+            <dict/>
+        </dict>
     </array>
 </dict>
 </plist>

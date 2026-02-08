@@ -14,6 +14,7 @@ struct TerminalPaneLeaf: View {
 
     @State private var dropZone: DropZone?
     @State private var isTargeted: Bool = false
+    @State private var isHovered: Bool = false
     @ObservedObject private var managementMode = ManagementModeMonitor.shared
 
     var body: some View {
@@ -22,20 +23,43 @@ struct TerminalPaneLeaf: View {
                 // Terminal view
                 TerminalViewRepresentable(terminalView: terminalView)
 
-                // Focus border for active pane
-                if isActive {
-                    RoundedRectangle(cornerRadius: 4)
-                        .strokeBorder(Color.accentColor.opacity(0.5), lineWidth: 2)
-                        .padding(1)
+                // Ghostty-style dimming for unfocused panes
+                if isSplit && !isActive {
+                    Rectangle()
+                        .fill(Color.black)
+                        .opacity(0.15)
                         .allowsHitTesting(false)
                 }
 
-                // Management mode border on all panes
-                if managementMode.isActive && isSplit {
+                // Hover border: drag affordance in management mode
+                if managementMode.isActive && isHovered && isSplit {
                     RoundedRectangle(cornerRadius: 4)
-                        .strokeBorder(Color.white.opacity(0.1), lineWidth: 1)
+                        .strokeBorder(Color.white.opacity(0.25), lineWidth: 1)
                         .padding(1)
                         .allowsHitTesting(false)
+                        .animation(.easeInOut(duration: 0.15), value: isHovered)
+                }
+
+                // Drag handle (top-left, management mode + hover only)
+                if managementMode.isActive && isHovered && isSplit {
+                    VStack {
+                        HStack {
+                            Image(systemName: "line.3.horizontal")
+                                .font(.system(size: 10))
+                                .foregroundStyle(.white.opacity(0.5))
+                                .frame(width: 20, height: 20)
+                                .contentShape(Rectangle())
+                                .draggable(PaneDragPayload(
+                                    paneId: terminalView.id,
+                                    tabId: tabId,
+                                    worktreeId: terminalView.worktree.id,
+                                    repoId: terminalView.repo.id
+                                ))
+                            Spacer()
+                        }
+                        Spacer()
+                    }
+                    .allowsHitTesting(true)
                 }
 
                 // Drop zone overlay
@@ -60,10 +84,11 @@ struct TerminalPaneLeaf: View {
                 }
             }
             .contentShape(Rectangle())
+            .onHover { isHovered = $0 }
             .onTapGesture {
                 action(.focusPane(tabId: tabId, paneId: terminalView.id))
             }
-            .onDrop(of: [.agentStudioTab, .agentStudioNewTab], delegate: SplitDropDelegate(
+            .onDrop(of: [.agentStudioTab, .agentStudioNewTab, .agentStudioPane], delegate: SplitDropDelegate(
                 viewSize: geometry.size,
                 destination: terminalView,
                 dropZone: $dropZone,
@@ -103,7 +128,7 @@ private struct SplitDropDelegate: DropDelegate {
     let onDrop: (SplitDropPayload, UUID, DropZone) -> Void
 
     func validateDrop(info: DropInfo) -> Bool {
-        info.hasItemsConforming(to: [.agentStudioTab, .agentStudioNewTab])
+        info.hasItemsConforming(to: [.agentStudioTab, .agentStudioNewTab, .agentStudioPane])
     }
 
     func dropEntered(info: DropInfo) {
@@ -132,7 +157,7 @@ private struct SplitDropDelegate: DropDelegate {
         dropZone = nil
 
         // Try to load the drop payload
-        let providers = info.itemProviders(for: [.agentStudioTab, .agentStudioNewTab])
+        let providers = info.itemProviders(for: [.agentStudioTab, .agentStudioNewTab, .agentStudioPane])
         guard let provider = providers.first else { return false }
 
         // Check which type of drop
@@ -149,6 +174,24 @@ private struct SplitDropDelegate: DropDelegate {
                         worktreeId: payload.worktreeId,
                         repoId: payload.repoId,
                         title: payload.title
+                    ))
+                    onDrop(splitPayload, destination.id, zone)
+                }
+            }
+            return true
+        }
+
+        if provider.hasItemConformingToTypeIdentifier(UTType.agentStudioPane.identifier) {
+            _ = provider.loadDataRepresentation(forTypeIdentifier: UTType.agentStudioPane.identifier) { data, error in
+                guard let data,
+                      let payload = try? JSONDecoder().decode(PaneDragPayload.self, from: data) else {
+                    return
+                }
+
+                DispatchQueue.main.async {
+                    let splitPayload = SplitDropPayload(kind: .existingPane(
+                        paneId: payload.paneId,
+                        sourceTabId: payload.tabId
                     ))
                     onDrop(splitPayload, destination.id, zone)
                 }
@@ -176,6 +219,9 @@ extension UTType {
 
     /// Type for dragging new tab button
     static let agentStudioNewTab = UTType(exportedAs: "com.agentstudio.newtab")
+
+    /// Type for dragging individual panes
+    static let agentStudioPane = UTType(exportedAs: "com.agentstudio.pane")
 }
 
 // MARK: - Drag Payloads
@@ -189,6 +235,18 @@ struct TabDragPayload: Codable, Transferable {
 
     static var transferRepresentation: some TransferRepresentation {
         CodableRepresentation(contentType: .agentStudioTab)
+    }
+}
+
+/// Payload for dragging an individual pane.
+struct PaneDragPayload: Codable, Transferable {
+    let paneId: UUID
+    let tabId: UUID
+    let worktreeId: UUID
+    let repoId: UUID
+
+    static var transferRepresentation: some TransferRepresentation {
+        CodableRepresentation(contentType: .agentStudioPane)
     }
 }
 

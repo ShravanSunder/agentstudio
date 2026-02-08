@@ -272,7 +272,7 @@ struct WorktreeRowView: View {
             Circle()
                 .fill(statusColor)
                 .frame(width: 8, height: 8)
-                .animation(.easeInOut(duration: 0.2), value: worktree.isOpen)
+                .animation(.easeInOut(duration: 0.2), value: worktree.status)
 
             // Branch icon
             Image(systemName: "arrow.triangle.branch")
@@ -283,7 +283,7 @@ struct WorktreeRowView: View {
             Text(worktree.name)
                 .font(.system(size: 12))
                 .lineLimit(1)
-                .foregroundStyle(worktree.isOpen ? .primary : .secondary)
+                .foregroundStyle(.primary)
 
             Spacer()
 
@@ -340,9 +340,6 @@ struct WorktreeRowView: View {
     }
 
     private var statusColor: Color {
-        if worktree.isOpen {
-            return .green
-        }
         switch worktree.status {
         case .idle: return .secondary.opacity(0.4)
         case .running: return .green

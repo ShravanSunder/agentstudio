@@ -9,7 +9,7 @@ final class AgentStudioTerminalView: NSView, SurfaceContainer, SurfaceHealthDele
 
     // MARK: - SurfaceContainer Protocol
 
-    private(set) var containerId: UUID = UUID()
+    private(set) var containerId: UUID
     var surfaceId: UUID?
 
     // MARK: - Private State
@@ -25,6 +25,7 @@ final class AgentStudioTerminalView: NSView, SurfaceContainer, SurfaceHealthDele
 
     /// Standard initializer - creates a new terminal surface
     init(worktree: Worktree, repo: Repo) {
+        self.containerId = UUID()
         self.worktree = worktree
         self.repo = repo
         super.init(frame: NSRect(x: 0, y: 0, width: 800, height: 600))
@@ -36,7 +37,8 @@ final class AgentStudioTerminalView: NSView, SurfaceContainer, SurfaceHealthDele
 
     /// Restoring initializer — defers terminal setup until the view is displayed.
     /// Used by the Codable decode path to avoid spawning orphaned processes.
-    init(worktree: Worktree, repo: Repo, restoring: Bool) {
+    init(worktree: Worktree, repo: Repo, restoring: Bool, containerId: UUID = UUID()) {
+        self.containerId = containerId
         self.worktree = worktree
         self.repo = repo
         super.init(frame: NSRect(x: 0, y: 0, width: 800, height: 600))
@@ -46,6 +48,7 @@ final class AgentStudioTerminalView: NSView, SurfaceContainer, SurfaceHealthDele
     /// Restore initializer - for attaching an existing surface (undo close)
     /// Does NOT create a new surface; caller must attach one via displaySurface()
     init(worktree: Worktree, repo: Repo, restoredSurfaceId: UUID) {
+        self.containerId = UUID()
         self.worktree = worktree
         self.repo = repo
         self.surfaceId = restoredSurfaceId
@@ -412,9 +415,7 @@ extension AgentStudioTerminalView: Codable {
         // Use the base NSView init — do NOT call self.init(worktree:repo:) which
         // spawns a shell process immediately. Terminal setup is deferred until the
         // view is displayed, preventing orphaned processes on restore.
-        self.init(worktree: worktree, repo: repo, restoring: true)
-        // Preserve the original containerId so activePaneId still maps correctly
-        self.containerId = savedContainerId
+        self.init(worktree: worktree, repo: repo, restoring: true, containerId: savedContainerId)
     }
 
     func encode(to encoder: Encoder) throws {

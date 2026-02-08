@@ -168,12 +168,14 @@ final class SessionManager: ObservableObject {
     func mergeWorktrees(existing: [Worktree], discovered: [Worktree]) -> [Worktree] {
         return discovered.map { newWorktree in
             if let existingWorktree = existing.first(where: { $0.path == newWorktree.path }) {
-                var merged = newWorktree
-                merged.isOpen = existingWorktree.isOpen
-                merged.agent = existingWorktree.agent
-                merged.status = existingWorktree.status
-                merged.lastOpened = existingWorktree.lastOpened
-                return merged
+                return Worktree(
+                    id: existingWorktree.id,
+                    name: newWorktree.name,
+                    path: newWorktree.path,
+                    branch: newWorktree.branch,
+                    agent: existingWorktree.agent,
+                    status: existingWorktree.status
+                )
             }
             return newWorktree
         }
@@ -198,8 +200,6 @@ final class SessionManager: ObservableObject {
         openTabs.append(tab)
         activeTabId = tab.id
 
-        updateWorktreeStatus(worktree.id, isOpen: true)
-
         save()
         return tab
     }
@@ -207,7 +207,6 @@ final class SessionManager: ObservableObject {
     /// Close a tab
     func closeTab(_ tab: OpenTab) {
         openTabs.removeAll { $0.id == tab.id }
-        updateWorktreeStatus(tab.worktreeId, isOpen: false)
 
         if activeTabId == tab.id {
             activeTabId = openTabs.last?.id
@@ -225,6 +224,49 @@ final class SessionManager: ObservableObject {
         for (index, worktreeId) in worktreeIds.enumerated() {
             if let tabIndex = openTabs.firstIndex(where: { $0.worktreeId == worktreeId }) {
                 openTabs[tabIndex].order = index
+            }
+        }
+        save()
+    }
+
+    // MARK: - Tab Record Management
+
+    /// Create an OpenTab record without side effects.
+    /// Use for structural changes (break-up, extract, undo-close).
+    @discardableResult
+    func addTabRecord(id: UUID, worktreeId: UUID, repoId: UUID) -> OpenTab {
+        if let existing = openTabs.first(where: { $0.id == id }) {
+            return existing
+        }
+        let tab = OpenTab(id: id, worktreeId: worktreeId, repoId: repoId, order: openTabs.count)
+        openTabs.append(tab)
+        save()
+        return tab
+    }
+
+    /// Remove an OpenTab record by ID. Does not change activeTabId.
+    /// Use for structural changes (break-up, merge) where the tab identity changes.
+    func removeTabRecord(_ tabId: UUID) {
+        openTabs.removeAll { $0.id == tabId }
+        for i in openTabs.indices { openTabs[i].order = i }
+        save()
+    }
+
+    /// Close a tab by ID and update active tab selection.
+    /// Use for user-initiated closes (close tab, close last pane).
+    func closeTabById(_ tabId: UUID) {
+        openTabs.removeAll { $0.id == tabId }
+        if activeTabId == tabId { activeTabId = openTabs.last?.id }
+        for i in openTabs.indices { openTabs[i].order = i }
+        save()
+    }
+
+    /// Sync openTabs order from tabBarState tab IDs.
+    /// Call after any tabBarState mutation that changes tab count or position.
+    func syncTabOrder(tabIds: [UUID]) {
+        for (i, id) in tabIds.enumerated() {
+            if let idx = openTabs.firstIndex(where: { $0.id == id }) {
+                openTabs[idx].order = i
             }
         }
         save()
@@ -248,20 +290,6 @@ final class SessionManager: ObservableObject {
         openTabs[index].splitTreeData = splitTreeData
         openTabs[index].activePaneId = activePaneId
         save()
-    }
-
-    /// Update worktree open status
-    private func updateWorktreeStatus(_ worktreeId: UUID, isOpen: Bool) {
-        for i in repos.indices {
-            for j in repos[i].worktrees.indices {
-                if repos[i].worktrees[j].id == worktreeId {
-                    repos[i].worktrees[j].isOpen = isOpen
-                    if isOpen {
-                        repos[i].worktrees[j].lastOpened = Date()
-                    }
-                }
-            }
-        }
     }
 
     // MARK: - Lookup Helpers
@@ -305,15 +333,51 @@ final class SessionManager: ObservableObject {
         }
     }
 
+    // MARK: - Static Tab Record Helpers (for testability)
+
+    nonisolated static func addTabRecord(
+        id: UUID, worktreeId: UUID, repoId: UUID, to tabs: inout [OpenTab]
+    ) -> OpenTab {
+        if let existing = tabs.first(where: { $0.id == id }) {
+            return existing
+        }
+        let tab = OpenTab(id: id, worktreeId: worktreeId, repoId: repoId, order: tabs.count)
+        tabs.append(tab)
+        return tab
+    }
+
+    nonisolated static func removeTabRecord(_ tabId: UUID, from tabs: inout [OpenTab]) {
+        tabs.removeAll { $0.id == tabId }
+        for i in tabs.indices { tabs[i].order = i }
+    }
+
+    nonisolated static func closeTabById(
+        _ tabId: UUID, tabs: inout [OpenTab], activeTabId: inout UUID?
+    ) {
+        tabs.removeAll { $0.id == tabId }
+        if activeTabId == tabId { activeTabId = tabs.last?.id }
+        for i in tabs.indices { tabs[i].order = i }
+    }
+
+    nonisolated static func syncTabOrder(tabIds: [UUID], tabs: inout [OpenTab]) {
+        for (i, id) in tabIds.enumerated() {
+            if let idx = tabs.firstIndex(where: { $0.id == id }) {
+                tabs[idx].order = i
+            }
+        }
+    }
+
     nonisolated static func mergeWorktrees(existing: [Worktree], discovered: [Worktree]) -> [Worktree] {
         discovered.map { newWorktree in
             if let existingWorktree = existing.first(where: { $0.path == newWorktree.path }) {
-                var merged = newWorktree
-                merged.isOpen = existingWorktree.isOpen
-                merged.agent = existingWorktree.agent
-                merged.status = existingWorktree.status
-                merged.lastOpened = existingWorktree.lastOpened
-                return merged
+                return Worktree(
+                    id: existingWorktree.id,
+                    name: newWorktree.name,
+                    path: newWorktree.path,
+                    branch: newWorktree.branch,
+                    agent: existingWorktree.agent,
+                    status: existingWorktree.status
+                )
             }
             return newWorktree
         }
