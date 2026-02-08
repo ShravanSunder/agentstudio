@@ -72,11 +72,12 @@ struct SessionConfiguration: Sendable {
             }
         }
 
-        // Development (SPM): .build/release/../../Sources/AgentStudio/Resources/
-        let devResources = Bundle.main.bundlePath + "/../Sources/AgentStudio/Resources"
-        let devSentinel = devResources + "/terminfo/78/xterm-ghostty"
-        if FileManager.default.fileExists(atPath: devSentinel) {
-            return devResources
+        // Development (SPM): walk up from executable to find source tree
+        if let devResources = findDevResourcesDir() {
+            let sentinel = devResources + "/terminfo/78/xterm-ghostty"
+            if FileManager.default.fileExists(atPath: sentinel) {
+                return devResources
+            }
         }
 
         return nil
@@ -99,13 +100,30 @@ struct SessionConfiguration: Sendable {
             return bundled
         }
 
-        // Development fallback: relative to the binary
-        let devPath = Bundle.main.bundlePath + "/../Sources/AgentStudio/Resources/tmux/ghost.conf"
-        if FileManager.default.fileExists(atPath: devPath) {
-            return devPath
+        // Development: walk up from executable to find source tree
+        if let devResources = findDevResourcesDir() {
+            let candidate = devResources + "/tmux/ghost.conf"
+            if FileManager.default.fileExists(atPath: candidate) {
+                return candidate
+            }
         }
 
-        // Last resort: known source location
+        // Last resort: relative path (works if CWD is project root)
         return "Sources/AgentStudio/Resources/tmux/ghost.conf"
+    }
+
+    /// Walk up from the executable directory looking for the dev source tree.
+    /// For SPM builds, Bundle.main.bundlePath is e.g. `.build/release/` —
+    /// we need to find the project root containing `Sources/AgentStudio/Resources/`.
+    private static func findDevResourcesDir() -> String? {
+        var dir = URL(fileURLWithPath: Bundle.main.bundlePath)
+        for _ in 0..<5 {
+            dir = dir.deletingLastPathComponent()
+            let candidate = dir.appendingPathComponent("Sources/AgentStudio/Resources")
+            if FileManager.default.fileExists(atPath: candidate.path) {
+                return candidate.path
+            }
+        }
+        return nil
     }
 }
