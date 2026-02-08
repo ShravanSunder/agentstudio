@@ -1,0 +1,12 @@
+# =============================================================================
+# firewall-allowlist-extra.repo.txt - Team Firewall Additions
+# =============================================================================
+# Domains to allow for this repository. Merged with base allowlist.
+# One domain per line. Comments start with #.
+#
+# Naming: -extra suffix indicates additive (all tiers merged together)
+# =============================================================================
+
+# Example: Allow project-specific APIs
+# api.myproject.com
+# *.myproject.io

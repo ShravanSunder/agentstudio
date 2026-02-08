@@ -1,52 +1,69 @@
 import Foundation
 
-/// Checkpoint for reboot recovery - serialized to disk when app quits
+/// Persisted snapshot of all managed pane sessions, written to disk on save
+/// and loaded on launch to reconnect to surviving tmux sessions.
 struct SessionCheckpoint: Codable, Sendable {
-    /// Schema version for future migrations
+    /// Schema version for future migrations.
     let version: Int
-
-    /// When checkpoint was created
     let timestamp: Date
+    let sessions: [PaneSessionData]
 
-    /// Session data to restore
-    let sessions: [SessionData]
-
-    /// Flattened session data for serialization
-    struct SessionData: Codable, Sendable {
-        let id: String
-        let projectId: UUID
-        let displayName: String
-        let tabs: [TabData]
-    }
-
-    /// Flattened tab data for serialization
-    struct TabData: Codable, Sendable {
-        let id: Int
-        let name: String
-        let worktreeId: UUID
-        let workingDirectory: String
-        let restoreCommand: String?
-    }
-
-    /// Create checkpoint from active sessions
-    init(sessions: [ZellijSession]) {
-        self.version = 1
+    init(sessions: [PaneSessionData]) {
+        self.version = 2
         self.timestamp = Date()
-        self.sessions = sessions.map { session in
-            SessionData(
-                id: session.id,
-                projectId: session.projectId,
-                displayName: session.displayName,
-                tabs: session.tabs.map { tab in
-                    TabData(
-                        id: tab.id,
-                        name: tab.name,
-                        worktreeId: tab.worktreeId,
-                        workingDirectory: tab.workingDirectory.path,
-                        restoreCommand: tab.restoreCommand
-                    )
-                }
-            )
-        }
+        self.sessions = sessions
+    }
+
+    /// A single pane session's persisted state.
+    struct PaneSessionData: Codable, Sendable {
+        let sessionId: String
+        let projectId: UUID
+        let worktreeId: UUID
+        let displayName: String
+        let workingDirectory: URL
+        let lastKnownAlive: Date
+    }
+
+    // MARK: - Persistence
+
+    /// Default checkpoint file location.
+    static var defaultPath: URL {
+        let home = FileManager.default.homeDirectoryForCurrentUser
+        return home
+            .appendingPathComponent(".agentstudio", isDirectory: true)
+            .appendingPathComponent("session-checkpoint.json")
+    }
+
+    /// Save checkpoint to disk.
+    func save(to path: URL? = nil) throws {
+        let target = path ?? Self.defaultPath
+
+        // Ensure parent directory exists
+        let dir = target.deletingLastPathComponent()
+        try FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)
+
+        let encoder = JSONEncoder()
+        encoder.outputFormatting = [.prettyPrinted, .sortedKeys]
+        encoder.dateEncodingStrategy = .iso8601
+
+        let data = try encoder.encode(self)
+        try data.write(to: target, options: .atomic)
+    }
+
+    /// Load checkpoint from disk. Returns nil if file doesn't exist or is unreadable.
+    static func load(from path: URL? = nil) -> SessionCheckpoint? {
+        let target = path ?? Self.defaultPath
+
+        guard let data = try? Data(contentsOf: target) else { return nil }
+
+        let decoder = JSONDecoder()
+        decoder.dateDecodingStrategy = .iso8601
+
+        return try? decoder.decode(SessionCheckpoint.self, from: data)
+    }
+
+    /// Whether this checkpoint is stale (older than the given interval).
+    func isStale(maxAge: TimeInterval = 7 * 24 * 60 * 60) -> Bool {
+        Date().timeIntervalSince(timestamp) > maxAge
     }
 }

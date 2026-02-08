@@ -20,6 +20,8 @@ fi
 
 echo "✅ Zig found: $(zig version)"
 
+TERMINFO_DEV="$PROJECT_ROOT/Sources/AgentStudio/Resources/terminfo"
+
 # Navigate to Ghostty directory
 cd "$GHOSTTY_DIR"
 
@@ -40,6 +42,17 @@ if [ -d "macos/GhosttyKit.xcframework" ]; then
     cp -R "macos/GhosttyKit.xcframework" "$FRAMEWORKS_DIR/"
     echo "✅ GhosttyKit.xcframework built!"
     echo "GhosttyKit.xcframework is now available at: $FRAMEWORKS_DIR/GhosttyKit.xcframework"
+
+    # Copy terminfo for development (SPM builds)
+    TERMINFO_SRC="$GHOSTTY_DIR/zig-out/share/terminfo"
+    if [ -d "$TERMINFO_SRC" ]; then
+        echo "📋 Copying terminfo for development..."
+        rm -rf "$TERMINFO_DEV"
+        cp -R "$TERMINFO_SRC" "$TERMINFO_DEV"
+        echo "✅ terminfo copied to $TERMINFO_DEV"
+    else
+        echo "⚠️  terminfo not found at $TERMINFO_SRC — xterm-ghostty will not be available"
+    fi
 else
     echo "❌ Error: XCFramework not found at macos/GhosttyKit.xcframework"
     echo "Build may have failed. Check the output above."
@@ -74,6 +87,12 @@ cp "$PROJECT_ROOT/Sources/AgentStudio/Resources/Info.plist" "$APP_DIR/"
 
 # Copy app icon
 cp "$PROJECT_ROOT/Sources/AgentStudio/Resources/AppIcon.icns" "$APP_DIR/Resources/"
+
+# Copy terminfo to app bundle
+if [ -d "$TERMINFO_DEV" ]; then
+    cp -R "$TERMINFO_DEV" "$APP_DIR/Resources/"
+    echo "✅ terminfo copied to app bundle"
+fi
 
 # Copy GhosttyKit framework
 cp -R "$FRAMEWORKS_DIR/GhosttyKit.xcframework" "$APP_DIR/Frameworks/"

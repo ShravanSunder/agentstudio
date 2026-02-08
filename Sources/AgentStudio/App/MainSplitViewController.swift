@@ -36,14 +36,27 @@ class MainSplitViewController: NSSplitViewController {
         // Set up notification observers
         setupNotificationObservers()
 
-        // Open any tabs restored from checkpoint
-        Task { @MainActor in
-            // Small delay to ensure TerminalTabViewController is fully ready
-            try? await Task.sleep(for: .milliseconds(100))
-            let restoredTabs = SessionManager.shared.drainPendingRestoredTabs()
-            for (worktree, project) in restoredTabs {
-                terminalTabViewController?.openTerminal(for: worktree, in: project)
-            }
+        // Restore previously open tabs
+        restoreSessionTabs()
+    }
+
+    private func restoreSessionTabs() {
+        // Get the sorted open tabs from session manager
+        let sortedTabs = SessionManager.shared.openTabs.sorted { $0.order < $1.order }
+
+        debugLog("[MainSplitVC] Restoring \(sortedTabs.count) tabs from session")
+
+        for tab in sortedTabs {
+            // Use restoreTab which handles split tree restoration
+            debugLog("[MainSplitVC] Restoring tab: \(tab.id) (has splitTree: \(tab.splitTreeData != nil))")
+            terminalTabViewController?.restoreTab(from: tab)
+        }
+
+        // Select the active tab if it exists
+        if let activeTabId = SessionManager.shared.activeTabId,
+           let activeTab = SessionManager.shared.openTabs.first(where: { $0.id == activeTabId }),
+           let index = sortedTabs.firstIndex(where: { $0.id == activeTab.id }) {
+            terminalTabViewController?.selectTab(at: index)
         }
     }
 

@@ -54,7 +54,70 @@ let menu = NSHostingMenu(rootView: MenuView())
 - **Bindings**: Pass `Binding` objects from AppKit to SwiftUI for bidirectional data flow.
 - **Notifications**: Use `NotificationCenter` for loose coupling between AppKit services and SwiftUI views.
 
+## AppKit Event Handling in Hybrid Views
+
+When adding drag-to-reorder to SwiftUI views hosted in AppKit, use gesture recognizers rather than overriding `hitTest`. This lets SwiftUI handle all normal interactions while AppKit intercepts only drag gestures.
+
+### Recommended: NSPanGestureRecognizer
+
+```swift
+class DraggableHostingView: NSView, NSDraggingSource {
+    private var panGesture: NSPanGestureRecognizer!
+    private var panStartItemId: UUID?
+
+    override init(frame: NSRect) {
+        super.init(frame: frame)
+        panGesture = NSPanGestureRecognizer(target: self, action: #selector(handlePan(_:)))
+        panGesture.delaysPrimaryMouseButtonEvents = false
+        addGestureRecognizer(panGesture)
+    }
+
+    @objc private func handlePan(_ gesture: NSPanGestureRecognizer) {
+        let location = gesture.location(in: self)
+        switch gesture.state {
+        case .began:
+            panStartItemId = itemAtPoint(location)
+        case .changed:
+            if let itemId = panStartItemId, !isDragging {
+                startDrag(itemId: itemId, event: NSApp.currentEvent!)
+                panStartItemId = nil
+            }
+        case .ended, .cancelled:
+            panStartItemId = nil
+        default: break
+        }
+    }
+}
+```
+
+**Why this works:**
+- SwiftUI receives all clicks, hovers, right-clicks normally
+- Pan gesture only fires after sufficient movement
+- No event ownership conflicts
+
+### Avoid: hitTest Override
+
+Overriding `hitTest` to claim events creates problems:
+- Breaks SwiftUI's event handling (close buttons, context menus)
+- Risk of infinite loops if events are forwarded back to subviews
+- Requires reimplementing click handling manually
+
+### Reference Implementation
+
+See `DraggableTabBarHostingView.swift` for the gesture recognizer pattern applied to tab bar drag-to-reorder.
+
+---
+
+## Ghostty Terminal Integration
+
+For the Ghostty surface lifecycle, ownership model, state machine, and health monitoring, see:
+
+**[Ghostty Surface Architecture](ghostty_surface_architecture.md)**
+
+---
+
 ## Key Resources
 - **WWDC22**: [Use SwiftUI with AppKit](https://developer.apple.com/videos/play/wwdc2022/10075/) (Essential for layout/sizing patterns)
 - **WWDC19**: [Integrating SwiftUI](https://developer.apple.com/videos/play/wwdc2019/231/) (Foundational hosting concepts)
 - **SwiftUI Lab**: [The Power of the Hosting+Representable Combo](https://swiftui-lab.com/a-powerful-combo/)
+- **Ghostty**: [ghostty-org/ghostty](https://github.com/ghostty-org/ghostty) (Terminal emulator source)

@@ -9,9 +9,23 @@ let ghosttyLogger = Logger(subsystem: "com.agentstudio", category: "Ghostty")
 /// Namespace for all Ghostty-related types
 enum Ghostty {
     /// The shared Ghostty app instance
-    static var sharedApp: App?
+    private static var sharedApp: App?
+
+    /// Access the shared Ghostty app
+    static var shared: App {
+        guard let app = sharedApp else {
+            fatalError("Ghostty not initialized. Call Ghostty.initialize() first.")
+        }
+        return app
+    }
+
+    /// Check if Ghostty has been initialized
+    static var isInitialized: Bool {
+        sharedApp != nil
+    }
 
     /// Initialize the shared Ghostty app (must be called on main thread)
+    @discardableResult
     static func initialize() -> Bool {
         guard Thread.isMainThread else {
             var result = false
@@ -24,6 +38,27 @@ enum Ghostty {
         guard sharedApp == nil else { return true }
         sharedApp = App()
         return sharedApp?.app != nil
+    }
+}
+
+// MARK: - Ghostty Notifications
+
+extension Ghostty {
+    /// Notification names for Ghostty events
+    enum Notification {
+        static let ghosttyNewWindow = Foundation.Notification.Name("ghosttyNewWindow")
+        static let ghosttyNewTab = Foundation.Notification.Name("ghosttyNewTab")
+        static let ghosttyCloseSurface = Foundation.Notification.Name("ghosttyCloseSurface")
+
+        /// Posted when renderer health changes
+        /// - object: The SurfaceView whose health changed
+        /// - userInfo: ["healthy": Bool]
+        static let didUpdateRendererHealth = Foundation.Notification.Name("ghosttyDidUpdateRendererHealth")
+
+        /// Posted when a surface's title changes
+        /// - object: The SurfaceView whose title changed
+        /// - userInfo: ["title": String]
+        static let didUpdateTitle = Foundation.Notification.Name("ghosttyDidUpdateTitle")
     }
 }
 
@@ -128,12 +163,12 @@ extension Ghostty {
             ghostty_app_tick(app)
         }
 
-        @objc private func applicationDidBecomeActive(_ notification: Notification) {
+        @objc private func applicationDidBecomeActive(_ notification: NSNotification) {
             guard let app = app else { return }
             ghostty_app_set_focus(app, true)
         }
 
-        @objc private func applicationDidResignActive(_ notification: Notification) {
+        @objc private func applicationDidResignActive(_ notification: NSNotification) {
             guard let app = app else { return }
             ghostty_app_set_focus(app, false)
         }
@@ -224,10 +259,10 @@ extension Ghostty {
     }
 }
 
-// MARK: - Notification Names
+// MARK: - Notification Names (Backwards Compatibility)
 
 extension Notification.Name {
-    static let ghosttyNewWindow = Notification.Name("ghosttyNewWindow")
-    static let ghosttyNewTab = Notification.Name("ghosttyNewTab")
-    static let ghosttyCloseSurface = Notification.Name("ghosttyCloseSurface")
+    static let ghosttyNewWindow = Ghostty.Notification.ghosttyNewWindow
+    static let ghosttyNewTab = Ghostty.Notification.ghosttyNewTab
+    static let ghosttyCloseSurface = Ghostty.Notification.ghosttyCloseSurface
 }

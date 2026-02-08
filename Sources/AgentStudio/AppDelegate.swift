@@ -5,23 +5,36 @@ class AppDelegate: NSObject, NSApplicationDelegate {
     var mainWindowController: MainWindowController?
 
     func applicationDidFinishLaunching(_ notification: Notification) {
+        // Set GHOSTTY_RESOURCES_DIR before any GhosttyKit initialization.
+        // This lets GhosttyKit find xterm-ghostty terminfo in both dev and bundle builds.
+        if let resourcesDir = SessionConfiguration.resolveTerminfoDir() {
+            setenv("GHOSTTY_RESOURCES_DIR", resourcesDir, 0)  // 0 = don't overwrite if already set
+        }
+
         // Initialize services
         _ = SessionManager.shared
+
+        // Initialize session restore (ghost tmux)
+        Task { @MainActor in
+            await SessionRegistry.shared.initialize()
+        }
+
+        // Load surface checkpoint (for future restore capability)
+        if let checkpoint = SurfaceManager.shared.loadCheckpoint() {
+            ghosttyLogger.info("Loaded surface checkpoint with \(checkpoint.surfaces.count) surfaces")
+            // Note: Actual surface restoration happens when tabs are opened
+            // The checkpoint is used to restore metadata, not running processes
+        }
 
         // Check for worktrunk dependency
         checkWorktrunkInstallation()
 
-        // Set up main menu (sync)
+        // Create main window
+        mainWindowController = MainWindowController()
+        mainWindowController?.showWindow(nil)
+
+        // Set up main menu
         setupMainMenu()
-
-        // Initialize Zellij session management, then show window
-        Task { @MainActor in
-            await SessionManager.shared.initializeZellij()
-
-            // Create and show main window AFTER Zellij is initialized
-            mainWindowController = MainWindowController()
-            mainWindowController?.showWindow(nil)
-        }
     }
 
     // MARK: - Dependency Check
@@ -85,11 +98,18 @@ class AppDelegate: NSObject, NSApplicationDelegate {
     }
 
     func applicationWillTerminate(_ notification: Notification) {
-        // Save state and Zellij checkpoint before quitting
-        // Note: Zellij sessions are NOT killed - they persist for reconnection
-        // Must be synchronous - async Task won't complete before app exits
-        SessionManager.shared.save()
-        SessionManager.shared.saveCheckpoint()
+        // Save session restore checkpoint before quitting
+        SessionRegistry.shared.saveCheckpoint()
+        SessionRegistry.shared.stopHealthChecks()
+
+        // Save state before quitting
+        Task { @MainActor in
+            SessionManager.shared.save()
+
+            // Save surface checkpoint for potential restore
+            SurfaceManager.shared.saveCheckpoint()
+            ghosttyLogger.info("Saved surface checkpoint on app termination")
+        }
     }
 
     func applicationSupportsSecureRestorableState(_ app: NSApplication) -> Bool {
@@ -144,6 +164,10 @@ class AppDelegate: NSObject, NSApplicationDelegate {
         let editMenu = NSMenu(title: "Edit")
         editMenu.addItem(NSMenuItem(title: "Undo", action: Selector(("undo:")), keyEquivalent: "z"))
         editMenu.addItem(NSMenuItem(title: "Redo", action: Selector(("redo:")), keyEquivalent: "Z"))
+        editMenu.addItem(NSMenuItem.separator())
+        let undoCloseTabItem = NSMenuItem(title: "Undo Close Tab", action: #selector(undoCloseTab), keyEquivalent: "T")
+        undoCloseTabItem.keyEquivalentModifierMask = [.command, .shift]
+        editMenu.addItem(undoCloseTabItem)
         editMenu.addItem(NSMenuItem.separator())
         editMenu.addItem(NSMenuItem(title: "Cut", action: #selector(NSText.cut(_:)), keyEquivalent: "x"))
         editMenu.addItem(NSMenuItem(title: "Copy", action: #selector(NSText.copy(_:)), keyEquivalent: "c"))
@@ -222,6 +246,10 @@ class AppDelegate: NSObject, NSApplicationDelegate {
 
     @objc private func closeTab() {
         NotificationCenter.default.post(name: .closeTabRequested, object: nil)
+    }
+
+    @objc private func undoCloseTab() {
+        NotificationCenter.default.post(name: .undoCloseTabRequested, object: nil)
     }
 
     @objc private func closeWindow() {
