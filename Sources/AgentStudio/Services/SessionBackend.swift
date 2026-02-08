@@ -174,11 +174,15 @@ struct DefaultProcessExecutor: ProcessExecutor {
 
         try process.run()
 
+        // Track whether our timeout killed the process (vs. normal exit/other signal).
+        let timedOut = LockedFlag()
+
         // Schedule a timeout that terminates the process if it hangs.
         let timeoutSeconds = timeout
         let timeoutWork = DispatchWorkItem { [process] in
             if process.isRunning {
                 processLogger.warning("Process '\(command)' exceeded \(Int(timeoutSeconds))s timeout — terminating")
+                timedOut.set()
                 process.terminate()
             }
         }
@@ -199,13 +203,11 @@ struct DefaultProcessExecutor: ProcessExecutor {
                 // Safe to call waitUntilExit() now — pipes are fully drained.
                 process.waitUntilExit()
 
-                // Cancel the timeout since the process exited normally.
+                // Cancel the timeout since the process exited.
                 timeoutWork.cancel()
 
-                let exitCode = Int(process.terminationStatus)
-
-                // SIGTERM (15) from our timeout → report as timeout error
-                if exitCode == 15 || (exitCode == 143 /* 128+15 */) {
+                // Use our flag to detect timeout (more reliable than exit code matching).
+                if timedOut.value {
                     continuation.resume(throwing: ProcessError.timedOut(
                         command: command, seconds: timeoutSeconds
                     ))
@@ -213,7 +215,7 @@ struct DefaultProcessExecutor: ProcessExecutor {
                 }
 
                 continuation.resume(returning: ProcessResult(
-                    exitCode: exitCode,
+                    exitCode: Int(process.terminationStatus),
                     stdout: String(data: stdoutData, encoding: .utf8)?
                         .trimmingCharacters(in: .whitespacesAndNewlines) ?? "",
                     stderr: String(data: stderrData, encoding: .utf8)?
@@ -223,5 +225,25 @@ struct DefaultProcessExecutor: ProcessExecutor {
         }
 
         return result
+    }
+}
+
+// MARK: - LockedFlag
+
+/// Thread-safe boolean flag for cross-thread signaling (e.g. timeout detection).
+private final class LockedFlag: @unchecked Sendable {
+    private var _value = false
+    private let lock = NSLock()
+
+    var value: Bool {
+        lock.lock()
+        defer { lock.unlock() }
+        return _value
+    }
+
+    func set() {
+        lock.lock()
+        _value = true
+        lock.unlock()
     }
 }

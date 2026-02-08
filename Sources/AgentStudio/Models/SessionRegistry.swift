@@ -58,18 +58,18 @@ final class SessionRegistry {
         sessionLogger.info("Session restore initialized")
 
         // Load checkpoint and verify surviving sessions
-        if let checkpoint = SessionCheckpoint.load() {
+        if let checkpoint = SessionCheckpoint.load(from: checkpointPath) {
             if !checkpoint.isStale() {
                 await restoreFromCheckpoint(checkpoint)
             } else {
                 // Stale v3+ checkpoint — delete file, sessions are too old
                 sessionLogger.info("Deleting stale checkpoint file")
-                try? FileManager.default.removeItem(at: SessionCheckpoint.defaultPath)
+                try? FileManager.default.removeItem(at: checkpointPath)
             }
-        } else if FileManager.default.fileExists(atPath: SessionCheckpoint.defaultPath.path) {
+        } else if FileManager.default.fileExists(atPath: checkpointPath.path) {
             // File exists but failed to decode → old version or corrupt
             sessionLogger.info("Deleting unreadable checkpoint file")
-            try? FileManager.default.removeItem(at: SessionCheckpoint.defaultPath)
+            try? FileManager.default.removeItem(at: checkpointPath)
 
             // Clean up orphaned tmux sessions
             let orphans = await tmuxBackend.discoverOrphanSessions(excluding: [])
@@ -247,7 +247,7 @@ final class SessionRegistry {
         entries.removeAll()
 
         // Remove checkpoint file
-        try? FileManager.default.removeItem(at: SessionCheckpoint.defaultPath)
+        try? FileManager.default.removeItem(at: checkpointPath)
     }
 
     // MARK: - Private: Checkpoint Restore
@@ -424,6 +424,6 @@ final class SessionRegistry {
         creationsInProgress.removeAll()
         if let configuration { self.configuration = configuration }
         self.backend = backend
-        if let checkpointPath { self.checkpointPath = checkpointPath }
+        self.checkpointPath = checkpointPath ?? SessionCheckpoint.defaultPath
     }
 }
