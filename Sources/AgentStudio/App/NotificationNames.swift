@@ -10,13 +10,16 @@ extension Notification.Name {
     static let selectTabAtIndex = Notification.Name("selectTabAtIndex")
     static let selectTabById = Notification.Name("selectTabById")
 
-    // Project management
-    static let addProjectRequested = Notification.Name("addProjectRequested")
+    // Repo management
+    static let addRepoRequested = Notification.Name("addRepoRequested")
     static let refreshWorktreesRequested = Notification.Name("refreshWorktreesRequested")
 
     // Terminal management
     static let openWorktreeRequested = Notification.Name("openWorktreeRequested")
     static let terminalProcessTerminated = Notification.Name("terminalProcessTerminated")
+
+    // Pane management
+    static let extractPaneRequested = Notification.Name("extractPaneRequested")
 
     // Sidebar management
     static let toggleSidebarRequested = Notification.Name("toggleSidebarRequested")

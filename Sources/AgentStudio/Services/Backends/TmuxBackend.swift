@@ -81,7 +81,15 @@ final class TmuxBackend: SessionBackend {
     }
 
     func attachCommand(for handle: PaneSessionHandle) -> String {
-        "tmux -L \(Self.socketName) -f \(ghostConfigPath) new-session -A -s \(handle.id) -c \(handle.workingDirectory.path)"
+        let config = Self.shellEscape(ghostConfigPath)
+        let cwd = Self.shellEscape(handle.workingDirectory.path)
+        return "tmux -L \(Self.socketName) -f \(config) new-session -A -s \(handle.id) -c \(cwd)"
+    }
+
+    /// Single-quote a path for safe shell interpolation.
+    /// Session IDs and socket name are deterministic hex/constants and don't need escaping.
+    private static func shellEscape(_ path: String) -> String {
+        "'" + path.replacingOccurrences(of: "'", with: "'\\''") + "'"
     }
 
     func destroyPaneSession(_ handle: PaneSessionHandle) async throws {

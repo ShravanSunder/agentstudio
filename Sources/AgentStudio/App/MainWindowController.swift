@@ -84,7 +84,7 @@ extension MainWindowController: NSToolbarDelegate {
     func toolbarDefaultItemIdentifiers(_ toolbar: NSToolbar) -> [NSToolbarItem.Identifier] {
         return [
             .flexibleSpace,
-            .addProject
+            .addRepo
         ]
     }
 
@@ -94,14 +94,14 @@ extension MainWindowController: NSToolbarDelegate {
 
     func toolbar(_ toolbar: NSToolbar, itemForItemIdentifier itemIdentifier: NSToolbarItem.Identifier, willBeInsertedIntoToolbar flag: Bool) -> NSToolbarItem? {
         switch itemIdentifier {
-        case .addProject:
+        case .addRepo:
             let item = NSToolbarItem(itemIdentifier: itemIdentifier)
-            item.label = "Add Project"
-            item.paletteLabel = "Add Project"
-            item.toolTip = "Add a project (⌘⇧O)"
+            item.label = "Add Repo"
+            item.paletteLabel = "Add Repo"
+            item.toolTip = "Add a repo (⌘⇧O)"
             item.isBordered = true
-            item.image = NSImage(systemSymbolName: "folder.badge.plus", accessibilityDescription: "Add Project")
-            item.action = #selector(addProjectAction)
+            item.image = NSImage(systemSymbolName: "folder.badge.plus", accessibilityDescription: "Add Repo")
+            item.action = #selector(addRepoAction)
             item.target = self
             return item
 
@@ -110,13 +110,13 @@ extension MainWindowController: NSToolbarDelegate {
         }
     }
 
-    @objc private func addProjectAction() {
-        NotificationCenter.default.post(name: .addProjectRequested, object: nil)
+    @objc private func addRepoAction() {
+        NotificationCenter.default.post(name: .addRepoRequested, object: nil)
     }
 }
 
 // MARK: - Toolbar Item Identifiers
 
 extension NSToolbarItem.Identifier {
-    static let addProject = NSToolbarItem.Identifier("addProject")
+    static let addRepo = NSToolbarItem.Identifier("addRepo")
 }

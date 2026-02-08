@@ -141,8 +141,30 @@ final class TmuxBackendTests: XCTestCase {
         // Assert
         XCTAssertEqual(
             cmd,
-            "tmux -L agentstudio -f /tmp/ghost.conf new-session -A -s agentstudio--abc12345--def67890 -c /tmp"
+            "tmux -L agentstudio -f '/tmp/ghost.conf' new-session -A -s agentstudio--abc12345--def67890 -c '/tmp'"
         )
+    }
+
+    func test_attachCommand_escapesPathsWithSpaces() {
+        // Arrange
+        let spacedBackend = TmuxBackend(
+            executor: executor,
+            ghostConfigPath: "/Users/test user/config path/ghost.conf"
+        )
+        let handle = PaneSessionHandle(
+            id: "agentstudio--abc12345--def67890",
+            projectId: UUID(),
+            worktreeId: UUID(),
+            displayName: "test",
+            workingDirectory: URL(fileURLWithPath: "/Users/test user/my project")
+        )
+
+        // Act
+        let cmd = spacedBackend.attachCommand(for: handle)
+
+        // Assert
+        XCTAssertTrue(cmd.contains("'/Users/test user/config path/ghost.conf'"))
+        XCTAssertTrue(cmd.contains("'/Users/test user/my project'"))
     }
 
     // MARK: - healthCheck

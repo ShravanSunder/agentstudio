@@ -2,45 +2,49 @@ import XCTest
 import CoreGraphics
 @testable import AgentStudio
 
-final class AppStateModelTests: XCTestCase {
+final class WorkspaceModelTests: XCTestCase {
 
-    // MARK: - AppState Init Defaults
+    // MARK: - Workspace Init Defaults
 
-    func test_appState_init_defaults() {
+    func test_workspace_init_defaults() {
         // Act
-        let state = AppState()
+        let ws = Workspace()
 
         // Assert
-        XCTAssertTrue(state.projects.isEmpty)
-        XCTAssertTrue(state.openTabs.isEmpty)
-        XCTAssertNil(state.activeTabId)
-        XCTAssertEqual(state.sidebarWidth, 250)
-        XCTAssertNil(state.windowFrame)
+        XCTAssertTrue(ws.repos.isEmpty)
+        XCTAssertTrue(ws.openTabs.isEmpty)
+        XCTAssertNil(ws.activeTabId)
+        XCTAssertEqual(ws.sidebarWidth, 250)
+        XCTAssertNil(ws.windowFrame)
+        XCTAssertEqual(ws.name, "Default Workspace")
     }
 
-    // MARK: - AppState Codable
+    // MARK: - Workspace Codable
 
-    func test_appState_codable_empty_roundTrip() throws {
+    func test_workspace_codable_empty_roundTrip() throws {
         // Arrange
-        let original = AppState()
+        let original = Workspace()
 
         // Act
         let data = try JSONEncoder().encode(original)
-        let decoded = try JSONDecoder().decode(AppState.self, from: data)
+        let decoded = try JSONDecoder().decode(Workspace.self, from: data)
 
         // Assert
-        XCTAssertTrue(decoded.projects.isEmpty)
+        XCTAssertEqual(decoded.id, original.id)
+        XCTAssertEqual(decoded.name, "Default Workspace")
+        XCTAssertTrue(decoded.repos.isEmpty)
         XCTAssertTrue(decoded.openTabs.isEmpty)
         XCTAssertNil(decoded.activeTabId)
     }
 
-    func test_appState_codable_full_roundTrip() throws {
+    func test_workspace_codable_full_roundTrip() throws {
         // Arrange
         let wt = makeWorktree()
-        let project = makeProject(worktrees: [wt])
-        let tab = makeOpenTab(worktreeId: wt.id, projectId: project.id, order: 0)
-        let original = AppState(
-            projects: [project],
+        let repo = makeRepo(worktrees: [wt])
+        let tab = makeOpenTab(worktreeId: wt.id, repoId: repo.id, order: 0)
+        let original = Workspace(
+            name: "My Workspace",
+            repos: [repo],
             openTabs: [tab],
             activeTabId: tab.id,
             sidebarWidth: 300,
@@ -49,21 +53,37 @@ final class AppStateModelTests: XCTestCase {
 
         // Act
         let data = try JSONEncoder().encode(original)
-        let decoded = try JSONDecoder().decode(AppState.self, from: data)
+        let decoded = try JSONDecoder().decode(Workspace.self, from: data)
 
         // Assert
-        XCTAssertEqual(decoded.projects.count, 1)
+        XCTAssertEqual(decoded.name, "My Workspace")
+        XCTAssertEqual(decoded.repos.count, 1)
         XCTAssertEqual(decoded.openTabs.count, 1)
         XCTAssertEqual(decoded.activeTabId, tab.id)
         XCTAssertEqual(decoded.sidebarWidth, 300)
         XCTAssertEqual(decoded.windowFrame, CGRect(x: 100, y: 200, width: 800, height: 600))
     }
 
+    func test_workspace_codable_preservesTimestamps() throws {
+        // Arrange
+        let created = Date(timeIntervalSince1970: 1_000_000)
+        let updated = Date(timeIntervalSince1970: 2_000_000)
+        let original = Workspace(createdAt: created, updatedAt: updated)
+
+        // Act
+        let data = try JSONEncoder().encode(original)
+        let decoded = try JSONDecoder().decode(Workspace.self, from: data)
+
+        // Assert
+        XCTAssertEqual(decoded.createdAt.timeIntervalSince1970, created.timeIntervalSince1970, accuracy: 0.001)
+        XCTAssertEqual(decoded.updatedAt.timeIntervalSince1970, updated.timeIntervalSince1970, accuracy: 0.001)
+    }
+
     // MARK: - OpenTab Init
 
     func test_openTab_init_defaults() {
         // Act
-        let tab = OpenTab(worktreeId: UUID(), projectId: UUID(), order: 0)
+        let tab = OpenTab(worktreeId: UUID(), repoId: UUID(), order: 0)
 
         // Assert
         XCTAssertNil(tab.splitTreeData)
@@ -89,7 +109,7 @@ final class AppStateModelTests: XCTestCase {
         // Assert
         XCTAssertEqual(decoded.id, original.id)
         XCTAssertEqual(decoded.worktreeId, original.worktreeId)
-        XCTAssertEqual(decoded.projectId, original.projectId)
+        XCTAssertEqual(decoded.repoId, original.repoId)
         XCTAssertEqual(decoded.order, 5)
         XCTAssertEqual(decoded.splitTreeData, treeData)
         XCTAssertEqual(decoded.activePaneId, paneId)
@@ -114,9 +134,9 @@ final class AppStateModelTests: XCTestCase {
         // Arrange
         let id = UUID()
         let wtId = UUID()
-        let pId = UUID()
-        let tab1 = OpenTab(id: id, worktreeId: wtId, projectId: pId, order: 0)
-        let tab2 = OpenTab(id: id, worktreeId: wtId, projectId: pId, order: 0)
+        let rId = UUID()
+        let tab1 = OpenTab(id: id, worktreeId: wtId, repoId: rId, order: 0)
+        let tab2 = OpenTab(id: id, worktreeId: wtId, repoId: rId, order: 0)
 
         // Assert
         XCTAssertEqual(tab1, tab2)
@@ -126,39 +146,39 @@ final class AppStateModelTests: XCTestCase {
         // Arrange
         let id = UUID()
         let wtId = UUID()
-        let pId = UUID()
-        let tab1 = OpenTab(id: id, worktreeId: wtId, projectId: pId, order: 0)
-        let tab2 = OpenTab(id: id, worktreeId: wtId, projectId: pId, order: 1)
+        let rId = UUID()
+        let tab1 = OpenTab(id: id, worktreeId: wtId, repoId: rId, order: 0)
+        let tab2 = OpenTab(id: id, worktreeId: wtId, repoId: rId, order: 1)
 
         // Assert
         XCTAssertNotEqual(tab1, tab2)
     }
 
-    // MARK: - Project Codable
+    // MARK: - Repo Codable
 
-    func test_project_codable_empty_roundTrip() throws {
+    func test_repo_codable_empty_roundTrip() throws {
         // Arrange
-        let original = makeProject()
+        let original = makeRepo()
 
         // Act
         let data = try JSONEncoder().encode(original)
-        let decoded = try JSONDecoder().decode(Project.self, from: data)
+        let decoded = try JSONDecoder().decode(Repo.self, from: data)
 
         // Assert
         XCTAssertEqual(decoded.id, original.id)
-        XCTAssertEqual(decoded.name, "test-project")
+        XCTAssertEqual(decoded.name, "test-repo")
         XCTAssertTrue(decoded.worktrees.isEmpty)
     }
 
-    func test_project_codable_withWorktrees_roundTrip() throws {
+    func test_repo_codable_withWorktrees_roundTrip() throws {
         // Arrange
         let wt1 = makeWorktree(name: "main", branch: "main")
         let wt2 = makeWorktree(name: "feature", branch: "feature", agent: .codex, status: .running)
-        let original = makeProject(worktrees: [wt1, wt2])
+        let original = makeRepo(worktrees: [wt1, wt2])
 
         // Act
         let data = try JSONEncoder().encode(original)
-        let decoded = try JSONDecoder().decode(Project.self, from: data)
+        let decoded = try JSONDecoder().decode(Repo.self, from: data)
 
         // Assert
         XCTAssertEqual(decoded.worktrees.count, 2)
@@ -166,13 +186,13 @@ final class AppStateModelTests: XCTestCase {
         XCTAssertEqual(decoded.worktrees[1].agent, .codex)
     }
 
-    // MARK: - Project Init Defaults
+    // MARK: - Repo Init Defaults
 
-    func test_project_init_defaults() {
+    func test_repo_init_defaults() {
         // Act
-        let project = Project(name: "test", repoPath: URL(fileURLWithPath: "/tmp"))
+        let repo = Repo(name: "test", repoPath: URL(fileURLWithPath: "/tmp"))
 
         // Assert
-        XCTAssertTrue(project.worktrees.isEmpty)
+        XCTAssertTrue(repo.worktrees.isEmpty)
     }
 }

@@ -9,9 +9,7 @@ func makeWorktree(
     path: String = "/tmp/test-repo/feature-branch",
     branch: String = "feature-branch",
     agent: AgentType? = nil,
-    status: WorktreeStatus = .idle,
-    isOpen: Bool = false,
-    lastOpened: Date? = nil
+    status: WorktreeStatus = .idle
 ) -> Worktree {
     Worktree(
         id: id,
@@ -19,23 +17,21 @@ func makeWorktree(
         path: URL(fileURLWithPath: path),
         branch: branch,
         agent: agent,
-        status: status,
-        isOpen: isOpen,
-        lastOpened: lastOpened
+        status: status
     )
 }
 
-// MARK: - Project Factory
+// MARK: - Repo Factory
 
-func makeProject(
+func makeRepo(
     id: UUID = UUID(),
-    name: String = "test-project",
+    name: String = "test-repo",
     repoPath: String = "/tmp/test-repo",
     worktrees: [Worktree] = [],
     createdAt: Date = Date(timeIntervalSince1970: 1_000_000),
     updatedAt: Date = Date(timeIntervalSince1970: 1_000_000)
-) -> Project {
-    Project(
+) -> Repo {
+    Repo(
         id: id,
         name: name,
         repoPath: URL(fileURLWithPath: repoPath),
@@ -50,7 +46,7 @@ func makeProject(
 func makeOpenTab(
     id: UUID = UUID(),
     worktreeId: UUID = UUID(),
-    projectId: UUID = UUID(),
+    repoId: UUID = UUID(),
     order: Int = 0,
     splitTreeData: Data? = nil,
     activePaneId: UUID? = nil
@@ -58,7 +54,7 @@ func makeOpenTab(
     OpenTab(
         id: id,
         worktreeId: worktreeId,
-        projectId: projectId,
+        repoId: repoId,
         order: order,
         splitTreeData: splitTreeData,
         activePaneId: activePaneId
@@ -72,13 +68,13 @@ func makeSurfaceMetadata(
     command: String? = nil,
     title: String = "Terminal",
     worktreeId: UUID? = nil,
-    projectId: UUID? = nil
+    repoId: UUID? = nil
 ) -> SurfaceMetadata {
     SurfaceMetadata(
         workingDirectory: workingDirectory.map { URL(fileURLWithPath: $0) },
         command: command,
         title: title,
         worktreeId: worktreeId,
-        projectId: projectId
+        repoId: repoId
     )
 }

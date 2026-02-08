@@ -8,9 +8,6 @@ struct SplitView<L: View, R: View>: View {
     /// Direction of the split
     let direction: SplitViewDirection
 
-    /// Divider color
-    let dividerColor: Color
-
     /// Minimum increment (in points) that this split can be resized by
     let resizeIncrements: NSSize
 
@@ -21,15 +18,19 @@ struct SplitView<L: View, R: View>: View {
     /// Called when the divider is double-tapped to equalize splits
     let onEqualize: () -> Void
 
+    /// Called when a drag resize ends (for persistence)
+    let onResizeEnd: (() -> Void)?
+
     /// The minimum size (in points) of a split
     let minSize: CGFloat = 10
 
     /// The current fractional width of the split view. 0.5 means L/R are equally sized.
     @Binding var split: CGFloat
 
-    /// The visible size of the splitter, in points
-    private let splitterVisibleSize: CGFloat = 1
-    private let splitterInvisibleSize: CGFloat = 6
+    /// Gap size between panes (the background color shows through as the separator)
+    private let splitterGapSize: CGFloat = 2
+    /// Total hit area for resize dragging (extends beyond the visible gap)
+    private let splitterHitSize: CGFloat = 6
 
     var body: some View {
         GeometryReader { geo in
@@ -49,9 +50,8 @@ struct SplitView<L: View, R: View>: View {
                     .accessibilityElement(children: .contain)
                     .accessibilityLabel(rightPaneLabel)
                 Divider(direction: direction,
-                        visibleSize: splitterVisibleSize,
-                        invisibleSize: splitterInvisibleSize,
-                        color: dividerColor,
+                        gapSize: splitterGapSize,
+                        hitSize: splitterHitSize,
                         split: $split)
                     .position(splitterPoint)
                     .gesture(dragGesture(geo.size, splitterPoint: splitterPoint))
@@ -68,19 +68,19 @@ struct SplitView<L: View, R: View>: View {
     init(
         _ direction: SplitViewDirection,
         _ split: Binding<CGFloat>,
-        dividerColor: Color,
         resizeIncrements: NSSize = .init(width: 1, height: 1),
         @ViewBuilder left: (() -> L),
         @ViewBuilder right: (() -> R),
-        onEqualize: @escaping () -> Void
+        onEqualize: @escaping () -> Void,
+        onResizeEnd: (() -> Void)? = nil
     ) {
         self.direction = direction
         self._split = split
-        self.dividerColor = dividerColor
         self.resizeIncrements = resizeIncrements
         self.left = left()
         self.right = right()
         self.onEqualize = onEqualize
+        self.onResizeEnd = onResizeEnd
     }
 
     private func dragGesture(_ size: CGSize, splitterPoint: CGPoint) -> some Gesture {
@@ -96,6 +96,9 @@ struct SplitView<L: View, R: View>: View {
                     split = new / size.height
                 }
             }
+            .onEnded { _ in
+                onResizeEnd?()
+            }
     }
 
     /// Calculates the bounding rect for the left view.
@@ -104,12 +107,12 @@ struct SplitView<L: View, R: View>: View {
         switch direction {
         case .horizontal:
             result.size.width = result.size.width * split
-            result.size.width -= splitterVisibleSize / 2
+            result.size.width -= splitterGapSize / 2
             result.size.width -= result.size.width.truncatingRemainder(dividingBy: resizeIncrements.width)
 
         case .vertical:
             result.size.height = result.size.height * split
-            result.size.height -= splitterVisibleSize / 2
+            result.size.height -= splitterGapSize / 2
             result.size.height -= result.size.height.truncatingRemainder(dividingBy: resizeIncrements.height)
         }
         return result
@@ -121,12 +124,12 @@ struct SplitView<L: View, R: View>: View {
         switch direction {
         case .horizontal:
             result.origin.x += leftRect.size.width
-            result.origin.x += splitterVisibleSize / 2
+            result.origin.x += splitterGapSize / 2
             result.size.width -= result.origin.x
 
         case .vertical:
             result.origin.y += leftRect.size.height
-            result.origin.y += splitterVisibleSize / 2
+            result.origin.y += splitterGapSize / 2
             result.size.height -= result.origin.y
         }
         return result
@@ -170,39 +173,25 @@ struct SplitView<L: View, R: View>: View {
 // MARK: - Divider
 
 extension SplitView {
-    /// The split divider that is rendered and can be used to resize a split view.
+    /// The split divider rendered as a gap that reveals the app background color.
+    /// The visible gap is subtle (2pt) while the hit area for dragging is larger.
     struct Divider: View {
         let direction: SplitViewDirection
-        let visibleSize: CGFloat
-        let invisibleSize: CGFloat
-        let color: Color
+        let gapSize: CGFloat
+        let hitSize: CGFloat
         @Binding var split: CGFloat
 
-        private var visibleWidth: CGFloat? {
+        private var hitWidth: CGFloat? {
             switch direction {
-            case .horizontal: return visibleSize
+            case .horizontal: return hitSize
             case .vertical: return nil
             }
         }
 
-        private var visibleHeight: CGFloat? {
+        private var hitHeight: CGFloat? {
             switch direction {
             case .horizontal: return nil
-            case .vertical: return visibleSize
-            }
-        }
-
-        private var invisibleWidth: CGFloat? {
-            switch direction {
-            case .horizontal: return visibleSize + invisibleSize
-            case .vertical: return nil
-            }
-        }
-
-        private var invisibleHeight: CGFloat? {
-            switch direction {
-            case .horizontal: return nil
-            case .vertical: return visibleSize + invisibleSize
+            case .vertical: return hitSize
             }
         }
 
@@ -215,12 +204,10 @@ extension SplitView {
 
         var body: some View {
             ZStack {
+                // Hit area (invisible, extends beyond the visible gap)
                 Color.clear
-                    .frame(width: invisibleWidth, height: invisibleHeight)
+                    .frame(width: hitWidth, height: hitHeight)
                     .contentShape(Rectangle())
-                Rectangle()
-                    .fill(color)
-                    .frame(width: visibleWidth, height: visibleHeight)
             }
             .backport.pointerStyle(pointerStyle)
             .onHover { isHovered in

@@ -5,17 +5,17 @@ import GhosttyKit
 /// Implements SurfaceContainer protocol for lifecycle management
 final class AgentStudioTerminalView: NSView, SurfaceContainer, SurfaceHealthDelegate {
     let worktree: Worktree
-    let project: Project
+    let repo: Repo
 
     // MARK: - SurfaceContainer Protocol
 
-    private(set) var containerId: UUID = UUID()
+    private(set) var containerId: UUID
     var surfaceId: UUID?
 
     // MARK: - Private State
 
     private var ghosttySurface: Ghostty.SurfaceView?
-    private var isProcessRunning = false
+    private(set) var isProcessRunning = false
     private var errorOverlay: SurfaceErrorOverlayView?
 
     /// The current terminal title
@@ -24,16 +24,17 @@ final class AgentStudioTerminalView: NSView, SurfaceContainer, SurfaceHealthDele
     }
 
     /// Standard initializer - creates a new terminal surface
-    init(worktree: Worktree, project: Project) {
+    init(worktree: Worktree, repo: Repo) {
+        self.containerId = UUID()
         self.worktree = worktree
-        self.project = project
+        self.repo = repo
         super.init(frame: NSRect(x: 0, y: 0, width: 800, height: 600))
 
         // Note: Do NOT set wantsLayer or backgroundColor here
         // Let Ghostty manage its own layer rendering
 
         if SessionRegistry.shared.configuration.isOperational {
-            // Session restore enabled: create tmux session+tab first, then open terminal
+            // Session restore enabled: register + attach via tmux new-session -A
             Task { @MainActor in
                 await setupTerminalWithSessionRestore()
             }
@@ -42,11 +43,22 @@ final class AgentStudioTerminalView: NSView, SurfaceContainer, SurfaceHealthDele
         }
     }
 
+    /// Restoring initializer — defers terminal setup until the view is displayed.
+    /// Used by the Codable decode path to avoid spawning orphaned processes.
+    init(worktree: Worktree, repo: Repo, restoring: Bool, containerId: UUID = UUID()) {
+        self.containerId = containerId
+        self.worktree = worktree
+        self.repo = repo
+        super.init(frame: NSRect(x: 0, y: 0, width: 800, height: 600))
+        // Terminal setup is deferred to viewDidMoveToWindow
+    }
+
     /// Restore initializer - for attaching an existing surface (undo close)
     /// Does NOT create a new surface; caller must attach one via displaySurface()
-    init(worktree: Worktree, project: Project, restoredSurfaceId: UUID) {
+    init(worktree: Worktree, repo: Repo, restoredSurfaceId: UUID) {
+        self.containerId = UUID()
         self.worktree = worktree
-        self.project = project
+        self.repo = repo
         self.surfaceId = restoredSurfaceId
         super.init(frame: NSRect(x: 0, y: 0, width: 800, height: 600))
 
@@ -74,19 +86,19 @@ final class AgentStudioTerminalView: NSView, SurfaceContainer, SurfaceHealthDele
     /// via `tmux new-session -A` (creates if missing, attaches if exists).
     private func setupTerminalWithSessionRestore() async {
         let registry = SessionRegistry.shared
-        let sessionId = TmuxBackend.sessionId(projectId: project.id, worktreeId: worktree.id)
+        let sessionId = TmuxBackend.sessionId(projectId: repo.id, worktreeId: worktree.id)
 
-        // Register session for health tracking (don't create via ProcessExecutor)
+        // Register session for health tracking (surface handles actual tmux creation)
         registry.registerPaneSession(
             id: sessionId,
-            projectId: project.id,
+            projectId: repo.id,
             worktreeId: worktree.id,
             displayName: worktree.name,
             workingDirectory: worktree.path
         )
 
         // Let the surface handle create+attach via new-session -A
-        if let attachCmd = registry.attachCommand(for: worktree, in: project) {
+        if let attachCmd = registry.attachCommand(for: worktree, in: repo) {
             setupTerminal(command: attachCmd)
         } else {
             setupTerminal()  // fallback to direct shell
@@ -106,7 +118,7 @@ final class AgentStudioTerminalView: NSView, SurfaceContainer, SurfaceHealthDele
             command: cmd,
             title: worktree.name,
             worktreeId: worktree.id,
-            projectId: project.id
+            repoId: repo.id
         )
 
         // Create surface via manager
@@ -312,6 +324,17 @@ final class AgentStudioTerminalView: NSView, SurfaceContainer, SurfaceHealthDele
         return SurfaceManager.shared.hasProcessExited(surfaceId)
     }
 
+    // MARK: - Deferred Setup
+
+    override func viewDidMoveToWindow() {
+        super.viewDidMoveToWindow()
+        // Lazily set up terminal when the view enters a window for the first time.
+        // This handles restored views that deferred setupTerminal().
+        if window != nil && surfaceId == nil && ghosttySurface == nil {
+            setupTerminal()
+        }
+    }
+
     // MARK: - Layout
 
     override func layout() {
@@ -397,7 +420,7 @@ extension AgentStudioTerminalView: Identifiable {
 extension AgentStudioTerminalView: Codable {
     private enum CodingKeys: String, CodingKey {
         case worktreeId
-        case projectId
+        case repoId
         case containerId
         case title
     }
@@ -405,29 +428,30 @@ extension AgentStudioTerminalView: Codable {
     convenience init(from decoder: Decoder) throws {
         let container = try decoder.container(keyedBy: CodingKeys.self)
         let worktreeId = try container.decode(UUID.self, forKey: .worktreeId)
-        let projectId = try container.decode(UUID.self, forKey: .projectId)
+        let repoId = try container.decode(UUID.self, forKey: .repoId)
         let savedContainerId = try container.decode(UUID.self, forKey: .containerId)
 
-        // Look up worktree and project from SessionManager
-        guard let project = SessionManager.shared.projects.first(where: { $0.id == projectId }),
-              let worktree = project.worktrees.first(where: { $0.id == worktreeId }) else {
+        // Look up worktree and repo from SessionManager
+        guard let repo = SessionManager.shared.repos.first(where: { $0.id == repoId }),
+              let worktree = repo.worktrees.first(where: { $0.id == worktreeId }) else {
             throw DecodingError.dataCorrupted(
                 DecodingError.Context(
                     codingPath: decoder.codingPath,
-                    debugDescription: "Could not find worktree \(worktreeId) or project \(projectId)"
+                    debugDescription: "Could not find worktree \(worktreeId) or repo \(repoId)"
                 )
             )
         }
 
-        self.init(worktree: worktree, project: project)
-        // Preserve the original containerId so activePaneId still maps correctly
-        self.containerId = savedContainerId
+        // Use the base NSView init — do NOT call self.init(worktree:repo:) which
+        // spawns a shell process immediately. Terminal setup is deferred until the
+        // view is displayed, preventing orphaned processes on restore.
+        self.init(worktree: worktree, repo: repo, restoring: true, containerId: savedContainerId)
     }
 
     func encode(to encoder: Encoder) throws {
         var container = encoder.container(keyedBy: CodingKeys.self)
         try container.encode(worktree.id, forKey: .worktreeId)
-        try container.encode(project.id, forKey: .projectId)
+        try container.encode(repo.id, forKey: .repoId)
         try container.encode(containerId, forKey: .containerId)
         try container.encode(title, forKey: .title)
     }

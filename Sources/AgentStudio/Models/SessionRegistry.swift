@@ -58,9 +58,9 @@ final class SessionRegistry {
     /// Get an existing pane session for a worktree, or create one.
     func getOrCreatePaneSession(
         for worktree: Worktree,
-        in project: Project
+        in repo: Repo
     ) async throws -> PaneEntry {
-        let expectedId = TmuxBackend.sessionId(projectId: project.id, worktreeId: worktree.id)
+        let expectedId = TmuxBackend.sessionId(projectId: repo.id, worktreeId: worktree.id)
 
         // Return existing if alive
         if let existing = entries[expectedId], existing.machine.state == .alive {
@@ -71,7 +71,7 @@ final class SessionRegistry {
             throw SessionBackendError.notAvailable
         }
 
-        let handle = try await backend.createPaneSession(projectId: project.id, worktree: worktree)
+        let handle = try await backend.createPaneSession(projectId: repo.id, worktree: worktree)
         let machine = Machine<SessionStatus>(initialState: .unknown)
         machine.setEffectHandler { [weak self] effect in
             await self?.handleSessionEffect(effect, sessionId: handle.id)
@@ -120,10 +120,10 @@ final class SessionRegistry {
     }
 
     /// Returns the command Ghostty should run for a worktree's pane session.
-    func attachCommand(for worktree: Worktree, in project: Project) -> String? {
+    func attachCommand(for worktree: Worktree, in repo: Repo) -> String? {
         guard let backend else { return nil }
 
-        let expectedId = TmuxBackend.sessionId(projectId: project.id, worktreeId: worktree.id)
+        let expectedId = TmuxBackend.sessionId(projectId: repo.id, worktreeId: worktree.id)
         guard let entry = entries[expectedId] else { return nil }
 
         return backend.attachCommand(for: entry.handle)

@@ -40,7 +40,7 @@ struct GeneralSettingsView: View {
     var body: some View {
         Form {
             Section {
-                Toggle("Auto-refresh worktrees on project open", isOn: $autoRefreshWorktrees)
+                Toggle("Auto-refresh worktrees on repo open", isOn: $autoRefreshWorktrees)
 
                 Toggle("Detach from Zellij on tab close (preserve session)", isOn: $detachOnClose)
             }

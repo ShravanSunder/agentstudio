@@ -309,9 +309,37 @@ extension Ghostty {
 
             let mods = event.modifierFlags.intersection(.deviceIndependentFlagsMask)
 
-            // ANY Cmd combination goes to macOS - don't intercept
-            // This includes: Cmd+*, Cmd+Shift+*, Cmd+Ctrl+*, Cmd+Arrow, etc.
+            // Cmd combinations: check if Ghostty has a keybind configured.
+            // If yes, let Ghostty handle it; otherwise pass to macOS.
             if mods.contains(.command) {
+                guard let surface = surface else { return false }
+
+                var keyEvent = ghostty_input_key_s()
+                keyEvent.action = GHOSTTY_ACTION_PRESS
+                keyEvent.mods = ghosttyMods(from: event.modifierFlags)
+                keyEvent.keycode = UInt32(event.keyCode)
+                keyEvent.composing = false
+                keyEvent.text = nil
+
+                if event.type == .keyDown || event.type == .keyUp {
+                    if let chars = event.characters(byApplyingModifiers: []),
+                       let codepoint = chars.unicodeScalars.first {
+                        keyEvent.unshifted_codepoint = codepoint.value
+                    }
+                }
+
+                // Control and Command never contribute to text translation per Ghostty's KeyEncoder
+                let consumedMods = event.modifierFlags.subtracting([.control, .command])
+                keyEvent.consumed_mods = ghosttyMods(from: consumedMods)
+
+                var flags = ghostty_binding_flags_e(0)
+                if ghostty_surface_key_is_binding(surface, keyEvent, &flags) {
+                    // Ghostty has a keybind for this — forward to keyDown
+                    self.keyDown(with: event)
+                    return true
+                }
+
+                // No Ghostty keybind — pass to macOS
                 return false
             }
 
