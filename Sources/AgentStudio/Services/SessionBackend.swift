@@ -144,22 +144,19 @@ struct DefaultProcessExecutor: ProcessExecutor {
 
         try process.run()
 
-        // Read pipe data BEFORE waiting for exit to prevent deadlock.
+        // Read pipes FIRST to prevent buffer deadlock.
         // If the child fills the pipe buffer (~64KB), it blocks on write.
         // Reading first drains the buffer so the child can proceed to exit.
         let stdoutData = stdoutPipe.fileHandleForReading.readDataToEndOfFile()
         let stderrData = stderrPipe.fileHandleForReading.readDataToEndOfFile()
 
-        // Await termination without blocking the cooperative thread pool.
-        // terminationHandler fires on a background queue after the process exits.
-        let exitStatus: Int32 = try await withCheckedThrowingContinuation { continuation in
-            process.terminationHandler = { proc in
-                continuation.resume(returning: proc.terminationStatus)
-            }
-        }
+        // Safe to call waitUntilExit() now — pipes are fully drained so no
+        // deadlock is possible. For short-lived commands (tmux), the process
+        // has already exited by the time readDataToEndOfFile() returns EOF.
+        process.waitUntilExit()
 
         return ProcessResult(
-            exitCode: Int(exitStatus),
+            exitCode: Int(process.terminationStatus),
             stdout: String(data: stdoutData, encoding: .utf8)?.trimmingCharacters(in: .whitespacesAndNewlines) ?? "",
             stderr: String(data: stderrData, encoding: .utf8)?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
         )

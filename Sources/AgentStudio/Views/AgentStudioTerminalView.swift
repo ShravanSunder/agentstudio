@@ -98,11 +98,12 @@ final class AgentStudioTerminalView: NSView, SurfaceContainer, SurfaceHealthDele
         )
 
         // Let the surface handle create+attach via new-session -A
-        if let attachCmd = registry.attachCommand(for: worktree, in: repo) {
-            setupTerminal(command: attachCmd)
-        } else {
-            setupTerminal()  // fallback to direct shell
+        guard let attachCmd = registry.attachCommand(for: worktree, in: repo) else {
+            ghosttyLogger.error("Session registered but attachCommand returned nil for \(sessionId)")
+            setupTerminal()  // safety fallback
+            return
         }
+        setupTerminal(command: attachCmd)
     }
 
     private func setupTerminal(command: String? = nil) {
@@ -247,8 +248,14 @@ final class AgentStudioTerminalView: NSView, SurfaceContainer, SurfaceHealthDele
         SurfaceManager.shared.destroy(oldSurfaceId)
         removeSurface()
 
-        // Create new surface
-        setupTerminal()
+        // Create new surface — route through session restore when available
+        if SessionRegistry.shared.configuration.isOperational {
+            Task { @MainActor in
+                await setupTerminalWithSessionRestore()
+            }
+        } else {
+            setupTerminal()
+        }
         hideErrorOverlay()
     }
 

@@ -32,7 +32,7 @@ struct SessionConfiguration: Sendable {
 
         let isEnabled = env["AGENTSTUDIO_SESSION_RESTORE"]
             .map { $0.lowercased() == "true" || $0 == "1" }
-            ?? false
+            ?? true
 
         let tmuxPath = findTmux()
         let ghostConfigPath = resolveGhostConfigPath()
