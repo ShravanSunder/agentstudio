@@ -60,23 +60,35 @@ struct SessionConfiguration: Sendable {
 
     // MARK: - Terminfo Discovery
 
-    /// Find the bundled resources directory containing terminfo/.
-    /// GHOSTTY_RESOURCES_DIR expects the parent of terminfo/.
-    /// Checks app bundle first, then development source tree.
-    static func resolveTerminfoDir() -> String? {
+    /// Resolve GHOSTTY_RESOURCES_DIR for GhosttyKit.
+    ///
+    /// GhosttyKit computes `TERMINFO = dirname(GHOSTTY_RESOURCES_DIR) + "/terminfo"`,
+    /// so the value must be a subdirectory (e.g. `.../ghostty`) whose parent contains
+    /// the `terminfo/` directory. We append `/ghostty` to the directory that holds
+    /// `terminfo/` to satisfy this convention.
+    ///
+    /// Search order: SPM resource bundle → app bundle → development source tree.
+    static func resolveGhosttyResourcesDir() -> String? {
+        let sentinel = "/terminfo/78/xterm-ghostty"
+
+        // SPM resource bundle (AgentStudio_AgentStudio.bundle, adjacent to executable)
+        let spmBundle = Bundle.main.bundleURL
+            .appendingPathComponent("AgentStudio_AgentStudio.bundle").path
+        if FileManager.default.fileExists(atPath: spmBundle + sentinel) {
+            return spmBundle + "/ghostty"
+        }
+
         // App bundle: Contents/Resources/terminfo/78/xterm-ghostty
         if let bundled = Bundle.main.resourcePath {
-            let sentinel = bundled + "/terminfo/78/xterm-ghostty"
-            if FileManager.default.fileExists(atPath: sentinel) {
-                return bundled
+            if FileManager.default.fileExists(atPath: bundled + sentinel) {
+                return bundled + "/ghostty"
             }
         }
 
         // Development (SPM): walk up from executable to find source tree
         if let devResources = findDevResourcesDir() {
-            let sentinel = devResources + "/terminfo/78/xterm-ghostty"
-            if FileManager.default.fileExists(atPath: sentinel) {
-                return devResources
+            if FileManager.default.fileExists(atPath: devResources + sentinel) {
+                return devResources + "/ghostty"
             }
         }
 

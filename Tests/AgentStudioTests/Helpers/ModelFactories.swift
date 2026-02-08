@@ -68,13 +68,39 @@ func makeSurfaceMetadata(
     command: String? = nil,
     title: String = "Terminal",
     worktreeId: UUID? = nil,
-    repoId: UUID? = nil
+    repoId: UUID? = nil,
+    paneId: UUID? = nil
 ) -> SurfaceMetadata {
     SurfaceMetadata(
         workingDirectory: workingDirectory.map { URL(fileURLWithPath: $0) },
         command: command,
         title: title,
         worktreeId: worktreeId,
-        repoId: repoId
+        repoId: repoId,
+        paneId: paneId
+    )
+}
+
+// MARK: - PaneSessionHandle Factory
+
+func makePaneSessionHandle(
+    id: String = "agentstudio--a1b2c3d4e5f6a7b8--00112233aabbccdd--a1b2c3d4e5f6a7b8",
+    paneId: UUID = UUID(),
+    projectId: UUID = UUID(),
+    worktreeId: UUID = UUID(),
+    repoPath: String = "/tmp/test-repo",
+    worktreePath: String = "/tmp/test-repo/feature-branch",
+    displayName: String = "test",
+    workingDirectory: String = "/tmp/test-repo/feature-branch"
+) -> PaneSessionHandle {
+    PaneSessionHandle(
+        id: id,
+        paneId: paneId,
+        projectId: projectId,
+        worktreeId: worktreeId,
+        repoPath: URL(fileURLWithPath: repoPath),
+        worktreePath: URL(fileURLWithPath: worktreePath),
+        displayName: displayName,
+        workingDirectory: URL(fileURLWithPath: workingDirectory)
     )
 }

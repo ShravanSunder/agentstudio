@@ -21,19 +21,27 @@ final class SessionCheckpointTests: XCTestCase {
 
     func test_checkpoint_codable_roundTrip() throws {
         // Arrange
+        let paneId1 = UUID()
+        let paneId2 = UUID()
         let checkpoint = SessionCheckpoint(sessions: [
             .init(
-                sessionId: "agentstudio--abc12345--def67890",
+                sessionId: "agentstudio--a1b2c3d4e5f6a7b8--00112233aabbccdd--aabbccdd11223344",
+                paneId: paneId1,
                 projectId: UUID(),
                 worktreeId: UUID(),
+                repoPath: URL(fileURLWithPath: "/tmp/test-repo"),
+                worktreePath: URL(fileURLWithPath: "/tmp/test-repo/main"),
                 displayName: "main",
                 workingDirectory: URL(fileURLWithPath: "/tmp/test-repo/main"),
                 lastKnownAlive: Date()
             ),
             .init(
-                sessionId: "agentstudio--abc12345--ghi11111",
+                sessionId: "agentstudio--a1b2c3d4e5f6a7b8--fedcba9876543210--11223344aabbccdd",
+                paneId: paneId2,
                 projectId: UUID(),
                 worktreeId: UUID(),
+                repoPath: URL(fileURLWithPath: "/tmp/test-repo"),
+                worktreePath: URL(fileURLWithPath: "/tmp/test-repo/feature"),
                 displayName: "feature",
                 workingDirectory: URL(fileURLWithPath: "/tmp/test-repo/feature"),
                 lastKnownAlive: Date()
@@ -50,12 +58,16 @@ final class SessionCheckpointTests: XCTestCase {
         let decoded = try decoder.decode(SessionCheckpoint.self, from: data)
 
         // Assert
-        XCTAssertEqual(decoded.version, 2)
+        XCTAssertEqual(decoded.version, 3)
         XCTAssertEqual(decoded.sessions.count, 2)
-        XCTAssertEqual(decoded.sessions[0].sessionId, "agentstudio--abc12345--def67890")
+        XCTAssertEqual(decoded.sessions[0].sessionId, "agentstudio--a1b2c3d4e5f6a7b8--00112233aabbccdd--aabbccdd11223344")
         XCTAssertEqual(decoded.sessions[0].displayName, "main")
-        XCTAssertEqual(decoded.sessions[1].sessionId, "agentstudio--abc12345--ghi11111")
+        XCTAssertEqual(decoded.sessions[0].paneId, paneId1)
+        XCTAssertEqual(decoded.sessions[0].repoPath, URL(fileURLWithPath: "/tmp/test-repo"))
+        XCTAssertEqual(decoded.sessions[0].worktreePath, URL(fileURLWithPath: "/tmp/test-repo/main"))
+        XCTAssertEqual(decoded.sessions[1].sessionId, "agentstudio--a1b2c3d4e5f6a7b8--fedcba9876543210--11223344aabbccdd")
         XCTAssertEqual(decoded.sessions[1].displayName, "feature")
+        XCTAssertEqual(decoded.sessions[1].paneId, paneId2)
     }
 
     // MARK: - File Persistence
@@ -63,11 +75,15 @@ final class SessionCheckpointTests: XCTestCase {
     func test_checkpoint_saveAndLoad() throws {
         // Arrange
         let path = tempDir.appendingPathComponent("test-checkpoint.json")
+        let paneId = UUID()
         let original = SessionCheckpoint(sessions: [
             .init(
-                sessionId: "agentstudio--test--pane",
+                sessionId: "agentstudio--a1b2c3d4e5f6a7b8--00112233aabbccdd--aabbccdd11223344",
+                paneId: paneId,
                 projectId: UUID(),
                 worktreeId: UUID(),
+                repoPath: URL(fileURLWithPath: "/tmp/test-repo"),
+                worktreePath: URL(fileURLWithPath: "/tmp"),
                 displayName: "Test",
                 workingDirectory: URL(fileURLWithPath: "/tmp"),
                 lastKnownAlive: Date()
@@ -81,7 +97,8 @@ final class SessionCheckpointTests: XCTestCase {
         // Assert
         XCTAssertNotNil(loaded)
         XCTAssertEqual(loaded?.sessions.count, 1)
-        XCTAssertEqual(loaded?.sessions[0].sessionId, "agentstudio--test--pane")
+        XCTAssertEqual(loaded?.sessions[0].sessionId, "agentstudio--a1b2c3d4e5f6a7b8--00112233aabbccdd--aabbccdd11223344")
+        XCTAssertEqual(loaded?.sessions[0].paneId, paneId)
     }
 
     func test_checkpoint_loadReturnsNil_whenMissing() {
@@ -93,6 +110,37 @@ final class SessionCheckpointTests: XCTestCase {
 
         // Assert
         XCTAssertNil(loaded)
+    }
+
+    // MARK: - v2 Format Rejection
+
+    func test_checkpoint_v2Format_failsToDecode() throws {
+        // Arrange — v2 JSON lacks paneId, repoPath, worktreePath
+        let v2Json = """
+        {
+          "version": 2,
+          "timestamp": "2025-01-01T00:00:00Z",
+          "sessions": [
+            {
+              "sessionId": "agentstudio--a1b2c3d4--e5f6a7b8--00001111",
+              "projectId": "00000000-0000-0000-0000-000000000001",
+              "worktreeId": "00000000-0000-0000-0000-000000000002",
+              "displayName": "test",
+              "workingDirectory": "file:///tmp/",
+              "lastKnownAlive": "2025-01-01T00:00:00Z"
+            }
+          ]
+        }
+        """.data(using: .utf8)!
+
+        let path = tempDir.appendingPathComponent("v2-checkpoint.json")
+        try v2Json.write(to: path)
+
+        // Act — v2 checkpoint should fail to decode (missing required fields)
+        let loaded = SessionCheckpoint.load(from: path)
+
+        // Assert
+        XCTAssertNil(loaded, "v2 checkpoint should fail to decode due to missing required fields")
     }
 
     // MARK: - Staleness
@@ -131,11 +179,11 @@ final class SessionCheckpointTests: XCTestCase {
 
     // MARK: - Version
 
-    func test_checkpoint_version_is2() {
+    func test_checkpoint_version_is3() {
         // Arrange & Act
         let checkpoint = SessionCheckpoint(sessions: [])
 
         // Assert
-        XCTAssertEqual(checkpoint.version, 2)
+        XCTAssertEqual(checkpoint.version, 3)
     }
 }

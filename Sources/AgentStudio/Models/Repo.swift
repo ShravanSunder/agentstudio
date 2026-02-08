@@ -9,6 +9,10 @@ struct Repo: Codable, Identifiable, Hashable {
     var createdAt: Date
     var updatedAt: Date
 
+    /// Deterministic identity derived from filesystem path via SHA-256.
+    /// Used for tmux session ID segment. Survives reinstall/data loss, breaks on directory move.
+    var stableKey: String { StableKey.fromPath(repoPath) }
+
     init(
         id: UUID = UUID(),
         name: String,

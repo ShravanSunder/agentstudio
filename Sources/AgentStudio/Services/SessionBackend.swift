@@ -5,24 +5,25 @@ import Foundation
 /// Identifies a backend session that backs a single terminal pane.
 /// Each terminal pane (worktree) gets its own isolated session.
 struct PaneSessionHandle: Equatable, Sendable, Codable, Hashable {
-    /// Backend session identifier, e.g. `agentstudio--a1b2c3d4--e5f6g7h8`
+    /// Backend session identifier, e.g. `agentstudio--a1b2c3d4e5f6a7b8--00112233aabbccdd--a1b2c3d4e5f6a7b8`
     let id: String
+    let paneId: UUID
     let projectId: UUID
     let worktreeId: UUID
+    let repoPath: URL
+    let worktreePath: URL
     let displayName: String
     let workingDirectory: URL
 
-    /// Whether the id matches a valid session ID format.
-    /// Accepts both current 3-segment (41 chars) and legacy 2-segment (31 chars) formats.
+    /// Whether the id matches the v3 session ID format.
+    /// Format: `agentstudio--<repo16hex>--<wt16hex>--<pane16hex>` (65 chars)
     var hasValidId: Bool {
         guard id.hasPrefix("agentstudio--") else { return false }
         let suffix = String(id.dropFirst(13))
         let segments = suffix.components(separatedBy: "--")
         let hexChars = CharacterSet(charactersIn: "0123456789abcdef")
-        // 3-segment (41 chars): agentstudio--<proj8>--<wt8>--<pane8>
-        // 2-segment (31 chars): agentstudio--<proj8>--<wt8> (legacy)
-        guard (segments.count == 2 || segments.count == 3),
-              segments.allSatisfy({ $0.count == 8 }) else { return false }
+        guard segments.count == 3,
+              segments.allSatisfy({ $0.count == 16 }) else { return false }
         return segments.allSatisfy { seg in
             seg.unicodeScalars.allSatisfy { hexChars.contains($0) }
         }
@@ -40,8 +41,8 @@ protocol SessionBackend: Sendable {
 
     // MARK: Pane Session Lifecycle
 
-    /// Create a new background session for the given worktree and pane.
-    func createPaneSession(projectId: UUID, worktree: Worktree, paneId: UUID) async throws -> PaneSessionHandle
+    /// Create a new background session for the given repo, worktree, and pane.
+    func createPaneSession(repo: Repo, worktree: Worktree, paneId: UUID) async throws -> PaneSessionHandle
 
     /// Returns the shell command to attach to a pane session.
     func attachCommand(for handle: PaneSessionHandle) -> String

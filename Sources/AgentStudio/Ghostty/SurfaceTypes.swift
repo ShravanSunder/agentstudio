@@ -33,7 +33,7 @@ enum SurfaceHealth: Equatable {
 
 /// State of a surface in the lifecycle
 enum SurfaceState: Equatable {
-    case active(containerId: UUID)  // Attached to a visible container
+    case active(paneAttachmentId: UUID)  // Attached to a visible container
     case hidden                      // Alive but no container
     case pendingUndo(expiresAt: Date) // In undo stack
 
@@ -52,6 +52,7 @@ struct SurfaceMetadata: Codable, Equatable {
     var title: String
     var worktreeId: UUID?
     var repoId: UUID?
+    var paneId: UUID?
     var createdAt: Date
     var lastActiveAt: Date
 
@@ -60,13 +61,15 @@ struct SurfaceMetadata: Codable, Equatable {
         command: String? = nil,
         title: String = "Terminal",
         worktreeId: UUID? = nil,
-        repoId: UUID? = nil
+        repoId: UUID? = nil,
+        paneId: UUID? = nil
     ) {
         self.workingDirectory = workingDirectory
         self.command = command
         self.title = title
         self.worktreeId = worktreeId
         self.repoId = repoId
+        self.paneId = paneId
         self.createdAt = Date()
         self.lastActiveAt = Date()
     }
@@ -101,7 +104,7 @@ struct ManagedSurface {
 /// Entry in the undo stack for closed surfaces
 struct SurfaceUndoEntry {
     let surface: ManagedSurface
-    let previousContainerId: UUID?
+    let previousPaneAttachmentId: UUID?
     let closedAt: Date
     let expiresAt: Date
     var expirationTask: Task<Void, Never>?
@@ -119,23 +122,23 @@ struct SurfaceCheckpoint: Codable {
         let id: UUID
         let metadata: SurfaceMetadata
         let wasActive: Bool
-        let containerId: UUID?
+        let paneAttachmentId: UUID?
     }
 
     init(from surfaces: [ManagedSurface]) {
         self.timestamp = Date()
         self.surfaces = surfaces.map { managed in
-            let containerId: UUID?
+            let paneAttachmentId: UUID?
             if case .active(let cid) = managed.state {
-                containerId = cid
+                paneAttachmentId = cid
             } else {
-                containerId = nil
+                paneAttachmentId = nil
             }
             return SurfaceData(
                 id: managed.id,
                 metadata: managed.metadata,
                 wasActive: managed.state.isActive,
-                containerId: containerId
+                paneAttachmentId: paneAttachmentId
             )
         }
     }
@@ -183,7 +186,7 @@ enum SurfaceDetachReason {
 
 /// Protocol for containers that can display surfaces (tabs, splits, etc.)
 protocol SurfaceContainer: AnyObject {
-    var containerId: UUID { get }
+    var paneAttachmentId: UUID { get }
     var surfaceId: UUID? { get set }
 
     /// Called when a surface should be displayed in this container

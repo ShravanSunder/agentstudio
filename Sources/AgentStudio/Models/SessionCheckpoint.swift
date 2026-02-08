@@ -2,14 +2,16 @@ import Foundation
 
 /// Persisted snapshot of all managed pane sessions, written to disk on save
 /// and loaded on launch to reconnect to surviving tmux sessions.
+/// This is the authoritative pane-session registry — stores all data needed
+/// to recompute and verify session IDs on startup.
 struct SessionCheckpoint: Codable, Sendable {
-    /// Schema version for future migrations.
+    /// Schema version. v3 adds paneId, repoPath, worktreePath for deterministic identity.
     let version: Int
     let timestamp: Date
     let sessions: [PaneSessionData]
 
     init(sessions: [PaneSessionData]) {
-        self.version = 2
+        self.version = 3
         self.timestamp = Date()
         self.sessions = sessions
     }
@@ -17,8 +19,11 @@ struct SessionCheckpoint: Codable, Sendable {
     /// A single pane session's persisted state.
     struct PaneSessionData: Codable, Sendable {
         let sessionId: String
+        let paneId: UUID
         let projectId: UUID
         let worktreeId: UUID
+        let repoPath: URL
+        let worktreePath: URL
         let displayName: String
         let workingDirectory: URL
         let lastKnownAlive: Date

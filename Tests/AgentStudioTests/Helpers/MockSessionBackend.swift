@@ -11,7 +11,7 @@ final class MockSessionBackend: SessionBackend, @unchecked Sendable {
 
     var throwOnDestroy: Bool = false
 
-    var createCalls: [(UUID, Worktree, UUID)] = []
+    var createCalls: [(Repo, Worktree, UUID)] = []
     var destroyCalls: [PaneSessionHandle] = []
     var healthCheckCalls: [PaneSessionHandle] = []
     var destroyByIdCalls: [String] = []
@@ -23,8 +23,8 @@ final class MockSessionBackend: SessionBackend, @unchecked Sendable {
         get async { isAvailableResult }
     }
 
-    func createPaneSession(projectId: UUID, worktree: Worktree, paneId: UUID) async throws -> PaneSessionHandle {
-        createCalls.append((projectId, worktree, paneId))
+    func createPaneSession(repo: Repo, worktree: Worktree, paneId: UUID) async throws -> PaneSessionHandle {
+        createCalls.append((repo, worktree, paneId))
         return try createResult.get()
     }
 

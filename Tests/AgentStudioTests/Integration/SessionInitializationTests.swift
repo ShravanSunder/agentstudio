@@ -33,21 +33,37 @@ final class SessionInitializationTests: XCTestCase {
             backend: mockBackend
         )
 
-        // Create a checkpoint with one session to restore
-        let sessionId = "agentstudio--a1b2c3d4--e5f6a7b8--00001111"
+        // Create a v3 checkpoint with deterministic IDs
+        let paneId = UUID()
+        let worktreeId = UUID()
+        let repo = makeRepo(repoPath: "/tmp/test-repo")
+        let worktree = makeWorktree(id: worktreeId, path: "/tmp/test-repo/main")
+        let repoWithWt = makeRepo(id: repo.id, repoPath: "/tmp/test-repo", worktrees: [worktree])
+
+        let sessionId = TmuxBackend.sessionId(
+            repoStableKey: repo.stableKey,
+            worktreeStableKey: worktree.stableKey,
+            paneId: paneId
+        )
+
         let checkpoint = SessionCheckpoint(sessions: [
             .init(
                 sessionId: sessionId,
-                projectId: UUID(),
-                worktreeId: UUID(),
+                paneId: paneId,
+                projectId: repo.id,
+                worktreeId: worktreeId,
+                repoPath: repo.repoPath,
+                worktreePath: worktree.path,
                 displayName: "smoke-test",
-                workingDirectory: URL(fileURLWithPath: "/tmp"),
+                workingDirectory: worktree.path,
                 lastKnownAlive: Date()
             ),
         ])
 
-        // Act — restore from checkpoint (the core of initialize flow)
-        await registry.restoreFromCheckpoint(checkpoint)
+        // Act — restore from checkpoint with mock repo lookup
+        await registry.restoreFromCheckpoint(checkpoint) { id, _ in
+            id == repoWithWt.id ? repoWithWt : nil
+        }
 
         // Assert — registry should have restored the entry without crashing
         XCTAssertEqual(registry.entries.count, 1)

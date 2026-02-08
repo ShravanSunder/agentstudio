@@ -57,8 +57,29 @@ final class SessionRegistry {
         sessionLogger.info("Session restore initialized")
 
         // Load checkpoint and verify surviving sessions
-        if let checkpoint = SessionCheckpoint.load(), !checkpoint.isStale() {
-            await restoreFromCheckpoint(checkpoint)
+        if let checkpoint = SessionCheckpoint.load() {
+            if !checkpoint.isStale() {
+                await restoreFromCheckpoint(checkpoint)
+            } else {
+                // Stale v3+ checkpoint — delete file, sessions are too old
+                sessionLogger.info("Deleting stale checkpoint file")
+                try? FileManager.default.removeItem(at: SessionCheckpoint.defaultPath)
+            }
+        } else if FileManager.default.fileExists(atPath: SessionCheckpoint.defaultPath.path) {
+            // File exists but failed to decode → old version or corrupt
+            sessionLogger.info("Deleting unreadable checkpoint file")
+            try? FileManager.default.removeItem(at: SessionCheckpoint.defaultPath)
+
+            // Clean up orphaned tmux sessions
+            let orphans = await tmuxBackend.discoverOrphanSessions(excluding: [])
+            for orphanId in orphans {
+                do {
+                    try await tmuxBackend.destroySessionById(orphanId)
+                    sessionLogger.info("Destroyed orphan session: \(orphanId)")
+                } catch {
+                    sessionLogger.error("Failed to destroy orphan session \(orphanId): \(error)")
+                }
+            }
         }
     }
 
@@ -74,7 +95,11 @@ final class SessionRegistry {
         in repo: Repo,
         paneId: UUID
     ) async throws -> PaneEntry {
-        let expectedId = TmuxBackend.sessionId(projectId: repo.id, worktreeId: worktree.id, paneId: paneId)
+        let expectedId = TmuxBackend.sessionId(
+            repoStableKey: repo.stableKey,
+            worktreeStableKey: worktree.stableKey,
+            paneId: paneId
+        )
 
         // Return existing if alive
         if let existing = entries[expectedId], existing.machine.state == .alive {
@@ -92,7 +117,7 @@ final class SessionRegistry {
         creationsInProgress.insert(expectedId)
         defer { creationsInProgress.remove(expectedId) }
 
-        let handle = try await backend.createPaneSession(projectId: repo.id, worktree: worktree, paneId: paneId)
+        let handle = try await backend.createPaneSession(repo: repo, worktree: worktree, paneId: paneId)
 
         // Session is already created by the backend — start machine in .alive
         let machine = Machine<SessionStatus>(initialState: .alive)
@@ -112,19 +137,24 @@ final class SessionRegistry {
     /// The GhosttyKit surface will create the tmux session via `new-session -A`.
     func registerPaneSession(
         id: String,
+        paneId: UUID,
         projectId: UUID,
         worktreeId: UUID,
-        displayName: String,
-        workingDirectory: URL
+        repoPath: URL,
+        worktreePath: URL,
+        displayName: String
     ) {
         guard entries[id] == nil else { return }
 
         let handle = PaneSessionHandle(
             id: id,
+            paneId: paneId,
             projectId: projectId,
             worktreeId: worktreeId,
+            repoPath: repoPath,
+            worktreePath: worktreePath,
             displayName: displayName,
-            workingDirectory: workingDirectory
+            workingDirectory: worktreePath
         )
 
         guard handle.hasValidId else {
@@ -155,7 +185,11 @@ final class SessionRegistry {
     func attachCommand(for worktree: Worktree, in repo: Repo, paneId: UUID) -> String? {
         guard let backend else { return nil }
 
-        let expectedId = TmuxBackend.sessionId(projectId: repo.id, worktreeId: worktree.id, paneId: paneId)
+        let expectedId = TmuxBackend.sessionId(
+            repoStableKey: repo.stableKey,
+            worktreeStableKey: worktree.stableKey,
+            paneId: paneId
+        )
         guard let entry = entries[expectedId] else { return nil }
 
         return backend.attachCommand(for: entry.handle)
@@ -168,8 +202,11 @@ final class SessionRegistry {
         let sessionData = entries.values.map { entry in
             SessionCheckpoint.PaneSessionData(
                 sessionId: entry.handle.id,
+                paneId: entry.handle.paneId,
                 projectId: entry.handle.projectId,
                 worktreeId: entry.handle.worktreeId,
+                repoPath: entry.handle.repoPath,
+                worktreePath: entry.handle.worktreePath,
                 displayName: entry.handle.displayName,
                 workingDirectory: entry.handle.workingDirectory,
                 lastKnownAlive: Date()
@@ -214,28 +251,66 @@ final class SessionRegistry {
 
     // MARK: - Private: Checkpoint Restore
 
-    func restoreFromCheckpoint(_ checkpoint: SessionCheckpoint) async {
+    /// Called only with successfully decoded v3 checkpoints.
+    /// Looks up current repo/worktree from SessionManager, recomputes expected
+    /// session IDs from current paths + paneId, and verifies them.
+    /// - Parameter repoLookup: Closure to look up a repo by ID with path fallback.
+    ///   First argument is the stored UUID, second is the stored repoPath for fallback matching.
+    func restoreFromCheckpoint(
+        _ checkpoint: SessionCheckpoint,
+        repoLookup: @MainActor @escaping (UUID, URL) -> Repo? = { id, path in
+            SessionManager.shared.repos.first(where: { $0.id == id })
+            ?? SessionManager.shared.repos.first(where: { $0.repoPath == path })
+        }
+    ) async {
         guard let backend else { return }
 
         for sessionData in checkpoint.sessions {
-            let handle = PaneSessionHandle(
-                id: sessionData.sessionId,
-                projectId: sessionData.projectId,
-                worktreeId: sessionData.worktreeId,
-                displayName: sessionData.displayName,
-                workingDirectory: sessionData.workingDirectory
-            )
-
-            // Destroy old-format sessions (2-segment, 31-char) — they can't be
-            // matched to a specific pane, so clean them up rather than orphan them.
-            let suffix = handle.id.dropFirst(13) // drop "agentstudio--"
-            let segmentCount = suffix.components(separatedBy: "--").count
-            if segmentCount < 3 {
-                try? await backend.destroySessionById(handle.id)
-                sessionLogger.info("Destroyed legacy session during restore: \(handle.id)")
+            // Look up current repo + worktree from the model layer.
+            // Try UUID first, fall back to path matching (resilient to workspace regeneration).
+            guard let repo = repoLookup(sessionData.projectId, sessionData.repoPath),
+                  let worktree = repo.worktrees.first(where: { $0.id == sessionData.worktreeId })
+                      ?? repo.worktrees.first(where: { $0.path == sessionData.worktreePath }) else {
+                // Repo or worktree no longer exists — destroy stale tmux session
+                sessionLogger.warning("Repo or worktree not found for pane \(sessionData.paneId). Destroying stale session \(sessionData.sessionId).")
+                do {
+                    try await backend.destroySessionById(sessionData.sessionId)
+                } catch {
+                    sessionLogger.error("Failed to destroy stale session \(sessionData.sessionId): \(error)")
+                }
                 continue
             }
 
+            // Recompute expected session ID from current paths + paneId
+            let expectedId = TmuxBackend.sessionId(
+                repoStableKey: repo.stableKey,
+                worktreeStableKey: worktree.stableKey,
+                paneId: sessionData.paneId
+            )
+
+            // If stored sessionId doesn't match recomputed → stale (paths moved)
+            if sessionData.sessionId != expectedId {
+                sessionLogger.warning("Session ID mismatch for pane \(sessionData.paneId): stored=\(sessionData.sessionId), expected=\(expectedId). Destroying stale session.")
+                do {
+                    try await backend.destroySessionById(sessionData.sessionId)
+                } catch {
+                    sessionLogger.error("Failed to destroy stale session \(sessionData.sessionId): \(error)")
+                }
+                continue
+            }
+
+            let handle = PaneSessionHandle(
+                id: sessionData.sessionId,
+                paneId: sessionData.paneId,
+                projectId: repo.id,
+                worktreeId: worktree.id,
+                repoPath: repo.repoPath,
+                worktreePath: worktree.path,
+                displayName: sessionData.displayName,
+                workingDirectory: worktree.path
+            )
+
+            // Verify tmux session is alive
             let alive = await backend.sessionExists(handle)
             guard alive else { continue }
 

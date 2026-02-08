@@ -69,7 +69,7 @@ final class SurfaceTypesTests: XCTestCase {
 
     func test_surfaceState_isActive_activeCase_returnsTrue() {
         // Assert
-        XCTAssertTrue(SurfaceState.active(containerId: UUID()).isActive)
+        XCTAssertTrue(SurfaceState.active(paneAttachmentId: UUID()).isActive)
     }
 
     func test_surfaceState_isActive_hiddenCase_returnsFalse() {
@@ -84,19 +84,19 @@ final class SurfaceTypesTests: XCTestCase {
 
     // MARK: - SurfaceState Equatable
 
-    func test_surfaceState_equatable_sameContainerId() {
+    func test_surfaceState_equatable_samePaneAttachmentId() {
         // Arrange
         let id = UUID()
 
         // Assert
-        XCTAssertEqual(SurfaceState.active(containerId: id), SurfaceState.active(containerId: id))
+        XCTAssertEqual(SurfaceState.active(paneAttachmentId: id), SurfaceState.active(paneAttachmentId: id))
     }
 
-    func test_surfaceState_equatable_differentContainerId() {
+    func test_surfaceState_equatable_differentPaneAttachmentId() {
         // Assert
         XCTAssertNotEqual(
-            SurfaceState.active(containerId: UUID()),
-            SurfaceState.active(containerId: UUID())
+            SurfaceState.active(paneAttachmentId: UUID()),
+            SurfaceState.active(paneAttachmentId: UUID())
         )
     }
 
@@ -162,12 +162,12 @@ final class SurfaceTypesTests: XCTestCase {
         // Arrange
         let metadata = makeSurfaceMetadata(title: "Test")
         let id = UUID()
-        let containerId = UUID()
+        let paneAttachmentId = UUID()
         let original = SurfaceCheckpoint.SurfaceData(
             id: id,
             metadata: metadata,
             wasActive: true,
-            containerId: containerId
+            paneAttachmentId: paneAttachmentId
         )
 
         // Act
@@ -177,17 +177,17 @@ final class SurfaceTypesTests: XCTestCase {
         // Assert
         XCTAssertEqual(decoded.id, id)
         XCTAssertEqual(decoded.wasActive, true)
-        XCTAssertEqual(decoded.containerId, containerId)
+        XCTAssertEqual(decoded.paneAttachmentId, paneAttachmentId)
         XCTAssertEqual(decoded.metadata.title, "Test")
     }
 
-    func test_surfaceData_codable_nilContainerId_roundTrip() throws {
+    func test_surfaceData_codable_nilPaneAttachmentId_roundTrip() throws {
         // Arrange
         let original = SurfaceCheckpoint.SurfaceData(
             id: UUID(),
             metadata: makeSurfaceMetadata(),
             wasActive: false,
-            containerId: nil
+            paneAttachmentId: nil
         )
 
         // Act
@@ -196,7 +196,7 @@ final class SurfaceTypesTests: XCTestCase {
 
         // Assert
         XCTAssertFalse(decoded.wasActive)
-        XCTAssertNil(decoded.containerId)
+        XCTAssertNil(decoded.paneAttachmentId)
     }
 
     // MARK: - SurfaceError

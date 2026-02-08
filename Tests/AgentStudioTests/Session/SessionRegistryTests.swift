@@ -33,20 +33,24 @@ final class SessionRegistryTests: XCTestCase {
 
     func test_registerPaneSession_createsEntry() {
         // Arrange
-        let sessionId = "agentstudio--a1b2c3d4--e5f6a7b8--00001111"
+        let sessionId = "agentstudio--a1b2c3d4e5f6a7b8--00112233aabbccdd--aabbccdd11223344"
+        let paneId = UUID()
 
         // Act
         registry.registerPaneSession(
             id: sessionId,
+            paneId: paneId,
             projectId: UUID(),
             worktreeId: UUID(),
-            displayName: "test",
-            workingDirectory: URL(fileURLWithPath: "/tmp")
+            repoPath: URL(fileURLWithPath: "/tmp/test-repo"),
+            worktreePath: URL(fileURLWithPath: "/tmp"),
+            displayName: "test"
         )
 
         // Assert
         XCTAssertNotNil(registry.entries[sessionId])
         XCTAssertEqual(registry.entries[sessionId]?.machine.state, .alive)
+        XCTAssertEqual(registry.entries[sessionId]?.handle.paneId, paneId)
     }
 
     func test_registerPaneSession_rejectsInvalidId() {
@@ -56,10 +60,12 @@ final class SessionRegistryTests: XCTestCase {
         // Act
         registry.registerPaneSession(
             id: badId,
+            paneId: UUID(),
             projectId: UUID(),
             worktreeId: UUID(),
-            displayName: "test",
-            workingDirectory: URL(fileURLWithPath: "/tmp")
+            repoPath: URL(fileURLWithPath: "/tmp/test-repo"),
+            worktreePath: URL(fileURLWithPath: "/tmp"),
+            displayName: "test"
         )
 
         // Assert
@@ -68,15 +74,17 @@ final class SessionRegistryTests: XCTestCase {
 
     func test_registerPaneSession_rejectsUppercaseHex() {
         // Arrange — uppercase hex should be rejected
-        let badId = "agentstudio--A1B2C3D4--E5F6A7B8--00001111"
+        let badId = "agentstudio--A1B2C3D4E5F6A7B8--00112233AABBCCDD--AABBCCDD11223344"
 
         // Act
         registry.registerPaneSession(
             id: badId,
+            paneId: UUID(),
             projectId: UUID(),
             worktreeId: UUID(),
-            displayName: "test",
-            workingDirectory: URL(fileURLWithPath: "/tmp")
+            repoPath: URL(fileURLWithPath: "/tmp/test-repo"),
+            worktreePath: URL(fileURLWithPath: "/tmp"),
+            displayName: "test"
         )
 
         // Assert
@@ -85,22 +93,26 @@ final class SessionRegistryTests: XCTestCase {
 
     func test_registerPaneSession_doesNotDuplicateExisting() {
         // Arrange
-        let sessionId = "agentstudio--a1b2c3d4--e5f6a7b8--00001111"
+        let sessionId = "agentstudio--a1b2c3d4e5f6a7b8--00112233aabbccdd--aabbccdd11223344"
         registry.registerPaneSession(
             id: sessionId,
+            paneId: UUID(),
             projectId: UUID(),
             worktreeId: UUID(),
-            displayName: "first",
-            workingDirectory: URL(fileURLWithPath: "/tmp")
+            repoPath: URL(fileURLWithPath: "/tmp/test-repo"),
+            worktreePath: URL(fileURLWithPath: "/tmp"),
+            displayName: "first"
         )
 
         // Act — register again with different displayName
         registry.registerPaneSession(
             id: sessionId,
+            paneId: UUID(),
             projectId: UUID(),
             worktreeId: UUID(),
-            displayName: "second",
-            workingDirectory: URL(fileURLWithPath: "/tmp")
+            repoPath: URL(fileURLWithPath: "/tmp/test-repo"),
+            worktreePath: URL(fileURLWithPath: "/tmp"),
+            displayName: "second"
         )
 
         // Assert — original entry preserved
@@ -111,13 +123,15 @@ final class SessionRegistryTests: XCTestCase {
 
     func test_unregisterPaneSession_removesEntry() {
         // Arrange
-        let sessionId = "agentstudio--a1b2c3d4--e5f6a7b8--00001111"
+        let sessionId = "agentstudio--a1b2c3d4e5f6a7b8--00112233aabbccdd--aabbccdd11223344"
         registry.registerPaneSession(
             id: sessionId,
+            paneId: UUID(),
             projectId: UUID(),
             worktreeId: UUID(),
-            displayName: "test",
-            workingDirectory: URL(fileURLWithPath: "/tmp")
+            repoPath: URL(fileURLWithPath: "/tmp/test-repo"),
+            worktreePath: URL(fileURLWithPath: "/tmp"),
+            displayName: "test"
         )
 
         // Act
@@ -129,7 +143,7 @@ final class SessionRegistryTests: XCTestCase {
 
     func test_unregisterPaneSession_noOpForUnknownId() {
         // Act — should not crash
-        registry.unregisterPaneSession(id: "agentstudio--00000000--00000000--44444444")
+        registry.unregisterPaneSession(id: "agentstudio--a1b2c3d4e5f6a7b8--00112233aabbccdd--aabbccdd11223344")
 
         // Assert
         XCTAssertTrue(registry.entries.isEmpty)
@@ -154,14 +168,20 @@ final class SessionRegistryTests: XCTestCase {
         let worktree = makeWorktree()
         let repo = makeRepo()
         let paneId = UUID()
-        let sessionId = TmuxBackend.sessionId(projectId: repo.id, worktreeId: worktree.id, paneId: paneId)
+        let sessionId = TmuxBackend.sessionId(
+            repoStableKey: repo.stableKey,
+            worktreeStableKey: worktree.stableKey,
+            paneId: paneId
+        )
 
         registry.registerPaneSession(
             id: sessionId,
+            paneId: paneId,
             projectId: repo.id,
             worktreeId: worktree.id,
-            displayName: worktree.name,
-            workingDirectory: worktree.path
+            repoPath: repo.repoPath,
+            worktreePath: worktree.path,
+            displayName: worktree.name
         )
 
         // Act
@@ -177,11 +197,13 @@ final class SessionRegistryTests: XCTestCase {
     func test_destroyAll_clearsAllEntries() async {
         // Arrange
         registry.registerPaneSession(
-            id: "agentstudio--a1b2c3d4--e5f6a7b8--00001111",
+            id: "agentstudio--a1b2c3d4e5f6a7b8--00112233aabbccdd--aabbccdd11223344",
+            paneId: UUID(),
             projectId: UUID(),
             worktreeId: UUID(),
-            displayName: "test",
-            workingDirectory: URL(fileURLWithPath: "/tmp")
+            repoPath: URL(fileURLWithPath: "/tmp/test-repo"),
+            worktreePath: URL(fileURLWithPath: "/tmp"),
+            displayName: "test"
         )
 
         // Act
@@ -203,40 +225,28 @@ final class SessionRegistryTests: XCTestCase {
 
     func test_hasValidId_acceptsValidFormat() {
         // Arrange
-        let handle = PaneSessionHandle(
-            id: "agentstudio--a1b2c3d4--e5f6a7b8--00001111",
-            projectId: UUID(),
-            worktreeId: UUID(),
-            displayName: "test",
-            workingDirectory: URL(fileURLWithPath: "/tmp")
+        let handle = makePaneSessionHandle(
+            id: "agentstudio--a1b2c3d4e5f6a7b8--00112233aabbccdd--aabbccdd11223344"
         )
 
         // Assert
         XCTAssertTrue(handle.hasValidId)
     }
 
-    func test_hasValidId_acceptsLegacy2SegmentFormat() {
-        // Arrange — 2-segment (31-char) legacy format should still be accepted
-        let handle = PaneSessionHandle(
-            id: "agentstudio--a1b2c3d4--e5f6a7b8",
-            projectId: UUID(),
-            worktreeId: UUID(),
-            displayName: "test",
-            workingDirectory: URL(fileURLWithPath: "/tmp")
+    func test_hasValidId_rejects2SegmentFormat() {
+        // Arrange — 2-segment format should be rejected
+        let handle = makePaneSessionHandle(
+            id: "agentstudio--a1b2c3d4--e5f6a7b8"
         )
 
         // Assert
-        XCTAssertTrue(handle.hasValidId)
+        XCTAssertFalse(handle.hasValidId)
     }
 
     func test_hasValidId_rejectsWrongPrefix() {
         // Arrange
-        let handle = PaneSessionHandle(
-            id: "wrongprefix--a1b2c3d4--e5f6a7b8",
-            projectId: UUID(),
-            worktreeId: UUID(),
-            displayName: "test",
-            workingDirectory: URL(fileURLWithPath: "/tmp")
+        let handle = makePaneSessionHandle(
+            id: "wrongprefix--a1b2c3d4e5f6a7b8--00112233aabbccdd--aabbccdd11223344"
         )
 
         // Assert
@@ -245,12 +255,8 @@ final class SessionRegistryTests: XCTestCase {
 
     func test_hasValidId_rejectsNonHexChars() {
         // Arrange
-        let handle = PaneSessionHandle(
-            id: "agentstudio--zzzzzzzz--e5f6a7b8",
-            projectId: UUID(),
-            worktreeId: UUID(),
-            displayName: "test",
-            workingDirectory: URL(fileURLWithPath: "/tmp")
+        let handle = makePaneSessionHandle(
+            id: "agentstudio--zzzzzzzzzzzzzzzz--00112233aabbccdd--aabbccdd11223344"
         )
 
         // Assert
@@ -259,13 +265,7 @@ final class SessionRegistryTests: XCTestCase {
 
     func test_hasValidId_rejectsTooShort() {
         // Arrange
-        let handle = PaneSessionHandle(
-            id: "agentstudio--abc--def",
-            projectId: UUID(),
-            worktreeId: UUID(),
-            displayName: "test",
-            workingDirectory: URL(fileURLWithPath: "/tmp")
-        )
+        let handle = makePaneSessionHandle(id: "agentstudio--abc--def--ghi")
 
         // Assert
         XCTAssertFalse(handle.hasValidId)
@@ -273,13 +273,7 @@ final class SessionRegistryTests: XCTestCase {
 
     func test_hasValidId_rejectsEmptyString() {
         // Arrange
-        let handle = PaneSessionHandle(
-            id: "",
-            projectId: UUID(),
-            worktreeId: UUID(),
-            displayName: "test",
-            workingDirectory: URL(fileURLWithPath: "/tmp")
-        )
+        let handle = makePaneSessionHandle(id: "")
 
         // Assert
         XCTAssertFalse(handle.hasValidId)
@@ -292,14 +286,20 @@ final class SessionRegistryTests: XCTestCase {
         let worktree = makeWorktree()
         let repo = makeRepo()
         let paneId = UUID()
-        let sessionId = TmuxBackend.sessionId(projectId: repo.id, worktreeId: worktree.id, paneId: paneId)
+        let sessionId = TmuxBackend.sessionId(
+            repoStableKey: repo.stableKey,
+            worktreeStableKey: worktree.stableKey,
+            paneId: paneId
+        )
 
         registry.registerPaneSession(
             id: sessionId,
+            paneId: paneId,
             projectId: repo.id,
             worktreeId: worktree.id,
-            displayName: worktree.name,
-            workingDirectory: worktree.path
+            repoPath: repo.repoPath,
+            worktreePath: worktree.path,
+            displayName: worktree.name
         )
 
         // Act
@@ -348,13 +348,20 @@ final class SessionRegistryTests: XCTestCase {
         let worktree = makeWorktree()
         let repo = makeRepo()
         let paneId = UUID()
-        let expectedId = TmuxBackend.sessionId(projectId: repo.id, worktreeId: worktree.id, paneId: paneId)
-        let handle = PaneSessionHandle(
+        let expectedId = TmuxBackend.sessionId(
+            repoStableKey: repo.stableKey,
+            worktreeStableKey: worktree.stableKey,
+            paneId: paneId
+        )
+        let handle = makePaneSessionHandle(
             id: expectedId,
+            paneId: paneId,
             projectId: repo.id,
             worktreeId: worktree.id,
+            repoPath: repo.repoPath.path,
+            worktreePath: worktree.path.path,
             displayName: worktree.name,
-            workingDirectory: worktree.path
+            workingDirectory: worktree.path.path
         )
         mockBackend.createResult = .success(handle)
 
@@ -372,18 +379,22 @@ final class SessionRegistryTests: XCTestCase {
     func test_destroyAll_continuesOnPerSessionFailure() async {
         // Arrange — register two sessions, mock throws on destroy
         registry.registerPaneSession(
-            id: "agentstudio--a1b2c3d4--e5f6a7b8--00001111",
+            id: "agentstudio--a1b2c3d4e5f6a7b8--00112233aabbccdd--aabbccdd11223344",
+            paneId: UUID(),
             projectId: UUID(),
             worktreeId: UUID(),
-            displayName: "first",
-            workingDirectory: URL(fileURLWithPath: "/tmp")
+            repoPath: URL(fileURLWithPath: "/tmp/test-repo"),
+            worktreePath: URL(fileURLWithPath: "/tmp"),
+            displayName: "first"
         )
         registry.registerPaneSession(
-            id: "agentstudio--11111111--22222222--33333333",
+            id: "agentstudio--1111111111111111--2222222222222222--3333333333333333",
+            paneId: UUID(),
             projectId: UUID(),
             worktreeId: UUID(),
-            displayName: "second",
-            workingDirectory: URL(fileURLWithPath: "/tmp")
+            repoPath: URL(fileURLWithPath: "/tmp/test-repo"),
+            worktreePath: URL(fileURLWithPath: "/tmp"),
+            displayName: "second"
         )
         mockBackend.throwOnDestroy = true
 
@@ -399,16 +410,19 @@ final class SessionRegistryTests: XCTestCase {
 
     func test_saveCheckpoint_roundTripsEntries() {
         // Arrange
-        let sessionId = "agentstudio--a1b2c3d4--e5f6a7b8--00001111"
+        let sessionId = "agentstudio--a1b2c3d4e5f6a7b8--00112233aabbccdd--aabbccdd11223344"
+        let paneId = UUID()
         let projectId = UUID()
         let worktreeId = UUID()
 
         registry.registerPaneSession(
             id: sessionId,
+            paneId: paneId,
             projectId: projectId,
             worktreeId: worktreeId,
-            displayName: "test-roundtrip",
-            workingDirectory: URL(fileURLWithPath: "/tmp")
+            repoPath: URL(fileURLWithPath: "/tmp/test-repo"),
+            worktreePath: URL(fileURLWithPath: "/tmp"),
+            displayName: "test-roundtrip"
         )
 
         // Act
@@ -420,22 +434,35 @@ final class SessionRegistryTests: XCTestCase {
         XCTAssertEqual(loaded?.sessions.count, 1)
         XCTAssertEqual(loaded?.sessions.first?.sessionId, sessionId)
         XCTAssertEqual(loaded?.sessions.first?.displayName, "test-roundtrip")
+        XCTAssertEqual(loaded?.sessions.first?.paneId, paneId)
     }
 
-    // MARK: - Restore from Checkpoint (via initialize)
+    // MARK: - Restore from Checkpoint
 
     func test_restoreFromCheckpoint_populatesAliveEntries() async {
-        // Arrange — create a checkpoint with one session
-        let sessionId = "agentstudio--a1b2c3d4--e5f6a7b8--00001111"
-        let projectId = UUID()
+        // Arrange — create repo + worktree, compute deterministic session ID
+        let paneId = UUID()
         let worktreeId = UUID()
+        let repo = makeRepo(repoPath: "/tmp/test-repo")
+        let worktree = makeWorktree(id: worktreeId, path: "/tmp/test-repo/main")
+        let repoWithWt = makeRepo(id: repo.id, repoPath: "/tmp/test-repo", worktrees: [worktree])
+
+        let sessionId = TmuxBackend.sessionId(
+            repoStableKey: repo.stableKey,
+            worktreeStableKey: worktree.stableKey,
+            paneId: paneId
+        )
+
         let checkpoint = SessionCheckpoint(sessions: [
             .init(
                 sessionId: sessionId,
-                projectId: projectId,
+                paneId: paneId,
+                projectId: repo.id,
                 worktreeId: worktreeId,
+                repoPath: repo.repoPath,
+                worktreePath: worktree.path,
                 displayName: "surviving",
-                workingDirectory: URL(fileURLWithPath: "/tmp"),
+                workingDirectory: worktree.path,
                 lastKnownAlive: Date()
             ),
         ])
@@ -443,8 +470,10 @@ final class SessionRegistryTests: XCTestCase {
         // Mock: session is alive in tmux
         mockBackend.sessionExistsResult = true
 
-        // Act
-        await registry.restoreFromCheckpoint(checkpoint)
+        // Act — provide repoLookup that returns the test repo
+        await registry.restoreFromCheckpoint(checkpoint) { id, _ in
+            id == repoWithWt.id ? repoWithWt : nil
+        }
 
         // Assert
         XCTAssertEqual(registry.entries.count, 1)
@@ -454,14 +483,28 @@ final class SessionRegistryTests: XCTestCase {
 
     func test_restoreFromCheckpoint_skipsDeadSessions() async {
         // Arrange
-        let sessionId = "agentstudio--a1b2c3d4--e5f6a7b8--00001111"
+        let paneId = UUID()
+        let worktreeId = UUID()
+        let repo = makeRepo(repoPath: "/tmp/test-repo")
+        let worktree = makeWorktree(id: worktreeId, path: "/tmp/test-repo/main")
+        let repoWithWt = makeRepo(id: repo.id, repoPath: "/tmp/test-repo", worktrees: [worktree])
+
+        let sessionId = TmuxBackend.sessionId(
+            repoStableKey: repo.stableKey,
+            worktreeStableKey: worktree.stableKey,
+            paneId: paneId
+        )
+
         let checkpoint = SessionCheckpoint(sessions: [
             .init(
                 sessionId: sessionId,
-                projectId: UUID(),
-                worktreeId: UUID(),
+                paneId: paneId,
+                projectId: repo.id,
+                worktreeId: worktreeId,
+                repoPath: repo.repoPath,
+                worktreePath: worktree.path,
                 displayName: "dead-session",
-                workingDirectory: URL(fileURLWithPath: "/tmp"),
+                workingDirectory: worktree.path,
                 lastKnownAlive: Date()
             ),
         ])
@@ -470,47 +513,142 @@ final class SessionRegistryTests: XCTestCase {
         mockBackend.sessionExistsResult = false
 
         // Act
-        await registry.restoreFromCheckpoint(checkpoint)
+        await registry.restoreFromCheckpoint(checkpoint) { id, _ in
+            id == repoWithWt.id ? repoWithWt : nil
+        }
 
         // Assert — dead session should not be restored
         XCTAssertTrue(registry.entries.isEmpty)
     }
 
-    func test_restoreFromCheckpoint_destroysLegacy2SegmentSessions() async {
-        // Arrange — legacy 2-segment ID (31 chars) should be destroyed, not restored
-        let legacyId = "agentstudio--a1b2c3d4--e5f6a7b8"
+    func test_restoreFromCheckpoint_destroysMismatchedSessionIds() async {
+        // Arrange — repo exists but has moved to a new path, so stableKey changed
+        let paneId = UUID()
+        let worktreeId = UUID()
+        let staleSessionId = "agentstudio--0000000000000000--1111111111111111--2222222222222222"
+
+        // Current repo is at a different path than what produced the stale session ID
+        let repo = makeRepo(repoPath: "/tmp/test-repo")
+        let worktree = makeWorktree(id: worktreeId, path: "/tmp/test-repo/main")
+        let repoWithWt = makeRepo(id: repo.id, repoPath: "/tmp/test-repo", worktrees: [worktree])
+
         let checkpoint = SessionCheckpoint(sessions: [
             .init(
-                sessionId: legacyId,
-                projectId: UUID(),
-                worktreeId: UUID(),
-                displayName: "legacy-session",
-                workingDirectory: URL(fileURLWithPath: "/tmp"),
+                sessionId: staleSessionId,
+                paneId: paneId,
+                projectId: repo.id,
+                worktreeId: worktreeId,
+                repoPath: URL(fileURLWithPath: "/old/path/repo"),
+                worktreePath: URL(fileURLWithPath: "/old/path/repo/main"),
+                displayName: "stale-session",
+                workingDirectory: URL(fileURLWithPath: "/old/path/repo/main"),
                 lastKnownAlive: Date()
             ),
         ])
 
         mockBackend.sessionExistsResult = true
 
-        // Act
-        await registry.restoreFromCheckpoint(checkpoint)
+        // Act — repoLookup returns repo at new path → recomputed ID won't match stale
+        await registry.restoreFromCheckpoint(checkpoint) { id, _ in
+            id == repoWithWt.id ? repoWithWt : nil
+        }
 
-        // Assert — legacy session destroyed, not restored
-        XCTAssertTrue(registry.entries.isEmpty, "Legacy session should not be restored")
-        XCTAssertEqual(mockBackend.destroyByIdCalls, [legacyId], "Legacy session should be destroyed")
+        // Assert — stale session destroyed, not restored
+        XCTAssertTrue(registry.entries.isEmpty, "Mismatched session should not be restored")
+        XCTAssertEqual(mockBackend.destroyByIdCalls, [staleSessionId], "Stale session should be destroyed")
+    }
+
+    func test_restoreFromCheckpoint_destroysStaleWhenRepoNotFound() async {
+        // Arrange — checkpoint references a repo that no longer exists
+        let paneId = UUID()
+        let staleSessionId = "agentstudio--a1b2c3d4e5f6a7b8--00112233aabbccdd--aabbccdd11223344"
+
+        let checkpoint = SessionCheckpoint(sessions: [
+            .init(
+                sessionId: staleSessionId,
+                paneId: paneId,
+                projectId: UUID(),
+                worktreeId: UUID(),
+                repoPath: URL(fileURLWithPath: "/tmp/deleted-repo"),
+                worktreePath: URL(fileURLWithPath: "/tmp/deleted-repo/main"),
+                displayName: "orphan-session",
+                workingDirectory: URL(fileURLWithPath: "/tmp/deleted-repo/main"),
+                lastKnownAlive: Date()
+            ),
+        ])
+
+        mockBackend.sessionExistsResult = true
+
+        // Act — repoLookup returns nil (repo removed)
+        await registry.restoreFromCheckpoint(checkpoint) { _, _ in nil }
+
+        // Assert — session destroyed because repo no longer exists
+        XCTAssertTrue(registry.entries.isEmpty, "Session for missing repo should not be restored")
+        XCTAssertEqual(mockBackend.destroyByIdCalls, [staleSessionId], "Stale session should be destroyed")
+    }
+
+    func test_restoreFromCheckpoint_fallsBackToPathMatching() async {
+        // Arrange — checkpoint has stale UUIDs but valid paths that still match
+        let paneId = UUID()
+        let staleProjectId = UUID()  // UUID from old workspace
+        let staleWorktreeId = UUID()  // UUID from old workspace
+
+        let repo = makeRepo(repoPath: "/tmp/test-repo")
+        let worktree = makeWorktree(path: "/tmp/test-repo/main")
+        let repoWithWt = makeRepo(id: repo.id, repoPath: "/tmp/test-repo", worktrees: [worktree])
+
+        let sessionId = TmuxBackend.sessionId(
+            repoStableKey: repo.stableKey,
+            worktreeStableKey: worktree.stableKey,
+            paneId: paneId
+        )
+
+        let checkpoint = SessionCheckpoint(sessions: [
+            .init(
+                sessionId: sessionId,
+                paneId: paneId,
+                projectId: staleProjectId,
+                worktreeId: staleWorktreeId,
+                repoPath: repo.repoPath,
+                worktreePath: worktree.path,
+                displayName: "path-fallback",
+                workingDirectory: worktree.path,
+                lastKnownAlive: Date()
+            ),
+        ])
+
+        mockBackend.sessionExistsResult = true
+
+        // Act — UUID lookup fails (staleProjectId doesn't match), but path fallback succeeds
+        await registry.restoreFromCheckpoint(checkpoint) { id, path in
+            // UUID won't match, but path will
+            if id == repoWithWt.id { return repoWithWt }
+            if path == repoWithWt.repoPath { return repoWithWt }
+            return nil
+        }
+
+        // Assert — should restore via path fallback
+        XCTAssertEqual(registry.entries.count, 1)
+        XCTAssertNotNil(registry.entries[sessionId])
+        XCTAssertEqual(registry.entries[sessionId]?.machine.state, .alive)
+        // Handle should have the CURRENT repo/worktree IDs, not the stale ones
+        XCTAssertEqual(registry.entries[sessionId]?.handle.projectId, repo.id)
+        XCTAssertEqual(registry.entries[sessionId]?.handle.worktreeId, worktree.id)
     }
 
     // MARK: - Effect Handler: Recovery
 
     func test_effectHandler_attemptRecovery_succeeds() async {
         // Arrange
-        let sessionId = "agentstudio--a1b2c3d4--e5f6a7b8--00001111"
+        let sessionId = "agentstudio--a1b2c3d4e5f6a7b8--00112233aabbccdd--aabbccdd11223344"
         registry.registerPaneSession(
             id: sessionId,
+            paneId: UUID(),
             projectId: UUID(),
             worktreeId: UUID(),
-            displayName: "test",
-            workingDirectory: URL(fileURLWithPath: "/tmp")
+            repoPath: URL(fileURLWithPath: "/tmp/test-repo"),
+            worktreePath: URL(fileURLWithPath: "/tmp"),
+            displayName: "test"
         )
         guard let entry = registry.entries[sessionId] else {
             XCTFail("Entry not found"); return
@@ -535,13 +673,15 @@ final class SessionRegistryTests: XCTestCase {
 
     func test_effectHandler_attemptRecovery_fails() async {
         // Arrange
-        let sessionId = "agentstudio--a1b2c3d4--e5f6a7b8--00001111"
+        let sessionId = "agentstudio--a1b2c3d4e5f6a7b8--00112233aabbccdd--aabbccdd11223344"
         registry.registerPaneSession(
             id: sessionId,
+            paneId: UUID(),
             projectId: UUID(),
             worktreeId: UUID(),
-            displayName: "test",
-            workingDirectory: URL(fileURLWithPath: "/tmp")
+            repoPath: URL(fileURLWithPath: "/tmp/test-repo"),
+            worktreePath: URL(fileURLWithPath: "/tmp"),
+            displayName: "test"
         )
         guard let entry = registry.entries[sessionId] else {
             XCTFail("Entry not found"); return

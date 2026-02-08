@@ -7,9 +7,15 @@ final class AgentStudioTerminalView: NSView, SurfaceContainer, SurfaceHealthDele
     let worktree: Worktree
     let repo: Repo
 
+    /// Persistent pane identity — used for tmux session ID and SplitTree keying.
+    /// Set once, never changes. Preserved through undo-close and Codable.
+    let paneId: UUID
+
     // MARK: - SurfaceContainer Protocol
 
-    private(set) var containerId: UUID
+    /// Runtime-only UI attachment identity.
+    /// Fresh UUID every init. NOT persisted. Only used by SurfaceManager.attach().
+    private(set) var paneAttachmentId: UUID
     var surfaceId: UUID?
 
     // MARK: - Private State
@@ -28,7 +34,8 @@ final class AgentStudioTerminalView: NSView, SurfaceContainer, SurfaceHealthDele
 
     /// Standard initializer - creates a new terminal surface
     init(worktree: Worktree, repo: Repo) {
-        self.containerId = UUID()
+        self.paneId = UUID()
+        self.paneAttachmentId = UUID()
         self.worktree = worktree
         self.repo = repo
         super.init(frame: NSRect(x: 0, y: 0, width: 800, height: 600))
@@ -49,8 +56,9 @@ final class AgentStudioTerminalView: NSView, SurfaceContainer, SurfaceHealthDele
 
     /// Restoring initializer — defers terminal setup until the view is displayed.
     /// Used by the Codable decode path to avoid spawning orphaned processes.
-    init(worktree: Worktree, repo: Repo, restoring: Bool, containerId: UUID = UUID()) {
-        self.containerId = containerId
+    init(worktree: Worktree, repo: Repo, restoring: Bool, paneId: UUID) {
+        self.paneId = paneId
+        self.paneAttachmentId = UUID()
         self.worktree = worktree
         self.repo = repo
         super.init(frame: NSRect(x: 0, y: 0, width: 800, height: 600))
@@ -59,8 +67,9 @@ final class AgentStudioTerminalView: NSView, SurfaceContainer, SurfaceHealthDele
 
     /// Restore initializer - for attaching an existing surface (undo close)
     /// Does NOT create a new surface; caller must attach one via displaySurface()
-    init(worktree: Worktree, repo: Repo, restoredSurfaceId: UUID) {
-        self.containerId = UUID()
+    init(worktree: Worktree, repo: Repo, restoredSurfaceId: UUID, paneId: UUID) {
+        self.paneId = paneId
+        self.paneAttachmentId = UUID()
         self.worktree = worktree
         self.repo = repo
         self.surfaceId = restoredSurfaceId
@@ -90,19 +99,25 @@ final class AgentStudioTerminalView: NSView, SurfaceContainer, SurfaceHealthDele
     /// via `tmux new-session -A` (creates if missing, attaches if exists).
     private func setupTerminalWithSessionRestore() async {
         let registry = SessionRegistry.shared
-        let sessionId = TmuxBackend.sessionId(projectId: repo.id, worktreeId: worktree.id, paneId: containerId)
+        let sessionId = TmuxBackend.sessionId(
+            repoStableKey: repo.stableKey,
+            worktreeStableKey: worktree.stableKey,
+            paneId: paneId
+        )
 
         // Register session for health tracking (surface handles actual tmux creation)
         registry.registerPaneSession(
             id: sessionId,
+            paneId: paneId,
             projectId: repo.id,
             worktreeId: worktree.id,
-            displayName: worktree.name,
-            workingDirectory: worktree.path
+            repoPath: repo.repoPath,
+            worktreePath: worktree.path,
+            displayName: worktree.name
         )
 
         // Let the surface handle create+attach via new-session -A
-        guard let attachCmd = registry.attachCommand(for: worktree, in: repo, paneId: containerId) else {
+        guard let attachCmd = registry.attachCommand(for: worktree, in: repo, paneId: paneId) else {
             ghosttyLogger.error("Session registered but attachCommand returned nil for \(sessionId)")
             setupTerminal()  // safety fallback
             return
@@ -123,7 +138,8 @@ final class AgentStudioTerminalView: NSView, SurfaceContainer, SurfaceHealthDele
             command: cmd,
             title: worktree.name,
             worktreeId: worktree.id,
-            repoId: repo.id
+            repoId: repo.id,
+            paneId: paneId
         )
 
         // Create surface via manager
@@ -134,7 +150,7 @@ final class AgentStudioTerminalView: NSView, SurfaceContainer, SurfaceHealthDele
             self.surfaceId = managed.id
 
             // Attach to this container
-            SurfaceManager.shared.attach(managed.id, to: containerId)
+            SurfaceManager.shared.attach(managed.id, to: paneAttachmentId)
 
             // Display the surface
             displaySurface(managed.surface)
@@ -432,7 +448,7 @@ final class AgentStudioTerminalView: NSView, SurfaceContainer, SurfaceHealthDele
 
 extension AgentStudioTerminalView: Identifiable {
     typealias ID = UUID
-    var id: UUID { containerId }
+    var id: UUID { paneId }
 }
 
 // MARK: - Codable
@@ -441,7 +457,7 @@ extension AgentStudioTerminalView: Codable {
     private enum CodingKeys: String, CodingKey {
         case worktreeId
         case repoId
-        case containerId
+        case paneId
         case title
     }
 
@@ -449,7 +465,7 @@ extension AgentStudioTerminalView: Codable {
         let container = try decoder.container(keyedBy: CodingKeys.self)
         let worktreeId = try container.decode(UUID.self, forKey: .worktreeId)
         let repoId = try container.decode(UUID.self, forKey: .repoId)
-        let savedContainerId = try container.decode(UUID.self, forKey: .containerId)
+        let savedPaneId = try container.decode(UUID.self, forKey: .paneId)
 
         // Look up worktree and repo from SessionManager
         guard let repo = SessionManager.shared.repos.first(where: { $0.id == repoId }),
@@ -462,17 +478,17 @@ extension AgentStudioTerminalView: Codable {
             )
         }
 
-        // Use the base NSView init — do NOT call self.init(worktree:repo:) which
+        // Use the restoring init — do NOT call self.init(worktree:repo:) which
         // spawns a shell process immediately. Terminal setup is deferred until the
         // view is displayed, preventing orphaned processes on restore.
-        self.init(worktree: worktree, repo: repo, restoring: true, containerId: savedContainerId)
+        self.init(worktree: worktree, repo: repo, restoring: true, paneId: savedPaneId)
     }
 
     func encode(to encoder: Encoder) throws {
         var container = encoder.container(keyedBy: CodingKeys.self)
         try container.encode(worktree.id, forKey: .worktreeId)
         try container.encode(repo.id, forKey: .repoId)
-        try container.encode(containerId, forKey: .containerId)
+        try container.encode(paneId, forKey: .paneId)
         try container.encode(title, forKey: .title)
     }
 }

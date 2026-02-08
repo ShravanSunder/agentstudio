@@ -10,6 +10,10 @@ struct Worktree: Codable, Identifiable, Hashable {
     var agent: AgentType?
     var status: WorktreeStatus
 
+    /// Deterministic identity derived from filesystem path via SHA-256.
+    /// Used for tmux session ID segment. Survives reinstall/data loss, breaks on directory move.
+    var stableKey: String { StableKey.fromPath(path) }
+
     init(
         id: UUID = UUID(),
         name: String,

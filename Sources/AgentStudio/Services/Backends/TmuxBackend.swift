@@ -25,13 +25,11 @@ final class TmuxBackend: SessionBackend {
 
     // MARK: - Session ID Generation
 
-    /// Generate a deterministic session ID for a project+worktree+pane triple.
-    /// Format: `agentstudio--<project8>--<worktree8>--<pane8>`
-    static func sessionId(projectId: UUID, worktreeId: UUID, paneId: UUID) -> String {
-        let projectPrefix = projectId.uuidString.prefix(8).lowercased()
-        let worktreePrefix = worktreeId.uuidString.prefix(8).lowercased()
-        let panePrefix = paneId.uuidString.prefix(8).lowercased()
-        return "\(sessionPrefix)\(projectPrefix)--\(worktreePrefix)--\(panePrefix)"
+    /// Generate a deterministic session ID from stable keys + pane UUID.
+    /// Format: `agentstudio--<repoKey16>--<wtKey16>--<pane16>` (65 chars)
+    static func sessionId(repoStableKey: String, worktreeStableKey: String, paneId: UUID) -> String {
+        let panePrefix = String(paneId.uuidString.replacingOccurrences(of: "-", with: "").prefix(16)).lowercased()
+        return "\(sessionPrefix)\(repoStableKey)--\(worktreeStableKey)--\(panePrefix)"
     }
 
     // MARK: - Availability
@@ -55,8 +53,8 @@ final class TmuxBackend: SessionBackend {
 
     // MARK: - Pane Session Lifecycle
 
-    func createPaneSession(projectId: UUID, worktree: Worktree, paneId: UUID) async throws -> PaneSessionHandle {
-        let sessionId = Self.sessionId(projectId: projectId, worktreeId: worktree.id, paneId: paneId)
+    func createPaneSession(repo: Repo, worktree: Worktree, paneId: UUID) async throws -> PaneSessionHandle {
+        let sessionId = Self.sessionId(repoStableKey: repo.stableKey, worktreeStableKey: worktree.stableKey, paneId: paneId)
 
         let result = try await executor.execute(
             command: "tmux",
@@ -80,8 +78,11 @@ final class TmuxBackend: SessionBackend {
 
         return PaneSessionHandle(
             id: sessionId,
-            projectId: projectId,
+            paneId: paneId,
+            projectId: repo.id,
             worktreeId: worktree.id,
+            repoPath: repo.repoPath,
+            worktreePath: worktree.path,
             displayName: worktree.name,
             workingDirectory: worktree.path
         )

@@ -7,8 +7,10 @@ class AppDelegate: NSObject, NSApplicationDelegate {
     func applicationDidFinishLaunching(_ notification: Notification) {
         // Set GHOSTTY_RESOURCES_DIR before any GhosttyKit initialization.
         // This lets GhosttyKit find xterm-ghostty terminfo in both dev and bundle builds.
-        if let resourcesDir = SessionConfiguration.resolveTerminfoDir() {
-            setenv("GHOSTTY_RESOURCES_DIR", resourcesDir, 0)  // 0 = don't overwrite if already set
+        // The value must be a subdirectory (e.g. .../ghostty) whose parent contains
+        // terminfo/, because GhosttyKit computes TERMINFO = dirname(this) + "/terminfo".
+        if let resourcesDir = SessionConfiguration.resolveGhosttyResourcesDir() {
+            setenv("GHOSTTY_RESOURCES_DIR", resourcesDir, 1)  // 1 = overwrite; our resolved path must take priority
         }
 
         // Initialize services

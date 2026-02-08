@@ -34,15 +34,16 @@ final class TmuxBackendIntegrationTests: XCTestCase {
             path: "/tmp",
             branch: "integ-test"
         )
-        let projectId = UUID()
+        let repo = makeRepo()
 
         // Act
-        let handle = try await backend.createPaneSession(projectId: projectId, worktree: worktree, paneId: UUID())
+        let handle = try await backend.createPaneSession(repo: repo, worktree: worktree, paneId: UUID())
 
         // Assert — session should be alive
         let exists = await backend.sessionExists(handle)
         XCTAssertTrue(exists, "Session should exist after creation")
         XCTAssertTrue(handle.id.hasPrefix("agentstudio--"))
+        XCTAssertEqual(handle.id.count, 65)
     }
 
     // MARK: - Health Check
@@ -50,7 +51,8 @@ final class TmuxBackendIntegrationTests: XCTestCase {
     func test_healthCheck_trueForLiveSession() async throws {
         // Arrange
         let worktree = makeWorktree(name: "health-test", path: "/tmp", branch: "health-test")
-        let handle = try await backend.createPaneSession(projectId: UUID(), worktree: worktree, paneId: UUID())
+        let repo = makeRepo()
+        let handle = try await backend.createPaneSession(repo: repo, worktree: worktree, paneId: UUID())
 
         // Act
         let alive = await backend.healthCheck(handle)
@@ -64,7 +66,8 @@ final class TmuxBackendIntegrationTests: XCTestCase {
     func test_destroyPaneSession_removesSession() async throws {
         // Arrange
         let worktree = makeWorktree(name: "destroy-test", path: "/tmp", branch: "destroy-test")
-        let handle = try await backend.createPaneSession(projectId: UUID(), worktree: worktree, paneId: UUID())
+        let repo = makeRepo()
+        let handle = try await backend.createPaneSession(repo: repo, worktree: worktree, paneId: UUID())
 
         // Sanity — session exists before destroy
         let beforeDestroy = await backend.sessionExists(handle)
@@ -81,7 +84,8 @@ final class TmuxBackendIntegrationTests: XCTestCase {
     func test_destroySessionById_removesSession() async throws {
         // Arrange
         let worktree = makeWorktree(name: "destroy-id-test", path: "/tmp", branch: "destroy-id-test")
-        let handle = try await backend.createPaneSession(projectId: UUID(), worktree: worktree, paneId: UUID())
+        let repo = makeRepo()
+        let handle = try await backend.createPaneSession(repo: repo, worktree: worktree, paneId: UUID())
 
         // Act
         try await backend.destroySessionById(handle.id)
@@ -97,9 +101,10 @@ final class TmuxBackendIntegrationTests: XCTestCase {
         // Arrange — create two sessions
         let worktree1 = makeWorktree(name: "orphan-tracked", path: "/tmp", branch: "orphan-tracked")
         let worktree2 = makeWorktree(name: "orphan-untracked", path: "/tmp", branch: "orphan-untracked")
+        let repo = makeRepo()
 
-        let handle1 = try await backend.createPaneSession(projectId: UUID(), worktree: worktree1, paneId: UUID())
-        let handle2 = try await backend.createPaneSession(projectId: UUID(), worktree: worktree2, paneId: UUID())
+        let handle1 = try await backend.createPaneSession(repo: repo, worktree: worktree1, paneId: UUID())
+        let handle2 = try await backend.createPaneSession(repo: repo, worktree: worktree2, paneId: UUID())
 
         // Act — exclude handle1, so handle2 should appear as orphan
         let orphans = await backend.discoverOrphanSessions(excluding: [handle1.id])
