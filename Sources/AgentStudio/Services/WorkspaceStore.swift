@@ -1,0 +1,539 @@
+import Foundation
+import Combine
+import os.log
+
+private let storeLogger = Logger(subsystem: "com.agentstudio", category: "WorkspaceStore")
+
+/// Owns ALL persisted workspace state. Single source of truth.
+/// All mutations go through here. Collaborators (WorkspacePersistor, ViewRegistry)
+/// are internal — not peers.
+@MainActor
+final class WorkspaceStore: ObservableObject {
+
+    // MARK: - Persisted State
+
+    @Published private(set) var repos: [Repo] = []
+    @Published private(set) var sessions: [TerminalSession] = []
+    @Published private(set) var views: [ViewDefinition] = []
+    @Published private(set) var activeViewId: UUID?
+
+    // MARK: - Transient UI State
+
+    @Published var draggingTabId: UUID?
+    @Published var dropTargetIndex: Int?
+    @Published var tabFrames: [UUID: CGRect] = [:]
+
+    // MARK: - Internal State
+
+    private(set) var workspaceId: UUID = UUID()
+    private(set) var workspaceName: String = "Default Workspace"
+    private(set) var sidebarWidth: CGFloat = 250
+    private(set) var windowFrame: CGRect?
+    private(set) var createdAt: Date = Date()
+    private(set) var updatedAt: Date = Date()
+
+    // MARK: - Collaborators
+
+    private let persistor: WorkspacePersistor
+    private var debouncedSaveTask: Task<Void, Never>?
+
+    // MARK: - Init
+
+    init(persistor: WorkspacePersistor = WorkspacePersistor()) {
+        self.persistor = persistor
+    }
+
+    // MARK: - Derived State
+
+    var activeView: ViewDefinition? {
+        views.first { $0.id == activeViewId }
+    }
+
+    var activeTabs: [Tab] {
+        activeView?.tabs ?? []
+    }
+
+    var activeTabId: UUID? {
+        activeView?.activeTabId
+    }
+
+    /// All sessions visible in the active view.
+    var activeSessionIds: Set<UUID> {
+        Set(activeView?.allSessionIds ?? [])
+    }
+
+    /// Is a worktree active (has any session)?
+    func isWorktreeActive(_ worktreeId: UUID) -> Bool {
+        sessions.contains { $0.worktreeId == worktreeId }
+    }
+
+    /// Count of sessions for a worktree.
+    func sessionCount(for worktreeId: UUID) -> Int {
+        sessions.filter { $0.worktreeId == worktreeId }.count
+    }
+
+    // MARK: - Queries
+
+    func session(_ id: UUID) -> TerminalSession? {
+        sessions.first { $0.id == id }
+    }
+
+    func tab(_ id: UUID) -> Tab? {
+        activeView?.tabs.first { $0.id == id }
+    }
+
+    func tabContaining(sessionId: UUID) -> Tab? {
+        activeView?.tabs.first { $0.sessionIds.contains(sessionId) }
+    }
+
+    func repo(_ id: UUID) -> Repo? {
+        repos.first { $0.id == id }
+    }
+
+    func worktree(_ id: UUID) -> Worktree? {
+        repos.flatMap(\.worktrees).first { $0.id == id }
+    }
+
+    func repo(containing worktreeId: UUID) -> Repo? {
+        repos.first { repo in
+            repo.worktrees.contains { $0.id == worktreeId }
+        }
+    }
+
+    func sessions(for worktreeId: UUID) -> [TerminalSession] {
+        sessions.filter { $0.worktreeId == worktreeId }
+    }
+
+    // MARK: - Session Mutations
+
+    @discardableResult
+    func createSession(
+        source: TerminalSource,
+        title: String = "Terminal",
+        provider: SessionProvider = .ghostty
+    ) -> TerminalSession {
+        let session = TerminalSession(
+            source: source,
+            title: title,
+            provider: provider
+        )
+        sessions.append(session)
+        save()
+        return session
+    }
+
+    func removeSession(_ sessionId: UUID) {
+        sessions.removeAll { $0.id == sessionId }
+
+        // Remove from all view layouts
+        for viewIndex in views.indices {
+            for tabIndex in views[viewIndex].tabs.indices {
+                if let newLayout = views[viewIndex].tabs[tabIndex].layout.removing(sessionId: sessionId) {
+                    views[viewIndex].tabs[tabIndex].layout = newLayout
+                    // Update activeSessionId if it was the removed session
+                    if views[viewIndex].tabs[tabIndex].activeSessionId == sessionId {
+                        views[viewIndex].tabs[tabIndex].activeSessionId = newLayout.sessionIds.first
+                    }
+                } else {
+                    // Layout became empty — mark tab for removal
+                    views[viewIndex].tabs[tabIndex].layout = Layout()
+                }
+            }
+            // Remove empty tabs
+            views[viewIndex].tabs.removeAll { $0.layout.isEmpty }
+            // Fix activeTabId if it was removed
+            if let activeTabId = views[viewIndex].activeTabId,
+               !views[viewIndex].tabs.contains(where: { $0.id == activeTabId }) {
+                views[viewIndex].activeTabId = views[viewIndex].tabs.last?.id
+            }
+        }
+        save()
+    }
+
+    func updateSessionTitle(_ sessionId: UUID, title: String) {
+        guard let index = sessions.firstIndex(where: { $0.id == sessionId }) else { return }
+        sessions[index].title = title
+        debouncedSave()
+    }
+
+    func updateSessionAgent(_ sessionId: UUID, agent: AgentType?) {
+        guard let index = sessions.firstIndex(where: { $0.id == sessionId }) else { return }
+        sessions[index].agent = agent
+        save()
+    }
+
+    func setProviderHandle(_ sessionId: UUID, handle: String) {
+        guard let index = sessions.firstIndex(where: { $0.id == sessionId }) else { return }
+        sessions[index].providerHandle = handle
+        save()
+    }
+
+    // MARK: - View Mutations
+
+    func switchView(_ viewId: UUID) {
+        guard views.contains(where: { $0.id == viewId }) else { return }
+        activeViewId = viewId
+        save()
+    }
+
+    @discardableResult
+    func createView(name: String, kind: ViewKind) -> ViewDefinition {
+        let view = ViewDefinition(name: name, kind: kind)
+        views.append(view)
+        save()
+        return view
+    }
+
+    func deleteView(_ viewId: UUID) {
+        // Cannot delete main view
+        guard views.first(where: { $0.id == viewId })?.kind != .main else { return }
+        views.removeAll { $0.id == viewId }
+        if activeViewId == viewId {
+            activeViewId = views.first(where: { $0.kind == .main })?.id
+        }
+        save()
+    }
+
+    @discardableResult
+    func saveCurrentViewAs(name: String) -> ViewDefinition? {
+        guard let current = activeView else { return nil }
+        let snapshot = ViewDefinition(
+            name: name,
+            kind: .saved,
+            tabs: current.tabs,
+            activeTabId: current.activeTabId
+        )
+        views.append(snapshot)
+        save()
+        return snapshot
+    }
+
+    // MARK: - Tab Mutations (within active view)
+
+    func appendTab(_ tab: Tab) {
+        guard let viewIndex = activeViewIndex else { return }
+        views[viewIndex].tabs.append(tab)
+        views[viewIndex].activeTabId = tab.id
+        save()
+    }
+
+    func removeTab(_ tabId: UUID) {
+        guard let viewIndex = activeViewIndex else { return }
+        views[viewIndex].tabs.removeAll { $0.id == tabId }
+        if views[viewIndex].activeTabId == tabId {
+            views[viewIndex].activeTabId = views[viewIndex].tabs.last?.id
+        }
+        save()
+    }
+
+    func insertTab(_ tab: Tab, at index: Int) {
+        guard let viewIndex = activeViewIndex else { return }
+        let clampedIndex = min(index, views[viewIndex].tabs.count)
+        views[viewIndex].tabs.insert(tab, at: clampedIndex)
+        save()
+    }
+
+    func moveTab(fromId: UUID, toIndex: Int) {
+        guard let viewIndex = activeViewIndex else { return }
+        guard let fromIndex = views[viewIndex].tabs.firstIndex(where: { $0.id == fromId }) else { return }
+        let tab = views[viewIndex].tabs.remove(at: fromIndex)
+        let clampedIndex = min(toIndex, views[viewIndex].tabs.count)
+        views[viewIndex].tabs.insert(tab, at: clampedIndex)
+        save()
+    }
+
+    func setActiveTab(_ tabId: UUID?) {
+        guard let viewIndex = activeViewIndex else { return }
+        views[viewIndex].activeTabId = tabId
+        save()
+    }
+
+    // MARK: - Layout Mutations (within a tab in the active view)
+
+    func insertSession(
+        _ sessionId: UUID,
+        inTab tabId: UUID,
+        at targetSessionId: UUID,
+        direction: Layout.SplitDirection,
+        position: Layout.Position
+    ) {
+        guard let (viewIndex, tabIndex) = findTab(tabId) else { return }
+        views[viewIndex].tabs[tabIndex].layout = views[viewIndex].tabs[tabIndex].layout
+            .inserting(sessionId: sessionId, at: targetSessionId, direction: direction, position: position)
+        save()
+    }
+
+    func removeSessionFromLayout(_ sessionId: UUID, inTab tabId: UUID) {
+        guard let (viewIndex, tabIndex) = findTab(tabId) else { return }
+        if let newLayout = views[viewIndex].tabs[tabIndex].layout.removing(sessionId: sessionId) {
+            views[viewIndex].tabs[tabIndex].layout = newLayout
+            // Update active session if removed
+            if views[viewIndex].tabs[tabIndex].activeSessionId == sessionId {
+                views[viewIndex].tabs[tabIndex].activeSessionId = newLayout.sessionIds.first
+            }
+        } else {
+            // Last session removed — close tab
+            removeTab(tabId)
+        }
+        save()
+    }
+
+    func resizePane(tabId: UUID, splitId: UUID, ratio: Double) {
+        guard let (viewIndex, tabIndex) = findTab(tabId) else { return }
+        views[viewIndex].tabs[tabIndex].layout = views[viewIndex].tabs[tabIndex].layout
+            .resizing(splitId: splitId, ratio: ratio)
+        debouncedSave()
+    }
+
+    func equalizePanes(tabId: UUID) {
+        guard let (viewIndex, tabIndex) = findTab(tabId) else { return }
+        views[viewIndex].tabs[tabIndex].layout = views[viewIndex].tabs[tabIndex].layout.equalized()
+        save()
+    }
+
+    func setActiveSession(_ sessionId: UUID?, inTab tabId: UUID) {
+        guard let (viewIndex, tabIndex) = findTab(tabId) else { return }
+        views[viewIndex].tabs[tabIndex].activeSessionId = sessionId
+        debouncedSave()
+    }
+
+    // MARK: - Compound Operations
+
+    /// Break a split tab into individual tabs, one per session.
+    func breakUpTab(_ tabId: UUID) -> [Tab] {
+        guard let (viewIndex, tabIndex) = findTab(tabId) else { return [] }
+        let sessionIds = views[viewIndex].tabs[tabIndex].sessionIds
+        guard sessionIds.count > 1 else { return [] }
+
+        // Remove original tab
+        views[viewIndex].tabs.remove(at: tabIndex)
+
+        // Create individual tabs
+        var newTabs: [Tab] = []
+        for sessionId in sessionIds {
+            let tab = Tab(sessionId: sessionId)
+            newTabs.append(tab)
+        }
+
+        // Insert at original position
+        let insertIndex = min(tabIndex, views[viewIndex].tabs.count)
+        views[viewIndex].tabs.insert(contentsOf: newTabs, at: insertIndex)
+        views[viewIndex].activeTabId = newTabs.first?.id
+
+        save()
+        return newTabs
+    }
+
+    /// Extract a session from a tab into its own new tab.
+    func extractSession(_ sessionId: UUID, fromTab tabId: UUID) -> Tab? {
+        guard let (viewIndex, tabIndex) = findTab(tabId) else { return nil }
+        guard views[viewIndex].tabs[tabIndex].sessionIds.count > 1 else { return nil }
+
+        // Remove session from source tab
+        if let newLayout = views[viewIndex].tabs[tabIndex].layout.removing(sessionId: sessionId) {
+            views[viewIndex].tabs[tabIndex].layout = newLayout
+            if views[viewIndex].tabs[tabIndex].activeSessionId == sessionId {
+                views[viewIndex].tabs[tabIndex].activeSessionId = newLayout.sessionIds.first
+            }
+        }
+
+        // Create new tab
+        let newTab = Tab(sessionId: sessionId)
+        let insertIndex = tabIndex + 1
+        views[viewIndex].tabs.insert(newTab, at: min(insertIndex, views[viewIndex].tabs.count))
+        views[viewIndex].activeTabId = newTab.id
+
+        save()
+        return newTab
+    }
+
+    /// Merge all sessions from source tab into target tab's layout.
+    func mergeTab(
+        sourceId: UUID,
+        intoTarget targetId: UUID,
+        at targetSessionId: UUID,
+        direction: Layout.SplitDirection,
+        position: Layout.Position
+    ) {
+        guard let viewIndex = activeViewIndex else { return }
+        guard let sourceTabIndex = views[viewIndex].tabs.firstIndex(where: { $0.id == sourceId }),
+              let targetTabIndex = views[viewIndex].tabs.firstIndex(where: { $0.id == targetId }) else { return }
+
+        let sourceSessionIds = views[viewIndex].tabs[sourceTabIndex].sessionIds
+
+        // Insert each source session into target layout
+        var currentTarget = targetSessionId
+        for sessionId in sourceSessionIds {
+            views[viewIndex].tabs[targetTabIndex].layout = views[viewIndex].tabs[targetTabIndex].layout
+                .inserting(sessionId: sessionId, at: currentTarget, direction: direction, position: position)
+            currentTarget = sessionId
+        }
+
+        // Remove source tab
+        views[viewIndex].tabs.remove(at: sourceTabIndex)
+
+        // Fix activeTabId
+        views[viewIndex].activeTabId = targetId
+
+        save()
+    }
+
+    // MARK: - Repo Mutations
+
+    @discardableResult
+    func addRepo(at path: URL) -> Repo {
+        if let existing = repos.first(where: { $0.repoPath == path }) {
+            return existing
+        }
+        let repo = Repo(name: path.lastPathComponent, repoPath: path)
+        repos.append(repo)
+        save()
+        return repo
+    }
+
+    func removeRepo(_ repoId: UUID) {
+        repos.removeAll { $0.id == repoId }
+        save()
+    }
+
+    func updateRepoWorktrees(_ repoId: UUID, worktrees: [Worktree]) {
+        guard let index = repos.firstIndex(where: { $0.id == repoId }) else { return }
+        repos[index].worktrees = worktrees
+        repos[index].updatedAt = Date()
+        save()
+    }
+
+    // MARK: - Persistence
+
+    func restore() {
+        persistor.ensureDirectory()
+        if let state = persistor.load() {
+            workspaceId = state.id
+            workspaceName = state.name
+            repos = state.repos
+            sessions = state.sessions
+            views = state.views
+            activeViewId = state.activeViewId
+            sidebarWidth = state.sidebarWidth
+            windowFrame = state.windowFrame
+            createdAt = state.createdAt
+            updatedAt = state.updatedAt
+        }
+
+        // Ensure main view exists
+        ensureMainView()
+    }
+
+    func save() {
+        persistor.ensureDirectory()
+        updatedAt = Date()
+        let state = WorkspacePersistor.PersistableState(
+            id: workspaceId,
+            name: workspaceName,
+            repos: repos,
+            sessions: sessions,
+            views: views,
+            activeViewId: activeViewId,
+            sidebarWidth: sidebarWidth,
+            windowFrame: windowFrame,
+            createdAt: createdAt,
+            updatedAt: updatedAt
+        )
+        persistor.save(state)
+    }
+
+    /// Debounced save for high-frequency operations (resize, drag).
+    /// Coalesces writes within a 500ms window.
+    func debouncedSave() {
+        debouncedSaveTask?.cancel()
+        debouncedSaveTask = Task { @MainActor [weak self] in
+            try? await Task.sleep(for: .milliseconds(500))
+            guard !Task.isCancelled else { return }
+            self?.save()
+        }
+    }
+
+    // MARK: - UI State
+
+    func setSidebarWidth(_ width: CGFloat) {
+        sidebarWidth = width
+        // Transient — saved on quit only via debouncedSave
+        debouncedSave()
+    }
+
+    func setWindowFrame(_ frame: CGRect?) {
+        windowFrame = frame
+        // Transient — saved on quit only
+    }
+
+    // MARK: - Undo
+
+    /// Snapshot for undo close. Captures tab + sessions + view context.
+    struct CloseSnapshot: Codable {
+        let tab: Tab
+        let sessions: [TerminalSession]
+        let viewId: UUID
+        let tabIndex: Int
+    }
+
+    func snapshotForClose(tabId: UUID) -> CloseSnapshot? {
+        guard let viewIndex = activeViewIndex,
+              let tabIndex = views[viewIndex].tabs.firstIndex(where: { $0.id == tabId }) else {
+            return nil
+        }
+        let tab = views[viewIndex].tabs[tabIndex]
+        let tabSessions = tab.sessionIds.compactMap { session($0) }
+        return CloseSnapshot(
+            tab: tab,
+            sessions: tabSessions,
+            viewId: views[viewIndex].id,
+            tabIndex: tabIndex
+        )
+    }
+
+    func restoreFromSnapshot(_ snapshot: CloseSnapshot) {
+        // Re-add sessions that were removed
+        for session in snapshot.sessions {
+            if !sessions.contains(where: { $0.id == session.id }) {
+                sessions.append(session)
+            }
+        }
+
+        // Re-insert tab at original position in the correct view
+        if let viewIndex = views.firstIndex(where: { $0.id == snapshot.viewId }) {
+            let insertIndex = min(snapshot.tabIndex, views[viewIndex].tabs.count)
+            views[viewIndex].tabs.insert(snapshot.tab, at: insertIndex)
+            views[viewIndex].activeTabId = snapshot.tab.id
+        } else if let viewIndex = activeViewIndex {
+            // Fallback to active view
+            views[viewIndex].tabs.append(snapshot.tab)
+            views[viewIndex].activeTabId = snapshot.tab.id
+        }
+
+        save()
+    }
+
+    // MARK: - Private Helpers
+
+    private var activeViewIndex: Int? {
+        views.firstIndex { $0.id == activeViewId }
+    }
+
+    private func findTab(_ tabId: UUID) -> (viewIndex: Int, tabIndex: Int)? {
+        guard let viewIndex = activeViewIndex else { return nil }
+        guard let tabIndex = views[viewIndex].tabs.firstIndex(where: { $0.id == tabId }) else { return nil }
+        return (viewIndex, tabIndex)
+    }
+
+    /// Ensure the main view always exists.
+    private func ensureMainView() {
+        if !views.contains(where: { $0.kind == .main }) {
+            let mainView = ViewDefinition(name: "Main", kind: .main)
+            views.insert(mainView, at: 0)
+            activeViewId = mainView.id
+        }
+        if activeViewId == nil {
+            activeViewId = views.first(where: { $0.kind == .main })?.id
+        }
+    }
+}
