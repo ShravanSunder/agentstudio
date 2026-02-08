@@ -328,6 +328,7 @@ extension Ghostty {
                     }
                 }
 
+                // Control and Command never contribute to text translation per Ghostty's KeyEncoder
                 let consumedMods = event.modifierFlags.subtracting([.control, .command])
                 keyEvent.consumed_mods = ghosttyMods(from: consumedMods)
 

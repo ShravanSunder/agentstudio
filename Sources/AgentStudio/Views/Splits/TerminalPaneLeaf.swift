@@ -59,7 +59,7 @@ struct TerminalPaneLeaf: View {
                         }
                         Spacer()
                     }
-                    .allowsHitTesting(true)
+                    .allowsHitTesting(true)  // Safe: entire VStack only exists when condition above is true
                 }
 
                 // Drop zone overlay
