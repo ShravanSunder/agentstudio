@@ -49,7 +49,7 @@ final class SessionRegistryIntegrationTests: XCTestCase {
         let repo = makeRepo()
 
         // Act
-        let entry = try await registry.getOrCreatePaneSession(for: worktree, in: repo)
+        let entry = try await registry.getOrCreatePaneSession(for: worktree, in: repo, paneId: UUID())
 
         // Assert — entry exists and session is alive in tmux
         XCTAssertEqual(entry.machine.state, .alive)
@@ -65,12 +65,13 @@ final class SessionRegistryIntegrationTests: XCTestCase {
         // Arrange
         let worktree = makeWorktree(name: "integ-attach", path: "/tmp", branch: "integ-attach")
         let repo = makeRepo()
+        let paneId = UUID()
 
         // Create session so it exists in tmux
-        let entry = try await registry.getOrCreatePaneSession(for: worktree, in: repo)
+        let entry = try await registry.getOrCreatePaneSession(for: worktree, in: repo, paneId: paneId)
 
         // Act
-        let cmd = registry.attachCommand(for: worktree, in: repo)
+        let cmd = registry.attachCommand(for: worktree, in: repo, paneId: paneId)
 
         // Assert
         XCTAssertNotNil(cmd)

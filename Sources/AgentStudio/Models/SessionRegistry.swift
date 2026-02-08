@@ -71,9 +71,10 @@ final class SessionRegistry {
     /// when the terminal surface creates the session via `new-session -A`.
     func getOrCreatePaneSession(
         for worktree: Worktree,
-        in repo: Repo
+        in repo: Repo,
+        paneId: UUID
     ) async throws -> PaneEntry {
-        let expectedId = TmuxBackend.sessionId(projectId: repo.id, worktreeId: worktree.id)
+        let expectedId = TmuxBackend.sessionId(projectId: repo.id, worktreeId: worktree.id, paneId: paneId)
 
         // Return existing if alive
         if let existing = entries[expectedId], existing.machine.state == .alive {
@@ -91,7 +92,7 @@ final class SessionRegistry {
         creationsInProgress.insert(expectedId)
         defer { creationsInProgress.remove(expectedId) }
 
-        let handle = try await backend.createPaneSession(projectId: repo.id, worktree: worktree)
+        let handle = try await backend.createPaneSession(projectId: repo.id, worktree: worktree, paneId: paneId)
 
         // Session is already created by the backend — start machine in .alive
         let machine = Machine<SessionStatus>(initialState: .alive)
@@ -151,10 +152,10 @@ final class SessionRegistry {
     }
 
     /// Returns the command Ghostty should run for a worktree's pane session.
-    func attachCommand(for worktree: Worktree, in repo: Repo) -> String? {
+    func attachCommand(for worktree: Worktree, in repo: Repo, paneId: UUID) -> String? {
         guard let backend else { return nil }
 
-        let expectedId = TmuxBackend.sessionId(projectId: repo.id, worktreeId: worktree.id)
+        let expectedId = TmuxBackend.sessionId(projectId: repo.id, worktreeId: worktree.id, paneId: paneId)
         guard let entry = entries[expectedId] else { return nil }
 
         return backend.attachCommand(for: entry.handle)
@@ -224,6 +225,16 @@ final class SessionRegistry {
                 displayName: sessionData.displayName,
                 workingDirectory: sessionData.workingDirectory
             )
+
+            // Destroy old-format sessions (2-segment, 31-char) — they can't be
+            // matched to a specific pane, so clean them up rather than orphan them.
+            let suffix = handle.id.dropFirst(13) // drop "agentstudio--"
+            let segmentCount = suffix.components(separatedBy: "--").count
+            if segmentCount < 3 {
+                try? await backend.destroySessionById(handle.id)
+                sessionLogger.info("Destroyed legacy session during restore: \(handle.id)")
+                continue
+            }
 
             let alive = await backend.sessionExists(handle)
             guard alive else { continue }

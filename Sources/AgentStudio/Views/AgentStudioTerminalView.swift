@@ -17,6 +17,9 @@ final class AgentStudioTerminalView: NSView, SurfaceContainer, SurfaceHealthDele
     private var ghosttySurface: Ghostty.SurfaceView?
     private(set) var isProcessRunning = false
     private var errorOverlay: SurfaceErrorOverlayView?
+    /// Guards against re-entrant setup when an async Task is in flight.
+    /// Set true before setup begins, cleared in setupTerminal() success/failure.
+    private var isSettingUp = false
 
     /// The current terminal title
     var title: String {
@@ -33,6 +36,7 @@ final class AgentStudioTerminalView: NSView, SurfaceContainer, SurfaceHealthDele
         // Note: Do NOT set wantsLayer or backgroundColor here
         // Let Ghostty manage its own layer rendering
 
+        isSettingUp = true
         if SessionRegistry.shared.configuration.isOperational {
             // Session restore enabled: register + attach via tmux new-session -A
             Task { @MainActor in
@@ -86,7 +90,7 @@ final class AgentStudioTerminalView: NSView, SurfaceContainer, SurfaceHealthDele
     /// via `tmux new-session -A` (creates if missing, attaches if exists).
     private func setupTerminalWithSessionRestore() async {
         let registry = SessionRegistry.shared
-        let sessionId = TmuxBackend.sessionId(projectId: repo.id, worktreeId: worktree.id)
+        let sessionId = TmuxBackend.sessionId(projectId: repo.id, worktreeId: worktree.id, paneId: containerId)
 
         // Register session for health tracking (surface handles actual tmux creation)
         registry.registerPaneSession(
@@ -98,7 +102,7 @@ final class AgentStudioTerminalView: NSView, SurfaceContainer, SurfaceHealthDele
         )
 
         // Let the surface handle create+attach via new-session -A
-        guard let attachCmd = registry.attachCommand(for: worktree, in: repo) else {
+        guard let attachCmd = registry.attachCommand(for: worktree, in: repo, paneId: containerId) else {
             ghosttyLogger.error("Session registered but attachCommand returned nil for \(sessionId)")
             setupTerminal()  // safety fallback
             return
@@ -139,9 +143,11 @@ final class AgentStudioTerminalView: NSView, SurfaceContainer, SurfaceHealthDele
             SurfaceManager.shared.addHealthDelegate(self)
 
             self.isProcessRunning = true
+            self.isSettingUp = false
             ghosttyLogger.info("Terminal created via SurfaceManager for worktree: \(self.worktree.name)")
 
         case .failure(let error):
+            self.isSettingUp = false
             ghosttyLogger.error("Failed to create terminal: \(error.localizedDescription)")
             showGhosttyError(error)
         }
@@ -249,6 +255,7 @@ final class AgentStudioTerminalView: NSView, SurfaceContainer, SurfaceHealthDele
         removeSurface()
 
         // Create new surface — route through session restore when available
+        isSettingUp = true
         if SessionRegistry.shared.configuration.isOperational {
             Task { @MainActor in
                 await setupTerminalWithSessionRestore()
@@ -337,7 +344,7 @@ final class AgentStudioTerminalView: NSView, SurfaceContainer, SurfaceHealthDele
         super.viewDidMoveToWindow()
         // Lazily set up terminal when the view enters a window for the first time.
         // This handles restored views that deferred setupTerminal().
-        if window != nil && surfaceId == nil && ghosttySurface == nil {
+        if window != nil && surfaceId == nil && ghosttySurface == nil && !isSettingUp {
             if SessionRegistry.shared.configuration.isOperational {
                 Task { @MainActor in
                     await setupTerminalWithSessionRestore()

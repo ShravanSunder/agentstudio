@@ -12,18 +12,20 @@ struct PaneSessionHandle: Equatable, Sendable, Codable, Hashable {
     let displayName: String
     let workingDirectory: URL
 
-    /// Whether the id matches the expected `agentstudio--<8hex>--<8hex>` format.
+    /// Whether the id matches a valid session ID format.
+    /// Accepts both current 3-segment (41 chars) and legacy 2-segment (31 chars) formats.
     var hasValidId: Bool {
-        // Format: "agentstudio--" (13) + 8hex + "--" (2) + 8hex = 31 chars total
-        guard id.count == 31, id.hasPrefix("agentstudio--") else { return false }
-        let suffix = String(id.dropFirst(13)) // "xxxxxxxx--yyyyyyyy"
+        guard id.hasPrefix("agentstudio--") else { return false }
+        let suffix = String(id.dropFirst(13))
         let segments = suffix.components(separatedBy: "--")
-        guard segments.count == 2,
-              segments[0].count == 8,
-              segments[1].count == 8 else { return false }
         let hexChars = CharacterSet(charactersIn: "0123456789abcdef")
-        return segments[0].unicodeScalars.allSatisfy { hexChars.contains($0) }
-            && segments[1].unicodeScalars.allSatisfy { hexChars.contains($0) }
+        // 3-segment (41 chars): agentstudio--<proj8>--<wt8>--<pane8>
+        // 2-segment (31 chars): agentstudio--<proj8>--<wt8> (legacy)
+        guard (segments.count == 2 || segments.count == 3),
+              segments.allSatisfy({ $0.count == 8 }) else { return false }
+        return segments.allSatisfy { seg in
+            seg.unicodeScalars.allSatisfy { hexChars.contains($0) }
+        }
     }
 }
 
@@ -38,8 +40,8 @@ protocol SessionBackend: Sendable {
 
     // MARK: Pane Session Lifecycle
 
-    /// Create a new background session for the given worktree.
-    func createPaneSession(projectId: UUID, worktree: Worktree) async throws -> PaneSessionHandle
+    /// Create a new background session for the given worktree and pane.
+    func createPaneSession(projectId: UUID, worktree: Worktree, paneId: UUID) async throws -> PaneSessionHandle
 
     /// Returns the shell command to attach to a pane session.
     func attachCommand(for handle: PaneSessionHandle) -> String

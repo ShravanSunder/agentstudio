@@ -44,11 +44,13 @@ final class TmuxBackendTests: XCTestCase {
         let projectId = UUID(uuidString: "A1B2C3D4-0000-0000-0000-000000000000")!
         let worktreeId = UUID(uuidString: "E5F6A7B8-0000-0000-0000-000000000000")!
 
+        let paneId = UUID(uuidString: "00001111-0000-0000-0000-000000000000")!
+
         // Act
-        let id = TmuxBackend.sessionId(projectId: projectId, worktreeId: worktreeId)
+        let id = TmuxBackend.sessionId(projectId: projectId, worktreeId: worktreeId, paneId: paneId)
 
         // Assert
-        XCTAssertEqual(id, "agentstudio--a1b2c3d4--e5f6a7b8")
+        XCTAssertEqual(id, "agentstudio--a1b2c3d4--e5f6a7b8--00001111")
     }
 
     func test_sessionId_isDeterministic() {
@@ -56,9 +58,11 @@ final class TmuxBackendTests: XCTestCase {
         let projectId = UUID()
         let worktreeId = UUID()
 
+        let paneId = UUID()
+
         // Act
-        let id1 = TmuxBackend.sessionId(projectId: projectId, worktreeId: worktreeId)
-        let id2 = TmuxBackend.sessionId(projectId: projectId, worktreeId: worktreeId)
+        let id1 = TmuxBackend.sessionId(projectId: projectId, worktreeId: worktreeId, paneId: paneId)
+        let id2 = TmuxBackend.sessionId(projectId: projectId, worktreeId: worktreeId, paneId: paneId)
 
         // Assert
         XCTAssertEqual(id1, id2)
@@ -73,7 +77,7 @@ final class TmuxBackendTests: XCTestCase {
         executor.enqueueSuccess()
 
         // Act
-        let handle = try await backend.createPaneSession(projectId: projectId, worktree: worktree)
+        let handle = try await backend.createPaneSession(projectId: projectId, worktree: worktree, paneId: UUID())
 
         // Assert
         XCTAssertTrue(handle.id.hasPrefix("agentstudio--"))
@@ -97,7 +101,7 @@ final class TmuxBackendTests: XCTestCase {
         executor.enqueueSuccess()
 
         // Act
-        _ = try await backend.createPaneSession(projectId: UUID(), worktree: worktree)
+        _ = try await backend.createPaneSession(projectId: UUID(), worktree: worktree, paneId: UUID())
 
         // Assert
         let call = executor.calls.first!
@@ -116,7 +120,7 @@ final class TmuxBackendTests: XCTestCase {
 
         // Act & Assert
         do {
-            _ = try await backend.createPaneSession(projectId: UUID(), worktree: worktree)
+            _ = try await backend.createPaneSession(projectId: UUID(), worktree: worktree, paneId: UUID())
             XCTFail("Expected error")
         } catch {
             XCTAssertTrue(error is SessionBackendError)

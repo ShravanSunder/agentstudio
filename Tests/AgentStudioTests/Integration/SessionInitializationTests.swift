@@ -34,7 +34,7 @@ final class SessionInitializationTests: XCTestCase {
         )
 
         // Create a checkpoint with one session to restore
-        let sessionId = "agentstudio--a1b2c3d4--e5f6a7b8"
+        let sessionId = "agentstudio--a1b2c3d4--e5f6a7b8--00001111"
         let checkpoint = SessionCheckpoint(sessions: [
             .init(
                 sessionId: sessionId,
