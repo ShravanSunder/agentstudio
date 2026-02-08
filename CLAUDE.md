@@ -88,3 +88,33 @@ To ensure high product quality, agents **must** visually verify all UI/UX change
 
 - **Requirement**: Use [Peekaboo](https://github.com/steipete/Peekaboo) to capture screenshots or snapshots of the running application.
 - **Definition of Done**: A task is **NOT DONE** until the agent has visually inspected the work using Peekaboo to confirm it looks correct and the fix is verified in the actual UI.
+
+### ⚠️ Testing Debug Builds vs Installed Apps
+
+**NEVER target apps by name when testing debug builds.** An installed `/Applications/AgentStudio.app` may exist and Peekaboo will target the WRONG process.
+
+**ALWAYS follow this procedure:**
+
+1. **Kill ALL existing instances first:**
+   ```bash
+   pkill -9 -f "AgentStudio"
+   ```
+
+2. **Launch the debug build explicitly:**
+   ```bash
+   .build/debug/AgentStudio &
+   ```
+
+3. **Get the PID and use PID-targeting:**
+   ```bash
+   PID=$(pgrep -f ".build/debug/AgentStudio")
+   peekaboo app switch --to "PID:$PID"
+   peekaboo see --app "PID:$PID" --json
+   ```
+
+4. **Verify you're testing the right binary:**
+   ```bash
+   ps aux | grep AgentStudio  # Should show .build/debug path
+   ```
+
+**Why this matters:** Using `--app "AgentStudio"` may target an installed app instead of your debug build, causing you to verify the WRONG code.

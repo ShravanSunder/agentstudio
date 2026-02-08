@@ -5,6 +5,14 @@ class AppDelegate: NSObject, NSApplicationDelegate {
     var mainWindowController: MainWindowController?
 
     func applicationDidFinishLaunching(_ notification: Notification) {
+        // Set GHOSTTY_RESOURCES_DIR before any GhosttyKit initialization.
+        // This lets GhosttyKit find xterm-ghostty terminfo in both dev and bundle builds.
+        // The value must be a subdirectory (e.g. .../ghostty) whose parent contains
+        // terminfo/, because GhosttyKit computes TERMINFO = dirname(this) + "/terminfo".
+        if let resourcesDir = SessionConfiguration.resolveGhosttyResourcesDir() {
+            setenv("GHOSTTY_RESOURCES_DIR", resourcesDir, 1)  // 1 = overwrite; our resolved path must take priority
+        }
+
         // Initialize services
         _ = SessionManager.shared
 
@@ -18,12 +26,22 @@ class AppDelegate: NSObject, NSApplicationDelegate {
         // Check for worktrunk dependency
         checkWorktrunkInstallation()
 
-        // Create main window
-        mainWindowController = MainWindowController()
-        mainWindowController?.showWindow(nil)
-
-        // Set up main menu
+        // Set up main menu (doesn't depend on session restore)
         setupMainMenu()
+
+        // Initialize session restore THEN create window.
+        // Window creation must wait because terminal views check
+        // SessionRegistry.isOperational during viewDidLoad.
+        // Note: initialize() is non-throwing and returns promptly when
+        // session restore is disabled. If it stalls (rare — stuck tmux probe),
+        // the user can dock-click to trigger showOrCreateMainWindow().
+        Task { @MainActor in
+            await SessionRegistry.shared.initialize()
+            if self.mainWindowController == nil {
+                self.mainWindowController = MainWindowController()
+                self.mainWindowController?.showWindow(nil)
+            }
+        }
     }
 
     // MARK: - Dependency Check
@@ -87,6 +105,10 @@ class AppDelegate: NSObject, NSApplicationDelegate {
     }
 
     func applicationWillTerminate(_ notification: Notification) {
+        // Save session restore checkpoint before quitting
+        SessionRegistry.shared.saveCheckpoint()
+        SessionRegistry.shared.stopHealthChecks()
+
         // Save state before quitting
         Task { @MainActor in
             SessionManager.shared.save()

@@ -179,13 +179,13 @@ final class SurfaceManager: ObservableObject {
     /// Attach a surface to a container (makes it visible/active)
     /// - Parameters:
     ///   - surfaceId: ID of the surface to attach
-    ///   - containerId: ID of the container to attach to
+    ///   - paneAttachmentId: ID of the container to attach to
     /// - Returns: The surface view if successful
     @discardableResult
-    func attach(_ surfaceId: UUID, to containerId: UUID) -> Ghostty.SurfaceView? {
+    func attach(_ surfaceId: UUID, to paneAttachmentId: UUID) -> Ghostty.SurfaceView? {
         // Check hidden surfaces first
         if var managed = hiddenSurfaces.removeValue(forKey: surfaceId) {
-            managed.state = .active(containerId: containerId)
+            managed.state = .active(paneAttachmentId: paneAttachmentId)
             managed.metadata.lastActiveAt = Date()
             activeSurfaces[surfaceId] = managed
 
@@ -193,7 +193,7 @@ final class SurfaceManager: ObservableObject {
             setOcclusion(surfaceId, visible: true)
 
             updateCounts()
-            logger.info("Surface attached: \(surfaceId) to container \(containerId)")
+            logger.info("Surface attached: \(surfaceId) to container \(paneAttachmentId)")
             return managed.surface
         }
 
@@ -203,7 +203,7 @@ final class SurfaceManager: ObservableObject {
             entry.expirationTask?.cancel()
 
             var managed = entry.surface
-            managed.state = .active(containerId: containerId)
+            managed.state = .active(paneAttachmentId: paneAttachmentId)
             managed.metadata.lastActiveAt = Date()
             activeSurfaces[surfaceId] = managed
 
@@ -217,7 +217,7 @@ final class SurfaceManager: ObservableObject {
         // Check if already active (re-attach)
         if let managed = activeSurfaces[surfaceId] {
             var updated = managed
-            updated.state = .active(containerId: containerId)
+            updated.state = .active(paneAttachmentId: paneAttachmentId)
             updated.metadata.lastActiveAt = Date()
             activeSurfaces[surfaceId] = updated
             return managed.surface
@@ -240,11 +240,11 @@ final class SurfaceManager: ObservableObject {
         // Pause rendering
         setOcclusion(surfaceId, visible: false)
 
-        let previousContainerId: UUID?
+        let previousPaneAttachmentId: UUID?
         if case .active(let cid) = managed.state {
-            previousContainerId = cid
+            previousPaneAttachmentId = cid
         } else {
-            previousContainerId = nil
+            previousPaneAttachmentId = nil
         }
 
         switch reason {
@@ -259,7 +259,7 @@ final class SurfaceManager: ObservableObject {
 
             var entry = SurfaceUndoEntry(
                 surface: managed,
-                previousContainerId: previousContainerId,
+                previousPaneAttachmentId: previousPaneAttachmentId,
                 closedAt: Date(),
                 expiresAt: expiresAt
             )
@@ -280,20 +280,20 @@ final class SurfaceManager: ObservableObject {
     // MARK: - Surface Mobility
 
     /// Move a surface from one container to another
-    func move(_ surfaceId: UUID, to targetContainerId: UUID) {
+    func move(_ surfaceId: UUID, to targetPaneAttachmentId: UUID) {
         guard var managed = activeSurfaces[surfaceId] ?? hiddenSurfaces.removeValue(forKey: surfaceId) else {
             logger.warning("Surface not found for move: \(surfaceId)")
             return
         }
 
-        managed.state = .active(containerId: targetContainerId)
+        managed.state = .active(paneAttachmentId: targetPaneAttachmentId)
         managed.metadata.lastActiveAt = Date()
         activeSurfaces[surfaceId] = managed
 
         setOcclusion(surfaceId, visible: true)
         updateCounts()
 
-        logger.info("Surface moved: \(surfaceId) to \(targetContainerId)")
+        logger.info("Surface moved: \(surfaceId) to \(targetPaneAttachmentId)")
     }
 
     /// Swap two surfaces between containers
@@ -307,8 +307,8 @@ final class SurfaceManager: ObservableObject {
             return
         }
 
-        managedA.state = .active(containerId: containerB)
-        managedB.state = .active(containerId: containerA)
+        managedA.state = .active(paneAttachmentId: containerB)
+        managedB.state = .active(paneAttachmentId: containerA)
 
         activeSurfaces[surfaceA] = managedA
         activeSurfaces[surfaceB] = managedB

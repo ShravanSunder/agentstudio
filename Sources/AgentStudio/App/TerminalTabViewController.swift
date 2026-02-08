@@ -702,7 +702,7 @@ class TerminalTabViewController: NSViewController, CommandHandler {
                 tabBarState.replaceTab(at: updatedIndex, with: tab)
 
                 if let surfaceId = terminalView.surfaceId {
-                    SurfaceManager.shared.attach(surfaceId, to: terminalView.containerId)
+                    SurfaceManager.shared.attach(surfaceId, to: terminalView.paneAttachmentId)
                 }
             }
 
@@ -711,16 +711,26 @@ class TerminalTabViewController: NSViewController, CommandHandler {
             SessionManager.shared.syncTabOrder(tabIds: tabBarState.tabs.map(\.id))
 
         case .newTerminal:
-            // Post notification for new terminal creation
-            NotificationCenter.default.post(
-                name: .newTabRequested,
-                object: nil,
-                userInfo: [
-                    "splitDestination": destination,
-                    "splitZone": dropZone(from: direction),
-                    "targetTabId": targetTabId
-                ]
+            // Create new terminal pane inline using the destination pane's worktree/repo
+            let terminalView = AgentStudioTerminalView(
+                worktree: destination.worktree,
+                repo: destination.repo
             )
+            terminalView.translatesAutoresizingMaskIntoConstraints = false
+
+            guard let newTree = try? tab.splitTree.inserting(
+                view: terminalView, at: destination, direction: newDirection
+            ) else {
+                ghosttyLogger.error("Failed to insert new terminal pane into split tree")
+                return
+            }
+            tab.splitTree = newTree
+            tab.activePaneId = terminalView.id
+            tab.title = tab.displayTitle
+            tabBarState.replaceTab(at: tabIndex, with: tab)
+
+            selectTab(id: targetTabId)
+            saveSplitTree(for: tab)
         }
     }
 
@@ -747,7 +757,7 @@ class TerminalTabViewController: NSViewController, CommandHandler {
         var insertTarget = targetPane
         for sourceView in sourceViews {
             if let surfaceId = sourceView.surfaceId {
-                SurfaceManager.shared.attach(surfaceId, to: sourceView.containerId)
+                SurfaceManager.shared.attach(surfaceId, to: sourceView.paneAttachmentId)
             }
             if let newTree = try? tab.splitTree.inserting(
                 view: sourceView, at: insertTarget, direction: newDirection
@@ -1102,13 +1112,14 @@ class TerminalTabViewController: NSViewController, CommandHandler {
             return
         }
 
-        // Get worktree and repo from metadata
+        // Get worktree, repo, and paneId from metadata
         guard let worktreeId = restored.metadata.worktreeId,
               let repoId = restored.metadata.repoId,
+              let paneId = restored.metadata.paneId,
               let repo = SessionManager.shared.repos.first(where: { $0.id == repoId }),
               let worktree = repo.worktrees.first(where: { $0.id == worktreeId }) else {
-            ghosttyLogger.warning("Could not find worktree/repo for restored surface")
-            // Still destroy the orphan surface
+            ghosttyLogger.warning("Could not find metadata for restored surface")
+            // Destroy the orphan surface (missing required metadata)
             SurfaceManager.shared.destroy(restored.id)
             return
         }
@@ -1117,12 +1128,13 @@ class TerminalTabViewController: NSViewController, CommandHandler {
         let terminalView = AgentStudioTerminalView(
             worktree: worktree,
             repo: repo,
-            restoredSurfaceId: restored.id
+            restoredSurfaceId: restored.id,
+            paneId: paneId
         )
         terminalView.translatesAutoresizingMaskIntoConstraints = false
 
         // Attach restored surface to the terminal view
-        if let surfaceView = SurfaceManager.shared.attach(restored.id, to: terminalView.containerId) {
+        if let surfaceView = SurfaceManager.shared.attach(restored.id, to: terminalView.paneAttachmentId) {
             terminalView.displaySurface(surfaceView)
         }
 
