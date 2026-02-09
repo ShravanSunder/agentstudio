@@ -144,8 +144,7 @@ final class ActionExecutor {
             executorLogger.warning("expireUndoEntry: \(sessionId) — stub, full impl in Phase 3")
 
         case .repair(let repairAction):
-            // TODO: Phase 4 — route repair actions to TerminalViewCoordinator
-            executorLogger.warning("repair: \(String(describing: repairAction)) — stub, full impl in Phase 4")
+            executeRepair(repairAction)
         }
     }
 
@@ -265,6 +264,27 @@ final class ActionExecutor {
             direction: layoutDirection,
             position: position
         )
+    }
+
+    private func executeRepair(_ repairAction: RepairAction) {
+        switch repairAction {
+        case .recreateSurface(let sessionId), .createMissingView(let sessionId):
+            guard let session = store.session(sessionId),
+                  let worktreeId = session.worktreeId,
+                  let repoId = session.repoId,
+                  let worktree = store.worktree(worktreeId),
+                  let repo = store.repo(repoId) else {
+                executorLogger.warning("repair \(String(describing: repairAction)): session has no worktree/repo context")
+                return
+            }
+            coordinator.teardownView(for: sessionId)
+            coordinator.createView(for: session, worktree: worktree, repo: repo)
+            executorLogger.info("Repaired view for session \(sessionId)")
+
+        case .reattachTmux, .markSessionFailed, .cleanupOrphan:
+            // TODO: Phase 4 — implement remaining repair actions
+            executorLogger.warning("repair: \(String(describing: repairAction)) — not yet implemented")
+        }
     }
 
     /// Bridge SplitNewDirection → Layout.SplitDirection.

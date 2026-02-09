@@ -116,8 +116,9 @@ final class TerminalViewCoordinator {
     // MARK: - Undo Restore
 
     /// Restore a view from an undo close. Tries to reuse the undone surface; creates fresh if expired.
-    /// Note: SurfaceManager.undoClose() pops the last globally closed surface, not keyed by sessionId.
-    /// TODO: Add keyed undo to SurfaceManager so the correct surface is restored (Phase 4).
+    /// SurfaceManager.undoClose() is a global LIFO stack. We verify metadata.sessionId matches
+    /// before reattaching to avoid assigning the wrong surface (e.g., in multi-pane tab undo).
+    /// TODO: Add keyed undo to SurfaceManager so the correct surface is always returned (Phase 4).
     @discardableResult
     func restoreView(
         for session: TerminalSession,
@@ -126,22 +127,31 @@ final class TerminalViewCoordinator {
     ) -> AgentStudioTerminalView? {
         // Try to undo-close the surface from SurfaceManager's undo stack
         if let undone = SurfaceManager.shared.undoClose() {
-            let view = AgentStudioTerminalView(
-                worktree: worktree,
-                repo: repo,
-                restoredSurfaceId: undone.id,
-                sessionId: session.id
-            )
-            SurfaceManager.shared.attach(undone.id, to: session.id)
-            view.displaySurface(undone.surface)
-            viewRegistry.register(view, for: session.id)
-            runtime.markRunning(session.id)
-            coordinatorLogger.info("Restored view from undo for session \(session.id)")
-            return view
+            // Verify the surface belongs to this session before reattaching
+            if undone.metadata.sessionId == session.id {
+                let view = AgentStudioTerminalView(
+                    worktree: worktree,
+                    repo: repo,
+                    restoredSurfaceId: undone.id,
+                    sessionId: session.id
+                )
+                SurfaceManager.shared.attach(undone.id, to: session.id)
+                view.displaySurface(undone.surface)
+                viewRegistry.register(view, for: session.id)
+                runtime.markRunning(session.id)
+                coordinatorLogger.info("Restored view from undo for session \(session.id)")
+                return view
+            } else {
+                coordinatorLogger.warning(
+                    "Undo surface metadata mismatch: expected session \(session.id), got \(undone.metadata.sessionId?.uuidString ?? "nil") — creating fresh"
+                )
+                // Surface doesn't belong to this session; destroy it and create fresh
+                SurfaceManager.shared.destroy(undone.id)
+            }
         }
 
-        // Undo expired — create fresh (tmux reattaches, content preserved)
-        coordinatorLogger.info("Undo surface expired for session \(session.id), creating fresh")
+        // Undo expired or mismatched — create fresh (tmux reattaches, content preserved)
+        coordinatorLogger.info("Creating fresh view for session \(session.id)")
         return createView(for: session, worktree: worktree, repo: repo)
     }
 

@@ -764,6 +764,33 @@ final class WorkspaceStoreTests: XCTestCase {
         XCTAssertEqual(store2.activeTabId, tab1.id)
     }
 
+    // MARK: - Dirty Flag
+
+    func test_isDirty_setOnMutation_clearedOnFlush() {
+        // Arrange
+        XCTAssertFalse(store.isDirty)
+
+        // Act — mutation marks dirty
+        _ = store.createSession(source: .floating(workingDirectory: nil, title: nil))
+        XCTAssertTrue(store.isDirty)
+
+        // Act — flush clears dirty
+        store.flush()
+        XCTAssertFalse(store.isDirty)
+    }
+
+    func test_isDirty_clearedAfterDebouncedSave() async throws {
+        // Arrange — mutation marks dirty
+        _ = store.createSession(source: .floating(workingDirectory: nil, title: nil))
+        XCTAssertTrue(store.isDirty)
+
+        // Act — wait for debounce (500ms) + margin
+        try await Task.sleep(for: .milliseconds(700))
+
+        // Assert — debounced persistNow cleared the flag
+        XCTAssertFalse(store.isDirty)
+    }
+
     func test_restoreFromSnapshot_crossViewFallback() {
         // Arrange — create a saved view, add a tab, snapshot it, then delete the view
         let savedView = store.createView(name: "Saved", kind: .saved)
@@ -846,5 +873,77 @@ final class WorkspaceStoreTests: XCTestCase {
         // After restore, activeViewId points to an existing view
         XCTAssertNotNil(store.activeViewId)
         XCTAssertNotNil(store.activeView)
+    }
+
+    // MARK: - Worktree ID Stability
+
+    func test_updateRepoWorktrees_preservesExistingIds() {
+        // Arrange — add repo then seed initial worktrees
+        let repo = store.addRepo(at: URL(fileURLWithPath: "/tmp/wt-test-repo"))
+        let wt1 = makeWorktree(name: "main", path: "/tmp/wt-test-repo/main", branch: "main")
+        let wt2 = makeWorktree(name: "feat", path: "/tmp/wt-test-repo/feat", branch: "feat")
+        store.updateRepoWorktrees(repo.id, worktrees: [wt1, wt2])
+
+        let storedWt1Id = store.repos.first(where: { $0.id == repo.id })!.worktrees[0].id
+        let storedWt2Id = store.repos.first(where: { $0.id == repo.id })!.worktrees[1].id
+
+        // Create a session referencing wt1's ID
+        let session = store.createSession(source: .worktree(worktreeId: storedWt1Id, repoId: repo.id))
+
+        // Act — simulate refresh with fresh Worktree instances (new UUIDs, same paths)
+        let freshWt1 = makeWorktree(name: "main-updated", path: "/tmp/wt-test-repo/main", branch: "main")
+        let freshWt2 = makeWorktree(name: "feat-updated", path: "/tmp/wt-test-repo/feat", branch: "feat")
+        XCTAssertNotEqual(freshWt1.id, storedWt1Id, "precondition: fresh worktree has different UUID")
+
+        store.updateRepoWorktrees(repo.id, worktrees: [freshWt1, freshWt2])
+
+        // Assert — IDs preserved, names updated
+        let updated = store.repos.first(where: { $0.id == repo.id })!
+        XCTAssertEqual(updated.worktrees.count, 2)
+        XCTAssertEqual(updated.worktrees[0].id, storedWt1Id, "existing worktree ID preserved")
+        XCTAssertEqual(updated.worktrees[1].id, storedWt2Id, "existing worktree ID preserved")
+        XCTAssertEqual(updated.worktrees[0].name, "main-updated", "name updated from discovery")
+        XCTAssertEqual(updated.worktrees[1].name, "feat-updated", "name updated from discovery")
+
+        // Session still resolves
+        XCTAssertEqual(session.worktreeId, storedWt1Id)
+        XCTAssertNotNil(store.worktree(storedWt1Id))
+    }
+
+    func test_updateRepoWorktrees_addsNewWorktrees() {
+        // Arrange
+        let repo = store.addRepo(at: URL(fileURLWithPath: "/tmp/wt-test-repo2"))
+        let wt1 = makeWorktree(name: "main", path: "/tmp/wt-test-repo2/main", branch: "main")
+        store.updateRepoWorktrees(repo.id, worktrees: [wt1])
+        let storedWt1Id = store.repos.first(where: { $0.id == repo.id })!.worktrees[0].id
+
+        // Act — refresh adds a new worktree
+        let freshWt1 = makeWorktree(name: "main", path: "/tmp/wt-test-repo2/main", branch: "main")
+        let newWt = makeWorktree(name: "hotfix", path: "/tmp/wt-test-repo2/hotfix", branch: "hotfix")
+        store.updateRepoWorktrees(repo.id, worktrees: [freshWt1, newWt])
+
+        // Assert
+        let updated = store.repos.first(where: { $0.id == repo.id })!
+        XCTAssertEqual(updated.worktrees.count, 2)
+        XCTAssertEqual(updated.worktrees[0].id, storedWt1Id, "existing ID preserved")
+        XCTAssertEqual(updated.worktrees[1].id, newWt.id, "new worktree gets its own ID")
+    }
+
+    func test_updateRepoWorktrees_removesDeletedWorktrees() {
+        // Arrange
+        let repo = store.addRepo(at: URL(fileURLWithPath: "/tmp/wt-test-repo3"))
+        let wt1 = makeWorktree(name: "main", path: "/tmp/wt-test-repo3/main", branch: "main")
+        let wt2 = makeWorktree(name: "feat", path: "/tmp/wt-test-repo3/feat", branch: "feat")
+        store.updateRepoWorktrees(repo.id, worktrees: [wt1, wt2])
+        let storedWt1Id = store.repos.first(where: { $0.id == repo.id })!.worktrees[0].id
+
+        // Act — refresh returns only wt1 (wt2 was deleted)
+        let freshWt1 = makeWorktree(name: "main", path: "/tmp/wt-test-repo3/main", branch: "main")
+        store.updateRepoWorktrees(repo.id, worktrees: [freshWt1])
+
+        // Assert — only wt1 remains
+        let updated = store.repos.first(where: { $0.id == repo.id })!
+        XCTAssertEqual(updated.worktrees.count, 1)
+        XCTAssertEqual(updated.worktrees[0].id, storedWt1Id)
     }
 }

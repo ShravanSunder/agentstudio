@@ -36,6 +36,7 @@ final class WorkspaceStore: ObservableObject {
 
     private let persistor: WorkspacePersistor
     private var debouncedSaveTask: Task<Void, Never>?
+    private(set) var isDirty: Bool = false
 
     // MARK: - Init
 
@@ -268,7 +269,9 @@ final class WorkspaceStore: ObservableObject {
             return
         }
         let tab = views[viewIndex].tabs.remove(at: fromIndex)
-        let clampedIndex = min(toIndex, views[viewIndex].tabs.count)
+        // After removal, indices shift left. Adjust toIndex to compensate.
+        let adjustedIndex = toIndex > fromIndex ? toIndex - 1 : toIndex
+        let clampedIndex = max(0, min(adjustedIndex, views[viewIndex].tabs.count))
         views[viewIndex].tabs.insert(tab, at: clampedIndex)
         markDirty()
     }
@@ -432,7 +435,25 @@ final class WorkspaceStore: ObservableObject {
 
     func updateRepoWorktrees(_ repoId: UUID, worktrees: [Worktree]) {
         guard let index = repos.firstIndex(where: { $0.id == repoId }) else { return }
-        repos[index].worktrees = worktrees
+        let existing = repos[index].worktrees
+
+        // Merge discovered worktrees with existing ones, preserving UUIDs for
+        // worktrees that match by path. Sessions reference worktreeId, so changing
+        // IDs on refresh would break active detection and lookups.
+        let existingByPath = Dictionary(existing.map { ($0.path, $0) }, uniquingKeysWith: { first, _ in first })
+        let merged = worktrees.map { discovered -> Worktree in
+            if let existing = existingByPath[discovered.path] {
+                // Preserve ID and agent; update name/branch/status from discovery
+                var updated = existing
+                updated.name = discovered.name
+                updated.branch = discovered.branch
+                updated.status = discovered.status
+                return updated
+            }
+            return discovered
+        }
+
+        repos[index].worktrees = merged
         repos[index].updatedAt = Date()
         markDirty()
     }
@@ -471,8 +492,13 @@ final class WorkspaceStore: ObservableObject {
     }
 
     /// Schedule a debounced save. All mutations call this instead of saving inline.
-    /// Coalesces writes within a 500ms window.
+    /// Coalesces writes within a 500ms window. Disables sudden termination while dirty
+    /// so macOS won't kill the process before the write lands.
     func markDirty() {
+        if !isDirty {
+            isDirty = true
+            ProcessInfo.processInfo.disableSuddenTermination()
+        }
         debouncedSaveTask?.cancel()
         debouncedSaveTask = Task { @MainActor [weak self] in
             // try? is intentional — Task.sleep only throws CancellationError
@@ -519,6 +545,10 @@ final class WorkspaceStore: ObservableObject {
         )
         do {
             try persistor.save(state)
+            if isDirty {
+                isDirty = false
+                ProcessInfo.processInfo.enableSuddenTermination()
+            }
             return true
         } catch {
             storeLogger.error("Failed to persist workspace: \(error.localizedDescription)")
