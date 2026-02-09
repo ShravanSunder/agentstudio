@@ -12,6 +12,7 @@ final class TerminalViewCoordinator {
     private let store: WorkspaceStore
     private let viewRegistry: ViewRegistry
     private let runtime: SessionRuntime
+    private lazy var sessionConfig = SessionConfiguration.detect()
 
     init(store: WorkspaceStore, viewRegistry: ViewRegistry, runtime: SessionRuntime) {
         self.store = store
@@ -31,7 +32,13 @@ final class TerminalViewCoordinator {
     ) -> AgentStudioTerminalView? {
         let workingDir = worktree.path
 
-        let cmd = "\(getDefaultShell()) -i -l"
+        let cmd: String
+        switch session.provider {
+        case .tmux:
+            cmd = buildTmuxAttachCommand(session: session, worktree: worktree, repo: repo)
+        case .ghostty:
+            cmd = "\(getDefaultShell()) -i -l"
+        }
 
         let config = Ghostty.SurfaceConfiguration(
             workingDirectory: workingDir.path,
@@ -184,6 +191,18 @@ final class TerminalViewCoordinator {
     }
 
     // MARK: - Helpers
+
+    private func buildTmuxAttachCommand(session: TerminalSession, worktree: Worktree, repo: Repo) -> String {
+        let tmuxSessionName = TmuxBackend.sessionId(
+            repoStableKey: repo.stableKey,
+            worktreeStableKey: worktree.stableKey,
+            paneId: session.id
+        )
+        let escapedConfig = TmuxBackend.shellEscape(sessionConfig.ghostConfigPath)
+        let escapedCwd = TmuxBackend.shellEscape(worktree.path.path)
+        let escapedName = TmuxBackend.shellEscape(tmuxSessionName)
+        return "tmux -L \(TmuxBackend.socketName) -f \(escapedConfig) new-session -A -s \(escapedName) -c \(escapedCwd)"
+    }
 
     private func getDefaultShell() -> String {
         if let pw = getpwuid(getuid()), let shell = pw.pointee.pw_shell {

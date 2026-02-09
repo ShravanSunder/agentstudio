@@ -157,7 +157,7 @@ final class TmuxBackend: SessionBackend {
     }
 
     /// Single-quote a string for safe shell interpolation.
-    private static func shellEscape(_ path: String) -> String {
+    static func shellEscape(_ path: String) -> String {
         "'" + path.replacingOccurrences(of: "'", with: "'\\''") + "'"
     }
 

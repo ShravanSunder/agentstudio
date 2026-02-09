@@ -46,7 +46,7 @@ final class ActionExecutor {
         let session = store.createSession(
             source: .worktree(worktreeId: worktree.id, repoId: repo.id),
             title: worktree.name,
-            provider: .ghostty,
+            provider: .tmux,
             lifetime: .persistent,
             residency: .active
         )
@@ -229,9 +229,9 @@ final class ActionExecutor {
                 return
             }
 
-            // TODO: Inherit provider from target session when tmux is wired (Phase 4)
             let session = store.createSession(
-                source: .worktree(worktreeId: worktreeId, repoId: repoId)
+                source: .worktree(worktreeId: worktreeId, repoId: repoId),
+                provider: .tmux
             )
 
             // Create view — rollback if surface creation fails
