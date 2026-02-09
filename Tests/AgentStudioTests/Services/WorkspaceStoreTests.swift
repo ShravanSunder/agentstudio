@@ -627,6 +627,59 @@ final class WorkspaceStoreTests: XCTestCase {
         XCTAssertEqual(store2.sessions[0].lifetime, .persistent)
     }
 
+    // MARK: - Persistence Pruning
+
+    func test_persistence_temporarySessionsPrunedFromLayouts() {
+        // Arrange — create a tab with both persistent and temporary sessions in a split layout
+        let persistent = store.createSession(
+            source: .floating(workingDirectory: nil, title: "Persistent"),
+            title: "Persistent",
+            lifetime: .persistent
+        )
+        let temporary = store.createSession(
+            source: .floating(workingDirectory: nil, title: "Temporary"),
+            title: "Temporary",
+            lifetime: .temporary
+        )
+        let layout = Layout(sessionId: persistent.id)
+            .inserting(sessionId: temporary.id, at: persistent.id, direction: .horizontal, position: .after)
+        let tab = Tab(layout: layout, activeSessionId: persistent.id)
+        store.appendTab(tab)
+        store.flush()
+
+        // Act — restore from disk
+        let persistor2 = WorkspacePersistor(workspacesDir: tempDir)
+        let store2 = WorkspaceStore(persistor: persistor2)
+        store2.restore()
+
+        // Assert — only persistent session remains, no dangling temporary IDs in layouts
+        XCTAssertEqual(store2.sessions.count, 1)
+        XCTAssertEqual(store2.sessions[0].id, persistent.id)
+        XCTAssertEqual(store2.activeTabs.count, 1)
+        XCTAssertEqual(store2.activeTabs[0].sessionIds, [persistent.id])
+        XCTAssertFalse(store2.activeTabs[0].isSplit)
+    }
+
+    func test_persistence_allTemporary_tabPruned() {
+        // Arrange — tab with only temporary sessions
+        let temp1 = store.createSession(
+            source: .floating(workingDirectory: nil, title: nil),
+            lifetime: .temporary
+        )
+        let tab = Tab(sessionId: temp1.id)
+        store.appendTab(tab)
+        store.flush()
+
+        // Act
+        let persistor2 = WorkspacePersistor(workspacesDir: tempDir)
+        let store2 = WorkspaceStore(persistor: persistor2)
+        store2.restore()
+
+        // Assert — tab fully pruned since all sessions were temporary
+        XCTAssertTrue(store2.sessions.isEmpty)
+        XCTAssertTrue(store2.activeTabs.isEmpty)
+    }
+
     // MARK: - Undo
 
     func test_snapshotForClose_capturesState() {

@@ -9,8 +9,8 @@ agent-studio/
 ├── Sources/AgentStudio/      # Swift source
 │   ├── App/                  # Window/tab controllers
 │   ├── Ghostty/              # Ghostty C API wrapper
-│   ├── Models/               # AppState, Project, Worktree
-│   └── Services/             # SessionManager, WorktrunkService
+│   ├── Models/               # TerminalSession, Layout, Tab, ViewDefinition
+│   └── Services/             # WorkspaceStore, SessionRuntime, WorktrunkService
 ├── Frameworks/               # Generated: GhosttyKit.xcframework (not in git)
 ├── vendor/ghostty/           # Git submodule: Ghostty source
 ├── scripts/                  # Build automation

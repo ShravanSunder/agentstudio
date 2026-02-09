@@ -19,18 +19,35 @@ protocol ResolvableTab: Identifiable where ID == UUID {
     func previousPaneId(before paneId: UUID) -> UUID?
 }
 
-// MARK: - TabItem Conformance
+// MARK: - Tab Conformance
 
-extension TabItem: ResolvableTab {
+extension Tab: ResolvableTab {
+    var activePaneId: UUID? { activeSessionId }
+    var allPaneIds: [UUID] { sessionIds }
+
     func neighborPaneId(of paneId: UUID, direction: SplitFocusDirection) -> UUID? {
-        splitTree.neighbor(of: paneId, direction: direction)?.id
+        layout.neighbor(of: paneId, direction: direction.toFocusDirection)
     }
 
     func nextPaneId(after paneId: UUID) -> UUID? {
-        splitTree.nextView(after: paneId)?.id
+        layout.next(after: paneId)
     }
 
     func previousPaneId(before paneId: UUID) -> UUID? {
-        splitTree.previousView(before: paneId)?.id
+        layout.previous(before: paneId)
+    }
+}
+
+// MARK: - Direction Bridging
+
+extension SplitFocusDirection {
+    /// Bridge SplitFocusDirection → Layout.FocusDirection
+    var toFocusDirection: FocusDirection {
+        switch self {
+        case .left: return .left
+        case .right: return .right
+        case .up: return .up
+        case .down: return .down
+        }
     }
 }

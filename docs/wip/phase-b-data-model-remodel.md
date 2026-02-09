@@ -1,5 +1,8 @@
 # Phase B: Data Model Remodel — Specification
 
+> **STATUS: COMPLETED** — Phase B1 (models) + B2 (wiring) + legacy cleanup all done.
+> 551 tests passing. All legacy code removed. This document is historical reference only.
+
 **Branch:** `beta-04`
 **Baseline:** `beta-03` (Phase A complete — 281 tests, all passing)
 **Approach:** Greenfield — no backward compatibility with beta-03 workspace format

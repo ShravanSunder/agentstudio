@@ -116,11 +116,9 @@ For the Ghostty surface lifecycle, ownership model, state machine, and health mo
 
 ## Session Restore
 
-Terminal sessions are backed by headless tmux instances that survive app restarts. `SessionRegistry.initialize()` runs before window creation in `AppDelegate.applicationDidFinishLaunching` to ensure the backend is ready when terminal views check `isOperational`.
+Terminal session state is managed by `WorkspaceStore` (persistence) and `SessionRuntime` (health/lifecycle). `TerminalViewCoordinator` is the sole intermediary for surface and runtime lifecycle — views never call `SurfaceManager` or `SessionRuntime` directly. The tmux backend (`TmuxBackend`) is available for future session persistence across app restarts.
 
-For the full session restore architecture, lifecycle flow, checkpoint persistence, and tmux configuration, see:
-
-**[Session Restore Architecture](session_lifecycle.md)**
+For the Ghostty surface lifecycle, see: **[Ghostty Surface Architecture](ghostty_surface_architecture.md)**
 
 ---
 

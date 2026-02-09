@@ -1,21 +1,17 @@
 import AppKit
 import GhosttyKit
 
-/// Custom terminal view wrapping Ghostty's SurfaceView via SurfaceManager
-/// Implements SurfaceContainer protocol for lifecycle management
-final class AgentStudioTerminalView: NSView, SurfaceContainer, SurfaceHealthDelegate {
+/// Terminal view wrapping Ghostty's SurfaceView via SurfaceManager.
+/// This is a host-only view — TerminalViewCoordinator creates surfaces and
+/// passes them here via displaySurface(). The view never creates its own surfaces.
+final class AgentStudioTerminalView: NSView, SurfaceHealthDelegate {
     let worktree: Worktree
     let repo: Repo
 
-    /// Persistent pane identity — used for tmux session ID and SplitTree keying.
-    /// Set once, never changes. Preserved through undo-close and Codable.
-    let paneId: UUID
+    /// Session identity — used for ViewRegistry keying, SurfaceManager.attach(), etc.
+    /// Set once, never changes. Preserved through undo-close.
+    let sessionId: UUID
 
-    // MARK: - SurfaceContainer Protocol
-
-    /// Runtime-only UI attachment identity.
-    /// Fresh UUID every init. NOT persisted. Only used by SurfaceManager.attach().
-    private(set) var paneAttachmentId: UUID
     var surfaceId: UUID?
 
     // MARK: - Private State
@@ -23,53 +19,18 @@ final class AgentStudioTerminalView: NSView, SurfaceContainer, SurfaceHealthDele
     private var ghosttySurface: Ghostty.SurfaceView?
     private(set) var isProcessRunning = false
     private var errorOverlay: SurfaceErrorOverlayView?
-    /// Guards against re-entrant setup when an async Task is in flight.
-    /// Set true before setup begins, cleared in setupTerminal() success/failure.
-    private var isSettingUp = false
 
     /// The current terminal title
     var title: String {
         ghosttySurface?.title ?? worktree.name
     }
 
-    /// Standard initializer - creates a new terminal surface
-    init(worktree: Worktree, repo: Repo) {
-        self.paneId = UUID()
-        self.paneAttachmentId = UUID()
-        self.worktree = worktree
-        self.repo = repo
-        super.init(frame: NSRect(x: 0, y: 0, width: 800, height: 600))
+    // MARK: - Initialization
 
-        // Note: Do NOT set wantsLayer or backgroundColor here
-        // Let Ghostty manage its own layer rendering
-
-        isSettingUp = true
-        if SessionRegistry.shared.configuration.isOperational {
-            // Session restore enabled: register + attach via tmux new-session -A
-            Task { @MainActor in
-                await setupTerminalWithSessionRestore()
-            }
-        } else {
-            setupTerminal()
-        }
-    }
-
-    /// Restoring initializer — defers terminal setup until the view is displayed.
-    /// Used by the Codable decode path to avoid spawning orphaned processes.
-    init(worktree: Worktree, repo: Repo, restoring: Bool, paneId: UUID) {
-        self.paneId = paneId
-        self.paneAttachmentId = UUID()
-        self.worktree = worktree
-        self.repo = repo
-        super.init(frame: NSRect(x: 0, y: 0, width: 800, height: 600))
-        // Terminal setup is deferred to viewDidMoveToWindow
-    }
-
-    /// Restore initializer - for attaching an existing surface (undo close)
-    /// Does NOT create a new surface; caller must attach one via displaySurface()
-    init(worktree: Worktree, repo: Repo, restoredSurfaceId: UUID, paneId: UUID) {
-        self.paneId = paneId
-        self.paneAttachmentId = UUID()
+    /// Primary initializer — used by TerminalViewCoordinator.
+    /// Does NOT create a surface; caller must attach one via displaySurface().
+    init(worktree: Worktree, repo: Repo, restoredSurfaceId: UUID, sessionId: UUID) {
+        self.sessionId = sessionId
         self.worktree = worktree
         self.repo = repo
         self.surfaceId = restoredSurfaceId
@@ -85,7 +46,6 @@ final class AgentStudioTerminalView: NSView, SurfaceContainer, SurfaceHealthDele
     }
 
     deinit {
-        // Detach surface on dealloc (will go to undo stack)
         if let surfaceId = surfaceId {
             Task { @MainActor in
                 SurfaceManager.shared.detach(surfaceId, reason: .close)
@@ -93,83 +53,7 @@ final class AgentStudioTerminalView: NSView, SurfaceContainer, SurfaceHealthDele
         }
     }
 
-    // MARK: - Terminal Setup
-
-    /// Register pane session for tracking, then let the surface handle create+attach
-    /// via `tmux new-session -A` (creates if missing, attaches if exists).
-    private func setupTerminalWithSessionRestore() async {
-        let registry = SessionRegistry.shared
-        let sessionId = TmuxBackend.sessionId(
-            repoStableKey: repo.stableKey,
-            worktreeStableKey: worktree.stableKey,
-            paneId: paneId
-        )
-
-        // Register session for health tracking (surface handles actual tmux creation)
-        registry.registerPaneSession(
-            id: sessionId,
-            paneId: paneId,
-            projectId: repo.id,
-            worktreeId: worktree.id,
-            repoPath: repo.repoPath,
-            worktreePath: worktree.path,
-            displayName: worktree.name
-        )
-
-        // Let the surface handle create+attach via new-session -A
-        guard let attachCmd = registry.attachCommand(for: worktree, in: repo, paneId: paneId) else {
-            ghosttyLogger.error("Session registered but attachCommand returned nil for \(sessionId)")
-            setupTerminal()  // safety fallback
-            return
-        }
-        setupTerminal(command: attachCmd)
-    }
-
-    private func setupTerminal(command: String? = nil) {
-        let cmd = command ?? "\(getDefaultShell()) -i -l"
-
-        let config = Ghostty.SurfaceConfiguration(
-            workingDirectory: worktree.path.path,
-            command: cmd
-        )
-
-        let metadata = SurfaceMetadata(
-            workingDirectory: worktree.path,
-            command: cmd,
-            title: worktree.name,
-            worktreeId: worktree.id,
-            repoId: repo.id,
-            sessionId: paneId
-        )
-
-        // Create surface via manager
-        let result = SurfaceManager.shared.createSurface(config: config, metadata: metadata)
-
-        switch result {
-        case .success(let managed):
-            self.surfaceId = managed.id
-
-            // Attach to this container
-            SurfaceManager.shared.attach(managed.id, to: paneAttachmentId)
-
-            // Display the surface
-            displaySurface(managed.surface)
-
-            // Register for health updates
-            SurfaceManager.shared.addHealthDelegate(self)
-
-            self.isProcessRunning = true
-            self.isSettingUp = false
-            ghosttyLogger.info("Terminal created via SurfaceManager for worktree: \(self.worktree.name)")
-
-        case .failure(let error):
-            self.isSettingUp = false
-            ghosttyLogger.error("Failed to create terminal: \(error.localizedDescription)")
-            showGhosttyError(error)
-        }
-    }
-
-    // MARK: - SurfaceContainer Protocol
+    // MARK: - Surface Display
 
     func displaySurface(_ surfaceView: Ghostty.SurfaceView) {
         // Remove existing surface if any
@@ -270,50 +154,21 @@ final class AgentStudioTerminalView: NSView, SurfaceContainer, SurfaceHealthDele
         SurfaceManager.shared.destroy(oldSurfaceId)
         removeSurface()
 
-        // Create new surface — route through session restore when available
-        isSettingUp = true
-        if SessionRegistry.shared.configuration.isOperational {
-            Task { @MainActor in
-                await setupTerminalWithSessionRestore()
-            }
-        } else {
-            setupTerminal()
-        }
+        // Request coordinator to recreate the surface
+        NotificationCenter.default.post(
+            name: .repairSurfaceRequested,
+            object: nil,
+            userInfo: ["sessionId": sessionId]
+        )
         hideErrorOverlay()
     }
 
     // MARK: - Surface Close Handling
 
     @objc private func handleSurfaceClose(_ notification: Notification) {
-        // Only notify if we weren't manually terminated
         guard isProcessRunning else { return }
         isProcessRunning = false
         handleProcessTerminated(exitCode: 0)
-    }
-
-    // MARK: - Shell Environment
-
-    private func getDefaultShell() -> String {
-        if let pw = getpwuid(getuid()), let shell = pw.pointee.pw_shell {
-            return String(cString: shell)
-        }
-        if let envShell = ProcessInfo.processInfo.environment["SHELL"] {
-            return envShell
-        }
-        return "/bin/zsh"
-    }
-
-    // MARK: - Error Handling
-
-    private func showGhosttyError(_ error: Error? = nil) {
-        DispatchQueue.main.async {
-            let alert = NSAlert()
-            alert.messageText = "Terminal Initialization Failed"
-            alert.informativeText = error?.localizedDescription ?? "Failed to initialize the Ghostty terminal engine."
-            alert.alertStyle = .critical
-            alert.addButton(withTitle: "OK")
-            alert.runModal()
-        }
     }
 
     // MARK: - Process Management
@@ -327,57 +182,28 @@ final class AgentStudioTerminalView: NSView, SurfaceContainer, SurfaceHealthDele
         )
     }
 
-    /// Request to close the terminal
     func requestClose() {
         guard let surfaceId = surfaceId else { return }
-
-        // Detach from manager (goes to undo stack)
         SurfaceManager.shared.detach(surfaceId, reason: .close)
-
-        // Notify termination
         handleProcessTerminated(exitCode: nil)
     }
 
-    /// Terminate the terminal process (hard close, no undo)
     func terminateProcess() {
         guard isProcessRunning, let surfaceId = surfaceId else { return }
         isProcessRunning = false
-
-        // Destroy immediately (no undo)
         SurfaceManager.shared.destroy(surfaceId)
         self.surfaceId = nil
     }
 
-    /// Check if process is still running
     var processExited: Bool {
         guard let surfaceId = surfaceId else { return true }
         return SurfaceManager.shared.hasProcessExited(surfaceId)
-    }
-
-    // MARK: - Deferred Setup
-
-    override func viewDidMoveToWindow() {
-        super.viewDidMoveToWindow()
-        // Lazily set up terminal when the view enters a window for the first time.
-        // This handles restored views that deferred setupTerminal().
-        if window != nil && surfaceId == nil && ghosttySurface == nil && !isSettingUp {
-            if SessionRegistry.shared.configuration.isOperational {
-                Task { @MainActor in
-                    await setupTerminalWithSessionRestore()
-                }
-            } else {
-                setupTerminal()
-            }
-        }
     }
 
     // MARK: - Layout
 
     override func layout() {
         super.layout()
-        // Ensure Ghostty surface knows its new size after split/resize.
-        // Auto Layout propagates frame changes to the surface subview,
-        // but this is a safety net for SwiftUI structural identity rebuilds.
         guard let surface = ghosttySurface, bounds.size.width > 0, bounds.size.height > 0 else { return }
         surface.sizeDidChange(surface.bounds.size)
     }
@@ -388,7 +214,6 @@ final class AgentStudioTerminalView: NSView, SurfaceContainer, SurfaceHealthDele
 
     override func becomeFirstResponder() -> Bool {
         if let surface = ghosttySurface, let window = window {
-            // Set focus via SurfaceManager
             if let surfaceId = surfaceId {
                 SurfaceManager.shared.setFocus(surfaceId, focused: true)
             }
@@ -407,7 +232,6 @@ final class AgentStudioTerminalView: NSView, SurfaceContainer, SurfaceHealthDele
     // MARK: - Hit Testing
 
     override func hitTest(_ point: NSPoint) -> NSView? {
-        // If error overlay is showing, let it handle hits
         if let overlay = errorOverlay, !overlay.isHidden {
             let overlayPoint = convert(point, to: overlay)
             if overlay.bounds.contains(overlayPoint) {
@@ -415,7 +239,6 @@ final class AgentStudioTerminalView: NSView, SurfaceContainer, SurfaceHealthDele
             }
         }
 
-        // Otherwise pass to Ghostty surface
         if let surface = ghosttySurface, bounds.contains(point) {
             return surface
         }
@@ -424,10 +247,6 @@ final class AgentStudioTerminalView: NSView, SurfaceContainer, SurfaceHealthDele
 
     // MARK: - SwiftUI Bridging
 
-    /// Stable container for SwiftUI bridging.
-    /// NSViewRepresentable returns this instead of creating new containers.
-    /// The terminal view is added once and never reparented,
-    /// preventing IOSurface crashes when SwiftUI recreates views.
     private(set) lazy var swiftUIContainer: NSView = {
         let container = NSView()
         container.wantsLayer = true
@@ -448,47 +267,5 @@ final class AgentStudioTerminalView: NSView, SurfaceContainer, SurfaceHealthDele
 
 extension AgentStudioTerminalView: Identifiable {
     typealias ID = UUID
-    var id: UUID { paneId }
-}
-
-// MARK: - Codable
-
-extension AgentStudioTerminalView: Codable {
-    private enum CodingKeys: String, CodingKey {
-        case worktreeId
-        case repoId
-        case paneId
-        case title
-    }
-
-    convenience init(from decoder: Decoder) throws {
-        let container = try decoder.container(keyedBy: CodingKeys.self)
-        let worktreeId = try container.decode(UUID.self, forKey: .worktreeId)
-        let repoId = try container.decode(UUID.self, forKey: .repoId)
-        let savedPaneId = try container.decode(UUID.self, forKey: .paneId)
-
-        // Look up worktree and repo from SessionManager
-        guard let repo = SessionManager.shared.repos.first(where: { $0.id == repoId }),
-              let worktree = repo.worktrees.first(where: { $0.id == worktreeId }) else {
-            throw DecodingError.dataCorrupted(
-                DecodingError.Context(
-                    codingPath: decoder.codingPath,
-                    debugDescription: "Could not find worktree \(worktreeId) or repo \(repoId)"
-                )
-            )
-        }
-
-        // Use the restoring init — do NOT call self.init(worktree:repo:) which
-        // spawns a shell process immediately. Terminal setup is deferred until the
-        // view is displayed, preventing orphaned processes on restore.
-        self.init(worktree: worktree, repo: repo, restoring: true, paneId: savedPaneId)
-    }
-
-    func encode(to encoder: Encoder) throws {
-        var container = encoder.container(keyedBy: CodingKeys.self)
-        try container.encode(worktree.id, forKey: .worktreeId)
-        try container.encode(repo.id, forKey: .repoId)
-        try container.encode(paneId, forKey: .paneId)
-        try container.encode(title, forKey: .title)
-    }
+    var id: UUID { sessionId }
 }

@@ -7,7 +7,7 @@ Agent Studio embeds Ghostty terminal surfaces via libghostty. The `SurfaceManage
 The key architectural decision is **separation of ownership from display**:
 - `SurfaceManager` **owns** all surfaces (creation, lifecycle, destruction)
 - `AgentStudioTerminalView` containers only **display** surfaces
-- Containers implement `SurfaceContainer` protocol to receive surfaces
+- `TerminalViewCoordinator` is the sole intermediary for surface/runtime lifecycle
 
 ```
 ┌─────────────────────────────────────────────────────────────────────┐
@@ -32,11 +32,11 @@ The key architectural decision is **separation of ownership from display**:
 │                    AgentStudioTerminalView                          │
 │                  (DISPLAYS, does not own)                           │
 │                                                                     │
-│   paneAttachmentId: UUID  ←─ unique per view                        │
+│   sessionId: UUID    ←─ single identity across all layers           │
 │   surfaceId: UUID?   ←─ which surface is displayed here             │
 │                                                                     │
-│   displaySurface(surfaceView)  ←─ called by attach()                │
-│   removeSurface()              ←─ called by detach()                │
+│   displaySurface(surfaceView)  ←─ called by coordinator             │
+│   removeSurface()              ←─ called by coordinator             │
 └─────────────────────────────────────────────────────────────────────┘
 ```
 
@@ -112,7 +112,7 @@ User presses Cmd+Shift+T
 │   └─► Create AgentStudioTerminalView(restoredSurfaceId:)     │
 │         │  (does NOT create new surface!)                    │
 │         │                                                    │
-│   └─► SurfaceManager.attach(surfaceId, to: paneAttachmentId) │
+│   └─► SurfaceManager.attach(surfaceId, to: sessionId)        │
 │         │                                                    │
 │         ├─► Move from hiddenSurfaces → activeSurfaces        │
 │         ├─► ghostty_surface_set_occlusion(true)  // resume   │
@@ -216,7 +216,7 @@ view.displaySurface(restoredSurface)  // No orphan, view has no surface yet
 |------|---------|
 | `Ghostty/SurfaceManager.swift` | Singleton owner, lifecycle, health monitoring |
 | `Ghostty/SurfaceTypes.swift` | SurfaceState, ManagedSurface, protocols |
-| `Views/AgentStudioTerminalView.swift` | Container, implements SurfaceContainer + SurfaceHealthDelegate |
+| `Views/AgentStudioTerminalView.swift` | Container, implements SurfaceHealthDelegate |
 | `Views/SurfaceErrorOverlay.swift` | Error state UI with restart/close |
 
 ## Session Restore

@@ -138,30 +138,6 @@ final class TerminalSessionTests: XCTestCase {
         XCTAssertEqual(decoded.residency, .active)
     }
 
-    func test_codable_backwardCompat_legacyFields_decoded() throws {
-        // Arrange — JSON with legacy containerId and providerHandle fields
-        let legacyJSON = """
-        {
-            "id": "11111111-1111-1111-1111-111111111111",
-            "source": { "floating": { "title": "Legacy" } },
-            "title": "Legacy Session",
-            "provider": "tmux",
-            "containerId": "22222222-2222-2222-2222-222222222222",
-            "providerHandle": "tmux-legacy-handle"
-        }
-        """.data(using: .utf8)!
-
-        // Act
-        let decoded = try JSONDecoder().decode(TerminalSession.self, from: legacyJSON)
-
-        // Assert — legacy fields silently discarded, new fields default
-        XCTAssertEqual(decoded.id, UUID(uuidString: "11111111-1111-1111-1111-111111111111"))
-        XCTAssertEqual(decoded.title, "Legacy Session")
-        XCTAssertEqual(decoded.provider, .tmux)
-        XCTAssertEqual(decoded.lifetime, .persistent)
-        XCTAssertEqual(decoded.residency, .active)
-    }
-
     func test_codable_pendingUndo_roundTrips() throws {
         // Arrange
         let expiresAt = Date(timeIntervalSince1970: 2_000_000)

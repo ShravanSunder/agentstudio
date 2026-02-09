@@ -427,6 +427,10 @@ final class WorkspaceStore: ObservableObject {
         // Filter out temporary sessions — they are never restored
         sessions.removeAll { $0.lifetime == .temporary }
 
+        // Prune views: remove dangling session IDs from layouts
+        let validSessionIds = Set(sessions.map(\.id))
+        pruneInvalidSessions(from: &views, validSessionIds: validSessionIds)
+
         // Ensure main view exists
         ensureMainView()
     }
@@ -455,13 +459,18 @@ final class WorkspaceStore: ObservableObject {
 
         // Filter out temporary sessions — they are never persisted
         let persistableSessions = sessions.filter { $0.lifetime != .temporary }
+        let validSessionIds = Set(persistableSessions.map(\.id))
+
+        // Prune views: remove dangling session IDs from layouts
+        var prunedViews = views
+        pruneInvalidSessions(from: &prunedViews, validSessionIds: validSessionIds)
 
         let state = WorkspacePersistor.PersistableState(
             id: workspaceId,
             name: workspaceName,
             repos: repos,
             sessions: persistableSessions,
-            views: views,
+            views: prunedViews,
             activeViewId: activeViewId,
             sidebarWidth: sidebarWidth,
             windowFrame: windowFrame,
@@ -540,6 +549,35 @@ final class WorkspaceStore: ObservableObject {
         guard let viewIndex = activeViewIndex else { return nil }
         guard let tabIndex = views[viewIndex].tabs.firstIndex(where: { $0.id == tabId }) else { return nil }
         return (viewIndex, tabIndex)
+    }
+
+    /// Remove session IDs from view layouts that are not in the valid set.
+    /// Follows the same pattern as `removeSession()` — prunes layout nodes,
+    /// removes empty tabs, and fixes activeTabId pointers.
+    private func pruneInvalidSessions(from views: inout [ViewDefinition], validSessionIds: Set<UUID>) {
+        for viewIndex in views.indices {
+            for tabIndex in views[viewIndex].tabs.indices {
+                let invalidIds = views[viewIndex].tabs[tabIndex].sessionIds.filter { !validSessionIds.contains($0) }
+                for sessionId in invalidIds {
+                    if let newLayout = views[viewIndex].tabs[tabIndex].layout.removing(sessionId: sessionId) {
+                        views[viewIndex].tabs[tabIndex].layout = newLayout
+                        if views[viewIndex].tabs[tabIndex].activeSessionId == sessionId {
+                            views[viewIndex].tabs[tabIndex].activeSessionId = newLayout.sessionIds.first
+                        }
+                    } else {
+                        // Layout became empty — mark tab for removal
+                        views[viewIndex].tabs[tabIndex].layout = Layout()
+                    }
+                }
+            }
+            // Remove empty tabs
+            views[viewIndex].tabs.removeAll { $0.layout.isEmpty }
+            // Fix activeTabId if it was removed
+            if let activeTabId = views[viewIndex].activeTabId,
+               !views[viewIndex].tabs.contains(where: { $0.id == activeTabId }) {
+                views[viewIndex].activeTabId = views[viewIndex].tabs.last?.id
+            }
+        }
     }
 
     /// Ensure the main view always exists.

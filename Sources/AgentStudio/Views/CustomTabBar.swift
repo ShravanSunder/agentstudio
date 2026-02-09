@@ -2,98 +2,9 @@ import SwiftUI
 import AppKit
 import UniformTypeIdentifiers
 
-/// Represents a single tab in the tab bar
-/// Supports split panes via SplitTree
-struct TabItem: Identifiable, Equatable {
-    let id: UUID
-    var title: String
-    var primaryWorktreeId: UUID   // Primary worktree (for backwards compat)
-    var primaryRepoId: UUID    // Primary repo
-    var splitTree: TerminalSplitTree  // Pane arrangement
-    var activePaneId: UUID?       // Currently focused pane
-
-    /// Full initializer with split tree
-    init(id: UUID = UUID(), title: String, primaryWorktreeId: UUID, primaryRepoId: UUID, splitTree: TerminalSplitTree, activePaneId: UUID?) {
-        self.id = id
-        self.title = title
-        self.primaryWorktreeId = primaryWorktreeId
-        self.primaryRepoId = primaryRepoId
-        self.splitTree = splitTree
-        self.activePaneId = activePaneId
-    }
-
-    /// Get all pane IDs in this tab
-    var allPaneIds: [UUID] {
-        splitTree.allViews.map { $0.id }
-    }
-
-    /// Check if this tab has splits
-    var isSplit: Bool {
-        splitTree.isSplit
-    }
-
-    /// Concatenated title for split tabs (e.g., "Tab1 | Tab2")
-    var displayTitle: String {
-        let titles = splitTree.allViews.map { $0.title }
-        if titles.count > 1 {
-            return titles.joined(separator: " | ")
-        }
-        return title
-    }
-}
-
-/// Observable state for the tab bar.
-/// `tabs` and `activeTabId` are `private(set)` — mutations go through
-/// named methods or the validated-action pipeline.
-class TabBarState: ObservableObject {
-    @Published private(set) var tabs: [TabItem] = []
-    @Published private(set) var activeTabId: UUID?
-    @Published var draggingTabId: UUID?
-    @Published var dropTargetIndex: Int?
-
-    /// Tab frames reported from SwiftUI for hit testing in AppKit
-    @Published var tabFrames: [UUID: CGRect] = [:]
-
-    // MARK: - Lifecycle mutations (always valid, no validation needed)
-
-    func appendTab(_ tab: TabItem) {
-        tabs.append(tab)
-    }
-
-    func removeTab(at index: Int) {
-        tabs.remove(at: index)
-    }
-
-    func insertTabs(_ newTabs: [TabItem], at index: Int) {
-        tabs.insert(contentsOf: newTabs, at: index)
-    }
-
-    func setActiveTabId(_ id: UUID?) {
-        activeTabId = id
-    }
-
-    /// Replace a tab at the given index with an updated copy.
-    func replaceTab(at index: Int, with tab: TabItem) {
-        tabs[index] = tab
-    }
-
-    // MARK: - Tab reordering
-
-    func moveTab(fromId: UUID, toIndex: Int) {
-        guard let fromIndex = tabs.firstIndex(where: { $0.id == fromId }) else { return }
-        guard fromIndex != toIndex && toIndex != fromIndex + 1 else { return }
-
-        withAnimation(.spring(response: 0.2, dampingFraction: 0.8)) {
-            let tab = tabs.remove(at: fromIndex)
-            let adjustedIndex = toIndex > fromIndex ? toIndex - 1 : toIndex
-            tabs.insert(tab, at: max(0, min(adjustedIndex, tabs.count)))
-        }
-    }
-}
-
 /// Custom Ghostty-style tab bar with pill-shaped tabs
 struct CustomTabBar: View {
-    @ObservedObject var state: TabBarState
+    @ObservedObject var adapter: TabBarAdapter
     var onSelect: (UUID) -> Void
     var onClose: (UUID) -> Void
     var onCommand: ((AppCommand, UUID) -> Void)?
@@ -102,14 +13,14 @@ struct CustomTabBar: View {
 
     var body: some View {
         HStack(spacing: 4) {
-            ForEach(Array(state.tabs.enumerated()), id: \.element.id) { index, tab in
+            ForEach(Array(adapter.tabs.enumerated()), id: \.element.id) { index, tab in
                 TabPillView(
                     tab: tab,
                     index: index,
-                    isActive: tab.id == state.activeTabId,
-                    isDragging: state.draggingTabId == tab.id,
-                    showInsertBefore: state.dropTargetIndex == index && state.draggingTabId != tab.id,
-                    showInsertAfter: index == state.tabs.count - 1 && state.dropTargetIndex == state.tabs.count,
+                    isActive: tab.id == adapter.activeTabId,
+                    isDragging: adapter.draggingTabId == tab.id,
+                    showInsertBefore: adapter.dropTargetIndex == index && adapter.draggingTabId != tab.id,
+                    showInsertAfter: index == adapter.tabs.count - 1 && adapter.dropTargetIndex == adapter.tabs.count,
                     onSelect: { onSelect(tab.id) },
                     onClose: { onClose(tab.id) },
                     onCommand: { command in onCommand?(command, tab.id) }
@@ -144,15 +55,15 @@ struct CustomTabBar: View {
             Color.clear
                 .onAppear {
                     let frame = geo.frame(in: .named("tabBar"))
-                    // Update TabBarState directly - more reliable than callback which may have timing issues
+                    // Update TabBarAdapter directly - more reliable than callback which may have timing issues
                     DispatchQueue.main.async {
-                        self.state.tabFrames[tabId] = frame
+                        self.adapter.tabFrames[tabId] = frame
                     }
                     onTabFramesChanged?([tabId: frame])
                 }
                 .onChange(of: geo.frame(in: .named("tabBar"))) { _, frame in
                     DispatchQueue.main.async {
-                        self.state.tabFrames[tabId] = frame
+                        self.adapter.tabFrames[tabId] = frame
                     }
                     onTabFramesChanged?([tabId: frame])
                 }
@@ -162,7 +73,7 @@ struct CustomTabBar: View {
 
 /// Individual pill-shaped tab
 struct TabPillView: View {
-    let tab: TabItem
+    let tab: TabBarItem
     let index: Int
     let isActive: Bool
     let isDragging: Bool
@@ -310,13 +221,16 @@ struct TabBarEmptyState: View {
 #if DEBUG
 struct CustomTabBar_Previews: PreviewProvider {
     static var previews: some View {
-        let state = TabBarState()
-        state.appendTab(TabItem(id: UUID(), title: "master", primaryWorktreeId: UUID(), primaryRepoId: UUID(), splitTree: TerminalSplitTree(), activePaneId: nil))
-        state.appendTab(TabItem(id: UUID(), title: "feature-branch", primaryWorktreeId: UUID(), primaryRepoId: UUID(), splitTree: TerminalSplitTree(), activePaneId: nil))
+        let tempDir = FileManager.default.temporaryDirectory
+            .appending(path: "preview-\(UUID().uuidString)")
+        let persistor = WorkspacePersistor(workspacesDir: tempDir)
+        let store = WorkspaceStore(persistor: persistor)
+        store.restore()
+        let adapter = TabBarAdapter(store: store)
 
         return VStack(spacing: 0) {
             CustomTabBar(
-                state: state,
+                adapter: adapter,
                 onSelect: { _ in },
                 onClose: { _ in },
                 onCommand: { _, _ in },
