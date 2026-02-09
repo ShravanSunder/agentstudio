@@ -45,10 +45,7 @@ final class TabBarAdapter: ObservableObject {
         store.objectWillChange
             .receive(on: DispatchQueue.main)
             .sink { [weak self] _ in
-                // Defer to next run-loop tick so the store's properties are updated.
-                Task { @MainActor [weak self] in
-                    self?.refresh()
-                }
+                self?.refresh()
             }
             .store(in: &cancellables)
 
