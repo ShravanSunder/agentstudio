@@ -115,7 +115,10 @@ class AppDelegate: NSObject, NSApplicationDelegate {
 
     func applicationWillTerminate(_ notification: Notification) {
         // Flush WorkspaceStore (immediate persist, cancels debounce)
-        store.flush()
+        guard let store else { return }
+        if !store.flush() {
+            debugLog("[AppDelegate] WARNING: workspace flush failed at termination")
+        }
     }
 
     func applicationSupportsSecureRestorableState(_ app: NSApplication) -> Bool {

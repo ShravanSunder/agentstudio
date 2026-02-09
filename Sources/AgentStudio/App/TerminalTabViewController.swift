@@ -155,6 +155,22 @@ class TerminalTabViewController: NSViewController, CommandHandler {
             name: .extractPaneRequested,
             object: nil
         )
+
+        // Listen for surface repair requests (from error overlay)
+        NotificationCenter.default.addObserver(
+            self,
+            selector: #selector(handleRepairSurfaceRequested(_:)),
+            name: .repairSurfaceRequested,
+            object: nil
+        )
+    }
+
+    @objc private func handleRepairSurfaceRequested(_ notification: Notification) {
+        guard let userInfo = notification.userInfo,
+              let sessionId = userInfo["sessionId"] as? UUID else {
+            return
+        }
+        dispatchAction(.repair(.recreateSurface(sessionId: sessionId)))
     }
 
     @objc private func handleSelectTabById(_ notification: Notification) {
@@ -176,9 +192,7 @@ class TerminalTabViewController: NSViewController, CommandHandler {
         store.objectWillChange
             .receive(on: DispatchQueue.main)
             .sink { [weak self] _ in
-                Task { @MainActor [weak self] in
-                    self?.refreshDisplay()
-                }
+                self?.refreshDisplay()
             }
             .store(in: &cancellables)
     }
@@ -488,8 +502,11 @@ class TerminalTabViewController: NSViewController, CommandHandler {
         // Get worktree/repo from first session in the tab
         let firstSessionId = tab.sessionIds.first
         let session = firstSessionId.flatMap { store.session($0) }
-        let worktreeId = session?.worktreeId ?? UUID()
-        let repoId = session?.repoId ?? UUID()
+        guard let worktreeId = session?.worktreeId,
+              let repoId = session?.repoId else {
+            // Cannot create drag payload for floating sessions (no worktree context)
+            return nil
+        }
         let title = session?.title ?? "Terminal"
         return TabDragPayload(tabId: tabId, worktreeId: worktreeId, repoId: repoId, title: title)
     }

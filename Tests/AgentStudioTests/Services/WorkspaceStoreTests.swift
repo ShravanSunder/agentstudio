@@ -680,6 +680,117 @@ final class WorkspaceStoreTests: XCTestCase {
         XCTAssertTrue(store2.activeTabs.isEmpty)
     }
 
+    func test_persistence_multiViewPruning() {
+        // Arrange — main view + saved view, each with a temporary session
+        let persistent1 = store.createSession(
+            source: .floating(workingDirectory: nil, title: "P1"),
+            lifetime: .persistent
+        )
+        let temporary1 = store.createSession(
+            source: .floating(workingDirectory: nil, title: "T1"),
+            lifetime: .temporary
+        )
+        // Main view tab with split: persistent + temporary
+        let layout1 = Layout(sessionId: persistent1.id)
+            .inserting(sessionId: temporary1.id, at: persistent1.id, direction: .horizontal, position: .after)
+        let tab1 = Tab(layout: layout1, activeSessionId: persistent1.id)
+        store.appendTab(tab1)
+
+        // Create saved view with its own temporary session
+        let savedView = store.createView(name: "Saved", kind: .saved)
+        let persistent2 = store.createSession(
+            source: .floating(workingDirectory: nil, title: "P2"),
+            lifetime: .persistent
+        )
+        let temporary2 = store.createSession(
+            source: .floating(workingDirectory: nil, title: "T2"),
+            lifetime: .temporary
+        )
+        let layout2 = Layout(sessionId: persistent2.id)
+            .inserting(sessionId: temporary2.id, at: persistent2.id, direction: .vertical, position: .after)
+        let tab2 = Tab(layout: layout2, activeSessionId: persistent2.id)
+        // Switch to saved view to add tab there
+        store.switchView(savedView.id)
+        store.appendTab(tab2)
+
+        store.flush()
+
+        // Act — restore
+        let persistor2 = WorkspacePersistor(workspacesDir: tempDir)
+        let store2 = WorkspaceStore(persistor: persistor2)
+        store2.restore()
+
+        // Assert — both views have temporary sessions pruned
+        let mainView = store2.views.first { $0.kind == .main }!
+        let savedView2 = store2.views.first { $0.kind == .saved }!
+
+        // Main view: only persistent1 remains
+        XCTAssertEqual(mainView.tabs.count, 1)
+        XCTAssertEqual(mainView.tabs[0].sessionIds, [persistent1.id])
+        XCTAssertFalse(mainView.tabs[0].isSplit)
+
+        // Saved view: only persistent2 remains
+        XCTAssertEqual(savedView2.tabs.count, 1)
+        XCTAssertEqual(savedView2.tabs[0].sessionIds, [persistent2.id])
+        XCTAssertFalse(savedView2.tabs[0].isSplit)
+    }
+
+    func test_persistence_activeTabIdFixupAfterPrune() {
+        // Arrange — two tabs: one all-temporary (active), one persistent
+        let persistent = store.createSession(
+            source: .floating(workingDirectory: nil, title: "Persistent"),
+            lifetime: .persistent
+        )
+        let temporary = store.createSession(
+            source: .floating(workingDirectory: nil, title: "Temporary"),
+            lifetime: .temporary
+        )
+        let tab1 = Tab(sessionId: persistent.id)
+        let tab2 = Tab(sessionId: temporary.id)
+        store.appendTab(tab1)
+        store.appendTab(tab2)
+        // tab2 is active (appendTab sets activeTabId)
+        XCTAssertEqual(store.activeTabId, tab2.id)
+        store.flush()
+
+        // Act — restore
+        let persistor2 = WorkspacePersistor(workspacesDir: tempDir)
+        let store2 = WorkspaceStore(persistor: persistor2)
+        store2.restore()
+
+        // Assert — temporary tab pruned, activeTabId points to surviving tab
+        XCTAssertEqual(store2.activeTabs.count, 1)
+        XCTAssertEqual(store2.activeTabs[0].id, tab1.id)
+        XCTAssertEqual(store2.activeTabId, tab1.id)
+    }
+
+    func test_restoreFromSnapshot_crossViewFallback() {
+        // Arrange — create a saved view, add a tab, snapshot it, then delete the view
+        let savedView = store.createView(name: "Saved", kind: .saved)
+        store.switchView(savedView.id)
+
+        let session = store.createSession(source: .floating(workingDirectory: nil, title: nil))
+        let tab = Tab(sessionId: session.id)
+        store.appendTab(tab)
+        let snapshot = store.snapshotForClose(tabId: tab.id)!
+
+        // Remove tab and session, then delete the saved view
+        store.removeTab(tab.id)
+        store.removeSession(session.id)
+        store.switchView(store.views.first { $0.kind == .main }!.id)
+        store.deleteView(savedView.id)
+        XCTAssertFalse(store.views.contains { $0.id == savedView.id })
+
+        // Act — restore snapshot; original view is gone, should fallback to active view
+        store.restoreFromSnapshot(snapshot)
+
+        // Assert — tab restored to main (active) view
+        let mainView = store.views.first { $0.kind == .main }!
+        XCTAssertTrue(mainView.tabs.contains { $0.id == tab.id })
+        XCTAssertEqual(store.activeTabId, tab.id)
+        XCTAssertEqual(store.sessions.count, 1)
+    }
+
     // MARK: - Undo
 
     func test_snapshotForClose_capturesState() {

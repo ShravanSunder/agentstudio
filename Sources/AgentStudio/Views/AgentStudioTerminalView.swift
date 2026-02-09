@@ -46,10 +46,10 @@ final class AgentStudioTerminalView: NSView, SurfaceHealthDelegate {
     }
 
     deinit {
+        // Safety net: coordinator.teardownView() should have detached before dealloc.
+        // If surfaceId is still set, the normal teardown path was missed.
         if let surfaceId = surfaceId {
-            Task { @MainActor in
-                SurfaceManager.shared.detach(surfaceId, reason: .close)
-            }
+            debugLog("[AgentStudioTerminalView] WARNING: deinit with surfaceId \(surfaceId) still attached — teardown was missed")
         }
     }
 

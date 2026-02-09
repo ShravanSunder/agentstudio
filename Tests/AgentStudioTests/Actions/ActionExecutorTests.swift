@@ -319,8 +319,8 @@ final class ActionExecutorTests: XCTestCase {
 
     // MARK: - OpenTerminal
 
-    func test_openTerminal_createsSessionAndTab() {
-        // Arrange
+    func test_openTerminal_surfaceFails_rollsBackSession() {
+        // Arrange — coordinator.createView() returns nil in tests (no Ghostty runtime)
         let worktree = makeWorktree()
         let repo = makeRepo()
         store.addRepo(at: repo.repoPath)
@@ -328,10 +328,10 @@ final class ActionExecutorTests: XCTestCase {
         // Act
         let session = executor.openTerminal(for: worktree, in: repo)
 
-        // Assert
-        XCTAssertNotNil(session)
-        XCTAssertEqual(store.activeTabs.count, 1)
-        XCTAssertEqual(store.sessions.count, 1)
+        // Assert — surface creation failed, session rolled back, no tab created
+        XCTAssertNil(session)
+        XCTAssertTrue(store.activeTabs.isEmpty)
+        XCTAssertEqual(store.sessions.count, 0)
     }
 
     func test_openTerminal_existingSession_selectsTab() {
@@ -356,5 +356,33 @@ final class ActionExecutorTests: XCTestCase {
         XCTAssertNil(result)
         XCTAssertEqual(store.activeTabs.count, 1)
         XCTAssertEqual(store.activeTabId, tab.id)
+    }
+
+    // MARK: - Undo GC
+
+    func test_undoStack_expiresOldEntries() {
+        // Arrange — close 12 tabs (exceeds maxUndoStackSize of 10)
+        var closedSessionIds: [UUID] = []
+        for i in 0..<12 {
+            let session = store.createSession(
+                source: .floating(workingDirectory: nil, title: "Tab \(i)")
+            )
+            closedSessionIds.append(session.id)
+            let tab = Tab(sessionId: session.id)
+            store.appendTab(tab)
+            executor.execute(.closeTab(tabId: tab.id))
+        }
+
+        // Assert — undo stack is capped at 10
+        XCTAssertEqual(executor.undoStack.count, 10)
+
+        // The 2 oldest sessions should be GC'd from the store
+        // (they were in the expired undo entries and not in any layout)
+        XCTAssertNil(store.session(closedSessionIds[0]))
+        XCTAssertNil(store.session(closedSessionIds[1]))
+
+        // The 10 newest should still be in the store (in the undo stack)
+        XCTAssertNotNil(store.session(closedSessionIds[2]))
+        XCTAssertNotNil(store.session(closedSessionIds[11]))
     }
 }

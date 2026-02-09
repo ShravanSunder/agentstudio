@@ -30,11 +30,12 @@ final class ViewRegistry {
     }
 
     /// Build a renderable SplitTree from a Layout.
-    /// Returns nil if any session in the layout lacks a registered view.
+    /// Gracefully skips missing views: if one side of a split is missing,
+    /// promotes the other side. Returns nil only if ALL views are missing.
     func renderTree(for layout: Layout) -> TerminalSplitTree? {
         guard let root = layout.root else { return TerminalSplitTree() }
         guard let renderedRoot = renderNode(root) else {
-            registryLogger.warning("renderTree failed — some sessions missing views")
+            registryLogger.warning("renderTree failed — all sessions missing views")
             return nil
         }
         return TerminalSplitTree(root: renderedRoot)
@@ -46,29 +47,43 @@ final class ViewRegistry {
         switch node {
         case .leaf(let sessionId):
             guard let view = views[sessionId] else {
-                registryLogger.warning("No view registered for session \(sessionId)")
+                registryLogger.warning("No view registered for session \(sessionId) — skipping leaf")
                 return nil
             }
             return .leaf(view: view)
 
         case .split(let split):
-            guard let leftNode = renderNode(split.left),
-                  let rightNode = renderNode(split.right) else {
-                return nil
+            let leftNode = renderNode(split.left)
+            let rightNode = renderNode(split.right)
+
+            // Both present → normal split
+            if let left = leftNode, let right = rightNode {
+                let viewDirection: SplitViewDirection
+                switch split.direction {
+                case .horizontal: viewDirection = .horizontal
+                case .vertical: viewDirection = .vertical
+                }
+                return .split(TerminalSplitTree.Node.Split(
+                    id: split.id,
+                    direction: viewDirection,
+                    ratio: split.ratio,
+                    left: left,
+                    right: right
+                ))
             }
-            // Bridge Layout.SplitDirection → SplitViewDirection
-            let viewDirection: SplitViewDirection
-            switch split.direction {
-            case .horizontal: viewDirection = .horizontal
-            case .vertical: viewDirection = .vertical
+
+            // One child missing → promote the surviving side
+            if let left = leftNode {
+                registryLogger.warning("Split \(split.id): right child missing — promoting left")
+                return left
             }
-            return .split(TerminalSplitTree.Node.Split(
-                id: split.id,
-                direction: viewDirection,
-                ratio: split.ratio,
-                left: leftNode,
-                right: rightNode
-            ))
+            if let right = rightNode {
+                registryLogger.warning("Split \(split.id): left child missing — promoting right")
+                return right
+            }
+
+            // Both missing
+            return nil
         }
     }
 }

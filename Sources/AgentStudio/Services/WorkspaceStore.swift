@@ -155,19 +155,28 @@ final class WorkspaceStore: ObservableObject {
     }
 
     func updateSessionTitle(_ sessionId: UUID, title: String) {
-        guard let index = sessions.firstIndex(where: { $0.id == sessionId }) else { return }
+        guard let index = sessions.firstIndex(where: { $0.id == sessionId }) else {
+            storeLogger.warning("updateSessionTitle: session \(sessionId) not found")
+            return
+        }
         sessions[index].title = title
         markDirty()
     }
 
     func updateSessionAgent(_ sessionId: UUID, agent: AgentType?) {
-        guard let index = sessions.firstIndex(where: { $0.id == sessionId }) else { return }
+        guard let index = sessions.firstIndex(where: { $0.id == sessionId }) else {
+            storeLogger.warning("updateSessionAgent: session \(sessionId) not found")
+            return
+        }
         sessions[index].agent = agent
         markDirty()
     }
 
     func setResidency(_ residency: SessionResidency, for sessionId: UUID) {
-        guard let index = sessions.firstIndex(where: { $0.id == sessionId }) else { return }
+        guard let index = sessions.firstIndex(where: { $0.id == sessionId }) else {
+            storeLogger.warning("setResidency: session \(sessionId) not found")
+            return
+        }
         sessions[index].residency = residency
         markDirty()
     }
@@ -175,7 +184,10 @@ final class WorkspaceStore: ObservableObject {
     // MARK: - View Mutations
 
     func switchView(_ viewId: UUID) {
-        guard views.contains(where: { $0.id == viewId }) else { return }
+        guard views.contains(where: { $0.id == viewId }) else {
+            storeLogger.warning("switchView: view \(viewId) not found")
+            return
+        }
         activeViewId = viewId
         markDirty()
     }
@@ -215,14 +227,20 @@ final class WorkspaceStore: ObservableObject {
     // MARK: - Tab Mutations (within active view)
 
     func appendTab(_ tab: Tab) {
-        guard let viewIndex = activeViewIndex else { return }
+        guard let viewIndex = activeViewIndex else {
+            storeLogger.warning("appendTab: no active view")
+            return
+        }
         views[viewIndex].tabs.append(tab)
         views[viewIndex].activeTabId = tab.id
         markDirty()
     }
 
     func removeTab(_ tabId: UUID) {
-        guard let viewIndex = activeViewIndex else { return }
+        guard let viewIndex = activeViewIndex else {
+            storeLogger.warning("removeTab: no active view")
+            return
+        }
         views[viewIndex].tabs.removeAll { $0.id == tabId }
         if views[viewIndex].activeTabId == tabId {
             views[viewIndex].activeTabId = views[viewIndex].tabs.last?.id
@@ -231,15 +249,24 @@ final class WorkspaceStore: ObservableObject {
     }
 
     func insertTab(_ tab: Tab, at index: Int) {
-        guard let viewIndex = activeViewIndex else { return }
+        guard let viewIndex = activeViewIndex else {
+            storeLogger.warning("insertTab: no active view")
+            return
+        }
         let clampedIndex = min(index, views[viewIndex].tabs.count)
         views[viewIndex].tabs.insert(tab, at: clampedIndex)
         markDirty()
     }
 
     func moveTab(fromId: UUID, toIndex: Int) {
-        guard let viewIndex = activeViewIndex else { return }
-        guard let fromIndex = views[viewIndex].tabs.firstIndex(where: { $0.id == fromId }) else { return }
+        guard let viewIndex = activeViewIndex else {
+            storeLogger.warning("moveTab: no active view")
+            return
+        }
+        guard let fromIndex = views[viewIndex].tabs.firstIndex(where: { $0.id == fromId }) else {
+            storeLogger.warning("moveTab: tab \(fromId) not found")
+            return
+        }
         let tab = views[viewIndex].tabs.remove(at: fromIndex)
         let clampedIndex = min(toIndex, views[viewIndex].tabs.count)
         views[viewIndex].tabs.insert(tab, at: clampedIndex)
@@ -247,7 +274,10 @@ final class WorkspaceStore: ObservableObject {
     }
 
     func setActiveTab(_ tabId: UUID?) {
-        guard let viewIndex = activeViewIndex else { return }
+        guard let viewIndex = activeViewIndex else {
+            storeLogger.warning("setActiveTab: no active view")
+            return
+        }
         views[viewIndex].activeTabId = tabId
         markDirty()
     }
@@ -422,6 +452,11 @@ final class WorkspaceStore: ObservableObject {
             windowFrame = state.windowFrame
             createdAt = state.createdAt
             updatedAt = state.updatedAt
+            storeLogger.info("Restored workspace '\(state.name)' with \(state.sessions.count) session(s), \(state.views.count) view(s)")
+        } else if persistor.hasWorkspaceFiles() {
+            storeLogger.error("Workspace files exist on disk but failed to load — starting with empty state. Check schema version or file corruption.")
+        } else {
+            storeLogger.info("No workspace files found — first launch")
         }
 
         // Filter out temporary sessions — they are never restored
@@ -440,6 +475,7 @@ final class WorkspaceStore: ObservableObject {
     func markDirty() {
         debouncedSaveTask?.cancel()
         debouncedSaveTask = Task { @MainActor [weak self] in
+            // try? is intentional — Task.sleep only throws CancellationError
             try? await Task.sleep(for: .milliseconds(500))
             guard !Task.isCancelled else { return }
             self?.persistNow()
@@ -447,13 +483,16 @@ final class WorkspaceStore: ObservableObject {
     }
 
     /// Immediate persist — cancels any pending debounce. Use for app termination.
-    func flush() {
+    /// Returns true if save succeeded, false if it failed.
+    @discardableResult
+    func flush() -> Bool {
         debouncedSaveTask?.cancel()
         debouncedSaveTask = nil
-        persistNow()
+        return persistNow()
     }
 
-    private func persistNow() {
+    @discardableResult
+    private func persistNow() -> Bool {
         persistor.ensureDirectory()
         updatedAt = Date()
 
@@ -461,7 +500,8 @@ final class WorkspaceStore: ObservableObject {
         let persistableSessions = sessions.filter { $0.lifetime != .temporary }
         let validSessionIds = Set(persistableSessions.map(\.id))
 
-        // Prune views: remove dangling session IDs from layouts
+        // Prune views: remove temporary session IDs from layouts in the PERSISTED COPY.
+        // Live `views` state is not mutated — only the serialized output is cleaned.
         var prunedViews = views
         pruneInvalidSessions(from: &prunedViews, validSessionIds: validSessionIds)
 
@@ -477,7 +517,13 @@ final class WorkspaceStore: ObservableObject {
             createdAt: createdAt,
             updatedAt: updatedAt
         )
-        persistor.save(state)
+        do {
+            try persistor.save(state)
+            return true
+        } catch {
+            storeLogger.error("Failed to persist workspace: \(error.localizedDescription)")
+            return false
+        }
     }
 
     // MARK: - UI State
@@ -555,10 +601,17 @@ final class WorkspaceStore: ObservableObject {
     /// Follows the same pattern as `removeSession()` — prunes layout nodes,
     /// removes empty tabs, and fixes activeTabId pointers.
     private func pruneInvalidSessions(from views: inout [ViewDefinition], validSessionIds: Set<UUID>) {
+        var totalPruned = 0
+        var tabsRemoved = 0
+
         for viewIndex in views.indices {
+            let viewName = views[viewIndex].name
             for tabIndex in views[viewIndex].tabs.indices {
+                let tabId = views[viewIndex].tabs[tabIndex].id
                 let invalidIds = views[viewIndex].tabs[tabIndex].sessionIds.filter { !validSessionIds.contains($0) }
                 for sessionId in invalidIds {
+                    storeLogger.warning("Pruning invalid session \(sessionId) from view '\(viewName)' tab \(tabId)")
+                    totalPruned += 1
                     if let newLayout = views[viewIndex].tabs[tabIndex].layout.removing(sessionId: sessionId) {
                         views[viewIndex].tabs[tabIndex].layout = newLayout
                         if views[viewIndex].tabs[tabIndex].activeSessionId == sessionId {
@@ -571,12 +624,24 @@ final class WorkspaceStore: ObservableObject {
                 }
             }
             // Remove empty tabs
+            let beforeCount = views[viewIndex].tabs.count
             views[viewIndex].tabs.removeAll { $0.layout.isEmpty }
+            let removed = beforeCount - views[viewIndex].tabs.count
+            if removed > 0 {
+                storeLogger.warning("Removed \(removed) empty tab(s) from view '\(viewName)' after pruning")
+                tabsRemoved += removed
+            }
             // Fix activeTabId if it was removed
             if let activeTabId = views[viewIndex].activeTabId,
                !views[viewIndex].tabs.contains(where: { $0.id == activeTabId }) {
-                views[viewIndex].activeTabId = views[viewIndex].tabs.last?.id
+                let newActiveId = views[viewIndex].tabs.last?.id
+                storeLogger.warning("Fixed stale activeTabId \(activeTabId) → \(String(describing: newActiveId)) in view '\(viewName)'")
+                views[viewIndex].activeTabId = newActiveId
             }
+        }
+
+        if totalPruned > 0 {
+            storeLogger.warning("Pruning summary: removed \(totalPruned) session ref(s), \(tabsRemoved) tab(s)")
         }
     }
 

@@ -21,12 +21,12 @@ final class WorkspacePersistorTests: XCTestCase {
 
     // MARK: - Save & Load
 
-    func test_saveAndLoad_emptyState() {
+    func test_saveAndLoad_emptyState() throws {
         // Arrange
         let state = WorkspacePersistor.PersistableState()
 
         // Act
-        persistor.save(state)
+        try persistor.save(state)
         let loaded = persistor.load()
 
         // Assert
@@ -37,7 +37,7 @@ final class WorkspacePersistorTests: XCTestCase {
         XCTAssertTrue(loaded?.views.isEmpty ?? false)
     }
 
-    func test_saveAndLoad_withSessions() {
+    func test_saveAndLoad_withSessions() throws {
         // Arrange
         let session = TerminalSession(
             source: .worktree(worktreeId: UUID(), repoId: UUID()),
@@ -51,7 +51,7 @@ final class WorkspacePersistorTests: XCTestCase {
         state.sessions = [session]
 
         // Act
-        persistor.save(state)
+        try persistor.save(state)
         let loaded = persistor.load()
 
         // Assert
@@ -64,7 +64,7 @@ final class WorkspacePersistorTests: XCTestCase {
         XCTAssertEqual(loaded?.sessions[0].residency, .active)
     }
 
-    func test_saveAndLoad_withViews() {
+    func test_saveAndLoad_withViews() throws {
         // Arrange
         let sessionId = UUID()
         let tab = Tab(sessionId: sessionId)
@@ -79,7 +79,7 @@ final class WorkspacePersistorTests: XCTestCase {
         state.activeViewId = view.id
 
         // Act
-        persistor.save(state)
+        try persistor.save(state)
         let loaded = persistor.load()
 
         // Assert
@@ -90,7 +90,7 @@ final class WorkspacePersistorTests: XCTestCase {
         XCTAssertEqual(loaded?.activeViewId, view.id)
     }
 
-    func test_saveAndLoad_withSplitLayout() {
+    func test_saveAndLoad_withSplitLayout() throws {
         // Arrange
         let s1 = UUID(), s2 = UUID(), s3 = UUID()
         let layout = Layout(sessionId: s1)
@@ -102,7 +102,7 @@ final class WorkspacePersistorTests: XCTestCase {
         state.views = [view]
 
         // Act
-        persistor.save(state)
+        try persistor.save(state)
         let loaded = persistor.load()
 
         // Assert
@@ -110,7 +110,7 @@ final class WorkspacePersistorTests: XCTestCase {
         XCTAssertTrue(loaded?.views[0].tabs[0].isSplit ?? false)
     }
 
-    func test_saveAndLoad_preservesAllFields() {
+    func test_saveAndLoad_preservesAllFields() throws {
         // Arrange
         var state = WorkspacePersistor.PersistableState(
             name: "My Workspace",
@@ -131,7 +131,7 @@ final class WorkspacePersistorTests: XCTestCase {
         state.repos = [repo]
 
         // Act
-        persistor.save(state)
+        try persistor.save(state)
         let loaded = persistor.load()
 
         // Assert
@@ -181,10 +181,10 @@ final class WorkspacePersistorTests: XCTestCase {
 
     // MARK: - Delete
 
-    func test_delete_removesFile() {
+    func test_delete_removesFile() throws {
         // Arrange
         let state = WorkspacePersistor.PersistableState()
-        persistor.save(state)
+        try persistor.save(state)
         XCTAssertNotNil(persistor.load())
 
         // Act
@@ -196,20 +196,61 @@ final class WorkspacePersistorTests: XCTestCase {
 
     // MARK: - Multiple Saves
 
-    func test_save_overwritesPrevious() {
+    func test_save_overwritesPrevious() throws {
         // Arrange
         var state = WorkspacePersistor.PersistableState()
         state.name = "Version 1"
-        persistor.save(state)
+        try persistor.save(state)
 
         state.name = "Version 2"
-        persistor.save(state)
+        try persistor.save(state)
 
         // Act
         let loaded = persistor.load()
 
         // Assert
         XCTAssertEqual(loaded?.name, "Version 2")
+    }
+
+    // MARK: - ViewKind Codable
+
+    // MARK: - hasWorkspaceFiles
+
+    func test_hasWorkspaceFiles_emptyDir_returnsFalse() {
+        // Assert — freshly created temp dir has no workspace files
+        XCTAssertFalse(persistor.hasWorkspaceFiles())
+    }
+
+    func test_hasWorkspaceFiles_afterSave_returnsTrue() throws {
+        // Arrange
+        let state = WorkspacePersistor.PersistableState()
+        try persistor.save(state)
+
+        // Assert
+        XCTAssertTrue(persistor.hasWorkspaceFiles())
+    }
+
+    func test_hasWorkspaceFiles_nonExistentDir_returnsFalse() {
+        // Arrange
+        let badPersistor = WorkspacePersistor(
+            workspacesDir: URL(fileURLWithPath: "/nonexistent/\(UUID().uuidString)")
+        )
+
+        // Assert
+        XCTAssertFalse(badPersistor.hasWorkspaceFiles())
+    }
+
+    // MARK: - Save Failure
+
+    func test_save_toNonWritablePath_throws() {
+        // Arrange
+        let readOnlyPersistor = WorkspacePersistor(
+            workspacesDir: URL(fileURLWithPath: "/nonexistent/\(UUID().uuidString)")
+        )
+        let state = WorkspacePersistor.PersistableState()
+
+        // Act & Assert
+        XCTAssertThrowsError(try readOnlyPersistor.save(state))
     }
 
     // MARK: - ViewKind Codable
@@ -230,7 +271,7 @@ final class WorkspacePersistorTests: XCTestCase {
         state.views = views
 
         // Act
-        persistor.save(state)
+        try persistor.save(state)
         let loaded = persistor.load()
 
         // Assert

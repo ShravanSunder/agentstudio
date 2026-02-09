@@ -72,17 +72,14 @@ struct WorkspacePersistor {
     }
 
     /// Save state to disk. Immediate write with atomic option.
-    func save(_ state: PersistableState) {
+    /// Throws on encoding or write failure so callers can handle.
+    func save(_ state: PersistableState) throws {
         let url = fileURL(for: state.id)
         let encoder = JSONEncoder()
         encoder.outputFormatting = [.prettyPrinted, .sortedKeys]
 
-        do {
-            let data = try encoder.encode(state)
-            try data.write(to: url, options: .atomic)
-        } catch {
-            persistorLogger.error("Failed to save workspace to \(url.lastPathComponent): \(error)")
-        }
+        let data = try encoder.encode(state)
+        try data.write(to: url, options: .atomic)
     }
 
     /// Load state from disk. Returns nil if no workspace file exists or schema is incompatible.
@@ -135,10 +132,24 @@ struct WorkspacePersistor {
         }
     }
 
+    /// Check if any workspace files exist on disk (distinguishes first-launch from load-failure).
+    func hasWorkspaceFiles() -> Bool {
+        guard let contents = try? FileManager.default.contentsOfDirectory(
+            at: workspacesDir,
+            includingPropertiesForKeys: nil,
+            options: .skipsHiddenFiles
+        ) else { return false }
+        return contents.contains { $0.pathExtension == "json" }
+    }
+
     /// Delete workspace file.
     func delete(id: UUID) {
         let url = fileURL(for: id)
-        try? FileManager.default.removeItem(at: url)
+        do {
+            try FileManager.default.removeItem(at: url)
+        } catch {
+            persistorLogger.error("Failed to delete workspace file \(url.lastPathComponent): \(error)")
+        }
     }
 
     // MARK: - Private

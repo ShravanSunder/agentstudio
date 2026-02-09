@@ -116,6 +116,8 @@ final class TerminalViewCoordinator {
     // MARK: - Undo Restore
 
     /// Restore a view from an undo close. Tries to reuse the undone surface; creates fresh if expired.
+    /// Note: SurfaceManager.undoClose() pops the last globally closed surface, not keyed by sessionId.
+    /// TODO: Add keyed undo to SurfaceManager so the correct surface is restored (Phase 4).
     @discardableResult
     func restoreView(
         for session: TerminalSession,
