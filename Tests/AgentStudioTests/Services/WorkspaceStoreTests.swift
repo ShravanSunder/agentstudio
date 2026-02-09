@@ -148,18 +148,45 @@ final class WorkspaceStoreTests: XCTestCase {
         XCTAssertEqual(store.sessions[0].agent, .claude)
     }
 
-    func test_setProviderHandle() {
+    func test_setResidency() {
         // Arrange
         let session = store.createSession(
-            source: .floating(workingDirectory: nil, title: nil),
-            provider: .tmux
+            source: .floating(workingDirectory: nil, title: nil)
+        )
+        XCTAssertEqual(session.residency, .active)
+
+        // Act
+        let expiresAt = Date(timeIntervalSinceNow: 300)
+        store.setResidency(.pendingUndo(expiresAt: expiresAt), for: session.id)
+
+        // Assert
+        XCTAssertEqual(store.sessions[0].residency, .pendingUndo(expiresAt: expiresAt))
+    }
+
+    func test_setResidency_backgrounded() {
+        // Arrange
+        let session = store.createSession(
+            source: .floating(workingDirectory: nil, title: nil)
         )
 
         // Act
-        store.setProviderHandle(session.id, handle: "tmux-abc123")
+        store.setResidency(.backgrounded, for: session.id)
 
         // Assert
-        XCTAssertEqual(store.sessions[0].providerHandle, "tmux-abc123")
+        XCTAssertEqual(store.sessions[0].residency, .backgrounded)
+    }
+
+    func test_createSession_withLifetimeAndResidency() {
+        // Act
+        let session = store.createSession(
+            source: .floating(workingDirectory: nil, title: nil),
+            lifetime: .temporary,
+            residency: .backgrounded
+        )
+
+        // Assert
+        XCTAssertEqual(session.lifetime, .temporary)
+        XCTAssertEqual(session.residency, .backgrounded)
     }
 
     // MARK: - Derived State
@@ -559,7 +586,7 @@ final class WorkspaceStoreTests: XCTestCase {
         )
         let tab = Tab(sessionId: session.id)
         store.appendTab(tab)
-        store.save()
+        store.flush()
 
         // Act — create new store with same persistor
         let persistor2 = WorkspacePersistor(workspacesDir: tempDir)
@@ -571,6 +598,33 @@ final class WorkspaceStoreTests: XCTestCase {
         XCTAssertEqual(store2.sessions[0].title, "Persistent")
         XCTAssertEqual(store2.activeTabs.count, 1)
         XCTAssertEqual(store2.activeTabs[0].sessionIds.count, 1)
+    }
+
+    func test_persistence_temporarySessionsExcluded() {
+        // Arrange
+        let persistent = store.createSession(
+            source: .floating(workingDirectory: nil, title: "Persistent"),
+            title: "Persistent",
+            lifetime: .persistent
+        )
+        store.createSession(
+            source: .floating(workingDirectory: nil, title: "Temporary"),
+            title: "Temporary",
+            lifetime: .temporary
+        )
+        let tab = Tab(sessionId: persistent.id)
+        store.appendTab(tab)
+        store.flush()
+
+        // Act — restore from disk
+        let persistor2 = WorkspacePersistor(workspacesDir: tempDir)
+        let store2 = WorkspaceStore(persistor: persistor2)
+        store2.restore()
+
+        // Assert — only persistent session restored
+        XCTAssertEqual(store2.sessions.count, 1)
+        XCTAssertEqual(store2.sessions[0].title, "Persistent")
+        XCTAssertEqual(store2.sessions[0].lifetime, .persistent)
     }
 
     // MARK: - Undo

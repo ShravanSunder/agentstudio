@@ -110,15 +110,19 @@ final class WorkspaceStore: ObservableObject {
     func createSession(
         source: TerminalSource,
         title: String = "Terminal",
-        provider: SessionProvider = .ghostty
+        provider: SessionProvider = .ghostty,
+        lifetime: SessionLifetime = .persistent,
+        residency: SessionResidency = .active
     ) -> TerminalSession {
         let session = TerminalSession(
             source: source,
             title: title,
-            provider: provider
+            provider: provider,
+            lifetime: lifetime,
+            residency: residency
         )
         sessions.append(session)
-        save()
+        markDirty()
         return session
     }
 
@@ -147,25 +151,25 @@ final class WorkspaceStore: ObservableObject {
                 views[viewIndex].activeTabId = views[viewIndex].tabs.last?.id
             }
         }
-        save()
+        markDirty()
     }
 
     func updateSessionTitle(_ sessionId: UUID, title: String) {
         guard let index = sessions.firstIndex(where: { $0.id == sessionId }) else { return }
         sessions[index].title = title
-        debouncedSave()
+        markDirty()
     }
 
     func updateSessionAgent(_ sessionId: UUID, agent: AgentType?) {
         guard let index = sessions.firstIndex(where: { $0.id == sessionId }) else { return }
         sessions[index].agent = agent
-        save()
+        markDirty()
     }
 
-    func setProviderHandle(_ sessionId: UUID, handle: String) {
+    func setResidency(_ residency: SessionResidency, for sessionId: UUID) {
         guard let index = sessions.firstIndex(where: { $0.id == sessionId }) else { return }
-        sessions[index].providerHandle = handle
-        save()
+        sessions[index].residency = residency
+        markDirty()
     }
 
     // MARK: - View Mutations
@@ -173,14 +177,14 @@ final class WorkspaceStore: ObservableObject {
     func switchView(_ viewId: UUID) {
         guard views.contains(where: { $0.id == viewId }) else { return }
         activeViewId = viewId
-        save()
+        markDirty()
     }
 
     @discardableResult
     func createView(name: String, kind: ViewKind) -> ViewDefinition {
         let view = ViewDefinition(name: name, kind: kind)
         views.append(view)
-        save()
+        markDirty()
         return view
     }
 
@@ -191,7 +195,7 @@ final class WorkspaceStore: ObservableObject {
         if activeViewId == viewId {
             activeViewId = views.first(where: { $0.kind == .main })?.id
         }
-        save()
+        markDirty()
     }
 
     @discardableResult
@@ -204,7 +208,7 @@ final class WorkspaceStore: ObservableObject {
             activeTabId: current.activeTabId
         )
         views.append(snapshot)
-        save()
+        markDirty()
         return snapshot
     }
 
@@ -214,7 +218,7 @@ final class WorkspaceStore: ObservableObject {
         guard let viewIndex = activeViewIndex else { return }
         views[viewIndex].tabs.append(tab)
         views[viewIndex].activeTabId = tab.id
-        save()
+        markDirty()
     }
 
     func removeTab(_ tabId: UUID) {
@@ -223,14 +227,14 @@ final class WorkspaceStore: ObservableObject {
         if views[viewIndex].activeTabId == tabId {
             views[viewIndex].activeTabId = views[viewIndex].tabs.last?.id
         }
-        save()
+        markDirty()
     }
 
     func insertTab(_ tab: Tab, at index: Int) {
         guard let viewIndex = activeViewIndex else { return }
         let clampedIndex = min(index, views[viewIndex].tabs.count)
         views[viewIndex].tabs.insert(tab, at: clampedIndex)
-        save()
+        markDirty()
     }
 
     func moveTab(fromId: UUID, toIndex: Int) {
@@ -239,13 +243,13 @@ final class WorkspaceStore: ObservableObject {
         let tab = views[viewIndex].tabs.remove(at: fromIndex)
         let clampedIndex = min(toIndex, views[viewIndex].tabs.count)
         views[viewIndex].tabs.insert(tab, at: clampedIndex)
-        save()
+        markDirty()
     }
 
     func setActiveTab(_ tabId: UUID?) {
         guard let viewIndex = activeViewIndex else { return }
         views[viewIndex].activeTabId = tabId
-        save()
+        markDirty()
     }
 
     // MARK: - Layout Mutations (within a tab in the active view)
@@ -260,7 +264,7 @@ final class WorkspaceStore: ObservableObject {
         guard let (viewIndex, tabIndex) = findTab(tabId) else { return }
         views[viewIndex].tabs[tabIndex].layout = views[viewIndex].tabs[tabIndex].layout
             .inserting(sessionId: sessionId, at: targetSessionId, direction: direction, position: position)
-        save()
+        markDirty()
     }
 
     func removeSessionFromLayout(_ sessionId: UUID, inTab tabId: UUID) {
@@ -275,26 +279,26 @@ final class WorkspaceStore: ObservableObject {
             // Last session removed — close tab
             removeTab(tabId)
         }
-        save()
+        markDirty()
     }
 
     func resizePane(tabId: UUID, splitId: UUID, ratio: Double) {
         guard let (viewIndex, tabIndex) = findTab(tabId) else { return }
         views[viewIndex].tabs[tabIndex].layout = views[viewIndex].tabs[tabIndex].layout
             .resizing(splitId: splitId, ratio: ratio)
-        debouncedSave()
+        markDirty()
     }
 
     func equalizePanes(tabId: UUID) {
         guard let (viewIndex, tabIndex) = findTab(tabId) else { return }
         views[viewIndex].tabs[tabIndex].layout = views[viewIndex].tabs[tabIndex].layout.equalized()
-        save()
+        markDirty()
     }
 
     func setActiveSession(_ sessionId: UUID?, inTab tabId: UUID) {
         guard let (viewIndex, tabIndex) = findTab(tabId) else { return }
         views[viewIndex].tabs[tabIndex].activeSessionId = sessionId
-        debouncedSave()
+        markDirty()
     }
 
     // MARK: - Compound Operations
@@ -320,7 +324,7 @@ final class WorkspaceStore: ObservableObject {
         views[viewIndex].tabs.insert(contentsOf: newTabs, at: insertIndex)
         views[viewIndex].activeTabId = newTabs.first?.id
 
-        save()
+        markDirty()
         return newTabs
     }
 
@@ -343,7 +347,7 @@ final class WorkspaceStore: ObservableObject {
         views[viewIndex].tabs.insert(newTab, at: min(insertIndex, views[viewIndex].tabs.count))
         views[viewIndex].activeTabId = newTab.id
 
-        save()
+        markDirty()
         return newTab
     }
 
@@ -375,7 +379,7 @@ final class WorkspaceStore: ObservableObject {
         // Fix activeTabId
         views[viewIndex].activeTabId = targetId
 
-        save()
+        markDirty()
     }
 
     // MARK: - Repo Mutations
@@ -387,20 +391,20 @@ final class WorkspaceStore: ObservableObject {
         }
         let repo = Repo(name: path.lastPathComponent, repoPath: path)
         repos.append(repo)
-        save()
+        markDirty()
         return repo
     }
 
     func removeRepo(_ repoId: UUID) {
         repos.removeAll { $0.id == repoId }
-        save()
+        markDirty()
     }
 
     func updateRepoWorktrees(_ repoId: UUID, worktrees: [Worktree]) {
         guard let index = repos.firstIndex(where: { $0.id == repoId }) else { return }
         repos[index].worktrees = worktrees
         repos[index].updatedAt = Date()
-        save()
+        markDirty()
     }
 
     // MARK: - Persistence
@@ -420,18 +424,43 @@ final class WorkspaceStore: ObservableObject {
             updatedAt = state.updatedAt
         }
 
+        // Filter out temporary sessions — they are never restored
+        sessions.removeAll { $0.lifetime == .temporary }
+
         // Ensure main view exists
         ensureMainView()
     }
 
-    func save() {
+    /// Schedule a debounced save. All mutations call this instead of saving inline.
+    /// Coalesces writes within a 500ms window.
+    func markDirty() {
+        debouncedSaveTask?.cancel()
+        debouncedSaveTask = Task { @MainActor [weak self] in
+            try? await Task.sleep(for: .milliseconds(500))
+            guard !Task.isCancelled else { return }
+            self?.persistNow()
+        }
+    }
+
+    /// Immediate persist — cancels any pending debounce. Use for app termination.
+    func flush() {
+        debouncedSaveTask?.cancel()
+        debouncedSaveTask = nil
+        persistNow()
+    }
+
+    private func persistNow() {
         persistor.ensureDirectory()
         updatedAt = Date()
+
+        // Filter out temporary sessions — they are never persisted
+        let persistableSessions = sessions.filter { $0.lifetime != .temporary }
+
         let state = WorkspacePersistor.PersistableState(
             id: workspaceId,
             name: workspaceName,
             repos: repos,
-            sessions: sessions,
+            sessions: persistableSessions,
             views: views,
             activeViewId: activeViewId,
             sidebarWidth: sidebarWidth,
@@ -442,28 +471,16 @@ final class WorkspaceStore: ObservableObject {
         persistor.save(state)
     }
 
-    /// Debounced save for high-frequency operations (resize, drag).
-    /// Coalesces writes within a 500ms window.
-    func debouncedSave() {
-        debouncedSaveTask?.cancel()
-        debouncedSaveTask = Task { @MainActor [weak self] in
-            try? await Task.sleep(for: .milliseconds(500))
-            guard !Task.isCancelled else { return }
-            self?.save()
-        }
-    }
-
     // MARK: - UI State
 
     func setSidebarWidth(_ width: CGFloat) {
         sidebarWidth = width
-        // Transient — saved on quit only via debouncedSave
-        debouncedSave()
+        markDirty()
     }
 
     func setWindowFrame(_ frame: CGRect?) {
         windowFrame = frame
-        // Transient — saved on quit only
+        // Transient — saved on quit only via flush()
     }
 
     // MARK: - Undo
@@ -510,7 +527,7 @@ final class WorkspaceStore: ObservableObject {
             views[viewIndex].activeTabId = snapshot.tab.id
         }
 
-        save()
+        markDirty()
     }
 
     // MARK: - Private Helpers

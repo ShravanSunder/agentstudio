@@ -72,6 +72,14 @@ final class ActionExecutor {
                 targetPaneId: targetPaneId,
                 direction: direction
             )
+
+        case .expireUndoEntry(let sessionId):
+            // Phase 3: remove session from store, kill tmux, destroy surface
+            executorLogger.debug("expireUndoEntry: \(sessionId) — stub, full impl in Phase 3")
+
+        case .repair(let repairAction):
+            // Phase 4: route repair actions to TerminalViewCoordinator
+            executorLogger.debug("repair: \(String(describing: repairAction)) — stub, full impl in Phase 4")
         }
     }
 

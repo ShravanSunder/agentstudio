@@ -125,7 +125,7 @@ final class SessionRuntimeTests: XCTestCase {
     // MARK: - Backend Registration
 
     func test_registerBackend_storesCorrectly() {
-        let backend = MockSessionBackend(provider: .tmux)
+        let backend = MockSessionRuntimeBackend(provider: .tmux)
         runtime.registerBackend(backend)
         // No direct way to query backends, but startSession should use it
         // Tested via integration in startSession tests
@@ -147,7 +147,7 @@ final class SessionRuntimeTests: XCTestCase {
     }
 
     func test_startSession_withBackend_callsStart() async throws {
-        let backend = MockSessionBackend(provider: .tmux)
+        let backend = MockSessionRuntimeBackend(provider: .tmux)
         runtime.registerBackend(backend)
 
         let session = TerminalSession(
@@ -175,7 +175,7 @@ final class SessionRuntimeTests: XCTestCase {
     }
 
     func test_restoreSession_withBackend_success() async {
-        let backend = MockSessionBackend(provider: .tmux)
+        let backend = MockSessionRuntimeBackend(provider: .tmux)
         backend.restoreResult = true
         runtime.registerBackend(backend)
 
@@ -191,7 +191,7 @@ final class SessionRuntimeTests: XCTestCase {
     }
 
     func test_restoreSession_withBackend_failure() async {
-        let backend = MockSessionBackend(provider: .tmux)
+        let backend = MockSessionRuntimeBackend(provider: .tmux)
         backend.restoreResult = false
         runtime.registerBackend(backend)
 
@@ -207,7 +207,7 @@ final class SessionRuntimeTests: XCTestCase {
     }
 
     func test_terminateSession_withBackend_marksExited() async {
-        let backend = MockSessionBackend(provider: .tmux)
+        let backend = MockSessionRuntimeBackend(provider: .tmux)
         runtime.registerBackend(backend)
 
         let session = TerminalSession(
@@ -237,7 +237,7 @@ final class SessionRuntimeTests: XCTestCase {
 
 // MARK: - Mock Backend
 
-private final class MockSessionBackend: SessionBackend, @unchecked Sendable {
+private final class MockSessionRuntimeBackend: SessionBackendProtocol, @unchecked Sendable {
     let provider: SessionProvider
     var startCount = 0
     var terminateCount = 0

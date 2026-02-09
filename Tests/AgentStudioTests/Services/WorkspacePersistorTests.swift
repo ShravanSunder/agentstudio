@@ -44,7 +44,8 @@ final class WorkspacePersistorTests: XCTestCase {
             title: "Feature",
             agent: .claude,
             provider: .tmux,
-            providerHandle: "tmux-test"
+            lifetime: .persistent,
+            residency: .active
         )
         var state = WorkspacePersistor.PersistableState()
         state.sessions = [session]
@@ -59,7 +60,8 @@ final class WorkspacePersistorTests: XCTestCase {
         XCTAssertEqual(loaded?.sessions[0].title, "Feature")
         XCTAssertEqual(loaded?.sessions[0].agent, .claude)
         XCTAssertEqual(loaded?.sessions[0].provider, .tmux)
-        XCTAssertEqual(loaded?.sessions[0].providerHandle, "tmux-test")
+        XCTAssertEqual(loaded?.sessions[0].lifetime, .persistent)
+        XCTAssertEqual(loaded?.sessions[0].residency, .active)
     }
 
     func test_saveAndLoad_withViews() {

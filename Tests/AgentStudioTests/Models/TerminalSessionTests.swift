@@ -14,17 +14,16 @@ final class TerminalSessionTests: XCTestCase {
 
         // Assert
         XCTAssertNotNil(session.id)
-        XCTAssertNotNil(session.containerId)
         XCTAssertEqual(session.title, "Terminal")
         XCTAssertNil(session.agent)
         XCTAssertEqual(session.provider, .ghostty)
-        XCTAssertNil(session.providerHandle)
+        XCTAssertEqual(session.lifetime, .persistent)
+        XCTAssertEqual(session.residency, .active)
     }
 
     func test_init_customValues() {
         // Arrange
         let id = UUID()
-        let containerId = UUID()
         let worktreeId = UUID()
         let repoId = UUID()
 
@@ -32,20 +31,20 @@ final class TerminalSessionTests: XCTestCase {
         let session = TerminalSession(
             id: id,
             source: .worktree(worktreeId: worktreeId, repoId: repoId),
-            containerId: containerId,
             title: "Feature",
             agent: .claude,
             provider: .tmux,
-            providerHandle: "agentstudio--abc123"
+            lifetime: .temporary,
+            residency: .backgrounded
         )
 
         // Assert
         XCTAssertEqual(session.id, id)
-        XCTAssertEqual(session.containerId, containerId)
         XCTAssertEqual(session.title, "Feature")
         XCTAssertEqual(session.agent, .claude)
         XCTAssertEqual(session.provider, .tmux)
-        XCTAssertEqual(session.providerHandle, "agentstudio--abc123")
+        XCTAssertEqual(session.lifetime, .temporary)
+        XCTAssertEqual(session.residency, .backgrounded)
     }
 
     // MARK: - Convenience Accessors
@@ -101,7 +100,8 @@ final class TerminalSessionTests: XCTestCase {
             title: "Main",
             agent: .claude,
             provider: .tmux,
-            providerHandle: "tmux-session-1"
+            lifetime: .persistent,
+            residency: .active
         )
 
         // Act
@@ -110,18 +110,19 @@ final class TerminalSessionTests: XCTestCase {
 
         // Assert
         XCTAssertEqual(decoded.id, session.id)
-        XCTAssertEqual(decoded.containerId, session.containerId)
         XCTAssertEqual(decoded.title, session.title)
         XCTAssertEqual(decoded.agent, session.agent)
         XCTAssertEqual(decoded.provider, session.provider)
-        XCTAssertEqual(decoded.providerHandle, session.providerHandle)
+        XCTAssertEqual(decoded.lifetime, session.lifetime)
+        XCTAssertEqual(decoded.residency, session.residency)
         XCTAssertEqual(decoded.source, session.source)
     }
 
     func test_codable_floatingSession_roundTrips() throws {
         // Arrange
         let session = TerminalSession(
-            source: .floating(workingDirectory: URL(fileURLWithPath: "/tmp"), title: "Scratch")
+            source: .floating(workingDirectory: URL(fileURLWithPath: "/tmp"), title: "Scratch"),
+            lifetime: .temporary
         )
 
         // Act
@@ -133,7 +134,48 @@ final class TerminalSessionTests: XCTestCase {
         XCTAssertEqual(decoded.source, session.source)
         XCTAssertNil(decoded.agent)
         XCTAssertEqual(decoded.provider, .ghostty)
-        XCTAssertNil(decoded.providerHandle)
+        XCTAssertEqual(decoded.lifetime, .temporary)
+        XCTAssertEqual(decoded.residency, .active)
+    }
+
+    func test_codable_backwardCompat_legacyFields_decoded() throws {
+        // Arrange — JSON with legacy containerId and providerHandle fields
+        let legacyJSON = """
+        {
+            "id": "11111111-1111-1111-1111-111111111111",
+            "source": { "floating": { "title": "Legacy" } },
+            "title": "Legacy Session",
+            "provider": "tmux",
+            "containerId": "22222222-2222-2222-2222-222222222222",
+            "providerHandle": "tmux-legacy-handle"
+        }
+        """.data(using: .utf8)!
+
+        // Act
+        let decoded = try JSONDecoder().decode(TerminalSession.self, from: legacyJSON)
+
+        // Assert — legacy fields silently discarded, new fields default
+        XCTAssertEqual(decoded.id, UUID(uuidString: "11111111-1111-1111-1111-111111111111"))
+        XCTAssertEqual(decoded.title, "Legacy Session")
+        XCTAssertEqual(decoded.provider, .tmux)
+        XCTAssertEqual(decoded.lifetime, .persistent)
+        XCTAssertEqual(decoded.residency, .active)
+    }
+
+    func test_codable_pendingUndo_roundTrips() throws {
+        // Arrange
+        let expiresAt = Date(timeIntervalSince1970: 2_000_000)
+        let session = TerminalSession(
+            source: .floating(workingDirectory: nil, title: nil),
+            residency: .pendingUndo(expiresAt: expiresAt)
+        )
+
+        // Act
+        let data = try JSONEncoder().encode(session)
+        let decoded = try JSONDecoder().decode(TerminalSession.self, from: data)
+
+        // Assert
+        XCTAssertEqual(decoded.residency, .pendingUndo(expiresAt: expiresAt))
     }
 
     // MARK: - Hashable
@@ -141,16 +183,13 @@ final class TerminalSessionTests: XCTestCase {
     func test_hashable_sameFields_areEqual() {
         // Arrange
         let id = UUID()
-        let containerId = UUID()
         let session1 = TerminalSession(
             id: id,
-            source: .floating(workingDirectory: nil, title: nil),
-            containerId: containerId
+            source: .floating(workingDirectory: nil, title: nil)
         )
         let session2 = TerminalSession(
             id: id,
-            source: .floating(workingDirectory: nil, title: nil),
-            containerId: containerId
+            source: .floating(workingDirectory: nil, title: nil)
         )
 
         // Assert

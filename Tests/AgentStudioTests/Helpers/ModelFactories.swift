@@ -69,7 +69,7 @@ func makeSurfaceMetadata(
     title: String = "Terminal",
     worktreeId: UUID? = nil,
     repoId: UUID? = nil,
-    paneId: UUID? = nil
+    sessionId: UUID? = nil
 ) -> SurfaceMetadata {
     SurfaceMetadata(
         workingDirectory: workingDirectory.map { URL(fileURLWithPath: $0) },
@@ -77,7 +77,7 @@ func makeSurfaceMetadata(
         title: title,
         worktreeId: worktreeId,
         repoId: repoId,
-        paneId: paneId
+        sessionId: sessionId
     )
 }
 

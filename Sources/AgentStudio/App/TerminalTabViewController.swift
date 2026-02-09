@@ -637,6 +637,10 @@ class TerminalTabViewController: NSViewController, CommandHandler {
         case .mergeTab(let sourceTabId, let targetTabId, let targetPaneId, let direction):
             executeMergeTab(sourceTabId: sourceTabId, targetTabId: targetTabId,
                           targetPaneId: targetPaneId, direction: direction)
+
+        case .expireUndoEntry, .repair:
+            // System actions — handled by ActionExecutor, not TTVC
+            break
         }
     }
 
@@ -1115,7 +1119,7 @@ class TerminalTabViewController: NSViewController, CommandHandler {
         // Get worktree, repo, and paneId from metadata
         guard let worktreeId = restored.metadata.worktreeId,
               let repoId = restored.metadata.repoId,
-              let paneId = restored.metadata.paneId,
+              let paneId = restored.metadata.sessionId,
               let repo = SessionManager.shared.repos.first(where: { $0.id == repoId }),
               let worktree = repo.worktrees.first(where: { $0.id == worktreeId }) else {
             ghosttyLogger.warning("Could not find metadata for restored surface")

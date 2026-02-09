@@ -6,7 +6,7 @@ private let runtimeLogger = Logger(subsystem: "com.agentstudio", category: "Sess
 // MARK: - Session Status
 
 /// Runtime state of a terminal session. Not persisted — derived at runtime.
-enum SessionStatus: String, Codable, Hashable, Sendable {
+enum SessionRuntimeStatus: String, Codable, Hashable, Sendable {
     /// Session created, backend not yet ready.
     case initializing
     /// Backend is running and healthy.
@@ -21,7 +21,7 @@ enum SessionStatus: String, Codable, Hashable, Sendable {
 
 /// Abstraction for terminal session providers (Ghostty, tmux, etc.).
 /// Concrete implementations handle process lifecycle and health monitoring.
-protocol SessionBackend: Sendable {
+protocol SessionBackendProtocol: Sendable {
     /// Provider type this backend handles.
     var provider: SessionProvider { get }
 
@@ -46,10 +46,10 @@ protocol SessionBackend: Sendable {
 final class SessionRuntime: ObservableObject {
 
     /// Runtime status for each session.
-    @Published private(set) var statuses: [UUID: SessionStatus] = [:]
+    @Published private(set) var statuses: [UUID: SessionRuntimeStatus] = [:]
 
     /// Registered backends by provider type.
-    private var backends: [SessionProvider: any SessionBackend] = [:]
+    private var backends: [SessionProvider: any SessionBackendProtocol] = [:]
 
     /// Health check timer interval in seconds.
     private let healthCheckInterval: TimeInterval
@@ -75,19 +75,19 @@ final class SessionRuntime: ObservableObject {
     // MARK: - Backend Registration
 
     /// Register a backend for a provider type.
-    func registerBackend(_ backend: any SessionBackend) {
+    func registerBackend(_ backend: any SessionBackendProtocol) {
         backends[backend.provider] = backend
     }
 
     // MARK: - Status Queries
 
     /// Get the runtime status of a session.
-    func status(for sessionId: UUID) -> SessionStatus {
+    func status(for sessionId: UUID) -> SessionRuntimeStatus {
         statuses[sessionId] ?? .initializing
     }
 
     /// All sessions with a given status.
-    func sessions(withStatus status: SessionStatus) -> [UUID] {
+    func sessions(withStatus status: SessionRuntimeStatus) -> [UUID] {
         statuses.filter { $0.value == status }.map(\.key)
     }
 

@@ -139,7 +139,7 @@ final class AgentStudioTerminalView: NSView, SurfaceContainer, SurfaceHealthDele
             title: worktree.name,
             worktreeId: worktree.id,
             repoId: repo.id,
-            paneId: paneId
+            sessionId: paneId
         )
 
         // Create surface via manager
