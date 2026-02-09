@@ -32,7 +32,6 @@ final class WorkspacePersistorTests: XCTestCase {
         // Assert
         XCTAssertNotNil(loaded)
         XCTAssertEqual(loaded?.id, state.id)
-        XCTAssertEqual(loaded?.schemaVersion, 2)
         XCTAssertTrue(loaded?.sessions.isEmpty ?? false)
         XCTAssertTrue(loaded?.views.isEmpty ?? false)
     }
@@ -143,23 +142,6 @@ final class WorkspacePersistorTests: XCTestCase {
         XCTAssertEqual(loaded?.repos[0].worktrees.count, 1)
     }
 
-    // MARK: - Schema Version
-
-    func test_load_wrongVersion_returnsNil() throws {
-        // Arrange — manually write a v1 JSON
-        let json = """
-        {"schemaVersion": 1, "id": "\(UUID().uuidString)", "name": "Old", "repos": [], "sessions": [], "views": [], "sidebarWidth": 250, "createdAt": 0, "updatedAt": 0}
-        """
-        let fileURL = tempDir.appending(path: "\(UUID().uuidString).json")
-        try json.data(using: .utf8)!.write(to: fileURL)
-
-        // Act
-        let loaded = persistor.load()
-
-        // Assert
-        XCTAssertNil(loaded)
-    }
-
     func test_load_noFiles_returnsNil() {
         // The temp dir is empty
         let loaded = persistor.load()
@@ -199,17 +181,17 @@ final class WorkspacePersistorTests: XCTestCase {
     func test_save_overwritesPrevious() throws {
         // Arrange
         var state = WorkspacePersistor.PersistableState()
-        state.name = "Version 1"
+        state.name = "First Save"
         try persistor.save(state)
 
-        state.name = "Version 2"
+        state.name = "Second Save"
         try persistor.save(state)
 
         // Act
         let loaded = persistor.load()
 
         // Assert
-        XCTAssertEqual(loaded?.name, "Version 2")
+        XCTAssertEqual(loaded?.name, "Second Save")
     }
 
     // MARK: - ViewKind Codable

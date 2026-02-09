@@ -663,17 +663,6 @@ final class LayoutTests: XCTestCase {
         XCTAssertEqual(decodedNested.ratio, 0.5, accuracy: 0.001)
     }
 
-    func test_codable_wrongVersion_throws() throws {
-        // Arrange — manually craft JSON with wrong version
-        let json = """
-        {"version": 99, "root": null}
-        """
-        let data = json.data(using: .utf8)!
-
-        // Act & Assert
-        XCTAssertThrowsError(try JSONDecoder().decode(Layout.self, from: data))
-    }
-
     // MARK: - Hashable
 
     func test_hashable_sameStructure_areEqual() {

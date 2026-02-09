@@ -155,6 +155,34 @@ final class TerminalViewCoordinator {
         return createView(for: session, worktree: worktree, repo: repo)
     }
 
+    // MARK: - Restore All Views
+
+    /// Recreate terminal views for all restored sessions in the active view.
+    /// Called once at launch after store.restore() populates persisted state.
+    func restoreAllViews() {
+        let sessionIds = store.activeView?.allSessionIds ?? []
+        guard !sessionIds.isEmpty else {
+            coordinatorLogger.info("No sessions to restore views for")
+            return
+        }
+
+        var restored = 0
+        for sessionId in sessionIds {
+            guard let session = store.session(sessionId),
+                  let worktreeId = session.worktreeId,
+                  let repoId = session.repoId,
+                  let worktree = store.worktree(worktreeId),
+                  let repo = store.repo(repoId) else {
+                coordinatorLogger.warning("Skipping view restore for session \(sessionId) — missing worktree/repo")
+                continue
+            }
+            if createView(for: session, worktree: worktree, repo: repo) != nil {
+                restored += 1
+            }
+        }
+        coordinatorLogger.info("Restored \(restored)/\(sessionIds.count) terminal views")
+    }
+
     // MARK: - Helpers
 
     private func getDefaultShell() -> String {

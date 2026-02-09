@@ -152,34 +152,6 @@ struct Layout: Codable, Hashable {
         return ids[prevIndex]
     }
 
-    // MARK: - Codable (version-tagged)
-
-    private static var currentVersion: Int { 1 }
-
-    private enum CodingKeys: String, CodingKey {
-        case version
-        case root
-    }
-
-    init(from decoder: Decoder) throws {
-        let container = try decoder.container(keyedBy: CodingKeys.self)
-        let version = try container.decode(Int.self, forKey: .version)
-        guard version == Self.currentVersion else {
-            throw DecodingError.dataCorrupted(
-                DecodingError.Context(
-                    codingPath: decoder.codingPath,
-                    debugDescription: "Unsupported Layout version: \(version)"
-                )
-            )
-        }
-        self.root = try container.decodeIfPresent(Node.self, forKey: .root)
-    }
-
-    func encode(to encoder: Encoder) throws {
-        var container = encoder.container(keyedBy: CodingKeys.self)
-        try container.encode(Self.currentVersion, forKey: .version)
-        try container.encodeIfPresent(root, forKey: .root)
-    }
 }
 
 // MARK: - Focus Direction

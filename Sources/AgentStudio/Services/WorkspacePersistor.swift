@@ -4,13 +4,11 @@ import os.log
 private let persistorLogger = Logger(subsystem: "com.agentstudio", category: "WorkspacePersistor")
 
 /// Pure persistence I/O for workspace state.
-/// Handles save/load of the v2 workspace format with schema versioning.
 /// Collaborator of WorkspaceStore — not a public peer.
 struct WorkspacePersistor {
 
-    /// On-disk representation of workspace state (v2 format).
+    /// On-disk representation of workspace state.
     struct PersistableState: Codable {
-        var schemaVersion: Int = 2
         var id: UUID
         var name: String
         var repos: [Repo]
@@ -55,7 +53,7 @@ struct WorkspacePersistor {
         } else {
             let appSupport = FileManager.default.homeDirectoryForCurrentUser
                 .appending(path: ".agentstudio")
-            self.workspacesDir = appSupport.appending(path: "workspaces-v2")
+            self.workspacesDir = appSupport.appending(path: "workspaces")
         }
     }
 
@@ -102,14 +100,6 @@ struct WorkspacePersistor {
         for fileURL in workspaceFiles {
             do {
                 let data = try Data(contentsOf: fileURL)
-
-                // Check schema version before full decode
-                if let version = extractSchemaVersion(from: data) {
-                    guard version == 2 else {
-                        persistorLogger.warning("Skipping workspace with schema version \(version)")
-                        continue
-                    }
-                }
 
                 let loaded = try JSONDecoder().decode(PersistableState.self, from: data)
                 return loaded
@@ -158,11 +148,4 @@ struct WorkspacePersistor {
         workspacesDir.appending(path: "\(id.uuidString).json")
     }
 
-    /// Extract schema version without full decode.
-    private func extractSchemaVersion(from data: Data) -> Int? {
-        struct VersionOnly: Decodable {
-            let schemaVersion: Int?
-        }
-        return try? JSONDecoder().decode(VersionOnly.self, from: data).schemaVersion
-    }
 }

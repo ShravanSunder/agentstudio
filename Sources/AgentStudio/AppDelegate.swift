@@ -41,6 +41,9 @@ class AppDelegate: NSObject, NSApplicationDelegate {
         executor = ActionExecutor(store: store, viewRegistry: viewRegistry, coordinator: coordinator)
         tabBarAdapter = TabBarAdapter(store: store)
 
+        // Restore terminal views for persisted sessions
+        coordinator.restoreAllViews()
+
         // Create main window
         mainWindowController = MainWindowController(
             store: store,

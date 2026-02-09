@@ -475,13 +475,23 @@ final class WorkspaceStore: ObservableObject {
             updatedAt = state.updatedAt
             storeLogger.info("Restored workspace '\(state.name)' with \(state.sessions.count) session(s), \(state.views.count) view(s)")
         } else if persistor.hasWorkspaceFiles() {
-            storeLogger.error("Workspace files exist on disk but failed to load — starting with empty state. Check schema version or file corruption.")
+            storeLogger.error("Workspace files exist on disk but failed to load — starting with empty state.")
         } else {
             storeLogger.info("No workspace files found — first launch")
         }
 
         // Filter out temporary sessions — they are never restored
         sessions.removeAll { $0.lifetime == .temporary }
+
+        // Remove sessions whose worktree no longer exists (deleted between launches)
+        let validWorktreeIds = Set(repos.flatMap(\.worktrees).map(\.id))
+        sessions.removeAll { session in
+            if let wid = session.worktreeId, !validWorktreeIds.contains(wid) {
+                storeLogger.warning("Removing session \(session.id) — worktree \(wid) no longer exists")
+                return true
+            }
+            return false
+        }
 
         // Prune views: remove dangling session IDs from layouts
         let validSessionIds = Set(sessions.map(\.id))

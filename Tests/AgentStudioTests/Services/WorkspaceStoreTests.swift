@@ -764,6 +764,48 @@ final class WorkspaceStoreTests: XCTestCase {
         XCTAssertEqual(store2.activeTabId, tab1.id)
     }
 
+    // MARK: - Orphaned Session Pruning
+
+    func test_restore_prunesSessionsWithMissingWorktree() {
+        // Arrange — add a repo with a worktree, then create a worktree-bound session
+        let repo = store.addRepo(at: URL(fileURLWithPath: "/tmp/orphan-test-repo"))
+        let wt = makeWorktree(name: "main", path: "/tmp/orphan-test-repo", branch: "main")
+        store.updateRepoWorktrees(repo.id, worktrees: [wt])
+
+        let worktree = store.repos.first!.worktrees.first!
+        let session = store.createSession(
+            source: .worktree(worktreeId: worktree.id, repoId: repo.id),
+            title: "Will become orphaned"
+        )
+        let tab = Tab(sessionId: session.id)
+        store.appendTab(tab)
+        store.flush()
+
+        // Act — restore into a new store. The persisted repo has worktrees serialized,
+        // but the session's worktreeId won't match if worktrees were deleted.
+        // Simulate by restoring, then clearing worktrees, then checking prune logic.
+        // Actually: worktrees ARE persisted with repos. So the session won't be orphaned
+        // unless the worktree is actually removed. Test the prune path by creating a
+        // session with a fabricated worktreeId that doesn't exist in any repo.
+        let orphanSession = store.createSession(
+            source: .worktree(worktreeId: UUID(), repoId: repo.id),
+            title: "Orphaned"
+        )
+        let orphanTab = Tab(sessionId: orphanSession.id)
+        store.appendTab(orphanTab)
+        store.flush()
+
+        let persistor2 = WorkspacePersistor(workspacesDir: tempDir)
+        let store2 = WorkspaceStore(persistor: persistor2)
+        store2.restore()
+
+        // Assert — the orphaned session (with non-existent worktreeId) is pruned;
+        // the valid session (with existing worktreeId) survives
+        XCTAssertEqual(store2.sessions.count, 1, "Only the valid session should survive")
+        XCTAssertEqual(store2.sessions[0].id, session.id)
+        XCTAssertEqual(store2.activeTabs.count, 1, "Only the tab with valid session should survive")
+    }
+
     // MARK: - Dirty Flag
 
     func test_isDirty_setOnMutation_clearedOnFlush() {
