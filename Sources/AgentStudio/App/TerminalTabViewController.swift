@@ -124,6 +124,10 @@ class TerminalTabViewController: NSViewController, CommandHandler {
         // Observe store changes to refresh display
         observeStore()
 
+        // Initial render for restored state — the store may already be
+        // populated before this VC exists (e.g., after app relaunch).
+        refreshDisplay()
+
         // Listen for process termination
         NotificationCenter.default.addObserver(
             self,
@@ -307,12 +311,16 @@ class TerminalTabViewController: NSViewController, CommandHandler {
             }
         }) else { return }
 
-        // Find the session with this worktree
-        guard let sessionId = tab.sessionIds.first(where: { sessionId in
-            store.session(sessionId)?.worktreeId == worktreeId
-        }) else { return }
-
-        dispatchAction(.closePane(tabId: tab.id, paneId: sessionId))
+        // Single-pane tab: close the whole tab (ActionValidator rejects .closePane
+        // for single-pane tabs). Multi-pane: close just the pane.
+        if tab.isSplit {
+            guard let sessionId = tab.sessionIds.first(where: { sessionId in
+                store.session(sessionId)?.worktreeId == worktreeId
+            }) else { return }
+            dispatchAction(.closePane(tabId: tab.id, paneId: sessionId))
+        } else {
+            dispatchAction(.closeTab(tabId: tab.id))
+        }
     }
 
     func closeActiveTab() {
@@ -329,13 +337,18 @@ class TerminalTabViewController: NSViewController, CommandHandler {
     // MARK: - Tab Display
 
     private func showTab(_ tabId: UUID) {
-        guard let tab = store.tab(tabId) else { return }
+        guard let tab = store.tab(tabId) else {
+            ghosttyLogger.warning("showTab: tab \(tabId) not found in store")
+            return
+        }
 
         // Build renderable tree from Layout + ViewRegistry
         guard let tree = viewRegistry.renderTree(for: tab.layout) else {
             ghosttyLogger.warning("Could not render tree for tab \(tabId) — missing views")
             return
         }
+
+        ghosttyLogger.info("showTab: rendering tab \(tabId) with \(tab.sessionIds.count) session(s)")
 
         // Create the SwiftUI split container — views emit PaneAction directly
         let splitContainer = TerminalSplitContainer(

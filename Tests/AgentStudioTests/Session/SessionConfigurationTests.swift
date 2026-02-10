@@ -126,4 +126,67 @@ final class SessionConfigurationTests: XCTestCase {
         // Assert
         XCTAssertEqual(config.healthCheckInterval, 30.0)
     }
+
+    // MARK: - Ghost Config Path Safety (regression: pkill -f "AgentStudio" killing tmux server)
+
+    func test_ghostConfigPath_doesNotContainUppercaseAgentStudio() {
+        // The ghost.conf path is embedded in the tmux server's command line via -f.
+        // If it contains "AgentStudio" (mixed case), then `pkill -f "AgentStudio"`
+        // will match the tmux server process and kill it, destroying all sessions.
+        // The path must use only lowercase (e.g., ~/.agentstudio/tmux/ghost.conf).
+
+        // Act
+        let config = SessionConfiguration.detect()
+
+        // Assert
+        XCTAssertFalse(
+            config.ghostConfigPath.contains("AgentStudio"),
+            "ghostConfigPath must not contain 'AgentStudio' (mixed case) — "
+            + "it would cause pkill -f 'AgentStudio' to kill the tmux server. "
+            + "Got: \(config.ghostConfigPath)"
+        )
+    }
+
+    func test_ghostConfigPath_copiedToSafeLocation() {
+        // Act
+        let config = SessionConfiguration.detect()
+
+        // Assert — should be under ~/.agentstudio/tmux/
+        let homeDir = FileManager.default.homeDirectoryForCurrentUser.path
+        let expectedPrefix = homeDir + "/.agentstudio/tmux/"
+        XCTAssertTrue(
+            config.ghostConfigPath.hasPrefix(expectedPrefix),
+            "ghostConfigPath should be under ~/.agentstudio/tmux/, got: \(config.ghostConfigPath)"
+        )
+    }
+
+    func test_ghostConfigPath_fileExists() {
+        // Act
+        let config = SessionConfiguration.detect()
+
+        // Assert
+        XCTAssertTrue(
+            FileManager.default.fileExists(atPath: config.ghostConfigPath),
+            "ghost.conf should exist at resolved path: \(config.ghostConfigPath)"
+        )
+    }
+
+    func test_ghostConfigPath_containsDestroyUnattachedOff() throws {
+        // The ghost.conf must contain `destroy-unattached off` for tmux sessions
+        // to survive when the app (and its attached clients) terminates.
+
+        // Act
+        let config = SessionConfiguration.detect()
+        let contents = try String(contentsOfFile: config.ghostConfigPath, encoding: .utf8)
+
+        // Assert
+        XCTAssertTrue(
+            contents.contains("destroy-unattached off"),
+            "ghost.conf must contain 'destroy-unattached off' for session persistence"
+        )
+        XCTAssertTrue(
+            contents.contains("exit-unattached off"),
+            "ghost.conf must contain 'exit-unattached off' to keep server alive"
+        )
+    }
 }

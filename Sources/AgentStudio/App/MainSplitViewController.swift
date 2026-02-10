@@ -220,7 +220,10 @@ struct SidebarContentView: View {
         panel.prompt = "Add Repo"
 
         if panel.runModal() == .OK, let url = panel.url {
-            _ = store.addRepo(at: url)
+            let repo = store.addRepo(at: url)
+            // Immediately discover worktrees so the sidebar isn't empty
+            let worktrees = WorktrunkService.shared.discoverWorktrees(for: repo.repoPath)
+            store.updateRepoWorktrees(repo.id, worktrees: worktrees)
         }
     }
 

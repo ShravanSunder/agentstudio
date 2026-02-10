@@ -114,7 +114,6 @@ struct SurfaceUndoEntry {
 
 /// Serializable checkpoint for surface state persistence
 struct SurfaceCheckpoint: Codable {
-    let version: Int = 1
     let timestamp: Date
     let surfaces: [SurfaceData]
 

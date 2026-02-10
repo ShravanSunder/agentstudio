@@ -46,7 +46,7 @@ final class ActionExecutor {
         let session = store.createSession(
             source: .worktree(worktreeId: worktree.id, repoId: repo.id),
             title: worktree.name,
-            provider: .ghostty,
+            provider: .tmux,
             lifetime: .persistent,
             residency: .active
         )
@@ -79,8 +79,10 @@ final class ActionExecutor {
         // Restore tab + sessions in store
         store.restoreFromSnapshot(snapshot)
 
-        // Restore views via coordinator
-        for session in snapshot.sessions {
+        // Restore views via coordinator — iterate in reverse to match the LIFO
+        // order of SurfaceManager's undo stack (sessions were pushed in forward
+        // order during close, so the last session is on top of the stack).
+        for session in snapshot.sessions.reversed() {
             guard let worktreeId = session.worktreeId,
                   let repoId = session.repoId,
                   let worktree = store.worktree(worktreeId),
@@ -144,8 +146,7 @@ final class ActionExecutor {
             executorLogger.warning("expireUndoEntry: \(sessionId) — stub, full impl in Phase 3")
 
         case .repair(let repairAction):
-            // TODO: Phase 4 — route repair actions to TerminalViewCoordinator
-            executorLogger.warning("repair: \(String(describing: repairAction)) — stub, full impl in Phase 4")
+            executeRepair(repairAction)
         }
     }
 
@@ -196,6 +197,13 @@ final class ActionExecutor {
     private func executeClosePane(tabId: UUID, sessionId: UUID) {
         coordinator.teardownView(for: sessionId)
         store.removeSessionFromLayout(sessionId, inTab: tabId)
+
+        // If the session is no longer in any layout, remove it from the store.
+        // Unlike closeTab (which has undo), closePane has no undo path.
+        let allLayoutSessionIds = Set(store.views.flatMap(\.allSessionIds))
+        if !allLayoutSessionIds.contains(sessionId) {
+            store.removeSession(sessionId)
+        }
     }
 
     private func executeInsertPane(
@@ -230,9 +238,9 @@ final class ActionExecutor {
                 return
             }
 
-            // TODO: Inherit provider from target session when tmux is wired (Phase 4)
             let session = store.createSession(
-                source: .worktree(worktreeId: worktreeId, repoId: repoId)
+                source: .worktree(worktreeId: worktreeId, repoId: repoId),
+                provider: .tmux
             )
 
             // Create view — rollback if surface creation fails
@@ -265,6 +273,27 @@ final class ActionExecutor {
             direction: layoutDirection,
             position: position
         )
+    }
+
+    private func executeRepair(_ repairAction: RepairAction) {
+        switch repairAction {
+        case .recreateSurface(let sessionId), .createMissingView(let sessionId):
+            guard let session = store.session(sessionId),
+                  let worktreeId = session.worktreeId,
+                  let repoId = session.repoId,
+                  let worktree = store.worktree(worktreeId),
+                  let repo = store.repo(repoId) else {
+                executorLogger.warning("repair \(String(describing: repairAction)): session has no worktree/repo context")
+                return
+            }
+            coordinator.teardownView(for: sessionId)
+            coordinator.createView(for: session, worktree: worktree, repo: repo)
+            executorLogger.info("Repaired view for session \(sessionId)")
+
+        case .reattachTmux, .markSessionFailed, .cleanupOrphan:
+            // TODO: Phase 4 — implement remaining repair actions
+            executorLogger.warning("repair: \(String(describing: repairAction)) — not yet implemented")
+        }
     }
 
     /// Bridge SplitNewDirection → Layout.SplitDirection.

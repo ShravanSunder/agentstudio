@@ -1,5 +1,8 @@
 import AppKit
+import os.log
 import SwiftUI
+
+private let appLogger = Logger(subsystem: "com.agentstudio", category: "AppDelegate")
 
 class AppDelegate: NSObject, NSApplicationDelegate {
     var mainWindowController: MainWindowController?
@@ -37,6 +40,9 @@ class AppDelegate: NSObject, NSApplicationDelegate {
         coordinator = TerminalViewCoordinator(store: store, viewRegistry: viewRegistry, runtime: runtime)
         executor = ActionExecutor(store: store, viewRegistry: viewRegistry, coordinator: coordinator)
         tabBarAdapter = TabBarAdapter(store: store)
+
+        // Restore terminal views for persisted sessions
+        coordinator.restoreAllViews()
 
         // Create main window
         mainWindowController = MainWindowController(
@@ -113,12 +119,13 @@ class AppDelegate: NSObject, NSApplicationDelegate {
         }
     }
 
-    func applicationWillTerminate(_ notification: Notification) {
-        // Flush WorkspaceStore (immediate persist, cancels debounce)
-        guard let store else { return }
+    func applicationShouldTerminate(_ sender: NSApplication) -> NSApplication.TerminateReply {
+        guard let store, store.isDirty else { return .terminateNow }
+        // Flush before exit — guarantees pending markDirty() writes land on disk.
         if !store.flush() {
-            debugLog("[AppDelegate] WARNING: workspace flush failed at termination")
+            appLogger.warning("Workspace flush failed at termination")
         }
+        return .terminateNow
     }
 
     func applicationSupportsSecureRestorableState(_ app: NSApplication) -> Bool {
