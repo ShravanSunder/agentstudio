@@ -1,4 +1,5 @@
 import AppKit
+import Combine
 import SwiftUI
 import UniformTypeIdentifiers
 
@@ -44,6 +45,9 @@ class DraggableTabBarHostingView: NSView, NSDraggingSource {
     private var panStartTabId: UUID?
     private var panStartEvent: NSEvent?
 
+    /// Combine subscriptions
+    private var cancellables = Set<AnyCancellable>()
+
     // MARK: - Initialization
 
     init(rootView: CustomTabBar) {
@@ -65,10 +69,32 @@ class DraggableTabBarHostingView: NSView, NSDraggingSource {
         // Register as drag destination for internal reorder, tab drop, and pane drop
         registerForDraggedTypes([.agentStudioTabInternal, .agentStudioTabDrop, .agentStudioPaneDrop])
 
-        // Set up pan gesture recognizer for drag detection
+        // Set up pan gesture recognizer for drag detection.
+        // Disabled by default — only enabled when management mode (Cmd+Opt) is active.
+        // This prevents the recognizer from interfering with SwiftUI's onTapGesture
+        // on tab pills, which was causing intermittent missed clicks.
         panGesture = NSPanGestureRecognizer(target: self, action: #selector(handlePan(_:)))
         panGesture.delaysPrimaryMouseButtonEvents = false
+        panGesture.isEnabled = ManagementModeMonitor.shared.isActive
         addGestureRecognizer(panGesture)
+
+        ManagementModeMonitor.shared.$isActive
+            .receive(on: DispatchQueue.main)
+            .sink { [weak self] isActive in
+                guard let self else { return }
+                self.panGesture.isEnabled = isActive
+                if !isActive {
+                    // Clean up any in-flight drag state when leaving management mode
+                    self.panStartTabId = nil
+                    self.panStartEvent = nil
+                    if self.draggingTabId != nil {
+                        self.draggingTabId = nil
+                        self.tabBarAdapter?.draggingTabId = nil
+                        self.tabBarAdapter?.dropTargetIndex = nil
+                    }
+                }
+            }
+            .store(in: &cancellables)
     }
 
     required init?(coder: NSCoder) {
@@ -140,12 +166,8 @@ class DraggableTabBarHostingView: NSView, NSDraggingSource {
     // MARK: - Pan Gesture Handler
 
     @objc private func handlePan(_ gesture: NSPanGestureRecognizer) {
-        // Tab drag requires management mode (Ctrl+Opt held)
-        guard ManagementModeMonitor.shared.isActive else {
-            gesture.state = .cancelled
-            return
-        }
-
+        // The gesture recognizer is only enabled when management mode is active
+        // (toggled via ManagementModeMonitor subscription in init).
         let location = gesture.location(in: self)
 
         switch gesture.state {
@@ -159,7 +181,12 @@ class DraggableTabBarHostingView: NSView, NSDraggingSource {
         case .changed:
             // Start drag session once we have enough movement
             if let tabId = panStartTabId, draggingTabId == nil {
-                startDrag(tabId: tabId, at: location, event: panStartEvent ?? NSApp.currentEvent!)
+                guard let event = panStartEvent ?? NSApp.currentEvent else {
+                    panStartTabId = nil
+                    panStartEvent = nil
+                    return
+                }
+                startDrag(tabId: tabId, at: location, event: event)
                 panStartTabId = nil
                 panStartEvent = nil
             }
