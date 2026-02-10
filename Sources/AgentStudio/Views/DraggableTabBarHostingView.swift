@@ -301,11 +301,26 @@ class DraggableTabBarHostingView: NSView, NSDraggingSource {
             return []
         }
 
+        // Reject internal tab drags when management mode exited mid-drag
+        if types.contains(.agentStudioTabInternal) && !ManagementModeMonitor.shared.isActive {
+            return []
+        }
+
         updateDropTarget(for: sender)
         return .move
     }
 
     override func draggingUpdated(_ sender: NSDraggingInfo) -> NSDragOperation {
+        let types = sender.draggingPasteboard.types ?? []
+
+        // Reject internal tab drags when management mode exited mid-drag
+        if types.contains(.agentStudioTabInternal) && !ManagementModeMonitor.shared.isActive {
+            DispatchQueue.main.async { [weak self] in
+                self?.tabBarAdapter?.dropTargetIndex = nil
+            }
+            return []
+        }
+
         updateDropTarget(for: sender)
         return .move
     }
@@ -319,10 +334,11 @@ class DraggableTabBarHostingView: NSView, NSDraggingSource {
     override func performDragOperation(_ sender: NSDraggingInfo) -> Bool {
         let pasteboard = sender.draggingPasteboard
 
-        // Handle internal tab reorder
+        // Handle internal tab reorder (only when management mode is still active)
         if let idString = pasteboard.string(forType: .agentStudioTabInternal),
            let tabId = UUID(uuidString: idString),
-           let targetIndex = tabBarAdapter?.dropTargetIndex {
+           let targetIndex = tabBarAdapter?.dropTargetIndex,
+           ManagementModeMonitor.shared.isActive {
             onReorder?(tabId, targetIndex)
             return true
         }
