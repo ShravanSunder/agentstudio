@@ -96,20 +96,4 @@ final class TabSmokeTests: XCTestCase {
         }
     }
 
-    // MARK: - Tab Ordering
-
-    func test_openTab_sorting_byOrder() {
-        // Arrange
-        let tab1 = makeOpenTab(order: 2)
-        let tab2 = makeOpenTab(order: 0)
-        let tab3 = makeOpenTab(order: 1)
-
-        // Act
-        let sorted = [tab1, tab2, tab3].sorted { $0.order < $1.order }
-
-        // Assert
-        XCTAssertEqual(sorted[0].order, 0)
-        XCTAssertEqual(sorted[1].order, 1)
-        XCTAssertEqual(sorted[2].order, 2)
-    }
 }

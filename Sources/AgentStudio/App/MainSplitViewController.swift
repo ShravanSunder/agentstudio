@@ -6,6 +6,26 @@ class MainSplitViewController: NSSplitViewController {
     private var sidebarHostingController: NSHostingController<AnyView>?
     private var terminalTabViewController: TerminalTabViewController?
 
+    // MARK: - Dependencies (injected)
+
+    private let store: WorkspaceStore
+    private let executor: ActionExecutor
+    private let tabBarAdapter: TabBarAdapter
+    private let viewRegistry: ViewRegistry
+
+    init(store: WorkspaceStore, executor: ActionExecutor,
+         tabBarAdapter: TabBarAdapter, viewRegistry: ViewRegistry) {
+        self.store = store
+        self.executor = executor
+        self.tabBarAdapter = tabBarAdapter
+        self.viewRegistry = viewRegistry
+        super.init(nibName: nil, bundle: nil)
+    }
+
+    required init?(coder: NSCoder) {
+        fatalError("init(coder:) not supported")
+    }
+
     override func viewDidLoad() {
         super.viewDidLoad()
 
@@ -14,7 +34,7 @@ class MainSplitViewController: NSSplitViewController {
         splitView.dividerStyle = .thin
 
         // Create sidebar (SwiftUI via NSHostingController)
-        let sidebarView = SidebarViewWrapper()
+        let sidebarView = SidebarViewWrapper(store: store)
         let sidebarHosting = NSHostingController(rootView: AnyView(sidebarView))
         self.sidebarHostingController = sidebarHosting
 
@@ -26,7 +46,12 @@ class MainSplitViewController: NSSplitViewController {
         addSplitViewItem(sidebarItem)
 
         // Create terminal area (pure AppKit)
-        let terminalVC = TerminalTabViewController()
+        let terminalVC = TerminalTabViewController(
+            store: store,
+            executor: executor,
+            tabBarAdapter: tabBarAdapter,
+            viewRegistry: viewRegistry
+        )
         self.terminalTabViewController = terminalVC
 
         let terminalItem = NSSplitViewItem(viewController: terminalVC)
@@ -35,29 +60,6 @@ class MainSplitViewController: NSSplitViewController {
 
         // Set up notification observers
         setupNotificationObservers()
-
-        // Restore previously open tabs
-        restoreSessionTabs()
-    }
-
-    private func restoreSessionTabs() {
-        // Get the sorted open tabs from session manager
-        let sortedTabs = SessionManager.shared.openTabs.sorted { $0.order < $1.order }
-
-        debugLog("[MainSplitVC] Restoring \(sortedTabs.count) tabs from session")
-
-        for tab in sortedTabs {
-            // Use restoreTab which handles split tree restoration
-            debugLog("[MainSplitVC] Restoring tab: \(tab.id) (has splitTree: \(tab.splitTreeData != nil))")
-            terminalTabViewController?.restoreTab(from: tab)
-        }
-
-        // Select the active tab if it exists
-        if let activeTabId = SessionManager.shared.activeTabId,
-           let activeTab = SessionManager.shared.openTabs.first(where: { $0.id == activeTabId }),
-           let index = sortedTabs.firstIndex(where: { $0.id == activeTab.id }) {
-            terminalTabViewController?.selectTab(at: index)
-        }
     }
 
     // MARK: - Notification Observers
@@ -135,18 +137,19 @@ class MainSplitViewController: NSSplitViewController {
 
 // MARK: - Sidebar View Wrapper
 
-/// SwiftUI wrapper that bridges to the AppKit world
+/// SwiftUI wrapper that bridges to the AppKit world.
+/// Uses WorkspaceStore instead of SessionManager.
 struct SidebarViewWrapper: View {
-    @ObservedObject private var sessionManager = SessionManager.shared
+    @ObservedObject var store: WorkspaceStore
 
     var body: some View {
-        SidebarContentView(sessionManager: sessionManager)
+        SidebarContentView(store: store)
     }
 }
 
 /// The actual sidebar content
 struct SidebarContentView: View {
-    @ObservedObject var sessionManager: SessionManager
+    @ObservedObject var store: WorkspaceStore
     @State private var expandedRepos: Set<UUID> = []
 
     var body: some View {
@@ -154,7 +157,7 @@ struct SidebarContentView: View {
             // Main list content (toggle button is now in titlebar)
             List {
                 Section("Repos") {
-                    ForEach(sessionManager.repos) { repo in
+                    ForEach(store.repos) { repo in
                         DisclosureGroup(
                             isExpanded: Binding(
                                 get: { expandedRepos.contains(repo.id) },
@@ -201,9 +204,6 @@ struct SidebarContentView: View {
     }
 
     private func openWorktree(_ worktree: Worktree, in repo: Repo) {
-        // Tab record creation is handled by openTerminal() via addTabRecord()
-        // only when a new tab is actually created, avoiding orphan OpenTab records
-        // when the worktree is already visible in a split pane.
         NotificationCenter.default.post(
             name: .openWorktreeRequested,
             object: nil,
@@ -220,13 +220,18 @@ struct SidebarContentView: View {
         panel.prompt = "Add Repo"
 
         if panel.runModal() == .OK, let url = panel.url {
-            _ = sessionManager.addRepo(at: url)
+            let repo = store.addRepo(at: url)
+            // Immediately discover worktrees so the sidebar isn't empty
+            let worktrees = WorktrunkService.shared.discoverWorktrees(for: repo.repoPath)
+            store.updateRepoWorktrees(repo.id, worktrees: worktrees)
         }
     }
 
     private func refreshWorktrees() {
-        for repo in sessionManager.repos {
-            sessionManager.refreshWorktrees(for: repo)
+        // Refresh worktrees using WorktrunkService
+        for repo in store.repos {
+            let worktrees = WorktrunkService.shared.discoverWorktrees(for: repo.repoPath)
+            store.updateRepoWorktrees(repo.id, worktrees: worktrees)
         }
     }
 }

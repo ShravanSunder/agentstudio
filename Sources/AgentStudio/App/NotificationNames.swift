@@ -21,6 +21,9 @@ extension Notification.Name {
     // Pane management
     static let extractPaneRequested = Notification.Name("extractPaneRequested")
 
+    // Surface repair
+    static let repairSurfaceRequested = Notification.Name("repairSurfaceRequested")
+
     // Sidebar management
     static let toggleSidebarRequested = Notification.Name("toggleSidebarRequested")
 }

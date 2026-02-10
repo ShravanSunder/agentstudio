@@ -25,8 +25,11 @@ class DraggableTabBarHostingView: NSView, NSDraggingSource {
     // MARK: - Properties
 
     private var hostingView: NSHostingView<CustomTabBar>!
-    weak var tabBarState: TabBarState?
+    weak var tabBarAdapter: TabBarAdapter?
     var onReorder: ((_ fromId: UUID, _ toIndex: Int) -> Void)?
+    /// Provides drag payload data (worktreeId, repoId, title) for a tab ID.
+    /// Injected by the view controller to decouple from WorkspaceStore.
+    var dragPayloadProvider: ((_ tabId: UUID) -> TabDragPayload?)?
 
     /// Tab frames reported from SwiftUI, in SwiftUI coordinate space
     private var tabFrames: [UUID: CGRect] = [:]
@@ -74,8 +77,8 @@ class DraggableTabBarHostingView: NSView, NSDraggingSource {
 
     // MARK: - Setup
 
-    func configure(state: TabBarState, onReorder: @escaping (UUID, Int) -> Void) {
-        self.tabBarState = state
+    func configure(adapter: TabBarAdapter, onReorder: @escaping (UUID, Int) -> Void) {
+        self.tabBarAdapter = adapter
         self.onReorder = onReorder
     }
 
@@ -83,13 +86,13 @@ class DraggableTabBarHostingView: NSView, NSDraggingSource {
         tabFrames.merge(frames) { _, new in new }
     }
 
-    /// Get current tab frames, preferring local cache but falling back to TabBarState
+    /// Get current tab frames, preferring local cache but falling back to TabBarAdapter
     private var currentTabFrames: [UUID: CGRect] {
         if !tabFrames.isEmpty {
             return tabFrames
         }
-        // Fall back to TabBarState frames (set directly by SwiftUI)
-        return tabBarState?.tabFrames ?? [:]
+        // Fall back to TabBarAdapter frames (set directly by SwiftUI)
+        return tabBarAdapter?.tabFrames ?? [:]
     }
 
     // MARK: - Hit Testing
@@ -111,13 +114,13 @@ class DraggableTabBarHostingView: NSView, NSDraggingSource {
 
     /// Find the insertion index for a drop at the given point
     private func dropIndexAtPoint(_ point: NSPoint) -> Int? {
-        guard let state = tabBarState, !state.tabs.isEmpty else { return nil }
+        guard let adapter = tabBarAdapter, !adapter.tabs.isEmpty else { return nil }
 
         let swiftUIPoint = CGPoint(x: point.x, y: bounds.height - point.y)
         let frames = currentTabFrames
 
         // Sort tabs by their x position
-        let sortedTabs = state.tabs.enumerated().compactMap { index, tab -> (index: Int, frame: CGRect)? in
+        let sortedTabs = adapter.tabs.enumerated().compactMap { index, tab -> (index: Int, frame: CGRect)? in
             guard let frame = frames[tab.id] else { return nil }
             return (index, frame)
         }.sorted { $0.frame.minX < $1.frame.minX }
@@ -131,7 +134,7 @@ class DraggableTabBarHostingView: NSView, NSDraggingSource {
         }
 
         // Past the last tab
-        return state.tabs.count
+        return adapter.tabs.count
     }
 
     // MARK: - Pan Gesture Handler
@@ -175,8 +178,8 @@ class DraggableTabBarHostingView: NSView, NSDraggingSource {
     private func startDrag(tabId: UUID, at point: NSPoint, event: NSEvent) {
         draggingTabId = tabId
 
-        // Update state to show drag visual immediately
-        tabBarState?.draggingTabId = tabId
+        // Update adapter to show drag visual immediately
+        tabBarAdapter?.draggingTabId = tabId
 
         // Create pasteboard item with both formats
         let pasteboardItem = NSPasteboardItem()
@@ -185,13 +188,7 @@ class DraggableTabBarHostingView: NSView, NSDraggingSource {
         pasteboardItem.setString(tabId.uuidString, forType: .agentStudioTabInternal)
 
         // SwiftUI-compatible format for terminal split drops
-        if let tab = tabBarState?.tabs.first(where: { $0.id == tabId }) {
-            let payload = TabDragPayload(
-                tabId: tabId,
-                worktreeId: tab.primaryWorktreeId,
-                repoId: tab.primaryRepoId,
-                title: tab.title
-            )
+        if let payload = dragPayloadProvider?(tabId) {
             if let payloadData = try? JSONEncoder().encode(payload) {
                 pasteboardItem.setData(payloadData, forType: .agentStudioTabDrop)
             }
@@ -232,7 +229,7 @@ class DraggableTabBarHostingView: NSView, NSDraggingSource {
         path.stroke()
 
         // Draw tab title
-        if let tab = tabBarState?.tabs.first(where: { $0.id == tabId }) {
+        if let tab = tabBarAdapter?.tabs.first(where: { $0.id == tabId }) {
             let attrs: [NSAttributedString.Key: Any] = [
                 .font: NSFont.systemFont(ofSize: 12),
                 .foregroundColor: NSColor.white
@@ -263,8 +260,8 @@ class DraggableTabBarHostingView: NSView, NSDraggingSource {
     func draggingSession(_ session: NSDraggingSession, endedAt screenPoint: NSPoint, operation: NSDragOperation) {
         // Cleanup
         DispatchQueue.main.async { [weak self] in
-            self?.tabBarState?.draggingTabId = nil
-            self?.tabBarState?.dropTargetIndex = nil
+            self?.tabBarAdapter?.draggingTabId = nil
+            self?.tabBarAdapter?.dropTargetIndex = nil
             self?.draggingTabId = nil
         }
     }
@@ -288,7 +285,7 @@ class DraggableTabBarHostingView: NSView, NSDraggingSource {
 
     override func draggingExited(_ sender: NSDraggingInfo?) {
         DispatchQueue.main.async { [weak self] in
-            self?.tabBarState?.dropTargetIndex = nil
+            self?.tabBarAdapter?.dropTargetIndex = nil
         }
     }
 
@@ -298,7 +295,7 @@ class DraggableTabBarHostingView: NSView, NSDraggingSource {
         // Handle internal tab reorder
         if let idString = pasteboard.string(forType: .agentStudioTabInternal),
            let tabId = UUID(uuidString: idString),
-           let targetIndex = tabBarState?.dropTargetIndex {
+           let targetIndex = tabBarAdapter?.dropTargetIndex {
             onReorder?(tabId, targetIndex)
             return true
         }
@@ -329,14 +326,14 @@ class DraggableTabBarHostingView: NSView, NSDraggingSource {
             if let index = self.dropIndexAtPoint(point) {
                 // Don't highlight if dropping in same position
                 if let draggingId = self.draggingTabId,
-                   let currentIndex = self.tabBarState?.tabs.firstIndex(where: { $0.id == draggingId }),
+                   let currentIndex = self.tabBarAdapter?.tabs.firstIndex(where: { $0.id == draggingId }),
                    (index == currentIndex || index == currentIndex + 1) {
-                    self.tabBarState?.dropTargetIndex = nil
+                    self.tabBarAdapter?.dropTargetIndex = nil
                 } else {
-                    self.tabBarState?.dropTargetIndex = index
+                    self.tabBarAdapter?.dropTargetIndex = index
                 }
             } else {
-                self.tabBarState?.dropTargetIndex = nil
+                self.tabBarAdapter?.dropTargetIndex = nil
             }
         }
     }

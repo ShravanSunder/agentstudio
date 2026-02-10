@@ -53,6 +53,19 @@ if [ -d "macos/GhosttyKit.xcframework" ]; then
     else
         echo "⚠️  terminfo not found at $TERMINFO_SRC — xterm-ghostty will not be available"
     fi
+
+    # Copy shell-integration for development (SPM builds)
+    SHELL_INTEGRATION_SRC="$GHOSTTY_DIR/zig-out/share/ghostty/shell-integration"
+    SHELL_INTEGRATION_DEV="$PROJECT_ROOT/Sources/AgentStudio/Resources/ghostty/shell-integration"
+    if [ -d "$SHELL_INTEGRATION_SRC" ]; then
+        echo "📋 Copying shell-integration for development..."
+        mkdir -p "$(dirname "$SHELL_INTEGRATION_DEV")"
+        rm -rf "$SHELL_INTEGRATION_DEV"
+        cp -R "$SHELL_INTEGRATION_SRC" "$SHELL_INTEGRATION_DEV"
+        echo "✅ shell-integration copied to $SHELL_INTEGRATION_DEV"
+    else
+        echo "⚠️  shell-integration not found at $SHELL_INTEGRATION_SRC"
+    fi
 else
     echo "❌ Error: XCFramework not found at macos/GhosttyKit.xcframework"
     echo "Build may have failed. Check the output above."
@@ -92,6 +105,14 @@ cp "$PROJECT_ROOT/Sources/AgentStudio/Resources/AppIcon.icns" "$APP_DIR/Resource
 if [ -d "$TERMINFO_DEV" ]; then
     cp -R "$TERMINFO_DEV" "$APP_DIR/Resources/"
     echo "✅ terminfo copied to app bundle"
+fi
+
+# Copy ghostty resources (shell-integration) to app bundle
+GHOSTTY_RES_DEV="$PROJECT_ROOT/Sources/AgentStudio/Resources/ghostty"
+if [ -d "$GHOSTTY_RES_DEV" ]; then
+    mkdir -p "$APP_DIR/Resources/ghostty"
+    cp -R "$GHOSTTY_RES_DEV/." "$APP_DIR/Resources/ghostty/"
+    echo "✅ ghostty resources copied to app bundle"
 fi
 
 # Copy GhosttyKit framework

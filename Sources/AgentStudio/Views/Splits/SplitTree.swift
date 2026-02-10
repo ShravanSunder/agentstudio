@@ -4,17 +4,17 @@ import AppKit
 /// Adapted from Ghostty's SplitTree — holds NSView references directly.
 ///
 /// The tree is immutable - all operations return a new tree.
-struct SplitTree<ViewType: NSView & Codable & Identifiable> {
+struct SplitTree<ViewType: NSView & Identifiable> {
 
     /// The root of the tree. Can be nil to indicate an empty tree.
     let root: Node?
 
     /// A single node in the tree is either a leaf (a view) or a split (has left/right children).
-    indirect enum Node: Codable {
+    indirect enum Node {
         case leaf(view: ViewType)
         case split(Split)
 
-        struct Split: Equatable, Codable {
+        struct Split: Equatable {
             let id: UUID
             let direction: SplitViewDirection
             let ratio: Double  // 0.0-1.0, position of divider
@@ -355,45 +355,6 @@ extension SplitTree.Node: Equatable {
     }
 }
 
-// MARK: - Node Codable
-
-extension SplitTree.Node {
-    private enum NodeCodingKeys: String, CodingKey {
-        case view
-        case split
-    }
-
-    init(from decoder: Decoder) throws {
-        let container = try decoder.container(keyedBy: NodeCodingKeys.self)
-
-        if container.contains(.view) {
-            let view = try container.decode(ViewType.self, forKey: .view)
-            self = .leaf(view: view)
-        } else if container.contains(.split) {
-            let split = try container.decode(Split.self, forKey: .split)
-            self = .split(split)
-        } else {
-            throw DecodingError.dataCorrupted(
-                DecodingError.Context(
-                    codingPath: decoder.codingPath,
-                    debugDescription: "No valid node type found"
-                )
-            )
-        }
-    }
-
-    func encode(to encoder: Encoder) throws {
-        var container = encoder.container(keyedBy: NodeCodingKeys.self)
-
-        switch self {
-        case .leaf(let view):
-            try container.encode(view, forKey: .view)
-
-        case .split(let split):
-            try container.encode(split, forKey: .split)
-        }
-    }
-}
 
 // MARK: - Equatable
 
@@ -425,38 +386,6 @@ extension SplitTree: Sequence {
     }
 }
 
-// MARK: - Codable
-
-extension SplitTree: Codable {
-    private enum CodingKeys: String, CodingKey {
-        case version
-        case root
-    }
-
-    private static var currentVersion: Int { 1 }
-
-    init(from decoder: Decoder) throws {
-        let container = try decoder.container(keyedBy: CodingKeys.self)
-
-        let version = try container.decode(Int.self, forKey: .version)
-        guard version == Self.currentVersion else {
-            throw DecodingError.dataCorrupted(
-                DecodingError.Context(
-                    codingPath: decoder.codingPath,
-                    debugDescription: "Unsupported SplitTree version: \(version)"
-                )
-            )
-        }
-
-        self.root = try container.decodeIfPresent(Node.self, forKey: .root)
-    }
-
-    func encode(to encoder: Encoder) throws {
-        var container = encoder.container(keyedBy: CodingKeys.self)
-        try container.encode(Self.currentVersion, forKey: .version)
-        try container.encodeIfPresent(root, forKey: .root)
-    }
-}
 
 // MARK: - Navigation
 

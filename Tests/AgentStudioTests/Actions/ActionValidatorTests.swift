@@ -570,6 +570,82 @@ final class ActionValidatorTests: XCTestCase {
         XCTFail("Expected selfTabMerge error")
     }
 
+    // MARK: - System Actions (trusted, skip validation)
+
+    func test_expireUndoEntry_alwaysSucceeds() {
+        // Arrange — empty state, no tabs at all
+        let snapshot = makeSnapshot()
+        let action = PaneAction.expireUndoEntry(sessionId: UUID())
+
+        // Act
+        let result = ActionValidator.validate(action, state: snapshot)
+
+        // Assert
+        XCTAssertNotNil(try? result.get())
+    }
+
+    func test_repair_alwaysSucceeds() {
+        // Arrange
+        let snapshot = makeSnapshot()
+        let action = PaneAction.repair(.recreateSurface(sessionId: UUID()))
+
+        // Act
+        let result = ActionValidator.validate(action, state: snapshot)
+
+        // Assert
+        XCTAssertNotNil(try? result.get())
+    }
+
+    // MARK: - Session Cardinality
+
+    func test_sessionCardinality_newSession_succeeds() {
+        // Arrange
+        let existingSessionId = UUID()
+        let newSessionId = UUID()
+        let tab = TabSnapshot(id: UUID(), paneIds: [existingSessionId], activePaneId: existingSessionId)
+        let snapshot = makeSnapshot(tabs: [tab])
+
+        // Act
+        let result = ActionValidator.validateSessionCardinality(
+            sessionId: newSessionId, state: snapshot
+        )
+
+        // Assert
+        XCTAssertNotNil(try? result.get())
+    }
+
+    func test_sessionCardinality_duplicateSession_fails() {
+        // Arrange
+        let sessionId = UUID()
+        let tab = TabSnapshot(id: UUID(), paneIds: [sessionId], activePaneId: sessionId)
+        let snapshot = makeSnapshot(tabs: [tab])
+
+        // Act
+        let result = ActionValidator.validateSessionCardinality(
+            sessionId: sessionId, state: snapshot
+        )
+
+        // Assert
+        if case .failure(.sessionAlreadyInLayout(let id)) = result {
+            XCTAssertEqual(id, sessionId)
+            return
+        }
+        XCTFail("Expected sessionAlreadyInLayout error")
+    }
+
+    func test_sessionCardinality_emptyState_succeeds() {
+        // Arrange
+        let snapshot = makeSnapshot()
+
+        // Act
+        let result = ActionValidator.validateSessionCardinality(
+            sessionId: UUID(), state: snapshot
+        )
+
+        // Assert
+        XCTAssertNotNil(try? result.get())
+    }
+
     // MARK: - ValidatedAction preserves action
 
     func test_validatedAction_preservesOriginalAction() {

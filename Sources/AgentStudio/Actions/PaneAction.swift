@@ -42,4 +42,27 @@ enum PaneAction: Equatable, Hashable {
     /// Source tab is removed after merge.
     case mergeTab(sourceTabId: UUID, targetTabId: UUID,
                   targetPaneId: UUID, direction: SplitNewDirection)
+
+    // System actions — dispatched by Reconciler and undo timers, not by user input.
+
+    /// Undo TTL expired — remove session from store, kill tmux, destroy surface.
+    case expireUndoEntry(sessionId: UUID)
+
+    /// Reconciler-generated repair action.
+    case repair(RepairAction)
+}
+
+/// System-generated repair actions from the Reconciler.
+/// Flow through ActionExecutor like user actions — one-way data flow never bypassed.
+enum RepairAction: Equatable, Hashable {
+    /// tmux died — create new tmux session, send reattach command to existing surface.
+    case reattachTmux(sessionId: UUID)
+    /// Surface died — full view + surface recreation. tmux reattaches.
+    case recreateSurface(sessionId: UUID)
+    /// Session is in layout but has no view in ViewRegistry.
+    case createMissingView(sessionId: UUID)
+    /// Unrecoverable failure — mark session as failed.
+    case markSessionFailed(sessionId: UUID, reason: String)
+    /// Session exists in runtime but not in store (and not pending undo) — clean up.
+    case cleanupOrphan(sessionId: UUID)
 }

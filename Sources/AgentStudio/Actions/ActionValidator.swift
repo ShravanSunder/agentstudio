@@ -20,6 +20,7 @@ enum ActionValidationError: Error, Equatable {
     case selfTabMerge(sourceTabId: UUID)
     case sourcePaneNotFound(paneId: UUID, sourceTabId: UUID)
     case invalidRatio(ratio: Double)
+    case sessionAlreadyInLayout(sessionId: UUID)
 }
 
 /// Pure-function validation engine.
@@ -140,6 +141,22 @@ enum ActionValidator {
                 return .failure(.selfTabMerge(sourceTabId: sourceTabId))
             }
             return .success(ValidatedAction(action))
+
+        // System actions — trusted source, skip validation
+        case .expireUndoEntry, .repair:
+            return .success(ValidatedAction(action))
         }
+    }
+
+    /// Validate that a session is not already present in any layout.
+    /// Enforces invariant #3: each sessionId at most once across all layouts.
+    static func validateSessionCardinality(
+        sessionId: UUID,
+        state: ActionStateSnapshot
+    ) -> Result<Void, ActionValidationError> {
+        if state.allSessionIds.contains(sessionId) {
+            return .failure(.sessionAlreadyInLayout(sessionId: sessionId))
+        }
+        return .success(())
     }
 }

@@ -1,8 +1,20 @@
 import AppKit
+import os.log
 import SwiftUI
+
+private let appLogger = Logger(subsystem: "com.agentstudio", category: "AppDelegate")
 
 class AppDelegate: NSObject, NSApplicationDelegate {
     var mainWindowController: MainWindowController?
+
+    // MARK: - Shared Services (created once at launch)
+
+    private var store: WorkspaceStore!
+    private var viewRegistry: ViewRegistry!
+    private var coordinator: TerminalViewCoordinator!
+    private var executor: ActionExecutor!
+    private var tabBarAdapter: TabBarAdapter!
+    private var runtime: SessionRuntime!
 
     func applicationDidFinishLaunching(_ notification: Notification) {
         // Set GHOSTTY_RESOURCES_DIR before any GhosttyKit initialization.
@@ -13,35 +25,33 @@ class AppDelegate: NSObject, NSApplicationDelegate {
             setenv("GHOSTTY_RESOURCES_DIR", resourcesDir, 1)  // 1 = overwrite; our resolved path must take priority
         }
 
-        // Initialize services
-        _ = SessionManager.shared
-
-        // Load surface checkpoint (for future restore capability)
-        if let checkpoint = SurfaceManager.shared.loadCheckpoint() {
-            ghosttyLogger.info("Loaded surface checkpoint with \(checkpoint.surfaces.count) surfaces")
-            // Note: Actual surface restoration happens when tabs are opened
-            // The checkpoint is used to restore metadata, not running processes
-        }
-
         // Check for worktrunk dependency
         checkWorktrunkInstallation()
 
         // Set up main menu (doesn't depend on session restore)
         setupMainMenu()
 
-        // Initialize session restore THEN create window.
-        // Window creation must wait because terminal views check
-        // SessionRegistry.isOperational during viewDidLoad.
-        // Note: initialize() is non-throwing and returns promptly when
-        // session restore is disabled. If it stalls (rare — stuck tmux probe),
-        // the user can dock-click to trigger showOrCreateMainWindow().
-        Task { @MainActor in
-            await SessionRegistry.shared.initialize()
-            if self.mainWindowController == nil {
-                self.mainWindowController = MainWindowController()
-                self.mainWindowController?.showWindow(nil)
-            }
-        }
+        // Create new services
+        store = WorkspaceStore()
+        store.restore()
+
+        runtime = SessionRuntime(store: store)
+        viewRegistry = ViewRegistry()
+        coordinator = TerminalViewCoordinator(store: store, viewRegistry: viewRegistry, runtime: runtime)
+        executor = ActionExecutor(store: store, viewRegistry: viewRegistry, coordinator: coordinator)
+        tabBarAdapter = TabBarAdapter(store: store)
+
+        // Restore terminal views for persisted sessions
+        coordinator.restoreAllViews()
+
+        // Create main window
+        mainWindowController = MainWindowController(
+            store: store,
+            executor: executor,
+            tabBarAdapter: tabBarAdapter,
+            viewRegistry: viewRegistry
+        )
+        mainWindowController?.showWindow(nil)
     }
 
     // MARK: - Dependency Check
@@ -99,24 +109,23 @@ class AppDelegate: NSObject, NSApplicationDelegate {
         if let window = mainWindowController?.window, window.isVisible {
             window.makeKeyAndOrderFront(nil)
         } else {
-            mainWindowController = MainWindowController()
+            mainWindowController = MainWindowController(
+                store: store,
+                executor: executor,
+                tabBarAdapter: tabBarAdapter,
+                viewRegistry: viewRegistry
+            )
             mainWindowController?.showWindow(nil)
         }
     }
 
-    func applicationWillTerminate(_ notification: Notification) {
-        // Save session restore checkpoint before quitting
-        SessionRegistry.shared.saveCheckpoint()
-        SessionRegistry.shared.stopHealthChecks()
-
-        // Save state before quitting
-        Task { @MainActor in
-            SessionManager.shared.save()
-
-            // Save surface checkpoint for potential restore
-            SurfaceManager.shared.saveCheckpoint()
-            ghosttyLogger.info("Saved surface checkpoint on app termination")
+    func applicationShouldTerminate(_ sender: NSApplication) -> NSApplication.TerminateReply {
+        guard let store, store.isDirty else { return .terminateNow }
+        // Flush before exit — guarantees pending markDirty() writes land on disk.
+        if !store.flush() {
+            appLogger.warning("Workspace flush failed at termination")
         }
+        return .terminateNow
     }
 
     func applicationSupportsSecureRestorableState(_ app: NSApplication) -> Bool {

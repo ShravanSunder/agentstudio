@@ -41,26 +41,6 @@ func makeRepo(
     )
 }
 
-// MARK: - OpenTab Factory
-
-func makeOpenTab(
-    id: UUID = UUID(),
-    worktreeId: UUID = UUID(),
-    repoId: UUID = UUID(),
-    order: Int = 0,
-    splitTreeData: Data? = nil,
-    activePaneId: UUID? = nil
-) -> OpenTab {
-    OpenTab(
-        id: id,
-        worktreeId: worktreeId,
-        repoId: repoId,
-        order: order,
-        splitTreeData: splitTreeData,
-        activePaneId: activePaneId
-    )
-}
-
 // MARK: - SurfaceMetadata Factory
 
 func makeSurfaceMetadata(
@@ -69,7 +49,7 @@ func makeSurfaceMetadata(
     title: String = "Terminal",
     worktreeId: UUID? = nil,
     repoId: UUID? = nil,
-    paneId: UUID? = nil
+    sessionId: UUID? = nil
 ) -> SurfaceMetadata {
     SurfaceMetadata(
         workingDirectory: workingDirectory.map { URL(fileURLWithPath: $0) },
@@ -77,7 +57,7 @@ func makeSurfaceMetadata(
         title: title,
         worktreeId: worktreeId,
         repoId: repoId,
-        paneId: paneId
+        sessionId: sessionId
     )
 }
 
@@ -104,3 +84,4 @@ func makePaneSessionHandle(
         workingDirectory: URL(fileURLWithPath: workingDirectory)
     )
 }
+

@@ -87,7 +87,7 @@ agent-studio/
 ### Key Components
 
 - **GhosttySurfaceView** - SwiftUI/AppKit view wrapping Ghostty terminal
-- **SessionManager** - Manages terminal sessions and tabs
+- **WorkspaceStore** - Central state store for sessions, tabs, and layouts
 - **WorktrunkService** - Git worktree integration
 - **MainWindowController** - Main application window management
 

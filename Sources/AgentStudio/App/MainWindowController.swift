@@ -6,7 +6,8 @@ class MainWindowController: NSWindowController {
     private var splitViewController: MainSplitViewController?
     private var sidebarAccessory: NSTitlebarAccessoryViewController?
 
-    convenience init() {
+    convenience init(store: WorkspaceStore, executor: ActionExecutor,
+                     tabBarAdapter: TabBarAdapter, viewRegistry: ViewRegistry) {
         let window = NSWindow(
             contentRect: NSRect(x: 0, y: 0, width: 1200, height: 800),
             styleMask: [.titled, .closable, .miniaturizable, .resizable, .fullSizeContentView],
@@ -27,7 +28,12 @@ class MainWindowController: NSWindowController {
         self.init(window: window)
 
         // Create and set content view controller
-        let splitVC = MainSplitViewController()
+        let splitVC = MainSplitViewController(
+            store: store,
+            executor: executor,
+            tabBarAdapter: tabBarAdapter,
+            viewRegistry: viewRegistry
+        )
         self.splitViewController = splitVC
         window.contentViewController = splitVC
 

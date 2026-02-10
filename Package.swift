@@ -23,6 +23,7 @@ let package = Package(
                 .copy("Resources/AppIcon.iconset"),
                 .copy("Resources/tmux"),
                 .copy("Resources/terminfo"),
+                .copy("Resources/ghostty"),
             ],
             linkerSettings: [
                 .linkedFramework("Metal"),

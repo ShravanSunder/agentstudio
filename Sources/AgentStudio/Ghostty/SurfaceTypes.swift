@@ -33,7 +33,7 @@ enum SurfaceHealth: Equatable {
 
 /// State of a surface in the lifecycle
 enum SurfaceState: Equatable {
-    case active(paneAttachmentId: UUID)  // Attached to a visible container
+    case active(sessionId: UUID)  // Attached to a visible container
     case hidden                      // Alive but no container
     case pendingUndo(expiresAt: Date) // In undo stack
 
@@ -52,7 +52,7 @@ struct SurfaceMetadata: Codable, Equatable {
     var title: String
     var worktreeId: UUID?
     var repoId: UUID?
-    var paneId: UUID?
+    var sessionId: UUID?
     var createdAt: Date
     var lastActiveAt: Date
 
@@ -62,14 +62,14 @@ struct SurfaceMetadata: Codable, Equatable {
         title: String = "Terminal",
         worktreeId: UUID? = nil,
         repoId: UUID? = nil,
-        paneId: UUID? = nil
+        sessionId: UUID? = nil
     ) {
         self.workingDirectory = workingDirectory
         self.command = command
         self.title = title
         self.worktreeId = worktreeId
         self.repoId = repoId
-        self.paneId = paneId
+        self.sessionId = sessionId
         self.createdAt = Date()
         self.lastActiveAt = Date()
     }
@@ -114,7 +114,6 @@ struct SurfaceUndoEntry {
 
 /// Serializable checkpoint for surface state persistence
 struct SurfaceCheckpoint: Codable {
-    let version: Int = 1
     let timestamp: Date
     let surfaces: [SurfaceData]
 
@@ -122,23 +121,23 @@ struct SurfaceCheckpoint: Codable {
         let id: UUID
         let metadata: SurfaceMetadata
         let wasActive: Bool
-        let paneAttachmentId: UUID?
+        let sessionId: UUID?
     }
 
     init(from surfaces: [ManagedSurface]) {
         self.timestamp = Date()
         self.surfaces = surfaces.map { managed in
-            let paneAttachmentId: UUID?
+            let sessionId: UUID?
             if case .active(let cid) = managed.state {
-                paneAttachmentId = cid
+                sessionId = cid
             } else {
-                paneAttachmentId = nil
+                sessionId = nil
             }
             return SurfaceData(
                 id: managed.id,
                 metadata: managed.metadata,
                 wasActive: managed.state.isActive,
-                paneAttachmentId: paneAttachmentId
+                sessionId: sessionId
             )
         }
     }
@@ -180,20 +179,6 @@ enum SurfaceDetachReason {
     case hide   // User hid the terminal (keep alive)
     case close  // User closed the tab (undo-able)
     case move   // Moving to different container
-}
-
-// MARK: - Surface Container Protocol
-
-/// Protocol for containers that can display surfaces (tabs, splits, etc.)
-protocol SurfaceContainer: AnyObject {
-    var paneAttachmentId: UUID { get }
-    var surfaceId: UUID? { get set }
-
-    /// Called when a surface should be displayed in this container
-    func displaySurface(_ surfaceView: Ghostty.SurfaceView)
-
-    /// Called when surface is being removed from this container
-    func removeSurface()
 }
 
 // MARK: - Surface Lifecycle Delegate

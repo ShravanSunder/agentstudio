@@ -3,6 +3,67 @@ import os
 
 private let tmuxLogger = Logger(subsystem: "com.agentstudio", category: "TmuxBackend")
 
+// MARK: - Legacy Backend Types (contained here until Phase 4 wires SessionRuntime → TmuxBackend)
+
+/// Identifies a backend session that backs a single terminal pane.
+struct PaneSessionHandle: Equatable, Sendable, Codable, Hashable {
+    let id: String
+    let paneId: UUID
+    let projectId: UUID
+    let worktreeId: UUID
+    let repoPath: URL
+    let worktreePath: URL
+    let displayName: String
+    let workingDirectory: URL
+
+    var hasValidId: Bool {
+        guard id.hasPrefix("agentstudio--") else { return false }
+        let suffix = String(id.dropFirst(13))
+        let segments = suffix.components(separatedBy: "--")
+        let hexChars = CharacterSet(charactersIn: "0123456789abcdef")
+        guard segments.count == 3,
+              segments.allSatisfy({ $0.count == 16 }) else { return false }
+        return segments.allSatisfy { seg in
+            seg.unicodeScalars.allSatisfy { hexChars.contains($0) }
+        }
+    }
+}
+
+/// Backend-agnostic protocol for managing per-pane terminal sessions.
+protocol SessionBackend: Sendable {
+    var isAvailable: Bool { get async }
+    func createPaneSession(repo: Repo, worktree: Worktree, paneId: UUID) async throws -> PaneSessionHandle
+    func attachCommand(for handle: PaneSessionHandle) -> String
+    func destroyPaneSession(_ handle: PaneSessionHandle) async throws
+    func healthCheck(_ handle: PaneSessionHandle) async -> Bool
+    func socketExists() -> Bool
+    func sessionExists(_ handle: PaneSessionHandle) async -> Bool
+    func discoverOrphanSessions(excluding knownIds: Set<String>) async -> [String]
+    func destroySessionById(_ sessionId: String) async throws
+}
+
+enum SessionBackendError: Error, LocalizedError {
+    case notAvailable
+    case timeout
+    case operationFailed(String)
+    case sessionNotFound(String)
+
+    var errorDescription: String? {
+        switch self {
+        case .notAvailable:
+            return "Session backend (tmux) is not installed"
+        case .timeout:
+            return "Operation timed out"
+        case .operationFailed(let detail):
+            return "Operation failed: \(detail)"
+        case .sessionNotFound(let id):
+            return "Session not found: \(id)"
+        }
+    }
+}
+
+// MARK: - TmuxBackend
+
 /// tmux-based implementation of SessionBackend.
 /// Creates one isolated tmux session per terminal pane on a custom socket (`-L agentstudio`),
 /// completely invisible to the user's own tmux.
@@ -62,9 +123,9 @@ final class TmuxBackend: SessionBackend {
                 "-L", socket,
                 "-f", ghostConfigPath,
                 "new-session",
-                "-d",                           // detached (headless)
-                "-s", sessionId,                 // session name
-                "-c", worktree.path.path,        // working directory
+                "-d",
+                "-s", sessionId,
+                "-c", worktree.path.path,
             ],
             cwd: nil,
             environment: nil
@@ -96,7 +157,7 @@ final class TmuxBackend: SessionBackend {
     }
 
     /// Single-quote a string for safe shell interpolation.
-    private static func shellEscape(_ path: String) -> String {
+    static func shellEscape(_ path: String) -> String {
         "'" + path.replacingOccurrences(of: "'", with: "'\\''") + "'"
     }
 
