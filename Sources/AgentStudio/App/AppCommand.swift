@@ -32,6 +32,10 @@ enum AppCommand: String, CaseIterable {
 
     // Search/navigation
     case quickFind, commandBar
+
+    // Sidebar commands
+    case filterSidebar
+    case openNewTerminalInTab
 }
 
 // MARK: - SearchItemType
@@ -296,6 +300,20 @@ final class CommandDispatcher: ObservableObject {
                 command: .newFloatingTerminal,
                 label: "New Floating Terminal",
                 icon: "terminal.fill"
+            ),
+
+            // Sidebar commands
+            CommandDefinition(
+                command: .filterSidebar,
+                keyBinding: KeyBinding(key: "f", modifiers: [.command, .shift]),
+                label: "Filter Sidebar",
+                icon: "magnifyingglass"
+            ),
+            CommandDefinition(
+                command: .openNewTerminalInTab,
+                label: "Open New Terminal in Tab",
+                icon: "terminal.fill",
+                appliesTo: [.worktree]
             ),
         ]
 

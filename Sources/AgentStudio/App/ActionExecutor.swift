@@ -69,6 +69,32 @@ final class ActionExecutor {
         return session
     }
 
+    /// Open a new terminal for a worktree, always creating a fresh session+tab
+    /// (never navigates to an existing one).
+    @discardableResult
+    func openNewTerminal(for worktree: Worktree, in repo: Repo) -> TerminalSession? {
+        let session = store.createSession(
+            source: .worktree(worktreeId: worktree.id, repoId: repo.id),
+            title: worktree.name,
+            provider: .tmux,
+            lifetime: .persistent,
+            residency: .active
+        )
+
+        guard coordinator.createView(for: session, worktree: worktree, repo: repo) != nil else {
+            executorLogger.error("Surface creation failed for worktree '\(worktree.name)' — rolling back session \(session.id)")
+            store.removeSession(session.id)
+            return nil
+        }
+
+        let tab = Tab(sessionId: session.id)
+        store.appendTab(tab)
+        store.setActiveTab(tab.id)
+
+        executorLogger.info("Opened new terminal for worktree: \(worktree.name)")
+        return session
+    }
+
     /// Undo the last close operation.
     func undoCloseTab() {
         guard let snapshot = undoStack.popLast() else {

@@ -1,5 +1,8 @@
 import AppKit
+import os.log
 import SwiftUI
+
+private let sidebarLogger = Logger(subsystem: "com.agentstudio", category: "Sidebar")
 
 /// Main split view controller with sidebar and terminal content area
 class MainSplitViewController: NSSplitViewController {
@@ -92,6 +95,13 @@ class MainSplitViewController: NSSplitViewController {
             name: .toggleSidebarRequested,
             object: nil
         )
+
+        NotificationCenter.default.addObserver(
+            self,
+            selector: #selector(handleOpenNewTerminal(_:)),
+            name: .openNewTerminalRequested,
+            object: nil
+        )
     }
 
     @objc private func handleToggleSidebar(_ notification: Notification) {
@@ -102,10 +112,22 @@ class MainSplitViewController: NSSplitViewController {
         guard let userInfo = notification.userInfo,
               let worktree = userInfo["worktree"] as? Worktree,
               let repo = userInfo["repo"] as? Repo else {
+            sidebarLogger.error("Invalid openWorktreeRequested notification payload")
             return
         }
 
         terminalTabViewController?.openTerminal(for: worktree, in: repo)
+    }
+
+    @objc private func handleOpenNewTerminal(_ notification: Notification) {
+        guard let userInfo = notification.userInfo,
+              let worktree = userInfo["worktree"] as? Worktree,
+              let repo = userInfo["repo"] as? Repo else {
+            sidebarLogger.error("Invalid openNewTerminalRequested notification payload")
+            return
+        }
+
+        terminalTabViewController?.openNewTerminal(for: worktree, in: repo)
     }
 
     @objc private func handleCloseTab(_ notification: Notification) {
@@ -151,40 +173,120 @@ struct SidebarViewWrapper: View {
 struct SidebarContentView: View {
     @ObservedObject var store: WorkspaceStore
     @State private var expandedRepos: Set<UUID> = []
+    @State private var filterText: String = ""
+    @State private var debouncedQuery: String = ""
+    @FocusState private var isFilterFocused: Bool
+
+    /// Repos filtered by the debounced search text, with worktree-level filtering.
+    private var filteredRepos: [Repo] {
+        let query = debouncedQuery
+        guard !query.isEmpty else { return store.repos }
+
+        return store.repos.compactMap { repo in
+            if repo.name.localizedCaseInsensitiveContains(query) {
+                return repo // repo name matches → show all worktrees
+            }
+            let matchingWorktrees = repo.worktrees.filter {
+                $0.name.localizedCaseInsensitiveContains(query)
+            }
+            guard !matchingWorktrees.isEmpty else { return nil }
+            var filtered = repo
+            filtered.worktrees = matchingWorktrees
+            return filtered
+        }
+    }
+
+    /// Whether a filter is actively narrowing results.
+    private var isFiltering: Bool {
+        !debouncedQuery.isEmpty
+    }
 
     var body: some View {
         VStack(spacing: 0) {
-            // Main list content (toggle button is now in titlebar)
-            List {
-                Section("Repos") {
-                    ForEach(store.repos) { repo in
-                        DisclosureGroup(
-                            isExpanded: Binding(
-                                get: { expandedRepos.contains(repo.id) },
-                                set: { isExpanded in
-                                    if isExpanded {
-                                        expandedRepos.insert(repo.id)
-                                    } else {
-                                        expandedRepos.remove(repo.id)
-                                    }
-                                }
-                            )
-                        ) {
-                            ForEach(repo.worktrees) { worktree in
-                                WorktreeRowView(
-                                    worktree: worktree,
-                                    onOpen: {
-                                        openWorktree(worktree, in: repo)
+            // Search / filter bar
+            HStack(spacing: 6) {
+                Image(systemName: "magnifyingglass")
+                    .font(.system(size: 12))
+                    .foregroundStyle(.secondary)
+
+                TextField("Filter...", text: $filterText)
+                    .textFieldStyle(.plain)
+                    .font(.system(size: 12))
+                    .focused($isFilterFocused)
+                    .onExitCommand {
+                        filterText = ""
+                        isFilterFocused = false
+                    }
+
+                if !filterText.isEmpty {
+                    Button {
+                        filterText = ""
+                    } label: {
+                        Image(systemName: "xmark.circle.fill")
+                            .font(.system(size: 12))
+                            .foregroundStyle(.secondary)
+                    }
+                    .buttonStyle(.plain)
+                    .help("Clear filter")
+                    .transition(.opacity.animation(.easeOut(duration: 0.1)))
+                }
+            }
+            .padding(.horizontal, 10)
+            .padding(.vertical, 6)
+            .background(Color(nsColor: .controlBackgroundColor))
+
+            // Main list content
+            if isFiltering && filteredRepos.isEmpty {
+                VStack(spacing: 8) {
+                    Image(systemName: "magnifyingglass")
+                        .font(.system(size: 24))
+                        .foregroundStyle(.secondary)
+                        .opacity(0.5)
+
+                    Text("No results")
+                        .font(.system(size: 12, weight: .medium))
+                        .foregroundStyle(.secondary)
+                }
+                .frame(maxWidth: .infinity, maxHeight: .infinity)
+                .transition(.opacity.animation(.easeOut(duration: 0.12)))
+            } else {
+                List {
+                    Section("Repos") {
+                        ForEach(filteredRepos) { repo in
+                            DisclosureGroup(
+                                isExpanded: Binding(
+                                    get: {
+                                        isFiltering || expandedRepos.contains(repo.id)
+                                    },
+                                    set: { isExpanded in
+                                        if isExpanded {
+                                            expandedRepos.insert(repo.id)
+                                        } else {
+                                            expandedRepos.remove(repo.id)
+                                        }
                                     }
                                 )
+                            ) {
+                                ForEach(repo.worktrees) { worktree in
+                                    WorktreeRowView(
+                                        worktree: worktree,
+                                        onOpen: {
+                                            openWorktree(worktree, in: repo)
+                                        },
+                                        onOpenNew: {
+                                            openNewTerminal(worktree, in: repo)
+                                        }
+                                    )
+                                    .listRowInsets(EdgeInsets(top: 0, leading: 5, bottom: 0, trailing: 0))
+                                }
+                            } label: {
+                                RepoRowView(repo: repo)
                             }
-                        } label: {
-                            RepoRowView(repo: repo)
                         }
                     }
                 }
+                .listStyle(.sidebar)
             }
-            .listStyle(.sidebar)
 
         }
         .frame(minWidth: 200)
@@ -197,7 +299,31 @@ struct SidebarContentView: View {
         .onReceive(NotificationCenter.default.publisher(for: .refreshWorktreesRequested)) { _ in
             refreshWorktrees()
         }
+        .onReceive(NotificationCenter.default.publisher(for: .filterSidebarRequested)) { _ in
+            isFilterFocused = true
+        }
+        .onChange(of: filterText) { _, newValue in
+            let trimmed = newValue.trimmingCharacters(in: .whitespaces)
+            if trimmed.isEmpty {
+                // Clear immediately for responsiveness
+                withAnimation(.easeOut(duration: 0.12)) {
+                    debouncedQuery = ""
+                }
+            } else {
+                // Debounce non-empty input
+                debounceTask?.cancel()
+                debounceTask = Task { @MainActor in
+                    try? await Task.sleep(for: .milliseconds(25))
+                    guard !Task.isCancelled else { return }
+                    withAnimation(.easeOut(duration: 0.12)) {
+                        debouncedQuery = trimmed
+                    }
+                }
+            }
+        }
     }
+
+    @State private var debounceTask: Task<Void, Never>?
 
     private func toggleSidebar() {
         NotificationCenter.default.post(name: .toggleSidebarRequested, object: nil)
@@ -206,6 +332,14 @@ struct SidebarContentView: View {
     private func openWorktree(_ worktree: Worktree, in repo: Repo) {
         NotificationCenter.default.post(
             name: .openWorktreeRequested,
+            object: nil,
+            userInfo: ["worktree": worktree, "repo": repo]
+        )
+    }
+
+    private func openNewTerminal(_ worktree: Worktree, in repo: Repo) {
+        NotificationCenter.default.post(
+            name: .openNewTerminalRequested,
             object: nil,
             userInfo: ["worktree": worktree, "repo": repo]
         )
@@ -271,16 +405,11 @@ struct RepoRowView: View {
 struct WorktreeRowView: View {
     let worktree: Worktree
     let onOpen: () -> Void
+    let onOpenNew: () -> Void
     @State private var isHovering = false
 
     var body: some View {
-        HStack(spacing: 8) {
-            // Status indicator with animation
-            Circle()
-                .fill(statusColor)
-                .frame(width: 8, height: 8)
-                .animation(.easeInOut(duration: 0.2), value: worktree.status)
-
+        HStack(spacing: 6) {
             // Branch icon
             Image(systemName: "arrow.triangle.branch")
                 .font(.system(size: 11))
@@ -319,9 +448,15 @@ struct WorktreeRowView: View {
         }
         .contextMenu {
             Button {
+                onOpenNew()
+            } label: {
+                Label("Open New Terminal in Tab", systemImage: "terminal.fill")
+            }
+
+            Button {
                 onOpen()
             } label: {
-                Label("Open in Terminal", systemImage: "terminal")
+                Label("Go to Terminal", systemImage: "terminal")
             }
 
             Button {
@@ -343,15 +478,6 @@ struct WorktreeRowView: View {
             } label: {
                 Label("Copy Path", systemImage: "doc.on.clipboard")
             }
-        }
-    }
-
-    private var statusColor: Color {
-        switch worktree.status {
-        case .idle: return .secondary.opacity(0.4)
-        case .running: return .green
-        case .pendingReview: return .orange
-        case .error: return .red
         }
     }
 

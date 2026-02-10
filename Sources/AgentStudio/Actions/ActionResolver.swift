@@ -96,7 +96,8 @@ enum ActionResolver {
         // Non-pane commands: not resolved to PaneAction
         case .addRepo, .removeRepo, .refreshWorktrees,
              .toggleSidebar, .newFloatingTerminal,
-             .newTerminalInTab, .quickFind, .commandBar:
+             .newTerminalInTab, .quickFind, .commandBar,
+             .filterSidebar, .openNewTerminalInTab:
             return nil
         }
     }
