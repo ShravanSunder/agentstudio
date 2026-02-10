@@ -36,7 +36,7 @@ final class TerminalViewCoordinator {
             object: SurfaceManager.shared,
             queue: .main
         ) { [weak self] notification in
-            Task { @MainActor in
+            MainActor.assumeIsolated {
                 self?.onSurfaceCWDChanged(notification)
             }
         }

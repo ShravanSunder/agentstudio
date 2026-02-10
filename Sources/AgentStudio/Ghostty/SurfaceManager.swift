@@ -552,17 +552,21 @@ extension SurfaceManager {
         let rawPwd = notification.userInfo?["pwd"] as? String
         let url = CWDNormalizer.normalize(rawPwd)
 
-        // Update metadata in whichever collection owns this surface
-        if var managed = activeSurfaces[surfaceId] {
-            guard managed.metadata.workingDirectory != url else { return }
-            managed.metadata.workingDirectory = url
-            activeSurfaces[surfaceId] = managed
-        } else if var managed = hiddenSurfaces[surfaceId] {
-            guard managed.metadata.workingDirectory != url else { return }
-            managed.metadata.workingDirectory = url
-            hiddenSurfaces[surfaceId] = managed
+        // Find the managed surface in either collection
+        let (managed, isActive): (ManagedSurface?, Bool) = {
+            if let m = activeSurfaces[surfaceId] { return (m, true) }
+            if let m = hiddenSurfaces[surfaceId] { return (m, false) }
+            return (nil, false)
+        }()
+
+        guard var current = managed else { return }
+        guard current.metadata.workingDirectory != url else { return }
+
+        current.metadata.workingDirectory = url
+        if isActive {
+            activeSurfaces[surfaceId] = current
         } else {
-            return
+            hiddenSurfaces[surfaceId] = current
         }
 
         // Post higher-level notification for upstream consumers
