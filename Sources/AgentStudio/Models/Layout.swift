@@ -129,6 +129,20 @@ struct Layout: Codable, Hashable {
         return Layout(root: root.equalized())
     }
 
+    // MARK: - Resize Target
+
+    /// Find the nearest ancestor split where the given session can grow in the given direction.
+    /// Returns (splitId, shouldIncreaseRatio).
+    func resizeTarget(for sessionId: UUID, direction: SplitResizeDirection) -> (splitId: UUID, increase: Bool)? {
+        guard let root else { return nil }
+        return root.resizeTarget(for: sessionId, direction: direction)
+    }
+
+    /// Get the current ratio for a split by ID.
+    func ratioForSplit(_ splitId: UUID) -> Double? {
+        root?.ratioForSplit(splitId)
+    }
+
     // MARK: - Navigation
 
     /// Find the neighbor session in the given direction.
@@ -298,6 +312,48 @@ extension Layout.Node {
                 right: split.right.equalized()
             ))
         }
+    }
+
+    /// Get the current ratio for a split by ID.
+    func ratioForSplit(_ splitId: UUID) -> Double? {
+        switch self {
+        case .leaf: return nil
+        case .split(let split):
+            if split.id == splitId { return split.ratio }
+            return split.left.ratioForSplit(splitId) ?? split.right.ratioForSplit(splitId)
+        }
+    }
+
+    /// Find the nearest enclosing split where a session can grow in the given direction.
+    /// Returns (splitId, shouldIncreaseRatio).
+    ///
+    /// Algorithm: Recurse into the subtree containing the session FIRST to find the
+    /// nearest (innermost) matching split. Only if no child split handles the resize
+    /// do we check whether THIS split can handle it as a fallback.
+    func resizeTarget(for sessionId: UUID, direction: SplitResizeDirection) -> (splitId: UUID, increase: Bool)? {
+        guard case .split(let split) = self else { return nil }
+
+        let inLeft = split.left.contains(sessionId)
+        let inRight = split.right.contains(sessionId)
+        guard inLeft || inRight else { return nil }
+
+        // Recurse into the subtree containing the session FIRST (nearest match wins)
+        let subtree = inLeft ? split.left : split.right
+        if let result = subtree.resizeTarget(for: sessionId, direction: direction) {
+            return result
+        }
+
+        // Then check if THIS split handles it as a fallback
+        if split.direction == direction.axis {
+            switch direction {
+            case .right, .down:
+                if inLeft { return (split.id, true) }
+            case .left, .up:
+                if inRight { return (split.id, false) }
+            }
+        }
+
+        return nil
     }
 
     /// Find the neighbor in the given direction.

@@ -142,6 +142,30 @@ enum ActionValidator {
             }
             return .success(ValidatedAction(action))
 
+        case .toggleSplitZoom(let tabId, let paneId):
+            guard let tab = state.tab(tabId) else {
+                return .failure(.tabNotFound(tabId: tabId))
+            }
+            guard tab.paneIds.contains(paneId) else {
+                return .failure(.paneNotFound(paneId: paneId, tabId: tabId))
+            }
+            return .success(ValidatedAction(action))
+
+        case .moveTab(let tabId, _):
+            guard state.tab(tabId) != nil else {
+                return .failure(.tabNotFound(tabId: tabId))
+            }
+            return .success(ValidatedAction(action))
+
+        case .resizePaneByDelta(let tabId, let paneId, _, _):
+            guard let tab = state.tab(tabId) else {
+                return .failure(.tabNotFound(tabId: tabId))
+            }
+            guard tab.paneIds.contains(paneId) else {
+                return .failure(.paneNotFound(paneId: paneId, tabId: tabId))
+            }
+            return .success(ValidatedAction(action))
+
         // System actions — trusted source, skip validation
         case .expireUndoEntry, .repair:
             return .success(ValidatedAction(action))

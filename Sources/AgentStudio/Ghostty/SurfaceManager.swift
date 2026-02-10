@@ -621,6 +621,15 @@ extension SurfaceManager {
         }
         ghostty_surface_set_focus(surface, focused)
     }
+
+    /// Sync all surface focus states. Only activeSurfaceId gets focus=true; all others get false.
+    /// Mirrors Ghostty's BaseTerminalController.syncFocusToSurfaceTree() pattern.
+    func syncFocus(activeSurfaceId: UUID?) {
+        for (id, managed) in activeSurfaces {
+            guard let surface = managed.surface.surface else { continue }
+            ghostty_surface_set_focus(surface, id == activeSurfaceId)
+        }
+    }
 }
 
 // MARK: - Undo Expiration
@@ -665,6 +674,17 @@ extension SurfaceManager {
     }
 
     private func surfaceId(for surfaceView: Ghostty.SurfaceView) -> UUID? {
+        surfaceViewToId[ObjectIdentifier(surfaceView)]
+    }
+
+    /// Reverse-lookup: surfaceId → sessionId via stored metadata.
+    func sessionId(for surfaceId: UUID) -> UUID? {
+        let managed = activeSurfaces[surfaceId] ?? hiddenSurfaces[surfaceId]
+        return managed?.metadata.sessionId
+    }
+
+    /// Reverse-lookup: SurfaceView → surfaceId via ObjectIdentifier map.
+    func surfaceId(forView surfaceView: Ghostty.SurfaceView) -> UUID? {
         surfaceViewToId[ObjectIdentifier(surfaceView)]
     }
 }

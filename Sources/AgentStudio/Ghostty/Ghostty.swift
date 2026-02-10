@@ -59,6 +59,18 @@ extension Ghostty {
         /// - object: The SurfaceView whose title changed
         /// - userInfo: ["title": String]
         static let didUpdateTitle = Foundation.Notification.Name("ghosttyDidUpdateTitle")
+
+        // Split action notifications
+        static let ghosttyNewSplit = Foundation.Notification.Name("ghosttyNewSplit")
+        static let ghosttyGotoSplit = Foundation.Notification.Name("ghosttyGotoSplit")
+        static let ghosttyResizeSplit = Foundation.Notification.Name("ghosttyResizeSplit")
+        static let ghosttyEqualizeSplits = Foundation.Notification.Name("ghosttyEqualizeSplits")
+        static let ghosttyToggleSplitZoom = Foundation.Notification.Name("ghosttyToggleSplitZoom")
+
+        // Tab action notifications
+        static let ghosttyCloseTab = Foundation.Notification.Name("ghosttyCloseTab")
+        static let ghosttyGotoTab = Foundation.Notification.Name("ghosttyGotoTab")
+        static let ghosttyMoveTab = Foundation.Notification.Name("ghosttyMoveTab")
     }
 }
 
@@ -202,6 +214,104 @@ extension Ghostty {
                 }
                 return true
 
+            // Split actions
+            case GHOSTTY_ACTION_NEW_SPLIT:
+                guard target.tag == GHOSTTY_TARGET_SURFACE,
+                      let surface = target.target.surface,
+                      let surfaceView = surfaceView(from: surface) else { return false }
+                let direction = action.action.new_split
+                DispatchQueue.main.async {
+                    NotificationCenter.default.post(
+                        name: .ghosttyNewSplit, object: surfaceView,
+                        userInfo: ["direction": direction.rawValue]
+                    )
+                }
+                return true
+
+            case GHOSTTY_ACTION_GOTO_SPLIT:
+                guard target.tag == GHOSTTY_TARGET_SURFACE,
+                      let surface = target.target.surface,
+                      let surfaceView = surfaceView(from: surface) else { return false }
+                let goto = action.action.goto_split
+                DispatchQueue.main.async {
+                    NotificationCenter.default.post(
+                        name: .ghosttyGotoSplit, object: surfaceView,
+                        userInfo: ["goto": goto.rawValue]
+                    )
+                }
+                return true
+
+            case GHOSTTY_ACTION_RESIZE_SPLIT:
+                guard target.tag == GHOSTTY_TARGET_SURFACE,
+                      let surface = target.target.surface,
+                      let surfaceView = surfaceView(from: surface) else { return false }
+                let resize = action.action.resize_split
+                DispatchQueue.main.async {
+                    NotificationCenter.default.post(
+                        name: .ghosttyResizeSplit, object: surfaceView,
+                        userInfo: ["amount": resize.amount, "direction": resize.direction.rawValue]
+                    )
+                }
+                return true
+
+            case GHOSTTY_ACTION_EQUALIZE_SPLITS:
+                guard target.tag == GHOSTTY_TARGET_SURFACE,
+                      let surface = target.target.surface,
+                      let surfaceView = surfaceView(from: surface) else { return false }
+                DispatchQueue.main.async {
+                    NotificationCenter.default.post(name: .ghosttyEqualizeSplits, object: surfaceView)
+                }
+                return true
+
+            case GHOSTTY_ACTION_TOGGLE_SPLIT_ZOOM:
+                guard target.tag == GHOSTTY_TARGET_SURFACE,
+                      let surface = target.target.surface,
+                      let surfaceView = surfaceView(from: surface) else { return false }
+                DispatchQueue.main.async {
+                    NotificationCenter.default.post(name: .ghosttyToggleSplitZoom, object: surfaceView)
+                }
+                return true
+
+            // Tab actions
+            case GHOSTTY_ACTION_CLOSE_TAB:
+                guard target.tag == GHOSTTY_TARGET_SURFACE,
+                      let surface = target.target.surface,
+                      let surfaceView = surfaceView(from: surface) else { return false }
+                let mode = action.action.close_tab_mode
+                DispatchQueue.main.async {
+                    NotificationCenter.default.post(
+                        name: .ghosttyCloseTab, object: surfaceView,
+                        userInfo: ["mode": mode.rawValue]
+                    )
+                }
+                return true
+
+            case GHOSTTY_ACTION_GOTO_TAB:
+                guard target.tag == GHOSTTY_TARGET_SURFACE,
+                      let surface = target.target.surface,
+                      let surfaceView = surfaceView(from: surface) else { return false }
+                let gotoTab = action.action.goto_tab
+                DispatchQueue.main.async {
+                    NotificationCenter.default.post(
+                        name: .ghosttyGotoTab, object: surfaceView,
+                        userInfo: ["target": gotoTab.rawValue]
+                    )
+                }
+                return true
+
+            case GHOSTTY_ACTION_MOVE_TAB:
+                guard target.tag == GHOSTTY_TARGET_SURFACE,
+                      let surface = target.target.surface,
+                      let surfaceView = surfaceView(from: surface) else { return false }
+                let moveTab = action.action.move_tab
+                DispatchQueue.main.async {
+                    NotificationCenter.default.post(
+                        name: .ghosttyMoveTab, object: surfaceView,
+                        userInfo: ["amount": moveTab.amount]
+                    )
+                }
+                return true
+
             default:
                 return false
             }
@@ -265,4 +375,16 @@ extension Notification.Name {
     static let ghosttyNewWindow = Ghostty.Notification.ghosttyNewWindow
     static let ghosttyNewTab = Ghostty.Notification.ghosttyNewTab
     static let ghosttyCloseSurface = Ghostty.Notification.ghosttyCloseSurface
+
+    // Split action aliases
+    static let ghosttyNewSplit = Ghostty.Notification.ghosttyNewSplit
+    static let ghosttyGotoSplit = Ghostty.Notification.ghosttyGotoSplit
+    static let ghosttyResizeSplit = Ghostty.Notification.ghosttyResizeSplit
+    static let ghosttyEqualizeSplits = Ghostty.Notification.ghosttyEqualizeSplits
+    static let ghosttyToggleSplitZoom = Ghostty.Notification.ghosttyToggleSplitZoom
+
+    // Tab action aliases
+    static let ghosttyCloseTab = Ghostty.Notification.ghosttyCloseTab
+    static let ghosttyGotoTab = Ghostty.Notification.ghosttyGotoTab
+    static let ghosttyMoveTab = Ghostty.Notification.ghosttyMoveTab
 }

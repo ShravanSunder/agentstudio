@@ -276,6 +276,37 @@ final class WorkspaceStore: ObservableObject {
         markDirty()
     }
 
+    /// Move a tab by a relative delta. Clamps at boundaries (no cyclic wrap),
+    /// matching Ghostty's TerminalController.onMoveTab behavior.
+    func moveTabByDelta(tabId: UUID, delta: Int) {
+        guard let viewIndex = activeViewIndex else {
+            storeLogger.warning("moveTabByDelta: no active view")
+            return
+        }
+        guard let fromIndex = views[viewIndex].tabs.firstIndex(where: { $0.id == tabId }) else {
+            storeLogger.warning("moveTabByDelta: tab \(tabId) not found")
+            return
+        }
+        let count = views[viewIndex].tabs.count
+        guard count > 1 else { return }
+
+        // Clamp at boundaries — matches Ghostty's behavior.
+        // Guard against Int.min overflow: -Int.min is undefined, treat as max leftward move.
+        let finalIndex: Int
+        if delta < 0 {
+            let magnitude = delta == Int.min ? Int.max : -delta
+            finalIndex = fromIndex - min(fromIndex, magnitude)
+        } else {
+            let remaining = count - 1 - fromIndex
+            finalIndex = fromIndex + min(remaining, delta)
+        }
+        guard finalIndex != fromIndex else { return }
+
+        let tab = views[viewIndex].tabs.remove(at: fromIndex)
+        views[viewIndex].tabs.insert(tab, at: finalIndex)
+        markDirty()
+    }
+
     func setActiveTab(_ tabId: UUID?) {
         guard let viewIndex = activeViewIndex else {
             storeLogger.warning("setActiveTab: no active view")
@@ -295,6 +326,8 @@ final class WorkspaceStore: ObservableObject {
         position: Layout.Position
     ) {
         guard let (viewIndex, tabIndex) = findTab(tabId) else { return }
+        // Clear zoom on new split — user needs to see all panes
+        views[viewIndex].tabs[tabIndex].zoomedSessionId = nil
         views[viewIndex].tabs[tabIndex].layout = views[viewIndex].tabs[tabIndex].layout
             .inserting(sessionId: sessionId, at: targetSessionId, direction: direction, position: position)
         markDirty()
@@ -302,6 +335,10 @@ final class WorkspaceStore: ObservableObject {
 
     func removeSessionFromLayout(_ sessionId: UUID, inTab tabId: UUID) {
         guard let (viewIndex, tabIndex) = findTab(tabId) else { return }
+        // Clear zoom if the zoomed session is being removed
+        if views[viewIndex].tabs[tabIndex].zoomedSessionId == sessionId {
+            views[viewIndex].tabs[tabIndex].zoomedSessionId = nil
+        }
         if let newLayout = views[viewIndex].tabs[tabIndex].layout.removing(sessionId: sessionId) {
             views[viewIndex].tabs[tabIndex].layout = newLayout
             // Update active session if removed
@@ -334,6 +371,46 @@ final class WorkspaceStore: ObservableObject {
         markDirty()
     }
 
+    // MARK: - Zoom
+
+    func toggleZoom(sessionId: UUID, inTab tabId: UUID) {
+        guard let (viewIndex, tabIndex) = findTab(tabId) else { return }
+        if views[viewIndex].tabs[tabIndex].zoomedSessionId == sessionId {
+            views[viewIndex].tabs[tabIndex].zoomedSessionId = nil
+        } else if views[viewIndex].tabs[tabIndex].layout.contains(sessionId) {
+            views[viewIndex].tabs[tabIndex].zoomedSessionId = sessionId
+        }
+        // Do NOT markDirty() — zoom is transient, not persisted
+    }
+
+    // MARK: - Keyboard Resize
+
+    func resizePaneByDelta(tabId: UUID, paneId: UUID, direction: SplitResizeDirection, amount: UInt16) {
+        guard let (viewIndex, tabIndex) = findTab(tabId) else { return }
+        let tab = views[viewIndex].tabs[tabIndex]
+
+        // No-op while zoomed — no visual feedback for resize
+        guard tab.zoomedSessionId == nil else {
+            storeLogger.debug("Ignoring resize while zoomed")
+            return
+        }
+
+        guard let (splitId, increase) = tab.layout.resizeTarget(for: paneId, direction: direction) else {
+            storeLogger.debug("No resize target for pane \(paneId) direction \(direction)")
+            return
+        }
+
+        guard let currentRatio = tab.layout.ratioForSplit(splitId) else { return }
+
+        // 5% per 10px of Ghostty amount, clamped to safe bounds
+        let delta = 0.05 * (Double(amount) / 10.0)
+        let newRatio = min(0.9, max(0.1, increase ? currentRatio + delta : currentRatio - delta))
+
+        views[viewIndex].tabs[tabIndex].layout = views[viewIndex].tabs[tabIndex].layout
+            .resizing(splitId: splitId, ratio: newRatio)
+        markDirty()
+    }
+
     // MARK: - Compound Operations
 
     /// Break a split tab into individual tabs, one per session.
@@ -341,6 +418,9 @@ final class WorkspaceStore: ObservableObject {
         guard let (viewIndex, tabIndex) = findTab(tabId) else { return [] }
         let sessionIds = views[viewIndex].tabs[tabIndex].sessionIds
         guard sessionIds.count > 1 else { return [] }
+
+        // Clear zoom — tab is being decomposed
+        views[viewIndex].tabs[tabIndex].zoomedSessionId = nil
 
         // Remove original tab
         views[viewIndex].tabs.remove(at: tabIndex)
@@ -365,6 +445,11 @@ final class WorkspaceStore: ObservableObject {
     func extractSession(_ sessionId: UUID, fromTab tabId: UUID) -> Tab? {
         guard let (viewIndex, tabIndex) = findTab(tabId) else { return nil }
         guard views[viewIndex].tabs[tabIndex].sessionIds.count > 1 else { return nil }
+
+        // Clear zoom if extracting the zoomed session
+        if views[viewIndex].tabs[tabIndex].zoomedSessionId == sessionId {
+            views[viewIndex].tabs[tabIndex].zoomedSessionId = nil
+        }
 
         // Remove session from source tab
         if let newLayout = views[viewIndex].tabs[tabIndex].layout.removing(sessionId: sessionId) {
@@ -395,6 +480,9 @@ final class WorkspaceStore: ObservableObject {
         guard let viewIndex = activeViewIndex else { return }
         guard let sourceTabIndex = views[viewIndex].tabs.firstIndex(where: { $0.id == sourceId }),
               let targetTabIndex = views[viewIndex].tabs.firstIndex(where: { $0.id == targetId }) else { return }
+
+        // Clear zoom on target tab — merging changes the layout structure
+        views[viewIndex].tabs[targetTabIndex].zoomedSessionId = nil
 
         let sourceSessionIds = views[viewIndex].tabs[sourceTabIndex].sessionIds
 
