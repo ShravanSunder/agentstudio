@@ -1,5 +1,11 @@
 # AppKit + SwiftUI Hybrid Architecture
 
+## TL;DR
+
+Agent Studio uses an **AppKit-main** architecture hosting SwiftUI views for declarative UI. AppKit controls the window lifecycle, responder chain, and terminal surface management. SwiftUI handles forms, lists, and animations. Services are created in `AppDelegate` in dependency order, with `WorkspaceStore` as the single source of truth. See [Component Architecture](component_architecture.md) for the full data model and service layer.
+
+---
+
 ## Architectural Philosophy
 Agent Studio follows an **AppKit-main** architecture. This decision was made to ensure direct control over the macOS system integration while leveraging SwiftUI's strengths for declarative UI components.
 
@@ -50,9 +56,32 @@ let menu = NSHostingMenu(rootView: MenuView())
 - **Constraint Management**: For `NSHostingController`, set `sizingOptions` (e.g., `.intrinsicContentSize`) to control how the view interacts with its container.
 
 ## Data Flow & State
-- **AppState**: Use a shared `ObservableObject` (or `@Observable` in Swift 5.9+) passed from AppKit to SwiftUI views.
+
+The full data model, service layer, and mutation pipeline are documented in [Component Architecture](component_architecture.md). Key patterns relevant to the AppKit+SwiftUI boundary:
+
+- **WorkspaceStore**: `@MainActor ObservableObject` — the single source of truth. SwiftUI views observe `@Published` properties; AppKit controllers subscribe via Combine.
 - **Bindings**: Pass `Binding` objects from AppKit to SwiftUI for bidirectional data flow.
-- **Notifications**: Use `NotificationCenter` for loose coupling between AppKit services and SwiftUI views.
+- **Notifications**: `NotificationCenter` for loose coupling between AppKit menu actions and controllers (e.g., `.newTabRequested`, `.closeTabRequested`, `.undoCloseTabRequested`).
+- **Combine**: `TerminalTabViewController` subscribes to `store.$activeViewId` and re-renders the terminal container on changes.
+
+### Ownership Hierarchy
+
+Services are created in `AppDelegate.applicationDidFinishLaunching()` in dependency order:
+
+```
+AppDelegate
+├── WorkspaceStore      ← restore from disk
+├── SessionRuntime      ← runtime health tracking
+├── ViewRegistry        ← sessionId → NSView mapping
+├── TerminalViewCoordinator ← sole model↔view↔surface bridge
+├── ActionExecutor      ← action dispatch hub
+├── TabBarAdapter       ← Combine-derived tab bar state
+└── MainWindowController
+    └── MainSplitViewController
+        └── TerminalTabViewController
+```
+
+See [Component Architecture — Service Layer](component_architecture.md#3-service-layer) for detailed descriptions of each service.
 
 ## AppKit Event Handling in Hybrid Views
 
@@ -116,9 +145,9 @@ For the Ghostty surface lifecycle, ownership model, state machine, and health mo
 
 ## Session Restore
 
-Terminal session state is managed by `WorkspaceStore` (persistence) and `SessionRuntime` (health/lifecycle). `TerminalViewCoordinator` is the sole intermediary for surface and runtime lifecycle — views never call `SurfaceManager` or `SessionRuntime` directly. The tmux backend (`TmuxBackend`) is available for future session persistence across app restarts.
+Terminal session state is managed by `WorkspaceStore` (persistence) and `SessionRuntime` (health/lifecycle). `TerminalViewCoordinator` is the sole intermediary for surface and runtime lifecycle — views never call `SurfaceManager` or `SessionRuntime` directly. The tmux backend (`TmuxBackend`) provides session persistence across app restarts.
 
-For the Ghostty surface lifecycle, see: **[Ghostty Surface Architecture](ghostty_surface_architecture.md)**
+For the full session lifecycle, restore flow, and tmux configuration, see: **[Session Lifecycle](session_lifecycle.md)**
 
 ---
 
@@ -127,3 +156,12 @@ For the Ghostty surface lifecycle, see: **[Ghostty Surface Architecture](ghostty
 - **WWDC19**: [Integrating SwiftUI](https://developer.apple.com/videos/play/wwdc2019/231/) (Foundational hosting concepts)
 - **SwiftUI Lab**: [The Power of the Hosting+Representable Combo](https://swiftui-lab.com/a-powerful-combo/)
 - **Ghostty**: [ghostty-org/ghostty](https://github.com/ghostty-org/ghostty) (Terminal emulator source)
+
+---
+
+## Related Documentation
+
+- **[Architecture Overview](README.md)** — System overview and document index
+- **[Component Architecture](component_architecture.md)** — Data model, service layer, data flow, persistence
+- **[Session Lifecycle](session_lifecycle.md)** — Session creation, close, undo, restore, tmux backend
+- **[Surface Architecture](ghostty_surface_architecture.md)** — Surface ownership, health monitoring, crash isolation
