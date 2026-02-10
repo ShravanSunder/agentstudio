@@ -295,6 +295,7 @@ struct SidebarContentView: View {
         }
         .onChange(of: filterText) { _, newValue in
             let trimmed = newValue.trimmingCharacters(in: .whitespaces)
+            debounceTask?.cancel()
             if trimmed.isEmpty {
                 // Clear immediately for responsiveness
                 withAnimation(.easeOut(duration: 0.12)) {
@@ -302,7 +303,6 @@ struct SidebarContentView: View {
                 }
             } else {
                 // Debounce non-empty input
-                debounceTask?.cancel()
                 debounceTask = Task { @MainActor in
                     try? await Task.sleep(for: .milliseconds(Self.filterDebounceMilliseconds))
                     guard !Task.isCancelled else { return }
