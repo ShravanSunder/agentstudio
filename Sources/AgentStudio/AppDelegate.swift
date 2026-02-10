@@ -202,6 +202,7 @@ class AppDelegate: NSObject, NSApplicationDelegate {
         filterSidebarItem.keyEquivalentModifierMask = [.command, .shift]
         viewMenu.addItem(filterSidebarItem)
         viewMenu.addItem(NSMenuItem.separator())
+        // Full Screen uses ⌃⌘F (not ⇧⌘F) to avoid conflict with Filter Sidebar
         viewMenu.addItem(NSMenuItem(title: "Enter Full Screen", action: #selector(NSWindow.toggleFullScreen(_:)), keyEquivalent: "f"))
         viewMenu.items.last?.keyEquivalentModifierMask = [.command, .control]
 

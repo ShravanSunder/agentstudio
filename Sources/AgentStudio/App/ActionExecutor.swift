@@ -42,37 +42,18 @@ final class ActionExecutor {
             return nil
         }
 
-        // Create session
-        let session = store.createSession(
-            source: .worktree(worktreeId: worktree.id, repoId: repo.id),
-            title: worktree.name,
-            provider: .tmux,
-            lifetime: .persistent,
-            residency: .active
-        )
-
-        // Create view via coordinator — rollback if surface creation fails
-        guard coordinator.createView(for: session, worktree: worktree, repo: repo) != nil else {
-            executorLogger.error("Surface creation failed for worktree '\(worktree.name)' — rolling back session \(session.id)")
-            store.removeSession(session.id)
-            return nil
-        }
-
-        // Create tab with single session
-        let tab = Tab(sessionId: session.id)
-        store.appendTab(tab)
-
-        // Select the new tab
-        store.setActiveTab(tab.id)
-
-        executorLogger.info("Opened terminal for worktree: \(worktree.name)")
-        return session
+        return createTerminalTab(for: worktree, in: repo)
     }
 
     /// Open a new terminal for a worktree, always creating a fresh session+tab
     /// (never navigates to an existing one).
     @discardableResult
     func openNewTerminal(for worktree: Worktree, in repo: Repo) -> TerminalSession? {
+        createTerminalTab(for: worktree, in: repo)
+    }
+
+    /// Common path: create session + view + tab for a worktree.
+    private func createTerminalTab(for worktree: Worktree, in repo: Repo) -> TerminalSession? {
         let session = store.createSession(
             source: .worktree(worktreeId: worktree.id, repoId: repo.id),
             title: worktree.name,
@@ -91,7 +72,7 @@ final class ActionExecutor {
         store.appendTab(tab)
         store.setActiveTab(tab.id)
 
-        executorLogger.info("Opened new terminal for worktree: \(worktree.name)")
+        executorLogger.info("Opened terminal for worktree: \(worktree.name)")
         return session
     }
 

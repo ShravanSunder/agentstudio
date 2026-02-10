@@ -177,23 +177,10 @@ struct SidebarContentView: View {
     @State private var debouncedQuery: String = ""
     @FocusState private var isFilterFocused: Bool
 
-    /// Repos filtered by the debounced search text, with worktree-level filtering.
-    private var filteredRepos: [Repo] {
-        let query = debouncedQuery
-        guard !query.isEmpty else { return store.repos }
+    private static let filterDebounceMilliseconds = 25
 
-        return store.repos.compactMap { repo in
-            if repo.name.localizedCaseInsensitiveContains(query) {
-                return repo // repo name matches → show all worktrees
-            }
-            let matchingWorktrees = repo.worktrees.filter {
-                $0.name.localizedCaseInsensitiveContains(query)
-            }
-            guard !matchingWorktrees.isEmpty else { return nil }
-            var filtered = repo
-            filtered.worktrees = matchingWorktrees
-            return filtered
-        }
+    private var filteredRepos: [Repo] {
+        SidebarFilter.filter(repos: store.repos, query: debouncedQuery)
     }
 
     /// Whether a filter is actively narrowing results.
@@ -286,6 +273,7 @@ struct SidebarContentView: View {
                     }
                 }
                 .listStyle(.sidebar)
+                .transition(.opacity.animation(.easeOut(duration: 0.12)))
             }
 
         }
@@ -302,6 +290,9 @@ struct SidebarContentView: View {
         .onReceive(NotificationCenter.default.publisher(for: .filterSidebarRequested)) { _ in
             isFilterFocused = true
         }
+        .onDisappear {
+            debounceTask?.cancel()
+        }
         .onChange(of: filterText) { _, newValue in
             let trimmed = newValue.trimmingCharacters(in: .whitespaces)
             if trimmed.isEmpty {
@@ -313,7 +304,7 @@ struct SidebarContentView: View {
                 // Debounce non-empty input
                 debounceTask?.cancel()
                 debounceTask = Task { @MainActor in
-                    try? await Task.sleep(for: .milliseconds(25))
+                    try? await Task.sleep(for: .milliseconds(Self.filterDebounceMilliseconds))
                     guard !Task.isCancelled else { return }
                     withAnimation(.easeOut(duration: 0.12)) {
                         debouncedQuery = trimmed

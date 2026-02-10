@@ -1,30 +1,9 @@
 import XCTest
 @testable import AgentStudio
 
-/// Tests for the sidebar filtering logic.
-/// Validates the repo/worktree filter algorithm used by SidebarContentView.
+/// Tests for SidebarFilter — the extracted filter algorithm
+/// used by SidebarContentView for sidebar search.
 final class SidebarFilterTests: XCTestCase {
-
-    // MARK: - Helpers
-
-    /// Replicates the filter logic from SidebarContentView.filteredRepos
-    /// so we can test the algorithm in isolation without SwiftUI.
-    private func filteredRepos(from repos: [Repo], query: String) -> [Repo] {
-        guard !query.isEmpty else { return repos }
-
-        return repos.compactMap { repo in
-            if repo.name.localizedCaseInsensitiveContains(query) {
-                return repo // repo name matches → show all worktrees
-            }
-            let matchingWorktrees = repo.worktrees.filter {
-                $0.name.localizedCaseInsensitiveContains(query)
-            }
-            guard !matchingWorktrees.isEmpty else { return nil }
-            var filtered = repo
-            filtered.worktrees = matchingWorktrees
-            return filtered
-        }
-    }
 
     // MARK: - Empty Query
 
@@ -36,7 +15,7 @@ final class SidebarFilterTests: XCTestCase {
         ]
 
         // Act
-        let result = filteredRepos(from: repos, query: "")
+        let result = SidebarFilter.filter(repos: repos, query: "")
 
         // Assert
         XCTAssertEqual(result.count, 2)
@@ -58,7 +37,7 @@ final class SidebarFilterTests: XCTestCase {
         ]
 
         // Act
-        let result = filteredRepos(from: repos, query: "my-project")
+        let result = SidebarFilter.filter(repos: repos, query: "my-project")
 
         // Assert
         XCTAssertEqual(result.count, 1)
@@ -73,7 +52,7 @@ final class SidebarFilterTests: XCTestCase {
         ]
 
         // Act
-        let result = filteredRepos(from: repos, query: "agentstudio")
+        let result = SidebarFilter.filter(repos: repos, query: "agentstudio")
 
         // Assert
         XCTAssertEqual(result.count, 1)
@@ -93,7 +72,7 @@ final class SidebarFilterTests: XCTestCase {
         ]
 
         // Act
-        let result = filteredRepos(from: repos, query: "auth")
+        let result = SidebarFilter.filter(repos: repos, query: "auth")
 
         // Assert
         XCTAssertEqual(result.count, 1)
@@ -110,7 +89,7 @@ final class SidebarFilterTests: XCTestCase {
         ]
 
         // Act
-        let result = filteredRepos(from: repos, query: "feature-auth")
+        let result = SidebarFilter.filter(repos: repos, query: "feature-auth")
 
         // Assert
         XCTAssertEqual(result.count, 1)
@@ -128,7 +107,7 @@ final class SidebarFilterTests: XCTestCase {
         ]
 
         // Act
-        let result = filteredRepos(from: repos, query: "feature")
+        let result = SidebarFilter.filter(repos: repos, query: "feature")
 
         // Assert
         XCTAssertEqual(result.count, 1)
@@ -145,7 +124,7 @@ final class SidebarFilterTests: XCTestCase {
         ]
 
         // Act
-        let result = filteredRepos(from: repos, query: "zzz-nonexistent")
+        let result = SidebarFilter.filter(repos: repos, query: "zzz-nonexistent")
 
         // Assert
         XCTAssertTrue(result.isEmpty)
@@ -170,7 +149,7 @@ final class SidebarFilterTests: XCTestCase {
         ]
 
         // Act
-        let result = filteredRepos(from: repos, query: "auth")
+        let result = SidebarFilter.filter(repos: repos, query: "auth")
 
         // Assert
         XCTAssertEqual(result.count, 2)
@@ -196,7 +175,7 @@ final class SidebarFilterTests: XCTestCase {
         ]
 
         // Act
-        let result = filteredRepos(from: repos, query: "cool")
+        let result = SidebarFilter.filter(repos: repos, query: "cool")
 
         // Assert
         XCTAssertEqual(result.count, 1)
@@ -206,7 +185,7 @@ final class SidebarFilterTests: XCTestCase {
 
     func test_filter_emptyRepoList_returnsEmpty() {
         // Act
-        let result = filteredRepos(from: [], query: "anything")
+        let result = SidebarFilter.filter(repos: [], query: "anything")
 
         // Assert
         XCTAssertTrue(result.isEmpty)
@@ -219,7 +198,7 @@ final class SidebarFilterTests: XCTestCase {
         ]
 
         // Act
-        let result = filteredRepos(from: repos, query: "feature")
+        let result = SidebarFilter.filter(repos: repos, query: "feature")
 
         // Assert
         XCTAssertTrue(result.isEmpty, "Repo with no worktrees should not match on worktree query")
@@ -232,7 +211,7 @@ final class SidebarFilterTests: XCTestCase {
         ]
 
         // Act
-        let result = filteredRepos(from: repos, query: "empty")
+        let result = SidebarFilter.filter(repos: repos, query: "empty")
 
         // Assert
         XCTAssertEqual(result.count, 1, "Repo should match on name even with no worktrees")
