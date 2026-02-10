@@ -32,6 +32,13 @@ final class WorkspaceStore: ObservableObject {
     private(set) var createdAt: Date = Date()
     private(set) var updatedAt: Date = Date()
 
+    // MARK: - Constants
+
+    /// Ratio change per keyboard resize increment (5% per default Ghostty step).
+    private static let resizeRatioStep: Double = 0.05
+    /// Ghostty's default resize_split pixel amount.
+    private static let resizeBaseAmount: Double = 10.0
+
     // MARK: - Collaborators
 
     private let persistor: WorkspacePersistor
@@ -402,8 +409,8 @@ final class WorkspaceStore: ObservableObject {
 
         guard let currentRatio = tab.layout.ratioForSplit(splitId) else { return }
 
-        // 5% per 10px of Ghostty amount, clamped to safe bounds
-        let delta = 0.05 * (Double(amount) / 10.0)
+        // Ratio step per Ghostty resize increment, clamped to safe bounds
+        let delta = Self.resizeRatioStep * (Double(amount) / Self.resizeBaseAmount)
         let newRatio = min(0.9, max(0.1, increase ? currentRatio + delta : currentRatio - delta))
 
         views[viewIndex].tabs[tabIndex].layout = views[viewIndex].tabs[tabIndex].layout

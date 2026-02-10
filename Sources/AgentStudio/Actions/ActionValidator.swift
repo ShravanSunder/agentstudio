@@ -142,12 +142,10 @@ enum ActionValidator {
             }
             return .success(ValidatedAction(action))
 
-        case .toggleSplitZoom(let tabId, let paneId):
-            guard let tab = state.tab(tabId) else {
-                return .failure(.tabNotFound(tabId: tabId))
-            }
-            guard tab.paneIds.contains(paneId) else {
-                return .failure(.paneNotFound(paneId: paneId, tabId: tabId))
+        case .toggleSplitZoom(let tabId, let paneId),
+             .resizePaneByDelta(let tabId, let paneId, _, _):
+            if let error = validateTabContainsPane(tabId: tabId, paneId: paneId, state: state) {
+                return .failure(error)
             }
             return .success(ValidatedAction(action))
 
@@ -157,19 +155,23 @@ enum ActionValidator {
             }
             return .success(ValidatedAction(action))
 
-        case .resizePaneByDelta(let tabId, let paneId, _, _):
-            guard let tab = state.tab(tabId) else {
-                return .failure(.tabNotFound(tabId: tabId))
-            }
-            guard tab.paneIds.contains(paneId) else {
-                return .failure(.paneNotFound(paneId: paneId, tabId: tabId))
-            }
-            return .success(ValidatedAction(action))
-
         // System actions — trusted source, skip validation
         case .expireUndoEntry, .repair:
             return .success(ValidatedAction(action))
         }
+    }
+
+    /// Check that a tab exists and contains the given pane.
+    private static func validateTabContainsPane(
+        tabId: UUID, paneId: UUID, state: ActionStateSnapshot
+    ) -> ActionValidationError? {
+        guard let tab = state.tab(tabId) else {
+            return .tabNotFound(tabId: tabId)
+        }
+        guard tab.paneIds.contains(paneId) else {
+            return .paneNotFound(paneId: paneId, tabId: tabId)
+        }
+        return nil
     }
 
     /// Validate that a session is not already present in any layout.

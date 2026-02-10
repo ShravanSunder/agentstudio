@@ -673,10 +673,6 @@ extension SurfaceManager {
         hiddenSurfaceCount = hiddenSurfaces.count
     }
 
-    private func surfaceId(for surfaceView: Ghostty.SurfaceView) -> UUID? {
-        surfaceViewToId[ObjectIdentifier(surfaceView)]
-    }
-
     /// Reverse-lookup: surfaceId → sessionId via stored metadata.
     func sessionId(for surfaceId: UUID) -> UUID? {
         let managed = activeSurfaces[surfaceId] ?? hiddenSurfaces[surfaceId]

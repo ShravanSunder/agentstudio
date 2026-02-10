@@ -216,105 +216,62 @@ extension Ghostty {
 
             // Split actions
             case GHOSTTY_ACTION_NEW_SPLIT:
-                guard target.tag == GHOSTTY_TARGET_SURFACE,
-                      let surface = target.target.surface,
-                      let surfaceView = surfaceView(from: surface) else { return false }
                 let direction = action.action.new_split
-                DispatchQueue.main.async {
-                    NotificationCenter.default.post(
-                        name: .ghosttyNewSplit, object: surfaceView,
-                        userInfo: ["direction": direction.rawValue]
-                    )
-                }
-                return true
+                return postSurfaceNotification(target, name: .ghosttyNewSplit,
+                                               userInfo: ["direction": direction.rawValue])
 
             case GHOSTTY_ACTION_GOTO_SPLIT:
-                guard target.tag == GHOSTTY_TARGET_SURFACE,
-                      let surface = target.target.surface,
-                      let surfaceView = surfaceView(from: surface) else { return false }
                 let goto = action.action.goto_split
-                DispatchQueue.main.async {
-                    NotificationCenter.default.post(
-                        name: .ghosttyGotoSplit, object: surfaceView,
-                        userInfo: ["goto": goto.rawValue]
-                    )
-                }
-                return true
+                return postSurfaceNotification(target, name: .ghosttyGotoSplit,
+                                               userInfo: ["goto": goto.rawValue])
 
             case GHOSTTY_ACTION_RESIZE_SPLIT:
-                guard target.tag == GHOSTTY_TARGET_SURFACE,
-                      let surface = target.target.surface,
-                      let surfaceView = surfaceView(from: surface) else { return false }
                 let resize = action.action.resize_split
-                DispatchQueue.main.async {
-                    NotificationCenter.default.post(
-                        name: .ghosttyResizeSplit, object: surfaceView,
-                        userInfo: ["amount": resize.amount, "direction": resize.direction.rawValue]
-                    )
-                }
-                return true
+                return postSurfaceNotification(target, name: .ghosttyResizeSplit,
+                                               userInfo: ["amount": resize.amount,
+                                                          "direction": resize.direction.rawValue])
 
             case GHOSTTY_ACTION_EQUALIZE_SPLITS:
-                guard target.tag == GHOSTTY_TARGET_SURFACE,
-                      let surface = target.target.surface,
-                      let surfaceView = surfaceView(from: surface) else { return false }
-                DispatchQueue.main.async {
-                    NotificationCenter.default.post(name: .ghosttyEqualizeSplits, object: surfaceView)
-                }
-                return true
+                return postSurfaceNotification(target, name: .ghosttyEqualizeSplits)
 
             case GHOSTTY_ACTION_TOGGLE_SPLIT_ZOOM:
-                guard target.tag == GHOSTTY_TARGET_SURFACE,
-                      let surface = target.target.surface,
-                      let surfaceView = surfaceView(from: surface) else { return false }
-                DispatchQueue.main.async {
-                    NotificationCenter.default.post(name: .ghosttyToggleSplitZoom, object: surfaceView)
-                }
-                return true
+                return postSurfaceNotification(target, name: .ghosttyToggleSplitZoom)
 
             // Tab actions
             case GHOSTTY_ACTION_CLOSE_TAB:
-                guard target.tag == GHOSTTY_TARGET_SURFACE,
-                      let surface = target.target.surface,
-                      let surfaceView = surfaceView(from: surface) else { return false }
                 let mode = action.action.close_tab_mode
-                DispatchQueue.main.async {
-                    NotificationCenter.default.post(
-                        name: .ghosttyCloseTab, object: surfaceView,
-                        userInfo: ["mode": mode.rawValue]
-                    )
-                }
-                return true
+                return postSurfaceNotification(target, name: .ghosttyCloseTab,
+                                               userInfo: ["mode": mode.rawValue])
 
             case GHOSTTY_ACTION_GOTO_TAB:
-                guard target.tag == GHOSTTY_TARGET_SURFACE,
-                      let surface = target.target.surface,
-                      let surfaceView = surfaceView(from: surface) else { return false }
                 let gotoTab = action.action.goto_tab
-                DispatchQueue.main.async {
-                    NotificationCenter.default.post(
-                        name: .ghosttyGotoTab, object: surfaceView,
-                        userInfo: ["target": gotoTab.rawValue]
-                    )
-                }
-                return true
+                return postSurfaceNotification(target, name: .ghosttyGotoTab,
+                                               userInfo: ["target": gotoTab.rawValue])
 
             case GHOSTTY_ACTION_MOVE_TAB:
-                guard target.tag == GHOSTTY_TARGET_SURFACE,
-                      let surface = target.target.surface,
-                      let surfaceView = surfaceView(from: surface) else { return false }
                 let moveTab = action.action.move_tab
-                DispatchQueue.main.async {
-                    NotificationCenter.default.post(
-                        name: .ghosttyMoveTab, object: surfaceView,
-                        userInfo: ["amount": moveTab.amount]
-                    )
-                }
-                return true
+                return postSurfaceNotification(target, name: .ghosttyMoveTab,
+                                               userInfo: ["amount": moveTab.amount])
 
             default:
                 return false
             }
+        }
+
+        /// Post a notification targeting a surface. Extracts the SurfaceView from the target
+        /// and dispatches the notification on the main queue. Returns false if target is invalid.
+        private static func postSurfaceNotification(
+            _ target: ghostty_target_s,
+            name: Foundation.Notification.Name,
+            userInfo: [String: Any]? = nil
+        ) -> Bool {
+            guard target.tag == GHOSTTY_TARGET_SURFACE,
+                  let surface = target.target.surface,
+                  let surfaceView = surfaceView(from: surface) else { return false }
+            DispatchQueue.main.async {
+                NotificationCenter.default.post(name: name, object: surfaceView, userInfo: userInfo)
+            }
+            return true
         }
 
         static func readClipboard(_ userdata: UnsafeMutableRawPointer?, location: ghostty_clipboard_e, state: UnsafeMutableRawPointer?) {
