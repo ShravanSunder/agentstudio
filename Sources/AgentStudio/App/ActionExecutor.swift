@@ -79,8 +79,10 @@ final class ActionExecutor {
         // Restore tab + sessions in store
         store.restoreFromSnapshot(snapshot)
 
-        // Restore views via coordinator
-        for session in snapshot.sessions {
+        // Restore views via coordinator — iterate in reverse to match the LIFO
+        // order of SurfaceManager's undo stack (sessions were pushed in forward
+        // order during close, so the last session is on top of the stack).
+        for session in snapshot.sessions.reversed() {
             guard let worktreeId = session.worktreeId,
                   let repoId = session.repoId,
                   let worktree = store.worktree(worktreeId),
@@ -195,6 +197,13 @@ final class ActionExecutor {
     private func executeClosePane(tabId: UUID, sessionId: UUID) {
         coordinator.teardownView(for: sessionId)
         store.removeSessionFromLayout(sessionId, inTab: tabId)
+
+        // If the session is no longer in any layout, remove it from the store.
+        // Unlike closeTab (which has undo), closePane has no undo path.
+        let allLayoutSessionIds = Set(store.views.flatMap(\.allSessionIds))
+        if !allLayoutSessionIds.contains(sessionId) {
+            store.removeSession(sessionId)
+        }
     }
 
     private func executeInsertPane(

@@ -311,12 +311,16 @@ class TerminalTabViewController: NSViewController, CommandHandler {
             }
         }) else { return }
 
-        // Find the session with this worktree
-        guard let sessionId = tab.sessionIds.first(where: { sessionId in
-            store.session(sessionId)?.worktreeId == worktreeId
-        }) else { return }
-
-        dispatchAction(.closePane(tabId: tab.id, paneId: sessionId))
+        // Single-pane tab: close the whole tab (ActionValidator rejects .closePane
+        // for single-pane tabs). Multi-pane: close just the pane.
+        if tab.isSplit {
+            guard let sessionId = tab.sessionIds.first(where: { sessionId in
+                store.session(sessionId)?.worktreeId == worktreeId
+            }) else { return }
+            dispatchAction(.closePane(tabId: tab.id, paneId: sessionId))
+        } else {
+            dispatchAction(.closeTab(tabId: tab.id))
+        }
     }
 
     func closeActiveTab() {
