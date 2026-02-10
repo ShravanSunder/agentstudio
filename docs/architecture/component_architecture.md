@@ -89,6 +89,8 @@ erDiagram
 | `name` | `String` | Directory name |
 | `repoPath` | `URL` | Filesystem path |
 | `worktrees` | `[Worktree]` | Discovered git worktrees |
+| `createdAt` | `Date` | When the repo was added |
+| `updatedAt` | `Date` | Last modification timestamp |
 | `stableKey` | `String` | SHA-256 of path (16 hex chars), deterministic across reinstalls |
 
 **`Worktree`** — A git worktree within a repo.
@@ -298,6 +300,8 @@ Manages live session state. Does **not** own sessions — reads the session list
 - `startSession()` / `restoreSession()` / `terminateSession()` — Backend lifecycle
 
 > **Note:** A full `SessionStatus` state machine (7 states: unknown, verifying, alive, dead, missing, recovering, failed) exists in `Models/StateMachine/SessionStatus.swift` for future tmux health integration but is not yet wired into `SessionRuntime`. See [Session Lifecycle](session_lifecycle.md) for details.
+>
+> `TmuxBackend` conforms to a separate `SessionBackend` protocol (defined in `TmuxBackend.swift`) with its own method signatures. Phase 4 will wire `SessionRuntime` → `TmuxBackend` and consolidate the two protocols.
 
 > **File:** `Services/SessionRuntime.swift`
 
@@ -342,7 +346,7 @@ Action dispatch hub. Coordinates `WorkspaceStore`, `ViewRegistry`, and `Terminal
 - `undoCloseTab()` — Pop `CloseSnapshot` from undo stack, restore to store, reattach surfaces in reverse order
 
 **Undo stack:**
-- `undoStack: [WorkspaceStore.CloseSnapshot]` — LIFO, max 10 entries
+- `undoStack: [WorkspaceStore.CloseSnapshot]` — in-memory LIFO, max 10 entries
 - `CloseSnapshot` captures: `tab`, `sessions`, `viewId`, `tabIndex`
 - Oldest entries GC'd when stack exceeds limit; orphaned sessions cleaned up
 
@@ -352,11 +356,11 @@ Action dispatch hub. Coordinates `WorkspaceStore`, `ViewRegistry`, and `Terminal
 
 Combine-based derived state bridge between `WorkspaceStore` and the tab bar SwiftUI view. Observes `@Published` properties and transforms them into tab bar display items.
 
-> **File:** `App/TabBarAdapter.swift` (if present) or integrated into `Views/CustomTabBar.swift`
+> **File:** `Views/TabBarAdapter.swift`
 
 ### 3.9 WorkspacePersistor
 
-Pure persistence I/O. No business logic.
+Owned by `WorkspaceStore` as a `private let` member. Pure persistence I/O. No business logic.
 
 - `PersistableState` — Codable struct mirroring workspace fields
 - `save(state)` / `load()` — JSON serialization to `~/.agentstudio/workspaces/`
@@ -553,7 +557,7 @@ These rules are enforced by `WorkspaceStore` and model types at all times:
 | `Models/Worktree.swift` | `Worktree`, `WorktreeStatus`, `AgentType` |
 | `Models/Templates.swift` | `WorktreeTemplate`, `TerminalTemplate`, `CreatePolicy` |
 | `Models/StableKey.swift` | SHA-256 path hashing for deterministic IDs |
-| `Models/StateMachine/Machine.swift` | Generic state machine with effect handling |
+| `Models/StateMachine/StateMachine.swift` | Generic state machine with effect handling |
 | `Models/StateMachine/SessionStatus.swift` | 7-state session lifecycle machine (future tmux health) |
 | **Services** | |
 | `Services/WorkspaceStore.swift` | Single ownership boundary for all state |

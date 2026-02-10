@@ -63,7 +63,6 @@ stateDiagram-v2
     initializing --> running: markRunning() / backend.start()
     running --> exited: markExited() / process exit
     running --> unhealthy: health check failed
-    unhealthy --> running: health check passed (next cycle)
     unhealthy --> exited: backend terminated
     exited --> [*]: session removed
 ```
@@ -73,7 +72,7 @@ stateDiagram-v2
 | `.initializing` | Session created, backend not yet ready |
 | `.running` | Backend is running and healthy |
 | `.exited` | Backend process has exited |
-| `.unhealthy` | Health check failed, session may be stale |
+| `.unhealthy` | Health check failed, session may be stale. Terminal until backend exits. |
 
 ---
 
@@ -266,6 +265,7 @@ A full 7-state machine exists in `Models/StateMachine/SessionStatus.swift` for f
 stateDiagram-v2
     [*] --> unknown
     unknown --> verifying: verify / create
+    verifying --> verifying: socketFound (checkSessionExists)
     verifying --> alive: sessionDetected / created
     verifying --> missing: socketMissing / sessionNotDetected
     verifying --> failed: createFailed
@@ -304,7 +304,7 @@ stateDiagram-v2
 | `Models/Templates.swift` | Worktree/terminal templates for session creation |
 | `Models/SessionConfiguration.swift` | Config detection from env vars |
 | `Models/StateMachine/SessionStatus.swift` | 7-state machine definition for future tmux health |
-| `Models/StateMachine/Machine.swift` | Generic state machine with effect handling |
+| `Models/StateMachine/StateMachine.swift` | Generic state machine with effect handling |
 | `Services/ProcessExecutor.swift` | Protocol + `DefaultProcessExecutor` for CLI execution |
 | `Services/Backends/TmuxBackend.swift` | tmux CLI wrapper — session ID gen, create/destroy/healthCheck |
 | `Resources/tmux/ghost.conf` | Headless tmux configuration |

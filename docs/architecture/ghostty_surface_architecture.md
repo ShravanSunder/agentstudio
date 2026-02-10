@@ -71,7 +71,7 @@ stateDiagram-v2
 | HIDDEN | `hiddenSurfaces` | OFF | Alive but not displayed |
 | ACTIVE | `activeSurfaces` | ON | Visible in a container |
 | PENDING_UNDO | `undoStack` | OFF | Closed, awaiting undo (5 min TTL) |
-| DESTROYED | (freed) | N/A | ARC deallocated |
+| DESTROYED | (freed) | N/A | Surface removed from all collections, ARC deallocated |
 
 ---
 

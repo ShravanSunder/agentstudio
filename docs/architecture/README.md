@@ -25,11 +25,12 @@ Agent Studio is a macOS terminal application that embeds Ghostty terminal surfac
 │  │           active | hidden | undoStack surfaces            │ │
 │  └──────────────────────────────────────────────────────────┘ │
 │                                                               │
-│  ┌──────────────┐  ┌──────────────┐  ┌──────────────────┐    │
-│  │ActionExecutor│  │ TabBarAdapter│  │WorkspacePersistor │    │
-│  │(action hub)  │  │(derived UI)  │  │(JSON I/O)        │    │
-│  └──────────────┘  └──────────────┘  └──────────────────┘    │
+│  ┌──────────────┐  ┌──────────────┐                           │
+│  │ActionExecutor│  │ TabBarAdapter│                           │
+│  │(action hub)  │  │(derived UI)  │                           │
+│  └──────────────┘  └──────────────┘                           │
 └───────────────────────────────────────────────────────────────┘
+  * WorkspacePersistor is internal to WorkspaceStore (JSON I/O)
 ```
 
 ## Architecture Principles
@@ -61,7 +62,7 @@ WorkspaceStore
 ## Mutation Flow (Summary)
 
 ```
-User Action → AppCommand → ActionResolver → ActionValidator
+User Action → PaneAction → ActionResolver → ActionValidator
   → ActionExecutor → WorkspaceStore.mutate()
     → @Published fires → SwiftUI re-renders
     → markDirty() → debounced save (500ms)
