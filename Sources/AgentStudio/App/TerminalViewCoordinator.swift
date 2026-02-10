@@ -13,11 +13,42 @@ final class TerminalViewCoordinator {
     private let viewRegistry: ViewRegistry
     private let runtime: SessionRuntime
     private lazy var sessionConfig = SessionConfiguration.detect()
+    private var cwdObserver: NSObjectProtocol?
 
     init(store: WorkspaceStore, viewRegistry: ViewRegistry, runtime: SessionRuntime) {
         self.store = store
         self.viewRegistry = viewRegistry
         self.runtime = runtime
+        subscribeToCWDNotifications()
+    }
+
+    deinit {
+        if let observer = cwdObserver {
+            NotificationCenter.default.removeObserver(observer)
+        }
+    }
+
+    // MARK: - CWD Propagation
+
+    private func subscribeToCWDNotifications() {
+        cwdObserver = NotificationCenter.default.addObserver(
+            forName: Ghostty.Notification.surfaceCWDChanged,
+            object: SurfaceManager.shared,
+            queue: .main
+        ) { [weak self] notification in
+            Task { @MainActor in
+                self?.onSurfaceCWDChanged(notification)
+            }
+        }
+    }
+
+    private func onSurfaceCWDChanged(_ notification: Notification) {
+        guard let surfaceId = notification.userInfo?["surfaceId"] as? UUID,
+              let sessionId = SurfaceManager.shared.metadata(for: surfaceId)?.sessionId else {
+            return
+        }
+        let url = notification.userInfo?["url"] as? URL
+        store.updateSessionCWD(sessionId, cwd: url)
     }
 
     // MARK: - Create View

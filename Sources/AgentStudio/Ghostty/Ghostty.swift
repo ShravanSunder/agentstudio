@@ -59,6 +59,15 @@ extension Ghostty {
         /// - object: The SurfaceView whose title changed
         /// - userInfo: ["title": String]
         static let didUpdateTitle = Foundation.Notification.Name("ghosttyDidUpdateTitle")
+
+        /// Posted when a surface's working directory changes (OSC 7)
+        /// - object: The SurfaceView whose CWD changed
+        /// - userInfo: ["pwd": String] (nil userInfo when pwd cleared)
+        static let didUpdateWorkingDirectory = Foundation.Notification.Name("ghosttyDidUpdateWorkingDirectory")
+
+        /// Posted by SurfaceManager when a managed surface's CWD changes
+        /// - userInfo: ["surfaceId": UUID, "url": URL] (url absent when cleared)
+        static let surfaceCWDChanged = Foundation.Notification.Name("ghosttySurfaceCWDChanged")
     }
 }
 
@@ -197,6 +206,18 @@ extension Ghostty {
                         let title = String(cString: titlePtr)
                         DispatchQueue.main.async {
                             surfaceView.titleDidChange(title)
+                        }
+                    }
+                }
+                return true
+
+            case GHOSTTY_ACTION_PWD:
+                if target.tag == GHOSTTY_TARGET_SURFACE, let surface = target.target.surface {
+                    if let surfaceView = surfaceView(from: surface),
+                       let pwdPtr = action.action.pwd.pwd {
+                        let pwd = String(cString: pwdPtr)
+                        DispatchQueue.main.async {
+                            surfaceView.pwdDidChange(pwd)
                         }
                     }
                 }

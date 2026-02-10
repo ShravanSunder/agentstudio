@@ -12,6 +12,10 @@ struct TerminalSession: Codable, Identifiable, Hashable {
     var lifetime: SessionLifetime
     var residency: SessionResidency
 
+    /// Last working directory reported by the shell via OSC 7.
+    /// Persisted for display on restore before the shell re-reports.
+    var lastKnownCWD: URL?
+
     init(
         id: UUID = UUID(),
         source: TerminalSource,
@@ -19,7 +23,8 @@ struct TerminalSession: Codable, Identifiable, Hashable {
         agent: AgentType? = nil,
         provider: SessionProvider = .ghostty,
         lifetime: SessionLifetime = .persistent,
-        residency: SessionResidency = .active
+        residency: SessionResidency = .active,
+        lastKnownCWD: URL? = nil
     ) {
         self.id = id
         self.source = source
@@ -28,6 +33,7 @@ struct TerminalSession: Codable, Identifiable, Hashable {
         self.provider = provider
         self.lifetime = lifetime
         self.residency = residency
+        self.lastKnownCWD = lastKnownCWD
     }
 
     // MARK: - Convenience Accessors

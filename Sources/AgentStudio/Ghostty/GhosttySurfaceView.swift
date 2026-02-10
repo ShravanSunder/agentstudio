@@ -56,6 +56,19 @@ extension Ghostty {
         /// Content size for the terminal (may differ from frame during resize)
         private var contentSize: NSSize = .zero
 
+        /// Current working directory reported by the shell via OSC 7
+        private(set) var pwd: String? = nil {
+            didSet {
+                if pwd != oldValue {
+                    NotificationCenter.default.post(
+                        name: Ghostty.Notification.didUpdateWorkingDirectory,
+                        object: self,
+                        userInfo: pwd.map { ["pwd": $0] }
+                    )
+                }
+            }
+        }
+
         /// Health state of the renderer (for crash isolation)
         private(set) var healthy: Bool = true {
             didSet {
@@ -143,6 +156,10 @@ extension Ghostty {
         /// Called when the title changes (from App callback)
         func titleDidChange(_ newTitle: String) {
             self.title = newTitle
+        }
+
+        func pwdDidChange(_ newPwd: String) {
+            self.pwd = newPwd
         }
 
         // MARK: - View Lifecycle

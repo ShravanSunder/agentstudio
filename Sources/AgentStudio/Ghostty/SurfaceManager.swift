@@ -394,6 +394,11 @@ final class SurfaceManager: ObservableObject {
         surfaceHealth[id] ?? .dead
     }
 
+    /// Get current working directory for a surface
+    func workingDirectory(for id: UUID) -> URL? {
+        metadata(for: id)?.workingDirectory
+    }
+
     /// Get all active surface IDs
     var activeSurfaceIds: [UUID] {
         Array(activeSurfaces.keys)
@@ -507,6 +512,14 @@ extension SurfaceManager {
             name: Ghostty.Notification.didUpdateRendererHealth,
             object: nil
         )
+
+        // Working directory changes (OSC 7)
+        center.addObserver(
+            self,
+            selector: #selector(onWorkingDirectoryChanged),
+            name: Ghostty.Notification.didUpdateWorkingDirectory,
+            object: nil
+        )
     }
 
     private func subscribeToSurfaceNotifications(_ surfaceView: Ghostty.SurfaceView) {
@@ -528,6 +541,42 @@ extension SurfaceManager {
         } else {
             updateHealth(surfaceId, .unhealthy(reason: .rendererUnhealthy))
         }
+    }
+
+    @objc private func onWorkingDirectoryChanged(_ notification: Notification) {
+        guard let surfaceView = notification.object as? Ghostty.SurfaceView,
+              let surfaceId = surfaceViewToId[ObjectIdentifier(surfaceView)] else {
+            return
+        }
+
+        let rawPwd = notification.userInfo?["pwd"] as? String
+        let url = CWDNormalizer.normalize(rawPwd)
+
+        // Update metadata in whichever collection owns this surface
+        if var managed = activeSurfaces[surfaceId] {
+            guard managed.metadata.workingDirectory != url else { return }
+            managed.metadata.workingDirectory = url
+            activeSurfaces[surfaceId] = managed
+        } else if var managed = hiddenSurfaces[surfaceId] {
+            guard managed.metadata.workingDirectory != url else { return }
+            managed.metadata.workingDirectory = url
+            hiddenSurfaces[surfaceId] = managed
+        } else {
+            return
+        }
+
+        // Post higher-level notification for upstream consumers
+        var userInfo: [String: Any] = ["surfaceId": surfaceId]
+        if let url = url {
+            userInfo["url"] = url
+        }
+        NotificationCenter.default.post(
+            name: Ghostty.Notification.surfaceCWDChanged,
+            object: self,
+            userInfo: userInfo
+        )
+
+        logger.info("Surface \(surfaceId) CWD changed: \(url?.path ?? "nil")")
     }
 
     private func checkAllSurfacesHealth() {
