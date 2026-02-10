@@ -132,21 +132,42 @@ struct SessionConfiguration: Sendable {
     }
 
     private static func resolveGhostConfigPath() -> String {
-        // Look for ghost.conf in the app bundle first, then fallback to source tree
+        // Find the source config (bundle or dev tree)
+        let sourcePath: String
         if let bundled = Bundle.main.path(forResource: "ghost", ofType: "conf") {
-            return bundled
-        }
-
-        // Development: walk up from executable to find source tree
-        if let devResources = findDevResourcesDir() {
+            sourcePath = bundled
+        } else if let devResources = findDevResourcesDir() {
             let candidate = devResources + "/tmux/ghost.conf"
             if FileManager.default.fileExists(atPath: candidate) {
-                return candidate
+                sourcePath = candidate
+            } else {
+                sourcePath = "Sources/AgentStudio/Resources/tmux/ghost.conf"
             }
+        } else {
+            sourcePath = "Sources/AgentStudio/Resources/tmux/ghost.conf"
         }
 
-        // Last resort: relative path (works if CWD is project root)
-        return "Sources/AgentStudio/Resources/tmux/ghost.conf"
+        // Copy to ~/.agentstudio/tmux/ghost.conf so the tmux server's command
+        // line doesn't contain "AgentStudio". Without this, `pkill -f AgentStudio`
+        // kills the tmux server (whose -f flag embeds the config path), destroying
+        // all sessions that should survive app termination.
+        let safeDir = FileManager.default.homeDirectoryForCurrentUser
+            .appendingPathComponent(".agentstudio/tmux")
+        let safePath = safeDir.appendingPathComponent("ghost.conf")
+
+        do {
+            try FileManager.default.createDirectory(at: safeDir, withIntermediateDirectories: true)
+            if FileManager.default.fileExists(atPath: safePath.path) {
+                try FileManager.default.removeItem(at: safePath)
+            }
+            try FileManager.default.copyItem(
+                at: URL(fileURLWithPath: sourcePath),
+                to: safePath
+            )
+            return safePath.path
+        } catch {
+            return sourcePath
+        }
     }
 
     /// Walk up from the executable directory looking for the dev source tree.
