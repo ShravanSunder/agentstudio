@@ -128,6 +128,57 @@ User presses Cmd+Shift+T
 
 ---
 
+## CWD Propagation Architecture
+
+When a user `cd`s in a terminal, the shell's OSC 7 integration reports the new working directory. Ghostty's core parses this and emits `GHOSTTY_ACTION_PWD`. Agent Studio captures this and propagates it through a 5-stage notification pipeline:
+
+```
+Terminal shell (cd /foo)
+    │ OSC 7
+    ▼
+① Ghostty C API                             [GHOSTTY_ACTION_PWD]
+    │ Ghostty.App.handleAction()
+    │ guard target == surface, safe C→String
+    │ DispatchQueue.main.async { surfaceView.pwdDidChange(pwd) }
+    ▼
+② SurfaceView.pwd: String? didSet           [GhosttySurfaceView.swift]
+    │ guard pwd != oldValue (dedup)
+    │ NotificationCenter.post(.didUpdateWorkingDirectory)
+    ▼
+③ SurfaceManager.onWorkingDirectoryChanged() [SurfaceManager.swift]
+    │ SurfaceView → surfaceId (via surfaceViewToId)
+    │ CWDNormalizer: String? → URL? (validates absolute path)
+    │ SurfaceMetadata.workingDirectory = url
+    │ post .surfaceCWDChanged (surfaceId + URL)
+    ▼
+④ TerminalViewCoordinator                   [TerminalViewCoordinator.swift]
+    │ surfaceId → sessionId (via metadata.sessionId)
+    │ store.updateSessionCWD(sessionId, url)
+    ▼
+⑤ WorkspaceStore                            [WorkspaceStore.swift]
+    │ session.lastKnownCWD = url (dedup + markDirty)
+    │ @Published sessions → SwiftUI
+    ▼
+UI consumers (search by CWD, breadcrumbs, grouping)
+```
+
+### Key Design Points
+
+- **1 session = 1 surface = 1 CWD**. Layout splits create separate sessions, so each pane tracks its own CWD independently.
+- **`CWDNormalizer`** (`Ghostty/CWDNormalizer.swift`): Pure function — `nil → nil`, `"" → nil`, non-absolute → nil, valid path → `URL.standardizedFileURL`. Defense-in-depth on top of Ghostty's own OSC 7 URI validation.
+- **Dual storage**: `SurfaceMetadata.workingDirectory` (surface-level truth) + `TerminalSession.lastKnownCWD` (model-level, persisted). Both update synchronously on main thread.
+- **Thread safety**: The C callback may fire off-main; the handler wraps in `DispatchQueue.main.async` (matches `SET_TITLE` pattern).
+- **Dedup**: Both `SurfaceView.pwd` (didSet guard) and `WorkspaceStore.updateSessionCWD` (equality check) skip redundant updates.
+- **Persistence**: `lastKnownCWD: URL?` is Codable. Old persisted sessions missing this field decode as `nil` (Swift optional auto-default).
+
+### Public Read API
+
+```swift
+SurfaceManager.shared.workingDirectory(for: surfaceId) -> URL?
+```
+
+---
+
 ## Health Monitoring Architecture
 
 ```
@@ -230,8 +281,11 @@ view.displaySurface(restoredSurface)  // No orphan, view has no surface yet
 
 | File | Purpose |
 |------|---------|
-| `Ghostty/SurfaceManager.swift` | Singleton owner, lifecycle, health monitoring |
+| `Ghostty/SurfaceManager.swift` | Singleton owner, lifecycle, health monitoring, CWD propagation |
 | `Ghostty/SurfaceTypes.swift` | SurfaceState, ManagedSurface, SurfaceMetadata, protocols |
+| `Ghostty/CWDNormalizer.swift` | Pure normalizer: raw pwd string → validated file URL |
+| `Ghostty/GhosttySurfaceView.swift` | Surface view with `pwd` property (OSC 7 CWD tracking) |
+| `Ghostty/Ghostty.swift` | C API wrapper, action handler (including `GHOSTTY_ACTION_PWD`) |
 | `Views/AgentStudioTerminalView.swift` | Container, implements SurfaceHealthDelegate |
 | `Views/SurfaceErrorOverlay.swift` | Error state UI with restart/close |
 
