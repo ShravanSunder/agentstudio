@@ -71,10 +71,15 @@ Never guess at UX solutions. Research first, discuss with user, then implement.
 5. **Verify** - Use Peekaboo to visually confirm
 
 ## Architectural Guidance
-Agent Studio follows an **AppKit-main** architecture, hosting SwiftUI views where declarative UI is most effective. This provides direct control over the macOS lifecycle and key handling while leveraging SwiftUI for complex layouts.  We are only targetting latest macOS 26 version.
+Agent Studio follows an **AppKit-main** architecture. See the
+[Architecture Overview](docs/architecture/README.md) for the full
+system design, data model, and document index. Target: macOS 26 only.
 
-- **App Architecture**: [AppKit + SwiftUI Hybrid UI](docs/architecture/app_architecture.md)
-- **Ghostty Surfaces**: [Surface Management](docs/architecture/ghostty_surface_architecture.md) - Ownership model, state machine, undo close, health monitoring
+- **Architecture Overview**: [README](docs/architecture/README.md) — system overview, principles, document index
+- **Component Architecture**: [Component Architecture](docs/architecture/component_architecture.md) — data model, services, data flow, persistence, invariants
+- **Session Lifecycle**: [Session Lifecycle](docs/architecture/session_lifecycle.md) — creation, close, undo, restore, tmux
+- **Surface Architecture**: [Surface Management](docs/architecture/ghostty_surface_architecture.md) — ownership, state machine, health, crash isolation
+- **App Architecture**: [App Architecture](docs/architecture/app_architecture.md) — AppKit+SwiftUI hybrid, controllers, events
 - **Style Guide**: [macOS Design & Style](docs/guides/style_guide.md)
 
 ## Agent Resources
