@@ -166,8 +166,9 @@ class DraggableTabBarHostingView: NSView, NSDraggingSource {
     // MARK: - Pan Gesture Handler
 
     @objc private func handlePan(_ gesture: NSPanGestureRecognizer) {
-        // The gesture recognizer is only enabled when management mode is active
-        // (toggled via ManagementModeMonitor subscription in init).
+        // No runtime guard needed — pan gesture is controlled via isEnabled toggle
+        // (Combine subscription in init) rather than cancelling after .began, which
+        // was consuming mouse events and interfering with SwiftUI's onTapGesture.
         let location = gesture.location(in: self)
 
         switch gesture.state {
