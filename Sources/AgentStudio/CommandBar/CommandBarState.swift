@@ -47,10 +47,15 @@ final class CommandBarState {
         return [">", "@"].contains(char) ? char : nil
     }
 
-    /// Search query text after stripping the prefix.
+    /// Search query text after stripping the prefix (and any leading space).
     var searchQuery: String {
         guard let prefix = activePrefix else { return rawInput }
-        return String(rawInput.dropFirst(prefix.count))
+        let afterPrefix = String(rawInput.dropFirst(prefix.count))
+        // Strip the space we insert after the prefix for cursor positioning
+        if afterPrefix.first == " " {
+            return String(afterPrefix.dropFirst())
+        }
+        return afterPrefix
     }
 
     /// Current scope derived from prefix.
@@ -99,8 +104,13 @@ final class CommandBarState {
     // MARK: - Actions
 
     /// Show the command bar with an optional prefix pre-filled.
+    /// Adds a trailing space after known prefixes so the cursor lands after it.
     func show(prefix: String? = nil) {
-        rawInput = prefix ?? ""
+        if let prefix, !prefix.isEmpty, [">", "@"].contains(prefix) {
+            rawInput = prefix + " "
+        } else {
+            rawInput = prefix ?? ""
+        }
         navigationStack = []
         selectedIndex = 0
         isVisible = true
@@ -119,7 +129,7 @@ final class CommandBarState {
     /// Switch prefix in-place (when already open, pressing a different shortcut).
     func switchPrefix(_ prefix: String) {
         navigationStack = []
-        rawInput = prefix
+        rawInput = prefix.isEmpty ? "" : prefix + " "
         selectedIndex = 0
     }
 

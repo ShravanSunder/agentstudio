@@ -53,7 +53,7 @@ final class CommandBarPanelControllerTests: XCTestCase {
 
         // Assert
         XCTAssertTrue(controller.state.isVisible)
-        XCTAssertEqual(controller.state.rawInput, ">")
+        XCTAssertEqual(controller.state.rawInput, "> ")
         XCTAssertEqual(controller.state.activeScope, .commands)
     }
 
@@ -63,7 +63,7 @@ final class CommandBarPanelControllerTests: XCTestCase {
 
         // Assert
         XCTAssertTrue(controller.state.isVisible)
-        XCTAssertEqual(controller.state.rawInput, "@")
+        XCTAssertEqual(controller.state.rawInput, "@ ")
         XCTAssertEqual(controller.state.activeScope, .panes)
     }
 
@@ -131,7 +131,7 @@ final class CommandBarPanelControllerTests: XCTestCase {
 
         // Assert — switched, still visible
         XCTAssertTrue(controller.state.isVisible)
-        XCTAssertEqual(controller.state.rawInput, ">")
+        XCTAssertEqual(controller.state.rawInput, "> ")
         XCTAssertEqual(controller.state.activeScope, .commands)
     }
 
@@ -145,7 +145,7 @@ final class CommandBarPanelControllerTests: XCTestCase {
 
         // Assert
         XCTAssertTrue(controller.state.isVisible)
-        XCTAssertEqual(controller.state.rawInput, "@")
+        XCTAssertEqual(controller.state.rawInput, "@ ")
         XCTAssertEqual(controller.state.activeScope, .panes)
     }
 

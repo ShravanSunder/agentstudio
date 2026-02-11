@@ -49,7 +49,7 @@ final class CommandBarStateTests: XCTestCase {
 
         // Assert
         XCTAssertTrue(state.isVisible)
-        XCTAssertEqual(state.rawInput, ">")
+        XCTAssertEqual(state.rawInput, "> ")
     }
 
     func test_show_withAtPrefix_setsVisibleAndAtPrefix() {
@@ -58,7 +58,7 @@ final class CommandBarStateTests: XCTestCase {
 
         // Assert
         XCTAssertTrue(state.isVisible)
-        XCTAssertEqual(state.rawInput, "@")
+        XCTAssertEqual(state.rawInput, "@ ")
     }
 
     func test_dismiss_resetsAllState() {
@@ -211,7 +211,7 @@ final class CommandBarStateTests: XCTestCase {
         state.switchPrefix(">")
 
         // Assert
-        XCTAssertEqual(state.rawInput, ">")
+        XCTAssertEqual(state.rawInput, "> ")
         XCTAssertTrue(state.navigationStack.isEmpty)
         XCTAssertEqual(state.selectedIndex, 0)
     }
@@ -225,7 +225,7 @@ final class CommandBarStateTests: XCTestCase {
 
         // Assert
         XCTAssertTrue(state.navigationStack.isEmpty)
-        XCTAssertEqual(state.rawInput, "@")
+        XCTAssertEqual(state.rawInput, "@ ")
     }
 
     // MARK: - Navigation

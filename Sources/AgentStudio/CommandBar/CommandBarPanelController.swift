@@ -102,6 +102,16 @@ final class CommandBarPanelController {
             panel.animator().alphaValue = 1
         })
 
+        // After the text field gains focus, macOS auto-selects all text.
+        // Move the cursor to the end so the prefix isn't highlighted.
+        DispatchQueue.main.async {
+            if let fieldEditor = panel.fieldEditor(false, for: nil) as? NSTextView {
+                let end = fieldEditor.string.endIndex
+                let endOffset = fieldEditor.string.distance(from: fieldEditor.string.startIndex, to: end)
+                fieldEditor.setSelectedRange(NSRange(location: endOffset, length: 0))
+            }
+        }
+
         controllerLogger.debug("Command bar panel presented")
     }
 
