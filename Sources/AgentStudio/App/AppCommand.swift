@@ -357,13 +357,13 @@ final class CommandDispatcher: ObservableObject {
             ),
             CommandDefinition(
                 command: .newTab,
-                keyBinding: KeyBinding(key: "t", modifiers: [.command, .shift]),
+                keyBinding: KeyBinding(key: "t", modifiers: [.command]),
                 label: "New Tab",
                 icon: "plus.square"
             ),
             CommandDefinition(
                 command: .undoCloseTab,
-                keyBinding: KeyBinding(key: "T", modifiers: [.command, .shift]),
+                keyBinding: KeyBinding(key: "t", modifiers: [.command, .shift]),
                 label: "Undo Close Tab",
                 icon: "arrow.uturn.backward"
             ),

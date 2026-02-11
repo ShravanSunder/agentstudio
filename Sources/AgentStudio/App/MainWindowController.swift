@@ -7,6 +7,7 @@ class MainWindowController: NSWindowController, NSWindowDelegate {
     private var sidebarAccessory: NSTitlebarAccessoryViewController?
 
     private static let windowFrameKey = "windowFrame"
+    private static let estimatedTitlebarHeight: CGFloat = 40
 
     convenience init(store: WorkspaceStore, executor: ActionExecutor,
                      tabBarAdapter: TabBarAdapter, viewRegistry: ViewRegistry) {
@@ -73,8 +74,8 @@ class MainWindowController: NSWindowController, NSWindowDelegate {
     private static func isFrameOnScreen(_ frame: NSRect) -> Bool {
         guard !NSScreen.screens.isEmpty else { return false }
         let titleBarRect = NSRect(
-            x: frame.origin.x, y: frame.maxY - 40,
-            width: frame.width, height: 40
+            x: frame.origin.x, y: frame.maxY - estimatedTitlebarHeight,
+            width: frame.width, height: estimatedTitlebarHeight
         )
         return NSScreen.screens.contains { $0.visibleFrame.intersects(titleBarRect) }
     }
