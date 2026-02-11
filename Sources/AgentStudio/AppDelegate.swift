@@ -134,6 +134,18 @@ class AppDelegate: NSObject, NSApplicationDelegate {
 
     // MARK: - Menu Setup
 
+    /// Create an NSMenuItem whose shortcut is read from CommandDispatcher (single source of truth).
+    /// Called from setupMainMenu() which runs on the main thread during app launch.
+    private func menuItem(_ title: String, command: AppCommand, action: Selector) -> NSMenuItem {
+        let item = NSMenuItem(title: title, action: action, keyEquivalent: "")
+        MainActor.assumeIsolated {
+            if let binding = CommandDispatcher.shared.definitions[command]?.keyBinding {
+                binding.apply(to: item)
+            }
+        }
+        return item
+    }
+
     private func setupMainMenu() {
         let mainMenu = NSMenu()
 
@@ -157,20 +169,13 @@ class AppDelegate: NSObject, NSApplicationDelegate {
 
         // File menu
         let fileMenu = NSMenu(title: "File")
-        fileMenu.addItem(NSMenuItem(title: "New Window", action: #selector(newWindow), keyEquivalent: "n"))
-        let newTabItem = NSMenuItem(title: "New Tab", action: #selector(newTab), keyEquivalent: "t")
-        newTabItem.keyEquivalentModifierMask = [.command, .shift]
-        fileMenu.addItem(newTabItem)
+        fileMenu.addItem(menuItem("New Window", command: .newWindow, action: #selector(newWindow)))
+        fileMenu.addItem(menuItem("New Tab", command: .newTab, action: #selector(newTab)))
         fileMenu.addItem(NSMenuItem.separator())
-        // Cmd+W closes tab (standard terminal behavior)
-        fileMenu.addItem(NSMenuItem(title: "Close Tab", action: #selector(closeTab), keyEquivalent: "w"))
-        let closeWindowItem = NSMenuItem(title: "Close Window", action: #selector(closeWindow), keyEquivalent: "W")
-        closeWindowItem.keyEquivalentModifierMask = [.command, .shift]
-        fileMenu.addItem(closeWindowItem)
+        fileMenu.addItem(menuItem("Close Tab", command: .closeTab, action: #selector(closeTab)))
+        fileMenu.addItem(menuItem("Close Window", command: .closeWindow, action: #selector(closeWindow)))
         fileMenu.addItem(NSMenuItem.separator())
-        let addRepoItem = NSMenuItem(title: "Add Repo...", action: #selector(addRepo), keyEquivalent: "O")
-        addRepoItem.keyEquivalentModifierMask = [.command, .shift]
-        fileMenu.addItem(addRepoItem)
+        fileMenu.addItem(menuItem("Add Repo...", command: .addRepo, action: #selector(addRepo)))
 
         let fileMenuItem = NSMenuItem()
         fileMenuItem.submenu = fileMenu
@@ -181,9 +186,7 @@ class AppDelegate: NSObject, NSApplicationDelegate {
         editMenu.addItem(NSMenuItem(title: "Undo", action: Selector(("undo:")), keyEquivalent: "z"))
         editMenu.addItem(NSMenuItem(title: "Redo", action: Selector(("redo:")), keyEquivalent: "Z"))
         editMenu.addItem(NSMenuItem.separator())
-        let undoCloseTabItem = NSMenuItem(title: "Undo Close Tab", action: #selector(undoCloseTab), keyEquivalent: "T")
-        undoCloseTabItem.keyEquivalentModifierMask = [.command, .shift]
-        editMenu.addItem(undoCloseTabItem)
+        editMenu.addItem(menuItem("Undo Close Tab", command: .undoCloseTab, action: #selector(undoCloseTab)))
         editMenu.addItem(NSMenuItem.separator())
         editMenu.addItem(NSMenuItem(title: "Cut", action: #selector(NSText.cut(_:)), keyEquivalent: "x"))
         editMenu.addItem(NSMenuItem(title: "Copy", action: #selector(NSText.copy(_:)), keyEquivalent: "c"))
@@ -196,11 +199,8 @@ class AppDelegate: NSObject, NSApplicationDelegate {
 
         // View menu
         let viewMenu = NSMenu(title: "View")
-        viewMenu.addItem(NSMenuItem(title: "Toggle Sidebar", action: #selector(toggleSidebar), keyEquivalent: "s"))
-        viewMenu.items.last?.keyEquivalentModifierMask = [.command, .shift]
-        let filterSidebarItem = NSMenuItem(title: "Filter Sidebar", action: #selector(filterSidebar), keyEquivalent: "f")
-        filterSidebarItem.keyEquivalentModifierMask = [.command, .shift]
-        viewMenu.addItem(filterSidebarItem)
+        viewMenu.addItem(menuItem("Toggle Sidebar", command: .toggleSidebar, action: #selector(toggleSidebar)))
+        viewMenu.addItem(menuItem("Filter Sidebar", command: .filterSidebar, action: #selector(filterSidebar)))
         viewMenu.addItem(NSMenuItem.separator())
         // Full Screen uses ⌃⌘F (not ⇧⌘F) to avoid conflict with Filter Sidebar
         viewMenu.addItem(NSMenuItem(title: "Enter Full Screen", action: #selector(NSWindow.toggleFullScreen(_:)), keyEquivalent: "f"))
@@ -217,11 +217,11 @@ class AppDelegate: NSObject, NSApplicationDelegate {
         windowMenu.addItem(NSMenuItem.separator())
         windowMenu.addItem(NSMenuItem(title: "Bring All to Front", action: #selector(NSApplication.arrangeInFront(_:)), keyEquivalent: ""))
 
-        // Tab switching shortcuts (Cmd+1 through Cmd+9)
+        // Tab switching shortcuts (⌘1 through ⌘9)
         windowMenu.addItem(NSMenuItem.separator())
-        for i in 1...9 {
-            let item = NSMenuItem(title: "Select Tab \(i)", action: #selector(selectTab(_:)), keyEquivalent: "\(i)")
-            item.tag = i - 1  // 0-indexed
+        for (i, command) in AppCommand.selectTabCommands.enumerated() {
+            let item = menuItem("Select Tab \(i + 1)", command: command, action: #selector(selectTab(_:)))
+            item.tag = i  // 0-indexed
             windowMenu.addItem(item)
         }
 

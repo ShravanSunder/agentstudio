@@ -2,9 +2,11 @@ import AppKit
 import SwiftUI
 
 /// Main window controller for AgentStudio
-class MainWindowController: NSWindowController {
+class MainWindowController: NSWindowController, NSWindowDelegate {
     private var splitViewController: MainSplitViewController?
     private var sidebarAccessory: NSTitlebarAccessoryViewController?
+
+    private static let windowFrameKey = "windowFrame"
 
     convenience init(store: WorkspaceStore, executor: ActionExecutor,
                      tabBarAdapter: TabBarAdapter, viewRegistry: ViewRegistry) {
@@ -20,15 +22,20 @@ class MainWindowController: NSWindowController {
         window.minSize = NSSize(width: 800, height: 500)
 
         // Restore saved frame, or center as fallback
-        window.setFrameAutosaveName("MainWindow")
-        if !Self.isFrameOnScreen(window.frame) {
-            window.center()
+        if let frameString = UserDefaults.standard.string(forKey: Self.windowFrameKey) {
+            let frame = NSRectFromString(frameString)
+            if Self.isFrameOnScreen(frame) {
+                window.setFrame(frame, display: false)
+                Self.clampFrameToScreen(window)
+            } else {
+                window.center()
+            }
         } else {
-            // Clamp size if screen changed (e.g. external monitor disconnected)
-            Self.clampFrameToScreen(window)
+            window.center()
         }
 
         self.init(window: window)
+        window.delegate = self
 
         // Create and set content view controller
         let splitVC = MainSplitViewController(
@@ -43,6 +50,21 @@ class MainWindowController: NSWindowController {
         // Set up titlebar and toolbar
         setupTitlebarAccessory()
         setupToolbar()
+    }
+
+    // MARK: - NSWindowDelegate (frame persistence)
+
+    func windowDidMove(_ notification: Notification) {
+        saveWindowFrame()
+    }
+
+    func windowDidResize(_ notification: Notification) {
+        saveWindowFrame()
+    }
+
+    private func saveWindowFrame() {
+        guard let frame = window?.frame else { return }
+        UserDefaults.standard.set(NSStringFromRect(frame), forKey: Self.windowFrameKey)
     }
 
     // MARK: - Frame Validation

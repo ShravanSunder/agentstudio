@@ -197,13 +197,24 @@ struct SidebarViewWrapper: View {
 /// The actual sidebar content
 struct SidebarContentView: View {
     @ObservedObject var store: WorkspaceStore
-    @State private var expandedRepos: Set<UUID> = []
+    @State private var expandedRepos: Set<UUID> = Self.loadExpandedRepos()
     @State private var filterText: String = ""
     @State private var debouncedQuery: String = ""
     @State private var isFilterVisible: Bool = false
     @FocusState private var isFilterFocused: Bool
 
     private static let filterDebounceMilliseconds = 25
+    private static let expandedReposKey = "expandedRepos"
+
+    private static func loadExpandedRepos() -> Set<UUID> {
+        guard let strings = UserDefaults.standard.stringArray(forKey: expandedReposKey) else { return [] }
+        return Set(strings.compactMap { UUID(uuidString: $0) })
+    }
+
+    private func saveExpandedRepos() {
+        let strings = expandedRepos.map(\.uuidString)
+        UserDefaults.standard.set(strings, forKey: Self.expandedReposKey)
+    }
 
     private var filteredRepos: [Repo] {
         SidebarFilter.filter(repos: store.repos, query: debouncedQuery)
@@ -293,6 +304,7 @@ struct SidebarContentView: View {
                                     } else {
                                         expandedRepos.remove(repo.id)
                                     }
+                                    saveExpandedRepos()
                                 }
                             )
                         ) {
@@ -306,12 +318,12 @@ struct SidebarContentView: View {
                                         openNewTerminal(worktree, in: repo)
                                     }
                                 )
-                                .listRowInsets(EdgeInsets(top: 0, leading: 4, bottom: 0, trailing: 0))
+                                .listRowInsets(EdgeInsets(top: 0, leading: 2, bottom: 0, trailing: 0))
                             }
                         } label: {
                             RepoRowView(repo: repo)
                         }
-                        .listRowInsets(EdgeInsets(top: 0, leading: 4, bottom: 0, trailing: 0))
+                        .listRowInsets(EdgeInsets(top: 0, leading: 2, bottom: 0, trailing: 0))
                     }
                 }
                 .listStyle(.sidebar)
