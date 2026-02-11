@@ -76,6 +76,7 @@ AppDelegate
 ├── TerminalViewCoordinator ← sole model↔view↔surface bridge
 ├── ActionExecutor      ← action dispatch hub
 ├── TabBarAdapter       ← Combine-derived tab bar state
+├── CommandBarPanelController ← command bar lifecycle (⌘P/⌘⇧P/⌘⌥P)
 └── MainWindowController
     └── MainSplitViewController
         └── TerminalTabViewController
@@ -134,6 +135,93 @@ Overriding `hitTest` to claim events creates problems:
 ### Reference Implementation
 
 See `DraggableTabBarHostingView.swift` for the gesture recognizer pattern applied to tab bar drag-to-reorder.
+
+---
+
+## Command Bar (⌘P)
+
+The command bar is a keyboard-driven search/command palette modeled after Linear's ⌘K. It provides unified access to tabs, panes, commands, and worktrees through a single interface with prefix-based scoping.
+
+### Architecture: NSPanel as Child Window
+
+The command bar uses an `NSPanel` (child window) rather than a SwiftUI overlay. This guarantees:
+
+- **Z-ordering** above all AppKit terminal views (Ghostty surfaces are `NSView` subclasses)
+- **Clean first-responder management** — the search field gets focus; the terminal releases it
+- **Click-outside-to-dismiss** via backdrop `NSView` overlay on the parent window
+- **Native backdrop blur** via `NSVisualEffectView` with `.sidebar` material
+
+```
+MainWindow
+├── MainSplitViewController (all existing content)
+│   ├── Sidebar
+│   └── TerminalTabViewController
+│
+├── CommandBarBackdropView (NSView overlay, click to dismiss)
+│
+└── CommandBarPanel (NSPanel, child window)
+    ├── NSVisualEffectView (.sidebar material)
+    └── NSHostingView
+        └── CommandBarView (SwiftUI)
+            ├── CommandBarScopePill
+            ├── CommandBarSearchField
+            ├── CommandBarResultsList
+            └── CommandBarFooter
+```
+
+### Keyboard Shortcuts
+
+Three shortcuts open the same command bar with different prefix scoping:
+
+| Shortcut | Prefix | Scope |
+|----------|--------|-------|
+| `⌘P` | _(none)_ | Everything — tabs, panes, commands, worktrees |
+| `⌘⇧P` | `>` | Commands only, grouped by category |
+| `⌘⌥P` | `@` | Panes and tabs, grouped by parent tab |
+
+Shortcuts are registered as menu items in `AppDelegate` (responder chain routing). Pressing the same shortcut again while the bar is open toggles it closed. Pressing a different shortcut while open switches the prefix in-place.
+
+### Keyboard Interception
+
+`CommandBarTextField` is an `NSViewRepresentable` wrapping `NSTextField` to intercept keys that SwiftUI's `TextField` doesn't expose:
+
+| Key | Selector | Action |
+|-----|----------|--------|
+| `↑` / `↓` | `moveUp:` / `moveDown:` | Move selection (wraps at boundaries) |
+| `↩` | `insertNewline:` | Execute selected item or drill into children |
+| `⎋` | `cancelOperation:` | Dismiss entirely (routed through panel's `onDismiss`) |
+| `⌫` on empty | `deleteBackward:` | Pop nested level or clear prefix |
+
+### Focus Management
+
+1. **On show**: `CommandBarPanel.makeKeyAndOrderFront()` → search field becomes first responder
+2. **During**: Terminal surface loses first responder (Ghostty handles this gracefully)
+3. **On dismiss**: `parentWindow.makeKeyAndOrderFront()` → terminal regains focus
+
+### Execution Flow
+
+The command bar never mutates `WorkspaceStore` directly. All actions flow through the existing validation pipeline:
+
+```
+CommandBarView.executeItem()
+  ├── .dispatch(command)         → CommandDispatcher.dispatch() → full pipeline
+  ├── .dispatchTargeted(cmd,id)  → CommandDispatcher.dispatch(_:target:targetType:)
+  ├── .navigate(level)           → state.pushLevel() (nested drill-in)
+  └── .custom(closure)           → Direct execution (e.g., tab switching via Notification)
+```
+
+### Key Components
+
+| Component | Role |
+|-----------|------|
+| `CommandBarPanelController` | Lifecycle: show/dismiss/toggle, backdrop, animation, state ownership |
+| `CommandBarState` | Observable state: visibility, prefix parsing, navigation stack, selection, recents |
+| `CommandBarDataSource` | Builds `CommandBarItem` arrays from `WorkspaceStore` + `CommandDispatcher` |
+| `CommandBarSearch` | Custom fuzzy matching with score + character match ranges for highlighting |
+| `CommandBarPanel` | `NSPanel` subclass with `NSVisualEffectView` and `NSHostingView` |
+| `CommandBarView` | Root SwiftUI view composing search, results, scope pill, footer |
+
+> **Files:** `CommandBar/CommandBarPanelController.swift`, `CommandBar/CommandBarState.swift`, `CommandBar/CommandBarPanel.swift`, `CommandBar/CommandBarDataSource.swift`, `CommandBar/CommandBarSearch.swift`, `CommandBar/CommandBarItem.swift`, `CommandBar/Views/*.swift`
 
 ---
 

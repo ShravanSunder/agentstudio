@@ -248,6 +248,7 @@ AppDelegate (creates all services in dependency order)
 ├── TerminalViewCoordinator  ← sole model↔view↔surface bridge
 ├── ActionExecutor           ← action dispatch hub
 ├── TabBarAdapter            ← derived display state
+├── CommandBarPanelController ← command bar lifecycle (⌘P)
 └── MainWindowController
     └── MainSplitViewController
         └── TerminalTabViewController
@@ -256,6 +257,7 @@ AppDelegate (creates all services in dependency order)
 
 Singletons:
 ├── SurfaceManager.shared    ← Ghostty surface lifecycle
+├── CommandDispatcher.shared ← command definitions + dispatch
 ├── WorktrunkService.shared  ← git worktree CLI
 └── Ghostty.shared           ← Ghostty C API wrapper
 ```
@@ -388,6 +390,37 @@ Git worktree management via the `wt` CLI tool. Singleton.
 
 > **File:** `Services/WorktrunkService.swift`
 
+### 3.12 Command Bar System
+
+Keyboard-driven search/command palette (⌘P) providing unified access to tabs, panes, commands, and worktrees. Modeled after Linear's ⌘K.
+
+**`CommandBarPanelController`** — Owns the panel lifecycle and state. Created by `AppDelegate` with references to `WorkspaceStore` and `CommandDispatcher`. Manages show/dismiss/toggle behavior, backdrop overlay, and animations.
+
+**`CommandBarState`** — `@Observable` state for the command bar. Manages:
+- `rawInput` with prefix parsing (`>` → commands scope, `@` → panes scope)
+- Navigation stack for nested drill-in (max 1 level deep)
+- Selection index with wrap-around navigation
+- Recent item IDs persisted to `UserDefaults`
+
+**`CommandBarDataSource`** — Builds `CommandBarItem` arrays from live app state. Scope-filtered:
+- `.everything` — tabs, panes, commands, worktrees (all groups)
+- `.commands` — commands grouped by category (Pane, Focus, Tab, Repo, Window)
+- `.panes` — panes grouped by parent tab, tabs as selectable items
+
+Also builds `CommandBarLevel` targets for drill-in commands (e.g., "Close Tab..." → list of open tabs).
+
+**`CommandBarSearch`** — Custom fuzzy matching engine. Returns scores (0.0 = best) and character match ranges for highlighting. Weighted scoring: title (1.0), subtitle (0.8), keywords (0.6). Recency boost for recently used items.
+
+**`CommandBarPanel`** — `NSPanel` subclass with `NSVisualEffectView` (`.sidebar` material) and `NSHostingView` for SwiftUI content. Child window of the main window.
+
+**Key design decisions:**
+- NSPanel over SwiftUI overlay — guarantees z-ordering above Ghostty `NSView` surfaces
+- Custom fuzzy matcher over third-party — FuzzyMatchingSwift lacks character match ranges needed for highlighting
+- Actions route through `CommandDispatcher` → full validation pipeline — the command bar never mutates `WorkspaceStore` directly
+- Tab/pane navigation uses `selectTabById` notification — avoids accidental destructive command dispatch
+
+> **Files:** `CommandBar/CommandBarPanelController.swift`, `CommandBar/CommandBarState.swift`, `CommandBar/CommandBarDataSource.swift`, `CommandBar/CommandBarSearch.swift`, `CommandBar/CommandBarPanel.swift`, `CommandBar/CommandBarItem.swift`, `CommandBar/Views/*.swift`
+
 ---
 
 ## 4. Data Flow
@@ -482,6 +515,34 @@ When switching from View A to View B:
    - `store.restoreFromSnapshot()` → re-insert tab at original position
    - `coordinator.restoreView()` for each session (reversed order, matching SurfaceManager LIFO)
    - `SurfaceManager.undoClose()` pops surface → reattach (no recreation)
+
+### 4.5 Command Bar Execution Flow
+
+When a user selects an item from the command bar:
+
+```
+CommandBarView.executeItem(item)
+│
+├─ If dimmed (canDispatch == false) → blocked, no action
+│
+├─ .dispatch(command)
+│   └─ onDismiss() → CommandDispatcher.dispatch(command)
+│       → CommandHandler.execute(command)
+│         → ActionResolver → ActionValidator → ActionExecutor → WorkspaceStore
+│
+├─ .dispatchTargeted(command, target: UUID, targetType)
+│   └─ onDismiss() → CommandDispatcher.dispatch(command, target, targetType)
+│       → CommandHandler.execute(command, target, targetType)
+│         → ActionResolver (with explicit target) → ActionValidator → ActionExecutor
+│
+├─ .navigate(level)
+│   └─ state.pushLevel(level) — drill into nested target picker
+│
+└─ .custom(closure)
+    └─ onDismiss() → closure() — e.g., NotificationCenter.post(.selectTabById)
+```
+
+The command bar records the selected item ID in `recentItemIds` (persisted to `UserDefaults`) before executing. Dimmed items (commands where `dispatcher.canDispatch()` returns false) are blocked from execution on both click and Enter key.
 
 ---
 
@@ -579,6 +640,17 @@ These rules are enforced by `WorkspaceStore` and model types at all times:
 | `Actions/ActionResolver.swift` | Resolves user input → PaneAction |
 | `Actions/ActionValidator.swift` | Validates actions before execution |
 | `Actions/ActionStateSnapshot.swift` | Captures state for validation |
+| **Command Bar** | |
+| `CommandBar/CommandBarPanelController.swift` | Panel lifecycle: show/dismiss/toggle, backdrop, animation |
+| `CommandBar/CommandBarState.swift` | Observable state: prefix parsing, navigation, selection, recents |
+| `CommandBar/CommandBarDataSource.swift` | Builds items from `WorkspaceStore` + `CommandDispatcher`, scope-filtered |
+| `CommandBar/CommandBarSearch.swift` | Custom fuzzy matching with score + character match ranges |
+| `CommandBar/CommandBarPanel.swift` | `NSPanel` subclass with `NSVisualEffectView` + `NSHostingView` |
+| `CommandBar/CommandBarItem.swift` | Data models: `CommandBarItem`, `CommandBarLevel`, `CommandBarAction`, `ShortcutKey` |
+| `CommandBar/Views/CommandBarView.swift` | Root SwiftUI view — composes search, results, scope pill, footer |
+| `CommandBar/Views/CommandBarTextField.swift` | `NSViewRepresentable` wrapping `NSTextField` for keyboard interception |
+| `CommandBar/Views/CommandBarResultsList.swift` | Grouped scrollable list with flattened index tracking |
+| `CommandBar/Views/CommandBarResultRow.swift` | Result row with fuzzy match highlighting and dimming |
 
 ---
 

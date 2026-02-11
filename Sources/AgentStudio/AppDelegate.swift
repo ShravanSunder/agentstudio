@@ -16,6 +16,10 @@ class AppDelegate: NSObject, NSApplicationDelegate {
     private var tabBarAdapter: TabBarAdapter!
     private var runtime: SessionRuntime!
 
+    // MARK: - Command Bar
+
+    private(set) var commandBarController: CommandBarPanelController!
+
     func applicationDidFinishLaunching(_ notification: Notification) {
         // Set GHOSTTY_RESOURCES_DIR before any GhosttyKit initialization.
         // This lets GhosttyKit find xterm-ghostty terminfo in both dev and bundle builds.
@@ -40,6 +44,7 @@ class AppDelegate: NSObject, NSApplicationDelegate {
         coordinator = TerminalViewCoordinator(store: store, viewRegistry: viewRegistry, runtime: runtime)
         executor = ActionExecutor(store: store, viewRegistry: viewRegistry, coordinator: coordinator)
         tabBarAdapter = TabBarAdapter(store: store)
+        commandBarController = CommandBarPanelController(store: store)
 
         // Restore terminal views for persisted sessions
         coordinator.restoreAllViews()
@@ -202,6 +207,17 @@ class AppDelegate: NSObject, NSApplicationDelegate {
         viewMenu.addItem(menuItem("Toggle Sidebar", command: .toggleSidebar, action: #selector(toggleSidebar)))
         viewMenu.addItem(menuItem("Filter Sidebar", command: .filterSidebar, action: #selector(filterSidebar)))
         viewMenu.addItem(NSMenuItem.separator())
+
+        // Command bar shortcuts
+        viewMenu.addItem(NSMenuItem(title: "Quick Open", action: #selector(showCommandBar), keyEquivalent: "p"))
+        let commandModeItem = NSMenuItem(title: "Command Palette", action: #selector(showCommandBarCommands), keyEquivalent: "p")
+        commandModeItem.keyEquivalentModifierMask = [.command, .shift]
+        viewMenu.addItem(commandModeItem)
+        let paneModeItem = NSMenuItem(title: "Go to Pane", action: #selector(showCommandBarPanes), keyEquivalent: "p")
+        paneModeItem.keyEquivalentModifierMask = [.command, .option]
+        viewMenu.addItem(paneModeItem)
+        viewMenu.addItem(NSMenuItem.separator())
+
         // Full Screen uses ⌃⌘F (not ⇧⌘F) to avoid conflict with Filter Sidebar
         viewMenu.addItem(NSMenuItem(title: "Enter Full Screen", action: #selector(NSWindow.toggleFullScreen(_:)), keyEquivalent: "f"))
         viewMenu.items.last?.keyEquivalentModifierMask = [.command, .control]
@@ -294,5 +310,34 @@ class AppDelegate: NSObject, NSApplicationDelegate {
             object: nil,
             userInfo: ["index": sender.tag]
         )
+    }
+
+    // MARK: - Command Bar Actions
+
+    @objc private func showCommandBar() {
+        appLogger.info("showCommandBar triggered")
+        guard let window = NSApp.keyWindow ?? mainWindowController?.window else {
+            appLogger.warning("No window available for command bar")
+            return
+        }
+        commandBarController.show(prefix: nil, parentWindow: window)
+    }
+
+    @objc private func showCommandBarCommands() {
+        appLogger.info("showCommandBarCommands triggered")
+        guard let window = NSApp.keyWindow ?? mainWindowController?.window else {
+            appLogger.warning("No window available for command bar (commands)")
+            return
+        }
+        commandBarController.show(prefix: ">", parentWindow: window)
+    }
+
+    @objc private func showCommandBarPanes() {
+        appLogger.info("showCommandBarPanes triggered")
+        guard let window = NSApp.keyWindow ?? mainWindowController?.window else {
+            appLogger.warning("No window available for command bar (panes)")
+            return
+        }
+        commandBarController.show(prefix: "@", parentWindow: window)
     }
 }
