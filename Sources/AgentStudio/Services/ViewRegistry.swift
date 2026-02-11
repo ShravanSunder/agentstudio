@@ -9,14 +9,21 @@ private let registryLogger = Logger(subsystem: "com.agentstudio", category: "Vie
 final class ViewRegistry {
     private var views: [UUID: AgentStudioTerminalView] = [:]
 
+    /// Monotonically increasing counter, bumped on every register/unregister.
+    /// Consumers can compare against a cached epoch to detect registry changes
+    /// without subscribing to Combine or notifications.
+    private(set) var epoch: Int = 0
+
     /// Register a view for a session.
     func register(_ view: AgentStudioTerminalView, for sessionId: UUID) {
         views[sessionId] = view
+        epoch += 1
     }
 
     /// Unregister a view for a session.
     func unregister(_ sessionId: UUID) {
         views.removeValue(forKey: sessionId)
+        epoch += 1
     }
 
     /// Get the view for a session, if registered.

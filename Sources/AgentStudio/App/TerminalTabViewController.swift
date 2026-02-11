@@ -28,6 +28,13 @@ class TerminalTabViewController: NSViewController, CommandHandler {
     /// Combine subscriptions for store observation
     private var cancellables = Set<AnyCancellable>()
 
+    /// Tracks the last successfully rendered tab to avoid redundant view rebuilds.
+    /// Compared by value (Tab is Hashable) so layout/activeSession changes trigger re-render
+    /// but unrelated store mutations (e.g. session title updates) are skipped.
+    /// Also tracks ViewRegistry epoch to detect view replacements (e.g. surface repair).
+    private var lastRenderedTab: Tab?
+    private var lastRenderedRegistryEpoch: Int = -1
+
     // MARK: - Init
 
     init(store: WorkspaceStore, executor: ActionExecutor,
@@ -203,8 +210,21 @@ class TerminalTabViewController: NSViewController, CommandHandler {
 
     private func refreshDisplay() {
         updateEmptyState()
-        if let activeTabId = store.activeTabId {
-            showTab(activeTabId)
+        guard let activeTabId = store.activeTabId,
+              let tab = store.tab(activeTabId) else {
+            lastRenderedTab = nil
+            return
+        }
+
+        // Skip rebuild if the tab AND view registry haven't changed.
+        // Registry epoch catches view replacements (e.g. surface repair) that
+        // don't alter the Tab struct but do change the live view instances.
+        let currentEpoch = viewRegistry.epoch
+        guard tab != lastRenderedTab || currentEpoch != lastRenderedRegistryEpoch else { return }
+
+        if showTab(activeTabId) {
+            lastRenderedTab = tab
+            lastRenderedRegistryEpoch = currentEpoch
         }
     }
 
@@ -336,16 +356,17 @@ class TerminalTabViewController: NSViewController, CommandHandler {
 
     // MARK: - Tab Display
 
-    private func showTab(_ tabId: UUID) {
+    @discardableResult
+    private func showTab(_ tabId: UUID) -> Bool {
         guard let tab = store.tab(tabId) else {
             ghosttyLogger.warning("showTab: tab \(tabId) not found in store")
-            return
+            return false
         }
 
         // Build renderable tree from Layout + ViewRegistry
         guard let tree = viewRegistry.renderTree(for: tab.layout) else {
             ghosttyLogger.warning("Could not render tree for tab \(tabId) — missing views")
-            return
+            return false
         }
 
         ghosttyLogger.info("showTab: rendering tab \(tabId) with \(tab.sessionIds.count) session(s)")
@@ -438,6 +459,8 @@ class TerminalTabViewController: NSViewController, CommandHandler {
                 }
             }
         }
+
+        return true
     }
 
     // MARK: - Validated Action Pipeline
