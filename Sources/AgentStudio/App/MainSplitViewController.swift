@@ -29,12 +29,15 @@ class MainSplitViewController: NSSplitViewController {
         fatalError("init(coder:) not supported")
     }
 
+    private static let sidebarCollapsedKey = "sidebarCollapsed"
+
     override func viewDidLoad() {
         super.viewDidLoad()
 
         // Configure split view
         splitView.isVertical = true
         splitView.dividerStyle = .thin
+        splitView.autosaveName = "MainSplitView"  // Persists divider position
 
         // Create sidebar (SwiftUI via NSHostingController)
         let sidebarView = SidebarViewWrapper(store: store)
@@ -61,8 +64,26 @@ class MainSplitViewController: NSSplitViewController {
         terminalItem.minimumThickness = 400
         addSplitViewItem(terminalItem)
 
+        // Restore sidebar collapsed state
+        if UserDefaults.standard.bool(forKey: Self.sidebarCollapsedKey) {
+            sidebarItem.isCollapsed = true
+        }
+
         // Set up notification observers
         setupNotificationObservers()
+
+        // Save sidebar state on app quit
+        NotificationCenter.default.addObserver(
+            self,
+            selector: #selector(saveSidebarState),
+            name: NSApplication.willTerminateNotification,
+            object: nil
+        )
+    }
+
+    @objc private func saveSidebarState() {
+        let isCollapsed = splitViewItems.first?.isCollapsed ?? false
+        UserDefaults.standard.set(isCollapsed, forKey: Self.sidebarCollapsedKey)
     }
 
     // MARK: - Notification Observers
@@ -106,6 +127,10 @@ class MainSplitViewController: NSSplitViewController {
 
     @objc private func handleToggleSidebar(_ notification: Notification) {
         toggleSidebar(nil)
+        // Save collapsed state after toggle completes
+        DispatchQueue.main.async { [weak self] in
+            self?.saveSidebarState()
+        }
     }
 
     @objc private func handleOpenWorktree(_ notification: Notification) {
@@ -172,12 +197,24 @@ struct SidebarViewWrapper: View {
 /// The actual sidebar content
 struct SidebarContentView: View {
     @ObservedObject var store: WorkspaceStore
-    @State private var expandedRepos: Set<UUID> = []
+    @State private var expandedRepos: Set<UUID> = Self.loadExpandedRepos()
     @State private var filterText: String = ""
     @State private var debouncedQuery: String = ""
+    @State private var isFilterVisible: Bool = false
     @FocusState private var isFilterFocused: Bool
 
     private static let filterDebounceMilliseconds = 25
+    private static let expandedReposKey = "expandedRepos"
+
+    private static func loadExpandedRepos() -> Set<UUID> {
+        guard let strings = UserDefaults.standard.stringArray(forKey: expandedReposKey) else { return [] }
+        return Set(strings.compactMap { UUID(uuidString: $0) })
+    }
+
+    private func saveExpandedRepos() {
+        let strings = expandedRepos.map(\.uuidString)
+        UserDefaults.standard.set(strings, forKey: Self.expandedReposKey)
+    }
 
     private var filteredRepos: [Repo] {
         SidebarFilter.filter(repos: store.repos, query: debouncedQuery)
@@ -190,37 +227,54 @@ struct SidebarContentView: View {
 
     var body: some View {
         VStack(spacing: 0) {
-            // Search / filter bar
-            HStack(spacing: 6) {
-                Image(systemName: "magnifyingglass")
-                    .font(.system(size: 12))
-                    .foregroundStyle(.secondary)
+            // Search / filter bar (toggle-able)
+            if isFilterVisible {
+                HStack(spacing: 6) {
+                    Image(systemName: "magnifyingglass")
+                        .font(.system(size: 11))
+                        .foregroundStyle(.tertiary)
 
-                TextField("Filter...", text: $filterText)
-                    .textFieldStyle(.plain)
-                    .font(.system(size: 12))
-                    .focused($isFilterFocused)
-                    .onExitCommand {
-                        filterText = ""
-                        isFilterFocused = false
-                    }
+                    TextField("Filter...", text: $filterText)
+                        .textFieldStyle(.plain)
+                        .font(.system(size: 12))
+                        .foregroundStyle(.primary)
+                        .focused($isFilterFocused)
+                        .onExitCommand {
+                            hideFilter()
+                        }
+                        .onKeyPress(.downArrow) {
+                            // Transfer focus from filter to the list for keyboard navigation
+                            isFilterFocused = false
+                            return .handled
+                        }
 
-                if !filterText.isEmpty {
-                    Button {
-                        filterText = ""
-                    } label: {
-                        Image(systemName: "xmark.circle.fill")
-                            .font(.system(size: 12))
-                            .foregroundStyle(.secondary)
+                    if !filterText.isEmpty {
+                        Button {
+                            filterText = ""
+                        } label: {
+                            Image(systemName: "xmark.circle.fill")
+                                .font(.system(size: 12))
+                                .foregroundStyle(.secondary)
+                        }
+                        .buttonStyle(.plain)
+                        .help("Clear filter")
+                        .transition(.opacity.animation(.easeOut(duration: 0.1)))
                     }
-                    .buttonStyle(.plain)
-                    .help("Clear filter")
-                    .transition(.opacity.animation(.easeOut(duration: 0.1)))
                 }
+                .padding(.horizontal, 10)
+                .padding(.vertical, 6)
+                .background(
+                    RoundedRectangle(cornerRadius: 8)
+                        .fill(Color.primary.opacity(0.06))
+                )
+                .overlay(
+                    RoundedRectangle(cornerRadius: 8)
+                        .strokeBorder(Color.primary.opacity(0.1), lineWidth: 1)
+                )
+                .padding(.horizontal, 8)
+                .padding(.vertical, 6)
+                .transition(.move(edge: .top).combined(with: .opacity))
             }
-            .padding(.horizontal, 10)
-            .padding(.vertical, 6)
-            .background(Color(nsColor: .controlBackgroundColor))
 
             // Main list content
             if isFiltering && filteredRepos.isEmpty {
@@ -238,38 +292,38 @@ struct SidebarContentView: View {
                 .transition(.opacity.animation(.easeOut(duration: 0.12)))
             } else {
                 List {
-                    Section("Repos") {
-                        ForEach(filteredRepos) { repo in
-                            DisclosureGroup(
-                                isExpanded: Binding(
-                                    get: {
-                                        isFiltering || expandedRepos.contains(repo.id)
+                    ForEach(filteredRepos) { repo in
+                        DisclosureGroup(
+                            isExpanded: Binding(
+                                get: {
+                                    isFiltering || expandedRepos.contains(repo.id)
+                                },
+                                set: { isExpanded in
+                                    if isExpanded {
+                                        expandedRepos.insert(repo.id)
+                                    } else {
+                                        expandedRepos.remove(repo.id)
+                                    }
+                                    saveExpandedRepos()
+                                }
+                            )
+                        ) {
+                            ForEach(repo.worktrees) { worktree in
+                                WorktreeRowView(
+                                    worktree: worktree,
+                                    onOpen: {
+                                        openWorktree(worktree, in: repo)
                                     },
-                                    set: { isExpanded in
-                                        if isExpanded {
-                                            expandedRepos.insert(repo.id)
-                                        } else {
-                                            expandedRepos.remove(repo.id)
-                                        }
+                                    onOpenNew: {
+                                        openNewTerminal(worktree, in: repo)
                                     }
                                 )
-                            ) {
-                                ForEach(repo.worktrees) { worktree in
-                                    WorktreeRowView(
-                                        worktree: worktree,
-                                        onOpen: {
-                                            openWorktree(worktree, in: repo)
-                                        },
-                                        onOpenNew: {
-                                            openNewTerminal(worktree, in: repo)
-                                        }
-                                    )
-                                    .listRowInsets(EdgeInsets(top: 0, leading: 5, bottom: 0, trailing: 0))
-                                }
-                            } label: {
-                                RepoRowView(repo: repo)
+                                .listRowInsets(EdgeInsets(top: 0, leading: 2, bottom: 0, trailing: 0))
                             }
+                        } label: {
+                            RepoRowView(repo: repo)
                         }
+                        .listRowInsets(EdgeInsets(top: 0, leading: 2, bottom: 0, trailing: 0))
                     }
                 }
                 .listStyle(.sidebar)
@@ -288,7 +342,17 @@ struct SidebarContentView: View {
             refreshWorktrees()
         }
         .onReceive(NotificationCenter.default.publisher(for: .filterSidebarRequested)) { _ in
-            isFilterFocused = true
+            withAnimation(.easeOut(duration: 0.15)) {
+                if isFilterVisible {
+                    hideFilter()
+                } else {
+                    isFilterVisible = true
+                }
+            }
+            // Focus after animation starts
+            DispatchQueue.main.asyncAfter(deadline: .now() + 0.05) {
+                isFilterFocused = true
+            }
         }
         .onDisappear {
             debounceTask?.cancel()
@@ -315,6 +379,17 @@ struct SidebarContentView: View {
     }
 
     @State private var debounceTask: Task<Void, Never>?
+
+    private func hideFilter() {
+        filterText = ""
+        debouncedQuery = ""
+        isFilterFocused = false
+        withAnimation(.easeOut(duration: 0.15)) {
+            isFilterVisible = false
+        }
+        // Return focus to the active terminal
+        NotificationCenter.default.post(name: .refocusTerminalRequested, object: nil)
+    }
 
     private func toggleSidebar() {
         NotificationCenter.default.post(name: .toggleSidebarRequested, object: nil)

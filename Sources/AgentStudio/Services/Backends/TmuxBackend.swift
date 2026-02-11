@@ -150,10 +150,29 @@ final class TmuxBackend: SessionBackend {
     }
 
     func attachCommand(for handle: PaneSessionHandle) -> String {
-        let config = Self.shellEscape(ghostConfigPath)
-        let cwd = Self.shellEscape(handle.workingDirectory.path)
-        let sessionId = Self.shellEscape(handle.id)
-        return "tmux -L \(socket) -f \(config) new-session -A -s \(sessionId) -c \(cwd)"
+        Self.buildAttachCommand(
+            tmuxBin: "tmux",
+            socketName: socket,
+            ghostConfigPath: ghostConfigPath,
+            sessionId: handle.id,
+            workingDirectory: handle.workingDirectory.path
+        )
+    }
+
+    /// Build the tmux attach command with runtime hardening applied.
+    /// The hardening is repeated at attach-time to correct stale tmux servers
+    /// that may have been started before updated ghost.conf options existed.
+    static func buildAttachCommand(
+        tmuxBin: String,
+        socketName: String,
+        ghostConfigPath: String,
+        sessionId: String,
+        workingDirectory: String
+    ) -> String {
+        let config = shellEscape(ghostConfigPath)
+        let cwd = shellEscape(workingDirectory)
+        let escapedSessionId = shellEscape(sessionId)
+        return "\(tmuxBin) -L \(socketName) -f \(config) new-session -A -s \(escapedSessionId) -c \(cwd) \\; set-option -g mouse off \\; unbind-key -a \\; unbind-key -a -T root \\; unbind-key -a -T copy-mode \\; unbind-key -a -T copy-mode-vi"
     }
 
     /// Single-quote a string for safe shell interpolation.
