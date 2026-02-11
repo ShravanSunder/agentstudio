@@ -2,6 +2,7 @@ import AppKit
 import XCTest
 @testable import AgentStudio
 
+@MainActor
 final class CommandBarPanelControllerTests: XCTestCase {
 
     private var controller: CommandBarPanelController!
@@ -9,7 +10,7 @@ final class CommandBarPanelControllerTests: XCTestCase {
 
     override func setUp() {
         super.setUp()
-        controller = CommandBarPanelController()
+        controller = CommandBarPanelController(store: WorkspaceStore())
         // Offscreen window — never displayed, lightweight test double
         window = NSWindow(
             contentRect: NSRect(x: 0, y: 0, width: 800, height: 600),

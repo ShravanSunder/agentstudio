@@ -15,6 +15,11 @@ final class CommandBarPanelController {
 
     let state = CommandBarState()
 
+    // MARK: - Dependencies
+
+    private let store: WorkspaceStore
+    private let dispatcher: CommandDispatcher
+
     // MARK: - Panel
 
     private var panel: CommandBarPanel?
@@ -25,7 +30,9 @@ final class CommandBarPanelController {
 
     // MARK: - Initialization
 
-    init() {
+    init(store: WorkspaceStore, dispatcher: CommandDispatcher = .shared) {
+        self.store = store
+        self.dispatcher = dispatcher
         state.loadRecents()
     }
 
@@ -75,9 +82,14 @@ final class CommandBarPanelController {
         }
 
         // Set SwiftUI content
-        let contentView = CommandBarContentView(state: state, onDismiss: { [weak self] in
-            self?.dismiss()
-        })
+        let contentView = CommandBarView(
+            state: state,
+            store: store,
+            dispatcher: dispatcher,
+            onDismiss: { [weak self] in
+                self?.dismiss()
+            }
+        )
         panel.setContent(contentView)
 
         // Add as child window
@@ -101,16 +113,6 @@ final class CommandBarPanelController {
             context.timingFunction = CAMediaTimingFunction(name: .easeOut)
             panel.animator().alphaValue = 1
         })
-
-        // After the text field gains focus, macOS auto-selects all text.
-        // Move the cursor to the end so the prefix isn't highlighted.
-        DispatchQueue.main.async {
-            if let fieldEditor = panel.fieldEditor(false, for: nil) as? NSTextView {
-                let end = fieldEditor.string.endIndex
-                let endOffset = fieldEditor.string.distance(from: fieldEditor.string.startIndex, to: end)
-                fieldEditor.setSelectedRange(NSRange(location: endOffset, length: 0))
-            }
-        }
 
         controllerLogger.debug("Command bar panel presented")
     }
@@ -200,86 +202,3 @@ final class CommandBarBackdropView: NSView {
     }
 }
 
-// MARK: - CommandBarContentView (temporary placeholder)
-
-/// Placeholder SwiftUI view for the command bar content.
-/// Will be replaced with full implementation in Phase 3.
-private struct CommandBarContentView: View {
-    @Bindable var state: CommandBarState
-    let onDismiss: () -> Void
-
-    var body: some View {
-        VStack(spacing: 0) {
-            // Search field placeholder
-            HStack(spacing: 10) {
-                Image(systemName: state.scopeIcon)
-                    .font(.system(size: 13, weight: .medium))
-                    .foregroundStyle(.primary.opacity(0.35))
-                    .frame(width: 16, height: 16)
-
-                TextField(state.placeholder, text: $state.rawInput)
-                    .textFieldStyle(.plain)
-                    .font(.system(size: 15))
-                    .onSubmit {
-                        // TODO: Phase 4 — execute selected item
-                    }
-            }
-            .padding(.horizontal, 12)
-            .frame(height: 44)
-
-            Divider()
-                .opacity(0.3)
-
-            // Results placeholder
-            VStack(spacing: 8) {
-                Text("Command bar ready")
-                    .font(.system(size: 13, weight: .medium))
-                    .foregroundStyle(.primary.opacity(0.5))
-
-                Text("Scope: \(scopeLabel)")
-                    .font(.system(size: 11))
-                    .foregroundStyle(.primary.opacity(0.3))
-
-                if !state.searchQuery.isEmpty {
-                    Text("Query: \"\(state.searchQuery)\"")
-                        .font(.system(size: 11))
-                        .foregroundStyle(.primary.opacity(0.3))
-                }
-            }
-            .frame(maxWidth: .infinity)
-            .padding(.vertical, 24)
-
-            Divider()
-                .opacity(0.3)
-
-            // Footer placeholder
-            HStack(spacing: 16) {
-                footerHint("↵", "Open")
-                footerHint("↑↓", "Navigate")
-                footerHint("esc", "Dismiss")
-            }
-            .frame(height: 32)
-            .frame(maxWidth: .infinity)
-            .padding(.horizontal, 12)
-        }
-        .frame(width: 540)
-    }
-
-    private var scopeLabel: String {
-        switch state.activeScope {
-        case .everything: return "Everything"
-        case .commands: return "Commands"
-        case .panes: return "Panes"
-        }
-    }
-
-    private func footerHint(_ key: String, _ label: String) -> some View {
-        HStack(spacing: 4) {
-            Text(key)
-                .font(.system(size: 10, weight: .medium, design: .monospaced))
-            Text(label)
-                .font(.system(size: 11))
-        }
-        .foregroundStyle(.primary.opacity(0.3))
-    }
-}

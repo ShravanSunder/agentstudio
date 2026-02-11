@@ -18,7 +18,7 @@ class AppDelegate: NSObject, NSApplicationDelegate {
 
     // MARK: - Command Bar
 
-    private(set) var commandBarController = CommandBarPanelController()
+    private(set) var commandBarController: CommandBarPanelController!
 
     func applicationDidFinishLaunching(_ notification: Notification) {
         // Set GHOSTTY_RESOURCES_DIR before any GhosttyKit initialization.
@@ -44,6 +44,7 @@ class AppDelegate: NSObject, NSApplicationDelegate {
         coordinator = TerminalViewCoordinator(store: store, viewRegistry: viewRegistry, runtime: runtime)
         executor = ActionExecutor(store: store, viewRegistry: viewRegistry, coordinator: coordinator)
         tabBarAdapter = TabBarAdapter(store: store)
+        commandBarController = CommandBarPanelController(store: store)
 
         // Restore terminal views for persisted sessions
         coordinator.restoreAllViews()
