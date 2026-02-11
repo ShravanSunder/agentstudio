@@ -205,7 +205,19 @@ final class SessionConfigurationTests: XCTestCase {
         )
         XCTAssertTrue(
             contents.contains("unbind -a"),
-            "ghost.conf must unbind tmux keys to prevent interactive tmux overlays"
+            "ghost.conf must unbind keys from the default prefix table"
+        )
+        XCTAssertTrue(
+            contents.contains("unbind -a -T root"),
+            "ghost.conf must unbind keys from the root table"
+        )
+        XCTAssertTrue(
+            contents.contains("unbind -a -T copy-mode"),
+            "ghost.conf must unbind keys from the copy-mode table"
+        )
+        XCTAssertTrue(
+            contents.contains("unbind -a -T copy-mode-vi"),
+            "ghost.conf must unbind keys from the copy-mode-vi table"
         )
     }
 }
