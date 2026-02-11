@@ -189,4 +189,35 @@ final class SessionConfigurationTests: XCTestCase {
             "ghost.conf must contain 'exit-unattached off' to keep server alive"
         )
     }
+
+    func test_ghostConfigPath_disablesTmuxMouseInteraction() throws {
+        // tmux must remain headless/non-interactive in Surface.
+        // Scroll input should never trigger tmux copy-mode overlays.
+
+        // Act
+        let config = SessionConfiguration.detect()
+        let contents = try String(contentsOfFile: config.ghostConfigPath, encoding: .utf8)
+
+        // Assert
+        XCTAssertTrue(
+            contents.contains("set -g mouse off"),
+            "ghost.conf must contain 'set -g mouse off' to keep tmux non-interactive"
+        )
+        XCTAssertTrue(
+            contents.contains("unbind -a"),
+            "ghost.conf must unbind keys from the default prefix table"
+        )
+        XCTAssertTrue(
+            contents.contains("unbind -a -T root"),
+            "ghost.conf must unbind keys from the root table"
+        )
+        XCTAssertTrue(
+            contents.contains("unbind -a -T copy-mode"),
+            "ghost.conf must unbind keys from the copy-mode table"
+        )
+        XCTAssertTrue(
+            contents.contains("unbind -a -T copy-mode-vi"),
+            "ghost.conf must unbind keys from the copy-mode-vi table"
+        )
+    }
 }
