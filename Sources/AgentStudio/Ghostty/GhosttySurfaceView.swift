@@ -158,7 +158,7 @@ extension Ghostty {
             self.title = newTitle
         }
 
-        func pwdDidChange(_ newPwd: String) {
+        func pwdDidChange(_ newPwd: String?) {
             self.pwd = newPwd
         }
 

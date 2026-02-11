@@ -213,9 +213,8 @@ extension Ghostty {
 
             case GHOSTTY_ACTION_PWD:
                 if target.tag == GHOSTTY_TARGET_SURFACE, let surface = target.target.surface {
-                    if let surfaceView = surfaceView(from: surface),
-                       let pwdPtr = action.action.pwd.pwd {
-                        let pwd = String(cString: pwdPtr)
+                    if let surfaceView = surfaceView(from: surface) {
+                        let pwd = action.action.pwd.pwd.map { String(cString: $0) }
                         DispatchQueue.main.async {
                             surfaceView.pwdDidChange(pwd)
                         }
