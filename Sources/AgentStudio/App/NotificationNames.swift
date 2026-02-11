@@ -26,4 +26,7 @@ extension Notification.Name {
 
     // Sidebar management
     static let toggleSidebarRequested = Notification.Name("toggleSidebarRequested")
+
+    // Command bar
+    static let commandBarRequested = Notification.Name("commandBarRequested")
 }

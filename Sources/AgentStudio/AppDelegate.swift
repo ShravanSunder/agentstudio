@@ -16,6 +16,10 @@ class AppDelegate: NSObject, NSApplicationDelegate {
     private var tabBarAdapter: TabBarAdapter!
     private var runtime: SessionRuntime!
 
+    // MARK: - Command Bar
+
+    private(set) var commandBarController = CommandBarPanelController()
+
     func applicationDidFinishLaunching(_ notification: Notification) {
         // Set GHOSTTY_RESOURCES_DIR before any GhosttyKit initialization.
         // This lets GhosttyKit find xterm-ghostty terminfo in both dev and bundle builds.
@@ -199,6 +203,17 @@ class AppDelegate: NSObject, NSApplicationDelegate {
         viewMenu.addItem(NSMenuItem(title: "Toggle Sidebar", action: #selector(toggleSidebar), keyEquivalent: "s"))
         viewMenu.items.last?.keyEquivalentModifierMask = [.command, .shift]
         viewMenu.addItem(NSMenuItem.separator())
+
+        // Command bar shortcuts
+        viewMenu.addItem(NSMenuItem(title: "Quick Open", action: #selector(showCommandBar), keyEquivalent: "p"))
+        let commandModeItem = NSMenuItem(title: "Command Palette", action: #selector(showCommandBarCommands), keyEquivalent: "p")
+        commandModeItem.keyEquivalentModifierMask = [.command, .shift]
+        viewMenu.addItem(commandModeItem)
+        let paneModeItem = NSMenuItem(title: "Go to Pane", action: #selector(showCommandBarPanes), keyEquivalent: "p")
+        paneModeItem.keyEquivalentModifierMask = [.command, .option]
+        viewMenu.addItem(paneModeItem)
+        viewMenu.addItem(NSMenuItem.separator())
+
         viewMenu.addItem(NSMenuItem(title: "Enter Full Screen", action: #selector(NSWindow.toggleFullScreen(_:)), keyEquivalent: "f"))
         viewMenu.items.last?.keyEquivalentModifierMask = [.command, .shift]
 
@@ -286,5 +301,26 @@ class AppDelegate: NSObject, NSApplicationDelegate {
             object: nil,
             userInfo: ["index": sender.tag]
         )
+    }
+
+    // MARK: - Command Bar Actions
+
+    @objc private func showCommandBar() {
+        appLogger.info("showCommandBar triggered")
+        guard let window = NSApp.keyWindow ?? mainWindowController?.window else {
+            appLogger.warning("No window available for command bar")
+            return
+        }
+        commandBarController.show(prefix: nil, parentWindow: window)
+    }
+
+    @objc private func showCommandBarCommands() {
+        guard let window = NSApp.keyWindow ?? mainWindowController?.window else { return }
+        commandBarController.show(prefix: ">", parentWindow: window)
+    }
+
+    @objc private func showCommandBarPanes() {
+        guard let window = NSApp.keyWindow ?? mainWindowController?.window else { return }
+        commandBarController.show(prefix: "@", parentWindow: window)
     }
 }
