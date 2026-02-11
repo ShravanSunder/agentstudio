@@ -35,14 +35,16 @@ enum CommandBarSearch {
         var patternIdx = patternLower.startIndex
         var textIdx = textLower.startIndex
         var matchedIndices: [String.Index] = []
+        var textOffset = 0
 
         // First pass: find all matching character positions (greedy left-to-right)
         while patternIdx < patternLower.endIndex, textIdx < textLower.endIndex {
             if patternLower[patternIdx] == textLower[textIdx] {
-                matchedIndices.append(text.index(text.startIndex, offsetBy: textLower.distance(from: textLower.startIndex, to: textIdx)))
+                matchedIndices.append(text.index(text.startIndex, offsetBy: textOffset))
                 patternIdx = patternLower.index(after: patternIdx)
             }
             textIdx = textLower.index(after: textIdx)
+            textOffset += 1
         }
 
         // All pattern characters must be found

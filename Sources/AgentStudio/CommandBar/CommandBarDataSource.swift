@@ -206,27 +206,29 @@ enum CommandBarDataSource {
 
     // MARK: - Command Items
 
-    private static func commandItems(dispatcher: CommandDispatcher, store: WorkspaceStore) -> [CommandBarItem] {
-        var items: [CommandBarItem] = []
-
-        for (command, def) in dispatcher.definitions.sorted(by: { $0.key.rawValue < $1.key.rawValue }) {
-            // Skip internal/nav commands that shouldn't appear in the palette
-            guard !isHiddenCommand(command) else { continue }
-
-            let (groupName, groupPriority) = commandGroup(for: command)
-            items.append(commandItem(from: def, groupName: groupName, groupPriority: groupPriority, store: store))
-        }
-        return items
+    /// Visible command definitions, filtered once.
+    private static func visibleCommands(dispatcher: CommandDispatcher) -> [CommandDefinition] {
+        dispatcher.definitions.values.filter { !isHiddenCommand($0.command) }
     }
 
+    /// Commands grouped by category (for `.commands` scope).
+    private static func commandItems(dispatcher: CommandDispatcher, store: WorkspaceStore) -> [CommandBarItem] {
+        visibleCommands(dispatcher: dispatcher)
+            .sorted { $0.command.rawValue < $1.command.rawValue }
+            .map { def in
+                let (groupName, groupPriority) = commandGroup(for: def.command)
+                return commandItem(from: def, groupName: groupName, groupPriority: groupPriority, store: store)
+            }
+    }
+
+    /// All commands in a flat group (for `.everything` scope).
     private static func allCommandItems(
         dispatcher: CommandDispatcher,
         store: WorkspaceStore,
         groupName: String,
         priority: Int
     ) -> [CommandBarItem] {
-        dispatcher.definitions.values
-            .filter { !isHiddenCommand($0.command) }
+        visibleCommands(dispatcher: dispatcher)
             .sorted { $0.label < $1.label }
             .map { commandItem(from: $0, groupName: groupName, groupPriority: priority, store: store) }
     }
@@ -342,7 +344,8 @@ enum CommandBarDataSource {
     private static func worktreeItems(store: WorkspaceStore) -> [CommandBarItem] {
         store.repos.flatMap { repo in
             repo.worktrees.map { worktree in
-                CommandBarItem(
+                let worktreeId = worktree.id
+                return CommandBarItem(
                     id: "wt-\(worktree.id.uuidString)",
                     title: worktree.name,
                     subtitle: "\(repo.name) · \(worktree.branch)",
@@ -351,7 +354,13 @@ enum CommandBarDataSource {
                     group: Group.worktrees,
                     groupPriority: Priority.worktrees,
                     keywords: ["worktree", "branch", worktree.branch, repo.name],
-                    action: .dispatch(.refreshWorktrees) // Placeholder — will wire openWorktree
+                    action: .custom {
+                        NotificationCenter.default.post(
+                            name: .openWorktreeRequested,
+                            object: nil,
+                            userInfo: ["worktreeId": worktreeId]
+                        )
+                    }
                 )
             }
         }

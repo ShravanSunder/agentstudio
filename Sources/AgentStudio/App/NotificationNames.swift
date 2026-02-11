@@ -29,6 +29,4 @@ extension Notification.Name {
     static let filterSidebarRequested = Notification.Name("filterSidebarRequested")
     static let openNewTerminalRequested = Notification.Name("openNewTerminalRequested")
 
-    // Command bar
-    static let commandBarRequested = Notification.Name("commandBarRequested")
 }

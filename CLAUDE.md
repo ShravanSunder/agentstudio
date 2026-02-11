@@ -28,6 +28,22 @@ agent-studio/
 2. Copies `macos/GhosttyKit.xcframework` → `Frameworks/`
 3. `swift build` - Links against xcframework
 
+### ⚠️ Running Swift Commands (CRITICAL)
+
+**NEVER pipe `swift build` or `swift test` output through grep, tail, head, or any other command.** These commands use interactive output (progress bars, carriage returns) that breaks when piped, causing the process to hang indefinitely.
+
+```bash
+# CORRECT — run directly, no pipes
+swift build
+swift test
+swift test --filter "CommandBarState"
+
+# WRONG — will hang forever
+swift test 2>&1 | tail -5
+swift test 2>&1 | grep "passed"
+swift build 2>&1 | grep "error"
+```
+
 ### Launching the App
 
 **Always launch from the build directory directly:**

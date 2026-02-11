@@ -114,21 +114,23 @@ struct CommandBarView: View {
         // Block execution of dimmed (unavailable) commands
         if dimmedItemIds.contains(item.id) { return }
 
-        state.recordRecent(itemId: item.id)
-
         switch item.action {
         case .dispatch(let command):
+            state.recordRecent(itemId: item.id)
             onDismiss()
             dispatcher.dispatch(command)
 
         case .dispatchTargeted(let command, let target, let targetType):
+            state.recordRecent(itemId: item.id)
             onDismiss()
             dispatcher.dispatch(command, target: target, targetType: targetType)
 
         case .navigate(let level):
+            // Don't record intermediate navigation items as recent
             state.pushLevel(level)
 
         case .custom(let closure):
+            state.recordRecent(itemId: item.id)
             onDismiss()
             closure()
         }
