@@ -49,7 +49,6 @@ struct TerminalSplitContainer: View {
                         .padding(8)
                         .allowsHitTesting(false)
                 }
-                .padding(2)
             } else {
                 // Normal split rendering
                 SplitSubtreeView(
@@ -63,7 +62,6 @@ struct TerminalSplitContainer: View {
                     onDrop: onDrop
                 )
                 .id(node.structuralIdentity)  // Prevents view recreation on ratio changes
-                .padding(2)  // 2pt gap around all edges (background shows through)
             }
         } else {
             // Empty tree - show placeholder

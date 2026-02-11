@@ -28,4 +28,7 @@ extension Notification.Name {
     static let toggleSidebarRequested = Notification.Name("toggleSidebarRequested")
     static let filterSidebarRequested = Notification.Name("filterSidebarRequested")
     static let openNewTerminalRequested = Notification.Name("openNewTerminalRequested")
+
+    // Focus management
+    static let refocusTerminalRequested = Notification.Name("refocusTerminalRequested")
 }

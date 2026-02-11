@@ -19,11 +19,14 @@ class MainWindowController: NSWindowController {
         window.titleVisibility = .hidden
         window.minSize = NSSize(width: 800, height: 500)
 
-        // Center on screen
-        window.center()
-
-        // Restore frame if saved
+        // Restore saved frame, or center as fallback
         window.setFrameAutosaveName("MainWindow")
+        if !Self.isFrameOnScreen(window.frame) {
+            window.center()
+        } else {
+            // Clamp size if screen changed (e.g. external monitor disconnected)
+            Self.clampFrameToScreen(window)
+        }
 
         self.init(window: window)
 
@@ -42,10 +45,41 @@ class MainWindowController: NSWindowController {
         setupToolbar()
     }
 
+    // MARK: - Frame Validation
+
+    /// Check if at least the titlebar region of the frame is visible on any connected screen.
+    private static func isFrameOnScreen(_ frame: NSRect) -> Bool {
+        guard !NSScreen.screens.isEmpty else { return false }
+        let titleBarRect = NSRect(
+            x: frame.origin.x, y: frame.maxY - 40,
+            width: frame.width, height: 40
+        )
+        return NSScreen.screens.contains { $0.visibleFrame.intersects(titleBarRect) }
+    }
+
+    /// Shrink the window if it exceeds the current screen's visible area.
+    private static func clampFrameToScreen(_ window: NSWindow) {
+        guard let screen = window.screen ?? NSScreen.main else { return }
+        let screenFrame = screen.visibleFrame
+        var frame = window.frame
+        var changed = false
+        if frame.width > screenFrame.width {
+            frame.size.width = screenFrame.width
+            changed = true
+        }
+        if frame.height > screenFrame.height {
+            frame.size.height = screenFrame.height
+            changed = true
+        }
+        if changed {
+            window.setFrame(frame, display: true)
+        }
+    }
+
     // MARK: - Titlebar Accessory
 
     private func setupTitlebarAccessory() {
-        // Sidebar toggle button - fixed position next to traffic lights (standard macOS pattern)
+        // Sidebar toggle button
         let toggleButton = NSButton(frame: NSRect(x: 0, y: 0, width: 36, height: 28))
         toggleButton.image = NSImage(systemSymbolName: "sidebar.left", accessibilityDescription: "Toggle Sidebar")
         toggleButton.bezelStyle = .accessoryBarAction
@@ -54,8 +88,24 @@ class MainWindowController: NSWindowController {
         toggleButton.action = #selector(toggleSidebarAction)
         toggleButton.toolTip = "Toggle Sidebar (⌘\\)"
 
+        // Search button
+        let searchButton = NSButton(frame: NSRect(x: 0, y: 0, width: 36, height: 28))
+        searchButton.image = NSImage(systemSymbolName: "magnifyingglass", accessibilityDescription: "Filter Sidebar")
+        searchButton.bezelStyle = .accessoryBarAction
+        searchButton.isBordered = false
+        searchButton.target = self
+        searchButton.action = #selector(filterSidebarAction)
+        searchButton.toolTip = "Filter Sidebar (⌘⇧F)"
+
+        // Stack both buttons horizontally with standard titlebar spacing
+        let stack = NSStackView(views: [toggleButton, searchButton])
+        stack.orientation = .horizontal
+        stack.spacing = 8
+        stack.edgeInsets = NSEdgeInsets(top: 0, left: 4, bottom: 0, right: 0)
+        stack.frame = NSRect(x: 0, y: 0, width: 78, height: 28)
+
         let accessoryVC = NSTitlebarAccessoryViewController()
-        accessoryVC.view = toggleButton
+        accessoryVC.view = stack
         accessoryVC.layoutAttribute = .left
 
         window?.addTitlebarAccessoryViewController(accessoryVC)
@@ -81,6 +131,10 @@ class MainWindowController: NSWindowController {
 
     @objc private func toggleSidebarAction() {
         toggleSidebar()
+    }
+
+    @objc private func filterSidebarAction() {
+        NotificationCenter.default.post(name: .filterSidebarRequested, object: nil)
     }
 }
 
