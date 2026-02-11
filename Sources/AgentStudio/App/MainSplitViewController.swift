@@ -29,12 +29,15 @@ class MainSplitViewController: NSSplitViewController {
         fatalError("init(coder:) not supported")
     }
 
+    private static let sidebarCollapsedKey = "sidebarCollapsed"
+
     override func viewDidLoad() {
         super.viewDidLoad()
 
         // Configure split view
         splitView.isVertical = true
         splitView.dividerStyle = .thin
+        splitView.autosaveName = "MainSplitView"  // Persists divider position
 
         // Create sidebar (SwiftUI via NSHostingController)
         let sidebarView = SidebarViewWrapper(store: store)
@@ -61,8 +64,26 @@ class MainSplitViewController: NSSplitViewController {
         terminalItem.minimumThickness = 400
         addSplitViewItem(terminalItem)
 
+        // Restore sidebar collapsed state
+        if UserDefaults.standard.bool(forKey: Self.sidebarCollapsedKey) {
+            sidebarItem.isCollapsed = true
+        }
+
         // Set up notification observers
         setupNotificationObservers()
+
+        // Save sidebar state on app quit
+        NotificationCenter.default.addObserver(
+            self,
+            selector: #selector(saveSidebarState),
+            name: NSApplication.willTerminateNotification,
+            object: nil
+        )
+    }
+
+    @objc private func saveSidebarState() {
+        let isCollapsed = splitViewItems.first?.isCollapsed ?? false
+        UserDefaults.standard.set(isCollapsed, forKey: Self.sidebarCollapsedKey)
     }
 
     // MARK: - Notification Observers
@@ -106,6 +127,10 @@ class MainSplitViewController: NSSplitViewController {
 
     @objc private func handleToggleSidebar(_ notification: Notification) {
         toggleSidebar(nil)
+        // Save collapsed state after toggle completes
+        DispatchQueue.main.async { [weak self] in
+            self?.saveSidebarState()
+        }
     }
 
     @objc private func handleOpenWorktree(_ notification: Notification) {
