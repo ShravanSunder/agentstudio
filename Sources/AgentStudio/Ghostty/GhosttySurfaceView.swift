@@ -309,9 +309,13 @@ extension Ghostty {
 
             let mods = event.modifierFlags.intersection(.deviceIndependentFlagsMask)
 
-            // Cmd combinations: check if Ghostty has a keybind configured.
-            // If yes, let Ghostty handle it; otherwise pass to macOS.
+            // Cmd combinations: app menu shortcuts take priority over terminal keybindings.
             if mods.contains(.command) {
+                // Let the app's main menu handle matching key equivalents first
+                if let mainMenu = NSApp.mainMenu, mainMenu.performKeyEquivalent(with: event) {
+                    return true
+                }
+
                 guard let surface = surface else { return false }
 
                 var keyEvent = ghostty_input_key_s()

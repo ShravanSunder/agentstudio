@@ -175,6 +175,14 @@ class TerminalTabViewController: NSViewController, CommandHandler {
             object: nil
         )
 
+        // Listen for refocus terminal requests (e.g. after sidebar filter dismiss)
+        NotificationCenter.default.addObserver(
+            self,
+            selector: #selector(handleRefocusTerminal),
+            name: .refocusTerminalRequested,
+            object: nil
+        )
+
         // Ghostty split and tab action observers
         let ghosttyObservers: [(Notification.Name, Selector)] = [
             (.ghosttyNewSplit, #selector(handleGhosttyNewSplit(_:))),
@@ -590,6 +598,20 @@ class TerminalTabViewController: NSViewController, CommandHandler {
 
     @objc private func handleUndoCloseTab() {
         executor.undoCloseTab()
+    }
+
+    // MARK: - Refocus Terminal
+
+    @objc private func handleRefocusTerminal() {
+        guard let activeTabId = store.activeTabId,
+              let tab = store.tab(activeTabId),
+              let activeSessionId = tab.activeSessionId,
+              let terminal = viewRegistry.view(for: activeSessionId) else { return }
+        DispatchQueue.main.async { [weak terminal] in
+            guard let terminal = terminal, terminal.window != nil else { return }
+            terminal.window?.makeFirstResponder(terminal)
+            SurfaceManager.shared.syncFocus(activeSurfaceId: terminal.surfaceId)
+        }
     }
 
     // MARK: - Ghostty Target Resolution
