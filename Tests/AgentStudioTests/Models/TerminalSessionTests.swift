@@ -154,6 +154,83 @@ final class TerminalSessionTests: XCTestCase {
         XCTAssertEqual(decoded.residency, .pendingUndo(expiresAt: expiresAt))
     }
 
+    // MARK: - lastKnownCWD
+
+    func test_init_lastKnownCWD_defaultsToNil() {
+        // Act
+        let session = TerminalSession(source: .floating(workingDirectory: nil, title: nil))
+
+        // Assert
+        XCTAssertNil(session.lastKnownCWD)
+    }
+
+    func test_init_lastKnownCWD_acceptsExplicitValue() {
+        // Arrange
+        let cwd = URL(fileURLWithPath: "/Users/test/projects")
+
+        // Act
+        let session = TerminalSession(
+            source: .floating(workingDirectory: nil, title: nil),
+            lastKnownCWD: cwd
+        )
+
+        // Assert
+        XCTAssertEqual(session.lastKnownCWD, cwd)
+    }
+
+    func test_codable_lastKnownCWD_roundTrips() throws {
+        // Arrange
+        let cwd = URL(fileURLWithPath: "/tmp/workspace")
+        let session = TerminalSession(
+            source: .worktree(worktreeId: UUID(), repoId: UUID()),
+            lastKnownCWD: cwd
+        )
+
+        // Act
+        let data = try JSONEncoder().encode(session)
+        let decoded = try JSONDecoder().decode(TerminalSession.self, from: data)
+
+        // Assert
+        XCTAssertEqual(decoded.lastKnownCWD, cwd)
+    }
+
+    func test_codable_lastKnownCWD_nil_roundTrips() throws {
+        // Arrange
+        let session = TerminalSession(
+            source: .floating(workingDirectory: nil, title: nil),
+            lastKnownCWD: nil
+        )
+
+        // Act
+        let data = try JSONEncoder().encode(session)
+        let decoded = try JSONDecoder().decode(TerminalSession.self, from: data)
+
+        // Assert
+        XCTAssertNil(decoded.lastKnownCWD)
+    }
+
+    func test_codable_backwardCompat_missingLastKnownCWD_decodesAsNil() throws {
+        // Arrange — simulate old persisted JSON without lastKnownCWD field
+        let oldJson = """
+        {
+            "id": "11111111-1111-1111-1111-111111111111",
+            "source": {"floating": {"title": "Test"}},
+            "title": "Terminal",
+            "provider": "ghostty",
+            "lifetime": "persistent",
+            "residency": {"active": {}}
+        }
+        """
+        let data = oldJson.data(using: .utf8)!
+
+        // Act
+        let decoded = try JSONDecoder().decode(TerminalSession.self, from: data)
+
+        // Assert
+        XCTAssertNil(decoded.lastKnownCWD)
+        XCTAssertEqual(decoded.title, "Terminal")
+    }
+
     // MARK: - Hashable
 
     func test_hashable_sameFields_areEqual() {
