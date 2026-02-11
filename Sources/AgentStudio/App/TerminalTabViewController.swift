@@ -323,6 +323,10 @@ class TerminalTabViewController: NSViewController, CommandHandler {
         executor.openTerminal(for: worktree, in: repo)
     }
 
+    func openNewTerminal(for worktree: Worktree, in repo: Repo) {
+        executor.openNewTerminal(for: worktree, in: repo)
+    }
+
     func closeTerminal(for worktreeId: UUID) {
         // Find the tab containing this worktree
         guard let tab = store.activeTabs.first(where: { tab in
@@ -587,10 +591,13 @@ class TerminalTabViewController: NSViewController, CommandHandler {
         switch command {
         case .addRepo:
             NotificationCenter.default.post(name: .addRepoRequested, object: nil)
+        case .filterSidebar:
+            NotificationCenter.default.post(name: .filterSidebarRequested, object: nil)
         case .newTerminalInTab, .newFloatingTerminal,
              .removeRepo, .refreshWorktrees,
-             .toggleSidebar, .quickFind, .commandBar:
-            break // Handled elsewhere
+             .toggleSidebar, .quickFind, .commandBar,
+             .openNewTerminalInTab:
+            break // Handled elsewhere or require a target
         default:
             break
         }
@@ -619,7 +626,18 @@ class TerminalTabViewController: NSViewController, CommandHandler {
 
         if let action {
             dispatchAction(action)
-        } else {
+            return
+        }
+
+        // Targeted non-pane commands (e.g. from command bar)
+        switch (command, targetType) {
+        case (.openNewTerminalInTab, .worktree):
+            guard let worktree = store.worktree(target),
+                  let repo = store.repo(containing: target) else {
+                return
+            }
+            executor.openNewTerminal(for: worktree, in: repo)
+        default:
             execute(command)
         }
     }

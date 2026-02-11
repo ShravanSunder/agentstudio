@@ -444,6 +444,12 @@ final class ActionResolverTests: XCTestCase {
         XCTAssertNil(ActionResolver.resolve(
             command: .newFloatingTerminal, tabs: [tab], activeTabId: tabId
         ))
+        XCTAssertNil(ActionResolver.resolve(
+            command: .filterSidebar, tabs: [tab], activeTabId: tabId
+        ))
+        XCTAssertNil(ActionResolver.resolve(
+            command: .openNewTerminalInTab, tabs: [tab], activeTabId: tabId
+        ))
     }
 
     func test_resolve_noActivePaneId_returnsNil() {
