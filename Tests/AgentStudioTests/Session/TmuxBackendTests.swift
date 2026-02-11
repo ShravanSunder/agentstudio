@@ -167,7 +167,7 @@ final class TmuxBackendTests: XCTestCase {
         // Assert
         XCTAssertEqual(
             cmd,
-            "tmux -L agentstudio -f '/tmp/ghost.conf' new-session -A -s 'agentstudio--a1b2c3d4e5f6a7b8--00112233aabbccdd--aabbccdd11223344' -c '/tmp'"
+            "tmux -L agentstudio -f '/tmp/ghost.conf' new-session -A -s 'agentstudio--a1b2c3d4e5f6a7b8--00112233aabbccdd--aabbccdd11223344' -c '/tmp' \\; set-option -g mouse off \\; unbind-key -a \\; unbind-key -a -T root \\; unbind-key -a -T prefix \\; unbind-key -a -T copy-mode \\; unbind-key -a -T copy-mode-vi"
         )
     }
 
@@ -188,6 +188,12 @@ final class TmuxBackendTests: XCTestCase {
         // Assert
         XCTAssertTrue(cmd.contains("'/Users/test user/config path/ghost.conf'"))
         XCTAssertTrue(cmd.contains("'/Users/test user/my project'"))
+        XCTAssertTrue(cmd.contains("\\; set-option -g mouse off"))
+        XCTAssertTrue(cmd.contains("\\; unbind-key -a"))
+        XCTAssertTrue(cmd.contains("\\; unbind-key -a -T root"))
+        XCTAssertTrue(cmd.contains("\\; unbind-key -a -T prefix"))
+        XCTAssertTrue(cmd.contains("\\; unbind-key -a -T copy-mode"))
+        XCTAssertTrue(cmd.contains("\\; unbind-key -a -T copy-mode-vi"))
     }
 
     // MARK: - healthCheck

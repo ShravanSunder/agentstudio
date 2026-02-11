@@ -153,7 +153,7 @@ final class TmuxBackend: SessionBackend {
         let config = Self.shellEscape(ghostConfigPath)
         let cwd = Self.shellEscape(handle.workingDirectory.path)
         let sessionId = Self.shellEscape(handle.id)
-        return "tmux -L \(socket) -f \(config) new-session -A -s \(sessionId) -c \(cwd)"
+        return "tmux -L \(socket) -f \(config) new-session -A -s \(sessionId) -c \(cwd) \\; set-option -g mouse off \\; unbind-key -a \\; unbind-key -a -T root \\; unbind-key -a -T prefix \\; unbind-key -a -T copy-mode \\; unbind-key -a -T copy-mode-vi"
     }
 
     /// Single-quote a string for safe shell interpolation.

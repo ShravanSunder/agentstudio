@@ -212,7 +212,7 @@ final class TerminalViewCoordinator {
         let escapedCwd = TmuxBackend.shellEscape(worktree.path.path)
         let escapedName = TmuxBackend.shellEscape(tmuxSessionName)
         let tmuxBin = sessionConfig.tmuxPath ?? "tmux"
-        return "\(tmuxBin) -L \(TmuxBackend.socketName) -f \(escapedConfig) new-session -A -s \(escapedName) -c \(escapedCwd)"
+        return "\(tmuxBin) -L \(TmuxBackend.socketName) -f \(escapedConfig) new-session -A -s \(escapedName) -c \(escapedCwd) \\; set-option -g mouse off \\; unbind-key -a \\; unbind-key -a -T root \\; unbind-key -a -T prefix \\; unbind-key -a -T copy-mode \\; unbind-key -a -T copy-mode-vi"
     }
 
     private func getDefaultShell() -> String {
