@@ -22,6 +22,7 @@ enum AppCommand: String, CaseIterable {
     case equalizePanes
     case focusPaneLeft, focusPaneRight, focusPaneUp, focusPaneDown
     case focusNextPane, focusPrevPane
+    case toggleSplitZoom
 
     // Repo commands
     case addRepo, removeRepo, refreshWorktrees

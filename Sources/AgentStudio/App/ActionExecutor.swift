@@ -140,6 +140,15 @@ final class ActionExecutor {
         case .equalizePanes(let tabId):
             store.equalizePanes(tabId: tabId)
 
+        case .toggleSplitZoom(let tabId, let paneId):
+            store.toggleZoom(sessionId: paneId, inTab: tabId)
+
+        case .moveTab(let tabId, let delta):
+            store.moveTabByDelta(tabId: tabId, delta: delta)
+
+        case .resizePaneByDelta(let tabId, let paneId, let direction, let amount):
+            store.resizePaneByDelta(tabId: tabId, paneId: paneId, direction: direction, amount: amount)
+
         case .mergeTab(let sourceTabId, let targetTabId, let targetPaneId, let direction):
             executeMergeTab(
                 sourceTabId: sourceTabId,

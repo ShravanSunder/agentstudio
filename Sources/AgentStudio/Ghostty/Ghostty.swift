@@ -59,6 +59,18 @@ extension Ghostty {
         /// - object: The SurfaceView whose title changed
         /// - userInfo: ["title": String]
         static let didUpdateTitle = Foundation.Notification.Name("ghosttyDidUpdateTitle")
+
+        // Split action notifications
+        static let ghosttyNewSplit = Foundation.Notification.Name("ghosttyNewSplit")
+        static let ghosttyGotoSplit = Foundation.Notification.Name("ghosttyGotoSplit")
+        static let ghosttyResizeSplit = Foundation.Notification.Name("ghosttyResizeSplit")
+        static let ghosttyEqualizeSplits = Foundation.Notification.Name("ghosttyEqualizeSplits")
+        static let ghosttyToggleSplitZoom = Foundation.Notification.Name("ghosttyToggleSplitZoom")
+
+        // Tab action notifications
+        static let ghosttyCloseTab = Foundation.Notification.Name("ghosttyCloseTab")
+        static let ghosttyGotoTab = Foundation.Notification.Name("ghosttyGotoTab")
+        static let ghosttyMoveTab = Foundation.Notification.Name("ghosttyMoveTab")
     }
 }
 
@@ -202,9 +214,64 @@ extension Ghostty {
                 }
                 return true
 
+            // Split actions
+            case GHOSTTY_ACTION_NEW_SPLIT:
+                let direction = action.action.new_split
+                return postSurfaceNotification(target, name: .ghosttyNewSplit,
+                                               userInfo: ["direction": direction.rawValue])
+
+            case GHOSTTY_ACTION_GOTO_SPLIT:
+                let goto = action.action.goto_split
+                return postSurfaceNotification(target, name: .ghosttyGotoSplit,
+                                               userInfo: ["goto": goto.rawValue])
+
+            case GHOSTTY_ACTION_RESIZE_SPLIT:
+                let resize = action.action.resize_split
+                return postSurfaceNotification(target, name: .ghosttyResizeSplit,
+                                               userInfo: ["amount": resize.amount,
+                                                          "direction": resize.direction.rawValue])
+
+            case GHOSTTY_ACTION_EQUALIZE_SPLITS:
+                return postSurfaceNotification(target, name: .ghosttyEqualizeSplits)
+
+            case GHOSTTY_ACTION_TOGGLE_SPLIT_ZOOM:
+                return postSurfaceNotification(target, name: .ghosttyToggleSplitZoom)
+
+            // Tab actions
+            case GHOSTTY_ACTION_CLOSE_TAB:
+                let mode = action.action.close_tab_mode
+                return postSurfaceNotification(target, name: .ghosttyCloseTab,
+                                               userInfo: ["mode": mode.rawValue])
+
+            case GHOSTTY_ACTION_GOTO_TAB:
+                let gotoTab = action.action.goto_tab
+                return postSurfaceNotification(target, name: .ghosttyGotoTab,
+                                               userInfo: ["target": gotoTab.rawValue])
+
+            case GHOSTTY_ACTION_MOVE_TAB:
+                let moveTab = action.action.move_tab
+                return postSurfaceNotification(target, name: .ghosttyMoveTab,
+                                               userInfo: ["amount": moveTab.amount])
+
             default:
                 return false
             }
+        }
+
+        /// Post a notification targeting a surface. Extracts the SurfaceView from the target
+        /// and dispatches the notification on the main queue. Returns false if target is invalid.
+        private static func postSurfaceNotification(
+            _ target: ghostty_target_s,
+            name: Foundation.Notification.Name,
+            userInfo: [String: Any]? = nil
+        ) -> Bool {
+            guard target.tag == GHOSTTY_TARGET_SURFACE,
+                  let surface = target.target.surface,
+                  let surfaceView = surfaceView(from: surface) else { return false }
+            DispatchQueue.main.async {
+                NotificationCenter.default.post(name: name, object: surfaceView, userInfo: userInfo)
+            }
+            return true
         }
 
         static func readClipboard(_ userdata: UnsafeMutableRawPointer?, location: ghostty_clipboard_e, state: UnsafeMutableRawPointer?) {
@@ -265,4 +332,16 @@ extension Notification.Name {
     static let ghosttyNewWindow = Ghostty.Notification.ghosttyNewWindow
     static let ghosttyNewTab = Ghostty.Notification.ghosttyNewTab
     static let ghosttyCloseSurface = Ghostty.Notification.ghosttyCloseSurface
+
+    // Split action aliases
+    static let ghosttyNewSplit = Ghostty.Notification.ghosttyNewSplit
+    static let ghosttyGotoSplit = Ghostty.Notification.ghosttyGotoSplit
+    static let ghosttyResizeSplit = Ghostty.Notification.ghosttyResizeSplit
+    static let ghosttyEqualizeSplits = Ghostty.Notification.ghosttyEqualizeSplits
+    static let ghosttyToggleSplitZoom = Ghostty.Notification.ghosttyToggleSplitZoom
+
+    // Tab action aliases
+    static let ghosttyCloseTab = Ghostty.Notification.ghosttyCloseTab
+    static let ghosttyGotoTab = Ghostty.Notification.ghosttyGotoTab
+    static let ghosttyMoveTab = Ghostty.Notification.ghosttyMoveTab
 }

@@ -6,6 +6,28 @@ enum SplitNewDirection: Equatable, Codable, Hashable {
     case left, right, up, down
 }
 
+/// Direction for keyboard-driven pane resize.
+enum SplitResizeDirection: Equatable, Hashable, CustomStringConvertible {
+    case up, down, left, right
+
+    /// The Layout.SplitDirection axis this resize acts on.
+    var axis: Layout.SplitDirection {
+        switch self {
+        case .left, .right: return .horizontal
+        case .up, .down: return .vertical
+        }
+    }
+
+    var description: String {
+        switch self {
+        case .up: return "up"
+        case .down: return "down"
+        case .left: return "left"
+        case .right: return "right"
+        }
+    }
+}
+
 /// Identifies where a pane being inserted comes from.
 enum PaneSource: Equatable, Hashable {
     /// Moving an existing pane from its current location
@@ -37,6 +59,16 @@ enum PaneAction: Equatable, Hashable {
                     targetPaneId: UUID, direction: SplitNewDirection)
     case resizePane(tabId: UUID, splitId: UUID, ratio: Double)
     case equalizePanes(tabId: UUID)
+
+    /// Toggle zoom on a pane (display-only, transient).
+    case toggleSplitZoom(tabId: UUID, paneId: UUID)
+
+    /// Move a tab by a relative delta (positive=right, negative=left).
+    case moveTab(tabId: UUID, delta: Int)
+
+    /// Resize a pane by keyboard delta (Ghostty's resize_split action).
+    case resizePaneByDelta(tabId: UUID, paneId: UUID,
+                           direction: SplitResizeDirection, amount: UInt16)
 
     /// Move ALL panes from sourceTab into targetTab at targetPaneId position.
     /// Source tab is removed after merge.
