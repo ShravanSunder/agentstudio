@@ -324,12 +324,20 @@ class AppDelegate: NSObject, NSApplicationDelegate {
     }
 
     @objc private func showCommandBarCommands() {
-        guard let window = NSApp.keyWindow ?? mainWindowController?.window else { return }
+        appLogger.info("showCommandBarCommands triggered")
+        guard let window = NSApp.keyWindow ?? mainWindowController?.window else {
+            appLogger.warning("No window available for command bar (commands)")
+            return
+        }
         commandBarController.show(prefix: ">", parentWindow: window)
     }
 
     @objc private func showCommandBarPanes() {
-        guard let window = NSApp.keyWindow ?? mainWindowController?.window else { return }
+        appLogger.info("showCommandBarPanes triggered")
+        guard let window = NSApp.keyWindow ?? mainWindowController?.window else {
+            appLogger.warning("No window available for command bar (panes)")
+            return
+        }
         commandBarController.show(prefix: "@", parentWindow: window)
     }
 }

@@ -167,16 +167,16 @@ enum CommandBarSearch {
             bestScore = min(bestScore, result.score)
         }
 
-        // Keywords — weight 0.6
+        // Keywords — weight 0.6 (floor penalty 0.4 so keywords always rank below equivalent title matches)
         for keyword in item.keywords {
             if let result = fuzzyMatch(pattern: query, in: keyword) {
-                bestScore = min(bestScore, result.score * 0.6 + 0.4 * result.score)
+                bestScore = min(bestScore, result.score * 0.6 + 0.4)
             }
         }
 
-        // Subtitle — weight 0.8
+        // Subtitle — weight 0.8 (floor penalty 0.2)
         if let subtitle = item.subtitle, let result = fuzzyMatch(pattern: query, in: subtitle) {
-            bestScore = min(bestScore, result.score * 0.8 + 0.2 * result.score)
+            bestScore = min(bestScore, result.score * 0.8 + 0.2)
         }
 
         guard bestScore < threshold else { return nil }

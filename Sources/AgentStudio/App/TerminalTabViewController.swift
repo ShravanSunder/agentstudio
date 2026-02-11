@@ -205,6 +205,11 @@ class TerminalTabViewController: NSViewController, CommandHandler {
             return
         }
         dispatchAction(.selectTab(tabId: tabId))
+
+        // If a specific pane was requested, focus it within the tab
+        if let sessionId = userInfo["sessionId"] as? UUID {
+            dispatchAction(.focusPane(tabId: tabId, paneId: sessionId))
+        }
     }
 
     deinit {

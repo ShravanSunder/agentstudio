@@ -132,11 +132,11 @@ enum CommandBarDataSource {
                     groupPriority: Priority.panes,
                     keywords: keywordsForSession(session, store: store),
                     action: .custom {
-                        // Select the parent tab first, then focus the pane
+                        // Select the parent tab and focus the specific pane
                         NotificationCenter.default.post(
                             name: .selectTabById,
                             object: nil,
-                            userInfo: ["tabId": parentTabId]
+                            userInfo: ["tabId": parentTabId, "sessionId": sessionId]
                         )
                     }
                 ))
@@ -182,6 +182,7 @@ enum CommandBarDataSource {
                 let isActive = tab.activeSessionId == sessionId
 
                 let paneTabId = tab.id
+                let paneSessionId = session.id
                 items.append(CommandBarItem(
                     id: "pane-\(session.id.uuidString)",
                     title: session.title,
@@ -195,7 +196,7 @@ enum CommandBarDataSource {
                         NotificationCenter.default.post(
                             name: .selectTabById,
                             object: nil,
-                            userInfo: ["tabId": paneTabId]
+                            userInfo: ["tabId": paneTabId, "sessionId": paneSessionId]
                         )
                     }
                 ))
