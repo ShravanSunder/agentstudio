@@ -10,10 +10,14 @@ final class CommandBarPanel: NSPanel {
     /// The hosting view containing SwiftUI command bar content.
     private var hostingView: NSHostingView<AnyView>?
 
+    /// Called when the panel wants to dismiss (e.g., Escape key).
+    /// Set by the controller so dismissal always goes through the proper lifecycle.
+    var onDismiss: (() -> Void)?
+
     /// Visual effect backdrop for macOS blur.
     private let effectView: NSVisualEffectView = {
         let view = NSVisualEffectView()
-        view.material = .popover
+        view.material = .sidebar
         view.blendingMode = .behindWindow
         view.state = .active
         view.wantsLayer = true
@@ -122,8 +126,7 @@ final class CommandBarPanel: NSPanel {
     override var canBecomeMain: Bool { false }
 
     override func cancelOperation(_ sender: Any?) {
-        // Escape key — dismiss
-        parent?.removeChildWindow(self)
-        orderOut(nil)
+        // Escape key — route through controller so backdrop + state are cleaned up
+        onDismiss?()
     }
 }

@@ -69,6 +69,11 @@ final class CommandBarPanelController {
         let panel = CommandBarPanel()
         self.panel = panel
 
+        // Wire Escape key through controller dismiss lifecycle
+        panel.onDismiss = { [weak self] in
+            self?.dismiss()
+        }
+
         // Set SwiftUI content
         let contentView = CommandBarContentView(state: state, onDismiss: { [weak self] in
             self?.dismiss()
