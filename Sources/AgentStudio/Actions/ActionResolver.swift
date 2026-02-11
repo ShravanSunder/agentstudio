@@ -93,10 +93,16 @@ enum ActionResolver {
         case .splitAbove:
             return resolveSplit(.up, tabs: tabs, activeTabId: activeTabId)
 
+        case .toggleSplitZoom:
+            guard let (tab, paneId) = activeTabAndPane(tabs: tabs, activeTabId: activeTabId)
+            else { return nil }
+            return .toggleSplitZoom(tabId: tab.id, paneId: paneId)
+
         // Non-pane commands: not resolved to PaneAction
         case .addRepo, .removeRepo, .refreshWorktrees,
              .toggleSidebar, .newFloatingTerminal,
-             .newTerminalInTab, .quickFind, .commandBar:
+             .newTerminalInTab, .quickFind, .commandBar,
+             .filterSidebar, .openNewTerminalInTab:
             return nil
         }
     }

@@ -17,6 +17,7 @@ struct TerminalSplitContainer: View {
     let tree: TerminalSplitTree
     let tabId: UUID
     let activePaneId: UUID?
+    let zoomedSessionId: UUID?
     let action: (PaneAction) -> Void
     /// Called when a resize drag ends to persist the current split tree state.
     let onPersist: (() -> Void)?
@@ -25,18 +26,45 @@ struct TerminalSplitContainer: View {
 
     var body: some View {
         if let node = tree.root {
-            SplitSubtreeView(
-                node: node,
-                tabId: tabId,
-                isSplit: tree.isSplit,
-                activePaneId: activePaneId,
-                action: action,
-                onPersist: onPersist,
-                shouldAcceptDrop: shouldAcceptDrop,
-                onDrop: onDrop
-            )
-            .id(node.structuralIdentity)  // Prevents view recreation on ratio changes
-            .padding(2)  // 2pt gap around all edges (background shows through)
+            if let zoomedSessionId,
+               let zoomedView = tree.allViews.first(where: { $0.id == zoomedSessionId }) {
+                // Zoomed: render single pane at full size
+                ZStack(alignment: .topTrailing) {
+                    TerminalPaneLeaf(
+                        terminalView: zoomedView,
+                        tabId: tabId,
+                        isActive: true,
+                        isSplit: false,
+                        action: action,
+                        shouldAcceptDrop: shouldAcceptDrop,
+                        onDrop: onDrop
+                    )
+                    // Zoom indicator badge
+                    Text("ZOOM")
+                        .font(.system(size: 10, weight: .medium, design: .monospaced))
+                        .foregroundStyle(.white.opacity(0.7))
+                        .padding(.horizontal, 6)
+                        .padding(.vertical, 2)
+                        .background(Capsule().fill(.white.opacity(0.15)))
+                        .padding(8)
+                        .allowsHitTesting(false)
+                }
+                .padding(2)
+            } else {
+                // Normal split rendering
+                SplitSubtreeView(
+                    node: node,
+                    tabId: tabId,
+                    isSplit: tree.isSplit,
+                    activePaneId: activePaneId,
+                    action: action,
+                    onPersist: onPersist,
+                    shouldAcceptDrop: shouldAcceptDrop,
+                    onDrop: onDrop
+                )
+                .id(node.structuralIdentity)  // Prevents view recreation on ratio changes
+                .padding(2)  // 2pt gap around all edges (background shows through)
+            }
         } else {
             // Empty tree - show placeholder
             ContentUnavailableView(

@@ -202,6 +202,9 @@ class AppDelegate: NSObject, NSApplicationDelegate {
         let viewMenu = NSMenu(title: "View")
         viewMenu.addItem(NSMenuItem(title: "Toggle Sidebar", action: #selector(toggleSidebar), keyEquivalent: "s"))
         viewMenu.items.last?.keyEquivalentModifierMask = [.command, .shift]
+        let filterSidebarItem = NSMenuItem(title: "Filter Sidebar", action: #selector(filterSidebar), keyEquivalent: "f")
+        filterSidebarItem.keyEquivalentModifierMask = [.command, .shift]
+        viewMenu.addItem(filterSidebarItem)
         viewMenu.addItem(NSMenuItem.separator())
 
         // Command bar shortcuts
@@ -214,8 +217,9 @@ class AppDelegate: NSObject, NSApplicationDelegate {
         viewMenu.addItem(paneModeItem)
         viewMenu.addItem(NSMenuItem.separator())
 
+        // Full Screen uses ⌃⌘F (not ⇧⌘F) to avoid conflict with Filter Sidebar
         viewMenu.addItem(NSMenuItem(title: "Enter Full Screen", action: #selector(NSWindow.toggleFullScreen(_:)), keyEquivalent: "f"))
-        viewMenu.items.last?.keyEquivalentModifierMask = [.command, .shift]
+        viewMenu.items.last?.keyEquivalentModifierMask = [.command, .control]
 
         let viewMenuItem = NSMenuItem()
         viewMenuItem.submenu = viewMenu
@@ -293,6 +297,10 @@ class AppDelegate: NSObject, NSApplicationDelegate {
 
     @objc private func toggleSidebar() {
         mainWindowController?.toggleSidebar()
+    }
+
+    @objc private func filterSidebar() {
+        NotificationCenter.default.post(name: .filterSidebarRequested, object: nil)
     }
 
     @objc private func selectTab(_ sender: NSMenuItem) {

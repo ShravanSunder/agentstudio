@@ -28,6 +28,13 @@ class TerminalTabViewController: NSViewController, CommandHandler {
     /// Combine subscriptions for store observation
     private var cancellables = Set<AnyCancellable>()
 
+    /// Tracks the last successfully rendered tab to avoid redundant view rebuilds.
+    /// Compared by value (Tab is Hashable) so layout/activeSession changes trigger re-render
+    /// but unrelated store mutations (e.g. session title updates) are skipped.
+    /// Also tracks ViewRegistry epoch to detect view replacements (e.g. surface repair).
+    private var lastRenderedTab: Tab?
+    private var lastRenderedRegistryEpoch: Int = -1
+
     // MARK: - Init
 
     init(store: WorkspaceStore, executor: ActionExecutor,
@@ -167,6 +174,21 @@ class TerminalTabViewController: NSViewController, CommandHandler {
             name: .repairSurfaceRequested,
             object: nil
         )
+
+        // Ghostty split and tab action observers
+        let ghosttyObservers: [(Notification.Name, Selector)] = [
+            (.ghosttyNewSplit, #selector(handleGhosttyNewSplit(_:))),
+            (.ghosttyGotoSplit, #selector(handleGhosttyGotoSplit(_:))),
+            (.ghosttyResizeSplit, #selector(handleGhosttyResizeSplit(_:))),
+            (.ghosttyEqualizeSplits, #selector(handleGhosttyEqualizeSplits(_:))),
+            (.ghosttyToggleSplitZoom, #selector(handleGhosttyToggleSplitZoom(_:))),
+            (.ghosttyCloseTab, #selector(handleGhosttyCloseTab(_:))),
+            (.ghosttyGotoTab, #selector(handleGhosttyGotoTab(_:))),
+            (.ghosttyMoveTab, #selector(handleGhosttyMoveTab(_:))),
+        ]
+        for (name, selector) in ghosttyObservers {
+            NotificationCenter.default.addObserver(self, selector: selector, name: name, object: nil)
+        }
     }
 
     @objc private func handleRepairSurfaceRequested(_ notification: Notification) {
@@ -203,8 +225,21 @@ class TerminalTabViewController: NSViewController, CommandHandler {
 
     private func refreshDisplay() {
         updateEmptyState()
-        if let activeTabId = store.activeTabId {
-            showTab(activeTabId)
+        guard let activeTabId = store.activeTabId,
+              let tab = store.tab(activeTabId) else {
+            lastRenderedTab = nil
+            return
+        }
+
+        // Skip rebuild if the tab AND view registry haven't changed.
+        // Registry epoch catches view replacements (e.g. surface repair) that
+        // don't alter the Tab struct but do change the live view instances.
+        let currentEpoch = viewRegistry.epoch
+        guard tab != lastRenderedTab || currentEpoch != lastRenderedRegistryEpoch else { return }
+
+        if showTab(activeTabId) {
+            lastRenderedTab = tab
+            lastRenderedRegistryEpoch = currentEpoch
         }
     }
 
@@ -303,6 +338,10 @@ class TerminalTabViewController: NSViewController, CommandHandler {
         executor.openTerminal(for: worktree, in: repo)
     }
 
+    func openNewTerminal(for worktree: Worktree, in repo: Repo) {
+        executor.openNewTerminal(for: worktree, in: repo)
+    }
+
     func closeTerminal(for worktreeId: UUID) {
         // Find the tab containing this worktree
         guard let tab = store.activeTabs.first(where: { tab in
@@ -336,16 +375,17 @@ class TerminalTabViewController: NSViewController, CommandHandler {
 
     // MARK: - Tab Display
 
-    private func showTab(_ tabId: UUID) {
+    @discardableResult
+    private func showTab(_ tabId: UUID) -> Bool {
         guard let tab = store.tab(tabId) else {
             ghosttyLogger.warning("showTab: tab \(tabId) not found in store")
-            return
+            return false
         }
 
         // Build renderable tree from Layout + ViewRegistry
         guard let tree = viewRegistry.renderTree(for: tab.layout) else {
             ghosttyLogger.warning("Could not render tree for tab \(tabId) — missing views")
-            return
+            return false
         }
 
         ghosttyLogger.info("showTab: rendering tab \(tabId) with \(tab.sessionIds.count) session(s)")
@@ -355,6 +395,7 @@ class TerminalTabViewController: NSViewController, CommandHandler {
             tree: tree,
             tabId: tabId,
             activePaneId: tab.activeSessionId,
+            zoomedSessionId: tab.zoomedSessionId,
             action: { [weak self] action in
                 self?.dispatchAction(action)
             },
@@ -428,16 +469,18 @@ class TerminalTabViewController: NSViewController, CommandHandler {
         }
 
         // Focus the active pane on next run loop (allows SwiftUI layout to complete)
+        // Uses syncFocus to set ALL surfaces' focus state — only the active one gets true,
+        // all others get false. Mirrors Ghostty's syncFocusToSurfaceTree() pattern.
         if let activeSessionId = tab.activeSessionId,
            let terminal = viewRegistry.view(for: activeSessionId) {
             DispatchQueue.main.async { [weak terminal] in
                 guard let terminal = terminal, terminal.window != nil else { return }
                 terminal.window?.makeFirstResponder(terminal)
-                if let surfaceId = terminal.surfaceId {
-                    SurfaceManager.shared.setFocus(surfaceId, focused: true)
-                }
+                SurfaceManager.shared.syncFocus(activeSurfaceId: terminal.surfaceId)
             }
         }
+
+        return true
     }
 
     // MARK: - Validated Action Pipeline
@@ -549,6 +592,172 @@ class TerminalTabViewController: NSViewController, CommandHandler {
         executor.undoCloseTab()
     }
 
+    // MARK: - Ghostty Target Resolution
+
+    private func resolveGhosttyTarget(_ surfaceView: Ghostty.SurfaceView) -> (tabId: UUID, sessionId: UUID)? {
+        guard let surfaceId = SurfaceManager.shared.surfaceId(forView: surfaceView) else {
+            ghosttyLogger.warning("[TTVC] resolveGhosttyTarget: surfaceView not found in SurfaceManager")
+            return nil
+        }
+        guard let sessionId = SurfaceManager.shared.sessionId(for: surfaceId) else {
+            ghosttyLogger.warning("[TTVC] resolveGhosttyTarget: no session for surfaceId \(surfaceId)")
+            return nil
+        }
+        guard let tab = store.activeTabs.first(where: { $0.sessionIds.contains(sessionId) }) else {
+            ghosttyLogger.warning("[TTVC] resolveGhosttyTarget: no tab contains session \(sessionId)")
+            return nil
+        }
+        return (tab.id, sessionId)
+    }
+
+    // MARK: - Ghostty Split Action Handlers
+
+    @objc private func handleGhosttyNewSplit(_ notification: Notification) {
+        guard let surfaceView = notification.object as? Ghostty.SurfaceView,
+              let dirValue = notification.userInfo?["direction"] as? UInt32,
+              let direction = mapGhosttyNewSplitDirection(dirValue),
+              let (tabId, sessionId) = resolveGhosttyTarget(surfaceView) else { return }
+        dispatchAction(.insertPane(source: .newTerminal, targetTabId: tabId,
+                                   targetPaneId: sessionId, direction: direction))
+    }
+
+    @objc private func handleGhosttyGotoSplit(_ notification: Notification) {
+        guard let surfaceView = notification.object as? Ghostty.SurfaceView,
+              let gotoValue = notification.userInfo?["goto"] as? UInt32,
+              let command = mapGhosttyGotoSplit(gotoValue),
+              let (tabId, _) = resolveGhosttyTarget(surfaceView) else { return }
+        if let action = ActionResolver.resolve(command: command, tabs: store.activeTabs, activeTabId: tabId) {
+            dispatchAction(action)
+        }
+    }
+
+    @objc private func handleGhosttyResizeSplit(_ notification: Notification) {
+        guard let surfaceView = notification.object as? Ghostty.SurfaceView,
+              let amount = notification.userInfo?["amount"] as? UInt16,
+              let dirValue = notification.userInfo?["direction"] as? UInt32,
+              let direction = mapGhosttyResizeDirection(dirValue),
+              let (tabId, sessionId) = resolveGhosttyTarget(surfaceView) else { return }
+        dispatchAction(.resizePaneByDelta(tabId: tabId, paneId: sessionId,
+                                          direction: direction, amount: amount))
+    }
+
+    @objc private func handleGhosttyEqualizeSplits(_ notification: Notification) {
+        guard let surfaceView = notification.object as? Ghostty.SurfaceView,
+              let (tabId, _) = resolveGhosttyTarget(surfaceView) else { return }
+        dispatchAction(.equalizePanes(tabId: tabId))
+    }
+
+    @objc private func handleGhosttyToggleSplitZoom(_ notification: Notification) {
+        guard let surfaceView = notification.object as? Ghostty.SurfaceView,
+              let (tabId, sessionId) = resolveGhosttyTarget(surfaceView) else { return }
+        dispatchAction(.toggleSplitZoom(tabId: tabId, paneId: sessionId))
+    }
+
+    // MARK: - Ghostty Tab Action Handlers
+
+    @objc private func handleGhosttyCloseTab(_ notification: Notification) {
+        guard let surfaceView = notification.object as? Ghostty.SurfaceView,
+              let modeValue = notification.userInfo?["mode"] as? UInt32,
+              let (tabId, _) = resolveGhosttyTarget(surfaceView) else { return }
+        let tabs = store.activeTabs
+        switch modeValue {
+        case GHOSTTY_ACTION_CLOSE_TAB_MODE_THIS.rawValue:
+            dispatchAction(.closeTab(tabId: tabId))
+        case GHOSTTY_ACTION_CLOSE_TAB_MODE_OTHER.rawValue:
+            for tab in tabs where tab.id != tabId {
+                dispatchAction(.closeTab(tabId: tab.id))
+            }
+        case GHOSTTY_ACTION_CLOSE_TAB_MODE_RIGHT.rawValue:
+            guard let currentIndex = tabs.firstIndex(where: { $0.id == tabId }) else { return }
+            for tab in tabs[(currentIndex + 1)...] {
+                dispatchAction(.closeTab(tabId: tab.id))
+            }
+        default:
+            ghosttyLogger.warning("[TTVC] Unknown close_tab mode: \(modeValue)")
+        }
+    }
+
+    @objc private func handleGhosttyGotoTab(_ notification: Notification) {
+        guard let surfaceView = notification.object as? Ghostty.SurfaceView,
+              let targetValue = notification.userInfo?["target"] as? Int32,
+              let (tabId, _) = resolveGhosttyTarget(surfaceView) else { return }
+
+        let tabs = store.activeTabs
+        let action: PaneAction?
+
+        switch targetValue {
+        case GHOSTTY_GOTO_TAB_PREVIOUS.rawValue:
+            action = ActionResolver.resolve(command: .prevTab, tabs: tabs, activeTabId: tabId)
+        case GHOSTTY_GOTO_TAB_NEXT.rawValue:
+            action = ActionResolver.resolve(command: .nextTab, tabs: tabs, activeTabId: tabId)
+        case GHOSTTY_GOTO_TAB_LAST.rawValue:
+            if let lastTab = tabs.last {
+                action = .selectTab(tabId: lastTab.id)
+            } else {
+                action = nil
+            }
+        default:
+            // Ghostty uses 1-indexed tab numbers for positive values.
+            // Out-of-range snaps to the last tab (matches Ghostty's TerminalController).
+            guard targetValue >= 1 else {
+                ghosttyLogger.warning("[TTVC] goto_tab index \(targetValue) out of range")
+                action = nil
+                break
+            }
+            let index = min(Int(targetValue - 1), tabs.count - 1)
+            action = .selectTab(tabId: tabs[index].id)
+        }
+
+        if let action { dispatchAction(action) }
+    }
+
+    @objc private func handleGhosttyMoveTab(_ notification: Notification) {
+        guard let surfaceView = notification.object as? Ghostty.SurfaceView,
+              let amount = notification.userInfo?["amount"] as? Int,
+              let (tabId, _) = resolveGhosttyTarget(surfaceView) else { return }
+        dispatchAction(.moveTab(tabId: tabId, delta: amount))
+    }
+
+    // MARK: - Ghostty Enum Mapping
+
+    private func mapGhosttyNewSplitDirection(_ raw: UInt32) -> SplitNewDirection? {
+        switch raw {
+        case GHOSTTY_SPLIT_DIRECTION_RIGHT.rawValue: return .right
+        case GHOSTTY_SPLIT_DIRECTION_DOWN.rawValue:  return .down
+        case GHOSTTY_SPLIT_DIRECTION_LEFT.rawValue:  return .left
+        case GHOSTTY_SPLIT_DIRECTION_UP.rawValue:    return .up
+        default:
+            ghosttyLogger.warning("[TTVC] Unknown split direction: \(raw)")
+            return nil
+        }
+    }
+
+    private func mapGhosttyGotoSplit(_ raw: UInt32) -> AppCommand? {
+        switch raw {
+        case GHOSTTY_GOTO_SPLIT_PREVIOUS.rawValue: return .focusPrevPane
+        case GHOSTTY_GOTO_SPLIT_NEXT.rawValue:     return .focusNextPane
+        case GHOSTTY_GOTO_SPLIT_UP.rawValue:       return .focusPaneUp
+        case GHOSTTY_GOTO_SPLIT_DOWN.rawValue:     return .focusPaneDown
+        case GHOSTTY_GOTO_SPLIT_LEFT.rawValue:     return .focusPaneLeft
+        case GHOSTTY_GOTO_SPLIT_RIGHT.rawValue:    return .focusPaneRight
+        default:
+            ghosttyLogger.warning("[TTVC] Unknown goto_split value: \(raw)")
+            return nil
+        }
+    }
+
+    private func mapGhosttyResizeDirection(_ raw: UInt32) -> SplitResizeDirection? {
+        switch raw {
+        case GHOSTTY_RESIZE_SPLIT_UP.rawValue:    return .up
+        case GHOSTTY_RESIZE_SPLIT_DOWN.rawValue:  return .down
+        case GHOSTTY_RESIZE_SPLIT_LEFT.rawValue:  return .left
+        case GHOSTTY_RESIZE_SPLIT_RIGHT.rawValue: return .right
+        default:
+            ghosttyLogger.warning("[TTVC] Unknown resize direction: \(raw)")
+            return nil
+        }
+    }
+
     // MARK: - CommandHandler Conformance
 
     func execute(_ command: AppCommand) {
@@ -564,10 +773,13 @@ class TerminalTabViewController: NSViewController, CommandHandler {
         switch command {
         case .addRepo:
             NotificationCenter.default.post(name: .addRepoRequested, object: nil)
+        case .filterSidebar:
+            NotificationCenter.default.post(name: .filterSidebarRequested, object: nil)
         case .newTerminalInTab, .newFloatingTerminal,
              .removeRepo, .refreshWorktrees,
-             .toggleSidebar, .quickFind, .commandBar:
-            break // Handled elsewhere
+             .toggleSidebar, .quickFind, .commandBar,
+             .openNewTerminalInTab:
+            break // Handled elsewhere or require a target
         default:
             break
         }
@@ -596,7 +808,18 @@ class TerminalTabViewController: NSViewController, CommandHandler {
 
         if let action {
             dispatchAction(action)
-        } else {
+            return
+        }
+
+        // Targeted non-pane commands (e.g. from command bar)
+        switch (command, targetType) {
+        case (.openNewTerminalInTab, .worktree):
+            guard let worktree = store.worktree(target),
+                  let repo = store.repo(containing: target) else {
+                return
+            }
+            executor.openNewTerminal(for: worktree, in: repo)
+        default:
             execute(command)
         }
     }

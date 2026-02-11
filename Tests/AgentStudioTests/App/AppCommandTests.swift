@@ -290,4 +290,76 @@ final class AppCommandTests: XCTestCase {
         // Assert
         XCTAssertFalse(def?.requiresManagementMode ?? true)
     }
+
+    // MARK: - Sidebar Commands
+
+    @MainActor
+    func test_dispatcher_filterSidebar_registered() {
+        // Act
+        let def = CommandDispatcher.shared.definition(for: .filterSidebar)
+
+        // Assert
+        XCTAssertNotNil(def)
+        XCTAssertEqual(def?.label, "Filter Sidebar")
+        XCTAssertEqual(def?.icon, "magnifyingglass")
+    }
+
+    @MainActor
+    func test_dispatcher_filterSidebar_hasCorrectKeyBinding() {
+        // Act
+        let def = CommandDispatcher.shared.definition(for: .filterSidebar)
+
+        // Assert
+        XCTAssertEqual(def?.keyBinding?.key, "f")
+        XCTAssertTrue(def?.keyBinding?.modifiers.contains(.command) ?? false)
+        XCTAssertTrue(def?.keyBinding?.modifiers.contains(.shift) ?? false)
+    }
+
+    @MainActor
+    func test_dispatcher_openNewTerminalInTab_registered() {
+        // Act
+        let def = CommandDispatcher.shared.definition(for: .openNewTerminalInTab)
+
+        // Assert
+        XCTAssertNotNil(def)
+        XCTAssertEqual(def?.label, "Open New Terminal in Tab")
+        XCTAssertEqual(def?.icon, "terminal.fill")
+    }
+
+    @MainActor
+    func test_dispatcher_openNewTerminalInTab_appliesToWorktree() {
+        // Act
+        let def = CommandDispatcher.shared.definition(for: .openNewTerminalInTab)
+
+        // Assert
+        XCTAssertTrue(def?.appliesTo.contains(.worktree) ?? false)
+    }
+
+    @MainActor
+    func test_dispatcher_commands_forWorktree_includesOpenNewTerminal() {
+        // Act
+        let worktreeCommands = CommandDispatcher.shared.commands(for: .worktree)
+
+        // Assert
+        let commandNames = worktreeCommands.map(\.command)
+        XCTAssertTrue(commandNames.contains(.openNewTerminalInTab))
+    }
+
+    @MainActor
+    func test_dispatcher_filterSidebar_doesNotRequireManagementMode() {
+        // Act
+        let def = CommandDispatcher.shared.definition(for: .filterSidebar)
+
+        // Assert
+        XCTAssertFalse(def?.requiresManagementMode ?? true)
+    }
+
+    @MainActor
+    func test_dispatcher_filterSidebar_noAppliesTo() {
+        // Act — filterSidebar is a global command, not tied to an item type
+        let def = CommandDispatcher.shared.definition(for: .filterSidebar)
+
+        // Assert
+        XCTAssertTrue(def?.appliesTo.isEmpty ?? false)
+    }
 }
