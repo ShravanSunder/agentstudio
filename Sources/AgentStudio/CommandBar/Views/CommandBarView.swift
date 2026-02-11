@@ -111,6 +111,9 @@ struct CommandBarView: View {
     }
 
     private func executeItem(_ item: CommandBarItem) {
+        // Block execution of dimmed (unavailable) commands
+        if dimmedItemIds.contains(item.id) { return }
+
         state.recordRecent(itemId: item.id)
 
         switch item.action {

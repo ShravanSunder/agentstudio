@@ -285,42 +285,47 @@ enum CommandBarDataSource {
     ) -> CommandBarLevel {
         var items: [CommandBarItem] = []
 
-        for targetType in def.appliesTo.sorted(by: { $0.rawValue < $1.rawValue }) {
-            switch targetType {
-            case .tab:
-                items.append(contentsOf: store.activeTabs.enumerated().map { index, tab in
-                    let sessionTitles = tab.sessionIds.compactMap { store.session($0)?.title }
-                    let title = sessionTitles.count > 1
-                        ? sessionTitles.joined(separator: " | ")
-                        : sessionTitles.first ?? "Terminal"
-                    return CommandBarItem(
-                        id: "target-tab-\(tab.id.uuidString)",
-                        title: title,
-                        subtitle: "Tab \(index + 1)",
-                        icon: "rectangle.stack",
-                        group: "Tabs",
-                        groupPriority: 0,
-                        action: .dispatchTargeted(def.command, target: tab.id, targetType: .tab)
-                    )
-                })
-            case .pane, .floatingTerminal:
-                for (tabIndex, tab) in store.activeTabs.enumerated() {
-                    for sessionId in tab.sessionIds {
-                        guard let session = store.session(sessionId) else { continue }
-                        items.append(CommandBarItem(
-                            id: "target-pane-\(session.id.uuidString)",
-                            title: session.title,
-                            subtitle: "Tab \(tabIndex + 1)",
-                            icon: iconForSession(session),
-                            iconColor: session.agent?.color,
-                            group: "Panes",
-                            groupPriority: 1,
-                            action: .dispatchTargeted(def.command, target: session.id, targetType: targetType)
-                        ))
+        let appliesToTab = def.appliesTo.contains(.tab)
+        let appliesToPane = def.appliesTo.contains(.pane) || def.appliesTo.contains(.floatingTerminal)
+
+        if appliesToTab {
+            items.append(contentsOf: store.activeTabs.enumerated().map { index, tab in
+                let sessionTitles = tab.sessionIds.compactMap { store.session($0)?.title }
+                let title = sessionTitles.count > 1
+                    ? sessionTitles.joined(separator: " | ")
+                    : sessionTitles.first ?? "Terminal"
+                return CommandBarItem(
+                    id: "target-tab-\(tab.id.uuidString)",
+                    title: title,
+                    subtitle: "Tab \(index + 1)",
+                    icon: "rectangle.stack",
+                    group: "Tabs",
+                    groupPriority: 0,
+                    action: .dispatchTargeted(def.command, target: tab.id, targetType: .tab)
+                )
+            })
+        }
+
+        if appliesToPane {
+            for (tabIndex, tab) in store.activeTabs.enumerated() {
+                for sessionId in tab.sessionIds {
+                    guard let session = store.session(sessionId) else { continue }
+                    let targetType: SearchItemType
+                    switch session.source {
+                    case .floating: targetType = .floatingTerminal
+                    case .worktree: targetType = .pane
                     }
+                    items.append(CommandBarItem(
+                        id: "target-pane-\(session.id.uuidString)",
+                        title: session.title,
+                        subtitle: "Tab \(tabIndex + 1)",
+                        icon: iconForSession(session),
+                        iconColor: session.agent?.color,
+                        group: "Panes",
+                        groupPriority: 1,
+                        action: .dispatchTargeted(def.command, target: session.id, targetType: targetType)
+                    ))
                 }
-            default:
-                break
             }
         }
 
