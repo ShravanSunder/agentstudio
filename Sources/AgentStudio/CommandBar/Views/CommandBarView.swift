@@ -59,7 +59,7 @@ struct CommandBarView: View {
                 selectedHasChildren: selectedItem?.hasChildren ?? false
             )
         }
-        .frame(width: 540)
+        .frame(maxWidth: .infinity)
     }
 
     // MARK: - Data

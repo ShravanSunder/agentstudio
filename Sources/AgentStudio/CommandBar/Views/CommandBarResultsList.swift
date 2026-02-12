@@ -54,7 +54,7 @@ struct CommandBarResultsList: View {
                     }
                     .padding(.vertical, 4)
                 }
-                .frame(maxHeight: 340)
+                .frame(maxHeight: .infinity)
                 .onChange(of: selectedIndex) { _, newIndex in
                     if let itemId = itemId(at: newIndex) {
                         proxy.scrollTo(itemId, anchor: .center)

@@ -28,7 +28,7 @@ final class CommandBarPanel: NSPanel {
 
     init() {
         super.init(
-            contentRect: NSRect(x: 0, y: 0, width: 540, height: 100),
+            contentRect: NSRect(x: 0, y: 0, width: 600, height: 400),
             styleMask: [.titled, .fullSizeContentView, .nonactivatingPanel],
             backing: .buffered,
             defer: true
@@ -97,25 +97,30 @@ final class CommandBarPanel: NSPanel {
         let parentFrame = parentWindow.frame
         let contentFrame = parentWindow.contentLayoutRect
 
-        let panelWidth: CGFloat = 540
+        let panelWidth = min(600, contentFrame.width)
         let panelX = parentFrame.origin.x + (parentFrame.width - panelWidth) / 2
 
         // 20% down from top of content area
         let contentTop = parentFrame.origin.y + contentFrame.origin.y + contentFrame.height
         let panelY = contentTop - contentFrame.height * 0.2 - frame.height
 
-        setFrameOrigin(NSPoint(x: panelX, y: panelY))
+        var newFrame = frame
+        newFrame.size.width = panelWidth
+        newFrame.origin = NSPoint(x: panelX, y: panelY)
+        setFrame(newFrame, display: true)
     }
 
-    /// Update the panel height to fit content, capped at max.
-    func updateHeight(_ contentHeight: CGFloat, parentWindow: NSWindow) {
+    /// Size the panel to fill available space below the 20% vertical offset.
+    /// Uses 60% of content height, but never extends past the window bottom.
+    func updateHeight(parentWindow: NSWindow) {
         let contentFrame = parentWindow.contentLayoutRect
-        let maxHeight = min(420, contentFrame.height * 0.5)
-        let clampedHeight = min(contentHeight, maxHeight)
+        let offsetFraction: CGFloat = 0.2
+        let remainingBelow = contentFrame.height * (1 - offsetFraction)
+        let panelHeight = min(contentFrame.height * 0.6, remainingBelow)
 
         var frame = self.frame
-        let heightDelta = clampedHeight - frame.height
-        frame.size.height = clampedHeight
+        let heightDelta = panelHeight - frame.height
+        frame.size.height = panelHeight
         frame.origin.y -= heightDelta  // Grow downward
         setFrame(frame, display: true)
     }
