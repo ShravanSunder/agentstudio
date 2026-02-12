@@ -7,7 +7,6 @@ on:
 jobs:
   update-tap:
     runs-on: ubuntu-latest
-    if: "!github.event.release.prerelease"
 
     steps:
       - name: Get release info
@@ -34,7 +33,7 @@ jobs:
       - name: Update Cask
         run: |
           mkdir -p Casks
-          cat > Casks/agent-studio.rb << 'CASK_EOF'
+          cat > Casks/agent-studio.rb << CASK_EOF
           cask "agent-studio" do
             version "${{ steps.release.outputs.version }}"
             sha256 "${{ steps.sha.outputs.sha256 }}"
@@ -62,5 +61,6 @@ jobs:
           git config user.name "github-actions[bot]"
           git config user.email "github-actions[bot]@users.noreply.github.com"
           git add Casks/agent-studio.rb
+          git diff --cached --quiet && echo "No changes" && exit 0
           git commit -m "Update agent-studio to ${{ steps.release.outputs.version }}"
           git push
