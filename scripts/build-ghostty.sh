@@ -107,6 +107,13 @@ if [ -d "$TERMINFO_DEV" ]; then
     echo "✅ terminfo copied to app bundle"
 fi
 
+# Copy tmux config (ghost.conf) to app bundle
+TMUX_RES_DEV="$PROJECT_ROOT/Sources/AgentStudio/Resources/tmux"
+if [ -d "$TMUX_RES_DEV" ]; then
+    cp -R "$TMUX_RES_DEV" "$APP_DIR/Resources/"
+    echo "✅ tmux config copied to app bundle"
+fi
+
 # Copy ghostty resources (shell-integration) to app bundle
 GHOSTTY_RES_DEV="$PROJECT_ROOT/Sources/AgentStudio/Resources/ghostty"
 if [ -d "$GHOSTTY_RES_DEV" ]; then
