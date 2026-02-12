@@ -213,6 +213,11 @@ class TerminalTabViewController: NSViewController, CommandHandler {
             return
         }
         dispatchAction(.selectTab(tabId: tabId))
+
+        // If a specific pane was requested, focus it within the tab
+        if let sessionId = userInfo["sessionId"] as? UUID {
+            dispatchAction(.focusPane(tabId: tabId, paneId: sessionId))
+        }
     }
 
     deinit {
@@ -815,11 +820,11 @@ class TerminalTabViewController: NSViewController, CommandHandler {
                 return .closeTab(tabId: target)
             case (.breakUpTab, .tab):
                 return .breakUpTab(tabId: target)
-            case (.closePane, .pane):
+            case (.closePane, .pane), (.closePane, .floatingTerminal):
                 guard let tab = store.activeTabs.first(where: { $0.sessionIds.contains(target) })
                 else { return nil }
                 return .closePane(tabId: tab.id, paneId: target)
-            case (.extractPaneToTab, .pane):
+            case (.extractPaneToTab, .pane), (.extractPaneToTab, .floatingTerminal):
                 guard let tab = store.activeTabs.first(where: { $0.sessionIds.contains(target) })
                 else { return nil }
                 return .extractPaneToTab(tabId: tab.id, paneId: target)
