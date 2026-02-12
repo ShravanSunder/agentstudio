@@ -10,7 +10,7 @@ final class CommandBarPanelControllerTests: XCTestCase {
 
     override func setUp() {
         super.setUp()
-        controller = CommandBarPanelController(store: WorkspaceStore())
+        controller = CommandBarPanelController(store: WorkspaceStore(), dispatcher: .shared)
         // Offscreen window — never displayed, lightweight test double
         window = NSWindow(
             contentRect: NSRect(x: 0, y: 0, width: 800, height: 600),

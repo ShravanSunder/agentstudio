@@ -254,7 +254,8 @@ enum CommandBarDataSource {
                 groupPriority: groupPriority,
                 keywords: commandKeywords(for: def),
                 hasChildren: true,
-                action: .navigate(level)
+                action: .navigate(level),
+                command: def.command
             )
         }
 
@@ -266,7 +267,8 @@ enum CommandBarDataSource {
             group: groupName,
             groupPriority: groupPriority,
             keywords: commandKeywords(for: def),
-            action: .dispatch(def.command)
+            action: .dispatch(def.command),
+            command: def.command
         )
     }
 

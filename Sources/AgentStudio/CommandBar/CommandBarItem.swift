@@ -39,6 +39,8 @@ struct CommandBarItem: Identifiable {
     let keywords: [String]
     let hasChildren: Bool
     let action: CommandBarAction
+    /// The underlying command, if any. Used for dimming navigate items whose command is unavailable.
+    let command: AppCommand?
 
     init(
         id: String,
@@ -51,7 +53,8 @@ struct CommandBarItem: Identifiable {
         groupPriority: Int,
         keywords: [String] = [],
         hasChildren: Bool = false,
-        action: CommandBarAction
+        action: CommandBarAction,
+        command: AppCommand? = nil
     ) {
         self.id = id
         self.title = title
@@ -64,6 +67,7 @@ struct CommandBarItem: Identifiable {
         self.keywords = keywords
         self.hasChildren = hasChildren
         self.action = action
+        self.command = command
     }
 }
 

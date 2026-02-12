@@ -30,7 +30,7 @@ final class CommandBarPanelController {
 
     // MARK: - Initialization
 
-    init(store: WorkspaceStore, dispatcher: CommandDispatcher = .shared) {
+    init(store: WorkspaceStore, dispatcher: CommandDispatcher) {
         self.store = store
         self.dispatcher = dispatcher
         state.loadRecents()
