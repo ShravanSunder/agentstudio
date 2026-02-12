@@ -31,14 +31,18 @@ TerminalSession
 ├── agent: AgentType?           ← claude, codex, gemini, aider, custom
 ├── provider: SessionProvider   ← .ghostty (direct) or .tmux (persistent)
 ├── lifetime: SessionLifetime   ← .persistent (saved) or .temporary (ephemeral)
-└── residency: SessionResidency ← .active, .pendingUndo(expiresAt), .backgrounded
+├── residency: SessionResidency ← .active, .pendingUndo(expiresAt), .backgrounded
+└── lastKnownCWD: URL?          ← last shell-reported working directory (via OSC 7)
 ```
+
+**`lastKnownCWD`** is the last working directory reported by the terminal shell via OSC 7. It is distinct from `source` (which holds the *initial* CWD from worktree/floating config). Updated live as the user `cd`s, persisted via Codable for display on restore before the next OSC 7 fires. See [Surface Architecture — CWD Propagation](ghostty_surface_architecture.md#cwd-propagation-architecture) for the full pipeline.
 
 ---
 
 ## Session Lifecycle States
 
 ### Residency (Persisted)
+
 
 `SessionResidency` tracks where a session lives in the application lifecycle. This prevents false-positive orphan detection — a session in `pendingUndo` is not an orphan.
 

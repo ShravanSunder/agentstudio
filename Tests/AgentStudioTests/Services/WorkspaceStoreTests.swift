@@ -135,6 +135,58 @@ final class WorkspaceStoreTests: XCTestCase {
         XCTAssertEqual(store.sessions[0].title, "New Title")
     }
 
+    func test_updateSessionCWD_updatesLastKnownCWD() {
+        // Arrange
+        let session = store.createSession(
+            source: .floating(workingDirectory: nil, title: nil)
+        )
+        let cwd = URL(fileURLWithPath: "/tmp/workspace")
+
+        // Act
+        store.updateSessionCWD(session.id, cwd: cwd)
+
+        // Assert
+        XCTAssertEqual(store.sessions[0].lastKnownCWD, cwd)
+    }
+
+    func test_updateSessionCWD_nilClearsValue() {
+        // Arrange
+        let session = store.createSession(
+            source: .floating(workingDirectory: nil, title: nil)
+        )
+        store.updateSessionCWD(session.id, cwd: URL(fileURLWithPath: "/tmp"))
+
+        // Act
+        store.updateSessionCWD(session.id, cwd: nil)
+
+        // Assert
+        XCTAssertNil(store.sessions[0].lastKnownCWD)
+    }
+
+    func test_updateSessionCWD_sameCWD_noOpDoesNotMarkDirty() {
+        // Arrange
+        let session = store.createSession(
+            source: .floating(workingDirectory: nil, title: nil)
+        )
+        let cwd = URL(fileURLWithPath: "/tmp")
+        store.updateSessionCWD(session.id, cwd: cwd)
+        _ = store.flush()  // Clear dirty flag
+
+        // Act — update with same CWD
+        store.updateSessionCWD(session.id, cwd: cwd)
+
+        // Assert — should not be dirty (dedup guard)
+        XCTAssertFalse(store.isDirty)
+    }
+
+    func test_updateSessionCWD_unknownSession_doesNotCrash() {
+        // Act — should just log warning, not crash
+        store.updateSessionCWD(UUID(), cwd: URL(fileURLWithPath: "/tmp"))
+
+        // Assert — no crash, sessions unchanged
+        XCTAssertTrue(store.sessions.isEmpty)
+    }
+
     func test_updateSessionAgent() {
         // Arrange
         let session = store.createSession(

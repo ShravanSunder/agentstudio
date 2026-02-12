@@ -171,6 +171,16 @@ final class WorkspaceStore: ObservableObject {
         markDirty()
     }
 
+    func updateSessionCWD(_ sessionId: UUID, cwd: URL?) {
+        guard let index = sessions.firstIndex(where: { $0.id == sessionId }) else {
+            storeLogger.warning("updateSessionCWD: session \(sessionId) not found")
+            return
+        }
+        guard sessions[index].lastKnownCWD != cwd else { return }
+        sessions[index].lastKnownCWD = cwd
+        markDirty()
+    }
+
     func updateSessionAgent(_ sessionId: UUID, agent: AgentType?) {
         guard let index = sessions.firstIndex(where: { $0.id == sessionId }) else {
             storeLogger.warning("updateSessionAgent: session \(sessionId) not found")

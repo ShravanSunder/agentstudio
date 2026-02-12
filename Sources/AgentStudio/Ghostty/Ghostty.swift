@@ -60,6 +60,15 @@ extension Ghostty {
         /// - userInfo: ["title": String]
         static let didUpdateTitle = Foundation.Notification.Name("ghosttyDidUpdateTitle")
 
+        /// Posted when a surface's working directory changes (OSC 7)
+        /// - object: The SurfaceView whose CWD changed
+        /// - userInfo: ["pwd": String] (nil userInfo when pwd cleared)
+        static let didUpdateWorkingDirectory = Foundation.Notification.Name("ghosttyDidUpdateWorkingDirectory")
+
+        /// Posted by SurfaceManager when a managed surface's CWD changes
+        /// - userInfo: ["surfaceId": UUID, "url": URL] (url absent when cleared)
+        static let surfaceCWDChanged = Foundation.Notification.Name("ghosttySurfaceCWDChanged")
+
         // Split action notifications
         static let ghosttyNewSplit = Foundation.Notification.Name("ghosttyNewSplit")
         static let ghosttyGotoSplit = Foundation.Notification.Name("ghosttyGotoSplit")
@@ -214,6 +223,17 @@ extension Ghostty {
                 }
                 return true
 
+            case GHOSTTY_ACTION_PWD:
+                if target.tag == GHOSTTY_TARGET_SURFACE, let surface = target.target.surface {
+                    if let surfaceView = surfaceView(from: surface) {
+                        let pwd = action.action.pwd.pwd.map { String(cString: $0) }
+                        DispatchQueue.main.async {
+                            surfaceView.pwdDidChange(pwd)
+                        }
+                    }
+                }
+                return true
+
             // Split actions
             case GHOSTTY_ACTION_NEW_SPLIT:
                 let direction = action.action.new_split
@@ -332,6 +352,10 @@ extension Notification.Name {
     static let ghosttyNewWindow = Ghostty.Notification.ghosttyNewWindow
     static let ghosttyNewTab = Ghostty.Notification.ghosttyNewTab
     static let ghosttyCloseSurface = Ghostty.Notification.ghosttyCloseSurface
+
+    // CWD notification aliases
+    static let didUpdateWorkingDirectory = Ghostty.Notification.didUpdateWorkingDirectory
+    static let surfaceCWDChanged = Ghostty.Notification.surfaceCWDChanged
 
     // Split action aliases
     static let ghosttyNewSplit = Ghostty.Notification.ghosttyNewSplit
