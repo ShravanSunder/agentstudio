@@ -30,7 +30,7 @@ final class CommandBarPanelController {
 
     // MARK: - Initialization
 
-    init(store: WorkspaceStore, dispatcher: CommandDispatcher = .shared) {
+    init(store: WorkspaceStore, dispatcher: CommandDispatcher) {
         self.store = store
         self.dispatcher = dispatcher
         state.loadRecents()
@@ -99,7 +99,7 @@ final class CommandBarPanelController {
         panel.positionRelativeTo(parentWindow: parentWindow)
 
         // Initial size — will be updated by content
-        panel.updateHeight(300, parentWindow: parentWindow)
+        panel.updateHeight(parentWindow: parentWindow)
 
         // Show backdrop
         showBackdrop(on: parentWindow)

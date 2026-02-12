@@ -59,7 +59,7 @@ struct CommandBarView: View {
                 selectedHasChildren: selectedItem?.hasChildren ?? false
             )
         }
-        .frame(width: 540)
+        .frame(maxWidth: .infinity)
     }
 
     // MARK: - Data
@@ -93,10 +93,11 @@ struct CommandBarView: View {
     }
 
     /// IDs of items that should be dimmed (command not currently dispatchable).
+    /// Checks both direct dispatch and navigate (drill-in) items via the `command` property.
     private var dimmedItemIds: Set<String> {
         var ids = Set<String>()
         for item in filteredItems {
-            if case .dispatch(let command) = item.action, !dispatcher.canDispatch(command) {
+            if let command = item.command, !dispatcher.canDispatch(command) {
                 ids.insert(item.id)
             }
         }

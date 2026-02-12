@@ -20,7 +20,7 @@ class MainWindowController: NSWindowController, NSWindowDelegate {
         window.title = "AgentStudio"
         window.titlebarAppearsTransparent = true
         window.titleVisibility = .hidden
-        window.minSize = NSSize(width: 800, height: 500)
+        window.minSize = NSSize(width: 720, height: 600)
 
         // Restore saved frame, or center as fallback
         if let frameString = UserDefaults.standard.string(forKey: Self.windowFrameKey) {

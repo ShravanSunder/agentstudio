@@ -44,7 +44,7 @@ class AppDelegate: NSObject, NSApplicationDelegate {
         coordinator = TerminalViewCoordinator(store: store, viewRegistry: viewRegistry, runtime: runtime)
         executor = ActionExecutor(store: store, viewRegistry: viewRegistry, coordinator: coordinator)
         tabBarAdapter = TabBarAdapter(store: store)
-        commandBarController = CommandBarPanelController(store: store)
+        commandBarController = CommandBarPanelController(store: store, dispatcher: .shared)
 
         // Restore terminal views for persisted sessions
         coordinator.restoreAllViews()
