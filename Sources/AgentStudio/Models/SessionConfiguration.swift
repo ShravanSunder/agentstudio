@@ -1,4 +1,7 @@
 import Foundation
+import os.log
+
+private let configLogger = Logger(subsystem: "com.agentstudio", category: "SessionConfiguration")
 
 /// Configuration for the session restore feature.
 /// Reads from environment variables with sensible defaults.
@@ -158,8 +161,13 @@ struct SessionConfiguration: Sendable {
         // 5. Relative fallback (only works when launched from project root)
         candidates.append("Sources/AgentStudio/Resources/tmux/ghost.conf")
 
-        let sourcePath = candidates.first(where: { FileManager.default.fileExists(atPath: $0) })
-            ?? candidates.last!
+        let sourcePath: String
+        if let found = candidates.first(where: { FileManager.default.fileExists(atPath: $0) }) {
+            sourcePath = found
+        } else {
+            configLogger.error("ghost.conf not found in any search path: \(candidates, privacy: .public)")
+            sourcePath = candidates.last!
+        }
 
         // Copy to ~/.agentstudio/tmux/ghost.conf so the tmux server's command
         // line doesn't contain "AgentStudio". Without this, `pkill -f AgentStudio`
