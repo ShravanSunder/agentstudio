@@ -1,5 +1,8 @@
 import AppKit
+import os.log
 import SwiftUI
+
+private let sidebarLogger = Logger(subsystem: "com.agentstudio", category: "Sidebar")
 
 /// Main split view controller with sidebar and terminal content area
 class MainSplitViewController: NSSplitViewController {
@@ -26,12 +29,15 @@ class MainSplitViewController: NSSplitViewController {
         fatalError("init(coder:) not supported")
     }
 
+    private static let sidebarCollapsedKey = "sidebarCollapsed"
+
     override func viewDidLoad() {
         super.viewDidLoad()
 
         // Configure split view
         splitView.isVertical = true
         splitView.dividerStyle = .thin
+        splitView.autosaveName = "MainSplitView"  // Persists divider position
 
         // Create sidebar (SwiftUI via NSHostingController)
         let sidebarView = SidebarViewWrapper(store: store)
@@ -58,8 +64,26 @@ class MainSplitViewController: NSSplitViewController {
         terminalItem.minimumThickness = 400
         addSplitViewItem(terminalItem)
 
+        // Restore sidebar collapsed state
+        if UserDefaults.standard.bool(forKey: Self.sidebarCollapsedKey) {
+            sidebarItem.isCollapsed = true
+        }
+
         // Set up notification observers
         setupNotificationObservers()
+
+        // Save sidebar state on app quit
+        NotificationCenter.default.addObserver(
+            self,
+            selector: #selector(saveSidebarState),
+            name: NSApplication.willTerminateNotification,
+            object: nil
+        )
+    }
+
+    @objc private func saveSidebarState() {
+        let isCollapsed = splitViewItems.first?.isCollapsed ?? false
+        UserDefaults.standard.set(isCollapsed, forKey: Self.sidebarCollapsedKey)
     }
 
     // MARK: - Notification Observers
@@ -92,20 +116,43 @@ class MainSplitViewController: NSSplitViewController {
             name: .toggleSidebarRequested,
             object: nil
         )
+
+        NotificationCenter.default.addObserver(
+            self,
+            selector: #selector(handleOpenNewTerminal(_:)),
+            name: .openNewTerminalRequested,
+            object: nil
+        )
     }
 
     @objc private func handleToggleSidebar(_ notification: Notification) {
         toggleSidebar(nil)
+        // Save collapsed state after toggle completes
+        DispatchQueue.main.async { [weak self] in
+            self?.saveSidebarState()
+        }
     }
 
     @objc private func handleOpenWorktree(_ notification: Notification) {
         guard let userInfo = notification.userInfo,
               let worktree = userInfo["worktree"] as? Worktree,
               let repo = userInfo["repo"] as? Repo else {
+            sidebarLogger.error("Invalid openWorktreeRequested notification payload")
             return
         }
 
         terminalTabViewController?.openTerminal(for: worktree, in: repo)
+    }
+
+    @objc private func handleOpenNewTerminal(_ notification: Notification) {
+        guard let userInfo = notification.userInfo,
+              let worktree = userInfo["worktree"] as? Worktree,
+              let repo = userInfo["repo"] as? Repo else {
+            sidebarLogger.error("Invalid openNewTerminalRequested notification payload")
+            return
+        }
+
+        terminalTabViewController?.openNewTerminal(for: worktree, in: repo)
     }
 
     @objc private func handleCloseTab(_ notification: Notification) {
@@ -150,23 +197,114 @@ struct SidebarViewWrapper: View {
 /// The actual sidebar content
 struct SidebarContentView: View {
     @ObservedObject var store: WorkspaceStore
-    @State private var expandedRepos: Set<UUID> = []
+    @State private var expandedRepos: Set<UUID> = Self.loadExpandedRepos()
+    @State private var filterText: String = ""
+    @State private var debouncedQuery: String = ""
+    @State private var isFilterVisible: Bool = false
+    @FocusState private var isFilterFocused: Bool
+
+    private static let filterDebounceMilliseconds = 25
+    private static let expandedReposKey = "expandedRepos"
+
+    private static func loadExpandedRepos() -> Set<UUID> {
+        guard let strings = UserDefaults.standard.stringArray(forKey: expandedReposKey) else { return [] }
+        return Set(strings.compactMap { UUID(uuidString: $0) })
+    }
+
+    private func saveExpandedRepos() {
+        let strings = expandedRepos.map(\.uuidString)
+        UserDefaults.standard.set(strings, forKey: Self.expandedReposKey)
+    }
+
+    private var filteredRepos: [Repo] {
+        SidebarFilter.filter(repos: store.repos, query: debouncedQuery)
+    }
+
+    /// Whether a filter is actively narrowing results.
+    private var isFiltering: Bool {
+        !debouncedQuery.isEmpty
+    }
 
     var body: some View {
         VStack(spacing: 0) {
-            // Main list content (toggle button is now in titlebar)
-            List {
-                Section("Repos") {
-                    ForEach(store.repos) { repo in
+            // Search / filter bar (toggle-able)
+            if isFilterVisible {
+                HStack(spacing: 6) {
+                    Image(systemName: "magnifyingglass")
+                        .font(.system(size: 11))
+                        .foregroundStyle(.tertiary)
+
+                    TextField("Filter...", text: $filterText)
+                        .textFieldStyle(.plain)
+                        .font(.system(size: 12))
+                        .foregroundStyle(.primary)
+                        .focused($isFilterFocused)
+                        .onExitCommand {
+                            hideFilter()
+                        }
+                        .onKeyPress(.downArrow) {
+                            // Transfer focus from filter to the list for keyboard navigation
+                            isFilterFocused = false
+                            return .handled
+                        }
+
+                    if !filterText.isEmpty {
+                        Button {
+                            filterText = ""
+                        } label: {
+                            Image(systemName: "xmark.circle.fill")
+                                .font(.system(size: 12))
+                                .foregroundStyle(.secondary)
+                        }
+                        .buttonStyle(.plain)
+                        .help("Clear filter")
+                        .transition(.opacity.animation(.easeOut(duration: 0.1)))
+                    }
+                }
+                .padding(.horizontal, 10)
+                .padding(.vertical, 6)
+                .background(
+                    RoundedRectangle(cornerRadius: 8)
+                        .fill(Color.primary.opacity(0.06))
+                )
+                .overlay(
+                    RoundedRectangle(cornerRadius: 8)
+                        .strokeBorder(Color.primary.opacity(0.1), lineWidth: 1)
+                )
+                .padding(.horizontal, 8)
+                .padding(.vertical, 6)
+                .transition(.move(edge: .top).combined(with: .opacity))
+            }
+
+            // Main list content
+            if isFiltering && filteredRepos.isEmpty {
+                VStack(spacing: 8) {
+                    Image(systemName: "magnifyingglass")
+                        .font(.system(size: 24))
+                        .foregroundStyle(.secondary)
+                        .opacity(0.5)
+
+                    Text("No results")
+                        .font(.system(size: 12, weight: .medium))
+                        .foregroundStyle(.secondary)
+                }
+                .frame(maxWidth: .infinity, maxHeight: .infinity)
+                .transition(.opacity.animation(.easeOut(duration: 0.12)))
+            } else {
+                List {
+                    ForEach(filteredRepos) { repo in
                         DisclosureGroup(
                             isExpanded: Binding(
-                                get: { expandedRepos.contains(repo.id) },
+                                get: {
+                                    isFiltering || expandedRepos.contains(repo.id)
+                                },
                                 set: { isExpanded in
                                     if isExpanded {
                                         expandedRepos.insert(repo.id)
                                     } else {
                                         expandedRepos.remove(repo.id)
                                     }
+                                    saveExpandedRepos()
                                 }
                             )
                         ) {
@@ -175,16 +313,22 @@ struct SidebarContentView: View {
                                     worktree: worktree,
                                     onOpen: {
                                         openWorktree(worktree, in: repo)
+                                    },
+                                    onOpenNew: {
+                                        openNewTerminal(worktree, in: repo)
                                     }
                                 )
+                                .listRowInsets(EdgeInsets(top: 0, leading: 2, bottom: 0, trailing: 0))
                             }
                         } label: {
                             RepoRowView(repo: repo)
                         }
+                        .listRowInsets(EdgeInsets(top: 0, leading: 2, bottom: 0, trailing: 0))
                     }
                 }
+                .listStyle(.sidebar)
+                .transition(.opacity.animation(.easeOut(duration: 0.12)))
             }
-            .listStyle(.sidebar)
 
         }
         .frame(minWidth: 200)
@@ -197,6 +341,54 @@ struct SidebarContentView: View {
         .onReceive(NotificationCenter.default.publisher(for: .refreshWorktreesRequested)) { _ in
             refreshWorktrees()
         }
+        .onReceive(NotificationCenter.default.publisher(for: .filterSidebarRequested)) { _ in
+            withAnimation(.easeOut(duration: 0.15)) {
+                if isFilterVisible {
+                    hideFilter()
+                } else {
+                    isFilterVisible = true
+                }
+            }
+            // Focus after animation starts
+            DispatchQueue.main.asyncAfter(deadline: .now() + 0.05) {
+                isFilterFocused = true
+            }
+        }
+        .onDisappear {
+            debounceTask?.cancel()
+        }
+        .onChange(of: filterText) { _, newValue in
+            let trimmed = newValue.trimmingCharacters(in: .whitespaces)
+            debounceTask?.cancel()
+            if trimmed.isEmpty {
+                // Clear immediately for responsiveness
+                withAnimation(.easeOut(duration: 0.12)) {
+                    debouncedQuery = ""
+                }
+            } else {
+                // Debounce non-empty input
+                debounceTask = Task { @MainActor in
+                    try? await Task.sleep(for: .milliseconds(Self.filterDebounceMilliseconds))
+                    guard !Task.isCancelled else { return }
+                    withAnimation(.easeOut(duration: 0.12)) {
+                        debouncedQuery = trimmed
+                    }
+                }
+            }
+        }
+    }
+
+    @State private var debounceTask: Task<Void, Never>?
+
+    private func hideFilter() {
+        filterText = ""
+        debouncedQuery = ""
+        isFilterFocused = false
+        withAnimation(.easeOut(duration: 0.15)) {
+            isFilterVisible = false
+        }
+        // Return focus to the active terminal
+        NotificationCenter.default.post(name: .refocusTerminalRequested, object: nil)
     }
 
     private func toggleSidebar() {
@@ -206,6 +398,14 @@ struct SidebarContentView: View {
     private func openWorktree(_ worktree: Worktree, in repo: Repo) {
         NotificationCenter.default.post(
             name: .openWorktreeRequested,
+            object: nil,
+            userInfo: ["worktree": worktree, "repo": repo]
+        )
+    }
+
+    private func openNewTerminal(_ worktree: Worktree, in repo: Repo) {
+        NotificationCenter.default.post(
+            name: .openNewTerminalRequested,
             object: nil,
             userInfo: ["worktree": worktree, "repo": repo]
         )
@@ -271,16 +471,11 @@ struct RepoRowView: View {
 struct WorktreeRowView: View {
     let worktree: Worktree
     let onOpen: () -> Void
+    let onOpenNew: () -> Void
     @State private var isHovering = false
 
     var body: some View {
-        HStack(spacing: 8) {
-            // Status indicator with animation
-            Circle()
-                .fill(statusColor)
-                .frame(width: 8, height: 8)
-                .animation(.easeInOut(duration: 0.2), value: worktree.status)
-
+        HStack(spacing: 6) {
             // Branch icon
             Image(systemName: "arrow.triangle.branch")
                 .font(.system(size: 11))
@@ -319,9 +514,15 @@ struct WorktreeRowView: View {
         }
         .contextMenu {
             Button {
+                onOpenNew()
+            } label: {
+                Label("Open New Terminal in Tab", systemImage: "terminal.fill")
+            }
+
+            Button {
                 onOpen()
             } label: {
-                Label("Open in Terminal", systemImage: "terminal")
+                Label("Go to Terminal", systemImage: "terminal")
             }
 
             Button {
@@ -343,15 +544,6 @@ struct WorktreeRowView: View {
             } label: {
                 Label("Copy Path", systemImage: "doc.on.clipboard")
             }
-        }
-    }
-
-    private var statusColor: Color {
-        switch worktree.status {
-        case .idle: return .secondary.opacity(0.4)
-        case .running: return .green
-        case .pendingReview: return .orange
-        case .error: return .red
         }
     }
 

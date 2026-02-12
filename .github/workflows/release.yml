@@ -81,6 +81,29 @@ jobs:
           # Copy GhosttyKit framework
           cp -R Frameworks/GhosttyKit.xcframework "$APP_DIR/Frameworks/"
 
+      - name: Copy Resources to App Bundle
+        run: |
+          APP_DIR="AgentStudio.app/Contents"
+
+          # Copy terminfo
+          TERMINFO_SRC="vendor/ghostty/zig-out/share/terminfo"
+          if [ -d "$TERMINFO_SRC" ]; then
+            cp -R "$TERMINFO_SRC" "$APP_DIR/Resources/"
+          fi
+
+          # Copy shell-integration
+          SHELL_INTEGRATION_SRC="vendor/ghostty/zig-out/share/ghostty/shell-integration"
+          if [ -d "$SHELL_INTEGRATION_SRC" ]; then
+            mkdir -p "$APP_DIR/Resources/ghostty"
+            cp -R "$SHELL_INTEGRATION_SRC" "$APP_DIR/Resources/ghostty/"
+          fi
+
+          # Copy tmux config
+          TMUX_SRC="Sources/AgentStudio/Resources/tmux"
+          if [ -d "$TMUX_SRC" ]; then
+            cp -R "$TMUX_SRC" "$APP_DIR/Resources/"
+          fi
+
       - name: Ad-hoc Sign
         run: codesign --force --deep --sign - AgentStudio.app
 
@@ -90,6 +113,12 @@ jobs:
           zip -r "AgentStudio-${VERSION}-macos.zip" AgentStudio.app
           echo "ARTIFACT_NAME=AgentStudio-${VERSION}-macos.zip" >> $GITHUB_ENV
 
+      - name: Compute SHA256
+        run: |
+          SHA256=$(shasum -a 256 "${{ env.ARTIFACT_NAME }}" | awk '{print $1}')
+          echo "SHA256: $SHA256"
+          echo "RELEASE_SHA256=$SHA256" >> $GITHUB_ENV
+
       - name: Create Release
         uses: softprops/action-gh-release@v1
         with:
@@ -97,5 +126,7 @@ jobs:
           generate_release_notes: true
           draft: false
           prerelease: ${{ contains(github.ref, 'alpha') || contains(github.ref, 'beta') }}
+          body: |
+            **SHA256:** `${{ env.RELEASE_SHA256 }}`
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}

@@ -43,6 +43,7 @@ TerminalSession
 
 ### Residency (Persisted)
 
+
 `SessionResidency` tracks where a session lives in the application lifecycle. This prevents false-positive orphan detection — a session in `pendingUndo` is not an orphan.
 
 ```mermaid
@@ -232,7 +233,8 @@ tmux runs on a dedicated socket `-L agentstudio`, completely separate from any u
 | `default-terminal` | `xterm-256color` | Avoids Kitty keyboard protocol conflicts between tmux and GhosttyKit |
 | `extended-keys` | `off` | Prevents additional keyboard protocol conflicts |
 | `escape-time` | `0` | No escape delay — immediate key processing |
-| `mouse` | `on` | Forward scroll/click events to Ghostty |
+| `mouse` | `off` | Prevent tmux scroll/copy-mode overlays; keep tmux non-interactive |
+| `unbind -a` (+ root/prefix/copy tables) | enabled | Removes tmux key-driven interactions and copy-mode entry points |
 | `history-limit` | `50000` | Large scrollback preserved across restarts |
 | `set-environment -g -u TMUX` | (unset) | Allows users to run their own tmux inside ghost sessions without nesting conflicts |
 

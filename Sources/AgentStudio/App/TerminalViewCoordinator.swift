@@ -219,6 +219,16 @@ final class TerminalViewCoordinator {
             }
         }
         coordinatorLogger.info("Restored \(restored)/\(sessionIds.count) terminal views")
+
+        // Sync focus after all views are restored — only the active pane gets a blinking cursor.
+        // Without this, all surfaces default to focused after ghostty_surface_new().
+        if let view = store.activeView,
+           let activeTabId = view.activeTabId,
+           let activeTab = view.tabs.first(where: { $0.id == activeTabId }),
+           let activeSessionId = activeTab.activeSessionId,
+           let terminalView = viewRegistry.view(for: activeSessionId) {
+            SurfaceManager.shared.syncFocus(activeSurfaceId: terminalView.surfaceId)
+        }
     }
 
     // MARK: - Helpers
@@ -229,11 +239,14 @@ final class TerminalViewCoordinator {
             worktreeStableKey: worktree.stableKey,
             paneId: session.id
         )
-        let escapedConfig = TmuxBackend.shellEscape(sessionConfig.ghostConfigPath)
-        let escapedCwd = TmuxBackend.shellEscape(worktree.path.path)
-        let escapedName = TmuxBackend.shellEscape(tmuxSessionName)
         let tmuxBin = sessionConfig.tmuxPath ?? "tmux"
-        return "\(tmuxBin) -L \(TmuxBackend.socketName) -f \(escapedConfig) new-session -A -s \(escapedName) -c \(escapedCwd)"
+        return TmuxBackend.buildAttachCommand(
+            tmuxBin: tmuxBin,
+            socketName: TmuxBackend.socketName,
+            ghostConfigPath: sessionConfig.ghostConfigPath,
+            sessionId: tmuxSessionName,
+            workingDirectory: worktree.path.path
+        )
     }
 
     private func getDefaultShell() -> String {

@@ -1,3 +1,4 @@
+import AppKit
 import Foundation
 
 // MARK: - AppCommand
@@ -10,6 +11,8 @@ enum AppCommand: String, CaseIterable {
     case closeTab
     case breakUpTab
     case newTerminalInTab
+    case newTab
+    case undoCloseTab
     case nextTab
     case prevTab
     case selectTab1, selectTab2, selectTab3, selectTab4, selectTab5
@@ -22,6 +25,7 @@ enum AppCommand: String, CaseIterable {
     case equalizePanes
     case focusPaneLeft, focusPaneRight, focusPaneUp, focusPaneDown
     case focusNextPane, focusPrevPane
+    case toggleSplitZoom
 
     // Repo commands
     case addRepo, removeRepo, refreshWorktrees
@@ -30,8 +34,16 @@ enum AppCommand: String, CaseIterable {
     case toggleSidebar
     case newFloatingTerminal
 
+    // Window commands
+    case newWindow
+    case closeWindow
+
     // Search/navigation
     case quickFind, commandBar
+
+    // Sidebar commands
+    case filterSidebar
+    case openNewTerminalInTab
 }
 
 // MARK: - SearchItemType
@@ -57,6 +69,30 @@ struct KeyBinding: Codable, Hashable {
         case control
         case option
         case shift
+    }
+}
+
+// MARK: - KeyBinding + AppKit
+
+extension KeyBinding {
+    /// Convert modifiers to AppKit modifier mask
+    var nsModifierMask: NSEvent.ModifierFlags {
+        var mask: NSEvent.ModifierFlags = []
+        for mod in modifiers {
+            switch mod {
+            case .command: mask.insert(.command)
+            case .control: mask.insert(.control)
+            case .option: mask.insert(.option)
+            case .shift: mask.insert(.shift)
+            }
+        }
+        return mask
+    }
+
+    /// Apply this key binding to an NSMenuItem
+    func apply(to item: NSMenuItem) {
+        item.keyEquivalent = key
+        item.keyEquivalentModifierMask = nsModifierMask
     }
 }
 
@@ -297,10 +333,71 @@ final class CommandDispatcher: ObservableObject {
                 label: "New Floating Terminal",
                 icon: "terminal.fill"
             ),
+
+            // Sidebar commands
+            CommandDefinition(
+                command: .filterSidebar,
+                keyBinding: KeyBinding(key: "f", modifiers: [.command, .shift]),
+                label: "Filter Sidebar",
+                icon: "magnifyingglass"
+            ),
+            CommandDefinition(
+                command: .openNewTerminalInTab,
+                label: "Open New Terminal in Tab",
+                icon: "terminal.fill",
+                appliesTo: [.worktree]
+            ),
+
+            // Window commands
+            CommandDefinition(
+                command: .newWindow,
+                keyBinding: KeyBinding(key: "n", modifiers: [.command]),
+                label: "New Window",
+                icon: "macwindow.badge.plus"
+            ),
+            CommandDefinition(
+                command: .newTab,
+                keyBinding: KeyBinding(key: "t", modifiers: [.command]),
+                label: "New Tab",
+                icon: "plus.square"
+            ),
+            CommandDefinition(
+                command: .undoCloseTab,
+                keyBinding: KeyBinding(key: "t", modifiers: [.command, .shift]),
+                label: "Undo Close Tab",
+                icon: "arrow.uturn.backward"
+            ),
+            CommandDefinition(
+                command: .closeWindow,
+                keyBinding: KeyBinding(key: "W", modifiers: [.command, .shift]),
+                label: "Close Window",
+                icon: "xmark.rectangle"
+            ),
+
+            // Tab selection commands (⌘1 through ⌘9)
+            CommandDefinition(command: .selectTab1, keyBinding: KeyBinding(key: "1", modifiers: [.command]), label: "Select Tab 1"),
+            CommandDefinition(command: .selectTab2, keyBinding: KeyBinding(key: "2", modifiers: [.command]), label: "Select Tab 2"),
+            CommandDefinition(command: .selectTab3, keyBinding: KeyBinding(key: "3", modifiers: [.command]), label: "Select Tab 3"),
+            CommandDefinition(command: .selectTab4, keyBinding: KeyBinding(key: "4", modifiers: [.command]), label: "Select Tab 4"),
+            CommandDefinition(command: .selectTab5, keyBinding: KeyBinding(key: "5", modifiers: [.command]), label: "Select Tab 5"),
+            CommandDefinition(command: .selectTab6, keyBinding: KeyBinding(key: "6", modifiers: [.command]), label: "Select Tab 6"),
+            CommandDefinition(command: .selectTab7, keyBinding: KeyBinding(key: "7", modifiers: [.command]), label: "Select Tab 7"),
+            CommandDefinition(command: .selectTab8, keyBinding: KeyBinding(key: "8", modifiers: [.command]), label: "Select Tab 8"),
+            CommandDefinition(command: .selectTab9, keyBinding: KeyBinding(key: "9", modifiers: [.command]), label: "Select Tab 9"),
         ]
 
         for def in defs {
             definitions[def.command] = def
         }
     }
+}
+
+// MARK: - AppCommand Helpers
+
+extension AppCommand {
+    /// Ordered array of tab selection commands (⌘1 through ⌘9)
+    static let selectTabCommands: [AppCommand] = [
+        .selectTab1, .selectTab2, .selectTab3, .selectTab4, .selectTab5,
+        .selectTab6, .selectTab7, .selectTab8, .selectTab9,
+    ]
 }

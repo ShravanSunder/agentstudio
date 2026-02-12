@@ -25,10 +25,10 @@ Agent Studio is a macOS terminal application that embeds Ghostty terminal surfac
 │  │           active | hidden | undoStack surfaces            │ │
 │  └──────────────────────────────────────────────────────────┘ │
 │                                                               │
-│  ┌──────────────┐  ┌──────────────┐                           │
-│  │ActionExecutor│  │ TabBarAdapter│                           │
-│  │(action hub)  │  │(derived UI)  │                           │
-│  └──────────────┘  └──────────────┘                           │
+│  ┌──────────────┐  ┌──────────────┐  ┌──────────────────────┐│
+│  │ActionExecutor│  │ TabBarAdapter│  │CommandBarPanel       ││
+│  │(action hub)  │  │(derived UI)  │  │Controller (⌘P)      ││
+│  └──────────────┘  └──────────────┘  └──────────────────────┘│
 └───────────────────────────────────────────────────────────────┘
   * WorkspacePersistor is internal to WorkspaceStore (JSON I/O)
 ```
@@ -66,16 +66,19 @@ User Action → PaneAction → ActionResolver → ActionValidator
   → ActionExecutor → WorkspaceStore.mutate()
     → @Published fires → SwiftUI re-renders
     → markDirty() → debounced save (500ms)
+
+Command Bar → CommandDispatcher.dispatch() → CommandHandler
+  → ActionResolver → ActionValidator → ActionExecutor
 ```
 
 ## Document Index
 
 | Document | Covers |
 |----------|--------|
-| [Component Architecture](component_architecture.md) | Data model, service layer, data flow, persistence, invariants |
+| [Component Architecture](component_architecture.md) | Data model, service layer, command bar, data flow, persistence, invariants |
 | [Session Lifecycle](session_lifecycle.md) | Session creation, close, undo, restore, runtime status, tmux backend |
-| [Surface Architecture](ghostty_surface_architecture.md) | Ghostty surface ownership, state machine, health monitoring, crash isolation |
-| [App Architecture](app_architecture.md) | AppKit+SwiftUI hybrid shell, controllers, event handling |
+| [Surface Architecture](ghostty_surface_architecture.md) | Ghostty surface ownership, state machine, health monitoring, crash isolation, CWD propagation |
+| [App Architecture](app_architecture.md) | AppKit+SwiftUI hybrid shell, controllers, command bar panel, event handling |
 
 ## Related
 

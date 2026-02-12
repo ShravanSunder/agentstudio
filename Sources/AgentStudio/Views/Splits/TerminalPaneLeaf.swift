@@ -97,6 +97,8 @@ struct TerminalPaneLeaf: View {
                 onDrop: onDrop
             ))
         }
+        .clipShape(RoundedRectangle(cornerRadius: 1))
+        .padding(2)
     }
 }
 

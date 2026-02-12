@@ -7,19 +7,28 @@ struct Tab: Codable, Identifiable, Hashable {
     var layout: Layout
     /// The focused session within this tab. Nil only during construction.
     var activeSessionId: UUID?
+    /// Display-only zoom state — NOT persisted. When set, the zoomed session fills the tab.
+    var zoomedSessionId: UUID?
+
+    enum CodingKeys: CodingKey {
+        case id, layout, activeSessionId
+        // zoomedSessionId excluded — transient, not persisted
+    }
 
     /// Create a tab with a single session.
     init(id: UUID = UUID(), sessionId: UUID) {
         self.id = id
         self.layout = Layout(sessionId: sessionId)
         self.activeSessionId = sessionId
+        self.zoomedSessionId = nil
     }
 
     /// Create a tab with an existing layout.
-    init(id: UUID = UUID(), layout: Layout, activeSessionId: UUID?) {
+    init(id: UUID = UUID(), layout: Layout, activeSessionId: UUID?, zoomedSessionId: UUID? = nil) {
         self.id = id
         self.layout = layout
         self.activeSessionId = activeSessionId
+        self.zoomedSessionId = zoomedSessionId
     }
 
     // MARK: - Derived

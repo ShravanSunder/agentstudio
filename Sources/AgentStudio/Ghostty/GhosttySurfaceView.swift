@@ -320,15 +320,35 @@ extension Ghostty {
             sendKeyEvent(event, action: GHOSTTY_ACTION_PRESS)
         }
 
+        /// Shortcuts that Agent Studio owns — always pass to macOS menu bar, never to Ghostty.
+        static let appOwnedShortcuts: [(key: String, mods: NSEvent.ModifierFlags)] = [
+            ("p", [.command]),                  // ⌘P — Quick Open
+            ("p", [.command, .shift]),           // ⌘⇧P — Command Palette
+            ("p", [.command, .option]),           // ⌘⌥P — Go to Pane
+        ]
+
         override func performKeyEquivalent(with event: NSEvent) -> Bool {
             guard event.type == .keyDown else { return false }
             guard focused else { return false }
 
             let mods = event.modifierFlags.intersection(.deviceIndependentFlagsMask)
 
-            // Cmd combinations: check if Ghostty has a keybind configured.
-            // If yes, let Ghostty handle it; otherwise pass to macOS.
+            // App-owned shortcuts bypass Ghostty — always go to macOS menu bar.
+            if let chars = event.charactersIgnoringModifiers?.lowercased() {
+                for shortcut in Self.appOwnedShortcuts {
+                    if chars == shortcut.key && mods == shortcut.mods {
+                        return false
+                    }
+                }
+            }
+
+            // Cmd combinations: app menu shortcuts take priority over terminal keybindings.
             if mods.contains(.command) {
+                // Let the app's main menu handle matching key equivalents first
+                if let mainMenu = NSApp.mainMenu, mainMenu.performKeyEquivalent(with: event) {
+                    return true
+                }
+
                 guard let surface = surface else { return false }
 
                 var keyEvent = ghostty_input_key_s()
