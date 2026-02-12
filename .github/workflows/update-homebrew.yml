@@ -33,6 +33,7 @@ jobs:
 
       - name: Update Cask
         run: |
+          mkdir -p Casks
           cat > Casks/agent-studio.rb << 'CASK_EOF'
           cask "agent-studio" do
             version "${{ steps.release.outputs.version }}"

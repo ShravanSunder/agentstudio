@@ -81,9 +81,6 @@ jobs:
           # Copy GhosttyKit framework
           cp -R Frameworks/GhosttyKit.xcframework "$APP_DIR/Frameworks/"
 
-      - name: Ad-hoc Sign
-        run: codesign --force --deep --sign - AgentStudio.app
-
       - name: Copy Resources to App Bundle
         run: |
           APP_DIR="AgentStudio.app/Contents"
@@ -106,6 +103,9 @@ jobs:
           if [ -d "$TMUX_SRC" ]; then
             cp -R "$TMUX_SRC" "$APP_DIR/Resources/"
           fi
+
+      - name: Ad-hoc Sign
+        run: codesign --force --deep --sign - AgentStudio.app
 
       - name: Create ZIP Archive
         run: |
