@@ -1,0 +1,66 @@
+name: Update Homebrew Tap
+
+on:
+  release:
+    types: [published]
+
+jobs:
+  update-tap:
+    runs-on: ubuntu-latest
+    if: "!github.event.release.prerelease"
+
+    steps:
+      - name: Get release info
+        id: release
+        run: |
+          VERSION="${GITHUB_REF_NAME#v}"
+          ASSET_URL="https://github.com/${{ github.repository }}/releases/download/${{ github.ref_name }}/AgentStudio-${{ github.ref_name }}-macos.zip"
+          echo "version=$VERSION" >> "$GITHUB_OUTPUT"
+          echo "asset_url=$ASSET_URL" >> "$GITHUB_OUTPUT"
+
+      - name: Download release asset and compute SHA256
+        id: sha
+        run: |
+          curl -L -o release.zip "${{ steps.release.outputs.asset_url }}"
+          SHA256=$(sha256sum release.zip | awk '{print $1}')
+          echo "sha256=$SHA256" >> "$GITHUB_OUTPUT"
+
+      - name: Checkout Homebrew tap
+        uses: actions/checkout@v4
+        with:
+          repository: ShravanSunder/homebrew-agentstudio
+          token: ${{ secrets.HOMEBREW_TAP_TOKEN }}
+
+      - name: Update Cask
+        run: |
+          mkdir -p Casks
+          cat > Casks/agent-studio.rb << 'CASK_EOF'
+          cask "agent-studio" do
+            version "${{ steps.release.outputs.version }}"
+            sha256 "${{ steps.sha.outputs.sha256 }}"
+
+            url "https://github.com/ShravanSunder/agentstudio/releases/download/v#{version}/AgentStudio-v#{version}-macos.zip"
+            name "Agent Studio"
+            desc "macOS terminal application with Ghostty terminal emulator and project management"
+            homepage "https://github.com/ShravanSunder/agentstudio"
+
+            depends_on macos: ">= :sonoma"
+            depends_on formula: "tmux"
+
+            app "AgentStudio.app"
+
+            zap trash: [
+              "~/Library/Preferences/com.agentstudio.app.plist",
+              "~/Library/Caches/com.agentstudio.app",
+              "~/Library/Application Support/AgentStudio",
+            ]
+          end
+          CASK_EOF
+
+      - name: Commit and push
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+          git add Casks/agent-studio.rb
+          git commit -m "Update agent-studio to ${{ steps.release.outputs.version }}"
+          git push
