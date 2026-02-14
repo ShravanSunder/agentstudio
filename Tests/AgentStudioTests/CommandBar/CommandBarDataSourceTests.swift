@@ -148,4 +148,55 @@ final class CommandBarDataSourceTests: XCTestCase {
         // Assert
         XCTAssertTrue(groups.isEmpty)
     }
+
+    // MARK: - Arrangement Commands
+
+    func test_commandsScope_includesArrangementCommands() {
+        // Act
+        let items = CommandBarDataSource.items(scope: .commands, store: store, dispatcher: dispatcher)
+
+        // Assert
+        let ids = items.map(\.id)
+        XCTAssertTrue(ids.contains("cmd-switchArrangement"))
+        XCTAssertTrue(ids.contains("cmd-saveArrangement"))
+        XCTAssertTrue(ids.contains("cmd-deleteArrangement"))
+        XCTAssertTrue(ids.contains("cmd-renameArrangement"))
+    }
+
+    func test_commandsScope_arrangementCommandsInTabGroup() {
+        // Act
+        let items = CommandBarDataSource.items(scope: .commands, store: store, dispatcher: dispatcher)
+
+        // Assert
+        let arrangementItems = items.filter {
+            $0.id == "cmd-switchArrangement" ||
+            $0.id == "cmd-saveArrangement" ||
+            $0.id == "cmd-deleteArrangement" ||
+            $0.id == "cmd-renameArrangement"
+        }
+        XCTAssertEqual(arrangementItems.count, 4, "All four arrangement commands should be present")
+        XCTAssertTrue(arrangementItems.allSatisfy { $0.group == "Tab" })
+    }
+
+    func test_commandsScope_targetableArrangementCommandsHaveChildren() {
+        // Arrange — need a tab with arrangements for drill-in to work
+        let pane = store.createPane(source: .floating(workingDirectory: nil, title: nil))
+        let tab = Tab(paneId: pane.id)
+        store.appendTab(tab)
+        store.setActiveTab(tab.id)
+
+        // Act
+        let items = CommandBarDataSource.items(scope: .commands, store: store, dispatcher: dispatcher)
+
+        // Assert — targetable arrangement commands should show drill-in
+        let switchItem = items.first { $0.id == "cmd-switchArrangement" }
+        let deleteItem = items.first { $0.id == "cmd-deleteArrangement" }
+        let renameItem = items.first { $0.id == "cmd-renameArrangement" }
+        let saveItem = items.first { $0.id == "cmd-saveArrangement" }
+
+        XCTAssertTrue(switchItem?.hasChildren ?? false, "switchArrangement should have drill-in")
+        XCTAssertTrue(deleteItem?.hasChildren ?? false, "deleteArrangement should have drill-in")
+        XCTAssertTrue(renameItem?.hasChildren ?? false, "renameArrangement should have drill-in")
+        XCTAssertFalse(saveItem?.hasChildren ?? true, "saveArrangement should NOT have drill-in")
+    }
 }
