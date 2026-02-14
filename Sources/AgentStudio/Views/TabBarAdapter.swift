@@ -8,6 +8,8 @@ struct TabBarItem: Identifiable, Equatable {
     var title: String
     var isSplit: Bool
     var displayTitle: String
+    var activeArrangementName: String?  // nil when only default exists
+    var arrangementCount: Int           // total arrangements (1 = default only)
 }
 
 /// Derives tab bar display state from WorkspaceStore.
@@ -64,11 +66,16 @@ final class TabBarAdapter: ObservableObject {
                 ? paneTitles.joined(separator: " | ")
                 : paneTitles.first ?? "Terminal"
 
+            let activeArrangement = tab.activeArrangement
+            let showArrangementName = tab.arrangements.count > 1 && !activeArrangement.isDefault
+
             return TabBarItem(
                 id: tab.id,
                 title: paneTitles.first ?? "Terminal",
                 isSplit: tab.isSplit,
-                displayTitle: displayTitle
+                displayTitle: displayTitle,
+                activeArrangementName: showArrangementName ? activeArrangement.name : nil,
+                arrangementCount: tab.arrangements.count
             )
         }
 

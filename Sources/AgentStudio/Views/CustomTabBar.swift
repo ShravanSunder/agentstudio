@@ -150,6 +150,13 @@ struct TabPillView: View {
                 .lineLimit(1)
                 .foregroundStyle(isActive ? .primary : .secondary)
 
+            // Arrangement badge (only when custom arrangement active)
+            if let arrangementName = tab.activeArrangementName {
+                Text("· \(arrangementName)")
+                    .font(.system(size: 10))
+                    .foregroundStyle(.tertiary)
+            }
+
             // Keyboard shortcut hint
             if index < 9 {
                 Text("⌘\(index + 1)")
