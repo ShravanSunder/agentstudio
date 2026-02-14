@@ -10,7 +10,7 @@ import Foundation
 /// `.unsupported` instead of crashing, allowing older app versions to
 /// load workspaces saved by newer versions.
 enum PaneContent: Hashable {
-    /// Terminal emulator content (Ghostty or tmux-backed).
+    /// Terminal emulator content (Ghostty or zmx-backed).
     case terminal(TerminalState)
     /// Embedded web content (future: diff viewer, PR status, dev server).
     case webview(WebviewState)
@@ -146,10 +146,10 @@ enum AnyCodableValue: Codable, Hashable {
 
 /// Backend provider for terminal panes.
 enum SessionProvider: String, Codable, Hashable {
-    /// Direct Ghostty surface, no tmux multiplexer.
+    /// Direct Ghostty surface, no session multiplexer.
     case ghostty
-    /// Headless tmux backend for persistence/restore.
-    case tmux
+    /// Headless zmx backend for persistence/restore.
+    case zmx
 }
 
 // MARK: - Terminal State
@@ -158,7 +158,7 @@ enum SessionProvider: String, Codable, Hashable {
 struct TerminalState: Codable, Hashable {
     /// Backend provider for this terminal.
     var provider: SessionProvider
-    /// Lifecycle: persistent (tmux-backed) or temporary.
+    /// Lifecycle: persistent (zmx-backed) or temporary.
     var lifetime: SessionLifetime
 }
 

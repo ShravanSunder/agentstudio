@@ -9,7 +9,7 @@ brew tap ShravanSunder/agentstudio
 brew install --cask agent-studio
 ```
 
-This installs AgentStudio.app to `/Applications/` and ensures **tmux** is available.
+This installs AgentStudio.app to `/Applications/`. Session persistence is handled by the bundled **zmx** binary (no external dependencies).
 
 ## Features
 

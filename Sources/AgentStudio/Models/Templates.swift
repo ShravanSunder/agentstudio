@@ -27,7 +27,7 @@ struct TerminalTemplate: Codable, Identifiable, Hashable {
         id: UUID = UUID(),
         title: String = "Terminal",
         agent: AgentType? = nil,
-        provider: SessionProvider = .ghostty,
+        provider: SessionProvider = .zmx,
         relativeWorkingDir: String? = nil
     ) {
         self.id = id

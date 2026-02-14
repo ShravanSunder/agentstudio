@@ -109,7 +109,7 @@ enum PaneAction: Equatable, Hashable {
 
     // System actions — dispatched by Reconciler and undo timers, not by user input.
 
-    /// Undo TTL expired — remove pane from store, kill tmux, destroy surface.
+    /// Undo TTL expired — remove pane from store, kill zmx, destroy surface.
     case expireUndoEntry(paneId: UUID)
 
     /// Reconciler-generated repair action.
@@ -119,9 +119,9 @@ enum PaneAction: Equatable, Hashable {
 /// System-generated repair actions from the Reconciler.
 /// Flow through ActionExecutor like user actions — one-way data flow never bypassed.
 enum RepairAction: Equatable, Hashable {
-    /// tmux died — create new tmux session, send reattach command to existing surface.
-    case reattachTmux(paneId: UUID)
-    /// Surface died — full view + surface recreation. tmux reattaches.
+    /// zmx died — create new zmx session, send reattach command to existing surface.
+    case reattachZmx(paneId: UUID)
+    /// Surface died — full view + surface recreation. zmx reattaches.
     case recreateSurface(paneId: UUID)
     /// Pane is in layout but has no view in ViewRegistry.
     case createMissingView(paneId: UUID)

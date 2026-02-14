@@ -48,7 +48,7 @@ func makePane(
     source: TerminalSource = .floating(workingDirectory: nil, title: nil),
     title: String = "Terminal",
     agent: AgentType? = nil,
-    provider: SessionProvider = .tmux,
+    provider: SessionProvider = .zmx,
     lifetime: SessionLifetime = .persistent,
     residency: SessionResidency = .active
 ) -> Pane {

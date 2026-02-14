@@ -11,6 +11,7 @@ final class MockProcessExecutor: ProcessExecutor, @unchecked Sendable {
     struct Call: Equatable {
         let command: String
         let args: [String]
+        let environment: [String: String]?
     }
 
     var calls: [Call] = []
@@ -38,7 +39,7 @@ final class MockProcessExecutor: ProcessExecutor, @unchecked Sendable {
         cwd: URL?,
         environment: [String: String]?
     ) async throws -> ProcessResult {
-        calls.append(Call(command: command, args: args))
+        calls.append(Call(command: command, args: args, environment: environment))
 
         guard responseIndex < responses.count else {
             XCTFail("MockProcessExecutor: no response queued for call #\(responseIndex + 1): \(command) \(args)")

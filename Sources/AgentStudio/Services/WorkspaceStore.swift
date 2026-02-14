@@ -82,7 +82,7 @@ final class WorkspaceStore: ObservableObject {
     }
 
     /// Remove a pane from all tab layouts and move to the background pool.
-    /// The pane stays in the dict with `.backgrounded` residency — its tmux session stays alive.
+    /// The pane stays in the dict with `.backgrounded` residency — its zmx session stays alive.
     func backgroundPane(_ paneId: UUID) {
         guard panes[paneId] != nil else {
             storeLogger.warning("backgroundPane: pane \(paneId) not found")
@@ -209,7 +209,7 @@ final class WorkspaceStore: ObservableObject {
     func createPane(
         source: TerminalSource,
         title: String = "Terminal",
-        provider: SessionProvider = .ghostty,
+        provider: SessionProvider = .zmx,
         lifetime: SessionLifetime = .persistent,
         residency: SessionResidency = .active
     ) -> Pane {

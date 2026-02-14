@@ -2,7 +2,7 @@ import Foundation
 
 /// The primary entity in the window system. Replaces TerminalSession as the universal identity.
 /// `id` (paneId) is the single identity used across all layers: WorkspaceStore, Layout,
-/// ViewRegistry, SurfaceManager, SessionRuntime, and tmux.
+/// ViewRegistry, SurfaceManager, SessionRuntime, and zmx.
 struct Pane: Codable, Identifiable, Hashable {
     let id: UUID
     /// The content displayed in this pane.

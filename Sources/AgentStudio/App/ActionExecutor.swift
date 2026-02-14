@@ -57,7 +57,7 @@ final class ActionExecutor {
         let pane = store.createPane(
             source: .worktree(worktreeId: worktree.id, repoId: repo.id),
             title: worktree.name,
-            provider: .tmux,
+            provider: .zmx,
             lifetime: .persistent,
             residency: .active
         )
@@ -227,7 +227,7 @@ final class ActionExecutor {
             store.setActiveDrawerPane(drawerPaneId, in: parentPaneId)
 
         case .expireUndoEntry(let paneId):
-            // TODO: Phase 3 — remove pane from store, kill tmux, destroy surface
+            // TODO: Phase 3 — remove pane from store, kill zmx, destroy surface
             executorLogger.warning("expireUndoEntry: \(paneId) — stub, full impl in Phase 3")
 
         case .repair(let repairAction):
@@ -328,7 +328,7 @@ final class ActionExecutor {
 
             let pane = store.createPane(
                 source: .worktree(worktreeId: worktreeId, repoId: repoId),
-                provider: .tmux
+                provider: .zmx
             )
 
             // Create view — rollback if surface creation fails
@@ -378,7 +378,7 @@ final class ActionExecutor {
             coordinator.createView(for: pane, worktree: worktree, repo: repo)
             executorLogger.info("Repaired view for pane \(paneId)")
 
-        case .reattachTmux, .markSessionFailed, .cleanupOrphan:
+        case .reattachZmx, .markSessionFailed, .cleanupOrphan:
             // TODO: Phase 4 — implement remaining repair actions
             executorLogger.warning("repair: \(String(describing: repairAction)) — not yet implemented")
         }

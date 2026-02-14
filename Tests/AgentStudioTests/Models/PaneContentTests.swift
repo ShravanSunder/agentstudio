@@ -14,7 +14,7 @@ final class PaneContentTests: XCTestCase {
 
     func test_roundTrip_terminal() throws {
         // Arrange
-        let content = PaneContent.terminal(TerminalState(provider: .tmux, lifetime: .persistent))
+        let content = PaneContent.terminal(TerminalState(provider: .zmx, lifetime: .persistent))
 
         // Act
         let data = try encoder.encode(content)
@@ -121,7 +121,7 @@ final class PaneContentTests: XCTestCase {
     // MARK: - Encoded Format
 
     func test_encode_containsTypeAndVersion() throws {
-        let content = PaneContent.terminal(TerminalState(provider: .tmux, lifetime: .persistent))
+        let content = PaneContent.terminal(TerminalState(provider: .zmx, lifetime: .persistent))
 
         let data = try encoder.encode(content)
         let json = try JSONSerialization.jsonObject(with: data) as! [String: Any]
@@ -251,7 +251,7 @@ final class PaneContentTests: XCTestCase {
         // JSON without a version field — should default to 1
         let json: [String: Any] = [
             "type": "terminal",
-            "state": ["provider": "tmux", "lifetime": "persistent"]
+            "state": ["provider": "zmx", "lifetime": "persistent"]
         ]
         let data = try JSONSerialization.data(withJSONObject: json)
 
@@ -259,7 +259,7 @@ final class PaneContentTests: XCTestCase {
 
         // Should decode successfully as terminal
         if case .terminal(let state) = decoded {
-            XCTAssertEqual(state.provider, .tmux)
+            XCTAssertEqual(state.provider, .zmx)
             XCTAssertEqual(state.lifetime, .persistent)
         } else {
             XCTFail("Expected .terminal, got \(decoded)")
@@ -289,14 +289,14 @@ final class PaneContentTests: XCTestCase {
 
     func test_pane_roundTrip_terminalContent() throws {
         // Full Pane round-trip to verify PaneContent integrates correctly
-        let pane = makePane(provider: .tmux, lifetime: .persistent)
+        let pane = makePane(provider: .zmx, lifetime: .persistent)
 
         let data = try encoder.encode(pane)
         let decoded = try decoder.decode(Pane.self, from: data)
 
         XCTAssertEqual(decoded.id, pane.id)
         XCTAssertEqual(decoded.content, pane.content)
-        XCTAssertEqual(decoded.provider, .tmux)
+        XCTAssertEqual(decoded.provider, .zmx)
         XCTAssertEqual(decoded.lifetime, .persistent)
     }
 

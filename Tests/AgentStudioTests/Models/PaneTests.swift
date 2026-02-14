@@ -13,10 +13,10 @@ final class PaneTests: XCTestCase {
     // MARK: - Convenience Accessors
 
     func test_terminalState_returnsState_forTerminalContent() {
-        let pane = makePane(provider: .tmux, lifetime: .persistent)
+        let pane = makePane(provider: .zmx, lifetime: .persistent)
 
         XCTAssertNotNil(pane.terminalState)
-        XCTAssertEqual(pane.terminalState?.provider, .tmux)
+        XCTAssertEqual(pane.terminalState?.provider, .zmx)
         XCTAssertEqual(pane.terminalState?.lifetime, .persistent)
     }
 
@@ -93,7 +93,7 @@ final class PaneTests: XCTestCase {
             source: .floating(workingDirectory: URL(fileURLWithPath: "/tmp"), title: "Float"),
             title: "My Term",
             agent: .claude,
-            provider: .tmux,
+            provider: .zmx,
             lifetime: .persistent,
             residency: .active
         )
@@ -138,7 +138,7 @@ final class PaneTests: XCTestCase {
             isExpanded: false
         )
         let pane = Pane(
-            content: .terminal(TerminalState(provider: .tmux, lifetime: .persistent)),
+            content: .terminal(TerminalState(provider: .zmx, lifetime: .persistent)),
             metadata: PaneMetadata(source: .floating(workingDirectory: nil, title: nil), title: "Host"),
             drawer: drawer
         )

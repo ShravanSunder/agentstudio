@@ -4,7 +4,7 @@ import AppKit
 /// Provides the common identity (paneId) and SwiftUI bridging contract.
 ///
 /// Subclasses:
-/// - `AgentStudioTerminalView` — Ghostty/tmux terminal
+/// - `AgentStudioTerminalView` — Ghostty/zmx terminal
 /// - `WebviewPaneView` — embedded web content (stub)
 /// - `CodeViewerPaneView` — source code viewer (stub)
 class PaneView: NSView, Identifiable {

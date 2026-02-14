@@ -233,9 +233,9 @@ For the Ghostty surface lifecycle, ownership model, state machine, and health mo
 
 ## Session Restore
 
-Terminal session state is managed by `WorkspaceStore` (persistence) and `SessionRuntime` (health/lifecycle). `TerminalViewCoordinator` is the sole intermediary for surface and runtime lifecycle — views never call `SurfaceManager` or `SessionRuntime` directly. The tmux backend (`TmuxBackend`) provides session persistence across app restarts.
+Terminal session state is managed by `WorkspaceStore` (persistence) and `SessionRuntime` (health/lifecycle). `TerminalViewCoordinator` is the sole intermediary for surface and runtime lifecycle — views never call `SurfaceManager` or `SessionRuntime` directly. The zmx backend (`ZmxBackend`) provides session persistence across app restarts via raw byte passthrough daemons.
 
-For the full session lifecycle, restore flow, and tmux configuration, see: **[Session Lifecycle](session_lifecycle.md)**
+For the full session lifecycle, restore flow, and zmx configuration, see: **[Session Lifecycle](session_lifecycle.md)**
 
 ---
 
@@ -251,5 +251,5 @@ For the full session lifecycle, restore flow, and tmux configuration, see: **[Se
 
 - **[Architecture Overview](README.md)** — System overview and document index
 - **[Component Architecture](component_architecture.md)** — Data model, service layer, data flow, persistence
-- **[Session Lifecycle](session_lifecycle.md)** — Session creation, close, undo, restore, tmux backend
+- **[Session Lifecycle](session_lifecycle.md)** — Session creation, close, undo, restore, zmx backend
 - **[Surface Architecture](ghostty_surface_architecture.md)** — Surface ownership, health monitoring, crash isolation
