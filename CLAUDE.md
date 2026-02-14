@@ -49,6 +49,8 @@ swift test 2>&1 | tail -5
 swift test 2>&1 | grep "passed"
 ```
 
+**Timeouts:** Use a 50-second timeout for `swift test` and `swift build` commands. Tests complete in ~15 seconds; builds in ~5 seconds. Anything longer means something is stuck.
+
 
 ### Launching the App
 

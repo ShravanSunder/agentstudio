@@ -61,9 +61,7 @@ enum ActionValidator {
             guard tab.paneIds.contains(paneId) else {
                 return .failure(.paneNotFound(paneId: paneId, tabId: tabId))
             }
-            guard tab.paneCount > 1 else {
-                return .failure(.singlePaneTab(tabId: tabId))
-            }
+            // Single-pane close is allowed — executor escalates to closeTab with undo.
             return .success(ValidatedAction(action))
 
         case .extractPaneToTab(let tabId, let paneId):
