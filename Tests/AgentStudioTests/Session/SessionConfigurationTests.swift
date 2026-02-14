@@ -203,21 +203,17 @@ final class SessionConfigurationTests: XCTestCase {
             contents.contains("set -g mouse off"),
             "ghost.conf must contain 'set -g mouse off' to keep tmux non-interactive"
         )
+        // ghost.conf must NOT use `unbind -a` — it destroys key tables, causing
+        // "table doesn't exist" errors when buildAttachCommand's inline hardening
+        // runs `unbind-key -a -T <table>`. Individual unbinds are used instead.
+        // The inline hardening in buildAttachCommand handles broad table clearing.
         XCTAssertTrue(
-            contents.contains("unbind -a"),
-            "ghost.conf must unbind keys from the default prefix table"
+            contents.contains("unbind -T root WheelUpPane"),
+            "ghost.conf must individually unbind WheelUpPane from root table"
         )
         XCTAssertTrue(
-            contents.contains("unbind -a -T root"),
-            "ghost.conf must unbind keys from the root table"
-        )
-        XCTAssertTrue(
-            contents.contains("unbind -a -T copy-mode"),
-            "ghost.conf must unbind keys from the copy-mode table"
-        )
-        XCTAssertTrue(
-            contents.contains("unbind -a -T copy-mode-vi"),
-            "ghost.conf must unbind keys from the copy-mode-vi table"
+            contents.contains("unbind -T root MouseDown1Pane"),
+            "ghost.conf must individually unbind MouseDown1Pane from root table"
         )
     }
 
@@ -246,6 +242,23 @@ final class SessionConfigurationTests: XCTestCase {
         XCTAssertTrue(
             contents.contains("unbind -T copy-mode-vi WheelUpPane"),
             "ghost.conf must explicitly unbind WheelUpPane from copy-mode-vi table"
+        )
+    }
+
+    func test_ghostConfigPath_disablesAlternateScreen() throws {
+        // tmux must NOT enter alternate screen mode on the outer terminal.
+        // Without alternate screen, Ghostty's mouse_alternate_scroll (DEC 1007,
+        // default ON) won't trigger — Ghostty handles scroll as internal viewport
+        // scrollback instead of converting scroll to cursor keys sent to tmux.
+
+        // Act
+        let config = SessionConfiguration.detect()
+        let contents = try String(contentsOfFile: config.ghostConfigPath, encoding: .utf8)
+
+        // Assert — smcup@:rmcup@ must be present for xterm-ghostty (primary outer TERM)
+        XCTAssertTrue(
+            contents.contains("smcup@:rmcup@"),
+            "ghost.conf must disable alternate screen via smcup@:rmcup@ terminal-overrides"
         )
     }
 
