@@ -375,6 +375,106 @@ final class WorkspaceStore: ObservableObject {
         markDirty()
     }
 
+    // MARK: - Arrangement Mutations
+
+    /// Create a new custom arrangement with a subset of the tab's panes.
+    /// The layout is derived from the default arrangement by removing panes not in the subset.
+    @discardableResult
+    func createArrangement(name: String, paneIds: Set<UUID>, inTab tabId: UUID) -> UUID? {
+        guard let tabIndex = findTabIndex(tabId) else { return nil }
+        guard !paneIds.isEmpty else {
+            storeLogger.warning("createArrangement: empty paneIds")
+            return nil
+        }
+
+        // Validate all paneIds are in the tab
+        let tabPaneSet = Set(tabs[tabIndex].panes)
+        guard paneIds.isSubset(of: tabPaneSet) else {
+            storeLogger.warning("createArrangement: paneIds not all in tab \(tabId)")
+            return nil
+        }
+
+        // Build layout by filtering the default arrangement's layout
+        let defLayout = tabs[tabIndex].defaultArrangement.layout
+        let paneIdsToRemove = Set(defLayout.paneIds).subtracting(paneIds)
+        var filteredLayout = defLayout
+        for removeId in paneIdsToRemove {
+            if let newLayout = filteredLayout.removing(paneId: removeId) {
+                filteredLayout = newLayout
+            }
+        }
+
+        let arrangement = PaneArrangement(
+            name: name,
+            isDefault: false,
+            layout: filteredLayout,
+            visiblePaneIds: paneIds
+        )
+        tabs[tabIndex].arrangements.append(arrangement)
+        markDirty()
+        return arrangement.id
+    }
+
+    /// Remove a custom arrangement. Cannot remove the default arrangement.
+    /// If the removed arrangement was active, switches to the default.
+    func removeArrangement(_ arrangementId: UUID, inTab tabId: UUID) {
+        guard let tabIndex = findTabIndex(tabId) else { return }
+        guard let arrIndex = tabs[tabIndex].arrangements.firstIndex(where: { $0.id == arrangementId }) else {
+            storeLogger.warning("removeArrangement: arrangement \(arrangementId) not found in tab \(tabId)")
+            return
+        }
+        guard !tabs[tabIndex].arrangements[arrIndex].isDefault else {
+            storeLogger.warning("removeArrangement: cannot remove default arrangement")
+            return
+        }
+
+        // If removing the active arrangement, switch to default first
+        if tabs[tabIndex].activeArrangementId == arrangementId {
+            tabs[tabIndex].activeArrangementId = tabs[tabIndex].defaultArrangement.id
+            // Update activePaneId to one visible in default
+            if let activePaneId = tabs[tabIndex].activePaneId,
+               !tabs[tabIndex].defaultArrangement.layout.contains(activePaneId) {
+                tabs[tabIndex].activePaneId = tabs[tabIndex].defaultArrangement.layout.paneIds.first
+            }
+        }
+
+        tabs[tabIndex].arrangements.remove(at: arrIndex)
+        markDirty()
+    }
+
+    /// Switch to a different arrangement within a tab.
+    func switchArrangement(to arrangementId: UUID, inTab tabId: UUID) {
+        guard let tabIndex = findTabIndex(tabId) else { return }
+        guard tabs[tabIndex].arrangements.contains(where: { $0.id == arrangementId }) else {
+            storeLogger.warning("switchArrangement: arrangement \(arrangementId) not found in tab \(tabId)")
+            return
+        }
+        guard tabs[tabIndex].activeArrangementId != arrangementId else { return }
+
+        // Clear zoom when switching arrangements
+        tabs[tabIndex].zoomedPaneId = nil
+        tabs[tabIndex].activeArrangementId = arrangementId
+
+        // Update activePaneId if current one isn't in the new arrangement
+        if let activePaneId = tabs[tabIndex].activePaneId,
+           !tabs[tabIndex].activeArrangement.layout.contains(activePaneId) {
+            tabs[tabIndex].activePaneId = tabs[tabIndex].activeArrangement.layout.paneIds.first
+        }
+
+        markDirty()
+    }
+
+    /// Rename a custom arrangement.
+    func renameArrangement(_ arrangementId: UUID, name: String, inTab tabId: UUID) {
+        guard let tabIndex = findTabIndex(tabId) else { return }
+        guard let arrIndex = tabs[tabIndex].arrangements.firstIndex(where: { $0.id == arrangementId }) else {
+            storeLogger.warning("renameArrangement: arrangement \(arrangementId) not found in tab \(tabId)")
+            return
+        }
+        tabs[tabIndex].arrangements[arrIndex].name = name
+        markDirty()
+    }
+
     // MARK: - Zoom
 
     func toggleZoom(paneId: UUID, inTab tabId: UUID) {

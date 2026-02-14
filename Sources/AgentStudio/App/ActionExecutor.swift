@@ -157,6 +157,18 @@ final class ActionExecutor {
                 direction: direction
             )
 
+        case .createArrangement(let tabId, let name, let paneIds):
+            _ = store.createArrangement(name: name, paneIds: paneIds, inTab: tabId)
+
+        case .removeArrangement(let tabId, let arrangementId):
+            store.removeArrangement(arrangementId, inTab: tabId)
+
+        case .switchArrangement(let tabId, let arrangementId):
+            store.switchArrangement(to: arrangementId, inTab: tabId)
+
+        case .renameArrangement(let tabId, let arrangementId, let name):
+            store.renameArrangement(arrangementId, name: name, inTab: tabId)
+
         case .expireUndoEntry(let paneId):
             // TODO: Phase 3 — remove pane from store, kill tmux, destroy surface
             executorLogger.warning("expireUndoEntry: \(paneId) — stub, full impl in Phase 3")

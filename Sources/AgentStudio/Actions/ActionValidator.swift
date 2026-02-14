@@ -155,6 +155,16 @@ enum ActionValidator {
             }
             return .success(ValidatedAction(action))
 
+        // Arrangement actions — validate tab exists
+        case .createArrangement(let tabId, _, _),
+             .removeArrangement(let tabId, _),
+             .switchArrangement(let tabId, _),
+             .renameArrangement(let tabId, _, _):
+            guard state.tab(tabId) != nil else {
+                return .failure(.tabNotFound(tabId: tabId))
+            }
+            return .success(ValidatedAction(action))
+
         // System actions — trusted source, skip validation
         case .expireUndoEntry, .repair:
             return .success(ValidatedAction(action))
