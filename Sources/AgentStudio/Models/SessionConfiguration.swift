@@ -6,23 +6,17 @@ private let configLogger = Logger(subsystem: "com.agentstudio", category: "Sessi
 /// Configuration for the session restore feature.
 /// Reads from environment variables with sensible defaults.
 struct SessionConfiguration: Sendable {
-    /// Whether session restore is enabled. Defaults to false (opt-in).
+    /// Whether session restore is enabled. Defaults to true.
     let isEnabled: Bool
 
-    /// Path to the tmux binary. Nil if tmux is not found.
-    let tmuxPath: String?
+    /// Path to the zmx binary. Nil if zmx is not found.
+    let zmxPath: String?
 
-    /// Path to the ghost tmux config bundled with the app.
-    let ghostConfigPath: String
+    /// Directory for zmx socket/state isolation (~/.agentstudio/zmx/).
+    let zmxDir: String
 
     /// How often to run health checks on active sessions (seconds).
     let healthCheckInterval: TimeInterval
-
-    /// tmux socket directory.
-    let socketDirectory: String
-
-    /// Custom tmux socket name for ghost sessions.
-    let socketName: String
 
     /// Maximum checkpoint age before it's considered stale.
     let maxCheckpointAge: TimeInterval
@@ -37,9 +31,8 @@ struct SessionConfiguration: Sendable {
             .map { $0.lowercased() == "true" || $0 == "1" }
             ?? true
 
-        let tmuxPath = findTmux()
-        let ghostConfigPath = resolveGhostConfigPath()
-        let socketDir = env["TMUX_TMPDIR"] ?? "/tmp/tmux-\(getuid())"
+        let zmxPath = findZmx()
+        let zmxDir = ZmxBackend.defaultZmxDir
 
         let healthInterval = env["AGENTSTUDIO_HEALTH_INTERVAL"]
             .flatMap { Double($0) }
@@ -47,18 +40,16 @@ struct SessionConfiguration: Sendable {
 
         return SessionConfiguration(
             isEnabled: isEnabled,
-            tmuxPath: tmuxPath,
-            ghostConfigPath: ghostConfigPath,
+            zmxPath: zmxPath,
+            zmxDir: zmxDir,
             healthCheckInterval: healthInterval,
-            socketDirectory: socketDir,
-            socketName: TmuxBackend.socketName,
             maxCheckpointAge: 7 * 24 * 60 * 60  // 1 week
         )
     }
 
-    /// Whether session restore can actually work (enabled + tmux found).
+    /// Whether session restore can actually work (enabled + zmx found).
     var isOperational: Bool {
-        isEnabled && tmuxPath != nil
+        isEnabled && zmxPath != nil
     }
 
     // MARK: - Terminfo Discovery
@@ -106,12 +97,6 @@ struct SessionConfiguration: Sendable {
 
     /// Resolve the terminfo directory containing our custom xterm-256color.
     ///
-    /// This is the directory that should be set as TERMINFO inside tmux sessions
-    /// so that programs find our custom xterm-256color (with SGR mouse, RGB, etc.)
-    /// instead of the system xterm-256color. The tmux server persists across app
-    /// restarts, so its initial TERMINFO may be stale; this path is injected at
-    /// every attach to keep it current.
-    ///
     /// Search order: module bundle → SPM resource bundle → app bundle → development source tree.
     static func resolveTerminfoDir() -> String? {
         let sentinel = "/78/xterm-256color"
@@ -148,62 +133,51 @@ struct SessionConfiguration: Sendable {
         return nil
     }
 
-    /// The safe terminfo directory at ~/.agentstudio/terminfo/.
-    /// Used by both ghost.conf injection and the attach command's set-environment.
-    /// This path avoids "AgentStudio" (mixed case) in the tmux command line.
-    static var safeTerminfoPath: String {
-        FileManager.default.homeDirectoryForCurrentUser
-            .appendingPathComponent(".agentstudio/terminfo").path
+    // MARK: - Shell Discovery
+
+    /// Resolve the user's default login shell.
+    /// Checks passwd entry first, then SHELL environment variable, then falls back to /bin/zsh.
+    static func defaultShell() -> String {
+        if let pw = getpwuid(getuid()), let shell = pw.pointee.pw_shell {
+            return String(cString: shell)
+        }
+        if let envShell = ProcessInfo.processInfo.environment["SHELL"] {
+            return envShell
+        }
+        return "/bin/zsh"
     }
 
     // MARK: - Private
 
-    /// Copy the custom terminfo to ~/.agentstudio/terminfo/ (pkill-safe path).
-    /// Returns the safe directory path, or nil if the copy fails.
-    private static func copySafeTerminfo() -> String? {
-        guard let sourceDir = resolveTerminfoDir() else {
-            configLogger.warning("copySafeTerminfo: resolveTerminfoDir() returned nil — custom xterm-256color not found in any search path")
-            return nil
+    /// Find the zmx binary.
+    /// Fallback chain: bundled binary → vendor build output → well-known PATH → `which zmx`.
+    private static func findZmx() -> String? {
+        // 1. Bundled binary: same directory as the app executable (Contents/MacOS/zmx or .build/debug/zmx)
+        if let bundled = Bundle.main.executableURL?
+            .deletingLastPathComponent()
+            .appendingPathComponent("zmx").path,
+           FileManager.default.isExecutableFile(atPath: bundled) {
+            return bundled
         }
 
-        let safeDir = URL(fileURLWithPath: safeTerminfoPath)
-        let sourceFile = URL(fileURLWithPath: sourceDir + "/78/xterm-256color")
-        let destDir = safeDir.appendingPathComponent("78")
-        let destFile = destDir.appendingPathComponent("xterm-256color")
-
-        guard FileManager.default.fileExists(atPath: sourceFile.path) else {
-            configLogger.warning("copySafeTerminfo: source xterm-256color not found at \(sourceFile.path, privacy: .public)")
-            return nil
+        // 2. Vendor build output: for dev builds where zmx was built but not copied
+        if let vendorBin = findDevVendorZmx() {
+            return vendorBin
         }
 
-        do {
-            try FileManager.default.createDirectory(at: destDir, withIntermediateDirectories: true)
-            if FileManager.default.fileExists(atPath: destFile.path) {
-                try FileManager.default.removeItem(at: destFile)
-            }
-            try FileManager.default.copyItem(at: sourceFile, to: destFile)
-            return safeDir.path
-        } catch {
-            configLogger.error("copySafeTerminfo: failed to copy xterm-256color to \(safeDir.path, privacy: .public): \(error.localizedDescription, privacy: .public)")
-            return nil
-        }
-    }
-
-    private static func findTmux() -> String? {
-        // Check well-known locations first (faster than spawning a process)
+        // 3. Well-known PATH locations
         let candidates = [
-            "/opt/homebrew/bin/tmux",
-            "/usr/local/bin/tmux",
-            "/usr/bin/tmux",
+            "/opt/homebrew/bin/zmx",
+            "/usr/local/bin/zmx",
         ]
         if let found = candidates.first(where: { FileManager.default.isExecutableFile(atPath: $0) }) {
             return found
         }
 
-        // Fallback: check PATH via which
+        // 4. Fallback: check PATH via which
         let process = Process()
         process.executableURL = URL(fileURLWithPath: "/usr/bin/which")
-        process.arguments = ["tmux"]
+        process.arguments = ["zmx"]
         let pipe = Pipe()
         process.standardOutput = pipe
         process.standardError = FileHandle.nullDevice
@@ -223,87 +197,6 @@ struct SessionConfiguration: Sendable {
         return nil
     }
 
-    private static func resolveGhostConfigPath() -> String {
-        // Search order: module bundle → SPM resource bundle → app bundle → dev source tree → relative fallback
-        var candidates: [String] = []
-
-        // 0. SPM module bundle (works in both app and test contexts)
-        candidates.append(Bundle.module.bundlePath + "/tmux/ghost.conf")
-
-        // 1. SPM resource bundle (AgentStudio_AgentStudio.bundle, adjacent to executable)
-        let spmBundle = Bundle.main.bundleURL
-            .appendingPathComponent("AgentStudio_AgentStudio.bundle").path
-        candidates.append(spmBundle + "/tmux/ghost.conf")
-
-        // 2. App bundle via Bundle API
-        if let bundled = Bundle.main.path(forResource: "ghost", ofType: "conf") {
-            candidates.append(bundled)
-        }
-
-        // 3. App bundle explicit path (Contents/Resources/tmux/ghost.conf)
-        if let bundleRes = Bundle.main.resourcePath {
-            candidates.append(bundleRes + "/tmux/ghost.conf")
-        }
-
-        // 4. Development source tree (SPM .build/ layout)
-        if let devResources = findDevResourcesDir() {
-            candidates.append(devResources + "/tmux/ghost.conf")
-        }
-
-        // 5. Relative fallback (only works when launched from project root)
-        candidates.append("Sources/AgentStudio/Resources/tmux/ghost.conf")
-
-        let sourcePath: String
-        if let found = candidates.first(where: { FileManager.default.fileExists(atPath: $0) }) {
-            sourcePath = found
-        } else {
-            configLogger.error("ghost.conf not found in any search path: \(candidates, privacy: .public)")
-            sourcePath = candidates.last!
-        }
-
-        // Copy to ~/.agentstudio/tmux/ghost.conf so the tmux server's command
-        // line doesn't contain "AgentStudio". Without this, `pkill -f AgentStudio`
-        // kills the tmux server (whose -f flag embeds the config path), destroying
-        // all sessions that should survive app termination.
-        let safeDir = FileManager.default.homeDirectoryForCurrentUser
-            .appendingPathComponent(".agentstudio/tmux")
-        let safePath = safeDir.appendingPathComponent("ghost.conf")
-
-        do {
-            try FileManager.default.createDirectory(at: safeDir, withIntermediateDirectories: true)
-            if FileManager.default.fileExists(atPath: safePath.path) {
-                try FileManager.default.removeItem(at: safePath)
-            }
-            try FileManager.default.copyItem(
-                at: URL(fileURLWithPath: sourcePath),
-                to: safePath
-            )
-
-            // Copy terminfo to ~/.agentstudio/terminfo/ and inject the safe path
-            // into ghost.conf. This ensures:
-            // 1. Programs inside tmux find our custom xterm-256color (SGR mouse, RGB)
-            // 2. The tmux command line doesn't contain "AgentStudio" (pkill safety)
-            // 3. The tmux server picks up the correct TERMINFO even after restart
-            if let safeTerminfo = copySafeTerminfo() {
-                let terminfoLine = "\n# ─── Runtime TERMINFO (injected by Agent Studio at launch) ────────\n"
-                    + "set-environment -g TERMINFO \"\(safeTerminfo)\"\n"
-                guard let terminfoData = terminfoLine.data(using: .utf8) else {
-                    configLogger.error("Failed to encode TERMINFO line as UTF-8")
-                    return safePath.path
-                }
-                let handle = try FileHandle(forWritingTo: safePath)
-                defer { handle.closeFile() }
-                handle.seekToEndOfFile()
-                handle.write(terminfoData)
-            }
-
-            return safePath.path
-        } catch {
-            configLogger.error("resolveGhostConfigPath: failed to copy ghost.conf to safe path — falling back to source path \(sourcePath, privacy: .public): \(error.localizedDescription, privacy: .public)")
-            return sourcePath
-        }
-    }
-
     /// Walk up from the executable directory looking for the dev source tree.
     /// For SPM builds, Bundle.main.bundlePath is e.g. `.build/release/` —
     /// we need to find the project root containing `Sources/AgentStudio/Resources/`.
@@ -314,6 +207,20 @@ struct SessionConfiguration: Sendable {
             let candidate = dir.appendingPathComponent("Sources/AgentStudio/Resources")
             if FileManager.default.fileExists(atPath: candidate.path) {
                 return candidate.path
+            }
+        }
+        return nil
+    }
+
+    /// Find zmx in the vendor build output for development builds.
+    /// Walks up from the executable to find `vendor/zmx/zig-out/bin/zmx`.
+    private static func findDevVendorZmx() -> String? {
+        var dir = URL(fileURLWithPath: Bundle.main.bundlePath)
+        for _ in 0..<5 {
+            dir = dir.deletingLastPathComponent()
+            let candidate = dir.appendingPathComponent("vendor/zmx/zig-out/bin/zmx").path
+            if FileManager.default.isExecutableFile(atPath: candidate) {
+                return candidate
             }
         }
         return nil

@@ -125,7 +125,7 @@ final class SessionRuntimeTests: XCTestCase {
     // MARK: - Backend Registration
 
     func test_registerBackend_storesCorrectly() {
-        let backend = MockSessionRuntimeBackend(provider: .tmux)
+        let backend = MockSessionRuntimeBackend(provider: .zmx)
         runtime.registerBackend(backend)
         // No direct way to query backends, but startSession should use it
         // Tested via integration in startSession tests
@@ -147,12 +147,12 @@ final class SessionRuntimeTests: XCTestCase {
     }
 
     func test_startSession_withBackend_callsStart() async throws {
-        let backend = MockSessionRuntimeBackend(provider: .tmux)
+        let backend = MockSessionRuntimeBackend(provider: .zmx)
         runtime.registerBackend(backend)
 
         let pane = makePane(
             source: .floating(workingDirectory: nil, title: nil),
-            provider: .tmux
+            provider: .zmx
         )
 
         let handle = try await runtime.startSession(pane)
@@ -175,13 +175,13 @@ final class SessionRuntimeTests: XCTestCase {
     }
 
     func test_restoreSession_withBackend_success() async {
-        let backend = MockSessionRuntimeBackend(provider: .tmux)
+        let backend = MockSessionRuntimeBackend(provider: .zmx)
         backend.restoreResult = true
         runtime.registerBackend(backend)
 
         let pane = makePane(
             source: .floating(workingDirectory: nil, title: nil),
-            provider: .tmux
+            provider: .zmx
         )
 
         let restored = await runtime.restoreSession(pane)
@@ -191,13 +191,13 @@ final class SessionRuntimeTests: XCTestCase {
     }
 
     func test_restoreSession_withBackend_failure() async {
-        let backend = MockSessionRuntimeBackend(provider: .tmux)
+        let backend = MockSessionRuntimeBackend(provider: .zmx)
         backend.restoreResult = false
         runtime.registerBackend(backend)
 
         let pane = makePane(
             source: .floating(workingDirectory: nil, title: nil),
-            provider: .tmux
+            provider: .zmx
         )
 
         let restored = await runtime.restoreSession(pane)
@@ -207,12 +207,12 @@ final class SessionRuntimeTests: XCTestCase {
     }
 
     func test_terminateSession_withBackend_marksExited() async {
-        let backend = MockSessionRuntimeBackend(provider: .tmux)
+        let backend = MockSessionRuntimeBackend(provider: .zmx)
         runtime.registerBackend(backend)
 
         let pane = makePane(
             source: .floating(workingDirectory: nil, title: nil),
-            provider: .tmux
+            provider: .zmx
         )
         runtime.markRunning(pane.id)
 

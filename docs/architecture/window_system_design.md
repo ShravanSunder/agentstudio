@@ -109,14 +109,14 @@ Drawer {
 
 ```
 PaneContent =
-  | .terminal(TerminalState)           // Ghostty surface, tmux backend
+  | .terminal(TerminalState)           // Ghostty surface, zmx backend
   | .webview(WebviewState)             // URL, navigation state
   | .codeViewer(CodeViewerState)       // file path, scroll position
   | .future(...)                       // extensible
 
 TerminalState {
   surfaceId: UUID?                     // Ghostty surface reference
-  provider: .ghostty | .tmux          // session backend
+  provider: .ghostty | .zmx           // session backend
   lifetime: .persistent | .temporary
 }
 

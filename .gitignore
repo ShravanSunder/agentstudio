@@ -34,7 +34,7 @@ vendor/ghostty/.git/
 Sources/AgentStudio/Resources/ghostty/
 # Terminfo: ignore Ghostty-generated entries but preserve custom xterm-256color.
 # xterm-ghostty and ghostty are rebuilt by build-ghostty.sh; xterm-256color is
-# our custom build with SGR mouse and full Ghostty capabilities for headless tmux.
+# our custom build with SGR mouse and full Ghostty capabilities for zmx sessions.
 # NOTE: Use /** (not trailing /) so git still descends into the directory and
 # the negation pattern below takes effect.
 Sources/AgentStudio/Resources/terminfo/**

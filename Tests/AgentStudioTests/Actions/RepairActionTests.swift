@@ -5,14 +5,14 @@ final class RepairActionTests: XCTestCase {
 
     // MARK: - Construction
 
-    func test_reattachTmux_hasPaneId() {
+    func test_reattachZmx_hasPaneId() {
         let paneId = UUID()
-        let action = RepairAction.reattachTmux(paneId: paneId)
+        let action = RepairAction.reattachZmx(paneId: paneId)
 
-        if case .reattachTmux(let id) = action {
+        if case .reattachZmx(let id) = action {
             XCTAssertEqual(id, paneId)
         } else {
-            XCTFail("Expected reattachTmux")
+            XCTFail("Expected reattachZmx")
         }
     }
 
@@ -40,11 +40,11 @@ final class RepairActionTests: XCTestCase {
 
     func test_markSessionFailed_hasPaneIdAndReason() {
         let paneId = UUID()
-        let action = RepairAction.markSessionFailed(paneId: paneId, reason: "tmux crash")
+        let action = RepairAction.markSessionFailed(paneId: paneId, reason: "zmx crash")
 
         if case .markSessionFailed(let id, let reason) = action {
             XCTAssertEqual(id, paneId)
-            XCTAssertEqual(reason, "tmux crash")
+            XCTAssertEqual(reason, "zmx crash")
         } else {
             XCTFail("Expected markSessionFailed")
         }
@@ -66,23 +66,23 @@ final class RepairActionTests: XCTestCase {
     func test_equatable_sameAction_areEqual() {
         let id = UUID()
         XCTAssertEqual(
-            RepairAction.reattachTmux(paneId: id),
-            RepairAction.reattachTmux(paneId: id)
+            RepairAction.reattachZmx(paneId: id),
+            RepairAction.reattachZmx(paneId: id)
         )
     }
 
     func test_equatable_differentCases_areNotEqual() {
         let id = UUID()
         XCTAssertNotEqual(
-            RepairAction.reattachTmux(paneId: id),
+            RepairAction.reattachZmx(paneId: id),
             RepairAction.recreateSurface(paneId: id)
         )
     }
 
     func test_equatable_differentPaneIds_areNotEqual() {
         XCTAssertNotEqual(
-            RepairAction.reattachTmux(paneId: UUID()),
-            RepairAction.reattachTmux(paneId: UUID())
+            RepairAction.reattachZmx(paneId: UUID()),
+            RepairAction.reattachZmx(paneId: UUID())
         )
     }
 
@@ -90,17 +90,17 @@ final class RepairActionTests: XCTestCase {
 
     func test_hashable_sameAction_sameHash() {
         let id = UUID()
-        let a = RepairAction.reattachTmux(paneId: id)
-        let b = RepairAction.reattachTmux(paneId: id)
+        let a = RepairAction.reattachZmx(paneId: id)
+        let b = RepairAction.reattachZmx(paneId: id)
         XCTAssertEqual(a.hashValue, b.hashValue)
     }
 
     func test_hashable_canBeUsedInSet() {
         let id = UUID()
         let set: Set<RepairAction> = [
-            .reattachTmux(paneId: id),
+            .reattachZmx(paneId: id),
             .recreateSurface(paneId: id),
-            .reattachTmux(paneId: id) // duplicate
+            .reattachZmx(paneId: id) // duplicate
         ]
         XCTAssertEqual(set.count, 2)
     }

@@ -49,7 +49,7 @@ WorkspaceStore
 │   └── worktrees: [Worktree]          ← git branches on disk
 ├── sessions: [TerminalSession]         ← primary terminal identities
 │   ├── source: .worktree | .floating
-│   ├── provider: .ghostty | .tmux
+│   ├── provider: .ghostty | .zmx
 │   ├── lifetime: .persistent | .temporary
 │   └── residency: .active | .pendingUndo | .backgrounded
 └── views: [ViewDefinition]             ← named session arrangements
@@ -76,7 +76,7 @@ Command Bar → CommandDispatcher.dispatch() → CommandHandler
 | Document | Covers |
 |----------|--------|
 | [Component Architecture](component_architecture.md) | Data model, service layer, command bar, data flow, persistence, invariants |
-| [Session Lifecycle](session_lifecycle.md) | Session creation, close, undo, restore, runtime status, tmux backend |
+| [Session Lifecycle](session_lifecycle.md) | Session creation, close, undo, restore, runtime status, zmx backend |
 | [Surface Architecture](ghostty_surface_architecture.md) | Ghostty surface ownership, state machine, health monitoring, crash isolation, CWD propagation |
 | [App Architecture](app_architecture.md) | AppKit+SwiftUI hybrid shell, controllers, command bar panel, event handling |
 

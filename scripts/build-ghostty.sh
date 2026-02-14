@@ -47,7 +47,7 @@ if [ -d "macos/GhosttyKit.xcframework" ]; then
     # IMPORTANT: Only update Ghostty-provided entries (xterm-ghostty, ghostty).
     # Do NOT delete the entire directory — it contains our custom xterm-256color
     # (git-tracked in Resources/terminfo/78/xterm-256color) with full Ghostty
-    # capabilities tuned for headless tmux.
+    # capabilities tuned for zmx sessions.
     TERMINFO_SRC="$GHOSTTY_DIR/zig-out/share/terminfo"
     if [ -d "$TERMINFO_SRC" ]; then
         echo "📋 Copying Ghostty terminfo for development (preserving custom entries)..."
@@ -61,16 +61,25 @@ if [ -d "macos/GhosttyKit.xcframework" ]; then
     fi
 
     # Copy shell-integration for development (SPM builds)
-    SHELL_INTEGRATION_SRC="$GHOSTTY_DIR/zig-out/share/ghostty/shell-integration"
+    # Prefer zig-out (built artifacts); fall back to vendor source tree
+    SHELL_INTEGRATION_ZIG="$GHOSTTY_DIR/zig-out/share/ghostty/shell-integration"
+    SHELL_INTEGRATION_VENDOR="$GHOSTTY_DIR/src/shell-integration"
     SHELL_INTEGRATION_DEV="$PROJECT_ROOT/Sources/AgentStudio/Resources/ghostty/shell-integration"
-    if [ -d "$SHELL_INTEGRATION_SRC" ]; then
+    if [ -d "$SHELL_INTEGRATION_ZIG" ]; then
+        SHELL_INTEGRATION_SRC="$SHELL_INTEGRATION_ZIG"
+    elif [ -d "$SHELL_INTEGRATION_VENDOR" ]; then
+        SHELL_INTEGRATION_SRC="$SHELL_INTEGRATION_VENDOR"
+    else
+        SHELL_INTEGRATION_SRC=""
+    fi
+    if [ -n "$SHELL_INTEGRATION_SRC" ]; then
         echo "📋 Copying shell-integration for development..."
         mkdir -p "$(dirname "$SHELL_INTEGRATION_DEV")"
         rm -rf "$SHELL_INTEGRATION_DEV"
         cp -R "$SHELL_INTEGRATION_SRC" "$SHELL_INTEGRATION_DEV"
         echo "✅ shell-integration copied to $SHELL_INTEGRATION_DEV"
     else
-        echo "⚠️  shell-integration not found at $SHELL_INTEGRATION_SRC"
+        echo "⚠️  shell-integration not found (checked zig-out and vendor source)"
     fi
 else
     echo "❌ Error: XCFramework not found at macos/GhosttyKit.xcframework"
@@ -113,11 +122,22 @@ if [ -d "$TERMINFO_DEV" ]; then
     echo "✅ terminfo copied to app bundle"
 fi
 
-# Copy tmux config (ghost.conf) to app bundle
-TMUX_RES_DEV="$PROJECT_ROOT/Sources/AgentStudio/Resources/tmux"
-if [ -d "$TMUX_RES_DEV" ]; then
-    cp -R "$TMUX_RES_DEV" "$APP_DIR/Resources/"
-    echo "✅ tmux config copied to app bundle"
+# Build and copy zmx binary to app bundle (Contents/MacOS/zmx)
+ZMX_DIR="$PROJECT_ROOT/vendor/zmx"
+if [ -f "$ZMX_DIR/build.zig" ]; then
+    echo "🏗️  Building zmx..."
+    cd "$ZMX_DIR"
+    zig build -Doptimize=ReleaseFast
+    ZMX_BIN="$ZMX_DIR/zig-out/bin/zmx"
+    if [ -f "$ZMX_BIN" ]; then
+        cp "$ZMX_BIN" "$APP_DIR/MacOS/"
+        echo "✅ zmx binary copied to app bundle"
+    else
+        echo "⚠️  zmx binary not found at $ZMX_BIN — session persistence will use PATH fallback"
+    fi
+    cd "$PROJECT_ROOT"
+else
+    echo "⚠️  zmx source not found — session persistence will use PATH fallback"
 fi
 
 # Copy ghostty resources (shell-integration) to app bundle
