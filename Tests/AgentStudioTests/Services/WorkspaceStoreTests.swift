@@ -957,6 +957,92 @@ final class WorkspaceStoreTests: XCTestCase {
         XCTAssertEqual(Set(store2.tabs[0].panes), Set([p1.id, p2.id]))
     }
 
+    func test_restore_repairsCrossTabDuplicatePanes() throws {
+        // Arrange — persist two tabs sharing the same pane (corruption)
+        let p1 = makePane()
+        let p2 = makePane()
+        let layout1 = Layout(paneId: p1.id)
+            .inserting(paneId: p2.id, at: p1.id, direction: .horizontal, position: .after)
+        let layout2 = Layout(paneId: p2.id) // p2 duplicated across tabs
+        let arr1 = PaneArrangement(name: "Default", isDefault: true, layout: layout1)
+        let arr2 = PaneArrangement(name: "Default", isDefault: true, layout: layout2)
+        let tab1 = Tab(panes: [p1.id, p2.id], arrangements: [arr1],
+                       activeArrangementId: arr1.id, activePaneId: p1.id)
+        let tab2 = Tab(panes: [p2.id], arrangements: [arr2],
+                       activeArrangementId: arr2.id, activePaneId: p2.id)
+        var state = WorkspacePersistor.PersistableState()
+        state.panes = [p1, p2]
+        state.tabs = [tab1, tab2]
+        state.activeTabId = tab1.id
+        let persistor = WorkspacePersistor(workspacesDir: tempDir)
+        persistor.ensureDirectory()
+        try persistor.save(state)
+
+        // Act
+        let store2 = WorkspaceStore(persistor: persistor)
+        store2.restore()
+
+        // Assert — p2 should only appear in ONE tab (first wins)
+        let allPanes = store2.tabs.flatMap(\.panes)
+        let p2Count = allPanes.filter { $0 == p2.id }.count
+        XCTAssertEqual(p2Count, 1, "Duplicate pane should be repaired to appear in only one tab")
+    }
+
+    func test_restore_repairsActivePaneIdAfterDuplicateRemoval() throws {
+        // Arrange — tab2's active pane is a duplicate that will be removed
+        let p1 = makePane()
+        let p2 = makePane()
+        let layout1 = Layout(paneId: p1.id)
+            .inserting(paneId: p2.id, at: p1.id, direction: .horizontal, position: .after)
+        let layout2 = Layout(paneId: p2.id)
+        let arr1 = PaneArrangement(name: "Default", isDefault: true, layout: layout1)
+        let arr2 = PaneArrangement(name: "Default", isDefault: true, layout: layout2)
+        let tab1 = Tab(panes: [p1.id, p2.id], arrangements: [arr1],
+                       activeArrangementId: arr1.id, activePaneId: p1.id)
+        let tab2 = Tab(panes: [p2.id], arrangements: [arr2],
+                       activeArrangementId: arr2.id, activePaneId: p2.id) // active is the duplicate
+        var state = WorkspacePersistor.PersistableState()
+        state.panes = [p1, p2]
+        state.tabs = [tab1, tab2]
+        state.activeTabId = tab1.id
+        let persistor = WorkspacePersistor(workspacesDir: tempDir)
+        persistor.ensureDirectory()
+        try persistor.save(state)
+
+        // Act
+        let store2 = WorkspaceStore(persistor: persistor)
+        store2.restore()
+
+        // Assert — if tab2 survives, its activePaneId should not be p2 (was removed)
+        // Tab2 may be empty and removed, which is also a valid repair outcome
+        for tab in store2.tabs {
+            if let apId = tab.activePaneId {
+                XCTAssertTrue(tab.activeArrangement.layout.paneIds.contains(apId),
+                              "activePaneId \(apId) should be in the active arrangement layout")
+            }
+        }
+    }
+
+    func test_persistence_activeTabIdNotMutatedDuringSave() {
+        // Arrange — create tabs: tab1 has temporary pane (pruned on save), tab2 is persistent
+        let p1 = store.createPane(source: .floating(workingDirectory: nil, title: nil),
+                                  lifetime: .temporary)
+        let tab1 = Tab(paneId: p1.id)
+        store.appendTab(tab1)
+        let p2 = store.createPane(source: .floating(workingDirectory: nil, title: nil))
+        let tab2 = Tab(paneId: p2.id)
+        store.appendTab(tab2)
+        store.setActiveTab(tab1.id) // select the temporary tab
+
+        // Act — flush() calls persistNow() which prunes tab1 (all-temporary)
+        // from the persisted copy. This should NOT change live activeTabId.
+        _ = store.flush()
+
+        // Assert — live activeTabId still points to tab1
+        XCTAssertEqual(store.activeTabId, tab1.id,
+                       "flush/persistNow should not mutate live activeTabId")
+    }
+
     // MARK: - moveTabByDelta
 
     func test_moveTabByDelta_movesForward() {

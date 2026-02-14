@@ -1188,6 +1188,14 @@ final class WorkspaceStore: ObservableObject {
                 }
                 seenPaneIds.insert(paneId)
             }
+
+            // 7. Re-validate activePaneId after duplicate repair may have removed panes
+            if let apId = tabs[tabIndex].activePaneId,
+               !tabs[tabIndex].activeArrangement.layout.paneIds.contains(apId) {
+                tabs[tabIndex].activePaneId = tabs[tabIndex].activeArrangement.layout.paneIds.first
+                storeLogger.warning("Tab \(tabId): activePaneId \(apId) stale after duplicate repair — reset")
+                repairCount += 1
+            }
         }
 
         if repairCount > 0 {
