@@ -245,11 +245,21 @@ final class ZmxBackend: SessionBackend {
                 .components(separatedBy: "\n")
                 .filter { !$0.isEmpty }
                 .compactMap { line -> String? in
-                    // zmx list output is tab-delimited. Extract the field containing our prefix,
-                    // then isolate the session name (from prefix to next tab or end of field).
-                    guard let range = line.range(of: Self.sessionPrefix) else { return nil }
-                    let fromPrefix = line[range.lowerBound...]
-                    return fromPrefix.split(separator: "\t").first.map(String.init)
+                    // Parse zmx list output by session_name= key (matches ZmxTestHarness.extractSessionName).
+                    // Handles both long format (session_name=<id>\tpid=...) and short format (<id>).
+                    let trimmed = line.trimmingCharacters(in: .whitespacesAndNewlines)
+                    guard !trimmed.isEmpty else { return nil }
+
+                    let tokens = trimmed.split(whereSeparator: \.isWhitespace)
+                    for token in tokens {
+                        if token.hasPrefix("session_name=") {
+                            let value = token.dropFirst("session_name=".count)
+                            return value.isEmpty ? nil : String(value)
+                        }
+                    }
+                    // Fallback for short output: first token is the raw session id
+                    guard let first = tokens.first, !first.contains("=") else { return nil }
+                    return String(first)
                 }
                 .filter { $0.hasPrefix(Self.sessionPrefix) }
                 .filter { !knownIds.contains($0) }

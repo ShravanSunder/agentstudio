@@ -209,7 +209,7 @@ final class WorkspaceStore: ObservableObject {
     func createPane(
         source: TerminalSource,
         title: String = "Terminal",
-        provider: SessionProvider = .ghostty,
+        provider: SessionProvider = .zmx,
         lifetime: SessionLifetime = .persistent,
         residency: SessionResidency = .active
     ) -> Pane {

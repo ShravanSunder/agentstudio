@@ -9,7 +9,7 @@ final class TemplateTests: XCTestCase {
         let template = TerminalTemplate()
         XCTAssertEqual(template.title, "Terminal")
         XCTAssertNil(template.agent)
-        XCTAssertEqual(template.provider, .ghostty)
+        XCTAssertEqual(template.provider, .zmx)
         XCTAssertNil(template.relativeWorkingDir)
     }
 
@@ -131,6 +131,31 @@ final class TemplateTests: XCTestCase {
             let data = try JSONEncoder().encode(policy)
             let decoded = try JSONDecoder().decode(CreatePolicy.self, from: data)
             XCTAssertEqual(decoded, policy)
+        }
+    }
+
+    // MARK: - Provider/Lifetime Coherence
+
+    func test_persistent_pane_requires_zmx_provider() {
+        // Invariant: persistent lifetime implies zmx provider.
+        // A .ghostty + .persistent pane would claim persistence but have no zmx backend.
+        let template = TerminalTemplate()
+        let pane = template.instantiate(worktreeId: UUID(), repoId: UUID())
+
+        XCTAssertEqual(pane.provider, .zmx, "Persistent panes must use zmx provider")
+        XCTAssertEqual(pane.lifetime, .persistent)
+    }
+
+    func test_worktreeTemplate_instantiate_produces_zmx_persistent() {
+        let template = WorktreeTemplate(
+            name: "Test",
+            terminals: [TerminalTemplate(title: "Shell")]
+        )
+        let (panes, _) = template.instantiate(worktreeId: UUID(), repoId: UUID())
+
+        for pane in panes {
+            XCTAssertEqual(pane.provider, .zmx, "All template-instantiated panes must use zmx")
+            XCTAssertEqual(pane.lifetime, .persistent)
         }
     }
 
