@@ -23,6 +23,7 @@ struct TerminalSplitContainer: View {
     let onPersist: (() -> Void)?
     let shouldAcceptDrop: (UUID, DropZone) -> Bool
     let onDrop: (SplitDropPayload, UUID, DropZone) -> Void
+    var drawerProvider: ((UUID) -> Drawer?)? = nil
 
     var body: some View {
         if let node = tree.root {
@@ -35,6 +36,7 @@ struct TerminalSplitContainer: View {
                         tabId: tabId,
                         isActive: true,
                         isSplit: false,
+                        drawer: drawerProvider?(zoomedPaneId),
                         action: action,
                         shouldAcceptDrop: shouldAcceptDrop,
                         onDrop: onDrop
@@ -59,7 +61,8 @@ struct TerminalSplitContainer: View {
                     action: action,
                     onPersist: onPersist,
                     shouldAcceptDrop: shouldAcceptDrop,
-                    onDrop: onDrop
+                    onDrop: onDrop,
+                    drawerProvider: drawerProvider
                 )
                 .id(node.structuralIdentity)  // Prevents view recreation on ratio changes
             }
@@ -84,6 +87,7 @@ fileprivate struct SplitSubtreeView: View {
     let onPersist: (() -> Void)?
     let shouldAcceptDrop: (UUID, DropZone) -> Bool
     let onDrop: (SplitDropPayload, UUID, DropZone) -> Void
+    var drawerProvider: ((UUID) -> Drawer?)? = nil
 
     var body: some View {
         switch node {
@@ -93,6 +97,7 @@ fileprivate struct SplitSubtreeView: View {
                 tabId: tabId,
                 isActive: paneView.id == activePaneId,
                 isSplit: isSplit,
+                drawer: drawerProvider?(paneView.id),
                 action: action,
                 shouldAcceptDrop: shouldAcceptDrop,
                 onDrop: onDrop
@@ -111,7 +116,8 @@ fileprivate struct SplitSubtreeView: View {
                         action: action,
                         onPersist: onPersist,
                         shouldAcceptDrop: shouldAcceptDrop,
-                        onDrop: onDrop
+                        onDrop: onDrop,
+                        drawerProvider: drawerProvider
                     )
                 },
                 right: {
@@ -123,7 +129,8 @@ fileprivate struct SplitSubtreeView: View {
                         action: action,
                         onPersist: onPersist,
                         shouldAcceptDrop: shouldAcceptDrop,
-                        onDrop: onDrop
+                        onDrop: onDrop,
+                        drawerProvider: drawerProvider
                     )
                 },
                 onEqualize: {

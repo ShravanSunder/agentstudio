@@ -10,6 +10,7 @@ struct TerminalPaneLeaf: View {
     let tabId: UUID
     let isActive: Bool
     let isSplit: Bool
+    let drawer: Drawer?
     let action: (PaneAction) -> Void
     let shouldAcceptDrop: (UUID, DropZone) -> Bool
     let onDrop: (SplitDropPayload, UUID, DropZone) -> Void
@@ -17,6 +18,7 @@ struct TerminalPaneLeaf: View {
     @State private var dropZone: DropZone?
     @State private var isTargeted: Bool = false
     @State private var isHovered: Bool = false
+    @State private var isBottomHovered: Bool = false
     @ObservedObject private var managementMode = ManagementModeMonitor.shared
 
     /// Downcast to terminal view for terminal-specific features.
@@ -89,6 +91,27 @@ struct TerminalPaneLeaf: View {
                     .padding(6)
                     .transition(.opacity)
                 }
+
+                // Drawer overlay (bottom of pane)
+                DrawerOverlay(
+                    paneId: paneView.id,
+                    drawer: drawer,
+                    isIconBarVisible: isBottomHovered || (drawer?.isExpanded ?? false),
+                    drawerPaneView: nil,  // Drawer pane views are wired in Task 14
+                    action: action
+                )
+
+                // Bottom hover detection zone
+                VStack {
+                    Spacer()
+                    Color.clear
+                        .frame(height: 40)
+                        .contentShape(Rectangle())
+                        .onHover { hovering in
+                            isBottomHovered = hovering
+                        }
+                }
+                .allowsHitTesting(true)
             }
             .contentShape(Rectangle())
             .onHover { isHovered = $0 }

@@ -572,6 +572,9 @@ class TerminalTabViewController: NSViewController, CommandHandler {
                 ) {
                     self.dispatchAction(action)
                 }
+            },
+            drawerProvider: { [weak self] paneId in
+                self?.store.pane(paneId)?.drawer
             }
         )
 
