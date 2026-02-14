@@ -295,8 +295,8 @@ final class WorkspaceStore: ObservableObject {
             if tabs[tabIndex].arrangements[defIdx].layout.contains(targetPaneId) {
                 tabs[tabIndex].arrangements[defIdx].layout = tabs[tabIndex].arrangements[defIdx].layout
                     .inserting(paneId: paneId, at: targetPaneId, direction: direction, position: position)
+                tabs[tabIndex].arrangements[defIdx].visiblePaneIds.insert(paneId)
             }
-            tabs[tabIndex].arrangements[defIdx].visiblePaneIds.insert(paneId)
         }
 
         // Add to tab's pane list
@@ -334,9 +334,9 @@ final class WorkspaceStore: ObservableObject {
         // Also remove from default arrangement if active is not default
         if !tabs[tabIndex].arrangements[arrIndex].isDefault {
             let defIdx = tabs[tabIndex].defaultArrangementIndex
+            tabs[tabIndex].arrangements[defIdx].visiblePaneIds.remove(paneId)
             if let newDefLayout = tabs[tabIndex].arrangements[defIdx].layout.removing(paneId: paneId) {
                 tabs[tabIndex].arrangements[defIdx].layout = newDefLayout
-                tabs[tabIndex].arrangements[defIdx].visiblePaneIds.remove(paneId)
             }
         }
 
@@ -457,6 +457,10 @@ final class WorkspaceStore: ObservableObject {
     func extractPane(_ paneId: UUID, fromTab tabId: UUID) -> Tab? {
         guard let tabIndex = findTabIndex(tabId) else { return nil }
         guard tabs[tabIndex].paneIds.count > 1 else { return nil }
+        guard tabs[tabIndex].panes.contains(paneId) else {
+            storeLogger.warning("extractPane: paneId \(paneId) not in tab \(tabId)")
+            return nil
+        }
 
         // Clear zoom if extracting the zoomed pane
         if tabs[tabIndex].zoomedPaneId == paneId {
@@ -496,13 +500,19 @@ final class WorkspaceStore: ObservableObject {
         guard let sourceTabIndex = tabs.firstIndex(where: { $0.id == sourceId }),
               let targetTabIndex = tabs.firstIndex(where: { $0.id == targetId }) else { return }
 
+        // Validate targetPaneId exists in target arrangement
+        let targetArrIndex = tabs[targetTabIndex].activeArrangementIndex
+        guard tabs[targetTabIndex].arrangements[targetArrIndex].layout.contains(targetPaneId) else {
+            storeLogger.warning("mergeTab: targetPaneId \(targetPaneId) not in target arrangement")
+            return
+        }
+
         // Clear zoom on target tab — merging changes the layout structure
         tabs[targetTabIndex].zoomedPaneId = nil
 
         let sourcePaneIds = tabs[sourceTabIndex].paneIds
 
         // Insert each source pane into target layout
-        let targetArrIndex = tabs[targetTabIndex].activeArrangementIndex
         var currentTarget = targetPaneId
         for paneId in sourcePaneIds {
             tabs[targetTabIndex].arrangements[targetArrIndex].layout = tabs[targetTabIndex].arrangements[targetArrIndex].layout
@@ -836,7 +846,18 @@ final class WorkspaceStore: ObservableObject {
                 repairCount += 1
             }
 
-            // 3. Sync tab.panes with the union of all arrangement layout pane IDs
+            // 3. Sync visiblePaneIds with layout pane IDs for each arrangement
+            for arrIndex in tabs[tabIndex].arrangements.indices {
+                let arrLayoutPaneIds = Set(tabs[tabIndex].arrangements[arrIndex].layout.paneIds)
+                let visible = tabs[tabIndex].arrangements[arrIndex].visiblePaneIds
+                if visible != arrLayoutPaneIds {
+                    tabs[tabIndex].arrangements[arrIndex].visiblePaneIds = arrLayoutPaneIds
+                    storeLogger.warning("Tab \(tabId): arrangement \(self.tabs[tabIndex].arrangements[arrIndex].id) visiblePaneIds drifted — synced")
+                    repairCount += 1
+                }
+            }
+
+            // 4. Sync tab.panes with the union of all arrangement layout pane IDs
             let layoutPaneIds = Set(tabs[tabIndex].arrangements.flatMap { $0.layout.paneIds })
             let listedPaneIds = Set(tabs[tabIndex].panes)
             if layoutPaneIds != listedPaneIds {
@@ -845,7 +866,7 @@ final class WorkspaceStore: ObservableObject {
                 repairCount += 1
             }
 
-            // 4. Ensure activePaneId is in the active arrangement
+            // 5. Ensure activePaneId is in the active arrangement
             if let apId = tabs[tabIndex].activePaneId,
                !tabs[tabIndex].activeArrangement.layout.paneIds.contains(apId) {
                 tabs[tabIndex].activePaneId = tabs[tabIndex].activeArrangement.layout.paneIds.first
@@ -853,7 +874,7 @@ final class WorkspaceStore: ObservableObject {
                 repairCount += 1
             }
 
-            // 5. Detect cross-tab pane duplicates (a pane should be in at most one tab)
+            // 6. Detect cross-tab pane duplicates (a pane should be in at most one tab)
             for paneId in layoutPaneIds {
                 if seenPaneIds.contains(paneId) {
                     storeLogger.warning("Pane \(paneId) appears in multiple tabs — duplicate detected in tab \(tabId)")
