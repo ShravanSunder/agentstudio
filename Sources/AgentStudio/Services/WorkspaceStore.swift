@@ -619,6 +619,9 @@ final class WorkspaceStore: ObservableObject {
         let validPaneIds = Set(panes.keys)
         pruneInvalidPanes(from: &tabs, validPaneIds: validPaneIds)
 
+        // Validate and repair tab structural invariants
+        validateTabInvariants()
+
         // Ensure at least one tab exists
         if activeTabId == nil, let firstTab = tabs.first {
             activeTabId = firstTab.id
@@ -793,6 +796,75 @@ final class WorkspaceStore: ObservableObject {
 
         if totalPruned > 0 {
             storeLogger.warning("Pruning summary: removed \(totalPruned) pane ref(s), \(tabsRemoved) tab(s)")
+        }
+    }
+
+    /// Validate and repair tab structural invariants after restore.
+    /// Fixes arrangement issues, stale active IDs, pane list drift, and
+    /// cross-tab pane duplicates. Logs warnings for every repair.
+    private func validateTabInvariants() {
+        var repairCount = 0
+        var seenPaneIds = Set<UUID>()
+
+        for tabIndex in tabs.indices {
+            let tabId = tabs[tabIndex].id
+
+            // 1. Ensure exactly one default arrangement
+            let defaultCount = tabs[tabIndex].arrangements.filter(\.isDefault).count
+            if defaultCount == 0 && !tabs[tabIndex].arrangements.isEmpty {
+                tabs[tabIndex].arrangements[0].isDefault = true
+                storeLogger.warning("Tab \(tabId): no default arrangement — marked first as default")
+                repairCount += 1
+            } else if defaultCount > 1 {
+                var foundFirst = false
+                for arrIndex in tabs[tabIndex].arrangements.indices {
+                    if tabs[tabIndex].arrangements[arrIndex].isDefault {
+                        if foundFirst {
+                            tabs[tabIndex].arrangements[arrIndex].isDefault = false
+                            repairCount += 1
+                        }
+                        foundFirst = true
+                    }
+                }
+                storeLogger.warning("Tab \(tabId): \(defaultCount) default arrangements — kept first only")
+            }
+
+            // 2. Ensure activeArrangementId points to an existing arrangement
+            if !tabs[tabIndex].arrangements.contains(where: { $0.id == tabs[tabIndex].activeArrangementId }) {
+                tabs[tabIndex].activeArrangementId = tabs[tabIndex].defaultArrangement.id
+                storeLogger.warning("Tab \(tabId): activeArrangementId was stale — reset to default")
+                repairCount += 1
+            }
+
+            // 3. Sync tab.panes with the union of all arrangement layout pane IDs
+            let layoutPaneIds = Set(tabs[tabIndex].arrangements.flatMap { $0.layout.paneIds })
+            let listedPaneIds = Set(tabs[tabIndex].panes)
+            if layoutPaneIds != listedPaneIds {
+                tabs[tabIndex].panes = Array(layoutPaneIds)
+                storeLogger.warning("Tab \(tabId): panes list drifted from layouts — synced (\(listedPaneIds.count) → \(layoutPaneIds.count))")
+                repairCount += 1
+            }
+
+            // 4. Ensure activePaneId is in the active arrangement
+            if let apId = tabs[tabIndex].activePaneId,
+               !tabs[tabIndex].activeArrangement.layout.paneIds.contains(apId) {
+                tabs[tabIndex].activePaneId = tabs[tabIndex].activeArrangement.layout.paneIds.first
+                storeLogger.warning("Tab \(tabId): activePaneId \(apId) not in layout — reset")
+                repairCount += 1
+            }
+
+            // 5. Detect cross-tab pane duplicates (a pane should be in at most one tab)
+            for paneId in layoutPaneIds {
+                if seenPaneIds.contains(paneId) {
+                    storeLogger.warning("Pane \(paneId) appears in multiple tabs — duplicate detected in tab \(tabId)")
+                    repairCount += 1
+                }
+                seenPaneIds.insert(paneId)
+            }
+        }
+
+        if repairCount > 0 {
+            storeLogger.warning("Tab invariant validation: \(repairCount) repair(s) applied")
         }
     }
 }

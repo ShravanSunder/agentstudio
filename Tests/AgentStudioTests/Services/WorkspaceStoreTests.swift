@@ -847,4 +847,113 @@ final class WorkspaceStoreTests: XCTestCase {
         XCTAssertEqual(updated.worktrees.count, 1)
         XCTAssertEqual(updated.worktrees[0].id, storedWt1Id)
     }
+
+    // MARK: - Restore Validation
+
+    func test_restore_repairsStaleActiveArrangementId() throws {
+        // Arrange — persist a tab with an activeArrangementId that doesn't match any arrangement
+        let pane = makePane()
+        let layout = Layout(paneId: pane.id)
+        let arrangement = PaneArrangement(name: "Default", isDefault: true, layout: layout)
+        let tab = Tab(
+            panes: [pane.id],
+            arrangements: [arrangement],
+            activeArrangementId: UUID(), // stale — doesn't match `arrangement.id`
+            activePaneId: pane.id
+        )
+        var state = WorkspacePersistor.PersistableState()
+        state.panes = [pane]
+        state.tabs = [tab]
+        state.activeTabId = tab.id
+        let persistor = WorkspacePersistor(workspacesDir: tempDir)
+        persistor.ensureDirectory()
+        try persistor.save(state)
+
+        // Act
+        let store2 = WorkspaceStore(persistor: persistor)
+        store2.restore()
+
+        // Assert — activeArrangementId repaired to the default arrangement
+        XCTAssertEqual(store2.tabs.count, 1)
+        XCTAssertEqual(store2.tabs[0].activeArrangementId, arrangement.id)
+    }
+
+    func test_restore_repairsStaleActivePaneId() throws {
+        // Arrange — persist a tab whose activePaneId doesn't exist in the layout
+        let pane = makePane()
+        let layout = Layout(paneId: pane.id)
+        let arrangement = PaneArrangement(name: "Default", isDefault: true, layout: layout)
+        let tab = Tab(
+            panes: [pane.id],
+            arrangements: [arrangement],
+            activeArrangementId: arrangement.id,
+            activePaneId: UUID() // stale — not in layout
+        )
+        var state = WorkspacePersistor.PersistableState()
+        state.panes = [pane]
+        state.tabs = [tab]
+        state.activeTabId = tab.id
+        let persistor = WorkspacePersistor(workspacesDir: tempDir)
+        persistor.ensureDirectory()
+        try persistor.save(state)
+
+        // Act
+        let store2 = WorkspaceStore(persistor: persistor)
+        store2.restore()
+
+        // Assert — activePaneId repaired to the first pane in layout
+        XCTAssertEqual(store2.tabs[0].activePaneId, pane.id)
+    }
+
+    func test_restore_repairsMissingDefaultArrangement() throws {
+        // Arrange — construct a valid tab, then corrupt it before persisting
+        let pane = makePane()
+        var tab = Tab(paneId: pane.id)
+        // Corrupt: clear the isDefault flag
+        tab.arrangements[0].isDefault = false
+        var state = WorkspacePersistor.PersistableState()
+        state.panes = [pane]
+        state.tabs = [tab]
+        state.activeTabId = tab.id
+        let persistor = WorkspacePersistor(workspacesDir: tempDir)
+        persistor.ensureDirectory()
+        try persistor.save(state)
+
+        // Act
+        let store2 = WorkspaceStore(persistor: persistor)
+        store2.restore()
+
+        // Assert — first arrangement promoted to default
+        XCTAssertEqual(store2.tabs.count, 1)
+        XCTAssertTrue(store2.tabs[0].arrangements[0].isDefault)
+    }
+
+    func test_restore_syncsPanesListWithLayoutPaneIds() throws {
+        // Arrange — persist a tab whose panes list drifted from layout
+        let p1 = makePane()
+        let p2 = makePane()
+        let layout = Layout(paneId: p1.id)
+            .inserting(paneId: p2.id, at: p1.id, direction: .horizontal, position: .after)
+        let arrangement = PaneArrangement(name: "Default", isDefault: true, layout: layout)
+        let tab = Tab(
+            panes: [p1.id], // missing p2 — drifted
+            arrangements: [arrangement],
+            activeArrangementId: arrangement.id,
+            activePaneId: p1.id
+        )
+        var state = WorkspacePersistor.PersistableState()
+        state.panes = [p1, p2]
+        state.tabs = [tab]
+        state.activeTabId = tab.id
+        let persistor = WorkspacePersistor(workspacesDir: tempDir)
+        persistor.ensureDirectory()
+        try persistor.save(state)
+
+        // Act
+        let store2 = WorkspaceStore(persistor: persistor)
+        store2.restore()
+
+        // Assert — panes list synced with layout
+        XCTAssertEqual(Set(store2.tabs[0].panes), Set([p1.id, p2.id]))
+    }
 }
