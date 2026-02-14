@@ -75,7 +75,11 @@ final class WorkspaceStore: ObservableObject {
     // MARK: - Queries
 
     func pane(_ id: UUID) -> Pane? {
-        panes[id]
+        guard let pane = panes[id] else {
+            storeLogger.warning("pane(\(id)): not found in store")
+            return nil
+        }
+        return pane
     }
 
     func tab(_ id: UUID) -> Tab? {
@@ -585,7 +589,7 @@ final class WorkspaceStore: ObservableObject {
             storeLogger.info("No workspace files found — first launch")
         }
 
-        // Migrate legacy ghostty sessions to tmux for session persistence
+        // Migrate legacy ghostty panes to tmux for persistence
         for id in panes.keys {
             if case .terminal(var termState) = panes[id]!.content, termState.provider == .ghostty {
                 termState.provider = .tmux

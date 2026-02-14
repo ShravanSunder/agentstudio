@@ -30,7 +30,7 @@ class TerminalTabViewController: NSViewController, CommandHandler {
 
     /// Tracks the last successfully rendered tab to avoid redundant view rebuilds.
     /// Compared by value (Tab is Hashable) so layout/activePane changes trigger re-render
-    /// but unrelated store mutations (e.g. session title updates) are skipped.
+    /// but unrelated store mutations (e.g. pane title updates) are skipped.
     /// Also tracks ViewRegistry epoch to detect view replacements (e.g. surface repair).
     private var lastRenderedTab: Tab?
     private var lastRenderedRegistryEpoch: Int = -1

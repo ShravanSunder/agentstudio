@@ -32,7 +32,7 @@ class AppDelegate: NSObject, NSApplicationDelegate {
         // Check for worktrunk dependency
         checkWorktrunkInstallation()
 
-        // Set up main menu (doesn't depend on session restore)
+        // Set up main menu (doesn't depend on tmux restore)
         setupMainMenu()
 
         // Create new services
@@ -46,7 +46,7 @@ class AppDelegate: NSObject, NSApplicationDelegate {
         tabBarAdapter = TabBarAdapter(store: store)
         commandBarController = CommandBarPanelController(store: store, dispatcher: .shared)
 
-        // Restore terminal views for persisted sessions
+        // Restore terminal views for persisted panes
         coordinator.restoreAllViews()
 
         // Create main window

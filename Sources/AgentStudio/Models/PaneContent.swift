@@ -15,9 +15,9 @@ enum PaneContent: Codable, Hashable {
 
 // MARK: - Session Provider
 
-/// Backend provider for terminal sessions.
+/// Backend provider for terminal panes.
 enum SessionProvider: String, Codable, Hashable {
-    /// Direct Ghostty surface, no session multiplexer.
+    /// Direct Ghostty surface, no tmux multiplexer.
     case ghostty
     /// Headless tmux backend for persistence/restore.
     case tmux

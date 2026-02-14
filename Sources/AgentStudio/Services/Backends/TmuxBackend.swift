@@ -5,7 +5,7 @@ private let tmuxLogger = Logger(subsystem: "com.agentstudio", category: "TmuxBac
 
 // MARK: - Legacy Backend Types (contained here until Phase 4 wires SessionRuntime → TmuxBackend)
 
-/// Identifies a backend session that backs a single terminal pane.
+/// Identifies a tmux backend handle that backs a single terminal pane.
 struct PaneSessionHandle: Equatable, Sendable, Codable, Hashable {
     let id: String
     let paneId: UUID
@@ -29,7 +29,7 @@ struct PaneSessionHandle: Equatable, Sendable, Codable, Hashable {
     }
 }
 
-/// Backend-agnostic protocol for managing per-pane terminal sessions.
+/// Backend-agnostic protocol for managing per-pane terminal backends.
 protocol SessionBackend: Sendable {
     var isAvailable: Bool { get async }
     func createPaneSession(repo: Repo, worktree: Worktree, paneId: UUID) async throws -> PaneSessionHandle
