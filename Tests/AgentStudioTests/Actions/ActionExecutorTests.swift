@@ -429,4 +429,91 @@ final class ActionExecutorTests: XCTestCase {
         XCTAssertNotNil(store.pane(closedPaneIds[2]))
         XCTAssertNotNil(store.pane(closedPaneIds[11]))
     }
+
+    // MARK: - Execute: switchArrangement
+
+    func test_execute_switchArrangement_updatesStoreState() {
+        // Arrange: tab with panes A, B, C. Default arrangement has all 3.
+        let pA = store.createPane(source: .floating(workingDirectory: nil, title: nil))
+        let pB = store.createPane(source: .floating(workingDirectory: nil, title: nil))
+        let pC = store.createPane(source: .floating(workingDirectory: nil, title: nil))
+
+        let tab = Tab(paneId: pA.id)
+        store.appendTab(tab)
+        store.insertPane(pB.id, inTab: tab.id, at: pA.id, direction: .horizontal, position: .after)
+        store.insertPane(pC.id, inTab: tab.id, at: pB.id, direction: .horizontal, position: .after)
+
+        // Create custom arrangement with only panes A and B
+        let arrId = store.createArrangement(
+            name: "Focus",
+            paneIds: Set([pA.id, pB.id]),
+            inTab: tab.id
+        )!
+
+        // Act: switch to custom arrangement via executor
+        executor.execute(.switchArrangement(tabId: tab.id, arrangementId: arrId))
+
+        // Assert: tab.paneIds returns only A and B (from active arrangement)
+        let updatedTab = store.tab(tab.id)!
+        XCTAssertEqual(updatedTab.activeArrangementId, arrId)
+        XCTAssertEqual(Set(updatedTab.paneIds), Set([pA.id, pB.id]))
+        // Pane C is still owned by the tab but not visible in active arrangement
+        XCTAssertTrue(updatedTab.panes.contains(pC.id))
+        XCTAssertFalse(updatedTab.paneIds.contains(pC.id))
+    }
+
+    func test_execute_switchArrangement_backToDefault_restoresAllPanes() {
+        // Arrange: tab with panes A, B, C
+        let pA = store.createPane(source: .floating(workingDirectory: nil, title: nil))
+        let pB = store.createPane(source: .floating(workingDirectory: nil, title: nil))
+        let pC = store.createPane(source: .floating(workingDirectory: nil, title: nil))
+
+        let tab = Tab(paneId: pA.id)
+        store.appendTab(tab)
+        store.insertPane(pB.id, inTab: tab.id, at: pA.id, direction: .horizontal, position: .after)
+        store.insertPane(pC.id, inTab: tab.id, at: pB.id, direction: .horizontal, position: .after)
+
+        let customArrId = store.createArrangement(
+            name: "Focus",
+            paneIds: Set([pA.id]),
+            inTab: tab.id
+        )!
+
+        // Switch to custom (only A)
+        executor.execute(.switchArrangement(tabId: tab.id, arrangementId: customArrId))
+        XCTAssertEqual(store.tab(tab.id)!.paneIds, [pA.id])
+
+        // Act: switch back to default
+        let defaultArrId = store.tab(tab.id)!.defaultArrangement.id
+        executor.execute(.switchArrangement(tabId: tab.id, arrangementId: defaultArrId))
+
+        // Assert: all three panes visible again
+        let updatedTab = store.tab(tab.id)!
+        XCTAssertEqual(updatedTab.activeArrangementId, defaultArrId)
+        XCTAssertEqual(Set(updatedTab.paneIds), Set([pA.id, pB.id, pC.id]))
+    }
+
+    func test_execute_switchArrangement_sameArrangement_noOp() {
+        // Arrange
+        let pA = store.createPane(source: .floating(workingDirectory: nil, title: nil))
+        let tab = Tab(paneId: pA.id)
+        store.appendTab(tab)
+
+        let defaultArrId = store.tab(tab.id)!.activeArrangementId
+
+        // Act: switch to same arrangement (should be no-op)
+        executor.execute(.switchArrangement(tabId: tab.id, arrangementId: defaultArrId))
+
+        // Assert: unchanged
+        XCTAssertEqual(store.tab(tab.id)!.activeArrangementId, defaultArrId)
+        XCTAssertEqual(store.tab(tab.id)!.paneIds, [pA.id])
+    }
+
+    func test_execute_switchArrangement_invalidTabId_noOp() {
+        // Act: should not crash
+        executor.execute(.switchArrangement(tabId: UUID(), arrangementId: UUID()))
+
+        // Assert: no tabs affected
+        XCTAssertTrue(store.tabs.isEmpty)
+    }
 }

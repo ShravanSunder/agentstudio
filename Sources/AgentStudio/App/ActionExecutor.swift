@@ -164,7 +164,33 @@ final class ActionExecutor {
             store.removeArrangement(arrangementId, inTab: tabId)
 
         case .switchArrangement(let tabId, let arrangementId):
+            // Capture visible panes BEFORE switching
+            let previousVisiblePaneIds: Set<UUID>
+            if let tab = store.tab(tabId) {
+                previousVisiblePaneIds = tab.activeArrangement.visiblePaneIds
+            } else {
+                previousVisiblePaneIds = []
+            }
+
+            // Switch arrangement in store
             store.switchArrangement(to: arrangementId, inTab: tabId)
+
+            // Get newly visible panes AFTER switching
+            guard let tab = store.tab(tabId),
+                  let arrangement = tab.arrangements.first(where: { $0.id == arrangementId }) else { break }
+            let newVisiblePaneIds = arrangement.visiblePaneIds
+
+            // Detach surfaces for panes that were visible but are now hidden
+            let hiddenPaneIds = previousVisiblePaneIds.subtracting(newVisiblePaneIds)
+            for paneId in hiddenPaneIds {
+                coordinator.detachForViewSwitch(paneId: paneId)
+            }
+
+            // Reattach surfaces for panes that are now visible but were hidden
+            let revealedPaneIds = newVisiblePaneIds.subtracting(previousVisiblePaneIds)
+            for paneId in revealedPaneIds {
+                coordinator.reattachForViewSwitch(paneId: paneId)
+            }
 
         case .renameArrangement(let tabId, let arrangementId, let name):
             store.renameArrangement(arrangementId, name: name, inTab: tabId)
