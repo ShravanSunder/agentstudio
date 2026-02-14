@@ -169,6 +169,18 @@ final class ActionExecutor {
         case .renameArrangement(let tabId, let arrangementId, let name):
             store.renameArrangement(arrangementId, name: name, inTab: tabId)
 
+        case .backgroundPane(let paneId):
+            store.backgroundPane(paneId)
+
+        case .reactivatePane(let paneId, let targetTabId, let targetPaneId, let direction):
+            let layoutDirection = bridgeDirection(direction)
+            let position: Layout.Position = (direction == .left || direction == .up) ? .before : .after
+            store.reactivatePane(paneId, inTab: targetTabId, at: targetPaneId,
+                                 direction: layoutDirection, position: position)
+
+        case .purgeOrphanedPane(let paneId):
+            store.purgeOrphanedPane(paneId)
+
         case .addDrawerPane(let parentPaneId, let content, let metadata):
             _ = store.addDrawerPane(to: parentPaneId, content: content, metadata: metadata)
 

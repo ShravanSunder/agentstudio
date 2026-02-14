@@ -72,6 +72,83 @@ final class WorkspaceStore: ObservableObject {
         panes.values.filter { $0.worktreeId == worktreeId }.count
     }
 
+    // MARK: - Orphaned Pane Pool
+
+    /// Panes that exist in the store but are not in any tab layout.
+    /// These are backgrounded panes waiting to be reactivated or garbage-collected.
+    var orphanedPanes: [Pane] {
+        let layoutPaneIds = Set(tabs.flatMap(\.panes))
+        return panes.values.filter { !layoutPaneIds.contains($0.id) && $0.residency == .backgrounded }
+    }
+
+    /// Remove a pane from all tab layouts and move to the background pool.
+    /// The pane stays in the dict with `.backgrounded` residency — its tmux session stays alive.
+    func backgroundPane(_ paneId: UUID) {
+        guard panes[paneId] != nil else {
+            storeLogger.warning("backgroundPane: pane \(paneId) not found")
+            return
+        }
+
+        // Remove from all tab layouts
+        for tabIndex in tabs.indices {
+            tabs[tabIndex].panes.removeAll { $0 == paneId }
+            for arrIndex in tabs[tabIndex].arrangements.indices {
+                tabs[tabIndex].arrangements[arrIndex].visiblePaneIds.remove(paneId)
+                if let newLayout = tabs[tabIndex].arrangements[arrIndex].layout.removing(paneId: paneId) {
+                    tabs[tabIndex].arrangements[arrIndex].layout = newLayout
+                } else {
+                    tabs[tabIndex].arrangements[arrIndex].layout = Layout()
+                }
+            }
+            if tabs[tabIndex].activePaneId == paneId {
+                tabs[tabIndex].activePaneId = tabs[tabIndex].activeArrangement.layout.paneIds.first
+            }
+            if tabs[tabIndex].zoomedPaneId == paneId {
+                tabs[tabIndex].zoomedPaneId = nil
+            }
+        }
+        // Remove empty tabs
+        tabs.removeAll { $0.defaultArrangement.layout.isEmpty }
+        if let atId = activeTabId, !tabs.contains(where: { $0.id == atId }) {
+            activeTabId = tabs.last?.id
+        }
+
+        panes[paneId]!.residency = .backgrounded
+        markDirty()
+    }
+
+    /// Reactivate a backgrounded pane by inserting it into a tab layout.
+    func reactivatePane(
+        _ paneId: UUID,
+        inTab tabId: UUID,
+        at targetPaneId: UUID,
+        direction: Layout.SplitDirection,
+        position: Layout.Position
+    ) {
+        guard panes[paneId] != nil else {
+            storeLogger.warning("reactivatePane: pane \(paneId) not found")
+            return
+        }
+        guard panes[paneId]!.residency == .backgrounded else {
+            storeLogger.warning("reactivatePane: pane \(paneId) is not backgrounded")
+            return
+        }
+
+        panes[paneId]!.residency = .active
+        insertPane(paneId, inTab: tabId, at: targetPaneId, direction: direction, position: position)
+    }
+
+    /// Permanently destroy backgrounded panes that have been in the pool too long
+    /// or are no longer needed.
+    func purgeOrphanedPane(_ paneId: UUID) {
+        guard let pane = panes[paneId], pane.residency == .backgrounded else {
+            storeLogger.warning("purgeOrphanedPane: pane \(paneId) is not backgrounded")
+            return
+        }
+        panes.removeValue(forKey: paneId)
+        markDirty()
+    }
+
     // MARK: - Queries
 
     func pane(_ id: UUID) -> Pane? {

@@ -86,6 +86,16 @@ enum PaneAction: Equatable, Hashable {
     /// Rename an arrangement.
     case renameArrangement(tabId: UUID, arrangementId: UUID, name: String)
 
+    // Orphaned pane pool
+
+    /// Move a pane to the background pool (remove from layout, keep alive).
+    case backgroundPane(paneId: UUID)
+    /// Reactivate a backgrounded pane into a tab layout.
+    case reactivatePane(paneId: UUID, targetTabId: UUID,
+                        targetPaneId: UUID, direction: SplitNewDirection)
+    /// Permanently destroy a backgrounded pane.
+    case purgeOrphanedPane(paneId: UUID)
+
     // Drawer operations
 
     /// Add a drawer pane to a parent pane.

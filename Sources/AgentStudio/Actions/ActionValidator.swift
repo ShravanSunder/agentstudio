@@ -165,6 +165,19 @@ enum ActionValidator {
             }
             return .success(ValidatedAction(action))
 
+        // Orphaned pane pool — store-level
+        case .backgroundPane, .purgeOrphanedPane:
+            return .success(ValidatedAction(action))
+
+        case .reactivatePane(_, let targetTabId, let targetPaneId, _):
+            guard state.tab(targetTabId) != nil else {
+                return .failure(.tabNotFound(tabId: targetTabId))
+            }
+            guard state.tabContainsPane(targetTabId, paneId: targetPaneId) else {
+                return .failure(.paneNotFound(paneId: targetPaneId, tabId: targetTabId))
+            }
+            return .success(ValidatedAction(action))
+
         // Drawer actions — pane-level, validate pane exists in some tab
         case .addDrawerPane, .removeDrawerPane, .toggleDrawer, .setActiveDrawerPane:
             return .success(ValidatedAction(action))
