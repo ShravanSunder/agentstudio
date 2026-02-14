@@ -516,4 +516,103 @@ final class ActionExecutorTests: XCTestCase {
         // Assert: no tabs affected
         XCTAssertTrue(store.tabs.isEmpty)
     }
+
+    // MARK: - Execute: addDrawerPane
+
+    func test_execute_addDrawerPane_createsDrawerOnActivePane() {
+        // Arrange
+        let parentPane = store.createPane(source: .floating(workingDirectory: nil, title: nil))
+        let tab = Tab(paneId: parentPane.id)
+        store.appendTab(tab)
+
+        let content = PaneContent.terminal(TerminalState(provider: .ghostty, lifetime: .temporary))
+        let metadata = PaneMetadata(source: .floating(workingDirectory: nil, title: nil), title: "Drawer")
+
+        // Act
+        executor.execute(.addDrawerPane(parentPaneId: parentPane.id, content: content, metadata: metadata))
+
+        // Assert
+        let updated = store.pane(parentPane.id)
+        XCTAssertNotNil(updated?.drawer)
+        XCTAssertEqual(updated?.drawer?.panes.count, 1)
+        XCTAssertTrue(updated?.drawer?.isExpanded ?? false)
+    }
+
+    // MARK: - Execute: removeDrawerPane
+
+    func test_execute_removeDrawerPane_removesFromStore() {
+        // Arrange
+        let parentPane = store.createPane(source: .floating(workingDirectory: nil, title: nil))
+        let tab = Tab(paneId: parentPane.id)
+        store.appendTab(tab)
+
+        let drawerPane = store.addDrawerPane(
+            to: parentPane.id,
+            content: .terminal(TerminalState(provider: .ghostty, lifetime: .temporary)),
+            metadata: PaneMetadata(source: .floating(workingDirectory: nil, title: nil), title: "Drawer")
+        )!
+        XCTAssertNotNil(store.pane(parentPane.id)?.drawer)
+        XCTAssertEqual(store.pane(parentPane.id)?.drawer?.panes.count, 1)
+
+        // Act
+        executor.execute(.removeDrawerPane(parentPaneId: parentPane.id, drawerPaneId: drawerPane.id))
+
+        // Assert — last drawer pane removed, drawer itself should be nil
+        XCTAssertNil(store.pane(parentPane.id)?.drawer)
+    }
+
+    // MARK: - Execute: toggleDrawer
+
+    func test_execute_toggleDrawer_togglesExpandedState() {
+        // Arrange
+        let parentPane = store.createPane(source: .floating(workingDirectory: nil, title: nil))
+        let tab = Tab(paneId: parentPane.id)
+        store.appendTab(tab)
+
+        _ = store.addDrawerPane(
+            to: parentPane.id,
+            content: .terminal(TerminalState(provider: .ghostty, lifetime: .temporary)),
+            metadata: PaneMetadata(source: .floating(workingDirectory: nil, title: nil), title: "Drawer")
+        )
+        XCTAssertTrue(store.pane(parentPane.id)!.drawer!.isExpanded, "Drawer should be expanded by default")
+
+        // Act — collapse
+        executor.execute(.toggleDrawer(paneId: parentPane.id))
+
+        // Assert — collapsed
+        XCTAssertFalse(store.pane(parentPane.id)!.drawer!.isExpanded)
+
+        // Act — expand again
+        executor.execute(.toggleDrawer(paneId: parentPane.id))
+
+        // Assert — expanded
+        XCTAssertTrue(store.pane(parentPane.id)!.drawer!.isExpanded)
+    }
+
+    // MARK: - Execute: setActiveDrawerPane
+
+    func test_execute_setActiveDrawerPane_switchesActive() {
+        // Arrange
+        let parentPane = store.createPane(source: .floating(workingDirectory: nil, title: nil))
+        let tab = Tab(paneId: parentPane.id)
+        store.appendTab(tab)
+
+        let dp1 = store.addDrawerPane(
+            to: parentPane.id,
+            content: .terminal(TerminalState(provider: .ghostty, lifetime: .temporary)),
+            metadata: PaneMetadata(source: .floating(workingDirectory: nil, title: nil), title: "First")
+        )!
+        let dp2 = store.addDrawerPane(
+            to: parentPane.id,
+            content: .terminal(TerminalState(provider: .ghostty, lifetime: .temporary)),
+            metadata: PaneMetadata(source: .floating(workingDirectory: nil, title: nil), title: "Second")
+        )!
+        XCTAssertEqual(store.pane(parentPane.id)!.drawer!.activeDrawerPaneId, dp1.id, "First added should be active")
+
+        // Act
+        executor.execute(.setActiveDrawerPane(parentPaneId: parentPane.id, drawerPaneId: dp2.id))
+
+        // Assert
+        XCTAssertEqual(store.pane(parentPane.id)!.drawer!.activeDrawerPaneId, dp2.id)
+    }
 }
