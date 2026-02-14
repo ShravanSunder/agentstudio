@@ -2,9 +2,11 @@ import SwiftUI
 import AppKit
 import UniformTypeIdentifiers
 
-/// Renders a single terminal pane with drop zone support for splitting.
+/// Renders a single pane leaf with drop zone support for splitting.
+/// Handles terminal views (with surface dimming and drag handles) and
+/// non-terminal views (webview, code viewer stubs) uniformly.
 struct TerminalPaneLeaf: View {
-    let terminalView: AgentStudioTerminalView
+    let paneView: PaneView
     let tabId: UUID
     let isActive: Bool
     let isSplit: Bool
@@ -17,11 +19,16 @@ struct TerminalPaneLeaf: View {
     @State private var isHovered: Bool = false
     @ObservedObject private var managementMode = ManagementModeMonitor.shared
 
+    /// Downcast to terminal view for terminal-specific features.
+    private var terminalView: AgentStudioTerminalView? {
+        paneView as? AgentStudioTerminalView
+    }
+
     var body: some View {
         GeometryReader { geometry in
             ZStack(alignment: .topTrailing) {
-                // Terminal view
-                TerminalViewRepresentable(terminalView: terminalView)
+                // Pane content view
+                PaneViewRepresentable(paneView: paneView)
 
                 // Ghostty-style dimming for unfocused panes
                 if isSplit && !isActive {
@@ -40,8 +47,8 @@ struct TerminalPaneLeaf: View {
                         .animation(.easeInOut(duration: 0.15), value: isHovered)
                 }
 
-                // Drag handle (top-left, management mode + hover only)
-                if managementMode.isActive && isHovered && isSplit {
+                // Drag handle (top-left, management mode + hover only, terminal panes with worktree context)
+                if managementMode.isActive && isHovered && isSplit, let tv = terminalView {
                     VStack {
                         HStack {
                             Image(systemName: "line.3.horizontal")
@@ -50,16 +57,16 @@ struct TerminalPaneLeaf: View {
                                 .frame(width: 20, height: 20)
                                 .contentShape(Rectangle())
                                 .draggable(PaneDragPayload(
-                                    paneId: terminalView.id,
+                                    paneId: tv.id,
                                     tabId: tabId,
-                                    worktreeId: terminalView.worktree.id,
-                                    repoId: terminalView.repo.id
+                                    worktreeId: tv.worktree.id,
+                                    repoId: tv.repo.id
                                 ))
                             Spacer()
                         }
                         Spacer()
                     }
-                    .allowsHitTesting(true)  // Safe: entire VStack only exists when condition above is true
+                    .allowsHitTesting(true)
                 }
 
                 // Drop zone overlay
@@ -71,7 +78,7 @@ struct TerminalPaneLeaf: View {
                 // Close pane button (management mode only)
                 if isSplit && managementMode.isActive {
                     Button {
-                        action(.closePane(tabId: tabId, paneId: terminalView.id))
+                        action(.closePane(tabId: tabId, paneId: paneView.id))
                     } label: {
                         Image(systemName: "xmark.circle.fill")
                             .font(.system(size: 14))
@@ -86,11 +93,11 @@ struct TerminalPaneLeaf: View {
             .contentShape(Rectangle())
             .onHover { isHovered = $0 }
             .onTapGesture {
-                action(.focusPane(tabId: tabId, paneId: terminalView.id))
+                action(.focusPane(tabId: tabId, paneId: paneView.id))
             }
             .onDrop(of: [.agentStudioTab, .agentStudioNewTab, .agentStudioPane], delegate: SplitDropDelegate(
                 viewSize: geometry.size,
-                destination: terminalView,
+                destination: paneView,
                 dropZone: $dropZone,
                 isTargeted: $isTargeted,
                 shouldAcceptDrop: shouldAcceptDrop,
@@ -102,28 +109,31 @@ struct TerminalPaneLeaf: View {
     }
 }
 
-// MARK: - NSViewRepresentable for Terminal
+// MARK: - NSViewRepresentable for PaneView
 
-/// Bridges AgentStudioTerminalView (NSView) into SwiftUI.
+/// Bridges any PaneView (NSView) into SwiftUI.
 /// Returns the stable swiftUIContainer — same NSView every time, preventing IOSurface reparenting.
-struct TerminalViewRepresentable: NSViewRepresentable {
-    let terminalView: AgentStudioTerminalView
+struct PaneViewRepresentable: NSViewRepresentable {
+    let paneView: PaneView
 
     func makeNSView(context: Context) -> NSView {
-        terminalView.swiftUIContainer
+        paneView.swiftUIContainer
     }
 
     func updateNSView(_ nsView: NSView, context: Context) {
-        // Nothing — container is stable, terminal manages itself
+        // Nothing — container is stable, pane manages itself
     }
 }
+
+/// Backwards-compatible alias.
+typealias TerminalViewRepresentable = PaneViewRepresentable
 
 // MARK: - Drop Delegate
 
 /// Handles drag-and-drop for split pane creation.
 private struct SplitDropDelegate: DropDelegate {
     let viewSize: CGSize
-    let destination: AgentStudioTerminalView
+    let destination: PaneView
     @Binding var dropZone: DropZone?
     @Binding var isTargeted: Bool
     let shouldAcceptDrop: (UUID, DropZone) -> Bool

@@ -72,6 +72,101 @@ final class WorkspaceStore: ObservableObject {
         panes.values.filter { $0.worktreeId == worktreeId }.count
     }
 
+    // MARK: - Orphaned Pane Pool
+
+    /// Panes that exist in the store but are not in any tab layout.
+    /// These are backgrounded panes waiting to be reactivated or garbage-collected.
+    var orphanedPanes: [Pane] {
+        let layoutPaneIds = Set(tabs.flatMap(\.panes))
+        return panes.values.filter { !layoutPaneIds.contains($0.id) && $0.residency == .backgrounded }
+    }
+
+    /// Remove a pane from all tab layouts and move to the background pool.
+    /// The pane stays in the dict with `.backgrounded` residency — its tmux session stays alive.
+    func backgroundPane(_ paneId: UUID) {
+        guard panes[paneId] != nil else {
+            storeLogger.warning("backgroundPane: pane \(paneId) not found")
+            return
+        }
+
+        // Remove from all tab layouts
+        for tabIndex in tabs.indices {
+            tabs[tabIndex].panes.removeAll { $0 == paneId }
+            for arrIndex in tabs[tabIndex].arrangements.indices {
+                tabs[tabIndex].arrangements[arrIndex].visiblePaneIds.remove(paneId)
+                if let newLayout = tabs[tabIndex].arrangements[arrIndex].layout.removing(paneId: paneId) {
+                    tabs[tabIndex].arrangements[arrIndex].layout = newLayout
+                } else {
+                    tabs[tabIndex].arrangements[arrIndex].layout = Layout()
+                }
+            }
+            // If active arrangement is now empty but default still has panes,
+            // fall back to default so the tab doesn't render as blank.
+            if tabs[tabIndex].activeArrangement.layout.isEmpty
+                && !tabs[tabIndex].defaultArrangement.layout.isEmpty {
+                tabs[tabIndex].activeArrangementId = tabs[tabIndex].defaultArrangement.id
+            }
+            if tabs[tabIndex].activePaneId == paneId {
+                tabs[tabIndex].activePaneId = tabs[tabIndex].activeArrangement.layout.paneIds.first
+            }
+            if tabs[tabIndex].zoomedPaneId == paneId {
+                tabs[tabIndex].zoomedPaneId = nil
+            }
+        }
+        // Remove empty tabs
+        tabs.removeAll { $0.defaultArrangement.layout.isEmpty }
+        if let atId = activeTabId, !tabs.contains(where: { $0.id == atId }) {
+            activeTabId = tabs.last?.id
+        }
+
+        panes[paneId]!.residency = .backgrounded
+        markDirty()
+    }
+
+    /// Reactivate a backgrounded pane by inserting it into a tab layout.
+    func reactivatePane(
+        _ paneId: UUID,
+        inTab tabId: UUID,
+        at targetPaneId: UUID,
+        direction: Layout.SplitDirection,
+        position: Layout.Position
+    ) {
+        guard panes[paneId] != nil else {
+            storeLogger.warning("reactivatePane: pane \(paneId) not found")
+            return
+        }
+        guard panes[paneId]!.residency == .backgrounded else {
+            storeLogger.warning("reactivatePane: pane \(paneId) is not backgrounded")
+            return
+        }
+        // Verify insertion target is valid before changing residency.
+        // insertPane can fail silently if the tab or target pane no longer exist,
+        // which would leave the pane active but not in any layout.
+        guard let tabIndex = findTabIndex(tabId) else {
+            storeLogger.warning("reactivatePane: tab \(tabId) not found — keeping pane backgrounded")
+            return
+        }
+        let arrIndex = tabs[tabIndex].activeArrangementIndex
+        guard tabs[tabIndex].arrangements[arrIndex].layout.contains(targetPaneId) else {
+            storeLogger.warning("reactivatePane: targetPaneId \(targetPaneId) not in active arrangement — keeping pane backgrounded")
+            return
+        }
+
+        panes[paneId]!.residency = .active
+        insertPane(paneId, inTab: tabId, at: targetPaneId, direction: direction, position: position)
+    }
+
+    /// Permanently destroy backgrounded panes that have been in the pool too long
+    /// or are no longer needed.
+    func purgeOrphanedPane(_ paneId: UUID) {
+        guard let pane = panes[paneId], pane.residency == .backgrounded else {
+            storeLogger.warning("purgeOrphanedPane: pane \(paneId) is not backgrounded")
+            return
+        }
+        panes.removeValue(forKey: paneId)
+        markDirty()
+    }
+
     // MARK: - Queries
 
     func pane(_ id: UUID) -> Pane? {
@@ -121,6 +216,23 @@ final class WorkspaceStore: ObservableObject {
         let pane = Pane(
             content: .terminal(TerminalState(provider: provider, lifetime: lifetime)),
             metadata: PaneMetadata(source: source, title: title),
+            residency: residency
+        )
+        panes[pane.id] = pane
+        markDirty()
+        return pane
+    }
+
+    /// Create a pane with arbitrary content (webview, code viewer, etc.).
+    @discardableResult
+    func createPane(
+        content: PaneContent,
+        metadata: PaneMetadata,
+        residency: SessionResidency = .active
+    ) -> Pane {
+        let pane = Pane(
+            content: content,
+            metadata: metadata,
             residency: residency
         )
         panes[pane.id] = pane
@@ -375,6 +487,189 @@ final class WorkspaceStore: ObservableObject {
         markDirty()
     }
 
+    // MARK: - Arrangement Mutations
+
+    /// Create a new custom arrangement with a subset of the tab's panes.
+    /// The layout is derived from the default arrangement by removing panes not in the subset.
+    @discardableResult
+    func createArrangement(name: String, paneIds: Set<UUID>, inTab tabId: UUID) -> UUID? {
+        guard let tabIndex = findTabIndex(tabId) else { return nil }
+        guard !paneIds.isEmpty else {
+            storeLogger.warning("createArrangement: empty paneIds")
+            return nil
+        }
+
+        // Validate all paneIds are in the tab
+        let tabPaneSet = Set(tabs[tabIndex].panes)
+        guard paneIds.isSubset(of: tabPaneSet) else {
+            storeLogger.warning("createArrangement: paneIds not all in tab \(tabId)")
+            return nil
+        }
+
+        // Build layout by filtering the default arrangement's layout
+        let defLayout = tabs[tabIndex].defaultArrangement.layout
+        let paneIdsToRemove = Set(defLayout.paneIds).subtracting(paneIds)
+        var filteredLayout = defLayout
+        for removeId in paneIdsToRemove {
+            if let newLayout = filteredLayout.removing(paneId: removeId) {
+                filteredLayout = newLayout
+            }
+        }
+
+        let arrangement = PaneArrangement(
+            name: name,
+            isDefault: false,
+            layout: filteredLayout,
+            visiblePaneIds: paneIds
+        )
+        tabs[tabIndex].arrangements.append(arrangement)
+        markDirty()
+        return arrangement.id
+    }
+
+    /// Remove a custom arrangement. Cannot remove the default arrangement.
+    /// If the removed arrangement was active, switches to the default.
+    func removeArrangement(_ arrangementId: UUID, inTab tabId: UUID) {
+        guard let tabIndex = findTabIndex(tabId) else { return }
+        guard let arrIndex = tabs[tabIndex].arrangements.firstIndex(where: { $0.id == arrangementId }) else {
+            storeLogger.warning("removeArrangement: arrangement \(arrangementId) not found in tab \(tabId)")
+            return
+        }
+        guard !tabs[tabIndex].arrangements[arrIndex].isDefault else {
+            storeLogger.warning("removeArrangement: cannot remove default arrangement")
+            return
+        }
+
+        // If removing the active arrangement, switch to default first
+        if tabs[tabIndex].activeArrangementId == arrangementId {
+            tabs[tabIndex].activeArrangementId = tabs[tabIndex].defaultArrangement.id
+            // Update activePaneId to one visible in default
+            if let activePaneId = tabs[tabIndex].activePaneId,
+               !tabs[tabIndex].defaultArrangement.layout.contains(activePaneId) {
+                tabs[tabIndex].activePaneId = tabs[tabIndex].defaultArrangement.layout.paneIds.first
+            }
+        }
+
+        tabs[tabIndex].arrangements.remove(at: arrIndex)
+        markDirty()
+    }
+
+    /// Switch to a different arrangement within a tab.
+    func switchArrangement(to arrangementId: UUID, inTab tabId: UUID) {
+        guard let tabIndex = findTabIndex(tabId) else { return }
+        guard tabs[tabIndex].arrangements.contains(where: { $0.id == arrangementId }) else {
+            storeLogger.warning("switchArrangement: arrangement \(arrangementId) not found in tab \(tabId)")
+            return
+        }
+        guard tabs[tabIndex].activeArrangementId != arrangementId else { return }
+
+        // Clear zoom when switching arrangements
+        tabs[tabIndex].zoomedPaneId = nil
+        tabs[tabIndex].activeArrangementId = arrangementId
+
+        // Update activePaneId if current one isn't in the new arrangement
+        if let activePaneId = tabs[tabIndex].activePaneId,
+           !tabs[tabIndex].activeArrangement.layout.contains(activePaneId) {
+            tabs[tabIndex].activePaneId = tabs[tabIndex].activeArrangement.layout.paneIds.first
+        }
+
+        markDirty()
+    }
+
+    /// Rename a custom arrangement.
+    func renameArrangement(_ arrangementId: UUID, name: String, inTab tabId: UUID) {
+        guard let tabIndex = findTabIndex(tabId) else { return }
+        guard let arrIndex = tabs[tabIndex].arrangements.firstIndex(where: { $0.id == arrangementId }) else {
+            storeLogger.warning("renameArrangement: arrangement \(arrangementId) not found in tab \(tabId)")
+            return
+        }
+        tabs[tabIndex].arrangements[arrIndex].name = name
+        markDirty()
+    }
+
+    // MARK: - Drawer Mutations
+
+    /// Add a drawer pane to a parent pane. Creates the drawer if it doesn't exist.
+    @discardableResult
+    func addDrawerPane(
+        to parentPaneId: UUID,
+        content: PaneContent,
+        metadata: PaneMetadata
+    ) -> DrawerPane? {
+        guard panes[parentPaneId] != nil else {
+            storeLogger.warning("addDrawerPane: parent pane \(parentPaneId) not found")
+            return nil
+        }
+
+        let drawerPane = DrawerPane(content: content, metadata: metadata)
+
+        if panes[parentPaneId]!.drawer == nil {
+            panes[parentPaneId]!.drawer = Drawer(
+                panes: [drawerPane],
+                activeDrawerPaneId: drawerPane.id,
+                isExpanded: true
+            )
+        } else {
+            panes[parentPaneId]!.drawer!.panes.append(drawerPane)
+            // Auto-activate if first pane
+            if panes[parentPaneId]!.drawer!.activeDrawerPaneId == nil {
+                panes[parentPaneId]!.drawer!.activeDrawerPaneId = drawerPane.id
+            }
+        }
+
+        markDirty()
+        return drawerPane
+    }
+
+    /// Remove a drawer pane from its parent. Removes the drawer if it becomes empty.
+    func removeDrawerPane(_ drawerPaneId: UUID, from parentPaneId: UUID) {
+        guard panes[parentPaneId] != nil,
+              panes[parentPaneId]!.drawer != nil else {
+            storeLogger.warning("removeDrawerPane: parent pane \(parentPaneId) has no drawer")
+            return
+        }
+
+        panes[parentPaneId]!.drawer!.panes.removeAll { $0.id == drawerPaneId }
+
+        // Update active drawer pane if removed
+        if panes[parentPaneId]!.drawer!.activeDrawerPaneId == drawerPaneId {
+            panes[parentPaneId]!.drawer!.activeDrawerPaneId =
+                panes[parentPaneId]!.drawer!.panes.first?.id
+        }
+
+        // Remove drawer entirely if empty
+        if panes[parentPaneId]!.drawer!.panes.isEmpty {
+            panes[parentPaneId]!.drawer = nil
+        }
+
+        markDirty()
+    }
+
+    /// Toggle the expanded/collapsed state of a pane's drawer.
+    func toggleDrawer(for paneId: UUID) {
+        guard panes[paneId] != nil,
+              panes[paneId]!.drawer != nil else {
+            storeLogger.warning("toggleDrawer: pane \(paneId) has no drawer")
+            return
+        }
+
+        panes[paneId]!.drawer!.isExpanded.toggle()
+        markDirty()
+    }
+
+    /// Set the active drawer pane within a pane's drawer.
+    func setActiveDrawerPane(_ drawerPaneId: UUID, in parentPaneId: UUID) {
+        guard panes[parentPaneId] != nil,
+              let drawer = panes[parentPaneId]!.drawer,
+              drawer.panes.contains(where: { $0.id == drawerPaneId }) else {
+            storeLogger.warning("setActiveDrawerPane: drawer pane \(drawerPaneId) not found in pane \(parentPaneId)")
+            return
+        }
+
+        panes[parentPaneId]!.drawer!.activeDrawerPaneId = drawerPaneId
+        markDirty()
+    }
+
     // MARK: - Zoom
 
     func toggleZoom(paneId: UUID, inTab tabId: UUID) {
@@ -518,17 +813,6 @@ final class WorkspaceStore: ObservableObject {
             tabs[targetTabIndex].arrangements[targetArrIndex].layout = tabs[targetTabIndex].arrangements[targetArrIndex].layout
                 .inserting(paneId: paneId, at: currentTarget, direction: direction, position: position)
             tabs[targetTabIndex].arrangements[targetArrIndex].visiblePaneIds.insert(paneId)
-
-            // Also add to default arrangement if active is not default
-            if !tabs[targetTabIndex].arrangements[targetArrIndex].isDefault {
-                let defIdx = tabs[targetTabIndex].defaultArrangementIndex
-                if tabs[targetTabIndex].arrangements[defIdx].layout.contains(currentTarget) {
-                    tabs[targetTabIndex].arrangements[defIdx].layout = tabs[targetTabIndex].arrangements[defIdx].layout
-                        .inserting(paneId: paneId, at: currentTarget, direction: direction, position: position)
-                    tabs[targetTabIndex].arrangements[defIdx].visiblePaneIds.insert(paneId)
-                }
-            }
-
             if !tabs[targetTabIndex].panes.contains(paneId) {
                 tabs[targetTabIndex].panes.append(paneId)
             }
@@ -610,22 +894,6 @@ final class WorkspaceStore: ObservableObject {
             storeLogger.info("No workspace files found — first launch")
         }
 
-        // Migrate legacy ghostty panes to tmux for persistence
-        for id in panes.keys {
-            if case .terminal(var termState) = panes[id]!.content, termState.provider == .ghostty {
-                termState.provider = .tmux
-                panes[id]!.content = .terminal(termState)
-            }
-        }
-
-        // Filter out temporary panes — they are never restored
-        panes = panes.filter { _, pane in
-            if case .terminal(let termState) = pane.content {
-                return termState.lifetime != .temporary
-            }
-            return true
-        }
-
         // Remove panes whose worktree no longer exists (deleted between launches)
         let validWorktreeIds = Set(repos.flatMap(\.worktrees).map(\.id))
         panes = panes.filter { id, pane in
@@ -692,8 +960,8 @@ final class WorkspaceStore: ObservableObject {
         // Prune tabs: remove temporary pane IDs from layouts in the PERSISTED COPY.
         // Live state is not mutated — only the serialized output is cleaned.
         var prunedTabs = tabs
-        var persistedActiveTabId = activeTabId
-        pruneInvalidPanes(from: &prunedTabs, validPaneIds: validPaneIds, activeTabId: &persistedActiveTabId)
+        var prunedActiveTabId = activeTabId
+        pruneInvalidPanes(from: &prunedTabs, validPaneIds: validPaneIds, activeTabId: &prunedActiveTabId)
 
         let state = WorkspacePersistor.PersistableState(
             id: workspaceId,
@@ -701,7 +969,7 @@ final class WorkspaceStore: ObservableObject {
             repos: repos,
             panes: persistablePanes,
             tabs: prunedTabs,
-            activeTabId: persistedActiveTabId,
+            activeTabId: prunedActiveTabId,
             sidebarWidth: sidebarWidth,
             windowFrame: windowFrame,
             createdAt: createdAt,
@@ -776,8 +1044,6 @@ final class WorkspaceStore: ObservableObject {
 
     /// Remove pane IDs from tab layouts that are not in the valid set.
     /// Prunes layout nodes, removes empty tabs, and fixes activeTabId.
-    /// `activeTabId` is passed as inout so this method works correctly both when
-    /// mutating live state (restore) and when operating on a persisted copy (persistNow).
     private func pruneInvalidPanes(from tabs: inout [Tab], validPaneIds: Set<UUID>, activeTabId: inout UUID?) {
         var totalPruned = 0
         var tabsRemoved = 0
@@ -889,13 +1155,11 @@ final class WorkspaceStore: ObservableObject {
                 repairCount += 1
             }
 
-            // 6. Enforce single-ownership: a pane must appear in at most one tab.
-            //    The first tab encountered keeps ownership; later tabs have the pane removed.
-            let duplicatePaneIds = layoutPaneIds.intersection(seenPaneIds)
-            if !duplicatePaneIds.isEmpty {
-                for paneId in duplicatePaneIds {
-                    storeLogger.warning("Pane \(paneId) duplicated in tab \(tabId) — removing from this tab")
-                    // Remove from all arrangements in this tab
+            // 6. Detect and repair cross-tab pane duplicates (a pane should be in at most one tab)
+            for paneId in layoutPaneIds {
+                if seenPaneIds.contains(paneId) {
+                    storeLogger.warning("Pane \(paneId) appears in multiple tabs — removing from tab \(tabId)")
+                    tabs[tabIndex].panes.removeAll { $0 == paneId }
                     for arrIndex in tabs[tabIndex].arrangements.indices {
                         tabs[tabIndex].arrangements[arrIndex].visiblePaneIds.remove(paneId)
                         if let newLayout = tabs[tabIndex].arrangements[arrIndex].layout.removing(paneId: paneId) {
@@ -904,14 +1168,18 @@ final class WorkspaceStore: ObservableObject {
                             tabs[tabIndex].arrangements[arrIndex].layout = Layout()
                         }
                     }
-                    tabs[tabIndex].panes.removeAll { $0 == paneId }
-                    if tabs[tabIndex].activePaneId == paneId {
-                        tabs[tabIndex].activePaneId = tabs[tabIndex].activeArrangement.layout.paneIds.first
-                    }
                     repairCount += 1
                 }
+                seenPaneIds.insert(paneId)
             }
-            seenPaneIds.formUnion(layoutPaneIds)
+
+            // 7. Re-validate activePaneId after duplicate repair may have removed panes
+            if let apId = tabs[tabIndex].activePaneId,
+               !tabs[tabIndex].activeArrangement.layout.paneIds.contains(apId) {
+                tabs[tabIndex].activePaneId = tabs[tabIndex].activeArrangement.layout.paneIds.first
+                storeLogger.warning("Tab \(tabId): activePaneId \(apId) stale after duplicate repair — reset")
+                repairCount += 1
+            }
         }
 
         if repairCount > 0 {

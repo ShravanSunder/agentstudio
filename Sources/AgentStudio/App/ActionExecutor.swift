@@ -157,6 +157,51 @@ final class ActionExecutor {
                 direction: direction
             )
 
+        case .createArrangement(let tabId, let name, let paneIds):
+            _ = store.createArrangement(name: name, paneIds: paneIds, inTab: tabId)
+
+        case .removeArrangement(let tabId, let arrangementId):
+            store.removeArrangement(arrangementId, inTab: tabId)
+
+        case .switchArrangement(let tabId, let arrangementId):
+            store.switchArrangement(to: arrangementId, inTab: tabId)
+
+        case .renameArrangement(let tabId, let arrangementId, let name):
+            store.renameArrangement(arrangementId, name: name, inTab: tabId)
+
+        case .backgroundPane(let paneId):
+            store.backgroundPane(paneId)
+
+        case .reactivatePane(let paneId, let targetTabId, let targetPaneId, let direction):
+            let layoutDirection = bridgeDirection(direction)
+            let position: Layout.Position = (direction == .left || direction == .up) ? .before : .after
+            store.reactivatePane(paneId, inTab: targetTabId, at: targetPaneId,
+                                 direction: layoutDirection, position: position)
+            // After reactivation, ensure the pane has a view.
+            // Backgrounded panes lose their view on restart (restoreAllViews skips them).
+            if viewRegistry.view(for: paneId) == nil, let pane = store.pane(paneId) {
+                coordinator.createViewForContent(pane: pane)
+            }
+
+        case .purgeOrphanedPane(let paneId):
+            // Only teardown if the pane is actually backgrounded — prevents destroying
+            // views for live panes if this action is dispatched incorrectly.
+            guard let pane = store.pane(paneId), pane.residency == .backgrounded else { break }
+            coordinator.teardownView(for: paneId)
+            store.purgeOrphanedPane(paneId)
+
+        case .addDrawerPane(let parentPaneId, let content, let metadata):
+            _ = store.addDrawerPane(to: parentPaneId, content: content, metadata: metadata)
+
+        case .removeDrawerPane(let parentPaneId, let drawerPaneId):
+            store.removeDrawerPane(drawerPaneId, from: parentPaneId)
+
+        case .toggleDrawer(let paneId):
+            store.toggleDrawer(for: paneId)
+
+        case .setActiveDrawerPane(let parentPaneId, let drawerPaneId):
+            store.setActiveDrawerPane(drawerPaneId, in: parentPaneId)
+
         case .expireUndoEntry(let paneId):
             // TODO: Phase 3 — remove pane from store, kill tmux, destroy surface
             executorLogger.warning("expireUndoEntry: \(paneId) — stub, full impl in Phase 3")
@@ -191,11 +236,11 @@ final class ActionExecutor {
     private func expireOldUndoEntries() {
         while undoStack.count > maxUndoStackSize {
             let expired = undoStack.removeFirst()
-            // Remove panes that are not referenced by any tab's ownership list.
-            // Use tab.panes (all owned panes) instead of tab.paneIds (active arrangement only)
-            // to avoid GC'ing panes hidden in non-default arrangements.
-            let allLayoutPaneIds = Set(store.tabs.flatMap(\.panes))
-            for pane in expired.panes where !allLayoutPaneIds.contains(pane.id) {
+            // Remove panes that are not owned by any tab (across all arrangements).
+            // Use tab.panes (ownership list) instead of tab.paneIds (active arrangement only)
+            // to avoid GC'ing panes hidden in non-active arrangements.
+            let allOwnedPaneIds = Set(store.tabs.flatMap(\.panes))
+            for pane in expired.panes where !allOwnedPaneIds.contains(pane.id) {
                 store.removePane(pane.id)
                 executorLogger.debug("GC'd orphaned pane \(pane.id) from expired undo entry")
             }
@@ -210,27 +255,17 @@ final class ActionExecutor {
     }
 
     private func executeClosePane(tabId: UUID, paneId: UUID) {
-        // Single-pane tab: escalate to closeTab for proper undo snapshot.
-        // Must delegate before any teardown so the snapshot captures full state.
-        if let tab = store.tab(tabId), tab.paneIds.count <= 1 {
-            executeCloseTab(tabId)
-            return
-        }
-
         coordinator.teardownView(for: paneId)
         let tabNowEmpty = store.removePaneFromLayout(paneId, inTab: tabId)
 
-        // The store returns true only if the tab became empty.
-        // This shouldn't happen since we checked paneIds.count > 1 above.
-        assert(!tabNowEmpty, "Tab unexpectedly empty after closePane — escalation to closeTab should have caught this")
         if tabNowEmpty {
-            store.removeTab(tabId)
+            // Last pane removed — escalate to close tab (with undo support)
+            executeCloseTab(tabId)
         }
 
-        // If the pane is no longer in any tab's ownership list, remove it from the store.
-        // Use tab.panes (all owned panes) instead of tab.paneIds (active arrangement only).
-        let allLayoutPaneIds = Set(store.tabs.flatMap(\.panes))
-        if !allLayoutPaneIds.contains(paneId) {
+        // If the pane is no longer owned by any tab, remove it from the store.
+        let allOwnedPaneIds = Set(store.tabs.flatMap(\.panes))
+        if !allOwnedPaneIds.contains(paneId) {
             store.removePane(paneId)
         }
     }

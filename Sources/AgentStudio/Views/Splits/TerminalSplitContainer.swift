@@ -12,9 +12,9 @@ struct SplitDropPayload: Equatable, Codable {
     let kind: Kind
 }
 
-/// SwiftUI container that renders a SplitTree of terminal panes.
+/// SwiftUI container that renders a SplitTree of pane views.
 struct TerminalSplitContainer: View {
-    let tree: TerminalSplitTree
+    let tree: PaneSplitTree
     let tabId: UUID
     let activePaneId: UUID?
     let zoomedPaneId: UUID?
@@ -31,7 +31,7 @@ struct TerminalSplitContainer: View {
                 // Zoomed: render single pane at full size
                 ZStack(alignment: .topTrailing) {
                     TerminalPaneLeaf(
-                        terminalView: zoomedView,
+                        paneView: zoomedView,
                         tabId: tabId,
                         isActive: true,
                         isSplit: false,
@@ -76,7 +76,7 @@ struct TerminalSplitContainer: View {
 
 /// Recursively renders a node in the split tree.
 fileprivate struct SplitSubtreeView: View {
-    let node: TerminalSplitTree.Node
+    let node: PaneSplitTree.Node
     let tabId: UUID
     let isSplit: Bool
     let activePaneId: UUID?
@@ -87,11 +87,11 @@ fileprivate struct SplitSubtreeView: View {
 
     var body: some View {
         switch node {
-        case .leaf(let terminalView):
+        case .leaf(let paneView):
             TerminalPaneLeaf(
-                terminalView: terminalView,
+                paneView: paneView,
                 tabId: tabId,
-                isActive: terminalView.id == activePaneId,
+                isActive: paneView.id == activePaneId,
                 isSplit: isSplit,
                 action: action,
                 shouldAcceptDrop: shouldAcceptDrop,

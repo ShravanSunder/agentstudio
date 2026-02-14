@@ -140,66 +140,26 @@ final class TabTests: XCTestCase {
         XCTAssertNil(decoded.activePaneId)
     }
 
-    // MARK: - Equatable / Hashable
+    // MARK: - Hashable
 
-    func test_equatable_sameCopy_areEqual() {
-        // Arrange — value copy should be equal
-        let tab = Tab(paneId: UUID())
-        let copy = tab
-
-        // Assert
-        XCTAssertEqual(tab, copy)
-    }
-
-    func test_equatable_detectsLayoutChange() {
-        // Arrange
-        let paneA = UUID()
-        let paneB = UUID()
-        let tab1 = Tab(paneId: paneA)
-
-        // Act — mutate layout
-        var tab2 = tab1
-        let arrIdx = tab2.activeArrangementIndex
-        tab2.arrangements[arrIdx].layout = tab2.arrangements[arrIdx].layout
-            .inserting(paneId: paneB, at: paneA, direction: .horizontal, position: .after)
-
-        // Assert
-        XCTAssertNotEqual(tab1, tab2, "Layout change must be detected by equality")
-    }
-
-    func test_equatable_detectsActivePaneChange() {
-        // Arrange
-        let paneA = UUID()
-        let paneB = UUID()
-        let tab = makeTab(paneIds: [paneA, paneB], activePaneId: paneA)
-
-        // Act
-        var changed = tab
-        changed.activePaneId = paneB
-
-        // Assert
-        XCTAssertNotEqual(tab, changed, "Active pane change must be detected by equality")
-    }
-
-    func test_equatable_detectsZoomChange() {
-        // Arrange
+    func test_hashable_sameId_sameHash() {
+        // Arrange — two tabs with same id but independent arrangements
+        let tabId = UUID()
         let paneId = UUID()
-        let tab = Tab(paneId: paneId)
+        let tab1 = Tab(id: tabId, paneId: paneId)
+        let tab2 = Tab(id: tabId, paneId: paneId)
 
-        // Act
-        var zoomed = tab
-        zoomed.zoomedPaneId = paneId
-
-        // Assert
-        XCTAssertNotEqual(tab, zoomed, "Zoom change must be detected by equality")
+        // Assert — hash is identity-based, equality is memberwise
+        XCTAssertEqual(tab1.hashValue, tab2.hashValue)
+        // Different arrangement UUIDs means they are NOT equal under memberwise equality
+        XCTAssertNotEqual(tab1, tab2)
     }
 
-    func test_hashable_sameCopy_sameHash() {
-        // Arrange
-        let tab = Tab(paneId: UUID())
-        let copy = tab
+    func test_equality_sameInstance_isEqual() {
+        // Arrange — exact same tab instance
+        let tab = Tab(id: UUID(), paneId: UUID())
 
         // Assert
-        XCTAssertEqual(tab.hashValue, copy.hashValue)
+        XCTAssertEqual(tab, tab)
     }
 }

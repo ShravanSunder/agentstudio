@@ -3,9 +3,10 @@ import Foundation
 /// A tab in the workspace. Contains panes organized into arrangements.
 /// Order is implicit — determined by array position in the workspace's tabs array.
 struct Tab: Codable, Identifiable, Hashable {
-    // Synthesized Equatable/Hashable: compares all stored properties.
-    // This is required for render invalidation — TerminalTabViewController.refreshDisplay()
-    // skips rebuild when tab == lastRenderedTab, so layout/focus/zoom changes must be detected.
+    // Memberwise equality so TTVC detects layout/focus/arrangement changes.
+    // Hash by id only (Hashable contract: equal objects must have equal hashes,
+    // but equal hashes need not imply equal objects).
+    func hash(into hasher: inout Hasher) { hasher.combine(id) }
 
     let id: UUID
     /// Display name for this tab.
@@ -55,8 +56,8 @@ struct Tab: Codable, Identifiable, Hashable {
         activePaneId: UUID?,
         zoomedPaneId: UUID? = nil
     ) {
-        precondition(!arrangements.isEmpty, "Tab must have at least one arrangement")
-        precondition(arrangements.filter(\.isDefault).count == 1, "Tab must have exactly one default arrangement")
+        assert(!arrangements.isEmpty, "Tab must have at least one arrangement")
+        assert(arrangements.filter(\.isDefault).count == 1, "Tab must have exactly one default arrangement")
         self.id = id
         self.name = name
         self.panes = panes

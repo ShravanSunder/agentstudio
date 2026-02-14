@@ -51,7 +51,46 @@ final class TerminalViewCoordinator {
         store.updatePaneCWD(paneId, cwd: url)
     }
 
-    // MARK: - Create View
+    // MARK: - Create View (content-type dispatch)
+
+    /// Create a view for any pane content type. Dispatches to the appropriate factory.
+    /// Returns the created PaneView, or nil on failure.
+    @discardableResult
+    func createViewForContent(pane: Pane) -> PaneView? {
+        switch pane.content {
+        case .terminal:
+            // Terminal panes currently require worktree/repo context for surface creation.
+            // TODO: Support floating terminals (Source.floating) by making worktree/repo
+            // optional in AgentStudioTerminalView, or by creating a lightweight surface
+            // that doesn't need worktree context.
+            guard let worktreeId = pane.worktreeId,
+                  let repoId = pane.repoId,
+                  let worktree = store.worktree(worktreeId),
+                  let repo = store.repo(repoId) else {
+                coordinatorLogger.warning("Cannot create terminal view — pane \(pane.id) has no worktree/repo context")
+                return nil
+            }
+            return createView(for: pane, worktree: worktree, repo: repo)
+
+        case .webview(let state):
+            let view = WebviewPaneView(paneId: pane.id, state: state)
+            viewRegistry.register(view, for: pane.id)
+            coordinatorLogger.info("Created webview stub for pane \(pane.id)")
+            return view
+
+        case .codeViewer(let state):
+            let view = CodeViewerPaneView(paneId: pane.id, state: state)
+            viewRegistry.register(view, for: pane.id)
+            coordinatorLogger.info("Created code viewer stub for pane \(pane.id)")
+            return view
+
+        case .unsupported:
+            coordinatorLogger.warning("Cannot create view for unsupported content type — pane \(pane.id)")
+            return nil
+        }
+    }
+
+    // MARK: - Create Terminal View
 
     /// Create a terminal view for a pane, including surface and runtime setup.
     /// Registers the view in the ViewRegistry.
@@ -64,16 +103,13 @@ final class TerminalViewCoordinator {
         let workingDir = worktree.path
 
         let cmd: String
-        switch pane.content {
-        case .terminal(let terminalState):
-            switch terminalState.provider {
-            case .tmux:
-                cmd = buildTmuxAttachCommand(pane: pane, worktree: worktree, repo: repo)
-            case .ghostty:
-                cmd = "\(getDefaultShell()) -i -l"
-            }
-        case .webview, .codeViewer:
-            coordinatorLogger.error("Cannot create terminal view for non-terminal pane \(pane.id) (content: \(String(describing: pane.content)))")
+        switch pane.provider {
+        case .tmux:
+            cmd = buildTmuxAttachCommand(pane: pane, worktree: worktree, repo: repo)
+        case .ghostty:
+            cmd = "\(getDefaultShell()) -i -l"
+        case .none:
+            coordinatorLogger.error("Cannot create view for non-terminal pane \(pane.id)")
             return nil
         }
 
@@ -125,10 +161,11 @@ final class TerminalViewCoordinator {
 
     // MARK: - Teardown View
 
-    /// Teardown a terminal view — detach surface, suspend runtime, unregister.
+    /// Teardown a view — detach surface (if terminal), unregister.
     func teardownView(for paneId: UUID) {
-        // Get the view's surfaceId before unregistering
-        if let view = viewRegistry.view(for: paneId), let surfaceId = view.surfaceId {
+        // Terminal-specific: detach surface before unregistering
+        if let terminal = viewRegistry.terminalView(for: paneId),
+           let surfaceId = terminal.surfaceId {
             SurfaceManager.shared.detach(surfaceId, reason: .close)
         }
 
@@ -141,7 +178,8 @@ final class TerminalViewCoordinator {
 
     /// Detach a pane's surface for a view switch (hide, not destroy).
     func detachForViewSwitch(paneId: UUID) {
-        if let view = viewRegistry.view(for: paneId), let surfaceId = view.surfaceId {
+        if let terminal = viewRegistry.terminalView(for: paneId),
+           let surfaceId = terminal.surfaceId {
             SurfaceManager.shared.detach(surfaceId, reason: .hide)
         }
         coordinatorLogger.debug("Detached pane \(paneId) for view switch")
@@ -149,9 +187,10 @@ final class TerminalViewCoordinator {
 
     /// Reattach a pane's surface after a view switch.
     func reattachForViewSwitch(paneId: UUID) {
-        if let view = viewRegistry.view(for: paneId), let surfaceId = view.surfaceId {
+        if let terminal = viewRegistry.terminalView(for: paneId),
+           let surfaceId = terminal.surfaceId {
             if let surfaceView = SurfaceManager.shared.attach(surfaceId, to: paneId) {
-                view.displaySurface(surfaceView)
+                terminal.displaySurface(surfaceView)
             }
         }
         coordinatorLogger.debug("Reattached pane \(paneId) for view switch")
@@ -198,11 +237,11 @@ final class TerminalViewCoordinator {
 
     // MARK: - Restore All Views
 
-    /// Recreate terminal views for all restored panes in all tabs.
+    /// Recreate views for all restored panes in all tabs.
     /// Called once at launch after store.restore() populates persisted state.
     func restoreAllViews() {
         // Use tab.panes (all owned panes) instead of tab.paneIds (active arrangement only)
-        // to ensure panes hidden in non-default arrangements also get views restored.
+        // to ensure panes in non-active arrangements also get views restored.
         let paneIds = store.tabs.flatMap(\.panes)
         guard !paneIds.isEmpty else {
             coordinatorLogger.info("No panes to restore views for")
@@ -211,24 +250,20 @@ final class TerminalViewCoordinator {
 
         var restored = 0
         for paneId in paneIds {
-            guard let pane = store.pane(paneId),
-                  let worktreeId = pane.worktreeId,
-                  let repoId = pane.repoId,
-                  let worktree = store.worktree(worktreeId),
-                  let repo = store.repo(repoId) else {
-                coordinatorLogger.warning("Skipping view restore for pane \(paneId) — missing worktree/repo")
+            guard let pane = store.pane(paneId) else {
+                coordinatorLogger.warning("Skipping view restore for pane \(paneId) — not in store")
                 continue
             }
-            if createView(for: pane, worktree: worktree, repo: repo) != nil {
+            if createViewForContent(pane: pane) != nil {
                 restored += 1
             }
         }
-        coordinatorLogger.info("Restored \(restored)/\(paneIds.count) terminal views")
+        coordinatorLogger.info("Restored \(restored)/\(paneIds.count) pane views")
 
-        // Sync focus after all views are restored — only the active pane gets a blinking cursor.
+        // Sync focus after all views are restored — only the active terminal gets a blinking cursor.
         if let activeTab = store.activeTab,
            let activePaneId = activeTab.activePaneId,
-           let terminalView = viewRegistry.view(for: activePaneId) {
+           let terminalView = viewRegistry.terminalView(for: activePaneId) {
             SurfaceManager.shared.syncFocus(activeSurfaceId: terminalView.surfaceId)
         }
     }
@@ -242,24 +277,12 @@ final class TerminalViewCoordinator {
             paneId: pane.id
         )
         let tmuxBin = sessionConfig.tmuxPath ?? "tmux"
-        // Use the safe terminfo path (~/.agentstudio/terminfo/) to avoid
-        // "AgentStudio" (mixed case) in the tmux command line, which would
-        // cause `pkill -f AgentStudio` to kill the tmux server.
-        let safeTerminfo = SessionConfiguration.safeTerminfoPath
-        let terminfoDir: String?
-        if FileManager.default.fileExists(atPath: safeTerminfo + "/78/xterm-256color") {
-            terminfoDir = safeTerminfo
-        } else {
-            coordinatorLogger.warning("Custom xterm-256color not found at \(safeTerminfo)/78/xterm-256color — TERMINFO will not be injected into tmux attach")
-            terminfoDir = nil
-        }
         return TmuxBackend.buildAttachCommand(
             tmuxBin: tmuxBin,
             socketName: TmuxBackend.socketName,
             ghostConfigPath: sessionConfig.ghostConfigPath,
             sessionId: tmuxSessionName,
-            workingDirectory: worktree.path.path,
-            terminfoDir: terminfoDir
+            workingDirectory: worktree.path.path
         )
     }
 
