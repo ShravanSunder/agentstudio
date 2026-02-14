@@ -33,6 +33,12 @@ enum AppCommand: String, CaseIterable {
     case deleteArrangement
     case renameArrangement
 
+    // Drawer commands
+    case addDrawerPane
+    case toggleDrawer
+    case navigateDrawerPane
+    case closeDrawerPane
+
     // Repo commands
     case addRepo, removeRepo, refreshWorktrees
 
@@ -330,6 +336,32 @@ final class CommandDispatcher: ObservableObject {
                 label: "Rename Arrangement",
                 icon: "pencil",
                 appliesTo: [.tab]
+            ),
+
+            // Drawer commands
+            CommandDefinition(
+                command: .addDrawerPane,
+                label: "Add Drawer Pane",
+                icon: "rectangle.bottomhalf.inset.filled",
+                appliesTo: [.pane]
+            ),
+            CommandDefinition(
+                command: .toggleDrawer,
+                label: "Toggle Drawer",
+                icon: "rectangle.expand.vertical",
+                appliesTo: [.pane]
+            ),
+            CommandDefinition(
+                command: .navigateDrawerPane,
+                label: "Navigate to Drawer Pane",
+                icon: "arrow.down.to.line",
+                appliesTo: [.pane]
+            ),
+            CommandDefinition(
+                command: .closeDrawerPane,
+                label: "Close Drawer Pane",
+                icon: "xmark.rectangle.portrait",
+                appliesTo: [.pane]
             ),
 
             // Repo commands

@@ -927,7 +927,8 @@ class TerminalTabViewController: NSViewController, CommandHandler {
              .removeRepo, .refreshWorktrees,
              .toggleSidebar, .quickFind, .commandBar,
              .openNewTerminalInTab,
-             .switchArrangement, .saveArrangement, .deleteArrangement, .renameArrangement:
+             .switchArrangement, .saveArrangement, .deleteArrangement, .renameArrangement,
+             .addDrawerPane, .toggleDrawer, .navigateDrawerPane, .closeDrawerPane:
             break // Handled via drill-in (target selection in command bar)
         default:
             break

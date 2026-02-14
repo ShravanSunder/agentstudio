@@ -440,7 +440,8 @@ enum CommandBarDataSource {
     private static func commandGroup(for command: AppCommand) -> (name: String, priority: Int) {
         switch command {
         case .closePane, .extractPaneToTab, .splitRight, .splitBelow, .splitLeft, .splitAbove,
-             .equalizePanes, .toggleSplitZoom:
+             .equalizePanes, .toggleSplitZoom,
+             .addDrawerPane, .toggleDrawer, .navigateDrawerPane, .closeDrawerPane:
             return (Group.paneCommands, 0)
         case .focusPaneLeft, .focusPaneRight, .focusPaneUp, .focusPaneDown,
              .focusNextPane, .focusPrevPane:

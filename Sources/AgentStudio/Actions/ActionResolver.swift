@@ -106,7 +106,9 @@ enum ActionResolver {
              .quickFind, .commandBar,
              .filterSidebar, .openNewTerminalInTab,
              .switchArrangement, .saveArrangement,
-             .deleteArrangement, .renameArrangement:
+             .deleteArrangement, .renameArrangement,
+             .addDrawerPane, .toggleDrawer,
+             .navigateDrawerPane, .closeDrawerPane:
             return nil
         }
     }
