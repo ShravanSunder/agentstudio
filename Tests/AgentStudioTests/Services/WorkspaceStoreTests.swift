@@ -956,4 +956,430 @@ final class WorkspaceStoreTests: XCTestCase {
         // Assert — panes list synced with layout
         XCTAssertEqual(Set(store2.tabs[0].panes), Set([p1.id, p2.id]))
     }
+
+    // MARK: - moveTabByDelta
+
+    func test_moveTabByDelta_movesForward() {
+        // Arrange
+        let p1 = store.createPane(source: .floating(workingDirectory: nil, title: nil))
+        let p2 = store.createPane(source: .floating(workingDirectory: nil, title: nil))
+        let p3 = store.createPane(source: .floating(workingDirectory: nil, title: nil))
+        let tab1 = Tab(paneId: p1.id)
+        let tab2 = Tab(paneId: p2.id)
+        let tab3 = Tab(paneId: p3.id)
+        store.appendTab(tab1)
+        store.appendTab(tab2)
+        store.appendTab(tab3)
+
+        // Act — move tab1 forward by 2
+        store.moveTabByDelta(tabId: tab1.id, delta: 2)
+
+        // Assert — tab1 is now at index 2
+        XCTAssertEqual(store.tabs[0].id, tab2.id)
+        XCTAssertEqual(store.tabs[1].id, tab3.id)
+        XCTAssertEqual(store.tabs[2].id, tab1.id)
+    }
+
+    func test_moveTabByDelta_movesBackward() {
+        // Arrange
+        let p1 = store.createPane(source: .floating(workingDirectory: nil, title: nil))
+        let p2 = store.createPane(source: .floating(workingDirectory: nil, title: nil))
+        let p3 = store.createPane(source: .floating(workingDirectory: nil, title: nil))
+        let tab1 = Tab(paneId: p1.id)
+        let tab2 = Tab(paneId: p2.id)
+        let tab3 = Tab(paneId: p3.id)
+        store.appendTab(tab1)
+        store.appendTab(tab2)
+        store.appendTab(tab3)
+
+        // Act — move tab3 backward by 1
+        store.moveTabByDelta(tabId: tab3.id, delta: -1)
+
+        // Assert — tab3 is now at index 1
+        XCTAssertEqual(store.tabs[0].id, tab1.id)
+        XCTAssertEqual(store.tabs[1].id, tab3.id)
+        XCTAssertEqual(store.tabs[2].id, tab2.id)
+    }
+
+    func test_moveTabByDelta_clampsAtEnd() {
+        // Arrange
+        let p1 = store.createPane(source: .floating(workingDirectory: nil, title: nil))
+        let p2 = store.createPane(source: .floating(workingDirectory: nil, title: nil))
+        let tab1 = Tab(paneId: p1.id)
+        let tab2 = Tab(paneId: p2.id)
+        store.appendTab(tab1)
+        store.appendTab(tab2)
+
+        // Act — move tab1 forward by 100 (should clamp)
+        store.moveTabByDelta(tabId: tab1.id, delta: 100)
+
+        // Assert — tab1 clamped to last position
+        XCTAssertEqual(store.tabs[0].id, tab2.id)
+        XCTAssertEqual(store.tabs[1].id, tab1.id)
+    }
+
+    func test_moveTabByDelta_clampsAtStart() {
+        // Arrange
+        let p1 = store.createPane(source: .floating(workingDirectory: nil, title: nil))
+        let p2 = store.createPane(source: .floating(workingDirectory: nil, title: nil))
+        let tab1 = Tab(paneId: p1.id)
+        let tab2 = Tab(paneId: p2.id)
+        store.appendTab(tab1)
+        store.appendTab(tab2)
+
+        // Act — move tab2 backward by 100 (should clamp to 0)
+        store.moveTabByDelta(tabId: tab2.id, delta: -100)
+
+        // Assert — tab2 clamped to first position
+        XCTAssertEqual(store.tabs[0].id, tab2.id)
+        XCTAssertEqual(store.tabs[1].id, tab1.id)
+    }
+
+    func test_moveTabByDelta_singleTab_noOp() {
+        // Arrange
+        let p1 = store.createPane(source: .floating(workingDirectory: nil, title: nil))
+        let tab1 = Tab(paneId: p1.id)
+        store.appendTab(tab1)
+
+        // Act — single tab, delta should be ignored
+        store.moveTabByDelta(tabId: tab1.id, delta: 1)
+
+        // Assert — unchanged
+        XCTAssertEqual(store.tabs.count, 1)
+        XCTAssertEqual(store.tabs[0].id, tab1.id)
+    }
+
+    // MARK: - setActiveTab
+
+    func test_setActiveTab_setsTabId() {
+        // Arrange
+        let p1 = store.createPane(source: .floating(workingDirectory: nil, title: nil))
+        let p2 = store.createPane(source: .floating(workingDirectory: nil, title: nil))
+        let tab1 = Tab(paneId: p1.id)
+        let tab2 = Tab(paneId: p2.id)
+        store.appendTab(tab1)
+        store.appendTab(tab2)
+
+        // Act
+        store.setActiveTab(tab2.id)
+
+        // Assert
+        XCTAssertEqual(store.activeTabId, tab2.id)
+    }
+
+    func test_setActiveTab_nil_clearsActiveTab() {
+        // Arrange
+        let p1 = store.createPane(source: .floating(workingDirectory: nil, title: nil))
+        let tab1 = Tab(paneId: p1.id)
+        store.appendTab(tab1)
+        store.setActiveTab(tab1.id)
+
+        // Act
+        store.setActiveTab(nil)
+
+        // Assert
+        XCTAssertNil(store.activeTabId)
+    }
+
+    // MARK: - setActivePane
+
+    func test_setActivePane_validPane() {
+        // Arrange
+        let p1 = store.createPane(source: .floating(workingDirectory: nil, title: nil))
+        let p2 = store.createPane(source: .floating(workingDirectory: nil, title: nil))
+        let tab = makeTab(paneIds: [p1.id, p2.id], activePaneId: p1.id)
+        store.appendTab(tab)
+
+        // Act
+        store.setActivePane(p2.id, inTab: tab.id)
+
+        // Assert
+        XCTAssertEqual(store.tabs[0].activePaneId, p2.id)
+    }
+
+    func test_setActivePane_invalidPane_rejected() {
+        // Arrange
+        let p1 = store.createPane(source: .floating(workingDirectory: nil, title: nil))
+        let tab = Tab(paneId: p1.id)
+        store.appendTab(tab)
+
+        // Act — set to a pane ID that doesn't exist in the tab
+        let bogus = UUID()
+        store.setActivePane(bogus, inTab: tab.id)
+
+        // Assert — unchanged
+        XCTAssertEqual(store.tabs[0].activePaneId, p1.id)
+    }
+
+    func test_setActivePane_nil_clearsActivePane() {
+        // Arrange
+        let p1 = store.createPane(source: .floating(workingDirectory: nil, title: nil))
+        let tab = Tab(paneId: p1.id)
+        store.appendTab(tab)
+
+        // Act
+        store.setActivePane(nil, inTab: tab.id)
+
+        // Assert
+        XCTAssertNil(store.tabs[0].activePaneId)
+    }
+
+    // MARK: - toggleZoom
+
+    func test_toggleZoom_setsZoomedPaneId() {
+        // Arrange
+        let p1 = store.createPane(source: .floating(workingDirectory: nil, title: nil))
+        let p2 = store.createPane(source: .floating(workingDirectory: nil, title: nil))
+        let tab = makeTab(paneIds: [p1.id, p2.id])
+        store.appendTab(tab)
+
+        // Act — zoom in
+        store.toggleZoom(paneId: p1.id, inTab: tab.id)
+
+        // Assert
+        XCTAssertEqual(store.tabs[0].zoomedPaneId, p1.id)
+    }
+
+    func test_toggleZoom_togglesOff() {
+        // Arrange
+        let p1 = store.createPane(source: .floating(workingDirectory: nil, title: nil))
+        let p2 = store.createPane(source: .floating(workingDirectory: nil, title: nil))
+        let tab = makeTab(paneIds: [p1.id, p2.id])
+        store.appendTab(tab)
+        store.toggleZoom(paneId: p1.id, inTab: tab.id)
+
+        // Act — toggle off
+        store.toggleZoom(paneId: p1.id, inTab: tab.id)
+
+        // Assert
+        XCTAssertNil(store.tabs[0].zoomedPaneId)
+    }
+
+    func test_toggleZoom_invalidPane_noOp() {
+        // Arrange
+        let p1 = store.createPane(source: .floating(workingDirectory: nil, title: nil))
+        let tab = Tab(paneId: p1.id)
+        store.appendTab(tab)
+
+        // Act — zoom on a pane that isn't in the layout
+        let bogus = UUID()
+        store.toggleZoom(paneId: bogus, inTab: tab.id)
+
+        // Assert — no zoom set
+        XCTAssertNil(store.tabs[0].zoomedPaneId)
+    }
+
+    // MARK: - insertPane clears zoom
+
+    func test_insertPane_clearsZoom() {
+        // Arrange
+        let p1 = store.createPane(source: .floating(workingDirectory: nil, title: nil))
+        let p2 = store.createPane(source: .floating(workingDirectory: nil, title: nil))
+        let tab = Tab(paneId: p1.id)
+        store.appendTab(tab)
+        store.toggleZoom(paneId: p1.id, inTab: tab.id)
+        XCTAssertNotNil(store.tabs[0].zoomedPaneId)
+
+        // Act — insert a new pane
+        store.insertPane(p2.id, inTab: tab.id, at: p1.id, direction: .horizontal, position: .after)
+
+        // Assert — zoom cleared
+        XCTAssertNil(store.tabs[0].zoomedPaneId)
+    }
+
+    // MARK: - removePaneFromLayout clears zoom
+
+    func test_removePaneFromLayout_clearsZoomOnRemovedPane() {
+        // Arrange
+        let p1 = store.createPane(source: .floating(workingDirectory: nil, title: nil))
+        let p2 = store.createPane(source: .floating(workingDirectory: nil, title: nil))
+        let tab = makeTab(paneIds: [p1.id, p2.id])
+        store.appendTab(tab)
+        store.toggleZoom(paneId: p1.id, inTab: tab.id)
+        XCTAssertEqual(store.tabs[0].zoomedPaneId, p1.id)
+
+        // Act — remove the zoomed pane
+        store.removePaneFromLayout(p1.id, inTab: tab.id)
+
+        // Assert — zoom cleared
+        XCTAssertNil(store.tabs[0].zoomedPaneId)
+    }
+
+    // MARK: - resizePane
+
+    func test_resizePane_changesRatio() {
+        // Arrange
+        let p1 = store.createPane(source: .floating(workingDirectory: nil, title: nil))
+        let p2 = store.createPane(source: .floating(workingDirectory: nil, title: nil))
+        let tab = makeTab(paneIds: [p1.id, p2.id])
+        store.appendTab(tab)
+        guard case .split(let splitData) = store.tabs[0].layout.root else {
+            XCTFail("Expected split layout")
+            return
+        }
+
+        // Act
+        store.resizePane(tabId: tab.id, splitId: splitData.id, ratio: 0.7)
+
+        // Assert
+        guard case .split(let updated) = store.tabs[0].layout.root else {
+            XCTFail("Expected split layout after resize")
+            return
+        }
+        XCTAssertEqual(updated.ratio, 0.7, accuracy: 0.001)
+    }
+
+    // MARK: - resizePaneByDelta
+
+    func test_resizePaneByDelta_adjustsRatio() {
+        // Arrange
+        let p1 = store.createPane(source: .floating(workingDirectory: nil, title: nil))
+        let p2 = store.createPane(source: .floating(workingDirectory: nil, title: nil))
+        let tab = makeTab(paneIds: [p1.id, p2.id])
+        store.appendTab(tab)
+        guard case .split(let before) = store.tabs[0].layout.root else {
+            XCTFail("Expected split layout")
+            return
+        }
+        let ratioBefore = before.ratio
+
+        // Act — resize p1 to the right (increase left pane)
+        store.resizePaneByDelta(tabId: tab.id, paneId: p1.id, direction: .right, amount: 10)
+
+        // Assert — ratio changed
+        guard case .split(let after) = store.tabs[0].layout.root else {
+            XCTFail("Expected split layout after resize")
+            return
+        }
+        XCTAssertNotEqual(after.ratio, ratioBefore)
+    }
+
+    func test_resizePaneByDelta_whileZoomed_noOp() {
+        // Arrange
+        let p1 = store.createPane(source: .floating(workingDirectory: nil, title: nil))
+        let p2 = store.createPane(source: .floating(workingDirectory: nil, title: nil))
+        let tab = makeTab(paneIds: [p1.id, p2.id])
+        store.appendTab(tab)
+        store.toggleZoom(paneId: p1.id, inTab: tab.id)
+        guard case .split(let before) = store.tabs[0].layout.root else {
+            XCTFail("Expected split layout")
+            return
+        }
+        let ratioBefore = before.ratio
+
+        // Act — try to resize while zoomed
+        store.resizePaneByDelta(tabId: tab.id, paneId: p1.id, direction: .right, amount: 10)
+
+        // Assert — ratio unchanged
+        guard case .split(let after) = store.tabs[0].layout.root else {
+            XCTFail("Expected split layout")
+            return
+        }
+        XCTAssertEqual(after.ratio, ratioBefore)
+    }
+
+    // MARK: - addRepo / removeRepo
+
+    func test_addRepo_addsToRepos() {
+        // Act
+        let repo = store.addRepo(at: URL(fileURLWithPath: "/tmp/new-repo"))
+
+        // Assert
+        XCTAssertEqual(store.repos.count, 1)
+        XCTAssertEqual(store.repos[0].id, repo.id)
+        XCTAssertEqual(store.repos[0].name, "new-repo")
+    }
+
+    func test_addRepo_duplicate_returnsExisting() {
+        // Arrange
+        let path = URL(fileURLWithPath: "/tmp/dup-repo")
+        let first = store.addRepo(at: path)
+
+        // Act
+        let second = store.addRepo(at: path)
+
+        // Assert — same repo returned, not duplicated
+        XCTAssertEqual(store.repos.count, 1)
+        XCTAssertEqual(first.id, second.id)
+    }
+
+    func test_removeRepo_removesFromRepos() {
+        // Arrange
+        let repo = store.addRepo(at: URL(fileURLWithPath: "/tmp/del-repo"))
+        XCTAssertEqual(store.repos.count, 1)
+
+        // Act
+        store.removeRepo(repo.id)
+
+        // Assert
+        XCTAssertTrue(store.repos.isEmpty)
+    }
+
+    // MARK: - setSidebarWidth / setWindowFrame
+
+    func test_setSidebarWidth_updatesValue() {
+        // Act
+        store.setSidebarWidth(300)
+
+        // Assert
+        XCTAssertEqual(store.sidebarWidth, 300)
+    }
+
+    func test_setWindowFrame_updatesValue() {
+        // Arrange
+        let frame = CGRect(x: 100, y: 200, width: 800, height: 600)
+
+        // Act
+        store.setWindowFrame(frame)
+
+        // Assert
+        XCTAssertEqual(store.windowFrame, frame)
+    }
+
+    func test_setWindowFrame_nil_clearsValue() {
+        // Arrange
+        store.setWindowFrame(CGRect(x: 0, y: 0, width: 100, height: 100))
+
+        // Act
+        store.setWindowFrame(nil)
+
+        // Assert
+        XCTAssertNil(store.windowFrame)
+    }
+
+    // MARK: - extractPane clears zoom
+
+    func test_extractPane_clearsZoomOnExtractedPane() {
+        // Arrange
+        let p1 = store.createPane(source: .floating(workingDirectory: nil, title: nil))
+        let p2 = store.createPane(source: .floating(workingDirectory: nil, title: nil))
+        let tab = makeTab(paneIds: [p1.id, p2.id])
+        store.appendTab(tab)
+        store.toggleZoom(paneId: p1.id, inTab: tab.id)
+        XCTAssertEqual(store.tabs[0].zoomedPaneId, p1.id)
+
+        // Act — extract the zoomed pane
+        let newTab = store.extractPane(p1.id, fromTab: tab.id)
+
+        // Assert — old tab's zoom cleared
+        XCTAssertNotNil(newTab)
+        XCTAssertNil(store.tabs[0].zoomedPaneId)
+    }
+
+    // MARK: - removePaneFromLayout updates activePaneId
+
+    func test_removePaneFromLayout_updatesActivePaneIdWhenActiveRemoved() {
+        // Arrange
+        let p1 = store.createPane(source: .floating(workingDirectory: nil, title: nil))
+        let p2 = store.createPane(source: .floating(workingDirectory: nil, title: nil))
+        let tab = makeTab(paneIds: [p1.id, p2.id], activePaneId: p1.id)
+        store.appendTab(tab)
+        XCTAssertEqual(store.tabs[0].activePaneId, p1.id)
+
+        // Act — remove the active pane
+        store.removePaneFromLayout(p1.id, inTab: tab.id)
+
+        // Assert — activePaneId updated to remaining pane
+        XCTAssertEqual(store.tabs[0].activePaneId, p2.id)
+    }
 }
