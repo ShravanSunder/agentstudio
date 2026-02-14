@@ -166,6 +166,16 @@ final class WorkspaceStore: ObservableObject {
         markDirty()
     }
 
+    func updatePaneCWD(_ paneId: UUID, cwd: URL?) {
+        guard panes[paneId] != nil else {
+            storeLogger.warning("updatePaneCWD: pane \(paneId) not found")
+            return
+        }
+        guard panes[paneId]!.metadata.cwd != cwd else { return }
+        panes[paneId]!.metadata.cwd = cwd
+        markDirty()
+    }
+
     func updatePaneAgent(_ paneId: UUID, agent: AgentType?) {
         guard panes[paneId] != nil else {
             storeLogger.warning("updatePaneAgent: pane \(paneId) not found")

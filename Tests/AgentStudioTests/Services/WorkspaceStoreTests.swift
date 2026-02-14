@@ -126,6 +126,58 @@ final class WorkspaceStoreTests: XCTestCase {
         XCTAssertEqual(store.pane(pane.id)?.title, "New Title")
     }
 
+    func test_updatePaneCWD_updatesValue() {
+        // Arrange
+        let pane = store.createPane(
+            source: .floating(workingDirectory: nil, title: nil)
+        )
+        let cwd = URL(fileURLWithPath: "/tmp/workspace")
+
+        // Act
+        store.updatePaneCWD(pane.id, cwd: cwd)
+
+        // Assert
+        XCTAssertEqual(store.pane(pane.id)?.metadata.cwd, cwd)
+    }
+
+    func test_updatePaneCWD_nilClearsValue() {
+        // Arrange
+        let pane = store.createPane(
+            source: .floating(workingDirectory: nil, title: nil)
+        )
+        store.updatePaneCWD(pane.id, cwd: URL(fileURLWithPath: "/tmp"))
+
+        // Act
+        store.updatePaneCWD(pane.id, cwd: nil)
+
+        // Assert
+        XCTAssertNil(store.pane(pane.id)?.metadata.cwd)
+    }
+
+    func test_updatePaneCWD_sameCWD_noOpDoesNotMarkDirty() {
+        // Arrange
+        let pane = store.createPane(
+            source: .floating(workingDirectory: nil, title: nil)
+        )
+        let cwd = URL(fileURLWithPath: "/tmp")
+        store.updatePaneCWD(pane.id, cwd: cwd)
+        store.flush()
+
+        // Act — update with same CWD
+        store.updatePaneCWD(pane.id, cwd: cwd)
+
+        // Assert — should not be dirty (dedup guard)
+        XCTAssertFalse(store.isDirty)
+    }
+
+    func test_updatePaneCWD_unknownPane_doesNotCrash() {
+        // Act — should just log warning, not crash
+        store.updatePaneCWD(UUID(), cwd: URL(fileURLWithPath: "/tmp"))
+
+        // Assert — no crash, panes unchanged
+        XCTAssertTrue(store.panes.isEmpty)
+    }
+
     func test_updatePaneAgent() {
         // Arrange
         let pane = store.createPane(

@@ -2,6 +2,15 @@
 
 A macOS application that integrates the Ghostty terminal emulator, providing a modern terminal experience with advanced features.
 
+## Install
+
+```bash
+brew tap ShravanSunder/agentstudio
+brew install --cask agent-studio
+```
+
+This installs AgentStudio.app to `/Applications/` and ensures **tmux** is available.
+
 ## Features
 
 - Native macOS application built with AppKit

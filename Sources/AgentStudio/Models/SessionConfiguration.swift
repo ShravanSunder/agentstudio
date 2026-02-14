@@ -1,4 +1,7 @@
 import Foundation
+import os.log
+
+private let configLogger = Logger(subsystem: "com.agentstudio", category: "SessionConfiguration")
 
 /// Configuration for the session restore feature.
 /// Reads from environment variables with sensible defaults.
@@ -202,19 +205,38 @@ struct SessionConfiguration: Sendable {
     }
 
     private static func resolveGhostConfigPath() -> String {
-        // Find the source config (bundle or dev tree)
-        let sourcePath: String
+        // Search order: SPM resource bundle → app bundle → dev source tree → relative fallback
+        var candidates: [String] = []
+
+        // 1. SPM resource bundle (AgentStudio_AgentStudio.bundle, adjacent to executable)
+        let spmBundle = Bundle.main.bundleURL
+            .appendingPathComponent("AgentStudio_AgentStudio.bundle").path
+        candidates.append(spmBundle + "/tmux/ghost.conf")
+
+        // 2. App bundle via Bundle API
         if let bundled = Bundle.main.path(forResource: "ghost", ofType: "conf") {
-            sourcePath = bundled
-        } else if let devResources = findDevResourcesDir() {
-            let candidate = devResources + "/tmux/ghost.conf"
-            if FileManager.default.fileExists(atPath: candidate) {
-                sourcePath = candidate
-            } else {
-                sourcePath = "Sources/AgentStudio/Resources/tmux/ghost.conf"
-            }
+            candidates.append(bundled)
+        }
+
+        // 3. App bundle explicit path (Contents/Resources/tmux/ghost.conf)
+        if let bundleRes = Bundle.main.resourcePath {
+            candidates.append(bundleRes + "/tmux/ghost.conf")
+        }
+
+        // 4. Development source tree (SPM .build/ layout)
+        if let devResources = findDevResourcesDir() {
+            candidates.append(devResources + "/tmux/ghost.conf")
+        }
+
+        // 5. Relative fallback (only works when launched from project root)
+        candidates.append("Sources/AgentStudio/Resources/tmux/ghost.conf")
+
+        let sourcePath: String
+        if let found = candidates.first(where: { FileManager.default.fileExists(atPath: $0) }) {
+            sourcePath = found
         } else {
-            sourcePath = "Sources/AgentStudio/Resources/tmux/ghost.conf"
+            configLogger.error("ghost.conf not found in any search path: \(candidates, privacy: .public)")
+            sourcePath = candidates.last!
         }
 
         // Copy to ~/.agentstudio/tmux/ghost.conf so the tmux server's command
