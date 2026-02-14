@@ -485,7 +485,7 @@ class TerminalTabViewController: NSViewController, CommandHandler {
         // Uses syncFocus to set ALL surfaces' focus state — only the active one gets true,
         // all others get false. Mirrors Ghostty's syncFocusToSurfaceTree() pattern.
         if let activePaneId = tab.activePaneId,
-           let terminal = viewRegistry.view(for: activePaneId) {
+           let terminal = viewRegistry.terminalView(for: activePaneId) {
             DispatchQueue.main.async { [weak terminal] in
                 guard let terminal = terminal, terminal.window != nil else { return }
                 terminal.window?.makeFirstResponder(terminal)
@@ -611,7 +611,7 @@ class TerminalTabViewController: NSViewController, CommandHandler {
         guard let activeTabId = store.activeTabId,
               let tab = store.tab(activeTabId),
               let activePaneId = tab.activePaneId,
-              let terminal = viewRegistry.view(for: activePaneId) else { return }
+              let terminal = viewRegistry.terminalView(for: activePaneId) else { return }
         DispatchQueue.main.async { [weak terminal] in
             guard let terminal = terminal, terminal.window != nil else { return }
             terminal.window?.makeFirstResponder(terminal)

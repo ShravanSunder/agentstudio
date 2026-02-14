@@ -42,7 +42,7 @@ enum DropZone: String, Equatable, CaseIterable {
     }
 
     /// Convert to SplitTree.NewDirection for insertion.
-    var newDirection: TerminalSplitTree.NewDirection {
+    var newDirection: PaneSplitTree.NewDirection {
         switch self {
         case .left: return .left
         case .right: return .right

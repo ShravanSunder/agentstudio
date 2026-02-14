@@ -51,7 +51,43 @@ final class TerminalViewCoordinator {
         store.updatePaneCWD(paneId, cwd: url)
     }
 
-    // MARK: - Create View
+    // MARK: - Create View (content-type dispatch)
+
+    /// Create a view for any pane content type. Dispatches to the appropriate factory.
+    /// Returns the created PaneView, or nil on failure.
+    @discardableResult
+    func createViewForContent(pane: Pane) -> PaneView? {
+        switch pane.content {
+        case .terminal:
+            // Terminal panes require worktree/repo context for surface creation
+            guard let worktreeId = pane.worktreeId,
+                  let repoId = pane.repoId,
+                  let worktree = store.worktree(worktreeId),
+                  let repo = store.repo(repoId) else {
+                coordinatorLogger.warning("Cannot create terminal view — pane \(pane.id) has no worktree/repo context")
+                return nil
+            }
+            return createView(for: pane, worktree: worktree, repo: repo)
+
+        case .webview(let state):
+            let view = WebviewPaneView(paneId: pane.id, state: state)
+            viewRegistry.register(view, for: pane.id)
+            coordinatorLogger.info("Created webview stub for pane \(pane.id)")
+            return view
+
+        case .codeViewer(let state):
+            let view = CodeViewerPaneView(paneId: pane.id, state: state)
+            viewRegistry.register(view, for: pane.id)
+            coordinatorLogger.info("Created code viewer stub for pane \(pane.id)")
+            return view
+
+        case .unsupported:
+            coordinatorLogger.warning("Cannot create view for unsupported content type — pane \(pane.id)")
+            return nil
+        }
+    }
+
+    // MARK: - Create Terminal View
 
     /// Create a terminal view for a pane, including surface and runtime setup.
     /// Registers the view in the ViewRegistry.
@@ -122,10 +158,11 @@ final class TerminalViewCoordinator {
 
     // MARK: - Teardown View
 
-    /// Teardown a terminal view — detach surface, suspend runtime, unregister.
+    /// Teardown a view — detach surface (if terminal), unregister.
     func teardownView(for paneId: UUID) {
-        // Get the view's surfaceId before unregistering
-        if let view = viewRegistry.view(for: paneId), let surfaceId = view.surfaceId {
+        // Terminal-specific: detach surface before unregistering
+        if let terminal = viewRegistry.terminalView(for: paneId),
+           let surfaceId = terminal.surfaceId {
             SurfaceManager.shared.detach(surfaceId, reason: .close)
         }
 
@@ -138,7 +175,8 @@ final class TerminalViewCoordinator {
 
     /// Detach a pane's surface for a view switch (hide, not destroy).
     func detachForViewSwitch(paneId: UUID) {
-        if let view = viewRegistry.view(for: paneId), let surfaceId = view.surfaceId {
+        if let terminal = viewRegistry.terminalView(for: paneId),
+           let surfaceId = terminal.surfaceId {
             SurfaceManager.shared.detach(surfaceId, reason: .hide)
         }
         coordinatorLogger.debug("Detached pane \(paneId) for view switch")
@@ -146,9 +184,10 @@ final class TerminalViewCoordinator {
 
     /// Reattach a pane's surface after a view switch.
     func reattachForViewSwitch(paneId: UUID) {
-        if let view = viewRegistry.view(for: paneId), let surfaceId = view.surfaceId {
+        if let terminal = viewRegistry.terminalView(for: paneId),
+           let surfaceId = terminal.surfaceId {
             if let surfaceView = SurfaceManager.shared.attach(surfaceId, to: paneId) {
-                view.displaySurface(surfaceView)
+                terminal.displaySurface(surfaceView)
             }
         }
         coordinatorLogger.debug("Reattached pane \(paneId) for view switch")
@@ -195,7 +234,7 @@ final class TerminalViewCoordinator {
 
     // MARK: - Restore All Views
 
-    /// Recreate terminal views for all restored panes in all tabs.
+    /// Recreate views for all restored panes in all tabs.
     /// Called once at launch after store.restore() populates persisted state.
     func restoreAllViews() {
         let paneIds = store.tabs.flatMap(\.paneIds)
@@ -206,24 +245,20 @@ final class TerminalViewCoordinator {
 
         var restored = 0
         for paneId in paneIds {
-            guard let pane = store.pane(paneId),
-                  let worktreeId = pane.worktreeId,
-                  let repoId = pane.repoId,
-                  let worktree = store.worktree(worktreeId),
-                  let repo = store.repo(repoId) else {
-                coordinatorLogger.warning("Skipping view restore for pane \(paneId) — missing worktree/repo")
+            guard let pane = store.pane(paneId) else {
+                coordinatorLogger.warning("Skipping view restore for pane \(paneId) — not in store")
                 continue
             }
-            if createView(for: pane, worktree: worktree, repo: repo) != nil {
+            if createViewForContent(pane: pane) != nil {
                 restored += 1
             }
         }
-        coordinatorLogger.info("Restored \(restored)/\(paneIds.count) terminal views")
+        coordinatorLogger.info("Restored \(restored)/\(paneIds.count) pane views")
 
-        // Sync focus after all views are restored — only the active pane gets a blinking cursor.
+        // Sync focus after all views are restored — only the active terminal gets a blinking cursor.
         if let activeTab = store.activeTab,
            let activePaneId = activeTab.activePaneId,
-           let terminalView = viewRegistry.view(for: activePaneId) {
+           let terminalView = viewRegistry.terminalView(for: activePaneId) {
             SurfaceManager.shared.syncFocus(activeSurfaceId: terminalView.surfaceId)
         }
     }

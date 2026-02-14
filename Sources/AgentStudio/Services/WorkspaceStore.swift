@@ -205,6 +205,23 @@ final class WorkspaceStore: ObservableObject {
         return pane
     }
 
+    /// Create a pane with arbitrary content (webview, code viewer, etc.).
+    @discardableResult
+    func createPane(
+        content: PaneContent,
+        metadata: PaneMetadata,
+        residency: SessionResidency = .active
+    ) -> Pane {
+        let pane = Pane(
+            content: content,
+            metadata: metadata,
+            residency: residency
+        )
+        panes[pane.id] = pane
+        markDirty()
+        return pane
+    }
+
     func removePane(_ paneId: UUID) {
         panes.removeValue(forKey: paneId)
 
