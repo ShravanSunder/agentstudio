@@ -926,12 +926,40 @@ class TerminalTabViewController: NSViewController, CommandHandler {
             NotificationCenter.default.post(name: .addRepoRequested, object: nil)
         case .filterSidebar:
             NotificationCenter.default.post(name: .filterSidebarRequested, object: nil)
+        case .addDrawerPane:
+            guard let tabId = store.activeTabId,
+                  let tab = store.tab(tabId),
+                  let paneId = tab.activePaneId else { break }
+            let content = PaneContent.terminal(
+                TerminalState(provider: .ghostty, lifetime: .temporary)
+            )
+            let metadata = PaneMetadata(
+                source: .floating(workingDirectory: nil, title: nil),
+                title: "Drawer"
+            )
+            dispatchAction(.addDrawerPane(parentPaneId: paneId, content: content, metadata: metadata))
+
+        case .toggleDrawer:
+            guard let tabId = store.activeTabId,
+                  let tab = store.tab(tabId),
+                  let paneId = tab.activePaneId else { break }
+            dispatchAction(.toggleDrawer(paneId: paneId))
+
+        case .closeDrawerPane:
+            guard let tabId = store.activeTabId,
+                  let tab = store.tab(tabId),
+                  let paneId = tab.activePaneId,
+                  let pane = store.pane(paneId),
+                  let drawer = pane.drawer,
+                  let activeDrawerPaneId = drawer.activeDrawerPaneId else { break }
+            dispatchAction(.removeDrawerPane(parentPaneId: paneId, drawerPaneId: activeDrawerPaneId))
+
         case .newTerminalInTab, .newFloatingTerminal,
              .removeRepo, .refreshWorktrees,
              .toggleSidebar, .quickFind, .commandBar,
              .openNewTerminalInTab,
              .switchArrangement, .saveArrangement, .deleteArrangement, .renameArrangement,
-             .addDrawerPane, .toggleDrawer, .navigateDrawerPane, .closeDrawerPane:
+             .navigateDrawerPane:
             break // Handled via drill-in (target selection in command bar)
         default:
             break
@@ -963,6 +991,11 @@ class TerminalTabViewController: NSViewController, CommandHandler {
             case (.renameArrangement, .tab):
                 // Name input will be added in a later task; for now, just select the target
                 return nil
+            case (.navigateDrawerPane, .pane):
+                guard let tabId = store.activeTabId,
+                      let tab = store.tab(tabId),
+                      let paneId = tab.activePaneId else { return nil }
+                return .setActiveDrawerPane(parentPaneId: paneId, drawerPaneId: target)
             default:
                 return nil
             }

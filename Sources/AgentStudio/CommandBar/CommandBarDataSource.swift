@@ -277,7 +277,8 @@ enum CommandBarDataSource {
         switch command {
         case .closeTab, .closePane, .extractPaneToTab, .focusPaneLeft, .focusPaneRight,
              .focusPaneUp, .focusPaneDown, .focusNextPane, .focusPrevPane,
-             .switchArrangement, .deleteArrangement, .renameArrangement:
+             .switchArrangement, .deleteArrangement, .renameArrangement,
+             .navigateDrawerPane:
             return true
         default:
             return false
@@ -292,6 +293,11 @@ enum CommandBarDataSource {
         // Arrangement commands show arrangement targets, not generic tab/pane targets
         if def.command == .switchArrangement || def.command == .deleteArrangement || def.command == .renameArrangement {
             return buildArrangementTargetLevel(for: def, store: store)
+        }
+
+        // Drawer pane navigation shows drawer pane targets
+        if def.command == .navigateDrawerPane {
+            return buildDrawerPaneTargetLevel(for: def, store: store)
         }
 
         var items: [CommandBarItem] = []
@@ -367,6 +373,40 @@ enum CommandBarDataSource {
                     group: "Arrangements",
                     groupPriority: 0,
                     action: .dispatchTargeted(def.command, target: arrangement.id, targetType: .tab)
+                )
+            }
+        }
+
+        return CommandBarLevel(
+            id: "level-\(def.command.rawValue)",
+            title: def.label,
+            parentLabel: "Commands",
+            items: items
+        )
+    }
+
+    /// Build a target level listing drawer panes for the active pane.
+    private static func buildDrawerPaneTargetLevel(
+        for def: CommandDefinition,
+        store: WorkspaceStore
+    ) -> CommandBarLevel {
+        var items: [CommandBarItem] = []
+
+        if let activeTabId = store.activeTabId,
+           let tab = store.tab(activeTabId),
+           let activePaneId = tab.activePaneId,
+           let pane = store.pane(activePaneId),
+           let drawer = pane.drawer {
+            items = drawer.panes.enumerated().map { index, drawerPane in
+                let isActive = drawer.activeDrawerPaneId == drawerPane.id
+                return CommandBarItem(
+                    id: "target-drawer-\(drawerPane.id.uuidString)",
+                    title: drawerPane.metadata.title,
+                    subtitle: isActive ? "Active" : "Drawer \(index + 1)",
+                    icon: "terminal",
+                    group: "Drawer Panes",
+                    groupPriority: 0,
+                    action: .dispatchTargeted(def.command, target: drawerPane.id, targetType: .pane)
                 )
             }
         }
