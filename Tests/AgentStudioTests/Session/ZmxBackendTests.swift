@@ -403,4 +403,44 @@ final class ZmxBackendTests: XCTestCase {
         // Assert
         XCTAssertFalse(badBackend.socketExists())
     }
+
+    // MARK: - ZMX_DIR Environment Propagation
+
+    func test_healthCheck_passesZmxDirEnv() async {
+        // Arrange
+        let handle = makePaneSessionHandle(id: "agentstudio--a1b2c3d4e5f6a7b8--00112233aabbccdd--aabbccdd11223344")
+        executor.enqueueSuccess("")
+
+        // Act
+        _ = await backend.healthCheck(handle)
+
+        // Assert
+        let call = executor.calls.first!
+        XCTAssertEqual(call.environment?["ZMX_DIR"], "/tmp/zmx-test")
+    }
+
+    func test_destroyPaneSession_passesZmxDirEnv() async throws {
+        // Arrange
+        let handle = makePaneSessionHandle(id: "agentstudio--a1b2c3d4e5f6a7b8--00112233aabbccdd--aabbccdd11223344")
+        executor.enqueueSuccess()
+
+        // Act
+        try await backend.destroyPaneSession(handle)
+
+        // Assert
+        let call = executor.calls.first!
+        XCTAssertEqual(call.environment?["ZMX_DIR"], "/tmp/zmx-test")
+    }
+
+    func test_destroySessionById_passesZmxDirEnv() async throws {
+        // Arrange
+        executor.enqueueSuccess()
+
+        // Act
+        try await backend.destroySessionById("agentstudio--abc--def--ghi")
+
+        // Assert
+        let call = executor.calls.first!
+        XCTAssertEqual(call.environment?["ZMX_DIR"], "/tmp/zmx-test")
+    }
 }

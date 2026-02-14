@@ -113,11 +113,22 @@ if [ -d "$TERMINFO_DEV" ]; then
     echo "✅ terminfo copied to app bundle"
 fi
 
-# Copy tmux config (ghost.conf) to app bundle
-TMUX_RES_DEV="$PROJECT_ROOT/Sources/AgentStudio/Resources/tmux"
-if [ -d "$TMUX_RES_DEV" ]; then
-    cp -R "$TMUX_RES_DEV" "$APP_DIR/Resources/"
-    echo "✅ tmux config copied to app bundle"
+# Build and copy zmx binary to app bundle (Contents/MacOS/zmx)
+ZMX_DIR="$PROJECT_ROOT/vendor/zmx"
+if [ -f "$ZMX_DIR/build.zig" ]; then
+    echo "🏗️  Building zmx..."
+    cd "$ZMX_DIR"
+    zig build -Doptimize=ReleaseFast
+    ZMX_BIN="$ZMX_DIR/zig-out/bin/zmx"
+    if [ -f "$ZMX_BIN" ]; then
+        cp "$ZMX_BIN" "$APP_DIR/MacOS/"
+        echo "✅ zmx binary copied to app bundle"
+    else
+        echo "⚠️  zmx binary not found at $ZMX_BIN — session persistence will use PATH fallback"
+    fi
+    cd "$PROJECT_ROOT"
+else
+    echo "⚠️  zmx source not found — session persistence will use PATH fallback"
 fi
 
 # Copy ghostty resources (shell-integration) to app bundle

@@ -40,6 +40,10 @@ class AppDelegate: NSObject, NSApplicationDelegate {
         store.restore()
 
         runtime = SessionRuntime(store: store)
+
+        // Clean up orphan zmx daemons from previous launches
+        cleanupOrphanZmxSessions()
+
         viewRegistry = ViewRegistry()
         coordinator = TerminalViewCoordinator(store: store, viewRegistry: viewRegistry, runtime: runtime)
         executor = ActionExecutor(store: store, viewRegistry: viewRegistry, coordinator: coordinator)
@@ -95,6 +99,54 @@ class AppDelegate: NSObject, NSApplicationDelegate {
 
         default:
             break
+        }
+    }
+
+    // MARK: - Orphan Cleanup
+
+    /// Kill zmx daemons that aren't tracked by any persisted session.
+    /// Runs once at startup to prevent accumulation across app restarts.
+    /// Called from `applicationDidFinishLaunching` (always main thread).
+    @MainActor
+    private func cleanupOrphanZmxSessions() {
+        let config = SessionConfiguration.detect()
+        guard let zmxPath = config.zmxPath else {
+            appLogger.debug("zmx not found — skipping orphan cleanup")
+            return
+        }
+
+        // Collect known zmx session IDs from persisted sessions (main-actor access).
+        // These are the sessions we expect to exist — everything else is an orphan.
+        let knownSessionIds = Set(
+            store.sessions
+                .filter { $0.provider == .zmx }
+                .compactMap { session -> String? in
+                    guard let worktreeId = session.worktreeId,
+                          let repo = store.repo(containing: worktreeId),
+                          let worktree = store.worktree(worktreeId) else { return nil }
+                    return ZmxBackend.sessionId(
+                        repoStableKey: repo.stableKey,
+                        worktreeStableKey: worktree.stableKey,
+                        paneId: session.id
+                    )
+                }
+        )
+
+        let backend = ZmxBackend(zmxPath: zmxPath, zmxDir: config.zmxDir)
+
+        Task {
+            let orphans = await backend.discoverOrphanSessions(excluding: knownSessionIds)
+            if !orphans.isEmpty {
+                appLogger.info("Found \(orphans.count) orphan zmx session(s) — cleaning up")
+                for orphanId in orphans {
+                    do {
+                        try await backend.destroySessionById(orphanId)
+                        appLogger.debug("Killed orphan zmx session: \(orphanId)")
+                    } catch {
+                        appLogger.warning("Failed to kill orphan zmx session \(orphanId): \(error.localizedDescription)")
+                    }
+                }
+            }
         }
     }
 

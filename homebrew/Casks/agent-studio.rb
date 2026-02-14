@@ -8,7 +8,6 @@ cask "agent-studio" do
   homepage "https://github.com/ShravanSunder/agentstudio"
 
   depends_on macos: ">= :sonoma"
-  depends_on formula: "tmux"
 
   app "AgentStudio.app"
 

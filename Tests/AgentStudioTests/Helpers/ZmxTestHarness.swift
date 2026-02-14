@@ -77,8 +77,8 @@ final class ZmxTestHarness {
                     .components(separatedBy: "\n")
                     .filter { !$0.isEmpty }
                 for session in sessions {
-                    // Extract session name (first whitespace-delimited token)
-                    if let name = session.components(separatedBy: CharacterSet.whitespaces).first,
+                    // Parse both full list output (`session_name=<id> ...`) and short output (`<id>`).
+                    if let name = Self.extractSessionName(from: session),
                        name.hasPrefix(ZmxBackend.sessionPrefix) {
                         _ = try? await executor.execute(
                             command: zmxPath,
@@ -95,5 +95,22 @@ final class ZmxTestHarness {
 
         // Remove the temp directory
         try? FileManager.default.removeItem(atPath: zmxDir)
+    }
+
+    static func extractSessionName(from line: String) -> String? {
+        let trimmed = line.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !trimmed.isEmpty else { return nil }
+
+        let tokens = trimmed.split(whereSeparator: \.isWhitespace)
+        for token in tokens {
+            if token.hasPrefix("session_name=") {
+                let value = token.dropFirst("session_name=".count)
+                return value.isEmpty ? nil : String(value)
+            }
+        }
+
+        // Fallback for short output: first token is the raw session id.
+        guard let first = tokens.first, !first.contains("=") else { return nil }
+        return String(first)
     }
 }
