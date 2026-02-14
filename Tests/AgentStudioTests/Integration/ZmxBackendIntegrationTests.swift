@@ -61,7 +61,7 @@ final class ZmxBackendIntegrationTests: XCTestCase {
         let cmd = backend.attachCommand(for: handle)
 
         // Assert
-        XCTAssertTrue(cmd.hasPrefix("ZMX_DIR="), "Command must start with ZMX_DIR env var")
+        XCTAssertTrue(cmd.hasPrefix("/usr/bin/env ZMX_DIR="), "Command must start with /usr/bin/env ZMX_DIR=")
         XCTAssertTrue(cmd.contains("attach"), "Command must contain 'attach' subcommand")
         XCTAssertTrue(cmd.contains(handle.id), "Command must contain the session ID")
         XCTAssertTrue(cmd.contains("-i -l"), "Command must contain shell login flags")
