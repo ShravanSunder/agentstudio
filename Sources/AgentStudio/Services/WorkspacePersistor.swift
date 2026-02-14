@@ -122,21 +122,10 @@ struct WorkspacePersistor {
             return nil
         }
 
-        // Try current schema
         do {
             return try JSONDecoder().decode(PersistableState.self, from: data)
         } catch {
-            persistorLogger.info("Current schema decode failed for \(url.lastPathComponent), trying legacy migration")
-        }
-
-        // Try legacy schema (pre-pane-model: sessions/views format)
-        do {
-            let legacy = try JSONDecoder().decode(LegacyPersistableState.self, from: data)
-            let migrated = Self.migrate(from: legacy)
-            persistorLogger.info("Migrated legacy workspace '\(legacy.name)' (\(legacy.sessions.count) session(s) → \(migrated.panes.count) pane(s))")
-            return migrated
-        } catch {
-            persistorLogger.error("Failed to load workspace file \(url.lastPathComponent) (both current and legacy schemas): \(error)")
+            persistorLogger.error("Failed to load workspace file \(url.lastPathComponent): \(error)")
             return nil
         }
     }
@@ -167,119 +156,4 @@ struct WorkspacePersistor {
         workspacesDir.appending(path: "\(id.uuidString).json")
     }
 
-    // MARK: - Legacy Schema Migration
-
-    /// Convert legacy (pre-pane-model) workspace state to the current schema.
-    static func migrate(from legacy: LegacyPersistableState) -> PersistableState {
-        // Convert sessions → panes
-        let panes: [Pane] = legacy.sessions.map { session in
-            Pane(
-                id: session.id,
-                content: .terminal(TerminalState(
-                    provider: session.provider,
-                    lifetime: session.lifetime
-                )),
-                metadata: PaneMetadata(
-                    source: session.source,
-                    title: session.title,
-                    cwd: session.lastKnownCWD,
-                    agentType: session.agent
-                ),
-                residency: session.residency
-            )
-        }
-
-        // Find the main view (or first available)
-        let mainView = legacy.views.first { $0.kind == .main } ?? legacy.views.first
-
-        // Convert old tabs → new tabs
-        let tabs: [Tab] = (mainView?.tabs ?? []).map { legacyTab in
-            // Layout.Node decoder already handles sessionId → paneId migration
-            let layout = legacyTab.layout
-            let paneIds = layout.paneIds
-            let arrangement = PaneArrangement(
-                name: "Default",
-                isDefault: true,
-                layout: layout,
-                visiblePaneIds: Set(paneIds)
-            )
-            return Tab(
-                id: legacyTab.id,
-                name: "Tab",
-                panes: paneIds,
-                arrangements: [arrangement],
-                activeArrangementId: arrangement.id,
-                activePaneId: legacyTab.activeSessionId ?? paneIds.first
-            )
-        }
-
-        let activeTabId = mainView?.activeTabId ?? tabs.first?.id
-
-        return PersistableState(
-            id: legacy.id,
-            name: legacy.name,
-            repos: legacy.repos,
-            panes: panes,
-            tabs: tabs,
-            activeTabId: activeTabId,
-            sidebarWidth: legacy.sidebarWidth,
-            windowFrame: legacy.windowFrame,
-            createdAt: legacy.createdAt,
-            updatedAt: legacy.updatedAt
-        )
-    }
-}
-
-// MARK: - Legacy Schema Types
-
-/// Pre-pane-model workspace format. Used only for migration from old on-disk data.
-struct LegacyPersistableState: Codable {
-    var id: UUID
-    var name: String
-    var repos: [Repo]
-    var sessions: [LegacySession]
-    var views: [LegacyView]
-    var activeViewId: UUID?
-    var sidebarWidth: CGFloat
-    var windowFrame: CGRect?
-    var createdAt: Date
-    var updatedAt: Date
-}
-
-struct LegacySession: Codable {
-    let id: UUID
-    var source: TerminalSource
-    var title: String
-    var agent: AgentType?
-    var provider: SessionProvider
-    var lifetime: SessionLifetime
-    var residency: SessionResidency
-    var lastKnownCWD: URL?
-}
-
-struct LegacyView: Codable {
-    let id: UUID
-    var name: String
-    var kind: LegacyViewKind
-    var tabs: [LegacyTab]
-    var activeTabId: UUID?
-}
-
-enum LegacyViewKind: Codable, Equatable {
-    case main
-    case saved
-    case worktree(worktreeId: UUID)
-    case dynamic(rule: LegacyDynamicViewRule)
-}
-
-enum LegacyDynamicViewRule: Codable, Hashable {
-    case byRepo(repoId: UUID)
-    case byAgent(AgentType)
-    case custom(name: String)
-}
-
-struct LegacyTab: Codable {
-    let id: UUID
-    var layout: Layout
-    var activeSessionId: UUID?
 }

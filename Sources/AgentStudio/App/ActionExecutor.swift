@@ -177,8 +177,17 @@ final class ActionExecutor {
             let position: Layout.Position = (direction == .left || direction == .up) ? .before : .after
             store.reactivatePane(paneId, inTab: targetTabId, at: targetPaneId,
                                  direction: layoutDirection, position: position)
+            // After reactivation, ensure the pane has a view.
+            // Backgrounded panes lose their view on restart (restoreAllViews skips them).
+            if viewRegistry.view(for: paneId) == nil, let pane = store.pane(paneId) {
+                coordinator.createViewForContent(pane: pane)
+            }
 
         case .purgeOrphanedPane(let paneId):
+            // Only teardown if the pane is actually backgrounded — prevents destroying
+            // views for live panes if this action is dispatched incorrectly.
+            guard let pane = store.pane(paneId), pane.residency == .backgrounded else { break }
+            coordinator.teardownView(for: paneId)
             store.purgeOrphanedPane(paneId)
 
         case .addDrawerPane(let parentPaneId, let content, let metadata):

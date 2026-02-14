@@ -176,8 +176,23 @@ enum ActionValidator {
             }
             return .success(ValidatedAction(action))
 
-        // Drawer actions — pane-level, validate pane exists in some tab
-        case .addDrawerPane, .removeDrawerPane, .toggleDrawer, .setActiveDrawerPane:
+        // Drawer actions — validate parent pane is in an active tab layout.
+        // Store-level guards provide additional safety for panes in non-active arrangements.
+        case .addDrawerPane(let parentPaneId, _, _):
+            guard state.tabContaining(paneId: parentPaneId) != nil else {
+                return .failure(.paneNotFound(paneId: parentPaneId, tabId: state.activeTabId ?? UUID()))
+            }
+            return .success(ValidatedAction(action))
+        case .removeDrawerPane(let parentPaneId, _),
+             .setActiveDrawerPane(let parentPaneId, _):
+            guard state.tabContaining(paneId: parentPaneId) != nil else {
+                return .failure(.paneNotFound(paneId: parentPaneId, tabId: state.activeTabId ?? UUID()))
+            }
+            return .success(ValidatedAction(action))
+        case .toggleDrawer(let paneId):
+            guard state.tabContaining(paneId: paneId) != nil else {
+                return .failure(.paneNotFound(paneId: paneId, tabId: state.activeTabId ?? UUID()))
+            }
             return .success(ValidatedAction(action))
 
         // System actions — trusted source, skip validation

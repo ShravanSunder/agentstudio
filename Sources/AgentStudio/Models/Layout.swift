@@ -423,7 +423,6 @@ extension Layout.Node {
 extension Layout.Node {
     private enum NodeCodingKeys: String, CodingKey {
         case paneId
-        case sessionId // legacy key — persisted data from before the pane rename
         case split
     }
 
@@ -431,10 +430,6 @@ extension Layout.Node {
         let container = try decoder.container(keyedBy: NodeCodingKeys.self)
         if container.contains(.paneId) {
             let id = try container.decode(UUID.self, forKey: .paneId)
-            self = .leaf(paneId: id)
-        } else if container.contains(.sessionId) {
-            // Legacy migration: old workspaces stored "sessionId" instead of "paneId"
-            let id = try container.decode(UUID.self, forKey: .sessionId)
             self = .leaf(paneId: id)
         } else if container.contains(.split) {
             let split = try container.decode(Layout.Split.self, forKey: .split)

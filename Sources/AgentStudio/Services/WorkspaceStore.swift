@@ -894,22 +894,6 @@ final class WorkspaceStore: ObservableObject {
             storeLogger.info("No workspace files found — first launch")
         }
 
-        // Migrate legacy ghostty panes to tmux for persistence
-        for id in panes.keys {
-            if case .terminal(var termState) = panes[id]!.content, termState.provider == .ghostty {
-                termState.provider = .tmux
-                panes[id]!.content = .terminal(termState)
-            }
-        }
-
-        // Filter out temporary panes — they are never restored
-        panes = panes.filter { _, pane in
-            if case .terminal(let termState) = pane.content {
-                return termState.lifetime != .temporary
-            }
-            return true
-        }
-
         // Remove panes whose worktree no longer exists (deleted between launches)
         let validWorktreeIds = Set(repos.flatMap(\.worktrees).map(\.id))
         panes = panes.filter { id, pane in
