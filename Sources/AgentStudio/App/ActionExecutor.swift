@@ -191,8 +191,10 @@ final class ActionExecutor {
     private func expireOldUndoEntries() {
         while undoStack.count > maxUndoStackSize {
             let expired = undoStack.removeFirst()
-            // Remove panes that are not referenced by any tab layout
-            let allLayoutPaneIds = Set(store.tabs.flatMap(\.paneIds))
+            // Remove panes that are not referenced by any tab's ownership list.
+            // Use tab.panes (all owned panes) instead of tab.paneIds (active arrangement only)
+            // to avoid GC'ing panes hidden in non-default arrangements.
+            let allLayoutPaneIds = Set(store.tabs.flatMap(\.panes))
             for pane in expired.panes where !allLayoutPaneIds.contains(pane.id) {
                 store.removePane(pane.id)
                 executorLogger.debug("GC'd orphaned pane \(pane.id) from expired undo entry")
@@ -218,14 +220,16 @@ final class ActionExecutor {
         coordinator.teardownView(for: paneId)
         let tabNowEmpty = store.removePaneFromLayout(paneId, inTab: tabId)
 
+        // The store returns true only if the tab became empty.
+        // This shouldn't happen since we checked paneIds.count > 1 above.
+        assert(!tabNowEmpty, "Tab unexpectedly empty after closePane — escalation to closeTab should have caught this")
         if tabNowEmpty {
-            // Edge case: tab emptied despite having >1 pane (shouldn't happen,
-            // but handle defensively). Snapshot already missed — just remove.
             store.removeTab(tabId)
         }
 
-        // If the pane is no longer in any layout, remove it from the store.
-        let allLayoutPaneIds = Set(store.tabs.flatMap(\.paneIds))
+        // If the pane is no longer in any tab's ownership list, remove it from the store.
+        // Use tab.panes (all owned panes) instead of tab.paneIds (active arrangement only).
+        let allLayoutPaneIds = Set(store.tabs.flatMap(\.panes))
         if !allLayoutPaneIds.contains(paneId) {
             store.removePane(paneId)
         }

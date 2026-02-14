@@ -518,6 +518,17 @@ final class WorkspaceStore: ObservableObject {
             tabs[targetTabIndex].arrangements[targetArrIndex].layout = tabs[targetTabIndex].arrangements[targetArrIndex].layout
                 .inserting(paneId: paneId, at: currentTarget, direction: direction, position: position)
             tabs[targetTabIndex].arrangements[targetArrIndex].visiblePaneIds.insert(paneId)
+
+            // Also add to default arrangement if active is not default
+            if !tabs[targetTabIndex].arrangements[targetArrIndex].isDefault {
+                let defIdx = tabs[targetTabIndex].defaultArrangementIndex
+                if tabs[targetTabIndex].arrangements[defIdx].layout.contains(currentTarget) {
+                    tabs[targetTabIndex].arrangements[defIdx].layout = tabs[targetTabIndex].arrangements[defIdx].layout
+                        .inserting(paneId: paneId, at: currentTarget, direction: direction, position: position)
+                    tabs[targetTabIndex].arrangements[defIdx].visiblePaneIds.insert(paneId)
+                }
+            }
+
             if !tabs[targetTabIndex].panes.contains(paneId) {
                 tabs[targetTabIndex].panes.append(paneId)
             }

@@ -730,15 +730,9 @@ extension SurfaceManager {
     /// Derives from surface state (authoritative after attach/move) rather than
     /// metadata.paneId which is only set at creation time.
     func paneId(for surfaceId: UUID) -> UUID? {
-        if let managed = activeSurfaces[surfaceId] {
-            if case .active(let paneId) = managed.state { return paneId }
-            return managed.metadata.paneId
-        }
-        if let managed = hiddenSurfaces[surfaceId] {
-            if case .active(let paneId) = managed.state { return paneId }
-            return managed.metadata.paneId
-        }
-        return nil
+        guard let managed = activeSurfaces[surfaceId] ?? hiddenSurfaces[surfaceId] else { return nil }
+        if case .active(let paneId) = managed.state { return paneId }
+        return managed.metadata.paneId
     }
 
     /// Reverse-lookup: SurfaceView → surfaceId via ObjectIdentifier map.
