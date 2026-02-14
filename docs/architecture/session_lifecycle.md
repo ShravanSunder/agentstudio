@@ -234,7 +234,7 @@ tmux runs on a dedicated socket `-L agentstudio`, completely separate from any u
 | `extended-keys` | `off` | Prevents additional keyboard protocol conflicts |
 | `escape-time` | `0` | No escape delay — immediate key processing |
 | `mouse` | `off` | Prevent tmux scroll/copy-mode overlays; keep tmux non-interactive |
-| `unbind -a` (+ root/prefix/copy tables) | enabled | Removes tmux key-driven interactions and copy-mode entry points |
+| Individual unbinds (mouse/scroll/scrollbar) | per-event | Removes copy-mode entry points without destroying key tables (attach-time hardening handles broad unbinding) |
 | `history-limit` | `50000` | Large scrollback preserved across restarts |
 | `set-environment -g -u TMUX` | (unset) | Allows users to run their own tmux inside ghost sessions without nesting conflicts |
 | `set-environment -g TERMINFO` | (runtime path) | Injected at launch — ensures programs find our custom xterm-256color, not the system one |

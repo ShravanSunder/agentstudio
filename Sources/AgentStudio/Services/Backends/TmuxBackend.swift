@@ -186,6 +186,9 @@ final class TmuxBackend: SessionBackend {
         let escapedSessionId = shellEscape(sessionId)
         var cmd = "\(tmuxBin) -L \(socketName) -f \(config) new-session -A -s \(escapedSessionId) -c \(cwd)"
         cmd += " \\; set-option -g mouse off"
+        // Broad unbinding at attach time corrects stale tmux servers started before
+        // ghost.conf had individual unbinds. ghost.conf itself uses per-event unbinds
+        // (not `unbind -a`) to avoid destroying key tables at config-load time.
         cmd += " \\; unbind-key -a"
         cmd += " \\; unbind-key -a -T root"
         cmd += " \\; unbind-key -a -T copy-mode"

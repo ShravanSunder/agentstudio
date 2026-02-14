@@ -244,9 +244,13 @@ final class TerminalViewCoordinator {
         // "AgentStudio" (mixed case) in the tmux command line, which would
         // cause `pkill -f AgentStudio` to kill the tmux server.
         let safeTerminfo = SessionConfiguration.safeTerminfoPath
-        let terminfoDir = FileManager.default.fileExists(
-            atPath: safeTerminfo + "/78/xterm-256color"
-        ) ? safeTerminfo : nil
+        let terminfoDir: String?
+        if FileManager.default.fileExists(atPath: safeTerminfo + "/78/xterm-256color") {
+            terminfoDir = safeTerminfo
+        } else {
+            coordinatorLogger.warning("Custom xterm-256color not found at \(safeTerminfo)/78/xterm-256color — TERMINFO will not be injected into tmux attach")
+            terminfoDir = nil
+        }
         return TmuxBackend.buildAttachCommand(
             tmuxBin: tmuxBin,
             socketName: TmuxBackend.socketName,

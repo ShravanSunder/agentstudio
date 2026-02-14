@@ -112,7 +112,7 @@ struct SessionConfiguration: Sendable {
     /// restarts, so its initial TERMINFO may be stale; this path is injected at
     /// every attach to keep it current.
     ///
-    /// Search order: SPM resource bundle → app bundle → development source tree.
+    /// Search order: module bundle → SPM resource bundle → app bundle → development source tree.
     static func resolveTerminfoDir() -> String? {
         let sentinel = "/78/xterm-256color"
 
@@ -161,14 +161,20 @@ struct SessionConfiguration: Sendable {
     /// Copy the custom terminfo to ~/.agentstudio/terminfo/ (pkill-safe path).
     /// Returns the safe directory path, or nil if the copy fails.
     private static func copySafeTerminfo() -> String? {
-        guard let sourceDir = resolveTerminfoDir() else { return nil }
+        guard let sourceDir = resolveTerminfoDir() else {
+            configLogger.warning("copySafeTerminfo: resolveTerminfoDir() returned nil — custom xterm-256color not found in any search path")
+            return nil
+        }
 
         let safeDir = URL(fileURLWithPath: safeTerminfoPath)
         let sourceFile = URL(fileURLWithPath: sourceDir + "/78/xterm-256color")
         let destDir = safeDir.appendingPathComponent("78")
         let destFile = destDir.appendingPathComponent("xterm-256color")
 
-        guard FileManager.default.fileExists(atPath: sourceFile.path) else { return nil }
+        guard FileManager.default.fileExists(atPath: sourceFile.path) else {
+            configLogger.warning("copySafeTerminfo: source xterm-256color not found at \(sourceFile.path, privacy: .public)")
+            return nil
+        }
 
         do {
             try FileManager.default.createDirectory(at: destDir, withIntermediateDirectories: true)
@@ -178,6 +184,7 @@ struct SessionConfiguration: Sendable {
             try FileManager.default.copyItem(at: sourceFile, to: destFile)
             return safeDir.path
         } catch {
+            configLogger.error("copySafeTerminfo: failed to copy xterm-256color to \(safeDir.path, privacy: .public): \(error.localizedDescription, privacy: .public)")
             return nil
         }
     }
@@ -280,14 +287,19 @@ struct SessionConfiguration: Sendable {
             if let safeTerminfo = copySafeTerminfo() {
                 let terminfoLine = "\n# ─── Runtime TERMINFO (injected by Agent Studio at launch) ────────\n"
                     + "set-environment -g TERMINFO \"\(safeTerminfo)\"\n"
+                guard let terminfoData = terminfoLine.data(using: .utf8) else {
+                    configLogger.error("Failed to encode TERMINFO line as UTF-8")
+                    return safePath.path
+                }
                 let handle = try FileHandle(forWritingTo: safePath)
+                defer { handle.closeFile() }
                 handle.seekToEndOfFile()
-                handle.write(terminfoLine.data(using: .utf8)!)
-                handle.closeFile()
+                handle.write(terminfoData)
             }
 
             return safePath.path
         } catch {
+            configLogger.error("resolveGhostConfigPath: failed to copy ghost.conf to safe path — falling back to source path \(sourcePath, privacy: .public): \(error.localizedDescription, privacy: .public)")
             return sourcePath
         }
     }
