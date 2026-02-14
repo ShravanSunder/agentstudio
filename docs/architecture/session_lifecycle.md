@@ -220,11 +220,11 @@ The zmx backend provides session persistence across app restarts. When enabled, 
 
 ### Architecture
 
-zmx is a ~1000 LOC Zig tool that provides raw byte passthrough with zero terminal emulation. It uses libghostty-vt for state tracking, meaning `TERM=xterm-ghostty` flows through natively. Unlike tmux, zmx:
-- Has **no config file** (no ghost.conf equivalent needed)
-- Has **no terminal emulation layer** (no keyboard/mouse protocol conflicts)
-- Has **no custom terminfo** needed (xterm-ghostty works natively)
-- Runs one daemon per session (no shared server)
+zmx is a ~1000 LOC Zig tool that provides raw byte passthrough with zero terminal emulation. It uses libghostty-vt for state tracking, meaning `TERM=xterm-ghostty` flows through natively:
+- **No config file** needed
+- **No terminal emulation layer** (no keyboard/mouse protocol conflicts)
+- **No custom terminfo** needed (xterm-ghostty works natively)
+- One daemon per session (no shared server)
 
 ### ZMX_DIR Isolation
 

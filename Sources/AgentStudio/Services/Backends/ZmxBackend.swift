@@ -68,7 +68,7 @@ enum SessionBackendError: Error, LocalizedError {
 /// Creates one zmx daemon per terminal pane using `ZMX_DIR` env var for isolation,
 /// completely invisible to the user's own zmx sessions.
 ///
-/// Unlike tmux, zmx has no pre-creation step — the daemon is spawned automatically
+/// zmx has no pre-creation step — the daemon is spawned automatically
 /// on first `zmx attach`. This means `createPaneSession` only builds a handle
 /// (zero CLI calls), and the actual process starts when the Ghostty surface
 /// executes the attach command.

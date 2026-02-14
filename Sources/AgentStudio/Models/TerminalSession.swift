@@ -58,24 +58,4 @@ enum SessionProvider: String, Codable, Hashable {
     case ghostty
     /// Headless zmx backend for persistence/restore.
     case zmx
-
-    // MARK: - Codable Migration
-
-    init(from decoder: Decoder) throws {
-        let container = try decoder.singleValueContainer()
-        let raw = try container.decode(String.self)
-        switch raw {
-        case "tmux":
-            // Legacy: persisted "tmux" → migrate to .zmx
-            self = .zmx
-        default:
-            guard let value = SessionProvider(rawValue: raw) else {
-                throw DecodingError.dataCorruptedError(
-                    in: container,
-                    debugDescription: "Unknown SessionProvider value: \(raw)"
-                )
-            }
-            self = value
-        }
-    }
 }

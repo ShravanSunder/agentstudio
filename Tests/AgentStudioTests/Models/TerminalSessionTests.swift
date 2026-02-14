@@ -277,23 +277,13 @@ final class TerminalSessionTests: XCTestCase {
         XCTAssertEqual(zmxDecoded, .zmx)
     }
 
-    func test_sessionProvider_codable_migrates_legacy_tmux() throws {
-        // Arrange — simulate old persisted "tmux" value
-        let legacyJson = "\"tmux\"".data(using: .utf8)!
-
-        // Act
-        let decoded = try JSONDecoder().decode(SessionProvider.self, from: legacyJson)
-
-        // Assert — should migrate to .zmx
-        XCTAssertEqual(decoded, .zmx)
-    }
-
-    func test_sessionProvider_codable_zmx_encodes_as_zmx() throws {
+    func test_sessionProvider_codable_zmx_roundTrips() throws {
         // Act
         let data = try JSONEncoder().encode(SessionProvider.zmx)
-        let jsonString = String(data: data, encoding: .utf8)
+        let decoded = try JSONDecoder().decode(SessionProvider.self, from: data)
 
-        // Assert — encodes as "zmx", not "tmux"
-        XCTAssertEqual(jsonString, "\"zmx\"")
+        // Assert
+        XCTAssertEqual(decoded, .zmx)
+        XCTAssertEqual(String(data: data, encoding: .utf8), "\"zmx\"")
     }
 }
