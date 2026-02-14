@@ -104,7 +104,9 @@ enum ActionResolver {
              .newTerminalInTab, .newTab, .undoCloseTab,
              .newWindow, .closeWindow,
              .quickFind, .commandBar,
-             .filterSidebar, .openNewTerminalInTab:
+             .filterSidebar, .openNewTerminalInTab,
+             .switchArrangement, .saveArrangement,
+             .deleteArrangement, .renameArrangement:
             return nil
         }
     }

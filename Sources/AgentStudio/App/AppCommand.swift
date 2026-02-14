@@ -27,6 +27,12 @@ enum AppCommand: String, CaseIterable {
     case focusNextPane, focusPrevPane
     case toggleSplitZoom
 
+    // Arrangement commands
+    case switchArrangement
+    case saveArrangement
+    case deleteArrangement
+    case renameArrangement
+
     // Repo commands
     case addRepo, removeRepo, refreshWorktrees
 
@@ -298,6 +304,32 @@ final class CommandDispatcher: ObservableObject {
                 command: .focusPrevPane,
                 label: "Focus Previous Pane",
                 icon: "arrow.left.circle"
+            ),
+
+            // Arrangement commands
+            CommandDefinition(
+                command: .switchArrangement,
+                label: "Switch Arrangement",
+                icon: "rectangle.3.group",
+                appliesTo: [.tab]
+            ),
+            CommandDefinition(
+                command: .saveArrangement,
+                label: "Save Arrangement As...",
+                icon: "rectangle.3.group.fill",
+                appliesTo: [.tab]
+            ),
+            CommandDefinition(
+                command: .deleteArrangement,
+                label: "Delete Arrangement",
+                icon: "rectangle.3.group.bubble",
+                appliesTo: [.tab]
+            ),
+            CommandDefinition(
+                command: .renameArrangement,
+                label: "Rename Arrangement",
+                icon: "pencil",
+                appliesTo: [.tab]
             ),
 
             // Repo commands
