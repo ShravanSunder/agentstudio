@@ -74,6 +74,12 @@ struct SessionConfiguration: Sendable {
     static func resolveGhosttyResourcesDir() -> String? {
         let sentinel = "/terminfo/78/xterm-ghostty"
 
+        // SPM module bundle (works in both app and test contexts)
+        let moduleBundle = Bundle.module.bundlePath
+        if FileManager.default.fileExists(atPath: moduleBundle + sentinel) {
+            return moduleBundle + "/ghostty"
+        }
+
         // SPM resource bundle (AgentStudio_AgentStudio.bundle, adjacent to executable)
         let spmBundle = Bundle.main.bundleURL
             .appendingPathComponent("AgentStudio_AgentStudio.bundle").path
@@ -110,7 +116,13 @@ struct SessionConfiguration: Sendable {
     static func resolveTerminfoDir() -> String? {
         let sentinel = "/78/xterm-256color"
 
-        // SPM resource bundle
+        // SPM module bundle (works in both app and test contexts)
+        let moduleTerminfo = Bundle.module.bundlePath + "/terminfo"
+        if FileManager.default.fileExists(atPath: moduleTerminfo + sentinel) {
+            return moduleTerminfo
+        }
+
+        // SPM resource bundle (adjacent to executable)
         let spmBundle = Bundle.main.bundleURL
             .appendingPathComponent("AgentStudio_AgentStudio.bundle/terminfo").path
         if FileManager.default.fileExists(atPath: spmBundle + sentinel) {
@@ -205,8 +217,11 @@ struct SessionConfiguration: Sendable {
     }
 
     private static func resolveGhostConfigPath() -> String {
-        // Search order: SPM resource bundle → app bundle → dev source tree → relative fallback
+        // Search order: module bundle → SPM resource bundle → app bundle → dev source tree → relative fallback
         var candidates: [String] = []
+
+        // 0. SPM module bundle (works in both app and test contexts)
+        candidates.append(Bundle.module.bundlePath + "/tmux/ghost.conf")
 
         // 1. SPM resource bundle (AgentStudio_AgentStudio.bundle, adjacent to executable)
         let spmBundle = Bundle.main.bundleURL
