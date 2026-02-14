@@ -17,7 +17,6 @@ let package = Package(
             path: "Sources/AgentStudio",
             exclude: [
                 "Resources/Info.plist",
-                "Resources/terminfo-src",
             ],
             resources: [
                 .copy("Resources/AppIcon.icns"),

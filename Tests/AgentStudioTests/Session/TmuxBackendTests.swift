@@ -164,33 +164,11 @@ final class TmuxBackendTests: XCTestCase {
         // Act
         let cmd = backend.attachCommand(for: handle)
 
-        // Assert — no terminfoDir, so no set-environment TERMINFO
-        XCTAssertTrue(cmd.hasPrefix("tmux -L agentstudio -f '/tmp/ghost.conf' new-session -A -s"))
-        XCTAssertTrue(cmd.contains("\\; set-option -g mouse off"))
-        XCTAssertTrue(cmd.contains("\\; unbind-key -a"))
-        XCTAssertTrue(cmd.contains("\\; unbind-key -a -T root"))
-        XCTAssertTrue(cmd.contains("\\; unbind-key -a -T copy-mode"))
-        XCTAssertTrue(cmd.contains("\\; unbind-key -a -T copy-mode-vi"))
-        XCTAssertFalse(cmd.contains("set-environment"), "No TERMINFO injection when terminfoDir is nil")
-    }
-
-    func test_attachCommand_injectsTerminfoDir() {
-        // Arrange
-        let backendWithTerminfo = TmuxBackend(
-            executor: executor,
-            ghostConfigPath: "/tmp/ghost.conf",
-            terminfoDir: "/path/to/bundle/terminfo"
-        )
-        let handle = makePaneSessionHandle(
-            id: "agentstudio--a1b2c3d4e5f6a7b8--00112233aabbccdd--aabbccdd11223344",
-            workingDirectory: "/tmp"
-        )
-
-        // Act
-        let cmd = backendWithTerminfo.attachCommand(for: handle)
-
         // Assert
-        XCTAssertTrue(cmd.contains("\\; set-environment -g TERMINFO '/path/to/bundle/terminfo'"))
+        XCTAssertEqual(
+            cmd,
+            "tmux -L agentstudio -f '/tmp/ghost.conf' new-session -A -s 'agentstudio--a1b2c3d4e5f6a7b8--00112233aabbccdd--aabbccdd11223344' -c '/tmp' \\; set-option -g mouse off \\; unbind-key -a \\; unbind-key -a -T root \\; unbind-key -a -T copy-mode \\; unbind-key -a -T copy-mode-vi"
+        )
     }
 
     func test_attachCommand_escapesPathsWithSpaces() {
@@ -215,25 +193,6 @@ final class TmuxBackendTests: XCTestCase {
         XCTAssertTrue(cmd.contains("\\; unbind-key -a -T root"))
         XCTAssertTrue(cmd.contains("\\; unbind-key -a -T copy-mode"))
         XCTAssertTrue(cmd.contains("\\; unbind-key -a -T copy-mode-vi"))
-    }
-
-    func test_attachCommand_escapesTerminfoDirWithSpaces() {
-        // Arrange
-        let spacedBackend = TmuxBackend(
-            executor: executor,
-            ghostConfigPath: "/tmp/ghost.conf",
-            terminfoDir: "/Users/test user/bundle/terminfo"
-        )
-        let handle = makePaneSessionHandle(
-            id: "agentstudio--a1b2c3d4e5f6a7b8--00112233aabbccdd--aabbccdd11223344",
-            workingDirectory: "/tmp"
-        )
-
-        // Act
-        let cmd = spacedBackend.attachCommand(for: handle)
-
-        // Assert
-        XCTAssertTrue(cmd.contains("\\; set-environment -g TERMINFO '/Users/test user/bundle/terminfo'"))
     }
 
     // MARK: - healthCheck
