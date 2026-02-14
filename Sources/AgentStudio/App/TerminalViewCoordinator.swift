@@ -290,12 +290,6 @@ final class TerminalViewCoordinator {
     }
 
     private func getDefaultShell() -> String {
-        if let pw = getpwuid(getuid()), let shell = pw.pointee.pw_shell {
-            return String(cString: shell)
-        }
-        if let envShell = ProcessInfo.processInfo.environment["SHELL"] {
-            return envShell
-        }
-        return "/bin/zsh"
+        SessionConfiguration.defaultShell()
     }
 }

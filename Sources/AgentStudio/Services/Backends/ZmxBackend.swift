@@ -245,13 +245,11 @@ final class ZmxBackend: SessionBackend {
                 .components(separatedBy: "\n")
                 .filter { !$0.isEmpty }
                 .compactMap { line -> String? in
-                    // zmx list output is tab-delimited key=value pairs.
-                    // Look for lines containing an agentstudio session name.
+                    // zmx list output is tab-delimited. Extract the field containing our prefix,
+                    // then isolate the session name (from prefix to next tab or end of field).
                     guard let range = line.range(of: Self.sessionPrefix) else { return nil }
-                    // Extract the session name (from prefix to next whitespace/tab or end)
-                    let fromPrefix = String(line[range.lowerBound...])
-                    let sessionName = fromPrefix.components(separatedBy: CharacterSet.whitespaces).first ?? fromPrefix
-                    return sessionName
+                    let fromPrefix = line[range.lowerBound...]
+                    return fromPrefix.split(separator: "\t").first.map(String.init)
                 }
                 .filter { $0.hasPrefix(Self.sessionPrefix) }
                 .filter { !knownIds.contains($0) }
@@ -279,12 +277,6 @@ final class ZmxBackend: SessionBackend {
     // MARK: - Helpers
 
     private static func getDefaultShell() -> String {
-        if let pw = getpwuid(getuid()), let shell = pw.pointee.pw_shell {
-            return String(cString: shell)
-        }
-        if let envShell = ProcessInfo.processInfo.environment["SHELL"] {
-            return envShell
-        }
-        return "/bin/zsh"
+        SessionConfiguration.defaultShell()
     }
 }

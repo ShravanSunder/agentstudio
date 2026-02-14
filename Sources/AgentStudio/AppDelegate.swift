@@ -135,17 +135,37 @@ class AppDelegate: NSObject, NSApplicationDelegate {
         let backend = ZmxBackend(zmxPath: zmxPath, zmxDir: config.zmxDir)
 
         Task {
-            let orphans = await backend.discoverOrphanSessions(excluding: knownSessionIds)
-            if !orphans.isEmpty {
-                appLogger.info("Found \(orphans.count) orphan zmx session(s) — cleaning up")
-                for orphanId in orphans {
-                    do {
-                        try await backend.destroySessionById(orphanId)
-                        appLogger.debug("Killed orphan zmx session: \(orphanId)")
-                    } catch {
-                        appLogger.warning("Failed to kill orphan zmx session \(orphanId): \(error.localizedDescription)")
+            do {
+                try await withThrowingTaskGroup(of: Void.self) { group in
+                    group.addTask {
+                        let orphans = await backend.discoverOrphanSessions(excluding: knownSessionIds)
+                        if !orphans.isEmpty {
+                            appLogger.info("Found \(orphans.count) orphan zmx session(s) — cleaning up")
+                            for orphanId in orphans {
+                                try Task.checkCancellation()
+                                do {
+                                    try await backend.destroySessionById(orphanId)
+                                    appLogger.debug("Killed orphan zmx session: \(orphanId)")
+                                } catch is CancellationError {
+                                    throw CancellationError()
+                                } catch {
+                                    appLogger.warning("Failed to kill orphan zmx session \(orphanId): \(error.localizedDescription)")
+                                }
+                            }
+                        }
                     }
+                    group.addTask {
+                        try await Task.sleep(for: .seconds(30))
+                        throw CancellationError()
+                    }
+                    // Wait for whichever finishes first, cancel the other
+                    try await group.next()
+                    group.cancelAll()
                 }
+            } catch is CancellationError {
+                appLogger.warning("Orphan zmx cleanup timed out after 30s")
+            } catch {
+                appLogger.warning("Orphan zmx cleanup failed: \(error.localizedDescription)")
             }
         }
     }

@@ -133,6 +133,20 @@ struct SessionConfiguration: Sendable {
         return nil
     }
 
+    // MARK: - Shell Discovery
+
+    /// Resolve the user's default login shell.
+    /// Checks passwd entry first, then SHELL environment variable, then falls back to /bin/zsh.
+    static func defaultShell() -> String {
+        if let pw = getpwuid(getuid()), let shell = pw.pointee.pw_shell {
+            return String(cString: shell)
+        }
+        if let envShell = ProcessInfo.processInfo.environment["SHELL"] {
+            return envShell
+        }
+        return "/bin/zsh"
+    }
+
     // MARK: - Private
 
     /// Find the zmx binary.
