@@ -15,7 +15,7 @@
 3. **Explicit layout model** — The split tree is a structured, queryable `Layout` value type. Leaves reference sessions by ID. No `NSView` references, no opaque blobs.
 4. **View model** — Multiple named `ViewDefinition`s organize sessions into tab arrangements. Switching views reattaches surfaces without recreation.
 5. **Surface independence** — Ghostty surfaces are ephemeral runtime resources. The model layer never holds `NSView` references.
-6. **Provider abstraction** — tmux is a headless restore backend. The model carries provider metadata without coupling to tmux specifics.
+6. **Provider abstraction** — zmx is a headless restore backend. The model carries provider metadata without coupling to zmx specifics.
 7. **Testability** — Core model and layout logic are pure value types with no singletons or `@MainActor` requirements.
 
 ### 1.2 High-Level System Diagram
@@ -127,7 +127,7 @@ The **primary entity**. Stable identity for a terminal, independent of layout po
 
 **`SessionProvider`** — Backend type:
 - `.ghostty` — Direct Ghostty surface, no session multiplexer
-- `.tmux` — Headless tmux backend for persistence/restore across app restarts
+- `.zmx` — Headless zmx backend for persistence/restore across app restarts
 
 **`SessionLifetime`** — Whether the session survives app restart:
 - `.persistent` — Saved to disk and restored on launch. Temporary sessions are filtered out during save and restore.
@@ -296,14 +296,14 @@ Manages live session state. Does **not** own sessions — reads the session list
 **Backend protocol:** `SessionBackendProtocol` — `start()`, `isAlive()`, `terminate()`, `restore()`
 
 **Key operations:**
-- `registerBackend()` — Register a backend (e.g., `TmuxBackend`) for a provider type
+- `registerBackend()` — Register a backend (e.g., `ZmxBackend`) for a provider type
 - `syncWithStore()` — Align tracked sessions with store's session list
 - `startHealthChecks()` / `runHealthCheck()` — Periodic backend liveness checks
 - `startSession()` / `restoreSession()` / `terminateSession()` — Backend lifecycle
 
-> **Note:** A full `SessionStatus` state machine (7 states: unknown, verifying, alive, dead, missing, recovering, failed) exists in `Models/StateMachine/SessionStatus.swift` for future tmux health integration but is not yet wired into `SessionRuntime`. See [Session Lifecycle](session_lifecycle.md) for details.
+> **Note:** A full `SessionStatus` state machine (7 states: unknown, verifying, alive, dead, missing, recovering, failed) exists in `Models/StateMachine/SessionStatus.swift` for future zmx health integration but is not yet wired into `SessionRuntime`. See [Session Lifecycle](session_lifecycle.md) for details.
 >
-> `TmuxBackend` conforms to a separate `SessionBackend` protocol (defined in `TmuxBackend.swift`) with its own method signatures. Phase 4 will wire `SessionRuntime` → `TmuxBackend` and consolidate the two protocols.
+> `ZmxBackend` conforms to a separate `SessionBackend` protocol (defined in `ZmxBackend.swift`) with its own method signatures. A future phase will wire `SessionRuntime` → `ZmxBackend` and consolidate the two protocols.
 
 > **File:** `Services/SessionRuntime.swift`
 
@@ -477,7 +477,6 @@ sequenceDiagram
     AD->>Store: restore()
     Store->>P: load()
     P-->>Store: PersistableState (JSON)
-    Store->>Store: migrate ghostty → tmux
     Store->>Store: filter temporary sessions
     Store->>Store: prune dangling worktree refs
     Store->>Store: prune invalid layout session IDs
@@ -574,12 +573,11 @@ Before writing to disk:
 
 On app launch:
 1. Load JSON from disk
-2. Migrate legacy `.ghostty` sessions → `.tmux` (all sessions get persistent backend)
-3. Filter out `.temporary` sessions
-4. Remove sessions whose worktree no longer exists on disk
-5. Prune dangling session IDs from all view layouts
-6. Remove empty tabs, fix `activeTabId` pointers
-7. Ensure main view exists (create if missing)
+2. Filter out `.temporary` sessions
+3. Remove sessions whose worktree no longer exists on disk
+4. Prune dangling session IDs from all view layouts
+5. Remove empty tabs, fix `activeTabId` pointers
+6. Ensure main view exists (create if missing)
 
 ---
 
@@ -619,7 +617,7 @@ These rules are enforced by `WorkspaceStore` and model types at all times:
 | `Models/Templates.swift` | `WorktreeTemplate`, `TerminalTemplate`, `CreatePolicy` |
 | `Models/StableKey.swift` | SHA-256 path hashing for deterministic IDs |
 | `Models/StateMachine/StateMachine.swift` | Generic state machine with effect handling |
-| `Models/StateMachine/SessionStatus.swift` | 7-state session lifecycle machine (future tmux health) |
+| `Models/StateMachine/SessionStatus.swift` | 7-state session lifecycle machine (future zmx health) |
 | **Services** | |
 | `Services/WorkspaceStore.swift` | Single ownership boundary for all state |
 | `Services/WorkspacePersistor.swift` | JSON persistence I/O |
@@ -628,7 +626,7 @@ These rules are enforced by `WorkspaceStore` and model types at all times:
 | `Services/ViewResolver.swift` | Dynamic/worktree view resolution |
 | `Services/WorktrunkService.swift` | Git worktree CLI wrapper |
 | `Services/ProcessExecutor.swift` | Protocol + default impl for CLI execution |
-| `Services/Backends/TmuxBackend.swift` | tmux CLI wrapper — session create/destroy/health |
+| `Services/Backends/ZmxBackend.swift` | zmx CLI wrapper — session create/destroy/health |
 | **App** | |
 | `App/ActionExecutor.swift` | Action dispatch hub, undo stack |
 | `App/TerminalViewCoordinator.swift` | Sole model↔view↔surface bridge |
@@ -657,6 +655,6 @@ These rules are enforced by `WorkspaceStore` and model types at all times:
 ## 8. Cross-References
 
 - **[Architecture Overview](README.md)** — System overview and document index
-- **[Session Lifecycle](session_lifecycle.md)** — Session creation, close, undo, restore flows; runtime status; tmux backend
+- **[Session Lifecycle](session_lifecycle.md)** — Session creation, close, undo, restore flows; runtime status; zmx backend
 - **[Surface Architecture](ghostty_surface_architecture.md)** — Ghostty surface ownership, state machine, health monitoring, crash isolation
 - **[App Architecture](app_architecture.md)** — AppKit+SwiftUI hybrid patterns, window/controller hierarchy

@@ -95,7 +95,7 @@ Panes support multiple content types via `PaneContent`. Each pane holds exactly 
 
 | Content Type | State | Example |
 |-------------|-------|---------|
-| `.terminal(TerminalState)` | Surface ID, provider (.ghostty/.tmux), lifetime | Agent session, shell |
+| `.terminal(TerminalState)` | Surface ID, provider (.ghostty/.zmx), lifetime | Agent session, shell |
 | `.webview(WebviewState)` | URL, navigation state | React dev server, diff viewer, PR status |
 | `.codeViewer(CodeViewerState)` | File path, scroll position | File review, code annotations |
 | Future | Extensible | Logs, metrics, etc. |

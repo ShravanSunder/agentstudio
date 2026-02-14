@@ -19,7 +19,7 @@ final class DynamicViewProjectorTests: XCTestCase {
         repoBWithWTs = Repo(id: repoB.id, name: repoB.name, repoPath: repoB.repoPath, worktrees: [wtB1], createdAt: repoB.createdAt, updatedAt: repoB.updatedAt)
 
         let pane1 = Pane(
-            content: .terminal(TerminalState(provider: .tmux, lifetime: .persistent)),
+            content: .terminal(TerminalState(provider: .zmx, lifetime: .persistent)),
             metadata: PaneMetadata(
                 source: .worktree(worktreeId: wtA1.id, repoId: repoA.id),
                 title: "agent-studio main",
@@ -28,7 +28,7 @@ final class DynamicViewProjectorTests: XCTestCase {
             )
         )
         let pane2 = Pane(
-            content: .terminal(TerminalState(provider: .tmux, lifetime: .persistent)),
+            content: .terminal(TerminalState(provider: .zmx, lifetime: .persistent)),
             metadata: PaneMetadata(
                 source: .worktree(worktreeId: wtA2.id, repoId: repoA.id),
                 title: "agent-studio feature-x",
@@ -37,7 +37,7 @@ final class DynamicViewProjectorTests: XCTestCase {
             )
         )
         let pane3 = Pane(
-            content: .terminal(TerminalState(provider: .tmux, lifetime: .persistent)),
+            content: .terminal(TerminalState(provider: .zmx, lifetime: .persistent)),
             metadata: PaneMetadata(
                 source: .worktree(worktreeId: wtB1.id, repoId: repoB.id),
                 title: "askluna main",

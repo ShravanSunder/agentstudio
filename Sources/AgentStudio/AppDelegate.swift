@@ -32,7 +32,7 @@ class AppDelegate: NSObject, NSApplicationDelegate {
         // Check for worktrunk dependency
         checkWorktrunkInstallation()
 
-        // Set up main menu (doesn't depend on tmux restore)
+        // Set up main menu (doesn't depend on zmx restore)
         setupMainMenu()
 
         // Create new services
@@ -40,6 +40,10 @@ class AppDelegate: NSObject, NSApplicationDelegate {
         store.restore()
 
         runtime = SessionRuntime(store: store)
+
+        // Clean up orphan zmx daemons from previous launches
+        cleanupOrphanZmxSessions()
+
         viewRegistry = ViewRegistry()
         coordinator = TerminalViewCoordinator(store: store, viewRegistry: viewRegistry, runtime: runtime)
         executor = ActionExecutor(store: store, viewRegistry: viewRegistry, coordinator: coordinator)
@@ -95,6 +99,74 @@ class AppDelegate: NSObject, NSApplicationDelegate {
 
         default:
             break
+        }
+    }
+
+    // MARK: - Orphan Cleanup
+
+    /// Kill zmx daemons that aren't tracked by any persisted session.
+    /// Runs once at startup to prevent accumulation across app restarts.
+    /// Called from `applicationDidFinishLaunching` (always main thread).
+    @MainActor
+    private func cleanupOrphanZmxSessions() {
+        let config = SessionConfiguration.detect()
+        guard let zmxPath = config.zmxPath else {
+            appLogger.debug("zmx not found — skipping orphan cleanup")
+            return
+        }
+
+        // Collect known zmx session IDs from persisted panes (main-actor access).
+        // These are the panes we expect to exist — everything else is an orphan.
+        let knownSessionIds = Set(
+            store.panes.values
+                .filter { $0.provider == .zmx }
+                .compactMap { pane -> String? in
+                    guard let worktreeId = pane.worktreeId,
+                          let repo = store.repo(containing: worktreeId),
+                          let worktree = store.worktree(worktreeId) else { return nil }
+                    return ZmxBackend.sessionId(
+                        repoStableKey: repo.stableKey,
+                        worktreeStableKey: worktree.stableKey,
+                        paneId: pane.id
+                    )
+                }
+        )
+
+        let backend = ZmxBackend(zmxPath: zmxPath, zmxDir: config.zmxDir)
+
+        Task {
+            do {
+                try await withThrowingTaskGroup(of: Void.self) { group in
+                    group.addTask {
+                        let orphans = await backend.discoverOrphanSessions(excluding: knownSessionIds)
+                        if !orphans.isEmpty {
+                            appLogger.info("Found \(orphans.count) orphan zmx session(s) — cleaning up")
+                            for orphanId in orphans {
+                                try Task.checkCancellation()
+                                do {
+                                    try await backend.destroySessionById(orphanId)
+                                    appLogger.debug("Killed orphan zmx session: \(orphanId)")
+                                } catch is CancellationError {
+                                    throw CancellationError()
+                                } catch {
+                                    appLogger.warning("Failed to kill orphan zmx session \(orphanId): \(error.localizedDescription)")
+                                }
+                            }
+                        }
+                    }
+                    group.addTask {
+                        try await Task.sleep(for: .seconds(30))
+                        throw CancellationError()
+                    }
+                    // Wait for whichever finishes first, cancel the other
+                    try await group.next()
+                    group.cancelAll()
+                }
+            } catch is CancellationError {
+                appLogger.warning("Orphan zmx cleanup timed out after 30s")
+            } catch {
+                appLogger.warning("Orphan zmx cleanup failed: \(error.localizedDescription)")
+            }
         }
     }
 

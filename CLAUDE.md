@@ -101,7 +101,7 @@ system design, data model, and document index. Target: macOS 26 only.
 
 - **Architecture Overview**: [README](docs/architecture/README.md) — system overview, principles, document index
 - **Component Architecture**: [Component Architecture](docs/architecture/component_architecture.md) — data model, services, data flow, persistence, invariants
-- **Session Lifecycle**: [Session Lifecycle](docs/architecture/session_lifecycle.md) — creation, close, undo, restore, tmux
+- **Session Lifecycle**: [Session Lifecycle](docs/architecture/session_lifecycle.md) — creation, close, undo, restore, zmx backend
 - **Surface Architecture**: [Surface Management](docs/architecture/ghostty_surface_architecture.md) — ownership, state machine, health, crash isolation
 - **App Architecture**: [App Architecture](docs/architecture/app_architecture.md) — AppKit+SwiftUI hybrid, controllers, events
 - **Style Guide**: [macOS Design & Style](docs/guides/style_guide.md)

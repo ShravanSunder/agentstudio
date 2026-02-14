@@ -48,6 +48,19 @@ final class AgentStudioTerminalView: PaneView, SurfaceHealthDelegate {
         }
     }
 
+    // MARK: - Layout
+
+    private var lastReportedSurfaceSize: NSSize = .zero
+
+    override func layout() {
+        super.layout()
+        guard let surface = ghosttySurface, bounds.size.width > 0, bounds.size.height > 0 else { return }
+        let currentSize = surface.bounds.size
+        guard currentSize != lastReportedSurfaceSize else { return }
+        lastReportedSurfaceSize = currentSize
+        surface.sizeDidChange(currentSize)
+    }
+
     // MARK: - Surface Display
 
     func displaySurface(_ surfaceView: Ghostty.SurfaceView) {
@@ -65,6 +78,7 @@ final class AgentStudioTerminalView: PaneView, SurfaceHealthDelegate {
         ])
 
         self.ghosttySurface = surfaceView
+        self.lastReportedSurfaceSize = .zero
 
         // Make this view layer-backed AFTER the surface is created
         self.wantsLayer = true
@@ -193,14 +207,6 @@ final class AgentStudioTerminalView: PaneView, SurfaceHealthDelegate {
     var processExited: Bool {
         guard let surfaceId = surfaceId else { return true }
         return SurfaceManager.shared.hasProcessExited(surfaceId)
-    }
-
-    // MARK: - Layout
-
-    override func layout() {
-        super.layout()
-        guard let surface = ghosttySurface, bounds.size.width > 0, bounds.size.height > 0 else { return }
-        surface.sizeDidChange(surface.bounds.size)
     }
 
     // MARK: - First Responder

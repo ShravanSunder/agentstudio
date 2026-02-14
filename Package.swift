@@ -22,7 +22,6 @@ let package = Package(
             resources: [
                 .copy("Resources/AppIcon.icns"),
                 .copy("Resources/AppIcon.iconset"),
-                .copy("Resources/tmux"),
                 .copy("Resources/terminfo"),
                 .copy("Resources/ghostty"),
             ],

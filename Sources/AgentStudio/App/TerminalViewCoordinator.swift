@@ -104,8 +104,13 @@ final class TerminalViewCoordinator {
 
         let cmd: String
         switch pane.provider {
-        case .tmux:
-            cmd = buildTmuxAttachCommand(pane: pane, worktree: worktree, repo: repo)
+        case .zmx:
+            if let zmxPath = sessionConfig.zmxPath {
+                cmd = buildZmxAttachCommand(pane: pane, worktree: worktree, repo: repo, zmxPath: zmxPath)
+            } else {
+                coordinatorLogger.warning("zmx not found, falling back to ephemeral session for \(pane.id)")
+                cmd = "\(getDefaultShell()) -i -l"
+            }
         case .ghostty:
             cmd = "\(getDefaultShell()) -i -l"
         case .none:
@@ -230,7 +235,7 @@ final class TerminalViewCoordinator {
             }
         }
 
-        // Undo expired or mismatched — create fresh (tmux reattaches, content preserved)
+        // Undo expired or mismatched — create fresh (zmx reattaches, content preserved)
         coordinatorLogger.info("Creating fresh view for pane \(pane.id)")
         return createView(for: pane, worktree: worktree, repo: repo)
     }
@@ -270,29 +275,21 @@ final class TerminalViewCoordinator {
 
     // MARK: - Helpers
 
-    private func buildTmuxAttachCommand(pane: Pane, worktree: Worktree, repo: Repo) -> String {
-        let tmuxSessionName = TmuxBackend.sessionId(
+    private func buildZmxAttachCommand(pane: Pane, worktree: Worktree, repo: Repo, zmxPath: String) -> String {
+        let zmxSessionName = ZmxBackend.sessionId(
             repoStableKey: repo.stableKey,
             worktreeStableKey: worktree.stableKey,
             paneId: pane.id
         )
-        let tmuxBin = sessionConfig.tmuxPath ?? "tmux"
-        return TmuxBackend.buildAttachCommand(
-            tmuxBin: tmuxBin,
-            socketName: TmuxBackend.socketName,
-            ghostConfigPath: sessionConfig.ghostConfigPath,
-            sessionId: tmuxSessionName,
-            workingDirectory: worktree.path.path
+        return ZmxBackend.buildAttachCommand(
+            zmxPath: zmxPath,
+            zmxDir: sessionConfig.zmxDir,
+            sessionId: zmxSessionName,
+            shell: getDefaultShell()
         )
     }
 
     private func getDefaultShell() -> String {
-        if let pw = getpwuid(getuid()), let shell = pw.pointee.pw_shell {
-            return String(cString: shell)
-        }
-        if let envShell = ProcessInfo.processInfo.environment["SHELL"] {
-            return envShell
-        }
-        return "/bin/zsh"
+        SessionConfiguration.defaultShell()
     }
 }

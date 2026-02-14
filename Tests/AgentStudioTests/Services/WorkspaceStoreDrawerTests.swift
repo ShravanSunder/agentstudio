@@ -222,7 +222,7 @@ final class WorkspaceStoreDrawerTests: XCTestCase {
 
         let dp = store1.addDrawerPane(
             to: pane.id,
-            content: .terminal(TerminalState(provider: .tmux, lifetime: .persistent)),
+            content: .terminal(TerminalState(provider: .zmx, lifetime: .persistent)),
             metadata: PaneMetadata(source: .floating(workingDirectory: nil, title: nil), title: "Persistent Drawer")
         )!
         store1.flush()
