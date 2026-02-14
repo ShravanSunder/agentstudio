@@ -33,7 +33,7 @@ final class TerminalSessionTests: XCTestCase {
             source: .worktree(worktreeId: worktreeId, repoId: repoId),
             title: "Feature",
             agent: .claude,
-            provider: .tmux,
+            provider: .zmx,
             lifetime: .temporary,
             residency: .backgrounded
         )
@@ -42,7 +42,7 @@ final class TerminalSessionTests: XCTestCase {
         XCTAssertEqual(session.id, id)
         XCTAssertEqual(session.title, "Feature")
         XCTAssertEqual(session.agent, .claude)
-        XCTAssertEqual(session.provider, .tmux)
+        XCTAssertEqual(session.provider, .zmx)
         XCTAssertEqual(session.lifetime, .temporary)
         XCTAssertEqual(session.residency, .backgrounded)
     }
@@ -99,7 +99,7 @@ final class TerminalSessionTests: XCTestCase {
             source: .worktree(worktreeId: UUID(), repoId: UUID()),
             title: "Main",
             agent: .claude,
-            provider: .tmux,
+            provider: .zmx,
             lifetime: .persistent,
             residency: .active
         )
@@ -267,13 +267,33 @@ final class TerminalSessionTests: XCTestCase {
     func test_sessionProvider_codable_roundTrips() throws {
         // Act
         let ghosttyData = try JSONEncoder().encode(SessionProvider.ghostty)
-        let tmuxData = try JSONEncoder().encode(SessionProvider.tmux)
+        let zmxData = try JSONEncoder().encode(SessionProvider.zmx)
 
         let ghosttyDecoded = try JSONDecoder().decode(SessionProvider.self, from: ghosttyData)
-        let tmuxDecoded = try JSONDecoder().decode(SessionProvider.self, from: tmuxData)
+        let zmxDecoded = try JSONDecoder().decode(SessionProvider.self, from: zmxData)
 
         // Assert
         XCTAssertEqual(ghosttyDecoded, .ghostty)
-        XCTAssertEqual(tmuxDecoded, .tmux)
+        XCTAssertEqual(zmxDecoded, .zmx)
+    }
+
+    func test_sessionProvider_codable_migrates_legacy_tmux() throws {
+        // Arrange — simulate old persisted "tmux" value
+        let legacyJson = "\"tmux\"".data(using: .utf8)!
+
+        // Act
+        let decoded = try JSONDecoder().decode(SessionProvider.self, from: legacyJson)
+
+        // Assert — should migrate to .zmx
+        XCTAssertEqual(decoded, .zmx)
+    }
+
+    func test_sessionProvider_codable_zmx_encodes_as_zmx() throws {
+        // Act
+        let data = try JSONEncoder().encode(SessionProvider.zmx)
+        let jsonString = String(data: data, encoding: .utf8)
+
+        // Assert — encodes as "zmx", not "tmux"
+        XCTAssertEqual(jsonString, "\"zmx\"")
     }
 }

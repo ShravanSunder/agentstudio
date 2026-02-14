@@ -2,7 +2,7 @@ import Foundation
 
 /// The primary entity for a terminal. Stable identity independent of layout, view, or surface.
 /// `id` (sessionId) is the single identity used across all layers: WorkspaceStore, Layout,
-/// ViewRegistry, SurfaceManager, SessionRuntime, and tmux.
+/// ViewRegistry, SurfaceManager, SessionRuntime, and zmx.
 struct TerminalSession: Codable, Identifiable, Hashable {
     let id: UUID
     var source: TerminalSource
@@ -56,6 +56,26 @@ struct TerminalSession: Codable, Identifiable, Hashable {
 enum SessionProvider: String, Codable, Hashable {
     /// Direct Ghostty surface, no session multiplexer.
     case ghostty
-    /// Headless tmux backend for persistence/restore.
-    case tmux
+    /// Headless zmx backend for persistence/restore.
+    case zmx
+
+    // MARK: - Codable Migration
+
+    init(from decoder: Decoder) throws {
+        let container = try decoder.singleValueContainer()
+        let raw = try container.decode(String.self)
+        switch raw {
+        case "tmux":
+            // Legacy: persisted "tmux" → migrate to .zmx
+            self = .zmx
+        default:
+            guard let value = SessionProvider(rawValue: raw) else {
+                throw DecodingError.dataCorruptedError(
+                    in: container,
+                    debugDescription: "Unknown SessionProvider value: \(raw)"
+                )
+            }
+            self = value
+        }
+    }
 }

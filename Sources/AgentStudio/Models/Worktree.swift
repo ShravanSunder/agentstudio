@@ -11,7 +11,7 @@ struct Worktree: Codable, Identifiable, Hashable {
     var status: WorktreeStatus
 
     /// Deterministic identity derived from filesystem path via SHA-256.
-    /// Used for tmux session ID segment. Survives reinstall/data loss, breaks on directory move.
+    /// Used for zmx session ID segment. Survives reinstall/data loss, breaks on directory move.
     var stableKey: String { StableKey.fromPath(path) }
 
     init(

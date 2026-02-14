@@ -65,8 +65,13 @@ final class TerminalViewCoordinator {
 
         let cmd: String
         switch session.provider {
-        case .tmux:
-            cmd = buildTmuxAttachCommand(session: session, worktree: worktree, repo: repo)
+        case .zmx:
+            if let zmxPath = sessionConfig.zmxPath {
+                cmd = buildZmxAttachCommand(session: session, worktree: worktree, repo: repo, zmxPath: zmxPath)
+            } else {
+                coordinatorLogger.warning("zmx not found, falling back to ephemeral session for \(session.id)")
+                cmd = "\(getDefaultShell()) -i -l"
+            }
         case .ghostty:
             cmd = "\(getDefaultShell()) -i -l"
         }
@@ -188,7 +193,7 @@ final class TerminalViewCoordinator {
             }
         }
 
-        // Undo expired or mismatched — create fresh (tmux reattaches, content preserved)
+        // Undo expired or mismatched — create fresh (zmx reattaches, content preserved)
         coordinatorLogger.info("Creating fresh view for session \(session.id)")
         return createView(for: session, worktree: worktree, repo: repo)
     }
@@ -233,31 +238,17 @@ final class TerminalViewCoordinator {
 
     // MARK: - Helpers
 
-    private func buildTmuxAttachCommand(session: TerminalSession, worktree: Worktree, repo: Repo) -> String {
-        let tmuxSessionName = TmuxBackend.sessionId(
+    private func buildZmxAttachCommand(session: TerminalSession, worktree: Worktree, repo: Repo, zmxPath: String) -> String {
+        let zmxSessionName = ZmxBackend.sessionId(
             repoStableKey: repo.stableKey,
             worktreeStableKey: worktree.stableKey,
             paneId: session.id
         )
-        let tmuxBin = sessionConfig.tmuxPath ?? "tmux"
-        // Use the safe terminfo path (~/.agentstudio/terminfo/) to avoid
-        // "AgentStudio" (mixed case) in the tmux command line, which would
-        // cause `pkill -f AgentStudio` to kill the tmux server.
-        let safeTerminfo = SessionConfiguration.safeTerminfoPath
-        let terminfoDir: String?
-        if FileManager.default.fileExists(atPath: safeTerminfo + "/78/xterm-256color") {
-            terminfoDir = safeTerminfo
-        } else {
-            coordinatorLogger.warning("Custom xterm-256color not found at \(safeTerminfo)/78/xterm-256color — TERMINFO will not be injected into tmux attach")
-            terminfoDir = nil
-        }
-        return TmuxBackend.buildAttachCommand(
-            tmuxBin: tmuxBin,
-            socketName: TmuxBackend.socketName,
-            ghostConfigPath: sessionConfig.ghostConfigPath,
-            sessionId: tmuxSessionName,
-            workingDirectory: worktree.path.path,
-            terminfoDir: terminfoDir
+        return ZmxBackend.buildAttachCommand(
+            zmxPath: zmxPath,
+            zmxDir: sessionConfig.zmxDir,
+            sessionId: zmxSessionName,
+            shell: getDefaultShell()
         )
     }
 

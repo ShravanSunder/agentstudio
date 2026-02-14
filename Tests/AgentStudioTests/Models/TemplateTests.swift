@@ -19,14 +19,14 @@ final class TemplateTests: XCTestCase {
         let template = TerminalTemplate(
             title: "Claude Agent",
             agent: .claude,
-            provider: .tmux
+            provider: .zmx
         )
 
         let session = template.instantiate(worktreeId: worktreeId, repoId: repoId)
 
         XCTAssertEqual(session.title, "Claude Agent")
         XCTAssertEqual(session.agent, .claude)
-        XCTAssertEqual(session.provider, .tmux)
+        XCTAssertEqual(session.provider, .zmx)
         XCTAssertEqual(session.worktreeId, worktreeId)
         XCTAssertEqual(session.repoId, repoId)
     }

@@ -42,7 +42,7 @@ final class WorkspacePersistorTests: XCTestCase {
             source: .worktree(worktreeId: UUID(), repoId: UUID()),
             title: "Feature",
             agent: .claude,
-            provider: .tmux,
+            provider: .zmx,
             lifetime: .persistent,
             residency: .active
         )
@@ -58,7 +58,7 @@ final class WorkspacePersistorTests: XCTestCase {
         XCTAssertEqual(loaded?.sessions[0].id, session.id)
         XCTAssertEqual(loaded?.sessions[0].title, "Feature")
         XCTAssertEqual(loaded?.sessions[0].agent, .claude)
-        XCTAssertEqual(loaded?.sessions[0].provider, .tmux)
+        XCTAssertEqual(loaded?.sessions[0].provider, .zmx)
         XCTAssertEqual(loaded?.sessions[0].lifetime, .persistent)
         XCTAssertEqual(loaded?.sessions[0].residency, .active)
     }

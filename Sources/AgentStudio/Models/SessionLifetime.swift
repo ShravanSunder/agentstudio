@@ -1,9 +1,9 @@
 import Foundation
 
-/// Controls whether a terminal session uses a tmux backend for persistence.
+/// Controls whether a terminal session uses a zmx backend for persistence.
 enum SessionLifetime: String, Codable, Hashable {
-    /// tmux backend, survives app restart. Session is persisted and restored on startup.
+    /// zmx backend, survives app restart. Session is persisted and restored on startup.
     case persistent
-    /// No tmux, no restore. Session is ephemeral and not saved to disk.
+    /// No zmx, no restore. Session is ephemeral and not saved to disk.
     case temporary
 }

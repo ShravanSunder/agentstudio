@@ -57,7 +57,7 @@ final class ActionExecutor {
         let session = store.createSession(
             source: .worktree(worktreeId: worktree.id, repoId: repo.id),
             title: worktree.name,
-            provider: .tmux,
+            provider: .zmx,
             lifetime: .persistent,
             residency: .active
         )
@@ -158,7 +158,7 @@ final class ActionExecutor {
             )
 
         case .expireUndoEntry(let sessionId):
-            // TODO: Phase 3 — remove session from store, kill tmux, destroy surface
+            // TODO: Phase 3 — remove session from store, kill zmx, destroy surface
             executorLogger.warning("expireUndoEntry: \(sessionId) — stub, full impl in Phase 3")
 
         case .repair(let repairAction):
@@ -256,7 +256,7 @@ final class ActionExecutor {
 
             let session = store.createSession(
                 source: .worktree(worktreeId: worktreeId, repoId: repoId),
-                provider: .tmux
+                provider: .zmx
             )
 
             // Create view — rollback if surface creation fails
@@ -306,7 +306,7 @@ final class ActionExecutor {
             coordinator.createView(for: session, worktree: worktree, repo: repo)
             executorLogger.info("Repaired view for session \(sessionId)")
 
-        case .reattachTmux, .markSessionFailed, .cleanupOrphan:
+        case .reattachZmx, .markSessionFailed, .cleanupOrphan:
             // TODO: Phase 4 — implement remaining repair actions
             executorLogger.warning("repair: \(String(describing: repairAction)) — not yet implemented")
         }

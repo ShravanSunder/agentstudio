@@ -19,7 +19,7 @@ enum SessionRuntimeStatus: String, Codable, Hashable, Sendable {
 
 // MARK: - Session Backend Protocol
 
-/// Abstraction for terminal session providers (Ghostty, tmux, etc.).
+/// Abstraction for terminal session providers (Ghostty, zmx, etc.).
 /// Concrete implementations handle process lifecycle and health monitoring.
 protocol SessionBackendProtocol: Sendable {
     /// Provider type this backend handles.

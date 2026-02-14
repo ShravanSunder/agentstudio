@@ -585,9 +585,9 @@ final class WorkspaceStore: ObservableObject {
             storeLogger.info("No workspace files found — first launch")
         }
 
-        // Migrate legacy ghostty sessions to tmux for session persistence
+        // Migrate legacy ghostty sessions to zmx for session persistence
         for i in sessions.indices where sessions[i].provider == .ghostty {
-            sessions[i].provider = .tmux
+            sessions[i].provider = .zmx
         }
 
         // Filter out temporary sessions — they are never restored
