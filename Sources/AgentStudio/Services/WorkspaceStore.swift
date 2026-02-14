@@ -627,7 +627,7 @@ final class WorkspaceStore: ObservableObject {
 
         // Prune tabs: remove dangling pane IDs from layouts
         let validPaneIds = Set(panes.keys)
-        pruneInvalidPanes(from: &tabs, validPaneIds: validPaneIds)
+        pruneInvalidPanes(from: &tabs, validPaneIds: validPaneIds, activeTabId: &activeTabId)
 
         // Validate and repair tab structural invariants
         validateTabInvariants()
@@ -679,9 +679,10 @@ final class WorkspaceStore: ObservableObject {
         let validPaneIds = Set(persistablePanes.map(\.id))
 
         // Prune tabs: remove temporary pane IDs from layouts in the PERSISTED COPY.
-        // Live `tabs` state is not mutated — only the serialized output is cleaned.
+        // Live state is not mutated — only the serialized output is cleaned.
         var prunedTabs = tabs
-        pruneInvalidPanes(from: &prunedTabs, validPaneIds: validPaneIds)
+        var persistedActiveTabId = activeTabId
+        pruneInvalidPanes(from: &prunedTabs, validPaneIds: validPaneIds, activeTabId: &persistedActiveTabId)
 
         let state = WorkspacePersistor.PersistableState(
             id: workspaceId,
@@ -689,7 +690,7 @@ final class WorkspaceStore: ObservableObject {
             repos: repos,
             panes: persistablePanes,
             tabs: prunedTabs,
-            activeTabId: activeTabId,
+            activeTabId: persistedActiveTabId,
             sidebarWidth: sidebarWidth,
             windowFrame: windowFrame,
             createdAt: createdAt,
@@ -764,7 +765,9 @@ final class WorkspaceStore: ObservableObject {
 
     /// Remove pane IDs from tab layouts that are not in the valid set.
     /// Prunes layout nodes, removes empty tabs, and fixes activeTabId.
-    private func pruneInvalidPanes(from tabs: inout [Tab], validPaneIds: Set<UUID>) {
+    /// `activeTabId` is passed as inout so this method works correctly both when
+    /// mutating live state (restore) and when operating on a persisted copy (persistNow).
+    private func pruneInvalidPanes(from tabs: inout [Tab], validPaneIds: Set<UUID>, activeTabId: inout UUID?) {
         var totalPruned = 0
         var tabsRemoved = 0
 
@@ -799,9 +802,9 @@ final class WorkspaceStore: ObservableObject {
         tabsRemoved = beforeCount - tabs.count
 
         // Fix activeTabId if it was removed
-        if let atId = self.activeTabId, !tabs.contains(where: { $0.id == atId }) {
-            self.activeTabId = tabs.last?.id
-            storeLogger.warning("Fixed stale activeTabId \(atId) → \(String(describing: self.activeTabId))")
+        if let atId = activeTabId, !tabs.contains(where: { $0.id == atId }) {
+            activeTabId = tabs.last?.id
+            storeLogger.warning("Fixed stale activeTabId \(atId) → \(String(describing: activeTabId))")
         }
 
         if totalPruned > 0 {

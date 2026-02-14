@@ -3,9 +3,9 @@ import Foundation
 /// A tab in the workspace. Contains panes organized into arrangements.
 /// Order is implicit — determined by array position in the workspace's tabs array.
 struct Tab: Codable, Identifiable, Hashable {
-    // Custom Hashable: identity-based equality (arrangement IDs are non-deterministic)
-    static func == (lhs: Tab, rhs: Tab) -> Bool { lhs.id == rhs.id }
-    func hash(into hasher: inout Hasher) { hasher.combine(id) }
+    // Synthesized Equatable/Hashable: compares all stored properties.
+    // This is required for render invalidation — TerminalTabViewController.refreshDisplay()
+    // skips rebuild when tab == lastRenderedTab, so layout/focus/zoom changes must be detected.
 
     let id: UUID
     /// Display name for this tab.
