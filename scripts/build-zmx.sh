@@ -44,4 +44,12 @@ fi
 # Show binary size
 SIZE=$(ls -lh "$ZMX_BIN" | awk '{print $5}')
 echo "zmx binary built: $ZMX_BIN ($SIZE)"
+
+# Copy to .build/debug/ if it exists (convenience for dev builds)
+DEBUG_DIR="$PROJECT_ROOT/.build/debug"
+if [ -d "$DEBUG_DIR" ]; then
+    cp "$ZMX_BIN" "$DEBUG_DIR/zmx"
+    echo "Copied zmx to $DEBUG_DIR/zmx"
+fi
+
 echo "Build complete!"

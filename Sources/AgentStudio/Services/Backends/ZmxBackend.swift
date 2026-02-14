@@ -154,10 +154,10 @@ final class ZmxBackend: SessionBackend {
 
     /// Build the zmx attach command.
     ///
-    /// Format: `ZMX_DIR=<dir> <zmxPath> attach <sessionId> <shell> -i -l`
+    /// Format: `/usr/bin/env ZMX_DIR=<dir> <zmxPath> attach <sessionId> <shell> -i -l`
     ///
-    /// The `ZMX_DIR` env var is embedded inline so it propagates through
-    /// Ghostty's SurfaceConfiguration.command (which invokes via shell).
+    /// Uses `/usr/bin/env` to set ZMX_DIR because macOS Ghostty wraps commands
+    /// through `login(1)` which may interfere with inline `VAR=val cmd` syntax.
     /// zmx auto-creates a daemon on first attach — no separate create step needed.
     static func buildAttachCommand(
         zmxPath: String,
@@ -169,7 +169,7 @@ final class ZmxBackend: SessionBackend {
         let escapedPath = shellEscape(zmxPath)
         let escapedId = shellEscape(sessionId)
         let escapedShell = shellEscape(shell)
-        return "ZMX_DIR=\(escapedDir) \(escapedPath) attach \(escapedId) \(escapedShell) -i -l"
+        return "/usr/bin/env ZMX_DIR=\(escapedDir) \(escapedPath) attach \(escapedId) \(escapedShell) -i -l"
     }
 
     /// Single-quote a string for safe shell interpolation.

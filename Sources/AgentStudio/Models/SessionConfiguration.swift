@@ -136,9 +136,9 @@ struct SessionConfiguration: Sendable {
     // MARK: - Private
 
     /// Find the zmx binary.
-    /// Fallback chain: bundled binary (Contents/MacOS/zmx) → well-known PATH locations → `which zmx`.
+    /// Fallback chain: bundled binary → vendor build output → well-known PATH → `which zmx`.
     private static func findZmx() -> String? {
-        // 1. Bundled binary: same directory as the app executable (Contents/MacOS/zmx)
+        // 1. Bundled binary: same directory as the app executable (Contents/MacOS/zmx or .build/debug/zmx)
         if let bundled = Bundle.main.executableURL?
             .deletingLastPathComponent()
             .appendingPathComponent("zmx").path,
@@ -146,7 +146,12 @@ struct SessionConfiguration: Sendable {
             return bundled
         }
 
-        // 2. Well-known PATH locations
+        // 2. Vendor build output: for dev builds where zmx was built but not copied
+        if let vendorBin = findDevVendorZmx() {
+            return vendorBin
+        }
+
+        // 3. Well-known PATH locations
         let candidates = [
             "/opt/homebrew/bin/zmx",
             "/usr/local/bin/zmx",
@@ -155,7 +160,7 @@ struct SessionConfiguration: Sendable {
             return found
         }
 
-        // 3. Fallback: check PATH via which
+        // 4. Fallback: check PATH via which
         let process = Process()
         process.executableURL = URL(fileURLWithPath: "/usr/bin/which")
         process.arguments = ["zmx"]
@@ -188,6 +193,20 @@ struct SessionConfiguration: Sendable {
             let candidate = dir.appendingPathComponent("Sources/AgentStudio/Resources")
             if FileManager.default.fileExists(atPath: candidate.path) {
                 return candidate.path
+            }
+        }
+        return nil
+    }
+
+    /// Find zmx in the vendor build output for development builds.
+    /// Walks up from the executable to find `vendor/zmx/zig-out/bin/zmx`.
+    private static func findDevVendorZmx() -> String? {
+        var dir = URL(fileURLWithPath: Bundle.main.bundlePath)
+        for _ in 0..<5 {
+            dir = dir.deletingLastPathComponent()
+            let candidate = dir.appendingPathComponent("vendor/zmx/zig-out/bin/zmx").path
+            if FileManager.default.isExecutableFile(atPath: candidate) {
+                return candidate
             }
         }
         return nil

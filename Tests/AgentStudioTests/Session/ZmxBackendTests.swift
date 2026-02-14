@@ -170,7 +170,7 @@ final class ZmxBackendTests: XCTestCase {
         let cmd = backend.attachCommand(for: handle)
 
         // Assert
-        XCTAssertTrue(cmd.hasPrefix("ZMX_DIR="))
+        XCTAssertTrue(cmd.hasPrefix("/usr/bin/env ZMX_DIR="))
         XCTAssertTrue(cmd.contains("'/usr/local/bin/zmx'"))
         XCTAssertTrue(cmd.contains("attach"))
         XCTAssertTrue(cmd.contains("'agentstudio--a1b2c3d4e5f6a7b8--00112233aabbccdd--aabbccdd11223344'"))
@@ -212,7 +212,7 @@ final class ZmxBackendTests: XCTestCase {
         // Assert
         XCTAssertEqual(
             cmd,
-            "ZMX_DIR='/home/user/.agentstudio/zmx' '/opt/homebrew/bin/zmx' attach 'agentstudio--abc--def--ghi' '/bin/zsh' -i -l"
+            "/usr/bin/env ZMX_DIR='/home/user/.agentstudio/zmx' '/opt/homebrew/bin/zmx' attach 'agentstudio--abc--def--ghi' '/bin/zsh' -i -l"
         )
     }
 
