@@ -240,12 +240,24 @@ final class TerminalViewCoordinator {
             paneId: session.id
         )
         let tmuxBin = sessionConfig.tmuxPath ?? "tmux"
+        // Use the safe terminfo path (~/.agentstudio/terminfo/) to avoid
+        // "AgentStudio" (mixed case) in the tmux command line, which would
+        // cause `pkill -f AgentStudio` to kill the tmux server.
+        let safeTerminfo = SessionConfiguration.safeTerminfoPath
+        let terminfoDir: String?
+        if FileManager.default.fileExists(atPath: safeTerminfo + "/78/xterm-256color") {
+            terminfoDir = safeTerminfo
+        } else {
+            coordinatorLogger.warning("Custom xterm-256color not found at \(safeTerminfo)/78/xterm-256color — TERMINFO will not be injected into tmux attach")
+            terminfoDir = nil
+        }
         return TmuxBackend.buildAttachCommand(
             tmuxBin: tmuxBin,
             socketName: TmuxBackend.socketName,
             ghostConfigPath: sessionConfig.ghostConfigPath,
             sessionId: tmuxSessionName,
-            workingDirectory: worktree.path.path
+            workingDirectory: worktree.path.path,
+            terminfoDir: terminfoDir
         )
     }
 
