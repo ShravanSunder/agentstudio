@@ -120,6 +120,16 @@ struct TabPillView: View {
                     if tab.isSplit {
                         Button("Equalize Panes") { onCommand(.equalizePanes) }
                     }
+
+                    Divider()
+
+                    // Arrangement commands
+                    Menu("Arrangements") {
+                        Button("Switch Arrangement...") { onCommand(.switchArrangement) }
+                        Button("Save Current As...") { onCommand(.saveArrangement) }
+                        Button("Delete Arrangement...") { onCommand(.deleteArrangement) }
+                        Button("Rename Arrangement...") { onCommand(.renameArrangement) }
+                    }
                 }
 
             // Insert line AFTER (only for last tab)
