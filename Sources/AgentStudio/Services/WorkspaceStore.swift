@@ -803,8 +803,9 @@ final class WorkspaceStore: ObservableObject {
 
         // Fix activeTabId if it was removed
         if let atId = activeTabId, !tabs.contains(where: { $0.id == atId }) {
-            activeTabId = tabs.last?.id
-            storeLogger.warning("Fixed stale activeTabId \(atId) → \(String(describing: activeTabId))")
+            let newId = tabs.last?.id
+            activeTabId = newId
+            storeLogger.warning("Fixed stale activeTabId \(atId) → \(String(describing: newId))")
         }
 
         if totalPruned > 0 {
@@ -877,14 +878,29 @@ final class WorkspaceStore: ObservableObject {
                 repairCount += 1
             }
 
-            // 6. Detect cross-tab pane duplicates (a pane should be in at most one tab)
-            for paneId in layoutPaneIds {
-                if seenPaneIds.contains(paneId) {
-                    storeLogger.warning("Pane \(paneId) appears in multiple tabs — duplicate detected in tab \(tabId)")
+            // 6. Enforce single-ownership: a pane must appear in at most one tab.
+            //    The first tab encountered keeps ownership; later tabs have the pane removed.
+            let duplicatePaneIds = layoutPaneIds.intersection(seenPaneIds)
+            if !duplicatePaneIds.isEmpty {
+                for paneId in duplicatePaneIds {
+                    storeLogger.warning("Pane \(paneId) duplicated in tab \(tabId) — removing from this tab")
+                    // Remove from all arrangements in this tab
+                    for arrIndex in tabs[tabIndex].arrangements.indices {
+                        tabs[tabIndex].arrangements[arrIndex].visiblePaneIds.remove(paneId)
+                        if let newLayout = tabs[tabIndex].arrangements[arrIndex].layout.removing(paneId: paneId) {
+                            tabs[tabIndex].arrangements[arrIndex].layout = newLayout
+                        } else {
+                            tabs[tabIndex].arrangements[arrIndex].layout = Layout()
+                        }
+                    }
+                    tabs[tabIndex].panes.removeAll { $0 == paneId }
+                    if tabs[tabIndex].activePaneId == paneId {
+                        tabs[tabIndex].activePaneId = tabs[tabIndex].activeArrangement.layout.paneIds.first
+                    }
                     repairCount += 1
                 }
-                seenPaneIds.insert(paneId)
             }
+            seenPaneIds.formUnion(layoutPaneIds)
         }
 
         if repairCount > 0 {

@@ -726,10 +726,19 @@ extension SurfaceManager {
         hiddenSurfaceCount = hiddenSurfaces.count
     }
 
-    /// Reverse-lookup: surfaceId → paneId via stored metadata.
+    /// Reverse-lookup: surfaceId → paneId.
+    /// Derives from surface state (authoritative after attach/move) rather than
+    /// metadata.paneId which is only set at creation time.
     func paneId(for surfaceId: UUID) -> UUID? {
-        let managed = activeSurfaces[surfaceId] ?? hiddenSurfaces[surfaceId]
-        return managed?.metadata.paneId
+        if let managed = activeSurfaces[surfaceId] {
+            if case .active(let paneId) = managed.state { return paneId }
+            return managed.metadata.paneId
+        }
+        if let managed = hiddenSurfaces[surfaceId] {
+            if case .active(let paneId) = managed.state { return paneId }
+            return managed.metadata.paneId
+        }
+        return nil
     }
 
     /// Reverse-lookup: SurfaceView → surfaceId via ObjectIdentifier map.

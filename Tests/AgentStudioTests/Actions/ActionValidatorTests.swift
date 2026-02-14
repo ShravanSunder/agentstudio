@@ -138,8 +138,8 @@ final class ActionValidatorTests: XCTestCase {
         XCTAssertNotNil(try? result.get())
     }
 
-    func test_closePane_singlePaneTab_fails() {
-        // Arrange
+    func test_closePane_singlePaneTab_succeeds_escalatesToCloseTab() {
+        // Arrange — single-pane close is valid; executor escalates to closeTab with undo
         let (tab, tabId, paneId) = makeSinglePaneTab()
         let snapshot = makeSnapshot(tabs: [tab])
 
@@ -150,8 +150,7 @@ final class ActionValidatorTests: XCTestCase {
         )
 
         // Assert
-        if case .failure(.singlePaneTab) = result { return }
-        XCTFail("Expected singlePaneTab error")
+        XCTAssertNotNil(try? result.get())
     }
 
     func test_closePane_paneNotInTab_fails() {

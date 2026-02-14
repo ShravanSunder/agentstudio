@@ -957,6 +957,38 @@ final class WorkspaceStoreTests: XCTestCase {
         XCTAssertEqual(Set(store2.tabs[0].panes), Set([p1.id, p2.id]))
     }
 
+    func test_restore_repairsCrossTabDuplicatePanes() throws {
+        // Arrange — same pane appears in two tabs (corrupt state)
+        let pane = makePane()
+        let layout = Layout(paneId: pane.id)
+        let arr1 = PaneArrangement(name: "Default", isDefault: true, layout: layout)
+        let arr2 = PaneArrangement(name: "Default", isDefault: true, layout: layout)
+        let tab1 = Tab(panes: [pane.id], arrangements: [arr1],
+                       activeArrangementId: arr1.id, activePaneId: pane.id)
+        let tab2 = Tab(panes: [pane.id], arrangements: [arr2],
+                       activeArrangementId: arr2.id, activePaneId: pane.id)
+
+        var state = WorkspacePersistor.PersistableState()
+        state.panes = [pane]
+        state.tabs = [tab1, tab2]
+        state.activeTabId = tab1.id
+        let persistor = WorkspacePersistor(workspacesDir: tempDir)
+        persistor.ensureDirectory()
+        try persistor.save(state)
+
+        // Act
+        let store2 = WorkspaceStore(persistor: persistor)
+        store2.restore()
+
+        // Assert — first tab keeps the pane, second tab has it removed
+        XCTAssertEqual(store2.tabs[0].paneIds, [pane.id], "First tab keeps ownership")
+        // Second tab may be removed entirely (empty after pane removal) or have empty layout
+        if store2.tabs.count > 1 {
+            XCTAssertFalse(store2.tabs[1].paneIds.contains(pane.id),
+                           "Duplicate pane must be removed from second tab")
+        }
+    }
+
     // MARK: - moveTabByDelta
 
     func test_moveTabByDelta_movesForward() {

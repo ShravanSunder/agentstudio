@@ -208,12 +208,20 @@ final class ActionExecutor {
     }
 
     private func executeClosePane(tabId: UUID, paneId: UUID) {
+        // Single-pane tab: escalate to closeTab for proper undo snapshot.
+        // Must delegate before any teardown so the snapshot captures full state.
+        if let tab = store.tab(tabId), tab.paneIds.count <= 1 {
+            executeCloseTab(tabId)
+            return
+        }
+
         coordinator.teardownView(for: paneId)
         let tabNowEmpty = store.removePaneFromLayout(paneId, inTab: tabId)
 
         if tabNowEmpty {
-            // Last pane removed — escalate to close tab (with undo support)
-            executeCloseTab(tabId)
+            // Edge case: tab emptied despite having >1 pane (shouldn't happen,
+            // but handle defensively). Snapshot already missed — just remove.
+            store.removeTab(tabId)
         }
 
         // If the pane is no longer in any layout, remove it from the store.

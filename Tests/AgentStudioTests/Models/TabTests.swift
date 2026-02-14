@@ -140,16 +140,66 @@ final class TabTests: XCTestCase {
         XCTAssertNil(decoded.activePaneId)
     }
 
-    // MARK: - Hashable
+    // MARK: - Equatable / Hashable
 
-    func test_hashable_sameId_areEqual() {
-        // Arrange
-        let tabId = UUID()
-        let paneId = UUID()
-        let tab1 = Tab(id: tabId, paneId: paneId)
-        let tab2 = Tab(id: tabId, paneId: paneId)
+    func test_equatable_sameCopy_areEqual() {
+        // Arrange — value copy should be equal
+        let tab = Tab(paneId: UUID())
+        let copy = tab
 
         // Assert
-        XCTAssertEqual(tab1, tab2)
+        XCTAssertEqual(tab, copy)
+    }
+
+    func test_equatable_detectsLayoutChange() {
+        // Arrange
+        let paneA = UUID()
+        let paneB = UUID()
+        let tab1 = Tab(paneId: paneA)
+
+        // Act — mutate layout
+        var tab2 = tab1
+        let arrIdx = tab2.activeArrangementIndex
+        tab2.arrangements[arrIdx].layout = tab2.arrangements[arrIdx].layout
+            .inserting(paneId: paneB, at: paneA, direction: .horizontal, position: .after)
+
+        // Assert
+        XCTAssertNotEqual(tab1, tab2, "Layout change must be detected by equality")
+    }
+
+    func test_equatable_detectsActivePaneChange() {
+        // Arrange
+        let paneA = UUID()
+        let paneB = UUID()
+        let tab = makeTab(paneIds: [paneA, paneB], activePaneId: paneA)
+
+        // Act
+        var changed = tab
+        changed.activePaneId = paneB
+
+        // Assert
+        XCTAssertNotEqual(tab, changed, "Active pane change must be detected by equality")
+    }
+
+    func test_equatable_detectsZoomChange() {
+        // Arrange
+        let paneId = UUID()
+        let tab = Tab(paneId: paneId)
+
+        // Act
+        var zoomed = tab
+        zoomed.zoomedPaneId = paneId
+
+        // Assert
+        XCTAssertNotEqual(tab, zoomed, "Zoom change must be detected by equality")
+    }
+
+    func test_hashable_sameCopy_sameHash() {
+        // Arrange
+        let tab = Tab(paneId: UUID())
+        let copy = tab
+
+        // Assert
+        XCTAssertEqual(tab.hashValue, copy.hashValue)
     }
 }

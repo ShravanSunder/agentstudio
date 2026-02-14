@@ -64,13 +64,16 @@ final class TerminalViewCoordinator {
         let workingDir = worktree.path
 
         let cmd: String
-        switch pane.provider {
-        case .tmux:
-            cmd = buildTmuxAttachCommand(pane: pane, worktree: worktree, repo: repo)
-        case .ghostty:
-            cmd = "\(getDefaultShell()) -i -l"
-        case .none:
-            coordinatorLogger.error("Cannot create view for non-terminal pane \(pane.id)")
+        switch pane.content {
+        case .terminal(let terminalState):
+            switch terminalState.provider {
+            case .tmux:
+                cmd = buildTmuxAttachCommand(pane: pane, worktree: worktree, repo: repo)
+            case .ghostty:
+                cmd = "\(getDefaultShell()) -i -l"
+            }
+        case .webview, .codeViewer:
+            coordinatorLogger.error("Cannot create terminal view for non-terminal pane \(pane.id) (content: \(String(describing: pane.content)))")
             return nil
         }
 

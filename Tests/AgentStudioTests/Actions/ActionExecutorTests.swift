@@ -311,6 +311,24 @@ final class ActionExecutorTests: XCTestCase {
         XCTAssertFalse(store.tabs[0].isSplit)
     }
 
+    func test_execute_closePane_singlePane_escalatesToCloseTab() {
+        // Arrange — single-pane tab
+        let pane = store.createPane(source: .floating(workingDirectory: nil, title: nil))
+        let tab = Tab(paneId: pane.id)
+        store.appendTab(tab)
+        XCTAssertEqual(store.tabs.count, 1)
+
+        // Act — closePane on single-pane tab should escalate to closeTab
+        executor.execute(.closePane(tabId: tab.id, paneId: pane.id))
+
+        // Assert — tab removed, undo stack has snapshot
+        XCTAssertTrue(store.tabs.isEmpty, "Tab should be removed via escalation to closeTab")
+        XCTAssertEqual(executor.undoStack.count, 1, "Undo snapshot should be captured")
+        XCTAssertEqual(executor.undoStack[0].tab.id, tab.id)
+        XCTAssertEqual(executor.undoStack[0].panes.count, 1)
+        XCTAssertEqual(executor.undoStack[0].panes[0].id, pane.id)
+    }
+
     // MARK: - Execute: insertPane (existingPane)
 
     func test_execute_insertPane_existingPane_movesPane() {
