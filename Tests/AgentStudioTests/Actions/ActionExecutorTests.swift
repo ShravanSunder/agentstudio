@@ -615,4 +615,95 @@ final class ActionExecutorTests: XCTestCase {
         // Assert
         XCTAssertEqual(store.pane(parentPane.id)!.drawer!.activeDrawerPaneId, dp2.id)
     }
+
+    // MARK: - Execute: switchArrangement (ViewRegistry integration)
+
+    func test_execute_switchArrangement_viewRegistryRetainsAllViews() {
+        // Arrange: tab with 3 panes, each registered in ViewRegistry
+        let pA = store.createPane(source: .floating(workingDirectory: nil, title: nil))
+        let pB = store.createPane(source: .floating(workingDirectory: nil, title: nil))
+        let pC = store.createPane(source: .floating(workingDirectory: nil, title: nil))
+
+        let tab = Tab(paneId: pA.id)
+        store.appendTab(tab)
+        store.insertPane(pB.id, inTab: tab.id, at: pA.id, direction: .horizontal, position: .after)
+        store.insertPane(pC.id, inTab: tab.id, at: pB.id, direction: .horizontal, position: .after)
+
+        // Register stub PaneViews for all 3 panes
+        let viewA = PaneView(paneId: pA.id)
+        let viewB = PaneView(paneId: pB.id)
+        let viewC = PaneView(paneId: pC.id)
+        viewRegistry.register(viewA, for: pA.id)
+        viewRegistry.register(viewB, for: pB.id)
+        viewRegistry.register(viewC, for: pC.id)
+
+        // Create custom arrangement with only panes A and B
+        let customArrId = store.createArrangement(
+            name: "Focus",
+            paneIds: Set([pA.id, pB.id]),
+            inTab: tab.id
+        )!
+
+        // Act: switch to custom arrangement (hides pane C)
+        executor.execute(.switchArrangement(tabId: tab.id, arrangementId: customArrId))
+
+        // Assert: all 3 views are still in the ViewRegistry
+        XCTAssertNotNil(viewRegistry.view(for: pA.id), "View A should still be registered after arrangement switch")
+        XCTAssertNotNil(viewRegistry.view(for: pB.id), "View B should still be registered after arrangement switch")
+        XCTAssertNotNil(viewRegistry.view(for: pC.id), "View C should still be registered even though hidden")
+        XCTAssertEqual(viewRegistry.registeredPaneIds, Set([pA.id, pB.id, pC.id]))
+
+        // Verify the store correctly reflects only A and B as visible
+        let updatedTab = store.tab(tab.id)!
+        XCTAssertEqual(Set(updatedTab.paneIds), Set([pA.id, pB.id]))
+        // But pane C is still owned by the tab
+        XCTAssertTrue(updatedTab.panes.contains(pC.id))
+    }
+
+    func test_execute_switchArrangement_backToDefault_viewsStillRegistered() {
+        // Arrange: tab with 3 panes, each registered in ViewRegistry
+        let pA = store.createPane(source: .floating(workingDirectory: nil, title: nil))
+        let pB = store.createPane(source: .floating(workingDirectory: nil, title: nil))
+        let pC = store.createPane(source: .floating(workingDirectory: nil, title: nil))
+
+        let tab = Tab(paneId: pA.id)
+        store.appendTab(tab)
+        store.insertPane(pB.id, inTab: tab.id, at: pA.id, direction: .horizontal, position: .after)
+        store.insertPane(pC.id, inTab: tab.id, at: pB.id, direction: .horizontal, position: .after)
+
+        // Register stub PaneViews for all 3 panes
+        let viewA = PaneView(paneId: pA.id)
+        let viewB = PaneView(paneId: pB.id)
+        let viewC = PaneView(paneId: pC.id)
+        viewRegistry.register(viewA, for: pA.id)
+        viewRegistry.register(viewB, for: pB.id)
+        viewRegistry.register(viewC, for: pC.id)
+
+        let epochBeforeSwitch = viewRegistry.epoch
+
+        // Create custom arrangement with only pane A
+        let customArrId = store.createArrangement(
+            name: "Solo",
+            paneIds: Set([pA.id]),
+            inTab: tab.id
+        )!
+
+        // Act: switch to custom, then back to default
+        executor.execute(.switchArrangement(tabId: tab.id, arrangementId: customArrId))
+        let defaultArrId = store.tab(tab.id)!.defaultArrangement.id
+        executor.execute(.switchArrangement(tabId: tab.id, arrangementId: defaultArrId))
+
+        // Assert: all 3 views are still registered after round-trip
+        XCTAssertNotNil(viewRegistry.view(for: pA.id), "View A should survive round-trip arrangement switch")
+        XCTAssertNotNil(viewRegistry.view(for: pB.id), "View B should survive round-trip arrangement switch")
+        XCTAssertNotNil(viewRegistry.view(for: pC.id), "View C should survive round-trip arrangement switch")
+        XCTAssertEqual(viewRegistry.registeredPaneIds, Set([pA.id, pB.id, pC.id]))
+
+        // Verify all panes are visible again in the default arrangement
+        let updatedTab = store.tab(tab.id)!
+        XCTAssertEqual(Set(updatedTab.paneIds), Set([pA.id, pB.id, pC.id]))
+
+        // Epoch should have stayed the same (no register/unregister calls)
+        XCTAssertEqual(viewRegistry.epoch, epochBeforeSwitch, "Registry epoch should not change during arrangement switches")
+    }
 }
