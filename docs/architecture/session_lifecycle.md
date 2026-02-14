@@ -165,8 +165,7 @@ sequenceDiagram
     Store->>P: load()
     P-->>Store: PersistableState (JSON)
 
-    Note over Store: 1. Migrate .ghostty → .zmx provider
-    Note over Store: 2. Filter out .temporary sessions
+    Note over Store: 1. Filter out .temporary sessions
     Note over Store: 3. Remove sessions with deleted worktrees
     Note over Store: 4. Prune dangling session IDs from layouts
     Note over Store: 5. Remove empty tabs, fix activeTabId
@@ -181,7 +180,6 @@ sequenceDiagram
 ```
 
 **Restore filtering details:**
-- **Provider migration**: All `.ghostty` sessions become `.zmx` (ensuring persistent backend)
 - **Temporary filtering**: Sessions with `lifetime == .temporary` are removed
 - **Worktree validation**: Sessions referencing a `worktreeId` not in any repo's worktrees are removed (worktree was deleted between launches)
 - **Layout pruning**: Session IDs not in the valid session set are removed from all layout nodes; single-child splits collapse; empty tabs removed

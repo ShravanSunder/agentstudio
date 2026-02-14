@@ -585,11 +585,6 @@ final class WorkspaceStore: ObservableObject {
             storeLogger.info("No workspace files found — first launch")
         }
 
-        // Upgrade ghostty sessions to zmx for session persistence
-        for i in sessions.indices where sessions[i].provider == .ghostty {
-            sessions[i].provider = .zmx
-        }
-
         // Filter out temporary sessions — they are never restored
         sessions.removeAll { $0.lifetime == .temporary }
 

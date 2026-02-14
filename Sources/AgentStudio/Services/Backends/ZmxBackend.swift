@@ -3,7 +3,7 @@ import os
 
 private let zmxLogger = Logger(subsystem: "com.agentstudio", category: "ZmxBackend")
 
-// MARK: - Legacy Backend Types (contained here until SessionRuntime → ZmxBackend is fully wired)
+// MARK: - Backend Types
 
 /// Identifies a backend session that backs a single terminal pane.
 struct PaneSessionHandle: Equatable, Sendable, Codable, Hashable {

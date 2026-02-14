@@ -477,7 +477,6 @@ sequenceDiagram
     AD->>Store: restore()
     Store->>P: load()
     P-->>Store: PersistableState (JSON)
-    Store->>Store: migrate ghostty → zmx
     Store->>Store: filter temporary sessions
     Store->>Store: prune dangling worktree refs
     Store->>Store: prune invalid layout session IDs
@@ -574,12 +573,11 @@ Before writing to disk:
 
 On app launch:
 1. Load JSON from disk
-2. Migrate legacy `.ghostty` sessions → `.zmx` (all sessions get persistent backend)
-3. Filter out `.temporary` sessions
-4. Remove sessions whose worktree no longer exists on disk
-5. Prune dangling session IDs from all view layouts
-6. Remove empty tabs, fix `activeTabId` pointers
-7. Ensure main view exists (create if missing)
+2. Filter out `.temporary` sessions
+3. Remove sessions whose worktree no longer exists on disk
+4. Prune dangling session IDs from all view layouts
+5. Remove empty tabs, fix `activeTabId` pointers
+6. Ensure main view exists (create if missing)
 
 ---
 
