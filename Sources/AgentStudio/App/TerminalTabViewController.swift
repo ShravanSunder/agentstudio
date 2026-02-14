@@ -29,8 +29,8 @@ class TerminalTabViewController: NSViewController, CommandHandler {
     private var cancellables = Set<AnyCancellable>()
 
     /// Tracks the last successfully rendered tab to avoid redundant view rebuilds.
-    /// Compared by value (Tab is Hashable) so layout/activeSession changes trigger re-render
-    /// but unrelated store mutations (e.g. session title updates) are skipped.
+    /// Compared by value (Tab is Hashable) so layout/activePane changes trigger re-render
+    /// but unrelated store mutations (e.g. pane title updates) are skipped.
     /// Also tracks ViewRegistry epoch to detect view replacements (e.g. surface repair).
     private var lastRenderedTab: Tab?
     private var lastRenderedRegistryEpoch: Int = -1
@@ -201,10 +201,10 @@ class TerminalTabViewController: NSViewController, CommandHandler {
 
     @objc private func handleRepairSurfaceRequested(_ notification: Notification) {
         guard let userInfo = notification.userInfo,
-              let sessionId = userInfo["sessionId"] as? UUID else {
+              let paneId = userInfo["paneId"] as? UUID else {
             return
         }
-        dispatchAction(.repair(.recreateSurface(sessionId: sessionId)))
+        dispatchAction(.repair(.recreateSurface(paneId: paneId)))
     }
 
     @objc private func handleSelectTabById(_ notification: Notification) {
@@ -215,8 +215,8 @@ class TerminalTabViewController: NSViewController, CommandHandler {
         dispatchAction(.selectTab(tabId: tabId))
 
         // If a specific pane was requested, focus it within the tab
-        if let sessionId = userInfo["sessionId"] as? UUID {
-            dispatchAction(.focusPane(tabId: tabId, paneId: sessionId))
+        if let paneId = userInfo["paneId"] as? UUID {
+            dispatchAction(.focusPane(tabId: tabId, paneId: paneId))
         }
     }
 
@@ -339,7 +339,7 @@ class TerminalTabViewController: NSViewController, CommandHandler {
     }
 
     private func updateEmptyState() {
-        let hasTerminals = !store.activeTabs.isEmpty
+        let hasTerminals = !store.tabs.isEmpty
         tabBarHostingView.isHidden = !hasTerminals
         terminalContainer.isHidden = !hasTerminals
         emptyStateView?.isHidden = hasTerminals
@@ -357,19 +357,19 @@ class TerminalTabViewController: NSViewController, CommandHandler {
 
     func closeTerminal(for worktreeId: UUID) {
         // Find the tab containing this worktree
-        guard let tab = store.activeTabs.first(where: { tab in
-            tab.sessionIds.contains { sessionId in
-                store.session(sessionId)?.worktreeId == worktreeId
+        guard let tab = store.tabs.first(where: { tab in
+            tab.paneIds.contains { id in
+                store.pane(id)?.worktreeId == worktreeId
             }
         }) else { return }
 
         // Single-pane tab: close the whole tab (ActionValidator rejects .closePane
         // for single-pane tabs). Multi-pane: close just the pane.
         if tab.isSplit {
-            guard let sessionId = tab.sessionIds.first(where: { sessionId in
-                store.session(sessionId)?.worktreeId == worktreeId
+            guard let matchedPaneId = tab.paneIds.first(where: { id in
+                store.pane(id)?.worktreeId == worktreeId
             }) else { return }
-            dispatchAction(.closePane(tabId: tab.id, paneId: sessionId))
+            dispatchAction(.closePane(tabId: tab.id, paneId: matchedPaneId))
         } else {
             dispatchAction(.closeTab(tabId: tab.id))
         }
@@ -381,7 +381,7 @@ class TerminalTabViewController: NSViewController, CommandHandler {
     }
 
     func selectTab(at index: Int) {
-        let tabs = store.activeTabs
+        let tabs = store.tabs
         guard index >= 0, index < tabs.count else { return }
         dispatchAction(.selectTab(tabId: tabs[index].id))
     }
@@ -401,14 +401,14 @@ class TerminalTabViewController: NSViewController, CommandHandler {
             return false
         }
 
-        ghosttyLogger.info("showTab: rendering tab \(tabId) with \(tab.sessionIds.count) session(s)")
+        ghosttyLogger.info("showTab: rendering tab \(tabId) with \(tab.paneIds.count) pane(s)")
 
         // Create the SwiftUI split container — views emit PaneAction directly
         let splitContainer = TerminalSplitContainer(
             tree: tree,
             tabId: tabId,
-            activePaneId: tab.activeSessionId,
-            zoomedSessionId: tab.zoomedSessionId,
+            activePaneId: tab.activePaneId,
+            zoomedPaneId: tab.zoomedPaneId,
             action: { [weak self] action in
                 self?.dispatchAction(action)
             },
@@ -421,7 +421,7 @@ class TerminalTabViewController: NSViewController, CommandHandler {
                 guard let draggingTabId = self.tabBarAdapter.draggingTabId else { return true }
 
                 let snapshot = ActionResolver.snapshot(
-                    from: self.store.activeTabs,
+                    from: self.store.tabs,
                     activeTabId: self.store.activeTabId,
                     isManagementModeActive: ManagementModeMonitor.shared.isActive
                 )
@@ -444,7 +444,7 @@ class TerminalTabViewController: NSViewController, CommandHandler {
             onDrop: { [weak self] (payload: SplitDropPayload, destPaneId: UUID, zone: DropZone) in
                 guard let self else { return }
                 let snapshot = ActionResolver.snapshot(
-                    from: self.store.activeTabs,
+                    from: self.store.tabs,
                     activeTabId: self.store.activeTabId,
                     isManagementModeActive: ManagementModeMonitor.shared.isActive
                 )
@@ -484,8 +484,8 @@ class TerminalTabViewController: NSViewController, CommandHandler {
         // Focus the active pane on next run loop (allows SwiftUI layout to complete)
         // Uses syncFocus to set ALL surfaces' focus state — only the active one gets true,
         // all others get false. Mirrors Ghostty's syncFocusToSurfaceTree() pattern.
-        if let activeSessionId = tab.activeSessionId,
-           let terminal = viewRegistry.view(for: activeSessionId) {
+        if let activePaneId = tab.activePaneId,
+           let terminal = viewRegistry.view(for: activePaneId) {
             DispatchQueue.main.async { [weak terminal] in
                 guard let terminal = terminal, terminal.window != nil else { return }
                 terminal.window?.makeFirstResponder(terminal)
@@ -502,7 +502,7 @@ class TerminalTabViewController: NSViewController, CommandHandler {
     /// All input sources (keyboard, menu, drag-drop, commands) converge here.
     private func dispatchAction(_ action: PaneAction) {
         let snapshot = ActionResolver.snapshot(
-            from: store.activeTabs,
+            from: store.tabs,
             activeTabId: store.activeTabId,
             isManagementModeActive: ManagementModeMonitor.shared.isActive
         )
@@ -531,7 +531,7 @@ class TerminalTabViewController: NSViewController, CommandHandler {
         case .splitRight, .splitBelow, .splitLeft, .splitAbove:
             // Resolve split direction using the target tab's active pane
             guard let tab = store.tab(tabId),
-                  let paneId = tab.activeSessionId else { return }
+                  let paneId = tab.activePaneId else { return }
             let direction: SplitNewDirection = {
                 switch command {
                 case .splitRight: return .right
@@ -568,15 +568,15 @@ class TerminalTabViewController: NSViewController, CommandHandler {
 
     private func createDragPayload(for tabId: UUID) -> TabDragPayload? {
         guard let tab = store.tab(tabId) else { return nil }
-        // Get worktree/repo from first session in the tab
-        let firstSessionId = tab.sessionIds.first
-        let session = firstSessionId.flatMap { store.session($0) }
-        guard let worktreeId = session?.worktreeId,
-              let repoId = session?.repoId else {
-            // Cannot create drag payload for floating sessions (no worktree context)
+        // Get worktree/repo from first pane in the tab
+        let firstPaneId = tab.paneIds.first
+        let pane = firstPaneId.flatMap { store.pane($0) }
+        guard let worktreeId = pane?.worktreeId,
+              let repoId = pane?.repoId else {
+            // Cannot create drag payload for floating panes (no worktree context)
             return nil
         }
-        let title = session?.title ?? "Terminal"
+        let title = pane?.title ?? "Terminal"
         return TabDragPayload(tabId: tabId, worktreeId: worktreeId, repoId: repoId, title: title)
     }
 
@@ -610,8 +610,8 @@ class TerminalTabViewController: NSViewController, CommandHandler {
     @objc private func handleRefocusTerminal() {
         guard let activeTabId = store.activeTabId,
               let tab = store.tab(activeTabId),
-              let activeSessionId = tab.activeSessionId,
-              let terminal = viewRegistry.view(for: activeSessionId) else { return }
+              let activePaneId = tab.activePaneId,
+              let terminal = viewRegistry.view(for: activePaneId) else { return }
         DispatchQueue.main.async { [weak terminal] in
             guard let terminal = terminal, terminal.window != nil else { return }
             terminal.window?.makeFirstResponder(terminal)
@@ -621,20 +621,20 @@ class TerminalTabViewController: NSViewController, CommandHandler {
 
     // MARK: - Ghostty Target Resolution
 
-    private func resolveGhosttyTarget(_ surfaceView: Ghostty.SurfaceView) -> (tabId: UUID, sessionId: UUID)? {
+    private func resolveGhosttyTarget(_ surfaceView: Ghostty.SurfaceView) -> (tabId: UUID, paneId: UUID)? {
         guard let surfaceId = SurfaceManager.shared.surfaceId(forView: surfaceView) else {
             ghosttyLogger.warning("[TTVC] resolveGhosttyTarget: surfaceView not found in SurfaceManager")
             return nil
         }
-        guard let sessionId = SurfaceManager.shared.sessionId(for: surfaceId) else {
-            ghosttyLogger.warning("[TTVC] resolveGhosttyTarget: no session for surfaceId \(surfaceId)")
+        guard let paneId = SurfaceManager.shared.paneId(for: surfaceId) else {
+            ghosttyLogger.warning("[TTVC] resolveGhosttyTarget: no pane for surfaceId \(surfaceId)")
             return nil
         }
-        guard let tab = store.activeTabs.first(where: { $0.sessionIds.contains(sessionId) }) else {
-            ghosttyLogger.warning("[TTVC] resolveGhosttyTarget: no tab contains session \(sessionId)")
+        guard let tab = store.tabs.first(where: { $0.paneIds.contains(paneId) }) else {
+            ghosttyLogger.warning("[TTVC] resolveGhosttyTarget: no tab contains pane \(paneId)")
             return nil
         }
-        return (tab.id, sessionId)
+        return (tab.id, paneId)
     }
 
     // MARK: - Ghostty Split Action Handlers
@@ -643,9 +643,9 @@ class TerminalTabViewController: NSViewController, CommandHandler {
         guard let surfaceView = notification.object as? Ghostty.SurfaceView,
               let dirValue = notification.userInfo?["direction"] as? UInt32,
               let direction = mapGhosttyNewSplitDirection(dirValue),
-              let (tabId, sessionId) = resolveGhosttyTarget(surfaceView) else { return }
+              let (tabId, paneId) = resolveGhosttyTarget(surfaceView) else { return }
         dispatchAction(.insertPane(source: .newTerminal, targetTabId: tabId,
-                                   targetPaneId: sessionId, direction: direction))
+                                   targetPaneId: paneId, direction: direction))
     }
 
     @objc private func handleGhosttyGotoSplit(_ notification: Notification) {
@@ -653,7 +653,7 @@ class TerminalTabViewController: NSViewController, CommandHandler {
               let gotoValue = notification.userInfo?["goto"] as? UInt32,
               let command = mapGhosttyGotoSplit(gotoValue),
               let (tabId, _) = resolveGhosttyTarget(surfaceView) else { return }
-        if let action = ActionResolver.resolve(command: command, tabs: store.activeTabs, activeTabId: tabId) {
+        if let action = ActionResolver.resolve(command: command, tabs: store.tabs, activeTabId: tabId) {
             dispatchAction(action)
         }
     }
@@ -663,8 +663,8 @@ class TerminalTabViewController: NSViewController, CommandHandler {
               let amount = notification.userInfo?["amount"] as? UInt16,
               let dirValue = notification.userInfo?["direction"] as? UInt32,
               let direction = mapGhosttyResizeDirection(dirValue),
-              let (tabId, sessionId) = resolveGhosttyTarget(surfaceView) else { return }
-        dispatchAction(.resizePaneByDelta(tabId: tabId, paneId: sessionId,
+              let (tabId, paneId) = resolveGhosttyTarget(surfaceView) else { return }
+        dispatchAction(.resizePaneByDelta(tabId: tabId, paneId: paneId,
                                           direction: direction, amount: amount))
     }
 
@@ -676,8 +676,8 @@ class TerminalTabViewController: NSViewController, CommandHandler {
 
     @objc private func handleGhosttyToggleSplitZoom(_ notification: Notification) {
         guard let surfaceView = notification.object as? Ghostty.SurfaceView,
-              let (tabId, sessionId) = resolveGhosttyTarget(surfaceView) else { return }
-        dispatchAction(.toggleSplitZoom(tabId: tabId, paneId: sessionId))
+              let (tabId, paneId) = resolveGhosttyTarget(surfaceView) else { return }
+        dispatchAction(.toggleSplitZoom(tabId: tabId, paneId: paneId))
     }
 
     // MARK: - Ghostty Tab Action Handlers
@@ -686,7 +686,7 @@ class TerminalTabViewController: NSViewController, CommandHandler {
         guard let surfaceView = notification.object as? Ghostty.SurfaceView,
               let modeValue = notification.userInfo?["mode"] as? UInt32,
               let (tabId, _) = resolveGhosttyTarget(surfaceView) else { return }
-        let tabs = store.activeTabs
+        let tabs = store.tabs
         switch modeValue {
         case GHOSTTY_ACTION_CLOSE_TAB_MODE_THIS.rawValue:
             dispatchAction(.closeTab(tabId: tabId))
@@ -709,7 +709,7 @@ class TerminalTabViewController: NSViewController, CommandHandler {
               let targetValue = notification.userInfo?["target"] as? Int32,
               let (tabId, _) = resolveGhosttyTarget(surfaceView) else { return }
 
-        let tabs = store.activeTabs
+        let tabs = store.tabs
         let action: PaneAction?
 
         switch targetValue {
@@ -790,7 +790,7 @@ class TerminalTabViewController: NSViewController, CommandHandler {
     func execute(_ command: AppCommand) {
         // Try the validated pipeline for pane/tab structural actions
         if let action = ActionResolver.resolve(
-            command: command, tabs: store.activeTabs, activeTabId: store.activeTabId
+            command: command, tabs: store.tabs, activeTabId: store.activeTabId
         ) {
             dispatchAction(action)
             return
@@ -821,11 +821,11 @@ class TerminalTabViewController: NSViewController, CommandHandler {
             case (.breakUpTab, .tab):
                 return .breakUpTab(tabId: target)
             case (.closePane, .pane), (.closePane, .floatingTerminal):
-                guard let tab = store.activeTabs.first(where: { $0.sessionIds.contains(target) })
+                guard let tab = store.tabs.first(where: { $0.paneIds.contains(target) })
                 else { return nil }
                 return .closePane(tabId: tab.id, paneId: target)
             case (.extractPaneToTab, .pane), (.extractPaneToTab, .floatingTerminal):
-                guard let tab = store.activeTabs.first(where: { $0.sessionIds.contains(target) })
+                guard let tab = store.tabs.first(where: { $0.paneIds.contains(target) })
                 else { return nil }
                 return .extractPaneToTab(tabId: tab.id, paneId: target)
             default:
@@ -854,10 +854,10 @@ class TerminalTabViewController: NSViewController, CommandHandler {
     func canExecute(_ command: AppCommand) -> Bool {
         // Try resolving — if it resolves, validate it
         if let action = ActionResolver.resolve(
-            command: command, tabs: store.activeTabs, activeTabId: store.activeTabId
+            command: command, tabs: store.tabs, activeTabId: store.activeTabId
         ) {
             let snapshot = ActionResolver.snapshot(
-                from: store.activeTabs,
+                from: store.tabs,
                 activeTabId: store.activeTabId,
                 isManagementModeActive: ManagementModeMonitor.shared.isActive
             )

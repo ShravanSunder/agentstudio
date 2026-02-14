@@ -1,41 +1,108 @@
 import Foundation
 
-/// A tab within a view. Contains a layout of sessions and tracks which session is focused.
-/// Order is implicit — determined by array position in the parent ViewDefinition.tabs.
+/// A tab in the workspace. Contains panes organized into arrangements.
+/// Order is implicit — determined by array position in the workspace's tabs array.
 struct Tab: Codable, Identifiable, Hashable {
+    // Synthesized Equatable/Hashable: compares all stored properties.
+    // This is required for render invalidation — TerminalTabViewController.refreshDisplay()
+    // skips rebuild when tab == lastRenderedTab, so layout/focus/zoom changes must be detected.
+
     let id: UUID
-    var layout: Layout
-    /// The focused session within this tab. Nil only during construction.
-    var activeSessionId: UUID?
-    /// Display-only zoom state — NOT persisted. When set, the zoomed session fills the tab.
-    var zoomedSessionId: UUID?
+    /// Display name for this tab.
+    var name: String
+    /// All pane IDs owned by this tab.
+    var panes: [UUID]
+    /// Layout arrangements for this tab. Always has at least one default arrangement.
+    var arrangements: [PaneArrangement]
+    /// The currently active arrangement ID.
+    var activeArrangementId: UUID
+    /// The focused pane within this tab. Nil only during construction.
+    var activePaneId: UUID?
+    /// Display-only zoom state — NOT persisted. When set, the zoomed pane fills the tab.
+    var zoomedPaneId: UUID?
 
     enum CodingKeys: CodingKey {
-        case id, layout, activeSessionId
-        // zoomedSessionId excluded — transient, not persisted
+        case id, name, panes, arrangements, activeArrangementId, activePaneId
+        // zoomedPaneId excluded — transient, not persisted
     }
 
-    /// Create a tab with a single session.
-    init(id: UUID = UUID(), sessionId: UUID) {
+    /// Create a tab with a single pane.
+    init(id: UUID = UUID(), paneId: UUID, name: String = "Tab") {
         self.id = id
-        self.layout = Layout(sessionId: sessionId)
-        self.activeSessionId = sessionId
-        self.zoomedSessionId = nil
+        self.name = name
+        self.panes = [paneId]
+        let layout = Layout(paneId: paneId)
+        let defaultArrangement = PaneArrangement(
+            name: "Default",
+            isDefault: true,
+            layout: layout,
+            visiblePaneIds: [paneId]
+        )
+        self.arrangements = [defaultArrangement]
+        self.activeArrangementId = defaultArrangement.id
+        self.activePaneId = paneId
+        self.zoomedPaneId = nil
     }
 
-    /// Create a tab with an existing layout.
-    init(id: UUID = UUID(), layout: Layout, activeSessionId: UUID?, zoomedSessionId: UUID? = nil) {
+    /// Create a tab with an existing layout and arrangements.
+    /// Precondition: `arrangements` must contain exactly one with `isDefault == true`.
+    init(
+        id: UUID = UUID(),
+        name: String = "Tab",
+        panes: [UUID],
+        arrangements: [PaneArrangement],
+        activeArrangementId: UUID,
+        activePaneId: UUID?,
+        zoomedPaneId: UUID? = nil
+    ) {
+        precondition(!arrangements.isEmpty, "Tab must have at least one arrangement")
+        precondition(arrangements.filter(\.isDefault).count == 1, "Tab must have exactly one default arrangement")
         self.id = id
-        self.layout = layout
-        self.activeSessionId = activeSessionId
-        self.zoomedSessionId = zoomedSessionId
+        self.name = name
+        self.panes = panes
+        self.arrangements = arrangements
+        self.activeArrangementId = activeArrangementId
+        self.activePaneId = activePaneId
+        self.zoomedPaneId = zoomedPaneId
     }
 
     // MARK: - Derived
 
-    /// All session IDs in this tab's layout (left-to-right traversal).
-    var sessionIds: [UUID] { layout.sessionIds }
+    /// The default arrangement. Falls back to the first arrangement if no default is marked.
+    /// Invariant: every tab must have at least one arrangement with `isDefault == true`.
+    var defaultArrangement: PaneArrangement {
+        guard let arr = arrangements.first(where: \.isDefault) ?? arrangements.first else {
+            preconditionFailure("Tab \(id) has no arrangements — invariant violated")
+        }
+        return arr
+    }
 
-    /// Whether this tab has a split layout (more than one session).
-    var isSplit: Bool { layout.isSplit }
+    /// The currently active arrangement.
+    var activeArrangement: PaneArrangement {
+        arrangements.first { $0.id == activeArrangementId } ?? defaultArrangement
+    }
+
+    /// All pane IDs in the active arrangement's layout (left-to-right traversal).
+    var paneIds: [UUID] { activeArrangement.layout.paneIds }
+
+    /// Whether the active arrangement has a split layout (more than one pane).
+    var isSplit: Bool { activeArrangement.layout.isSplit }
+
+    /// The layout of the active arrangement (convenience accessor).
+    var layout: Layout { activeArrangement.layout }
+
+    // MARK: - Arrangement Mutation Helpers
+
+    /// Index of the default arrangement. Falls back to index 0 if no default marked.
+    var defaultArrangementIndex: Int {
+        guard let idx = arrangements.firstIndex(where: \.isDefault) else {
+            preconditionFailure("Tab \(id) has no default arrangement — invariant violated")
+        }
+        return idx
+    }
+
+    /// Index of the active arrangement.
+    var activeArrangementIndex: Int {
+        arrangements.firstIndex { $0.id == activeArrangementId } ?? defaultArrangementIndex
+    }
 }

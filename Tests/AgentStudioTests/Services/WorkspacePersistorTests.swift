@@ -32,13 +32,12 @@ final class WorkspacePersistorTests: XCTestCase {
         // Assert
         XCTAssertNotNil(loaded)
         XCTAssertEqual(loaded?.id, state.id)
-        XCTAssertTrue(loaded?.sessions.isEmpty ?? false)
-        XCTAssertTrue(loaded?.views.isEmpty ?? false)
+        XCTAssertTrue(loaded?.panes.isEmpty ?? false)
     }
 
-    func test_saveAndLoad_withSessions() throws {
+    func test_saveAndLoad_withPanes() throws {
         // Arrange
-        let session = TerminalSession(
+        let pane = makePane(
             source: .worktree(worktreeId: UUID(), repoId: UUID()),
             title: "Feature",
             agent: .claude,
@@ -47,66 +46,54 @@ final class WorkspacePersistorTests: XCTestCase {
             residency: .active
         )
         var state = WorkspacePersistor.PersistableState()
-        state.sessions = [session]
+        state.panes = [pane]
 
         // Act
         try persistor.save(state)
         let loaded = persistor.load()
 
         // Assert
-        XCTAssertEqual(loaded?.sessions.count, 1)
-        XCTAssertEqual(loaded?.sessions[0].id, session.id)
-        XCTAssertEqual(loaded?.sessions[0].title, "Feature")
-        XCTAssertEqual(loaded?.sessions[0].agent, .claude)
-        XCTAssertEqual(loaded?.sessions[0].provider, .tmux)
-        XCTAssertEqual(loaded?.sessions[0].lifetime, .persistent)
-        XCTAssertEqual(loaded?.sessions[0].residency, .active)
+        XCTAssertEqual(loaded?.panes.count, 1)
+        XCTAssertEqual(loaded?.panes[0].id, pane.id)
+        XCTAssertEqual(loaded?.panes[0].title, "Feature")
+        XCTAssertEqual(loaded?.panes[0].agent, .claude)
+        XCTAssertEqual(loaded?.panes[0].provider, .tmux)
+        XCTAssertEqual(loaded?.panes[0].lifetime, .persistent)
+        XCTAssertEqual(loaded?.panes[0].residency, .active)
     }
 
-    func test_saveAndLoad_withViews() throws {
+    func test_saveAndLoad_withTabs() throws {
         // Arrange
-        let sessionId = UUID()
-        let tab = Tab(sessionId: sessionId)
-        let view = ViewDefinition(
-            name: "Main",
-            kind: .main,
-            tabs: [tab],
-            activeTabId: tab.id
-        )
+        let paneId = UUID()
+        let tab = Tab(paneId: paneId)
         var state = WorkspacePersistor.PersistableState()
-        state.views = [view]
-        state.activeViewId = view.id
+        state.tabs = [tab]
+        state.activeTabId = tab.id
 
         // Act
         try persistor.save(state)
         let loaded = persistor.load()
 
         // Assert
-        XCTAssertEqual(loaded?.views.count, 1)
-        XCTAssertEqual(loaded?.views[0].kind, .main)
-        XCTAssertEqual(loaded?.views[0].tabs.count, 1)
-        XCTAssertEqual(loaded?.views[0].tabs[0].sessionIds, [sessionId])
-        XCTAssertEqual(loaded?.activeViewId, view.id)
+        XCTAssertEqual(loaded?.tabs.count, 1)
+        XCTAssertEqual(loaded?.tabs[0].paneIds, [paneId])
+        XCTAssertEqual(loaded?.activeTabId, tab.id)
     }
 
     func test_saveAndLoad_withSplitLayout() throws {
         // Arrange
         let s1 = UUID(), s2 = UUID(), s3 = UUID()
-        let layout = Layout(sessionId: s1)
-            .inserting(sessionId: s2, at: s1, direction: .horizontal, position: .after)
-            .inserting(sessionId: s3, at: s2, direction: .vertical, position: .after)
-        let tab = Tab(layout: layout, activeSessionId: s1)
-        let view = ViewDefinition(name: "Main", kind: .main, tabs: [tab])
+        let tab = makeTab(paneIds: [s1, s2, s3], activePaneId: s1)
         var state = WorkspacePersistor.PersistableState()
-        state.views = [view]
+        state.tabs = [tab]
 
         // Act
         try persistor.save(state)
         let loaded = persistor.load()
 
         // Assert
-        XCTAssertEqual(loaded?.views[0].tabs[0].sessionIds, [s1, s2, s3])
-        XCTAssertTrue(loaded?.views[0].tabs[0].isSplit ?? false)
+        XCTAssertEqual(loaded?.tabs[0].paneIds, [s1, s2, s3])
+        XCTAssertTrue(loaded?.tabs[0].isSplit ?? false)
     }
 
     func test_saveAndLoad_preservesAllFields() throws {
@@ -194,8 +181,6 @@ final class WorkspacePersistorTests: XCTestCase {
         XCTAssertEqual(loaded?.name, "Second Save")
     }
 
-    // MARK: - ViewKind Codable
-
     // MARK: - hasWorkspaceFiles
 
     func test_hasWorkspaceFiles_emptyDir_returnsFalse() {
@@ -235,34 +220,194 @@ final class WorkspacePersistorTests: XCTestCase {
         XCTAssertThrowsError(try readOnlyPersistor.save(state))
     }
 
-    // MARK: - ViewKind Codable
+    // MARK: - Legacy Schema Migration
 
-    func test_viewKind_allVariants_roundTrip() throws {
-        // Arrange
+    func test_load_legacySchema_migratesSessions() throws {
+        // Arrange — write a legacy-format JSON file directly
+        let sessionId = UUID()
         let worktreeId = UUID()
         let repoId = UUID()
-        let views = [
-            ViewDefinition(name: "Main", kind: .main),
-            ViewDefinition(name: "Saved", kind: .saved),
-            ViewDefinition(name: "WT", kind: .worktree(worktreeId: worktreeId)),
-            ViewDefinition(name: "ByRepo", kind: .dynamic(rule: .byRepo(repoId: repoId))),
-            ViewDefinition(name: "ByAgent", kind: .dynamic(rule: .byAgent(.claude))),
-            ViewDefinition(name: "Custom", kind: .dynamic(rule: .custom(name: "test")))
-        ]
-        var state = WorkspacePersistor.PersistableState()
-        state.views = views
+        let legacy = LegacyPersistableState(
+            id: UUID(),
+            name: "Legacy Workspace",
+            repos: [],
+            sessions: [
+                LegacySession(
+                    id: sessionId,
+                    source: .worktree(worktreeId: worktreeId, repoId: repoId),
+                    title: "Feature Branch",
+                    agent: .claude,
+                    provider: .tmux,
+                    lifetime: .persistent,
+                    residency: .active,
+                    lastKnownCWD: URL(fileURLWithPath: "/tmp/test")
+                )
+            ],
+            views: [
+                LegacyView(
+                    id: UUID(),
+                    name: "Main",
+                    kind: .main,
+                    tabs: [
+                        LegacyTab(
+                            id: UUID(),
+                            layout: Layout(paneId: sessionId),
+                            activeSessionId: sessionId
+                        )
+                    ],
+                    activeTabId: nil
+                )
+            ],
+            activeViewId: nil,
+            sidebarWidth: 250,
+            windowFrame: nil,
+            createdAt: Date(),
+            updatedAt: Date()
+        )
 
-        // Act
-        try persistor.save(state)
+        // Write legacy JSON to disk
+        let encoder = JSONEncoder()
+        encoder.outputFormatting = [.prettyPrinted, .sortedKeys]
+        let data = try encoder.encode(legacy)
+        let fileURL = tempDir.appending(path: "\(legacy.id.uuidString).json")
+        try data.write(to: fileURL, options: .atomic)
+
+        // Act — load should detect legacy format and migrate
         let loaded = persistor.load()
 
         // Assert
-        XCTAssertEqual(loaded?.views.count, 6)
-        XCTAssertEqual(loaded?.views[0].kind, .main)
-        XCTAssertEqual(loaded?.views[1].kind, .saved)
-        XCTAssertEqual(loaded?.views[2].kind, .worktree(worktreeId: worktreeId))
-        XCTAssertEqual(loaded?.views[3].kind, .dynamic(rule: .byRepo(repoId: repoId)))
-        XCTAssertEqual(loaded?.views[4].kind, .dynamic(rule: .byAgent(.claude)))
-        XCTAssertEqual(loaded?.views[5].kind, .dynamic(rule: .custom(name: "test")))
+        XCTAssertNotNil(loaded, "Legacy schema should be migrated successfully")
+        XCTAssertEqual(loaded?.name, "Legacy Workspace")
+        XCTAssertEqual(loaded?.panes.count, 1)
+        XCTAssertEqual(loaded?.panes[0].id, sessionId, "Pane ID must match session ID")
+        XCTAssertEqual(loaded?.panes[0].title, "Feature Branch")
+        XCTAssertEqual(loaded?.panes[0].agent, .claude)
+        XCTAssertEqual(loaded?.panes[0].provider, .tmux)
+        XCTAssertEqual(loaded?.panes[0].worktreeId, worktreeId)
+        XCTAssertEqual(loaded?.panes[0].repoId, repoId)
+        XCTAssertEqual(loaded?.tabs.count, 1)
+        XCTAssertEqual(loaded?.tabs[0].paneIds, [sessionId], "Layout pane IDs must match migrated session")
+        XCTAssertEqual(loaded?.tabs[0].activePaneId, sessionId)
+    }
+
+    func test_load_legacySchema_multipleSessions_andTabs() throws {
+        // Arrange
+        let s1 = UUID(), s2 = UUID()
+        let tabId = UUID()
+        let layout = Layout(paneId: s1)
+            .inserting(paneId: s2, at: s1, direction: .horizontal, position: .after)
+
+        let legacy = LegacyPersistableState(
+            id: UUID(),
+            name: "Multi",
+            repos: [],
+            sessions: [
+                LegacySession(id: s1, source: .floating(workingDirectory: nil, title: nil), title: "Shell 1",
+                              agent: nil, provider: .tmux, lifetime: .persistent, residency: .active, lastKnownCWD: nil),
+                LegacySession(id: s2, source: .floating(workingDirectory: nil, title: nil), title: "Shell 2",
+                              agent: nil, provider: .ghostty, lifetime: .persistent, residency: .active, lastKnownCWD: nil),
+            ],
+            views: [
+                LegacyView(id: UUID(), name: "Main", kind: .main,
+                           tabs: [LegacyTab(id: tabId, layout: layout, activeSessionId: s2)],
+                           activeTabId: tabId)
+            ],
+            activeViewId: nil,
+            sidebarWidth: 300,
+            windowFrame: CGRect(x: 0, y: 0, width: 800, height: 600),
+            createdAt: Date(),
+            updatedAt: Date()
+        )
+
+        let encoder = JSONEncoder()
+        encoder.outputFormatting = [.prettyPrinted, .sortedKeys]
+        let data = try encoder.encode(legacy)
+        let fileURL = tempDir.appending(path: "\(legacy.id.uuidString).json")
+        try data.write(to: fileURL, options: .atomic)
+
+        // Act
+        let loaded = persistor.load()
+
+        // Assert
+        XCTAssertNotNil(loaded)
+        XCTAssertEqual(loaded?.panes.count, 2)
+        XCTAssertEqual(loaded?.tabs.count, 1)
+        XCTAssertEqual(loaded?.tabs[0].id, tabId)
+        XCTAssertEqual(Set(loaded?.tabs[0].paneIds ?? []), Set([s1, s2]))
+        XCTAssertEqual(loaded?.tabs[0].activePaneId, s2)
+        XCTAssertEqual(loaded?.sidebarWidth, 300)
+        XCTAssertEqual(loaded?.windowFrame, CGRect(x: 0, y: 0, width: 800, height: 600))
+    }
+
+    func test_load_legacySchema_emptyViews_producesEmptyTabs() throws {
+        // Arrange — legacy with sessions but no views
+        let legacy = LegacyPersistableState(
+            id: UUID(),
+            name: "Empty Views",
+            repos: [],
+            sessions: [
+                LegacySession(id: UUID(), source: .floating(workingDirectory: nil, title: nil), title: "Orphan",
+                              agent: nil, provider: .tmux, lifetime: .persistent, residency: .active, lastKnownCWD: nil)
+            ],
+            views: [],
+            activeViewId: nil,
+            sidebarWidth: 250,
+            windowFrame: nil,
+            createdAt: Date(),
+            updatedAt: Date()
+        )
+
+        let data = try JSONEncoder().encode(legacy)
+        let fileURL = tempDir.appending(path: "\(legacy.id.uuidString).json")
+        try data.write(to: fileURL, options: .atomic)
+
+        // Act
+        let loaded = persistor.load()
+
+        // Assert
+        XCTAssertNotNil(loaded)
+        XCTAssertEqual(loaded?.panes.count, 1, "Sessions should still be migrated to panes")
+        XCTAssertTrue(loaded?.tabs.isEmpty ?? false, "No views means no tabs")
+    }
+
+    func test_migrate_convertsLegacyToCurrentFormat() {
+        // Arrange
+        let sessionId = UUID()
+        let legacy = LegacyPersistableState(
+            id: UUID(),
+            name: "Test",
+            repos: [],
+            sessions: [
+                LegacySession(id: sessionId, source: .floating(workingDirectory: nil, title: "Shell"),
+                              title: "My Terminal", agent: .codex, provider: .ghostty,
+                              lifetime: .temporary, residency: .backgrounded, lastKnownCWD: nil)
+            ],
+            views: [
+                LegacyView(id: UUID(), name: "Main", kind: .main,
+                           tabs: [LegacyTab(id: UUID(), layout: Layout(paneId: sessionId), activeSessionId: sessionId)],
+                           activeTabId: nil)
+            ],
+            activeViewId: nil,
+            sidebarWidth: 200,
+            windowFrame: nil,
+            createdAt: Date(),
+            updatedAt: Date()
+        )
+
+        // Act
+        let migrated = WorkspacePersistor.migrate(from: legacy)
+
+        // Assert
+        XCTAssertEqual(migrated.panes.count, 1)
+        let pane = migrated.panes[0]
+        XCTAssertEqual(pane.id, sessionId)
+        XCTAssertEqual(pane.agent, .codex)
+        XCTAssertEqual(pane.provider, .ghostty)
+        XCTAssertEqual(pane.lifetime, .temporary)
+        XCTAssertEqual(pane.residency, .backgrounded)
+
+        // Tab should have a default arrangement wrapping the layout
+        XCTAssertEqual(migrated.tabs.count, 1)
+        XCTAssertEqual(migrated.tabs[0].defaultArrangement.layout.paneIds, [sessionId])
     }
 }

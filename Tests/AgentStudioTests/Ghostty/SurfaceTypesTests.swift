@@ -69,7 +69,7 @@ final class SurfaceTypesTests: XCTestCase {
 
     func test_surfaceState_isActive_activeCase_returnsTrue() {
         // Assert
-        XCTAssertTrue(SurfaceState.active(sessionId: UUID()).isActive)
+        XCTAssertTrue(SurfaceState.active(paneId: UUID()).isActive)
     }
 
     func test_surfaceState_isActive_hiddenCase_returnsFalse() {
@@ -89,14 +89,14 @@ final class SurfaceTypesTests: XCTestCase {
         let id = UUID()
 
         // Assert
-        XCTAssertEqual(SurfaceState.active(sessionId: id), SurfaceState.active(sessionId: id))
+        XCTAssertEqual(SurfaceState.active(paneId: id), SurfaceState.active(paneId: id))
     }
 
     func test_surfaceState_equatable_differentPaneAttachmentId() {
         // Assert
         XCTAssertNotEqual(
-            SurfaceState.active(sessionId: UUID()),
-            SurfaceState.active(sessionId: UUID())
+            SurfaceState.active(paneId: UUID()),
+            SurfaceState.active(paneId: UUID())
         )
     }
 
@@ -162,12 +162,12 @@ final class SurfaceTypesTests: XCTestCase {
         // Arrange
         let metadata = makeSurfaceMetadata(title: "Test")
         let id = UUID()
-        let sessionId = UUID()
+        let paneId = UUID()
         let original = SurfaceCheckpoint.SurfaceData(
             id: id,
             metadata: metadata,
             wasActive: true,
-            sessionId: sessionId
+            paneId: paneId
         )
 
         // Act
@@ -177,7 +177,7 @@ final class SurfaceTypesTests: XCTestCase {
         // Assert
         XCTAssertEqual(decoded.id, id)
         XCTAssertEqual(decoded.wasActive, true)
-        XCTAssertEqual(decoded.sessionId, sessionId)
+        XCTAssertEqual(decoded.paneId, paneId)
         XCTAssertEqual(decoded.metadata.title, "Test")
     }
 
@@ -187,7 +187,7 @@ final class SurfaceTypesTests: XCTestCase {
             id: UUID(),
             metadata: makeSurfaceMetadata(),
             wasActive: false,
-            sessionId: nil
+            paneId: nil
         )
 
         // Act
@@ -196,7 +196,7 @@ final class SurfaceTypesTests: XCTestCase {
 
         // Assert
         XCTAssertFalse(decoded.wasActive)
-        XCTAssertNil(decoded.sessionId)
+        XCTAssertNil(decoded.paneId)
     }
 
     // MARK: - SurfaceError

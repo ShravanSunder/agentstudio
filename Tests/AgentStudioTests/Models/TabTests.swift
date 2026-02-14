@@ -5,26 +5,26 @@ final class TabTests: XCTestCase {
 
     // MARK: - Init
 
-    func test_init_singleSession() {
+    func test_init_singlePane() {
         // Arrange
-        let sessionId = UUID()
+        let paneId = UUID()
 
         // Act
-        let tab = Tab(sessionId: sessionId)
+        let tab = Tab(paneId: paneId)
 
         // Assert
-        XCTAssertEqual(tab.sessionIds, [sessionId])
-        XCTAssertEqual(tab.activeSessionId, sessionId)
+        XCTAssertEqual(tab.paneIds, [paneId])
+        XCTAssertEqual(tab.activePaneId, paneId)
         XCTAssertFalse(tab.isSplit)
     }
 
     func test_init_customId() {
         // Arrange
         let tabId = UUID()
-        let sessionId = UUID()
+        let paneId = UUID()
 
         // Act
-        let tab = Tab(id: tabId, sessionId: sessionId)
+        let tab = Tab(id: tabId, paneId: paneId)
 
         // Assert
         XCTAssertEqual(tab.id, tabId)
@@ -32,55 +32,58 @@ final class TabTests: XCTestCase {
 
     func test_init_withLayout() {
         // Arrange
-        let sessionA = UUID()
-        let sessionB = UUID()
-        let layout = Layout(sessionId: sessionA)
-            .inserting(sessionId: sessionB, at: sessionA, direction: .horizontal, position: .after)
+        let paneA = UUID()
+        let paneB = UUID()
+        let layout = Layout(paneId: paneA)
+            .inserting(paneId: paneB, at: paneA, direction: .horizontal, position: .after)
 
         // Act
-        let tab = Tab(layout: layout, activeSessionId: sessionA)
+        let arrangement = PaneArrangement(name: "Default", isDefault: true, layout: layout, visiblePaneIds: Set(layout.paneIds))
+        let tab = Tab(panes: layout.paneIds, arrangements: [arrangement], activeArrangementId: arrangement.id, activePaneId: paneA)
 
         // Assert
-        XCTAssertEqual(tab.sessionIds, [sessionA, sessionB])
-        XCTAssertEqual(tab.activeSessionId, sessionA)
+        XCTAssertEqual(tab.paneIds, [paneA, paneB])
+        XCTAssertEqual(tab.activePaneId, paneA)
         XCTAssertTrue(tab.isSplit)
     }
 
     // MARK: - Derived Properties
 
-    func test_sessionIds_matchesLayout() {
+    func test_paneIds_matchesLayout() {
         // Arrange
-        let sessionA = UUID()
-        let sessionB = UUID()
-        let sessionC = UUID()
-        let layout = Layout(sessionId: sessionA)
-            .inserting(sessionId: sessionB, at: sessionA, direction: .horizontal, position: .after)
-            .inserting(sessionId: sessionC, at: sessionB, direction: .vertical, position: .after)
+        let paneA = UUID()
+        let paneB = UUID()
+        let paneC = UUID()
+        let layout = Layout(paneId: paneA)
+            .inserting(paneId: paneB, at: paneA, direction: .horizontal, position: .after)
+            .inserting(paneId: paneC, at: paneB, direction: .vertical, position: .after)
 
         // Act
-        let tab = Tab(layout: layout, activeSessionId: sessionA)
+        let arrangement = PaneArrangement(name: "Default", isDefault: true, layout: layout, visiblePaneIds: Set(layout.paneIds))
+        let tab = Tab(panes: layout.paneIds, arrangements: [arrangement], activeArrangementId: arrangement.id, activePaneId: paneA)
 
         // Assert
-        XCTAssertEqual(tab.sessionIds, [sessionA, sessionB, sessionC])
+        XCTAssertEqual(tab.paneIds, [paneA, paneB, paneC])
     }
 
-    func test_isSplit_singleSession_false() {
+    func test_isSplit_singlePane_false() {
         // Arrange
-        let tab = Tab(sessionId: UUID())
+        let tab = Tab(paneId: UUID())
 
         // Assert
         XCTAssertFalse(tab.isSplit)
     }
 
-    func test_isSplit_multipleSessions_true() {
+    func test_isSplit_multiplePanes_true() {
         // Arrange
-        let sessionA = UUID()
-        let sessionB = UUID()
-        let layout = Layout(sessionId: sessionA)
-            .inserting(sessionId: sessionB, at: sessionA, direction: .horizontal, position: .after)
+        let paneA = UUID()
+        let paneB = UUID()
+        let layout = Layout(paneId: paneA)
+            .inserting(paneId: paneB, at: paneA, direction: .horizontal, position: .after)
 
         // Act
-        let tab = Tab(layout: layout, activeSessionId: sessionA)
+        let arrangement = PaneArrangement(name: "Default", isDefault: true, layout: layout, visiblePaneIds: Set(layout.paneIds))
+        let tab = Tab(panes: layout.paneIds, arrangements: [arrangement], activeArrangementId: arrangement.id, activePaneId: paneA)
 
         // Assert
         XCTAssertTrue(tab.isSplit)
@@ -88,10 +91,10 @@ final class TabTests: XCTestCase {
 
     // MARK: - Codable Round-Trip
 
-    func test_codable_singleSession_roundTrips() throws {
+    func test_codable_singlePane_roundTrips() throws {
         // Arrange
-        let sessionId = UUID()
-        let tab = Tab(sessionId: sessionId)
+        let paneId = UUID()
+        let tab = Tab(paneId: paneId)
 
         // Act
         let data = try JSONEncoder().encode(tab)
@@ -99,17 +102,18 @@ final class TabTests: XCTestCase {
 
         // Assert
         XCTAssertEqual(decoded.id, tab.id)
-        XCTAssertEqual(decoded.sessionIds, [sessionId])
-        XCTAssertEqual(decoded.activeSessionId, sessionId)
+        XCTAssertEqual(decoded.paneIds, [paneId])
+        XCTAssertEqual(decoded.activePaneId, paneId)
     }
 
     func test_codable_splitLayout_roundTrips() throws {
         // Arrange
-        let sessionA = UUID()
-        let sessionB = UUID()
-        let layout = Layout(sessionId: sessionA)
-            .inserting(sessionId: sessionB, at: sessionA, direction: .horizontal, position: .after)
-        let tab = Tab(layout: layout, activeSessionId: sessionB)
+        let paneA = UUID()
+        let paneB = UUID()
+        let layout = Layout(paneId: paneA)
+            .inserting(paneId: paneB, at: paneA, direction: .horizontal, position: .after)
+        let arrangement = PaneArrangement(name: "Default", isDefault: true, layout: layout, visiblePaneIds: Set(layout.paneIds))
+        let tab = Tab(panes: layout.paneIds, arrangements: [arrangement], activeArrangementId: arrangement.id, activePaneId: paneB)
 
         // Act
         let data = try JSONEncoder().encode(tab)
@@ -117,33 +121,85 @@ final class TabTests: XCTestCase {
 
         // Assert
         XCTAssertEqual(decoded.id, tab.id)
-        XCTAssertEqual(decoded.sessionIds, [sessionA, sessionB])
-        XCTAssertEqual(decoded.activeSessionId, sessionB)
+        XCTAssertEqual(decoded.paneIds, [paneA, paneB])
+        XCTAssertEqual(decoded.activePaneId, paneB)
         XCTAssertTrue(decoded.isSplit)
     }
 
-    func test_codable_nilActiveSession_roundTrips() throws {
+    func test_codable_nilActivePane_roundTrips() throws {
         // Arrange
-        let tab = Tab(layout: Layout(), activeSessionId: nil)
+        let layout = Layout()
+        let arrangement = PaneArrangement(name: "Default", isDefault: true, layout: layout, visiblePaneIds: [])
+        let tab = Tab(panes: [], arrangements: [arrangement], activeArrangementId: arrangement.id, activePaneId: nil)
 
         // Act
         let data = try JSONEncoder().encode(tab)
         let decoded = try JSONDecoder().decode(Tab.self, from: data)
 
         // Assert
-        XCTAssertNil(decoded.activeSessionId)
+        XCTAssertNil(decoded.activePaneId)
     }
 
-    // MARK: - Hashable
+    // MARK: - Equatable / Hashable
 
-    func test_hashable_sameId_areEqual() {
-        // Arrange
-        let tabId = UUID()
-        let sessionId = UUID()
-        let tab1 = Tab(id: tabId, sessionId: sessionId)
-        let tab2 = Tab(id: tabId, sessionId: sessionId)
+    func test_equatable_sameCopy_areEqual() {
+        // Arrange — value copy should be equal
+        let tab = Tab(paneId: UUID())
+        let copy = tab
 
         // Assert
-        XCTAssertEqual(tab1, tab2)
+        XCTAssertEqual(tab, copy)
+    }
+
+    func test_equatable_detectsLayoutChange() {
+        // Arrange
+        let paneA = UUID()
+        let paneB = UUID()
+        let tab1 = Tab(paneId: paneA)
+
+        // Act — mutate layout
+        var tab2 = tab1
+        let arrIdx = tab2.activeArrangementIndex
+        tab2.arrangements[arrIdx].layout = tab2.arrangements[arrIdx].layout
+            .inserting(paneId: paneB, at: paneA, direction: .horizontal, position: .after)
+
+        // Assert
+        XCTAssertNotEqual(tab1, tab2, "Layout change must be detected by equality")
+    }
+
+    func test_equatable_detectsActivePaneChange() {
+        // Arrange
+        let paneA = UUID()
+        let paneB = UUID()
+        let tab = makeTab(paneIds: [paneA, paneB], activePaneId: paneA)
+
+        // Act
+        var changed = tab
+        changed.activePaneId = paneB
+
+        // Assert
+        XCTAssertNotEqual(tab, changed, "Active pane change must be detected by equality")
+    }
+
+    func test_equatable_detectsZoomChange() {
+        // Arrange
+        let paneId = UUID()
+        let tab = Tab(paneId: paneId)
+
+        // Act
+        var zoomed = tab
+        zoomed.zoomedPaneId = paneId
+
+        // Assert
+        XCTAssertNotEqual(tab, zoomed, "Zoom change must be detected by equality")
+    }
+
+    func test_hashable_sameCopy_sameHash() {
+        // Arrange
+        let tab = Tab(paneId: UUID())
+        let copy = tab
+
+        // Assert
+        XCTAssertEqual(tab.hashValue, copy.hashValue)
     }
 }

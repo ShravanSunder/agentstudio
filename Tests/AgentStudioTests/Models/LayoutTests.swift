@@ -12,35 +12,35 @@ final class LayoutTests: XCTestCase {
         // Assert
         XCTAssertTrue(layout.isEmpty)
         XCTAssertFalse(layout.isSplit)
-        XCTAssertTrue(layout.sessionIds.isEmpty)
+        XCTAssertTrue(layout.paneIds.isEmpty)
         XCTAssertNil(layout.root)
     }
 
-    func test_singleSession_properties() {
+    func test_singlePane_properties() {
         // Arrange
-        let sessionId = UUID()
-        let layout = Layout(sessionId: sessionId)
+        let paneId = UUID()
+        let layout = Layout(paneId: paneId)
 
         // Assert
         XCTAssertFalse(layout.isEmpty)
         XCTAssertFalse(layout.isSplit)
-        XCTAssertEqual(layout.sessionIds, [sessionId])
+        XCTAssertEqual(layout.paneIds, [paneId])
     }
 
     // MARK: - Contains
 
-    func test_contains_existingSession_returnsTrue() {
+    func test_contains_existingPane_returnsTrue() {
         // Arrange
-        let sessionId = UUID()
-        let layout = Layout(sessionId: sessionId)
+        let paneId = UUID()
+        let layout = Layout(paneId: paneId)
 
         // Assert
-        XCTAssertTrue(layout.contains(sessionId))
+        XCTAssertTrue(layout.contains(paneId))
     }
 
     func test_contains_nonExistent_returnsFalse() {
         // Arrange
-        let layout = Layout(sessionId: UUID())
+        let layout = Layout(paneId: UUID())
 
         // Assert
         XCTAssertFalse(layout.contains(UUID()))
@@ -58,21 +58,21 @@ final class LayoutTests: XCTestCase {
 
     func test_insert_after_createsSplit() {
         // Arrange
-        let sessionA = UUID()
-        let sessionB = UUID()
-        let layout = Layout(sessionId: sessionA)
+        let paneA = UUID()
+        let paneB = UUID()
+        let layout = Layout(paneId: paneA)
 
         // Act
         let result = layout.inserting(
-            sessionId: sessionB, at: sessionA,
+            paneId: paneB, at: paneA,
             direction: .horizontal, position: .after
         )
 
         // Assert
         XCTAssertTrue(result.isSplit)
-        XCTAssertEqual(result.sessionIds.count, 2)
-        XCTAssertEqual(result.sessionIds[0], sessionA)
-        XCTAssertEqual(result.sessionIds[1], sessionB)
+        XCTAssertEqual(result.paneIds.count, 2)
+        XCTAssertEqual(result.paneIds[0], paneA)
+        XCTAssertEqual(result.paneIds[1], paneB)
 
         guard case .split(let split) = result.root else {
             XCTFail("Expected split node")
@@ -84,31 +84,31 @@ final class LayoutTests: XCTestCase {
 
     func test_insert_before_createsSplit() {
         // Arrange
-        let sessionA = UUID()
-        let sessionB = UUID()
-        let layout = Layout(sessionId: sessionA)
+        let paneA = UUID()
+        let paneB = UUID()
+        let layout = Layout(paneId: paneA)
 
         // Act
         let result = layout.inserting(
-            sessionId: sessionB, at: sessionA,
+            paneId: paneB, at: paneA,
             direction: .horizontal, position: .before
         )
 
         // Assert
-        XCTAssertEqual(result.sessionIds.count, 2)
-        XCTAssertEqual(result.sessionIds[0], sessionB)
-        XCTAssertEqual(result.sessionIds[1], sessionA)
+        XCTAssertEqual(result.paneIds.count, 2)
+        XCTAssertEqual(result.paneIds[0], paneB)
+        XCTAssertEqual(result.paneIds[1], paneA)
     }
 
     func test_insert_vertical_after() {
         // Arrange
-        let sessionA = UUID()
-        let sessionB = UUID()
-        let layout = Layout(sessionId: sessionA)
+        let paneA = UUID()
+        let paneB = UUID()
+        let layout = Layout(paneId: paneA)
 
         // Act
         let result = layout.inserting(
-            sessionId: sessionB, at: sessionA,
+            paneId: paneB, at: paneA,
             direction: .vertical, position: .after
         )
 
@@ -118,58 +118,58 @@ final class LayoutTests: XCTestCase {
             return
         }
         XCTAssertEqual(split.direction, .vertical)
-        XCTAssertEqual(result.sessionIds[0], sessionA)
-        XCTAssertEqual(result.sessionIds[1], sessionB)
+        XCTAssertEqual(result.paneIds[0], paneA)
+        XCTAssertEqual(result.paneIds[1], paneB)
     }
 
     func test_insert_vertical_before() {
         // Arrange
-        let sessionA = UUID()
-        let sessionB = UUID()
-        let layout = Layout(sessionId: sessionA)
+        let paneA = UUID()
+        let paneB = UUID()
+        let layout = Layout(paneId: paneA)
 
         // Act
         let result = layout.inserting(
-            sessionId: sessionB, at: sessionA,
+            paneId: paneB, at: paneA,
             direction: .vertical, position: .before
         )
 
         // Assert
-        XCTAssertEqual(result.sessionIds[0], sessionB)
-        XCTAssertEqual(result.sessionIds[1], sessionA)
+        XCTAssertEqual(result.paneIds[0], paneB)
+        XCTAssertEqual(result.paneIds[1], paneA)
     }
 
     func test_insert_targetNotFound_returnsUnchanged() {
         // Arrange
-        let sessionA = UUID()
-        let layout = Layout(sessionId: sessionA)
+        let paneA = UUID()
+        let layout = Layout(paneId: paneA)
 
         // Act
         let result = layout.inserting(
-            sessionId: UUID(), at: UUID(),
+            paneId: UUID(), at: UUID(),
             direction: .horizontal, position: .after
         )
 
         // Assert
-        XCTAssertEqual(result.sessionIds, [sessionA])
+        XCTAssertEqual(result.paneIds, [paneA])
     }
 
     func test_insert_nested_createsDeepTree() {
         // Arrange — A | B
-        let sessionA = UUID()
-        let sessionB = UUID()
-        let sessionC = UUID()
-        let layout = Layout(sessionId: sessionA)
-            .inserting(sessionId: sessionB, at: sessionA, direction: .horizontal, position: .after)
+        let paneA = UUID()
+        let paneB = UUID()
+        let paneC = UUID()
+        let layout = Layout(paneId: paneA)
+            .inserting(paneId: paneB, at: paneA, direction: .horizontal, position: .after)
 
         // Act — insert C below B
         let result = layout.inserting(
-            sessionId: sessionC, at: sessionB,
+            paneId: paneC, at: paneB,
             direction: .vertical, position: .after
         )
 
-        // Assert — should have 3 sessions: A, B, C
-        XCTAssertEqual(result.sessionIds, [sessionA, sessionB, sessionC])
+        // Assert — should have 3 panes: A, B, C
+        XCTAssertEqual(result.paneIds, [paneA, paneB, paneC])
 
         guard case .split(let rootSplit) = result.root else {
             XCTFail("Expected split root")
@@ -190,7 +190,7 @@ final class LayoutTests: XCTestCase {
 
         // Act
         let result = layout.inserting(
-            sessionId: UUID(), at: UUID(),
+            paneId: UUID(), at: UUID(),
             direction: .horizontal, position: .after
         )
 
@@ -200,13 +200,13 @@ final class LayoutTests: XCTestCase {
 
     // MARK: - Remove
 
-    func test_remove_singleSession_returnsNil() {
+    func test_remove_singlePane_returnsNil() {
         // Arrange
-        let sessionId = UUID()
-        let layout = Layout(sessionId: sessionId)
+        let paneId = UUID()
+        let layout = Layout(paneId: paneId)
 
         // Act
-        let result = layout.removing(sessionId: sessionId)
+        let result = layout.removing(paneId: paneId)
 
         // Assert
         XCTAssertNil(result)
@@ -214,49 +214,49 @@ final class LayoutTests: XCTestCase {
 
     func test_remove_fromSplit_collapsesToLeaf() {
         // Arrange — A | B
-        let sessionA = UUID()
-        let sessionB = UUID()
-        let layout = Layout(sessionId: sessionA)
-            .inserting(sessionId: sessionB, at: sessionA, direction: .horizontal, position: .after)
+        let paneA = UUID()
+        let paneB = UUID()
+        let layout = Layout(paneId: paneA)
+            .inserting(paneId: paneB, at: paneA, direction: .horizontal, position: .after)
 
         // Act — remove A
-        let result = layout.removing(sessionId: sessionA)
+        let result = layout.removing(paneId: paneA)
 
         // Assert — should collapse to just B
         XCTAssertNotNil(result)
         XCTAssertFalse(result!.isSplit)
-        XCTAssertEqual(result!.sessionIds, [sessionB])
+        XCTAssertEqual(result!.paneIds, [paneB])
     }
 
     func test_remove_nonExistent_returnsUnchanged() {
         // Arrange
-        let sessionA = UUID()
-        let layout = Layout(sessionId: sessionA)
+        let paneA = UUID()
+        let layout = Layout(paneId: paneA)
 
         // Act
-        let result = layout.removing(sessionId: UUID())
+        let result = layout.removing(paneId: UUID())
 
         // Assert
         XCTAssertNotNil(result)
-        XCTAssertEqual(result!.sessionIds, [sessionA])
+        XCTAssertEqual(result!.paneIds, [paneA])
     }
 
     func test_remove_fromDeepTree_preservesOtherBranches() {
         // Arrange — A | (B / C)
-        let sessionA = UUID()
-        let sessionB = UUID()
-        let sessionC = UUID()
-        let layout = Layout(sessionId: sessionA)
-            .inserting(sessionId: sessionB, at: sessionA, direction: .horizontal, position: .after)
-            .inserting(sessionId: sessionC, at: sessionB, direction: .vertical, position: .after)
+        let paneA = UUID()
+        let paneB = UUID()
+        let paneC = UUID()
+        let layout = Layout(paneId: paneA)
+            .inserting(paneId: paneB, at: paneA, direction: .horizontal, position: .after)
+            .inserting(paneId: paneC, at: paneB, direction: .vertical, position: .after)
 
         // Act — remove C
-        let result = layout.removing(sessionId: sessionC)
+        let result = layout.removing(paneId: paneC)
 
         // Assert — should have A | B
         XCTAssertNotNil(result)
         XCTAssertTrue(result!.isSplit)
-        XCTAssertEqual(result!.sessionIds, [sessionA, sessionB])
+        XCTAssertEqual(result!.paneIds, [paneA, paneB])
     }
 
     func test_remove_fromEmptyLayout_returnsNil() {
@@ -264,7 +264,7 @@ final class LayoutTests: XCTestCase {
         let layout = Layout()
 
         // Act
-        let result = layout.removing(sessionId: UUID())
+        let result = layout.removing(paneId: UUID())
 
         // Assert
         XCTAssertNil(result)
@@ -274,10 +274,10 @@ final class LayoutTests: XCTestCase {
 
     func test_resize_clampsRatio() {
         // Arrange
-        let sessionA = UUID()
-        let sessionB = UUID()
-        let layout = Layout(sessionId: sessionA)
-            .inserting(sessionId: sessionB, at: sessionA, direction: .horizontal, position: .after)
+        let paneA = UUID()
+        let paneB = UUID()
+        let layout = Layout(paneId: paneA)
+            .inserting(paneId: paneB, at: paneA, direction: .horizontal, position: .after)
 
         guard case .split(let originalSplit) = layout.root else {
             XCTFail("Expected split")
@@ -304,12 +304,12 @@ final class LayoutTests: XCTestCase {
 
     func test_resize_updatesCorrectSplit() {
         // Arrange — A | (B / C)
-        let sessionA = UUID()
-        let sessionB = UUID()
-        let sessionC = UUID()
-        let layout = Layout(sessionId: sessionA)
-            .inserting(sessionId: sessionB, at: sessionA, direction: .horizontal, position: .after)
-            .inserting(sessionId: sessionC, at: sessionB, direction: .vertical, position: .after)
+        let paneA = UUID()
+        let paneB = UUID()
+        let paneC = UUID()
+        let layout = Layout(paneId: paneA)
+            .inserting(paneId: paneB, at: paneA, direction: .horizontal, position: .after)
+            .inserting(paneId: paneC, at: paneB, direction: .vertical, position: .after)
 
         guard case .split(let rootSplit) = layout.root,
               case .split(let nestedSplit) = rootSplit.right else {
@@ -336,10 +336,10 @@ final class LayoutTests: XCTestCase {
 
     func test_resize_nonExistentSplitId_returnsUnchanged() {
         // Arrange
-        let sessionA = UUID()
-        let sessionB = UUID()
-        let layout = Layout(sessionId: sessionA)
-            .inserting(sessionId: sessionB, at: sessionA, direction: .horizontal, position: .after)
+        let paneA = UUID()
+        let paneB = UUID()
+        let layout = Layout(paneId: paneA)
+            .inserting(paneId: paneB, at: paneA, direction: .horizontal, position: .after)
 
         // Act
         let result = layout.resizing(splitId: UUID(), ratio: 0.3)
@@ -356,12 +356,12 @@ final class LayoutTests: XCTestCase {
 
     func test_equalize_setsAllRatiosToHalf() {
         // Arrange — A | (B / C) with non-0.5 ratios
-        let sessionA = UUID()
-        let sessionB = UUID()
-        let sessionC = UUID()
-        let layout = Layout(sessionId: sessionA)
-            .inserting(sessionId: sessionB, at: sessionA, direction: .horizontal, position: .after)
-            .inserting(sessionId: sessionC, at: sessionB, direction: .vertical, position: .after)
+        let paneA = UUID()
+        let paneB = UUID()
+        let paneC = UUID()
+        let layout = Layout(paneId: paneA)
+            .inserting(paneId: paneB, at: paneA, direction: .horizontal, position: .after)
+            .inserting(paneId: paneC, at: paneB, direction: .vertical, position: .after)
 
         guard case .split(let rootSplit) = layout.root,
               case .split(let nestedSplit) = rootSplit.right else {
@@ -390,114 +390,114 @@ final class LayoutTests: XCTestCase {
         XCTAssertEqual(eqNested.ratio, 0.5, accuracy: 0.001)
     }
 
-    // MARK: - Session IDs Ordering
+    // MARK: - Pane IDs Ordering
 
-    func test_sessionIds_orderedLeftToRight() {
+    func test_paneIds_orderedLeftToRight() {
         // Arrange — A | B
-        let sessionA = UUID()
-        let sessionB = UUID()
-        let layout = Layout(sessionId: sessionA)
-            .inserting(sessionId: sessionB, at: sessionA, direction: .horizontal, position: .after)
+        let paneA = UUID()
+        let paneB = UUID()
+        let layout = Layout(paneId: paneA)
+            .inserting(paneId: paneB, at: paneA, direction: .horizontal, position: .after)
 
         // Assert
-        XCTAssertEqual(layout.sessionIds, [sessionA, sessionB])
+        XCTAssertEqual(layout.paneIds, [paneA, paneB])
     }
 
-    func test_sessionIds_deepTree_orderedCorrectly() {
+    func test_paneIds_deepTree_orderedCorrectly() {
         // Arrange — A | (B / C)
-        let sessionA = UUID()
-        let sessionB = UUID()
-        let sessionC = UUID()
-        let layout = Layout(sessionId: sessionA)
-            .inserting(sessionId: sessionB, at: sessionA, direction: .horizontal, position: .after)
-            .inserting(sessionId: sessionC, at: sessionB, direction: .vertical, position: .after)
+        let paneA = UUID()
+        let paneB = UUID()
+        let paneC = UUID()
+        let layout = Layout(paneId: paneA)
+            .inserting(paneId: paneB, at: paneA, direction: .horizontal, position: .after)
+            .inserting(paneId: paneC, at: paneB, direction: .vertical, position: .after)
 
         // Assert — A, B, C
-        XCTAssertEqual(layout.sessionIds, [sessionA, sessionB, sessionC])
+        XCTAssertEqual(layout.paneIds, [paneA, paneB, paneC])
     }
 
     // MARK: - Navigation: neighbor
 
     func test_neighbor_horizontalSplit_right() {
         // Arrange — A | B
-        let sessionA = UUID()
-        let sessionB = UUID()
-        let layout = Layout(sessionId: sessionA)
-            .inserting(sessionId: sessionB, at: sessionA, direction: .horizontal, position: .after)
+        let paneA = UUID()
+        let paneB = UUID()
+        let layout = Layout(paneId: paneA)
+            .inserting(paneId: paneB, at: paneA, direction: .horizontal, position: .after)
 
         // Act
-        let neighbor = layout.neighbor(of: sessionA, direction: .right)
+        let neighbor = layout.neighbor(of: paneA, direction: .right)
 
         // Assert
-        XCTAssertEqual(neighbor, sessionB)
+        XCTAssertEqual(neighbor, paneB)
     }
 
     func test_neighbor_horizontalSplit_left() {
         // Arrange — A | B
-        let sessionA = UUID()
-        let sessionB = UUID()
-        let layout = Layout(sessionId: sessionA)
-            .inserting(sessionId: sessionB, at: sessionA, direction: .horizontal, position: .after)
+        let paneA = UUID()
+        let paneB = UUID()
+        let layout = Layout(paneId: paneA)
+            .inserting(paneId: paneB, at: paneA, direction: .horizontal, position: .after)
 
         // Act
-        let neighbor = layout.neighbor(of: sessionB, direction: .left)
+        let neighbor = layout.neighbor(of: paneB, direction: .left)
 
         // Assert
-        XCTAssertEqual(neighbor, sessionA)
+        XCTAssertEqual(neighbor, paneA)
     }
 
     func test_neighbor_verticalSplit_down() {
         // Arrange — A / B (vertical)
-        let sessionA = UUID()
-        let sessionB = UUID()
-        let layout = Layout(sessionId: sessionA)
-            .inserting(sessionId: sessionB, at: sessionA, direction: .vertical, position: .after)
+        let paneA = UUID()
+        let paneB = UUID()
+        let layout = Layout(paneId: paneA)
+            .inserting(paneId: paneB, at: paneA, direction: .vertical, position: .after)
 
         // Act
-        let neighbor = layout.neighbor(of: sessionA, direction: .down)
+        let neighbor = layout.neighbor(of: paneA, direction: .down)
 
         // Assert
-        XCTAssertEqual(neighbor, sessionB)
+        XCTAssertEqual(neighbor, paneB)
     }
 
     func test_neighbor_verticalSplit_up() {
         // Arrange — A / B (vertical)
-        let sessionA = UUID()
-        let sessionB = UUID()
-        let layout = Layout(sessionId: sessionA)
-            .inserting(sessionId: sessionB, at: sessionA, direction: .vertical, position: .after)
+        let paneA = UUID()
+        let paneB = UUID()
+        let layout = Layout(paneId: paneA)
+            .inserting(paneId: paneB, at: paneA, direction: .vertical, position: .after)
 
         // Act
-        let neighbor = layout.neighbor(of: sessionB, direction: .up)
+        let neighbor = layout.neighbor(of: paneB, direction: .up)
 
         // Assert
-        XCTAssertEqual(neighbor, sessionA)
+        XCTAssertEqual(neighbor, paneA)
     }
 
     func test_neighbor_noNeighborInDirection_returnsNil() {
         // Arrange — A | B (horizontal only)
-        let sessionA = UUID()
-        let sessionB = UUID()
-        let layout = Layout(sessionId: sessionA)
-            .inserting(sessionId: sessionB, at: sessionA, direction: .horizontal, position: .after)
+        let paneA = UUID()
+        let paneB = UUID()
+        let layout = Layout(paneId: paneA)
+            .inserting(paneId: paneB, at: paneA, direction: .horizontal, position: .after)
 
         // Act — look up/down in a horizontal split
-        XCTAssertNil(layout.neighbor(of: sessionA, direction: .up))
-        XCTAssertNil(layout.neighbor(of: sessionA, direction: .down))
-        XCTAssertNil(layout.neighbor(of: sessionA, direction: .left))
-        XCTAssertNil(layout.neighbor(of: sessionB, direction: .right))
+        XCTAssertNil(layout.neighbor(of: paneA, direction: .up))
+        XCTAssertNil(layout.neighbor(of: paneA, direction: .down))
+        XCTAssertNil(layout.neighbor(of: paneA, direction: .left))
+        XCTAssertNil(layout.neighbor(of: paneB, direction: .right))
     }
 
-    func test_neighbor_singleSession_returnsNil() {
+    func test_neighbor_singlePane_returnsNil() {
         // Arrange
-        let sessionA = UUID()
-        let layout = Layout(sessionId: sessionA)
+        let paneA = UUID()
+        let layout = Layout(paneId: paneA)
 
         // Assert
-        XCTAssertNil(layout.neighbor(of: sessionA, direction: .right))
-        XCTAssertNil(layout.neighbor(of: sessionA, direction: .left))
-        XCTAssertNil(layout.neighbor(of: sessionA, direction: .up))
-        XCTAssertNil(layout.neighbor(of: sessionA, direction: .down))
+        XCTAssertNil(layout.neighbor(of: paneA, direction: .right))
+        XCTAssertNil(layout.neighbor(of: paneA, direction: .left))
+        XCTAssertNil(layout.neighbor(of: paneA, direction: .up))
+        XCTAssertNil(layout.neighbor(of: paneA, direction: .down))
     }
 
     func test_neighbor_emptyLayout_returnsNil() {
@@ -512,58 +512,58 @@ final class LayoutTests: XCTestCase {
 
     func test_next_wrapsAround() {
         // Arrange — A | B
-        let sessionA = UUID()
-        let sessionB = UUID()
-        let layout = Layout(sessionId: sessionA)
-            .inserting(sessionId: sessionB, at: sessionA, direction: .horizontal, position: .after)
+        let paneA = UUID()
+        let paneB = UUID()
+        let layout = Layout(paneId: paneA)
+            .inserting(paneId: paneB, at: paneA, direction: .horizontal, position: .after)
 
         // Assert
-        XCTAssertEqual(layout.next(after: sessionA), sessionB)
-        XCTAssertEqual(layout.next(after: sessionB), sessionA)
+        XCTAssertEqual(layout.next(after: paneA), paneB)
+        XCTAssertEqual(layout.next(after: paneB), paneA)
     }
 
     func test_previous_wrapsAround() {
         // Arrange — A | B
-        let sessionA = UUID()
-        let sessionB = UUID()
-        let layout = Layout(sessionId: sessionA)
-            .inserting(sessionId: sessionB, at: sessionA, direction: .horizontal, position: .after)
+        let paneA = UUID()
+        let paneB = UUID()
+        let layout = Layout(paneId: paneA)
+            .inserting(paneId: paneB, at: paneA, direction: .horizontal, position: .after)
 
         // Assert
-        XCTAssertEqual(layout.previous(before: sessionB), sessionA)
-        XCTAssertEqual(layout.previous(before: sessionA), sessionB)
+        XCTAssertEqual(layout.previous(before: paneB), paneA)
+        XCTAssertEqual(layout.previous(before: paneA), paneB)
     }
 
-    func test_next_singleSession_returnsSelf() {
+    func test_next_singlePane_returnsSelf() {
         // Arrange
-        let sessionA = UUID()
-        let layout = Layout(sessionId: sessionA)
+        let paneA = UUID()
+        let layout = Layout(paneId: paneA)
 
         // Assert
-        XCTAssertEqual(layout.next(after: sessionA), sessionA)
+        XCTAssertEqual(layout.next(after: paneA), paneA)
     }
 
     func test_next_nonExistent_returnsNil() {
         // Arrange
-        let layout = Layout(sessionId: UUID())
+        let layout = Layout(paneId: UUID())
 
         // Assert
         XCTAssertNil(layout.next(after: UUID()))
     }
 
-    func test_next_threeSession_wrapsCorrectly() {
+    func test_next_threePane_wrapsCorrectly() {
         // Arrange — A | (B / C)
-        let sessionA = UUID()
-        let sessionB = UUID()
-        let sessionC = UUID()
-        let layout = Layout(sessionId: sessionA)
-            .inserting(sessionId: sessionB, at: sessionA, direction: .horizontal, position: .after)
-            .inserting(sessionId: sessionC, at: sessionB, direction: .vertical, position: .after)
+        let paneA = UUID()
+        let paneB = UUID()
+        let paneC = UUID()
+        let layout = Layout(paneId: paneA)
+            .inserting(paneId: paneB, at: paneA, direction: .horizontal, position: .after)
+            .inserting(paneId: paneC, at: paneB, direction: .vertical, position: .after)
 
         // Assert
-        XCTAssertEqual(layout.next(after: sessionA), sessionB)
-        XCTAssertEqual(layout.next(after: sessionB), sessionC)
-        XCTAssertEqual(layout.next(after: sessionC), sessionA)
+        XCTAssertEqual(layout.next(after: paneA), paneB)
+        XCTAssertEqual(layout.next(after: paneB), paneC)
+        XCTAssertEqual(layout.next(after: paneC), paneA)
     }
 
     // MARK: - Codable Round-Trip
@@ -581,10 +581,10 @@ final class LayoutTests: XCTestCase {
         XCTAssertNil(decoded.root)
     }
 
-    func test_codable_singleSession_roundTrips() throws {
+    func test_codable_singlePane_roundTrips() throws {
         // Arrange
-        let sessionId = UUID()
-        let layout = Layout(sessionId: sessionId)
+        let paneId = UUID()
+        let layout = Layout(paneId: paneId)
 
         // Act
         let data = try JSONEncoder().encode(layout)
@@ -593,15 +593,15 @@ final class LayoutTests: XCTestCase {
         // Assert
         XCTAssertFalse(decoded.isEmpty)
         XCTAssertFalse(decoded.isSplit)
-        XCTAssertEqual(decoded.sessionIds, [sessionId])
+        XCTAssertEqual(decoded.paneIds, [paneId])
     }
 
     func test_codable_splitLayout_roundTrips() throws {
         // Arrange
-        let sessionA = UUID()
-        let sessionB = UUID()
-        let layout = Layout(sessionId: sessionA)
-            .inserting(sessionId: sessionB, at: sessionA, direction: .horizontal, position: .after)
+        let paneA = UUID()
+        let paneB = UUID()
+        let layout = Layout(paneId: paneA)
+            .inserting(paneId: paneB, at: paneA, direction: .horizontal, position: .after)
 
         guard case .split(let originalSplit) = layout.root else {
             XCTFail("Expected split")
@@ -615,7 +615,7 @@ final class LayoutTests: XCTestCase {
 
         // Assert
         XCTAssertTrue(decoded.isSplit)
-        XCTAssertEqual(decoded.sessionIds, [sessionA, sessionB])
+        XCTAssertEqual(decoded.paneIds, [paneA, paneB])
 
         guard case .split(let decodedSplit) = decoded.root else {
             XCTFail("Expected split")
@@ -628,12 +628,12 @@ final class LayoutTests: XCTestCase {
 
     func test_codable_deepLayout_roundTrips() throws {
         // Arrange — A | (B / C) with mixed ratios
-        let sessionA = UUID()
-        let sessionB = UUID()
-        let sessionC = UUID()
-        let layout = Layout(sessionId: sessionA)
-            .inserting(sessionId: sessionB, at: sessionA, direction: .horizontal, position: .after)
-            .inserting(sessionId: sessionC, at: sessionB, direction: .vertical, position: .after)
+        let paneA = UUID()
+        let paneB = UUID()
+        let paneC = UUID()
+        let layout = Layout(paneId: paneA)
+            .inserting(paneId: paneB, at: paneA, direction: .horizontal, position: .after)
+            .inserting(paneId: paneC, at: paneB, direction: .vertical, position: .after)
 
         guard case .split(let rootSplit) = layout.root else {
             XCTFail("Expected root split")
@@ -646,7 +646,7 @@ final class LayoutTests: XCTestCase {
         let decoded = try JSONDecoder().decode(Layout.self, from: data)
 
         // Assert
-        XCTAssertEqual(decoded.sessionIds, [sessionA, sessionB, sessionC])
+        XCTAssertEqual(decoded.paneIds, [paneA, paneB, paneC])
 
         guard case .split(let decodedRoot) = decoded.root else {
             XCTFail("Expected root split")
@@ -667,9 +667,9 @@ final class LayoutTests: XCTestCase {
 
     func test_hashable_sameStructure_areEqual() {
         // Arrange
-        let sessionId = UUID()
-        let layout1 = Layout(sessionId: sessionId)
-        let layout2 = Layout(sessionId: sessionId)
+        let paneId = UUID()
+        let layout1 = Layout(paneId: paneId)
+        let layout2 = Layout(paneId: paneId)
 
         // Assert
         XCTAssertEqual(layout1, layout2)
@@ -677,8 +677,8 @@ final class LayoutTests: XCTestCase {
 
     func test_hashable_differentStructure_areNotEqual() {
         // Arrange
-        let layout1 = Layout(sessionId: UUID())
-        let layout2 = Layout(sessionId: UUID())
+        let layout1 = Layout(paneId: UUID())
+        let layout2 = Layout(paneId: UUID())
 
         // Assert
         XCTAssertNotEqual(layout1, layout2)
@@ -691,8 +691,8 @@ final class LayoutTests: XCTestCase {
         let split = Layout.Split(
             direction: .horizontal,
             ratio: -0.5,
-            left: .leaf(sessionId: UUID()),
-            right: .leaf(sessionId: UUID())
+            left: .leaf(paneId: UUID()),
+            right: .leaf(paneId: UUID())
         )
 
         // Assert
@@ -704,8 +704,8 @@ final class LayoutTests: XCTestCase {
         let split = Layout.Split(
             direction: .horizontal,
             ratio: 1.5,
-            left: .leaf(sessionId: UUID()),
-            right: .leaf(sessionId: UUID())
+            left: .leaf(paneId: UUID()),
+            right: .leaf(paneId: UUID())
         )
 
         // Assert
@@ -717,11 +717,60 @@ final class LayoutTests: XCTestCase {
         let split = Layout.Split(
             direction: .vertical,
             ratio: 0.7,
-            left: .leaf(sessionId: UUID()),
-            right: .leaf(sessionId: UUID())
+            left: .leaf(paneId: UUID()),
+            right: .leaf(paneId: UUID())
         )
 
         // Assert
         XCTAssertEqual(split.ratio, 0.7, accuracy: 0.001)
+    }
+
+    // MARK: - Legacy sessionId Migration
+
+    func test_codable_legacySessionId_decodesAsPaneId() throws {
+        // Arrange — JSON using the old "sessionId" key
+        let id = UUID()
+        let json = """
+        {"sessionId": "\(id.uuidString)"}
+        """
+        let data = json.data(using: .utf8)!
+
+        // Act
+        let node = try JSONDecoder().decode(Layout.Node.self, from: data)
+
+        // Assert
+        guard case .leaf(let paneId) = node else {
+            XCTFail("Expected leaf node")
+            return
+        }
+        XCTAssertEqual(paneId, id, "Legacy sessionId should decode as paneId")
+    }
+
+    func test_codable_legacySplitWithSessionIds_decodesCorrectly() throws {
+        // Arrange — nested split using old sessionId keys
+        let s1 = UUID(), s2 = UUID()
+        let splitId = UUID()
+        let json = """
+        {
+            "root": {
+                "split": {
+                    "id": "\(splitId.uuidString)",
+                    "direction": "horizontal",
+                    "ratio": 0.5,
+                    "left": {"sessionId": "\(s1.uuidString)"},
+                    "right": {"sessionId": "\(s2.uuidString)"}
+                }
+            }
+        }
+        """
+        let data = json.data(using: .utf8)!
+
+        // Act
+        let layout = try JSONDecoder().decode(Layout.self, from: data)
+
+        // Assert
+        XCTAssertEqual(layout.paneIds, [s1, s2])
+        XCTAssertTrue(layout.contains(s1))
+        XCTAssertTrue(layout.contains(s2))
     }
 }

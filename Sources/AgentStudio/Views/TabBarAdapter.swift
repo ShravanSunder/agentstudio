@@ -41,7 +41,7 @@ final class TabBarAdapter: ObservableObject {
 
     private func observe() {
         // Re-derive tabs whenever the store's published state changes.
-        // We listen to objectWillChange to catch any mutation (views, sessions, activeViewId).
+        // We listen to objectWillChange to catch any mutation (tabs, panes, activeTabId).
         store.objectWillChange
             .receive(on: DispatchQueue.main)
             .sink { [weak self] _ in
@@ -54,20 +54,19 @@ final class TabBarAdapter: ObservableObject {
     }
 
     private func refresh() {
-        let storeTabs = store.activeTabs
-        let sessions = store.sessions
+        let storeTabs = store.tabs
 
         tabs = storeTabs.map { tab in
-            let sessionTitles = tab.sessionIds.compactMap { sessionId in
-                sessions.first { $0.id == sessionId }?.title
+            let paneTitles = tab.paneIds.compactMap { paneId in
+                store.pane(paneId)?.title
             }
-            let displayTitle = sessionTitles.count > 1
-                ? sessionTitles.joined(separator: " | ")
-                : sessionTitles.first ?? "Terminal"
+            let displayTitle = paneTitles.count > 1
+                ? paneTitles.joined(separator: " | ")
+                : paneTitles.first ?? "Terminal"
 
             return TabBarItem(
                 id: tab.id,
-                title: sessionTitles.first ?? "Terminal",
+                title: paneTitles.first ?? "Terminal",
                 isSplit: tab.isSplit,
                 displayTitle: displayTitle
             )

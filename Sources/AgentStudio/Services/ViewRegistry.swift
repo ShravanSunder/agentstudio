@@ -3,7 +3,7 @@ import os.log
 
 private let registryLogger = Logger(subsystem: "com.agentstudio", category: "ViewRegistry")
 
-/// Maps session IDs to live AgentStudioTerminalView instances.
+/// Maps pane IDs to live AgentStudioTerminalView instances.
 /// Runtime only — not persisted. Collaborator of WorkspaceStore.
 @MainActor
 final class ViewRegistry {
@@ -14,25 +14,25 @@ final class ViewRegistry {
     /// without subscribing to Combine or notifications.
     private(set) var epoch: Int = 0
 
-    /// Register a view for a session.
-    func register(_ view: AgentStudioTerminalView, for sessionId: UUID) {
-        views[sessionId] = view
+    /// Register a view for a pane.
+    func register(_ view: AgentStudioTerminalView, for paneId: UUID) {
+        views[paneId] = view
         epoch += 1
     }
 
-    /// Unregister a view for a session.
-    func unregister(_ sessionId: UUID) {
-        views.removeValue(forKey: sessionId)
+    /// Unregister a view for a pane.
+    func unregister(_ paneId: UUID) {
+        views.removeValue(forKey: paneId)
         epoch += 1
     }
 
-    /// Get the view for a session, if registered.
-    func view(for sessionId: UUID) -> AgentStudioTerminalView? {
-        views[sessionId]
+    /// Get the view for a pane, if registered.
+    func view(for paneId: UUID) -> AgentStudioTerminalView? {
+        views[paneId]
     }
 
-    /// All currently registered session IDs.
-    var registeredSessionIds: Set<UUID> {
+    /// All currently registered pane IDs.
+    var registeredPaneIds: Set<UUID> {
         Set(views.keys)
     }
 
@@ -42,7 +42,7 @@ final class ViewRegistry {
     func renderTree(for layout: Layout) -> TerminalSplitTree? {
         guard let root = layout.root else { return TerminalSplitTree() }
         guard let renderedRoot = renderNode(root) else {
-            registryLogger.warning("renderTree failed — all sessions missing views")
+            registryLogger.warning("renderTree failed — all panes missing views")
             return nil
         }
         return TerminalSplitTree(root: renderedRoot)
@@ -52,9 +52,9 @@ final class ViewRegistry {
 
     private func renderNode(_ node: Layout.Node) -> TerminalSplitTree.Node? {
         switch node {
-        case .leaf(let sessionId):
-            guard let view = views[sessionId] else {
-                registryLogger.warning("No view registered for session \(sessionId) — skipping leaf")
+        case .leaf(let paneId):
+            guard let view = views[paneId] else {
+                registryLogger.warning("No view registered for pane \(paneId) — skipping leaf")
                 return nil
             }
             return .leaf(view: view)

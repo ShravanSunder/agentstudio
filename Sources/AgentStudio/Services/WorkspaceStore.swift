@@ -13,9 +13,9 @@ final class WorkspaceStore: ObservableObject {
     // MARK: - Persisted State
 
     @Published private(set) var repos: [Repo] = []
-    @Published private(set) var sessions: [TerminalSession] = []
-    @Published private(set) var views: [ViewDefinition] = []
-    @Published private(set) var activeViewId: UUID?
+    @Published private(set) var panes: [UUID: Pane] = [:]
+    @Published private(set) var tabs: [Tab] = []
+    @Published private(set) var activeTabId: UUID?
 
     // MARK: - Transient UI State
 
@@ -53,45 +53,41 @@ final class WorkspaceStore: ObservableObject {
 
     // MARK: - Derived State
 
-    var activeView: ViewDefinition? {
-        views.first { $0.id == activeViewId }
+    var activeTab: Tab? {
+        tabs.first { $0.id == activeTabId }
     }
 
-    var activeTabs: [Tab] {
-        activeView?.tabs ?? []
+    /// All pane IDs visible in the active tab's active arrangement.
+    var activePaneIds: Set<UUID> {
+        Set(activeTab?.paneIds ?? [])
     }
 
-    var activeTabId: UUID? {
-        activeView?.activeTabId
-    }
-
-    /// All sessions visible in the active view.
-    var activeSessionIds: Set<UUID> {
-        Set(activeView?.allSessionIds ?? [])
-    }
-
-    /// Is a worktree active (has any session)?
+    /// Is a worktree active (has any pane)?
     func isWorktreeActive(_ worktreeId: UUID) -> Bool {
-        sessions.contains { $0.worktreeId == worktreeId }
+        panes.values.contains { $0.worktreeId == worktreeId }
     }
 
-    /// Count of sessions for a worktree.
-    func sessionCount(for worktreeId: UUID) -> Int {
-        sessions.filter { $0.worktreeId == worktreeId }.count
+    /// Count of panes for a worktree.
+    func paneCount(for worktreeId: UUID) -> Int {
+        panes.values.filter { $0.worktreeId == worktreeId }.count
     }
 
     // MARK: - Queries
 
-    func session(_ id: UUID) -> TerminalSession? {
-        sessions.first { $0.id == id }
+    func pane(_ id: UUID) -> Pane? {
+        guard let pane = panes[id] else {
+            storeLogger.warning("pane(\(id)): not found in store")
+            return nil
+        }
+        return pane
     }
 
     func tab(_ id: UUID) -> Tab? {
-        activeView?.tabs.first { $0.id == id }
+        tabs.first { $0.id == id }
     }
 
-    func tabContaining(sessionId: UUID) -> Tab? {
-        activeView?.tabs.first { $0.sessionIds.contains(sessionId) }
+    func tabContaining(paneId: UUID) -> Tab? {
+        tabs.first { $0.panes.contains(paneId) }
     }
 
     func repo(_ id: UUID) -> Repo? {
@@ -108,207 +104,146 @@ final class WorkspaceStore: ObservableObject {
         }
     }
 
-    func sessions(for worktreeId: UUID) -> [TerminalSession] {
-        sessions.filter { $0.worktreeId == worktreeId }
+    func panes(for worktreeId: UUID) -> [Pane] {
+        panes.values.filter { $0.worktreeId == worktreeId }
     }
 
-    // MARK: - Session Mutations
+    // MARK: - Pane Mutations
 
     @discardableResult
-    func createSession(
+    func createPane(
         source: TerminalSource,
         title: String = "Terminal",
         provider: SessionProvider = .ghostty,
         lifetime: SessionLifetime = .persistent,
         residency: SessionResidency = .active
-    ) -> TerminalSession {
-        let session = TerminalSession(
-            source: source,
-            title: title,
-            provider: provider,
-            lifetime: lifetime,
+    ) -> Pane {
+        let pane = Pane(
+            content: .terminal(TerminalState(provider: provider, lifetime: lifetime)),
+            metadata: PaneMetadata(source: source, title: title),
             residency: residency
         )
-        sessions.append(session)
+        panes[pane.id] = pane
         markDirty()
-        return session
+        return pane
     }
 
-    func removeSession(_ sessionId: UUID) {
-        sessions.removeAll { $0.id == sessionId }
+    func removePane(_ paneId: UUID) {
+        panes.removeValue(forKey: paneId)
 
-        // Remove from all view layouts
-        for viewIndex in views.indices {
-            for tabIndex in views[viewIndex].tabs.indices {
-                if let newLayout = views[viewIndex].tabs[tabIndex].layout.removing(sessionId: sessionId) {
-                    views[viewIndex].tabs[tabIndex].layout = newLayout
-                    // Update activeSessionId if it was the removed session
-                    if views[viewIndex].tabs[tabIndex].activeSessionId == sessionId {
-                        views[viewIndex].tabs[tabIndex].activeSessionId = newLayout.sessionIds.first
-                    }
+        // Remove from all tab layouts
+        for tabIndex in tabs.indices {
+            tabs[tabIndex].panes.removeAll { $0 == paneId }
+            // Remove from all arrangements
+            for arrIndex in tabs[tabIndex].arrangements.indices {
+                tabs[tabIndex].arrangements[arrIndex].visiblePaneIds.remove(paneId)
+                if let newLayout = tabs[tabIndex].arrangements[arrIndex].layout.removing(paneId: paneId) {
+                    tabs[tabIndex].arrangements[arrIndex].layout = newLayout
                 } else {
-                    // Layout became empty — mark tab for removal
-                    views[viewIndex].tabs[tabIndex].layout = Layout()
+                    // Layout became empty
+                    tabs[tabIndex].arrangements[arrIndex].layout = Layout()
                 }
             }
-            // Remove empty tabs
-            views[viewIndex].tabs.removeAll { $0.layout.isEmpty }
-            // Fix activeTabId if it was removed
-            if let activeTabId = views[viewIndex].activeTabId,
-               !views[viewIndex].tabs.contains(where: { $0.id == activeTabId }) {
-                views[viewIndex].activeTabId = views[viewIndex].tabs.last?.id
+            // Update activePaneId if it was the removed pane
+            if tabs[tabIndex].activePaneId == paneId {
+                tabs[tabIndex].activePaneId = tabs[tabIndex].activeArrangement.layout.paneIds.first
+            }
+            if tabs[tabIndex].zoomedPaneId == paneId {
+                tabs[tabIndex].zoomedPaneId = nil
             }
         }
+        // Remove empty tabs (default arrangement has empty layout)
+        tabs.removeAll { $0.defaultArrangement.layout.isEmpty }
+        // Fix activeTabId if it was removed
+        if let atId = activeTabId, !tabs.contains(where: { $0.id == atId }) {
+            activeTabId = tabs.last?.id
+        }
         markDirty()
     }
 
-    func updateSessionTitle(_ sessionId: UUID, title: String) {
-        guard let index = sessions.firstIndex(where: { $0.id == sessionId }) else {
-            storeLogger.warning("updateSessionTitle: session \(sessionId) not found")
+    func updatePaneTitle(_ paneId: UUID, title: String) {
+        guard panes[paneId] != nil else {
+            storeLogger.warning("updatePaneTitle: pane \(paneId) not found")
             return
         }
-        sessions[index].title = title
+        panes[paneId]!.metadata.title = title
         markDirty()
     }
 
-    func updateSessionCWD(_ sessionId: UUID, cwd: URL?) {
-        guard let index = sessions.firstIndex(where: { $0.id == sessionId }) else {
-            storeLogger.warning("updateSessionCWD: session \(sessionId) not found")
+    func updatePaneCWD(_ paneId: UUID, cwd: URL?) {
+        guard panes[paneId] != nil else {
+            storeLogger.warning("updatePaneCWD: pane \(paneId) not found")
             return
         }
-        guard sessions[index].lastKnownCWD != cwd else { return }
-        sessions[index].lastKnownCWD = cwd
+        guard panes[paneId]!.metadata.cwd != cwd else { return }
+        panes[paneId]!.metadata.cwd = cwd
         markDirty()
     }
 
-    func updateSessionAgent(_ sessionId: UUID, agent: AgentType?) {
-        guard let index = sessions.firstIndex(where: { $0.id == sessionId }) else {
-            storeLogger.warning("updateSessionAgent: session \(sessionId) not found")
+    func updatePaneAgent(_ paneId: UUID, agent: AgentType?) {
+        guard panes[paneId] != nil else {
+            storeLogger.warning("updatePaneAgent: pane \(paneId) not found")
             return
         }
-        sessions[index].agent = agent
+        panes[paneId]!.metadata.agentType = agent
         markDirty()
     }
 
-    func setResidency(_ residency: SessionResidency, for sessionId: UUID) {
-        guard let index = sessions.firstIndex(where: { $0.id == sessionId }) else {
-            storeLogger.warning("setResidency: session \(sessionId) not found")
+    func setResidency(_ residency: SessionResidency, for paneId: UUID) {
+        guard panes[paneId] != nil else {
+            storeLogger.warning("setResidency: pane \(paneId) not found")
             return
         }
-        sessions[index].residency = residency
+        panes[paneId]!.residency = residency
         markDirty()
     }
 
-    // MARK: - View Mutations
-
-    func switchView(_ viewId: UUID) {
-        guard views.contains(where: { $0.id == viewId }) else {
-            storeLogger.warning("switchView: view \(viewId) not found")
-            return
-        }
-        activeViewId = viewId
-        markDirty()
-    }
-
-    @discardableResult
-    func createView(name: String, kind: ViewKind) -> ViewDefinition {
-        let view = ViewDefinition(name: name, kind: kind)
-        views.append(view)
-        markDirty()
-        return view
-    }
-
-    func deleteView(_ viewId: UUID) {
-        // Cannot delete main view
-        guard views.first(where: { $0.id == viewId })?.kind != .main else { return }
-        views.removeAll { $0.id == viewId }
-        if activeViewId == viewId {
-            activeViewId = views.first(where: { $0.kind == .main })?.id
-        }
-        markDirty()
-    }
-
-    @discardableResult
-    func saveCurrentViewAs(name: String) -> ViewDefinition? {
-        guard let current = activeView else { return nil }
-        let snapshot = ViewDefinition(
-            name: name,
-            kind: .saved,
-            tabs: current.tabs,
-            activeTabId: current.activeTabId
-        )
-        views.append(snapshot)
-        markDirty()
-        return snapshot
-    }
-
-    // MARK: - Tab Mutations (within active view)
+    // MARK: - Tab Mutations
 
     func appendTab(_ tab: Tab) {
-        guard let viewIndex = activeViewIndex else {
-            storeLogger.warning("appendTab: no active view")
-            return
-        }
-        views[viewIndex].tabs.append(tab)
-        views[viewIndex].activeTabId = tab.id
+        tabs.append(tab)
+        activeTabId = tab.id
         markDirty()
     }
 
     func removeTab(_ tabId: UUID) {
-        guard let viewIndex = activeViewIndex else {
-            storeLogger.warning("removeTab: no active view")
-            return
-        }
-        views[viewIndex].tabs.removeAll { $0.id == tabId }
-        if views[viewIndex].activeTabId == tabId {
-            views[viewIndex].activeTabId = views[viewIndex].tabs.last?.id
+        tabs.removeAll { $0.id == tabId }
+        if activeTabId == tabId {
+            activeTabId = tabs.last?.id
         }
         markDirty()
     }
 
     func insertTab(_ tab: Tab, at index: Int) {
-        guard let viewIndex = activeViewIndex else {
-            storeLogger.warning("insertTab: no active view")
-            return
-        }
-        let clampedIndex = min(index, views[viewIndex].tabs.count)
-        views[viewIndex].tabs.insert(tab, at: clampedIndex)
+        let clampedIndex = min(index, tabs.count)
+        tabs.insert(tab, at: clampedIndex)
         markDirty()
     }
 
     func moveTab(fromId: UUID, toIndex: Int) {
-        guard let viewIndex = activeViewIndex else {
-            storeLogger.warning("moveTab: no active view")
-            return
-        }
-        guard let fromIndex = views[viewIndex].tabs.firstIndex(where: { $0.id == fromId }) else {
+        guard let fromIndex = tabs.firstIndex(where: { $0.id == fromId }) else {
             storeLogger.warning("moveTab: tab \(fromId) not found")
             return
         }
-        let tab = views[viewIndex].tabs.remove(at: fromIndex)
+        let tab = tabs.remove(at: fromIndex)
         // After removal, indices shift left. Adjust toIndex to compensate.
         let adjustedIndex = toIndex > fromIndex ? toIndex - 1 : toIndex
-        let clampedIndex = max(0, min(adjustedIndex, views[viewIndex].tabs.count))
-        views[viewIndex].tabs.insert(tab, at: clampedIndex)
+        let clampedIndex = max(0, min(adjustedIndex, tabs.count))
+        tabs.insert(tab, at: clampedIndex)
         markDirty()
     }
 
     /// Move a tab by a relative delta. Clamps at boundaries (no cyclic wrap),
     /// matching Ghostty's TerminalController.onMoveTab behavior.
     func moveTabByDelta(tabId: UUID, delta: Int) {
-        guard let viewIndex = activeViewIndex else {
-            storeLogger.warning("moveTabByDelta: no active view")
-            return
-        }
-        guard let fromIndex = views[viewIndex].tabs.firstIndex(where: { $0.id == tabId }) else {
+        guard let fromIndex = tabs.firstIndex(where: { $0.id == tabId }) else {
             storeLogger.warning("moveTabByDelta: tab \(tabId) not found")
             return
         }
-        let count = views[viewIndex].tabs.count
+        let count = tabs.count
         guard count > 1 else { return }
 
         // Clamp at boundaries — matches Ghostty's behavior.
-        // Guard against Int.min overflow: -Int.min is undefined, treat as max leftward move.
         let finalIndex: Int
         if delta < 0 {
             let magnitude = delta == Int.min ? Int.max : -delta
@@ -319,83 +254,135 @@ final class WorkspaceStore: ObservableObject {
         }
         guard finalIndex != fromIndex else { return }
 
-        let tab = views[viewIndex].tabs.remove(at: fromIndex)
-        views[viewIndex].tabs.insert(tab, at: finalIndex)
+        let tab = tabs.remove(at: fromIndex)
+        tabs.insert(tab, at: finalIndex)
         markDirty()
     }
 
     func setActiveTab(_ tabId: UUID?) {
-        guard let viewIndex = activeViewIndex else {
-            storeLogger.warning("setActiveTab: no active view")
-            return
-        }
-        views[viewIndex].activeTabId = tabId
+        activeTabId = tabId
         markDirty()
     }
 
-    // MARK: - Layout Mutations (within a tab in the active view)
+    // MARK: - Layout Mutations (within a tab's active arrangement)
 
-    func insertSession(
-        _ sessionId: UUID,
+    func insertPane(
+        _ paneId: UUID,
         inTab tabId: UUID,
-        at targetSessionId: UUID,
+        at targetPaneId: UUID,
         direction: Layout.SplitDirection,
         position: Layout.Position
     ) {
-        guard let (viewIndex, tabIndex) = findTab(tabId) else { return }
+        guard let tabIndex = findTabIndex(tabId) else { return }
+        let arrIndex = tabs[tabIndex].activeArrangementIndex
+
+        // Validate targetPaneId exists in active arrangement
+        guard tabs[tabIndex].arrangements[arrIndex].layout.contains(targetPaneId) else {
+            storeLogger.warning("insertPane: targetPaneId \(targetPaneId) not in active arrangement")
+            return
+        }
+
         // Clear zoom on new split — user needs to see all panes
-        views[viewIndex].tabs[tabIndex].zoomedSessionId = nil
-        views[viewIndex].tabs[tabIndex].layout = views[viewIndex].tabs[tabIndex].layout
-            .inserting(sessionId: sessionId, at: targetSessionId, direction: direction, position: position)
+        tabs[tabIndex].zoomedPaneId = nil
+        tabs[tabIndex].arrangements[arrIndex].layout = tabs[tabIndex].arrangements[arrIndex].layout
+            .inserting(paneId: paneId, at: targetPaneId, direction: direction, position: position)
+        tabs[tabIndex].arrangements[arrIndex].visiblePaneIds.insert(paneId)
+
+        // Also add to default arrangement if active is not default
+        if !tabs[tabIndex].arrangements[arrIndex].isDefault {
+            let defIdx = tabs[tabIndex].defaultArrangementIndex
+            // Only insert into default if targetPaneId exists there too
+            if tabs[tabIndex].arrangements[defIdx].layout.contains(targetPaneId) {
+                tabs[tabIndex].arrangements[defIdx].layout = tabs[tabIndex].arrangements[defIdx].layout
+                    .inserting(paneId: paneId, at: targetPaneId, direction: direction, position: position)
+                tabs[tabIndex].arrangements[defIdx].visiblePaneIds.insert(paneId)
+            }
+        }
+
+        // Add to tab's pane list
+        if !tabs[tabIndex].panes.contains(paneId) {
+            tabs[tabIndex].panes.append(paneId)
+        }
         markDirty()
     }
 
-    func removeSessionFromLayout(_ sessionId: UUID, inTab tabId: UUID) {
-        guard let (viewIndex, tabIndex) = findTab(tabId) else { return }
-        // Clear zoom if the zoomed session is being removed
-        if views[viewIndex].tabs[tabIndex].zoomedSessionId == sessionId {
-            views[viewIndex].tabs[tabIndex].zoomedSessionId = nil
+    /// Remove a pane from a tab's layouts. Returns `true` if the tab is now empty
+    /// (last pane was removed) — caller is responsible for handling tab closure with undo.
+    @discardableResult
+    func removePaneFromLayout(_ paneId: UUID, inTab tabId: UUID) -> Bool {
+        guard let tabIndex = findTabIndex(tabId) else { return false }
+        let arrIndex = tabs[tabIndex].activeArrangementIndex
+
+        // Clear zoom if the zoomed pane is being removed
+        if tabs[tabIndex].zoomedPaneId == paneId {
+            tabs[tabIndex].zoomedPaneId = nil
         }
-        if let newLayout = views[viewIndex].tabs[tabIndex].layout.removing(sessionId: sessionId) {
-            views[viewIndex].tabs[tabIndex].layout = newLayout
-            // Update active session if removed
-            if views[viewIndex].tabs[tabIndex].activeSessionId == sessionId {
-                views[viewIndex].tabs[tabIndex].activeSessionId = newLayout.sessionIds.first
+
+        if let newLayout = tabs[tabIndex].arrangements[arrIndex].layout.removing(paneId: paneId) {
+            tabs[tabIndex].arrangements[arrIndex].layout = newLayout
+            tabs[tabIndex].arrangements[arrIndex].visiblePaneIds.remove(paneId)
+            // Update active pane if removed
+            if tabs[tabIndex].activePaneId == paneId {
+                tabs[tabIndex].activePaneId = newLayout.paneIds.first
             }
         } else {
-            // Last session removed — close tab
-            removeTab(tabId)
+            // Last pane removed — signal to caller that tab is now empty.
+            // Do NOT call removeTab here: let ActionExecutor handle it with undo support.
+            return true
         }
+
+        // Also remove from default arrangement if active is not default
+        if !tabs[tabIndex].arrangements[arrIndex].isDefault {
+            let defIdx = tabs[tabIndex].defaultArrangementIndex
+            tabs[tabIndex].arrangements[defIdx].visiblePaneIds.remove(paneId)
+            if let newDefLayout = tabs[tabIndex].arrangements[defIdx].layout.removing(paneId: paneId) {
+                tabs[tabIndex].arrangements[defIdx].layout = newDefLayout
+            }
+        }
+
+        // Remove from tab's pane list
+        tabs[tabIndex].panes.removeAll { $0 == paneId }
+
         markDirty()
+        return false
     }
 
     func resizePane(tabId: UUID, splitId: UUID, ratio: Double) {
-        guard let (viewIndex, tabIndex) = findTab(tabId) else { return }
-        views[viewIndex].tabs[tabIndex].layout = views[viewIndex].tabs[tabIndex].layout
+        guard let tabIndex = findTabIndex(tabId) else { return }
+        let arrIndex = tabs[tabIndex].activeArrangementIndex
+        tabs[tabIndex].arrangements[arrIndex].layout = tabs[tabIndex].arrangements[arrIndex].layout
             .resizing(splitId: splitId, ratio: ratio)
         markDirty()
     }
 
     func equalizePanes(tabId: UUID) {
-        guard let (viewIndex, tabIndex) = findTab(tabId) else { return }
-        views[viewIndex].tabs[tabIndex].layout = views[viewIndex].tabs[tabIndex].layout.equalized()
+        guard let tabIndex = findTabIndex(tabId) else { return }
+        let arrIndex = tabs[tabIndex].activeArrangementIndex
+        tabs[tabIndex].arrangements[arrIndex].layout = tabs[tabIndex].arrangements[arrIndex].layout.equalized()
         markDirty()
     }
 
-    func setActiveSession(_ sessionId: UUID?, inTab tabId: UUID) {
-        guard let (viewIndex, tabIndex) = findTab(tabId) else { return }
-        views[viewIndex].tabs[tabIndex].activeSessionId = sessionId
+    func setActivePane(_ paneId: UUID?, inTab tabId: UUID) {
+        guard let tabIndex = findTabIndex(tabId) else { return }
+        // Validate paneId exists in the pane dict and in the tab's pane list
+        if let paneId = paneId {
+            guard panes[paneId] != nil, tabs[tabIndex].panes.contains(paneId) else {
+                storeLogger.warning("setActivePane: paneId \(paneId) not found in tab \(tabId)")
+                return
+            }
+        }
+        tabs[tabIndex].activePaneId = paneId
         markDirty()
     }
 
     // MARK: - Zoom
 
-    func toggleZoom(sessionId: UUID, inTab tabId: UUID) {
-        guard let (viewIndex, tabIndex) = findTab(tabId) else { return }
-        if views[viewIndex].tabs[tabIndex].zoomedSessionId == sessionId {
-            views[viewIndex].tabs[tabIndex].zoomedSessionId = nil
-        } else if views[viewIndex].tabs[tabIndex].layout.contains(sessionId) {
-            views[viewIndex].tabs[tabIndex].zoomedSessionId = sessionId
+    func toggleZoom(paneId: UUID, inTab tabId: UUID) {
+        guard let tabIndex = findTabIndex(tabId) else { return }
+        if tabs[tabIndex].zoomedPaneId == paneId {
+            tabs[tabIndex].zoomedPaneId = nil
+        } else if tabs[tabIndex].layout.contains(paneId) {
+            tabs[tabIndex].zoomedPaneId = paneId
         }
         // Do NOT markDirty() — zoom is transient, not persisted
     }
@@ -403,11 +390,11 @@ final class WorkspaceStore: ObservableObject {
     // MARK: - Keyboard Resize
 
     func resizePaneByDelta(tabId: UUID, paneId: UUID, direction: SplitResizeDirection, amount: UInt16) {
-        guard let (viewIndex, tabIndex) = findTab(tabId) else { return }
-        let tab = views[viewIndex].tabs[tabIndex]
+        guard let tabIndex = findTabIndex(tabId) else { return }
+        let tab = tabs[tabIndex]
 
         // No-op while zoomed — no visual feedback for resize
-        guard tab.zoomedSessionId == nil else {
+        guard tab.zoomedPaneId == nil else {
             storeLogger.debug("Ignoring resize while zoomed")
             return
         }
@@ -423,99 +410,136 @@ final class WorkspaceStore: ObservableObject {
         let delta = Self.resizeRatioStep * (Double(amount) / Self.resizeBaseAmount)
         let newRatio = min(0.9, max(0.1, increase ? currentRatio + delta : currentRatio - delta))
 
-        views[viewIndex].tabs[tabIndex].layout = views[viewIndex].tabs[tabIndex].layout
+        let arrIndex = tabs[tabIndex].activeArrangementIndex
+        tabs[tabIndex].arrangements[arrIndex].layout = tabs[tabIndex].arrangements[arrIndex].layout
             .resizing(splitId: splitId, ratio: newRatio)
         markDirty()
     }
 
     // MARK: - Compound Operations
 
-    /// Break a split tab into individual tabs, one per session.
+    /// Break a split tab into individual tabs, one per pane.
     func breakUpTab(_ tabId: UUID) -> [Tab] {
-        guard let (viewIndex, tabIndex) = findTab(tabId) else { return [] }
-        let sessionIds = views[viewIndex].tabs[tabIndex].sessionIds
-        guard sessionIds.count > 1 else { return [] }
+        guard let tabIndex = findTabIndex(tabId) else { return [] }
+        let tabPaneIds = tabs[tabIndex].paneIds
+        guard tabPaneIds.count > 1 else { return [] }
+
+        // Validate all pane IDs exist in the dict
+        let validPaneIds = tabPaneIds.filter { panes[$0] != nil }
+        guard !validPaneIds.isEmpty else {
+            storeLogger.warning("breakUpTab: no valid panes found for tab \(tabId)")
+            return []
+        }
 
         // Clear zoom — tab is being decomposed
-        views[viewIndex].tabs[tabIndex].zoomedSessionId = nil
+        tabs[tabIndex].zoomedPaneId = nil
 
         // Remove original tab
-        views[viewIndex].tabs.remove(at: tabIndex)
+        tabs.remove(at: tabIndex)
 
         // Create individual tabs
         var newTabs: [Tab] = []
-        for sessionId in sessionIds {
-            let tab = Tab(sessionId: sessionId)
+        for paneId in validPaneIds {
+            let tab = Tab(paneId: paneId)
             newTabs.append(tab)
         }
 
         // Insert at original position
-        let insertIndex = min(tabIndex, views[viewIndex].tabs.count)
-        views[viewIndex].tabs.insert(contentsOf: newTabs, at: insertIndex)
-        views[viewIndex].activeTabId = newTabs.first?.id
+        let insertIndex = min(tabIndex, tabs.count)
+        tabs.insert(contentsOf: newTabs, at: insertIndex)
+        activeTabId = newTabs.first?.id
 
         markDirty()
         return newTabs
     }
 
-    /// Extract a session from a tab into its own new tab.
-    func extractSession(_ sessionId: UUID, fromTab tabId: UUID) -> Tab? {
-        guard let (viewIndex, tabIndex) = findTab(tabId) else { return nil }
-        guard views[viewIndex].tabs[tabIndex].sessionIds.count > 1 else { return nil }
-
-        // Clear zoom if extracting the zoomed session
-        if views[viewIndex].tabs[tabIndex].zoomedSessionId == sessionId {
-            views[viewIndex].tabs[tabIndex].zoomedSessionId = nil
+    /// Extract a pane from a tab into its own new tab.
+    func extractPane(_ paneId: UUID, fromTab tabId: UUID) -> Tab? {
+        guard let tabIndex = findTabIndex(tabId) else { return nil }
+        guard tabs[tabIndex].paneIds.count > 1 else { return nil }
+        guard tabs[tabIndex].panes.contains(paneId) else {
+            storeLogger.warning("extractPane: paneId \(paneId) not in tab \(tabId)")
+            return nil
         }
 
-        // Remove session from source tab
-        if let newLayout = views[viewIndex].tabs[tabIndex].layout.removing(sessionId: sessionId) {
-            views[viewIndex].tabs[tabIndex].layout = newLayout
-            if views[viewIndex].tabs[tabIndex].activeSessionId == sessionId {
-                views[viewIndex].tabs[tabIndex].activeSessionId = newLayout.sessionIds.first
+        // Clear zoom if extracting the zoomed pane
+        if tabs[tabIndex].zoomedPaneId == paneId {
+            tabs[tabIndex].zoomedPaneId = nil
+        }
+
+        // Remove pane from source tab's arrangements
+        for arrIndex in tabs[tabIndex].arrangements.indices {
+            if let newLayout = tabs[tabIndex].arrangements[arrIndex].layout.removing(paneId: paneId) {
+                tabs[tabIndex].arrangements[arrIndex].layout = newLayout
+                tabs[tabIndex].arrangements[arrIndex].visiblePaneIds.remove(paneId)
             }
+        }
+        tabs[tabIndex].panes.removeAll { $0 == paneId }
+        if tabs[tabIndex].activePaneId == paneId {
+            tabs[tabIndex].activePaneId = tabs[tabIndex].activeArrangement.layout.paneIds.first
         }
 
         // Create new tab
-        let newTab = Tab(sessionId: sessionId)
+        let newTab = Tab(paneId: paneId)
         let insertIndex = tabIndex + 1
-        views[viewIndex].tabs.insert(newTab, at: min(insertIndex, views[viewIndex].tabs.count))
-        views[viewIndex].activeTabId = newTab.id
+        tabs.insert(newTab, at: min(insertIndex, tabs.count))
+        activeTabId = newTab.id
 
         markDirty()
         return newTab
     }
 
-    /// Merge all sessions from source tab into target tab's layout.
+    /// Merge all panes from source tab into target tab's layout.
     func mergeTab(
         sourceId: UUID,
         intoTarget targetId: UUID,
-        at targetSessionId: UUID,
+        at targetPaneId: UUID,
         direction: Layout.SplitDirection,
         position: Layout.Position
     ) {
-        guard let viewIndex = activeViewIndex else { return }
-        guard let sourceTabIndex = views[viewIndex].tabs.firstIndex(where: { $0.id == sourceId }),
-              let targetTabIndex = views[viewIndex].tabs.firstIndex(where: { $0.id == targetId }) else { return }
+        guard let sourceTabIndex = tabs.firstIndex(where: { $0.id == sourceId }),
+              let targetTabIndex = tabs.firstIndex(where: { $0.id == targetId }) else { return }
+
+        // Validate targetPaneId exists in target arrangement
+        let targetArrIndex = tabs[targetTabIndex].activeArrangementIndex
+        guard tabs[targetTabIndex].arrangements[targetArrIndex].layout.contains(targetPaneId) else {
+            storeLogger.warning("mergeTab: targetPaneId \(targetPaneId) not in target arrangement")
+            return
+        }
 
         // Clear zoom on target tab — merging changes the layout structure
-        views[viewIndex].tabs[targetTabIndex].zoomedSessionId = nil
+        tabs[targetTabIndex].zoomedPaneId = nil
 
-        let sourceSessionIds = views[viewIndex].tabs[sourceTabIndex].sessionIds
+        let sourcePaneIds = tabs[sourceTabIndex].paneIds
 
-        // Insert each source session into target layout
-        var currentTarget = targetSessionId
-        for sessionId in sourceSessionIds {
-            views[viewIndex].tabs[targetTabIndex].layout = views[viewIndex].tabs[targetTabIndex].layout
-                .inserting(sessionId: sessionId, at: currentTarget, direction: direction, position: position)
-            currentTarget = sessionId
+        // Insert each source pane into target layout
+        var currentTarget = targetPaneId
+        for paneId in sourcePaneIds {
+            tabs[targetTabIndex].arrangements[targetArrIndex].layout = tabs[targetTabIndex].arrangements[targetArrIndex].layout
+                .inserting(paneId: paneId, at: currentTarget, direction: direction, position: position)
+            tabs[targetTabIndex].arrangements[targetArrIndex].visiblePaneIds.insert(paneId)
+
+            // Also add to default arrangement if active is not default
+            if !tabs[targetTabIndex].arrangements[targetArrIndex].isDefault {
+                let defIdx = tabs[targetTabIndex].defaultArrangementIndex
+                if tabs[targetTabIndex].arrangements[defIdx].layout.contains(currentTarget) {
+                    tabs[targetTabIndex].arrangements[defIdx].layout = tabs[targetTabIndex].arrangements[defIdx].layout
+                        .inserting(paneId: paneId, at: currentTarget, direction: direction, position: position)
+                    tabs[targetTabIndex].arrangements[defIdx].visiblePaneIds.insert(paneId)
+                }
+            }
+
+            if !tabs[targetTabIndex].panes.contains(paneId) {
+                tabs[targetTabIndex].panes.append(paneId)
+            }
+            currentTarget = paneId
         }
 
         // Remove source tab
-        views[viewIndex].tabs.remove(at: sourceTabIndex)
+        tabs.remove(at: sourceTabIndex)
 
         // Fix activeTabId
-        views[viewIndex].activeTabId = targetId
+        activeTabId = targetId
 
         markDirty()
     }
@@ -543,7 +567,7 @@ final class WorkspaceStore: ObservableObject {
         let existing = repos[index].worktrees
 
         // Merge discovered worktrees with existing ones, preserving UUIDs for
-        // worktrees that match by path. Sessions reference worktreeId, so changing
+        // worktrees that match by path. Panes reference worktreeId, so changing
         // IDs on refresh would break active detection and lookups.
         let existingByPath = Dictionary(existing.map { ($0.path, $0) }, uniquingKeysWith: { first, _ in first })
         let merged = worktrees.map { discovered -> Worktree in
@@ -571,44 +595,58 @@ final class WorkspaceStore: ObservableObject {
             workspaceId = state.id
             workspaceName = state.name
             repos = state.repos
-            sessions = state.sessions
-            views = state.views
-            activeViewId = state.activeViewId
+            // Convert persisted pane array to dictionary
+            panes = Dictionary(state.panes.map { ($0.id, $0) }, uniquingKeysWith: { _, last in last })
+            tabs = state.tabs
+            activeTabId = state.activeTabId
             sidebarWidth = state.sidebarWidth
             windowFrame = state.windowFrame
             createdAt = state.createdAt
             updatedAt = state.updatedAt
-            storeLogger.info("Restored workspace '\(state.name)' with \(state.sessions.count) session(s), \(state.views.count) view(s)")
+            storeLogger.info("Restored workspace '\(state.name)' with \(state.panes.count) pane(s), \(state.tabs.count) tab(s)")
         } else if persistor.hasWorkspaceFiles() {
             storeLogger.error("Workspace files exist on disk but failed to load — starting with empty state.")
         } else {
             storeLogger.info("No workspace files found — first launch")
         }
 
-        // Migrate legacy ghostty sessions to tmux for session persistence
-        for i in sessions.indices where sessions[i].provider == .ghostty {
-            sessions[i].provider = .tmux
-        }
-
-        // Filter out temporary sessions — they are never restored
-        sessions.removeAll { $0.lifetime == .temporary }
-
-        // Remove sessions whose worktree no longer exists (deleted between launches)
-        let validWorktreeIds = Set(repos.flatMap(\.worktrees).map(\.id))
-        sessions.removeAll { session in
-            if let wid = session.worktreeId, !validWorktreeIds.contains(wid) {
-                storeLogger.warning("Removing session \(session.id) — worktree \(wid) no longer exists")
-                return true
+        // Migrate legacy ghostty panes to tmux for persistence
+        for id in panes.keys {
+            if case .terminal(var termState) = panes[id]!.content, termState.provider == .ghostty {
+                termState.provider = .tmux
+                panes[id]!.content = .terminal(termState)
             }
-            return false
         }
 
-        // Prune views: remove dangling session IDs from layouts
-        let validSessionIds = Set(sessions.map(\.id))
-        pruneInvalidSessions(from: &views, validSessionIds: validSessionIds)
+        // Filter out temporary panes — they are never restored
+        panes = panes.filter { _, pane in
+            if case .terminal(let termState) = pane.content {
+                return termState.lifetime != .temporary
+            }
+            return true
+        }
 
-        // Ensure main view exists
-        ensureMainView()
+        // Remove panes whose worktree no longer exists (deleted between launches)
+        let validWorktreeIds = Set(repos.flatMap(\.worktrees).map(\.id))
+        panes = panes.filter { id, pane in
+            if let wid = pane.worktreeId, !validWorktreeIds.contains(wid) {
+                storeLogger.warning("Removing pane \(id) — worktree \(wid) no longer exists")
+                return false
+            }
+            return true
+        }
+
+        // Prune tabs: remove dangling pane IDs from layouts
+        let validPaneIds = Set(panes.keys)
+        pruneInvalidPanes(from: &tabs, validPaneIds: validPaneIds, activeTabId: &activeTabId)
+
+        // Validate and repair tab structural invariants
+        validateTabInvariants()
+
+        // Ensure at least one tab exists
+        if activeTabId == nil, let firstTab = tabs.first {
+            activeTabId = firstTab.id
+        }
     }
 
     /// Schedule a debounced save. All mutations call this instead of saving inline.
@@ -642,22 +680,28 @@ final class WorkspaceStore: ObservableObject {
         persistor.ensureDirectory()
         updatedAt = Date()
 
-        // Filter out temporary sessions — they are never persisted
-        let persistableSessions = sessions.filter { $0.lifetime != .temporary }
-        let validSessionIds = Set(persistableSessions.map(\.id))
+        // Filter out temporary panes — they are never persisted
+        let persistablePanes = Array(panes.values.filter { pane in
+            if case .terminal(let termState) = pane.content {
+                return termState.lifetime != .temporary
+            }
+            return true
+        })
+        let validPaneIds = Set(persistablePanes.map(\.id))
 
-        // Prune views: remove temporary session IDs from layouts in the PERSISTED COPY.
-        // Live `views` state is not mutated — only the serialized output is cleaned.
-        var prunedViews = views
-        pruneInvalidSessions(from: &prunedViews, validSessionIds: validSessionIds)
+        // Prune tabs: remove temporary pane IDs from layouts in the PERSISTED COPY.
+        // Live state is not mutated — only the serialized output is cleaned.
+        var prunedTabs = tabs
+        var persistedActiveTabId = activeTabId
+        pruneInvalidPanes(from: &prunedTabs, validPaneIds: validPaneIds, activeTabId: &persistedActiveTabId)
 
         let state = WorkspacePersistor.PersistableState(
             id: workspaceId,
             name: workspaceName,
             repos: repos,
-            sessions: persistableSessions,
-            views: prunedViews,
-            activeViewId: activeViewId,
+            panes: persistablePanes,
+            tabs: prunedTabs,
+            activeTabId: persistedActiveTabId,
             sidebarWidth: sidebarWidth,
             windowFrame: windowFrame,
             createdAt: createdAt,
@@ -690,120 +734,188 @@ final class WorkspaceStore: ObservableObject {
 
     // MARK: - Undo
 
-    /// Snapshot for undo close. Captures tab + sessions + view context.
+    /// Snapshot for undo close. Captures tab + panes.
     struct CloseSnapshot: Codable {
         let tab: Tab
-        let sessions: [TerminalSession]
-        let viewId: UUID
+        let panes: [Pane]
         let tabIndex: Int
     }
 
     func snapshotForClose(tabId: UUID) -> CloseSnapshot? {
-        guard let viewIndex = activeViewIndex,
-              let tabIndex = views[viewIndex].tabs.firstIndex(where: { $0.id == tabId }) else {
-            return nil
-        }
-        let tab = views[viewIndex].tabs[tabIndex]
-        let tabSessions = tab.sessionIds.compactMap { session($0) }
+        guard let tabIndex = findTabIndex(tabId) else { return nil }
+        let tab = tabs[tabIndex]
+        let tabPanes = tab.panes.compactMap { pane($0) }
         return CloseSnapshot(
             tab: tab,
-            sessions: tabSessions,
-            viewId: views[viewIndex].id,
+            panes: tabPanes,
             tabIndex: tabIndex
         )
     }
 
     func restoreFromSnapshot(_ snapshot: CloseSnapshot) {
-        // Re-add sessions that were removed
-        for session in snapshot.sessions {
-            if !sessions.contains(where: { $0.id == session.id }) {
-                sessions.append(session)
+        // Re-add panes that were removed
+        for pane in snapshot.panes {
+            if panes[pane.id] == nil {
+                panes[pane.id] = pane
             }
         }
 
-        // Re-insert tab at original position in the correct view
-        if let viewIndex = views.firstIndex(where: { $0.id == snapshot.viewId }) {
-            let insertIndex = min(snapshot.tabIndex, views[viewIndex].tabs.count)
-            views[viewIndex].tabs.insert(snapshot.tab, at: insertIndex)
-            views[viewIndex].activeTabId = snapshot.tab.id
-        } else if let viewIndex = activeViewIndex {
-            // Fallback to active view
-            views[viewIndex].tabs.append(snapshot.tab)
-            views[viewIndex].activeTabId = snapshot.tab.id
-        }
+        // Re-insert tab at original position
+        let insertIndex = min(snapshot.tabIndex, tabs.count)
+        tabs.insert(snapshot.tab, at: insertIndex)
+        activeTabId = snapshot.tab.id
 
         markDirty()
     }
 
     // MARK: - Private Helpers
 
-    private var activeViewIndex: Int? {
-        views.firstIndex { $0.id == activeViewId }
+    private func findTabIndex(_ tabId: UUID) -> Int? {
+        tabs.firstIndex { $0.id == tabId }
     }
 
-    private func findTab(_ tabId: UUID) -> (viewIndex: Int, tabIndex: Int)? {
-        guard let viewIndex = activeViewIndex else { return nil }
-        guard let tabIndex = views[viewIndex].tabs.firstIndex(where: { $0.id == tabId }) else { return nil }
-        return (viewIndex, tabIndex)
-    }
-
-    /// Remove session IDs from view layouts that are not in the valid set.
-    /// Follows the same pattern as `removeSession()` — prunes layout nodes,
-    /// removes empty tabs, and fixes activeTabId pointers.
-    private func pruneInvalidSessions(from views: inout [ViewDefinition], validSessionIds: Set<UUID>) {
+    /// Remove pane IDs from tab layouts that are not in the valid set.
+    /// Prunes layout nodes, removes empty tabs, and fixes activeTabId.
+    /// `activeTabId` is passed as inout so this method works correctly both when
+    /// mutating live state (restore) and when operating on a persisted copy (persistNow).
+    private func pruneInvalidPanes(from tabs: inout [Tab], validPaneIds: Set<UUID>, activeTabId: inout UUID?) {
         var totalPruned = 0
         var tabsRemoved = 0
 
-        for viewIndex in views.indices {
-            let viewName = views[viewIndex].name
-            for tabIndex in views[viewIndex].tabs.indices {
-                let tabId = views[viewIndex].tabs[tabIndex].id
-                let invalidIds = views[viewIndex].tabs[tabIndex].sessionIds.filter { !validSessionIds.contains($0) }
-                for sessionId in invalidIds {
-                    storeLogger.warning("Pruning invalid session \(sessionId) from view '\(viewName)' tab \(tabId)")
+        for tabIndex in tabs.indices {
+            let tabId = tabs[tabIndex].id
+            // Prune panes list
+            tabs[tabIndex].panes.removeAll { !validPaneIds.contains($0) }
+
+            // Prune each arrangement
+            for arrIndex in tabs[tabIndex].arrangements.indices {
+                let invalidIds = tabs[tabIndex].arrangements[arrIndex].layout.paneIds.filter { !validPaneIds.contains($0) }
+                for paneId in invalidIds {
+                    storeLogger.warning("Pruning invalid pane \(paneId) from tab \(tabId)")
                     totalPruned += 1
-                    if let newLayout = views[viewIndex].tabs[tabIndex].layout.removing(sessionId: sessionId) {
-                        views[viewIndex].tabs[tabIndex].layout = newLayout
-                        if views[viewIndex].tabs[tabIndex].activeSessionId == sessionId {
-                            views[viewIndex].tabs[tabIndex].activeSessionId = newLayout.sessionIds.first
-                        }
+                    if let newLayout = tabs[tabIndex].arrangements[arrIndex].layout.removing(paneId: paneId) {
+                        tabs[tabIndex].arrangements[arrIndex].layout = newLayout
                     } else {
-                        // Layout became empty — mark tab for removal
-                        views[viewIndex].tabs[tabIndex].layout = Layout()
+                        tabs[tabIndex].arrangements[arrIndex].layout = Layout()
                     }
+                    tabs[tabIndex].arrangements[arrIndex].visiblePaneIds.remove(paneId)
                 }
             }
-            // Remove empty tabs
-            let beforeCount = views[viewIndex].tabs.count
-            views[viewIndex].tabs.removeAll { $0.layout.isEmpty }
-            let removed = beforeCount - views[viewIndex].tabs.count
-            if removed > 0 {
-                storeLogger.warning("Removed \(removed) empty tab(s) from view '\(viewName)' after pruning")
-                tabsRemoved += removed
+            // Update activePaneId if invalid
+            if let activePaneId = tabs[tabIndex].activePaneId, !validPaneIds.contains(activePaneId) {
+                tabs[tabIndex].activePaneId = tabs[tabIndex].activeArrangement.layout.paneIds.first
             }
-            // Fix activeTabId if it was removed
-            if let activeTabId = views[viewIndex].activeTabId,
-               !views[viewIndex].tabs.contains(where: { $0.id == activeTabId }) {
-                let newActiveId = views[viewIndex].tabs.last?.id
-                storeLogger.warning("Fixed stale activeTabId \(activeTabId) → \(String(describing: newActiveId)) in view '\(viewName)'")
-                views[viewIndex].activeTabId = newActiveId
-            }
+        }
+
+        // Remove empty tabs (default arrangement has empty layout)
+        let beforeCount = tabs.count
+        tabs.removeAll { $0.defaultArrangement.layout.isEmpty }
+        tabsRemoved = beforeCount - tabs.count
+
+        // Fix activeTabId if it was removed
+        if let atId = activeTabId, !tabs.contains(where: { $0.id == atId }) {
+            let newId = tabs.last?.id
+            activeTabId = newId
+            storeLogger.warning("Fixed stale activeTabId \(atId) → \(String(describing: newId))")
         }
 
         if totalPruned > 0 {
-            storeLogger.warning("Pruning summary: removed \(totalPruned) session ref(s), \(tabsRemoved) tab(s)")
+            storeLogger.warning("Pruning summary: removed \(totalPruned) pane ref(s), \(tabsRemoved) tab(s)")
         }
     }
 
-    /// Ensure the main view always exists.
-    private func ensureMainView() {
-        if !views.contains(where: { $0.kind == .main }) {
-            let mainView = ViewDefinition(name: "Main", kind: .main)
-            views.insert(mainView, at: 0)
-            activeViewId = mainView.id
+    /// Validate and repair tab structural invariants after restore.
+    /// Fixes arrangement issues, stale active IDs, pane list drift, and
+    /// cross-tab pane duplicates. Logs warnings for every repair.
+    private func validateTabInvariants() {
+        var repairCount = 0
+        var seenPaneIds = Set<UUID>()
+
+        for tabIndex in tabs.indices {
+            let tabId = tabs[tabIndex].id
+
+            // 1. Ensure exactly one default arrangement
+            let defaultCount = tabs[tabIndex].arrangements.filter(\.isDefault).count
+            if defaultCount == 0 && !tabs[tabIndex].arrangements.isEmpty {
+                tabs[tabIndex].arrangements[0].isDefault = true
+                storeLogger.warning("Tab \(tabId): no default arrangement — marked first as default")
+                repairCount += 1
+            } else if defaultCount > 1 {
+                var foundFirst = false
+                for arrIndex in tabs[tabIndex].arrangements.indices {
+                    if tabs[tabIndex].arrangements[arrIndex].isDefault {
+                        if foundFirst {
+                            tabs[tabIndex].arrangements[arrIndex].isDefault = false
+                            repairCount += 1
+                        }
+                        foundFirst = true
+                    }
+                }
+                storeLogger.warning("Tab \(tabId): \(defaultCount) default arrangements — kept first only")
+            }
+
+            // 2. Ensure activeArrangementId points to an existing arrangement
+            if !tabs[tabIndex].arrangements.contains(where: { $0.id == tabs[tabIndex].activeArrangementId }) {
+                tabs[tabIndex].activeArrangementId = tabs[tabIndex].defaultArrangement.id
+                storeLogger.warning("Tab \(tabId): activeArrangementId was stale — reset to default")
+                repairCount += 1
+            }
+
+            // 3. Sync visiblePaneIds with layout pane IDs for each arrangement
+            for arrIndex in tabs[tabIndex].arrangements.indices {
+                let arrLayoutPaneIds = Set(tabs[tabIndex].arrangements[arrIndex].layout.paneIds)
+                let visible = tabs[tabIndex].arrangements[arrIndex].visiblePaneIds
+                if visible != arrLayoutPaneIds {
+                    tabs[tabIndex].arrangements[arrIndex].visiblePaneIds = arrLayoutPaneIds
+                    storeLogger.warning("Tab \(tabId): arrangement \(self.tabs[tabIndex].arrangements[arrIndex].id) visiblePaneIds drifted — synced")
+                    repairCount += 1
+                }
+            }
+
+            // 4. Sync tab.panes with the union of all arrangement layout pane IDs
+            let layoutPaneIds = Set(tabs[tabIndex].arrangements.flatMap { $0.layout.paneIds })
+            let listedPaneIds = Set(tabs[tabIndex].panes)
+            if layoutPaneIds != listedPaneIds {
+                tabs[tabIndex].panes = Array(layoutPaneIds)
+                storeLogger.warning("Tab \(tabId): panes list drifted from layouts — synced (\(listedPaneIds.count) → \(layoutPaneIds.count))")
+                repairCount += 1
+            }
+
+            // 5. Ensure activePaneId is in the active arrangement
+            if let apId = tabs[tabIndex].activePaneId,
+               !tabs[tabIndex].activeArrangement.layout.paneIds.contains(apId) {
+                tabs[tabIndex].activePaneId = tabs[tabIndex].activeArrangement.layout.paneIds.first
+                storeLogger.warning("Tab \(tabId): activePaneId \(apId) not in layout — reset")
+                repairCount += 1
+            }
+
+            // 6. Enforce single-ownership: a pane must appear in at most one tab.
+            //    The first tab encountered keeps ownership; later tabs have the pane removed.
+            let duplicatePaneIds = layoutPaneIds.intersection(seenPaneIds)
+            if !duplicatePaneIds.isEmpty {
+                for paneId in duplicatePaneIds {
+                    storeLogger.warning("Pane \(paneId) duplicated in tab \(tabId) — removing from this tab")
+                    // Remove from all arrangements in this tab
+                    for arrIndex in tabs[tabIndex].arrangements.indices {
+                        tabs[tabIndex].arrangements[arrIndex].visiblePaneIds.remove(paneId)
+                        if let newLayout = tabs[tabIndex].arrangements[arrIndex].layout.removing(paneId: paneId) {
+                            tabs[tabIndex].arrangements[arrIndex].layout = newLayout
+                        } else {
+                            tabs[tabIndex].arrangements[arrIndex].layout = Layout()
+                        }
+                    }
+                    tabs[tabIndex].panes.removeAll { $0 == paneId }
+                    if tabs[tabIndex].activePaneId == paneId {
+                        tabs[tabIndex].activePaneId = tabs[tabIndex].activeArrangement.layout.paneIds.first
+                    }
+                    repairCount += 1
+                }
+            }
+            seenPaneIds.formUnion(layoutPaneIds)
         }
-        if activeViewId == nil {
-            activeViewId = views.first(where: { $0.kind == .main })?.id
+
+        if repairCount > 0 {
+            storeLogger.warning("Tab invariant validation: \(repairCount) repair(s) applied")
         }
     }
 }

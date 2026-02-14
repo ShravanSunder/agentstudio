@@ -33,7 +33,7 @@ enum SurfaceHealth: Equatable {
 
 /// State of a surface in the lifecycle
 enum SurfaceState: Equatable {
-    case active(sessionId: UUID)  // Attached to a visible container
+    case active(paneId: UUID)  // Attached to a visible container
     case hidden                      // Alive but no container
     case pendingUndo(expiresAt: Date) // In undo stack
 
@@ -52,7 +52,7 @@ struct SurfaceMetadata: Codable, Equatable {
     var title: String
     var worktreeId: UUID?
     var repoId: UUID?
-    var sessionId: UUID?
+    var paneId: UUID?
     var createdAt: Date
     var lastActiveAt: Date
 
@@ -62,14 +62,14 @@ struct SurfaceMetadata: Codable, Equatable {
         title: String = "Terminal",
         worktreeId: UUID? = nil,
         repoId: UUID? = nil,
-        sessionId: UUID? = nil
+        paneId: UUID? = nil
     ) {
         self.workingDirectory = workingDirectory
         self.command = command
         self.title = title
         self.worktreeId = worktreeId
         self.repoId = repoId
-        self.sessionId = sessionId
+        self.paneId = paneId
         self.createdAt = Date()
         self.lastActiveAt = Date()
     }
@@ -121,23 +121,23 @@ struct SurfaceCheckpoint: Codable {
         let id: UUID
         let metadata: SurfaceMetadata
         let wasActive: Bool
-        let sessionId: UUID?
+        let paneId: UUID?
     }
 
     init(from surfaces: [ManagedSurface]) {
         self.timestamp = Date()
         self.surfaces = surfaces.map { managed in
-            let sessionId: UUID?
+            let paneId: UUID?
             if case .active(let cid) = managed.state {
-                sessionId = cid
+                paneId = cid
             } else {
-                sessionId = nil
+                paneId = nil
             }
             return SurfaceData(
                 id: managed.id,
                 metadata: managed.metadata,
                 wasActive: managed.state.isActive,
-                sessionId: sessionId
+                paneId: paneId
             )
         }
     }
