@@ -66,6 +66,28 @@ struct Layout: Codable, Hashable {
         self.root = .leaf(paneId: paneId)
     }
 
+    /// Auto-tiled layout from multiple pane IDs.
+    /// Produces a balanced binary split tree alternating horizontal/vertical splits.
+    /// Empty input produces an empty layout. Single pane produces a single leaf.
+    static func autoTiled(_ paneIds: [UUID]) -> Layout {
+        guard !paneIds.isEmpty else { return Layout() }
+        return Layout(root: buildTiledNode(paneIds: paneIds, horizontal: true))
+    }
+
+    private static func buildTiledNode(paneIds: [UUID], horizontal: Bool) -> Node {
+        if paneIds.count == 1 {
+            return .leaf(paneId: paneIds[0])
+        }
+        let mid = paneIds.count / 2
+        let left = Array(paneIds[..<mid])
+        let right = Array(paneIds[mid...])
+        return .split(Split(
+            direction: horizontal ? .horizontal : .vertical,
+            left: buildTiledNode(paneIds: left, horizontal: !horizontal),
+            right: buildTiledNode(paneIds: right, horizontal: !horizontal)
+        ))
+    }
+
     // MARK: - Properties
 
     var isEmpty: Bool { root == nil }
