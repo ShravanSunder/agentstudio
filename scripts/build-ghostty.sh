@@ -61,16 +61,25 @@ if [ -d "macos/GhosttyKit.xcframework" ]; then
     fi
 
     # Copy shell-integration for development (SPM builds)
-    SHELL_INTEGRATION_SRC="$GHOSTTY_DIR/zig-out/share/ghostty/shell-integration"
+    # Prefer zig-out (built artifacts); fall back to vendor source tree
+    SHELL_INTEGRATION_ZIG="$GHOSTTY_DIR/zig-out/share/ghostty/shell-integration"
+    SHELL_INTEGRATION_VENDOR="$GHOSTTY_DIR/src/shell-integration"
     SHELL_INTEGRATION_DEV="$PROJECT_ROOT/Sources/AgentStudio/Resources/ghostty/shell-integration"
-    if [ -d "$SHELL_INTEGRATION_SRC" ]; then
+    if [ -d "$SHELL_INTEGRATION_ZIG" ]; then
+        SHELL_INTEGRATION_SRC="$SHELL_INTEGRATION_ZIG"
+    elif [ -d "$SHELL_INTEGRATION_VENDOR" ]; then
+        SHELL_INTEGRATION_SRC="$SHELL_INTEGRATION_VENDOR"
+    else
+        SHELL_INTEGRATION_SRC=""
+    fi
+    if [ -n "$SHELL_INTEGRATION_SRC" ]; then
         echo "📋 Copying shell-integration for development..."
         mkdir -p "$(dirname "$SHELL_INTEGRATION_DEV")"
         rm -rf "$SHELL_INTEGRATION_DEV"
         cp -R "$SHELL_INTEGRATION_SRC" "$SHELL_INTEGRATION_DEV"
         echo "✅ shell-integration copied to $SHELL_INTEGRATION_DEV"
     else
-        echo "⚠️  shell-integration not found at $SHELL_INTEGRATION_SRC"
+        echo "⚠️  shell-integration not found (checked zig-out and vendor source)"
     fi
 else
     echo "❌ Error: XCFramework not found at macos/GhosttyKit.xcframework"

@@ -22,18 +22,7 @@ class MainWindowController: NSWindowController, NSWindowDelegate {
         window.titleVisibility = .hidden
         window.minSize = NSSize(width: 720, height: 600)
 
-        // Restore saved frame, or center as fallback
-        if let frameString = UserDefaults.standard.string(forKey: Self.windowFrameKey) {
-            let frame = NSRectFromString(frameString)
-            if Self.isFrameOnScreen(frame) {
-                window.setFrame(frame, display: false)
-                Self.clampFrameToScreen(window)
-            } else {
-                window.center()
-            }
-        } else {
-            window.center()
-        }
+        window.center()
 
         self.init(window: window)
         window.delegate = self
@@ -51,6 +40,16 @@ class MainWindowController: NSWindowController, NSWindowDelegate {
         // Set up titlebar and toolbar
         setupTitlebarAccessory()
         setupToolbar()
+    }
+
+    // MARK: - Show (maximize on launch)
+
+    override func showWindow(_ sender: Any?) {
+        super.showWindow(sender)
+        // Maximize to the current screen's visible frame (respects menu bar + dock)
+        if let screen = window?.screen ?? NSScreen.main {
+            window?.setFrame(screen.visibleFrame, display: true)
+        }
     }
 
     // MARK: - NSWindowDelegate (frame persistence)
