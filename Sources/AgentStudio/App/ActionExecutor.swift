@@ -227,9 +227,11 @@ final class ActionExecutor {
     private func expireOldUndoEntries() {
         while undoStack.count > maxUndoStackSize {
             let expired = undoStack.removeFirst()
-            // Remove panes that are not referenced by any tab layout
-            let allLayoutPaneIds = Set(store.tabs.flatMap(\.paneIds))
-            for pane in expired.panes where !allLayoutPaneIds.contains(pane.id) {
+            // Remove panes that are not owned by any tab (across all arrangements).
+            // Use tab.panes (ownership list) instead of tab.paneIds (active arrangement only)
+            // to avoid GC'ing panes hidden in non-active arrangements.
+            let allOwnedPaneIds = Set(store.tabs.flatMap(\.panes))
+            for pane in expired.panes where !allOwnedPaneIds.contains(pane.id) {
                 store.removePane(pane.id)
                 executorLogger.debug("GC'd orphaned pane \(pane.id) from expired undo entry")
             }
@@ -252,9 +254,9 @@ final class ActionExecutor {
             executeCloseTab(tabId)
         }
 
-        // If the pane is no longer in any layout, remove it from the store.
-        let allLayoutPaneIds = Set(store.tabs.flatMap(\.paneIds))
-        if !allLayoutPaneIds.contains(paneId) {
+        // If the pane is no longer owned by any tab, remove it from the store.
+        let allOwnedPaneIds = Set(store.tabs.flatMap(\.panes))
+        if !allOwnedPaneIds.contains(paneId) {
             store.removePane(paneId)
         }
     }

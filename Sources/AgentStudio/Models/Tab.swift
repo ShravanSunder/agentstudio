@@ -3,8 +3,9 @@ import Foundation
 /// A tab in the workspace. Contains panes organized into arrangements.
 /// Order is implicit — determined by array position in the workspace's tabs array.
 struct Tab: Codable, Identifiable, Hashable {
-    // Custom Hashable: identity-based equality (arrangement IDs are non-deterministic)
-    static func == (lhs: Tab, rhs: Tab) -> Bool { lhs.id == rhs.id }
+    // Memberwise equality so TTVC detects layout/focus/arrangement changes.
+    // Hash by id only (Hashable contract: equal objects must have equal hashes,
+    // but equal hashes need not imply equal objects).
     func hash(into hasher: inout Hasher) { hasher.combine(id) }
 
     let id: UUID

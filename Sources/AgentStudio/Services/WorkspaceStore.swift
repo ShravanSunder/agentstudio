@@ -922,7 +922,7 @@ final class WorkspaceStore: ObservableObject {
 
         // Prune tabs: remove dangling pane IDs from layouts
         let validPaneIds = Set(panes.keys)
-        pruneInvalidPanes(from: &tabs, validPaneIds: validPaneIds)
+        pruneInvalidPanes(from: &tabs, validPaneIds: validPaneIds, activeTabId: &activeTabId)
 
         // Validate and repair tab structural invariants
         validateTabInvariants()
@@ -974,9 +974,10 @@ final class WorkspaceStore: ObservableObject {
         let validPaneIds = Set(persistablePanes.map(\.id))
 
         // Prune tabs: remove temporary pane IDs from layouts in the PERSISTED COPY.
-        // Live `tabs` state is not mutated — only the serialized output is cleaned.
+        // Live state is not mutated — only the serialized output is cleaned.
         var prunedTabs = tabs
-        pruneInvalidPanes(from: &prunedTabs, validPaneIds: validPaneIds)
+        var prunedActiveTabId = activeTabId
+        pruneInvalidPanes(from: &prunedTabs, validPaneIds: validPaneIds, activeTabId: &prunedActiveTabId)
 
         let state = WorkspacePersistor.PersistableState(
             id: workspaceId,
@@ -984,7 +985,7 @@ final class WorkspaceStore: ObservableObject {
             repos: repos,
             panes: persistablePanes,
             tabs: prunedTabs,
-            activeTabId: activeTabId,
+            activeTabId: prunedActiveTabId,
             sidebarWidth: sidebarWidth,
             windowFrame: windowFrame,
             createdAt: createdAt,
@@ -1059,7 +1060,7 @@ final class WorkspaceStore: ObservableObject {
 
     /// Remove pane IDs from tab layouts that are not in the valid set.
     /// Prunes layout nodes, removes empty tabs, and fixes activeTabId.
-    private func pruneInvalidPanes(from tabs: inout [Tab], validPaneIds: Set<UUID>) {
+    private func pruneInvalidPanes(from tabs: inout [Tab], validPaneIds: Set<UUID>, activeTabId: inout UUID?) {
         var totalPruned = 0
         var tabsRemoved = 0
 
@@ -1094,9 +1095,10 @@ final class WorkspaceStore: ObservableObject {
         tabsRemoved = beforeCount - tabs.count
 
         // Fix activeTabId if it was removed
-        if let atId = self.activeTabId, !tabs.contains(where: { $0.id == atId }) {
-            self.activeTabId = tabs.last?.id
-            storeLogger.warning("Fixed stale activeTabId \(atId) → \(String(describing: self.activeTabId))")
+        if let atId = activeTabId, !tabs.contains(where: { $0.id == atId }) {
+            let newId = tabs.last?.id
+            activeTabId = newId
+            storeLogger.warning("Fixed stale activeTabId \(atId) → \(String(describing: newId))")
         }
 
         if totalPruned > 0 {
@@ -1169,10 +1171,19 @@ final class WorkspaceStore: ObservableObject {
                 repairCount += 1
             }
 
-            // 6. Detect cross-tab pane duplicates (a pane should be in at most one tab)
+            // 6. Detect and repair cross-tab pane duplicates (a pane should be in at most one tab)
             for paneId in layoutPaneIds {
                 if seenPaneIds.contains(paneId) {
-                    storeLogger.warning("Pane \(paneId) appears in multiple tabs — duplicate detected in tab \(tabId)")
+                    storeLogger.warning("Pane \(paneId) appears in multiple tabs — removing from tab \(tabId)")
+                    tabs[tabIndex].panes.removeAll { $0 == paneId }
+                    for arrIndex in tabs[tabIndex].arrangements.indices {
+                        tabs[tabIndex].arrangements[arrIndex].visiblePaneIds.remove(paneId)
+                        if let newLayout = tabs[tabIndex].arrangements[arrIndex].layout.removing(paneId: paneId) {
+                            tabs[tabIndex].arrangements[arrIndex].layout = newLayout
+                        } else {
+                            tabs[tabIndex].arrangements[arrIndex].layout = Layout()
+                        }
+                    }
                     repairCount += 1
                 }
                 seenPaneIds.insert(paneId)

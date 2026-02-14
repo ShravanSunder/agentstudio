@@ -142,14 +142,24 @@ final class TabTests: XCTestCase {
 
     // MARK: - Hashable
 
-    func test_hashable_sameId_areEqual() {
-        // Arrange
+    func test_hashable_sameId_sameHash() {
+        // Arrange — two tabs with same id but independent arrangements
         let tabId = UUID()
         let paneId = UUID()
         let tab1 = Tab(id: tabId, paneId: paneId)
         let tab2 = Tab(id: tabId, paneId: paneId)
 
+        // Assert — hash is identity-based, equality is memberwise
+        XCTAssertEqual(tab1.hashValue, tab2.hashValue)
+        // Different arrangement UUIDs means they are NOT equal under memberwise equality
+        XCTAssertNotEqual(tab1, tab2)
+    }
+
+    func test_equality_sameInstance_isEqual() {
+        // Arrange — exact same tab instance
+        let tab = Tab(id: UUID(), paneId: UUID())
+
         // Assert
-        XCTAssertEqual(tab1, tab2)
+        XCTAssertEqual(tab, tab)
     }
 }

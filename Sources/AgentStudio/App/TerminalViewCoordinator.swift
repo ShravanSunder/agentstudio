@@ -240,7 +240,9 @@ final class TerminalViewCoordinator {
     /// Recreate views for all restored panes in all tabs.
     /// Called once at launch after store.restore() populates persisted state.
     func restoreAllViews() {
-        let paneIds = store.tabs.flatMap(\.paneIds)
+        // Use tab.panes (all owned panes) instead of tab.paneIds (active arrangement only)
+        // to ensure panes in non-active arrangements also get views restored.
+        let paneIds = store.tabs.flatMap(\.panes)
         guard !paneIds.isEmpty else {
             coordinatorLogger.info("No panes to restore views for")
             return
