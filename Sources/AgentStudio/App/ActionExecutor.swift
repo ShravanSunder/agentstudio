@@ -217,9 +217,20 @@ final class ActionExecutor {
             store.purgeOrphanedPane(paneId)
 
         case .addDrawerPane(let parentPaneId, let content, let metadata):
-            _ = store.addDrawerPane(to: parentPaneId, content: content, metadata: metadata)
+            if let drawerPane = store.addDrawerPane(to: parentPaneId, content: content, metadata: metadata) {
+                // Create a view for the drawer pane if its content type supports it.
+                // Terminal drawer panes need floating terminal support (Phase 3),
+                // so createViewForContent will log a warning and return nil for those.
+                let pane = Pane(
+                    id: drawerPane.id,
+                    content: drawerPane.content,
+                    metadata: drawerPane.metadata
+                )
+                coordinator.createViewForContent(pane: pane)
+            }
 
         case .removeDrawerPane(let parentPaneId, let drawerPaneId):
+            coordinator.teardownView(for: drawerPaneId)
             store.removeDrawerPane(drawerPaneId, from: parentPaneId)
 
         case .toggleDrawer(let paneId):

@@ -14,6 +14,10 @@ struct TerminalPaneLeaf: View {
     let action: (PaneAction) -> Void
     let shouldAcceptDrop: (UUID, DropZone) -> Bool
     let onDrop: (SplitDropPayload, UUID, DropZone) -> Void
+    var drawerPaneViewProvider: ((UUID) -> PaneView?)? = nil
+    /// Tab-level width for computing drawer panel size in split layouts.
+    /// nil means single pane (use full pane width).
+    var tabWidth: CGFloat? = nil
 
     @State private var dropZone: DropZone?
     @State private var isTargeted: Bool = false
@@ -24,6 +28,13 @@ struct TerminalPaneLeaf: View {
     /// Downcast to terminal view for terminal-specific features.
     private var terminalView: AgentStudioTerminalView? {
         paneView as? AgentStudioTerminalView
+    }
+
+    /// Resolve the active drawer pane's view from the provider.
+    private var resolvedDrawerPaneView: PaneView? {
+        guard let drawer,
+              let activePaneId = drawer.activeDrawerPaneId else { return nil }
+        return drawerPaneViewProvider?(activePaneId)
     }
 
     var body: some View {
@@ -97,9 +108,9 @@ struct TerminalPaneLeaf: View {
                     paneId: paneView.id,
                     drawer: drawer,
                     isIconBarVisible: isBottomHovered || (drawer?.isExpanded ?? false),
-                    drawerPaneView: nil,  // Drawer pane views are wired in Task 14
+                    drawerPaneView: resolvedDrawerPaneView,
                     action: action,
-                    isSplit: isSplit
+                    tabWidth: tabWidth
                 )
 
                 // Bottom hover detection zone

@@ -24,55 +24,63 @@ struct TerminalSplitContainer: View {
     let shouldAcceptDrop: (UUID, DropZone) -> Bool
     let onDrop: (SplitDropPayload, UUID, DropZone) -> Void
     var drawerProvider: ((UUID) -> Drawer?)? = nil
+    var drawerPaneViewProvider: ((UUID) -> PaneView?)? = nil
 
     var body: some View {
-        if let node = tree.root {
-            if let zoomedPaneId,
-               let zoomedView = tree.allViews.first(where: { $0.id == zoomedPaneId }) {
-                // Zoomed: render single pane at full size
-                ZStack(alignment: .topTrailing) {
-                    TerminalPaneLeaf(
-                        paneView: zoomedView,
+        GeometryReader { tabGeometry in
+            let measuredTabWidth = tabGeometry.size.width
+            if let node = tree.root {
+                if let zoomedPaneId,
+                   let zoomedView = tree.allViews.first(where: { $0.id == zoomedPaneId }) {
+                    // Zoomed: render single pane at full size
+                    ZStack(alignment: .topTrailing) {
+                        TerminalPaneLeaf(
+                            paneView: zoomedView,
+                            tabId: tabId,
+                            isActive: true,
+                            isSplit: false,
+                            drawer: drawerProvider?(zoomedPaneId),
+                            action: action,
+                            shouldAcceptDrop: shouldAcceptDrop,
+                            onDrop: onDrop,
+                            drawerPaneViewProvider: drawerPaneViewProvider,
+                            tabWidth: nil  // zoomed = single pane, no tab width needed
+                        )
+                        // Zoom indicator badge
+                        Text("ZOOM")
+                            .font(.system(size: 10, weight: .medium, design: .monospaced))
+                            .foregroundStyle(.white.opacity(0.7))
+                            .padding(.horizontal, 6)
+                            .padding(.vertical, 2)
+                            .background(Capsule().fill(.white.opacity(0.15)))
+                            .padding(8)
+                            .allowsHitTesting(false)
+                    }
+                } else {
+                    // Normal split rendering
+                    SplitSubtreeView(
+                        node: node,
                         tabId: tabId,
-                        isActive: true,
-                        isSplit: false,
-                        drawer: drawerProvider?(zoomedPaneId),
+                        isSplit: tree.isSplit,
+                        activePaneId: activePaneId,
                         action: action,
+                        onPersist: onPersist,
                         shouldAcceptDrop: shouldAcceptDrop,
-                        onDrop: onDrop
+                        onDrop: onDrop,
+                        drawerProvider: drawerProvider,
+                        drawerPaneViewProvider: drawerPaneViewProvider,
+                        tabWidth: measuredTabWidth
                     )
-                    // Zoom indicator badge
-                    Text("ZOOM")
-                        .font(.system(size: 10, weight: .medium, design: .monospaced))
-                        .foregroundStyle(.white.opacity(0.7))
-                        .padding(.horizontal, 6)
-                        .padding(.vertical, 2)
-                        .background(Capsule().fill(.white.opacity(0.15)))
-                        .padding(8)
-                        .allowsHitTesting(false)
+                    .id(node.structuralIdentity)  // Prevents view recreation on ratio changes
                 }
             } else {
-                // Normal split rendering
-                SplitSubtreeView(
-                    node: node,
-                    tabId: tabId,
-                    isSplit: tree.isSplit,
-                    activePaneId: activePaneId,
-                    action: action,
-                    onPersist: onPersist,
-                    shouldAcceptDrop: shouldAcceptDrop,
-                    onDrop: onDrop,
-                    drawerProvider: drawerProvider
+                // Empty tree - show placeholder
+                ContentUnavailableView(
+                    "No Terminal",
+                    systemImage: "terminal",
+                    description: Text("Drag a tab here to create a split")
                 )
-                .id(node.structuralIdentity)  // Prevents view recreation on ratio changes
             }
-        } else {
-            // Empty tree - show placeholder
-            ContentUnavailableView(
-                "No Terminal",
-                systemImage: "terminal",
-                description: Text("Drag a tab here to create a split")
-            )
         }
     }
 }
@@ -88,6 +96,8 @@ fileprivate struct SplitSubtreeView: View {
     let shouldAcceptDrop: (UUID, DropZone) -> Bool
     let onDrop: (SplitDropPayload, UUID, DropZone) -> Void
     var drawerProvider: ((UUID) -> Drawer?)? = nil
+    var drawerPaneViewProvider: ((UUID) -> PaneView?)? = nil
+    var tabWidth: CGFloat? = nil
 
     var body: some View {
         switch node {
@@ -100,7 +110,9 @@ fileprivate struct SplitSubtreeView: View {
                 drawer: drawerProvider?(paneView.id),
                 action: action,
                 shouldAcceptDrop: shouldAcceptDrop,
-                onDrop: onDrop
+                onDrop: onDrop,
+                drawerPaneViewProvider: drawerPaneViewProvider,
+                tabWidth: isSplit ? tabWidth : nil
             )
 
         case .split(let split):
@@ -117,7 +129,9 @@ fileprivate struct SplitSubtreeView: View {
                         onPersist: onPersist,
                         shouldAcceptDrop: shouldAcceptDrop,
                         onDrop: onDrop,
-                        drawerProvider: drawerProvider
+                        drawerProvider: drawerProvider,
+                        drawerPaneViewProvider: drawerPaneViewProvider,
+                        tabWidth: tabWidth
                     )
                 },
                 right: {
@@ -130,7 +144,9 @@ fileprivate struct SplitSubtreeView: View {
                         onPersist: onPersist,
                         shouldAcceptDrop: shouldAcceptDrop,
                         onDrop: onDrop,
-                        drawerProvider: drawerProvider
+                        drawerProvider: drawerProvider,
+                        drawerPaneViewProvider: drawerPaneViewProvider,
+                        tabWidth: tabWidth
                     )
                 },
                 onEqualize: {

@@ -8,13 +8,26 @@ struct DrawerOverlay: View {
     let isIconBarVisible: Bool
     let drawerPaneView: PaneView?
     let action: (PaneAction) -> Void
-    let isSplit: Bool
+    /// Tab-level width for computing drawer panel size in split layouts.
+    /// nil means single pane — the drawer uses the full pane width.
+    let tabWidth: CGFloat?
 
     @AppStorage("drawerHeightRatio") private var heightRatio: Double = 0.75
 
     var body: some View {
         GeometryReader { geometry in
             let maxHeight = geometry.size.height * CGFloat(heightRatio)
+
+            // Compute drawer width: use tab width when in a meaningful split,
+            // otherwise let the drawer fill its pane naturally.
+            let drawerWidth: CGFloat? = {
+                guard let tabWidth else { return nil }  // single pane: use natural width
+                let paneWidth = geometry.size.width
+                if tabWidth > paneWidth * 1.1 {  // meaningful split (not just rounding)
+                    return tabWidth * 0.9
+                }
+                return nil  // pane is nearly full tab width
+            }()
 
             VStack(spacing: 0) {
                 Spacer()
@@ -33,7 +46,7 @@ struct DrawerOverlay: View {
                                 action(.toggleDrawer(paneId: paneId))
                             }
                         )
-                        .frame(width: isSplit ? geometry.size.width * 1.8 : nil)
+                        .frame(width: drawerWidth)
                     }
 
                     // Icon bar (always visible when drawer is shown)
