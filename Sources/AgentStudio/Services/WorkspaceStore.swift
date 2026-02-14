@@ -100,6 +100,12 @@ final class WorkspaceStore: ObservableObject {
                     tabs[tabIndex].arrangements[arrIndex].layout = Layout()
                 }
             }
+            // If active arrangement is now empty but default still has panes,
+            // fall back to default so the tab doesn't render as blank.
+            if tabs[tabIndex].activeArrangement.layout.isEmpty
+                && !tabs[tabIndex].defaultArrangement.layout.isEmpty {
+                tabs[tabIndex].activeArrangementId = tabs[tabIndex].defaultArrangement.id
+            }
             if tabs[tabIndex].activePaneId == paneId {
                 tabs[tabIndex].activePaneId = tabs[tabIndex].activeArrangement.layout.paneIds.first
             }
@@ -131,6 +137,18 @@ final class WorkspaceStore: ObservableObject {
         }
         guard panes[paneId]!.residency == .backgrounded else {
             storeLogger.warning("reactivatePane: pane \(paneId) is not backgrounded")
+            return
+        }
+        // Verify insertion target is valid before changing residency.
+        // insertPane can fail silently if the tab or target pane no longer exist,
+        // which would leave the pane active but not in any layout.
+        guard let tabIndex = findTabIndex(tabId) else {
+            storeLogger.warning("reactivatePane: tab \(tabId) not found — keeping pane backgrounded")
+            return
+        }
+        let arrIndex = tabs[tabIndex].activeArrangementIndex
+        guard tabs[tabIndex].arrangements[arrIndex].layout.contains(targetPaneId) else {
+            storeLogger.warning("reactivatePane: targetPaneId \(targetPaneId) not in active arrangement — keeping pane backgrounded")
             return
         }
 

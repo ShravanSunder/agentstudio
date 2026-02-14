@@ -59,7 +59,10 @@ final class TerminalViewCoordinator {
     func createViewForContent(pane: Pane) -> PaneView? {
         switch pane.content {
         case .terminal:
-            // Terminal panes require worktree/repo context for surface creation
+            // Terminal panes currently require worktree/repo context for surface creation.
+            // TODO: Support floating terminals (Source.floating) by making worktree/repo
+            // optional in AgentStudioTerminalView, or by creating a lightweight surface
+            // that doesn't need worktree context.
             guard let worktreeId = pane.worktreeId,
                   let repoId = pane.repoId,
                   let worktree = store.worktree(worktreeId),

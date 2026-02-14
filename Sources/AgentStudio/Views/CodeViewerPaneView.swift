@@ -15,6 +15,8 @@ final class CodeViewerPaneView: PaneView {
         fatalError("init(coder:) not supported")
     }
 
+    override var acceptsFirstResponder: Bool { true }
+
     private func setupPlaceholder() {
         wantsLayer = true
         layer?.backgroundColor = NSColor.controlBackgroundColor.cgColor
