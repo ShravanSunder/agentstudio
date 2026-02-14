@@ -28,14 +28,14 @@ final class ActionExecutor {
 
     // MARK: - High-Level Operations
 
-    /// Open a terminal for a worktree. Creates session + tab + view.
-    /// Returns the session if a new one was created, nil if already open.
+    /// Open a terminal for a worktree. Creates pane + tab + view.
+    /// Returns the pane if a new one was created, nil if already open.
     @discardableResult
-    func openTerminal(for worktree: Worktree, in repo: Repo) -> TerminalSession? {
-        // Check if worktree already has an active session in the current view
-        if let existingTab = store.activeTabs.first(where: { tab in
-            tab.sessionIds.contains { sessionId in
-                store.session(sessionId)?.worktreeId == worktree.id
+    func openTerminal(for worktree: Worktree, in repo: Repo) -> Pane? {
+        // Check if worktree already has an active pane in any tab
+        if let existingTab = store.tabs.first(where: { tab in
+            tab.paneIds.contains { paneId in
+                store.pane(paneId)?.worktreeId == worktree.id
             }
         }) {
             store.setActiveTab(existingTab.id)
@@ -45,16 +45,16 @@ final class ActionExecutor {
         return createTerminalTab(for: worktree, in: repo)
     }
 
-    /// Open a new terminal for a worktree, always creating a fresh session+tab
+    /// Open a new terminal for a worktree, always creating a fresh pane+tab
     /// (never navigates to an existing one).
     @discardableResult
-    func openNewTerminal(for worktree: Worktree, in repo: Repo) -> TerminalSession? {
+    func openNewTerminal(for worktree: Worktree, in repo: Repo) -> Pane? {
         createTerminalTab(for: worktree, in: repo)
     }
 
-    /// Common path: create session + view + tab for a worktree.
-    private func createTerminalTab(for worktree: Worktree, in repo: Repo) -> TerminalSession? {
-        let session = store.createSession(
+    /// Common path: create pane + view + tab for a worktree.
+    private func createTerminalTab(for worktree: Worktree, in repo: Repo) -> Pane? {
+        let pane = store.createPane(
             source: .worktree(worktreeId: worktree.id, repoId: repo.id),
             title: worktree.name,
             provider: .tmux,
@@ -62,18 +62,18 @@ final class ActionExecutor {
             residency: .active
         )
 
-        guard coordinator.createView(for: session, worktree: worktree, repo: repo) != nil else {
-            executorLogger.error("Surface creation failed for worktree '\(worktree.name)' — rolling back session \(session.id)")
-            store.removeSession(session.id)
+        guard coordinator.createView(for: pane, worktree: worktree, repo: repo) != nil else {
+            executorLogger.error("Surface creation failed for worktree '\(worktree.name)' — rolling back pane \(pane.id)")
+            store.removePane(pane.id)
             return nil
         }
 
-        let tab = Tab(sessionId: session.id)
+        let tab = Tab(paneId: pane.id)
         store.appendTab(tab)
         store.setActiveTab(tab.id)
 
         executorLogger.info("Opened terminal for worktree: \(worktree.name)")
-        return session
+        return pane
     }
 
     /// Undo the last close operation.
@@ -83,21 +83,21 @@ final class ActionExecutor {
             return
         }
 
-        // Restore tab + sessions in store
+        // Restore tab + panes in store
         store.restoreFromSnapshot(snapshot)
 
         // Restore views via coordinator — iterate in reverse to match the LIFO
-        // order of SurfaceManager's undo stack (sessions were pushed in forward
-        // order during close, so the last session is on top of the stack).
-        for session in snapshot.sessions.reversed() {
-            guard let worktreeId = session.worktreeId,
-                  let repoId = session.repoId,
+        // order of SurfaceManager's undo stack (panes were pushed in forward
+        // order during close, so the last pane is on top of the stack).
+        for pane in snapshot.panes.reversed() {
+            guard let worktreeId = pane.worktreeId,
+                  let repoId = pane.repoId,
                   let worktree = store.worktree(worktreeId),
                   let repo = store.repo(repoId) else {
-                executorLogger.warning("Could not find worktree/repo for session \(session.id)")
+                executorLogger.warning("Could not find worktree/repo for pane \(pane.id)")
                 continue
             }
-            coordinator.restoreView(for: session, worktree: worktree, repo: repo)
+            coordinator.restoreView(for: pane, worktree: worktree, repo: repo)
         }
     }
 
@@ -118,13 +118,13 @@ final class ActionExecutor {
             executeBreakUpTab(tabId)
 
         case .closePane(let tabId, let paneId):
-            executeClosePane(tabId: tabId, sessionId: paneId)
+            executeClosePane(tabId: tabId, paneId: paneId)
 
         case .extractPaneToTab(let tabId, let paneId):
-            _ = store.extractSession(paneId, fromTab: tabId)
+            _ = store.extractPane(paneId, fromTab: tabId)
 
         case .focusPane(let tabId, let paneId):
-            store.setActiveSession(paneId, inTab: tabId)
+            store.setActivePane(paneId, inTab: tabId)
 
         case .insertPane(let source, let targetTabId, let targetPaneId, let direction):
             executeInsertPane(
@@ -141,7 +141,7 @@ final class ActionExecutor {
             store.equalizePanes(tabId: tabId)
 
         case .toggleSplitZoom(let tabId, let paneId):
-            store.toggleZoom(sessionId: paneId, inTab: tabId)
+            store.toggleZoom(paneId: paneId, inTab: tabId)
 
         case .moveTab(let tabId, let delta):
             store.moveTabByDelta(tabId: tabId, delta: delta)
@@ -157,9 +157,9 @@ final class ActionExecutor {
                 direction: direction
             )
 
-        case .expireUndoEntry(let sessionId):
-            // TODO: Phase 3 — remove session from store, kill tmux, destroy surface
-            executorLogger.warning("expireUndoEntry: \(sessionId) — stub, full impl in Phase 3")
+        case .expireUndoEntry(let paneId):
+            // TODO: Phase 3 — remove pane from store, kill tmux, destroy surface
+            executorLogger.warning("expireUndoEntry: \(paneId) — stub, full impl in Phase 3")
 
         case .repair(let repairAction):
             executeRepair(repairAction)
@@ -174,31 +174,28 @@ final class ActionExecutor {
             undoStack.append(snapshot)
         }
 
-        // Teardown views for all sessions in this tab
+        // Teardown views for all panes in this tab
         if let tab = store.tab(tabId) {
-            for sessionId in tab.sessionIds {
-                coordinator.teardownView(for: sessionId)
+            for paneId in tab.paneIds {
+                coordinator.teardownView(for: paneId)
             }
         }
 
         store.removeTab(tabId)
 
-        // GC oldest undo entries to prevent session accumulation
+        // GC oldest undo entries to prevent pane accumulation
         expireOldUndoEntries()
     }
 
-    /// Remove oldest undo entries beyond the limit, cleaning up their orphaned sessions.
-    /// Uses `store.views` (ALL views, not just active) to ensure sessions in non-active
-    /// views (e.g., saved layouts) are never GC'd. Safe from races: all mutations are @MainActor.
+    /// Remove oldest undo entries beyond the limit, cleaning up their orphaned panes.
     private func expireOldUndoEntries() {
         while undoStack.count > maxUndoStackSize {
             let expired = undoStack.removeFirst()
-            // Remove sessions that are not referenced by any view layout (checks ALL views)
-            let allLayoutSessionIds = store.views.flatMap(\.allSessionIds)
-            let layoutSet = Set(allLayoutSessionIds)
-            for session in expired.sessions where !layoutSet.contains(session.id) {
-                store.removeSession(session.id)
-                executorLogger.debug("GC'd orphaned session \(session.id) from expired undo entry")
+            // Remove panes that are not referenced by any tab layout
+            let allLayoutPaneIds = Set(store.tabs.flatMap(\.paneIds))
+            for pane in expired.panes where !allLayoutPaneIds.contains(pane.id) {
+                store.removePane(pane.id)
+                executorLogger.debug("GC'd orphaned pane \(pane.id) from expired undo entry")
             }
         }
     }
@@ -206,19 +203,23 @@ final class ActionExecutor {
     private func executeBreakUpTab(_ tabId: UUID) {
         let newTabs = store.breakUpTab(tabId)
         if newTabs.isEmpty {
-            executorLogger.debug("breakUpTab: tab has single session, no-op")
+            executorLogger.debug("breakUpTab: tab has single pane, no-op")
         }
     }
 
-    private func executeClosePane(tabId: UUID, sessionId: UUID) {
-        coordinator.teardownView(for: sessionId)
-        store.removeSessionFromLayout(sessionId, inTab: tabId)
+    private func executeClosePane(tabId: UUID, paneId: UUID) {
+        coordinator.teardownView(for: paneId)
+        let tabNowEmpty = store.removePaneFromLayout(paneId, inTab: tabId)
 
-        // If the session is no longer in any layout, remove it from the store.
-        // Unlike closeTab (which has undo), closePane has no undo path.
-        let allLayoutSessionIds = Set(store.views.flatMap(\.allSessionIds))
-        if !allLayoutSessionIds.contains(sessionId) {
-            store.removeSession(sessionId)
+        if tabNowEmpty {
+            // Last pane removed — escalate to close tab (with undo support)
+            executeCloseTab(tabId)
+        }
+
+        // If the pane is no longer in any layout, remove it from the store.
+        let allLayoutPaneIds = Set(store.tabs.flatMap(\.paneIds))
+        if !allLayoutPaneIds.contains(paneId) {
+            store.removePane(paneId)
         }
     }
 
@@ -234,40 +235,40 @@ final class ActionExecutor {
         switch source {
         case .existingPane(let paneId, let sourceTabId):
             // Always remove from source layout first to prevent duplicate IDs.
-            // This handles both same-tab reposition and cross-tab moves.
-            store.removeSessionFromLayout(paneId, inTab: sourceTabId)
-            store.insertSession(
+            let sourceTabEmpty = store.removePaneFromLayout(paneId, inTab: sourceTabId)
+            store.insertPane(
                 paneId, inTab: targetTabId, at: targetPaneId,
                 direction: layoutDirection, position: position
             )
+            if sourceTabEmpty {
+                store.removeTab(sourceTabId)
+            }
 
         case .newTerminal:
-            // Look up worktree/repo from the target session.
-            // TODO: Support splitting floating terminals — requires coordinator.createView
-            // to work without worktree/repo params (Phase 4+).
-            let targetSession = store.session(targetPaneId)
-            guard let worktreeId = targetSession?.worktreeId,
-                  let repoId = targetSession?.repoId,
+            // Look up worktree/repo from the target pane.
+            let targetPane = store.pane(targetPaneId)
+            guard let worktreeId = targetPane?.worktreeId,
+                  let repoId = targetPane?.repoId,
                   let worktree = store.worktree(worktreeId),
                   let repo = store.repo(repoId) else {
-                executorLogger.warning("Cannot insert new terminal pane — target session has no worktree/repo context")
+                executorLogger.warning("Cannot insert new terminal pane — target pane has no worktree/repo context")
                 return
             }
 
-            let session = store.createSession(
+            let pane = store.createPane(
                 source: .worktree(worktreeId: worktreeId, repoId: repoId),
                 provider: .tmux
             )
 
             // Create view — rollback if surface creation fails
-            guard coordinator.createView(for: session, worktree: worktree, repo: repo) != nil else {
-                executorLogger.error("Surface creation failed for new pane — rolling back session \(session.id)")
-                store.removeSession(session.id)
+            guard coordinator.createView(for: pane, worktree: worktree, repo: repo) != nil else {
+                executorLogger.error("Surface creation failed for new pane — rolling back pane \(pane.id)")
+                store.removePane(pane.id)
                 return
             }
 
-            store.insertSession(
-                session.id, inTab: targetTabId, at: targetPaneId,
+            store.insertPane(
+                pane.id, inTab: targetTabId, at: targetPaneId,
                 direction: layoutDirection, position: position
             )
         }
@@ -293,18 +294,18 @@ final class ActionExecutor {
 
     private func executeRepair(_ repairAction: RepairAction) {
         switch repairAction {
-        case .recreateSurface(let sessionId), .createMissingView(let sessionId):
-            guard let session = store.session(sessionId),
-                  let worktreeId = session.worktreeId,
-                  let repoId = session.repoId,
+        case .recreateSurface(let paneId), .createMissingView(let paneId):
+            guard let pane = store.pane(paneId),
+                  let worktreeId = pane.worktreeId,
+                  let repoId = pane.repoId,
                   let worktree = store.worktree(worktreeId),
                   let repo = store.repo(repoId) else {
-                executorLogger.warning("repair \(String(describing: repairAction)): session has no worktree/repo context")
+                executorLogger.warning("repair \(String(describing: repairAction)): pane has no worktree/repo context")
                 return
             }
-            coordinator.teardownView(for: sessionId)
-            coordinator.createView(for: session, worktree: worktree, repo: repo)
-            executorLogger.info("Repaired view for session \(sessionId)")
+            coordinator.teardownView(for: paneId)
+            coordinator.createView(for: pane, worktree: worktree, repo: repo)
+            executorLogger.info("Repaired view for pane \(paneId)")
 
         case .reattachTmux, .markSessionFailed, .cleanupOrphan:
             // TODO: Phase 4 — implement remaining repair actions

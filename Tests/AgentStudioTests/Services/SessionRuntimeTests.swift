@@ -19,7 +19,7 @@ final class SessionRuntimeTests: XCTestCase {
 
     // MARK: - Status Queries
 
-    func test_status_unknownSession_returnsInitializing() {
+    func test_status_unknownPane_returnsInitializing() {
         XCTAssertEqual(runtime.status(for: UUID()), .initializing)
     }
 
@@ -63,7 +63,7 @@ final class SessionRuntimeTests: XCTestCase {
         XCTAssertEqual(runtime.runningCount, 3)
     }
 
-    func test_sessionsWithStatus_filtersCorrectly() {
+    func test_panesWithStatus_filtersCorrectly() {
         let runningId = UUID()
         let exitedId = UUID()
         let initId = UUID()
@@ -72,19 +72,19 @@ final class SessionRuntimeTests: XCTestCase {
         runtime.markExited(exitedId)
         runtime.initializeSession(initId)
 
-        let running = runtime.sessions(withStatus: .running)
+        let running = runtime.panes(withStatus: .running)
         XCTAssertEqual(running, [runningId])
 
-        let exited = runtime.sessions(withStatus: .exited)
+        let exited = runtime.panes(withStatus: .exited)
         XCTAssertEqual(exited, [exitedId])
 
-        let initializing = runtime.sessions(withStatus: .initializing)
+        let initializing = runtime.panes(withStatus: .initializing)
         XCTAssertEqual(initializing, [initId])
     }
 
     // MARK: - Sync With Store
 
-    func test_syncWithStore_addsNewSessions() {
+    func test_syncWithStore_addsNewPanes() {
         let tempDir = FileManager.default.temporaryDirectory
             .appending(path: "runtime-test-\(UUID().uuidString)")
         let persistor = WorkspacePersistor(workspacesDir: tempDir)
@@ -92,19 +92,19 @@ final class SessionRuntimeTests: XCTestCase {
         store.restore()
         let runtime = SessionRuntime(store: store)
 
-        let session = store.createSession(
+        let pane = store.createPane(
             source: .floating(workingDirectory: nil, title: nil)
         )
 
         runtime.syncWithStore()
 
-        XCTAssertEqual(runtime.status(for: session.id), .initializing)
-        XCTAssertTrue(runtime.statuses.keys.contains(session.id))
+        XCTAssertEqual(runtime.status(for: pane.id), .initializing)
+        XCTAssertTrue(runtime.statuses.keys.contains(pane.id))
 
         try? FileManager.default.removeItem(at: tempDir)
     }
 
-    func test_syncWithStore_removesStaleSessions() {
+    func test_syncWithStore_removesStalePanes() {
         let tempDir = FileManager.default.temporaryDirectory
             .appending(path: "runtime-test-\(UUID().uuidString)")
         let persistor = WorkspacePersistor(workspacesDir: tempDir)
@@ -135,43 +135,43 @@ final class SessionRuntimeTests: XCTestCase {
     // MARK: - Backend Operations
 
     func test_startSession_withoutBackend_marksRunning() async throws {
-        let session = TerminalSession(
+        let pane = makePane(
             source: .floating(workingDirectory: nil, title: nil),
             provider: .ghostty
         )
 
-        let handle = try await runtime.startSession(session)
+        let handle = try await runtime.startSession(pane)
 
         XCTAssertNil(handle)
-        XCTAssertEqual(runtime.status(for: session.id), .running)
+        XCTAssertEqual(runtime.status(for: pane.id), .running)
     }
 
     func test_startSession_withBackend_callsStart() async throws {
         let backend = MockSessionRuntimeBackend(provider: .tmux)
         runtime.registerBackend(backend)
 
-        let session = TerminalSession(
+        let pane = makePane(
             source: .floating(workingDirectory: nil, title: nil),
             provider: .tmux
         )
 
-        let handle = try await runtime.startSession(session)
+        let handle = try await runtime.startSession(pane)
 
-        XCTAssertEqual(handle, "mock-handle-\(session.id)")
-        XCTAssertEqual(runtime.status(for: session.id), .running)
+        XCTAssertEqual(handle, "mock-handle-\(pane.id)")
+        XCTAssertEqual(runtime.status(for: pane.id), .running)
         XCTAssertEqual(backend.startCount, 1)
     }
 
     func test_restoreSession_withoutBackend_marksRunning() async {
-        let session = TerminalSession(
+        let pane = makePane(
             source: .floating(workingDirectory: nil, title: nil),
             provider: .ghostty
         )
 
-        let restored = await runtime.restoreSession(session)
+        let restored = await runtime.restoreSession(pane)
 
         XCTAssertTrue(restored)
-        XCTAssertEqual(runtime.status(for: session.id), .running)
+        XCTAssertEqual(runtime.status(for: pane.id), .running)
     }
 
     func test_restoreSession_withBackend_success() async {
@@ -179,15 +179,15 @@ final class SessionRuntimeTests: XCTestCase {
         backend.restoreResult = true
         runtime.registerBackend(backend)
 
-        let session = TerminalSession(
+        let pane = makePane(
             source: .floating(workingDirectory: nil, title: nil),
             provider: .tmux
         )
 
-        let restored = await runtime.restoreSession(session)
+        let restored = await runtime.restoreSession(pane)
 
         XCTAssertTrue(restored)
-        XCTAssertEqual(runtime.status(for: session.id), .running)
+        XCTAssertEqual(runtime.status(for: pane.id), .running)
     }
 
     func test_restoreSession_withBackend_failure() async {
@@ -195,43 +195,43 @@ final class SessionRuntimeTests: XCTestCase {
         backend.restoreResult = false
         runtime.registerBackend(backend)
 
-        let session = TerminalSession(
+        let pane = makePane(
             source: .floating(workingDirectory: nil, title: nil),
             provider: .tmux
         )
 
-        let restored = await runtime.restoreSession(session)
+        let restored = await runtime.restoreSession(pane)
 
         XCTAssertFalse(restored)
-        XCTAssertEqual(runtime.status(for: session.id), .exited)
+        XCTAssertEqual(runtime.status(for: pane.id), .exited)
     }
 
     func test_terminateSession_withBackend_marksExited() async {
         let backend = MockSessionRuntimeBackend(provider: .tmux)
         runtime.registerBackend(backend)
 
-        let session = TerminalSession(
+        let pane = makePane(
             source: .floating(workingDirectory: nil, title: nil),
             provider: .tmux
         )
-        runtime.markRunning(session.id)
+        runtime.markRunning(pane.id)
 
-        await runtime.terminateSession(session)
+        await runtime.terminateSession(pane)
 
-        XCTAssertEqual(runtime.status(for: session.id), .exited)
+        XCTAssertEqual(runtime.status(for: pane.id), .exited)
         XCTAssertEqual(backend.terminateCount, 1)
     }
 
     func test_terminateSession_withoutBackend_marksExited() async {
-        let session = TerminalSession(
+        let pane = makePane(
             source: .floating(workingDirectory: nil, title: nil),
             provider: .ghostty
         )
-        runtime.markRunning(session.id)
+        runtime.markRunning(pane.id)
 
-        await runtime.terminateSession(session)
+        await runtime.terminateSession(pane)
 
-        XCTAssertEqual(runtime.status(for: session.id), .exited)
+        XCTAssertEqual(runtime.status(for: pane.id), .exited)
     }
 }
 
@@ -248,20 +248,20 @@ private final class MockSessionRuntimeBackend: SessionBackendProtocol, @unchecke
         self.provider = provider
     }
 
-    func start(session: TerminalSession) async throws -> String {
+    func start(pane: Pane) async throws -> String {
         startCount += 1
-        return "mock-handle-\(session.id)"
+        return "mock-handle-\(pane.id)"
     }
 
-    func isAlive(session: TerminalSession) async -> Bool {
+    func isAlive(pane: Pane) async -> Bool {
         isAliveResult
     }
 
-    func terminate(session: TerminalSession) async {
+    func terminate(pane: Pane) async {
         terminateCount += 1
     }
 
-    func restore(session: TerminalSession) async -> Bool {
+    func restore(pane: Pane) async -> Bool {
         restoreResult
     }
 }

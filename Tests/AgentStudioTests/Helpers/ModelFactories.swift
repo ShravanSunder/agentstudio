@@ -41,6 +41,58 @@ func makeRepo(
     )
 }
 
+// MARK: - Pane Factory
+
+func makePane(
+    id: UUID = UUID(),
+    source: TerminalSource = .floating(workingDirectory: nil, title: nil),
+    title: String = "Terminal",
+    agent: AgentType? = nil,
+    provider: SessionProvider = .tmux,
+    lifetime: SessionLifetime = .persistent,
+    residency: SessionResidency = .active
+) -> Pane {
+    Pane(
+        id: id,
+        content: .terminal(TerminalState(provider: provider, lifetime: lifetime)),
+        metadata: PaneMetadata(source: source, title: title, agentType: agent),
+        residency: residency
+    )
+}
+
+// MARK: - Tab Factory (multi-pane)
+
+func makeTab(paneIds: [UUID], activePaneId: UUID? = nil) -> Tab {
+    guard let first = paneIds.first else {
+        fatalError("Need at least one pane ID")
+    }
+    if paneIds.count == 1 {
+        return Tab(paneId: first)
+    }
+    // Build layout by inserting subsequent panes
+    var layout = Layout(paneId: first)
+    for i in 1..<paneIds.count {
+        layout = layout.inserting(
+            paneId: paneIds[i],
+            at: paneIds[i - 1],
+            direction: .horizontal,
+            position: .after
+        )
+    }
+    let arrangement = PaneArrangement(
+        name: "Default",
+        isDefault: true,
+        layout: layout,
+        visiblePaneIds: Set(paneIds)
+    )
+    return Tab(
+        panes: paneIds,
+        arrangements: [arrangement],
+        activeArrangementId: arrangement.id,
+        activePaneId: activePaneId ?? first
+    )
+}
+
 // MARK: - SurfaceMetadata Factory
 
 func makeSurfaceMetadata(
@@ -49,7 +101,7 @@ func makeSurfaceMetadata(
     title: String = "Terminal",
     worktreeId: UUID? = nil,
     repoId: UUID? = nil,
-    sessionId: UUID? = nil
+    paneId: UUID? = nil
 ) -> SurfaceMetadata {
     SurfaceMetadata(
         workingDirectory: workingDirectory.map { URL(fileURLWithPath: $0) },
@@ -57,7 +109,7 @@ func makeSurfaceMetadata(
         title: title,
         worktreeId: worktreeId,
         repoId: repoId,
-        sessionId: sessionId
+        paneId: paneId
     )
 }
 

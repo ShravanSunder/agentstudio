@@ -575,7 +575,7 @@ final class ActionValidatorTests: XCTestCase {
     func test_expireUndoEntry_alwaysSucceeds() {
         // Arrange — empty state, no tabs at all
         let snapshot = makeSnapshot()
-        let action = PaneAction.expireUndoEntry(sessionId: UUID())
+        let action = PaneAction.expireUndoEntry(paneId: UUID())
 
         // Act
         let result = ActionValidator.validate(action, state: snapshot)
@@ -587,7 +587,7 @@ final class ActionValidatorTests: XCTestCase {
     func test_repair_alwaysSucceeds() {
         // Arrange
         let snapshot = makeSnapshot()
-        let action = PaneAction.repair(.recreateSurface(sessionId: UUID()))
+        let action = PaneAction.repair(.recreateSurface(paneId: UUID()))
 
         // Act
         let result = ActionValidator.validate(action, state: snapshot)
@@ -596,50 +596,50 @@ final class ActionValidatorTests: XCTestCase {
         XCTAssertNotNil(try? result.get())
     }
 
-    // MARK: - Session Cardinality
+    // MARK: - Pane Cardinality
 
-    func test_sessionCardinality_newSession_succeeds() {
+    func test_paneCardinality_newPane_succeeds() {
         // Arrange
-        let existingSessionId = UUID()
-        let newSessionId = UUID()
-        let tab = TabSnapshot(id: UUID(), paneIds: [existingSessionId], activePaneId: existingSessionId)
+        let existingPaneId = UUID()
+        let newPaneId = UUID()
+        let tab = TabSnapshot(id: UUID(), paneIds: [existingPaneId], activePaneId: existingPaneId)
         let snapshot = makeSnapshot(tabs: [tab])
 
         // Act
-        let result = ActionValidator.validateSessionCardinality(
-            sessionId: newSessionId, state: snapshot
+        let result = ActionValidator.validatePaneCardinality(
+            paneId: newPaneId, state: snapshot
         )
 
         // Assert
         XCTAssertNotNil(try? result.get())
     }
 
-    func test_sessionCardinality_duplicateSession_fails() {
+    func test_paneCardinality_duplicatePane_fails() {
         // Arrange
-        let sessionId = UUID()
-        let tab = TabSnapshot(id: UUID(), paneIds: [sessionId], activePaneId: sessionId)
+        let paneId = UUID()
+        let tab = TabSnapshot(id: UUID(), paneIds: [paneId], activePaneId: paneId)
         let snapshot = makeSnapshot(tabs: [tab])
 
         // Act
-        let result = ActionValidator.validateSessionCardinality(
-            sessionId: sessionId, state: snapshot
+        let result = ActionValidator.validatePaneCardinality(
+            paneId: paneId, state: snapshot
         )
 
         // Assert
-        if case .failure(.sessionAlreadyInLayout(let id)) = result {
-            XCTAssertEqual(id, sessionId)
+        if case .failure(.paneAlreadyInLayout(let id)) = result {
+            XCTAssertEqual(id, paneId)
             return
         }
-        XCTFail("Expected sessionAlreadyInLayout error")
+        XCTFail("Expected paneAlreadyInLayout error")
     }
 
-    func test_sessionCardinality_emptyState_succeeds() {
+    func test_paneCardinality_emptyState_succeeds() {
         // Arrange
         let snapshot = makeSnapshot()
 
         // Act
-        let result = ActionValidator.validateSessionCardinality(
-            sessionId: UUID(), state: snapshot
+        let result = ActionValidator.validatePaneCardinality(
+            paneId: UUID(), state: snapshot
         )
 
         // Assert

@@ -2,19 +2,19 @@ import Foundation
 
 // MARK: - Create Policy
 
-/// When sessions should be auto-created from templates.
+/// When panes should be auto-created from templates.
 enum CreatePolicy: String, Codable, Hashable {
-    /// Create sessions when the worktree is first opened.
+    /// Create panes when the worktree is first opened.
     case onCreate
-    /// Create sessions when the worktree view is activated.
+    /// Create panes when the worktree view is activated.
     case onActivate
-    /// Only create sessions manually.
+    /// Only create panes manually.
     case manual
 }
 
 // MARK: - Terminal Template
 
-/// Template for a single terminal session to be created.
+/// Template for a single terminal pane to be created.
 struct TerminalTemplate: Codable, Identifiable, Hashable {
     let id: UUID
     var title: String
@@ -37,20 +37,25 @@ struct TerminalTemplate: Codable, Identifiable, Hashable {
         self.relativeWorkingDir = relativeWorkingDir
     }
 
-    /// Create a TerminalSession from this template for a given worktree/repo.
-    func instantiate(worktreeId: UUID, repoId: UUID) -> TerminalSession {
-        TerminalSession(
-            source: .worktree(worktreeId: worktreeId, repoId: repoId),
-            title: title,
-            agent: agent,
-            provider: provider
+    /// Create a Pane from this template for a given worktree/repo.
+    func instantiate(worktreeId: UUID, repoId: UUID) -> Pane {
+        Pane(
+            content: .terminal(TerminalState(
+                provider: provider,
+                lifetime: .persistent
+            )),
+            metadata: PaneMetadata(
+                source: .worktree(worktreeId: worktreeId, repoId: repoId),
+                title: title,
+                agentType: agent
+            )
         )
     }
 }
 
 // MARK: - Worktree Template
 
-/// Template for the initial session layout when opening a worktree.
+/// Template for the initial pane layout when opening a worktree.
 /// Defines what terminals to create and how to arrange them.
 struct WorktreeTemplate: Codable, Identifiable, Hashable {
     let id: UUID
@@ -74,27 +79,40 @@ struct WorktreeTemplate: Codable, Identifiable, Hashable {
         self.splitDirection = splitDirection
     }
 
-    /// Create sessions and a tab from this template for a given worktree/repo.
-    func instantiate(worktreeId: UUID, repoId: UUID) -> (sessions: [TerminalSession], tab: Tab) {
-        let sessions = terminals.map { $0.instantiate(worktreeId: worktreeId, repoId: repoId) }
+    /// Create panes and a tab from this template for a given worktree/repo.
+    func instantiate(worktreeId: UUID, repoId: UUID) -> (panes: [Pane], tab: Tab) {
+        let panes = terminals.map { $0.instantiate(worktreeId: worktreeId, repoId: repoId) }
 
-        guard let first = sessions.first else {
-            return (sessions: [], tab: Tab(layout: Layout(), activeSessionId: nil))
+        guard let first = panes.first else {
+            fatalError("WorktreeTemplate must have at least one terminal")
         }
 
-        // Build layout: start with first session, insert each subsequent one
-        var layout = Layout(sessionId: first.id)
-        for session in sessions.dropFirst() {
-            let lastId = layout.sessionIds.last ?? first.id
+        // Build layout: start with first pane, insert each subsequent one
+        var layout = Layout(paneId: first.id)
+        for pane in panes.dropFirst() {
+            let lastId = layout.paneIds.last ?? first.id
             layout = layout.inserting(
-                sessionId: session.id,
+                paneId: pane.id,
                 at: lastId,
                 direction: splitDirection,
                 position: .after
             )
         }
 
-        let tab = Tab(layout: layout, activeSessionId: first.id)
-        return (sessions: sessions, tab: tab)
+        let paneIds = panes.map(\.id)
+        let arrangement = PaneArrangement(
+            name: "Default",
+            isDefault: true,
+            layout: layout,
+            visiblePaneIds: Set(paneIds)
+        )
+        let tab = Tab(
+            name: first.title,
+            panes: paneIds,
+            arrangements: [arrangement],
+            activeArrangementId: arrangement.id,
+            activePaneId: first.id
+        )
+        return (panes: panes, tab: tab)
     }
 }

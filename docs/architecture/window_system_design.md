@@ -62,6 +62,12 @@ All user-created entities with stable identity. Mutated only through transaction
 - Pane arrangements (default + custom per tab)
 - Drawer state (drawer panes per pane)
 
+### Transient State (not persisted, TTL-managed)
+
+Recoverable entities that exist temporarily outside normal ownership.
+
+- **Orphaned pane pool**: Panes promoted from DrawerPanes when their parent is deleted. TTL of 5 minutes. User can claim them into a tab or let them expire. This preserves the invariant that every DrawerPane always has a parent — when the parent is deleted, drawer panes become regular Panes in this pool.
+
 ### Computed State (ephemeral, derived)
 
 Read-only projections recomputed from owned state. Never persisted. Cannot mutate owned state.
@@ -487,8 +493,8 @@ These invariants are checked by the command validator before every mutation:
 
 **Pane ownership:**
 4. Every Pane has a unique ID across the workspace
-5. Every Pane belongs to exactly one tab
-6. Every DrawerPane belongs to exactly one Pane's drawer
+5. Every active Pane belongs to exactly one tab (orphaned panes in recoverable pool have no tab)
+6. Every DrawerPane belongs to exactly one Pane's drawer (no orphaned DrawerPanes — they are promoted to orphaned Panes on parent deletion)
 
 **Arrangement consistency:**
 7. Default arrangement `visiblePaneIds` equals the full tab pane set
@@ -501,13 +507,17 @@ These invariants are checked by the command validator before every mutation:
 12. A DrawerPane's parent Pane must be in the same tab
 
 **Tab rules:**
-13. A tab must have at least one Pane
-14. Closing the last Pane closes the tab (with undo)
-15. `activeArrangementId` references an arrangement in this tab
+13. A tab always has at least one Pane (enforced by escalation: deleting the last pane triggers CloseTab, not a validation error)
+14. `activeArrangementId` references an arrangement in this tab
+
+**Orphaned pane pool:**
+15. Orphaned panes (promoted from DrawerPanes on parent deletion) exist in a workspace-level recoverable pool
+16. Orphaned panes have a TTL (5 min) — auto-destroyed if not claimed
+17. User can claim orphaned panes into a tab via command bar
 
 **Dynamic view rules:**
-16. Dynamic views cannot mutate owned state
-17. Dynamic views display Panes only (DrawerPanes accessible via drawer UI)
+18. Dynamic views cannot mutate owned state
+19. Dynamic views display tab-owned Panes only (DrawerPanes accessible via drawer UI, orphaned panes not shown)
 
 ### Transactional Command Invariants
 
@@ -515,10 +525,12 @@ Multi-entity operations must be atomic. If any step fails, all steps roll back:
 
 | Command | Steps (all-or-nothing) |
 |---------|----------------------|
-| **DeletePane** | Remove from all arrangements → cascade drawer panes → validate tab still has ≥1 pane |
+| **DeletePane** | Remove from all arrangements → promote drawer panes to orphaned pool (with TTL) → if tab has 0 panes: escalate to CloseTab |
 | **MovePane** | Remove from source arrangements → add to target default → move drawer panes → validate both tabs |
-| **CloseTab** | Snapshot for undo → teardown all panes + drawer panes → remove tab |
+| **CloseTab** | Snapshot for undo → teardown all panes + promote drawer panes to orphaned pool → remove tab |
 | **SwitchArrangement** | Validate arrangement exists → hide non-visible panes → show visible panes → update active |
+
+Note on **DeletePane**: The invariant "tab must have ≥1 pane" is maintained by escalation, not by preventing deletion. Deleting the last pane in a tab triggers CloseTab (with undo), which closes the tab entirely. The invariant is never violated because the tab ceases to exist.
 
 ---
 
@@ -526,7 +538,7 @@ Multi-entity operations must be atomic. If any step fails, all steps roll back:
 
 | Scenario | Policy |
 |----------|--------|
-| Parent pane deleted | DrawerPanes are backgrounded (not destroyed). Running processes survive for potential recovery. |
+| Parent pane deleted | DrawerPanes are **promoted to orphaned Panes** in a workspace-level recoverable pool with TTL (5 min). They are no longer DrawerPanes — they become regular Panes without a tab. This preserves invariant 6 (every DrawerPane always has a parent). User can claim orphaned panes via command bar or let them expire. |
 | Empty groups in dynamic views | Hidden. No empty tabs shown. |
 | Drawers in dynamic views | Visible and accessible. Interacting with a pane in a dynamic view shows its drawer. |
 | Dynamic view tab sort order | Alphabetical by group name. Stable and predictable. |

@@ -8,9 +8,9 @@ final class AgentStudioTerminalView: NSView, SurfaceHealthDelegate {
     let worktree: Worktree
     let repo: Repo
 
-    /// Session identity — used for ViewRegistry keying, SurfaceManager.attach(), etc.
+    /// Pane identity — used for ViewRegistry keying, SurfaceManager.attach(), etc.
     /// Set once, never changes. Preserved through undo-close.
-    let sessionId: UUID
+    let paneId: UUID
 
     var surfaceId: UUID?
 
@@ -29,8 +29,8 @@ final class AgentStudioTerminalView: NSView, SurfaceHealthDelegate {
 
     /// Primary initializer — used by TerminalViewCoordinator.
     /// Does NOT create a surface; caller must attach one via displaySurface().
-    init(worktree: Worktree, repo: Repo, restoredSurfaceId: UUID, sessionId: UUID) {
-        self.sessionId = sessionId
+    init(worktree: Worktree, repo: Repo, restoredSurfaceId: UUID, paneId: UUID) {
+        self.paneId = paneId
         self.worktree = worktree
         self.repo = repo
         self.surfaceId = restoredSurfaceId
@@ -158,7 +158,7 @@ final class AgentStudioTerminalView: NSView, SurfaceHealthDelegate {
         NotificationCenter.default.post(
             name: .repairSurfaceRequested,
             object: nil,
-            userInfo: ["sessionId": sessionId]
+            userInfo: ["paneId": paneId]
         )
         hideErrorOverlay()
     }
@@ -267,5 +267,5 @@ final class AgentStudioTerminalView: NSView, SurfaceHealthDelegate {
 
 extension AgentStudioTerminalView: Identifiable {
     typealias ID = UUID
-    var id: UUID { sessionId }
+    var id: UUID { paneId }
 }

@@ -32,13 +32,12 @@ final class WorkspacePersistorTests: XCTestCase {
         // Assert
         XCTAssertNotNil(loaded)
         XCTAssertEqual(loaded?.id, state.id)
-        XCTAssertTrue(loaded?.sessions.isEmpty ?? false)
-        XCTAssertTrue(loaded?.views.isEmpty ?? false)
+        XCTAssertTrue(loaded?.panes.isEmpty ?? false)
     }
 
-    func test_saveAndLoad_withSessions() throws {
+    func test_saveAndLoad_withPanes() throws {
         // Arrange
-        let session = TerminalSession(
+        let pane = makePane(
             source: .worktree(worktreeId: UUID(), repoId: UUID()),
             title: "Feature",
             agent: .claude,
@@ -47,66 +46,54 @@ final class WorkspacePersistorTests: XCTestCase {
             residency: .active
         )
         var state = WorkspacePersistor.PersistableState()
-        state.sessions = [session]
+        state.panes = [pane]
 
         // Act
         try persistor.save(state)
         let loaded = persistor.load()
 
         // Assert
-        XCTAssertEqual(loaded?.sessions.count, 1)
-        XCTAssertEqual(loaded?.sessions[0].id, session.id)
-        XCTAssertEqual(loaded?.sessions[0].title, "Feature")
-        XCTAssertEqual(loaded?.sessions[0].agent, .claude)
-        XCTAssertEqual(loaded?.sessions[0].provider, .tmux)
-        XCTAssertEqual(loaded?.sessions[0].lifetime, .persistent)
-        XCTAssertEqual(loaded?.sessions[0].residency, .active)
+        XCTAssertEqual(loaded?.panes.count, 1)
+        XCTAssertEqual(loaded?.panes[0].id, pane.id)
+        XCTAssertEqual(loaded?.panes[0].title, "Feature")
+        XCTAssertEqual(loaded?.panes[0].agent, .claude)
+        XCTAssertEqual(loaded?.panes[0].provider, .tmux)
+        XCTAssertEqual(loaded?.panes[0].lifetime, .persistent)
+        XCTAssertEqual(loaded?.panes[0].residency, .active)
     }
 
-    func test_saveAndLoad_withViews() throws {
+    func test_saveAndLoad_withTabs() throws {
         // Arrange
-        let sessionId = UUID()
-        let tab = Tab(sessionId: sessionId)
-        let view = ViewDefinition(
-            name: "Main",
-            kind: .main,
-            tabs: [tab],
-            activeTabId: tab.id
-        )
+        let paneId = UUID()
+        let tab = Tab(paneId: paneId)
         var state = WorkspacePersistor.PersistableState()
-        state.views = [view]
-        state.activeViewId = view.id
+        state.tabs = [tab]
+        state.activeTabId = tab.id
 
         // Act
         try persistor.save(state)
         let loaded = persistor.load()
 
         // Assert
-        XCTAssertEqual(loaded?.views.count, 1)
-        XCTAssertEqual(loaded?.views[0].kind, .main)
-        XCTAssertEqual(loaded?.views[0].tabs.count, 1)
-        XCTAssertEqual(loaded?.views[0].tabs[0].sessionIds, [sessionId])
-        XCTAssertEqual(loaded?.activeViewId, view.id)
+        XCTAssertEqual(loaded?.tabs.count, 1)
+        XCTAssertEqual(loaded?.tabs[0].paneIds, [paneId])
+        XCTAssertEqual(loaded?.activeTabId, tab.id)
     }
 
     func test_saveAndLoad_withSplitLayout() throws {
         // Arrange
         let s1 = UUID(), s2 = UUID(), s3 = UUID()
-        let layout = Layout(sessionId: s1)
-            .inserting(sessionId: s2, at: s1, direction: .horizontal, position: .after)
-            .inserting(sessionId: s3, at: s2, direction: .vertical, position: .after)
-        let tab = Tab(layout: layout, activeSessionId: s1)
-        let view = ViewDefinition(name: "Main", kind: .main, tabs: [tab])
+        let tab = makeTab(paneIds: [s1, s2, s3], activePaneId: s1)
         var state = WorkspacePersistor.PersistableState()
-        state.views = [view]
+        state.tabs = [tab]
 
         // Act
         try persistor.save(state)
         let loaded = persistor.load()
 
         // Assert
-        XCTAssertEqual(loaded?.views[0].tabs[0].sessionIds, [s1, s2, s3])
-        XCTAssertTrue(loaded?.views[0].tabs[0].isSplit ?? false)
+        XCTAssertEqual(loaded?.tabs[0].paneIds, [s1, s2, s3])
+        XCTAssertTrue(loaded?.tabs[0].isSplit ?? false)
     }
 
     func test_saveAndLoad_preservesAllFields() throws {
@@ -194,8 +181,6 @@ final class WorkspacePersistorTests: XCTestCase {
         XCTAssertEqual(loaded?.name, "Second Save")
     }
 
-    // MARK: - ViewKind Codable
-
     // MARK: - hasWorkspaceFiles
 
     func test_hasWorkspaceFiles_emptyDir_returnsFalse() {
@@ -233,36 +218,5 @@ final class WorkspacePersistorTests: XCTestCase {
 
         // Act & Assert
         XCTAssertThrowsError(try readOnlyPersistor.save(state))
-    }
-
-    // MARK: - ViewKind Codable
-
-    func test_viewKind_allVariants_roundTrip() throws {
-        // Arrange
-        let worktreeId = UUID()
-        let repoId = UUID()
-        let views = [
-            ViewDefinition(name: "Main", kind: .main),
-            ViewDefinition(name: "Saved", kind: .saved),
-            ViewDefinition(name: "WT", kind: .worktree(worktreeId: worktreeId)),
-            ViewDefinition(name: "ByRepo", kind: .dynamic(rule: .byRepo(repoId: repoId))),
-            ViewDefinition(name: "ByAgent", kind: .dynamic(rule: .byAgent(.claude))),
-            ViewDefinition(name: "Custom", kind: .dynamic(rule: .custom(name: "test")))
-        ]
-        var state = WorkspacePersistor.PersistableState()
-        state.views = views
-
-        // Act
-        try persistor.save(state)
-        let loaded = persistor.load()
-
-        // Assert
-        XCTAssertEqual(loaded?.views.count, 6)
-        XCTAssertEqual(loaded?.views[0].kind, .main)
-        XCTAssertEqual(loaded?.views[1].kind, .saved)
-        XCTAssertEqual(loaded?.views[2].kind, .worktree(worktreeId: worktreeId))
-        XCTAssertEqual(loaded?.views[3].kind, .dynamic(rule: .byRepo(repoId: repoId)))
-        XCTAssertEqual(loaded?.views[4].kind, .dynamic(rule: .byAgent(.claude)))
-        XCTAssertEqual(loaded?.views[5].kind, .dynamic(rule: .custom(name: "test")))
     }
 }

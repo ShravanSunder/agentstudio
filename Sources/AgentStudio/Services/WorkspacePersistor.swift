@@ -12,9 +12,9 @@ struct WorkspacePersistor {
         var id: UUID
         var name: String
         var repos: [Repo]
-        var sessions: [TerminalSession]
-        var views: [ViewDefinition]
-        var activeViewId: UUID?
+        var panes: [Pane]
+        var tabs: [Tab]
+        var activeTabId: UUID?
         var sidebarWidth: CGFloat
         var windowFrame: CGRect?
         var createdAt: Date
@@ -24,9 +24,9 @@ struct WorkspacePersistor {
             id: UUID = UUID(),
             name: String = "Default Workspace",
             repos: [Repo] = [],
-            sessions: [TerminalSession] = [],
-            views: [ViewDefinition] = [],
-            activeViewId: UUID? = nil,
+            panes: [Pane] = [],
+            tabs: [Tab] = [],
+            activeTabId: UUID? = nil,
             sidebarWidth: CGFloat = 250,
             windowFrame: CGRect? = nil,
             createdAt: Date = Date(),
@@ -35,9 +35,9 @@ struct WorkspacePersistor {
             self.id = id
             self.name = name
             self.repos = repos
-            self.sessions = sessions
-            self.views = views
-            self.activeViewId = activeViewId
+            self.panes = panes
+            self.tabs = tabs
+            self.activeTabId = activeTabId
             self.sidebarWidth = sidebarWidth
             self.windowFrame = windowFrame
             self.createdAt = createdAt

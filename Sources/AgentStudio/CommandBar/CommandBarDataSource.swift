@@ -75,7 +75,7 @@ enum CommandBarDataSource {
     ) -> [CommandBarItem] {
         var items: [CommandBarItem] = []
         items.append(contentsOf: tabItems(store: store))
-        items.append(contentsOf: sessionItems(store: store))
+        items.append(contentsOf: paneItems(store: store))
         items.append(contentsOf: allCommandItems(dispatcher: dispatcher, store: store, groupName: Group.commands, priority: Priority.commands))
         items.append(contentsOf: worktreeItems(store: store))
         return items
@@ -84,11 +84,11 @@ enum CommandBarDataSource {
     // MARK: - Tab Items
 
     private static func tabItems(store: WorkspaceStore) -> [CommandBarItem] {
-        store.activeTabs.enumerated().map { index, tab in
-            let sessionTitles = tab.sessionIds.compactMap { store.session($0)?.title }
-            let title = sessionTitles.count > 1
-                ? sessionTitles.joined(separator: " | ")
-                : sessionTitles.first ?? "Terminal"
+        store.tabs.enumerated().map { index, tab in
+            let paneTitles = tab.paneIds.compactMap { store.pane($0)?.title }
+            let title = paneTitles.count > 1
+                ? paneTitles.joined(separator: " | ")
+                : paneTitles.first ?? "Terminal"
             let isActive = tab.id == store.activeTabId
 
             let tabId = tab.id
@@ -111,32 +111,32 @@ enum CommandBarDataSource {
         }
     }
 
-    // MARK: - Session / Pane Items
+    // MARK: - Pane Items
 
-    private static func sessionItems(store: WorkspaceStore) -> [CommandBarItem] {
+    private static func paneItems(store: WorkspaceStore) -> [CommandBarItem] {
         var items: [CommandBarItem] = []
-        for (tabIndex, tab) in store.activeTabs.enumerated() {
-            for sessionId in tab.sessionIds {
-                guard let session = store.session(sessionId) else { continue }
-                let isActive = tab.activeSessionId == sessionId
+        for (tabIndex, tab) in store.tabs.enumerated() {
+            for paneId in tab.paneIds {
+                guard let pane = store.pane(paneId) else { continue }
+                let isActive = tab.activePaneId == paneId
 
-                let sessionId = session.id
+                let capturedPaneId = pane.id
                 let parentTabId = tab.id
                 items.append(CommandBarItem(
-                    id: "pane-\(session.id.uuidString)",
-                    title: session.title,
+                    id: "pane-\(pane.id.uuidString)",
+                    title: pane.title,
                     subtitle: "Tab \(tabIndex + 1)" + (isActive ? " · Active" : ""),
-                    icon: iconForSession(session),
-                    iconColor: session.agent?.color,
+                    icon: iconForPane(pane),
+                    iconColor: pane.agent?.color,
                     group: Group.panes,
                     groupPriority: Priority.panes,
-                    keywords: keywordsForSession(session, store: store),
+                    keywords: keywordsForPane(pane, store: store),
                     action: .custom {
                         // Select the parent tab and focus the specific pane
                         NotificationCenter.default.post(
                             name: .selectTabById,
                             object: nil,
-                            userInfo: ["tabId": parentTabId, "sessionId": sessionId]
+                            userInfo: ["tabId": parentTabId, "paneId": capturedPaneId]
                         )
                     }
                 ))
@@ -149,11 +149,11 @@ enum CommandBarDataSource {
 
     private static func paneAndTabItems(store: WorkspaceStore) -> [CommandBarItem] {
         var items: [CommandBarItem] = []
-        for (tabIndex, tab) in store.activeTabs.enumerated() {
-            let sessionTitles = tab.sessionIds.compactMap { store.session($0)?.title }
-            let tabTitle = sessionTitles.count > 1
-                ? sessionTitles.joined(separator: " | ")
-                : sessionTitles.first ?? "Terminal"
+        for (tabIndex, tab) in store.tabs.enumerated() {
+            let paneTitles = tab.paneIds.compactMap { store.pane($0)?.title }
+            let tabTitle = paneTitles.count > 1
+                ? paneTitles.joined(separator: " | ")
+                : paneTitles.first ?? "Terminal"
             let tabGroupName = "Tab \(tabIndex + 1): \(tabTitle)"
             let isActiveTab = tab.id == store.activeTabId
 
@@ -177,26 +177,26 @@ enum CommandBarDataSource {
             ))
 
             // Panes within this tab
-            for sessionId in tab.sessionIds {
-                guard let session = store.session(sessionId) else { continue }
-                let isActive = tab.activeSessionId == sessionId
+            for paneId in tab.paneIds {
+                guard let pane = store.pane(paneId) else { continue }
+                let isActive = tab.activePaneId == paneId
 
-                let paneTabId = tab.id
-                let paneSessionId = session.id
+                let capturedTabId = tab.id
+                let capturedPaneId = pane.id
                 items.append(CommandBarItem(
-                    id: "pane-\(session.id.uuidString)",
-                    title: session.title,
+                    id: "pane-\(pane.id.uuidString)",
+                    title: pane.title,
                     subtitle: isActive ? "Active Pane" : nil,
-                    icon: iconForSession(session),
-                    iconColor: session.agent?.color,
+                    icon: iconForPane(pane),
+                    iconColor: pane.agent?.color,
                     group: tabGroupName,
                     groupPriority: tabIndex,
-                    keywords: keywordsForSession(session, store: store),
+                    keywords: keywordsForPane(pane, store: store),
                     action: .custom {
                         NotificationCenter.default.post(
                             name: .selectTabById,
                             object: nil,
-                            userInfo: ["tabId": paneTabId, "sessionId": paneSessionId]
+                            userInfo: ["tabId": capturedTabId, "paneId": capturedPaneId]
                         )
                     }
                 ))
@@ -294,11 +294,11 @@ enum CommandBarDataSource {
         let appliesToPane = def.appliesTo.contains(.pane) || def.appliesTo.contains(.floatingTerminal)
 
         if appliesToTab {
-            items.append(contentsOf: store.activeTabs.enumerated().map { index, tab in
-                let sessionTitles = tab.sessionIds.compactMap { store.session($0)?.title }
-                let title = sessionTitles.count > 1
-                    ? sessionTitles.joined(separator: " | ")
-                    : sessionTitles.first ?? "Terminal"
+            items.append(contentsOf: store.tabs.enumerated().map { index, tab in
+                let paneTitles = tab.paneIds.compactMap { store.pane($0)?.title }
+                let title = paneTitles.count > 1
+                    ? paneTitles.joined(separator: " | ")
+                    : paneTitles.first ?? "Terminal"
                 return CommandBarItem(
                     id: "target-tab-\(tab.id.uuidString)",
                     title: title,
@@ -312,23 +312,23 @@ enum CommandBarDataSource {
         }
 
         if appliesToPane {
-            for (tabIndex, tab) in store.activeTabs.enumerated() {
-                for sessionId in tab.sessionIds {
-                    guard let session = store.session(sessionId) else { continue }
+            for (tabIndex, tab) in store.tabs.enumerated() {
+                for paneId in tab.paneIds {
+                    guard let pane = store.pane(paneId) else { continue }
                     let targetType: SearchItemType
-                    switch session.source {
+                    switch pane.source {
                     case .floating: targetType = .floatingTerminal
                     case .worktree: targetType = .pane
                     }
                     items.append(CommandBarItem(
-                        id: "target-pane-\(session.id.uuidString)",
-                        title: session.title,
+                        id: "target-pane-\(pane.id.uuidString)",
+                        title: pane.title,
                         subtitle: "Tab \(tabIndex + 1)",
-                        icon: iconForSession(session),
-                        iconColor: session.agent?.color,
+                        icon: iconForPane(pane),
+                        iconColor: pane.agent?.color,
                         group: "Panes",
                         groupPriority: 1,
-                        action: .dispatchTargeted(def.command, target: session.id, targetType: targetType)
+                        action: .dispatchTargeted(def.command, target: pane.id, targetType: targetType)
                     ))
                 }
             }
@@ -371,19 +371,19 @@ enum CommandBarDataSource {
 
     // MARK: - Helpers
 
-    private static func iconForSession(_ session: TerminalSession) -> String {
-        switch session.source {
+    private static func iconForPane(_ pane: Pane) -> String {
+        switch pane.source {
         case .floating: return "terminal.fill"
         case .worktree: return "terminal"
         }
     }
 
-    private static func keywordsForSession(_ session: TerminalSession, store: WorkspaceStore) -> [String] {
-        var keywords = ["pane", "terminal", session.title]
-        if let worktreeId = session.worktreeId, let wt = store.worktree(worktreeId) {
+    private static func keywordsForPane(_ pane: Pane, store: WorkspaceStore) -> [String] {
+        var keywords = ["pane", "terminal", pane.title]
+        if let worktreeId = pane.worktreeId, let wt = store.worktree(worktreeId) {
             keywords.append(contentsOf: [wt.name, wt.branch])
         }
-        if let agent = session.agent {
+        if let agent = pane.agent {
             keywords.append(agent.displayName)
         }
         return keywords

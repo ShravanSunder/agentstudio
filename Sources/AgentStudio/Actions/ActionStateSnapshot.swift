@@ -51,8 +51,8 @@ struct ActionStateSnapshot: Equatable {
 
     var tabCount: Int { tabs.count }
 
-    /// All session/pane IDs across all tabs. Used for cardinality validation.
-    var allSessionIds: Set<UUID> {
+    /// All pane IDs across all tabs. Used for cardinality validation.
+    var allPaneIds: Set<UUID> {
         Set(tabs.flatMap(\.paneIds))
     }
 

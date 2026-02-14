@@ -17,7 +17,7 @@ struct TerminalSplitContainer: View {
     let tree: TerminalSplitTree
     let tabId: UUID
     let activePaneId: UUID?
-    let zoomedSessionId: UUID?
+    let zoomedPaneId: UUID?
     let action: (PaneAction) -> Void
     /// Called when a resize drag ends to persist the current split tree state.
     let onPersist: (() -> Void)?
@@ -26,8 +26,8 @@ struct TerminalSplitContainer: View {
 
     var body: some View {
         if let node = tree.root {
-            if let zoomedSessionId,
-               let zoomedView = tree.allViews.first(where: { $0.id == zoomedSessionId }) {
+            if let zoomedPaneId,
+               let zoomedView = tree.allViews.first(where: { $0.id == zoomedPaneId }) {
                 // Zoomed: render single pane at full size
                 ZStack(alignment: .topTrailing) {
                     TerminalPaneLeaf(

@@ -77,11 +77,13 @@ final class TmuxBackend: SessionBackend {
     private let executor: ProcessExecutor
     private let ghostConfigPath: String
     private let socket: String
+    private let terminfoDir: String?
 
-    init(executor: ProcessExecutor = DefaultProcessExecutor(), ghostConfigPath: String, socketName: String = TmuxBackend.socketName) {
+    init(executor: ProcessExecutor = DefaultProcessExecutor(), ghostConfigPath: String, socketName: String = TmuxBackend.socketName, terminfoDir: String? = nil) {
         self.executor = executor
         self.ghostConfigPath = ghostConfigPath
         self.socket = socketName
+        self.terminfoDir = terminfoDir
     }
 
     // MARK: - Session ID Generation
@@ -155,24 +157,43 @@ final class TmuxBackend: SessionBackend {
             socketName: socket,
             ghostConfigPath: ghostConfigPath,
             sessionId: handle.id,
-            workingDirectory: handle.workingDirectory.path
+            workingDirectory: handle.workingDirectory.path,
+            terminfoDir: terminfoDir
         )
     }
 
     /// Build the tmux attach command with runtime hardening applied.
     /// The hardening is repeated at attach-time to correct stale tmux servers
     /// that may have been started before updated ghost.conf options existed.
+    ///
+    /// The `terminfoDir` parameter injects our custom terminfo directory into
+    /// the tmux server's global environment via `set-environment -g TERMINFO`.
+    /// This is critical because the tmux server persists across app restarts and
+    /// may have been started with a stale TERMINFO pointing to an installed
+    /// Ghostty.app or system path, causing programs inside tmux to find the
+    /// system xterm-256color (X10 mouse, no RGB) instead of our custom one
+    /// (SGR mouse, full Ghostty capabilities).
     static func buildAttachCommand(
         tmuxBin: String,
         socketName: String,
         ghostConfigPath: String,
         sessionId: String,
-        workingDirectory: String
+        workingDirectory: String,
+        terminfoDir: String? = nil
     ) -> String {
         let config = shellEscape(ghostConfigPath)
         let cwd = shellEscape(workingDirectory)
         let escapedSessionId = shellEscape(sessionId)
-        return "\(tmuxBin) -L \(socketName) -f \(config) new-session -A -s \(escapedSessionId) -c \(cwd) \\; set-option -g mouse off \\; unbind-key -a \\; unbind-key -a -T root \\; unbind-key -a -T copy-mode \\; unbind-key -a -T copy-mode-vi"
+        var cmd = "\(tmuxBin) -L \(socketName) -f \(config) new-session -A -s \(escapedSessionId) -c \(cwd)"
+        cmd += " \\; set-option -g mouse off"
+        cmd += " \\; unbind-key -a"
+        cmd += " \\; unbind-key -a -T root"
+        cmd += " \\; unbind-key -a -T copy-mode"
+        cmd += " \\; unbind-key -a -T copy-mode-vi"
+        if let terminfoDir {
+            cmd += " \\; set-environment -g TERMINFO \(shellEscape(terminfoDir))"
+        }
+        return cmd
     }
 
     /// Single-quote a string for safe shell interpolation.

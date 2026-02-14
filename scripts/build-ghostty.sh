@@ -43,13 +43,19 @@ if [ -d "macos/GhosttyKit.xcframework" ]; then
     echo "✅ GhosttyKit.xcframework built!"
     echo "GhosttyKit.xcframework is now available at: $FRAMEWORKS_DIR/GhosttyKit.xcframework"
 
-    # Copy terminfo for development (SPM builds)
+    # Copy Ghostty terminfo for development (SPM builds).
+    # IMPORTANT: Only update Ghostty-provided entries (xterm-ghostty, ghostty).
+    # Do NOT delete the entire directory — it contains our custom xterm-256color
+    # (git-tracked in Resources/terminfo/78/xterm-256color) with full Ghostty
+    # capabilities tuned for headless tmux.
     TERMINFO_SRC="$GHOSTTY_DIR/zig-out/share/terminfo"
     if [ -d "$TERMINFO_SRC" ]; then
-        echo "📋 Copying terminfo for development..."
-        rm -rf "$TERMINFO_DEV"
-        cp -R "$TERMINFO_SRC" "$TERMINFO_DEV"
-        echo "✅ terminfo copied to $TERMINFO_DEV"
+        echo "📋 Copying Ghostty terminfo for development (preserving custom entries)..."
+        mkdir -p "$TERMINFO_DEV/78" "$TERMINFO_DEV/67"
+        # Only copy Ghostty-provided entries
+        [ -f "$TERMINFO_SRC/78/xterm-ghostty" ] && cp "$TERMINFO_SRC/78/xterm-ghostty" "$TERMINFO_DEV/78/"
+        [ -f "$TERMINFO_SRC/67/ghostty" ] && cp "$TERMINFO_SRC/67/ghostty" "$TERMINFO_DEV/67/"
+        echo "✅ Ghostty terminfo updated (custom xterm-256color preserved)"
     else
         echo "⚠️  terminfo not found at $TERMINFO_SRC — xterm-ghostty will not be available"
     fi

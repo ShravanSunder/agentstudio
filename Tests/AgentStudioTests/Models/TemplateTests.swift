@@ -22,13 +22,13 @@ final class TemplateTests: XCTestCase {
             provider: .tmux
         )
 
-        let session = template.instantiate(worktreeId: worktreeId, repoId: repoId)
+        let pane = template.instantiate(worktreeId: worktreeId, repoId: repoId)
 
-        XCTAssertEqual(session.title, "Claude Agent")
-        XCTAssertEqual(session.agent, .claude)
-        XCTAssertEqual(session.provider, .tmux)
-        XCTAssertEqual(session.worktreeId, worktreeId)
-        XCTAssertEqual(session.repoId, repoId)
+        XCTAssertEqual(pane.title, "Claude Agent")
+        XCTAssertEqual(pane.agent, .claude)
+        XCTAssertEqual(pane.provider, .tmux)
+        XCTAssertEqual(pane.worktreeId, worktreeId)
+        XCTAssertEqual(pane.repoId, repoId)
     }
 
     func test_terminalTemplate_codable_roundTrip() throws {
@@ -66,12 +66,12 @@ final class TemplateTests: XCTestCase {
             terminals: [TerminalTemplate(title: "Shell")]
         )
 
-        let (sessions, tab) = template.instantiate(worktreeId: worktreeId, repoId: repoId)
+        let (panes, tab) = template.instantiate(worktreeId: worktreeId, repoId: repoId)
 
-        XCTAssertEqual(sessions.count, 1)
-        XCTAssertEqual(sessions[0].title, "Shell")
-        XCTAssertEqual(tab.sessionIds.count, 1)
-        XCTAssertEqual(tab.sessionIds[0], sessions[0].id)
+        XCTAssertEqual(panes.count, 1)
+        XCTAssertEqual(panes[0].title, "Shell")
+        XCTAssertEqual(tab.paneIds.count, 1)
+        XCTAssertEqual(tab.paneIds[0], panes[0].id)
         XCTAssertFalse(tab.isSplit)
     }
 
@@ -88,30 +88,18 @@ final class TemplateTests: XCTestCase {
             splitDirection: .horizontal
         )
 
-        let (sessions, tab) = template.instantiate(worktreeId: worktreeId, repoId: repoId)
+        let (panes, tab) = template.instantiate(worktreeId: worktreeId, repoId: repoId)
 
-        XCTAssertEqual(sessions.count, 3)
-        XCTAssertEqual(tab.sessionIds.count, 3)
+        XCTAssertEqual(panes.count, 3)
+        XCTAssertEqual(tab.paneIds.count, 3)
         XCTAssertTrue(tab.isSplit)
-        XCTAssertEqual(tab.activeSessionId, sessions[0].id)
-        // All session IDs should be present in the layout
-        for session in sessions {
-            XCTAssertTrue(tab.sessionIds.contains(session.id))
+        XCTAssertEqual(tab.activePaneId, panes[0].id)
+        // All pane IDs should be present in the layout
+        for pane in panes {
+            XCTAssertTrue(tab.paneIds.contains(pane.id))
         }
     }
 
-    func test_worktreeTemplate_instantiate_empty() {
-        let template = WorktreeTemplate(
-            name: "Empty",
-            terminals: []
-        )
-
-        let (sessions, tab) = template.instantiate(worktreeId: UUID(), repoId: UUID())
-
-        XCTAssertTrue(sessions.isEmpty)
-        XCTAssertTrue(tab.sessionIds.isEmpty)
-        XCTAssertNil(tab.activeSessionId)
-    }
 
     func test_worktreeTemplate_codable_roundTrip() throws {
         let template = WorktreeTemplate(

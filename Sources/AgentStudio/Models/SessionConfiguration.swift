@@ -95,7 +95,77 @@ struct SessionConfiguration: Sendable {
         return nil
     }
 
+    /// Resolve the terminfo directory containing our custom xterm-256color.
+    ///
+    /// This is the directory that should be set as TERMINFO inside tmux sessions
+    /// so that programs find our custom xterm-256color (with SGR mouse, RGB, etc.)
+    /// instead of the system xterm-256color. The tmux server persists across app
+    /// restarts, so its initial TERMINFO may be stale; this path is injected at
+    /// every attach to keep it current.
+    ///
+    /// Search order: SPM resource bundle → app bundle → development source tree.
+    static func resolveTerminfoDir() -> String? {
+        let sentinel = "/78/xterm-256color"
+
+        // SPM resource bundle
+        let spmBundle = Bundle.main.bundleURL
+            .appendingPathComponent("AgentStudio_AgentStudio.bundle/terminfo").path
+        if FileManager.default.fileExists(atPath: spmBundle + sentinel) {
+            return spmBundle
+        }
+
+        // App bundle
+        if let bundled = Bundle.main.resourcePath {
+            let candidate = bundled + "/terminfo"
+            if FileManager.default.fileExists(atPath: candidate + sentinel) {
+                return candidate
+            }
+        }
+
+        // Development source tree
+        if let devResources = findDevResourcesDir() {
+            let candidate = devResources + "/terminfo"
+            if FileManager.default.fileExists(atPath: candidate + sentinel) {
+                return candidate
+            }
+        }
+
+        return nil
+    }
+
+    /// The safe terminfo directory at ~/.agentstudio/terminfo/.
+    /// Used by both ghost.conf injection and the attach command's set-environment.
+    /// This path avoids "AgentStudio" (mixed case) in the tmux command line.
+    static var safeTerminfoPath: String {
+        FileManager.default.homeDirectoryForCurrentUser
+            .appendingPathComponent(".agentstudio/terminfo").path
+    }
+
     // MARK: - Private
+
+    /// Copy the custom terminfo to ~/.agentstudio/terminfo/ (pkill-safe path).
+    /// Returns the safe directory path, or nil if the copy fails.
+    private static func copySafeTerminfo() -> String? {
+        guard let sourceDir = resolveTerminfoDir() else { return nil }
+
+        let safeDir = URL(fileURLWithPath: safeTerminfoPath)
+        let sourceFile = URL(fileURLWithPath: sourceDir + "/78/xterm-256color")
+        let destDir = safeDir.appendingPathComponent("78")
+        let destFile = destDir.appendingPathComponent("xterm-256color")
+
+        guard FileManager.default.fileExists(atPath: sourceFile.path) else { return nil }
+
+        do {
+            try FileManager.default.createDirectory(at: destDir, withIntermediateDirectories: true)
+            if FileManager.default.fileExists(atPath: destFile.path) {
+                try FileManager.default.removeItem(at: destFile)
+            }
+            try FileManager.default.copyItem(at: sourceFile, to: destFile)
+            return safeDir.path
+        } catch {
+            return nil
+        }
+    }
 
     private static func findTmux() -> String? {
         // Check well-known locations first (faster than spawning a process)
@@ -164,6 +234,21 @@ struct SessionConfiguration: Sendable {
                 at: URL(fileURLWithPath: sourcePath),
                 to: safePath
             )
+
+            // Copy terminfo to ~/.agentstudio/terminfo/ and inject the safe path
+            // into ghost.conf. This ensures:
+            // 1. Programs inside tmux find our custom xterm-256color (SGR mouse, RGB)
+            // 2. The tmux command line doesn't contain "AgentStudio" (pkill safety)
+            // 3. The tmux server picks up the correct TERMINFO even after restart
+            if let safeTerminfo = copySafeTerminfo() {
+                let terminfoLine = "\n# ─── Runtime TERMINFO (injected by Agent Studio at launch) ────────\n"
+                    + "set-environment -g TERMINFO \"\(safeTerminfo)\"\n"
+                let handle = try FileHandle(forWritingTo: safePath)
+                handle.seekToEndOfFile()
+                handle.write(terminfoLine.data(using: .utf8)!)
+                handle.closeFile()
+            }
+
             return safePath.path
         } catch {
             return sourcePath
