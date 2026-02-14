@@ -79,7 +79,7 @@ final class ZmxBackendIntegrationTests: XCTestCase {
 
         // Assert — the zmx dir should exist and be in temp
         XCTAssertTrue(
-            harness.zmxDir.contains("zmx-test-"),
+            harness.zmxDir.hasPrefix("/tmp/zt-"),
             "zmxDir should be a temp directory, not the default ~/.agentstudio/zmx"
         )
         XCTAssertTrue(

@@ -47,7 +47,7 @@ if [ -d "macos/GhosttyKit.xcframework" ]; then
     # IMPORTANT: Only update Ghostty-provided entries (xterm-ghostty, ghostty).
     # Do NOT delete the entire directory — it contains our custom xterm-256color
     # (git-tracked in Resources/terminfo/78/xterm-256color) with full Ghostty
-    # capabilities tuned for headless tmux.
+    # capabilities tuned for zmx sessions.
     TERMINFO_SRC="$GHOSTTY_DIR/zig-out/share/terminfo"
     if [ -d "$TERMINFO_SRC" ]; then
         echo "📋 Copying Ghostty terminfo for development (preserving custom entries)..."

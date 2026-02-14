@@ -47,21 +47,20 @@ final class ZmxE2ETests: XCTestCase {
         let paneId = UUID()
         let handle = try await backend.createPaneSession(repo: repo, worktree: worktree, paneId: paneId)
 
-        // Act 1 — spawn a zmx daemon via script (provides PTY)
+        // Act 1 — spawn a zmx daemon
         let zmxPath = harness.zmxPath!
         let spawnProcess = try spawnZmxSession(
             zmxPath: zmxPath,
             zmxDir: harness.zmxDir,
             sessionId: handle.id,
-            command: "/bin/sh -c 'sleep 300'"
+            commandArgs: ["/bin/sleep", "300"]
         )
         defer { spawnProcess.terminate() }
 
         // Wait for daemon to register (poll zmx list)
         let appeared = await pollForSession(sessionId: handle.id, timeout: 10)
         guard appeared else {
-            // If daemon didn't start (e.g. no PTY support in test environment), skip
-            throw XCTSkip("zmx daemon did not start — PTY may not be available in test environment")
+            throw XCTSkip("zmx daemon did not start within timeout")
         }
 
         // Assert 1 — healthCheck sees the session
@@ -108,11 +107,11 @@ final class ZmxE2ETests: XCTestCase {
         let zmxPath = harness.zmxPath!
         let proc1 = try spawnZmxSession(
             zmxPath: zmxPath, zmxDir: harness.zmxDir,
-            sessionId: handle1.id, command: "/bin/sh -c 'sleep 300'"
+            sessionId: handle1.id, commandArgs: ["/bin/sleep", "300"]
         )
         let proc2 = try spawnZmxSession(
             zmxPath: zmxPath, zmxDir: harness.zmxDir,
-            sessionId: handle2.id, command: "/bin/sh -c 'sleep 300'"
+            sessionId: handle2.id, commandArgs: ["/bin/sleep", "300"]
         )
         defer {
             proc1.terminate()
@@ -123,7 +122,7 @@ final class ZmxE2ETests: XCTestCase {
         let appeared1 = await pollForSession(sessionId: handle1.id, timeout: 10)
         let appeared2 = await pollForSession(sessionId: handle2.id, timeout: 10)
         guard appeared1, appeared2 else {
-            throw XCTSkip("zmx daemons did not start — PTY may not be available in test environment")
+            throw XCTSkip("zmx daemons did not start within timeout")
         }
 
         // Act — discover orphans, treating handle1 as "known"
@@ -144,7 +143,7 @@ final class ZmxE2ETests: XCTestCase {
 
         let proc = try spawnZmxSession(
             zmxPath: harness.zmxPath!, zmxDir: harness.zmxDir,
-            sessionId: handle.id, command: "/bin/sh -c 'sleep 300'"
+            sessionId: handle.id, commandArgs: ["/bin/sleep", "300"]
         )
         defer { proc.terminate() }
 
@@ -170,7 +169,7 @@ final class ZmxE2ETests: XCTestCase {
 
         let proc = try spawnZmxSession(
             zmxPath: harness.zmxPath!, zmxDir: harness.zmxDir,
-            sessionId: handle.id, command: "/bin/sh -c 'sleep 300'"
+            sessionId: handle.id, commandArgs: ["/bin/sleep", "300"]
         )
         defer { proc.terminate() }
 
@@ -184,26 +183,23 @@ final class ZmxE2ETests: XCTestCase {
 
     // MARK: - Helpers
 
-    /// Spawn a zmx session using `script` to provide a PTY wrapper.
+    /// Spawn a zmx session directly (zmx creates its own daemon).
     /// Returns the Process so the caller can terminate it in tearDown.
     private func spawnZmxSession(
         zmxPath: String,
         zmxDir: String,
         sessionId: String,
-        command: String
+        commandArgs: [String]
     ) throws -> Process {
         let process = Process()
-        // Use `script` to provide a PTY for the zmx attach command.
-        // macOS `script` syntax: script -q /dev/null <command>
-        process.executableURL = URL(fileURLWithPath: "/usr/bin/script")
+        process.executableURL = URL(fileURLWithPath: "/bin/sh")
         process.arguments = [
-            "-q", "/dev/null",
-            "/bin/sh", "-c",
-            "ZMX_DIR=\(ZmxBackend.shellEscape(zmxDir)) \(ZmxBackend.shellEscape(zmxPath)) attach \(ZmxBackend.shellEscape(sessionId)) \(command)"
+            "-c",
+            "ZMX_DIR=\(ZmxBackend.shellEscape(zmxDir)) \(ZmxBackend.shellEscape(zmxPath)) attach \(ZmxBackend.shellEscape(sessionId)) \(commandArgs.map { ZmxBackend.shellEscape($0) }.joined(separator: " "))"
         ]
         process.standardOutput = FileHandle.nullDevice
         process.standardError = FileHandle.nullDevice
-        process.standardInput = FileHandle.nullDevice
+        process.standardInput = Pipe() // keep stdin open (not /dev/null) so zmx client stays attached
         try process.run()
         return process
     }

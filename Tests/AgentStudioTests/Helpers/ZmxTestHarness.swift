@@ -11,17 +11,19 @@ final class ZmxTestHarness {
 
     init() {
         let shortId = UUID().uuidString.prefix(8).lowercased()
-        self.zmxDir = FileManager.default.temporaryDirectory
-            .appendingPathComponent("zmx-test-\(shortId)").path
+        // Use /tmp directly (not NSTemporaryDirectory) to keep socket paths under
+        // the 104-byte Unix domain socket limit. Session IDs are 65 chars, so
+        // ZMX_DIR must be short: /tmp/zt-<8chars>/ = 16 chars + 65 = 81 < 104.
+        self.zmxDir = "/tmp/zt-\(shortId)"
         self.executor = DefaultProcessExecutor()
 
-        // Resolve zmx binary: same fallback as SessionConfiguration.findZmx()
-        // 1. Well-known PATH locations
-        let candidates = [
-            "/opt/homebrew/bin/zmx",
-            "/usr/local/bin/zmx",
-        ]
-        if let found = candidates.first(where: { FileManager.default.isExecutableFile(atPath: $0) }) {
+        // Resolve zmx binary: check vendored build first, then system PATH
+        // 1. Vendored binary (built by scripts/build-zmx.sh or zig build)
+        let vendoredPath = Self.findVendoredZmx()
+        if let vendored = vendoredPath {
+            self.zmxPath = vendored
+        } else if let found = ["/opt/homebrew/bin/zmx", "/usr/local/bin/zmx"]
+            .first(where: { FileManager.default.isExecutableFile(atPath: $0) }) {
             self.zmxPath = found
         } else {
             // 2. Fallback: check PATH via which
@@ -95,6 +97,15 @@ final class ZmxTestHarness {
 
         // Remove the temp directory
         try? FileManager.default.removeItem(atPath: zmxDir)
+    }
+
+    /// Walk up from the test binary to find vendor/zmx/zig-out/bin/zmx.
+    private static func findVendoredZmx() -> String? {
+        // The test binary is deep inside .build/; walk up to find the project root.
+        var dir = URL(fileURLWithPath: #filePath)  // .../Tests/AgentStudioTests/Helpers/ZmxTestHarness.swift
+        for _ in 0..<4 { dir = dir.deletingLastPathComponent() }  // → project root
+        let candidate = dir.appendingPathComponent("vendor/zmx/zig-out/bin/zmx").path
+        return FileManager.default.isExecutableFile(atPath: candidate) ? candidate : nil
     }
 
     static func extractSessionName(from line: String) -> String? {
