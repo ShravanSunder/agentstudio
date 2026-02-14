@@ -450,6 +450,16 @@ final class ActionResolverTests: XCTestCase {
         XCTAssertNil(ActionResolver.resolve(
             command: .openNewTerminalInTab, tabs: [tab], activeTabId: tabId
         ))
+        // Webview/OAuth commands are non-pane commands
+        XCTAssertNil(ActionResolver.resolve(
+            command: .openWebview, tabs: [tab], activeTabId: tabId
+        ))
+        XCTAssertNil(ActionResolver.resolve(
+            command: .signInGitHub, tabs: [tab], activeTabId: tabId
+        ))
+        XCTAssertNil(ActionResolver.resolve(
+            command: .signInGoogle, tabs: [tab], activeTabId: tabId
+        ))
     }
 
     func test_resolve_noActivePaneId_returnsNil() {

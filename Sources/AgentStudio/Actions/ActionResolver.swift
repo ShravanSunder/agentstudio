@@ -104,6 +104,7 @@ enum ActionResolver {
              .newTerminalInTab, .newTab, .undoCloseTab,
              .newWindow, .closeWindow,
              .quickFind, .commandBar,
+             .openWebview, .signInGitHub, .signInGoogle,
              .filterSidebar, .openNewTerminalInTab:
             return nil
         }

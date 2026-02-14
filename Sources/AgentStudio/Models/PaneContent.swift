@@ -25,7 +25,7 @@ enum PaneContent: Hashable {
 
 extension PaneContent: Codable {
     /// Current schema version. Bump when any variant's state shape changes.
-    static let currentVersion = 1
+    static let currentVersion = 2
 
     private enum ContentType: String, Codable {
         case terminal
@@ -162,14 +162,47 @@ struct TerminalState: Codable, Hashable {
     var lifetime: SessionLifetime
 }
 
-// MARK: - Webview State (future)
+// MARK: - Webview Tab State
 
-/// State for a webview pane. Defined now, wired later.
-struct WebviewState: Codable, Hashable {
-    /// The URL to display.
+/// State for a single tab within a webview pane.
+struct WebviewTabState: Codable, Hashable, Identifiable {
+    let id: UUID
     var url: URL
-    /// Whether navigation controls are visible.
+    var title: String
+
+    init(id: UUID = UUID(), url: URL, title: String = "") {
+        self.id = id
+        self.url = url
+        self.title = title
+    }
+}
+
+// MARK: - Webview State
+
+/// State for a webview pane with multi-tab support.
+struct WebviewState: Codable, Hashable {
+    var tabs: [WebviewTabState]
+    var activeTabIndex: Int
     var showNavigation: Bool
+
+    /// Single-URL convenience init (preserves existing call sites).
+    init(url: URL, showNavigation: Bool = true) {
+        self.tabs = [WebviewTabState(url: url)]
+        self.activeTabIndex = 0
+        self.showNavigation = showNavigation
+    }
+
+    init(tabs: [WebviewTabState], activeTabIndex: Int = 0, showNavigation: Bool = true) {
+        self.tabs = tabs
+        self.activeTabIndex = activeTabIndex
+        self.showNavigation = showNavigation
+    }
+
+    /// The currently active tab, if the index is valid.
+    var activeTab: WebviewTabState? {
+        guard activeTabIndex >= 0, activeTabIndex < tabs.count else { return nil }
+        return tabs[activeTabIndex]
+    }
 }
 
 // MARK: - Code Viewer State (future)

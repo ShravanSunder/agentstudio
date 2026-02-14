@@ -47,6 +47,51 @@ final class PaneContentTests: XCTestCase {
         XCTAssertEqual(decoded, content)
     }
 
+    func test_roundTrip_webview_multipleTabs() throws {
+        // Arrange
+        let tabs = [
+            WebviewTabState(url: URL(string: "https://github.com")!, title: "GitHub"),
+            WebviewTabState(url: URL(string: "https://docs.swift.org")!, title: "Swift Docs"),
+        ]
+        let content = PaneContent.webview(WebviewState(tabs: tabs, activeTabIndex: 1))
+
+        // Act
+        let data = try encoder.encode(content)
+        let decoded = try decoder.decode(PaneContent.self, from: data)
+
+        // Assert
+        XCTAssertEqual(decoded, content)
+        if case .webview(let state) = decoded {
+            XCTAssertEqual(state.tabs.count, 2)
+            XCTAssertEqual(state.activeTabIndex, 1)
+            XCTAssertEqual(state.activeTab?.url.absoluteString, "https://docs.swift.org")
+            XCTAssertEqual(state.activeTab?.title, "Swift Docs")
+        } else {
+            XCTFail("Expected .webview")
+        }
+    }
+
+    func test_webviewState_activeTab_invalidIndex_returnsNil() {
+        // Arrange
+        let state = WebviewState(url: URL(string: "https://example.com")!)
+
+        // Act — manually construct with out-of-range index
+        let badState = WebviewState(tabs: state.tabs, activeTabIndex: 5)
+
+        // Assert
+        XCTAssertNil(badState.activeTab)
+    }
+
+    func test_webviewTabState_identity() {
+        // Arrange
+        let tab = WebviewTabState(url: URL(string: "https://example.com")!, title: "Example")
+
+        // Assert
+        XCTAssertEqual(tab.id, tab.id)
+        XCTAssertFalse(tab.id == UUID()) // Unique
+        XCTAssertEqual(tab.title, "Example")
+    }
+
     // MARK: - Round-Trip: CodeViewer
 
     func test_roundTrip_codeViewer() throws {
@@ -253,5 +298,54 @@ final class PaneContentTests: XCTestCase {
         XCTAssertEqual(decoded.content, pane.content)
         XCTAssertEqual(decoded.provider, .tmux)
         XCTAssertEqual(decoded.lifetime, .persistent)
+    }
+
+    // MARK: - WebviewState Edge Cases
+
+    func test_webviewState_convenienceInit_defaults() {
+        // Arrange & Act
+        let state = WebviewState(url: URL(string: "https://example.com")!)
+
+        // Assert
+        XCTAssertEqual(state.tabs.count, 1)
+        XCTAssertEqual(state.activeTabIndex, 0)
+        XCTAssertTrue(state.showNavigation)
+        XCTAssertEqual(state.activeTab?.url.absoluteString, "https://example.com")
+    }
+
+    func test_webviewState_convenienceInit_noNavigation() {
+        let state = WebviewState(url: URL(string: "https://example.com")!, showNavigation: false)
+        XCTAssertFalse(state.showNavigation)
+    }
+
+    func test_webviewState_emptyTabs_activeTabIsNil() {
+        let state = WebviewState(tabs: [], activeTabIndex: 0)
+        XCTAssertNil(state.activeTab)
+    }
+
+    func test_webviewState_hashable_sameContent_sameHash() {
+        let url = URL(string: "https://example.com")!
+        let id = UUID()
+        let tab = WebviewTabState(id: id, url: url, title: "Test")
+        let s1 = WebviewState(tabs: [tab], activeTabIndex: 0, showNavigation: true)
+        let s2 = WebviewState(tabs: [tab], activeTabIndex: 0, showNavigation: true)
+        XCTAssertEqual(s1, s2)
+        XCTAssertEqual(s1.hashValue, s2.hashValue)
+    }
+
+    func test_webviewState_differentActiveTab_notEqual() {
+        let url = URL(string: "https://example.com")!
+        let tabs = [
+            WebviewTabState(url: url, title: "A"),
+            WebviewTabState(url: url, title: "B"),
+        ]
+        let s1 = WebviewState(tabs: tabs, activeTabIndex: 0)
+        let s2 = WebviewState(tabs: tabs, activeTabIndex: 1)
+        XCTAssertNotEqual(s1, s2)
+    }
+
+    func test_webviewTabState_defaultTitle_isEmpty() {
+        let tab = WebviewTabState(url: URL(string: "https://example.com")!)
+        XCTAssertEqual(tab.title, "")
     }
 }

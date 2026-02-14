@@ -183,6 +183,14 @@ class TerminalTabViewController: NSViewController, CommandHandler {
             object: nil
         )
 
+        // Listen for open webview requests
+        NotificationCenter.default.addObserver(
+            self,
+            selector: #selector(handleOpenWebviewRequested),
+            name: .openWebviewRequested,
+            object: nil
+        )
+
         // Ghostty split and tab action observers
         let ghosttyObservers: [(Notification.Name, Selector)] = [
             (.ghosttyNewSplit, #selector(handleGhosttyNewSplit(_:))),
@@ -197,6 +205,10 @@ class TerminalTabViewController: NSViewController, CommandHandler {
         for (name, selector) in ghosttyObservers {
             NotificationCenter.default.addObserver(self, selector: selector, name: name, object: nil)
         }
+    }
+
+    @objc private func handleOpenWebviewRequested() {
+        executor.openWebview()
     }
 
     @objc private func handleRepairSurfaceRequested(_ notification: Notification) {
@@ -808,6 +820,12 @@ class TerminalTabViewController: NSViewController, CommandHandler {
             NotificationCenter.default.post(name: .addRepoRequested, object: nil)
         case .filterSidebar:
             NotificationCenter.default.post(name: .filterSidebarRequested, object: nil)
+        case .openWebview:
+            executor.openWebview()
+        case .signInGitHub:
+            NotificationCenter.default.post(name: .signInRequested, object: nil, userInfo: ["provider": "github"])
+        case .signInGoogle:
+            NotificationCenter.default.post(name: .signInRequested, object: nil, userInfo: ["provider": "google"])
         case .newTerminalInTab, .newFloatingTerminal,
              .removeRepo, .refreshWorktrees,
              .toggleSidebar, .quickFind, .commandBar,

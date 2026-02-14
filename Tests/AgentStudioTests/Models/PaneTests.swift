@@ -120,7 +120,7 @@ final class PaneTests: XCTestCase {
 
         XCTAssertEqual(decoded.id, pane.id)
         if case .webview(let state) = decoded.content {
-            XCTAssertEqual(state.url.absoluteString, "https://docs.swift.org")
+            XCTAssertEqual(state.activeTab?.url.absoluteString, "https://docs.swift.org")
             XCTAssertFalse(state.showNavigation)
         } else {
             XCTFail("Expected .webview content")
@@ -249,7 +249,7 @@ final class PaneTests: XCTestCase {
         XCTAssertEqual(decoded.id, dp.id)
         XCTAssertEqual(decoded.metadata.title, "Web Drawer")
         if case .webview(let state) = decoded.content {
-            XCTAssertEqual(state.url.absoluteString, "https://test.com")
+            XCTAssertEqual(state.activeTab?.url.absoluteString, "https://test.com")
         } else {
             XCTFail("Expected .webview content")
         }

@@ -362,4 +362,45 @@ final class AppCommandTests: XCTestCase {
         // Assert
         XCTAssertTrue(def?.appliesTo.isEmpty ?? false)
     }
+
+    // MARK: - Webview Commands
+
+    @MainActor
+    func test_dispatcher_openWebview_registered() {
+        let def = CommandDispatcher.shared.definition(for: .openWebview)
+        XCTAssertNotNil(def)
+        XCTAssertEqual(def?.label, "Open URL")
+        XCTAssertEqual(def?.icon, "globe")
+    }
+
+    @MainActor
+    func test_dispatcher_openWebview_hasCorrectKeyBinding() {
+        let def = CommandDispatcher.shared.definition(for: .openWebview)
+        XCTAssertEqual(def?.keyBinding?.key, "l")
+        XCTAssertTrue(def?.keyBinding?.modifiers.contains(.command) ?? false)
+        XCTAssertTrue(def?.keyBinding?.modifiers.contains(.shift) ?? false)
+    }
+
+    @MainActor
+    func test_dispatcher_signInGitHub_registered() {
+        let def = CommandDispatcher.shared.definition(for: .signInGitHub)
+        XCTAssertNotNil(def)
+        XCTAssertEqual(def?.label, "Sign in to GitHub")
+        XCTAssertEqual(def?.icon, "person.badge.key")
+    }
+
+    @MainActor
+    func test_dispatcher_signInGoogle_registered() {
+        let def = CommandDispatcher.shared.definition(for: .signInGoogle)
+        XCTAssertNotNil(def)
+        XCTAssertEqual(def?.label, "Sign in to Google")
+        XCTAssertEqual(def?.icon, "person.badge.key")
+    }
+
+    @MainActor
+    func test_dispatcher_signIn_noKeyBindings() {
+        // Sign-in commands are invoked from command bar, no global shortcuts
+        XCTAssertNil(CommandDispatcher.shared.definition(for: .signInGitHub)?.keyBinding)
+        XCTAssertNil(CommandDispatcher.shared.definition(for: .signInGoogle)?.keyBinding)
+    }
 }

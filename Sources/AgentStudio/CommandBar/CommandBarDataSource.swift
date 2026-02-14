@@ -372,14 +372,24 @@ enum CommandBarDataSource {
     // MARK: - Helpers
 
     private static func iconForPane(_ pane: Pane) -> String {
-        switch pane.source {
-        case .floating: return "terminal.fill"
-        case .worktree: return "terminal"
+        switch pane.content {
+        case .webview: return "globe"
+        case .codeViewer: return "doc.text"
+        default:
+            switch pane.source {
+            case .floating: return "terminal.fill"
+            case .worktree: return "terminal"
+            }
         }
     }
 
     private static func keywordsForPane(_ pane: Pane, store: WorkspaceStore) -> [String] {
-        var keywords = ["pane", "terminal", pane.title]
+        var keywords = ["pane", pane.title]
+        if case .webview = pane.content {
+            keywords.append(contentsOf: ["web", "browser", "url"])
+        } else {
+            keywords.append("terminal")
+        }
         if let worktreeId = pane.worktreeId, let wt = store.worktree(worktreeId) {
             keywords.append(contentsOf: [wt.name, wt.branch])
         }
@@ -412,7 +422,8 @@ enum CommandBarDataSource {
             return (Group.tabCommands, 2)
         case .addRepo, .removeRepo, .refreshWorktrees:
             return (Group.repoCommands, 3)
-        case .toggleSidebar, .newFloatingTerminal, .filterSidebar:
+        case .toggleSidebar, .newFloatingTerminal, .filterSidebar,
+             .openWebview, .signInGitHub, .signInGoogle:
             return (Group.windowCommands, 4)
         default:
             return (Group.commands, 5)

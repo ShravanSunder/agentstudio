@@ -41,6 +41,11 @@ enum AppCommand: String, CaseIterable {
     // Search/navigation
     case quickFind, commandBar
 
+    // Webview commands
+    case openWebview
+    case signInGitHub
+    case signInGoogle
+
     // Sidebar commands
     case filterSidebar
     case openNewTerminalInTab
@@ -332,6 +337,24 @@ final class CommandDispatcher: ObservableObject {
                 command: .newFloatingTerminal,
                 label: "New Floating Terminal",
                 icon: "terminal.fill"
+            ),
+
+            // Webview commands
+            CommandDefinition(
+                command: .openWebview,
+                keyBinding: KeyBinding(key: "l", modifiers: [.command, .shift]),
+                label: "Open URL",
+                icon: "globe"
+            ),
+            CommandDefinition(
+                command: .signInGitHub,
+                label: "Sign in to GitHub",
+                icon: "person.badge.key"
+            ),
+            CommandDefinition(
+                command: .signInGoogle,
+                label: "Sign in to Google",
+                icon: "person.badge.key"
             ),
 
             // Sidebar commands

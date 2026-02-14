@@ -76,6 +76,30 @@ final class ActionExecutor {
         return pane
     }
 
+    /// Open a new webview pane in a new tab. Loads about:blank with navigation bar visible.
+    @discardableResult
+    func openWebview(url: URL = URL(string: "about:blank")!) -> Pane? {
+        let state = WebviewState(url: url, showNavigation: true)
+        let host = url.host() ?? "New Tab"
+        let pane = store.createPane(
+            content: .webview(state),
+            metadata: PaneMetadata(source: .floating(workingDirectory: nil, title: host), title: host)
+        )
+
+        guard coordinator.createViewForContent(pane: pane) != nil else {
+            executorLogger.error("Webview creation failed — rolling back pane \(pane.id)")
+            store.removePane(pane.id)
+            return nil
+        }
+
+        let tab = Tab(paneId: pane.id)
+        store.appendTab(tab)
+        store.setActiveTab(tab.id)
+
+        executorLogger.info("Opened webview pane \(pane.id)")
+        return pane
+    }
+
     /// Undo the last close operation.
     func undoCloseTab() {
         guard let snapshot = undoStack.popLast() else {

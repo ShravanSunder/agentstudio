@@ -54,3 +54,4 @@ AgentStudio.app/
 *.profraw
 .claude/settings.local.json
 .claude/ralph-loop.local.md
+Frameworks/GhosttyKit.xcframework
