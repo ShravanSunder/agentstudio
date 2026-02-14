@@ -25,6 +25,13 @@ class TerminalTabViewController: NSViewController, CommandHandler {
     /// SwiftUI hosting view for the split container
     private var splitHostingView: NSHostingView<AnyView>?
 
+    /// Arrangement bar overlay (floating below tab bar)
+    private var arrangementBarHostingView: NSHostingView<AnyView>?
+    private var isArrangementBarVisible = false
+
+    /// Local event monitor for arrangement bar keyboard shortcut
+    private var arrangementBarEventMonitor: Any?
+
     /// Combine subscriptions for store observation
     private var cancellables = Set<AnyCancellable>()
 
@@ -183,6 +190,23 @@ class TerminalTabViewController: NSViewController, CommandHandler {
             object: nil
         )
 
+        // Arrangement bar keyboard shortcut (Cmd+Opt+A)
+        arrangementBarEventMonitor = NSEvent.addLocalMonitorForEvents(matching: .keyDown) { [weak self] event in
+            guard let self else { return event }
+            // Cmd+Opt+A toggles the arrangement bar
+            if event.modifierFlags.contains([.command, .option]),
+               event.charactersIgnoringModifiers == "a" {
+                self.toggleArrangementBar()
+                return nil
+            }
+            // Escape dismisses the arrangement bar if visible
+            if event.keyCode == 53, self.isArrangementBarVisible {
+                self.hideArrangementBar()
+                return nil
+            }
+            return event
+        }
+
         // Ghostty split and tab action observers
         let ghosttyObservers: [(Notification.Name, Selector)] = [
             (.ghosttyNewSplit, #selector(handleGhosttyNewSplit(_:))),
@@ -221,6 +245,9 @@ class TerminalTabViewController: NSViewController, CommandHandler {
     }
 
     deinit {
+        if let monitor = arrangementBarEventMonitor {
+            NSEvent.removeMonitor(monitor)
+        }
         NotificationCenter.default.removeObserver(self)
     }
 
@@ -343,6 +370,94 @@ class TerminalTabViewController: NSViewController, CommandHandler {
         tabBarHostingView.isHidden = !hasTerminals
         terminalContainer.isHidden = !hasTerminals
         emptyStateView?.isHidden = hasTerminals
+
+        // Hide arrangement bar when no tabs are open
+        if !hasTerminals {
+            hideArrangementBar()
+        }
+    }
+
+    // MARK: - Arrangement Bar
+
+    private func showArrangementBar() {
+        guard let activeTabId = store.activeTabId,
+              let tab = store.tab(activeTabId) else { return }
+
+        // Build arrangement items from current tab
+        let items = tab.arrangements.map { arrangement in
+            ArrangementBarItem(
+                id: arrangement.id,
+                name: arrangement.name,
+                isDefault: arrangement.isDefault,
+                paneCount: arrangement.visiblePaneIds.count
+            )
+        }
+
+        let bar = ArrangementBar(
+            arrangements: items,
+            activeArrangementId: tab.activeArrangementId,
+            onSwitch: { [weak self] arrangementId in
+                guard let self, let tabId = self.store.activeTabId else { return }
+                self.dispatchAction(.switchArrangement(tabId: tabId, arrangementId: arrangementId))
+                self.hideArrangementBar()
+            },
+            onSaveNew: { [weak self] in
+                guard let self, let tabId = self.store.activeTabId,
+                      let currentTab = self.store.tab(tabId) else { return }
+                let name = "Arrangement \(currentTab.arrangements.count)"
+                self.dispatchAction(.createArrangement(
+                    tabId: tabId, name: name, paneIds: Set(currentTab.paneIds)
+                ))
+                self.hideArrangementBar()
+            },
+            onDelete: { [weak self] arrangementId in
+                guard let self, let tabId = self.store.activeTabId else { return }
+                self.dispatchAction(.removeArrangement(tabId: tabId, arrangementId: arrangementId))
+            },
+            onRename: { [weak self] arrangementId in
+                // TODO: Name input flow — placeholder for future task
+                _ = self
+                _ = arrangementId
+            },
+            onDismiss: { [weak self] in
+                self?.hideArrangementBar()
+            }
+        )
+
+        if let existing = arrangementBarHostingView {
+            existing.rootView = AnyView(bar)
+        } else {
+            let hostingView = NSHostingView(rootView: AnyView(bar))
+            hostingView.translatesAutoresizingMaskIntoConstraints = false
+            hostingView.wantsLayer = true
+            // Transparent background so the material in ArrangementBar shows through
+            hostingView.layer?.backgroundColor = .clear
+            view.addSubview(hostingView)
+
+            NSLayoutConstraint.activate([
+                hostingView.topAnchor.constraint(equalTo: tabBarHostingView.bottomAnchor, constant: 2),
+                hostingView.leadingAnchor.constraint(equalTo: view.leadingAnchor),
+                hostingView.trailingAnchor.constraint(equalTo: view.trailingAnchor),
+            ])
+
+            arrangementBarHostingView = hostingView
+        }
+
+        arrangementBarHostingView?.isHidden = false
+        isArrangementBarVisible = true
+    }
+
+    private func hideArrangementBar() {
+        arrangementBarHostingView?.isHidden = true
+        isArrangementBarVisible = false
+    }
+
+    private func toggleArrangementBar() {
+        if isArrangementBarVisible {
+            hideArrangementBar()
+        } else {
+            showArrangementBar()
+        }
     }
 
     // MARK: - Terminal Management
