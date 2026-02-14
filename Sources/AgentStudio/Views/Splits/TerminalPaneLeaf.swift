@@ -98,7 +98,8 @@ struct TerminalPaneLeaf: View {
                     drawer: drawer,
                     isIconBarVisible: isBottomHovered || (drawer?.isExpanded ?? false),
                     drawerPaneView: nil,  // Drawer pane views are wired in Task 14
-                    action: action
+                    action: action,
+                    isSplit: isSplit
                 )
 
                 // Bottom hover detection zone

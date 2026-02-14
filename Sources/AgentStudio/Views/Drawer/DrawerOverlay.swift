@@ -8,6 +8,7 @@ struct DrawerOverlay: View {
     let isIconBarVisible: Bool
     let drawerPaneView: PaneView?
     let action: (PaneAction) -> Void
+    let isSplit: Bool
 
     @AppStorage("drawerHeightRatio") private var heightRatio: Double = 0.75
 
@@ -32,6 +33,7 @@ struct DrawerOverlay: View {
                                 action(.toggleDrawer(paneId: paneId))
                             }
                         )
+                        .frame(width: isSplit ? geometry.size.width * 1.8 : nil)
                     }
 
                     // Icon bar (always visible when drawer is shown)
