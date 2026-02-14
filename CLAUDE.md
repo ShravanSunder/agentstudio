@@ -26,23 +26,30 @@ agent-studio/
 ## Build Flow
 1. `./scripts/build-ghostty.sh` - Runs `zig build -Demit-xcframework=true` in vendor/ghostty
 2. Copies `macos/GhosttyKit.xcframework` → `Frameworks/`
-3. `swift build` - Links against xcframework
+3. `swift build > /tmp/build-output.txt 2>&1 && echo "BUILD OK" || echo "BUILD FAIL"` - Links against xcframework
 
 ### ⚠️ Running Swift Commands (CRITICAL)
 
 **NEVER pipe `swift build` or `swift test` output through grep, tail, head, or any other command.** These commands use interactive output (progress bars, carriage returns) that breaks when piped, causing the process to hang indefinitely.
 
-```bash
-# CORRECT — run directly, no pipes
-swift build
-swift test
-swift test --filter "CommandBarState"
+**ALWAYS redirect output to a file and check the exit code.** This avoids capturing 100KB+ of interactive output in the tool response, which causes massive slowdowns and round-trip overhead.
 
-# WRONG — will hang forever
+```bash
+# CORRECT — dump to file, check exit code
+swift test > /tmp/test-output.txt 2>&1 && echo "PASS" || echo "FAIL: $(tail -20 /tmp/test-output.txt)"
+swift build > /tmp/build-output.txt 2>&1 && echo "BUILD OK" || echo "BUILD FAIL: $(tail -20 /tmp/build-output.txt)"
+
+# Filtered tests
+swift test --filter "CommandBarState" > /tmp/test-output.txt 2>&1 && echo "PASS" || echo "FAIL: $(tail -20 /tmp/test-output.txt)"
+
+# WRONG — captures 100KB+ of interactive output, extremely slow
+swift test
+swift build
 swift test 2>&1 | tail -5
 swift test 2>&1 | grep "passed"
-swift build 2>&1 | grep "error"
 ```
+
+**Timeouts:** Use a 50-second timeout for `swift test` and `swift build` commands. Tests complete in ~15 seconds; builds in ~5 seconds. Anything longer means something is stuck.
 
 
 ### Launching the App

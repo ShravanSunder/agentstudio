@@ -1,15 +1,15 @@
 import Foundation
 
-/// Pure value type split tree. Leaves reference sessions by ID.
+/// Pure value type split tree. Leaves reference panes by ID.
 /// No NSView references, no embedded objects. All operations are immutable.
 struct Layout: Codable, Hashable {
 
     /// The root of the tree. Nil indicates an empty layout.
     let root: Node?
 
-    /// A single node in the tree is either a leaf (session reference) or a split.
+    /// A single node in the tree is either a leaf (pane reference) or a split.
     indirect enum Node: Codable, Hashable {
-        case leaf(sessionId: UUID)
+        case leaf(paneId: UUID)
         case split(Split)
     }
 
@@ -43,7 +43,7 @@ struct Layout: Codable, Hashable {
         case vertical
     }
 
-    /// Position for inserting a new session relative to a target.
+    /// Position for inserting a new pane relative to a target.
     enum Position {
         /// Left (horizontal) or up (vertical).
         case before
@@ -61,9 +61,31 @@ struct Layout: Codable, Hashable {
         self.root = root
     }
 
-    /// Single-session layout.
-    init(sessionId: UUID) {
-        self.root = .leaf(sessionId: sessionId)
+    /// Single-pane layout.
+    init(paneId: UUID) {
+        self.root = .leaf(paneId: paneId)
+    }
+
+    /// Auto-tiled layout from multiple pane IDs.
+    /// Produces a balanced binary split tree alternating horizontal/vertical splits.
+    /// Empty input produces an empty layout. Single pane produces a single leaf.
+    static func autoTiled(_ paneIds: [UUID]) -> Layout {
+        guard !paneIds.isEmpty else { return Layout() }
+        return Layout(root: buildTiledNode(paneIds: paneIds, horizontal: true))
+    }
+
+    private static func buildTiledNode(paneIds: [UUID], horizontal: Bool) -> Node {
+        if paneIds.count == 1 {
+            return .leaf(paneId: paneIds[0])
+        }
+        let mid = paneIds.count / 2
+        let left = Array(paneIds[..<mid])
+        let right = Array(paneIds[mid...])
+        return .split(Split(
+            direction: horizontal ? .horizontal : .vertical,
+            left: buildTiledNode(paneIds: left, horizontal: !horizontal),
+            right: buildTiledNode(paneIds: right, horizontal: !horizontal)
+        ))
     }
 
     // MARK: - Properties
@@ -75,30 +97,30 @@ struct Layout: Codable, Hashable {
         return false
     }
 
-    /// All leaf session IDs in left-to-right traversal order.
-    var sessionIds: [UUID] {
+    /// All leaf pane IDs in left-to-right traversal order.
+    var paneIds: [UUID] {
         guard let root else { return [] }
-        return root.sessionIds
+        return root.paneIds
     }
 
     // MARK: - Queries
 
-    func contains(_ sessionId: UUID) -> Bool {
-        root?.contains(sessionId) ?? false
+    func contains(_ paneId: UUID) -> Bool {
+        root?.contains(paneId) ?? false
     }
 
     // MARK: - Immutable Operations (return new Layout)
 
-    /// Insert a session relative to a target session.
+    /// Insert a pane relative to a target pane.
     func inserting(
-        sessionId: UUID,
+        paneId: UUID,
         at target: UUID,
         direction: SplitDirection,
         position: Position
     ) -> Layout {
         guard let root else { return self }
         guard let newRoot = root.inserting(
-            sessionId: sessionId,
+            paneId: paneId,
             at: target,
             direction: direction,
             position: position
@@ -108,10 +130,10 @@ struct Layout: Codable, Hashable {
         return Layout(root: newRoot)
     }
 
-    /// Remove a session from the layout. Returns nil if the layout becomes empty.
-    func removing(sessionId: UUID) -> Layout? {
+    /// Remove a pane from the layout. Returns nil if the layout becomes empty.
+    func removing(paneId: UUID) -> Layout? {
         guard let root else { return nil }
-        guard let newRoot = root.removing(sessionId: sessionId) else {
+        guard let newRoot = root.removing(paneId: paneId) else {
             return nil
         }
         return Layout(root: newRoot)
@@ -131,11 +153,11 @@ struct Layout: Codable, Hashable {
 
     // MARK: - Resize Target
 
-    /// Find the nearest ancestor split where the given session can grow in the given direction.
+    /// Find the nearest ancestor split where the given pane can grow in the given direction.
     /// Returns (splitId, shouldIncreaseRatio).
-    func resizeTarget(for sessionId: UUID, direction: SplitResizeDirection) -> (splitId: UUID, increase: Bool)? {
+    func resizeTarget(for paneId: UUID, direction: SplitResizeDirection) -> (splitId: UUID, increase: Bool)? {
         guard let root else { return nil }
-        return root.resizeTarget(for: sessionId, direction: direction)
+        return root.resizeTarget(for: paneId, direction: direction)
     }
 
     /// Get the current ratio for a split by ID.
@@ -145,23 +167,23 @@ struct Layout: Codable, Hashable {
 
     // MARK: - Navigation
 
-    /// Find the neighbor session in the given direction.
-    func neighbor(of sessionId: UUID, direction: FocusDirection) -> UUID? {
-        root?.neighbor(of: sessionId, direction: direction)
+    /// Find the neighbor pane in the given direction.
+    func neighbor(of paneId: UUID, direction: FocusDirection) -> UUID? {
+        root?.neighbor(of: paneId, direction: direction)
     }
 
-    /// Get the next session in left-to-right order (wraps around).
-    func next(after sessionId: UUID) -> UUID? {
-        let ids = sessionIds
-        guard let index = ids.firstIndex(of: sessionId) else { return nil }
+    /// Get the next pane in left-to-right order (wraps around).
+    func next(after paneId: UUID) -> UUID? {
+        let ids = paneIds
+        guard let index = ids.firstIndex(of: paneId) else { return nil }
         let nextIndex = (index + 1) % ids.count
         return ids[nextIndex]
     }
 
-    /// Get the previous session in left-to-right order (wraps around).
-    func previous(before sessionId: UUID) -> UUID? {
-        let ids = sessionIds
-        guard let index = ids.firstIndex(of: sessionId) else { return nil }
+    /// Get the previous pane in left-to-right order (wraps around).
+    func previous(before paneId: UUID) -> UUID? {
+        let ids = paneIds
+        guard let index = ids.firstIndex(of: paneId) else { return nil }
         let prevIndex = (index - 1 + ids.count) % ids.count
         return ids[prevIndex]
     }
@@ -179,29 +201,29 @@ enum FocusDirection: Equatable, Hashable {
 
 extension Layout.Node {
 
-    /// All leaf session IDs in left-to-right order.
-    var sessionIds: [UUID] {
+    /// All leaf pane IDs in left-to-right order.
+    var paneIds: [UUID] {
         switch self {
-        case .leaf(let sessionId):
-            return [sessionId]
+        case .leaf(let paneId):
+            return [paneId]
         case .split(let split):
-            return split.left.sessionIds + split.right.sessionIds
+            return split.left.paneIds + split.right.paneIds
         }
     }
 
-    /// Check if this node or its descendants contain a session.
-    func contains(_ sessionId: UUID) -> Bool {
+    /// Check if this node or its descendants contain a pane.
+    func contains(_ paneId: UUID) -> Bool {
         switch self {
         case .leaf(let id):
-            return id == sessionId
+            return id == paneId
         case .split(let split):
-            return split.left.contains(sessionId) || split.right.contains(sessionId)
+            return split.left.contains(paneId) || split.right.contains(paneId)
         }
     }
 
-    /// Insert a new session relative to a target. Returns nil if target not found.
+    /// Insert a new pane relative to a target. Returns nil if target not found.
     func inserting(
-        sessionId: UUID,
+        paneId: UUID,
         at target: UUID,
         direction: Layout.SplitDirection,
         position: Layout.Position
@@ -209,7 +231,7 @@ extension Layout.Node {
         switch self {
         case .leaf(let existingId):
             guard existingId == target else { return nil }
-            let newLeaf = Layout.Node.leaf(sessionId: sessionId)
+            let newLeaf = Layout.Node.leaf(paneId: paneId)
             let existingLeaf = self
             let isNewOnLeft = position == .before
             return .split(Layout.Split(
@@ -221,7 +243,7 @@ extension Layout.Node {
         case .split(let split):
             if split.left.contains(target) {
                 guard let newLeft = split.left.inserting(
-                    sessionId: sessionId, at: target,
+                    paneId: paneId, at: target,
                     direction: direction, position: position
                 ) else { return nil }
                 return .split(Layout.Split(
@@ -234,7 +256,7 @@ extension Layout.Node {
             }
             if split.right.contains(target) {
                 guard let newRight = split.right.inserting(
-                    sessionId: sessionId, at: target,
+                    paneId: paneId, at: target,
                     direction: direction, position: position
                 ) else { return nil }
                 return .split(Layout.Split(
@@ -249,15 +271,15 @@ extension Layout.Node {
         }
     }
 
-    /// Remove a session. Returns nil if this node should be removed entirely.
-    func removing(sessionId: UUID) -> Layout.Node? {
+    /// Remove a pane. Returns nil if this node should be removed entirely.
+    func removing(paneId: UUID) -> Layout.Node? {
         switch self {
         case .leaf(let existingId):
-            return existingId == sessionId ? nil : self
+            return existingId == paneId ? nil : self
 
         case .split(let split):
-            let newLeft = split.left.removing(sessionId: sessionId)
-            let newRight = split.right.removing(sessionId: sessionId)
+            let newLeft = split.left.removing(paneId: paneId)
+            let newRight = split.right.removing(paneId: paneId)
 
             if let left = newLeft, let right = newRight {
                 return .split(Layout.Split(
@@ -324,22 +346,22 @@ extension Layout.Node {
         }
     }
 
-    /// Find the nearest enclosing split where a session can grow in the given direction.
+    /// Find the nearest enclosing split where a pane can grow in the given direction.
     /// Returns (splitId, shouldIncreaseRatio).
     ///
-    /// Algorithm: Recurse into the subtree containing the session FIRST to find the
+    /// Algorithm: Recurse into the subtree containing the pane FIRST to find the
     /// nearest (innermost) matching split. Only if no child split handles the resize
     /// do we check whether THIS split can handle it as a fallback.
-    func resizeTarget(for sessionId: UUID, direction: SplitResizeDirection) -> (splitId: UUID, increase: Bool)? {
+    func resizeTarget(for paneId: UUID, direction: SplitResizeDirection) -> (splitId: UUID, increase: Bool)? {
         guard case .split(let split) = self else { return nil }
 
-        let inLeft = split.left.contains(sessionId)
-        let inRight = split.right.contains(sessionId)
+        let inLeft = split.left.contains(paneId)
+        let inRight = split.right.contains(paneId)
         guard inLeft || inRight else { return nil }
 
-        // Recurse into the subtree containing the session FIRST (nearest match wins)
+        // Recurse into the subtree containing the pane FIRST (nearest match wins)
         let subtree = inLeft ? split.left : split.right
-        if let result = subtree.resizeTarget(for: sessionId, direction: direction) {
+        if let result = subtree.resizeTarget(for: paneId, direction: direction) {
             return result
         }
 
@@ -357,39 +379,39 @@ extension Layout.Node {
     }
 
     /// Find the neighbor in the given direction.
-    func neighbor(of sessionId: UUID, direction: FocusDirection) -> UUID? {
+    func neighbor(of paneId: UUID, direction: FocusDirection) -> UUID? {
         switch self {
         case .leaf:
             return nil
 
         case .split(let split):
-            let leftContains = split.left.contains(sessionId)
-            let rightContains = split.right.contains(sessionId)
+            let leftContains = split.left.contains(paneId)
+            let rightContains = split.right.contains(paneId)
 
             switch direction {
             case .left:
                 if split.direction == .horizontal && rightContains {
-                    return split.left.sessionIds.last
+                    return split.left.paneIds.last
                 }
             case .right:
                 if split.direction == .horizontal && leftContains {
-                    return split.right.sessionIds.first
+                    return split.right.paneIds.first
                 }
             case .up:
                 if split.direction == .vertical && rightContains {
-                    return split.left.sessionIds.last
+                    return split.left.paneIds.last
                 }
             case .down:
                 if split.direction == .vertical && leftContains {
-                    return split.right.sessionIds.first
+                    return split.right.paneIds.first
                 }
             }
 
             if leftContains {
-                return split.left.neighbor(of: sessionId, direction: direction)
+                return split.left.neighbor(of: paneId, direction: direction)
             }
             if rightContains {
-                return split.right.neighbor(of: sessionId, direction: direction)
+                return split.right.neighbor(of: paneId, direction: direction)
             }
             return nil
         }
@@ -400,15 +422,15 @@ extension Layout.Node {
 
 extension Layout.Node {
     private enum NodeCodingKeys: String, CodingKey {
-        case sessionId
+        case paneId
         case split
     }
 
     init(from decoder: Decoder) throws {
         let container = try decoder.container(keyedBy: NodeCodingKeys.self)
-        if container.contains(.sessionId) {
-            let id = try container.decode(UUID.self, forKey: .sessionId)
-            self = .leaf(sessionId: id)
+        if container.contains(.paneId) {
+            let id = try container.decode(UUID.self, forKey: .paneId)
+            self = .leaf(paneId: id)
         } else if container.contains(.split) {
             let split = try container.decode(Layout.Split.self, forKey: .split)
             self = .split(split)
@@ -425,8 +447,8 @@ extension Layout.Node {
     func encode(to encoder: Encoder) throws {
         var container = encoder.container(keyedBy: NodeCodingKeys.self)
         switch self {
-        case .leaf(let sessionId):
-            try container.encode(sessionId, forKey: .sessionId)
+        case .leaf(let paneId):
+            try container.encode(paneId, forKey: .paneId)
         case .split(let split):
             try container.encode(split, forKey: .split)
         }

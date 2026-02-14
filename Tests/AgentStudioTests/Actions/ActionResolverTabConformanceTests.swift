@@ -5,56 +5,33 @@ import XCTest
 /// This validates the Phase 2 conformance added in `ResolvableTab.swift`.
 final class ActionResolverTabConformanceTests: XCTestCase {
 
-    // MARK: - Helper
-
-    private func makeTab(sessionIds: [UUID], activeSessionId: UUID? = nil) -> Tab {
-        guard let first = sessionIds.first else {
-            fatalError("Need at least one session ID")
-        }
-        if sessionIds.count == 1 {
-            return Tab(sessionId: first)
-        }
-
-        // Build layout by inserting subsequent sessions
-        var layout = Layout(sessionId: first)
-        for i in 1..<sessionIds.count {
-            layout = layout.inserting(
-                sessionId: sessionIds[i],
-                at: sessionIds[i - 1],
-                direction: .horizontal,
-                position: .after
-            )
-        }
-        return Tab(layout: layout, activeSessionId: activeSessionId ?? first)
-    }
-
     // MARK: - ResolvableTab Protocol Conformance
 
     func test_tab_conformsToResolvableTab() {
         // Arrange
-        let sessionId = UUID()
-        let tab = Tab(sessionId: sessionId)
+        let paneId = UUID()
+        let tab = Tab(paneId: paneId)
 
         // Assert — basic properties
-        XCTAssertEqual(tab.activePaneId, sessionId)
-        XCTAssertEqual(tab.allPaneIds, [sessionId])
+        XCTAssertEqual(tab.activePaneId, paneId)
+        XCTAssertEqual(tab.allPaneIds, [paneId])
         XCTAssertFalse(tab.isSplit)
     }
 
-    func test_tab_multiSession_isSplit() {
+    func test_tab_multiPane_isSplit() {
         // Arrange
         let ids = [UUID(), UUID(), UUID()]
-        let tab = makeTab(sessionIds: ids)
+        let tab = makeTab(paneIds: ids)
 
         // Assert
         XCTAssertTrue(tab.isSplit)
         XCTAssertEqual(Set(tab.allPaneIds), Set(ids))
     }
 
-    func test_tab_activePaneId_returnsActiveSessionId() {
+    func test_tab_activePaneId_returnsActivePaneId() {
         // Arrange
         let ids = [UUID(), UUID()]
-        let tab = makeTab(sessionIds: ids, activeSessionId: ids[1])
+        let tab = makeTab(paneIds: ids, activePaneId: ids[1])
 
         // Assert
         XCTAssertEqual(tab.activePaneId, ids[1])
@@ -64,8 +41,8 @@ final class ActionResolverTabConformanceTests: XCTestCase {
 
     func test_resolve_closeTab_withTab() {
         // Arrange
-        let sessionId = UUID()
-        let tab = Tab(sessionId: sessionId)
+        let paneId = UUID()
+        let tab = Tab(paneId: paneId)
 
         // Act
         let result = ActionResolver.resolve(
@@ -78,8 +55,8 @@ final class ActionResolverTabConformanceTests: XCTestCase {
 
     func test_resolve_closePane_withTab() {
         // Arrange
-        let sessionId = UUID()
-        let tab = Tab(sessionId: sessionId)
+        let paneId = UUID()
+        let tab = Tab(paneId: paneId)
 
         // Act
         let result = ActionResolver.resolve(
@@ -87,13 +64,13 @@ final class ActionResolverTabConformanceTests: XCTestCase {
         )
 
         // Assert
-        XCTAssertEqual(result, .closePane(tabId: tab.id, paneId: sessionId))
+        XCTAssertEqual(result, .closePane(tabId: tab.id, paneId: paneId))
     }
 
     func test_resolve_splitRight_withTab() {
         // Arrange
-        let sessionId = UUID()
-        let tab = Tab(sessionId: sessionId)
+        let paneId = UUID()
+        let tab = Tab(paneId: paneId)
 
         // Act
         let result = ActionResolver.resolve(
@@ -104,15 +81,15 @@ final class ActionResolverTabConformanceTests: XCTestCase {
         XCTAssertEqual(result, .insertPane(
             source: .newTerminal,
             targetTabId: tab.id,
-            targetPaneId: sessionId,
+            targetPaneId: paneId,
             direction: .right
         ))
     }
 
     func test_resolve_splitBelow_withTab() {
         // Arrange
-        let sessionId = UUID()
-        let tab = Tab(sessionId: sessionId)
+        let paneId = UUID()
+        let tab = Tab(paneId: paneId)
 
         // Act
         let result = ActionResolver.resolve(
@@ -123,15 +100,15 @@ final class ActionResolverTabConformanceTests: XCTestCase {
         XCTAssertEqual(result, .insertPane(
             source: .newTerminal,
             targetTabId: tab.id,
-            targetPaneId: sessionId,
+            targetPaneId: paneId,
             direction: .down
         ))
     }
 
     func test_resolve_nextTab_withTabs() {
         // Arrange
-        let tab1 = Tab(sessionId: UUID())
-        let tab2 = Tab(sessionId: UUID())
+        let tab1 = Tab(paneId: UUID())
+        let tab2 = Tab(paneId: UUID())
 
         // Act — from tab2 wraps to tab1
         let result = ActionResolver.resolve(
@@ -144,8 +121,8 @@ final class ActionResolverTabConformanceTests: XCTestCase {
 
     func test_resolve_prevTab_withTabs() {
         // Arrange
-        let tab1 = Tab(sessionId: UUID())
-        let tab2 = Tab(sessionId: UUID())
+        let tab1 = Tab(paneId: UUID())
+        let tab2 = Tab(paneId: UUID())
 
         // Act — from tab1 wraps to tab2
         let result = ActionResolver.resolve(
@@ -158,9 +135,9 @@ final class ActionResolverTabConformanceTests: XCTestCase {
 
     func test_resolve_selectTabByIndex_withTabs() {
         // Arrange
-        let tab1 = Tab(sessionId: UUID())
-        let tab2 = Tab(sessionId: UUID())
-        let tab3 = Tab(sessionId: UUID())
+        let tab1 = Tab(paneId: UUID())
+        let tab2 = Tab(paneId: UUID())
+        let tab3 = Tab(paneId: UUID())
         let tabs = [tab1, tab2, tab3]
 
         // Act & Assert
@@ -180,7 +157,7 @@ final class ActionResolverTabConformanceTests: XCTestCase {
     func test_resolve_breakUpTab_withTab() {
         // Arrange
         let ids = [UUID(), UUID()]
-        let tab = makeTab(sessionIds: ids)
+        let tab = makeTab(paneIds: ids)
 
         // Act
         let result = ActionResolver.resolve(
@@ -194,7 +171,7 @@ final class ActionResolverTabConformanceTests: XCTestCase {
     func test_resolve_extractPaneToTab_withTab() {
         // Arrange
         let ids = [UUID(), UUID()]
-        let tab = makeTab(sessionIds: ids, activeSessionId: ids[0])
+        let tab = makeTab(paneIds: ids, activePaneId: ids[0])
 
         // Act
         let result = ActionResolver.resolve(
@@ -208,7 +185,7 @@ final class ActionResolverTabConformanceTests: XCTestCase {
     func test_resolve_equalizePanes_withTab() {
         // Arrange
         let ids = [UUID(), UUID()]
-        let tab = makeTab(sessionIds: ids)
+        let tab = makeTab(paneIds: ids)
 
         // Act
         let result = ActionResolver.resolve(
@@ -222,9 +199,9 @@ final class ActionResolverTabConformanceTests: XCTestCase {
     // MARK: - Navigation (neighbor/next/previous)
 
     func test_resolve_focusNextPane_withTab() {
-        // Arrange — two sessions in horizontal split
+        // Arrange — two panes in horizontal split
         let ids = [UUID(), UUID()]
-        let tab = makeTab(sessionIds: ids, activeSessionId: ids[0])
+        let tab = makeTab(paneIds: ids, activePaneId: ids[0])
 
         // Act
         let result = ActionResolver.resolve(
@@ -236,9 +213,9 @@ final class ActionResolverTabConformanceTests: XCTestCase {
     }
 
     func test_resolve_focusPrevPane_withTab() {
-        // Arrange — two sessions, active is second
+        // Arrange — two panes, active is second
         let ids = [UUID(), UUID()]
-        let tab = makeTab(sessionIds: ids, activeSessionId: ids[1])
+        let tab = makeTab(paneIds: ids, activePaneId: ids[1])
 
         // Act
         let result = ActionResolver.resolve(
@@ -250,9 +227,9 @@ final class ActionResolverTabConformanceTests: XCTestCase {
     }
 
     func test_resolve_focusPaneRight_withTab() {
-        // Arrange — two sessions in horizontal split
+        // Arrange — two panes in horizontal split
         let ids = [UUID(), UUID()]
-        let tab = makeTab(sessionIds: ids, activeSessionId: ids[0])
+        let tab = makeTab(paneIds: ids, activePaneId: ids[0])
 
         // Act
         let result = ActionResolver.resolve(
@@ -265,8 +242,8 @@ final class ActionResolverTabConformanceTests: XCTestCase {
 
     func test_resolve_focusPaneLeft_singlePane_returnsNil() {
         // Arrange — single pane tab
-        let sessionId = UUID()
-        let tab = Tab(sessionId: sessionId)
+        let paneId = UUID()
+        let tab = Tab(paneId: paneId)
 
         // Act
         let result = ActionResolver.resolve(
@@ -282,8 +259,8 @@ final class ActionResolverTabConformanceTests: XCTestCase {
     func test_snapshot_fromTabs() {
         // Arrange
         let ids1 = [UUID(), UUID()]
-        let tab1 = makeTab(sessionIds: ids1, activeSessionId: ids1[0])
-        let tab2 = Tab(sessionId: UUID())
+        let tab1 = makeTab(paneIds: ids1, activePaneId: ids1[0])
+        let tab2 = Tab(paneId: UUID())
 
         // Act
         let snapshot = ActionResolver.snapshot(

@@ -20,7 +20,7 @@ enum ActionValidationError: Error, Equatable {
     case selfTabMerge(sourceTabId: UUID)
     case sourcePaneNotFound(paneId: UUID, sourceTabId: UUID)
     case invalidRatio(ratio: Double)
-    case sessionAlreadyInLayout(sessionId: UUID)
+    case paneAlreadyInLayout(paneId: UUID)
 }
 
 /// Pure-function validation engine.
@@ -61,9 +61,7 @@ enum ActionValidator {
             guard tab.paneIds.contains(paneId) else {
                 return .failure(.paneNotFound(paneId: paneId, tabId: tabId))
             }
-            guard tab.paneCount > 1 else {
-                return .failure(.singlePaneTab(tabId: tabId))
-            }
+            // Single-pane close is allowed — executor escalates to closeTab with undo.
             return .success(ValidatedAction(action))
 
         case .extractPaneToTab(let tabId, let paneId):
@@ -155,6 +153,48 @@ enum ActionValidator {
             }
             return .success(ValidatedAction(action))
 
+        // Arrangement actions — validate tab exists
+        case .createArrangement(let tabId, _, _),
+             .removeArrangement(let tabId, _),
+             .switchArrangement(let tabId, _),
+             .renameArrangement(let tabId, _, _):
+            guard state.tab(tabId) != nil else {
+                return .failure(.tabNotFound(tabId: tabId))
+            }
+            return .success(ValidatedAction(action))
+
+        // Orphaned pane pool — store-level
+        case .backgroundPane, .purgeOrphanedPane:
+            return .success(ValidatedAction(action))
+
+        case .reactivatePane(_, let targetTabId, let targetPaneId, _):
+            guard state.tab(targetTabId) != nil else {
+                return .failure(.tabNotFound(tabId: targetTabId))
+            }
+            guard state.tabContainsPane(targetTabId, paneId: targetPaneId) else {
+                return .failure(.paneNotFound(paneId: targetPaneId, tabId: targetTabId))
+            }
+            return .success(ValidatedAction(action))
+
+        // Drawer actions — validate parent pane is in an active tab layout.
+        // Store-level guards provide additional safety for panes in non-active arrangements.
+        case .addDrawerPane(let parentPaneId, _, _):
+            guard state.tabContaining(paneId: parentPaneId) != nil else {
+                return .failure(.paneNotFound(paneId: parentPaneId, tabId: state.activeTabId ?? UUID()))
+            }
+            return .success(ValidatedAction(action))
+        case .removeDrawerPane(let parentPaneId, _),
+             .setActiveDrawerPane(let parentPaneId, _):
+            guard state.tabContaining(paneId: parentPaneId) != nil else {
+                return .failure(.paneNotFound(paneId: parentPaneId, tabId: state.activeTabId ?? UUID()))
+            }
+            return .success(ValidatedAction(action))
+        case .toggleDrawer(let paneId):
+            guard state.tabContaining(paneId: paneId) != nil else {
+                return .failure(.paneNotFound(paneId: paneId, tabId: state.activeTabId ?? UUID()))
+            }
+            return .success(ValidatedAction(action))
+
         // System actions — trusted source, skip validation
         case .expireUndoEntry, .repair:
             return .success(ValidatedAction(action))
@@ -174,14 +214,14 @@ enum ActionValidator {
         return nil
     }
 
-    /// Validate that a session is not already present in any layout.
-    /// Enforces invariant #3: each sessionId at most once across all layouts.
-    static func validateSessionCardinality(
-        sessionId: UUID,
+    /// Validate that a pane is not already present in any layout.
+    /// Enforces invariant #3: each paneId at most once across all layouts.
+    static func validatePaneCardinality(
+        paneId: UUID,
         state: ActionStateSnapshot
     ) -> Result<Void, ActionValidationError> {
-        if state.allSessionIds.contains(sessionId) {
-            return .failure(.sessionAlreadyInLayout(sessionId: sessionId))
+        if state.allPaneIds.contains(paneId) {
+            return .failure(.paneAlreadyInLayout(paneId: paneId))
         }
         return .success(())
     }

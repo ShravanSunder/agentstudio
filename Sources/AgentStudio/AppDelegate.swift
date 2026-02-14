@@ -32,7 +32,7 @@ class AppDelegate: NSObject, NSApplicationDelegate {
         // Check for worktrunk dependency
         checkWorktrunkInstallation()
 
-        // Set up main menu (doesn't depend on session restore)
+        // Set up main menu (doesn't depend on zmx restore)
         setupMainMenu()
 
         // Create new services
@@ -50,7 +50,7 @@ class AppDelegate: NSObject, NSApplicationDelegate {
         tabBarAdapter = TabBarAdapter(store: store)
         commandBarController = CommandBarPanelController(store: store, dispatcher: .shared)
 
-        // Restore terminal views for persisted sessions
+        // Restore terminal views for persisted panes
         coordinator.restoreAllViews()
 
         // Create main window
@@ -115,19 +115,19 @@ class AppDelegate: NSObject, NSApplicationDelegate {
             return
         }
 
-        // Collect known zmx session IDs from persisted sessions (main-actor access).
-        // These are the sessions we expect to exist — everything else is an orphan.
+        // Collect known zmx session IDs from persisted panes (main-actor access).
+        // These are the panes we expect to exist — everything else is an orphan.
         let knownSessionIds = Set(
-            store.sessions
+            store.panes.values
                 .filter { $0.provider == .zmx }
-                .compactMap { session -> String? in
-                    guard let worktreeId = session.worktreeId,
+                .compactMap { pane -> String? in
+                    guard let worktreeId = pane.worktreeId,
                           let repo = store.repo(containing: worktreeId),
                           let worktree = store.worktree(worktreeId) else { return nil }
                     return ZmxBackend.sessionId(
                         repoStableKey: repo.stableKey,
                         worktreeStableKey: worktree.stableKey,
-                        paneId: session.id
+                        paneId: pane.id
                     )
                 }
         )

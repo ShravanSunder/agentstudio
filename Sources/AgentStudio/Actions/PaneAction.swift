@@ -75,10 +75,42 @@ enum PaneAction: Equatable, Hashable {
     case mergeTab(sourceTabId: UUID, targetTabId: UUID,
                   targetPaneId: UUID, direction: SplitNewDirection)
 
+    // Arrangement operations
+
+    /// Create a custom arrangement from a subset of panes.
+    case createArrangement(tabId: UUID, name: String, paneIds: Set<UUID>)
+    /// Remove a custom arrangement (cannot remove default).
+    case removeArrangement(tabId: UUID, arrangementId: UUID)
+    /// Switch to a different arrangement in a tab.
+    case switchArrangement(tabId: UUID, arrangementId: UUID)
+    /// Rename an arrangement.
+    case renameArrangement(tabId: UUID, arrangementId: UUID, name: String)
+
+    // Orphaned pane pool
+
+    /// Move a pane to the background pool (remove from layout, keep alive).
+    case backgroundPane(paneId: UUID)
+    /// Reactivate a backgrounded pane into a tab layout.
+    case reactivatePane(paneId: UUID, targetTabId: UUID,
+                        targetPaneId: UUID, direction: SplitNewDirection)
+    /// Permanently destroy a backgrounded pane.
+    case purgeOrphanedPane(paneId: UUID)
+
+    // Drawer operations
+
+    /// Add a drawer pane to a parent pane.
+    case addDrawerPane(parentPaneId: UUID, content: PaneContent, metadata: PaneMetadata)
+    /// Remove a drawer pane from its parent.
+    case removeDrawerPane(parentPaneId: UUID, drawerPaneId: UUID)
+    /// Toggle a pane's drawer expanded/collapsed.
+    case toggleDrawer(paneId: UUID)
+    /// Switch the active drawer pane.
+    case setActiveDrawerPane(parentPaneId: UUID, drawerPaneId: UUID)
+
     // System actions — dispatched by Reconciler and undo timers, not by user input.
 
-    /// Undo TTL expired — remove session from store, kill zmx, destroy surface.
-    case expireUndoEntry(sessionId: UUID)
+    /// Undo TTL expired — remove pane from store, kill zmx, destroy surface.
+    case expireUndoEntry(paneId: UUID)
 
     /// Reconciler-generated repair action.
     case repair(RepairAction)
@@ -88,13 +120,13 @@ enum PaneAction: Equatable, Hashable {
 /// Flow through ActionExecutor like user actions — one-way data flow never bypassed.
 enum RepairAction: Equatable, Hashable {
     /// zmx died — create new zmx session, send reattach command to existing surface.
-    case reattachZmx(sessionId: UUID)
+    case reattachZmx(paneId: UUID)
     /// Surface died — full view + surface recreation. zmx reattaches.
-    case recreateSurface(sessionId: UUID)
-    /// Session is in layout but has no view in ViewRegistry.
-    case createMissingView(sessionId: UUID)
-    /// Unrecoverable failure — mark session as failed.
-    case markSessionFailed(sessionId: UUID, reason: String)
-    /// Session exists in runtime but not in store (and not pending undo) — clean up.
-    case cleanupOrphan(sessionId: UUID)
+    case recreateSurface(paneId: UUID)
+    /// Pane is in layout but has no view in ViewRegistry.
+    case createMissingView(paneId: UUID)
+    /// Unrecoverable failure — mark pane as failed.
+    case markSessionFailed(paneId: UUID, reason: String)
+    /// Pane exists in runtime but not in store (and not pending undo) — clean up.
+    case cleanupOrphan(paneId: UUID)
 }

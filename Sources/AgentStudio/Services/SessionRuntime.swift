@@ -25,27 +25,27 @@ protocol SessionBackendProtocol: Sendable {
     /// Provider type this backend handles.
     var provider: SessionProvider { get }
 
-    /// Start a session. Returns a provider handle for reconnection.
-    func start(session: TerminalSession) async throws -> String
+    /// Start a session for a pane. Returns a provider handle for reconnection.
+    func start(pane: Pane) async throws -> String
 
-    /// Check if a session is still alive.
-    func isAlive(session: TerminalSession) async -> Bool
+    /// Check if a pane's session is still alive.
+    func isAlive(pane: Pane) async -> Bool
 
-    /// Terminate a session.
-    func terminate(session: TerminalSession) async
+    /// Terminate a pane's session.
+    func terminate(pane: Pane) async
 
-    /// Attempt to restore a session from its provider handle.
-    func restore(session: TerminalSession) async -> Bool
+    /// Attempt to restore a pane's session from its provider handle.
+    func restore(pane: Pane) async -> Bool
 }
 
 // MARK: - Session Runtime
 
-/// Manages live session state. Reads session list from WorkspaceStore (doesn't own it).
-/// Tracks runtime status per session, schedules health checks, coordinates backends.
+/// Manages live session state. Reads pane list from WorkspaceStore (doesn't own it).
+/// Tracks runtime status per pane, schedules health checks, coordinates backends.
 @MainActor
 final class SessionRuntime: ObservableObject {
 
-    /// Runtime status for each session.
+    /// Runtime status for each pane.
     @Published private(set) var statuses: [UUID: SessionRuntimeStatus] = [:]
 
     /// Registered backends by provider type.
@@ -54,7 +54,7 @@ final class SessionRuntime: ObservableObject {
     /// Health check timer interval in seconds.
     private let healthCheckInterval: TimeInterval
 
-    /// Reference to the store (read-only for session list).
+    /// Reference to the store (read-only for pane list).
     private weak var store: WorkspaceStore?
 
     /// Health check task.
@@ -81,65 +81,65 @@ final class SessionRuntime: ObservableObject {
 
     // MARK: - Status Queries
 
-    /// Get the runtime status of a session.
-    func status(for sessionId: UUID) -> SessionRuntimeStatus {
-        statuses[sessionId] ?? .initializing
+    /// Get the runtime status of a pane.
+    func status(for paneId: UUID) -> SessionRuntimeStatus {
+        statuses[paneId] ?? .initializing
     }
 
-    /// All sessions with a given status.
-    func sessions(withStatus status: SessionRuntimeStatus) -> [UUID] {
+    /// All panes with a given status.
+    func panes(withStatus status: SessionRuntimeStatus) -> [UUID] {
         statuses.filter { $0.value == status }.map(\.key)
     }
 
-    /// Number of running sessions.
+    /// Number of running panes.
     var runningCount: Int {
         statuses.values.filter { $0 == .running }.count
     }
 
     // MARK: - Lifecycle
 
-    /// Initialize a session — set to initializing state.
-    func initializeSession(_ sessionId: UUID) {
-        statuses[sessionId] = .initializing
-        runtimeLogger.debug("Session \(sessionId) initialized")
+    /// Initialize a pane — set to initializing state.
+    func initializeSession(_ paneId: UUID) {
+        statuses[paneId] = .initializing
+        runtimeLogger.debug("Pane \(paneId) initialized")
     }
 
-    /// Mark a session as running.
-    func markRunning(_ sessionId: UUID) {
-        statuses[sessionId] = .running
-        runtimeLogger.debug("Session \(sessionId) marked running")
+    /// Mark a pane as running.
+    func markRunning(_ paneId: UUID) {
+        statuses[paneId] = .running
+        runtimeLogger.debug("Pane \(paneId) marked running")
     }
 
-    /// Mark a session as exited.
-    func markExited(_ sessionId: UUID) {
-        statuses[sessionId] = .exited
-        runtimeLogger.debug("Session \(sessionId) marked exited")
+    /// Mark a pane as exited.
+    func markExited(_ paneId: UUID) {
+        statuses[paneId] = .exited
+        runtimeLogger.debug("Pane \(paneId) marked exited")
     }
 
-    /// Remove tracking for a session.
-    func removeSession(_ sessionId: UUID) {
-        statuses.removeValue(forKey: sessionId)
-        runtimeLogger.debug("Session \(sessionId) removed from runtime")
+    /// Remove tracking for a pane.
+    func removeSession(_ paneId: UUID) {
+        statuses.removeValue(forKey: paneId)
+        runtimeLogger.debug("Pane \(paneId) removed from runtime")
     }
 
-    /// Sync runtime state with store's session list.
-    /// Removes statuses for sessions no longer in the store.
-    /// Initializes statuses for new sessions.
+    /// Sync runtime state with store's pane list.
+    /// Removes statuses for panes no longer in the store.
+    /// Initializes statuses for new panes.
     func syncWithStore() {
         guard let store else { return }
-        let storeSessionIds = Set(store.sessions.map(\.id))
+        let storePaneIds = Set(store.panes.keys)
         let trackedIds = Set(statuses.keys)
 
-        // Remove statuses for sessions no longer in store
-        for id in trackedIds.subtracting(storeSessionIds) {
+        // Remove statuses for panes no longer in store
+        for id in trackedIds.subtracting(storePaneIds) {
             statuses.removeValue(forKey: id)
-            runtimeLogger.debug("Removed stale session \(id) from runtime")
+            runtimeLogger.debug("Removed stale pane \(id) from runtime")
         }
 
-        // Add initial status for new sessions
-        for id in storeSessionIds.subtracting(trackedIds) {
+        // Add initial status for new panes
+        for id in storePaneIds.subtracting(trackedIds) {
             statuses[id] = .initializing
-            runtimeLogger.debug("Added new session \(id) to runtime")
+            runtimeLogger.debug("Added new pane \(id) to runtime")
         }
     }
 
@@ -168,54 +168,58 @@ final class SessionRuntime: ObservableObject {
     func runHealthCheck() async {
         guard let store else { return }
 
-        for session in store.sessions {
-            guard statuses[session.id] == .running else { continue }
-            guard let backend = backends[session.provider] else { continue }
+        for (id, pane) in store.panes {
+            guard statuses[id] == .running else { continue }
+            guard let provider = pane.provider,
+                  let backend = backends[provider] else { continue }
 
-            let alive = await backend.isAlive(session: session)
+            let alive = await backend.isAlive(pane: pane)
             if !alive {
-                statuses[session.id] = .unhealthy
-                runtimeLogger.warning("Session \(session.id) unhealthy (\(session.provider.rawValue))")
+                statuses[id] = .unhealthy
+                runtimeLogger.warning("Pane \(id) unhealthy (\(provider.rawValue))")
             }
         }
     }
 
     // MARK: - Backend Operations
 
-    /// Start a session via its backend.
-    func startSession(_ session: TerminalSession) async throws -> String? {
-        guard let backend = backends[session.provider] else {
-            runtimeLogger.warning("No backend registered for \(session.provider.rawValue)")
-            markRunning(session.id) // Ghostty sessions are "running" immediately
+    /// Start a session for a pane via its backend.
+    func startSession(_ pane: Pane) async throws -> String? {
+        guard let provider = pane.provider,
+              let backend = backends[provider] else {
+            runtimeLogger.warning("No backend registered for pane \(pane.id)")
+            markRunning(pane.id) // Ghostty panes are "running" immediately
             return nil
         }
 
-        statuses[session.id] = .initializing
-        let handle = try await backend.start(session: session)
-        statuses[session.id] = .running
+        statuses[pane.id] = .initializing
+        let handle = try await backend.start(pane: pane)
+        statuses[pane.id] = .running
         return handle
     }
 
-    /// Attempt to restore a session via its backend.
-    func restoreSession(_ session: TerminalSession) async -> Bool {
-        guard let backend = backends[session.provider] else {
-            markRunning(session.id)
+    /// Attempt to restore a pane's session via its backend.
+    func restoreSession(_ pane: Pane) async -> Bool {
+        guard let provider = pane.provider,
+              let backend = backends[provider] else {
+            markRunning(pane.id)
             return true
         }
 
-        let restored = await backend.restore(session: session)
-        statuses[session.id] = restored ? .running : .exited
+        let restored = await backend.restore(pane: pane)
+        statuses[pane.id] = restored ? .running : .exited
         return restored
     }
 
-    /// Terminate a session via its backend.
-    func terminateSession(_ session: TerminalSession) async {
-        guard let backend = backends[session.provider] else {
-            statuses[session.id] = .exited
+    /// Terminate a pane's session via its backend.
+    func terminateSession(_ pane: Pane) async {
+        guard let provider = pane.provider,
+              let backend = backends[provider] else {
+            statuses[pane.id] = .exited
             return
         }
 
-        await backend.terminate(session: session)
-        statuses[session.id] = .exited
+        await backend.terminate(pane: pane)
+        statuses[pane.id] = .exited
     }
 }

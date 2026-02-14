@@ -37,11 +37,11 @@ final class TabBarAdapterTests: XCTestCase {
 
     func test_singleTab_derivesTabBarItem() {
         // Arrange
-        let session = store.createSession(
+        let pane = store.createPane(
             source: .floating(workingDirectory: nil, title: "MyTerminal"),
             title: "MyTerminal"
         )
-        let tab = Tab(sessionId: session.id)
+        let tab = Tab(paneId: pane.id)
         store.appendTab(tab)
 
         // Act — trigger refresh
@@ -64,17 +64,15 @@ final class TabBarAdapterTests: XCTestCase {
 
     func test_splitTab_showsJoinedTitle() {
         // Arrange
-        let s1 = store.createSession(
+        let s1 = store.createPane(
             source: .floating(workingDirectory: nil, title: "Left"),
             title: "Left"
         )
-        let s2 = store.createSession(
+        let s2 = store.createPane(
             source: .floating(workingDirectory: nil, title: "Right"),
             title: "Right"
         )
-        let layout = Layout(sessionId: s1.id)
-            .inserting(sessionId: s2.id, at: s1.id, direction: .horizontal, position: .after)
-        let tab = Tab(layout: layout, activeSessionId: s1.id)
+        let tab = makeTab(paneIds: [s1.id, s2.id], activePaneId: s1.id)
         store.appendTab(tab)
 
         // Wait for async refresh
@@ -93,16 +91,16 @@ final class TabBarAdapterTests: XCTestCase {
 
     func test_multipleTabs_derivesAll() {
         // Arrange
-        let s1 = store.createSession(
+        let s1 = store.createPane(
             source: .floating(workingDirectory: nil, title: "Tab1"),
             title: "Tab1"
         )
-        let s2 = store.createSession(
+        let s2 = store.createPane(
             source: .floating(workingDirectory: nil, title: "Tab2"),
             title: "Tab2"
         )
-        let tab1 = Tab(sessionId: s1.id)
-        let tab2 = Tab(sessionId: s2.id)
+        let tab1 = Tab(paneId: s1.id)
+        let tab2 = Tab(paneId: s2.id)
         store.appendTab(tab1)
         store.appendTab(tab2)
 
@@ -121,10 +119,10 @@ final class TabBarAdapterTests: XCTestCase {
 
     func test_activeTabId_tracksStore() {
         // Arrange
-        let s1 = store.createSession(source: .floating(workingDirectory: nil, title: nil))
-        let s2 = store.createSession(source: .floating(workingDirectory: nil, title: nil))
-        let tab1 = Tab(sessionId: s1.id)
-        let tab2 = Tab(sessionId: s2.id)
+        let s1 = store.createPane(source: .floating(workingDirectory: nil, title: nil))
+        let s2 = store.createPane(source: .floating(workingDirectory: nil, title: nil))
+        let tab1 = Tab(paneId: s1.id)
+        let tab2 = Tab(paneId: s2.id)
         store.appendTab(tab1)
         store.appendTab(tab2)
         store.setActiveTab(tab1.id)
@@ -142,10 +140,10 @@ final class TabBarAdapterTests: XCTestCase {
 
     func test_tabRemoved_adapterUpdates() {
         // Arrange
-        let s1 = store.createSession(source: .floating(workingDirectory: nil, title: nil))
-        let s2 = store.createSession(source: .floating(workingDirectory: nil, title: nil))
-        let tab1 = Tab(sessionId: s1.id)
-        let tab2 = Tab(sessionId: s2.id)
+        let s1 = store.createPane(source: .floating(workingDirectory: nil, title: nil))
+        let s2 = store.createPane(source: .floating(workingDirectory: nil, title: nil))
+        let tab1 = Tab(paneId: s1.id)
+        let tab2 = Tab(paneId: s2.id)
         store.appendTab(tab1)
         store.appendTab(tab2)
 
@@ -172,12 +170,12 @@ final class TabBarAdapterTests: XCTestCase {
         XCTAssertEqual(adapter.tabs[0].id, tab2.id)
     }
 
-    func test_sessionWithNoTitle_defaultsToTerminal() {
+    func test_paneWithNoTitle_defaultsToTerminal() {
         // Arrange
-        let session = store.createSession(
+        let pane = store.createPane(
             source: .floating(workingDirectory: nil, title: nil)
         )
-        let tab = Tab(sessionId: session.id)
+        let tab = Tab(paneId: pane.id)
         store.appendTab(tab)
 
         // Wait for refresh

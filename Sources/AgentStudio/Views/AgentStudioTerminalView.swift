@@ -4,13 +4,9 @@ import GhosttyKit
 /// Terminal view wrapping Ghostty's SurfaceView via SurfaceManager.
 /// This is a host-only view — TerminalViewCoordinator creates surfaces and
 /// passes them here via displaySurface(). The view never creates its own surfaces.
-final class AgentStudioTerminalView: NSView, SurfaceHealthDelegate {
+final class AgentStudioTerminalView: PaneView, SurfaceHealthDelegate {
     let worktree: Worktree
     let repo: Repo
-
-    /// Session identity — used for ViewRegistry keying, SurfaceManager.attach(), etc.
-    /// Set once, never changes. Preserved through undo-close.
-    let sessionId: UUID
 
     var surfaceId: UUID?
 
@@ -29,12 +25,11 @@ final class AgentStudioTerminalView: NSView, SurfaceHealthDelegate {
 
     /// Primary initializer — used by TerminalViewCoordinator.
     /// Does NOT create a surface; caller must attach one via displaySurface().
-    init(worktree: Worktree, repo: Repo, restoredSurfaceId: UUID, sessionId: UUID) {
-        self.sessionId = sessionId
+    init(worktree: Worktree, repo: Repo, restoredSurfaceId: UUID, paneId: UUID) {
         self.worktree = worktree
         self.repo = repo
         self.surfaceId = restoredSurfaceId
-        super.init(frame: NSRect(x: 0, y: 0, width: 800, height: 600))
+        super.init(paneId: paneId)
 
         // Register for health updates
         SurfaceManager.shared.addHealthDelegate(self)
@@ -158,7 +153,7 @@ final class AgentStudioTerminalView: NSView, SurfaceHealthDelegate {
         NotificationCenter.default.post(
             name: .repairSurfaceRequested,
             object: nil,
-            userInfo: ["sessionId": sessionId]
+            userInfo: ["paneId": paneId]
         )
         hideErrorOverlay()
     }
@@ -245,27 +240,4 @@ final class AgentStudioTerminalView: NSView, SurfaceHealthDelegate {
         return super.hitTest(point)
     }
 
-    // MARK: - SwiftUI Bridging
-
-    private(set) lazy var swiftUIContainer: NSView = {
-        let container = NSView()
-        container.wantsLayer = true
-        container.layer?.backgroundColor = NSColor.clear.cgColor
-        self.translatesAutoresizingMaskIntoConstraints = false
-        container.addSubview(self)
-        NSLayoutConstraint.activate([
-            self.topAnchor.constraint(equalTo: container.topAnchor),
-            self.leadingAnchor.constraint(equalTo: container.leadingAnchor),
-            self.trailingAnchor.constraint(equalTo: container.trailingAnchor),
-            self.bottomAnchor.constraint(equalTo: container.bottomAnchor),
-        ])
-        return container
-    }()
-}
-
-// MARK: - Identifiable
-
-extension AgentStudioTerminalView: Identifiable {
-    typealias ID = UUID
-    var id: UUID { sessionId }
 }

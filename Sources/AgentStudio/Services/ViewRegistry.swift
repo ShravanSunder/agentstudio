@@ -3,58 +3,63 @@ import os.log
 
 private let registryLogger = Logger(subsystem: "com.agentstudio", category: "ViewRegistry")
 
-/// Maps session IDs to live AgentStudioTerminalView instances.
+/// Maps pane IDs to live PaneView instances (terminal, webview, code viewer).
 /// Runtime only — not persisted. Collaborator of WorkspaceStore.
 @MainActor
 final class ViewRegistry {
-    private var views: [UUID: AgentStudioTerminalView] = [:]
+    private var views: [UUID: PaneView] = [:]
 
     /// Monotonically increasing counter, bumped on every register/unregister.
     /// Consumers can compare against a cached epoch to detect registry changes
     /// without subscribing to Combine or notifications.
     private(set) var epoch: Int = 0
 
-    /// Register a view for a session.
-    func register(_ view: AgentStudioTerminalView, for sessionId: UUID) {
-        views[sessionId] = view
+    /// Register a view for a pane.
+    func register(_ view: PaneView, for paneId: UUID) {
+        views[paneId] = view
         epoch += 1
     }
 
-    /// Unregister a view for a session.
-    func unregister(_ sessionId: UUID) {
-        views.removeValue(forKey: sessionId)
+    /// Unregister a view for a pane.
+    func unregister(_ paneId: UUID) {
+        views.removeValue(forKey: paneId)
         epoch += 1
     }
 
-    /// Get the view for a session, if registered.
-    func view(for sessionId: UUID) -> AgentStudioTerminalView? {
-        views[sessionId]
+    /// Get the view for a pane, if registered.
+    func view(for paneId: UUID) -> PaneView? {
+        views[paneId]
     }
 
-    /// All currently registered session IDs.
-    var registeredSessionIds: Set<UUID> {
+    /// Get the terminal view for a pane, if it is a terminal.
+    func terminalView(for paneId: UUID) -> AgentStudioTerminalView? {
+        views[paneId] as? AgentStudioTerminalView
+    }
+
+    /// All currently registered pane IDs.
+    var registeredPaneIds: Set<UUID> {
         Set(views.keys)
     }
 
     /// Build a renderable SplitTree from a Layout.
     /// Gracefully skips missing views: if one side of a split is missing,
     /// promotes the other side. Returns nil only if ALL views are missing.
-    func renderTree(for layout: Layout) -> TerminalSplitTree? {
-        guard let root = layout.root else { return TerminalSplitTree() }
+    func renderTree(for layout: Layout) -> PaneSplitTree? {
+        guard let root = layout.root else { return PaneSplitTree() }
         guard let renderedRoot = renderNode(root) else {
-            registryLogger.warning("renderTree failed — all sessions missing views")
+            registryLogger.warning("renderTree failed — all panes missing views")
             return nil
         }
-        return TerminalSplitTree(root: renderedRoot)
+        return PaneSplitTree(root: renderedRoot)
     }
 
     // MARK: - Private
 
-    private func renderNode(_ node: Layout.Node) -> TerminalSplitTree.Node? {
+    private func renderNode(_ node: Layout.Node) -> PaneSplitTree.Node? {
         switch node {
-        case .leaf(let sessionId):
-            guard let view = views[sessionId] else {
-                registryLogger.warning("No view registered for session \(sessionId) — skipping leaf")
+        case .leaf(let paneId):
+            guard let view = views[paneId] else {
+                registryLogger.warning("No view registered for pane \(paneId) — skipping leaf")
                 return nil
             }
             return .leaf(view: view)
@@ -70,7 +75,7 @@ final class ViewRegistry {
                 case .horizontal: viewDirection = .horizontal
                 case .vertical: viewDirection = .vertical
                 }
-                return .split(TerminalSplitTree.Node.Split(
+                return .split(PaneSplitTree.Node.Split(
                     id: split.id,
                     direction: viewDirection,
                     ratio: split.ratio,

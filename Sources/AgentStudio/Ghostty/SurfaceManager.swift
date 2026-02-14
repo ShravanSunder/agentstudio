@@ -179,13 +179,13 @@ final class SurfaceManager: ObservableObject {
     /// Attach a surface to a container (makes it visible/active)
     /// - Parameters:
     ///   - surfaceId: ID of the surface to attach
-    ///   - sessionId: ID of the container to attach to
+    ///   - paneId: ID of the pane to attach to
     /// - Returns: The surface view if successful
     @discardableResult
-    func attach(_ surfaceId: UUID, to sessionId: UUID) -> Ghostty.SurfaceView? {
+    func attach(_ surfaceId: UUID, to paneId: UUID) -> Ghostty.SurfaceView? {
         // Check hidden surfaces first
         if var managed = hiddenSurfaces.removeValue(forKey: surfaceId) {
-            managed.state = .active(sessionId: sessionId)
+            managed.state = .active(paneId: paneId)
             managed.metadata.lastActiveAt = Date()
             activeSurfaces[surfaceId] = managed
 
@@ -193,7 +193,7 @@ final class SurfaceManager: ObservableObject {
             setOcclusion(surfaceId, visible: true)
 
             updateCounts()
-            logger.info("Surface attached: \(surfaceId) to container \(sessionId)")
+            logger.info("Surface attached: \(surfaceId) to pane \(paneId)")
             return managed.surface
         }
 
@@ -203,7 +203,7 @@ final class SurfaceManager: ObservableObject {
             entry.expirationTask?.cancel()
 
             var managed = entry.surface
-            managed.state = .active(sessionId: sessionId)
+            managed.state = .active(paneId: paneId)
             managed.metadata.lastActiveAt = Date()
             activeSurfaces[surfaceId] = managed
 
@@ -217,7 +217,7 @@ final class SurfaceManager: ObservableObject {
         // Check if already active (re-attach)
         if let managed = activeSurfaces[surfaceId] {
             var updated = managed
-            updated.state = .active(sessionId: sessionId)
+            updated.state = .active(paneId: paneId)
             updated.metadata.lastActiveAt = Date()
             activeSurfaces[surfaceId] = updated
             return managed.surface
@@ -280,20 +280,20 @@ final class SurfaceManager: ObservableObject {
     // MARK: - Surface Mobility
 
     /// Move a surface from one container to another
-    func move(_ surfaceId: UUID, to targetSessionId: UUID) {
+    func move(_ surfaceId: UUID, to targetPaneId: UUID) {
         guard var managed = activeSurfaces[surfaceId] ?? hiddenSurfaces.removeValue(forKey: surfaceId) else {
             logger.warning("Surface not found for move: \(surfaceId)")
             return
         }
 
-        managed.state = .active(sessionId: targetSessionId)
+        managed.state = .active(paneId: targetPaneId)
         managed.metadata.lastActiveAt = Date()
         activeSurfaces[surfaceId] = managed
 
         setOcclusion(surfaceId, visible: true)
         updateCounts()
 
-        logger.info("Surface moved: \(surfaceId) to \(targetSessionId)")
+        logger.info("Surface moved: \(surfaceId) to \(targetPaneId)")
     }
 
     /// Swap two surfaces between containers
@@ -307,8 +307,8 @@ final class SurfaceManager: ObservableObject {
             return
         }
 
-        managedA.state = .active(sessionId: containerB)
-        managedB.state = .active(sessionId: containerA)
+        managedA.state = .active(paneId: containerB)
+        managedB.state = .active(paneId: containerA)
 
         activeSurfaces[surfaceA] = managedA
         activeSurfaces[surfaceB] = managedB
@@ -726,10 +726,13 @@ extension SurfaceManager {
         hiddenSurfaceCount = hiddenSurfaces.count
     }
 
-    /// Reverse-lookup: surfaceId → sessionId via stored metadata.
-    func sessionId(for surfaceId: UUID) -> UUID? {
-        let managed = activeSurfaces[surfaceId] ?? hiddenSurfaces[surfaceId]
-        return managed?.metadata.sessionId
+    /// Reverse-lookup: surfaceId → paneId.
+    /// Derives from surface state (authoritative after attach/move) rather than
+    /// metadata.paneId which is only set at creation time.
+    func paneId(for surfaceId: UUID) -> UUID? {
+        guard let managed = activeSurfaces[surfaceId] ?? hiddenSurfaces[surfaceId] else { return nil }
+        if case .active(let paneId) = managed.state { return paneId }
+        return managed.metadata.paneId
     }
 
     /// Reverse-lookup: SurfaceView → surfaceId via ObjectIdentifier map.

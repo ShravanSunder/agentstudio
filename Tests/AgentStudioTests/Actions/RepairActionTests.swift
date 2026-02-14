@@ -5,57 +5,57 @@ final class RepairActionTests: XCTestCase {
 
     // MARK: - Construction
 
-    func test_reattachZmx_hasSessionId() {
-        let sessionId = UUID()
-        let action = RepairAction.reattachZmx(sessionId: sessionId)
+    func test_reattachZmx_hasPaneId() {
+        let paneId = UUID()
+        let action = RepairAction.reattachZmx(paneId: paneId)
 
         if case .reattachZmx(let id) = action {
-            XCTAssertEqual(id, sessionId)
+            XCTAssertEqual(id, paneId)
         } else {
             XCTFail("Expected reattachZmx")
         }
     }
 
-    func test_recreateSurface_hasSessionId() {
-        let sessionId = UUID()
-        let action = RepairAction.recreateSurface(sessionId: sessionId)
+    func test_recreateSurface_hasPaneId() {
+        let paneId = UUID()
+        let action = RepairAction.recreateSurface(paneId: paneId)
 
         if case .recreateSurface(let id) = action {
-            XCTAssertEqual(id, sessionId)
+            XCTAssertEqual(id, paneId)
         } else {
             XCTFail("Expected recreateSurface")
         }
     }
 
-    func test_createMissingView_hasSessionId() {
-        let sessionId = UUID()
-        let action = RepairAction.createMissingView(sessionId: sessionId)
+    func test_createMissingView_hasPaneId() {
+        let paneId = UUID()
+        let action = RepairAction.createMissingView(paneId: paneId)
 
         if case .createMissingView(let id) = action {
-            XCTAssertEqual(id, sessionId)
+            XCTAssertEqual(id, paneId)
         } else {
             XCTFail("Expected createMissingView")
         }
     }
 
-    func test_markSessionFailed_hasSessionIdAndReason() {
-        let sessionId = UUID()
-        let action = RepairAction.markSessionFailed(sessionId: sessionId, reason: "zmx crash")
+    func test_markSessionFailed_hasPaneIdAndReason() {
+        let paneId = UUID()
+        let action = RepairAction.markSessionFailed(paneId: paneId, reason: "zmx crash")
 
         if case .markSessionFailed(let id, let reason) = action {
-            XCTAssertEqual(id, sessionId)
+            XCTAssertEqual(id, paneId)
             XCTAssertEqual(reason, "zmx crash")
         } else {
             XCTFail("Expected markSessionFailed")
         }
     }
 
-    func test_cleanupOrphan_hasSessionId() {
-        let sessionId = UUID()
-        let action = RepairAction.cleanupOrphan(sessionId: sessionId)
+    func test_cleanupOrphan_hasPaneId() {
+        let paneId = UUID()
+        let action = RepairAction.cleanupOrphan(paneId: paneId)
 
         if case .cleanupOrphan(let id) = action {
-            XCTAssertEqual(id, sessionId)
+            XCTAssertEqual(id, paneId)
         } else {
             XCTFail("Expected cleanupOrphan")
         }
@@ -66,23 +66,23 @@ final class RepairActionTests: XCTestCase {
     func test_equatable_sameAction_areEqual() {
         let id = UUID()
         XCTAssertEqual(
-            RepairAction.reattachZmx(sessionId: id),
-            RepairAction.reattachZmx(sessionId: id)
+            RepairAction.reattachZmx(paneId: id),
+            RepairAction.reattachZmx(paneId: id)
         )
     }
 
     func test_equatable_differentCases_areNotEqual() {
         let id = UUID()
         XCTAssertNotEqual(
-            RepairAction.reattachZmx(sessionId: id),
-            RepairAction.recreateSurface(sessionId: id)
+            RepairAction.reattachZmx(paneId: id),
+            RepairAction.recreateSurface(paneId: id)
         )
     }
 
-    func test_equatable_differentSessionIds_areNotEqual() {
+    func test_equatable_differentPaneIds_areNotEqual() {
         XCTAssertNotEqual(
-            RepairAction.reattachZmx(sessionId: UUID()),
-            RepairAction.reattachZmx(sessionId: UUID())
+            RepairAction.reattachZmx(paneId: UUID()),
+            RepairAction.reattachZmx(paneId: UUID())
         )
     }
 
@@ -90,17 +90,17 @@ final class RepairActionTests: XCTestCase {
 
     func test_hashable_sameAction_sameHash() {
         let id = UUID()
-        let a = RepairAction.reattachZmx(sessionId: id)
-        let b = RepairAction.reattachZmx(sessionId: id)
+        let a = RepairAction.reattachZmx(paneId: id)
+        let b = RepairAction.reattachZmx(paneId: id)
         XCTAssertEqual(a.hashValue, b.hashValue)
     }
 
     func test_hashable_canBeUsedInSet() {
         let id = UUID()
         let set: Set<RepairAction> = [
-            .reattachZmx(sessionId: id),
-            .recreateSurface(sessionId: id),
-            .reattachZmx(sessionId: id) // duplicate
+            .reattachZmx(paneId: id),
+            .recreateSurface(paneId: id),
+            .reattachZmx(paneId: id) // duplicate
         ]
         XCTAssertEqual(set.count, 2)
     }
@@ -108,8 +108,8 @@ final class RepairActionTests: XCTestCase {
     // MARK: - PaneAction Integration
 
     func test_paneAction_repairCase_wrapsRepairAction() {
-        let sessionId = UUID()
-        let repair = RepairAction.cleanupOrphan(sessionId: sessionId)
+        let paneId = UUID()
+        let repair = RepairAction.cleanupOrphan(paneId: paneId)
         let action = PaneAction.repair(repair)
 
         if case .repair(let wrapped) = action {
@@ -119,12 +119,12 @@ final class RepairActionTests: XCTestCase {
         }
     }
 
-    func test_paneAction_expireUndoEntry_hasSessionId() {
-        let sessionId = UUID()
-        let action = PaneAction.expireUndoEntry(sessionId: sessionId)
+    func test_paneAction_expireUndoEntry_hasPaneId() {
+        let paneId = UUID()
+        let action = PaneAction.expireUndoEntry(paneId: paneId)
 
         if case .expireUndoEntry(let id) = action {
-            XCTAssertEqual(id, sessionId)
+            XCTAssertEqual(id, paneId)
         } else {
             XCTFail("Expected .expireUndoEntry case")
         }

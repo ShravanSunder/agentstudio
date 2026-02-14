@@ -12,9 +12,9 @@ struct WorkspacePersistor {
         var id: UUID
         var name: String
         var repos: [Repo]
-        var sessions: [TerminalSession]
-        var views: [ViewDefinition]
-        var activeViewId: UUID?
+        var panes: [Pane]
+        var tabs: [Tab]
+        var activeTabId: UUID?
         var sidebarWidth: CGFloat
         var windowFrame: CGRect?
         var createdAt: Date
@@ -24,9 +24,9 @@ struct WorkspacePersistor {
             id: UUID = UUID(),
             name: String = "Default Workspace",
             repos: [Repo] = [],
-            sessions: [TerminalSession] = [],
-            views: [ViewDefinition] = [],
-            activeViewId: UUID? = nil,
+            panes: [Pane] = [],
+            tabs: [Tab] = [],
+            activeTabId: UUID? = nil,
             sidebarWidth: CGFloat = 250,
             windowFrame: CGRect? = nil,
             createdAt: Date = Date(),
@@ -35,9 +35,9 @@ struct WorkspacePersistor {
             self.id = id
             self.name = name
             self.repos = repos
-            self.sessions = sessions
-            self.views = views
-            self.activeViewId = activeViewId
+            self.panes = panes
+            self.tabs = tabs
+            self.activeTabId = activeTabId
             self.sidebarWidth = sidebarWidth
             self.windowFrame = windowFrame
             self.createdAt = createdAt
@@ -81,6 +81,7 @@ struct WorkspacePersistor {
     }
 
     /// Load state from disk. Returns nil if no workspace file exists or schema is incompatible.
+    /// Tries the current schema first, then falls back to the legacy (pre-pane-model) schema.
     func load() -> PersistableState? {
         let contents: [URL]
         do {
@@ -98,13 +99,8 @@ struct WorkspacePersistor {
 
         // Single workspace — load the first one found
         for fileURL in workspaceFiles {
-            do {
-                let data = try Data(contentsOf: fileURL)
-
-                let loaded = try JSONDecoder().decode(PersistableState.self, from: data)
-                return loaded
-            } catch {
-                persistorLogger.error("Failed to load workspace file \(fileURL.lastPathComponent): \(error)")
+            if let state = decodeWithMigration(from: fileURL) {
+                return state
             }
         }
 
@@ -113,11 +109,23 @@ struct WorkspacePersistor {
 
     /// Load state from a specific file URL (for testing).
     func load(from url: URL) -> PersistableState? {
+        decodeWithMigration(from: url)
+    }
+
+    /// Try current schema first, then fall back to legacy migration.
+    private func decodeWithMigration(from url: URL) -> PersistableState? {
+        let data: Data
         do {
-            let data = try Data(contentsOf: url)
+            data = try Data(contentsOf: url)
+        } catch {
+            persistorLogger.error("Failed to read workspace file \(url.lastPathComponent): \(error)")
+            return nil
+        }
+
+        do {
             return try JSONDecoder().decode(PersistableState.self, from: data)
         } catch {
-            persistorLogger.error("Failed to load workspace from \(url.lastPathComponent): \(error)")
+            persistorLogger.error("Failed to load workspace file \(url.lastPathComponent): \(error)")
             return nil
         }
     }
