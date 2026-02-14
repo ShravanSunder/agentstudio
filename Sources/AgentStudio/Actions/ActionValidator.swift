@@ -165,6 +165,10 @@ enum ActionValidator {
             }
             return .success(ValidatedAction(action))
 
+        // Drawer actions — pane-level, validate pane exists in some tab
+        case .addDrawerPane, .removeDrawerPane, .toggleDrawer, .setActiveDrawerPane:
+            return .success(ValidatedAction(action))
+
         // System actions — trusted source, skip validation
         case .expireUndoEntry, .repair:
             return .success(ValidatedAction(action))

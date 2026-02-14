@@ -475,6 +475,89 @@ final class WorkspaceStore: ObservableObject {
         markDirty()
     }
 
+    // MARK: - Drawer Mutations
+
+    /// Add a drawer pane to a parent pane. Creates the drawer if it doesn't exist.
+    @discardableResult
+    func addDrawerPane(
+        to parentPaneId: UUID,
+        content: PaneContent,
+        metadata: PaneMetadata
+    ) -> DrawerPane? {
+        guard panes[parentPaneId] != nil else {
+            storeLogger.warning("addDrawerPane: parent pane \(parentPaneId) not found")
+            return nil
+        }
+
+        let drawerPane = DrawerPane(content: content, metadata: metadata)
+
+        if panes[parentPaneId]!.drawer == nil {
+            panes[parentPaneId]!.drawer = Drawer(
+                panes: [drawerPane],
+                activeDrawerPaneId: drawerPane.id,
+                isExpanded: true
+            )
+        } else {
+            panes[parentPaneId]!.drawer!.panes.append(drawerPane)
+            // Auto-activate if first pane
+            if panes[parentPaneId]!.drawer!.activeDrawerPaneId == nil {
+                panes[parentPaneId]!.drawer!.activeDrawerPaneId = drawerPane.id
+            }
+        }
+
+        markDirty()
+        return drawerPane
+    }
+
+    /// Remove a drawer pane from its parent. Removes the drawer if it becomes empty.
+    func removeDrawerPane(_ drawerPaneId: UUID, from parentPaneId: UUID) {
+        guard panes[parentPaneId] != nil,
+              panes[parentPaneId]!.drawer != nil else {
+            storeLogger.warning("removeDrawerPane: parent pane \(parentPaneId) has no drawer")
+            return
+        }
+
+        panes[parentPaneId]!.drawer!.panes.removeAll { $0.id == drawerPaneId }
+
+        // Update active drawer pane if removed
+        if panes[parentPaneId]!.drawer!.activeDrawerPaneId == drawerPaneId {
+            panes[parentPaneId]!.drawer!.activeDrawerPaneId =
+                panes[parentPaneId]!.drawer!.panes.first?.id
+        }
+
+        // Remove drawer entirely if empty
+        if panes[parentPaneId]!.drawer!.panes.isEmpty {
+            panes[parentPaneId]!.drawer = nil
+        }
+
+        markDirty()
+    }
+
+    /// Toggle the expanded/collapsed state of a pane's drawer.
+    func toggleDrawer(for paneId: UUID) {
+        guard panes[paneId] != nil,
+              panes[paneId]!.drawer != nil else {
+            storeLogger.warning("toggleDrawer: pane \(paneId) has no drawer")
+            return
+        }
+
+        panes[paneId]!.drawer!.isExpanded.toggle()
+        markDirty()
+    }
+
+    /// Set the active drawer pane within a pane's drawer.
+    func setActiveDrawerPane(_ drawerPaneId: UUID, in parentPaneId: UUID) {
+        guard panes[parentPaneId] != nil,
+              let drawer = panes[parentPaneId]!.drawer,
+              drawer.panes.contains(where: { $0.id == drawerPaneId }) else {
+            storeLogger.warning("setActiveDrawerPane: drawer pane \(drawerPaneId) not found in pane \(parentPaneId)")
+            return
+        }
+
+        panes[parentPaneId]!.drawer!.activeDrawerPaneId = drawerPaneId
+        markDirty()
+    }
+
     // MARK: - Zoom
 
     func toggleZoom(paneId: UUID, inTab tabId: UUID) {

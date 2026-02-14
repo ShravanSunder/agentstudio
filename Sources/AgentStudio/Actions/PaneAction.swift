@@ -86,6 +86,17 @@ enum PaneAction: Equatable, Hashable {
     /// Rename an arrangement.
     case renameArrangement(tabId: UUID, arrangementId: UUID, name: String)
 
+    // Drawer operations
+
+    /// Add a drawer pane to a parent pane.
+    case addDrawerPane(parentPaneId: UUID, content: PaneContent, metadata: PaneMetadata)
+    /// Remove a drawer pane from its parent.
+    case removeDrawerPane(parentPaneId: UUID, drawerPaneId: UUID)
+    /// Toggle a pane's drawer expanded/collapsed.
+    case toggleDrawer(paneId: UUID)
+    /// Switch the active drawer pane.
+    case setActiveDrawerPane(parentPaneId: UUID, drawerPaneId: UUID)
+
     // System actions — dispatched by Reconciler and undo timers, not by user input.
 
     /// Undo TTL expired — remove pane from store, kill tmux, destroy surface.

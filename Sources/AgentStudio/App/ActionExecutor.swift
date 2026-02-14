@@ -169,6 +169,18 @@ final class ActionExecutor {
         case .renameArrangement(let tabId, let arrangementId, let name):
             store.renameArrangement(arrangementId, name: name, inTab: tabId)
 
+        case .addDrawerPane(let parentPaneId, let content, let metadata):
+            _ = store.addDrawerPane(to: parentPaneId, content: content, metadata: metadata)
+
+        case .removeDrawerPane(let parentPaneId, let drawerPaneId):
+            store.removeDrawerPane(drawerPaneId, from: parentPaneId)
+
+        case .toggleDrawer(let paneId):
+            store.toggleDrawer(for: paneId)
+
+        case .setActiveDrawerPane(let parentPaneId, let drawerPaneId):
+            store.setActiveDrawerPane(drawerPaneId, in: parentPaneId)
+
         case .expireUndoEntry(let paneId):
             // TODO: Phase 3 — remove pane from store, kill tmux, destroy surface
             executorLogger.warning("expireUndoEntry: \(paneId) — stub, full impl in Phase 3")
