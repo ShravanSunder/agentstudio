@@ -276,7 +276,8 @@ enum CommandBarDataSource {
     private static func isTargetableCommand(_ command: AppCommand) -> Bool {
         switch command {
         case .closeTab, .closePane, .extractPaneToTab, .focusPaneLeft, .focusPaneRight,
-             .focusPaneUp, .focusPaneDown, .focusNextPane, .focusPrevPane:
+             .focusPaneUp, .focusPaneDown, .focusNextPane, .focusPrevPane,
+             .switchArrangement, .deleteArrangement, .renameArrangement:
             return true
         default:
             return false
@@ -288,6 +289,11 @@ enum CommandBarDataSource {
         for def: CommandDefinition,
         store: WorkspaceStore
     ) -> CommandBarLevel {
+        // Arrangement commands show arrangement targets, not generic tab/pane targets
+        if def.command == .switchArrangement || def.command == .deleteArrangement || def.command == .renameArrangement {
+            return buildArrangementTargetLevel(for: def, store: store)
+        }
+
         var items: [CommandBarItem] = []
 
         let appliesToTab = def.appliesTo.contains(.tab)
@@ -331,6 +337,37 @@ enum CommandBarDataSource {
                         action: .dispatchTargeted(def.command, target: pane.id, targetType: targetType)
                     ))
                 }
+            }
+        }
+
+        return CommandBarLevel(
+            id: "level-\(def.command.rawValue)",
+            title: def.label,
+            parentLabel: "Commands",
+            items: items
+        )
+    }
+
+    /// Build a target level listing arrangements in the active tab for arrangement commands.
+    private static func buildArrangementTargetLevel(
+        for def: CommandDefinition,
+        store: WorkspaceStore
+    ) -> CommandBarLevel {
+        var items: [CommandBarItem] = []
+
+        if let activeTabId = store.activeTabId, let tab = store.tab(activeTabId) {
+            items = tab.arrangements.compactMap { arrangement in
+                // Don't show default arrangement for delete/rename
+                guard !arrangement.isDefault || def.command == .switchArrangement else { return nil }
+                return CommandBarItem(
+                    id: "target-arrangement-\(arrangement.id.uuidString)",
+                    title: arrangement.name,
+                    subtitle: arrangement.isDefault ? "Default" : "\(arrangement.visiblePaneIds.count) panes",
+                    icon: arrangement.isDefault ? "rectangle.3.group" : "rectangle.3.group.fill",
+                    group: "Arrangements",
+                    groupPriority: 0,
+                    action: .dispatchTargeted(def.command, target: arrangement.id, targetType: .tab)
+                )
             }
         }
 
@@ -408,7 +445,8 @@ enum CommandBarDataSource {
         case .focusPaneLeft, .focusPaneRight, .focusPaneUp, .focusPaneDown,
              .focusNextPane, .focusPrevPane:
             return (Group.focusCommands, 1)
-        case .closeTab, .breakUpTab, .newTerminalInTab, .nextTab, .prevTab, .openNewTerminalInTab:
+        case .closeTab, .breakUpTab, .newTerminalInTab, .nextTab, .prevTab, .openNewTerminalInTab,
+             .switchArrangement, .saveArrangement, .deleteArrangement, .renameArrangement:
             return (Group.tabCommands, 2)
         case .addRepo, .removeRepo, .refreshWorktrees:
             return (Group.repoCommands, 3)

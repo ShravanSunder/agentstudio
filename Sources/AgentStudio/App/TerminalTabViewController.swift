@@ -811,8 +811,9 @@ class TerminalTabViewController: NSViewController, CommandHandler {
         case .newTerminalInTab, .newFloatingTerminal,
              .removeRepo, .refreshWorktrees,
              .toggleSidebar, .quickFind, .commandBar,
-             .openNewTerminalInTab:
-            break // Handled elsewhere or require a target
+             .openNewTerminalInTab,
+             .switchArrangement, .saveArrangement, .deleteArrangement, .renameArrangement:
+            break // Handled via drill-in (target selection in command bar)
         default:
             break
         }
@@ -834,6 +835,15 @@ class TerminalTabViewController: NSViewController, CommandHandler {
                 guard let tab = store.tabs.first(where: { $0.paneIds.contains(target) })
                 else { return nil }
                 return .extractPaneToTab(tabId: tab.id, paneId: target)
+            case (.switchArrangement, .tab):
+                guard let tabId = store.activeTabId else { return nil }
+                return .switchArrangement(tabId: tabId, arrangementId: target)
+            case (.deleteArrangement, .tab):
+                guard let tabId = store.activeTabId else { return nil }
+                return .removeArrangement(tabId: tabId, arrangementId: target)
+            case (.renameArrangement, .tab):
+                // Name input will be added in a later task; for now, just select the target
+                return nil
             default:
                 return nil
             }
