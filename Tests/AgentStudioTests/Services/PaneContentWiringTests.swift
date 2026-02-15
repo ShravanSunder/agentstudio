@@ -195,4 +195,81 @@ final class PaneContentWiringTests: XCTestCase {
         // Container wraps the view
         XCTAssertTrue(container.subviews.contains(view))
     }
+
+    // MARK: - updatePaneWebviewState
+
+    func test_updatePaneWebviewState_updatesContent() {
+        // Arrange
+        let pane = store.createPane(
+            content: .webview(WebviewState(url: URL(string: "https://old.com")!, showNavigation: true)),
+            metadata: PaneMetadata(source: .floating(workingDirectory: nil, title: nil), title: "Web")
+        )
+        let newState = WebviewState(
+            url: URL(string: "https://new.com")!,
+            title: "New",
+            showNavigation: false
+        )
+
+        // Act
+        store.updatePaneWebviewState(pane.id, state: newState)
+
+        // Assert
+        let updated = store.pane(pane.id)
+        if case .webview(let state) = updated?.content {
+            XCTAssertEqual(state.url.absoluteString, "https://new.com")
+            XCTAssertEqual(state.title, "New")
+            XCTAssertFalse(state.showNavigation)
+        } else {
+            XCTFail("Expected .webview content after update")
+        }
+    }
+
+    func test_updatePaneWebviewState_marksDirty() {
+        // Arrange
+        let pane = store.createPane(
+            content: .webview(WebviewState(url: URL(string: "https://example.com")!)),
+            metadata: PaneMetadata(source: .floating(workingDirectory: nil, title: nil), title: "Web")
+        )
+        store.flush()
+        XCTAssertFalse(store.isDirty)
+
+        // Act
+        store.updatePaneWebviewState(pane.id, state: WebviewState(url: URL(string: "https://updated.com")!))
+
+        // Assert
+        XCTAssertTrue(store.isDirty)
+    }
+
+    func test_updatePaneWebviewState_missingPane_doesNotCrash() {
+        // Act — should log warning but not crash
+        store.updatePaneWebviewState(UUID(), state: WebviewState(url: URL(string: "https://ghost.com")!))
+
+        // Assert — store still functional
+        XCTAssertTrue(store.panes.isEmpty)
+    }
+
+    // MARK: - ViewRegistry webview accessors
+
+    func test_viewRegistry_webviewView_returnsNilForNonWebview() {
+        let registry = ViewRegistry()
+        let paneId = UUID()
+        let view = PaneView(paneId: paneId)
+        registry.register(view, for: paneId)
+
+        XCTAssertNil(registry.webviewView(for: paneId))
+    }
+
+    func test_viewRegistry_allWebviewViews_filtersCorrectly() {
+        let registry = ViewRegistry()
+        let paneId1 = UUID()
+        let paneId2 = UUID()
+
+        // Register a generic PaneView (not a webview)
+        registry.register(PaneView(paneId: paneId1), for: paneId1)
+        // Register another generic PaneView
+        registry.register(PaneView(paneId: paneId2), for: paneId2)
+
+        // allWebviewViews should be empty since neither is a WebviewPaneView
+        XCTAssertTrue(registry.allWebviewViews.isEmpty)
+    }
 }

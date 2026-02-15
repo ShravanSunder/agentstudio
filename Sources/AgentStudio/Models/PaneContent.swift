@@ -25,7 +25,7 @@ enum PaneContent: Hashable {
 
 extension PaneContent: Codable {
     /// Current schema version. Bump when any variant's state shape changes.
-    static let currentVersion = 1
+    static let currentVersion = 2
 
     private enum ContentType: String, Codable {
         case terminal
@@ -162,14 +162,67 @@ struct TerminalState: Codable, Hashable {
     var lifetime: SessionLifetime
 }
 
-// MARK: - Webview State (future)
+// MARK: - Webview State
 
-/// State for a webview pane. Defined now, wired later.
+/// State for a webview pane — one URL per pane.
 struct WebviewState: Codable, Hashable {
-    /// The URL to display.
     var url: URL
-    /// Whether navigation controls are visible.
+    var title: String
     var showNavigation: Bool
+
+    init(url: URL, title: String = "", showNavigation: Bool = true) {
+        self.url = url
+        self.title = title
+        self.showNavigation = showNavigation
+    }
+
+    // MARK: - Backward-Compatible Decoding
+
+    /// Decodes three shapes:
+    /// 1. Current: `{url, title, showNavigation}`
+    /// 2. Multi-tab (v2 legacy): `{tabs: [{url, title}], activeTabIndex, showNavigation}` — extracts first tab
+    /// 3. v1 legacy: `{url, showNavigation}` (no title)
+    init(from decoder: Decoder) throws {
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+
+        if let url = try? container.decode(URL.self, forKey: .url) {
+            // Current shape or v1 legacy
+            self.url = url
+            self.title = try container.decodeIfPresent(String.self, forKey: .title) ?? ""
+        } else if let tabs = try? container.decode([LegacyTabState].self, forKey: .tabs),
+                  let firstTab = tabs.first {
+            // Multi-tab legacy shape — extract first tab's URL
+            let activeIndex = (try? container.decode(Int.self, forKey: .activeTabIndex)) ?? 0
+            let tab = (activeIndex >= 0 && activeIndex < tabs.count) ? tabs[activeIndex] : firstTab
+            self.url = tab.url
+            self.title = tab.title
+        } else {
+            throw DecodingError.dataCorrupted(
+                DecodingError.Context(codingPath: decoder.codingPath,
+                                      debugDescription: "WebviewState: missing both 'url' and 'tabs'")
+            )
+        }
+        self.showNavigation = try container.decodeIfPresent(Bool.self, forKey: .showNavigation) ?? true
+    }
+
+    func encode(to encoder: Encoder) throws {
+        var container = encoder.container(keyedBy: CodingKeys.self)
+        try container.encode(url, forKey: .url)
+        try container.encode(title, forKey: .title)
+        try container.encode(showNavigation, forKey: .showNavigation)
+    }
+
+    private enum CodingKeys: String, CodingKey {
+        case url, title, showNavigation
+        // Legacy keys for backward-compatible decoding
+        case tabs, activeTabIndex
+    }
+
+    /// Used only for decoding the legacy multi-tab shape.
+    private struct LegacyTabState: Codable {
+        let url: URL
+        var title: String = ""
+    }
 }
 
 // MARK: - Code Viewer State (future)

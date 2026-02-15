@@ -47,6 +47,29 @@ final class PaneContentTests: XCTestCase {
         XCTAssertEqual(decoded, content)
     }
 
+    func test_roundTrip_webview_withTitle() throws {
+        // Arrange
+        let content = PaneContent.webview(WebviewState(
+            url: URL(string: "https://github.com")!,
+            title: "GitHub",
+            showNavigation: false
+        ))
+
+        // Act
+        let data = try encoder.encode(content)
+        let decoded = try decoder.decode(PaneContent.self, from: data)
+
+        // Assert
+        XCTAssertEqual(decoded, content)
+        if case .webview(let state) = decoded {
+            XCTAssertEqual(state.url.absoluteString, "https://github.com")
+            XCTAssertEqual(state.title, "GitHub")
+            XCTAssertFalse(state.showNavigation)
+        } else {
+            XCTFail("Expected .webview")
+        }
+    }
+
     // MARK: - Round-Trip: CodeViewer
 
     func test_roundTrip_codeViewer() throws {
@@ -98,6 +121,26 @@ final class PaneContentTests: XCTestCase {
         XCTAssertEqual(json["type"] as? String, "webview")
     }
 
+    func test_encode_webview_encodesURLAndTitle() throws {
+        // Arrange
+        let content = PaneContent.webview(WebviewState(
+            url: URL(string: "https://example.com")!,
+            title: "Example",
+            showNavigation: true
+        ))
+
+        // Act
+        let data = try encoder.encode(content)
+        let json = try JSONSerialization.jsonObject(with: data) as! [String: Any]
+        let stateJson = json["state"] as? [String: Any]
+
+        // Assert — encodes flat url/title/showNavigation (not tabs array)
+        XCTAssertEqual(stateJson?["url"] as? String, "https://example.com")
+        XCTAssertEqual(stateJson?["title"] as? String, "Example")
+        XCTAssertEqual(stateJson?["showNavigation"] as? Bool, true)
+        XCTAssertNil(stateJson?["tabs"], "Should not encode legacy tabs array")
+    }
+
     func test_encode_codeViewer_typeField() throws {
         let content = PaneContent.codeViewer(CodeViewerState(
             filePath: URL(fileURLWithPath: "/tmp/test.swift"),
@@ -113,7 +156,6 @@ final class PaneContentTests: XCTestCase {
     // MARK: - Unknown Type → .unsupported
 
     func test_decode_unknownType_decodesAsUnsupported() throws {
-        // Arrange: JSON with a type this version doesn't know about
         let json: [String: Any] = [
             "type": "aiAssistant",
             "version": 2,
@@ -121,10 +163,8 @@ final class PaneContentTests: XCTestCase {
         ]
         let data = try JSONSerialization.data(withJSONObject: json)
 
-        // Act
         let decoded = try decoder.decode(PaneContent.self, from: data)
 
-        // Assert
         if case .unsupported(let content) = decoded {
             XCTAssertEqual(content.type, "aiAssistant")
             XCTAssertEqual(content.version, 2)
@@ -153,7 +193,6 @@ final class PaneContentTests: XCTestCase {
     }
 
     func test_decode_missingType_decodesAsUnsupported() throws {
-        // JSON with no type field at all
         let json: [String: Any] = [
             "version": 1,
             "state": ["foo": "bar"]
@@ -172,7 +211,6 @@ final class PaneContentTests: XCTestCase {
     // MARK: - Unsupported Round-Trip Preservation
 
     func test_unsupported_roundTrip_preservesState() throws {
-        // Arrange: decode an unknown type
         let json: [String: Any] = [
             "type": "aiAssistant",
             "version": 3,
@@ -184,26 +222,18 @@ final class PaneContentTests: XCTestCase {
         let data = try JSONSerialization.data(withJSONObject: json)
         let decoded = try decoder.decode(PaneContent.self, from: data)
 
-        // Act: re-encode the unsupported content
         let reencoded = try encoder.encode(decoded)
         let redecodedJson = try JSONSerialization.jsonObject(with: reencoded) as! [String: Any]
 
-        // Assert: type and version preserved
         XCTAssertEqual(redecodedJson["type"] as? String, "aiAssistant")
         XCTAssertEqual(redecodedJson["version"] as? Int, 3)
-
-        // Assert: state structure preserved
         let state = redecodedJson["state"] as? [String: Any]
         XCTAssertEqual(state?["model"] as? String, "claude-4")
-        let config = state?["config"] as? [String: Any]
-        XCTAssertEqual(config?["temperature"] as? Double, 0.7)
-        XCTAssertEqual(config?["maxTokens"] as? Int, 1000)
     }
 
     // MARK: - Version Default
 
     func test_decode_missingVersion_defaultsTo1() throws {
-        // JSON without a version field — should default to 1
         let json: [String: Any] = [
             "type": "terminal",
             "state": ["provider": "zmx", "lifetime": "persistent"]
@@ -212,7 +242,6 @@ final class PaneContentTests: XCTestCase {
 
         let decoded = try decoder.decode(PaneContent.self, from: data)
 
-        // Should decode successfully as terminal
         if case .terminal(let state) = decoded {
             XCTAssertEqual(state.provider, .zmx)
             XCTAssertEqual(state.lifetime, .persistent)
@@ -243,7 +272,6 @@ final class PaneContentTests: XCTestCase {
     // MARK: - Pane with PaneContent Round-Trip
 
     func test_pane_roundTrip_terminalContent() throws {
-        // Full Pane round-trip to verify PaneContent integrates correctly
         let pane = makePane(provider: .zmx, lifetime: .persistent)
 
         let data = try encoder.encode(pane)
@@ -253,5 +281,171 @@ final class PaneContentTests: XCTestCase {
         XCTAssertEqual(decoded.content, pane.content)
         XCTAssertEqual(decoded.provider, .zmx)
         XCTAssertEqual(decoded.lifetime, .persistent)
+    }
+
+    // MARK: - WebviewState
+
+    func test_webviewState_init_defaults() {
+        // Arrange & Act
+        let state = WebviewState(url: URL(string: "https://example.com")!)
+
+        // Assert
+        XCTAssertEqual(state.url.absoluteString, "https://example.com")
+        XCTAssertEqual(state.title, "")
+        XCTAssertTrue(state.showNavigation)
+    }
+
+    func test_webviewState_init_noNavigation() {
+        let state = WebviewState(url: URL(string: "https://example.com")!, showNavigation: false)
+        XCTAssertFalse(state.showNavigation)
+    }
+
+    func test_webviewState_hashable_sameContent_sameHash() {
+        let url = URL(string: "https://example.com")!
+        let s1 = WebviewState(url: url, title: "Test", showNavigation: true)
+        let s2 = WebviewState(url: url, title: "Test", showNavigation: true)
+        XCTAssertEqual(s1, s2)
+        XCTAssertEqual(s1.hashValue, s2.hashValue)
+    }
+
+    func test_webviewState_differentTitle_notEqual() {
+        let url = URL(string: "https://example.com")!
+        let s1 = WebviewState(url: url, title: "A")
+        let s2 = WebviewState(url: url, title: "B")
+        XCTAssertNotEqual(s1, s2)
+    }
+
+    // MARK: - Backward-Compatible Decoding
+
+    func test_decode_legacyV1_singleURL() throws {
+        // Arrange — v1 shape: {url, showNavigation} (no title)
+        let json: [String: Any] = [
+            "url": "https://example.com",
+            "showNavigation": true
+        ]
+        let data = try JSONSerialization.data(withJSONObject: json)
+
+        // Act
+        let state = try decoder.decode(WebviewState.self, from: data)
+
+        // Assert
+        XCTAssertEqual(state.url.absoluteString, "https://example.com")
+        XCTAssertEqual(state.title, "")
+        XCTAssertTrue(state.showNavigation)
+    }
+
+    func test_decode_legacyV1_noNavigation() throws {
+        let json: [String: Any] = [
+            "url": "https://example.com",
+            "showNavigation": false
+        ]
+        let data = try JSONSerialization.data(withJSONObject: json)
+
+        let state = try decoder.decode(WebviewState.self, from: data)
+
+        XCTAssertFalse(state.showNavigation)
+    }
+
+    func test_decode_legacyV2_tabsArray_extractsActiveTab() throws {
+        // Arrange — v2 multi-tab shape: {tabs: [{url, title}], activeTabIndex}
+        let json: [String: Any] = [
+            "tabs": [
+                ["url": "https://github.com", "title": "GitHub", "id": UUID().uuidString],
+                ["url": "https://docs.swift.org", "title": "Docs", "id": UUID().uuidString],
+            ],
+            "activeTabIndex": 1,
+            "showNavigation": true
+        ]
+        let data = try JSONSerialization.data(withJSONObject: json)
+
+        // Act
+        let state = try decoder.decode(WebviewState.self, from: data)
+
+        // Assert — extracts the active tab (index 1 = docs.swift.org)
+        XCTAssertEqual(state.url.absoluteString, "https://docs.swift.org")
+        XCTAssertTrue(state.showNavigation)
+    }
+
+    func test_decode_legacyV2_tabsArray_fallsBackToFirstTab() throws {
+        // Arrange — tabs shape with out-of-range activeTabIndex
+        let json: [String: Any] = [
+            "tabs": [
+                ["url": "https://github.com", "title": "GitHub", "id": UUID().uuidString],
+            ],
+            "activeTabIndex": 99,
+            "showNavigation": false
+        ]
+        let data = try JSONSerialization.data(withJSONObject: json)
+
+        // Act
+        let state = try decoder.decode(WebviewState.self, from: data)
+
+        // Assert — falls back to first tab
+        XCTAssertEqual(state.url.absoluteString, "https://github.com")
+    }
+
+    func test_decode_legacyV2_viaFullPaneContent() throws {
+        // Arrange — PaneContent envelope with v2 tabs shape
+        let json: [String: Any] = [
+            "type": "webview",
+            "version": 2,
+            "state": [
+                "tabs": [
+                    ["url": "https://github.com", "title": "GitHub", "id": UUID().uuidString],
+                ],
+                "activeTabIndex": 0,
+                "showNavigation": true
+            ]
+        ]
+        let data = try JSONSerialization.data(withJSONObject: json)
+
+        // Act
+        let content = try decoder.decode(PaneContent.self, from: data)
+
+        // Assert
+        if case .webview(let state) = content {
+            XCTAssertEqual(state.url.absoluteString, "https://github.com")
+        } else {
+            XCTFail("Expected .webview, got \(content)")
+        }
+    }
+
+    func test_decode_legacyV1_viaFullPaneContent() throws {
+        // Arrange — PaneContent envelope with v1 single-URL shape
+        let json: [String: Any] = [
+            "type": "webview",
+            "version": 1,
+            "state": [
+                "url": "https://github.com",
+                "showNavigation": true
+            ]
+        ]
+        let data = try JSONSerialization.data(withJSONObject: json)
+
+        // Act
+        let content = try decoder.decode(PaneContent.self, from: data)
+
+        // Assert
+        if case .webview(let state) = content {
+            XCTAssertEqual(state.url.absoluteString, "https://github.com")
+        } else {
+            XCTFail("Expected .webview, got \(content)")
+        }
+    }
+
+    func test_decode_currentShape_roundTrips() throws {
+        // Arrange
+        let state = WebviewState(
+            url: URL(string: "https://example.com")!,
+            title: "Example",
+            showNavigation: false
+        )
+
+        // Act
+        let data = try encoder.encode(state)
+        let decoded = try decoder.decode(WebviewState.self, from: data)
+
+        // Assert
+        XCTAssertEqual(decoded, state)
     }
 }

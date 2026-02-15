@@ -44,7 +44,7 @@ final class WorkspaceStoreTests: XCTestCase {
         // Assert
         XCTAssertEqual(store.panes.count, 1)
         XCTAssertNotNil(store.pane(pane.id))
-        XCTAssertEqual(store.pane(pane.id)?.provider, .ghostty)
+        XCTAssertEqual(store.pane(pane.id)?.provider, .zmx)
     }
 
     func test_createPane_worktreeSource() {

@@ -1,14 +1,20 @@
 import AppKit
+import SwiftUI
 
-/// Stub view for embedded web content panes.
-/// Displays a placeholder until WKWebView integration is implemented.
+/// Webview pane embedding a real browser via SwiftUI WebView/WebPage.
+///
+/// Ownership: WebviewPaneView (NSView/PaneView) holds a strong reference to
+/// `WebviewPaneController` (@Observable @MainActor). An `NSHostingView` wraps
+/// the SwiftUI `WebviewPaneContentView` which observes the controller.
+/// Controller lifetime is tied to this NSView's lifetime in the AppKit layout hierarchy.
 final class WebviewPaneView: PaneView {
-    private let state: WebviewState
+    let controller: WebviewPaneController
+    private var hostingView: NSHostingView<WebviewPaneContentView>?
 
     init(paneId: UUID, state: WebviewState) {
-        self.state = state
+        self.controller = WebviewPaneController(paneId: paneId, state: state)
         super.init(paneId: paneId)
-        setupPlaceholder()
+        setupHostingView()
     }
 
     required init?(coder: NSCoder) {
@@ -17,20 +23,26 @@ final class WebviewPaneView: PaneView {
 
     override var acceptsFirstResponder: Bool { true }
 
-    private func setupPlaceholder() {
-        wantsLayer = true
-        layer?.backgroundColor = NSColor.controlBackgroundColor.cgColor
+    /// Capture current tab state for persistence.
+    func currentState() -> WebviewState {
+        controller.snapshot()
+    }
 
-        let label = NSTextField(labelWithString: "Webview: \(state.url.absoluteString)")
-        label.font = .monospacedSystemFont(ofSize: 12, weight: .regular)
-        label.textColor = .secondaryLabelColor
-        label.alignment = .center
-        label.translatesAutoresizingMaskIntoConstraints = false
-        addSubview(label)
+    // MARK: - Setup
+
+    private func setupHostingView() {
+        let contentView = WebviewPaneContentView(controller: controller)
+        let hosting = NSHostingView(rootView: contentView)
+        hosting.translatesAutoresizingMaskIntoConstraints = false
+        addSubview(hosting)
 
         NSLayoutConstraint.activate([
-            label.centerXAnchor.constraint(equalTo: centerXAnchor),
-            label.centerYAnchor.constraint(equalTo: centerYAnchor),
+            hosting.topAnchor.constraint(equalTo: topAnchor),
+            hosting.leadingAnchor.constraint(equalTo: leadingAnchor),
+            hosting.trailingAnchor.constraint(equalTo: trailingAnchor),
+            hosting.bottomAnchor.constraint(equalTo: bottomAnchor),
         ])
+
+        self.hostingView = hosting
     }
 }
