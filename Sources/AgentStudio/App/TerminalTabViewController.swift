@@ -87,8 +87,15 @@ class TerminalTabViewController: NSViewController, CommandHandler {
                 self?.tabBarHostingView?.updateTabFrames(frames)
             },
             onAdd: nil,
-            onToggleEditMode: {
-                CommandDispatcher.shared.dispatch(.toggleEditMode)
+            onPaneAction: { [weak self] action in
+                self?.dispatchAction(action)
+            },
+            onSaveArrangement: { [weak self] tabId in
+                guard let self, let tab = self.store.tab(tabId) else { return }
+                let name = Self.nextArrangementName(existing: tab.arrangements)
+                self.dispatchAction(.createArrangement(
+                    tabId: tabId, name: name, paneIds: Set(tab.paneIds)
+                ))
             }
         )
         tabBarHostingView = DraggableTabBarHostingView(rootView: tabBar)
@@ -697,11 +704,8 @@ class TerminalTabViewController: NSViewController, CommandHandler {
         case .newFloatingTerminal:
             action = nil
         case .switchArrangement, .deleteArrangement, .renameArrangement:
-            // These need target selection — show the arrangement bar (enters edit mode)
-            if !ManagementModeMonitor.shared.isActive {
-                ManagementModeMonitor.shared.toggle()
-            }
-            showArrangementBar()
+            // Arrangement management now handled through the arrangement panel popover
+            // in the tab bar. Context menu entries still work as no-ops here.
             action = nil
         case .saveArrangement:
             // Direct action — save current layout as a new arrangement

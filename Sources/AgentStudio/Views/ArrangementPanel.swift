@@ -1,0 +1,156 @@
+import SwiftUI
+
+/// Floating popover panel for managing pane arrangements.
+/// Shows pane visibility toggles, arrangement chips, and save controls.
+struct ArrangementPanel: View {
+    let tabId: UUID
+    let panes: [TabBarPaneInfo]
+    let arrangements: [TabBarArrangementInfo]
+    let onPaneAction: (PaneAction) -> Void
+    let onSaveArrangement: () -> Void
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 8) {
+            // MARK: - Pane list
+            if panes.count > 1 {
+                Text("Panes")
+                    .font(.system(size: 10, weight: .semibold))
+                    .foregroundStyle(.tertiary)
+                    .textCase(.uppercase)
+
+                VStack(spacing: 2) {
+                    ForEach(panes) { pane in
+                        paneRow(pane)
+                    }
+                }
+            }
+
+            if arrangements.count > 1 || panes.count > 1 {
+                Divider()
+                    .padding(.vertical, 2)
+            }
+
+            // MARK: - Arrangement chips
+            Text("Arrangements")
+                .font(.system(size: 10, weight: .semibold))
+                .foregroundStyle(.tertiary)
+                .textCase(.uppercase)
+
+            WrappingHStack(spacing: 4) {
+                ForEach(arrangements) { arr in
+                    arrangementChip(arr)
+                }
+
+                // Save new arrangement button
+                if panes.count > 1 {
+                    Button(action: onSaveArrangement) {
+                        Image(systemName: "plus")
+                            .font(.system(size: 10, weight: .medium))
+                            .foregroundStyle(.secondary)
+                            .frame(width: 22, height: 22)
+                            .background(
+                                RoundedRectangle(cornerRadius: 5)
+                                    .strokeBorder(Color.white.opacity(0.15), lineWidth: 1)
+                            )
+                    }
+                    .buttonStyle(.plain)
+                    .help("Save current layout as arrangement")
+                }
+            }
+        }
+        .padding(10)
+        .frame(minWidth: 180, maxWidth: 260)
+    }
+
+    // MARK: - Pane Row
+
+    private func paneRow(_ pane: TabBarPaneInfo) -> some View {
+        HStack(spacing: 6) {
+            // Visibility indicator
+            Circle()
+                .fill(pane.isMinimized ? Color.clear : Color.white.opacity(0.5))
+                .stroke(Color.white.opacity(0.3), lineWidth: 1)
+                .frame(width: 8, height: 8)
+
+            Text(pane.title)
+                .font(.system(size: 11))
+                .foregroundStyle(pane.isMinimized ? .tertiary : .primary)
+                .lineLimit(1)
+                .truncationMode(.tail)
+
+            Spacer()
+
+            // Toggle minimize/expand
+            Button {
+                if pane.isMinimized {
+                    onPaneAction(.expandPane(tabId: tabId, paneId: pane.id))
+                } else {
+                    onPaneAction(.minimizePane(tabId: tabId, paneId: pane.id))
+                }
+            } label: {
+                Image(systemName: pane.isMinimized ? "eye" : "eye.slash")
+                    .font(.system(size: 10))
+                    .foregroundStyle(.secondary)
+                    .frame(width: 20, height: 20)
+            }
+            .buttonStyle(.plain)
+            .help(pane.isMinimized ? "Show pane" : "Hide pane")
+        }
+        .padding(.horizontal, 6)
+        .padding(.vertical, 3)
+        .background(
+            RoundedRectangle(cornerRadius: 4)
+                .fill(Color.white.opacity(0.04))
+        )
+    }
+
+    // MARK: - Arrangement Chip
+
+    private func arrangementChip(_ arr: TabBarArrangementInfo) -> some View {
+        Text(arr.name)
+            .font(.system(size: 11, weight: arr.isActive ? .semibold : .regular))
+            .foregroundStyle(arr.isActive ? .primary : .secondary)
+            .padding(.horizontal, 8)
+            .padding(.vertical, 4)
+            .background(
+                RoundedRectangle(cornerRadius: 6)
+                    .fill(arr.isActive ? Color.white.opacity(0.12) : Color.white.opacity(0.04))
+            )
+            .contentShape(Rectangle())
+            .onTapGesture {
+                onPaneAction(.switchArrangement(tabId: tabId, arrangementId: arr.id))
+            }
+            .contextMenu {
+                if !arr.isDefault {
+                    Button("Rename...") {
+                        onPaneAction(.renameArrangement(tabId: tabId, arrangementId: arr.id, name: arr.name))
+                    }
+                    Button("Delete", role: .destructive) {
+                        onPaneAction(.removeArrangement(tabId: tabId, arrangementId: arr.id))
+                    }
+                }
+            }
+    }
+}
+
+// MARK: - Wrapping HStack
+
+/// Simple wrapping horizontal stack that flows items to new lines when they exceed available width.
+/// Uses ViewThatFits-inspired approach compatible with macOS 14+.
+struct WrappingHStack<Content: View>: View {
+    let spacing: CGFloat
+    let content: Content
+
+    init(spacing: CGFloat = 4, @ViewBuilder content: () -> Content) {
+        self.spacing = spacing
+        self.content = content()
+    }
+
+    var body: some View {
+        // For the arrangement panel, items usually fit in a single line.
+        // Use a simple HStack — panels are constrained to ~260px max width.
+        HStack(spacing: spacing) {
+            content
+        }
+    }
+}

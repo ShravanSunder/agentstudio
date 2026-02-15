@@ -62,7 +62,8 @@ struct CustomTabBar: View {
     var onCommand: ((AppCommand, UUID) -> Void)?
     var onTabFramesChanged: (([UUID: CGRect]) -> Void)?
     var onAdd: (() -> Void)?
-    var onToggleEditMode: (() -> Void)?
+    var onPaneAction: ((PaneAction) -> Void)?
+    var onSaveArrangement: ((UUID) -> Void)?
 
     @State private var scrollOffset: CGFloat = 0
     @State private var scrollProxy: ScrollViewProxy?
@@ -100,7 +101,9 @@ struct CustomTabBar: View {
                                         showInsertAfter: index == adapter.tabs.count - 1 && adapter.dropTargetIndex == adapter.tabs.count,
                                         onSelect: { onSelect(tab.id) },
                                         onClose: { onClose(tab.id) },
-                                        onCommand: { command in onCommand?(command, tab.id) }
+                                        onCommand: { command in onCommand?(command, tab.id) },
+                                        onPaneAction: { action in onPaneAction?(action) },
+                                        onSaveArrangement: { onSaveArrangement?(tab.id) }
                                     )
                                     .id(tab.id)
                                     .background(frameReporter(for: tab.id))
@@ -195,9 +198,22 @@ struct CustomTabBar: View {
                     }
                 )
 
-                // MARK: - Fixed controls zone (arrows + dropdown)
+                // MARK: - Fixed controls zone (arrows + dropdown + add when overflowing)
                 if adapter.isOverflowing {
                     HStack(spacing: 2) {
+                        // Add button (visible when overflowing — inline one is hidden)
+                        if let onAdd = onAdd {
+                            Button(action: onAdd) {
+                                Image(systemName: "plus")
+                                    .font(.system(size: 12, weight: .medium))
+                                    .foregroundStyle(.secondary)
+                                    .frame(width: 24, height: 24)
+                                    .contentShape(Rectangle())
+                            }
+                            .buttonStyle(.plain)
+                            .help("New Tab")
+                        }
+
                         // Left scroll arrow
                         Button {
                             scrollToAdjacentTab(direction: .left)
@@ -263,23 +279,7 @@ struct CustomTabBar: View {
                     .padding(.horizontal, 4)
                 }
 
-                // MARK: - Edit mode toggle button
-                if let onToggleEditMode {
-                    Button(action: onToggleEditMode) {
-                        Image(systemName: "slider.horizontal.3")
-                            .font(.system(size: 12, weight: .medium))
-                            .foregroundStyle(adapter.isEditModeActive ? .primary : .secondary)
-                            .frame(width: 28, height: 28)
-                            .background(
-                                RoundedRectangle(cornerRadius: 6)
-                                    .fill(adapter.isEditModeActive ? Color.accentColor.opacity(0.25) : Color.clear)
-                            )
-                            .contentShape(Rectangle())
-                    }
-                    .buttonStyle(.plain)
-                    .padding(.trailing, 4)
-                    .help("Toggle Edit Mode (⌥⌘A)")
-                }
+                // Edit mode toggle removed — pane controls now visible on hover
             }
             .frame(maxWidth: .infinity)
             .frame(height: 36)
@@ -367,8 +367,11 @@ struct TabPillView: View {
     let onSelect: () -> Void
     let onClose: () -> Void
     let onCommand: (AppCommand) -> Void
+    var onPaneAction: ((PaneAction) -> Void)? = nil
+    var onSaveArrangement: (() -> Void)? = nil
 
     @State private var isHovering = false
+    @State private var showArrangementPanel = false
 
     var body: some View {
         HStack(spacing: 0) {
@@ -444,18 +447,49 @@ struct TabPillView: View {
                 .truncationMode(.tail)
                 .foregroundStyle(isActive ? .primary : .secondary)
 
-            // Arrangement badge (only when custom arrangement active)
-            if let arrangementName = tab.activeArrangementName {
-                Text("· \(arrangementName)")
-                    .font(.system(size: 10))
-                    .foregroundStyle(.tertiary)
-            }
-
             // Keyboard shortcut hint
             if index < 9 {
                 Text("⌘\(index + 1)")
                     .font(.system(size: 10, weight: .medium))
                     .foregroundStyle(.tertiary)
+            }
+
+            // Arrangement icon (active split tabs or tabs with multiple arrangements)
+            if isActive && (tab.isSplit || tab.arrangementCount > 1) {
+                Button {
+                    showArrangementPanel.toggle()
+                } label: {
+                    HStack(spacing: 2) {
+                        Image(systemName: "square.split.2x1")
+                            .font(.system(size: 9))
+                        if let arrangementName = tab.activeArrangementName {
+                            Text(arrangementName)
+                                .font(.system(size: 9))
+                                .lineLimit(1)
+                        }
+                    }
+                    .foregroundStyle(.tertiary)
+                    .padding(.horizontal, 4)
+                    .padding(.vertical, 2)
+                    .background(
+                        RoundedRectangle(cornerRadius: 4)
+                            .fill(showArrangementPanel ? Color.white.opacity(0.1) : Color.clear)
+                    )
+                }
+                .buttonStyle(.plain)
+                .popover(isPresented: $showArrangementPanel, arrowEdge: .bottom) {
+                    ArrangementPanel(
+                        tabId: tab.id,
+                        panes: tab.panes,
+                        arrangements: tab.arrangements,
+                        onPaneAction: { action in
+                            onPaneAction?(action)
+                        },
+                        onSaveArrangement: {
+                            onSaveArrangement?()
+                        }
+                    )
+                }
             }
 
             // Close button on hover
@@ -536,7 +570,9 @@ struct CustomTabBar_Previews: PreviewProvider {
                 onSelect: { _ in },
                 onClose: { _ in },
                 onCommand: { _, _ in },
-                onAdd: {}
+                onAdd: {},
+                onPaneAction: { _ in },
+                onSaveArrangement: { _ in }
             )
 
             Spacer()

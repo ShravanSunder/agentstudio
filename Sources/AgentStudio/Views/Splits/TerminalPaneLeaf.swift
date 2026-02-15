@@ -120,6 +120,43 @@ struct TerminalPaneLeaf: View {
                     .transition(.opacity)
                 }
 
+                // New split button (right edge, center — appears on hover)
+                if isHovered {
+                    HStack {
+                        Spacer()
+                        VStack {
+                            Spacer()
+                            Button {
+                                action(.insertPane(
+                                    source: .newTerminal,
+                                    targetTabId: tabId,
+                                    targetPaneId: paneView.id,
+                                    direction: .right
+                                ))
+                            } label: {
+                                Image(systemName: "plus")
+                                    .font(.system(size: 10, weight: .bold))
+                                    .foregroundStyle(.white.opacity(0.6))
+                                    .frame(width: 20, height: 36)
+                                    .background(
+                                        UnevenRoundedRectangle(
+                                            topLeadingRadius: 10,
+                                            bottomLeadingRadius: 10,
+                                            bottomTrailingRadius: 0,
+                                            topTrailingRadius: 0
+                                        )
+                                        .fill(Color.black.opacity(0.5))
+                                    )
+                            }
+                            .buttonStyle(.plain)
+                            .help("Split right")
+                            Spacer()
+                        }
+                    }
+                    .allowsHitTesting(true)
+                    .transition(.opacity)
+                }
+
                 // Bottom hover detection zone (behind drawer so it doesn't block drawer controls)
                 VStack {
                     Spacer()

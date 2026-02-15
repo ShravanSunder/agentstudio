@@ -1,6 +1,21 @@
 import Foundation
 import Combine
 
+/// Pane info exposed to the tab bar for arrangement panel display.
+struct TabBarPaneInfo: Identifiable, Equatable {
+    let id: UUID
+    var title: String
+    var isMinimized: Bool
+}
+
+/// Arrangement info exposed to the tab bar for arrangement panel display.
+struct TabBarArrangementInfo: Identifiable, Equatable {
+    let id: UUID
+    var name: String
+    var isDefault: Bool
+    var isActive: Bool
+}
+
 /// Lightweight display item for the tab bar.
 /// Contains only what the UI needs to render — no live views or split trees.
 struct TabBarItem: Identifiable, Equatable {
@@ -10,6 +25,9 @@ struct TabBarItem: Identifiable, Equatable {
     var displayTitle: String
     var activeArrangementName: String?  // nil when only default exists
     var arrangementCount: Int           // total arrangements (1 = default only)
+    var panes: [TabBarPaneInfo]
+    var arrangements: [TabBarArrangementInfo]
+    var minimizedCount: Int
 }
 
 /// Derives tab bar display state from WorkspaceStore.
@@ -116,13 +134,33 @@ final class TabBarAdapter: ObservableObject {
             let activeArrangement = tab.activeArrangement
             let showArrangementName = tab.arrangements.count > 1 && !activeArrangement.isDefault
 
+            let paneInfos: [TabBarPaneInfo] = tab.paneIds.map { paneId in
+                TabBarPaneInfo(
+                    id: paneId,
+                    title: store.pane(paneId)?.title ?? "Terminal",
+                    isMinimized: tab.minimizedPaneIds.contains(paneId)
+                )
+            }
+
+            let arrangementInfos: [TabBarArrangementInfo] = tab.arrangements.map { arr in
+                TabBarArrangementInfo(
+                    id: arr.id,
+                    name: arr.name,
+                    isDefault: arr.isDefault,
+                    isActive: arr.id == tab.activeArrangementId
+                )
+            }
+
             return TabBarItem(
                 id: tab.id,
                 title: paneTitles.first ?? "Terminal",
                 isSplit: tab.isSplit,
                 displayTitle: displayTitle,
                 activeArrangementName: showArrangementName ? activeArrangement.name : nil,
-                arrangementCount: tab.arrangements.count
+                arrangementCount: tab.arrangements.count,
+                panes: paneInfos,
+                arrangements: arrangementInfos,
+                minimizedCount: tab.minimizedPaneIds.count
             )
         }
 

@@ -59,8 +59,8 @@ struct CollapsedPaneBar: View {
 
             // Sideways text (bottom-to-top)
             Text(title)
-                .font(.system(size: 10, weight: .medium))
-                .foregroundStyle(.white.opacity(0.6))
+                .font(.system(size: 12, weight: .bold))
+                .foregroundStyle(.white.opacity(0.7))
                 .lineLimit(1)
                 .truncationMode(.tail)
                 .rotationEffect(Angle(degrees: -90))
