@@ -506,6 +506,10 @@ class TerminalTabViewController: NSViewController, CommandHandler {
 
     @discardableResult
     private func showTab(_ tabId: UUID) -> Bool {
+        // Dismiss arrangement bar when switching tabs — its chips are snapshotted
+        // from the old tab and would be stale after a tab switch.
+        hideArrangementBar()
+
         guard let tab = store.tab(tabId) else {
             ghosttyLogger.warning("showTab: tab \(tabId) not found in store")
             return false

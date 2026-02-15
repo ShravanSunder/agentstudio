@@ -107,7 +107,7 @@ struct TerminalPaneLeaf: View {
                 VStack {
                     Spacer()
                     Color.clear
-                        .frame(height: 40)
+                        .frame(height: 20)
                         .contentShape(Rectangle())
                         .onHover { hovering in
                             isBottomHovered = hovering

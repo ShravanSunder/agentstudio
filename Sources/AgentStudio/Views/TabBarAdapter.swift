@@ -23,6 +23,17 @@ final class TabBarAdapter: ObservableObject {
     @Published private(set) var tabs: [TabBarItem] = []
     @Published private(set) var activeTabId: UUID?
 
+    // MARK: - Overflow Detection
+
+    @Published var availableWidth: CGFloat = 0
+    @Published private(set) var isOverflowing: Bool = false
+    @Published var contentWidth: CGFloat = 0
+    @Published var viewportWidth: CGFloat = 0
+
+    static let minTabWidth: CGFloat = 100
+    static let tabSpacing: CGFloat = 4
+    static let tabBarPadding: CGFloat = 16
+
     // MARK: - Transient UI State
 
     @Published var draggingTabId: UUID?
@@ -48,6 +59,30 @@ final class TabBarAdapter: ObservableObject {
             .receive(on: DispatchQueue.main)
             .sink { [weak self] _ in
                 self?.refresh()
+            }
+            .store(in: &cancellables)
+
+        $availableWidth
+            .removeDuplicates()
+            .receive(on: DispatchQueue.main)
+            .sink { [weak self] _ in
+                self?.updateOverflow()
+            }
+            .store(in: &cancellables)
+
+        $contentWidth
+            .removeDuplicates()
+            .receive(on: DispatchQueue.main)
+            .sink { [weak self] _ in
+                self?.updateOverflow()
+            }
+            .store(in: &cancellables)
+
+        $viewportWidth
+            .removeDuplicates()
+            .receive(on: DispatchQueue.main)
+            .sink { [weak self] _ in
+                self?.updateOverflow()
             }
             .store(in: &cancellables)
 
@@ -80,5 +115,39 @@ final class TabBarAdapter: ObservableObject {
         }
 
         activeTabId = store.activeTabId
+        updateOverflow()
+    }
+
+    private func updateOverflow() {
+        guard tabs.count > 0 else {
+            isOverflowing = false
+            return
+        }
+
+        // Prefer viewport width (from onScrollGeometryChange or ScrollView measurement),
+        // fall back to availableWidth (outer container).
+        let effectiveViewport = viewportWidth > 0 ? viewportWidth : availableWidth
+        guard effectiveViewport > 0 else { return }
+
+        if contentWidth > 0 {
+            if isOverflowing {
+                // Hysteresis: only turn off overflow when tabs fit with room for the "+" button.
+                // When overflowing, "+" is hidden so contentWidth is tabs-only.
+                // Require a 50px buffer before turning off to prevent oscillation.
+                if contentWidth < effectiveViewport - 50 {
+                    isOverflowing = false
+                }
+            } else {
+                // Turn on overflow when scroll content exceeds viewport
+                isOverflowing = contentWidth > effectiveViewport
+            }
+        } else {
+            // Fallback: estimate-based detection before content is measured
+            let tabCount = CGFloat(tabs.count)
+            let totalMinWidth = tabCount * Self.minTabWidth
+                + (tabCount - 1) * Self.tabSpacing
+                + Self.tabBarPadding
+            isOverflowing = totalMinWidth > effectiveViewport
+        }
     }
 }

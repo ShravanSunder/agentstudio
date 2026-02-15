@@ -61,6 +61,12 @@ class AppDelegate: NSObject, NSApplicationDelegate {
             viewRegistry: viewRegistry
         )
         mainWindowController?.showWindow(nil)
+
+        // Force maximized after showWindow — macOS state restoration may override
+        // the frame set during init.
+        if let window = mainWindowController?.window, let screen = window.screen ?? NSScreen.main {
+            window.setFrame(screen.visibleFrame, display: true)
+        }
     }
 
     // MARK: - Dependency Check

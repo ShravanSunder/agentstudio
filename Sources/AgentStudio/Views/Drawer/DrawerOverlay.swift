@@ -24,7 +24,7 @@ struct DrawerOverlay: View {
                 guard let tabWidth else { return nil }  // single pane: use natural width
                 let paneWidth = geometry.size.width
                 if tabWidth > paneWidth * 1.1 {  // meaningful split (not just rounding)
-                    return tabWidth * 0.9
+                    return min(tabWidth * 0.9, paneWidth * 2.5)
                 }
                 return nil  // pane is nearly full tab width
             }()

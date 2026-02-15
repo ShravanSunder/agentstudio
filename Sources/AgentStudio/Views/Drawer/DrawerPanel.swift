@@ -7,6 +7,7 @@ import SwiftUI
 struct DrawerResizeHandle: View {
     let onDrag: (CGFloat) -> Void
     @State private var isDragging = false
+    @State private var lastTranslation: CGFloat = 0
 
     var body: some View {
         Rectangle()
@@ -22,10 +23,13 @@ struct DrawerResizeHandle: View {
                 DragGesture()
                     .onChanged { value in
                         isDragging = true
-                        onDrag(-value.translation.height) // Negative: drag up = more height
+                        let delta = value.translation.height - lastTranslation
+                        lastTranslation = value.translation.height
+                        onDrag(-delta) // Negative: drag up = more height
                     }
                     .onEnded { _ in
                         isDragging = false
+                        lastTranslation = 0
                     }
             )
     }

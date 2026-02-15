@@ -2,6 +2,58 @@ import SwiftUI
 import AppKit
 import UniformTypeIdentifiers
 
+// MARK: - Scroll Offset Preference Key
+
+private struct ScrollOffsetKey: PreferenceKey {
+    static var defaultValue: CGFloat = 0
+    static func reduce(value: inout CGFloat, nextValue: () -> CGFloat) {
+        value = nextValue()
+    }
+}
+
+private struct ContentWidthKey: PreferenceKey {
+    static var defaultValue: CGFloat = 0
+    static func reduce(value: inout CGFloat, nextValue: () -> CGFloat) {
+        value = nextValue()
+    }
+}
+
+/// Metrics extracted from onScrollGeometryChange (macOS 15+)
+private struct ScrollOverflowMetrics: Equatable {
+    let contentWidth: CGFloat
+    let viewportWidth: CGFloat
+}
+
+/// Applies onScrollGeometryChange on macOS 15+, falls back to GeometryReader on macOS 14.
+private struct ScrollOverflowDetector: ViewModifier {
+    let adapter: TabBarAdapter
+
+    func body(content: Content) -> some View {
+        if #available(macOS 15.0, *) {
+            content
+                .onScrollGeometryChange(for: ScrollOverflowMetrics.self) { geo in
+                    ScrollOverflowMetrics(
+                        contentWidth: geo.contentSize.width,
+                        viewportWidth: geo.containerSize.width
+                    )
+                } action: { _, metrics in
+                    adapter.contentWidth = metrics.contentWidth
+                    adapter.viewportWidth = metrics.viewportWidth
+                }
+        } else {
+            // macOS 14 fallback: measure viewport width on the ScrollView itself
+            content
+                .background(
+                    GeometryReader { geo in
+                        Color.clear
+                            .onAppear { adapter.viewportWidth = geo.size.width }
+                            .onChange(of: geo.size.width) { _, w in adapter.viewportWidth = w }
+                    }
+                )
+        }
+    }
+}
+
 /// Custom Ghostty-style tab bar with pill-shaped tabs
 struct CustomTabBar: View {
     @ObservedObject var adapter: TabBarAdapter
@@ -11,44 +63,258 @@ struct CustomTabBar: View {
     var onTabFramesChanged: (([UUID: CGRect]) -> Void)?
     var onAdd: (() -> Void)?
 
-    var body: some View {
-        HStack(spacing: 4) {
-            ForEach(Array(adapter.tabs.enumerated()), id: \.element.id) { index, tab in
-                TabPillView(
-                    tab: tab,
-                    index: index,
-                    isActive: tab.id == adapter.activeTabId,
-                    isDragging: adapter.draggingTabId == tab.id,
-                    showInsertBefore: adapter.dropTargetIndex == index && adapter.draggingTabId != tab.id,
-                    showInsertAfter: index == adapter.tabs.count - 1 && adapter.dropTargetIndex == adapter.tabs.count,
-                    onSelect: { onSelect(tab.id) },
-                    onClose: { onClose(tab.id) },
-                    onCommand: { command in onCommand?(command, tab.id) }
-                )
-                .background(frameReporter(for: tab.id))
-            }
+    @State private var scrollOffset: CGFloat = 0
+    @State private var scrollProxy: ScrollViewProxy?
+    @State private var scrollAreaWidth: CGFloat = 0
 
-            if let onAdd = onAdd {
-                Button(action: onAdd) {
-                    Image(systemName: "plus")
-                        .font(.system(size: 12, weight: .medium))
-                        .foregroundStyle(.secondary)
-                }
-                .buttonStyle(.plain)
-                .padding(.horizontal, 8)
-                .padding(.vertical, 6)
-                .contentShape(Rectangle())
-            }
-
-            Spacer()
-        }
-        .padding(.horizontal, 8)
-        .frame(maxWidth: .infinity)
-        .frame(height: 36)
-        .background(Color.clear)
-        .ignoresSafeArea()
-        .coordinateSpace(name: "tabBar")
+    /// Whether the left gradient fade should be visible (scrolled past the start)
+    private var showLeftFade: Bool {
+        adapter.isOverflowing && scrollOffset < -5
     }
+
+    var body: some View {
+        GeometryReader { geometry in
+            HStack(spacing: 0) {
+                // MARK: - Scroll area with gradient overlays
+                ZStack {
+                    ScrollViewReader { proxy in
+                        ScrollView(.horizontal, showsIndicators: false) {
+                            HStack(spacing: 4) {
+                                // Hidden anchor for scroll offset tracking
+                                GeometryReader { innerGeo in
+                                    Color.clear.preference(
+                                        key: ScrollOffsetKey.self,
+                                        value: innerGeo.frame(in: .named("scroll")).minX
+                                    )
+                                }
+                                .frame(width: 0, height: 0)
+
+                                ForEach(Array(adapter.tabs.enumerated()), id: \.element.id) { index, tab in
+                                    TabPillView(
+                                        tab: tab,
+                                        index: index,
+                                        isActive: tab.id == adapter.activeTabId,
+                                        isDragging: adapter.draggingTabId == tab.id,
+                                        showInsertBefore: adapter.dropTargetIndex == index && adapter.draggingTabId != tab.id,
+                                        showInsertAfter: index == adapter.tabs.count - 1 && adapter.dropTargetIndex == adapter.tabs.count,
+                                        onSelect: { onSelect(tab.id) },
+                                        onClose: { onClose(tab.id) },
+                                        onCommand: { command in onCommand?(command, tab.id) }
+                                    )
+                                    .id(tab.id)
+                                    .background(frameReporter(for: tab.id))
+                                }
+
+                                // Show + button only when NOT overflowing
+                                if !adapter.isOverflowing, let onAdd = onAdd {
+                                    Button(action: onAdd) {
+                                        Image(systemName: "plus")
+                                            .font(.system(size: 12, weight: .medium))
+                                            .foregroundStyle(.secondary)
+                                    }
+                                    .buttonStyle(.plain)
+                                    .padding(.horizontal, 8)
+                                    .padding(.vertical, 6)
+                                    .contentShape(Rectangle())
+                                }
+                            }
+                            .padding(.horizontal, 8)
+                            .background(
+                                GeometryReader { geo in
+                                    Color.clear.preference(
+                                        key: ContentWidthKey.self,
+                                        value: geo.size.width
+                                    )
+                                }
+                            )
+                        }
+                        .coordinateSpace(name: "scroll")
+                        .modifier(ScrollOverflowDetector(adapter: adapter))
+                        .onPreferenceChange(ScrollOffsetKey.self) { offset in
+                            scrollOffset = offset
+                        }
+                        .onPreferenceChange(ContentWidthKey.self) { width in
+                            // macOS 14 fallback: onScrollGeometryChange sets this on macOS 15+
+                            if adapter.viewportWidth == 0 || adapter.contentWidth == 0 {
+                                adapter.contentWidth = width
+                            }
+                        }
+                        .onChange(of: adapter.activeTabId) { _, newId in
+                            if let newId = newId {
+                                withAnimation(.easeInOut(duration: 0.2)) {
+                                    proxy.scrollTo(newId, anchor: .center)
+                                }
+                            }
+                        }
+                        .onAppear {
+                            scrollProxy = proxy
+                        }
+                    }
+
+                    // Left gradient fade
+                    if showLeftFade {
+                        HStack(spacing: 0) {
+                            LinearGradient(
+                                colors: [
+                                    Color(nsColor: .windowBackgroundColor),
+                                    Color(nsColor: .windowBackgroundColor).opacity(0)
+                                ],
+                                startPoint: .leading,
+                                endPoint: .trailing
+                            )
+                            .frame(width: 30)
+                            Spacer()
+                        }
+                        .allowsHitTesting(false)
+                    }
+
+                    // Right gradient fade (always visible when overflowing)
+                    if adapter.isOverflowing {
+                        HStack(spacing: 0) {
+                            Spacer()
+                            LinearGradient(
+                                colors: [
+                                    Color(nsColor: .windowBackgroundColor).opacity(0),
+                                    Color(nsColor: .windowBackgroundColor)
+                                ],
+                                startPoint: .leading,
+                                endPoint: .trailing
+                            )
+                            .frame(width: 30)
+                        }
+                        .allowsHitTesting(false)
+                    }
+                }
+                .frame(maxWidth: .infinity)
+                .background(
+                    GeometryReader { geo in
+                        Color.clear
+                            .onAppear { scrollAreaWidth = geo.size.width }
+                            .onChange(of: geo.size.width) { _, w in scrollAreaWidth = w }
+                    }
+                )
+
+                // MARK: - Fixed controls zone (arrows + dropdown)
+                if adapter.isOverflowing {
+                    HStack(spacing: 2) {
+                        // Left scroll arrow
+                        Button {
+                            scrollToAdjacentTab(direction: .left)
+                        } label: {
+                            Image(systemName: "chevron.left")
+                                .font(.system(size: 11, weight: .medium))
+                                .foregroundStyle(.secondary)
+                                .frame(width: 24, height: 24)
+                                .contentShape(Rectangle())
+                        }
+                        .buttonStyle(.plain)
+
+                        // Right scroll arrow
+                        Button {
+                            scrollToAdjacentTab(direction: .right)
+                        } label: {
+                            Image(systemName: "chevron.right")
+                                .font(.system(size: 11, weight: .medium))
+                                .foregroundStyle(.secondary)
+                                .frame(width: 24, height: 24)
+                                .contentShape(Rectangle())
+                        }
+                        .buttonStyle(.plain)
+
+                        // Dropdown with count badge
+                        Menu {
+                            ForEach(Array(adapter.tabs.enumerated()), id: \.element.id) { index, tab in
+                                Button {
+                                    onSelect(tab.id)
+                                } label: {
+                                    HStack {
+                                        if tab.id == adapter.activeTabId {
+                                            Image(systemName: "checkmark")
+                                        }
+                                        Image(systemName: tab.isSplit ? "square.split.2x1" : "terminal")
+                                        Text(tab.displayTitle)
+                                        if index < 9 {
+                                            Text("  \u{2318}\(index + 1)")
+                                        }
+                                    }
+                                }
+                            }
+                        } label: {
+                            HStack(spacing: 4) {
+                                Image(systemName: "rectangle.stack")
+                                    .font(.system(size: 10, weight: .medium))
+                                Text("\(adapter.tabs.count)")
+                                    .font(.system(size: 10, weight: .semibold))
+                            }
+                            .foregroundStyle(.secondary)
+                            .padding(.horizontal, 8)
+                            .padding(.vertical, 4)
+                            .background(
+                                Capsule()
+                                    .fill(Color.white.opacity(0.08))
+                            )
+                            .contentShape(Capsule())
+                        }
+                        .menuStyle(.borderlessButton)
+                        .menuIndicator(.hidden)
+                        .fixedSize()
+                    }
+                    .padding(.horizontal, 4)
+                }
+            }
+            .frame(maxWidth: .infinity)
+            .frame(height: 36)
+            .background(Color.clear)
+            .coordinateSpace(name: "tabBar")
+            .ignoresSafeArea()
+            .onAppear {
+                adapter.availableWidth = geometry.size.width
+            }
+            .onChange(of: geometry.size.width) { _, newWidth in
+                adapter.availableWidth = newWidth
+            }
+        }
+        .frame(height: 36)
+    }
+
+    // MARK: - Scroll Navigation
+
+    private enum ScrollDirection {
+        case left, right
+    }
+
+    /// Scrolls to the next partially-hidden tab in the given direction.
+    /// Uses actual tab frames from the adapter for accurate targeting.
+    private func scrollToAdjacentTab(direction: ScrollDirection) {
+        guard let proxy = scrollProxy else { return }
+        let tabs = adapter.tabs
+        guard !tabs.isEmpty else { return }
+
+        switch direction {
+        case .right:
+            // Find the first tab whose right edge extends beyond the visible scroll area
+            if let target = tabs.first(where: { tab in
+                guard let frame = adapter.tabFrames[tab.id] else { return false }
+                return frame.maxX > scrollAreaWidth
+            }) {
+                withAnimation(.easeInOut(duration: 0.2)) {
+                    proxy.scrollTo(target.id, anchor: .trailing)
+                }
+            }
+        case .left:
+            // Find the last tab whose left edge is before the visible scroll area
+            if let target = tabs.last(where: { tab in
+                guard let frame = adapter.tabFrames[tab.id] else { return false }
+                return frame.minX < 0
+            }) {
+                withAnimation(.easeInOut(duration: 0.2)) {
+                    proxy.scrollTo(target.id, anchor: .leading)
+                }
+            }
+        }
+    }
+
+    // MARK: - Frame Reporter
 
     private func frameReporter(for tabId: UUID) -> some View {
         GeometryReader { geo in
@@ -158,6 +424,7 @@ struct TabPillView: View {
             Text(tab.displayTitle)
                 .font(.system(size: 12))
                 .lineLimit(1)
+                .truncationMode(.tail)
                 .foregroundStyle(isActive ? .primary : .secondary)
 
             // Arrangement badge (only when custom arrangement active)
@@ -187,6 +454,7 @@ struct TabPillView: View {
         }
         .padding(.horizontal, 10)
         .padding(.vertical, 6)
+        .frame(minWidth: 100, maxWidth: 220)
         .background(
             RoundedRectangle(cornerRadius: 8)
                 .fill(backgroundColor)
