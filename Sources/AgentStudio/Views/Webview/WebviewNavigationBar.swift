@@ -6,6 +6,13 @@ struct WebviewNavigationBar: View {
     @Bindable var controller: WebviewPaneController
     @State private var urlFieldText: String = ""
 
+    private var history: URLHistoryService { .shared }
+
+    private var isCurrentPageFavorite: Bool {
+        guard let url = controller.url, url.scheme != "about" else { return false }
+        return history.isFavorite(url: url)
+    }
+
     var body: some View {
         HStack(spacing: 8) {
             navigationButtons
@@ -26,7 +33,7 @@ struct WebviewNavigationBar: View {
     // MARK: - Navigation Buttons
 
     private var navigationButtons: some View {
-        HStack(spacing: 4) {
+        HStack(spacing: 8) {
             Button { controller.goBack() } label: {
                 Image(systemName: "chevron.left")
                     .font(.system(size: 12, weight: .medium))
@@ -35,6 +42,7 @@ struct WebviewNavigationBar: View {
             .buttonStyle(.plain)
             .foregroundStyle(controller.canGoBack ? .primary : .quaternary)
             .keyboardShortcut("[", modifiers: .command)
+            .help("Back (⌘[)")
 
             Button { controller.goForward() } label: {
                 Image(systemName: "chevron.right")
@@ -44,6 +52,7 @@ struct WebviewNavigationBar: View {
             .buttonStyle(.plain)
             .foregroundStyle(controller.canGoForward ? .primary : .quaternary)
             .keyboardShortcut("]", modifiers: .command)
+            .help("Forward (⌘])")
 
             if controller.isLoading {
                 Button { controller.stopLoading() } label: {
@@ -51,6 +60,7 @@ struct WebviewNavigationBar: View {
                         .font(.system(size: 11, weight: .medium))
                 }
                 .buttonStyle(.plain)
+                .help("Stop loading")
             } else {
                 Button { controller.reload() } label: {
                     Image(systemName: "arrow.clockwise")
@@ -58,7 +68,18 @@ struct WebviewNavigationBar: View {
                 }
                 .buttonStyle(.plain)
                 .keyboardShortcut("r", modifiers: .command)
+                .help("Reload (⌘R)")
             }
+
+            Button { controller.goHome() } label: {
+                Image(systemName: "house")
+                    .font(.system(size: 11, weight: .medium))
+            }
+            .buttonStyle(.plain)
+            .foregroundStyle(.primary)
+            .help("New tab page")
+
+            favoriteButton
         }
     }
 
@@ -87,6 +108,30 @@ struct WebviewNavigationBar: View {
         .padding(.vertical, 4)
         .background(Color.primary.opacity(0.04))
         .clipShape(RoundedRectangle(cornerRadius: 6))
+    }
+
+    // MARK: - Favorite
+
+    @ViewBuilder
+    private var favoriteButton: some View {
+        if let url = controller.url, url.scheme != "about" {
+            Divider().frame(height: 16)
+
+            Button {
+                if isCurrentPageFavorite {
+                    history.removeFavorite(url: url)
+                } else {
+                    history.addFavorite(url: url, title: controller.title)
+                }
+            } label: {
+                Image(systemName: isCurrentPageFavorite ? "star.fill" : "star")
+                    .font(.system(size: 12, weight: .medium))
+                    .foregroundStyle(isCurrentPageFavorite ? .yellow : .secondary)
+            }
+            .buttonStyle(.plain)
+            .keyboardShortcut("d", modifiers: .command)
+            .help(isCurrentPageFavorite ? "Remove from favorites (⌘D)" : "Add to favorites (⌘D)")
+        }
     }
 
     // MARK: - Progress

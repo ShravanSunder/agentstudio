@@ -6,6 +6,7 @@ struct WebviewNewTabView: View {
     var onNavigate: (URL) -> Void
 
     @State private var searchQuery: String = ""
+    @State private var selectedIndex: Int = -1
 
     private var history: URLHistoryService { .shared }
 
@@ -72,8 +73,10 @@ struct WebviewNewTabView: View {
                 placeholder: "Search favorites and history\u{2026}",
                 text: $searchQuery,
                 onSubmit: {
-                    // Navigate to top result on Enter
-                    if let first = fuzzyResults.first {
+                    let results = fuzzyResults
+                    if selectedIndex >= 0, selectedIndex < results.count {
+                        onNavigate(results[selectedIndex].entry.url)
+                    } else if let first = results.first {
                         onNavigate(first.entry.url)
                     }
                 }
@@ -82,6 +85,20 @@ struct WebviewNewTabView: View {
         .padding(.horizontal, 12)
         .padding(.vertical, 8)
         .background(.ultraThinMaterial)
+        .onKeyPress(.downArrow) {
+            let count = fuzzyResults.count
+            guard count > 0 else { return .ignored }
+            selectedIndex = min(selectedIndex + 1, count - 1)
+            return .handled
+        }
+        .onKeyPress(.upArrow) {
+            guard selectedIndex > 0 else { return .ignored }
+            selectedIndex -= 1
+            return .handled
+        }
+        .onChange(of: searchQuery) { _, _ in
+            selectedIndex = -1
+        }
     }
 
     // MARK: - Favorites
@@ -139,8 +156,11 @@ struct WebviewNewTabView: View {
                 .padding(.top, 32)
         } else {
             VStack(alignment: .leading, spacing: 4) {
-                ForEach(results) { result in
-                    RecentSiteRow(entry: result.entry) {
+                ForEach(Array(results.enumerated()), id: \.element.id) { index, result in
+                    RecentSiteRow(
+                        entry: result.entry,
+                        isSelected: index == selectedIndex
+                    ) {
                         onNavigate(result.entry.url)
                     }
                 }
@@ -188,15 +208,7 @@ private struct FavoriteCard: View {
     var body: some View {
         Button(action: onTap) {
             VStack(spacing: 6) {
-                ZStack {
-                    Circle()
-                        .fill(initialColor.opacity(0.15))
-                        .frame(width: 36, height: 36)
-
-                    Text(initial)
-                        .font(.system(size: 15, weight: .semibold))
-                        .foregroundStyle(initialColor)
-                }
+                FaviconView(url: entry.url, size: 36)
 
                 Text(entry.title)
                     .font(.system(size: 11))
@@ -228,17 +240,21 @@ private struct FavoriteCard: View {
 
 private struct RecentSiteRow: View {
     let entry: URLHistoryEntry
+    var isSelected: Bool = false
     var onTap: () -> Void
 
     @State private var isHovered = false
 
+    private var rowBackground: Color {
+        if isSelected { return Color.accentColor.opacity(0.15) }
+        if isHovered { return Color.primary.opacity(0.04) }
+        return .clear
+    }
+
     var body: some View {
         Button(action: onTap) {
             HStack(spacing: 8) {
-                Image(systemName: "clock")
-                    .font(.system(size: 11))
-                    .foregroundStyle(.tertiary)
-                    .frame(width: 16)
+                FaviconView(url: entry.url, size: 16)
 
                 Text(entry.title)
                     .font(.system(size: 12))
@@ -255,10 +271,65 @@ private struct RecentSiteRow: View {
             }
             .padding(.horizontal, 8)
             .padding(.vertical, 6)
-            .background(isHovered ? Color.primary.opacity(0.04) : Color.clear)
+            .background(rowBackground)
             .clipShape(RoundedRectangle(cornerRadius: 4))
         }
         .buttonStyle(.plain)
         .onHover { isHovered = $0 }
+    }
+}
+
+// MARK: - Favicon
+
+/// Loads a site favicon from Google's public favicon API.
+/// Shows a colored initial as fallback while loading or on failure.
+private struct FaviconView: View {
+    let url: URL
+    let size: CGFloat
+
+    private var faviconURL: URL? {
+        guard let host = url.host() else { return nil }
+        // Request 128px to ensure crisp rendering on Retina displays
+        return URL(string: "https://www.google.com/s2/favicons?domain=\(host)&sz=128")
+    }
+
+    private var initial: String {
+        String((url.host() ?? "?").prefix(1)).uppercased()
+    }
+
+    private var initialColor: Color {
+        let hash = url.absoluteString.hashValue
+        let hue = Double(abs(hash) % 360) / 360.0
+        return Color(hue: hue, saturation: 0.5, brightness: 0.7)
+    }
+
+    var body: some View {
+        if let faviconURL {
+            AsyncImage(url: faviconURL) { phase in
+                switch phase {
+                case .success(let image):
+                    image
+                        .resizable()
+                        .interpolation(.high)
+                        .aspectRatio(contentMode: .fit)
+                        .frame(width: size, height: size)
+                default:
+                    fallbackInitial
+                }
+            }
+        } else {
+            fallbackInitial
+        }
+    }
+
+    private var fallbackInitial: some View {
+        ZStack {
+            Circle()
+                .fill(initialColor.opacity(0.15))
+                .frame(width: size, height: size)
+            Text(initial)
+                .font(.system(size: size * 0.45, weight: .semibold))
+                .foregroundStyle(initialColor)
+        }
     }
 }

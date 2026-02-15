@@ -1,4 +1,5 @@
 import Foundation
+import Observation
 import os.log
 
 private let historyLogger = Logger(subsystem: "com.agentstudio", category: "URLHistory")
@@ -23,6 +24,7 @@ extension UserDefaults: URLHistoryStorage {
 /// Tracks visited URLs and user favorites across all webview panes.
 /// Persists via injectable storage (UserDefaults by default).
 /// History auto-prunes entries older than 2 weeks. Capped at 100 entries.
+@Observable
 @MainActor
 final class URLHistoryService {
 
