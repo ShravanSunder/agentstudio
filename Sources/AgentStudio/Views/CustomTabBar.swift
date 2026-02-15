@@ -62,6 +62,7 @@ struct CustomTabBar: View {
     var onCommand: ((AppCommand, UUID) -> Void)?
     var onTabFramesChanged: (([UUID: CGRect]) -> Void)?
     var onAdd: (() -> Void)?
+    var onToggleEditMode: (() -> Void)?
 
     @State private var scrollOffset: CGFloat = 0
     @State private var scrollProxy: ScrollViewProxy?
@@ -261,6 +262,24 @@ struct CustomTabBar: View {
                     }
                     .padding(.horizontal, 4)
                 }
+
+                // MARK: - Edit mode toggle button
+                if let onToggleEditMode {
+                    Button(action: onToggleEditMode) {
+                        Image(systemName: "slider.horizontal.3")
+                            .font(.system(size: 12, weight: .medium))
+                            .foregroundStyle(adapter.isEditModeActive ? .primary : .secondary)
+                            .frame(width: 28, height: 28)
+                            .background(
+                                RoundedRectangle(cornerRadius: 6)
+                                    .fill(adapter.isEditModeActive ? Color.accentColor.opacity(0.25) : Color.clear)
+                            )
+                            .contentShape(Rectangle())
+                    }
+                    .buttonStyle(.plain)
+                    .padding(.trailing, 4)
+                    .help("Toggle Edit Mode (⌥⌘A)")
+                }
             }
             .frame(maxWidth: .infinity)
             .frame(height: 36)
@@ -374,9 +393,7 @@ struct TabPillView: View {
 
                     Menu("New Terminal in Tab") {
                         Button("Split Right") { onCommand(.splitRight) }
-                        Button("Split Below") { onCommand(.splitBelow) }
                         Button("Split Left") { onCommand(.splitLeft) }
-                        Button("Split Above") { onCommand(.splitAbove) }
                     }
 
                     Button("New Floating Terminal") { onCommand(.newFloatingTerminal) }

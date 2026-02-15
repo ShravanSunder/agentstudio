@@ -18,7 +18,6 @@ struct ArrangementBar: View {
     let onSaveNew: () -> Void
     let onDelete: (UUID) -> Void
     let onRename: (UUID) -> Void
-    let onDismiss: () -> Void
 
     var body: some View {
         HStack(spacing: 6) {
@@ -105,8 +104,7 @@ struct ArrangementBar_Previews: PreviewProvider {
                 onSwitch: { _ in },
                 onSaveNew: {},
                 onDelete: { _ in },
-                onRename: { _ in },
-                onDismiss: {}
+                onRename: { _ in }
             )
             Spacer()
         }

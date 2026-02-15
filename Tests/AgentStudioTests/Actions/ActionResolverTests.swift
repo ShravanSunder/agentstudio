@@ -398,7 +398,8 @@ final class ActionResolverTests: XCTestCase {
         ))
     }
 
-    func test_resolve_splitBelow_returnsInsertPane() {
+    func test_resolve_splitBelow_returnsNil() {
+        // Vertical splits disabled (drawers own bottom space)
         // Arrange
         let tabId = UUID()
         let paneId = UUID()
@@ -410,12 +411,7 @@ final class ActionResolverTests: XCTestCase {
         )
 
         // Assert
-        XCTAssertEqual(result, .insertPane(
-            source: .newTerminal,
-            targetTabId: tabId,
-            targetPaneId: paneId,
-            direction: .down
-        ))
+        XCTAssertNil(result)
     }
 
     // MARK: - resolve(command:) — Edge Cases

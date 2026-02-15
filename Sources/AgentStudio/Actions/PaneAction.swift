@@ -86,6 +86,10 @@ enum PaneAction: Equatable, Hashable {
     /// Rename an arrangement.
     case renameArrangement(tabId: UUID, arrangementId: UUID, name: String)
 
+    // Minimize / Expand
+    case minimizePane(tabId: UUID, paneId: UUID)
+    case expandPane(tabId: UUID, paneId: UUID)
+
     // Orphaned pane pool
 
     /// Move a pane to the background pool (remove from layout, keep alive).

@@ -59,18 +59,15 @@ final class TerminalViewCoordinator {
     func createViewForContent(pane: Pane) -> PaneView? {
         switch pane.content {
         case .terminal:
-            // Terminal panes currently require worktree/repo context for surface creation.
-            // TODO: Support floating terminals (Source.floating) by making worktree/repo
-            // optional in AgentStudioTerminalView, or by creating a lightweight surface
-            // that doesn't need worktree context.
-            guard let worktreeId = pane.worktreeId,
-                  let repoId = pane.repoId,
-                  let worktree = store.worktree(worktreeId),
-                  let repo = store.repo(repoId) else {
-                coordinatorLogger.warning("Cannot create terminal view — pane \(pane.id) has no worktree/repo context")
-                return nil
+            if let worktreeId = pane.worktreeId,
+               let repoId = pane.repoId,
+               let worktree = store.worktree(worktreeId),
+               let repo = store.repo(repoId) {
+                return createView(for: pane, worktree: worktree, repo: repo)
+            } else {
+                // Floating terminal (drawers, standalone terminals)
+                return createFloatingTerminalView(for: pane)
             }
-            return createView(for: pane, worktree: worktree, repo: repo)
 
         case .webview(let state):
             let view = WebviewPaneView(paneId: pane.id, state: state)
@@ -160,6 +157,52 @@ final class TerminalViewCoordinator {
 
         case .failure(let error):
             coordinatorLogger.error("Failed to create surface for pane \(pane.id): \(error.localizedDescription)")
+            return nil
+        }
+    }
+
+    // MARK: - Create Floating Terminal View
+
+    /// Create a terminal view for a floating pane (drawers, standalone terminals).
+    /// No worktree/repo context — uses home directory or pane's cwd.
+    @discardableResult
+    private func createFloatingTerminalView(for pane: Pane) -> AgentStudioTerminalView? {
+        let workingDir = pane.metadata.cwd ?? FileManager.default.homeDirectoryForCurrentUser
+        let cmd = "\(getDefaultShell()) -i -l"
+
+        let config = Ghostty.SurfaceConfiguration(
+            workingDirectory: workingDir.path,
+            command: cmd
+        )
+
+        let metadata = SurfaceMetadata(
+            workingDirectory: workingDir,
+            command: cmd,
+            title: pane.metadata.title,
+            paneId: pane.id
+        )
+
+        let result = SurfaceManager.shared.createSurface(config: config, metadata: metadata)
+
+        switch result {
+        case .success(let managed):
+            SurfaceManager.shared.attach(managed.id, to: pane.id)
+
+            let view = AgentStudioTerminalView(
+                restoredSurfaceId: managed.id,
+                paneId: pane.id,
+                title: pane.metadata.title
+            )
+            view.displaySurface(managed.surface)
+
+            viewRegistry.register(view, for: pane.id)
+            runtime.markRunning(pane.id)
+
+            coordinatorLogger.info("Created floating terminal view for pane \(pane.id)")
+            return view
+
+        case .failure(let error):
+            coordinatorLogger.error("Failed to create floating surface for pane \(pane.id): \(error.localizedDescription)")
             return nil
         }
     }

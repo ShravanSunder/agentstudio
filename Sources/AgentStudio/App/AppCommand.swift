@@ -26,6 +26,8 @@ enum AppCommand: String, CaseIterable {
     case focusPaneLeft, focusPaneRight, focusPaneUp, focusPaneDown
     case focusNextPane, focusPrevPane
     case toggleSplitZoom
+    case minimizePane
+    case expandPane
 
     // Arrangement commands
     case switchArrangement
@@ -41,6 +43,9 @@ enum AppCommand: String, CaseIterable {
 
     // Repo commands
     case addRepo, removeRepo, refreshWorktrees
+
+    // Edit mode
+    case toggleEditMode
 
     // Workspace commands
     case toggleSidebar
@@ -258,21 +263,9 @@ final class CommandDispatcher: ObservableObject {
                 appliesTo: [.pane, .tab]
             ),
             CommandDefinition(
-                command: .splitBelow,
-                label: "Split Below",
-                icon: "rectangle.split.2x1",
-                appliesTo: [.pane, .tab]
-            ),
-            CommandDefinition(
                 command: .splitLeft,
                 label: "Split Left",
                 icon: "rectangle.split.1x2",
-                appliesTo: [.pane, .tab]
-            ),
-            CommandDefinition(
-                command: .splitAbove,
-                label: "Split Above",
-                icon: "rectangle.split.2x1",
                 appliesTo: [.pane, .tab]
             ),
             CommandDefinition(
@@ -310,6 +303,20 @@ final class CommandDispatcher: ObservableObject {
                 command: .focusPrevPane,
                 label: "Focus Previous Pane",
                 icon: "arrow.left.circle"
+            ),
+
+            // Minimize / Expand
+            CommandDefinition(
+                command: .minimizePane,
+                label: "Minimize Pane",
+                icon: "minus.circle",
+                appliesTo: [.pane]
+            ),
+            CommandDefinition(
+                command: .expandPane,
+                label: "Expand Pane",
+                icon: "arrow.up.left.and.arrow.down.right",
+                appliesTo: [.pane]
             ),
 
             // Arrangement commands
@@ -383,6 +390,14 @@ final class CommandDispatcher: ObservableObject {
                 label: "Refresh Worktrees",
                 icon: "arrow.clockwise",
                 appliesTo: [.repo]
+            ),
+
+            // Edit mode
+            CommandDefinition(
+                command: .toggleEditMode,
+                keyBinding: KeyBinding(key: "a", modifiers: [.command, .option]),
+                label: "Toggle Edit Mode",
+                icon: "slider.horizontal.3"
             ),
 
             // Workspace commands

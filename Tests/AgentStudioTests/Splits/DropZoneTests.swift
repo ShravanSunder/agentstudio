@@ -30,28 +30,28 @@ final class DropZoneTests: XCTestCase {
         XCTAssertEqual(result, .right)
     }
 
-    func test_calculate_nearTopEdge_returnsTop() {
-        // Arrange
+    func test_calculate_nearTopEdge_returnsLeftOrRight() {
+        // Vertical splits disabled — top/bottom snap to left/right based on x position.
+        // Arrange — x=200 is exactly half of 400, so relX=0.5 → right (>= 0.5)
         let size = CGSize(width: 400, height: 400)
-        let point = CGPoint(x: 200, y: 10)
+        let pointCenter = CGPoint(x: 200, y: 10)
+        let pointLeftSide = CGPoint(x: 100, y: 10)
 
-        // Act
-        let result = DropZone.calculate(at: point, in: size)
-
-        // Assert
-        XCTAssertEqual(result, .top)
+        // Act & Assert
+        XCTAssertEqual(DropZone.calculate(at: pointCenter, in: size), .right)
+        XCTAssertEqual(DropZone.calculate(at: pointLeftSide, in: size), .left)
     }
 
-    func test_calculate_nearBottomEdge_returnsBottom() {
+    func test_calculate_nearBottomEdge_returnsLeftOrRight() {
+        // Vertical splits disabled — near bottom edge snaps to left/right.
         // Arrange
         let size = CGSize(width: 400, height: 400)
-        let point = CGPoint(x: 200, y: 390)
+        let pointRight = CGPoint(x: 300, y: 390)
+        let pointLeft = CGPoint(x: 100, y: 390)
 
-        // Act
-        let result = DropZone.calculate(at: point, in: size)
-
-        // Assert
-        XCTAssertEqual(result, .bottom)
+        // Act & Assert
+        XCTAssertEqual(DropZone.calculate(at: pointRight, in: size), .right)
+        XCTAssertEqual(DropZone.calculate(at: pointLeft, in: size), .left)
     }
 
     // MARK: - Tie-Breaking
@@ -69,8 +69,8 @@ final class DropZoneTests: XCTestCase {
         XCTAssertEqual(result, .left)
     }
 
-    func test_calculate_exactCenter_returnsLeft() {
-        // All distances equal (0.5). Left wins (checked first in if-chain).
+    func test_calculate_exactCenter_returnsRight() {
+        // relX = 0.5, which is not < 0.5, so returns .right
         // Arrange
         let size = CGSize(width: 400, height: 400)
         let point = CGPoint(x: 200, y: 200)
@@ -79,7 +79,7 @@ final class DropZoneTests: XCTestCase {
         let result = DropZone.calculate(at: point, in: size)
 
         // Assert
-        XCTAssertEqual(result, .left)
+        XCTAssertEqual(result, .right)
     }
 
     // MARK: - Degenerate Sizes

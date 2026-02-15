@@ -112,6 +112,7 @@ final class WorkspaceStore: ObservableObject {
             if tabs[tabIndex].zoomedPaneId == paneId {
                 tabs[tabIndex].zoomedPaneId = nil
             }
+            tabs[tabIndex].minimizedPaneIds.remove(paneId)
         }
         // Remove empty tabs
         tabs.removeAll { $0.defaultArrangement.layout.isEmpty }
@@ -263,6 +264,7 @@ final class WorkspaceStore: ObservableObject {
             if tabs[tabIndex].zoomedPaneId == paneId {
                 tabs[tabIndex].zoomedPaneId = nil
             }
+            tabs[tabIndex].minimizedPaneIds.remove(paneId)
         }
         // Remove empty tabs (default arrangement has empty layout)
         tabs.removeAll { $0.defaultArrangement.layout.isEmpty }
@@ -430,12 +432,22 @@ final class WorkspaceStore: ObservableObject {
             tabs[tabIndex].zoomedPaneId = nil
         }
 
+        // Clear minimized state for the removed pane
+        tabs[tabIndex].minimizedPaneIds.remove(paneId)
+
         if let newLayout = tabs[tabIndex].arrangements[arrIndex].layout.removing(paneId: paneId) {
             tabs[tabIndex].arrangements[arrIndex].layout = newLayout
             tabs[tabIndex].arrangements[arrIndex].visiblePaneIds.remove(paneId)
             // Update active pane if removed
             if tabs[tabIndex].activePaneId == paneId {
                 tabs[tabIndex].activePaneId = newLayout.paneIds.first
+            }
+            // Auto-expand if only one pane remains and it's minimized
+            let remainingPaneIds = newLayout.paneIds
+            let nonMinimized = remainingPaneIds.filter { !tabs[tabIndex].minimizedPaneIds.contains($0) }
+            if nonMinimized.isEmpty, let lastMinimized = remainingPaneIds.first {
+                tabs[tabIndex].minimizedPaneIds.remove(lastMinimized)
+                tabs[tabIndex].activePaneId = lastMinimized
             }
         } else {
             // Last pane removed — signal to caller that tab is now empty.
@@ -563,8 +575,9 @@ final class WorkspaceStore: ObservableObject {
         }
         guard tabs[tabIndex].activeArrangementId != arrangementId else { return }
 
-        // Clear zoom when switching arrangements
+        // Clear transient state when switching arrangements
         tabs[tabIndex].zoomedPaneId = nil
+        tabs[tabIndex].minimizedPaneIds = []
         tabs[tabIndex].activeArrangementId = arrangementId
 
         // Update activePaneId if current one isn't in the new arrangement
@@ -680,6 +693,48 @@ final class WorkspaceStore: ObservableObject {
             tabs[tabIndex].zoomedPaneId = paneId
         }
         // Do NOT markDirty() — zoom is transient, not persisted
+    }
+
+    // MARK: - Minimize / Expand
+
+    /// Minimize a pane — collapse it to a narrow bar in the UI.
+    /// Cannot minimize the last non-minimized pane in the active arrangement.
+    func minimizePane(_ paneId: UUID, inTab tabId: UUID) {
+        guard let tabIndex = findTabIndex(tabId) else { return }
+        let visiblePaneIds = tabs[tabIndex].paneIds
+        let nonMinimized = visiblePaneIds.filter { !tabs[tabIndex].minimizedPaneIds.contains($0) }
+        guard nonMinimized.count > 1 else {
+            storeLogger.warning("minimizePane: cannot minimize last visible pane \(paneId)")
+            return
+        }
+        guard visiblePaneIds.contains(paneId) else {
+            storeLogger.warning("minimizePane: pane \(paneId) not in active arrangement")
+            return
+        }
+
+        tabs[tabIndex].minimizedPaneIds.insert(paneId)
+
+        // Update activePaneId if minimizing the active pane
+        if tabs[tabIndex].activePaneId == paneId {
+            tabs[tabIndex].activePaneId = nonMinimized.first { $0 != paneId }
+        }
+
+        // Clear zoom if minimizing the zoomed pane
+        if tabs[tabIndex].zoomedPaneId == paneId {
+            tabs[tabIndex].zoomedPaneId = nil
+        }
+
+        markDirty()
+    }
+
+    /// Expand a minimized pane — restore it from the collapsed bar.
+    func expandPane(_ paneId: UUID, inTab tabId: UUID) {
+        guard let tabIndex = findTabIndex(tabId) else { return }
+        guard tabs[tabIndex].minimizedPaneIds.contains(paneId) else { return }
+
+        tabs[tabIndex].minimizedPaneIds.remove(paneId)
+        tabs[tabIndex].activePaneId = paneId
+        markDirty()
     }
 
     // MARK: - Keyboard Resize

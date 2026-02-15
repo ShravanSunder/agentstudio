@@ -61,7 +61,10 @@ struct TerminalPaneLeaf: View {
                 }
 
                 // Drag handle (top-left, management mode + hover only, terminal panes with worktree context)
-                if managementMode.isActive && isHovered && isSplit, let tv = terminalView {
+                if managementMode.isActive && isHovered && isSplit,
+                   let tv = terminalView,
+                   let worktree = tv.worktree,
+                   let repo = tv.repo {
                     VStack {
                         HStack {
                             Image(systemName: "line.3.horizontal")
@@ -72,8 +75,8 @@ struct TerminalPaneLeaf: View {
                                 .draggable(PaneDragPayload(
                                     paneId: tv.id,
                                     tabId: tabId,
-                                    worktreeId: tv.worktree.id,
-                                    repoId: tv.repo.id
+                                    worktreeId: worktree.id,
+                                    repoId: repo.id
                                 ))
                             Spacer()
                         }
@@ -88,17 +91,31 @@ struct TerminalPaneLeaf: View {
                         .allowsHitTesting(false)
                 }
 
-                // Close pane button (management mode only)
-                if isSplit && managementMode.isActive {
-                    Button {
-                        action(.closePane(tabId: tabId, paneId: paneView.id))
-                    } label: {
-                        Image(systemName: "xmark.circle.fill")
-                            .font(.system(size: 14))
-                            .foregroundStyle(.secondary)
-                            .background(Circle().fill(.black.opacity(0.5)))
+                // Pane controls: minimize + close (visible on hover in split mode)
+                if isSplit && isHovered {
+                    HStack(spacing: 4) {
+                        Button {
+                            action(.minimizePane(tabId: tabId, paneId: paneView.id))
+                        } label: {
+                            Image(systemName: "minus.circle.fill")
+                                .font(.system(size: 16))
+                                .foregroundStyle(.secondary)
+                                .background(Circle().fill(.black.opacity(0.5)))
+                        }
+                        .buttonStyle(.plain)
+                        .help("Minimize pane")
+
+                        Button {
+                            action(.closePane(tabId: tabId, paneId: paneView.id))
+                        } label: {
+                            Image(systemName: "xmark.circle.fill")
+                                .font(.system(size: 16))
+                                .foregroundStyle(.secondary)
+                                .background(Circle().fill(.black.opacity(0.5)))
+                        }
+                        .buttonStyle(.plain)
+                        .help("Close pane")
                     }
-                    .buttonStyle(.plain)
                     .padding(6)
                     .transition(.opacity)
                 }

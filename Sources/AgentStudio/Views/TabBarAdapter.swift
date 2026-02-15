@@ -34,6 +34,10 @@ final class TabBarAdapter: ObservableObject {
     static let tabSpacing: CGFloat = 4
     static let tabBarPadding: CGFloat = 16
 
+    // MARK: - Edit Mode
+
+    @Published private(set) var isEditModeActive: Bool = false
+
     // MARK: - Transient UI State
 
     @Published var draggingTabId: UUID?
@@ -83,6 +87,14 @@ final class TabBarAdapter: ObservableObject {
             .receive(on: DispatchQueue.main)
             .sink { [weak self] _ in
                 self?.updateOverflow()
+            }
+            .store(in: &cancellables)
+
+        ManagementModeMonitor.shared.$isActive
+            .removeDuplicates()
+            .receive(on: DispatchQueue.main)
+            .sink { [weak self] isActive in
+                self?.isEditModeActive = isActive
             }
             .store(in: &cancellables)
 

@@ -5,8 +5,8 @@ import GhosttyKit
 /// This is a host-only view — TerminalViewCoordinator creates surfaces and
 /// passes them here via displaySurface(). The view never creates its own surfaces.
 final class AgentStudioTerminalView: PaneView, SurfaceHealthDelegate {
-    let worktree: Worktree
-    let repo: Repo
+    let worktree: Worktree?
+    let repo: Repo?
 
     var surfaceId: UUID?
 
@@ -15,23 +15,38 @@ final class AgentStudioTerminalView: PaneView, SurfaceHealthDelegate {
     private var ghosttySurface: Ghostty.SurfaceView?
     private(set) var isProcessRunning = false
     private var errorOverlay: SurfaceErrorOverlayView?
+    private let fallbackTitle: String
 
     /// The current terminal title
     var title: String {
-        ghosttySurface?.title ?? worktree.name
+        ghosttySurface?.title ?? worktree?.name ?? fallbackTitle
     }
 
     // MARK: - Initialization
 
-    /// Primary initializer — used by TerminalViewCoordinator.
+    /// Primary initializer — used by TerminalViewCoordinator for worktree-bound panes.
     /// Does NOT create a surface; caller must attach one via displaySurface().
     init(worktree: Worktree, repo: Repo, restoredSurfaceId: UUID, paneId: UUID) {
         self.worktree = worktree
         self.repo = repo
         self.surfaceId = restoredSurfaceId
+        self.fallbackTitle = worktree.name
         super.init(paneId: paneId)
 
         // Register for health updates
+        SurfaceManager.shared.addHealthDelegate(self)
+        self.isProcessRunning = true
+    }
+
+    /// Floating terminal initializer — used for drawers and standalone terminals.
+    /// No worktree/repo context required.
+    init(restoredSurfaceId: UUID, paneId: UUID, title: String = "Terminal") {
+        self.worktree = nil
+        self.repo = nil
+        self.surfaceId = restoredSurfaceId
+        self.fallbackTitle = title
+        super.init(paneId: paneId)
+
         SurfaceManager.shared.addHealthDelegate(self)
         self.isProcessRunning = true
     }
@@ -184,10 +199,14 @@ final class AgentStudioTerminalView: PaneView, SurfaceHealthDelegate {
 
     func handleProcessTerminated(exitCode: Int32?) {
         isProcessRunning = false
+        var userInfo: [String: Any] = ["exitCode": exitCode as Any]
+        if let worktreeId = worktree?.id {
+            userInfo["worktreeId"] = worktreeId
+        }
         NotificationCenter.default.post(
             name: .terminalProcessTerminated,
             object: self,
-            userInfo: ["worktreeId": worktree.id, "exitCode": exitCode as Any]
+            userInfo: userInfo
         )
     }
 

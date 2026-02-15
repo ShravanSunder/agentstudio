@@ -86,7 +86,10 @@ class TerminalTabViewController: NSViewController, CommandHandler {
             onTabFramesChanged: { [weak self] frames in
                 self?.tabBarHostingView?.updateTabFrames(frames)
             },
-            onAdd: nil
+            onAdd: nil,
+            onToggleEditMode: {
+                CommandDispatcher.shared.dispatch(.toggleEditMode)
+            }
         )
         tabBarHostingView = DraggableTabBarHostingView(rootView: tabBar)
         tabBarHostingView.configure(adapter: tabBarAdapter) { [weak self] fromId, toIndex in
@@ -190,18 +193,13 @@ class TerminalTabViewController: NSViewController, CommandHandler {
             object: nil
         )
 
-        // Arrangement bar keyboard shortcut (Cmd+Opt+A)
+        // Cmd+Opt+A for edit mode — handled via command pipeline (key event monitor)
         arrangementBarEventMonitor = NSEvent.addLocalMonitorForEvents(matching: .keyDown) { [weak self] event in
             guard let self else { return event }
-            // Cmd+Opt+A toggles the arrangement bar
+            // Cmd+Opt+A toggles edit mode
             if event.modifierFlags.contains([.command, .option]),
                event.charactersIgnoringModifiers == "a" {
-                self.toggleArrangementBar()
-                return nil
-            }
-            // Escape dismisses the arrangement bar if visible
-            if event.keyCode == 53, self.isArrangementBarVisible {
-                self.hideArrangementBar()
+                CommandDispatcher.shared.dispatch(.toggleEditMode)
                 return nil
             }
             return event
@@ -261,13 +259,37 @@ class TerminalTabViewController: NSViewController, CommandHandler {
                 self?.refreshDisplay()
             }
             .store(in: &cancellables)
+
+        // Sync arrangement bar with edit mode (handles Escape deactivation)
+        ManagementModeMonitor.shared.$isActive
+            .removeDuplicates()
+            .receive(on: DispatchQueue.main)
+            .sink { [weak self] isActive in
+                guard let self else { return }
+                if isActive {
+                    self.showArrangementBar()
+                } else {
+                    self.hideArrangementBar()
+                }
+            }
+            .store(in: &cancellables)
     }
 
     private func refreshDisplay() {
         updateEmptyState()
+
+        // Refresh arrangement bar if edit mode is active
+        if ManagementModeMonitor.shared.isActive && isArrangementBarVisible {
+            showArrangementBar()
+        }
+
         guard let activeTabId = store.activeTabId,
               let tab = store.tab(activeTabId) else {
             lastRenderedTab = nil
+            // Deactivate edit mode if no tabs
+            if ManagementModeMonitor.shared.isActive {
+                ManagementModeMonitor.shared.deactivate()
+            }
             return
         }
 
@@ -399,7 +421,8 @@ class TerminalTabViewController: NSViewController, CommandHandler {
             onSwitch: { [weak self] arrangementId in
                 guard let self, let tabId = self.store.activeTabId else { return }
                 self.dispatchAction(.switchArrangement(tabId: tabId, arrangementId: arrangementId))
-                self.hideArrangementBar()
+                // Bar stays visible — edit mode controls its lifecycle
+                self.showArrangementBar() // refresh data after switch
             },
             onSaveNew: { [weak self] in
                 guard let self, let tabId = self.store.activeTabId,
@@ -408,20 +431,19 @@ class TerminalTabViewController: NSViewController, CommandHandler {
                 self.dispatchAction(.createArrangement(
                     tabId: tabId, name: name, paneIds: Set(currentTab.paneIds)
                 ))
-                self.hideArrangementBar()
+                // Bar stays visible — refresh to show new arrangement
+                DispatchQueue.main.async { self.showArrangementBar() }
             },
             onDelete: { [weak self] arrangementId in
                 guard let self, let tabId = self.store.activeTabId else { return }
                 self.dispatchAction(.removeArrangement(tabId: tabId, arrangementId: arrangementId))
-                self.hideArrangementBar()
+                // Bar stays visible — refresh to remove deleted arrangement
+                DispatchQueue.main.async { self.showArrangementBar() }
             },
             onRename: { [weak self] arrangementId in
                 // TODO: Name input flow — placeholder for future task
                 _ = self
                 _ = arrangementId
-            },
-            onDismiss: { [weak self] in
-                self?.hideArrangementBar()
             }
         )
 
@@ -451,14 +473,6 @@ class TerminalTabViewController: NSViewController, CommandHandler {
     private func hideArrangementBar() {
         arrangementBarHostingView?.isHidden = true
         isArrangementBarVisible = false
-    }
-
-    private func toggleArrangementBar() {
-        if isArrangementBarVisible {
-            hideArrangementBar()
-        } else {
-            showArrangementBar()
-        }
     }
 
     // MARK: - Terminal Management
@@ -529,6 +543,7 @@ class TerminalTabViewController: NSViewController, CommandHandler {
             tabId: tabId,
             activePaneId: tab.activePaneId,
             zoomedPaneId: tab.zoomedPaneId,
+            minimizedPaneIds: tab.minimizedPaneIds,
             action: { [weak self] action in
                 self?.dispatchAction(action)
             },
@@ -583,6 +598,9 @@ class TerminalTabViewController: NSViewController, CommandHandler {
             },
             drawerPaneViewProvider: { [weak self] drawerPaneId in
                 self?.viewRegistry.view(for: drawerPaneId)
+            },
+            paneTitleProvider: { [weak self] paneId in
+                self?.store.pane(paneId)?.title ?? "Terminal"
             }
         )
 
@@ -679,8 +697,11 @@ class TerminalTabViewController: NSViewController, CommandHandler {
         case .newFloatingTerminal:
             action = nil
         case .switchArrangement, .deleteArrangement, .renameArrangement:
-            // These need target selection — open the arrangement bar
-            toggleArrangementBar()
+            // These need target selection — show the arrangement bar (enters edit mode)
+            if !ManagementModeMonitor.shared.isActive {
+                ManagementModeMonitor.shared.toggle()
+            }
+            showArrangementBar()
             action = nil
         case .saveArrangement:
             // Direct action — save current layout as a new arrangement
@@ -953,6 +974,15 @@ class TerminalTabViewController: NSViewController, CommandHandler {
 
         // Non-pane commands handled directly
         switch command {
+        case .toggleEditMode:
+            let monitor = ManagementModeMonitor.shared
+            monitor.toggle()
+            if monitor.isActive {
+                showArrangementBar()
+            } else {
+                hideArrangementBar()
+            }
+
         case .addRepo:
             NotificationCenter.default.post(name: .addRepoRequested, object: nil)
         case .filterSidebar:
