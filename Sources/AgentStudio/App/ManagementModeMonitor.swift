@@ -1,49 +1,53 @@
 import AppKit
 import Combine
 
-/// Monitors Opt+Cmd (Option + Command) modifier keys to toggle management mode.
-/// Management mode reveals close buttons, enables drag-and-drop for panes/tabs,
-/// and shows management borders on panes.
-/// Note: Ctrl+click = right-click on macOS, so Ctrl is avoided.
+/// Manages edit mode — a toggle that reveals close buttons, drag handles,
+/// arrangement bar, and management borders on panes.
+/// Toggled via Cmd+Opt+A (command pipeline) or the tab bar button.
+/// Escape key deactivates when active.
 @MainActor
 final class ManagementModeMonitor: ObservableObject {
     static let shared = ManagementModeMonitor()
 
-    /// Whether management mode is currently active (Opt+Cmd held)
+    /// Whether edit mode is currently active
     @Published private(set) var isActive: Bool = false
 
-    /// The required modifier flags for management mode
-    static let requiredModifiers: NSEvent.ModifierFlags = [.option, .command]
-
-    private var flagsMonitor: Any?
+    private var escapeMonitor: Any?
 
     private init() {
-        startMonitoring()
+        startEscapeMonitoring()
     }
 
-    // No deinit needed — singleton lives for the app's lifetime.
-    // The previous deinit used MainActor.assumeIsolated which is undefined
-    // behavior if deinit runs off the main thread.
+    // MARK: - Public API
 
-    private func startMonitoring() {
-        flagsMonitor = NSEvent.addLocalMonitorForEvents(matching: .flagsChanged) { [weak self] event in
-            self?.handleFlagsChanged(event)
+    /// Toggle edit mode on/off.
+    func toggle() {
+        isActive.toggle()
+    }
+
+    /// Explicitly deactivate edit mode (e.g., from Escape key).
+    func deactivate() {
+        isActive = false
+    }
+
+    // MARK: - Escape Key Listener
+
+    private func startEscapeMonitoring() {
+        escapeMonitor = NSEvent.addLocalMonitorForEvents(matching: .keyDown) { [weak self] event in
+            guard let self, self.isActive else { return event }
+            // keyCode 53 = Escape
+            if event.keyCode == 53 {
+                self.deactivate()
+                return nil // consume the event
+            }
             return event
         }
     }
 
     func stopMonitoring() {
-        if let monitor = flagsMonitor {
+        if let monitor = escapeMonitor {
             NSEvent.removeMonitor(monitor)
-            flagsMonitor = nil
-        }
-    }
-
-    private func handleFlagsChanged(_ event: NSEvent) {
-        let flags = event.modifierFlags.intersection(.deviceIndependentFlagsMask)
-        let newValue = flags.contains(Self.requiredModifiers)
-        if isActive != newValue {
-            isActive = newValue
+            escapeMonitor = nil
         }
     }
 }

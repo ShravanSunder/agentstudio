@@ -8,6 +8,8 @@ struct TabBarItem: Identifiable, Equatable {
     var title: String
     var isSplit: Bool
     var displayTitle: String
+    var activeArrangementName: String?  // nil when only default exists
+    var arrangementCount: Int           // total arrangements (1 = default only)
 }
 
 /// Derives tab bar display state from WorkspaceStore.
@@ -20,6 +22,21 @@ final class TabBarAdapter: ObservableObject {
 
     @Published private(set) var tabs: [TabBarItem] = []
     @Published private(set) var activeTabId: UUID?
+
+    // MARK: - Overflow Detection
+
+    @Published var availableWidth: CGFloat = 0
+    @Published private(set) var isOverflowing: Bool = false
+    @Published var contentWidth: CGFloat = 0
+    @Published var viewportWidth: CGFloat = 0
+
+    static let minTabWidth: CGFloat = 100
+    static let tabSpacing: CGFloat = 4
+    static let tabBarPadding: CGFloat = 16
+
+    // MARK: - Edit Mode
+
+    @Published private(set) var isEditModeActive: Bool = false
 
     // MARK: - Transient UI State
 
@@ -49,6 +66,38 @@ final class TabBarAdapter: ObservableObject {
             }
             .store(in: &cancellables)
 
+        $availableWidth
+            .removeDuplicates()
+            .receive(on: DispatchQueue.main)
+            .sink { [weak self] _ in
+                self?.updateOverflow()
+            }
+            .store(in: &cancellables)
+
+        $contentWidth
+            .removeDuplicates()
+            .receive(on: DispatchQueue.main)
+            .sink { [weak self] _ in
+                self?.updateOverflow()
+            }
+            .store(in: &cancellables)
+
+        $viewportWidth
+            .removeDuplicates()
+            .receive(on: DispatchQueue.main)
+            .sink { [weak self] _ in
+                self?.updateOverflow()
+            }
+            .store(in: &cancellables)
+
+        ManagementModeMonitor.shared.$isActive
+            .removeDuplicates()
+            .receive(on: DispatchQueue.main)
+            .sink { [weak self] isActive in
+                self?.isEditModeActive = isActive
+            }
+            .store(in: &cancellables)
+
         // Initial sync
         refresh()
     }
@@ -64,14 +113,53 @@ final class TabBarAdapter: ObservableObject {
                 ? paneTitles.joined(separator: " | ")
                 : paneTitles.first ?? "Terminal"
 
+            let activeArrangement = tab.activeArrangement
+            let showArrangementName = tab.arrangements.count > 1 && !activeArrangement.isDefault
+
             return TabBarItem(
                 id: tab.id,
                 title: paneTitles.first ?? "Terminal",
                 isSplit: tab.isSplit,
-                displayTitle: displayTitle
+                displayTitle: displayTitle,
+                activeArrangementName: showArrangementName ? activeArrangement.name : nil,
+                arrangementCount: tab.arrangements.count
             )
         }
 
         activeTabId = store.activeTabId
+        updateOverflow()
+    }
+
+    private func updateOverflow() {
+        guard tabs.count > 0 else {
+            isOverflowing = false
+            return
+        }
+
+        // Prefer viewport width (from onScrollGeometryChange or ScrollView measurement),
+        // fall back to availableWidth (outer container).
+        let effectiveViewport = viewportWidth > 0 ? viewportWidth : availableWidth
+        guard effectiveViewport > 0 else { return }
+
+        if contentWidth > 0 {
+            if isOverflowing {
+                // Hysteresis: only turn off overflow when tabs fit with room for the "+" button.
+                // When overflowing, "+" is hidden so contentWidth is tabs-only.
+                // Require a 50px buffer before turning off to prevent oscillation.
+                if contentWidth < effectiveViewport - 50 {
+                    isOverflowing = false
+                }
+            } else {
+                // Turn on overflow when scroll content exceeds viewport
+                isOverflowing = contentWidth > effectiveViewport
+            }
+        } else {
+            // Fallback: estimate-based detection before content is measured
+            let tabCount = CGFloat(tabs.count)
+            let totalMinWidth = tabCount * Self.minTabWidth
+                + (tabCount - 1) * Self.tabSpacing
+                + Self.tabBarPadding
+            isOverflowing = totalMinWidth > effectiveViewport
+        }
     }
 }

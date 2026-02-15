@@ -25,6 +25,13 @@ class TerminalTabViewController: NSViewController, CommandHandler {
     /// SwiftUI hosting view for the split container
     private var splitHostingView: NSHostingView<AnyView>?
 
+    /// Arrangement bar overlay (floating below tab bar)
+    private var arrangementBarHostingView: NSHostingView<AnyView>?
+    private var isArrangementBarVisible = false
+
+    /// Local event monitor for arrangement bar keyboard shortcut
+    private var arrangementBarEventMonitor: Any?
+
     /// Combine subscriptions for store observation
     private var cancellables = Set<AnyCancellable>()
 
@@ -79,7 +86,10 @@ class TerminalTabViewController: NSViewController, CommandHandler {
             onTabFramesChanged: { [weak self] frames in
                 self?.tabBarHostingView?.updateTabFrames(frames)
             },
-            onAdd: nil
+            onAdd: nil,
+            onToggleEditMode: {
+                CommandDispatcher.shared.dispatch(.toggleEditMode)
+            }
         )
         tabBarHostingView = DraggableTabBarHostingView(rootView: tabBar)
         tabBarHostingView.configure(adapter: tabBarAdapter) { [weak self] fromId, toIndex in
@@ -183,6 +193,18 @@ class TerminalTabViewController: NSViewController, CommandHandler {
             object: nil
         )
 
+        // Cmd+Opt+A for edit mode — handled via command pipeline (key event monitor)
+        arrangementBarEventMonitor = NSEvent.addLocalMonitorForEvents(matching: .keyDown) { [weak self] event in
+            guard let self else { return event }
+            // Cmd+Opt+A toggles edit mode
+            if event.modifierFlags.contains([.command, .option]),
+               event.charactersIgnoringModifiers == "a" {
+                CommandDispatcher.shared.dispatch(.toggleEditMode)
+                return nil
+            }
+            return event
+        }
+
         // Ghostty split and tab action observers
         let ghosttyObservers: [(Notification.Name, Selector)] = [
             (.ghosttyNewSplit, #selector(handleGhosttyNewSplit(_:))),
@@ -221,6 +243,9 @@ class TerminalTabViewController: NSViewController, CommandHandler {
     }
 
     deinit {
+        if let monitor = arrangementBarEventMonitor {
+            NSEvent.removeMonitor(monitor)
+        }
         NotificationCenter.default.removeObserver(self)
     }
 
@@ -234,13 +259,37 @@ class TerminalTabViewController: NSViewController, CommandHandler {
                 self?.refreshDisplay()
             }
             .store(in: &cancellables)
+
+        // Sync arrangement bar with edit mode (handles Escape deactivation)
+        ManagementModeMonitor.shared.$isActive
+            .removeDuplicates()
+            .receive(on: DispatchQueue.main)
+            .sink { [weak self] isActive in
+                guard let self else { return }
+                if isActive {
+                    self.showArrangementBar()
+                } else {
+                    self.hideArrangementBar()
+                }
+            }
+            .store(in: &cancellables)
     }
 
     private func refreshDisplay() {
         updateEmptyState()
+
+        // Refresh arrangement bar if edit mode is active
+        if ManagementModeMonitor.shared.isActive && isArrangementBarVisible {
+            showArrangementBar()
+        }
+
         guard let activeTabId = store.activeTabId,
               let tab = store.tab(activeTabId) else {
             lastRenderedTab = nil
+            // Deactivate edit mode if no tabs
+            if ManagementModeMonitor.shared.isActive {
+                ManagementModeMonitor.shared.deactivate()
+            }
             return
         }
 
@@ -343,6 +392,87 @@ class TerminalTabViewController: NSViewController, CommandHandler {
         tabBarHostingView.isHidden = !hasTerminals
         terminalContainer.isHidden = !hasTerminals
         emptyStateView?.isHidden = hasTerminals
+
+        // Hide arrangement bar when no tabs are open
+        if !hasTerminals {
+            hideArrangementBar()
+        }
+    }
+
+    // MARK: - Arrangement Bar
+
+    private func showArrangementBar() {
+        guard let activeTabId = store.activeTabId,
+              let tab = store.tab(activeTabId) else { return }
+
+        // Build arrangement items from current tab
+        let items = tab.arrangements.map { arrangement in
+            ArrangementBarItem(
+                id: arrangement.id,
+                name: arrangement.name,
+                isDefault: arrangement.isDefault,
+                paneCount: arrangement.visiblePaneIds.count
+            )
+        }
+
+        let bar = ArrangementBar(
+            arrangements: items,
+            activeArrangementId: tab.activeArrangementId,
+            onSwitch: { [weak self] arrangementId in
+                guard let self, let tabId = self.store.activeTabId else { return }
+                self.dispatchAction(.switchArrangement(tabId: tabId, arrangementId: arrangementId))
+                // Bar stays visible — edit mode controls its lifecycle
+                self.showArrangementBar() // refresh data after switch
+            },
+            onSaveNew: { [weak self] in
+                guard let self, let tabId = self.store.activeTabId,
+                      let currentTab = self.store.tab(tabId) else { return }
+                let name = Self.nextArrangementName(existing: currentTab.arrangements)
+                self.dispatchAction(.createArrangement(
+                    tabId: tabId, name: name, paneIds: Set(currentTab.paneIds)
+                ))
+                // Bar stays visible — refresh to show new arrangement
+                DispatchQueue.main.async { self.showArrangementBar() }
+            },
+            onDelete: { [weak self] arrangementId in
+                guard let self, let tabId = self.store.activeTabId else { return }
+                self.dispatchAction(.removeArrangement(tabId: tabId, arrangementId: arrangementId))
+                // Bar stays visible — refresh to remove deleted arrangement
+                DispatchQueue.main.async { self.showArrangementBar() }
+            },
+            onRename: { [weak self] arrangementId in
+                // TODO: Name input flow — placeholder for future task
+                _ = self
+                _ = arrangementId
+            }
+        )
+
+        if let existing = arrangementBarHostingView {
+            existing.rootView = AnyView(bar)
+        } else {
+            let hostingView = NSHostingView(rootView: AnyView(bar))
+            hostingView.translatesAutoresizingMaskIntoConstraints = false
+            hostingView.wantsLayer = true
+            // Transparent background so the material in ArrangementBar shows through
+            hostingView.layer?.backgroundColor = .clear
+            view.addSubview(hostingView)
+
+            NSLayoutConstraint.activate([
+                hostingView.topAnchor.constraint(equalTo: tabBarHostingView.bottomAnchor, constant: 2),
+                hostingView.leadingAnchor.constraint(equalTo: view.leadingAnchor),
+                hostingView.trailingAnchor.constraint(equalTo: view.trailingAnchor),
+            ])
+
+            arrangementBarHostingView = hostingView
+        }
+
+        arrangementBarHostingView?.isHidden = false
+        isArrangementBarVisible = true
+    }
+
+    private func hideArrangementBar() {
+        arrangementBarHostingView?.isHidden = true
+        isArrangementBarVisible = false
     }
 
     // MARK: - Terminal Management
@@ -390,6 +520,10 @@ class TerminalTabViewController: NSViewController, CommandHandler {
 
     @discardableResult
     private func showTab(_ tabId: UUID) -> Bool {
+        // Dismiss arrangement bar when switching tabs — its chips are snapshotted
+        // from the old tab and would be stale after a tab switch.
+        hideArrangementBar()
+
         guard let tab = store.tab(tabId) else {
             ghosttyLogger.warning("showTab: tab \(tabId) not found in store")
             return false
@@ -409,6 +543,7 @@ class TerminalTabViewController: NSViewController, CommandHandler {
             tabId: tabId,
             activePaneId: tab.activePaneId,
             zoomedPaneId: tab.zoomedPaneId,
+            minimizedPaneIds: tab.minimizedPaneIds,
             action: { [weak self] action in
                 self?.dispatchAction(action)
             },
@@ -457,6 +592,15 @@ class TerminalTabViewController: NSViewController, CommandHandler {
                 ) {
                     self.dispatchAction(action)
                 }
+            },
+            drawerProvider: { [weak self] paneId in
+                self?.store.pane(paneId)?.drawer
+            },
+            drawerPaneViewProvider: { [weak self] drawerPaneId in
+                self?.viewRegistry.view(for: drawerPaneId)
+            },
+            paneTitleProvider: { [weak self] paneId in
+                self?.store.pane(paneId)?.title ?? "Terminal"
             }
         )
 
@@ -552,6 +696,20 @@ class TerminalTabViewController: NSViewController, CommandHandler {
             )
         case .newFloatingTerminal:
             action = nil
+        case .switchArrangement, .deleteArrangement, .renameArrangement:
+            // These need target selection — show the arrangement bar (enters edit mode)
+            if !ManagementModeMonitor.shared.isActive {
+                ManagementModeMonitor.shared.toggle()
+            }
+            showArrangementBar()
+            action = nil
+        case .saveArrangement:
+            // Direct action — save current layout as a new arrangement
+            guard let tab = store.tab(tabId) else { return }
+            let name = Self.nextArrangementName(existing: tab.arrangements)
+            action = .createArrangement(
+                tabId: tabId, name: name, paneIds: Set(tab.paneIds)
+            )
         default:
             action = nil
         }
@@ -791,6 +949,18 @@ class TerminalTabViewController: NSViewController, CommandHandler {
         }
     }
 
+    // MARK: - Arrangement Naming
+
+    /// Generate a unique arrangement name by finding the next unused index.
+    static func nextArrangementName(existing: [PaneArrangement]) -> String {
+        let existingNames = Set(existing.map(\.name))
+        var index = existing.count
+        while existingNames.contains("Arrangement \(index)") {
+            index += 1
+        }
+        return "Arrangement \(index)"
+    }
+
     // MARK: - CommandHandler Conformance
 
     func execute(_ command: AppCommand) {
@@ -804,15 +974,62 @@ class TerminalTabViewController: NSViewController, CommandHandler {
 
         // Non-pane commands handled directly
         switch command {
+        case .toggleEditMode:
+            let monitor = ManagementModeMonitor.shared
+            monitor.toggle()
+            if monitor.isActive {
+                showArrangementBar()
+            } else {
+                hideArrangementBar()
+            }
+
         case .addRepo:
             NotificationCenter.default.post(name: .addRepoRequested, object: nil)
         case .filterSidebar:
             NotificationCenter.default.post(name: .filterSidebarRequested, object: nil)
+        case .addDrawerPane:
+            guard let tabId = store.activeTabId,
+                  let tab = store.tab(tabId),
+                  let paneId = tab.activePaneId else { break }
+            let content = PaneContent.terminal(
+                TerminalState(provider: .ghostty, lifetime: .temporary)
+            )
+            let metadata = PaneMetadata(
+                source: .floating(workingDirectory: nil, title: nil),
+                title: "Drawer"
+            )
+            dispatchAction(.addDrawerPane(parentPaneId: paneId, content: content, metadata: metadata))
+
+        case .toggleDrawer:
+            guard let tabId = store.activeTabId,
+                  let tab = store.tab(tabId),
+                  let paneId = tab.activePaneId else { break }
+            dispatchAction(.toggleDrawer(paneId: paneId))
+
+        case .closeDrawerPane:
+            guard let tabId = store.activeTabId,
+                  let tab = store.tab(tabId),
+                  let paneId = tab.activePaneId,
+                  let pane = store.pane(paneId),
+                  let drawer = pane.drawer,
+                  let activeDrawerPaneId = drawer.activeDrawerPaneId else { break }
+            dispatchAction(.removeDrawerPane(parentPaneId: paneId, drawerPaneId: activeDrawerPaneId))
+
+        case .saveArrangement:
+            guard let tabId = store.activeTabId,
+                  let tab = store.tab(tabId) else { break }
+            let name = Self.nextArrangementName(existing: tab.arrangements)
+            dispatchAction(.createArrangement(
+                tabId: tabId, name: name, paneIds: Set(tab.paneIds)
+            ))
+
         case .newTerminalInTab, .newFloatingTerminal,
              .removeRepo, .refreshWorktrees,
              .toggleSidebar, .quickFind, .commandBar,
-             .openNewTerminalInTab:
-            break // Handled elsewhere or require a target
+             .openNewTerminalInTab,
+             .switchArrangement, .deleteArrangement, .renameArrangement,
+             .navigateDrawerPane:
+            break // Handled via drill-in (target selection in command bar)
         default:
             break
         }
@@ -834,6 +1051,20 @@ class TerminalTabViewController: NSViewController, CommandHandler {
                 guard let tab = store.tabs.first(where: { $0.paneIds.contains(target) })
                 else { return nil }
                 return .extractPaneToTab(tabId: tab.id, paneId: target)
+            case (.switchArrangement, .tab):
+                guard let tabId = store.activeTabId else { return nil }
+                return .switchArrangement(tabId: tabId, arrangementId: target)
+            case (.deleteArrangement, .tab):
+                guard let tabId = store.activeTabId else { return nil }
+                return .removeArrangement(tabId: tabId, arrangementId: target)
+            case (.renameArrangement, .tab):
+                // Name input will be added in a later task; for now, just select the target
+                return nil
+            case (.navigateDrawerPane, .pane):
+                guard let tabId = store.activeTabId,
+                      let tab = store.tab(tabId),
+                      let paneId = tab.activePaneId else { return nil }
+                return .setActiveDrawerPane(parentPaneId: paneId, drawerPaneId: target)
             default:
                 return nil
             }

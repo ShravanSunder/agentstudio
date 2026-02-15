@@ -21,10 +21,12 @@ struct Tab: Codable, Identifiable, Hashable {
     var activePaneId: UUID?
     /// Display-only zoom state — NOT persisted. When set, the zoomed pane fills the tab.
     var zoomedPaneId: UUID?
+    /// Panes currently minimized (collapsed to a narrow bar). Transient — NOT persisted.
+    var minimizedPaneIds: Set<UUID> = []
 
     enum CodingKeys: CodingKey {
         case id, name, panes, arrangements, activeArrangementId, activePaneId
-        // zoomedPaneId excluded — transient, not persisted
+        // zoomedPaneId, minimizedPaneIds excluded — transient, not persisted
     }
 
     /// Create a tab with a single pane.
@@ -54,7 +56,8 @@ struct Tab: Codable, Identifiable, Hashable {
         arrangements: [PaneArrangement],
         activeArrangementId: UUID,
         activePaneId: UUID?,
-        zoomedPaneId: UUID? = nil
+        zoomedPaneId: UUID? = nil,
+        minimizedPaneIds: Set<UUID> = []
     ) {
         assert(!arrangements.isEmpty, "Tab must have at least one arrangement")
         assert(arrangements.filter(\.isDefault).count == 1, "Tab must have exactly one default arrangement")
@@ -65,6 +68,7 @@ struct Tab: Codable, Identifiable, Hashable {
         self.activeArrangementId = activeArrangementId
         self.activePaneId = activePaneId
         self.zoomedPaneId = zoomedPaneId
+        self.minimizedPaneIds = minimizedPaneIds
     }
 
     // MARK: - Derived

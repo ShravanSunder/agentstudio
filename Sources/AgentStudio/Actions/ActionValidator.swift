@@ -141,7 +141,9 @@ enum ActionValidator {
             return .success(ValidatedAction(action))
 
         case .toggleSplitZoom(let tabId, let paneId),
-             .resizePaneByDelta(let tabId, let paneId, _, _):
+             .resizePaneByDelta(let tabId, let paneId, _, _),
+             .minimizePane(let tabId, let paneId),
+             .expandPane(let tabId, let paneId):
             if let error = validateTabContainsPane(tabId: tabId, paneId: paneId, state: state) {
                 return .failure(error)
             }

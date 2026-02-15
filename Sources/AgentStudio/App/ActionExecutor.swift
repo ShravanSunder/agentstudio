@@ -124,6 +124,11 @@ final class ActionExecutor {
             _ = store.extractPane(paneId, fromTab: tabId)
 
         case .focusPane(let tabId, let paneId):
+            // Auto-expand if focusing a minimized pane
+            if let tab = store.tab(tabId), tab.minimizedPaneIds.contains(paneId) {
+                store.expandPane(paneId, inTab: tabId)
+                coordinator.reattachForViewSwitch(paneId: paneId)
+            }
             store.setActivePane(paneId, inTab: tabId)
 
         case .insertPane(let source, let targetTabId, let targetPaneId, let direction):
@@ -146,6 +151,14 @@ final class ActionExecutor {
         case .moveTab(let tabId, let delta):
             store.moveTabByDelta(tabId: tabId, delta: delta)
 
+        case .minimizePane(let tabId, let paneId):
+            coordinator.detachForViewSwitch(paneId: paneId)
+            store.minimizePane(paneId, inTab: tabId)
+
+        case .expandPane(let tabId, let paneId):
+            store.expandPane(paneId, inTab: tabId)
+            coordinator.reattachForViewSwitch(paneId: paneId)
+
         case .resizePaneByDelta(let tabId, let paneId, let direction, let amount):
             store.resizePaneByDelta(tabId: tabId, paneId: paneId, direction: direction, amount: amount)
 
@@ -164,7 +177,33 @@ final class ActionExecutor {
             store.removeArrangement(arrangementId, inTab: tabId)
 
         case .switchArrangement(let tabId, let arrangementId):
+            // Capture visible panes BEFORE switching
+            let previousVisiblePaneIds: Set<UUID>
+            if let tab = store.tab(tabId) {
+                previousVisiblePaneIds = tab.activeArrangement.visiblePaneIds
+            } else {
+                previousVisiblePaneIds = []
+            }
+
+            // Switch arrangement in store
             store.switchArrangement(to: arrangementId, inTab: tabId)
+
+            // Get newly visible panes AFTER switching
+            guard let tab = store.tab(tabId),
+                  let arrangement = tab.arrangements.first(where: { $0.id == arrangementId }) else { break }
+            let newVisiblePaneIds = arrangement.visiblePaneIds
+
+            // Detach surfaces for panes that were visible but are now hidden
+            let hiddenPaneIds = previousVisiblePaneIds.subtracting(newVisiblePaneIds)
+            for paneId in hiddenPaneIds {
+                coordinator.detachForViewSwitch(paneId: paneId)
+            }
+
+            // Reattach surfaces for panes that are now visible but were hidden
+            let revealedPaneIds = newVisiblePaneIds.subtracting(previousVisiblePaneIds)
+            for paneId in revealedPaneIds {
+                coordinator.reattachForViewSwitch(paneId: paneId)
+            }
 
         case .renameArrangement(let tabId, let arrangementId, let name):
             store.renameArrangement(arrangementId, name: name, inTab: tabId)
@@ -191,9 +230,20 @@ final class ActionExecutor {
             store.purgeOrphanedPane(paneId)
 
         case .addDrawerPane(let parentPaneId, let content, let metadata):
-            _ = store.addDrawerPane(to: parentPaneId, content: content, metadata: metadata)
+            if let drawerPane = store.addDrawerPane(to: parentPaneId, content: content, metadata: metadata) {
+                // Create a view for the drawer pane if its content type supports it.
+                // Terminal drawer panes need floating terminal support (Phase 3),
+                // so createViewForContent will log a warning and return nil for those.
+                let pane = Pane(
+                    id: drawerPane.id,
+                    content: drawerPane.content,
+                    metadata: drawerPane.metadata
+                )
+                coordinator.createViewForContent(pane: pane)
+            }
 
         case .removeDrawerPane(let parentPaneId, let drawerPaneId):
+            coordinator.teardownView(for: drawerPaneId)
             store.removeDrawerPane(drawerPaneId, from: parentPaneId)
 
         case .toggleDrawer(let paneId):
@@ -219,9 +269,10 @@ final class ActionExecutor {
             undoStack.append(snapshot)
         }
 
-        // Teardown views for all panes in this tab
+        // Teardown views for all panes in this tab (including drawer panes)
         if let tab = store.tab(tabId) {
             for paneId in tab.paneIds {
+                teardownDrawerPanes(for: paneId)
                 coordinator.teardownView(for: paneId)
             }
         }
@@ -255,6 +306,7 @@ final class ActionExecutor {
     }
 
     private func executeClosePane(tabId: UUID, paneId: UUID) {
+        teardownDrawerPanes(for: paneId)
         coordinator.teardownView(for: paneId)
         let tabNowEmpty = store.removePaneFromLayout(paneId, inTab: tabId)
 
@@ -342,21 +394,26 @@ final class ActionExecutor {
     private func executeRepair(_ repairAction: RepairAction) {
         switch repairAction {
         case .recreateSurface(let paneId), .createMissingView(let paneId):
-            guard let pane = store.pane(paneId),
-                  let worktreeId = pane.worktreeId,
-                  let repoId = pane.repoId,
-                  let worktree = store.worktree(worktreeId),
-                  let repo = store.repo(repoId) else {
-                executorLogger.warning("repair \(String(describing: repairAction)): pane has no worktree/repo context")
+            guard let pane = store.pane(paneId) else {
+                executorLogger.warning("repair \(String(describing: repairAction)): pane not in store")
                 return
             }
             coordinator.teardownView(for: paneId)
-            coordinator.createView(for: pane, worktree: worktree, repo: repo)
+            coordinator.createViewForContent(pane: pane)
             executorLogger.info("Repaired view for pane \(paneId)")
 
         case .reattachZmx, .markSessionFailed, .cleanupOrphan:
             // TODO: Phase 4 — implement remaining repair actions
             executorLogger.warning("repair: \(String(describing: repairAction)) — not yet implemented")
+        }
+    }
+
+    /// Teardown views for all drawer panes owned by a parent pane.
+    private func teardownDrawerPanes(for parentPaneId: UUID) {
+        guard let pane = store.pane(parentPaneId),
+              let drawer = pane.drawer else { return }
+        for drawerPane in drawer.panes {
+            coordinator.teardownView(for: drawerPane.id)
         }
     }
 

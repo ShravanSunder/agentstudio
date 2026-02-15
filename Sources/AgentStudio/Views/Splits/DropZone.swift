@@ -9,28 +9,13 @@ enum DropZone: String, Equatable, CaseIterable {
     case left
     case right
 
-    /// Determines which drop zone the cursor is in based on proximity to edges.
-    ///
-    /// Divides the view into four triangular regions by drawing diagonals from
-    /// corner to corner. The drop zone is determined by which edge the cursor
-    /// is closest to, creating natural triangular hit regions for each side.
+    /// Determines which drop zone the cursor is in based on horizontal position.
+    /// Only returns `.left` or `.right` — vertical splits are disabled
+    /// because drawers occupy the bottom space.
     static func calculate(at point: CGPoint, in size: CGSize) -> DropZone {
-        guard size.width > 0, size.height > 0 else { return .right }
-
+        guard size.width > 0 else { return .right }
         let relX = point.x / size.width
-        let relY = point.y / size.height
-
-        let distToLeft = relX
-        let distToRight = 1 - relX
-        let distToTop = relY
-        let distToBottom = 1 - relY
-
-        let minDist = min(distToLeft, distToRight, distToTop, distToBottom)
-
-        if minDist == distToLeft { return .left }
-        if minDist == distToRight { return .right }
-        if minDist == distToTop { return .top }
-        return .bottom
+        return relX < 0.5 ? .left : .right
     }
 
     /// The split direction this drop zone would create.

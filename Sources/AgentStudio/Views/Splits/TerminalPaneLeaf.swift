@@ -10,18 +10,31 @@ struct TerminalPaneLeaf: View {
     let tabId: UUID
     let isActive: Bool
     let isSplit: Bool
+    let drawer: Drawer?
     let action: (PaneAction) -> Void
     let shouldAcceptDrop: (UUID, DropZone) -> Bool
     let onDrop: (SplitDropPayload, UUID, DropZone) -> Void
+    var drawerPaneViewProvider: ((UUID) -> PaneView?)? = nil
+    /// Tab-level width for computing drawer panel size in split layouts.
+    /// nil means single pane (use full pane width).
+    var tabWidth: CGFloat? = nil
 
     @State private var dropZone: DropZone?
     @State private var isTargeted: Bool = false
     @State private var isHovered: Bool = false
+    @State private var isBottomHovered: Bool = false
     @ObservedObject private var managementMode = ManagementModeMonitor.shared
 
     /// Downcast to terminal view for terminal-specific features.
     private var terminalView: AgentStudioTerminalView? {
         paneView as? AgentStudioTerminalView
+    }
+
+    /// Resolve the active drawer pane's view from the provider.
+    private var resolvedDrawerPaneView: PaneView? {
+        guard let drawer,
+              let activePaneId = drawer.activeDrawerPaneId else { return nil }
+        return drawerPaneViewProvider?(activePaneId)
     }
 
     var body: some View {
@@ -48,7 +61,10 @@ struct TerminalPaneLeaf: View {
                 }
 
                 // Drag handle (top-left, management mode + hover only, terminal panes with worktree context)
-                if managementMode.isActive && isHovered && isSplit, let tv = terminalView {
+                if managementMode.isActive && isHovered && isSplit,
+                   let tv = terminalView,
+                   let worktree = tv.worktree,
+                   let repo = tv.repo {
                     VStack {
                         HStack {
                             Image(systemName: "line.3.horizontal")
@@ -59,8 +75,8 @@ struct TerminalPaneLeaf: View {
                                 .draggable(PaneDragPayload(
                                     paneId: tv.id,
                                     tabId: tabId,
-                                    worktreeId: tv.worktree.id,
-                                    repoId: tv.repo.id
+                                    worktreeId: worktree.id,
+                                    repoId: repo.id
                                 ))
                             Spacer()
                         }
@@ -75,20 +91,56 @@ struct TerminalPaneLeaf: View {
                         .allowsHitTesting(false)
                 }
 
-                // Close pane button (management mode only)
-                if isSplit && managementMode.isActive {
-                    Button {
-                        action(.closePane(tabId: tabId, paneId: paneView.id))
-                    } label: {
-                        Image(systemName: "xmark.circle.fill")
-                            .font(.system(size: 14))
-                            .foregroundStyle(.secondary)
-                            .background(Circle().fill(.black.opacity(0.5)))
+                // Pane controls: minimize + close (visible on hover in split mode)
+                if isSplit && isHovered {
+                    HStack(spacing: 4) {
+                        Button {
+                            action(.minimizePane(tabId: tabId, paneId: paneView.id))
+                        } label: {
+                            Image(systemName: "minus.circle.fill")
+                                .font(.system(size: 16))
+                                .foregroundStyle(.secondary)
+                                .background(Circle().fill(.black.opacity(0.5)))
+                        }
+                        .buttonStyle(.plain)
+                        .help("Minimize pane")
+
+                        Button {
+                            action(.closePane(tabId: tabId, paneId: paneView.id))
+                        } label: {
+                            Image(systemName: "xmark.circle.fill")
+                                .font(.system(size: 16))
+                                .foregroundStyle(.secondary)
+                                .background(Circle().fill(.black.opacity(0.5)))
+                        }
+                        .buttonStyle(.plain)
+                        .help("Close pane")
                     }
-                    .buttonStyle(.plain)
                     .padding(6)
                     .transition(.opacity)
                 }
+
+                // Bottom hover detection zone (behind drawer so it doesn't block drawer controls)
+                VStack {
+                    Spacer()
+                    Color.clear
+                        .frame(height: 20)
+                        .contentShape(Rectangle())
+                        .onHover { hovering in
+                            isBottomHovered = hovering
+                        }
+                }
+                .allowsHitTesting(true)
+
+                // Drawer overlay (bottom of pane, on top of hover zone)
+                DrawerOverlay(
+                    paneId: paneView.id,
+                    drawer: drawer,
+                    isIconBarVisible: isBottomHovered || (drawer?.isExpanded ?? false),
+                    drawerPaneView: resolvedDrawerPaneView,
+                    action: action,
+                    tabWidth: tabWidth
+                )
             }
             .contentShape(Rectangle())
             .onHover { isHovered = $0 }
