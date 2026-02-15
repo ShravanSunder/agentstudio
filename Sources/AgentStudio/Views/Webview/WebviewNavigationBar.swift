@@ -5,7 +5,6 @@ import WebKit
 struct WebviewNavigationBar: View {
     @Bindable var controller: WebviewPaneController
     @State private var urlFieldText: String = ""
-    @FocusState private var isURLFieldFocused: Bool
 
     var body: some View {
         HStack(spacing: 8) {
@@ -16,13 +15,11 @@ struct WebviewNavigationBar: View {
         .padding(.horizontal, 8)
         .frame(height: 36)
         .background(.ultraThinMaterial)
-        .onChange(of: controller.activeURL) { _, newURL in
-            if !isURLFieldFocused {
-                urlFieldText = newURL?.absoluteString ?? ""
-            }
+        .onChange(of: controller.url) { _, newURL in
+            urlFieldText = newURL?.absoluteString ?? ""
         }
         .onAppear {
-            urlFieldText = controller.activeURL?.absoluteString ?? ""
+            urlFieldText = controller.url?.absoluteString ?? ""
         }
     }
 
@@ -68,18 +65,28 @@ struct WebviewNavigationBar: View {
     // MARK: - URL Field
 
     private var urlField: some View {
-        TextField("Enter URL", text: $urlFieldText)
-            .textFieldStyle(.plain)
-            .font(.system(size: 12, design: .monospaced))
-            .padding(.horizontal, 8)
-            .padding(.vertical, 4)
-            .background(Color.primary.opacity(0.04))
-            .clipShape(RoundedRectangle(cornerRadius: 6))
-            .focused($isURLFieldFocused)
-            .onSubmit {
+        HStack(spacing: 4) {
+            SelectAllTextField(
+                placeholder: "Enter URL",
+                text: $urlFieldText,
+                onSubmit: {
+                    controller.navigate(to: urlFieldText)
+                }
+            )
+
+            Button {
                 controller.navigate(to: urlFieldText)
-                isURLFieldFocused = false
+            } label: {
+                Image(systemName: "arrow.right.circle.fill")
+                    .font(.system(size: 14))
+                    .foregroundStyle(.secondary)
             }
+            .buttonStyle(.plain)
+        }
+        .padding(.horizontal, 8)
+        .padding(.vertical, 4)
+        .background(Color.primary.opacity(0.04))
+        .clipShape(RoundedRectangle(cornerRadius: 6))
     }
 
     // MARK: - Progress

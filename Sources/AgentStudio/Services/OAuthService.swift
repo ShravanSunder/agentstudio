@@ -76,6 +76,11 @@ final class OAuthService: NSObject {
             throw OAuthError.unsupportedProvider
         }
 
+        // Reject placeholder client IDs — real values must be configured first
+        guard !config.clientId.hasPrefix("PLACEHOLDER") else {
+            throw OAuthError.notConfigured(provider)
+        }
+
         // Build the authorization URL with required parameters
         let state = UUID().uuidString
         var components = URLComponents(string: config.authorizeURL)!
@@ -163,6 +168,7 @@ extension OAuthService: ASWebAuthenticationPresentationContextProviding {
 
 enum OAuthError: Error, LocalizedError {
     case unsupportedProvider
+    case notConfigured(OAuthProvider)
     case invalidURL
     case cancelled
     case sessionFailed(Error)
@@ -178,6 +184,7 @@ enum OAuthError: Error, LocalizedError {
     var errorDescription: String? {
         switch self {
         case .unsupportedProvider: return "Unsupported OAuth provider"
+        case .notConfigured(let provider): return "\(provider.rawValue) OAuth is not configured — register an OAuth app and set the client ID"
         case .invalidURL: return "Failed to construct authorization URL"
         case .cancelled: return "Authentication was cancelled"
         case .sessionFailed(let error): return "Authentication failed: \(error.localizedDescription)"

@@ -214,8 +214,9 @@ class AppDelegate: NSObject, NSApplicationDelegate {
     }
 
     func applicationShouldTerminate(_ sender: NSApplication) -> NSApplication.TerminateReply {
-        guard let store, store.isDirty else { return .terminateNow }
-        // Flush before exit — guarantees pending markDirty() writes land on disk.
+        guard let store else { return .terminateNow }
+        // Always flush on quit — the pre-persist hook syncs runtime webview state
+        // back to the pane model, so this must run even when isDirty == false.
         if !store.flush() {
             appLogger.warning("Workspace flush failed at termination")
         }
@@ -307,7 +308,7 @@ class AppDelegate: NSObject, NSApplicationDelegate {
         viewMenu.addItem(paneModeItem)
         viewMenu.addItem(NSMenuItem.separator())
 
-        viewMenu.addItem(menuItem("Open URL", command: .openWebview, action: #selector(openWebviewAction)))
+        viewMenu.addItem(menuItem("Open New Webview Tab", command: .openWebview, action: #selector(openWebviewAction)))
 
         viewMenu.addItem(NSMenuItem.separator())
 

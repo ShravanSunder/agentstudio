@@ -6,147 +6,66 @@ final class WebviewPaneControllerTests: XCTestCase {
 
     // MARK: - Init
 
-    func test_init_createsPages_fromState() {
+    func test_init_createsPage_fromState() {
         // Arrange
-        let tabs = [
-            WebviewTabState(url: URL(string: "https://github.com")!, title: "GitHub"),
-            WebviewTabState(url: URL(string: "https://docs.swift.org")!, title: "Docs"),
-        ]
-        let state = WebviewState(tabs: tabs, activeTabIndex: 1)
+        let state = WebviewState(url: URL(string: "https://github.com")!, title: "GitHub")
 
         // Act
         let controller = WebviewPaneController(paneId: UUID(), state: state)
 
         // Assert
-        XCTAssertEqual(controller.pages.count, 2)
-        XCTAssertEqual(controller.activeTabIndex, 1)
         XCTAssertTrue(controller.showNavigation)
+        XCTAssertNotNil(controller.page)
     }
 
-    func test_init_clampsActiveTabIndex() {
+    func test_init_aboutBlank_doesNotLoad() {
         // Arrange
-        let state = WebviewState(
-            tabs: [WebviewTabState(url: URL(string: "https://example.com")!)],
-            activeTabIndex: 5
-        )
+        let state = WebviewState(url: URL(string: "about:blank")!)
+
+        // Act
+        let controller = WebviewPaneController(paneId: UUID(), state: state)
+
+        // Assert — page exists but url is nil (nothing loaded)
+        XCTAssertNil(controller.url)
+    }
+
+    func test_init_respectsShowNavigation() {
+        // Arrange
+        let state = WebviewState(url: URL(string: "https://example.com")!, showNavigation: false)
 
         // Act
         let controller = WebviewPaneController(paneId: UUID(), state: state)
 
         // Assert
-        XCTAssertEqual(controller.activeTabIndex, 0)
-    }
-
-    // MARK: - Tab Operations
-
-    func test_newTab_addsPageAndSelectsIt() {
-        // Arrange
-        let controller = makeController()
-        XCTAssertEqual(controller.pages.count, 1)
-
-        // Act
-        controller.newTab(url: URL(string: "https://github.com")!)
-
-        // Assert
-        XCTAssertEqual(controller.pages.count, 2)
-        XCTAssertEqual(controller.activeTabIndex, 1)
-    }
-
-    func test_closeTab_removesTab() {
-        // Arrange
-        let controller = makeController()
-        controller.newTab(url: URL(string: "https://github.com")!)
-        XCTAssertEqual(controller.pages.count, 2)
-
-        // Act
-        controller.closeTab(at: 0)
-
-        // Assert
-        XCTAssertEqual(controller.pages.count, 1)
-        XCTAssertEqual(controller.activeTabIndex, 0)
-    }
-
-    func test_closeTab_preventsClosingLastTab() {
-        // Arrange
-        let controller = makeController()
-        XCTAssertEqual(controller.pages.count, 1)
-
-        // Act
-        controller.closeTab(at: 0)
-
-        // Assert — still 1 tab
-        XCTAssertEqual(controller.pages.count, 1)
-    }
-
-    func test_closeTab_adjustsActiveIndex_whenClosingBefore() {
-        // Arrange
-        let controller = makeController()
-        controller.newTab(url: URL(string: "https://a.com")!)
-        controller.newTab(url: URL(string: "https://b.com")!)
-        controller.selectTab(at: 2)
-        XCTAssertEqual(controller.activeTabIndex, 2)
-
-        // Act — close tab at index 0
-        controller.closeTab(at: 0)
-
-        // Assert — active index shifts down
-        XCTAssertEqual(controller.activeTabIndex, 1)
-        XCTAssertEqual(controller.pages.count, 2)
-    }
-
-    func test_closeTab_adjustsActiveIndex_whenClosingAtEnd() {
-        // Arrange
-        let controller = makeController()
-        controller.newTab(url: URL(string: "https://a.com")!)
-        controller.selectTab(at: 1)
-        XCTAssertEqual(controller.activeTabIndex, 1)
-
-        // Act — close tab at index 1 (the active tab, which is the last)
-        controller.closeTab(at: 1)
-
-        // Assert — clamps to last
-        XCTAssertEqual(controller.activeTabIndex, 0)
-    }
-
-    func test_selectTab_changesActiveIndex() {
-        // Arrange
-        let controller = makeController()
-        controller.newTab(url: URL(string: "https://a.com")!)
-        controller.newTab(url: URL(string: "https://b.com")!)
-
-        // Act
-        controller.selectTab(at: 1)
-
-        // Assert
-        XCTAssertEqual(controller.activeTabIndex, 1)
-    }
-
-    func test_selectTab_outOfRange_doesNothing() {
-        // Arrange
-        let controller = makeController()
-
-        // Act
-        controller.selectTab(at: 99)
-
-        // Assert
-        XCTAssertEqual(controller.activeTabIndex, 0)
+        XCTAssertFalse(controller.showNavigation)
     }
 
     // MARK: - Snapshot
 
-    func test_snapshot_capturesTabState() {
+    func test_snapshot_capturesState() {
         // Arrange
         let controller = makeController()
-        controller.newTab(url: URL(string: "https://github.com")!)
-        controller.selectTab(at: 1)
 
         // Act
         let snapshot = controller.snapshot()
 
         // Assert
-        XCTAssertEqual(snapshot.tabs.count, 2)
-        XCTAssertEqual(snapshot.activeTabIndex, 1)
         XCTAssertTrue(snapshot.showNavigation)
+        XCTAssertNotNil(snapshot.url)
+    }
+
+    func test_snapshot_aboutBlank_fallback() {
+        // Arrange — controller with about:blank (nothing loaded → url is nil)
+        let controller = WebviewPaneController(
+            paneId: UUID(),
+            state: WebviewState(url: URL(string: "about:blank")!)
+        )
+
+        // Act
+        let snapshot = controller.snapshot()
+
+        // Assert — nil url falls back to about:blank
+        XCTAssertEqual(snapshot.url.absoluteString, "about:blank")
     }
 
     // MARK: - URL Normalization
@@ -183,6 +102,13 @@ final class WebviewPaneControllerTests: XCTestCase {
         XCTAssertEqual(
             WebviewPaneController.normalizeURLString("  github.com  "),
             "https://github.com"
+        )
+    }
+
+    func test_normalizeURLString_preservesData() {
+        XCTAssertEqual(
+            WebviewPaneController.normalizeURLString("data:text/html,<h1>Hi</h1>"),
+            "data:text/html,<h1>Hi</h1>"
         )
     }
 

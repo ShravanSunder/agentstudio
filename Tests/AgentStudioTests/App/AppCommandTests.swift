@@ -369,16 +369,14 @@ final class AppCommandTests: XCTestCase {
     func test_dispatcher_openWebview_registered() {
         let def = CommandDispatcher.shared.definition(for: .openWebview)
         XCTAssertNotNil(def)
-        XCTAssertEqual(def?.label, "Open URL")
+        XCTAssertEqual(def?.label, "Open New Webview Tab")
         XCTAssertEqual(def?.icon, "globe")
     }
 
     @MainActor
-    func test_dispatcher_openWebview_hasCorrectKeyBinding() {
+    func test_dispatcher_openWebview_noKeyBinding() {
         let def = CommandDispatcher.shared.definition(for: .openWebview)
-        XCTAssertEqual(def?.keyBinding?.key, "l")
-        XCTAssertTrue(def?.keyBinding?.modifiers.contains(.command) ?? false)
-        XCTAssertTrue(def?.keyBinding?.modifiers.contains(.shift) ?? false)
+        XCTAssertNil(def?.keyBinding)
     }
 
     @MainActor

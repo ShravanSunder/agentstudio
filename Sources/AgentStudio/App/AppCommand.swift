@@ -342,8 +342,7 @@ final class CommandDispatcher: ObservableObject {
             // Webview commands
             CommandDefinition(
                 command: .openWebview,
-                keyBinding: KeyBinding(key: "l", modifiers: [.command, .shift]),
-                label: "Open URL",
+                label: "Open New Webview Tab",
                 icon: "globe"
             ),
             CommandDefinition(

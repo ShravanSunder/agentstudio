@@ -23,6 +23,8 @@ enum CommandBarDataSource {
         static let tabCommands = "Tab"
         static let repoCommands = "Repo"
         static let windowCommands = "Window"
+        static let webviewCommands = "Webview"
+        static let authCommands = "Auth"
     }
 
     private enum Priority {
@@ -403,7 +405,11 @@ enum CommandBarDataSource {
         switch command {
         case .selectTab1, .selectTab2, .selectTab3, .selectTab4, .selectTab5,
              .selectTab6, .selectTab7, .selectTab8, .selectTab9,
-             .quickFind, .commandBar:
+             .quickFind, .commandBar,
+             // OAuth sign-in commands hidden until real client IDs are configured.
+             // These will use ASWebAuthenticationSession to authenticate in Safari
+             // (where 1Password works), then inject session cookies into WKWebView.
+             .signInGitHub, .signInGoogle:
             return true
         default:
             return false
@@ -422,11 +428,14 @@ enum CommandBarDataSource {
             return (Group.tabCommands, 2)
         case .addRepo, .removeRepo, .refreshWorktrees:
             return (Group.repoCommands, 3)
-        case .toggleSidebar, .newFloatingTerminal, .filterSidebar,
-             .openWebview, .signInGitHub, .signInGoogle:
+        case .toggleSidebar, .newFloatingTerminal, .filterSidebar:
             return (Group.windowCommands, 4)
+        case .openWebview:
+            return (Group.webviewCommands, 5)
+        case .signInGitHub, .signInGoogle:
+            return (Group.authCommands, 6)
         default:
-            return (Group.commands, 5)
+            return (Group.commands, 7)
         }
     }
 

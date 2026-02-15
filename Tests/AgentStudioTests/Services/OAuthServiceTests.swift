@@ -143,4 +143,28 @@ final class OAuthServiceTests: XCTestCase {
         let error = OAuthError.sessionFailed(inner)
         XCTAssertTrue(error.errorDescription!.contains("connection lost"))
     }
+
+    // MARK: - Placeholder Validation
+
+    func test_githubClientId_isPlaceholder() {
+        // Current config uses placeholders — this test documents that OAuth
+        // won't work until real client IDs are configured.
+        let config = OAuthService.providerConfigs[.github]!
+        XCTAssertTrue(config.clientId.hasPrefix("PLACEHOLDER"))
+    }
+
+    func test_googleClientId_isPlaceholder() {
+        let config = OAuthService.providerConfigs[.google]!
+        XCTAssertTrue(config.clientId.hasPrefix("PLACEHOLDER"))
+    }
+
+    func test_notConfigured_errorDescription_includesProvider() {
+        let error = OAuthError.notConfigured(.github)
+        XCTAssertTrue(error.errorDescription!.contains("github"))
+        XCTAssertTrue(error.errorDescription!.contains("not configured"))
+    }
+
+    func test_notConfigured_isCancelled_returnsFalse() {
+        XCTAssertFalse(OAuthError.notConfigured(.github).isCancelled)
+    }
 }

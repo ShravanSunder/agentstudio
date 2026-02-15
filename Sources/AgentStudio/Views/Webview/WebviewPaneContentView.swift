@@ -2,36 +2,33 @@ import SwiftUI
 import WebKit
 
 /// Root SwiftUI view for a webview pane.
-/// Composes the tab bar, navigation toolbar, and the active WebView.
+/// Shows either the new-tab page (favorites + recent) or the active WebView.
 struct WebviewPaneContentView: View {
     @Bindable var controller: WebviewPaneController
 
+    private var isNewTabPage: Bool {
+        controller.url == nil || controller.url?.scheme == "about"
+    }
+
     var body: some View {
         VStack(spacing: 0) {
-            if controller.pages.count > 1 {
-                WebviewTabBar(controller: controller)
-                Divider()
-            }
-
             if controller.showNavigation {
                 WebviewNavigationBar(controller: controller)
                 Divider()
             }
 
-            if let activePage = controller.activePage {
-                WebView(activePage)
+            if isNewTabPage {
+                WebviewNewTabView { url in
+                    controller.navigate(to: url.absoluteString)
+                }
             } else {
-                placeholder
+                WebView(controller.page)
             }
         }
-    }
-
-    private var placeholder: some View {
-        Color.clear
-            .overlay {
-                Text("No page loaded")
-                    .font(.system(size: 12))
-                    .foregroundStyle(.secondary)
+        .onChange(of: controller.isLoading) { wasLoading, isLoading in
+            if wasLoading && !isLoading {
+                controller.recordCurrentPage()
             }
+        }
     }
 }

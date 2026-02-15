@@ -58,27 +58,4 @@ final class WebviewNavigationDeciderTests: XCTestCase {
         XCTAssertFalse(WebviewNavigationDecider.allowedSchemes.contains(""))
     }
 
-    // MARK: - Instance Callback
-
-    @MainActor
-    func test_onNewTabRequested_defaultsToNil() {
-        let decider = WebviewNavigationDecider()
-        XCTAssertNil(decider.onNewTabRequested)
-    }
-
-    @MainActor
-    func test_onNewTabRequested_canBeSet() {
-        // Arrange
-        let decider = WebviewNavigationDecider()
-        var receivedURL: URL?
-
-        // Act
-        decider.onNewTabRequested = { url in
-            receivedURL = url
-        }
-        decider.onNewTabRequested?(URL(string: "https://example.com")!)
-
-        // Assert
-        XCTAssertEqual(receivedURL?.absoluteString, "https://example.com")
-    }
 }

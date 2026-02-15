@@ -21,7 +21,7 @@ final class PaneContentWiringTests: XCTestCase {
 
         XCTAssertEqual(pane.title, "Web")
         if case .webview(let state) = pane.content {
-            XCTAssertEqual(state.activeTab?.url.absoluteString, "https://example.com")
+            XCTAssertEqual(state.url.absoluteString, "https://example.com")
             XCTAssertTrue(state.showNavigation)
         } else {
             XCTFail("Expected .webview content")
@@ -111,7 +111,7 @@ final class PaneContentWiringTests: XCTestCase {
         XCTAssertNotNil(restored)
         XCTAssertEqual(restored?.title, "Persist Web")
         if case .webview(let state) = restored?.content {
-            XCTAssertEqual(state.activeTab?.url.absoluteString, "https://round-trip.com")
+            XCTAssertEqual(state.url.absoluteString, "https://round-trip.com")
             XCTAssertFalse(state.showNavigation)
         } else {
             XCTFail("Expected .webview content after restore, got \(String(describing: restored?.content))")
@@ -205,11 +205,9 @@ final class PaneContentWiringTests: XCTestCase {
             metadata: PaneMetadata(source: .floating(workingDirectory: nil, title: nil), title: "Web")
         )
         let newState = WebviewState(
-            tabs: [
-                WebviewTabState(url: URL(string: "https://new.com")!, title: "New"),
-                WebviewTabState(url: URL(string: "https://other.com")!, title: "Other"),
-            ],
-            activeTabIndex: 1
+            url: URL(string: "https://new.com")!,
+            title: "New",
+            showNavigation: false
         )
 
         // Act
@@ -218,9 +216,9 @@ final class PaneContentWiringTests: XCTestCase {
         // Assert
         let updated = store.pane(pane.id)
         if case .webview(let state) = updated?.content {
-            XCTAssertEqual(state.tabs.count, 2)
-            XCTAssertEqual(state.activeTabIndex, 1)
-            XCTAssertEqual(state.tabs[0].url.absoluteString, "https://new.com")
+            XCTAssertEqual(state.url.absoluteString, "https://new.com")
+            XCTAssertEqual(state.title, "New")
+            XCTAssertFalse(state.showNavigation)
         } else {
             XCTFail("Expected .webview content after update")
         }
