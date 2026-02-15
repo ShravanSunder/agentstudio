@@ -348,4 +348,77 @@ final class PaneContentTests: XCTestCase {
         let tab = WebviewTabState(url: URL(string: "https://example.com")!)
         XCTAssertEqual(tab.title, "")
     }
+
+    // MARK: - Legacy WebviewState Decoding
+
+    func test_decode_legacyWebviewState_singleURL() throws {
+        // Arrange — old shape: {url, showNavigation}
+        let json: [String: Any] = [
+            "url": "https://example.com",
+            "showNavigation": true
+        ]
+        let data = try JSONSerialization.data(withJSONObject: json)
+
+        // Act
+        let state = try decoder.decode(WebviewState.self, from: data)
+
+        // Assert — wrapped into single-tab array
+        XCTAssertEqual(state.tabs.count, 1)
+        XCTAssertEqual(state.tabs[0].url.absoluteString, "https://example.com")
+        XCTAssertEqual(state.activeTabIndex, 0)
+        XCTAssertTrue(state.showNavigation)
+    }
+
+    func test_decode_legacyWebviewState_noNavigation() throws {
+        let json: [String: Any] = [
+            "url": "https://example.com",
+            "showNavigation": false
+        ]
+        let data = try JSONSerialization.data(withJSONObject: json)
+
+        let state = try decoder.decode(WebviewState.self, from: data)
+
+        XCTAssertFalse(state.showNavigation)
+    }
+
+    func test_decode_legacyWebviewState_viaFullPaneContent() throws {
+        // Arrange — full PaneContent envelope with legacy webview shape
+        let json: [String: Any] = [
+            "type": "webview",
+            "version": 1,
+            "state": [
+                "url": "https://github.com",
+                "showNavigation": true
+            ]
+        ]
+        let data = try JSONSerialization.data(withJSONObject: json)
+
+        // Act
+        let content = try decoder.decode(PaneContent.self, from: data)
+
+        // Assert
+        if case .webview(let state) = content {
+            XCTAssertEqual(state.tabs.count, 1)
+            XCTAssertEqual(state.activeTab?.url.absoluteString, "https://github.com")
+        } else {
+            XCTFail("Expected .webview, got \(content)")
+        }
+    }
+
+    func test_decode_newWebviewState_stillWorks() throws {
+        // Ensure the new shape still decodes correctly after adding custom init(from:)
+        let state = WebviewState(
+            tabs: [
+                WebviewTabState(url: URL(string: "https://a.com")!, title: "A"),
+                WebviewTabState(url: URL(string: "https://b.com")!, title: "B"),
+            ],
+            activeTabIndex: 1,
+            showNavigation: false
+        )
+
+        let data = try encoder.encode(state)
+        let decoded = try decoder.decode(WebviewState.self, from: data)
+
+        XCTAssertEqual(decoded, state)
+    }
 }

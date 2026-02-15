@@ -203,6 +203,43 @@ struct WebviewState: Codable, Hashable {
         guard activeTabIndex >= 0, activeTabIndex < tabs.count else { return nil }
         return tabs[activeTabIndex]
     }
+
+    // MARK: - Backward-Compatible Decoding
+
+    /// Decodes both the current multi-tab shape and the legacy single-URL shape
+    /// (`{url: URL, showNavigation: Bool}`). The legacy shape is wrapped into a
+    /// single-tab array so existing persisted workspaces restore correctly.
+    init(from decoder: Decoder) throws {
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+
+        if let tabs = try? container.decode([WebviewTabState].self, forKey: .tabs) {
+            // Current shape
+            self.tabs = tabs
+            self.activeTabIndex = try container.decode(Int.self, forKey: .activeTabIndex)
+        } else if let url = try? container.decode(URL.self, forKey: .legacyURL) {
+            // Legacy shape: { url: URL, showNavigation: Bool }
+            self.tabs = [WebviewTabState(url: url)]
+            self.activeTabIndex = 0
+        } else {
+            throw DecodingError.dataCorrupted(
+                DecodingError.Context(codingPath: decoder.codingPath,
+                                      debugDescription: "WebviewState: missing both 'tabs' and 'url'")
+            )
+        }
+        self.showNavigation = try container.decodeIfPresent(Bool.self, forKey: .showNavigation) ?? true
+    }
+
+    func encode(to encoder: Encoder) throws {
+        var container = encoder.container(keyedBy: CodingKeys.self)
+        try container.encode(tabs, forKey: .tabs)
+        try container.encode(activeTabIndex, forKey: .activeTabIndex)
+        try container.encode(showNavigation, forKey: .showNavigation)
+    }
+
+    private enum CodingKeys: String, CodingKey {
+        case tabs, activeTabIndex, showNavigation
+        case legacyURL = "url"
+    }
 }
 
 // MARK: - Code Viewer State (future)

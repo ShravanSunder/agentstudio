@@ -310,6 +310,13 @@ final class WorkspaceStore: ObservableObject {
         markDirty()
     }
 
+    /// Sync webview state without marking dirty — used by prePersistHook to avoid
+    /// a save-loop (persistNow → hook → markDirty → schedules another persistNow).
+    func syncPaneWebviewState(_ paneId: UUID, state: WebviewState) {
+        guard panes[paneId] != nil else { return }
+        panes[paneId]!.content = .webview(state)
+    }
+
     func setResidency(_ residency: SessionResidency, for paneId: UUID) {
         guard panes[paneId] != nil else {
             storeLogger.warning("setResidency: pane \(paneId) not found")
