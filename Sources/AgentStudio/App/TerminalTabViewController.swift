@@ -404,7 +404,7 @@ class TerminalTabViewController: NSViewController, CommandHandler {
             onSaveNew: { [weak self] in
                 guard let self, let tabId = self.store.activeTabId,
                       let currentTab = self.store.tab(tabId) else { return }
-                let name = "Arrangement \(currentTab.arrangements.count)"
+                let name = Self.nextArrangementName(existing: currentTab.arrangements)
                 self.dispatchAction(.createArrangement(
                     tabId: tabId, name: name, paneIds: Set(currentTab.paneIds)
                 ))
@@ -413,6 +413,7 @@ class TerminalTabViewController: NSViewController, CommandHandler {
             onDelete: { [weak self] arrangementId in
                 guard let self, let tabId = self.store.activeTabId else { return }
                 self.dispatchAction(.removeArrangement(tabId: tabId, arrangementId: arrangementId))
+                self.hideArrangementBar()
             },
             onRename: { [weak self] arrangementId in
                 // TODO: Name input flow — placeholder for future task
@@ -673,6 +674,17 @@ class TerminalTabViewController: NSViewController, CommandHandler {
             )
         case .newFloatingTerminal:
             action = nil
+        case .switchArrangement, .deleteArrangement, .renameArrangement:
+            // These need target selection — open the arrangement bar
+            toggleArrangementBar()
+            action = nil
+        case .saveArrangement:
+            // Direct action — save current layout as a new arrangement
+            guard let tab = store.tab(tabId) else { return }
+            let name = Self.nextArrangementName(existing: tab.arrangements)
+            action = .createArrangement(
+                tabId: tabId, name: name, paneIds: Set(tab.paneIds)
+            )
         default:
             action = nil
         }
@@ -912,6 +924,18 @@ class TerminalTabViewController: NSViewController, CommandHandler {
         }
     }
 
+    // MARK: - Arrangement Naming
+
+    /// Generate a unique arrangement name by finding the next unused index.
+    static func nextArrangementName(existing: [PaneArrangement]) -> String {
+        let existingNames = Set(existing.map(\.name))
+        var index = existing.count
+        while existingNames.contains("Arrangement \(index)") {
+            index += 1
+        }
+        return "Arrangement \(index)"
+    }
+
     // MARK: - CommandHandler Conformance
 
     func execute(_ command: AppCommand) {
@@ -957,11 +981,19 @@ class TerminalTabViewController: NSViewController, CommandHandler {
                   let activeDrawerPaneId = drawer.activeDrawerPaneId else { break }
             dispatchAction(.removeDrawerPane(parentPaneId: paneId, drawerPaneId: activeDrawerPaneId))
 
+        case .saveArrangement:
+            guard let tabId = store.activeTabId,
+                  let tab = store.tab(tabId) else { break }
+            let name = Self.nextArrangementName(existing: tab.arrangements)
+            dispatchAction(.createArrangement(
+                tabId: tabId, name: name, paneIds: Set(tab.paneIds)
+            ))
+
         case .newTerminalInTab, .newFloatingTerminal,
              .removeRepo, .refreshWorktrees,
              .toggleSidebar, .quickFind, .commandBar,
              .openNewTerminalInTab,
-             .switchArrangement, .saveArrangement, .deleteArrangement, .renameArrangement,
+             .switchArrangement, .deleteArrangement, .renameArrangement,
              .navigateDrawerPane:
             break // Handled via drill-in (target selection in command bar)
         default:

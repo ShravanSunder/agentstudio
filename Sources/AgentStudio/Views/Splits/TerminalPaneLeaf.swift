@@ -103,17 +103,7 @@ struct TerminalPaneLeaf: View {
                     .transition(.opacity)
                 }
 
-                // Drawer overlay (bottom of pane)
-                DrawerOverlay(
-                    paneId: paneView.id,
-                    drawer: drawer,
-                    isIconBarVisible: isBottomHovered || (drawer?.isExpanded ?? false),
-                    drawerPaneView: resolvedDrawerPaneView,
-                    action: action,
-                    tabWidth: tabWidth
-                )
-
-                // Bottom hover detection zone
+                // Bottom hover detection zone (behind drawer so it doesn't block drawer controls)
                 VStack {
                     Spacer()
                     Color.clear
@@ -124,6 +114,16 @@ struct TerminalPaneLeaf: View {
                         }
                 }
                 .allowsHitTesting(true)
+
+                // Drawer overlay (bottom of pane, on top of hover zone)
+                DrawerOverlay(
+                    paneId: paneView.id,
+                    drawer: drawer,
+                    isIconBarVisible: isBottomHovered || (drawer?.isExpanded ?? false),
+                    drawerPaneView: resolvedDrawerPaneView,
+                    action: action,
+                    tabWidth: tabWidth
+                )
             }
             .contentShape(Rectangle())
             .onHover { isHovered = $0 }
