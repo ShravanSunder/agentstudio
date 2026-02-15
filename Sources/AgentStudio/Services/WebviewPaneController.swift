@@ -75,6 +75,11 @@ final class WebviewPaneController {
         page.stopLoading()
     }
 
+    /// Navigate to the new tab page (about:blank).
+    func goHome() {
+        _ = page.load(URL(string: "about:blank")!)
+    }
+
     /// Navigate to a URL string. Auto-prepends https:// for scheme-less input.
     func navigate(to urlString: String) {
         let normalized = Self.normalizeURLString(urlString)

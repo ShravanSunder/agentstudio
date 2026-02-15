@@ -438,7 +438,7 @@ class TerminalTabViewController: NSViewController, CommandHandler {
                     isManagementModeActive: ManagementModeMonitor.shared.isActive
                 )
                 let payload = SplitDropPayload(kind: .existingTab(
-                    tabId: draggingTabId, worktreeId: UUID(), repoId: UUID(), title: ""
+                    tabId: draggingTabId
                 ))
                 guard let action = ActionResolver.resolveDrop(
                     payload: payload,
@@ -582,17 +582,8 @@ class TerminalTabViewController: NSViewController, CommandHandler {
     // MARK: - Drag Payload
 
     private func createDragPayload(for tabId: UUID) -> TabDragPayload? {
-        guard let tab = store.tab(tabId) else { return nil }
-        // Get worktree/repo from first pane in the tab
-        let firstPaneId = tab.paneIds.first
-        let pane = firstPaneId.flatMap { store.pane($0) }
-        guard let worktreeId = pane?.worktreeId,
-              let repoId = pane?.repoId else {
-            // Cannot create drag payload for floating panes (no worktree context)
-            return nil
-        }
-        let title = pane?.title ?? "Terminal"
-        return TabDragPayload(tabId: tabId, worktreeId: worktreeId, repoId: repoId, title: title)
+        guard store.tab(tabId) != nil else { return nil }
+        return TabDragPayload(tabId: tabId)
     }
 
     // MARK: - Process Termination
