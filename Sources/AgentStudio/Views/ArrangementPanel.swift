@@ -9,6 +9,9 @@ struct ArrangementPanel: View {
     let onPaneAction: (PaneAction) -> Void
     let onSaveArrangement: () -> Void
 
+    @State private var renamingArrangementId: UUID?
+    @State private var renameText: String = ""
+
     var body: some View {
         VStack(alignment: .leading, spacing: 8) {
             // MARK: - Pane list
@@ -60,6 +63,21 @@ struct ArrangementPanel: View {
         }
         .padding(10)
         .frame(minWidth: 180, maxWidth: 260)
+        .alert("Rename Arrangement", isPresented: Binding(
+            get: { renamingArrangementId != nil },
+            set: { if !$0 { renamingArrangementId = nil } }
+        )) {
+            TextField("Name", text: $renameText)
+            Button("Rename") {
+                if let id = renamingArrangementId, !renameText.isEmpty {
+                    onPaneAction(.renameArrangement(tabId: tabId, arrangementId: id, name: renameText))
+                }
+                renamingArrangementId = nil
+            }
+            Button("Cancel", role: .cancel) {
+                renamingArrangementId = nil
+            }
+        }
     }
 
     // MARK: - Pane Row
@@ -123,7 +141,8 @@ struct ArrangementPanel: View {
             .contextMenu {
                 if !arr.isDefault {
                     Button("Rename...") {
-                        onPaneAction(.renameArrangement(tabId: tabId, arrangementId: arr.id, name: arr.name))
+                        renameText = arr.name
+                        renamingArrangementId = arr.id
                     }
                     Button("Delete", role: .destructive) {
                         onPaneAction(.removeArrangement(tabId: tabId, arrangementId: arr.id))

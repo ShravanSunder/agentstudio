@@ -11,7 +11,7 @@ struct DrawerPanelOverlay: View {
     let tabSize: CGSize
     let action: (PaneAction) -> Void
 
-    @AppStorage("drawerHeightRatio") private var heightRatio: Double = 0.75
+    @AppStorage("drawerHeightRatio") private var heightRatio: Double = 0.80
 
     /// Height of the DrawerIconBar (8px trapezoid + ~32px icon strip).
     /// Matches DrawerIconBar layout: TrapezoidConnector(8) + padded HStack(~32).
@@ -22,7 +22,7 @@ struct DrawerPanelOverlay: View {
     private var expandedPaneInfo: (paneId: UUID, frame: CGRect, drawer: Drawer)? {
         for (paneId, frame) in paneFrames {
             if let drawer = store.pane(paneId)?.drawer,
-               drawer.isExpanded, !drawer.paneIds.isEmpty {
+               drawer.isExpanded {
                 return (paneId, frame, drawer)
             }
         }
@@ -33,9 +33,8 @@ struct DrawerPanelOverlay: View {
         // Read viewRevision so @Observable tracks it — triggers re-render after repair
         let _ = store.viewRevision
 
-        if let info = expandedPaneInfo,
-           let drawerTree = viewRegistry.renderTree(for: info.drawer.layout),
-           tabSize.width > 0 {
+        if let info = expandedPaneInfo, tabSize.width > 0 {
+            let drawerTree = viewRegistry.renderTree(for: info.drawer.layout)
             let paneWidth = info.frame.width
             let panelWidth = max(paneWidth, min(paneWidth * 2, tabSize.width * 0.8))
             let panelHeight = max(100, min(tabSize.height * CGFloat(heightRatio), tabSize.height - 60))
@@ -52,7 +51,7 @@ struct DrawerPanelOverlay: View {
 
             VStack(spacing: 0) {
                 DrawerPanel(
-                    tree: drawerTree,
+                    tree: drawerTree ?? PaneSplitTree(),
                     parentPaneId: info.paneId,
                     tabId: tabId,
                     activePaneId: info.drawer.activePaneId,
@@ -61,7 +60,7 @@ struct DrawerPanelOverlay: View {
                     store: store,
                     action: action,
                     onResize: { delta in
-                        let newRatio = min(0.9, max(0.2, heightRatio + Double(delta / tabSize.height)))
+                        let newRatio = min(0.8, max(0.2, heightRatio + Double(delta / tabSize.height)))
                         heightRatio = newRatio
                     },
                     onDismiss: {

@@ -59,33 +59,49 @@ struct TerminalPaneLeaf: View {
                         .animation(.easeInOut(duration: 0.15), value: isHovered)
                 }
 
-                // Drag handle (center, edit mode + hover + no active drop on this pane)
+                // Drag handle: compact centered pill (edit mode + hover + no active drop).
                 // Drawer children cannot be dragged out of their drawer.
+                // The Color.clear fills the ZStack for centering; allowsHitTesting(false)
+                // ensures only the capsule itself intercepts mouse events.
                 if managementMode.isActive && isSplit && !isDrawerChild && isHovered && !isTargeted,
                    let tv = terminalView,
                    let worktree = tv.worktree,
                    let repo = tv.repo {
-                    VStack {
-                        Spacer()
+                    ZStack {
+                        Color.clear
+                            .allowsHitTesting(false)
                         ZStack {
-                            RoundedRectangle(cornerRadius: 8)
-                                .fill(Color.black.opacity(0.2))
+                            RoundedRectangle(cornerRadius: 12)
+                                .fill(.ultraThinMaterial)
+                                .shadow(color: .black.opacity(0.25), radius: 4, y: 2)
                             Image(systemName: "arrow.up.and.down.and.arrow.left.and.right")
                                 .font(.system(size: 16, weight: .medium))
-                                .foregroundStyle(.white.opacity(0.5))
+                                .foregroundStyle(.white.opacity(0.6))
                         }
-                        .frame(maxWidth: .infinity)
-                        .frame(height: geometry.size.height * 0.28)
-                        .contentShape(Rectangle())
+                        .frame(
+                            width: max(60, geometry.size.width * 0.2),
+                            height: max(60 * 1.6, geometry.size.width * 0.2 * 1.6)
+                        )
+                        .contentShape(RoundedRectangle(cornerRadius: 12))
                         .draggable(PaneDragPayload(
                             paneId: tv.id,
                             tabId: tabId,
                             worktreeId: worktree.id,
                             repoId: repo.id
-                        ))
-                        Spacer()
+                        )) {
+                            // Solid drag preview — .ultraThinMaterial renders as
+                            // concentric circles when captured without a background.
+                            ZStack {
+                                RoundedRectangle(cornerRadius: 12)
+                                    .fill(Color(.windowBackgroundColor).opacity(0.8))
+                                Image(systemName: "arrow.up.and.down.and.arrow.left.and.right")
+                                    .font(.system(size: 16, weight: .medium))
+                                    .foregroundStyle(.secondary)
+                            }
+                            .frame(width: max(60, geometry.size.width * 0.2),
+                                   height: max(96, geometry.size.width * 0.2 * 1.6))
+                        }
                     }
-                    .allowsHitTesting(true)
                 }
 
                 // Drop zone overlay

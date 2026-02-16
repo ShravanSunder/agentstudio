@@ -18,7 +18,7 @@ struct Drawer: Codable, Hashable {
         paneIds: [UUID] = [],
         layout: Layout = Layout(),
         activePaneId: UUID? = nil,
-        isExpanded: Bool = true,
+        isExpanded: Bool = false,
         minimizedPaneIds: Set<UUID> = []
     ) {
         self.paneIds = paneIds

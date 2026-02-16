@@ -13,17 +13,11 @@ struct DrawerOverlay: View {
         VStack(spacing: 0) {
             Spacer()
 
-            if let drawer, !drawer.paneIds.isEmpty, isIconBarVisible || drawer.isExpanded {
-                // Drawer has panes — show toggle/add bar
-                DrawerIconBar(
-                    isExpanded: drawer.isExpanded,
-                    onAdd: { addDrawerPane() },
-                    onToggleExpand: { action(.toggleDrawer(paneId: paneId)) }
-                )
-            } else {
-                // Empty drawer: slim bar with [+] button
-                EmptyDrawerBar(onAdd: addDrawerPane)
-            }
+            DrawerIconBar(
+                isExpanded: drawer?.isExpanded ?? false,
+                onAdd: { addDrawerPane() },
+                onToggleExpand: { action(.toggleDrawer(paneId: paneId)) }
+            )
         }
     }
 

@@ -332,4 +332,26 @@ final class PaneTests: XCTestCase {
         }
         XCTAssertNil(pane.drawer)
     }
+
+    // MARK: - Drawer Default State
+
+    func test_drawer_defaultInit_isCollapsed() {
+        // Assert — Drawer() defaults to isExpanded: false
+        let drawer = Drawer()
+        XCTAssertFalse(drawer.isExpanded)
+        XCTAssertTrue(drawer.paneIds.isEmpty)
+    }
+
+    func test_pane_defaultKind_hasCollapsedDrawer() {
+        // Arrange — default Pane init uses .layout(drawer: Drawer())
+        let pane = Pane(
+            content: .terminal(TerminalState(provider: .ghostty, lifetime: .temporary)),
+            metadata: PaneMetadata(source: .floating(workingDirectory: nil, title: nil))
+        )
+
+        // Assert
+        XCTAssertNotNil(pane.drawer)
+        XCTAssertFalse(pane.drawer!.isExpanded)
+        XCTAssertTrue(pane.drawer!.paneIds.isEmpty)
+    }
 }

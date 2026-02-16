@@ -883,6 +883,7 @@ class TerminalTabViewController: NSViewController, CommandHandler {
         switch command {
         case .toggleEditMode:
             ManagementModeMonitor.shared.toggle()
+            store.collapseAllDrawers()
 
         case .addRepo:
             NotificationCenter.default.post(name: .addRepoRequested, object: nil)

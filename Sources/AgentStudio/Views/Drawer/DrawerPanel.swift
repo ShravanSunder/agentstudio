@@ -100,11 +100,36 @@ struct DrawerPanel: View {
                     store: store
                 )
             } else {
-                ContentUnavailableView(
-                    "No Content",
-                    systemImage: "rectangle.bottomhalf.inset.filled",
-                    description: Text("Select a drawer pane")
-                )
+                VStack(spacing: 12) {
+                    Spacer()
+                    Button {
+                        let content = PaneContent.terminal(
+                            TerminalState(provider: .ghostty, lifetime: .temporary)
+                        )
+                        let metadata = PaneMetadata(
+                            source: .floating(workingDirectory: nil, title: nil),
+                            title: "Drawer"
+                        )
+                        action(.addDrawerPane(parentPaneId: parentPaneId, content: content, metadata: metadata))
+                    } label: {
+                        Image(systemName: "plus")
+                            .font(.system(size: 24, weight: .medium))
+                            .foregroundStyle(.secondary)
+                            .frame(width: 48, height: 48)
+                            .background(
+                                RoundedRectangle(cornerRadius: 10)
+                                    .fill(Color.white.opacity(0.08))
+                            )
+                    }
+                    .buttonStyle(.plain)
+                    .help("Add a drawer terminal")
+
+                    Text("Add a drawer terminal")
+                        .font(.system(size: 11))
+                        .foregroundStyle(.tertiary)
+                    Spacer()
+                }
+                .frame(maxWidth: .infinity)
             }
         }
         .frame(height: height)

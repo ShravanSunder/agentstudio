@@ -182,15 +182,42 @@ final class WorkspaceStoreDrawerTests: XCTestCase {
         XCTAssertTrue(store.pane(pane.id)!.drawer!.isExpanded)
     }
 
-    func test_toggleDrawer_emptyDrawer_noOp() {
+    func test_toggleDrawer_emptyDrawer_expandsAndCollapses() {
+        // Arrange
         let pane = store.createPane(source: .floating(workingDirectory: nil, title: nil))
+        XCTAssertFalse(store.pane(pane.id)!.drawer!.isExpanded)
 
-        // Should not crash — empty drawer cannot be toggled
+        // Act — expand empty drawer
         store.toggleDrawer(for: pane.id)
 
-        // Drawer still exists but empty
-        XCTAssertNotNil(store.pane(pane.id)!.drawer)
+        // Assert — expanded even though empty
+        XCTAssertTrue(store.pane(pane.id)!.drawer!.isExpanded)
         XCTAssertTrue(store.pane(pane.id)!.drawer!.paneIds.isEmpty)
+
+        // Act — collapse again
+        store.toggleDrawer(for: pane.id)
+
+        // Assert
+        XCTAssertFalse(store.pane(pane.id)!.drawer!.isExpanded)
+    }
+
+    func test_toggleDrawer_emptyDrawer_collapsesOtherDrawers() {
+        // Arrange — two panes, expand one drawer
+        let pane1 = store.createPane(source: .floating(workingDirectory: nil, title: nil))
+        let pane2 = store.createPane(source: .floating(workingDirectory: nil, title: nil))
+        _ = store.addDrawerPane(
+            to: pane1.id,
+            content: .terminal(TerminalState(provider: .ghostty, lifetime: .temporary)),
+            metadata: PaneMetadata(source: .floating(workingDirectory: nil, title: nil))
+        )
+        // pane1 drawer is expanded (addDrawerPane sets isExpanded = true)
+
+        // Act — toggle empty pane2 drawer (should collapse pane1's drawer)
+        store.toggleDrawer(for: pane2.id)
+
+        // Assert
+        XCTAssertTrue(store.pane(pane2.id)!.drawer!.isExpanded)
+        XCTAssertFalse(store.pane(pane1.id)!.drawer!.isExpanded)
     }
 
     // MARK: - setActiveDrawerPane
@@ -288,6 +315,52 @@ final class WorkspaceStoreDrawerTests: XCTestCase {
     }
 
     // MARK: - minimizeDrawerPane / expandDrawerPane
+
+    func test_minimizeDrawerPane_returnsTrue_onSuccess() {
+        // Arrange
+        let pane = store.createPane(source: .floating(workingDirectory: nil, title: nil))
+        let dp1 = store.addDrawerPane(
+            to: pane.id,
+            content: .terminal(TerminalState(provider: .ghostty, lifetime: .temporary)),
+            metadata: PaneMetadata(source: .floating(workingDirectory: nil, title: nil), title: "First")
+        )!
+        _ = store.addDrawerPane(
+            to: pane.id,
+            content: .terminal(TerminalState(provider: .ghostty, lifetime: .temporary)),
+            metadata: PaneMetadata(source: .floating(workingDirectory: nil, title: nil), title: "Second")
+        )
+
+        // Act
+        let result = store.minimizeDrawerPane(dp1.id, in: pane.id)
+
+        // Assert
+        XCTAssertTrue(result)
+    }
+
+    func test_minimizeDrawerPane_returnsFalse_lastVisiblePane() {
+        // Arrange — single drawer pane
+        let pane = store.createPane(source: .floating(workingDirectory: nil, title: nil))
+        let dp = store.addDrawerPane(
+            to: pane.id,
+            content: .terminal(TerminalState(provider: .ghostty, lifetime: .temporary)),
+            metadata: PaneMetadata(source: .floating(workingDirectory: nil, title: nil))
+        )!
+
+        // Act
+        let result = store.minimizeDrawerPane(dp.id, in: pane.id)
+
+        // Assert
+        XCTAssertFalse(result)
+        XCTAssertFalse(store.pane(pane.id)!.drawer!.minimizedPaneIds.contains(dp.id))
+    }
+
+    func test_minimizeDrawerPane_returnsFalse_invalidPaneId() {
+        // Act
+        let result = store.minimizeDrawerPane(UUID(), in: UUID())
+
+        // Assert
+        XCTAssertFalse(result)
+    }
 
     func test_minimizeDrawerPane_addsToMinimizedSet() {
         // Arrange
@@ -443,6 +516,40 @@ final class WorkspaceStoreDrawerTests: XCTestCase {
         // Assert — mutation should not have been called (drawer children have no drawer)
         XCTAssertFalse(mutationCalled, "withDrawer should be a no-op on drawer child panes")
         XCTAssertNil(drawerChild.drawer, "Drawer child should not have a drawer")
+    }
+
+    // MARK: - collapseAllDrawers
+
+    func test_collapseAllDrawers_collapsesExpandedDrawers() {
+        // Arrange — two panes with expanded drawers
+        let pane1 = store.createPane(source: .floating(workingDirectory: nil, title: nil))
+        let pane2 = store.createPane(source: .floating(workingDirectory: nil, title: nil))
+        _ = store.addDrawerPane(
+            to: pane1.id,
+            content: .terminal(TerminalState(provider: .ghostty, lifetime: .temporary)),
+            metadata: PaneMetadata(source: .floating(workingDirectory: nil, title: nil))
+        )
+        store.toggleDrawer(for: pane2.id) // expand empty drawer
+        XCTAssertTrue(store.pane(pane2.id)!.drawer!.isExpanded)
+
+        // Act
+        store.collapseAllDrawers()
+
+        // Assert
+        XCTAssertFalse(store.pane(pane1.id)!.drawer!.isExpanded)
+        XCTAssertFalse(store.pane(pane2.id)!.drawer!.isExpanded)
+    }
+
+    func test_collapseAllDrawers_noOp_whenNoneExpanded() {
+        // Arrange — pane with collapsed drawer
+        let pane = store.createPane(source: .floating(workingDirectory: nil, title: nil))
+        XCTAssertFalse(store.pane(pane.id)!.drawer!.isExpanded)
+
+        // Act — should not crash
+        store.collapseAllDrawers()
+
+        // Assert
+        XCTAssertFalse(store.pane(pane.id)!.drawer!.isExpanded)
     }
 
     // MARK: - Persistence

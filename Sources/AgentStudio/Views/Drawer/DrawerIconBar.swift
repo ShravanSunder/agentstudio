@@ -46,9 +46,8 @@ struct DrawerIconBar: View {
             HStack(spacing: 2) {
                 // Expand/collapse toggle (left)
                 Button(action: onToggleExpand) {
-                    Image(systemName: isExpanded ? "sidebar.bottom" : "sidebar.bottom")
-                        .symbolVariant(isExpanded ? .fill : .none)
-                        .font(.system(size: 11, weight: .medium))
+                    Image(systemName: "rectangle.bottomhalf.filled")
+                        .font(.system(size: 12, weight: .medium))
                         .frame(width: 28, height: 28)
                         .contentShape(Rectangle())
                 }
@@ -56,7 +55,7 @@ struct DrawerIconBar: View {
                 .foregroundStyle(isExpanded ? .primary : (isToggleHovered ? .primary : .secondary))
                 .background(
                     RoundedRectangle(cornerRadius: 4)
-                        .fill(isExpanded ? Color.white.opacity(0.15) : (isToggleHovered ? Color.white.opacity(0.08) : Color.clear))
+                        .fill(isExpanded ? Color.white.opacity(0.15) : (isToggleHovered ? Color.white.opacity(0.08) : Color.white.opacity(0.04)))
                 )
                 .onHover { hovering in
                     withAnimation(.easeInOut(duration: 0.12)) {

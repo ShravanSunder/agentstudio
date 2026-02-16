@@ -701,11 +701,11 @@ final class WorkspaceStore {
     }
 
     /// Toggle the expanded/collapsed state of a pane's drawer.
+    /// Works even when the drawer has no panes (shows empty state).
     func toggleDrawer(for paneId: UUID) {
         guard panes[paneId] != nil,
-              panes[paneId]!.drawer != nil,
-              !panes[paneId]!.drawer!.paneIds.isEmpty else {
-            storeLogger.warning("toggleDrawer: pane \(paneId) has no drawer or drawer is empty")
+              panes[paneId]!.drawer != nil else {
+            storeLogger.warning("toggleDrawer: pane \(paneId) has no drawer")
             return
         }
 
@@ -723,6 +723,18 @@ final class WorkspaceStore {
 
         panes[paneId]!.withDrawer { $0.isExpanded = willExpand }
         markDirty()
+    }
+
+    /// Collapse all expanded drawers across all panes.
+    func collapseAllDrawers() {
+        var changed = false
+        for paneId in panes.keys {
+            if panes[paneId]?.drawer?.isExpanded == true {
+                panes[paneId]!.withDrawer { $0.isExpanded = false }
+                changed = true
+            }
+        }
+        if changed { markDirty() }
     }
 
     /// Set the active drawer pane within a pane's drawer.
