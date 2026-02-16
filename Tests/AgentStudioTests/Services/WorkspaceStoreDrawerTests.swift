@@ -227,6 +227,224 @@ final class WorkspaceStoreDrawerTests: XCTestCase {
         XCTAssertEqual(store.pane(pane.id)!.drawer!.activePaneId, dp.id)
     }
 
+    // MARK: - resizeDrawerPane
+
+    func test_resizeDrawerPane_updatesLayout() {
+        // Arrange
+        let pane = store.createPane(source: .floating(workingDirectory: nil, title: nil))
+        let dp1 = store.addDrawerPane(
+            to: pane.id,
+            content: .terminal(TerminalState(provider: .ghostty, lifetime: .temporary)),
+            metadata: PaneMetadata(source: .floating(workingDirectory: nil, title: nil), title: "First")
+        )!
+        let dp2 = store.addDrawerPane(
+            to: pane.id,
+            content: .terminal(TerminalState(provider: .ghostty, lifetime: .temporary)),
+            metadata: PaneMetadata(source: .floating(workingDirectory: nil, title: nil), title: "Second")
+        )!
+
+        // Find the split ID
+        let drawer = store.pane(pane.id)!.drawer!
+        guard case .split(let split) = drawer.layout.root else {
+            XCTFail("Expected split layout with 2 drawer panes")
+            return
+        }
+
+        // Act
+        store.resizeDrawerPane(parentPaneId: pane.id, splitId: split.id, ratio: 0.7)
+
+        // Assert
+        let updated = store.pane(pane.id)!.drawer!
+        XCTAssertEqual(updated.layout.ratioForSplit(split.id) ?? 0, 0.7, accuracy: 0.01)
+    }
+
+    func test_equalizeDrawerPanes_resetsRatios() {
+        // Arrange
+        let pane = store.createPane(source: .floating(workingDirectory: nil, title: nil))
+        _ = store.addDrawerPane(
+            to: pane.id,
+            content: .terminal(TerminalState(provider: .ghostty, lifetime: .temporary)),
+            metadata: PaneMetadata(source: .floating(workingDirectory: nil, title: nil), title: "First")
+        )
+        _ = store.addDrawerPane(
+            to: pane.id,
+            content: .terminal(TerminalState(provider: .ghostty, lifetime: .temporary)),
+            metadata: PaneMetadata(source: .floating(workingDirectory: nil, title: nil), title: "Second")
+        )
+
+        let drawer = store.pane(pane.id)!.drawer!
+        guard case .split(let split) = drawer.layout.root else {
+            XCTFail("Expected split layout")
+            return
+        }
+        store.resizeDrawerPane(parentPaneId: pane.id, splitId: split.id, ratio: 0.8)
+
+        // Act
+        store.equalizeDrawerPanes(parentPaneId: pane.id)
+
+        // Assert
+        let updated = store.pane(pane.id)!.drawer!
+        XCTAssertEqual(updated.layout.ratioForSplit(split.id) ?? 0, 0.5, accuracy: 0.01)
+    }
+
+    // MARK: - minimizeDrawerPane / expandDrawerPane
+
+    func test_minimizeDrawerPane_addsToMinimizedSet() {
+        // Arrange
+        let pane = store.createPane(source: .floating(workingDirectory: nil, title: nil))
+        let dp1 = store.addDrawerPane(
+            to: pane.id,
+            content: .terminal(TerminalState(provider: .ghostty, lifetime: .temporary)),
+            metadata: PaneMetadata(source: .floating(workingDirectory: nil, title: nil), title: "First")
+        )!
+        let dp2 = store.addDrawerPane(
+            to: pane.id,
+            content: .terminal(TerminalState(provider: .ghostty, lifetime: .temporary)),
+            metadata: PaneMetadata(source: .floating(workingDirectory: nil, title: nil), title: "Second")
+        )!
+
+        // Act
+        store.minimizeDrawerPane(dp1.id, in: pane.id)
+
+        // Assert
+        let drawer = store.pane(pane.id)!.drawer!
+        XCTAssertTrue(drawer.minimizedPaneIds.contains(dp1.id))
+        XCTAssertFalse(drawer.minimizedPaneIds.contains(dp2.id))
+    }
+
+    func test_minimizeDrawerPane_lastVisible_noOp() {
+        // Arrange — single drawer pane
+        let pane = store.createPane(source: .floating(workingDirectory: nil, title: nil))
+        let dp = store.addDrawerPane(
+            to: pane.id,
+            content: .terminal(TerminalState(provider: .ghostty, lifetime: .temporary)),
+            metadata: PaneMetadata(source: .floating(workingDirectory: nil, title: nil))
+        )!
+
+        // Act — attempt to minimize the only pane
+        store.minimizeDrawerPane(dp.id, in: pane.id)
+
+        // Assert — should not be minimized (last visible pane)
+        XCTAssertFalse(store.pane(pane.id)!.drawer!.minimizedPaneIds.contains(dp.id))
+    }
+
+    func test_minimizeDrawerPane_switchesActiveIfMinimized() {
+        // Arrange
+        let pane = store.createPane(source: .floating(workingDirectory: nil, title: nil))
+        let dp1 = store.addDrawerPane(
+            to: pane.id,
+            content: .terminal(TerminalState(provider: .ghostty, lifetime: .temporary)),
+            metadata: PaneMetadata(source: .floating(workingDirectory: nil, title: nil), title: "First")
+        )!
+        let dp2 = store.addDrawerPane(
+            to: pane.id,
+            content: .terminal(TerminalState(provider: .ghostty, lifetime: .temporary)),
+            metadata: PaneMetadata(source: .floating(workingDirectory: nil, title: nil), title: "Second")
+        )!
+        // dp2 is active (last added)
+
+        // Act — minimize the active pane
+        store.minimizeDrawerPane(dp2.id, in: pane.id)
+
+        // Assert — active should switch to dp1
+        XCTAssertEqual(store.pane(pane.id)!.drawer!.activePaneId, dp1.id)
+    }
+
+    func test_expandDrawerPane_removesFromMinimizedSet() {
+        // Arrange
+        let pane = store.createPane(source: .floating(workingDirectory: nil, title: nil))
+        let dp1 = store.addDrawerPane(
+            to: pane.id,
+            content: .terminal(TerminalState(provider: .ghostty, lifetime: .temporary)),
+            metadata: PaneMetadata(source: .floating(workingDirectory: nil, title: nil), title: "First")
+        )!
+        _ = store.addDrawerPane(
+            to: pane.id,
+            content: .terminal(TerminalState(provider: .ghostty, lifetime: .temporary)),
+            metadata: PaneMetadata(source: .floating(workingDirectory: nil, title: nil), title: "Second")
+        )
+        store.minimizeDrawerPane(dp1.id, in: pane.id)
+        XCTAssertTrue(store.pane(pane.id)!.drawer!.minimizedPaneIds.contains(dp1.id))
+
+        // Act
+        store.expandDrawerPane(dp1.id, in: pane.id)
+
+        // Assert
+        XCTAssertFalse(store.pane(pane.id)!.drawer!.minimizedPaneIds.contains(dp1.id))
+    }
+
+    // MARK: - Cascade Deletion
+
+    func test_removePane_cascadeDeletesDrawerChildren() {
+        // Arrange — parent pane with 2 drawer children
+        let pane = store.createPane(source: .floating(workingDirectory: nil, title: nil))
+        let dp1 = store.addDrawerPane(
+            to: pane.id,
+            content: .terminal(TerminalState(provider: .ghostty, lifetime: .temporary)),
+            metadata: PaneMetadata(source: .floating(workingDirectory: nil, title: nil), title: "Child 1")
+        )!
+        let dp2 = store.addDrawerPane(
+            to: pane.id,
+            content: .terminal(TerminalState(provider: .ghostty, lifetime: .temporary)),
+            metadata: PaneMetadata(source: .floating(workingDirectory: nil, title: nil), title: "Child 2")
+        )!
+
+        // Precondition: all 3 panes exist
+        XCTAssertNotNil(store.pane(pane.id))
+        XCTAssertNotNil(store.pane(dp1.id))
+        XCTAssertNotNil(store.pane(dp2.id))
+
+        // Act — remove the parent pane
+        store.removePane(pane.id)
+
+        // Assert — parent and both drawer children should be gone
+        XCTAssertNil(store.pane(pane.id), "Parent pane should be removed")
+        XCTAssertNil(store.pane(dp1.id), "Drawer child 1 should be cascade-deleted")
+        XCTAssertNil(store.pane(dp2.id), "Drawer child 2 should be cascade-deleted")
+    }
+
+    func test_removeLastDrawerPane_preservesIsExpanded() {
+        // Arrange — collapsed drawer with one pane
+        let pane = store.createPane(source: .floating(workingDirectory: nil, title: nil))
+        let dp = store.addDrawerPane(
+            to: pane.id,
+            content: .terminal(TerminalState(provider: .ghostty, lifetime: .temporary)),
+            metadata: PaneMetadata(source: .floating(workingDirectory: nil, title: nil))
+        )!
+        // Collapse the drawer
+        store.toggleDrawer(for: pane.id)
+        XCTAssertFalse(store.pane(pane.id)!.drawer!.isExpanded)
+
+        // Act — remove the last drawer pane
+        store.removeDrawerPane(dp.id, from: pane.id)
+
+        // Assert — isExpanded should be preserved (still false)
+        let drawer = store.pane(pane.id)!.drawer!
+        XCTAssertTrue(drawer.paneIds.isEmpty, "Drawer should be empty")
+        XCTAssertFalse(drawer.isExpanded, "isExpanded should be preserved as false after last pane removed")
+    }
+
+    func test_withDrawer_drawerChildPane_noOp() {
+        // Arrange — create a drawer child pane
+        let pane = store.createPane(source: .floating(workingDirectory: nil, title: nil))
+        let dp = store.addDrawerPane(
+            to: pane.id,
+            content: .terminal(TerminalState(provider: .ghostty, lifetime: .temporary)),
+            metadata: PaneMetadata(source: .floating(workingDirectory: nil, title: nil))
+        )!
+
+        // Act — try to mutate drawer on a drawer child (should be no-op)
+        var drawerChild = store.pane(dp.id)!
+        var mutationCalled = false
+        drawerChild.withDrawer { _ in
+            mutationCalled = true
+        }
+
+        // Assert — mutation should not have been called (drawer children have no drawer)
+        XCTAssertFalse(mutationCalled, "withDrawer should be a no-op on drawer child panes")
+        XCTAssertNil(drawerChild.drawer, "Drawer child should not have a drawer")
+    }
+
     // MARK: - Persistence
 
     func test_drawer_persistsAndRestores() throws {

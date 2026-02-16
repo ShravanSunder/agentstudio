@@ -20,7 +20,13 @@ struct TerminalPaneLeaf: View {
     @State private var isHovered: Bool = false
     @ObservedObject private var managementMode = ManagementModeMonitor.shared
 
+    /// Whether this pane is a drawer child (no drag, no drop, no sub-drawer).
+    private var isDrawerChild: Bool {
+        store.pane(paneView.id)?.isDrawerChild ?? false
+    }
+
     /// Drawer state derived from store via @Observable tracking.
+    /// Only layout panes have drawers; drawer children return nil.
     private var drawer: Drawer? {
         store.pane(paneView.id)?.drawer
     }
@@ -53,8 +59,9 @@ struct TerminalPaneLeaf: View {
                         .animation(.easeInOut(duration: 0.15), value: isHovered)
                 }
 
-                // Drag zone (center, edit mode only, terminal panes with worktree context)
-                if managementMode.isActive && isSplit,
+                // Drag zone (center, edit mode only, layout panes with worktree context)
+                // Drawer children cannot be dragged out of their drawer.
+                if managementMode.isActive && isSplit && !isDrawerChild,
                    let tv = terminalView,
                    let worktree = tv.worktree,
                    let repo = tv.repo {
@@ -121,8 +128,9 @@ struct TerminalPaneLeaf: View {
                     .transition(.opacity)
                 }
 
-                // Quarter-moon split button (top-right, edit mode + hover)
-                if managementMode.isActive && isHovered {
+                // Quarter-moon split button (top-right, edit mode + hover, layout panes only)
+                // Drawer children use the icon bar [+] button to add panes.
+                if managementMode.isActive && isHovered && !isDrawerChild {
                     VStack {
                         HStack {
                             Spacer()
@@ -158,13 +166,15 @@ struct TerminalPaneLeaf: View {
                     .transition(.opacity)
                 }
 
-                // Drawer icon bar (bottom of pane, always visible)
-                DrawerOverlay(
-                    paneId: paneView.id,
-                    drawer: drawer,
-                    isIconBarVisible: true,
-                    action: action
-                )
+                // Drawer icon bar (bottom of pane, layout panes only — no nested drawers)
+                if !isDrawerChild {
+                    DrawerOverlay(
+                        paneId: paneView.id,
+                        drawer: drawer,
+                        isIconBarVisible: true,
+                        action: action
+                    )
+                }
             }
             .contentShape(Rectangle())
             .onHover { isHovered = $0 }
@@ -191,10 +201,16 @@ struct TerminalPaneLeaf: View {
         .padding(2)
         .background(
             GeometryReader { geo in
-                Color.clear.preference(
-                    key: PaneFramePreferenceKey.self,
-                    value: [paneView.id: geo.frame(in: .named("tabContainer"))]
-                )
+                // Report pane frame for tab-level overlay positioning (layout panes only).
+                // Drawer children are inside the drawer panel, not in the tab coordinate space.
+                if !isDrawerChild {
+                    Color.clear.preference(
+                        key: PaneFramePreferenceKey.self,
+                        value: [paneView.id: geo.frame(in: .named("tabContainer"))]
+                    )
+                } else {
+                    Color.clear
+                }
             }
         )
     }

@@ -14,8 +14,8 @@ final class ActionExecutor {
     private let viewRegistry: ViewRegistry
     private let coordinator: TerminalViewCoordinator
 
-    /// In-memory undo stack for close snapshots.
-    private(set) var undoStack: [WorkspaceStore.CloseSnapshot] = []
+    /// Unified undo stack — holds both tab and pane close entries, chronologically ordered.
+    private(set) var undoStack: [WorkspaceStore.CloseEntry] = []
 
     /// Maximum undo stack entries before oldest are garbage-collected.
     private let maxUndoStackSize = 10
@@ -76,14 +76,34 @@ final class ActionExecutor {
         return pane
     }
 
-    /// Undo the last close operation.
+    /// Undo the last close operation (tab or pane).
     func undoCloseTab() {
-        guard let snapshot = undoStack.popLast() else {
-            executorLogger.info("No tabs to restore from undo stack")
-            return
-        }
+        while let entry = undoStack.popLast() {
+            switch entry {
+            case .tab(let snapshot):
+                undoTabClose(snapshot)
+                return
 
-        // Restore tab + panes in store
+            case .pane(let snapshot):
+                // Skip if the target tab no longer exists
+                guard store.tab(snapshot.tabId) != nil else {
+                    executorLogger.info("undoClose: tab \(snapshot.tabId) gone — skipping pane entry")
+                    continue
+                }
+                // For drawer children: skip if parent pane no longer exists
+                if snapshot.pane.isDrawerChild, let parentId = snapshot.anchorPaneId,
+                   store.pane(parentId) == nil {
+                    executorLogger.info("undoClose: parent pane \(parentId) gone — skipping drawer child entry")
+                    continue
+                }
+                undoPaneClose(snapshot)
+                return
+            }
+        }
+        executorLogger.info("No entries to restore from undo stack")
+    }
+
+    private func undoTabClose(_ snapshot: WorkspaceStore.TabCloseSnapshot) {
         store.restoreFromSnapshot(snapshot)
 
         // Restore views via coordinator — iterate in reverse to match the LIFO
@@ -99,6 +119,21 @@ final class ActionExecutor {
             }
             coordinator.restoreView(for: pane, worktree: worktree, repo: repo)
         }
+    }
+
+    private func undoPaneClose(_ snapshot: WorkspaceStore.PaneCloseSnapshot) {
+        store.restoreFromPaneSnapshot(snapshot)
+
+        // Restore views for the pane and its drawer children
+        let allPanes = [snapshot.pane] + snapshot.drawerChildPanes
+        for pane in allPanes {
+            if viewRegistry.view(for: pane.id) == nil {
+                coordinator.createViewForContent(pane: pane)
+            }
+        }
+
+        // Switch to the tab containing the restored pane
+        store.setActiveTab(snapshot.tabId)
     }
 
     // MARK: - PaneAction Execution
@@ -152,8 +187,9 @@ final class ActionExecutor {
             store.moveTabByDelta(tabId: tabId, delta: delta)
 
         case .minimizePane(let tabId, let paneId):
-            coordinator.detachForViewSwitch(paneId: paneId)
-            store.minimizePane(paneId, inTab: tabId)
+            if store.minimizePane(paneId, inTab: tabId) {
+                coordinator.detachForViewSwitch(paneId: paneId)
+            }
 
         case .expandPane(let tabId, let paneId):
             store.expandPane(paneId, inTab: tabId)
@@ -246,6 +282,20 @@ final class ActionExecutor {
         case .setActiveDrawerPane(let parentPaneId, let drawerPaneId):
             store.setActiveDrawerPane(drawerPaneId, in: parentPaneId)
 
+        case .resizeDrawerPane(let parentPaneId, let splitId, let ratio):
+            store.resizeDrawerPane(parentPaneId: parentPaneId, splitId: splitId, ratio: ratio)
+
+        case .equalizeDrawerPanes(let parentPaneId):
+            store.equalizeDrawerPanes(parentPaneId: parentPaneId)
+
+        case .minimizeDrawerPane(let parentPaneId, let drawerPaneId):
+            coordinator.detachForViewSwitch(paneId: drawerPaneId)
+            store.minimizeDrawerPane(drawerPaneId, in: parentPaneId)
+
+        case .expandDrawerPane(let parentPaneId, let drawerPaneId):
+            store.expandDrawerPane(drawerPaneId, in: parentPaneId)
+            coordinator.reattachForViewSwitch(paneId: drawerPaneId)
+
         case .expireUndoEntry(let paneId):
             // TODO: Phase 3 — remove pane from store, kill zmx, destroy surface
             executorLogger.warning("expireUndoEntry: \(paneId) — stub, full impl in Phase 3")
@@ -260,7 +310,7 @@ final class ActionExecutor {
     private func executeCloseTab(_ tabId: UUID) {
         // Snapshot for undo before closing
         if let snapshot = store.snapshotForClose(tabId: tabId) {
-            undoStack.append(snapshot)
+            undoStack.append(.tab(snapshot))
         }
 
         // Teardown views for all panes in this tab (including drawer panes)
@@ -281,11 +331,27 @@ final class ActionExecutor {
     private func expireOldUndoEntries() {
         while undoStack.count > maxUndoStackSize {
             let expired = undoStack.removeFirst()
-            // Remove panes that are not owned by any tab (across all arrangements).
-            // Use tab.panes (ownership list) instead of tab.paneIds (active arrangement only)
-            // to avoid GC'ing panes hidden in non-active arrangements.
-            let allOwnedPaneIds = Set(store.tabs.flatMap(\.panes))
-            for pane in expired.panes where !allOwnedPaneIds.contains(pane.id) {
+
+            // Collect all pane IDs currently owned (layout + drawer children)
+            let allOwnedPaneIds = Set(store.tabs.flatMap { tab in
+                tab.panes.flatMap { paneId -> [UUID] in
+                    var ids = [paneId]
+                    if let drawer = store.pane(paneId)?.drawer {
+                        ids.append(contentsOf: drawer.paneIds)
+                    }
+                    return ids
+                }
+            })
+
+            // Extract panes from the expired entry
+            let expiredPanes: [Pane]
+            switch expired {
+            case .tab(let s): expiredPanes = s.panes
+            case .pane(let s): expiredPanes = [s.pane] + s.drawerChildPanes
+            }
+
+            for pane in expiredPanes where !allOwnedPaneIds.contains(pane.id) {
+                coordinator.teardownView(for: pane.id)
                 store.removePane(pane.id)
                 executorLogger.debug("GC'd orphaned pane \(pane.id) from expired undo entry")
             }
@@ -300,13 +366,34 @@ final class ActionExecutor {
     }
 
     private func executeClosePane(tabId: UUID, paneId: UUID) {
+        // Check if this is the last pane — escalation rule:
+        // closing the last pane escalates to tab close (only tab entry, no pane entry).
+        if let tab = store.tab(tabId), tab.paneIds.count <= 1 {
+            executeCloseTab(tabId)
+            return
+        }
+
+        // Snapshot before teardown for pane-level undo
+        if let snapshot = store.snapshotForPaneClose(paneId: paneId, inTab: tabId) {
+            undoStack.append(.pane(snapshot))
+        }
+
+        // Teardown drawer panes first, then the pane itself
         teardownDrawerPanes(for: paneId)
         coordinator.teardownView(for: paneId)
         let tabNowEmpty = store.removePaneFromLayout(paneId, inTab: tabId)
 
         if tabNowEmpty {
-            // Last pane removed — escalate to close tab (with undo support)
+            // Shouldn't reach here due to escalation above, but handle defensively
             executeCloseTab(tabId)
+            return
+        }
+
+        // Remove drawer children from store
+        if let pane = store.pane(paneId), let drawer = pane.drawer {
+            for drawerPaneId in drawer.paneIds {
+                store.removePane(drawerPaneId)
+            }
         }
 
         // If the pane is no longer owned by any tab, remove it from the store.
@@ -314,6 +401,9 @@ final class ActionExecutor {
         if !allOwnedPaneIds.contains(paneId) {
             store.removePane(paneId)
         }
+
+        // GC oldest undo entries
+        expireOldUndoEntries()
     }
 
     private func executeInsertPane(

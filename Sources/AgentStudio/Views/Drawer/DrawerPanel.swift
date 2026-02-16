@@ -38,28 +38,67 @@ struct DrawerResizeHandle: View {
 // MARK: - DrawerPanel
 
 /// Floating drawer panel that overlays pane content.
-/// Shows the active drawer pane's content in a rectangular panel
+/// Renders the drawer's split tree (via SplitSubtreeView) in a rectangular panel
 /// with a resize handle at the top and material background.
 ///
-/// Follows the same callback-driven pattern as `ArrangementBar`:
-/// the parent owns the state and this view is a pure render + action relay.
+/// Translates tab-level PaneActions dispatched by SplitSubtreeView/TerminalPaneLeaf
+/// into drawer-specific actions (resize, minimize, close, focus, equalize).
 struct DrawerPanel: View {
-    let drawerPaneView: PaneView?
+    let tree: PaneSplitTree
+    let parentPaneId: UUID
+    let tabId: UUID
+    let activePaneId: UUID?
+    let minimizedPaneIds: Set<UUID>
     let height: CGFloat
+    let store: WorkspaceStore
+    let action: (PaneAction) -> Void
     let onResize: (CGFloat) -> Void
     let onDismiss: () -> Void
+
+    /// Translates tab-level actions into drawer-specific actions.
+    /// SplitSubtreeView and TerminalPaneLeaf dispatch actions using tabId,
+    /// but in the drawer context these need to be routed to drawer operations.
+    private var drawerAction: (PaneAction) -> Void {
+        { paneAction in
+            switch paneAction {
+            case .resizePane(_, let splitId, let ratio):
+                action(.resizeDrawerPane(parentPaneId: parentPaneId, splitId: splitId, ratio: ratio))
+            case .equalizePanes:
+                action(.equalizeDrawerPanes(parentPaneId: parentPaneId))
+            case .minimizePane(_, let paneId):
+                action(.minimizeDrawerPane(parentPaneId: parentPaneId, drawerPaneId: paneId))
+            case .expandPane(_, let paneId):
+                action(.expandDrawerPane(parentPaneId: parentPaneId, drawerPaneId: paneId))
+            case .closePane(_, let paneId):
+                action(.removeDrawerPane(parentPaneId: parentPaneId, drawerPaneId: paneId))
+            case .focusPane(_, let paneId):
+                action(.setActiveDrawerPane(parentPaneId: parentPaneId, drawerPaneId: paneId))
+            default:
+                // Pass through any other actions (e.g., toggleDrawer)
+                action(paneAction)
+            }
+        }
+    }
 
     var body: some View {
         VStack(spacing: 0) {
             // Resize handle at top
             DrawerResizeHandle(onDrag: onResize)
 
-            // Drawer pane content
-            if let paneView = drawerPaneView {
-                // Reuse the existing PaneViewRepresentable which correctly
-                // bridges via swiftUIContainer for IOSurface stability.
-                PaneViewRepresentable(paneView: paneView)
-                    .frame(maxWidth: .infinity, maxHeight: .infinity)
+            // Drawer split tree content
+            if let node = tree.root {
+                SplitSubtreeView(
+                    node: node,
+                    tabId: tabId,
+                    isSplit: tree.isSplit,
+                    activePaneId: activePaneId,
+                    minimizedPaneIds: minimizedPaneIds,
+                    action: drawerAction,
+                    onPersist: nil,
+                    shouldAcceptDrop: { _, _ in false },
+                    onDrop: { _, _, _ in },
+                    store: store
+                )
             } else {
                 ContentUnavailableView(
                     "No Content",
@@ -86,8 +125,14 @@ struct DrawerPanel_Previews: PreviewProvider {
         VStack {
             Spacer()
             DrawerPanel(
-                drawerPaneView: nil,
+                tree: PaneSplitTree(),
+                parentPaneId: UUID(),
+                tabId: UUID(),
+                activePaneId: nil,
+                minimizedPaneIds: [],
                 height: 200,
+                store: WorkspaceStore(persistor: WorkspacePersistor(workspacesDir: FileManager.default.temporaryDirectory)),
+                action: { _ in },
                 onResize: { _ in },
                 onDismiss: {}
             )

@@ -395,9 +395,9 @@ final class CommandDispatcher: ObservableObject {
             // Edit mode
             CommandDefinition(
                 command: .toggleEditMode,
-                keyBinding: KeyBinding(key: "a", modifiers: [.command, .option]),
+                keyBinding: KeyBinding(key: "e", modifiers: [.command]),
                 label: "Toggle Edit Mode",
-                icon: "slider.horizontal.3"
+                icon: "rectangle.split.2x2"
             ),
 
             // Workspace commands

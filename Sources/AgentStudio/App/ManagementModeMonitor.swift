@@ -3,7 +3,7 @@ import Combine
 
 /// Manages edit mode — a toggle that reveals close buttons, drag handles,
 /// arrangement bar, and management borders on panes.
-/// Toggled via Cmd+Opt+A (command pipeline) or the tab bar button.
+/// Toggled via Cmd+E (command pipeline) or the toolbar button.
 /// Escape key deactivates when active.
 @MainActor
 final class ManagementModeMonitor: ObservableObject {

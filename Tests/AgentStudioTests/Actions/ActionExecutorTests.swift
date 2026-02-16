@@ -80,7 +80,11 @@ final class ActionExecutorTests: XCTestCase {
 
         // Assert
         XCTAssertEqual(executor.undoStack.count, 1)
-        XCTAssertEqual(executor.undoStack[0].tab.id, tab.id)
+        if case .tab(let snapshot) = executor.undoStack[0] {
+            XCTAssertEqual(snapshot.tab.id, tab.id)
+        } else {
+            XCTFail("Expected .tab entry")
+        }
     }
 
     func test_execute_closeTab_multipleCloses_stacksUndo() {
@@ -98,8 +102,16 @@ final class ActionExecutorTests: XCTestCase {
 
         // Assert
         XCTAssertEqual(executor.undoStack.count, 2)
-        XCTAssertEqual(executor.undoStack[0].tab.id, tab1.id)
-        XCTAssertEqual(executor.undoStack[1].tab.id, tab2.id)
+        if case .tab(let s1) = executor.undoStack[0] {
+            XCTAssertEqual(s1.tab.id, tab1.id)
+        } else {
+            XCTFail("Expected .tab entry at index 0")
+        }
+        if case .tab(let s2) = executor.undoStack[1] {
+            XCTAssertEqual(s2.tab.id, tab2.id)
+        } else {
+            XCTFail("Expected .tab entry at index 1")
+        }
     }
 
     // MARK: - Undo Close Tab

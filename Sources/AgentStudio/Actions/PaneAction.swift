@@ -110,6 +110,14 @@ enum PaneAction: Equatable, Hashable {
     case toggleDrawer(paneId: UUID)
     /// Switch the active drawer pane.
     case setActiveDrawerPane(parentPaneId: UUID, drawerPaneId: UUID)
+    /// Resize a split within a drawer's layout.
+    case resizeDrawerPane(parentPaneId: UUID, splitId: UUID, ratio: Double)
+    /// Equalize all splits within a drawer's layout.
+    case equalizeDrawerPanes(parentPaneId: UUID)
+    /// Minimize a pane within a drawer.
+    case minimizeDrawerPane(parentPaneId: UUID, drawerPaneId: UUID)
+    /// Expand a minimized pane within a drawer.
+    case expandDrawerPane(parentPaneId: UUID, drawerPaneId: UUID)
 
     // System actions — dispatched by Reconciler and undo timers, not by user input.
 

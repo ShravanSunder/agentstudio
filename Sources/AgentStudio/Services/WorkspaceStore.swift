@@ -248,6 +248,14 @@ final class WorkspaceStore {
     }
 
     func removePane(_ paneId: UUID) {
+        // Cascade-delete drawer children before removing the parent.
+        // Prevents orphaned drawer child panes with dangling parentPaneId references.
+        if let drawer = panes[paneId]?.drawer {
+            for childId in drawer.paneIds {
+                panes.removeValue(forKey: childId)
+            }
+        }
+
         panes.removeValue(forKey: paneId)
 
         // Remove from all tab layouts
@@ -674,9 +682,10 @@ final class WorkspaceStore {
             }
         }
 
-        // Reset drawer to empty state if no panes left
+        // Reset drawer to empty state if no panes left, preserving isExpanded.
         if panes[parentPaneId]!.drawer!.paneIds.isEmpty {
-            panes[parentPaneId]!.kind = .layout(drawer: Drawer())
+            let wasExpanded = panes[parentPaneId]!.drawer!.isExpanded
+            panes[parentPaneId]!.kind = .layout(drawer: Drawer(isExpanded: wasExpanded))
         }
 
         // Remove the drawer pane from the store
@@ -723,6 +732,58 @@ final class WorkspaceStore {
         markDirty()
     }
 
+    /// Resize a split within a drawer's layout.
+    func resizeDrawerPane(parentPaneId: UUID, splitId: UUID, ratio: Double) {
+        guard panes[parentPaneId] != nil,
+              panes[parentPaneId]!.drawer != nil else { return }
+        panes[parentPaneId]!.withDrawer { drawer in
+            drawer.layout = drawer.layout.resizing(splitId: splitId, ratio: ratio)
+        }
+        markDirty()
+    }
+
+    /// Equalize all splits within a drawer's layout.
+    func equalizeDrawerPanes(parentPaneId: UUID) {
+        guard panes[parentPaneId] != nil,
+              panes[parentPaneId]!.drawer != nil else { return }
+        panes[parentPaneId]!.withDrawer { drawer in
+            drawer.layout = drawer.layout.equalized()
+        }
+        markDirty()
+    }
+
+    /// Minimize a pane within a drawer (add to minimizedPaneIds).
+    func minimizeDrawerPane(_ drawerPaneId: UUID, in parentPaneId: UUID) {
+        guard panes[parentPaneId] != nil,
+              let drawer = panes[parentPaneId]!.drawer,
+              drawer.paneIds.contains(drawerPaneId) else { return }
+
+        // Cannot minimize the last non-minimized pane
+        let nonMinimized = drawer.paneIds.filter { !drawer.minimizedPaneIds.contains($0) }
+        guard nonMinimized.count > 1 else {
+            storeLogger.warning("minimizeDrawerPane: cannot minimize last visible drawer pane")
+            return
+        }
+
+        panes[parentPaneId]!.withDrawer { drawer in
+            drawer.minimizedPaneIds.insert(drawerPaneId)
+            // If minimized pane was active, switch to next non-minimized
+            if drawer.activePaneId == drawerPaneId {
+                drawer.activePaneId = drawer.paneIds.first { !drawer.minimizedPaneIds.contains($0) }
+            }
+        }
+    }
+
+    /// Expand a minimized pane within a drawer (remove from minimizedPaneIds).
+    func expandDrawerPane(_ drawerPaneId: UUID, in parentPaneId: UUID) {
+        guard panes[parentPaneId] != nil,
+              panes[parentPaneId]!.drawer?.minimizedPaneIds.contains(drawerPaneId) == true else { return }
+
+        panes[parentPaneId]!.withDrawer { drawer in
+            drawer.minimizedPaneIds.remove(drawerPaneId)
+        }
+    }
+
     // MARK: - Zoom
 
     func toggleZoom(paneId: UUID, inTab tabId: UUID) {
@@ -739,17 +800,18 @@ final class WorkspaceStore {
 
     /// Minimize a pane — collapse it to a narrow bar in the UI.
     /// Cannot minimize the last non-minimized pane in the active arrangement.
-    func minimizePane(_ paneId: UUID, inTab tabId: UUID) {
-        guard let tabIndex = findTabIndex(tabId) else { return }
+    @discardableResult
+    func minimizePane(_ paneId: UUID, inTab tabId: UUID) -> Bool {
+        guard let tabIndex = findTabIndex(tabId) else { return false }
         let visiblePaneIds = tabs[tabIndex].paneIds
         let nonMinimized = visiblePaneIds.filter { !tabs[tabIndex].minimizedPaneIds.contains($0) }
         guard nonMinimized.count > 1 else {
             storeLogger.warning("minimizePane: cannot minimize last visible pane \(paneId)")
-            return
+            return false
         }
         guard visiblePaneIds.contains(paneId) else {
             storeLogger.warning("minimizePane: pane \(paneId) not in active arrangement")
-            return
+            return false
         }
 
         tabs[tabIndex].minimizedPaneIds.insert(paneId)
@@ -765,6 +827,7 @@ final class WorkspaceStore {
         }
 
         markDirty()
+        return true
     }
 
     /// Expand a minimized pane — restore it from the collapsed bar.
@@ -1097,25 +1160,93 @@ final class WorkspaceStore {
 
     // MARK: - Undo
 
-    /// Snapshot for undo close. Captures tab + panes.
-    struct CloseSnapshot: Codable {
+    /// Unified undo entry for both tab-level and pane-level close.
+    enum CloseEntry {
+        case tab(TabCloseSnapshot)
+        case pane(PaneCloseSnapshot)
+    }
+
+    /// Snapshot for undoing a tab close. Captures all panes including drawer children.
+    struct TabCloseSnapshot {
         let tab: Tab
+        /// All panes: layout panes + their drawer children.
         let panes: [Pane]
         let tabIndex: Int
     }
 
-    func snapshotForClose(tabId: UUID) -> CloseSnapshot? {
+    /// Snapshot for undoing a single pane close (layout pane or drawer child).
+    struct PaneCloseSnapshot {
+        /// The pane that was closed.
+        let pane: Pane
+        /// Drawer child panes (non-empty only if closed pane was a layout pane with drawer children).
+        let drawerChildPanes: [Pane]
+        /// Tab the pane belonged to (for layout panes) or tab containing the parent pane (for drawer children).
+        let tabId: UUID
+        /// For layout panes: a neighbor pane ID used as insertion anchor on restore.
+        /// For drawer children: the parent layout pane ID.
+        /// Nil only if the pane was the sole pane in its container.
+        let anchorPaneId: UUID?
+        /// Split direction for re-insertion (layout panes only).
+        let direction: Layout.SplitDirection
+    }
+
+    // Legacy alias for tests that reference the old name
+    typealias CloseSnapshot = TabCloseSnapshot
+
+    func snapshotForClose(tabId: UUID) -> TabCloseSnapshot? {
         guard let tabIndex = findTabIndex(tabId) else { return nil }
         let tab = tabs[tabIndex]
-        let tabPanes = tab.panes.compactMap { pane($0) }
-        return CloseSnapshot(
-            tab: tab,
-            panes: tabPanes,
-            tabIndex: tabIndex
+        var allPanes: [Pane] = []
+        for paneId in tab.panes {
+            guard let layoutPane = pane(paneId) else { continue }
+            allPanes.append(layoutPane)
+            // Drawer children are separate store entries — capture explicitly
+            if let drawer = layoutPane.drawer {
+                for drawerPaneId in drawer.paneIds {
+                    if let drawerPane = self.pane(drawerPaneId) {
+                        allPanes.append(drawerPane)
+                    }
+                }
+            }
+        }
+        return TabCloseSnapshot(tab: tab, panes: allPanes, tabIndex: tabIndex)
+    }
+
+    /// Snapshot a single pane for undo. Captures the pane, its drawer children (if layout pane),
+    /// and enough context to re-insert it on restore.
+    func snapshotForPaneClose(paneId: UUID, inTab tabId: UUID) -> PaneCloseSnapshot? {
+        guard let closedPane = pane(paneId), let tab = tab(tabId) else { return nil }
+
+        var drawerChildPanes: [Pane] = []
+        if let drawer = closedPane.drawer {
+            drawerChildPanes = drawer.paneIds.compactMap { pane($0) }
+        }
+
+        // Find anchor pane for re-insertion
+        let anchorPaneId: UUID?
+        let direction: Layout.SplitDirection
+
+        if closedPane.isDrawerChild {
+            // Drawer child: anchor is the parent pane
+            anchorPaneId = closedPane.parentPaneId
+            direction = .horizontal
+        } else {
+            // Layout pane: find a neighbor in the tab's layout
+            let layoutPaneIds = tab.paneIds.filter { $0 != paneId }
+            anchorPaneId = layoutPaneIds.first
+            direction = .horizontal
+        }
+
+        return PaneCloseSnapshot(
+            pane: closedPane,
+            drawerChildPanes: drawerChildPanes,
+            tabId: tabId,
+            anchorPaneId: anchorPaneId,
+            direction: direction
         )
     }
 
-    func restoreFromSnapshot(_ snapshot: CloseSnapshot) {
+    func restoreFromSnapshot(_ snapshot: TabCloseSnapshot) {
         // Re-add panes that were removed
         for pane in snapshot.panes {
             if panes[pane.id] == nil {
@@ -1127,6 +1258,51 @@ final class WorkspaceStore {
         let insertIndex = min(snapshot.tabIndex, tabs.count)
         tabs.insert(snapshot.tab, at: insertIndex)
         activeTabId = snapshot.tab.id
+
+        markDirty()
+    }
+
+    func restoreFromPaneSnapshot(_ snapshot: PaneCloseSnapshot) {
+        // Re-add pane to store
+        panes[snapshot.pane.id] = snapshot.pane
+
+        // Re-add drawer children to store
+        for child in snapshot.drawerChildPanes {
+            panes[child.id] = child
+        }
+
+        // Re-insert into layout
+        if snapshot.pane.isDrawerChild {
+            // Drawer child: re-add to parent's drawer
+            if let parentId = snapshot.anchorPaneId {
+                panes[parentId]?.withDrawer { drawer in
+                    drawer.paneIds.append(snapshot.pane.id)
+                    if let existingLeaf = drawer.layout.paneIds.last {
+                        drawer.layout = drawer.layout.inserting(
+                            paneId: snapshot.pane.id, at: existingLeaf,
+                            direction: .horizontal, position: .after
+                        )
+                    } else {
+                        drawer.layout = Layout(paneId: snapshot.pane.id)
+                    }
+                    drawer.activePaneId = snapshot.pane.id
+                    drawer.isExpanded = true
+                }
+            }
+        } else {
+            // Layout pane: re-insert into tab layout
+            if let anchor = snapshot.anchorPaneId {
+                insertPane(
+                    snapshot.pane.id, inTab: snapshot.tabId,
+                    at: anchor, direction: snapshot.direction, position: .after
+                )
+            }
+        }
+
+        // Focus restored pane
+        if !snapshot.pane.isDrawerChild {
+            setActivePane(snapshot.pane.id, inTab: snapshot.tabId)
+        }
 
         markDirty()
     }

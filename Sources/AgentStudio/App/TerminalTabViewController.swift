@@ -197,12 +197,13 @@ class TerminalTabViewController: NSViewController, CommandHandler {
             object: nil
         )
 
-        // Cmd+Opt+A for edit mode — handled via command pipeline (key event monitor)
+        // Cmd+E for edit mode — handled via command pipeline (key event monitor)
         arrangementBarEventMonitor = NSEvent.addLocalMonitorForEvents(matching: .keyDown) { [weak self] event in
             guard let self else { return event }
-            // Cmd+Opt+A toggles edit mode
-            if event.modifierFlags.contains([.command, .option]),
-               event.charactersIgnoringModifiers == "a" {
+            // Cmd+E toggles edit mode (negative modifier check: only bare Cmd+E)
+            if event.modifierFlags.contains([.command]),
+               !event.modifierFlags.contains([.shift, .option, .control]),
+               event.charactersIgnoringModifiers == "e" {
                 CommandDispatcher.shared.dispatch(.toggleEditMode)
                 return nil
             }

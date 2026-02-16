@@ -6,6 +6,7 @@ import SwiftUI
 struct DrawerPanelOverlay: View {
     let store: WorkspaceStore
     let viewRegistry: ViewRegistry
+    let tabId: UUID
     let paneFrames: [UUID: CGRect]
     let tabSize: CGSize
     let action: (PaneAction) -> Void
@@ -30,15 +31,13 @@ struct DrawerPanelOverlay: View {
 
     var body: some View {
         if let info = expandedPaneInfo,
-           let activeDrawerPaneId = info.drawer.activePaneId,
+           let drawerTree = viewRegistry.renderTree(for: info.drawer.layout),
            tabSize.width > 0 {
             let paneWidth = info.frame.width
             let panelWidth = max(paneWidth, min(paneWidth * 2, tabSize.width * 0.8))
             let panelHeight = max(100, min(tabSize.height * CGFloat(heightRatio), tabSize.height - 60))
             let trapHeight: CGFloat = 12
             let totalHeight = panelHeight + trapHeight
-
-            let drawerPaneView = viewRegistry.view(for: activeDrawerPaneId)
 
             // Bottom of overlay trapezoid aligns with top of pane's icon bar
             let overlayBottomY = info.frame.maxY - Self.iconBarHeight
@@ -50,8 +49,14 @@ struct DrawerPanelOverlay: View {
 
             VStack(spacing: 0) {
                 DrawerPanel(
-                    drawerPaneView: drawerPaneView,
+                    tree: drawerTree,
+                    parentPaneId: info.paneId,
+                    tabId: tabId,
+                    activePaneId: info.drawer.activePaneId,
+                    minimizedPaneIds: info.drawer.minimizedPaneIds,
                     height: panelHeight,
+                    store: store,
+                    action: action,
                     onResize: { delta in
                         let newRatio = min(0.9, max(0.2, heightRatio + Double(delta / tabSize.height)))
                         heightRatio = newRatio

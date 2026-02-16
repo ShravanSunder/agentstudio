@@ -89,6 +89,7 @@ struct TerminalSplitContainer: View {
                 DrawerPanelOverlay(
                     store: store,
                     viewRegistry: viewRegistry,
+                    tabId: tabId,
                     paneFrames: paneFrames,
                     tabSize: tabGeometry.size,
                     action: action
@@ -101,7 +102,8 @@ struct TerminalSplitContainer: View {
 }
 
 /// Recursively renders a node in the split tree.
-fileprivate struct SplitSubtreeView: View {
+/// Used by both TerminalSplitContainer (tab context) and DrawerPanel (drawer context).
+struct SplitSubtreeView: View {
     let node: PaneSplitTree.Node
     let tabId: UUID
     let isSplit: Bool
