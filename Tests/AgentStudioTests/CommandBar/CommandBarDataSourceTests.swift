@@ -294,8 +294,8 @@ final class CommandBarDataSourceTests: XCTestCase {
         XCTAssertTrue(levelIds.contains("target-drawer-\(drawer1!.id.uuidString)"), "Level should target first drawer pane")
         XCTAssertTrue(levelIds.contains("target-drawer-\(drawer2!.id.uuidString)"), "Level should target second drawer pane")
 
-        // Verify the active drawer pane has "Active" subtitle
-        let activeItem = level.items.first { $0.id == "target-drawer-\(drawer1!.id.uuidString)" }
-        XCTAssertEqual(activeItem?.subtitle, "Active", "First drawer pane should be marked as active")
+        // Verify the active drawer pane has "Active" subtitle (last added becomes active)
+        let activeItem = level.items.first { $0.id == "target-drawer-\(drawer2!.id.uuidString)" }
+        XCTAssertEqual(activeItem?.subtitle, "Active", "Last added drawer pane should be marked as active")
     }
 }

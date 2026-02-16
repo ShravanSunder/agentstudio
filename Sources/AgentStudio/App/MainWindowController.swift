@@ -162,6 +162,7 @@ extension MainWindowController: NSToolbarDelegate {
         return [
             .flexibleSpace,
             .editMode,
+            .space,
             .addRepo
         ]
     }
@@ -200,11 +201,7 @@ extension MainWindowController: NSToolbarDelegate {
     }
 
     @objc private func toggleEditModeAction() {
-        ManagementModeMonitor.shared.isActive.toggle()
-        // Refresh toolbar button appearance
-        window?.toolbar?.items.first(where: { $0.itemIdentifier == .editMode })?.image =
-            NSImage(systemSymbolName: ManagementModeMonitor.shared.isActive ? "slider.horizontal.3" : "slider.horizontal.3",
-                    accessibilityDescription: "Edit Mode")
+        ManagementModeMonitor.shared.toggle()
     }
 
     @objc private func addRepoAction() {

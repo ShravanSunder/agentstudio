@@ -25,9 +25,8 @@ class TerminalTabViewController: NSViewController, CommandHandler {
     /// SwiftUI hosting view for the split container
     private var splitHostingView: NSHostingView<AnyView>?
 
-    /// Arrangement bar overlay (floating below tab bar)
-    private var arrangementBarHostingView: NSHostingView<AnyView>?
-    private var isArrangementBarVisible = false
+    /// Floating arrangement button (positioned under active tab)
+    private var arrangementButtonHostingView: NSHostingView<AnyView>?
 
     /// Local event monitor for arrangement bar keyboard shortcut
     private var arrangementBarEventMonitor: Any?
@@ -148,6 +147,9 @@ class TerminalTabViewController: NSViewController, CommandHandler {
         // Observe store changes to refresh display
         observeStore()
 
+        // Set up the floating arrangement button (reactive via TabBarAdapter)
+        setupArrangementButton()
+
         // Initial render for restored state — the store may already be
         // populated before this VC exists (e.g., after app relaunch).
         refreshDisplay()
@@ -266,29 +268,10 @@ class TerminalTabViewController: NSViewController, CommandHandler {
                 self?.refreshDisplay()
             }
             .store(in: &cancellables)
-
-        // Sync arrangement bar with edit mode (handles Escape deactivation)
-        ManagementModeMonitor.shared.$isActive
-            .removeDuplicates()
-            .receive(on: DispatchQueue.main)
-            .sink { [weak self] isActive in
-                guard let self else { return }
-                if isActive {
-                    self.showArrangementBar()
-                } else {
-                    self.hideArrangementBar()
-                }
-            }
-            .store(in: &cancellables)
     }
 
     private func refreshDisplay() {
         updateEmptyState()
-
-        // Refresh arrangement bar if edit mode is active
-        if ManagementModeMonitor.shared.isActive && isArrangementBarVisible {
-            showArrangementBar()
-        }
 
         guard let activeTabId = store.activeTabId,
               let tab = store.tab(activeTabId) else {
@@ -399,87 +382,40 @@ class TerminalTabViewController: NSViewController, CommandHandler {
         tabBarHostingView.isHidden = !hasTerminals
         terminalContainer.isHidden = !hasTerminals
         emptyStateView?.isHidden = hasTerminals
-
-        // Hide arrangement bar when no tabs are open
-        if !hasTerminals {
-            hideArrangementBar()
-        }
+        arrangementButtonHostingView?.isHidden = !hasTerminals
     }
 
-    // MARK: - Arrangement Bar
+    // MARK: - Arrangement Button
 
-    private func showArrangementBar() {
-        guard let activeTabId = store.activeTabId,
-              let tab = store.tab(activeTabId) else { return }
-
-        // Build arrangement items from current tab
-        let items = tab.arrangements.map { arrangement in
-            ArrangementBarItem(
-                id: arrangement.id,
-                name: arrangement.name,
-                isDefault: arrangement.isDefault,
-                paneCount: arrangement.visiblePaneIds.count
-            )
-        }
-
-        let bar = ArrangementBar(
-            arrangements: items,
-            activeArrangementId: tab.activeArrangementId,
-            onSwitch: { [weak self] arrangementId in
-                guard let self, let tabId = self.store.activeTabId else { return }
-                self.dispatchAction(.switchArrangement(tabId: tabId, arrangementId: arrangementId))
-                // Bar stays visible — edit mode controls its lifecycle
-                self.showArrangementBar() // refresh data after switch
+    private func setupArrangementButton() {
+        let button = ArrangementFloatingButton(
+            adapter: tabBarAdapter,
+            onPaneAction: { [weak self] action in
+                self?.dispatchAction(action)
             },
-            onSaveNew: { [weak self] in
-                guard let self, let tabId = self.store.activeTabId,
-                      let currentTab = self.store.tab(tabId) else { return }
-                let name = Self.nextArrangementName(existing: currentTab.arrangements)
+            onSaveArrangement: { [weak self] tabId in
+                guard let self, let tab = self.store.tab(tabId) else { return }
+                let name = Self.nextArrangementName(existing: tab.arrangements)
                 self.dispatchAction(.createArrangement(
-                    tabId: tabId, name: name, paneIds: Set(currentTab.paneIds)
+                    tabId: tabId, name: name, paneIds: Set(tab.paneIds)
                 ))
-                // Bar stays visible — refresh to show new arrangement
-                DispatchQueue.main.async { self.showArrangementBar() }
-            },
-            onDelete: { [weak self] arrangementId in
-                guard let self, let tabId = self.store.activeTabId else { return }
-                self.dispatchAction(.removeArrangement(tabId: tabId, arrangementId: arrangementId))
-                // Bar stays visible — refresh to remove deleted arrangement
-                DispatchQueue.main.async { self.showArrangementBar() }
-            },
-            onRename: { [weak self] arrangementId in
-                // TODO: Name input flow — placeholder for future task
-                _ = self
-                _ = arrangementId
             }
         )
 
-        if let existing = arrangementBarHostingView {
-            existing.rootView = AnyView(bar)
-        } else {
-            let hostingView = NSHostingView(rootView: AnyView(bar))
-            hostingView.translatesAutoresizingMaskIntoConstraints = false
-            hostingView.wantsLayer = true
-            // Transparent background so the material in ArrangementBar shows through
-            hostingView.layer?.backgroundColor = .clear
-            view.addSubview(hostingView)
+        let hostingView = NSHostingView(rootView: AnyView(button))
+        hostingView.translatesAutoresizingMaskIntoConstraints = false
+        hostingView.wantsLayer = true
+        hostingView.layer?.backgroundColor = .clear
+        view.addSubview(hostingView)
 
-            NSLayoutConstraint.activate([
-                hostingView.topAnchor.constraint(equalTo: tabBarHostingView.bottomAnchor, constant: 2),
-                hostingView.leadingAnchor.constraint(equalTo: view.leadingAnchor),
-                hostingView.trailingAnchor.constraint(equalTo: view.trailingAnchor),
-            ])
+        NSLayoutConstraint.activate([
+            hostingView.topAnchor.constraint(equalTo: tabBarHostingView.bottomAnchor),
+            hostingView.leadingAnchor.constraint(equalTo: view.leadingAnchor),
+            hostingView.trailingAnchor.constraint(equalTo: view.trailingAnchor),
+            hostingView.heightAnchor.constraint(equalToConstant: 20),
+        ])
 
-            arrangementBarHostingView = hostingView
-        }
-
-        arrangementBarHostingView?.isHidden = false
-        isArrangementBarVisible = true
-    }
-
-    private func hideArrangementBar() {
-        arrangementBarHostingView?.isHidden = true
-        isArrangementBarVisible = false
+        arrangementButtonHostingView = hostingView
     }
 
     // MARK: - Terminal Management
@@ -527,10 +463,6 @@ class TerminalTabViewController: NSViewController, CommandHandler {
 
     @discardableResult
     private func showTab(_ tabId: UUID) -> Bool {
-        // Dismiss arrangement bar when switching tabs — its chips are snapshotted
-        // from the old tab and would be stale after a tab switch.
-        hideArrangementBar()
-
         guard let tab = store.tab(tabId) else {
             ghosttyLogger.warning("showTab: tab \(tabId) not found in store")
             return false
@@ -979,13 +911,7 @@ class TerminalTabViewController: NSViewController, CommandHandler {
         // Non-pane commands handled directly
         switch command {
         case .toggleEditMode:
-            let monitor = ManagementModeMonitor.shared
-            monitor.toggle()
-            if monitor.isActive {
-                showArrangementBar()
-            } else {
-                hideArrangementBar()
-            }
+            ManagementModeMonitor.shared.toggle()
 
         case .addRepo:
             NotificationCenter.default.post(name: .addRepoRequested, object: nil)

@@ -95,18 +95,18 @@ final class DrawerCommandIntegrationTests: XCTestCase {
             metadata: makeDrawerMetadata(title: "Second")
         )!
         XCTAssertEqual(store.pane(parentPaneId)!.drawer!.panes.count, 2)
-        XCTAssertEqual(store.pane(parentPaneId)!.drawer!.activeDrawerPaneId, dp1.id,
-                        "First drawer pane should be active initially")
+        XCTAssertEqual(store.pane(parentPaneId)!.drawer!.activeDrawerPaneId, dp2.id,
+                        "Last added drawer pane should be active initially")
 
-        // Act — close the active drawer pane (dp1)
-        executor.execute(.removeDrawerPane(parentPaneId: parentPaneId, drawerPaneId: dp1.id))
+        // Act — close the active drawer pane (dp2)
+        executor.execute(.removeDrawerPane(parentPaneId: parentPaneId, drawerPaneId: dp2.id))
 
         // Assert
         let drawer = store.pane(parentPaneId)!.drawer
         XCTAssertNotNil(drawer, "Drawer should still exist with remaining pane")
         XCTAssertEqual(drawer!.panes.count, 1, "Only 1 drawer pane should remain")
-        XCTAssertEqual(drawer!.panes[0].id, dp2.id, "The remaining pane should be dp2")
-        XCTAssertEqual(drawer!.activeDrawerPaneId, dp2.id, "dp2 should become the active drawer pane")
+        XCTAssertEqual(drawer!.panes[0].id, dp1.id, "The remaining pane should be dp1")
+        XCTAssertEqual(drawer!.activeDrawerPaneId, dp1.id, "dp1 should become the active drawer pane")
     }
 
     // MARK: - test_toggleDrawer_cyclesExpandedState
@@ -163,7 +163,7 @@ final class DrawerCommandIntegrationTests: XCTestCase {
 
     // MARK: - test_addMultipleDrawerPanes_firstBecomesActive
 
-    func test_addMultipleDrawerPanes_firstBecomesActive() {
+    func test_addMultipleDrawerPanes_lastBecomesActive() {
         // Arrange
         let (parentPaneId, _) = createParentPaneInTab()
         let content = makeTerminalContent()
@@ -189,9 +189,9 @@ final class DrawerCommandIntegrationTests: XCTestCase {
         let drawer = store.pane(parentPaneId)!.drawer!
         XCTAssertEqual(drawer.panes.count, 3, "All 3 drawer panes should be present")
 
-        let firstPaneId = drawer.panes[0].id
-        XCTAssertEqual(drawer.activeDrawerPaneId, firstPaneId,
-                        "The first drawer pane added should remain the active one")
+        let lastPaneId = drawer.panes[2].id
+        XCTAssertEqual(drawer.activeDrawerPaneId, lastPaneId,
+                        "The last drawer pane added should become the active one")
         XCTAssertEqual(drawer.panes[0].metadata.title, "First")
         XCTAssertEqual(drawer.panes[1].metadata.title, "Second")
         XCTAssertEqual(drawer.panes[2].metadata.title, "Third")

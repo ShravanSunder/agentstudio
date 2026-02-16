@@ -28,64 +28,74 @@ struct TerminalSplitContainer: View {
     var drawerPaneViewProvider: ((UUID) -> PaneView?)? = nil
     var paneTitleProvider: ((UUID) -> String)? = nil
 
+    @State private var paneFrames: [UUID: CGRect] = [:]
+
     var body: some View {
         GeometryReader { tabGeometry in
-            let measuredTabWidth = tabGeometry.size.width
-            if let node = tree.root {
-                if let zoomedPaneId,
-                   let zoomedView = tree.allViews.first(where: { $0.id == zoomedPaneId }) {
-                    // Zoomed: render single pane at full size
-                    ZStack(alignment: .topTrailing) {
-                        TerminalPaneLeaf(
-                            paneView: zoomedView,
+            ZStack {
+                if let node = tree.root {
+                    if let zoomedPaneId,
+                       let zoomedView = tree.allViews.first(where: { $0.id == zoomedPaneId }) {
+                        // Zoomed: render single pane at full size
+                        ZStack(alignment: .topTrailing) {
+                            TerminalPaneLeaf(
+                                paneView: zoomedView,
+                                tabId: tabId,
+                                isActive: true,
+                                isSplit: false,
+                                drawer: drawerProvider?(zoomedPaneId),
+                                action: action,
+                                shouldAcceptDrop: shouldAcceptDrop,
+                                onDrop: onDrop
+                            )
+                            // Zoom indicator badge
+                            Text("ZOOM")
+                                .font(.system(size: 10, weight: .medium, design: .monospaced))
+                                .foregroundStyle(.white.opacity(0.7))
+                                .padding(.horizontal, 6)
+                                .padding(.vertical, 2)
+                                .background(Capsule().fill(.white.opacity(0.15)))
+                                .padding(8)
+                                .allowsHitTesting(false)
+                        }
+                    } else {
+                        // Normal split rendering
+                        SplitSubtreeView(
+                            node: node,
                             tabId: tabId,
-                            isActive: true,
-                            isSplit: false,
-                            drawer: drawerProvider?(zoomedPaneId),
+                            isSplit: tree.isSplit,
+                            activePaneId: activePaneId,
+                            minimizedPaneIds: minimizedPaneIds,
                             action: action,
+                            onPersist: onPersist,
                             shouldAcceptDrop: shouldAcceptDrop,
                             onDrop: onDrop,
-                            drawerPaneViewProvider: drawerPaneViewProvider,
-                            tabWidth: nil  // zoomed = single pane, no tab width needed
+                            drawerProvider: drawerProvider,
+                            paneTitleProvider: paneTitleProvider
                         )
-                        // Zoom indicator badge
-                        Text("ZOOM")
-                            .font(.system(size: 10, weight: .medium, design: .monospaced))
-                            .foregroundStyle(.white.opacity(0.7))
-                            .padding(.horizontal, 6)
-                            .padding(.vertical, 2)
-                            .background(Capsule().fill(.white.opacity(0.15)))
-                            .padding(8)
-                            .allowsHitTesting(false)
+                        .id(node.structuralIdentity)  // Prevents view recreation on ratio changes
                     }
                 } else {
-                    // Normal split rendering
-                    SplitSubtreeView(
-                        node: node,
-                        tabId: tabId,
-                        isSplit: tree.isSplit,
-                        activePaneId: activePaneId,
-                        minimizedPaneIds: minimizedPaneIds,
-                        action: action,
-                        onPersist: onPersist,
-                        shouldAcceptDrop: shouldAcceptDrop,
-                        onDrop: onDrop,
-                        drawerProvider: drawerProvider,
-                        drawerPaneViewProvider: drawerPaneViewProvider,
-                        paneTitleProvider: paneTitleProvider,
-                        tabWidth: measuredTabWidth
+                    // Empty tree - show placeholder
+                    ContentUnavailableView(
+                        "No Terminal",
+                        systemImage: "terminal",
+                        description: Text("Drag a tab here to create a split")
                     )
-                    .id(node.structuralIdentity)  // Prevents view recreation on ratio changes
                 }
-            } else {
-                // Empty tree - show placeholder
-                ContentUnavailableView(
-                    "No Terminal",
-                    systemImage: "terminal",
-                    description: Text("Drag a tab here to create a split")
+
+                // Tab-level drawer panel overlay (renders on top of all panes)
+                DrawerPanelOverlay(
+                    paneFrames: paneFrames,
+                    tabSize: tabGeometry.size,
+                    drawerProvider: drawerProvider ?? { _ in nil },
+                    drawerPaneViewProvider: drawerPaneViewProvider ?? { _ in nil },
+                    action: action
                 )
             }
+            .onPreferenceChange(PaneFramePreferenceKey.self) { paneFrames = $0 }
         }
+        .coordinateSpace(name: "tabContainer")
     }
 }
 
@@ -101,9 +111,7 @@ fileprivate struct SplitSubtreeView: View {
     let shouldAcceptDrop: (UUID, DropZone) -> Bool
     let onDrop: (SplitDropPayload, UUID, DropZone) -> Void
     var drawerProvider: ((UUID) -> Drawer?)? = nil
-    var drawerPaneViewProvider: ((UUID) -> PaneView?)? = nil
     var paneTitleProvider: ((UUID) -> String)? = nil
-    var tabWidth: CGFloat? = nil
 
     var body: some View {
         switch node {
@@ -124,9 +132,7 @@ fileprivate struct SplitSubtreeView: View {
                     drawer: drawerProvider?(paneView.id),
                     action: action,
                     shouldAcceptDrop: shouldAcceptDrop,
-                    onDrop: onDrop,
-                    drawerPaneViewProvider: drawerPaneViewProvider,
-                    tabWidth: isSplit ? tabWidth : nil
+                    onDrop: onDrop
                 )
             }
 
@@ -239,9 +245,7 @@ fileprivate struct SplitSubtreeView: View {
             shouldAcceptDrop: shouldAcceptDrop,
             onDrop: onDrop,
             drawerProvider: drawerProvider,
-            drawerPaneViewProvider: drawerPaneViewProvider,
-            paneTitleProvider: paneTitleProvider,
-            tabWidth: tabWidth
+            paneTitleProvider: paneTitleProvider
         )
     }
 

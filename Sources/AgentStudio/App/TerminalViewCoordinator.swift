@@ -285,7 +285,7 @@ final class TerminalViewCoordinator {
 
     // MARK: - Restore All Views
 
-    /// Recreate views for all restored panes in all tabs.
+    /// Recreate views for all restored panes in all tabs, including drawer panes.
     /// Called once at launch after store.restore() populates persisted state.
     func restoreAllViews() {
         // Use tab.panes (all owned panes) instead of tab.paneIds (active arrangement only)
@@ -297,6 +297,7 @@ final class TerminalViewCoordinator {
         }
 
         var restored = 0
+        var drawerRestored = 0
         for paneId in paneIds {
             guard let pane = store.pane(paneId) else {
                 coordinatorLogger.warning("Skipping view restore for pane \(paneId) — not in store")
@@ -305,8 +306,22 @@ final class TerminalViewCoordinator {
             if createViewForContent(pane: pane) != nil {
                 restored += 1
             }
+
+            // Also restore views for drawer panes owned by this pane
+            if let drawer = pane.drawer {
+                for drawerPane in drawer.panes {
+                    let drawerPaneAsPane = Pane(
+                        id: drawerPane.id,
+                        content: drawerPane.content,
+                        metadata: drawerPane.metadata
+                    )
+                    if createViewForContent(pane: drawerPaneAsPane) != nil {
+                        drawerRestored += 1
+                    }
+                }
+            }
         }
-        coordinatorLogger.info("Restored \(restored)/\(paneIds.count) pane views")
+        coordinatorLogger.info("Restored \(restored)/\(paneIds.count) pane views, \(drawerRestored) drawer pane views")
 
         // Sync focus after all views are restored — only the active terminal gets a blinking cursor.
         if let activeTab = store.activeTab,

@@ -36,6 +36,13 @@ final class ViewRegistry {
         views[paneId] as? AgentStudioTerminalView
     }
 
+    /// Bump epoch without registering/unregistering a view.
+    /// Used to force a UI refresh when drawer state changes (toggle, active pane switch)
+    /// since drawer mutations don't alter the Tab struct or register/unregister views.
+    func bumpEpoch() {
+        epoch += 1
+    }
+
     /// All currently registered pane IDs.
     var registeredPaneIds: Set<UUID> {
         Set(views.keys)

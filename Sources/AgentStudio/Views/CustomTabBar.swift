@@ -101,9 +101,7 @@ struct CustomTabBar: View {
                                         showInsertAfter: index == adapter.tabs.count - 1 && adapter.dropTargetIndex == adapter.tabs.count,
                                         onSelect: { onSelect(tab.id) },
                                         onClose: { onClose(tab.id) },
-                                        onCommand: { command in onCommand?(command, tab.id) },
-                                        onPaneAction: { action in onPaneAction?(action) },
-                                        onSaveArrangement: { onSaveArrangement?(tab.id) }
+                                        onCommand: { command in onCommand?(command, tab.id) }
                                     )
                                     .id(tab.id)
                                     .background(frameReporter(for: tab.id))
@@ -367,11 +365,7 @@ struct TabPillView: View {
     let onSelect: () -> Void
     let onClose: () -> Void
     let onCommand: (AppCommand) -> Void
-    var onPaneAction: ((PaneAction) -> Void)? = nil
-    var onSaveArrangement: (() -> Void)? = nil
-
     @State private var isHovering = false
-    @State private var showArrangementPanel = false
 
     var body: some View {
         HStack(spacing: 0) {
@@ -452,44 +446,6 @@ struct TabPillView: View {
                 Text("⌘\(index + 1)")
                     .font(.system(size: 10, weight: .medium))
                     .foregroundStyle(.tertiary)
-            }
-
-            // Arrangement icon (active split tabs or tabs with multiple arrangements)
-            if isActive && (tab.isSplit || tab.arrangementCount > 1) {
-                Button {
-                    showArrangementPanel.toggle()
-                } label: {
-                    HStack(spacing: 2) {
-                        Image(systemName: "square.split.2x1")
-                            .font(.system(size: 9))
-                        if let arrangementName = tab.activeArrangementName {
-                            Text(arrangementName)
-                                .font(.system(size: 9))
-                                .lineLimit(1)
-                        }
-                    }
-                    .foregroundStyle(.tertiary)
-                    .padding(.horizontal, 4)
-                    .padding(.vertical, 2)
-                    .background(
-                        RoundedRectangle(cornerRadius: 4)
-                            .fill(showArrangementPanel ? Color.white.opacity(0.1) : Color.clear)
-                    )
-                }
-                .buttonStyle(.plain)
-                .popover(isPresented: $showArrangementPanel, arrowEdge: .bottom) {
-                    ArrangementPanel(
-                        tabId: tab.id,
-                        panes: tab.panes,
-                        arrangements: tab.arrangements,
-                        onPaneAction: { action in
-                            onPaneAction?(action)
-                        },
-                        onSaveArrangement: {
-                            onSaveArrangement?()
-                        }
-                    )
-                }
             }
 
             // Close button on hover

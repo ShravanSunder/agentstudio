@@ -607,7 +607,7 @@ final class ActionExecutorTests: XCTestCase {
             content: .terminal(TerminalState(provider: .ghostty, lifetime: .temporary)),
             metadata: PaneMetadata(source: .floating(workingDirectory: nil, title: nil), title: "Second")
         )!
-        XCTAssertEqual(store.pane(parentPane.id)!.drawer!.activeDrawerPaneId, dp1.id, "First added should be active")
+        XCTAssertEqual(store.pane(parentPane.id)!.drawer!.activeDrawerPaneId, dp2.id, "Last added should be active")
 
         // Act
         executor.execute(.setActiveDrawerPane(parentPaneId: parentPane.id, drawerPaneId: dp2.id))

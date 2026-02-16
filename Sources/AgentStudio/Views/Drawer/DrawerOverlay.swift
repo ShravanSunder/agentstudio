@@ -1,84 +1,56 @@
 import SwiftUI
 
-/// Manages drawer state and composes icon bar + panel for a single pane.
-/// Positioned as an overlay at the bottom of a pane leaf.
+/// Renders the drawer icon bar at the bottom of a pane leaf.
+/// Panel rendering has moved to the tab-level DrawerPanelOverlay so it can
+/// overlay across all panes without being clipped by the pane's bounds.
 struct DrawerOverlay: View {
     let paneId: UUID
     let drawer: Drawer?
     let isIconBarVisible: Bool
-    let drawerPaneView: PaneView?
     let action: (PaneAction) -> Void
-    /// Tab-level width for computing drawer panel size in split layouts.
-    /// nil means single pane — the drawer uses the full pane width.
-    let tabWidth: CGFloat?
-
-    @AppStorage("drawerHeightRatio") private var heightRatio: Double = 0.75
 
     var body: some View {
-        GeometryReader { geometry in
-            let maxHeight = geometry.size.height * CGFloat(heightRatio)
+        VStack(spacing: 0) {
+            Spacer()
 
-            // Compute drawer width: use tab width when in a meaningful split,
-            // otherwise let the drawer fill its pane naturally.
-            let drawerWidth: CGFloat? = {
-                guard let tabWidth else { return nil }  // single pane: use natural width
-                let paneWidth = geometry.size.width
-                if tabWidth > paneWidth * 1.1 {  // meaningful split (not just rounding)
-                    return min(tabWidth * 0.9, paneWidth * 2.5)
-                }
-                return nil  // pane is nearly full tab width
-            }()
-
-            VStack(spacing: 0) {
-                Spacer()
-
-                if let drawer, isIconBarVisible || drawer.isExpanded {
-                    // Expanded panel (when drawer has content and is expanded)
-                    if drawer.isExpanded, drawer.activeDrawerPaneId != nil {
-                        DrawerPanel(
-                            drawerPaneView: drawerPaneView,
-                            height: maxHeight,
-                            onResize: { delta in
-                                let newRatio = min(0.9, max(0.2, heightRatio + Double(delta / geometry.size.height)))
-                                heightRatio = newRatio
-                            },
-                            onDismiss: {
-                                action(.toggleDrawer(paneId: paneId))
-                            }
-                        )
-                        .frame(width: drawerWidth)
-                    }
-
-                    // Icon bar (always visible when drawer is shown)
-                    DrawerIconBar(
-                        drawerPanes: drawerPaneItems(from: drawer),
-                        activeDrawerPaneId: drawer.activeDrawerPaneId,
-                        onSelect: { drawerPaneId in
-                            action(.setActiveDrawerPane(parentPaneId: paneId, drawerPaneId: drawerPaneId))
-                            if !drawer.isExpanded {
-                                action(.toggleDrawer(paneId: paneId))
-                            }
-                        },
-                        onAdd: {
-                            let content = PaneContent.terminal(
-                                TerminalState(provider: .ghostty, lifetime: .temporary)
-                            )
-                            let metadata = PaneMetadata(
-                                source: .floating(workingDirectory: nil, title: nil),
-                                title: "Drawer"
-                            )
-                            action(.addDrawerPane(parentPaneId: paneId, content: content, metadata: metadata))
-                        },
-                        onClose: { drawerPaneId in
-                            action(.removeDrawerPane(parentPaneId: paneId, drawerPaneId: drawerPaneId))
-                        },
-                        onToggleExpand: {
+            if let drawer, isIconBarVisible || drawer.isExpanded {
+                // Icon bar (always visible when drawer has panes)
+                DrawerIconBar(
+                    drawerPanes: drawerPaneItems(from: drawer),
+                    activeDrawerPaneId: drawer.activeDrawerPaneId,
+                    isExpanded: drawer.isExpanded,
+                    onSelect: { drawerPaneId in
+                        action(.setActiveDrawerPane(parentPaneId: paneId, drawerPaneId: drawerPaneId))
+                        if !drawer.isExpanded {
                             action(.toggleDrawer(paneId: paneId))
                         }
-                    )
-                }
+                    },
+                    onAdd: {
+                        addDrawerPane()
+                    },
+                    onClose: { drawerPaneId in
+                        action(.removeDrawerPane(parentPaneId: paneId, drawerPaneId: drawerPaneId))
+                    },
+                    onToggleExpand: {
+                        action(.toggleDrawer(paneId: paneId))
+                    }
+                )
+            } else {
+                // Empty drawer: slim bar with [+] button
+                EmptyDrawerBar(onAdd: addDrawerPane)
             }
         }
+    }
+
+    private func addDrawerPane() {
+        let content = PaneContent.terminal(
+            TerminalState(provider: .ghostty, lifetime: .temporary)
+        )
+        let metadata = PaneMetadata(
+            source: .floating(workingDirectory: nil, title: nil),
+            title: "Drawer"
+        )
+        action(.addDrawerPane(parentPaneId: paneId, content: content, metadata: metadata))
     }
 
     private func drawerPaneItems(from drawer: Drawer) -> [DrawerPaneItem] {

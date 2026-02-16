@@ -624,10 +624,9 @@ final class WorkspaceStore: ObservableObject {
             )
         } else {
             panes[parentPaneId]!.drawer!.panes.append(drawerPane)
-            // Auto-activate if first pane
-            if panes[parentPaneId]!.drawer!.activeDrawerPaneId == nil {
-                panes[parentPaneId]!.drawer!.activeDrawerPaneId = drawerPane.id
-            }
+            // Always activate the new pane and expand to show it
+            panes[parentPaneId]!.drawer!.activeDrawerPaneId = drawerPane.id
+            panes[parentPaneId]!.drawer!.isExpanded = true
         }
 
         markDirty()
@@ -666,7 +665,19 @@ final class WorkspaceStore: ObservableObject {
             return
         }
 
-        panes[paneId]!.drawer!.isExpanded.toggle()
+        let willExpand = !panes[paneId]!.drawer!.isExpanded
+
+        // Invariant: only one drawer expanded at a time.
+        // Collapse all others when expanding this one.
+        if willExpand {
+            for otherPaneId in panes.keys where otherPaneId != paneId {
+                if panes[otherPaneId]?.drawer?.isExpanded == true {
+                    panes[otherPaneId]!.drawer!.isExpanded = false
+                }
+            }
+        }
+
+        panes[paneId]!.drawer!.isExpanded = willExpand
         markDirty()
     }
 

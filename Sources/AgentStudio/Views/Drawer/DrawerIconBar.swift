@@ -33,6 +33,7 @@ struct DrawerPaneItem: Identifiable {
 // MARK: - DrawerPaneIcon
 
 /// Individual icon button representing a single drawer pane.
+/// Uses proper SwiftUI Button for gesture priority over parent onTapGesture.
 /// Active state uses a subtle highlight; right-click exposes a close action.
 struct DrawerPaneIcon: View {
     let pane: DrawerPaneItem
@@ -40,20 +41,30 @@ struct DrawerPaneIcon: View {
     let onSelect: () -> Void
     let onClose: () -> Void
 
+    @State private var isHovered = false
+
     var body: some View {
-        Image(systemName: pane.icon)
-            .font(.system(size: 11))
-            .foregroundStyle(isActive ? .primary : .secondary)
-            .frame(width: 24, height: 24)
-            .background(
-                RoundedRectangle(cornerRadius: 4)
-                    .fill(isActive ? Color.white.opacity(0.12) : Color.clear)
-            )
-            .contentShape(Rectangle())
-            .onTapGesture(perform: onSelect)
-            .contextMenu {
-                Button("Close", role: .destructive, action: onClose)
+        Button(action: onSelect) {
+            Image(systemName: pane.icon)
+                .font(.system(size: 12))
+                .frame(width: 28, height: 28)
+                .contentShape(Rectangle())
+        }
+        .buttonStyle(.plain)
+        .foregroundStyle(isActive ? .primary : (isHovered ? .primary : .secondary))
+        .background(
+            RoundedRectangle(cornerRadius: 4)
+                .fill(isActive ? Color.white.opacity(0.15) : (isHovered ? Color.white.opacity(0.08) : Color.clear))
+        )
+        .onHover { hovering in
+            withAnimation(.easeInOut(duration: 0.12)) {
+                isHovered = hovering
             }
+        }
+        .help(pane.title)
+        .contextMenu {
+            Button("Close", role: .destructive, action: onClose)
+        }
     }
 }
 
@@ -67,10 +78,14 @@ struct DrawerPaneIcon: View {
 struct DrawerIconBar: View {
     let drawerPanes: [DrawerPaneItem]
     let activeDrawerPaneId: UUID?
+    let isExpanded: Bool
     let onSelect: (UUID) -> Void
     let onAdd: () -> Void
     let onClose: (UUID) -> Void
     let onToggleExpand: () -> Void
+
+    @State private var isAddHovered = false
+    @State private var isToggleHovered = false
 
     var body: some View {
         VStack(spacing: 0) {
@@ -80,7 +95,8 @@ struct DrawerIconBar: View {
                 .frame(height: 8)
 
             // Icon strip
-            HStack(spacing: 4) {
+            HStack(spacing: 2) {
+                // Drawer pane icons
                 ForEach(drawerPanes) { pane in
                     DrawerPaneIcon(
                         pane: pane,
@@ -90,19 +106,91 @@ struct DrawerIconBar: View {
                     )
                 }
 
+                // Add button
                 Button(action: onAdd) {
                     Image(systemName: "plus")
-                        .font(.system(size: 10, weight: .medium))
-                        .foregroundStyle(.secondary)
-                        .frame(width: 24, height: 24)
+                        .font(.system(size: 11, weight: .medium))
+                        .frame(width: 28, height: 28)
+                        .contentShape(Rectangle())
                 }
                 .buttonStyle(.plain)
+                .foregroundStyle(isAddHovered ? .primary : .secondary)
+                .background(
+                    RoundedRectangle(cornerRadius: 4)
+                        .fill(isAddHovered ? Color.white.opacity(0.08) : Color.clear)
+                )
+                .onHover { hovering in
+                    withAnimation(.easeInOut(duration: 0.12)) {
+                        isAddHovered = hovering
+                    }
+                }
+                .help("Add drawer pane")
+
+                Spacer()
+
+                // Expand/collapse toggle
+                Button(action: onToggleExpand) {
+                    Image(systemName: isExpanded ? "chevron.down" : "chevron.up")
+                        .font(.system(size: 10, weight: .semibold))
+                        .frame(width: 28, height: 28)
+                        .contentShape(Rectangle())
+                }
+                .buttonStyle(.plain)
+                .foregroundStyle(isToggleHovered ? .primary : .secondary)
+                .background(
+                    RoundedRectangle(cornerRadius: 4)
+                        .fill(isToggleHovered ? Color.white.opacity(0.08) : Color.clear)
+                )
+                .onHover { hovering in
+                    withAnimation(.easeInOut(duration: 0.12)) {
+                        isToggleHovered = hovering
+                    }
+                }
+                .help(isExpanded ? "Collapse drawer" : "Expand drawer")
             }
-            .padding(.horizontal, 8)
+            .padding(.horizontal, 6)
             .padding(.vertical, 4)
             .background(.ultraThinMaterial)
             .clipShape(RoundedRectangle(cornerRadius: 6))
         }
+    }
+}
+
+// MARK: - EmptyDrawerBar
+
+/// Slim bar shown when a pane has no drawer panes yet.
+/// Displays a single [+] button to add the first drawer pane.
+struct EmptyDrawerBar: View {
+    let onAdd: () -> Void
+
+    @State private var isHovered = false
+
+    var body: some View {
+        HStack {
+            Spacer()
+            Button(action: onAdd) {
+                Image(systemName: "plus")
+                    .font(.system(size: 11, weight: .medium))
+                    .frame(width: 28, height: 28)
+                    .contentShape(Rectangle())
+            }
+            .buttonStyle(.plain)
+            .foregroundStyle(isHovered ? .primary : .secondary)
+            .background(
+                RoundedRectangle(cornerRadius: 4)
+                    .fill(isHovered ? Color.white.opacity(0.08) : Color.clear)
+            )
+            .onHover { hovering in
+                withAnimation(.easeInOut(duration: 0.12)) {
+                    isHovered = hovering
+                }
+            }
+            .help("Add drawer pane")
+            Spacer()
+        }
+        .padding(.vertical, 4)
+        .background(.ultraThinMaterial)
+        .clipShape(RoundedRectangle(cornerRadius: 6))
     }
 }
 
@@ -123,6 +211,7 @@ struct DrawerIconBar_Previews: PreviewProvider {
             DrawerIconBar(
                 drawerPanes: items,
                 activeDrawerPaneId: activeId,
+                isExpanded: true,
                 onSelect: { _ in },
                 onAdd: {},
                 onClose: { _ in },

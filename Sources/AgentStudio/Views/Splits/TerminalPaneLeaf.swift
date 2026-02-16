@@ -14,27 +14,15 @@ struct TerminalPaneLeaf: View {
     let action: (PaneAction) -> Void
     let shouldAcceptDrop: (UUID, DropZone) -> Bool
     let onDrop: (SplitDropPayload, UUID, DropZone) -> Void
-    var drawerPaneViewProvider: ((UUID) -> PaneView?)? = nil
-    /// Tab-level width for computing drawer panel size in split layouts.
-    /// nil means single pane (use full pane width).
-    var tabWidth: CGFloat? = nil
 
     @State private var dropZone: DropZone?
     @State private var isTargeted: Bool = false
     @State private var isHovered: Bool = false
-    @State private var isBottomHovered: Bool = false
     @ObservedObject private var managementMode = ManagementModeMonitor.shared
 
     /// Downcast to terminal view for terminal-specific features.
     private var terminalView: AgentStudioTerminalView? {
         paneView as? AgentStudioTerminalView
-    }
-
-    /// Resolve the active drawer pane's view from the provider.
-    private var resolvedDrawerPaneView: PaneView? {
-        guard let drawer,
-              let activePaneId = drawer.activeDrawerPaneId else { return nil }
-        return drawerPaneViewProvider?(activePaneId)
     }
 
     var body: some View {
@@ -60,26 +48,29 @@ struct TerminalPaneLeaf: View {
                         .animation(.easeInOut(duration: 0.15), value: isHovered)
                 }
 
-                // Drag handle (top-left, management mode + hover only, terminal panes with worktree context)
-                if managementMode.isActive && isHovered && isSplit,
+                // Drag zone (center, edit mode only, terminal panes with worktree context)
+                if managementMode.isActive && isSplit,
                    let tv = terminalView,
                    let worktree = tv.worktree,
                    let repo = tv.repo {
                     VStack {
-                        HStack {
-                            Image(systemName: "line.3.horizontal")
-                                .font(.system(size: 10))
-                                .foregroundStyle(.white.opacity(0.5))
-                                .frame(width: 20, height: 20)
-                                .contentShape(Rectangle())
-                                .draggable(PaneDragPayload(
-                                    paneId: tv.id,
-                                    tabId: tabId,
-                                    worktreeId: worktree.id,
-                                    repoId: repo.id
-                                ))
-                            Spacer()
+                        Spacer()
+                        ZStack {
+                            RoundedRectangle(cornerRadius: 8)
+                                .fill(Color.black.opacity(isHovered ? 0.2 : 0.15))
+                            Image(systemName: "ellipsis")
+                                .font(.system(size: 16, weight: .medium))
+                                .foregroundStyle(.white.opacity(0.4))
                         }
+                        .frame(maxWidth: .infinity)
+                        .frame(height: geometry.size.height * 0.28)
+                        .contentShape(Rectangle())
+                        .draggable(PaneDragPayload(
+                            paneId: tv.id,
+                            tabId: tabId,
+                            worktreeId: worktree.id,
+                            repoId: repo.id
+                        ))
                         Spacer()
                     }
                     .allowsHitTesting(true)
@@ -91,40 +82,44 @@ struct TerminalPaneLeaf: View {
                         .allowsHitTesting(false)
                 }
 
-                // Pane controls: minimize + close (visible on hover in split mode)
-                if isSplit && isHovered {
-                    HStack(spacing: 4) {
-                        Button {
-                            action(.minimizePane(tabId: tabId, paneId: paneView.id))
-                        } label: {
-                            Image(systemName: "minus.circle.fill")
-                                .font(.system(size: 16))
-                                .foregroundStyle(.secondary)
-                                .background(Circle().fill(.black.opacity(0.5)))
-                        }
-                        .buttonStyle(.plain)
-                        .help("Minimize pane")
+                // Pane controls: minimize + close (top-left, edit mode + hover + split)
+                if managementMode.isActive && isHovered && isSplit {
+                    VStack {
+                        HStack(spacing: 4) {
+                            Button {
+                                action(.minimizePane(tabId: tabId, paneId: paneView.id))
+                            } label: {
+                                Image(systemName: "minus.circle.fill")
+                                    .font(.system(size: 16))
+                                    .foregroundStyle(.secondary)
+                                    .background(Circle().fill(.black.opacity(0.5)))
+                            }
+                            .buttonStyle(.plain)
+                            .help("Minimize pane")
 
-                        Button {
-                            action(.closePane(tabId: tabId, paneId: paneView.id))
-                        } label: {
-                            Image(systemName: "xmark.circle.fill")
-                                .font(.system(size: 16))
-                                .foregroundStyle(.secondary)
-                                .background(Circle().fill(.black.opacity(0.5)))
+                            Button {
+                                action(.closePane(tabId: tabId, paneId: paneView.id))
+                            } label: {
+                                Image(systemName: "xmark.circle.fill")
+                                    .font(.system(size: 16))
+                                    .foregroundStyle(.secondary)
+                                    .background(Circle().fill(.black.opacity(0.5)))
+                            }
+                            .buttonStyle(.plain)
+                            .help("Close pane")
+
+                            Spacer()
                         }
-                        .buttonStyle(.plain)
-                        .help("Close pane")
+                        .padding(6)
+                        Spacer()
                     }
-                    .padding(6)
                     .transition(.opacity)
                 }
 
-                // New split button (right edge, center — appears on hover)
-                if isHovered {
-                    HStack {
-                        Spacer()
-                        VStack {
+                // Quarter-moon split button (top-right, edit mode + hover)
+                if managementMode.isActive && isHovered {
+                    VStack {
+                        HStack {
                             Spacer()
                             Button {
                                 action(.insertPane(
@@ -150,33 +145,20 @@ struct TerminalPaneLeaf: View {
                             }
                             .buttonStyle(.plain)
                             .help("Split right")
-                            Spacer()
                         }
+                        .padding(.top, 6)
+                        Spacer()
                     }
                     .allowsHitTesting(true)
                     .transition(.opacity)
                 }
 
-                // Bottom hover detection zone (behind drawer so it doesn't block drawer controls)
-                VStack {
-                    Spacer()
-                    Color.clear
-                        .frame(height: 20)
-                        .contentShape(Rectangle())
-                        .onHover { hovering in
-                            isBottomHovered = hovering
-                        }
-                }
-                .allowsHitTesting(true)
-
-                // Drawer overlay (bottom of pane, on top of hover zone)
+                // Drawer icon bar (bottom of pane, always visible)
                 DrawerOverlay(
                     paneId: paneView.id,
                     drawer: drawer,
-                    isIconBarVisible: isBottomHovered || (drawer?.isExpanded ?? false),
-                    drawerPaneView: resolvedDrawerPaneView,
-                    action: action,
-                    tabWidth: tabWidth
+                    isIconBarVisible: true,
+                    action: action
                 )
             }
             .contentShape(Rectangle())
@@ -194,7 +176,22 @@ struct TerminalPaneLeaf: View {
             ))
         }
         .clipShape(RoundedRectangle(cornerRadius: 1))
+        .onChange(of: managementMode.isActive) { _, isActive in
+            // Clear stale drag overlay when management mode toggles off
+            if !isActive {
+                isTargeted = false
+                dropZone = nil
+            }
+        }
         .padding(2)
+        .background(
+            GeometryReader { geo in
+                Color.clear.preference(
+                    key: PaneFramePreferenceKey.self,
+                    value: [paneView.id: geo.frame(in: .named("tabContainer"))]
+                )
+            }
+        )
     }
 }
 

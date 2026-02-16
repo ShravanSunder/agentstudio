@@ -50,7 +50,7 @@ final class WorkspaceStoreDrawerTests: XCTestCase {
 
         let updated = store.pane(pane.id)!
         XCTAssertEqual(updated.drawer!.panes.count, 2)
-        XCTAssertEqual(updated.drawer!.activeDrawerPaneId, dp1.id) // first stays active
+        XCTAssertEqual(updated.drawer!.activeDrawerPaneId, dp2.id) // last added becomes active
         XCTAssertEqual(updated.drawer!.panes[1].id, dp2.id)
     }
 

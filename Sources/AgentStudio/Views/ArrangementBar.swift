@@ -8,48 +8,65 @@ struct ArrangementBarItem: Identifiable {
     let paneCount: Int
 }
 
-/// Floating arrangement bar that appears below the tab bar.
-/// Shows arrangement chips for quick switching between named pane arrangements.
-/// Hosted in an `NSHostingView` overlay within `MainSplitViewController`.
-struct ArrangementBar: View {
-    let arrangements: [ArrangementBarItem]
-    let activeArrangementId: UUID?
-    let onSwitch: (UUID) -> Void
-    let onSaveNew: () -> Void
-    let onDelete: (UUID) -> Void
-    let onRename: (UUID) -> Void
+/// Small floating button positioned under the active tab pill.
+/// Shows the active arrangement name; click opens the ArrangementPanel popover.
+/// Observes TabBarAdapter for reactive positioning and data updates.
+struct ArrangementFloatingButton: View {
+    @ObservedObject var adapter: TabBarAdapter
+    let onPaneAction: (PaneAction) -> Void
+    let onSaveArrangement: (UUID) -> Void
+
+    @State private var showPanel = false
+
+    private var activeTab: TabBarItem? {
+        guard let activeId = adapter.activeTabId else { return nil }
+        return adapter.tabs.first { $0.id == activeId }
+    }
+
+    private var activeTabFrame: CGRect? {
+        guard let activeId = adapter.activeTabId else { return nil }
+        return adapter.tabFrames[activeId]
+    }
+
+    private var arrangementName: String {
+        activeTab?.activeArrangementName ?? "Default"
+    }
 
     var body: some View {
-        HStack(spacing: 6) {
-            ForEach(arrangements) { arrangement in
-                ArrangementChip(
-                    name: arrangement.name,
-                    isActive: arrangement.id == activeArrangementId,
-                    isDefault: arrangement.isDefault,
-                    onSelect: { onSwitch(arrangement.id) },
-                    onDelete: arrangement.isDefault ? nil : { onDelete(arrangement.id) },
-                    onRename: { onRename(arrangement.id) }
-                )
-            }
-
-            Button(action: onSaveNew) {
-                Image(systemName: "plus")
-                    .font(.system(size: 11, weight: .medium))
+        GeometryReader { _ in
+            if let tab = activeTab, let frame = activeTabFrame {
+                Button {
+                    showPanel.toggle()
+                } label: {
+                    HStack(spacing: 3) {
+                        Image(systemName: "line.3.horizontal")
+                            .font(.system(size: 8, weight: .medium))
+                        Text(arrangementName)
+                            .font(.system(size: 10, weight: .medium))
+                    }
                     .foregroundStyle(.secondary)
+                    .padding(.horizontal, 6)
+                    .padding(.vertical, 2)
+                    .background(
+                        RoundedRectangle(cornerRadius: 4)
+                            .fill(Color.black.opacity(0.3))
+                    )
+                }
+                .buttonStyle(.plain)
+                .popover(isPresented: $showPanel) {
+                    ArrangementPanel(
+                        tabId: tab.id,
+                        panes: tab.panes,
+                        arrangements: tab.arrangements,
+                        onPaneAction: onPaneAction,
+                        onSaveArrangement: { onSaveArrangement(tab.id) }
+                    )
+                }
+                .position(x: frame.midX, y: 10)
             }
-            .buttonStyle(.plain)
-            .padding(4)
-
-            Spacer()
         }
-        .padding(.horizontal, 12)
-        .padding(.vertical, 6)
-        .background(
-            RoundedRectangle(cornerRadius: 8)
-                .fill(.ultraThinMaterial)
-                .shadow(color: .black.opacity(0.2), radius: 8, y: 4)
-        )
-        .padding(.horizontal, 8)
+        .frame(height: 20)
+        .allowsHitTesting(true)
     }
 }
 
@@ -83,33 +100,3 @@ struct ArrangementChip: View {
             }
     }
 }
-
-// MARK: - Preview
-
-#if DEBUG
-struct ArrangementBar_Previews: PreviewProvider {
-    static var previews: some View {
-        let items: [ArrangementBarItem] = [
-            ArrangementBarItem(id: UUID(), name: "Default", isDefault: true, paneCount: 3),
-            ArrangementBarItem(id: UUID(), name: "Focus", isDefault: false, paneCount: 1),
-            ArrangementBarItem(id: UUID(), name: "Debug", isDefault: false, paneCount: 2),
-        ]
-        let activeId = items[0].id
-
-        return VStack {
-            Spacer()
-            ArrangementBar(
-                arrangements: items,
-                activeArrangementId: activeId,
-                onSwitch: { _ in },
-                onSaveNew: {},
-                onDelete: { _ in },
-                onRename: { _ in }
-            )
-            Spacer()
-        }
-        .frame(width: 500, height: 200)
-        .background(Color(nsColor: .windowBackgroundColor))
-    }
-}
-#endif

@@ -505,8 +505,8 @@ Multiple UI surfaces that trigger operations through the same `PaneAction` → `
 | Command bar (Cmd+P) | `CommandBarDataSource` → `CommandDispatcher` | Text search → action |
 | Keyboard shortcut | Menu item → `PaneAction` | Direct dispatch |
 | Right-click context menu | Tab context menu → `PaneAction` | Direct dispatch |
-| Arrangement bar | SwiftUI bar below tab bar → `PaneAction` | Click → action |
-| Pane management panel | SwiftUI popover from arrangement bar → `PaneAction` | Click → action |
+| Arrangement button | Floating button under active tab → `PaneAction` | Click → action |
+| Pane management panel | SwiftUI popover from arrangement button → `PaneAction` | Click → action |
 | Pane overlay controls | SwiftUI overlays on pane → `PaneAction` | Hover → click → action |
 | Drawer icon bar | SwiftUI bar at pane bottom → `PaneAction` | Click → action |
 
@@ -515,7 +515,7 @@ Multiple UI surfaces that trigger operations through the same `PaneAction` → `
 A window-level toggle that enables pane manipulation controls. When off, panes show clean content with no distractions. When on, hover reveals controls for rearranging, splitting, minimizing, and closing panes.
 
 - Stored in `ManagementModeMonitor.shared` — singleton `ObservableObject` with `@Published var isActive: Bool`
-- Toggled via toolbar button (positioned left of "Add Repo" as a separate button group) or keyboard shortcut
+- Toggled via toolbar button (separate button group, left of "Add Repo") or keyboard shortcut
 - Icon: `slider.horizontal.3`, highlighted when active
 
 **What edit mode gates:**
@@ -525,7 +525,7 @@ A window-level toggle that enables pane manipulation controls. When off, panes s
 | Minimize button | editMode + hover + isSplit | Top-left of pane |
 | Close button | editMode + hover + isSplit | Top-left of pane (next to minimize) |
 | Quarter-moon split button | editMode + hover | Top-right of pane |
-| Drag bar | editMode | Center of pane (thick, full-width) |
+| Drag zone | editMode | Center of pane (~28% height overlay) |
 | Hover border | editMode + hover + isSplit | Pane outline |
 
 **What is NOT edit-mode gated:**
@@ -533,8 +533,8 @@ A window-level toggle that enables pane manipulation controls. When off, panes s
 | Control | Always Visible When |
 |---------|-------------------|
 | Collapsed pane bar | Pane is minimized |
-| Arrangement bar | Always (below tab bar) |
-| Drawer icon bar | Always (bottom of every pane) |
+| Arrangement button | Always (floating under active tab) |
+| Drawer bar | Always (bottom of every pane, even when empty) |
 | Drawer panel | Drawer is expanded |
 
 ### Pane Overlay Controls
@@ -571,20 +571,26 @@ Controls overlaid on pane content when edit mode is active.
 - Icon: `+` (10pt bold)
 - Action: `.insertPane(source: .newTerminal, direction: .right)`
 
-**Drag Bar (Center)**
+**Drag Zone (Center)**
 
 ```
 ┌─────────────────────────────────────────┐
 │                                         │
-│          ═══════════════════            │  ← thick drag bar
+│  ┌───────────────────────────────────┐  │
+│  │                                   │  │  ← semi-transparent overlay zone
+│  │            ⠿ (grip icon)          │  │     ~25-30% of pane height
+│  │                                   │  │
+│  └───────────────────────────────────┘  │
 │                                         │
 └─────────────────────────────────────────┘
 ```
 
 - Visibility: `editMode` (always visible in edit mode, not just hover)
-- Shape: Thick horizontal bar across the middle of the pane
-- Purpose: Easy grab target for drag-to-rearrange between panes/tabs
-- Interaction: Drag initiates pane movement via `Transferable`
+- Shape: Full-width overlay zone, ~25-30% of pane height, centered vertically
+- Background: Semi-transparent dark (black at 0.15-0.2 opacity)
+- Grip icon: Small 6-dot or 3-line grip centered in the zone
+- Purpose: Large grab target for drag-to-rearrange between panes/tabs
+- Interaction: Entire zone is draggable via `Transferable`
 
 ### Collapsed Pane Bar
 
@@ -608,32 +614,30 @@ When a pane is minimized, it collapses to a narrow bar. Not gated on edit mode �
 - Hamburger menu: Expand, Close options
 - Minimize state: `minimizedPaneIds: Set<UUID>` on Tab (transient, not persisted)
 
-### Arrangement Bar
+### Arrangement Button
 
-A persistent bar below the tab bar showing arrangement chips for the active tab.
+A small floating button positioned directly under the active tab pill. Shows the active arrangement name. Click opens the pane management panel.
 
 ```
 ┌─────────────────────────────────────────────────────────────┐
 │  [tab1]  [tab2 (active)]  [tab3]  [+]                      │  ← tab bar
-├─────────────────────────────────────────────────────────────┤
-│  [Default] [coding] [testing]  [+]  [≡]                    │  ← arrangement bar
+│              [≡ Default]                                     │  ← floating button
 ├─────────────────────────────────────────────────────────────┤
 │                    Terminal content                          │
 └─────────────────────────────────────────────────────────────┘
 ```
 
-- Always visible for ALL tabs (not gated on edit mode or tab type)
-- Arrangement chips — click to switch, right-click for rename/delete
-- [+] button — save current layout as new arrangement
-- [≡] button — opens pane management panel
-- "Default" chip always present, cannot be deleted
+- Always visible for ALL tabs (not gated on edit mode)
+- Shows active arrangement name: `[≡ Default]`, `[≡ coding]`, etc.
+- Positioned by TTVC as a separate element tracking the active tab pill's frame
+- Click opens the pane management panel as a popover
 
 ### Pane Management Panel
 
-A floating panel that drops down from the arrangement bar's [≡] button.
+A floating panel that drops down from the arrangement button.
 
 ```
-  [≡] button → click → panel slides open
+  [≡ Default] → click → panel slides open
     ┌─────────────────────────────┐
     │  Panes:                     │
     │  ● main          [—]       │  ← visible, [—] to minimize
@@ -656,26 +660,36 @@ A floating panel that drops down from the arrangement bar's [≡] button.
 
 ### Drawer UI
 
-Drawer icon bar at the bottom of every pane, with an expandable panel.
+Slim rounded bar at the bottom of every pane, always visible even when empty. Expandable panel when drawer panes exist.
 
 ```
+Empty drawer (no panes yet):
 ┌─────────────────────────────────┐
 │  Pane content                   │
-│  (terminal / webview / etc)     │
 │                                 │
-├─────────────────────────────────┤
-│ [dp1] [dp2] [dp3] [+] [▾]     │  ← icon bar (ALWAYS VISIBLE)
-│ ┌─────────────────────────────┐ │
-│ │ Active drawer pane content  │ │  ← expanded panel (when toggled)
-│ │ (terminal / webview / etc)  │ │
-│ └─────────────────────────────┘ │
+│                                 │
+├────────────────────────────╮    │
+│ [+]                        │    │  ← slim bar (~24px), always visible
+╰────────────────────────────╯    │
+└─────────────────────────────────┘
+
+Populated drawer:
+┌─────────────────────────────────┐
+│  Pane content                   │
+│                                 │
+├────────────────────────────╮    │
+│ [dp1] [dp2] [dp3] [+] [▾] │    │  ← drawer bar with pane icons
+│ ┌─────────────────────────┐│    │
+│ │ Active drawer pane      ││    │  ← expanded panel (when toggled)
+│ └─────────────────────────┘│    │
+╰────────────────────────────╯    │
 └─────────────────────────────────┘
 ```
 
-- Icon bar always visible at bottom of every pane (not hover-gated)
+- Slim rounded bar (~24px) always visible at bottom of every pane
+- When empty: shows only [+] button to create first drawer pane
+- When populated: pane icons + [+] + [▾] collapse toggle
 - Click icon to switch active drawer pane
-- [+] creates new drawer pane
-- [▾] toggles panel expanded/collapsed
 - Right-click icon for close
 - Panel slides up from bottom, overlays terminal content
 

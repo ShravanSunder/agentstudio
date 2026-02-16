@@ -231,26 +231,31 @@ final class ActionExecutor {
 
         case .addDrawerPane(let parentPaneId, let content, let metadata):
             if let drawerPane = store.addDrawerPane(to: parentPaneId, content: content, metadata: metadata) {
-                // Create a view for the drawer pane if its content type supports it.
-                // Terminal drawer panes need floating terminal support (Phase 3),
-                // so createViewForContent will log a warning and return nil for those.
                 let pane = Pane(
                     id: drawerPane.id,
                     content: drawerPane.content,
                     metadata: drawerPane.metadata
                 )
-                coordinator.createViewForContent(pane: pane)
+                if coordinator.createViewForContent(pane: pane) == nil {
+                    executorLogger.warning("addDrawerPane: view creation failed for \(drawerPane.id) — panel will show placeholder")
+                }
             }
 
         case .removeDrawerPane(let parentPaneId, let drawerPaneId):
             coordinator.teardownView(for: drawerPaneId)
             store.removeDrawerPane(drawerPaneId, from: parentPaneId)
+            // teardownView already bumps epoch via unregister, but removing the
+            // last drawer pane collapses the drawer — bump to reflect that state change
+            viewRegistry.bumpEpoch()
 
         case .toggleDrawer(let paneId):
             store.toggleDrawer(for: paneId)
+            // Drawer state lives on Pane, not Tab — epoch bump forces UI rebuild
+            viewRegistry.bumpEpoch()
 
         case .setActiveDrawerPane(let parentPaneId, let drawerPaneId):
             store.setActiveDrawerPane(drawerPaneId, in: parentPaneId)
+            viewRegistry.bumpEpoch()
 
         case .expireUndoEntry(let paneId):
             // TODO: Phase 3 — remove pane from store, kill zmx, destroy surface
