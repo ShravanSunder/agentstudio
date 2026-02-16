@@ -177,7 +177,7 @@ extension MainWindowController: NSToolbarDelegate {
             let item = NSToolbarItem(itemIdentifier: itemIdentifier)
             item.label = "Edit Mode"
             item.paletteLabel = "Edit Mode"
-            item.toolTip = "Toggle Edit Mode (⌥⌘A)"
+            item.toolTip = "Toggle Edit Mode (⌘E)"
             item.isBordered = true
             item.image = NSImage(systemSymbolName: "slider.horizontal.3", accessibilityDescription: "Edit Mode")
             item.action = #selector(toggleEditModeAction)
