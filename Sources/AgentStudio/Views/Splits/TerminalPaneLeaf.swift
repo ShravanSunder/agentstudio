@@ -59,9 +59,9 @@ struct TerminalPaneLeaf: View {
                         .animation(.easeInOut(duration: 0.15), value: isHovered)
                 }
 
-                // Drag zone (center, edit mode only, layout panes with worktree context)
+                // Drag handle (center, edit mode + hover + no active drop on this pane)
                 // Drawer children cannot be dragged out of their drawer.
-                if managementMode.isActive && isSplit && !isDrawerChild,
+                if managementMode.isActive && isSplit && !isDrawerChild && isHovered && !isTargeted,
                    let tv = terminalView,
                    let worktree = tv.worktree,
                    let repo = tv.repo {
@@ -69,10 +69,10 @@ struct TerminalPaneLeaf: View {
                         Spacer()
                         ZStack {
                             RoundedRectangle(cornerRadius: 8)
-                                .fill(Color.black.opacity(isHovered ? 0.2 : 0.15))
-                            Image(systemName: "ellipsis")
+                                .fill(Color.black.opacity(0.2))
+                            Image(systemName: "arrow.up.and.down.and.arrow.left.and.right")
                                 .font(.system(size: 16, weight: .medium))
-                                .foregroundStyle(.white.opacity(0.4))
+                                .foregroundStyle(.white.opacity(0.5))
                         }
                         .frame(maxWidth: .infinity)
                         .frame(height: geometry.size.height * 0.28)
