@@ -13,9 +13,9 @@ struct DrawerPanelOverlay: View {
 
     @AppStorage("drawerHeightRatio") private var heightRatio: Double = 0.80
 
-    /// Height of the DrawerIconBar (8px trapezoid + ~32px icon strip).
-    /// Matches DrawerIconBar layout: TrapezoidConnector(8) + padded HStack(~32).
-    private static let iconBarHeight: CGFloat = 40
+    /// Height of the DrawerIconBar + pane padding.
+    /// TrapezoidConnector(8) + padded HStack(36) + pane leaf padding(2) = 46.
+    private static let iconBarHeight: CGFloat = 46
 
     /// Find the pane whose drawer is currently expanded.
     /// Invariant: only one drawer can be expanded at a time (toggle behavior).
@@ -51,8 +51,8 @@ struct DrawerPanelOverlay: View {
             // Asymmetric trapezoid insets: bottom edges align with pane borders.
             // Edge panes get a flush side (inset ≈ 0), middle panes get symmetric taper.
             let panelLeft = centerX - halfPanel
-            let bottomLeftInset = max(0, info.frame.minX - panelLeft)
-            let bottomRightInset = max(0, (panelLeft + panelWidth) - info.frame.maxX)
+            let bottomLeftInset = max(0, info.frame.minX - panelLeft) + 10
+            let bottomRightInset = max(0, (panelLeft + panelWidth) - info.frame.maxX) + 10
 
             VStack(spacing: 0) {
                 let drawerRenderInfo = SplitRenderInfo.compute(
@@ -84,18 +84,10 @@ struct DrawerPanelOverlay: View {
 
                 // Trapezoid: 3D projection from pane to panel.
                 // Light gradient fades from panel edge (visible) to pane edge (invisible).
+                // Trapezoid: visual bridge from panel to pane icon bar.
+                // Uses same material as DrawerIconBar for cohesive look.
                 DrawerOverlayTrapezoid(bottomLeftInset: bottomLeftInset, bottomRightInset: bottomRightInset)
-                    .fill(
-                        LinearGradient(
-                            stops: [
-                                .init(color: Color.white.opacity(0.12), location: 0),
-                                .init(color: Color.white.opacity(0.04), location: 0.5),
-                                .init(color: .clear, location: 1)
-                            ],
-                            startPoint: .top,
-                            endPoint: .bottom
-                        )
-                    )
+                    .fill(.ultraThinMaterial)
                     .frame(width: panelWidth, height: trapHeight)
             }
             .position(x: centerX, y: centerY)

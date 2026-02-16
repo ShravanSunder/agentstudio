@@ -85,7 +85,12 @@ struct DrawerIconBar: View {
             .padding(.horizontal, 6)
             .padding(.vertical, 4)
             .background(.ultraThinMaterial)
-            .clipShape(RoundedRectangle(cornerRadius: 6))
+            .clipShape(UnevenRoundedRectangle(
+                topLeadingRadius: 0,
+                bottomLeadingRadius: 6,
+                bottomTrailingRadius: 6,
+                topTrailingRadius: 0
+            ))
         }
     }
 }
