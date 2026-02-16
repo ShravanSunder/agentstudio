@@ -78,13 +78,47 @@ struct DrawerPanelOverlay: View {
                     }
                 )
                 .frame(width: panelWidth)
+                // Border glow on the panel — top and sides
+                .overlay(
+                    RoundedRectangle(cornerRadius: 8, style: .continuous)
+                        .strokeBorder(Color.white.opacity(0.10), lineWidth: 1)
+                )
+                // Layered shadow — tight contact + soft ambient
+                .shadow(color: .black.opacity(0.15), radius: 4, y: 2)
+                .shadow(color: .black.opacity(0.2), radius: 16, y: 8)
 
-                // Trapezoid: panel width at top → pane width at bottom (asymmetric)
-                DrawerOverlayTrapezoid(bottomLeftInset: bottomLeftInset, bottomRightInset: bottomRightInset)
-                    .fill(.ultraThinMaterial)
-                    .frame(width: panelWidth, height: trapHeight)
+                // Trapezoid: 3D projection from pane to panel.
+                // Light gradient fades from panel edge (visible) to pane edge (invisible).
+                // Stroke outline matches the panel border for visual cohesion.
+                ZStack {
+                    DrawerOverlayTrapezoid(bottomLeftInset: bottomLeftInset, bottomRightInset: bottomRightInset)
+                        .fill(
+                            LinearGradient(
+                                stops: [
+                                    .init(color: Color.white.opacity(0.12), location: 0),
+                                    .init(color: Color.white.opacity(0.04), location: 0.5),
+                                    .init(color: .clear, location: 1)
+                                ],
+                                startPoint: .top,
+                                endPoint: .bottom
+                            )
+                        )
+                    DrawerOverlayTrapezoid(bottomLeftInset: bottomLeftInset, bottomRightInset: bottomRightInset)
+                        .stroke(
+                            LinearGradient(
+                                stops: [
+                                    .init(color: Color.white.opacity(0.10), location: 0),
+                                    .init(color: Color.white.opacity(0.04), location: 0.6),
+                                    .init(color: .clear, location: 1)
+                                ],
+                                startPoint: .top,
+                                endPoint: .bottom
+                            ),
+                            lineWidth: 1
+                        )
+                }
+                .frame(width: panelWidth, height: trapHeight)
             }
-            .shadow(color: .black.opacity(0.4), radius: 16, y: -4)
             .position(x: centerX, y: centerY)
         }
     }

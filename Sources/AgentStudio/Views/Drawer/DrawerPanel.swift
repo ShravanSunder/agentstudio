@@ -135,12 +135,24 @@ struct DrawerPanel: View {
             }
         }
         .frame(height: height)
-        .background(
-            RoundedRectangle(cornerRadius: 8, style: .continuous)
-                .fill(.ultraThinMaterial)
-                .shadow(color: .black.opacity(0.3), radius: 12, y: -4)
-        )
         .clipShape(RoundedRectangle(cornerRadius: 8, style: .continuous))
+        .drawerPanelMaterial()
+    }
+}
+
+// MARK: - Panel Material
+
+private extension View {
+    @ViewBuilder
+    func drawerPanelMaterial() -> some View {
+        if #available(macOS 26.0, *) {
+            self.glassEffect(.regular, in: RoundedRectangle(cornerRadius: 8, style: .continuous))
+        } else {
+            self.background(
+                RoundedRectangle(cornerRadius: 8, style: .continuous)
+                    .fill(.ultraThinMaterial)
+            )
+        }
     }
 }
 
