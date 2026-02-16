@@ -98,6 +98,9 @@ class TerminalTabViewController: NSViewController, CommandHandler {
         tabBarHostingView.dragPayloadProvider = { [weak self] tabId in
             self?.createDragPayload(for: tabId)
         }
+        tabBarHostingView.onSelect = { [weak self] tabId in
+            self?.dispatchAction(.selectTab(tabId: tabId))
+        }
         tabBarHostingView.translatesAutoresizingMaskIntoConstraints = false
         tabBarHostingView.wantsLayer = true
         containerView.addSubview(tabBarHostingView)
@@ -324,6 +327,7 @@ class TerminalTabViewController: NSViewController, CommandHandler {
         )
 
         let hostingView = NSHostingView(rootView: contentView)
+        hostingView.sizingOptions = [.minSize]
         hostingView.translatesAutoresizingMaskIntoConstraints = false
         terminalContainer.addSubview(hostingView)
 

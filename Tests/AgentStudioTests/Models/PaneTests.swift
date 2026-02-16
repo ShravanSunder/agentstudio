@@ -284,7 +284,7 @@ final class PaneTests: XCTestCase {
 
         XCTAssertTrue(drawer.paneIds.isEmpty)
         XCTAssertNil(drawer.activePaneId)
-        XCTAssertTrue(drawer.isExpanded)
+        XCTAssertFalse(drawer.isExpanded)
         XCTAssertTrue(drawer.minimizedPaneIds.isEmpty)
     }
 

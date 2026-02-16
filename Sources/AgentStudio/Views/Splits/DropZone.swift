@@ -37,45 +37,44 @@ enum DropZone: String, Equatable, CaseIterable {
     }
 
     /// Creates the overlay shape for visual feedback.
-    /// Sized at 80% width × 60% height, positioned toward the split direction.
+    /// Shows the full half of the pane where the new split will appear.
     @ViewBuilder
     func overlay(in geometry: GeometryProxy) -> some View {
         let overlayColor = Color.accentColor.opacity(0.3)
-        let w = geometry.size.width * 0.8
-        let h = geometry.size.height * 0.6
+        let inset: CGFloat = 4
 
         switch self {
         case .top:
             VStack(spacing: 0) {
-                RoundedRectangle(cornerRadius: 6)
+                RoundedRectangle(cornerRadius: 4)
                     .fill(overlayColor)
-                    .frame(width: w, height: h)
-                    .padding(.top, geometry.size.height * 0.05)
+                    .padding(inset)
+                    .frame(height: geometry.size.height * 0.5)
                 Spacer()
             }
         case .bottom:
             VStack(spacing: 0) {
                 Spacer()
-                RoundedRectangle(cornerRadius: 6)
+                RoundedRectangle(cornerRadius: 4)
                     .fill(overlayColor)
-                    .frame(width: w, height: h)
-                    .padding(.bottom, geometry.size.height * 0.05)
+                    .padding(inset)
+                    .frame(height: geometry.size.height * 0.5)
             }
         case .left:
             HStack(spacing: 0) {
-                RoundedRectangle(cornerRadius: 6)
+                RoundedRectangle(cornerRadius: 4)
                     .fill(overlayColor)
-                    .frame(width: w, height: h)
-                    .padding(.leading, geometry.size.width * 0.02)
+                    .padding(inset)
+                    .frame(width: geometry.size.width * 0.5)
                 Spacer()
             }
         case .right:
             HStack(spacing: 0) {
                 Spacer()
-                RoundedRectangle(cornerRadius: 6)
+                RoundedRectangle(cornerRadius: 4)
                     .fill(overlayColor)
-                    .frame(width: w, height: h)
-                    .padding(.trailing, geometry.size.width * 0.02)
+                    .padding(inset)
+                    .frame(width: geometry.size.width * 0.5)
             }
         }
     }

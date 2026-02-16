@@ -198,6 +198,15 @@ struct TerminalPaneLeaf: View {
                 dropZone = nil
             }
         }
+        .onChange(of: isHovered) { _, hovering in
+            // Safety: clear stuck drop overlay when cursor leaves the pane.
+            // SwiftUI's dropExited can be unreliable when drags cancel or
+            // leave the window boundary.
+            if !hovering && isTargeted {
+                isTargeted = false
+                dropZone = nil
+            }
+        }
         .padding(2)
         .background(
             GeometryReader { geo in
