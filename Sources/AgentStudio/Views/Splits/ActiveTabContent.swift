@@ -16,6 +16,9 @@ struct ActiveTabContent: View {
     let onDrop: (SplitDropPayload, UUID, DropZone) -> Void
 
     var body: some View {
+        // Read viewRevision so @Observable tracks it — triggers re-render after repair
+        let _ = store.viewRevision
+
         if let activeTabId = store.activeTabId,
            let tab = store.tab(activeTabId),
            let tree = viewRegistry.renderTree(for: tab.layout) {

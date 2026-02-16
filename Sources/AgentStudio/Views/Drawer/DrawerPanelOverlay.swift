@@ -30,6 +30,9 @@ struct DrawerPanelOverlay: View {
     }
 
     var body: some View {
+        // Read viewRevision so @Observable tracks it — triggers re-render after repair
+        let _ = store.viewRevision
+
         if let info = expandedPaneInfo,
            let drawerTree = viewRegistry.renderTree(for: info.drawer.layout),
            tabSize.width > 0 {

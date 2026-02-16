@@ -29,6 +29,12 @@ final class WorkspaceStore {
     var dropTargetIndex: Int?
     var tabFrames: [UUID: CGRect] = [:]
 
+    /// Incremented when a view is replaced in ViewRegistry without a store mutation
+    /// (e.g., repair actions). SwiftUI views read this to register @Observable tracking,
+    /// ensuring re-renders pick up the new view from ViewRegistry.
+    /// Runtime-only — not persisted.
+    private(set) var viewRevision: Int = 0
+
     // MARK: - Internal State
 
     private(set) var workspaceId: UUID = UUID()
@@ -753,16 +759,17 @@ final class WorkspaceStore {
     }
 
     /// Minimize a pane within a drawer (add to minimizedPaneIds).
-    func minimizeDrawerPane(_ drawerPaneId: UUID, in parentPaneId: UUID) {
+    @discardableResult
+    func minimizeDrawerPane(_ drawerPaneId: UUID, in parentPaneId: UUID) -> Bool {
         guard panes[parentPaneId] != nil,
               let drawer = panes[parentPaneId]!.drawer,
-              drawer.paneIds.contains(drawerPaneId) else { return }
+              drawer.paneIds.contains(drawerPaneId) else { return false }
 
         // Cannot minimize the last non-minimized pane
         let nonMinimized = drawer.paneIds.filter { !drawer.minimizedPaneIds.contains($0) }
         guard nonMinimized.count > 1 else {
             storeLogger.warning("minimizeDrawerPane: cannot minimize last visible drawer pane")
-            return
+            return false
         }
 
         panes[parentPaneId]!.withDrawer { drawer in
@@ -772,6 +779,7 @@ final class WorkspaceStore {
                 drawer.activePaneId = drawer.paneIds.first { !drawer.minimizedPaneIds.contains($0) }
             }
         }
+        return true
     }
 
     /// Expand a minimized pane within a drawer (remove from minimizedPaneIds).
@@ -1156,6 +1164,13 @@ final class WorkspaceStore {
     func setWindowFrame(_ frame: CGRect?) {
         windowFrame = frame
         // Transient — saved on quit only via flush()
+    }
+
+    /// Signal that a view was replaced in ViewRegistry without a corresponding store mutation.
+    /// Called after repair actions so SwiftUI views that read `viewRevision` re-render
+    /// and pick up the new view from ViewRegistry.
+    func bumpViewRevision() {
+        viewRevision += 1
     }
 
     // MARK: - Undo

@@ -289,8 +289,9 @@ final class ActionExecutor {
             store.equalizeDrawerPanes(parentPaneId: parentPaneId)
 
         case .minimizeDrawerPane(let parentPaneId, let drawerPaneId):
-            coordinator.detachForViewSwitch(paneId: drawerPaneId)
-            store.minimizeDrawerPane(drawerPaneId, in: parentPaneId)
+            if store.minimizeDrawerPane(drawerPaneId, in: parentPaneId) {
+                coordinator.detachForViewSwitch(paneId: drawerPaneId)
+            }
 
         case .expandDrawerPane(let parentPaneId, let drawerPaneId):
             store.expandDrawerPane(drawerPaneId, in: parentPaneId)
@@ -484,6 +485,7 @@ final class ActionExecutor {
             }
             coordinator.teardownView(for: paneId)
             coordinator.createViewForContent(pane: pane)
+            store.bumpViewRevision()
             executorLogger.info("Repaired view for pane \(paneId)")
 
         case .reattachZmx, .markSessionFailed, .cleanupOrphan:
