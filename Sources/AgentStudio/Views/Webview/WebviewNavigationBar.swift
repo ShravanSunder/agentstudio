@@ -121,7 +121,8 @@ struct WebviewNavigationBar: View {
                 if isCurrentPageFavorite {
                     history.removeFavorite(url: url)
                 } else {
-                    history.addFavorite(url: url, title: controller.title)
+                    let displayTitle = controller.title.isEmpty ? (url.host() ?? "Web") : controller.title
+                    history.addFavorite(url: url, title: displayTitle)
                 }
             } label: {
                 Image(systemName: isCurrentPageFavorite ? "star.fill" : "star")

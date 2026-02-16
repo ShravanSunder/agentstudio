@@ -94,7 +94,7 @@ final class URLHistoryService {
     func addFavorite(url: URL, title: String) {
         let key = url.absoluteString.lowercased()
         guard !favorites.contains(where: { $0.url.absoluteString.lowercased() == key }) else { return }
-        let entry = URLHistoryEntry(url: url, title: title.isEmpty ? (url.host() ?? url.absoluteString) : title)
+        let entry = URLHistoryEntry(url: url, title: title.isEmpty ? (url.host() ?? "Web") : title)
         favorites.append(entry)
         saveFavorites()
     }
@@ -174,7 +174,11 @@ final class URLHistoryService {
             return
         }
         entries = decoded
+        let countBefore = entries.count
         pruneExpired()
+        if entries.count < countBefore {
+            saveHistory()
+        }
     }
 
     private func saveFavorites() {
