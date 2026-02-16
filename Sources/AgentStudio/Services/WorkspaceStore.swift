@@ -28,6 +28,7 @@ final class WorkspaceStore {
     var draggingTabId: UUID?
     var dropTargetIndex: Int?
     var tabFrames: [UUID: CGRect] = [:]
+    var isSplitResizing: Bool = false
 
     /// Incremented when a view is replaced in ViewRegistry without a store mutation
     /// (e.g., repair actions). SwiftUI views read this to register @Observable tracking,

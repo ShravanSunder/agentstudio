@@ -51,7 +51,7 @@ struct TerminalPaneLeaf: View {
                 }
 
                 // Hover border: drag affordance in management mode
-                if managementMode.isActive && isHovered {
+                if managementMode.isActive && isHovered && !store.isSplitResizing {
                     RoundedRectangle(cornerRadius: 4)
                         .strokeBorder(Color.white.opacity(0.25), lineWidth: 1)
                         .padding(1)
@@ -63,7 +63,7 @@ struct TerminalPaneLeaf: View {
                 // Drawer children cannot be dragged out of their drawer.
                 // The Color.clear fills the ZStack for centering; allowsHitTesting(false)
                 // ensures only the capsule itself intercepts mouse events.
-                if managementMode.isActive && isSplit && !isDrawerChild && isHovered && !isTargeted,
+                if managementMode.isActive && isSplit && !isDrawerChild && isHovered && !isTargeted && !store.isSplitResizing,
                    let tv = terminalView,
                    let worktree = tv.worktree,
                    let repo = tv.repo {
@@ -78,10 +78,7 @@ struct TerminalPaneLeaf: View {
                                 .font(.system(size: 16, weight: .medium))
                                 .foregroundStyle(.white.opacity(0.6))
                         }
-                        .frame(
-                            width: max(60, geometry.size.width * 0.2),
-                            height: max(60 * 1.6, geometry.size.width * 0.2 * 1.6)
-                        )
+                        .frame(width: 20, height: 20 * 1.6)
                         .contentShape(RoundedRectangle(cornerRadius: 12))
                         .draggable(PaneDragPayload(
                             paneId: tv.id,
@@ -98,8 +95,7 @@ struct TerminalPaneLeaf: View {
                                     .font(.system(size: 16, weight: .medium))
                                     .foregroundStyle(.secondary)
                             }
-                            .frame(width: max(60, geometry.size.width * 0.2),
-                                   height: max(96, geometry.size.width * 0.2 * 1.6))
+                            .frame(width: 20, height: 20 * 1.6)
                         }
                     }
                 }
@@ -111,7 +107,7 @@ struct TerminalPaneLeaf: View {
                 }
 
                 // Pane controls: minimize + close (top-left, edit mode + hover)
-                if managementMode.isActive && isHovered {
+                if managementMode.isActive && isHovered && !store.isSplitResizing {
                     VStack {
                         HStack(spacing: 4) {
                             Button {
@@ -146,7 +142,7 @@ struct TerminalPaneLeaf: View {
 
                 // Quarter-moon split button (top-right, edit mode + hover, layout panes only)
                 // Drawer children use the icon bar [+] button to add panes.
-                if managementMode.isActive && isHovered && !isDrawerChild {
+                if managementMode.isActive && isHovered && !isDrawerChild && !store.isSplitResizing {
                     VStack {
                         HStack {
                             Spacer()

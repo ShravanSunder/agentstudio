@@ -199,7 +199,11 @@ struct SplitSubtreeView: View {
                     onEqualize: {
                         action(.equalizePanes(tabId: tabId))
                     },
+                    onResizeBegin: {
+                        store.isSplitResizing = true
+                    },
                     onResizeEnd: {
+                        store.isSplitResizing = false
                         onPersist?()
                     }
                 )

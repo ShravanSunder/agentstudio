@@ -11,11 +11,7 @@ struct DrawerPanelOverlay: View {
     let tabSize: CGSize
     let action: (PaneAction) -> Void
 
-    @AppStorage("drawerHeightRatio") private var heightRatio: Double = 0.80
-
-    /// Height of the DrawerIconBar + pane padding.
-    /// TrapezoidConnector(8) + padded HStack(36) + pane leaf padding(2) = 46.
-    private static let iconBarHeight: CGFloat = 46
+    @AppStorage("drawerHeightRatio") private var heightRatio: Double = DrawerLayout.heightRatioMax
 
     /// Find the pane whose drawer is currently expanded.
     /// Invariant: only one drawer can be expanded at a time (toggle behavior).
@@ -35,24 +31,29 @@ struct DrawerPanelOverlay: View {
 
         if let info = expandedPaneInfo, tabSize.width > 0 {
             let drawerTree = viewRegistry.renderTree(for: info.drawer.layout)
-            let panelWidth = tabSize.width * 0.8
-            let panelHeight = max(100, min(tabSize.height * CGFloat(heightRatio), tabSize.height - 60))
-            let trapHeight: CGFloat = 60
+            let panelWidth = tabSize.width * DrawerLayout.panelWidthRatio
+            let panelHeight = max(
+                DrawerLayout.panelMinHeight,
+                min(tabSize.height * CGFloat(heightRatio), tabSize.height - DrawerLayout.panelBottomMargin)
+            )
+            let trapHeight = DrawerLayout.trapezoidHeight
             let totalHeight = panelHeight + trapHeight
 
             // Bottom of overlay trapezoid aligns with top of pane's icon bar
-            let overlayBottomY = info.frame.maxY - Self.iconBarHeight
+            let overlayBottomY = info.frame.maxY - DrawerLayout.iconBarFrameHeight
             let centerY = overlayBottomY - totalHeight / 2
 
             // Centered on originating pane, clamped to tab bounds
             let halfPanel = panelWidth / 2
-            let centerX = max(halfPanel + 4, min(tabSize.width - halfPanel - 4, info.frame.midX))
+            let edgeMargin = DrawerLayout.tabEdgeMargin
+            let centerX = max(halfPanel + edgeMargin, min(tabSize.width - halfPanel - edgeMargin, info.frame.midX))
 
             // Asymmetric trapezoid insets: bottom edges align with pane borders.
             // Edge panes get a flush side (inset ≈ 0), middle panes get symmetric taper.
             let panelLeft = centerX - halfPanel
-            let bottomLeftInset = max(0, info.frame.minX - panelLeft) + 10
-            let bottomRightInset = max(0, (panelLeft + panelWidth) - info.frame.maxX) + 10
+            let insetPad = DrawerLayout.trapezoidInsetPadding
+            let bottomLeftInset = max(0, info.frame.minX - panelLeft) + insetPad
+            let bottomRightInset = max(0, (panelLeft + panelWidth) - info.frame.maxX) + insetPad
 
             VStack(spacing: 0) {
                 let drawerRenderInfo = SplitRenderInfo.compute(
@@ -70,7 +71,7 @@ struct DrawerPanelOverlay: View {
                     store: store,
                     action: action,
                     onResize: { delta in
-                        let newRatio = min(0.8, max(0.2, heightRatio + Double(delta / tabSize.height)))
+                        let newRatio = min(DrawerLayout.heightRatioMax, max(DrawerLayout.heightRatioMin, heightRatio + Double(delta / tabSize.height)))
                         heightRatio = newRatio
                     },
                     onDismiss: {
@@ -82,8 +83,6 @@ struct DrawerPanelOverlay: View {
                 .shadow(color: .black.opacity(0.15), radius: 4, y: 2)
                 .shadow(color: .black.opacity(0.2), radius: 16, y: 8)
 
-                // Trapezoid: 3D projection from pane to panel.
-                // Light gradient fades from panel edge (visible) to pane edge (invisible).
                 // Trapezoid: visual bridge from panel to pane icon bar.
                 // Uses same material as DrawerIconBar for cohesive look.
                 DrawerOverlayTrapezoid(bottomLeftInset: bottomLeftInset, bottomRightInset: bottomRightInset)

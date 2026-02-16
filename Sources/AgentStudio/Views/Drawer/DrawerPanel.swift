@@ -12,12 +12,12 @@ struct DrawerResizeHandle: View {
     var body: some View {
         Rectangle()
             .fill(Color.clear)
-            .frame(height: 8)
+            .frame(height: DrawerLayout.resizeHandleHeight)
             .contentShape(Rectangle())
             .overlay(
                 RoundedRectangle(cornerRadius: 2)
                     .fill(Color.white.opacity(isDragging ? 0.4 : 0.2))
-                    .frame(width: 40, height: 4)
+                    .frame(width: DrawerLayout.resizeHandlePillWidth, height: DrawerLayout.resizeHandlePillHeight)
             )
             .gesture(
                 DragGesture()
@@ -126,8 +126,8 @@ struct DrawerPanel: View {
                     onDrop: { _, _, _ in },
                     store: store
                 )
-                .padding(.horizontal, 2)
-                .padding(.bottom, 2)
+                .padding(.horizontal, DrawerLayout.panelContentPadding)
+                .padding(.bottom, DrawerLayout.panelContentPadding)
             } else if splitRenderInfo.allMinimized {
                 // All drawer panes minimized — show bars + add button
                 HStack(spacing: 0) {
@@ -157,7 +157,7 @@ struct DrawerPanel: View {
             }
         }
         .frame(height: height)
-        .clipShape(RoundedRectangle(cornerRadius: 8, style: .continuous))
+        .clipShape(RoundedRectangle(cornerRadius: DrawerLayout.panelCornerRadius, style: .continuous))
         .drawerPanelMaterial()
     }
 }
@@ -168,10 +168,10 @@ private extension View {
     @ViewBuilder
     func drawerPanelMaterial() -> some View {
         if #available(macOS 26.0, *) {
-            self.glassEffect(.regular, in: RoundedRectangle(cornerRadius: 8, style: .continuous))
+            self.glassEffect(.regular, in: RoundedRectangle(cornerRadius: DrawerLayout.panelCornerRadius, style: .continuous))
         } else {
             self.background(
-                RoundedRectangle(cornerRadius: 8, style: .continuous)
+                RoundedRectangle(cornerRadius: DrawerLayout.panelCornerRadius, style: .continuous)
                     .fill(.ultraThinMaterial)
             )
         }

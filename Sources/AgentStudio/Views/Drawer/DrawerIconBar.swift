@@ -28,24 +28,19 @@ struct DrawerIconBar: View {
 
     var body: some View {
         VStack(spacing: 0) {
-            // Trapezoid connector — visual bridge from pane to icon strip
-            TrapezoidConnector()
-                .fill(.ultraThinMaterial)
-                .frame(height: 8)
-
             // Icon strip: [toggle] | [+]
             HStack(spacing: 2) {
                 // Expand/collapse toggle (left)
                 Button(action: onToggleExpand) {
                     Image(systemName: "rectangle.bottomhalf.filled")
                         .font(.system(size: 12, weight: .medium))
-                        .frame(width: 28, height: 28)
+                        .frame(width: DrawerLayout.iconButtonSize, height: DrawerLayout.iconButtonSize)
                         .contentShape(Rectangle())
                 }
                 .buttonStyle(.plain)
                 .foregroundStyle(isExpanded ? .primary : (isToggleHovered ? .primary : .secondary))
                 .background(
-                    RoundedRectangle(cornerRadius: 4)
+                    RoundedRectangle(cornerRadius: DrawerLayout.iconButtonCornerRadius)
                         .fill(isExpanded ? Color.white.opacity(0.15) : (isToggleHovered ? Color.white.opacity(0.08) : Color.white.opacity(0.04)))
                 )
                 .onHover { hovering in
@@ -64,13 +59,13 @@ struct DrawerIconBar: View {
                 Button(action: onAdd) {
                     Image(systemName: "plus")
                         .font(.system(size: 11, weight: .medium))
-                        .frame(width: 28, height: 28)
+                        .frame(width: DrawerLayout.iconButtonSize, height: DrawerLayout.iconButtonSize)
                         .contentShape(Rectangle())
                 }
                 .buttonStyle(.plain)
                 .foregroundStyle(isAddHovered ? .primary : .secondary)
                 .background(
-                    RoundedRectangle(cornerRadius: 4)
+                    RoundedRectangle(cornerRadius: DrawerLayout.iconButtonCornerRadius)
                         .fill(isAddHovered ? Color.white.opacity(0.08) : Color.clear)
                 )
                 .onHover { hovering in
@@ -82,15 +77,10 @@ struct DrawerIconBar: View {
 
                 Spacer()
             }
-            .padding(.horizontal, 6)
-            .padding(.vertical, 4)
+            .padding(.horizontal, DrawerLayout.iconBarHorizontalPadding)
+            .padding(.vertical, DrawerLayout.iconBarVerticalPadding)
             .background(.ultraThinMaterial)
-            .clipShape(UnevenRoundedRectangle(
-                topLeadingRadius: 0,
-                bottomLeadingRadius: 6,
-                bottomTrailingRadius: 6,
-                topTrailingRadius: 0
-            ))
+            .clipShape(RoundedRectangle(cornerRadius: DrawerLayout.iconBarCornerRadius))
         }
     }
 }
@@ -110,13 +100,13 @@ struct EmptyDrawerBar: View {
             Button(action: onAdd) {
                 Image(systemName: "plus")
                     .font(.system(size: 11, weight: .medium))
-                    .frame(width: 28, height: 28)
+                    .frame(width: DrawerLayout.iconButtonSize, height: DrawerLayout.iconButtonSize)
                     .contentShape(Rectangle())
             }
             .buttonStyle(.plain)
             .foregroundStyle(isHovered ? .primary : .secondary)
             .background(
-                RoundedRectangle(cornerRadius: 4)
+                RoundedRectangle(cornerRadius: DrawerLayout.iconButtonCornerRadius)
                     .fill(isHovered ? Color.white.opacity(0.08) : Color.clear)
             )
             .onHover { hovering in
@@ -127,9 +117,9 @@ struct EmptyDrawerBar: View {
             .help("Add drawer pane")
             Spacer()
         }
-        .padding(.vertical, 4)
+        .padding(.vertical, DrawerLayout.iconBarVerticalPadding)
         .background(.ultraThinMaterial)
-        .clipShape(RoundedRectangle(cornerRadius: 6))
+        .clipShape(RoundedRectangle(cornerRadius: DrawerLayout.iconBarCornerRadius))
     }
 }
 
