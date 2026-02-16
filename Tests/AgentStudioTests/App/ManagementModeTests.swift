@@ -60,8 +60,9 @@ final class ManagementModeTests: XCTestCase {
 
         // Assert
         XCTAssertNotNil(def)
-        XCTAssertEqual(def?.keyBinding?.key, "a")
-        XCTAssertEqual(def?.keyBinding?.modifiers, [.command, .option])
+        XCTAssertEqual(def?.keyBinding?.key, "e")
+        XCTAssertEqual(def?.keyBinding?.modifiers, [.command])
+        XCTAssertEqual(def?.icon, "rectangle.split.2x2")
     }
 
     // MARK: - CommandDefinition Management Mode Gating
