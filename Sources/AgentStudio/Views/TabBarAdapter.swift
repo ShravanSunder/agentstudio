@@ -1,5 +1,6 @@
 import Foundation
 import Combine
+import Observation
 
 /// Pane info exposed to the tab bar for arrangement panel display.
 struct TabBarPaneInfo: Identifiable, Equatable {
@@ -75,14 +76,11 @@ final class TabBarAdapter: ObservableObject {
     // MARK: - Observation
 
     private func observe() {
-        // Re-derive tabs whenever the store's published state changes.
-        // We listen to objectWillChange to catch any mutation (tabs, panes, activeTabId).
-        store.objectWillChange
-            .receive(on: DispatchQueue.main)
-            .sink { [weak self] _ in
-                self?.refresh()
-            }
-            .store(in: &cancellables)
+        // Re-derive tabs whenever the store's observed state changes.
+        // withObservationTracking fires once per registration, so we re-register
+        // after each change. Task { @MainActor } satisfies @Sendable and ensures
+        // we read new values (onChange has willSet semantics — old values only).
+        observeStore()
 
         $availableWidth
             .removeDuplicates()
@@ -118,6 +116,23 @@ final class TabBarAdapter: ObservableObject {
 
         // Initial sync
         refresh()
+    }
+
+    /// Bridge @Observable store → ObservableObject adapter via withObservationTracking.
+    /// Fires once per registration; re-registers after each change.
+    private func observeStore() {
+        withObservationTracking {
+            // Touch the store properties we derive state from.
+            // @Observable tracks these accesses and fires onChange when any mutate.
+            _ = self.store.tabs
+            _ = self.store.activeTabId
+            _ = self.store.panes
+        } onChange: {
+            Task { @MainActor [weak self] in
+                self?.refresh()
+                self?.observeStore()
+            }
+        }
     }
 
     private func refresh() {

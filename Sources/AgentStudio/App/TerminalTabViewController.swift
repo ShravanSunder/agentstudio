@@ -1,7 +1,7 @@
 import AppKit
 import SwiftUI
 import GhosttyKit
-import Combine
+import Observation
 
 /// Tab-based terminal controller with custom Ghostty-style tab bar.
 ///
@@ -30,9 +30,6 @@ class TerminalTabViewController: NSViewController, CommandHandler {
 
     /// Local event monitor for arrangement bar keyboard shortcut
     private var arrangementBarEventMonitor: Any?
-
-    /// Combine subscriptions for store observation
-    private var cancellables = Set<AnyCancellable>()
 
     /// Tracks the last successfully rendered tab to avoid redundant view rebuilds.
     /// Compared by value (Tab is Hashable) so layout/activePane changes trigger re-render
@@ -261,13 +258,18 @@ class TerminalTabViewController: NSViewController, CommandHandler {
     // MARK: - Store Observation
 
     private func observeStore() {
-        // Re-render when store changes (active tab, layout, etc.)
-        store.objectWillChange
-            .receive(on: DispatchQueue.main)
-            .sink { [weak self] _ in
+        // Bridge @Observable store changes to the manual rebuild pipeline.
+        // This is a transitional shim — Task 2 removes the entire rebuild pipeline.
+        withObservationTracking {
+            _ = self.store.tabs
+            _ = self.store.activeTabId
+            _ = self.store.panes
+        } onChange: {
+            Task { @MainActor [weak self] in
                 self?.refreshDisplay()
+                self?.observeStore()
             }
-            .store(in: &cancellables)
+        }
     }
 
     private func refreshDisplay() {

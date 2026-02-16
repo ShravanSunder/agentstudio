@@ -1,5 +1,5 @@
 import Foundation
-import Combine
+import Observation
 import os.log
 
 private let storeLogger = Logger(subsystem: "com.agentstudio", category: "WorkspaceStore")
@@ -7,21 +7,27 @@ private let storeLogger = Logger(subsystem: "com.agentstudio", category: "Worksp
 /// Owns ALL persisted workspace state. Single source of truth.
 /// All mutations go through here. Collaborators (WorkspacePersistor, ViewRegistry)
 /// are internal — not peers.
+///
+/// All mutations MUST happen on the main thread (enforced by @MainActor).
+/// SwiftUI views observe properties via @Observable's withObservationTracking.
+/// AppKit controllers set up NSHostingView once; SwiftUI drives re-renders automatically.
+/// See docs/architecture/appkit_swiftui_architecture.md for the hosting pattern.
+@Observable
 @MainActor
-final class WorkspaceStore: ObservableObject {
+final class WorkspaceStore {
 
     // MARK: - Persisted State
 
-    @Published private(set) var repos: [Repo] = []
-    @Published private(set) var panes: [UUID: Pane] = [:]
-    @Published private(set) var tabs: [Tab] = []
-    @Published private(set) var activeTabId: UUID?
+    private(set) var repos: [Repo] = []
+    private(set) var panes: [UUID: Pane] = [:]
+    private(set) var tabs: [Tab] = []
+    private(set) var activeTabId: UUID?
 
     // MARK: - Transient UI State
 
-    @Published var draggingTabId: UUID?
-    @Published var dropTargetIndex: Int?
-    @Published var tabFrames: [UUID: CGRect] = [:]
+    var draggingTabId: UUID?
+    var dropTargetIndex: Int?
+    var tabFrames: [UUID: CGRect] = [:]
 
     // MARK: - Internal State
 

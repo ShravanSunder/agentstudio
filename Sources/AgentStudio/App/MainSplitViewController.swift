@@ -187,7 +187,7 @@ class MainSplitViewController: NSSplitViewController {
 /// SwiftUI wrapper that bridges to the AppKit world.
 /// Uses WorkspaceStore instead of SessionManager.
 struct SidebarViewWrapper: View {
-    @ObservedObject var store: WorkspaceStore
+    let store: WorkspaceStore
 
     var body: some View {
         SidebarContentView(store: store)
@@ -196,7 +196,7 @@ struct SidebarViewWrapper: View {
 
 /// The actual sidebar content
 struct SidebarContentView: View {
-    @ObservedObject var store: WorkspaceStore
+    let store: WorkspaceStore
     @State private var expandedRepos: Set<UUID> = Self.loadExpandedRepos()
     @State private var filterText: String = ""
     @State private var debouncedQuery: String = ""
