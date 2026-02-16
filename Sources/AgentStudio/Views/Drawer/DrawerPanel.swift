@@ -59,6 +59,31 @@ struct DrawerPanel: View {
     /// Translates tab-level actions into drawer-specific actions.
     /// SplitSubtreeView and TerminalPaneLeaf dispatch actions using tabId,
     /// but in the drawer context these need to be routed to drawer operations.
+    @ViewBuilder
+    private var addDrawerButton: some View {
+        Button {
+            let content = PaneContent.terminal(
+                TerminalState(provider: .ghostty, lifetime: .temporary)
+            )
+            let metadata = PaneMetadata(
+                source: .floating(workingDirectory: nil, title: nil),
+                title: "Drawer"
+            )
+            action(.addDrawerPane(parentPaneId: parentPaneId, content: content, metadata: metadata))
+        } label: {
+            Image(systemName: "plus")
+                .font(.system(size: 24, weight: .medium))
+                .foregroundStyle(.secondary)
+                .frame(width: 48, height: 48)
+                .background(
+                    RoundedRectangle(cornerRadius: 10)
+                        .fill(Color.white.opacity(0.08))
+                )
+        }
+        .buttonStyle(.plain)
+        .help("Add a drawer terminal")
+    }
+
     private var drawerAction: (PaneAction) -> Void {
         { paneAction in
             switch paneAction {
@@ -86,8 +111,8 @@ struct DrawerPanel: View {
             // Resize handle at top
             DrawerResizeHandle(onDrag: onResize)
 
-            // Drawer split tree content
-            if let node = tree.root {
+            // Drawer split tree content — padded to match inter-pane gap (2px here + 2px pane padding = 4px)
+            if let node = tree.root, !splitRenderInfo.allMinimized {
                 SplitSubtreeView(
                     node: node,
                     tabId: tabId,
@@ -101,31 +126,28 @@ struct DrawerPanel: View {
                     onDrop: { _, _, _ in },
                     store: store
                 )
+                .padding(.horizontal, 2)
+                .padding(.bottom, 2)
+            } else if splitRenderInfo.allMinimized {
+                // All drawer panes minimized — show bars + add button
+                HStack(spacing: 0) {
+                    ForEach(splitRenderInfo.allMinimizedPaneIds, id: \.self) { paneId in
+                        CollapsedPaneBar(
+                            paneId: paneId,
+                            tabId: tabId,
+                            title: store.pane(paneId)?.title ?? "Terminal",
+                            action: drawerAction
+                        )
+                        .frame(width: CollapsedPaneBar.barWidth)
+                    }
+                    Spacer()
+                    addDrawerButton
+                    Spacer()
+                }
             } else {
                 VStack(spacing: 12) {
                     Spacer()
-                    Button {
-                        let content = PaneContent.terminal(
-                            TerminalState(provider: .ghostty, lifetime: .temporary)
-                        )
-                        let metadata = PaneMetadata(
-                            source: .floating(workingDirectory: nil, title: nil),
-                            title: "Drawer"
-                        )
-                        action(.addDrawerPane(parentPaneId: parentPaneId, content: content, metadata: metadata))
-                    } label: {
-                        Image(systemName: "plus")
-                            .font(.system(size: 24, weight: .medium))
-                            .foregroundStyle(.secondary)
-                            .frame(width: 48, height: 48)
-                            .background(
-                                RoundedRectangle(cornerRadius: 10)
-                                    .fill(Color.white.opacity(0.08))
-                            )
-                    }
-                    .buttonStyle(.plain)
-                    .help("Add a drawer terminal")
-
+                    addDrawerButton
                     Text("Add a drawer terminal")
                         .font(.system(size: 11))
                         .foregroundStyle(.tertiary)

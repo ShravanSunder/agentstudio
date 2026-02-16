@@ -78,49 +78,72 @@ struct DrawerPanelOverlay: View {
                     }
                 )
                 .frame(width: panelWidth)
-                // Border glow on the panel — top and sides
-                .overlay(
-                    RoundedRectangle(cornerRadius: 8, style: .continuous)
-                        .strokeBorder(Color.white.opacity(0.10), lineWidth: 1)
-                )
                 // Layered shadow — tight contact + soft ambient
                 .shadow(color: .black.opacity(0.15), radius: 4, y: 2)
                 .shadow(color: .black.opacity(0.2), radius: 16, y: 8)
 
                 // Trapezoid: 3D projection from pane to panel.
                 // Light gradient fades from panel edge (visible) to pane edge (invisible).
-                // Stroke outline matches the panel border for visual cohesion.
-                ZStack {
-                    DrawerOverlayTrapezoid(bottomLeftInset: bottomLeftInset, bottomRightInset: bottomRightInset)
-                        .fill(
-                            LinearGradient(
-                                stops: [
-                                    .init(color: Color.white.opacity(0.12), location: 0),
-                                    .init(color: Color.white.opacity(0.04), location: 0.5),
-                                    .init(color: .clear, location: 1)
-                                ],
-                                startPoint: .top,
-                                endPoint: .bottom
-                            )
+                DrawerOverlayTrapezoid(bottomLeftInset: bottomLeftInset, bottomRightInset: bottomRightInset)
+                    .fill(
+                        LinearGradient(
+                            stops: [
+                                .init(color: Color.white.opacity(0.12), location: 0),
+                                .init(color: Color.white.opacity(0.04), location: 0.5),
+                                .init(color: .clear, location: 1)
+                            ],
+                            startPoint: .top,
+                            endPoint: .bottom
                         )
-                    DrawerOverlayTrapezoid(bottomLeftInset: bottomLeftInset, bottomRightInset: bottomRightInset)
-                        .stroke(
-                            LinearGradient(
-                                stops: [
-                                    .init(color: Color.white.opacity(0.10), location: 0),
-                                    .init(color: Color.white.opacity(0.04), location: 0.6),
-                                    .init(color: .clear, location: 1)
-                                ],
-                                startPoint: .top,
-                                endPoint: .bottom
-                            ),
-                            lineWidth: 1
-                        )
-                }
-                .frame(width: panelWidth, height: trapHeight)
+                    )
+                    .frame(width: panelWidth, height: trapHeight)
             }
             .position(x: centerX, y: centerY)
         }
+    }
+}
+
+/// Unified outline shape tracing the panel (rounded top corners) and trapezoid connector
+/// as a single continuous path, so the border reads as one cohesive element.
+struct DrawerOutlineShape: Shape {
+    let panelHeight: CGFloat
+    let cornerRadius: CGFloat
+    let bottomLeftInset: CGFloat
+    let bottomRightInset: CGFloat
+
+    func path(in rect: CGRect) -> Path {
+        let w = rect.width
+        let r = min(cornerRadius, panelHeight / 2)
+        var path = Path()
+        path.move(to: CGPoint(x: 0, y: r))
+        // Top-left corner
+        path.addArc(
+            center: CGPoint(x: r, y: r),
+            radius: r,
+            startAngle: .degrees(180),
+            endAngle: .degrees(270),
+            clockwise: false
+        )
+        // Top edge
+        path.addLine(to: CGPoint(x: w - r, y: 0))
+        // Top-right corner
+        path.addArc(
+            center: CGPoint(x: w - r, y: r),
+            radius: r,
+            startAngle: .degrees(270),
+            endAngle: .degrees(0),
+            clockwise: false
+        )
+        // Right side → panel bottom
+        path.addLine(to: CGPoint(x: w, y: panelHeight))
+        // Trapezoid right slope
+        path.addLine(to: CGPoint(x: w - bottomRightInset, y: rect.height))
+        // Trapezoid bottom
+        path.addLine(to: CGPoint(x: bottomLeftInset, y: rect.height))
+        // Trapezoid left slope → panel bottom-left
+        path.addLine(to: CGPoint(x: 0, y: panelHeight))
+        path.closeSubpath()
+        return path
     }
 }
 

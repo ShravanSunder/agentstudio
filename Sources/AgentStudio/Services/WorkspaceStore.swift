@@ -460,14 +460,8 @@ final class WorkspaceStore {
             tabs[tabIndex].arrangements[arrIndex].visiblePaneIds.remove(paneId)
             // Update active pane if removed
             if tabs[tabIndex].activePaneId == paneId {
-                tabs[tabIndex].activePaneId = newLayout.paneIds.first
-            }
-            // Auto-expand if only one pane remains and it's minimized
-            let remainingPaneIds = newLayout.paneIds
-            let nonMinimized = remainingPaneIds.filter { !tabs[tabIndex].minimizedPaneIds.contains($0) }
-            if nonMinimized.isEmpty, let lastMinimized = remainingPaneIds.first {
-                tabs[tabIndex].minimizedPaneIds.remove(lastMinimized)
-                tabs[tabIndex].activePaneId = lastMinimized
+                let remaining = newLayout.paneIds.filter { !tabs[tabIndex].minimizedPaneIds.contains($0) }
+                tabs[tabIndex].activePaneId = remaining.first
             }
         } else {
             // Last pane removed — signal to caller that tab is now empty.

@@ -33,6 +33,24 @@ struct TerminalSplitContainer: View {
 
     @State private var paneFrames: [UUID: CGRect] = [:]
 
+    /// Content shown when all panes in the tab are minimized.
+    /// Collapsed bars aligned left, remaining space empty.
+    @ViewBuilder
+    private var allMinimizedContent: some View {
+        HStack(spacing: 0) {
+            ForEach(splitRenderInfo.allMinimizedPaneIds, id: \.self) { paneId in
+                CollapsedPaneBar(
+                    paneId: paneId,
+                    tabId: tabId,
+                    title: store.pane(paneId)?.title ?? "Terminal",
+                    action: action
+                )
+                .frame(width: CollapsedPaneBar.barWidth)
+            }
+            Spacer()
+        }
+    }
+
     var body: some View {
         GeometryReader { tabGeometry in
             ZStack {
@@ -61,6 +79,9 @@ struct TerminalSplitContainer: View {
                                 .padding(8)
                                 .allowsHitTesting(false)
                         }
+                    } else if splitRenderInfo.allMinimized {
+                        // All panes minimized — show bars + empty content
+                        allMinimizedContent
                     } else {
                         // Normal split rendering
                         SplitSubtreeView(
