@@ -244,18 +244,12 @@ final class ActionExecutor {
         case .removeDrawerPane(let parentPaneId, let drawerPaneId):
             coordinator.teardownView(for: drawerPaneId)
             store.removeDrawerPane(drawerPaneId, from: parentPaneId)
-            // teardownView already bumps epoch via unregister, but removing the
-            // last drawer pane collapses the drawer — bump to reflect that state change
-            viewRegistry.bumpEpoch()
 
         case .toggleDrawer(let paneId):
             store.toggleDrawer(for: paneId)
-            // Drawer state lives on Pane, not Tab — epoch bump forces UI rebuild
-            viewRegistry.bumpEpoch()
 
         case .setActiveDrawerPane(let parentPaneId, let drawerPaneId):
             store.setActiveDrawerPane(drawerPaneId, in: parentPaneId)
-            viewRegistry.bumpEpoch()
 
         case .expireUndoEntry(let paneId):
             // TODO: Phase 3 — remove pane from store, kill zmx, destroy surface

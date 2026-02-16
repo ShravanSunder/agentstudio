@@ -169,15 +169,6 @@ final class PaneContentWiringTests: XCTestCase {
         XCTAssertNil(registry.terminalView(for: paneId))
     }
 
-    func test_viewRegistry_epochBumpsOnRegister() {
-        let registry = ViewRegistry()
-        let initial = registry.epoch
-
-        registry.register(PaneView(paneId: UUID()), for: UUID())
-
-        XCTAssertEqual(registry.epoch, initial + 1)
-    }
-
     // MARK: - PaneView base class
 
     func test_paneView_identifiable() {

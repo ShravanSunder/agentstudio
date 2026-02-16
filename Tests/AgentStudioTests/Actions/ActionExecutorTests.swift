@@ -679,8 +679,6 @@ final class ActionExecutorTests: XCTestCase {
         viewRegistry.register(viewB, for: pB.id)
         viewRegistry.register(viewC, for: pC.id)
 
-        let epochBeforeSwitch = viewRegistry.epoch
-
         // Create custom arrangement with only pane A
         let customArrId = store.createArrangement(
             name: "Solo",
@@ -702,8 +700,5 @@ final class ActionExecutorTests: XCTestCase {
         // Verify all panes are visible again in the default arrangement
         let updatedTab = store.tab(tab.id)!
         XCTAssertEqual(Set(updatedTab.paneIds), Set([pA.id, pB.id, pC.id]))
-
-        // Epoch should have stayed the same (no register/unregister calls)
-        XCTAssertEqual(viewRegistry.epoch, epochBeforeSwitch, "Registry epoch should not change during arrangement switches")
     }
 }
