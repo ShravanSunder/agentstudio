@@ -123,6 +123,13 @@ class MainSplitViewController: NSSplitViewController {
             name: .openNewTerminalRequested,
             object: nil
         )
+
+        NotificationCenter.default.addObserver(
+            self,
+            selector: #selector(handleFilterSidebar(_:)),
+            name: .filterSidebarRequested,
+            object: nil
+        )
     }
 
     @objc private func handleToggleSidebar(_ notification: Notification) {
@@ -131,6 +138,11 @@ class MainSplitViewController: NSSplitViewController {
         DispatchQueue.main.async { [weak self] in
             self?.saveSidebarState()
         }
+    }
+
+    @objc private func handleFilterSidebar(_ notification: Notification) {
+        guard isSidebarCollapsed else { return }
+        expandSidebar()
     }
 
     @objc private func handleOpenWorktree(_ notification: Notification) {
@@ -166,6 +178,20 @@ class MainSplitViewController: NSSplitViewController {
         }
 
         terminalTabViewController?.selectTab(at: index)
+    }
+
+    // MARK: - Sidebar State
+
+    var isSidebarCollapsed: Bool {
+        splitViewItems.first?.isCollapsed ?? false
+    }
+
+    func expandSidebar() {
+        guard let sidebarItem = splitViewItems.first, sidebarItem.isCollapsed else { return }
+        sidebarItem.animator().isCollapsed = false
+        DispatchQueue.main.async { [weak self] in
+            self?.saveSidebarState()
+        }
     }
 
     // MARK: - Subtle Divider
