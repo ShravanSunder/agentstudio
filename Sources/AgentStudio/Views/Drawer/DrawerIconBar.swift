@@ -33,7 +33,7 @@ struct DrawerIconBar: View {
                 // Expand/collapse toggle (left)
                 Button(action: onToggleExpand) {
                     Image(systemName: "rectangle.bottomhalf.filled")
-                        .font(.system(size: 12, weight: .medium))
+                        .font(.system(size: AppStyle.compactIconSize, weight: .medium))
                         .frame(width: DrawerLayout.iconButtonSize, height: DrawerLayout.iconButtonSize)
                         .contentShape(Rectangle())
                 }
@@ -58,7 +58,7 @@ struct DrawerIconBar: View {
                 // Add button (right)
                 Button(action: onAdd) {
                     Image(systemName: "plus")
-                        .font(.system(size: 11, weight: .medium))
+                        .font(.system(size: AppStyle.compactIconSize, weight: .medium))
                         .frame(width: DrawerLayout.iconButtonSize, height: DrawerLayout.iconButtonSize)
                         .contentShape(Rectangle())
                 }
@@ -99,7 +99,7 @@ struct EmptyDrawerBar: View {
             Spacer()
             Button(action: onAdd) {
                 Image(systemName: "plus")
-                    .font(.system(size: 11, weight: .medium))
+                    .font(.system(size: AppStyle.compactIconSize, weight: .medium))
                     .frame(width: DrawerLayout.iconButtonSize, height: DrawerLayout.iconButtonSize)
                     .contentShape(Rectangle())
             }

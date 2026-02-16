@@ -658,6 +658,50 @@ final class WorkspaceStore {
         return drawerPane
     }
 
+    /// Insert a new drawer pane into a drawer's layout next to a specific target pane.
+    /// Returns the created pane, or nil if the parent or target is invalid.
+    @discardableResult
+    func insertDrawerPane(
+        in parentPaneId: UUID,
+        at targetDrawerPaneId: UUID,
+        direction: Layout.SplitDirection,
+        position: Layout.Position,
+        content: PaneContent,
+        metadata: PaneMetadata
+    ) -> Pane? {
+        guard panes[parentPaneId] != nil,
+              panes[parentPaneId]!.drawer != nil else {
+            storeLogger.warning("insertDrawerPane: parent pane \(parentPaneId) has no drawer")
+            return nil
+        }
+
+        guard panes[parentPaneId]!.drawer!.layout.contains(targetDrawerPaneId) else {
+            storeLogger.warning("insertDrawerPane: target \(targetDrawerPaneId) not in drawer layout")
+            return nil
+        }
+
+        let drawerPane = Pane(
+            content: content,
+            metadata: metadata,
+            kind: .drawerChild(parentPaneId: parentPaneId)
+        )
+
+        panes[drawerPane.id] = drawerPane
+
+        panes[parentPaneId]!.withDrawer { drawer in
+            drawer.layout = drawer.layout.inserting(
+                paneId: drawerPane.id, at: targetDrawerPaneId,
+                direction: direction, position: position
+            )
+            drawer.paneIds.append(drawerPane.id)
+            drawer.activePaneId = drawerPane.id
+            drawer.isExpanded = true
+        }
+
+        markDirty()
+        return drawerPane
+    }
+
     /// Remove a drawer pane from its parent. Removes the drawer panes list entry,
     /// the layout leaf, and the store entry. Resets drawer if empty.
     func removeDrawerPane(_ drawerPaneId: UUID, from parentPaneId: UUID) {

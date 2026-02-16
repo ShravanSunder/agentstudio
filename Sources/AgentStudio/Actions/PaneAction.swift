@@ -118,6 +118,8 @@ enum PaneAction: Equatable, Hashable {
     case minimizeDrawerPane(parentPaneId: UUID, drawerPaneId: UUID)
     /// Expand a minimized pane within a drawer.
     case expandDrawerPane(parentPaneId: UUID, drawerPaneId: UUID)
+    /// Insert a new pane into a drawer's layout next to a target drawer pane.
+    case insertDrawerPane(parentPaneId: UUID, targetDrawerPaneId: UUID, direction: SplitNewDirection)
 
     // System actions — dispatched by Reconciler and undo timers, not by user input.
 
