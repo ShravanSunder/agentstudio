@@ -126,7 +126,7 @@ final class OAuthService: NSObject {
                 // Verify state parameter to prevent CSRF
                 let returnedState = components.queryItems?.first(where: { $0.name == "state" })?.value
                 if returnedState != state {
-                    oauthLogger.warning("OAuth state mismatch for \(provider.rawValue) — possible CSRF")
+                    oauthLogger.error("OAuth state mismatch for \(provider.rawValue) — possible CSRF attack")
                     continuation.resume(throwing: OAuthError.stateMismatch)
                     return
                 }

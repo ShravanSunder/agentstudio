@@ -121,6 +121,9 @@ final class WebviewPaneController {
         if trimmed.isEmpty { return "about:blank" }
         if trimmed.contains("://") { return trimmed }
         if trimmed.hasPrefix("about:") || trimmed.hasPrefix("data:") { return trimmed }
+        if trimmed.hasPrefix("localhost") || trimmed.hasPrefix("127.") || trimmed.hasPrefix("[::1]") {
+            return "http://\(trimmed)"
+        }
         return "https://\(trimmed)"
     }
 }
