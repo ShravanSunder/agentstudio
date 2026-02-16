@@ -337,7 +337,7 @@ final class WorkspaceStoreDrawerTests: XCTestCase {
         XCTAssertTrue(result)
     }
 
-    func test_minimizeDrawerPane_returnsFalse_lastVisiblePane() {
+    func test_minimizeDrawerPane_succeeds_lastVisiblePane() {
         // Arrange — single drawer pane
         let pane = store.createPane(source: .floating(workingDirectory: nil, title: nil))
         let dp = store.addDrawerPane(
@@ -349,9 +349,10 @@ final class WorkspaceStoreDrawerTests: XCTestCase {
         // Act
         let result = store.minimizeDrawerPane(dp.id, in: pane.id)
 
-        // Assert
-        XCTAssertFalse(result)
-        XCTAssertFalse(store.pane(pane.id)!.drawer!.minimizedPaneIds.contains(dp.id))
+        // Assert — minimizing last pane is now allowed
+        XCTAssertTrue(result)
+        XCTAssertTrue(store.pane(pane.id)!.drawer!.minimizedPaneIds.contains(dp.id))
+        XCTAssertNil(store.pane(pane.id)!.drawer!.activePaneId)
     }
 
     func test_minimizeDrawerPane_returnsFalse_invalidPaneId() {
@@ -385,7 +386,7 @@ final class WorkspaceStoreDrawerTests: XCTestCase {
         XCTAssertFalse(drawer.minimizedPaneIds.contains(dp2.id))
     }
 
-    func test_minimizeDrawerPane_lastVisible_noOp() {
+    func test_minimizeDrawerPane_lastVisible_succeeds() {
         // Arrange — single drawer pane
         let pane = store.createPane(source: .floating(workingDirectory: nil, title: nil))
         let dp = store.addDrawerPane(
@@ -394,11 +395,12 @@ final class WorkspaceStoreDrawerTests: XCTestCase {
             metadata: PaneMetadata(source: .floating(workingDirectory: nil, title: nil))
         )!
 
-        // Act — attempt to minimize the only pane
+        // Act — minimize the only pane
         store.minimizeDrawerPane(dp.id, in: pane.id)
 
-        // Assert — should not be minimized (last visible pane)
-        XCTAssertFalse(store.pane(pane.id)!.drawer!.minimizedPaneIds.contains(dp.id))
+        // Assert — minimizing last pane is now allowed
+        XCTAssertTrue(store.pane(pane.id)!.drawer!.minimizedPaneIds.contains(dp.id))
+        XCTAssertNil(store.pane(pane.id)!.drawer!.activePaneId)
     }
 
     func test_minimizeDrawerPane_switchesActiveIfMinimized() {

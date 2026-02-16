@@ -22,12 +22,17 @@ struct ActiveTabContent: View {
         if let activeTabId = store.activeTabId,
            let tab = store.tab(activeTabId),
            let tree = viewRegistry.renderTree(for: tab.layout) {
+            let renderInfo = SplitRenderInfo.compute(
+                layout: tab.layout,
+                minimizedPaneIds: tab.minimizedPaneIds
+            )
             TerminalSplitContainer(
                 tree: tree,
                 tabId: activeTabId,
                 activePaneId: tab.activePaneId,
                 zoomedPaneId: tab.zoomedPaneId,
                 minimizedPaneIds: tab.minimizedPaneIds,
+                splitRenderInfo: renderInfo,
                 action: action,
                 onPersist: nil,
                 shouldAcceptDrop: shouldAcceptDrop,

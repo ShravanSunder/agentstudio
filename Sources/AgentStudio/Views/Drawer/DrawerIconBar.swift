@@ -2,21 +2,12 @@ import SwiftUI
 
 // MARK: - TrapezoidConnector
 
-/// Trapezoid shape that visually connects a pane to its drawer icon bar.
-/// Wide at top (pane boundary), narrow at bottom (icon bar).
+/// Rectangle bridge that visually connects a pane to its drawer icon bar.
+/// Full pane width — the panel-to-pane taper is handled by DrawerOverlayTrapezoid
+/// at the tab level, so this connector stays at pane width to match pane borders.
 struct TrapezoidConnector: Shape {
-    /// How much the sides taper inward (0 = rectangle, 1 = full taper).
-    var taperRatio: CGFloat = 0.15
-
     func path(in rect: CGRect) -> Path {
-        let inset = rect.width * taperRatio
-        var path = Path()
-        path.move(to: CGPoint(x: 0, y: 0))                                // top-left (full width)
-        path.addLine(to: CGPoint(x: rect.width, y: 0))                    // top-right (full width)
-        path.addLine(to: CGPoint(x: rect.width - inset, y: rect.height))  // bottom-right (narrower)
-        path.addLine(to: CGPoint(x: inset, y: rect.height))               // bottom-left (narrower)
-        path.closeSubpath()
-        return path
+        Path(rect)
     }
 }
 

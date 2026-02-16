@@ -22,6 +22,7 @@ struct TerminalSplitContainer: View {
     let activePaneId: UUID?
     let zoomedPaneId: UUID?
     let minimizedPaneIds: Set<UUID>
+    let splitRenderInfo: SplitRenderInfo
     let action: (PaneAction) -> Void
     /// Called when a resize drag ends to persist the current split tree state.
     let onPersist: (() -> Void)?
@@ -68,6 +69,7 @@ struct TerminalSplitContainer: View {
                             isSplit: tree.isSplit,
                             activePaneId: activePaneId,
                             minimizedPaneIds: minimizedPaneIds,
+                            splitRenderInfo: splitRenderInfo,
                             action: action,
                             onPersist: onPersist,
                             shouldAcceptDrop: shouldAcceptDrop,
@@ -109,6 +111,7 @@ struct SplitSubtreeView: View {
     let isSplit: Bool
     let activePaneId: UUID?
     let minimizedPaneIds: Set<UUID>
+    let splitRenderInfo: SplitRenderInfo
     let action: (PaneAction) -> Void
     let onPersist: (() -> Void)?
     let shouldAcceptDrop: (UUID, DropZone) -> Bool
@@ -139,21 +142,33 @@ struct SplitSubtreeView: View {
             }
 
         case .split(let split):
-            let leftMinimized = isMinimizedLeaf(split.left)
-            let rightMinimized = isMinimizedLeaf(split.right)
+            let info = splitRenderInfo.splitInfo[split.id]
 
-            if leftMinimized || rightMinimized {
-                // At least one side is minimized — render with collapsed bar(s)
-                minimizedSplitContent(
-                    split: split,
-                    leftMinimized: leftMinimized,
-                    rightMinimized: rightMinimized
+            if let info, info.leftFullyMinimized && info.rightFullyMinimized {
+                // Both sides fully minimized — render all bars
+                allCollapsedBars(paneIds: info.leftMinimizedPaneIds + info.rightMinimizedPaneIds)
+            } else if let info, info.leftFullyMinimized {
+                // Left fully minimized — bars + right fills rest
+                minimizedSideContent(
+                    minimizedPaneIds: info.leftMinimizedPaneIds,
+                    visibleSide: split.right,
+                    direction: split.direction,
+                    minimizedOnLeft: true
+                )
+            } else if let info, info.rightFullyMinimized {
+                // Right fully minimized — left fills rest + bars
+                minimizedSideContent(
+                    minimizedPaneIds: info.rightMinimizedPaneIds,
+                    visibleSide: split.left,
+                    direction: split.direction,
+                    minimizedOnLeft: false
                 )
             } else {
-                // Normal split rendering
+                // Both sides have visible panes — use adjusted ratio
+                let ratio = info?.adjustedRatio ?? split.ratio
                 SplitView(
                     splitViewDirection,
-                    ratioBinding(for: split),
+                    adjustedRatioBinding(for: split, renderRatio: ratio),
                     left: {
                         subtreeView(node: split.left)
                     },
@@ -173,63 +188,61 @@ struct SplitSubtreeView: View {
 
     // MARK: - Minimized Split Rendering
 
-    /// Check if a node is a single minimized leaf.
-    private func isMinimizedLeaf(_ node: PaneSplitTree.Node) -> Bool {
-        guard case .leaf(let paneView) = node else { return false }
-        return minimizedPaneIds.contains(paneView.id)
-    }
-
-    /// Render a split where at least one side is minimized.
+    /// Render a split where one side is fully minimized (bars) and the other has visible content.
     @ViewBuilder
-    private func minimizedSplitContent(
-        split: TerminalSplitTree.Node.Split,
-        leftMinimized: Bool,
-        rightMinimized: Bool
+    private func minimizedSideContent(
+        minimizedPaneIds: [UUID],
+        visibleSide: PaneSplitTree.Node,
+        direction: SplitViewDirection,
+        minimizedOnLeft: Bool
     ) -> some View {
-        let isHorizontal = split.direction == .horizontal
+        let isHorizontal = direction == .horizontal
+
         if isHorizontal {
             HStack(spacing: 0) {
-                if leftMinimized {
-                    collapsedBarForNode(split.left)
-                        .fixedSize(horizontal: true, vertical: false)
+                if minimizedOnLeft {
+                    collapsedBarsForDirection(paneIds: minimizedPaneIds, isHorizontal: true)
+                    subtreeView(node: visibleSide)
                 } else {
-                    subtreeView(node: split.left)
-                }
-                if rightMinimized {
-                    collapsedBarForNode(split.right)
-                        .fixedSize(horizontal: true, vertical: false)
-                } else {
-                    subtreeView(node: split.right)
+                    subtreeView(node: visibleSide)
+                    collapsedBarsForDirection(paneIds: minimizedPaneIds, isHorizontal: true)
                 }
             }
         } else {
             VStack(spacing: 0) {
-                if leftMinimized {
-                    collapsedBarForNode(split.left)
-                        .frame(height: CollapsedPaneBar.barHeight)
+                if minimizedOnLeft {
+                    collapsedBarsForDirection(paneIds: minimizedPaneIds, isHorizontal: false)
+                    subtreeView(node: visibleSide)
                 } else {
-                    subtreeView(node: split.left)
-                }
-                if rightMinimized {
-                    collapsedBarForNode(split.right)
-                        .frame(height: CollapsedPaneBar.barHeight)
-                } else {
-                    subtreeView(node: split.right)
+                    subtreeView(node: visibleSide)
+                    collapsedBarsForDirection(paneIds: minimizedPaneIds, isHorizontal: false)
                 }
             }
         }
     }
 
-    /// Create a CollapsedPaneBar for a leaf node.
+    /// Render collapsed bars for a list of minimized pane IDs.
     @ViewBuilder
-    private func collapsedBarForNode(_ node: PaneSplitTree.Node) -> some View {
-        if case .leaf(let paneView) = node {
+    private func collapsedBarsForDirection(paneIds: [UUID], isHorizontal: Bool) -> some View {
+        ForEach(paneIds, id: \.self) { paneId in
             CollapsedPaneBar(
-                paneId: paneView.id,
+                paneId: paneId,
                 tabId: tabId,
-                title: store.pane(paneView.id)?.title ?? "Terminal",
+                title: store.pane(paneId)?.title ?? "Terminal",
                 action: action
             )
+            .frame(
+                width: isHorizontal ? CollapsedPaneBar.barWidth : nil,
+                height: isHorizontal ? nil : CollapsedPaneBar.barHeight
+            )
+        }
+    }
+
+    /// Render all collapsed bars horizontally (both sides fully minimized).
+    @ViewBuilder
+    private func allCollapsedBars(paneIds: [UUID]) -> some View {
+        HStack(spacing: 0) {
+            collapsedBarsForDirection(paneIds: paneIds, isHorizontal: true)
         }
     }
 
@@ -242,6 +255,7 @@ struct SplitSubtreeView: View {
             isSplit: true,
             activePaneId: activePaneId,
             minimizedPaneIds: minimizedPaneIds,
+            splitRenderInfo: splitRenderInfo,
             action: action,
             onPersist: onPersist,
             shouldAcceptDrop: shouldAcceptDrop,
@@ -257,10 +271,10 @@ struct SplitSubtreeView: View {
         return split.direction
     }
 
-    private func ratioBinding(for split: TerminalSplitTree.Node.Split) -> Binding<CGFloat> {
+    private func adjustedRatioBinding(for split: PaneSplitTree.Node.Split, renderRatio: Double) -> Binding<CGFloat> {
         let splitId = split.id
         return Binding(
-            get: { CGFloat(split.ratio) },
+            get: { CGFloat(renderRatio) },
             set: { newRatio in
                 action(.resizePane(tabId: tabId, splitId: splitId, ratio: Double(newRatio)))
             }

@@ -777,16 +777,9 @@ final class WorkspaceStore {
               let drawer = panes[parentPaneId]!.drawer,
               drawer.paneIds.contains(drawerPaneId) else { return false }
 
-        // Cannot minimize the last non-minimized pane
-        let nonMinimized = drawer.paneIds.filter { !drawer.minimizedPaneIds.contains($0) }
-        guard nonMinimized.count > 1 else {
-            storeLogger.warning("minimizeDrawerPane: cannot minimize last visible drawer pane")
-            return false
-        }
-
         panes[parentPaneId]!.withDrawer { drawer in
             drawer.minimizedPaneIds.insert(drawerPaneId)
-            // If minimized pane was active, switch to next non-minimized
+            // If minimized pane was active, switch to next non-minimized (nil if all minimized)
             if drawer.activePaneId == drawerPaneId {
                 drawer.activePaneId = drawer.paneIds.first { !drawer.minimizedPaneIds.contains($0) }
             }
@@ -819,16 +812,11 @@ final class WorkspaceStore {
     // MARK: - Minimize / Expand
 
     /// Minimize a pane — collapse it to a narrow bar in the UI.
-    /// Cannot minimize the last non-minimized pane in the active arrangement.
+    /// All panes can be minimized, including the last one (shows empty state).
     @discardableResult
     func minimizePane(_ paneId: UUID, inTab tabId: UUID) -> Bool {
         guard let tabIndex = findTabIndex(tabId) else { return false }
         let visiblePaneIds = tabs[tabIndex].paneIds
-        let nonMinimized = visiblePaneIds.filter { !tabs[tabIndex].minimizedPaneIds.contains($0) }
-        guard nonMinimized.count > 1 else {
-            storeLogger.warning("minimizePane: cannot minimize last visible pane \(paneId)")
-            return false
-        }
         guard visiblePaneIds.contains(paneId) else {
             storeLogger.warning("minimizePane: pane \(paneId) not in active arrangement")
             return false
@@ -836,9 +824,10 @@ final class WorkspaceStore {
 
         tabs[tabIndex].minimizedPaneIds.insert(paneId)
 
-        // Update activePaneId if minimizing the active pane
+        // Update activePaneId if minimizing the active pane (nil if all minimized)
         if tabs[tabIndex].activePaneId == paneId {
-            tabs[tabIndex].activePaneId = nonMinimized.first { $0 != paneId }
+            let nonMinimized = visiblePaneIds.filter { !tabs[tabIndex].minimizedPaneIds.contains($0) }
+            tabs[tabIndex].activePaneId = nonMinimized.first
         }
 
         // Clear zoom if minimizing the zoomed pane

@@ -35,10 +35,9 @@ struct DrawerPanelOverlay: View {
 
         if let info = expandedPaneInfo, tabSize.width > 0 {
             let drawerTree = viewRegistry.renderTree(for: info.drawer.layout)
-            let paneWidth = info.frame.width
-            let panelWidth = max(paneWidth, min(paneWidth * 2, tabSize.width * 0.8))
+            let panelWidth = tabSize.width * 0.8
             let panelHeight = max(100, min(tabSize.height * CGFloat(heightRatio), tabSize.height - 60))
-            let trapHeight: CGFloat = 12
+            let trapHeight: CGFloat = 60
             let totalHeight = panelHeight + trapHeight
 
             // Bottom of overlay trapezoid aligns with top of pane's icon bar
@@ -49,13 +48,24 @@ struct DrawerPanelOverlay: View {
             let halfPanel = panelWidth / 2
             let centerX = max(halfPanel + 4, min(tabSize.width - halfPanel - 4, info.frame.midX))
 
+            // Asymmetric trapezoid insets: bottom edges align with pane borders.
+            // Edge panes get a flush side (inset ≈ 0), middle panes get symmetric taper.
+            let panelLeft = centerX - halfPanel
+            let bottomLeftInset = max(0, info.frame.minX - panelLeft)
+            let bottomRightInset = max(0, (panelLeft + panelWidth) - info.frame.maxX)
+
             VStack(spacing: 0) {
+                let drawerRenderInfo = SplitRenderInfo.compute(
+                    layout: info.drawer.layout,
+                    minimizedPaneIds: info.drawer.minimizedPaneIds
+                )
                 DrawerPanel(
                     tree: drawerTree ?? PaneSplitTree(),
                     parentPaneId: info.paneId,
                     tabId: tabId,
                     activePaneId: info.drawer.activePaneId,
                     minimizedPaneIds: info.drawer.minimizedPaneIds,
+                    splitRenderInfo: drawerRenderInfo,
                     height: panelHeight,
                     store: store,
                     action: action,
@@ -69,8 +79,8 @@ struct DrawerPanelOverlay: View {
                 )
                 .frame(width: panelWidth)
 
-                // Trapezoid: panel width at top → pane width at bottom
-                DrawerOverlayTrapezoid(bottomRatio: paneWidth / panelWidth)
+                // Trapezoid: panel width at top → pane width at bottom (asymmetric)
+                DrawerOverlayTrapezoid(bottomLeftInset: bottomLeftInset, bottomRightInset: bottomRightInset)
                     .fill(.ultraThinMaterial)
                     .frame(width: panelWidth, height: trapHeight)
             }
@@ -82,17 +92,19 @@ struct DrawerPanelOverlay: View {
 
 /// Trapezoid shape for the drawer overlay connector.
 /// Full width at top (matches panel), narrower at bottom (matches originating pane).
+/// Supports asymmetric insets so edge panes get a flush side while middle panes taper symmetrically.
 struct DrawerOverlayTrapezoid: Shape {
-    /// Ratio of bottom width to top width (0..1).
-    let bottomRatio: CGFloat
+    /// How far the bottom-left corner is inset from the left edge (0 = flush).
+    let bottomLeftInset: CGFloat
+    /// How far the bottom-right corner is inset from the right edge (0 = flush).
+    let bottomRightInset: CGFloat
 
     func path(in rect: CGRect) -> Path {
-        let bottomInset = rect.width * (1 - min(1, max(0, bottomRatio))) / 2
         var path = Path()
-        path.move(to: CGPoint(x: 0, y: 0))
-        path.addLine(to: CGPoint(x: rect.width, y: 0))
-        path.addLine(to: CGPoint(x: rect.width - bottomInset, y: rect.height))
-        path.addLine(to: CGPoint(x: bottomInset, y: rect.height))
+        path.move(to: CGPoint(x: 0, y: 0))                                          // top-left
+        path.addLine(to: CGPoint(x: rect.width, y: 0))                              // top-right
+        path.addLine(to: CGPoint(x: rect.width - bottomRightInset, y: rect.height)) // bottom-right
+        path.addLine(to: CGPoint(x: bottomLeftInset, y: rect.height))               // bottom-left
         path.closeSubpath()
         return path
     }

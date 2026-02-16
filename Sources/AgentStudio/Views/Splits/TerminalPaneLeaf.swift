@@ -43,7 +43,7 @@ struct TerminalPaneLeaf: View {
                 PaneViewRepresentable(paneView: paneView)
 
                 // Ghostty-style dimming for unfocused panes
-                if isSplit && !isActive {
+                if !isActive {
                     Rectangle()
                         .fill(Color.black)
                         .opacity(0.15)
@@ -51,7 +51,7 @@ struct TerminalPaneLeaf: View {
                 }
 
                 // Hover border: drag affordance in management mode
-                if managementMode.isActive && isHovered && isSplit {
+                if managementMode.isActive && isHovered {
                     RoundedRectangle(cornerRadius: 4)
                         .strokeBorder(Color.white.opacity(0.25), lineWidth: 1)
                         .padding(1)
@@ -110,8 +110,8 @@ struct TerminalPaneLeaf: View {
                         .allowsHitTesting(false)
                 }
 
-                // Pane controls: minimize + close (top-left, edit mode + hover + split)
-                if managementMode.isActive && isHovered && isSplit {
+                // Pane controls: minimize + close (top-left, edit mode + hover)
+                if managementMode.isActive && isHovered {
                     VStack {
                         HStack(spacing: 4) {
                             Button {

@@ -49,6 +49,7 @@ struct DrawerPanel: View {
     let tabId: UUID
     let activePaneId: UUID?
     let minimizedPaneIds: Set<UUID>
+    let splitRenderInfo: SplitRenderInfo
     let height: CGFloat
     let store: WorkspaceStore
     let action: (PaneAction) -> Void
@@ -93,6 +94,7 @@ struct DrawerPanel: View {
                     isSplit: tree.isSplit,
                     activePaneId: activePaneId,
                     minimizedPaneIds: minimizedPaneIds,
+                    splitRenderInfo: splitRenderInfo,
                     action: drawerAction,
                     onPersist: nil,
                     shouldAcceptDrop: { _, _ in false },
@@ -155,6 +157,7 @@ struct DrawerPanel_Previews: PreviewProvider {
                 tabId: UUID(),
                 activePaneId: nil,
                 minimizedPaneIds: [],
+                splitRenderInfo: SplitRenderInfo.compute(layout: Layout(), minimizedPaneIds: []),
                 height: 200,
                 store: WorkspaceStore(persistor: WorkspacePersistor(workspacesDir: FileManager.default.temporaryDirectory)),
                 action: { _ in },
