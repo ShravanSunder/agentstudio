@@ -657,4 +657,4 @@ These rules are enforced by `WorkspaceStore` and model types at all times:
 - **[Architecture Overview](README.md)** — System overview and document index
 - **[Session Lifecycle](session_lifecycle.md)** — Session creation, close, undo, restore flows; runtime status; zmx backend
 - **[Surface Architecture](ghostty_surface_architecture.md)** — Ghostty surface ownership, state machine, health monitoring, crash isolation
-- **[App Architecture](app_architecture.md)** — AppKit+SwiftUI hybrid patterns, window/controller hierarchy
+- **[App Architecture](appkit_swiftui_architecture.md)** — AppKit+SwiftUI hybrid patterns, window/controller hierarchy
