@@ -109,7 +109,9 @@ Each Pane can have an optional Drawer — a collapsible horizontal panel below i
 - Drawer holds DrawerPanes (any `PaneContent`, not limited to terminals)
 - DrawerPanes inherit parent pane's CWD, worktree, repo
 - DrawerPanes **cannot have their own drawers** (enforced by type system — `DrawerPane` has no `drawer` field)
-- Icon bar for switching between drawer panes
+- Icon bar always visible at the bottom of every pane (not hover-gated)
+- Click icon to switch between drawer panes
+- Collapsible panel slides up from icon bar when expanded
 - Navigable via keyboard and command bar
 - Parent pane deletion backgrounds drawer panes (not destroyed)
 - Drawer state (which panes, collapsed/expanded) persists with the pane
@@ -122,7 +124,9 @@ Each tab supports multiple named layout configurations (pane arrangements) that 
 
 - **Default arrangement**: Exactly one per tab. Contains all Panes. Auto-updated on pane creation/deletion.
 - **Custom arrangements**: User-created subsets of default's Panes in user-defined tilings.
-- Switchable via command bar
+- **Arrangement bar**: Always visible below tab bar for all tabs. Shows arrangement chips, [+] to save, [≡] to open pane management panel.
+- **Pane management panel**: Floating panel from arrangement bar showing pane visibility toggles and saved arrangements.
+- Switchable via arrangement bar, pane panel, or command bar
 - Custom arrangements can be created, edited, renamed, deleted
 - Panes not in active arrangement remain running (backgrounded, surfaces detached)
 - Only Panes appear in arrangements (never DrawerPanes)
@@ -162,8 +166,9 @@ Panes can be moved between tabs via command bar. Movement is atomic.
 
 ### R7: Command Bar as Central Interaction Point
 
-All window system operations are triggered through the command bar and routed through the typed intent pipeline: **Parse → Validate (invariants) → Execute (mutation) → Emit (domain events)**.
+All window system operations route through the typed intent pipeline: **Parse → Validate (invariants) → Execute (mutation) → Emit (domain events)**. The command bar is the primary interaction point, but multiple UI surfaces serve as trigger points to the same pipeline.
 
+- **Trigger surfaces**: Command bar (Cmd+P), keyboard shortcuts, arrangement bar, pane management panel, pane overlay controls (edit mode), drawer icon bar, right-click context menus
 - Switch pane arrangements
 - Open dynamic views (with MRU), switch view types
 - Create/delete custom arrangements

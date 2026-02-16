@@ -51,6 +51,21 @@ Dynamic Views (computed, ephemeral — generates tabs)
 
 ---
 
+## Platform Architecture
+
+**AppKit for structure, SwiftUI for all UI and layouts.** AppKit owns window lifecycle, toolbar, responder chain, and `NSHostingView` bridges. SwiftUI renders everything visual: tab bar, arrangement bar, split layouts, pane controls, drawer.
+
+| AppKit | SwiftUI |
+|--------|---------|
+| `NSWindow`, `NSToolbar`, `NSViewController` | Tab bar, arrangement bar |
+| Responder chain, key handling | Split layout, pane rendering |
+| `NSHostingView` / `NSHostingController` bridge | Pane overlay controls, drawer UI |
+| Surface management (Ghostty `NSView`) | All visual content and animations |
+
+One command system, multiple trigger surfaces. Every operation dispatches `PaneAction` through `ActionExecutor`. All UI surfaces are entry points to the same pipeline.
+
+---
+
 ## State Architecture
 
 ### Owned State (persisted)
@@ -252,11 +267,11 @@ For custom: `visiblePaneIds ⊆ tab.panes`
 ### Operations
 | Operation | Via | Effect |
 |-----------|-----|--------|
-| Switch arrangement | Command bar | Change active arrangement, show/hide panes |
-| Create custom | Command bar ("save current as...") | Snapshot visible panes + tiling |
-| Edit custom | Direct manipulation or command bar | Show/hide panes, rearrange tiling |
-| Delete custom | Command bar | Remove arrangement, switch to default |
-| Rename | Command bar | Update name |
+| Switch arrangement | Arrangement bar, pane panel, command bar | Change active arrangement, show/hide panes |
+| Create custom | Arrangement bar [+], pane panel, command bar | Snapshot visible panes + tiling |
+| Edit custom | Pane panel, command bar | Show/hide panes, rearrange tiling |
+| Delete custom | Arrangement bar context menu, command bar | Remove arrangement, switch to default |
+| Rename | Arrangement bar context menu, command bar | Update name |
 
 ---
 
@@ -283,8 +298,8 @@ A collapsible horizontal panel below a pane that holds DrawerPanes. DrawerPanes 
 ### Properties
 - **Parent pane**: The pane this drawer is attached to
 - **Context inheritance**: DrawerPanes inherit CWD, worktree, repo from parent pane
-- **Icon bar**: Shows all drawer panes, click to switch
-- **Collapsible**: Can collapse to icon bar only, or fully hide
+- **Icon bar**: Always visible at the bottom of every pane (not hover-gated). Shows drawer pane icons, click to switch.
+- **Collapsible panel**: Slides up from icon bar when expanded. Overlays terminal content (no terminal resize).
 - **Navigable**: Keyboard and command bar accessible
 - **Any content type**: DrawerPanes can be terminals, webviews, code viewers — same as Panes
 
@@ -477,6 +492,195 @@ The central interaction point for all window system operations. All actions rout
 
 ---
 
+## Concept 8: UI Controls Layer
+
+### Definition
+
+Multiple UI surfaces that trigger operations through the same `PaneAction` → `ActionExecutor` pipeline. Every control dispatches typed actions — the UI is just a trigger surface.
+
+### Trigger Surface Matrix
+
+| Trigger | Surface | Pattern |
+|---|---|---|
+| Command bar (Cmd+P) | `CommandBarDataSource` → `CommandDispatcher` | Text search → action |
+| Keyboard shortcut | Menu item → `PaneAction` | Direct dispatch |
+| Right-click context menu | Tab context menu → `PaneAction` | Direct dispatch |
+| Arrangement bar | SwiftUI bar below tab bar → `PaneAction` | Click → action |
+| Pane management panel | SwiftUI popover from arrangement bar → `PaneAction` | Click → action |
+| Pane overlay controls | SwiftUI overlays on pane → `PaneAction` | Hover → click → action |
+| Drawer icon bar | SwiftUI bar at pane bottom → `PaneAction` | Click → action |
+
+### Edit Mode
+
+A window-level toggle that enables pane manipulation controls. When off, panes show clean content with no distractions. When on, hover reveals controls for rearranging, splitting, minimizing, and closing panes.
+
+- Stored in `ManagementModeMonitor.shared` — singleton `ObservableObject` with `@Published var isActive: Bool`
+- Toggled via toolbar button (positioned left of "Add Repo" as a separate button group) or keyboard shortcut
+- Icon: `slider.horizontal.3`, highlighted when active
+
+**What edit mode gates:**
+
+| Control | Visible When | Position |
+|---------|-------------|----------|
+| Minimize button | editMode + hover + isSplit | Top-left of pane |
+| Close button | editMode + hover + isSplit | Top-left of pane (next to minimize) |
+| Quarter-moon split button | editMode + hover | Top-right of pane |
+| Drag bar | editMode | Center of pane (thick, full-width) |
+| Hover border | editMode + hover + isSplit | Pane outline |
+
+**What is NOT edit-mode gated:**
+
+| Control | Always Visible When |
+|---------|-------------------|
+| Collapsed pane bar | Pane is minimized |
+| Arrangement bar | Always (below tab bar) |
+| Drawer icon bar | Always (bottom of every pane) |
+| Drawer panel | Drawer is expanded |
+
+### Pane Overlay Controls
+
+Controls overlaid on pane content when edit mode is active.
+
+**Minimize + Close Buttons (Top-Left)**
+
+```
+┌──[—][✕]────────────────────────────────┐
+│                                         │
+│            Terminal content              │
+│                                         │
+└─────────────────────────────────────────┘
+```
+
+- Visibility: `editMode && isHovered && isSplit`
+- Icons: `minus.circle.fill` (minimize), `xmark.circle.fill` (close)
+- Size: 16pt, dark circle background for contrast
+- Actions: `.minimizePane` / `.closePane`
+
+**Quarter-Moon Split Button (Top-Right)**
+
+```
+┌────────────────────────────────────[+]──┐
+│                                         │
+│            Terminal content              │
+│                                         │
+└─────────────────────────────────────────┘
+```
+
+- Visibility: `editMode && isHovered`
+- Shape: Half-rounded pill (flat on right edge, rounded on left)
+- Icon: `+` (10pt bold)
+- Action: `.insertPane(source: .newTerminal, direction: .right)`
+
+**Drag Bar (Center)**
+
+```
+┌─────────────────────────────────────────┐
+│                                         │
+│          ═══════════════════            │  ← thick drag bar
+│                                         │
+└─────────────────────────────────────────┘
+```
+
+- Visibility: `editMode` (always visible in edit mode, not just hover)
+- Shape: Thick horizontal bar across the middle of the pane
+- Purpose: Easy grab target for drag-to-rearrange between panes/tabs
+- Interaction: Drag initiates pane movement via `Transferable`
+
+### Collapsed Pane Bar
+
+When a pane is minimized, it collapses to a narrow bar. Not gated on edit mode — the minimized state persists.
+
+```
+┌──────┐
+│  ⊕   │  ← expand button (top)
+│  ☰   │  ← hamburger menu (expand, close)
+│      │
+│  m   │
+│  a   │  ← sideways text (bottom-to-top)
+│  i   │     .rotationEffect(Angle(degrees: -90))
+│  n   │
+│      │
+└──────┘
+```
+
+- Width: 30px (horizontal splits) / Height: 30px (vertical splits)
+- Click body: expands the pane (dispatches `.expandPane`)
+- Hamburger menu: Expand, Close options
+- Minimize state: `minimizedPaneIds: Set<UUID>` on Tab (transient, not persisted)
+
+### Arrangement Bar
+
+A persistent bar below the tab bar showing arrangement chips for the active tab.
+
+```
+┌─────────────────────────────────────────────────────────────┐
+│  [tab1]  [tab2 (active)]  [tab3]  [+]                      │  ← tab bar
+├─────────────────────────────────────────────────────────────┤
+│  [Default] [coding] [testing]  [+]  [≡]                    │  ← arrangement bar
+├─────────────────────────────────────────────────────────────┤
+│                    Terminal content                          │
+└─────────────────────────────────────────────────────────────┘
+```
+
+- Always visible for ALL tabs (not gated on edit mode or tab type)
+- Arrangement chips — click to switch, right-click for rename/delete
+- [+] button — save current layout as new arrangement
+- [≡] button — opens pane management panel
+- "Default" chip always present, cannot be deleted
+
+### Pane Management Panel
+
+A floating panel that drops down from the arrangement bar's [≡] button.
+
+```
+  [≡] button → click → panel slides open
+    ┌─────────────────────────────┐
+    │  Panes:                     │
+    │  ● main          [—]       │  ← visible, [—] to minimize
+    │  ○ tests         [+]       │  ← minimized, [+] to restore
+    │  ● server        [—]       │
+    │  ● logs          [—]       │
+    │                             │
+    │  Saved:                     │
+    │  [default] [coding]        │  ← quick-recall chips
+    │                             │
+    │  [Save] [Save as...]       │
+    └─────────────────────────────┘
+```
+
+- Pane list with visibility indicators (● visible, ○ minimized) and toggle buttons
+- Arrangement chips for quick switching within the panel
+- "Default" always present — restores all panes visible
+- Save / Save as: create new arrangement from current visible panes + layout
+- Dismiss: click-outside or Escape
+
+### Drawer UI
+
+Drawer icon bar at the bottom of every pane, with an expandable panel.
+
+```
+┌─────────────────────────────────┐
+│  Pane content                   │
+│  (terminal / webview / etc)     │
+│                                 │
+├─────────────────────────────────┤
+│ [dp1] [dp2] [dp3] [+] [▾]     │  ← icon bar (ALWAYS VISIBLE)
+│ ┌─────────────────────────────┐ │
+│ │ Active drawer pane content  │ │  ← expanded panel (when toggled)
+│ │ (terminal / webview / etc)  │ │
+│ └─────────────────────────────┘ │
+└─────────────────────────────────┘
+```
+
+- Icon bar always visible at bottom of every pane (not hover-gated)
+- Click icon to switch active drawer pane
+- [+] creates new drawer pane
+- [▾] toggles panel expanded/collapsed
+- Right-click icon for close
+- Panel slides up from bottom, overlays terminal content
+
+---
+
 ## Invariants
 
 ### By Construction (compiler-enforced)
@@ -563,6 +767,9 @@ Note on **DeletePane**: The invariant "tab must have ≥1 pane" is maintained by
 | Owned vs computed state | Explicit separation. Dynamic views are computed projections that can never mutate owned state. |
 | Command pipeline | Typed intents: Parse → Validate (invariants) → Execute (mutation) → Emit (events). |
 | Multi-entity operations | Transactional. Atomic success or full rollback. |
+| Custom arrangement editing | Pane management panel allows showing/hiding panes after arrangement creation. |
+| UI architecture | AppKit for structure (window, toolbar, responder chain). SwiftUI for all UI and layouts. |
+| Edit mode | Window-level toggle gates pane overlay controls. Arrangement bar, drawer icon bar, collapsed bars are always visible. |
 
 ## Open Questions
 
@@ -570,7 +777,7 @@ Note on **DeletePane**: The invariant "tab must have ≥1 pane" is maintained by
 
 2. **Drawer pane limit**: Is there a limit on how many DrawerPanes a drawer can hold? Or unlimited with scroll in the icon bar?
 
-3. **Custom arrangement editing**: "Save current as..." captures visible panes + tiling. Is there also a way to edit which panes are in an arrangement after creation?
+3. ~~**Custom arrangement editing**~~: Resolved — pane management panel allows showing/hiding panes in an arrangement after creation.
 
 ---
 
@@ -716,80 +923,3 @@ stateDiagram-v2
     DV_C --> DV_R: Switch view type
 ```
 
----
-
-## Gap Analysis: Current Codebase → New Design
-
-### Entity Mapping
-
-| Current Entity | New Entity | Key Changes |
-|----------------|-----------|-------------|
-| `TerminalSession` | `Pane` | Add `content: PaneContent` enum, add `drawer: Drawer?`, rename fields |
-| `TerminalSource` | `PaneMetadata.source` | Same shape, moved into metadata struct |
-| `Tab.layout` | `PaneArrangement.layout` | Layout moves from Tab into PaneArrangement; Tab gains `arrangements[]` |
-| `Tab.activeSessionId` | `Tab.activePaneId` | Rename |
-| `Tab.zoomedSessionId` | Removed | Zoom becomes arrangement-specific or view state |
-| `ViewDefinition` (.main/.saved) | Workspace `tabs: [Tab]` | Views flattened to just tabs; no view hierarchy |
-| `ViewDefinition` (.dynamic/.worktree) | Dynamic View (computed) | No longer persisted; generated at runtime by facet |
-| `Layout` | `Layout` (unchanged) | `leaf(sessionId)` → `leaf(paneId)` semantic rename |
-| — (new) | `DrawerPane` | Entirely new entity |
-| — (new) | `Drawer` | Entirely new entity |
-| — (new) | `PaneArrangement` | Entirely new entity |
-| — (new) | `PaneContent` | Entirely new enum (`.terminal \| .webview \| .codeViewer`) |
-
-### What Can Be Reused
-
-| Current Code | Reuse | Changes |
-|-------------|-------|---------|
-| `Layout.swift` — split tree logic | Direct reuse | Rename `sessionId` → `paneId` in leaf nodes |
-| `WorkspaceStore` — mutation pattern, debounced persistence | Reuse pattern | Rename fields, add arrangement/drawer methods |
-| `ViewRegistry.renderTree()` | Direct reuse | No structural changes |
-| `SurfaceManager` — public API | Direct reuse | Internal `sessionId` → `paneId` rename |
-| `ActionExecutor` — dispatch pattern | Reuse pattern | Add new action cases + validation layer |
-| Undo stack (`CloseSnapshot`) | Extend | Add arrangements + drawer panes to snapshot |
-| `WorkspacePersistor` — JSON serialization | Reuse | Update schema, add migration code |
-
-### What's Entirely New
-
-| New Component | Purpose |
-|---------------|---------|
-| `Pane` type with `PaneContent` enum | Universal content container replacing `TerminalSession` |
-| `DrawerPane` type | Child pane in drawer (no drawer field — nesting prevented by construction) |
-| `Drawer` struct | Drawer state: child panes, active pane, expanded/collapsed |
-| `PaneArrangement` | Named layout config within a tab (default + custom) |
-| `PaneMetadata` struct | Consolidated metadata: source, CWD, agent, tags |
-| Dynamic view generator | Facet indexing + tab generation (computed, ephemeral) |
-| Command validation layer | Pre-execution invariant checks |
-| Content renderers | Rendering logic per `PaneContent` type (webview, code viewer) |
-| Tag storage + inheritance | Repo tags + pane tags → effective tags |
-
-### Service Impact
-
-| Service | Impact Level | Changes |
-|---------|-------------|---------|
-| `WorkspaceStore` | **Critical** | State shape change (`sessions` → `panes`, `views` → `tabs`), add arrangement/drawer/movement methods, persistence migration |
-| `ActionExecutor` | **High** | New action types (arrangements, drawers, movement, dynamic views), validation layer, transactional operations |
-| `TerminalTabViewController` | **High** | Arrangement switching, drawer UI, dynamic view rendering |
-| `ViewRegistry` | **Low** | Internal `sessionId` → `paneId` rename |
-| `SurfaceManager` | **Low** | Internal ID rename only, API unchanged |
-
-### Migration Risk
-
-| Risk | Level | Mitigation |
-|------|-------|------------|
-| WorkspaceStore state shape change | 🔴 Critical | Phased migration, keep old format readable |
-| Tab structure overhaul (layout → arrangements) | 🔴 Critical | Create default arrangement from existing layout during migration |
-| ViewDefinition split (owned vs computed) | 🔴 Critical | Build dynamic views as isolated service |
-| Drawer implementation | 🟠 High | Additive feature, implement after foundation stable |
-| Multi-arrangement tabs | 🟠 High | Ship default arrangement first, add custom in Phase 2 |
-| Dynamic views (computed) | 🟠 High | Build facet indexer as pure function, test independently |
-
-### Suggested Implementation Phases
-
-| Phase | Scope | Risk |
-|-------|-------|------|
-| **1. Foundation** | Rename `TerminalSession` → `Pane` + `PaneContent`, migrate `Tab.layout` → default `PaneArrangement`, split `ViewDefinition` → workspace tabs + computed views, update `WorkspaceStore` + persistence migration | 🔴 Critical |
-| **2. Arrangements** | Custom arrangement CRUD, arrangement switching, backgrounded pane lifecycle | 🟠 High |
-| **3. Drawers** | `Drawer` + `DrawerPane` types, lifecycle cascade, UI (icon bar + expand/collapse) | 🟠 High |
-| **4. Dynamic Views** | Facet indexer, tab generator, auto-tiling, navigation (workspace ↔ dynamic view), MRU | 🟠 High |
-| **5. Movement + Validation** | Pane movement commands, command validation layer, transactional operations | 🟡 Medium |

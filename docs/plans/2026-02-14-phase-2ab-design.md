@@ -1,21 +1,36 @@
-# Phase 2a + 2b Design: Arrangement UI + Drawer UI
+# Phase 2a + 2b Design: Arrangement UI + Drawer UI + Pane Controls
 
 > Agent Studio — Window System Phase 2 Design
 > Date: 2026-02-14
+> Updated: 2026-02-15 — revised after implementation feedback
 
 ## Status
 
-**Approved** — Ready for implementation planning.
+**Revised** — Updated based on live testing and user feedback. Supersedes the original approved design.
 
 ## Context
 
-Phase 1 (Foundation) is complete: Pane, PaneContent, PaneArrangement, Drawer, DrawerPane models and WorkspaceStore CRUD are all implemented and tested (863 tests passing on `window-system-3`). Phase 2a and 2b are purely UI work on top of the existing model/store layer.
+Phase 1 (Foundation) is complete: Pane, PaneContent, PaneArrangement, Drawer, DrawerPane models and WorkspaceStore CRUD are all implemented and tested. Phase 2 adds the UI controls layer on top of the existing model/store layer.
 
-## Core Architecture Principle
+Key revisions from original design:
+- Edit mode toggle **stays** — gates pane overlay controls
+- Arrangement bar is **always visible** (not hover-triggered)
+- Drawer icon bar is **always visible** (not hover-triggered)
+- Pane controls (minimize/close, split) are **edit-mode gated**
+- Drag handle replaced with a **thick drag bar** across middle of pane
 
-**One command system, multiple trigger surfaces.** Every operation dispatches `PaneAction` through `ActionExecutor`. Floating UI, command bar, keyboard shortcuts, and context menus are all entry points to the same pipeline.
+## Core Architecture Principles
 
-**All floating UI is overlay-based** — no permanent chrome, no layout shifts, no terminal resizing. Appears on demand, dismisses easily.
+**One command system, multiple trigger surfaces.** Every operation dispatches `PaneAction` through `ActionExecutor`. All UI surfaces are entry points to the same pipeline.
+
+**AppKit for structure, SwiftUI for all UI and layouts.** AppKit owns window lifecycle, toolbar, responder chain, and `NSHostingView` bridges. SwiftUI renders everything visual: tab bar, arrangement bar, split layouts, pane controls, drawer.
+
+| AppKit | SwiftUI |
+|--------|---------|
+| `NSWindow`, `NSToolbar`, `NSViewController` | Tab bar, arrangement bar |
+| Responder chain, key handling | Split layout, pane rendering |
+| `NSHostingView` / `NSHostingController` bridge | Pane overlay controls, drawer UI |
+| Surface management (Ghostty `NSView`) | All visual content and animations |
 
 ### Trigger Surface Matrix
 
@@ -24,137 +39,320 @@ Phase 1 (Foundation) is complete: Pane, PaneContent, PaneArrangement, Drawer, Dr
 | Command bar (Cmd+P) | `CommandBarDataSource` -> `CommandDispatcher` | Existing |
 | Keyboard shortcut | Menu item -> `PaneAction` | Existing |
 | Right-click context menu | Tab context menu -> `PaneAction` | Existing |
-| Floating arrangement bar | SwiftUI overlay -> `PaneAction` | **New** |
-| Drawer icon bar | SwiftUI overlay -> `PaneAction` | **New** |
+| Arrangement bar | SwiftUI bar below tab bar -> `PaneAction` | **New** |
+| Pane management panel | SwiftUI popover from arrangement bar -> `PaneAction` | **New** |
+| Pane overlay controls | SwiftUI overlays on pane -> `PaneAction` | **New** |
+| Drawer icon bar | SwiftUI bar at pane bottom -> `PaneAction` | **New** |
 
 ---
 
-## Phase 2a: Arrangement UI
+## Edit Mode
 
-### Visual Indicator (permanent, minimal)
+### Definition
 
-When a tab has more than one arrangement, show the arrangement name as a subtle badge/subtitle on the tab in `CustomTabBar`.
+A window-level toggle that enables pane manipulation controls. When off, panes show clean terminal content with no distractions. When on, hover reveals controls for rearranging, splitting, minimizing, and closing panes.
 
-- Example: `my-project . coding` — the `. coding` part only appears when a custom arrangement is active
-- Hidden when only the default arrangement exists
-- Zero extra height in the tab bar
+### State
 
-### Floating Arrangement Bar (on demand)
+- Stored in `ManagementModeMonitor.shared` — singleton `ObservableObject` with `@Published var isActive: Bool`
+- Observed reactively by all `TerminalPaneLeaf` instances via `@ObservedObject`
+- Toggled via toolbar button or keyboard shortcut
 
-- **Trigger**: Cmd+Opt or mouse hover near tab bar area
-- **Position**: Floats below the tab bar, overlays terminal content (does not push content down)
-- **Content**: Arrangement chips/pills for the active tab — click to switch
-- **Actions**:
-  - Click chip to switch arrangement
-  - [+] button for "save current as..." flow
-  - Right-click chip for delete/rename
-- **Dismiss**: Click-outside, Escape, or after switching
+### Toolbar Button
 
-### Command Bar Commands
+- Positioned in `NSToolbar`, left of "Add Repo" as a separate button group
+- Icon: `slider.horizontal.3`
+- Visual state: highlighted/filled background when active
+- Tooltip: "Toggle Edit Mode (⌥⌘A)"
 
-- `>Switch arrangement` — list arrangements for current tab, select to switch
-- `>Save arrangement as...` — name input, creates custom from current visible panes + tiling
-- `>Delete arrangement` — list custom arrangements, confirm deletion
-- `>Rename arrangement` — list, then name input
+### What Edit Mode Gates
 
-### Right-Click Context Menu
+| Control | Visible When | Position |
+|---------|-------------|----------|
+| Minimize button | editMode + hover + isSplit | Top-left of pane |
+| Close button | editMode + hover + isSplit | Top-left of pane (next to minimize) |
+| Quarter-moon split button | editMode + hover | Top-right of pane |
+| Drag bar | editMode | Center of pane (thick, full-width) |
+| Hover border | editMode + hover + isSplit | Pane outline |
 
-Arrangement submenu on tab right-click with the same operations as command bar.
+### What Is NOT Edit-Mode Gated
 
-### Backgrounded Pane Lifecycle
-
-When switching arrangements, panes not in the new arrangement:
-
-- Ghostty surface detached for resource efficiency
-- Terminal state preserved via zmx backend
-- When pane becomes visible again: surface reattached seamlessly
-- No content loss during background/foreground transitions
+| Control | Always Visible When |
+|---------|-------------------|
+| Collapsed pane bar | Pane is minimized |
+| Arrangement bar | Always (below tab bar) |
+| Drawer icon bar | Always (bottom of every pane) |
+| Drawer panel | Drawer is expanded |
 
 ---
 
-## Phase 2b: Drawer UI
+## Pane Overlay Controls (Edit Mode)
 
-### Trapezoid Connector (visual anchor)
-
-Each pane has a small trapezoid shape at its bottom edge that visually connects the pane to its drawer controls.
+### Minimize + Close Buttons (Top-Left)
 
 ```
-+----------------------------------------+
-|  Terminal content (parent pane)         |
-|                                        |
-+----------------------------------------+  <-- pane bottom edge (WIDE end)
- \                                      /
-  \        TRAPEZOID BRIDGE            /    <-- small visual connector
-   \      (not too large)             /
-    +--------------------------------+      <-- NARROW end -> icon bar
-     |   [dp1] [dp2] [dp3] [+]      |
-     +-------------------------------+
+┌──[—][✕]────────────────────────────────┐
+│                                         │
+│            Terminal content              │
+│                                         │
+└─────────────────────────────────────────┘
 ```
 
-- **Wide end**: starts at pane boundary (full pane width)
-- **Narrow end**: tapers to the drawer icon bar (centered, smaller)
-- **Purpose**: visually communicates "these drawer controls belong to this pane"
-- **Size**: small — just a visual bridge, not a content area
+- **Visibility**: `managementMode.isActive && isHovered && isSplit`
+- **Icons**: `minus.circle.fill` (minimize), `xmark.circle.fill` (close)
+- **Size**: 16pt, with dark circle background for contrast
+- **Actions**: dispatch `.minimizePane` / `.closePane`
 
-### Drawer Icon Bar (on demand)
+### Quarter-Moon Split Button (Top-Right)
 
-- **Trigger**: Hover near pane bottom edge or keyboard shortcut
-- **Content**: Icons for each drawer pane + [+] button
-- **[+] button**: Creates terminal drawer pane immediately, inheriting parent's CWD/worktree
-- **Other content types**: Available via command bar or secondary mechanism
-- **Dismiss**: Move mouse away, or after interaction
+```
+┌────────────────────────────────────[+]──┐
+│                                         │
+│            Terminal content              │
+│                                         │
+└─────────────────────────────────────────┘
+```
 
-### Expanded Drawer Panel (floating overlay)
+- **Visibility**: `managementMode.isActive && isHovered`
+- **Shape**: Half-rounded pill (flat on right edge, rounded on left)
+- **Icon**: `+` (10pt bold)
+- **Action**: dispatch `.insertPane(source: .newTerminal, direction: .right)`
 
-When a drawer pane icon is clicked, the drawer content panel appears:
+### Drag Bar (Center)
 
-- **Shape**: Rectangular content area with squared-off top, connected to icon bar via trapezoid bridge
-- **Behavior**: Slides up from bottom, overlays terminal content (no terminal resize)
-- **Height**: 75% of pane height by default. Draggable resize handle at top edge. Global memory (drag once, applies to all panes).
-- **Width**:
-  - Single pane tab: full pane width
-  - Multi-pane tab: 90% of total tab width, floating over neighboring panes
-  - Draggable with global memory
-- **Icon bar**: Stays visible while drawer is expanded
+```
+┌─────────────────────────────────────────┐
+│                                         │
+│          ═══════════════════            │  ← thick drag bar
+│                                         │
+└─────────────────────────────────────────┘
+```
 
-### Drawer Interactions
+- **Visibility**: `managementMode.isActive` (always visible in edit mode, not just hover)
+- **Shape**: Thick horizontal bar across the middle of the pane
+- **Purpose**: Easy grab target for drag-to-rearrange between panes/tabs
+- **Interaction**: `NSPanGestureRecognizer` initiates drag session via `Transferable`
+
+---
+
+## Collapsed Pane Bar
+
+When a pane is minimized (via minimize button or arrangement panel), it collapses to a narrow vertical bar.
+
+```
+┌──────┐
+│  ⊕   │  ← expand button (top)
+│  ☰   │  ← hamburger menu (expand, close)
+│      │
+│  m   │
+│  a   │  ← sideways text (bottom-to-top)
+│  i   │     .rotationEffect(Angle(degrees: -90))
+│  n   │     font: .system(size: 12, weight: .bold)
+│      │
+└──────┘
+```
+
+- **Width**: 30px (horizontal splits) / **Height**: 30px (vertical splits)
+- **Always visible**: Not gated on edit mode — the minimized state persists
+- **Click body**: Expands the pane (dispatches `.expandPane`)
+- **Hamburger menu**: Expand, Close options
+- **Styling**: Dark semi-transparent background, subtle border, hover highlight
+
+### Minimize State
+
+- Stored as `minimizedPaneIds: Set<UUID>` on `Tab` (transient, not persisted)
+- Surface detached on minimize (`coordinator.detachForViewSwitch`), reattached on expand
+- Cannot minimize the last non-minimized pane in a tab
+- Focusing a minimized pane auto-expands it
+- Closing a pane's sibling auto-expands remaining minimized panes if they'd be alone
+
+---
+
+## Arrangement Bar
+
+### Definition
+
+A persistent bar below the tab bar showing arrangement chips for the active tab. Provides quick switching between arrangements and access to pane management.
+
+### Visual Structure
+
+```
+┌─────────────────────────────────────────────────────────────┐
+│  [tab1]  [tab2 (active)]  [tab3]  [+]                      │  ← tab bar
+├─────────────────────────────────────────────────────────────┤
+│  [Default] [coding] [testing]  [+]  [≡]                    │  ← arrangement bar
+├─────────────────────────────────────────────────────────────┤
+│                                                             │
+│                    Terminal content                          │
+│                                                             │
+└─────────────────────────────────────────────────────────────┘
+```
+
+### Properties
+
+- **Always visible** for ALL tabs (not gated on edit mode or tab type)
+- **Position**: Below the tab bar, hosted in `NSHostingView` overlay within TTVC
+- **Content**:
+  - Arrangement chips — click to switch, right-click for rename/delete
+  - [+] button — save current layout as new arrangement
+  - [≡] pane management button — opens the pane management panel
+- **Active chip**: Highlighted with subtle background
+- **"Default"**: Always present, cannot be deleted
+
+### Data Flow
+
+- TTVC observes `WorkspaceStore` changes and refreshes arrangement bar data
+- Each chip dispatches `.switchArrangement` via `ActionExecutor`
+- [+] dispatches `.createArrangement` with auto-generated name
+
+---
+
+## Pane Management Panel
+
+### Definition
+
+A floating panel that drops down from the arrangement bar's [≡] button. Shows all panes in the active tab with visibility controls and saved arrangements.
+
+### Visual Structure
+
+```
+  [≡] button → click → panel slides open
+    ┌─────────────────────────┐
+    │  Panes:                 │
+    │  ● main          [—]   │  ← visible, [—] to minimize
+    │  ○ tests         [+]   │  ← minimized, [+] to restore
+    │  ● server        [—]   │
+    │  ● logs          [—]   │
+    │                         │
+    │  Saved:                 │
+    │  [default] [coding]    │  ← quick-recall chips
+    │                         │
+    │  [Save] [Save as...]   │
+    └─────────────────────────┘
+```
+
+### Properties
+
+- **Trigger**: Click the [≡] button in the arrangement bar
+- **Position**: Drops down from the arrangement bar (popover or floating panel)
+- **Pane list**: Shows all panes with:
+  - Visibility indicator: ● visible, ○ minimized
+  - Title from `Pane.title`
+  - Toggle button: [—] to minimize, [+] to restore
+- **Arrangement chips**: Same as arrangement bar, for quick switching within the panel
+- **"Default"**: Always present — clicking restores all panes visible
+- **Save / Save as**: Create new arrangement from current visible panes + layout
+- **Dismiss**: Click-outside or Escape
+
+### Actions
+
+| Action | PaneAction |
+|--------|-----------|
+| Minimize pane | `.minimizePane(tabId:paneId:)` |
+| Expand pane | `.expandPane(tabId:paneId:)` |
+| Switch arrangement | `.switchArrangement(tabId:arrangementId:)` |
+| Save arrangement | `.createArrangement(tabId:name:paneIds:)` |
+| Delete arrangement | `.removeArrangement(tabId:arrangementId:)` |
+| Rename arrangement | `.renameArrangement(tabId:arrangementId:name:)` |
+
+---
+
+## Drawer
+
+### Definition
+
+A collapsible panel at the bottom of each pane that holds DrawerPanes. DrawerPanes inherit context from their parent pane and can hold any content type (terminal, webview, code viewer).
+
+### Visual Structure
+
+```
+┌─────────────────────────────────┐
+│  Pane content                   │
+│  (terminal / webview / etc)     │
+│                                 │
+├─────────────────────────────────┤
+│ [dp1] [dp2] [dp3] [+] [▾]     │  ← icon bar (ALWAYS VISIBLE)
+│ ┌─────────────────────────────┐ │
+│ │ Active drawer pane content  │ │  ← expanded panel (when toggled)
+│ │ (terminal / webview / etc)  │ │
+│ └─────────────────────────────┘ │
+└─────────────────────────────────┘
+```
+
+### Icon Bar
+
+- **Always visible** at the bottom of every pane (not hover-gated)
+- Shows icons for each drawer pane + [+] to add + [▾] to expand/collapse
+- Click icon to switch active drawer pane
+- Right-click icon for close
+
+### Expanded Panel
+
+- Slides up from bottom, overlays terminal content (no terminal resize)
+- Height: 75% of pane height by default, draggable resize handle, global memory
+- Width: full pane width (single pane) or 90% of tab width (split layout)
+
+### Interactions
 
 | Action | Trigger |
 |---|---|
 | Switch drawer panes | Click different icon in icon bar |
 | Collapse drawer | Click active icon again, Escape, or click-outside |
-| Close drawer pane | Right-click icon -> close, or command bar |
-| Toggle drawer | Keyboard shortcut |
-| Cycle drawer panes | Keyboard shortcut |
-
-### Command Bar Commands
-
-- `>Add drawer pane` — creates terminal in focused pane's drawer
-- `>Navigate to drawer pane` — list drawer panes for focused pane
-- `>Toggle drawer` — expand/collapse for focused pane
+| Close drawer pane | Right-click icon → close, or command bar |
+| Add drawer pane | [+] button in icon bar |
+| Toggle drawer | Keyboard shortcut or [▾] button |
 
 ---
 
-## Implementation Order
+## Command Bar Commands
 
-1. **Phase 2a first** — lower risk, extends existing command bar patterns
-2. **Phase 2b second** — changes pane rendering architecture (adds drawer overlay to TerminalPaneLeaf)
+All arrangement and drawer operations are also available through the command bar:
+
+| Command | Action |
+|---------|--------|
+| `>Switch arrangement` | List arrangements, select to switch |
+| `>Save arrangement as...` | Name input, creates custom from current layout |
+| `>Delete arrangement` | List custom arrangements, confirm deletion |
+| `>Rename arrangement` | List, then name input |
+| `>Add drawer pane` | Creates terminal in focused pane's drawer |
+| `>Navigate to drawer pane` | List drawer panes for focused pane |
+| `>Toggle drawer` | Expand/collapse for focused pane |
+| `>Minimize pane` | Minimize focused pane |
+| `>Expand pane` | Expand focused pane |
 
 ---
 
-## Linear Ticket Cleanup
+## Backgrounded Pane Lifecycle
 
-| Action | Ticket | Reason |
-|---|---|---|
-| Keep | LUNA-314 (Arrangement switching UI) | Consolidated Phase 2a ticket |
-| Keep | LUNA-302 (Backgrounded pane lifecycle) | Distinct scope: surface detach/reattach |
-| Keep | LUNA-315 (Drawer UI) | Consolidated Phase 2b ticket |
-| Archive | LUNA-300 (Custom arrangement CRUD) | Superseded by LUNA-314 |
-| Archive | LUNA-301 (Arrangement switching) | Superseded by LUNA-314 |
-| Archive | LUNA-303 (Drawer+DrawerPane types) | Already done in Phase B |
-| Archive | LUNA-304 (Drawer lifecycle) | Superseded by LUNA-316 (Phase 3b) |
-| Archive | LUNA-305 (Drawer UI) | Superseded by LUNA-315 |
-| Defer | LUNA-306 (Drawer in dynamic views) | Depends on Phase 2c/3a |
+When switching arrangements or minimizing panes:
+
+- Ghostty surface detached for resource efficiency (`coordinator.detachForViewSwitch`)
+- Terminal state preserved via zmx backend
+- When pane becomes visible again: surface reattached seamlessly (`coordinator.reattachForViewSwitch`)
+- No content loss during background/foreground transitions
+
+---
+
+## Implementation Status
+
+| Component | Status | Notes |
+|-----------|--------|-------|
+| `minimizedPaneIds` on Tab | Done | Transient state, excluded from Codable |
+| `minimizePane`/`expandPane` in WorkspaceStore | Done | With guards and cleanup |
+| PaneAction cases for minimize/expand | Done | Through full pipeline |
+| CollapsedPaneBar view | Done | 30px, bold sideways text |
+| SplitSubtreeView minimized rendering | Done | HStack/VStack with fixed-width collapsed bars |
+| Tab bar [+] always visible | Done | Moves to fixed controls zone when overflowing |
+| ArrangementBar view | Done | Chips with switch/save/delete/rename |
+| ArrangementPanel view | Done | Pane list with toggles, arrangement chips |
+| DrawerOverlay / DrawerIconBar / DrawerPanel | Done | Full drawer UI |
+| Quarter-moon split button | Done | Needs edit mode gate |
+| **Edit mode toolbar button** | **Needs fix** | Was removed, needs restoration |
+| **Pane controls edit mode gate** | **Needs fix** | Currently always-on-hover |
+| **Drawer icon bar always visible** | **Needs fix** | Currently hover-gated |
+| **Arrangement bar always visible** | **Needs fix** | Currently edit-mode-gated |
+| **Drag bar (thick, center)** | **Not started** | Replaces small drag handle icon |
+| **Pane control positioning** | **Needs fix** | Move minimize/close to top-left |
 
 ---
 

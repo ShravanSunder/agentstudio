@@ -161,6 +161,7 @@ extension MainWindowController: NSToolbarDelegate {
     func toolbarDefaultItemIdentifiers(_ toolbar: NSToolbar) -> [NSToolbarItem.Identifier] {
         return [
             .flexibleSpace,
+            .editMode,
             .addRepo
         ]
     }
@@ -171,6 +172,17 @@ extension MainWindowController: NSToolbarDelegate {
 
     func toolbar(_ toolbar: NSToolbar, itemForItemIdentifier itemIdentifier: NSToolbarItem.Identifier, willBeInsertedIntoToolbar flag: Bool) -> NSToolbarItem? {
         switch itemIdentifier {
+        case .editMode:
+            let item = NSToolbarItem(itemIdentifier: itemIdentifier)
+            item.label = "Edit Mode"
+            item.paletteLabel = "Edit Mode"
+            item.toolTip = "Toggle Edit Mode (⌥⌘A)"
+            item.isBordered = true
+            item.image = NSImage(systemSymbolName: "slider.horizontal.3", accessibilityDescription: "Edit Mode")
+            item.action = #selector(toggleEditModeAction)
+            item.target = self
+            return item
+
         case .addRepo:
             let item = NSToolbarItem(itemIdentifier: itemIdentifier)
             item.label = "Add Repo"
@@ -187,6 +199,14 @@ extension MainWindowController: NSToolbarDelegate {
         }
     }
 
+    @objc private func toggleEditModeAction() {
+        ManagementModeMonitor.shared.isActive.toggle()
+        // Refresh toolbar button appearance
+        window?.toolbar?.items.first(where: { $0.itemIdentifier == .editMode })?.image =
+            NSImage(systemSymbolName: ManagementModeMonitor.shared.isActive ? "slider.horizontal.3" : "slider.horizontal.3",
+                    accessibilityDescription: "Edit Mode")
+    }
+
     @objc private func addRepoAction() {
         NotificationCenter.default.post(name: .addRepoRequested, object: nil)
     }
@@ -195,5 +215,6 @@ extension MainWindowController: NSToolbarDelegate {
 // MARK: - Toolbar Item Identifiers
 
 extension NSToolbarItem.Identifier {
+    static let editMode = NSToolbarItem.Identifier("editMode")
     static let addRepo = NSToolbarItem.Identifier("addRepo")
 }
