@@ -55,50 +55,41 @@ struct DrawerPanelOverlay: View {
             let bottomLeftInset = max(0, info.frame.minX - panelLeft) + insetPad
             let bottomRightInset = max(0, (panelLeft + panelWidth) - info.frame.maxX) + insetPad
 
-            ZStack {
-                // Dismiss scrim: tapping outside the drawer panel collapses it
-                Color.clear
-                    .contentShape(Rectangle())
-                    .onTapGesture {
+            VStack(spacing: 0) {
+                let drawerRenderInfo = SplitRenderInfo.compute(
+                    layout: info.drawer.layout,
+                    minimizedPaneIds: info.drawer.minimizedPaneIds
+                )
+                DrawerPanel(
+                    tree: drawerTree ?? PaneSplitTree(),
+                    parentPaneId: info.paneId,
+                    tabId: tabId,
+                    activePaneId: info.drawer.activePaneId,
+                    minimizedPaneIds: info.drawer.minimizedPaneIds,
+                    splitRenderInfo: drawerRenderInfo,
+                    height: panelHeight,
+                    store: store,
+                    action: action,
+                    onResize: { delta in
+                        let newRatio = min(DrawerLayout.heightRatioMax, max(DrawerLayout.heightRatioMin, heightRatio + Double(delta / tabSize.height)))
+                        heightRatio = newRatio
+                    },
+                    onDismiss: {
                         action(.toggleDrawer(paneId: info.paneId))
                     }
+                )
+                .frame(width: panelWidth)
+                // Layered shadow — tight contact + soft ambient
+                .shadow(color: .black.opacity(0.15), radius: 4, y: 2)
+                .shadow(color: .black.opacity(0.2), radius: 16, y: 8)
 
-                VStack(spacing: 0) {
-                    let drawerRenderInfo = SplitRenderInfo.compute(
-                        layout: info.drawer.layout,
-                        minimizedPaneIds: info.drawer.minimizedPaneIds
-                    )
-                    DrawerPanel(
-                        tree: drawerTree ?? PaneSplitTree(),
-                        parentPaneId: info.paneId,
-                        tabId: tabId,
-                        activePaneId: info.drawer.activePaneId,
-                        minimizedPaneIds: info.drawer.minimizedPaneIds,
-                        splitRenderInfo: drawerRenderInfo,
-                        height: panelHeight,
-                        store: store,
-                        action: action,
-                        onResize: { delta in
-                            let newRatio = min(DrawerLayout.heightRatioMax, max(DrawerLayout.heightRatioMin, heightRatio + Double(delta / tabSize.height)))
-                            heightRatio = newRatio
-                        },
-                        onDismiss: {
-                            action(.toggleDrawer(paneId: info.paneId))
-                        }
-                    )
-                    .frame(width: panelWidth)
-                    // Layered shadow — tight contact + soft ambient
-                    .shadow(color: .black.opacity(0.15), radius: 4, y: 2)
-                    .shadow(color: .black.opacity(0.2), radius: 16, y: 8)
-
-                    // Trapezoid: visual bridge from panel to pane icon bar.
-                    // Uses same material as DrawerIconBar for cohesive look.
-                    DrawerOverlayTrapezoid(bottomLeftInset: bottomLeftInset, bottomRightInset: bottomRightInset)
-                        .fill(.ultraThinMaterial)
-                        .frame(width: panelWidth, height: trapHeight)
-                }
-                .position(x: centerX, y: centerY)
+                // Trapezoid: visual bridge from panel to pane icon bar.
+                // Uses same material as DrawerIconBar for cohesive look.
+                DrawerOverlayTrapezoid(bottomLeftInset: bottomLeftInset, bottomRightInset: bottomRightInset)
+                    .fill(.ultraThinMaterial)
+                    .frame(width: panelWidth, height: trapHeight)
             }
+            .position(x: centerX, y: centerY)
         }
     }
 }

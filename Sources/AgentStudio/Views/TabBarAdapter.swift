@@ -49,7 +49,7 @@ final class TabBarAdapter: ObservableObject {
     @Published var contentWidth: CGFloat = 0
     @Published var viewportWidth: CGFloat = 0
 
-    static let minTabWidth: CGFloat = 100
+    static let minTabWidth: CGFloat = 150
     static let tabSpacing: CGFloat = 4
     static let tabBarPadding: CGFloat = 16
 

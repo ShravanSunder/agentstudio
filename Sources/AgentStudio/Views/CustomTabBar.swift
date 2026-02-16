@@ -77,6 +77,14 @@ struct CustomTabBar: View {
     var body: some View {
         GeometryReader { geometry in
             HStack(spacing: 0) {
+                // MARK: - Arrangement button (left of all tabs)
+                TabBarArrangementButton(
+                    adapter: adapter,
+                    onPaneAction: onPaneAction,
+                    onSaveArrangement: onSaveArrangement
+                )
+                .padding(.leading, 8)
+
                 // MARK: - Scroll area with gradient overlays
                 ZStack {
                     ScrollViewReader { proxy in
@@ -97,6 +105,7 @@ struct CustomTabBar: View {
                                         index: index,
                                         isActive: tab.id == adapter.activeTabId,
                                         isDragging: adapter.draggingTabId == tab.id,
+                                        isOverflowing: adapter.isOverflowing,
                                         showInsertBefore: adapter.dropTargetIndex == index && adapter.draggingTabId != tab.id,
                                         showInsertAfter: index == adapter.tabs.count - 1 && adapter.dropTargetIndex == adapter.tabs.count,
                                         onSelect: { onSelect(tab.id) },
@@ -107,18 +116,7 @@ struct CustomTabBar: View {
                                     .background(frameReporter(for: tab.id))
                                 }
 
-                                // Show + button only when NOT overflowing
-                                if !adapter.isOverflowing, let onAdd = onAdd {
-                                    Button(action: onAdd) {
-                                        Image(systemName: "plus")
-                                            .font(.system(size: 12, weight: .medium))
-                                            .foregroundStyle(.secondary)
-                                    }
-                                    .buttonStyle(.plain)
-                                    .padding(.horizontal, 8)
-                                    .padding(.vertical, 6)
-                                    .contentShape(Rectangle())
-                                }
+                                // Inline + button removed — now in fixed controls zone
                             }
                             .padding(.horizontal, 8)
                             .background(
@@ -196,30 +194,18 @@ struct CustomTabBar: View {
                     }
                 )
 
-                // MARK: - Fixed controls zone (arrows + dropdown + add when overflowing)
-                if adapter.isOverflowing {
-                    HStack(spacing: 2) {
-                        // Add button (visible when overflowing — inline one is hidden)
-                        if let onAdd = onAdd {
-                            Button(action: onAdd) {
-                                Image(systemName: "plus")
-                                    .font(.system(size: 12, weight: .medium))
-                                    .foregroundStyle(.secondary)
-                                    .frame(width: 24, height: 24)
-                                    .contentShape(Rectangle())
-                            }
-                            .buttonStyle(.plain)
-                            .help("New Tab")
-                        }
-
+                // MARK: - Fixed controls zone (always visible)
+                HStack(spacing: 2) {
+                    // Overflow-only controls
+                    if adapter.isOverflowing {
                         // Left scroll arrow
                         Button {
                             scrollToAdjacentTab(direction: .left)
                         } label: {
                             Image(systemName: "chevron.left")
-                                .font(.system(size: 11, weight: .medium))
+                                .font(.system(size: AppStyle.compactIconSize, weight: .medium))
                                 .foregroundStyle(.secondary)
-                                .frame(width: 24, height: 24)
+                                .frame(width: AppStyle.compactButtonSize, height: AppStyle.compactButtonSize)
                                 .contentShape(Rectangle())
                         }
                         .buttonStyle(.plain)
@@ -229,9 +215,9 @@ struct CustomTabBar: View {
                             scrollToAdjacentTab(direction: .right)
                         } label: {
                             Image(systemName: "chevron.right")
-                                .font(.system(size: 11, weight: .medium))
+                                .font(.system(size: AppStyle.compactIconSize, weight: .medium))
                                 .foregroundStyle(.secondary)
-                                .frame(width: 24, height: 24)
+                                .frame(width: AppStyle.compactButtonSize, height: AppStyle.compactButtonSize)
                                 .contentShape(Rectangle())
                         }
                         .buttonStyle(.plain)
@@ -246,7 +232,6 @@ struct CustomTabBar: View {
                                         if tab.id == adapter.activeTabId {
                                             Image(systemName: "checkmark")
                                         }
-                                        Image(systemName: tab.isSplit ? "square.split.2x1" : "terminal")
                                         Text(tab.displayTitle)
                                         if index < 9 {
                                             Text("  \u{2318}\(index + 1)")
@@ -274,10 +259,21 @@ struct CustomTabBar: View {
                         .menuIndicator(.hidden)
                         .fixedSize()
                     }
-                    .padding(.horizontal, 4)
-                }
 
-                // Edit mode toggle removed — pane controls now visible on hover
+                    // New tab button (always visible)
+                    if let onAdd = onAdd {
+                        Button(action: onAdd) {
+                            Image(systemName: "plus")
+                                .font(.system(size: AppStyle.compactIconSize, weight: .medium))
+                                .foregroundStyle(.secondary)
+                                .frame(width: AppStyle.compactButtonSize, height: AppStyle.compactButtonSize)
+                                .contentShape(Rectangle())
+                        }
+                        .buttonStyle(.plain)
+                        .help("New Tab")
+                    }
+                }
+                .padding(.horizontal, 4)
             }
             .frame(maxWidth: .infinity)
             .frame(height: 36)
@@ -354,12 +350,53 @@ struct CustomTabBar: View {
     }
 }
 
+/// Arrangement button in the tab bar's fixed controls zone.
+/// Opens the active tab's arrangement panel popover.
+private struct TabBarArrangementButton: View {
+    @ObservedObject var adapter: TabBarAdapter
+    let onPaneAction: ((PaneAction) -> Void)?
+    let onSaveArrangement: ((UUID) -> Void)?
+
+    @State private var showPanel = false
+
+    private var activeTab: TabBarItem? {
+        guard let activeId = adapter.activeTabId else { return nil }
+        return adapter.tabs.first { $0.id == activeId }
+    }
+
+    var body: some View {
+        Button {
+            showPanel.toggle()
+        } label: {
+            Image(systemName: "rectangle.3.group")
+                .font(.system(size: AppStyle.compactIconSize, weight: .medium))
+                .foregroundStyle(.secondary)
+                .frame(width: AppStyle.compactButtonSize, height: AppStyle.compactButtonSize)
+                .contentShape(Rectangle())
+        }
+        .buttonStyle(.plain)
+        .help("Arrangements")
+        .popover(isPresented: $showPanel) {
+            if let tab = activeTab, let onPaneAction, let onSaveArrangement {
+                ArrangementPanel(
+                    tabId: tab.id,
+                    panes: tab.panes,
+                    arrangements: tab.arrangements,
+                    onPaneAction: onPaneAction,
+                    onSaveArrangement: { onSaveArrangement(tab.id) }
+                )
+            }
+        }
+    }
+}
+
 /// Individual pill-shaped tab
 struct TabPillView: View {
     let tab: TabBarItem
     let index: Int
     let isActive: Bool
     let isDragging: Bool
+    let isOverflowing: Bool
     let showInsertBefore: Bool
     let showInsertAfter: Bool
     let onSelect: () -> Void
@@ -430,11 +467,7 @@ struct TabPillView: View {
     }
 
     private var tabContent: some View {
-        HStack(spacing: 6) {
-            Image(systemName: tab.isSplit ? "square.split.2x1" : "terminal")
-                .font(.system(size: 11))
-                .foregroundStyle(isActive ? .primary : .secondary)
-
+        HStack(spacing: 8) {
             Text(tab.displayTitle)
                 .font(.system(size: 12))
                 .lineLimit(1)
@@ -459,9 +492,10 @@ struct TabPillView: View {
                 .padding(2)
             }
         }
-        .padding(.horizontal, 10)
+        .padding(.horizontal, 12)
         .padding(.vertical, 6)
-        .frame(minWidth: 100, maxWidth: 220)
+        .frame(minWidth: 150, maxWidth: isOverflowing ? 240 : 320)
+        .fixedSize(horizontal: !isOverflowing, vertical: false)
         .background(
             RoundedRectangle(cornerRadius: 8)
                 .fill(backgroundColor)

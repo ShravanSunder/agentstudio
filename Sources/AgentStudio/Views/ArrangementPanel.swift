@@ -14,25 +14,6 @@ struct ArrangementPanel: View {
 
     var body: some View {
         VStack(alignment: .leading, spacing: 8) {
-            // MARK: - Pane list
-            if panes.count > 1 {
-                Text("Panes")
-                    .font(.system(size: 10, weight: .semibold))
-                    .foregroundStyle(.tertiary)
-                    .textCase(.uppercase)
-
-                VStack(spacing: 2) {
-                    ForEach(panes) { pane in
-                        paneRow(pane)
-                    }
-                }
-            }
-
-            if arrangements.count > 1 || panes.count > 1 {
-                Divider()
-                    .padding(.vertical, 2)
-            }
-
             // MARK: - Arrangement chips
             Text("Arrangements")
                 .font(.system(size: 10, weight: .semibold))
@@ -58,6 +39,23 @@ struct ArrangementPanel: View {
                     }
                     .buttonStyle(.plain)
                     .help("Save current layout as arrangement")
+                }
+            }
+
+            // MARK: - Pane visibility
+            if panes.count > 1 {
+                Divider()
+                    .padding(.vertical, 2)
+
+                Text("Pane Visibility")
+                    .font(.system(size: 10, weight: .semibold))
+                    .foregroundStyle(.tertiary)
+                    .textCase(.uppercase)
+
+                VStack(spacing: 2) {
+                    ForEach(panes) { pane in
+                        paneRow(pane)
+                    }
                 }
             }
         }
