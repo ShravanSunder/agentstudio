@@ -97,6 +97,8 @@ struct DrawerPanel: View {
                 action(.expandDrawerPane(parentPaneId: parentPaneId, drawerPaneId: paneId))
             case .closePane(_, let paneId):
                 action(.removeDrawerPane(parentPaneId: parentPaneId, drawerPaneId: paneId))
+            case .insertPane(_, _, let targetPaneId, let direction):
+                action(.insertDrawerPane(parentPaneId: parentPaneId, targetDrawerPaneId: targetPaneId, direction: direction))
             case .focusPane(_, let paneId):
                 action(.setActiveDrawerPane(parentPaneId: parentPaneId, drawerPaneId: paneId))
             default:

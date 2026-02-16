@@ -297,6 +297,13 @@ final class ActionExecutor {
             store.expandDrawerPane(drawerPaneId, in: parentPaneId)
             coordinator.reattachForViewSwitch(paneId: drawerPaneId)
 
+        case .insertDrawerPane(let parentPaneId, let targetDrawerPaneId, let direction):
+            executeInsertDrawerPane(
+                parentPaneId: parentPaneId,
+                targetDrawerPaneId: targetDrawerPaneId,
+                direction: direction
+            )
+
         case .expireUndoEntry(let paneId):
             // TODO: Phase 3 — remove pane from store, kill zmx, destroy surface
             executorLogger.warning("expireUndoEntry: \(paneId) — stub, full impl in Phase 3")
@@ -455,6 +462,36 @@ final class ActionExecutor {
                 pane.id, inTab: targetTabId, at: targetPaneId,
                 direction: layoutDirection, position: position
             )
+        }
+    }
+
+    private func executeInsertDrawerPane(
+        parentPaneId: UUID,
+        targetDrawerPaneId: UUID,
+        direction: SplitNewDirection
+    ) {
+        let layoutDirection = bridgeDirection(direction)
+        let position: Layout.Position = (direction == .left || direction == .up) ? .before : .after
+
+        let content = PaneContent.terminal(
+            TerminalState(provider: .ghostty, lifetime: .temporary)
+        )
+        let metadata = PaneMetadata(
+            source: .floating(workingDirectory: nil, title: nil),
+            title: "Drawer"
+        )
+
+        guard let drawerPane = store.insertDrawerPane(
+            in: parentPaneId,
+            at: targetDrawerPaneId,
+            direction: layoutDirection,
+            position: position,
+            content: content,
+            metadata: metadata
+        ) else { return }
+
+        if coordinator.createViewForContent(pane: drawerPane) == nil {
+            executorLogger.warning("insertDrawerPane: view creation failed for \(drawerPane.id)")
         }
     }
 

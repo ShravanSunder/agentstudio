@@ -140,9 +140,8 @@ struct TerminalPaneLeaf: View {
                     .transition(.opacity)
                 }
 
-                // Quarter-moon split button (top-right, edit mode + hover, layout panes only)
-                // Drawer children use the icon bar [+] button to add panes.
-                if managementMode.isActive && isHovered && !isDrawerChild && !store.isSplitResizing {
+                // Quarter-moon split button (top-right, edit mode + hover)
+                if managementMode.isActive && isHovered && !store.isSplitResizing {
                     VStack {
                         HStack {
                             Spacer()
