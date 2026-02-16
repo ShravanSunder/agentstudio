@@ -106,7 +106,9 @@ final class PaneTests: XCTestCase {
         XCTAssertEqual(decoded.metadata.title, "My Term")
         XCTAssertEqual(decoded.metadata.agentType, .claude)
         XCTAssertEqual(decoded.residency, SessionResidency.active)
-        XCTAssertNil(decoded.drawer)
+        // Layout panes always have a drawer (empty by default)
+        XCTAssertNotNil(decoded.drawer)
+        XCTAssertTrue(decoded.drawer!.paneIds.isEmpty)
     }
 
     func test_codable_roundTrip_webviewPane() throws {
@@ -128,29 +130,26 @@ final class PaneTests: XCTestCase {
     }
 
     func test_codable_roundTrip_paneWithDrawer() throws {
-        let drawerPane = DrawerPane(
-            content: .terminal(TerminalState(provider: .ghostty, lifetime: .temporary)),
-            metadata: PaneMetadata(source: .floating(workingDirectory: nil, title: nil), title: "Drawer Term")
-        )
+        let drawerPaneId = UUID()
         let drawer = Drawer(
-            panes: [drawerPane],
-            activeDrawerPaneId: drawerPane.id,
+            paneIds: [drawerPaneId],
+            layout: Layout(paneId: drawerPaneId),
+            activePaneId: drawerPaneId,
             isExpanded: false
         )
         let pane = Pane(
             content: .terminal(TerminalState(provider: .zmx, lifetime: .persistent)),
             metadata: PaneMetadata(source: .floating(workingDirectory: nil, title: nil), title: "Host"),
-            drawer: drawer
+            kind: .layout(drawer: drawer)
         )
 
         let data = try encoder.encode(pane)
         let decoded = try decoder.decode(Pane.self, from: data)
 
         XCTAssertNotNil(decoded.drawer)
-        XCTAssertEqual(decoded.drawer!.panes.count, 1)
-        XCTAssertEqual(decoded.drawer!.panes[0].id, drawerPane.id)
-        XCTAssertEqual(decoded.drawer!.panes[0].metadata.title, "Drawer Term")
-        XCTAssertEqual(decoded.drawer!.activeDrawerPaneId, drawerPane.id)
+        XCTAssertEqual(decoded.drawer!.paneIds.count, 1)
+        XCTAssertEqual(decoded.drawer!.paneIds[0], drawerPaneId)
+        XCTAssertEqual(decoded.drawer!.activePaneId, drawerPaneId)
         XCTAssertFalse(decoded.drawer!.isExpanded)
     }
 
@@ -235,19 +234,24 @@ final class PaneTests: XCTestCase {
         XCTAssertEqual(decoded.cwd, URL(fileURLWithPath: "/home/user"))
     }
 
-    // MARK: - DrawerPane
+    // MARK: - DrawerChild Pane
 
-    func test_drawerPane_codable_roundTrip() throws {
-        let dp = DrawerPane(
+    func test_drawerChild_codable_roundTrip() throws {
+        let parentId = UUID()
+        let pane = Pane(
             content: .webview(WebviewState(url: URL(string: "https://test.com")!, showNavigation: true)),
-            metadata: PaneMetadata(source: .floating(workingDirectory: nil, title: nil), title: "Web Drawer")
+            metadata: PaneMetadata(source: .floating(workingDirectory: nil, title: nil), title: "Web Drawer"),
+            kind: .drawerChild(parentPaneId: parentId)
         )
 
-        let data = try encoder.encode(dp)
-        let decoded = try decoder.decode(DrawerPane.self, from: data)
+        let data = try encoder.encode(pane)
+        let decoded = try decoder.decode(Pane.self, from: data)
 
-        XCTAssertEqual(decoded.id, dp.id)
+        XCTAssertEqual(decoded.id, pane.id)
         XCTAssertEqual(decoded.metadata.title, "Web Drawer")
+        XCTAssertTrue(decoded.isDrawerChild)
+        XCTAssertEqual(decoded.parentPaneId, parentId)
+        XCTAssertNil(decoded.drawer)
         if case .webview(let state) = decoded.content {
             XCTAssertEqual(state.url.absoluteString, "https://test.com")
         } else {
@@ -258,31 +262,74 @@ final class PaneTests: XCTestCase {
     // MARK: - Drawer
 
     func test_drawer_codable_roundTrip() throws {
-        let dp1 = DrawerPane(
-            content: .terminal(TerminalState(provider: .ghostty, lifetime: .temporary)),
-            metadata: PaneMetadata(source: .floating(workingDirectory: nil, title: nil), title: "D1")
-        )
-        let dp2 = DrawerPane(
-            content: .codeViewer(CodeViewerState(filePath: URL(fileURLWithPath: "/tmp/file.swift"), scrollToLine: 10)),
-            metadata: PaneMetadata(source: .floating(workingDirectory: nil, title: nil), title: "D2")
-        )
-        let drawer = Drawer(panes: [dp1, dp2], activeDrawerPaneId: dp2.id, isExpanded: false)
+        let id1 = UUID()
+        let id2 = UUID()
+        let layout = Layout(paneId: id1).inserting(paneId: id2, at: id1, direction: .horizontal, position: .after)
+        let drawer = Drawer(paneIds: [id1, id2], layout: layout, activePaneId: id2, isExpanded: false)
 
         let data = try encoder.encode(drawer)
         let decoded = try decoder.decode(Drawer.self, from: data)
 
-        XCTAssertEqual(decoded.panes.count, 2)
-        XCTAssertEqual(decoded.activeDrawerPaneId, dp2.id)
+        XCTAssertEqual(decoded.paneIds.count, 2)
+        XCTAssertEqual(decoded.activePaneId, id2)
         XCTAssertFalse(decoded.isExpanded)
-        XCTAssertEqual(decoded.panes[0].metadata.title, "D1")
-        XCTAssertEqual(decoded.panes[1].metadata.title, "D2")
+        XCTAssertEqual(decoded.paneIds[0], id1)
+        XCTAssertEqual(decoded.paneIds[1], id2)
+        // minimizedPaneIds is transient — always empty after decode
+        XCTAssertTrue(decoded.minimizedPaneIds.isEmpty)
     }
 
     func test_drawer_defaultValues() {
         let drawer = Drawer()
 
-        XCTAssertTrue(drawer.panes.isEmpty)
-        XCTAssertNil(drawer.activeDrawerPaneId)
+        XCTAssertTrue(drawer.paneIds.isEmpty)
+        XCTAssertNil(drawer.activePaneId)
         XCTAssertTrue(drawer.isExpanded)
+        XCTAssertTrue(drawer.minimizedPaneIds.isEmpty)
+    }
+
+    // MARK: - PaneKind
+
+    func test_paneKind_layout_hasDrawer() {
+        let pane = makePane()
+        XCTAssertNotNil(pane.drawer)
+        XCTAssertFalse(pane.isDrawerChild)
+        XCTAssertNil(pane.parentPaneId)
+    }
+
+    func test_paneKind_drawerChild_hasNoDrawer() {
+        let parentId = UUID()
+        let pane = Pane(
+            content: .terminal(TerminalState(provider: .ghostty, lifetime: .temporary)),
+            metadata: PaneMetadata(source: .floating(workingDirectory: nil, title: nil)),
+            kind: .drawerChild(parentPaneId: parentId)
+        )
+        XCTAssertNil(pane.drawer)
+        XCTAssertTrue(pane.isDrawerChild)
+        XCTAssertEqual(pane.parentPaneId, parentId)
+    }
+
+    func test_withDrawer_mutatesDrawer() {
+        var pane = makePane()
+        let childId = UUID()
+        pane.withDrawer { drawer in
+            drawer.paneIds.append(childId)
+            drawer.activePaneId = childId
+        }
+        XCTAssertEqual(pane.drawer?.paneIds, [childId])
+        XCTAssertEqual(pane.drawer?.activePaneId, childId)
+    }
+
+    func test_withDrawer_noOpForDrawerChild() {
+        let parentId = UUID()
+        var pane = Pane(
+            content: .terminal(TerminalState(provider: .ghostty, lifetime: .temporary)),
+            metadata: PaneMetadata(source: .floating(workingDirectory: nil, title: nil)),
+            kind: .drawerChild(parentPaneId: parentId)
+        )
+        pane.withDrawer { drawer in
+            drawer.paneIds.append(UUID()) // should be no-op
+        }
+        XCTAssertNil(pane.drawer)
     }
 }

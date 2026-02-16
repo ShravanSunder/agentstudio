@@ -397,16 +397,17 @@ enum CommandBarDataSource {
            let activePaneId = tab.activePaneId,
            let pane = store.pane(activePaneId),
            let drawer = pane.drawer {
-            items = drawer.panes.enumerated().map { index, drawerPane in
-                let isActive = drawer.activeDrawerPaneId == drawerPane.id
+            items = drawer.paneIds.enumerated().compactMap { index, drawerPaneId in
+                guard let drawerPane = store.pane(drawerPaneId) else { return nil }
+                let isActive = drawer.activePaneId == drawerPaneId
                 return CommandBarItem(
-                    id: "target-drawer-\(drawerPane.id.uuidString)",
+                    id: "target-drawer-\(drawerPaneId.uuidString)",
                     title: drawerPane.metadata.title,
                     subtitle: isActive ? "Active" : "Drawer \(index + 1)",
                     icon: "terminal",
                     group: "Drawer Panes",
                     groupPriority: 0,
-                    action: .dispatchTargeted(def.command, target: drawerPane.id, targetType: .pane)
+                    action: .dispatchTargeted(def.command, target: drawerPaneId, targetType: .pane)
                 )
             }
         }

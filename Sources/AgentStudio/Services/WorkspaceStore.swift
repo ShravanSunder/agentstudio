@@ -608,38 +608,49 @@ final class WorkspaceStore {
 
     // MARK: - Drawer Mutations
 
-    /// Add a drawer pane to a parent pane. Creates the drawer if it doesn't exist.
+    /// Add a drawer pane to a parent pane. Creates a real `Pane` with `kind: .drawerChild`.
+    /// The new pane is added to `store.panes` and the parent's drawer.
     @discardableResult
     func addDrawerPane(
         to parentPaneId: UUID,
         content: PaneContent,
         metadata: PaneMetadata
-    ) -> DrawerPane? {
+    ) -> Pane? {
         guard panes[parentPaneId] != nil else {
             storeLogger.warning("addDrawerPane: parent pane \(parentPaneId) not found")
             return nil
         }
 
-        let drawerPane = DrawerPane(content: content, metadata: metadata)
+        let drawerPane = Pane(
+            content: content,
+            metadata: metadata,
+            kind: .drawerChild(parentPaneId: parentPaneId)
+        )
 
-        if panes[parentPaneId]!.drawer == nil {
-            panes[parentPaneId]!.drawer = Drawer(
-                panes: [drawerPane],
-                activeDrawerPaneId: drawerPane.id,
-                isExpanded: true
-            )
-        } else {
-            panes[parentPaneId]!.drawer!.panes.append(drawerPane)
-            // Always activate the new pane and expand to show it
-            panes[parentPaneId]!.drawer!.activeDrawerPaneId = drawerPane.id
-            panes[parentPaneId]!.drawer!.isExpanded = true
+        // Add to store as first-class pane
+        panes[drawerPane.id] = drawerPane
+
+        // Add to parent's drawer
+        panes[parentPaneId]!.withDrawer { drawer in
+            if let existingLeaf = drawer.layout.paneIds.last {
+                drawer.layout = drawer.layout.inserting(
+                    paneId: drawerPane.id, at: existingLeaf,
+                    direction: .horizontal, position: .after
+                )
+            } else {
+                drawer.layout = Layout(paneId: drawerPane.id)
+            }
+            drawer.paneIds.append(drawerPane.id)
+            drawer.activePaneId = drawerPane.id
+            drawer.isExpanded = true
         }
 
         markDirty()
         return drawerPane
     }
 
-    /// Remove a drawer pane from its parent. Removes the drawer if it becomes empty.
+    /// Remove a drawer pane from its parent. Removes the drawer panes list entry,
+    /// the layout leaf, and the store entry. Resets drawer if empty.
     func removeDrawerPane(_ drawerPaneId: UUID, from parentPaneId: UUID) {
         guard panes[parentPaneId] != nil,
               panes[parentPaneId]!.drawer != nil else {
@@ -647,18 +658,29 @@ final class WorkspaceStore {
             return
         }
 
-        panes[parentPaneId]!.drawer!.panes.removeAll { $0.id == drawerPaneId }
+        // Remove from parent's drawer
+        panes[parentPaneId]!.withDrawer { drawer in
+            drawer.paneIds.removeAll { $0 == drawerPaneId }
+            drawer.minimizedPaneIds.remove(drawerPaneId)
 
-        // Update active drawer pane if removed
-        if panes[parentPaneId]!.drawer!.activeDrawerPaneId == drawerPaneId {
-            panes[parentPaneId]!.drawer!.activeDrawerPaneId =
-                panes[parentPaneId]!.drawer!.panes.first?.id
+            // Remove from layout
+            if drawer.layout.contains(drawerPaneId) {
+                drawer.layout = drawer.layout.removing(paneId: drawerPaneId) ?? Layout()
+            }
+
+            // Update active drawer pane if removed
+            if drawer.activePaneId == drawerPaneId {
+                drawer.activePaneId = drawer.paneIds.first
+            }
         }
 
-        // Remove drawer entirely if empty
-        if panes[parentPaneId]!.drawer!.panes.isEmpty {
-            panes[parentPaneId]!.drawer = nil
+        // Reset drawer to empty state if no panes left
+        if panes[parentPaneId]!.drawer!.paneIds.isEmpty {
+            panes[parentPaneId]!.kind = .layout(drawer: Drawer())
         }
+
+        // Remove the drawer pane from the store
+        panes.removeValue(forKey: drawerPaneId)
 
         markDirty()
     }
@@ -666,8 +688,9 @@ final class WorkspaceStore {
     /// Toggle the expanded/collapsed state of a pane's drawer.
     func toggleDrawer(for paneId: UUID) {
         guard panes[paneId] != nil,
-              panes[paneId]!.drawer != nil else {
-            storeLogger.warning("toggleDrawer: pane \(paneId) has no drawer")
+              panes[paneId]!.drawer != nil,
+              !panes[paneId]!.drawer!.paneIds.isEmpty else {
+            storeLogger.warning("toggleDrawer: pane \(paneId) has no drawer or drawer is empty")
             return
         }
 
@@ -678,12 +701,12 @@ final class WorkspaceStore {
         if willExpand {
             for otherPaneId in panes.keys where otherPaneId != paneId {
                 if panes[otherPaneId]?.drawer?.isExpanded == true {
-                    panes[otherPaneId]!.drawer!.isExpanded = false
+                    panes[otherPaneId]!.withDrawer { $0.isExpanded = false }
                 }
             }
         }
 
-        panes[paneId]!.drawer!.isExpanded = willExpand
+        panes[paneId]!.withDrawer { $0.isExpanded = willExpand }
         markDirty()
     }
 
@@ -691,12 +714,12 @@ final class WorkspaceStore {
     func setActiveDrawerPane(_ drawerPaneId: UUID, in parentPaneId: UUID) {
         guard panes[parentPaneId] != nil,
               let drawer = panes[parentPaneId]!.drawer,
-              drawer.panes.contains(where: { $0.id == drawerPaneId }) else {
+              drawer.paneIds.contains(drawerPaneId) else {
             storeLogger.warning("setActiveDrawerPane: drawer pane \(drawerPaneId) not found in pane \(parentPaneId)")
             return
         }
 
-        panes[parentPaneId]!.drawer!.activeDrawerPaneId = drawerPaneId
+        panes[parentPaneId]!.withDrawer { $0.activePaneId = drawerPaneId }
         markDirty()
     }
 

@@ -534,7 +534,7 @@ final class ActionExecutorTests: XCTestCase {
         // Assert
         let updated = store.pane(parentPane.id)
         XCTAssertNotNil(updated?.drawer)
-        XCTAssertEqual(updated?.drawer?.panes.count, 1)
+        XCTAssertEqual(updated?.drawer?.paneIds.count, 1)
         XCTAssertTrue(updated?.drawer?.isExpanded ?? false)
     }
 
@@ -552,13 +552,15 @@ final class ActionExecutorTests: XCTestCase {
             metadata: PaneMetadata(source: .floating(workingDirectory: nil, title: nil), title: "Drawer")
         )!
         XCTAssertNotNil(store.pane(parentPane.id)?.drawer)
-        XCTAssertEqual(store.pane(parentPane.id)?.drawer?.panes.count, 1)
+        XCTAssertEqual(store.pane(parentPane.id)?.drawer?.paneIds.count, 1)
 
         // Act
         executor.execute(.removeDrawerPane(parentPaneId: parentPane.id, drawerPaneId: drawerPane.id))
 
-        // Assert — last drawer pane removed, drawer itself should be nil
-        XCTAssertNil(store.pane(parentPane.id)?.drawer)
+        // Assert — last drawer pane removed, drawer resets to empty
+        let drawer = store.pane(parentPane.id)?.drawer
+        XCTAssertNotNil(drawer)
+        XCTAssertTrue(drawer!.paneIds.isEmpty)
     }
 
     // MARK: - Execute: toggleDrawer
@@ -607,13 +609,13 @@ final class ActionExecutorTests: XCTestCase {
             content: .terminal(TerminalState(provider: .ghostty, lifetime: .temporary)),
             metadata: PaneMetadata(source: .floating(workingDirectory: nil, title: nil), title: "Second")
         )!
-        XCTAssertEqual(store.pane(parentPane.id)!.drawer!.activeDrawerPaneId, dp2.id, "Last added should be active")
+        XCTAssertEqual(store.pane(parentPane.id)!.drawer!.activePaneId, dp2.id, "Last added should be active")
 
         // Act
         executor.execute(.setActiveDrawerPane(parentPaneId: parentPane.id, drawerPaneId: dp2.id))
 
         // Assert
-        XCTAssertEqual(store.pane(parentPane.id)!.drawer!.activeDrawerPaneId, dp2.id)
+        XCTAssertEqual(store.pane(parentPane.id)!.drawer!.activePaneId, dp2.id)
     }
 
     // MARK: - Execute: switchArrangement (ViewRegistry integration)

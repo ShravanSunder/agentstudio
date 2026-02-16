@@ -908,7 +908,7 @@ class TerminalTabViewController: NSViewController, CommandHandler {
                   let paneId = tab.activePaneId,
                   let pane = store.pane(paneId),
                   let drawer = pane.drawer,
-                  let activeDrawerPaneId = drawer.activeDrawerPaneId else { break }
+                  let activeDrawerPaneId = drawer.activePaneId else { break }
             dispatchAction(.removeDrawerPane(parentPaneId: paneId, drawerPaneId: activeDrawerPaneId))
 
         case .saveArrangement:

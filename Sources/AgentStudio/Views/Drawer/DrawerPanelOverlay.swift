@@ -20,7 +20,8 @@ struct DrawerPanelOverlay: View {
     /// Invariant: only one drawer can be expanded at a time (toggle behavior).
     private var expandedPaneInfo: (paneId: UUID, frame: CGRect, drawer: Drawer)? {
         for (paneId, frame) in paneFrames {
-            if let drawer = store.pane(paneId)?.drawer, drawer.isExpanded {
+            if let drawer = store.pane(paneId)?.drawer,
+               drawer.isExpanded, !drawer.paneIds.isEmpty {
                 return (paneId, frame, drawer)
             }
         }
@@ -29,7 +30,7 @@ struct DrawerPanelOverlay: View {
 
     var body: some View {
         if let info = expandedPaneInfo,
-           let activeDrawerPaneId = info.drawer.activeDrawerPaneId,
+           let activeDrawerPaneId = info.drawer.activePaneId,
            tabSize.width > 0 {
             let paneWidth = info.frame.width
             let panelWidth = max(paneWidth, min(paneWidth * 2, tabSize.width * 0.8))

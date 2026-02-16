@@ -13,27 +13,12 @@ struct DrawerOverlay: View {
         VStack(spacing: 0) {
             Spacer()
 
-            if let drawer, isIconBarVisible || drawer.isExpanded {
-                // Icon bar (always visible when drawer has panes)
+            if let drawer, !drawer.paneIds.isEmpty, isIconBarVisible || drawer.isExpanded {
+                // Drawer has panes — show toggle/add bar
                 DrawerIconBar(
-                    drawerPanes: drawerPaneItems(from: drawer),
-                    activeDrawerPaneId: drawer.activeDrawerPaneId,
                     isExpanded: drawer.isExpanded,
-                    onSelect: { drawerPaneId in
-                        action(.setActiveDrawerPane(parentPaneId: paneId, drawerPaneId: drawerPaneId))
-                        if !drawer.isExpanded {
-                            action(.toggleDrawer(paneId: paneId))
-                        }
-                    },
-                    onAdd: {
-                        addDrawerPane()
-                    },
-                    onClose: { drawerPaneId in
-                        action(.removeDrawerPane(parentPaneId: paneId, drawerPaneId: drawerPaneId))
-                    },
-                    onToggleExpand: {
-                        action(.toggleDrawer(paneId: paneId))
-                    }
+                    onAdd: { addDrawerPane() },
+                    onToggleExpand: { action(.toggleDrawer(paneId: paneId)) }
                 )
             } else {
                 // Empty drawer: slim bar with [+] button
@@ -51,24 +36,5 @@ struct DrawerOverlay: View {
             title: "Drawer"
         )
         action(.addDrawerPane(parentPaneId: paneId, content: content, metadata: metadata))
-    }
-
-    private func drawerPaneItems(from drawer: Drawer) -> [DrawerPaneItem] {
-        drawer.panes.map { drawerPane in
-            DrawerPaneItem(
-                id: drawerPane.id,
-                title: drawerPane.metadata.title,
-                icon: iconForContent(drawerPane.content)
-            )
-        }
-    }
-
-    private func iconForContent(_ content: PaneContent) -> String {
-        switch content {
-        case .terminal: return "terminal"
-        case .webview: return "globe"
-        case .codeViewer: return "doc.text"
-        case .unsupported: return "questionmark.circle"
-        }
     }
 }

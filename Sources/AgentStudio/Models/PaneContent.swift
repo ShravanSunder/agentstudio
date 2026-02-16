@@ -2,7 +2,7 @@ import Foundation
 
 // MARK: - Pane Content
 
-/// Discriminated union for the content type held by a Pane or DrawerPane.
+/// Discriminated union for the content type held by a Pane.
 /// Each pane holds exactly one content type, fixed at creation.
 ///
 /// Uses custom Codable with a `type` discriminator and `version` field for

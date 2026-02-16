@@ -309,13 +309,9 @@ final class TerminalViewCoordinator {
 
             // Also restore views for drawer panes owned by this pane
             if let drawer = pane.drawer {
-                for drawerPane in drawer.panes {
-                    let drawerPaneAsPane = Pane(
-                        id: drawerPane.id,
-                        content: drawerPane.content,
-                        metadata: drawerPane.metadata
-                    )
-                    if createViewForContent(pane: drawerPaneAsPane) != nil {
+                for drawerPaneId in drawer.paneIds {
+                    guard let drawerPane = store.pane(drawerPaneId) else { continue }
+                    if createViewForContent(pane: drawerPane) != nil {
                         drawerRestored += 1
                     }
                 }

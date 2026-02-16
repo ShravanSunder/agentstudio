@@ -1,5 +1,14 @@
 import Foundation
 
+/// Discriminant union encoding a pane's container context.
+/// Layout panes always have a drawer. Drawer children never do.
+enum PaneKind: Codable, Hashable {
+    /// Top-level pane in a tab's layout tree. Always has a drawer container.
+    case layout(drawer: Drawer)
+    /// Child pane inside a drawer. Knows its parent. Cannot have a sub-drawer.
+    case drawerChild(parentPaneId: UUID)
+}
+
 /// The primary entity in the window system. Replaces TerminalSession as the universal identity.
 /// `id` (paneId) is the single identity used across all layers: WorkspaceStore, Layout,
 /// ViewRegistry, SurfaceManager, SessionRuntime, and zmx.
@@ -11,21 +20,21 @@ struct Pane: Codable, Identifiable, Hashable {
     var metadata: PaneMetadata
     /// Lifecycle residency state (active, pendingUndo, backgrounded).
     var residency: SessionResidency
-    /// Optional drawer holding child panes. Always nil in Phase A.
-    var drawer: Drawer?
+    /// Discriminant — encodes whether this is a layout pane or drawer child.
+    var kind: PaneKind
 
     init(
         id: UUID = UUID(),
         content: PaneContent,
         metadata: PaneMetadata,
         residency: SessionResidency = .active,
-        drawer: Drawer? = nil
+        kind: PaneKind = .layout(drawer: Drawer())
     ) {
         self.id = id
         self.content = content
         self.metadata = metadata
         self.residency = residency
-        self.drawer = drawer
+        self.kind = kind
     }
 
     // MARK: - Convenience Accessors
@@ -59,4 +68,31 @@ struct Pane: Codable, Identifiable, Hashable {
 
     var worktreeId: UUID? { metadata.worktreeId }
     var repoId: UUID? { metadata.repoId }
+
+    // MARK: - PaneKind Convenience
+
+    /// The drawer, if this is a layout pane.
+    var drawer: Drawer? {
+        if case .layout(let drawer) = kind { return drawer }
+        return nil
+    }
+
+    /// Mutate the drawer in-place. No-op if this is a drawer child.
+    mutating func withDrawer(_ transform: (inout Drawer) -> Void) {
+        guard case .layout(var drawer) = kind else { return }
+        transform(&drawer)
+        kind = .layout(drawer: drawer)
+    }
+
+    /// Whether this pane is a drawer child.
+    var isDrawerChild: Bool {
+        if case .drawerChild = kind { return true }
+        return false
+    }
+
+    /// The parent pane ID, if this is a drawer child.
+    var parentPaneId: UUID? {
+        if case .drawerChild(let parentId) = kind { return parentId }
+        return nil
+    }
 }

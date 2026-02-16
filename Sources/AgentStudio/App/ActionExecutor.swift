@@ -231,12 +231,7 @@ final class ActionExecutor {
 
         case .addDrawerPane(let parentPaneId, let content, let metadata):
             if let drawerPane = store.addDrawerPane(to: parentPaneId, content: content, metadata: metadata) {
-                let pane = Pane(
-                    id: drawerPane.id,
-                    content: drawerPane.content,
-                    metadata: drawerPane.metadata
-                )
-                if coordinator.createViewForContent(pane: pane) == nil {
+                if coordinator.createViewForContent(pane: drawerPane) == nil {
                     executorLogger.warning("addDrawerPane: view creation failed for \(drawerPane.id) — panel will show placeholder")
                 }
             }
@@ -411,8 +406,8 @@ final class ActionExecutor {
     private func teardownDrawerPanes(for parentPaneId: UUID) {
         guard let pane = store.pane(parentPaneId),
               let drawer = pane.drawer else { return }
-        for drawerPane in drawer.panes {
-            coordinator.teardownView(for: drawerPane.id)
+        for drawerPaneId in drawer.paneIds {
+            coordinator.teardownView(for: drawerPaneId)
         }
     }
 

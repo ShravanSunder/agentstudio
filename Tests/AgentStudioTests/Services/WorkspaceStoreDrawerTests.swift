@@ -13,7 +13,7 @@ final class WorkspaceStoreDrawerTests: XCTestCase {
 
     // MARK: - addDrawerPane
 
-    func test_addDrawerPane_createsDrawer() {
+    func test_addDrawerPane_createsDrawerChild() {
         // Arrange
         let pane = store.createPane(source: .floating(workingDirectory: nil, title: nil))
 
@@ -28,10 +28,16 @@ final class WorkspaceStoreDrawerTests: XCTestCase {
         XCTAssertNotNil(dp)
         let updated = store.pane(pane.id)!
         XCTAssertNotNil(updated.drawer)
-        XCTAssertEqual(updated.drawer!.panes.count, 1)
-        XCTAssertEqual(updated.drawer!.panes[0].id, dp!.id)
-        XCTAssertEqual(updated.drawer!.activeDrawerPaneId, dp!.id)
+        XCTAssertEqual(updated.drawer!.paneIds.count, 1)
+        XCTAssertEqual(updated.drawer!.paneIds[0], dp!.id)
+        XCTAssertEqual(updated.drawer!.activePaneId, dp!.id)
         XCTAssertTrue(updated.drawer!.isExpanded)
+
+        // Drawer pane is a real entry in store.panes
+        let drawerPaneInStore = store.pane(dp!.id)
+        XCTAssertNotNil(drawerPaneInStore)
+        XCTAssertTrue(drawerPaneInStore!.isDrawerChild)
+        XCTAssertEqual(drawerPaneInStore!.parentPaneId, pane.id)
     }
 
     func test_addDrawerPane_appendsToExistingDrawer() {
@@ -49,9 +55,13 @@ final class WorkspaceStoreDrawerTests: XCTestCase {
         )!
 
         let updated = store.pane(pane.id)!
-        XCTAssertEqual(updated.drawer!.panes.count, 2)
-        XCTAssertEqual(updated.drawer!.activeDrawerPaneId, dp2.id) // last added becomes active
-        XCTAssertEqual(updated.drawer!.panes[1].id, dp2.id)
+        XCTAssertEqual(updated.drawer!.paneIds.count, 2)
+        XCTAssertEqual(updated.drawer!.activePaneId, dp2.id) // last added becomes active
+        XCTAssertEqual(updated.drawer!.paneIds[1], dp2.id)
+
+        // Both drawer panes are in the layout
+        XCTAssertTrue(updated.drawer!.layout.contains(dp1.id))
+        XCTAssertTrue(updated.drawer!.layout.contains(dp2.id))
     }
 
     func test_addDrawerPane_invalidParent_returnsNil() {
@@ -95,8 +105,11 @@ final class WorkspaceStoreDrawerTests: XCTestCase {
         store.removeDrawerPane(dp1.id, from: pane.id)
 
         let updated = store.pane(pane.id)!
-        XCTAssertEqual(updated.drawer!.panes.count, 1)
-        XCTAssertEqual(updated.drawer!.panes[0].id, dp2.id)
+        XCTAssertEqual(updated.drawer!.paneIds.count, 1)
+        XCTAssertEqual(updated.drawer!.paneIds[0], dp2.id)
+
+        // dp1 removed from store
+        XCTAssertNil(store.pane(dp1.id))
     }
 
     func test_removeDrawerPane_updatesActiveIfRemoved() {
@@ -112,13 +125,13 @@ final class WorkspaceStoreDrawerTests: XCTestCase {
             metadata: PaneMetadata(source: .floating(workingDirectory: nil, title: nil), title: "Second")
         )!
 
-        // Active is dp1, remove dp1
-        store.removeDrawerPane(dp1.id, from: pane.id)
+        // Active is dp2 (last added), remove dp2
+        store.removeDrawerPane(dp2.id, from: pane.id)
 
-        XCTAssertEqual(store.pane(pane.id)!.drawer!.activeDrawerPaneId, dp2.id)
+        XCTAssertEqual(store.pane(pane.id)!.drawer!.activePaneId, dp1.id)
     }
 
-    func test_removeDrawerPane_lastPane_removesDrawer() {
+    func test_removeDrawerPane_lastPane_resetsDrawerToEmpty() {
         let pane = store.createPane(source: .floating(workingDirectory: nil, title: nil))
         let dp = store.addDrawerPane(
             to: pane.id,
@@ -128,7 +141,11 @@ final class WorkspaceStoreDrawerTests: XCTestCase {
 
         store.removeDrawerPane(dp.id, from: pane.id)
 
-        XCTAssertNil(store.pane(pane.id)!.drawer)
+        // Drawer resets to empty (always present on layout panes)
+        let updated = store.pane(pane.id)!
+        XCTAssertNotNil(updated.drawer)
+        XCTAssertTrue(updated.drawer!.paneIds.isEmpty)
+        XCTAssertNil(updated.drawer!.activePaneId)
     }
 
     func test_removeDrawerPane_invalidParent_noOp() {
@@ -165,33 +182,35 @@ final class WorkspaceStoreDrawerTests: XCTestCase {
         XCTAssertTrue(store.pane(pane.id)!.drawer!.isExpanded)
     }
 
-    func test_toggleDrawer_noDrawer_noOp() {
+    func test_toggleDrawer_emptyDrawer_noOp() {
         let pane = store.createPane(source: .floating(workingDirectory: nil, title: nil))
 
-        // Should not crash
+        // Should not crash — empty drawer cannot be toggled
         store.toggleDrawer(for: pane.id)
 
-        XCTAssertNil(store.pane(pane.id)!.drawer)
+        // Drawer still exists but empty
+        XCTAssertNotNil(store.pane(pane.id)!.drawer)
+        XCTAssertTrue(store.pane(pane.id)!.drawer!.paneIds.isEmpty)
     }
 
     // MARK: - setActiveDrawerPane
 
     func test_setActiveDrawerPane_switches() {
         let pane = store.createPane(source: .floating(workingDirectory: nil, title: nil))
-        _ = store.addDrawerPane(
+        let dp1 = store.addDrawerPane(
             to: pane.id,
             content: .terminal(TerminalState(provider: .ghostty, lifetime: .temporary)),
             metadata: PaneMetadata(source: .floating(workingDirectory: nil, title: nil), title: "First")
-        )
+        )!
         let dp2 = store.addDrawerPane(
             to: pane.id,
             content: .terminal(TerminalState(provider: .ghostty, lifetime: .temporary)),
             metadata: PaneMetadata(source: .floating(workingDirectory: nil, title: nil), title: "Second")
         )!
 
-        store.setActiveDrawerPane(dp2.id, in: pane.id)
+        store.setActiveDrawerPane(dp1.id, in: pane.id)
 
-        XCTAssertEqual(store.pane(pane.id)!.drawer!.activeDrawerPaneId, dp2.id)
+        XCTAssertEqual(store.pane(pane.id)!.drawer!.activePaneId, dp1.id)
     }
 
     func test_setActiveDrawerPane_invalidId_noOp() {
@@ -205,7 +224,7 @@ final class WorkspaceStoreDrawerTests: XCTestCase {
         store.setActiveDrawerPane(UUID(), in: pane.id)
 
         // Should remain unchanged
-        XCTAssertEqual(store.pane(pane.id)!.drawer!.activeDrawerPaneId, dp.id)
+        XCTAssertEqual(store.pane(pane.id)!.drawer!.activePaneId, dp.id)
     }
 
     // MARK: - Persistence
@@ -231,12 +250,17 @@ final class WorkspaceStoreDrawerTests: XCTestCase {
         let store2 = WorkspaceStore(persistor: persistor)
         store2.restore()
 
-        let restoredPane = store2.panes.values.first { $0.drawer != nil }
-        XCTAssertNotNil(restoredPane, "Expected pane with drawer after restore")
+        let restoredPane = store2.panes.values.first { !$0.isDrawerChild && $0.drawer != nil && !$0.drawer!.paneIds.isEmpty }
+        XCTAssertNotNil(restoredPane, "Expected pane with non-empty drawer after restore")
         if let restored = restoredPane {
-            XCTAssertEqual(restored.drawer!.panes.count, 1)
-            XCTAssertEqual(restored.drawer!.panes[0].metadata.title, "Persistent Drawer")
-            XCTAssertEqual(restored.drawer!.activeDrawerPaneId, dp.id)
+            XCTAssertEqual(restored.drawer!.paneIds.count, 1)
+            XCTAssertEqual(restored.drawer!.activePaneId, dp.id)
+
+            // Drawer child pane should also be restored in store
+            let restoredDrawerPane = store2.pane(dp.id)
+            XCTAssertNotNil(restoredDrawerPane, "Drawer child pane should be in store after restore")
+            XCTAssertEqual(restoredDrawerPane?.metadata.title, "Persistent Drawer")
+            XCTAssertTrue(restoredDrawerPane?.isDrawerChild ?? false)
         }
 
         try? FileManager.default.removeItem(at: tempDir)
