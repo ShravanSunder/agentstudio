@@ -177,11 +177,10 @@ extension MainWindowController: NSToolbarDelegate {
             let item = NSToolbarItem(itemIdentifier: itemIdentifier)
             item.label = "Edit Mode"
             item.paletteLabel = "Edit Mode"
-            item.toolTip = "Toggle Edit Mode (⌘E)"
-            item.isBordered = true
-            item.image = NSImage(systemSymbolName: "slider.horizontal.3", accessibilityDescription: "Edit Mode")
-            item.action = #selector(toggleEditModeAction)
-            item.target = self
+            // SwiftUI hosting for reactive toggle state
+            let hostingView = NSHostingView(rootView: EditModeToolbarButton())
+            hostingView.sizingOptions = .intrinsicContentSize
+            item.view = hostingView
             return item
 
         case .addRepo:
@@ -198,10 +197,6 @@ extension MainWindowController: NSToolbarDelegate {
         default:
             return nil
         }
-    }
-
-    @objc private func toggleEditModeAction() {
-        ManagementModeMonitor.shared.toggle()
     }
 
     @objc private func addRepoAction() {
