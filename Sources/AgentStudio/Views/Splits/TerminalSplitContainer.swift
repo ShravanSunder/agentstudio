@@ -13,6 +13,9 @@ struct SplitDropPayload: Equatable, Codable {
 }
 
 /// SwiftUI container that renders a SplitTree of pane views.
+///
+/// Reads drawer and title data directly from WorkspaceStore via @Observable
+/// property tracking — no closure-based providers needed.
 struct TerminalSplitContainer: View {
     let tree: PaneSplitTree
     let tabId: UUID
@@ -24,9 +27,8 @@ struct TerminalSplitContainer: View {
     let onPersist: (() -> Void)?
     let shouldAcceptDrop: (UUID, DropZone) -> Bool
     let onDrop: (SplitDropPayload, UUID, DropZone) -> Void
-    var drawerProvider: ((UUID) -> Drawer?)? = nil
-    var drawerPaneViewProvider: ((UUID) -> PaneView?)? = nil
-    var paneTitleProvider: ((UUID) -> String)? = nil
+    let store: WorkspaceStore
+    let viewRegistry: ViewRegistry
 
     @State private var paneFrames: [UUID: CGRect] = [:]
 
@@ -43,7 +45,7 @@ struct TerminalSplitContainer: View {
                                 tabId: tabId,
                                 isActive: true,
                                 isSplit: false,
-                                drawer: drawerProvider?(zoomedPaneId),
+                                store: store,
                                 action: action,
                                 shouldAcceptDrop: shouldAcceptDrop,
                                 onDrop: onDrop
@@ -70,8 +72,7 @@ struct TerminalSplitContainer: View {
                             onPersist: onPersist,
                             shouldAcceptDrop: shouldAcceptDrop,
                             onDrop: onDrop,
-                            drawerProvider: drawerProvider,
-                            paneTitleProvider: paneTitleProvider
+                            store: store
                         )
                         .id(node.structuralIdentity)  // Prevents view recreation on ratio changes
                     }
@@ -86,10 +87,10 @@ struct TerminalSplitContainer: View {
 
                 // Tab-level drawer panel overlay (renders on top of all panes)
                 DrawerPanelOverlay(
+                    store: store,
+                    viewRegistry: viewRegistry,
                     paneFrames: paneFrames,
                     tabSize: tabGeometry.size,
-                    drawerProvider: drawerProvider ?? { _ in nil },
-                    drawerPaneViewProvider: drawerPaneViewProvider ?? { _ in nil },
                     action: action
                 )
             }
@@ -110,8 +111,7 @@ fileprivate struct SplitSubtreeView: View {
     let onPersist: (() -> Void)?
     let shouldAcceptDrop: (UUID, DropZone) -> Bool
     let onDrop: (SplitDropPayload, UUID, DropZone) -> Void
-    var drawerProvider: ((UUID) -> Drawer?)? = nil
-    var paneTitleProvider: ((UUID) -> String)? = nil
+    let store: WorkspaceStore
 
     var body: some View {
         switch node {
@@ -120,7 +120,7 @@ fileprivate struct SplitSubtreeView: View {
                 CollapsedPaneBar(
                     paneId: paneView.id,
                     tabId: tabId,
-                    title: paneTitleProvider?(paneView.id) ?? "Terminal",
+                    title: store.pane(paneView.id)?.title ?? "Terminal",
                     action: action
                 )
             } else {
@@ -129,7 +129,7 @@ fileprivate struct SplitSubtreeView: View {
                     tabId: tabId,
                     isActive: paneView.id == activePaneId,
                     isSplit: isSplit,
-                    drawer: drawerProvider?(paneView.id),
+                    store: store,
                     action: action,
                     shouldAcceptDrop: shouldAcceptDrop,
                     onDrop: onDrop
@@ -225,7 +225,7 @@ fileprivate struct SplitSubtreeView: View {
             CollapsedPaneBar(
                 paneId: paneView.id,
                 tabId: tabId,
-                title: paneTitleProvider?(paneView.id) ?? "Terminal",
+                title: store.pane(paneView.id)?.title ?? "Terminal",
                 action: action
             )
         }
@@ -244,8 +244,7 @@ fileprivate struct SplitSubtreeView: View {
             onPersist: onPersist,
             shouldAcceptDrop: shouldAcceptDrop,
             onDrop: onDrop,
-            drawerProvider: drawerProvider,
-            paneTitleProvider: paneTitleProvider
+            store: store
         )
     }
 
@@ -266,4 +265,3 @@ fileprivate struct SplitSubtreeView: View {
         )
     }
 }
-

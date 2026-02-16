@@ -10,7 +10,7 @@ struct TerminalPaneLeaf: View {
     let tabId: UUID
     let isActive: Bool
     let isSplit: Bool
-    let drawer: Drawer?
+    let store: WorkspaceStore
     let action: (PaneAction) -> Void
     let shouldAcceptDrop: (UUID, DropZone) -> Bool
     let onDrop: (SplitDropPayload, UUID, DropZone) -> Void
@@ -19,6 +19,11 @@ struct TerminalPaneLeaf: View {
     @State private var isTargeted: Bool = false
     @State private var isHovered: Bool = false
     @ObservedObject private var managementMode = ManagementModeMonitor.shared
+
+    /// Drawer state derived from store via @Observable tracking.
+    private var drawer: Drawer? {
+        store.pane(paneView.id)?.drawer
+    }
 
     /// Downcast to terminal view for terminal-specific features.
     private var terminalView: AgentStudioTerminalView? {

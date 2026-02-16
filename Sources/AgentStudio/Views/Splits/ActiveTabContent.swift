@@ -29,9 +29,8 @@ struct ActiveTabContent: View {
                 onPersist: nil,
                 shouldAcceptDrop: shouldAcceptDrop,
                 onDrop: onDrop,
-                drawerProvider: { paneId in store.pane(paneId)?.drawer },
-                drawerPaneViewProvider: { drawerPaneId in viewRegistry.view(for: drawerPaneId) },
-                paneTitleProvider: { paneId in store.pane(paneId)?.title ?? "Terminal" }
+                store: store,
+                viewRegistry: viewRegistry
             )
         }
         // Empty/no-tab state handled by AppKit (TTVC toggles NSView visibility)

@@ -4,10 +4,10 @@ import SwiftUI
 /// Positioned at the tab container level so it can extend beyond the originating
 /// pane's bounds, with a trapezoid visually connecting the panel to the icon bar.
 struct DrawerPanelOverlay: View {
+    let store: WorkspaceStore
+    let viewRegistry: ViewRegistry
     let paneFrames: [UUID: CGRect]
     let tabSize: CGSize
-    let drawerProvider: (UUID) -> Drawer?
-    let drawerPaneViewProvider: (UUID) -> PaneView?
     let action: (PaneAction) -> Void
 
     @AppStorage("drawerHeightRatio") private var heightRatio: Double = 0.75
@@ -20,7 +20,7 @@ struct DrawerPanelOverlay: View {
     /// Invariant: only one drawer can be expanded at a time (toggle behavior).
     private var expandedPaneInfo: (paneId: UUID, frame: CGRect, drawer: Drawer)? {
         for (paneId, frame) in paneFrames {
-            if let drawer = drawerProvider(paneId), drawer.isExpanded {
+            if let drawer = store.pane(paneId)?.drawer, drawer.isExpanded {
                 return (paneId, frame, drawer)
             }
         }
@@ -37,7 +37,7 @@ struct DrawerPanelOverlay: View {
             let trapHeight: CGFloat = 12
             let totalHeight = panelHeight + trapHeight
 
-            let drawerPaneView = drawerPaneViewProvider(activeDrawerPaneId)
+            let drawerPaneView = viewRegistry.view(for: activeDrawerPaneId)
 
             // Bottom of overlay trapezoid aligns with top of pane's icon bar
             let overlayBottomY = info.frame.maxY - Self.iconBarHeight
