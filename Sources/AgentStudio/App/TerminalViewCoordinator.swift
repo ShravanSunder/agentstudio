@@ -92,6 +92,10 @@ final class TerminalViewCoordinator {
 
         case .webview(let state):
             let view = WebviewPaneView(paneId: pane.id, state: state)
+            let paneId = pane.id
+            view.controller.onTitleChange = { [weak self] title in
+                self?.store.updatePaneTitle(paneId, title: title)
+            }
             viewRegistry.register(view, for: pane.id)
             coordinatorLogger.info("Created webview pane \(pane.id)")
             return view

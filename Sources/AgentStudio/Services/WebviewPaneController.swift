@@ -16,6 +16,10 @@ final class WebviewPaneController {
     var showNavigation: Bool
     var isFindPresented: Bool = false
 
+    /// Called when a page finishes loading with the new display title.
+    /// Wired by the coordinator to sync pane metadata in the store.
+    var onTitleChange: ((String) -> Void)?
+
     // MARK: - Shared Configuration
 
     /// All webview panes share the same persistent data store (cookies, local storage).
@@ -100,11 +104,14 @@ final class WebviewPaneController {
 
     // MARK: - History
 
-    /// Record the current page's URL and title in the URL history service.
+    /// Record the current page's URL and title in the URL history service,
+    /// and notify the coordinator to sync the pane title in the store.
     func recordCurrentPage() {
         guard let url = page.url,
               !page.isLoading else { return }
-        URLHistoryService.shared.record(url: url, title: page.title)
+        let displayTitle = page.title.isEmpty ? (url.host() ?? "Web") : page.title
+        URLHistoryService.shared.record(url: url, title: displayTitle)
+        onTitleChange?(displayTitle)
     }
 
     // MARK: - URL Normalization

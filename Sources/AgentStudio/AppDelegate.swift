@@ -361,7 +361,7 @@ class AppDelegate: NSObject, NSApplicationDelegate {
         let window = NSWindow(contentViewController: hostingController)
         window.title = "Settings"
         window.styleMask = [.titled, .closable]
-        window.setContentSize(NSSize(width: 450, height: 300))
+        window.setContentSize(NSSize(width: 450, height: 380))
         window.center()
         window.makeKeyAndOrderFront(nil)
     }

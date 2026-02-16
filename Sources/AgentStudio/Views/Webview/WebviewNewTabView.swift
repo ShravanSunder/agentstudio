@@ -206,32 +206,31 @@ private struct FavoriteCard: View {
     }
 
     var body: some View {
-        Button(action: onTap) {
-            VStack(spacing: 6) {
-                FaviconView(url: entry.url, size: 36)
+        VStack(spacing: 6) {
+            FaviconView(url: entry.url, size: 36)
 
-                Text(entry.title)
-                    .font(.system(size: 11))
-                    .lineLimit(1)
-                    .truncationMode(.tail)
-                    .foregroundStyle(.primary)
-            }
-            .frame(width: 100, height: 80)
-            .background(.ultraThinMaterial)
-            .clipShape(RoundedRectangle(cornerRadius: 8))
-            .overlay(alignment: .topTrailing) {
-                if isHovered {
-                    Button(action: onRemove) {
-                        Image(systemName: "xmark.circle.fill")
-                            .font(.system(size: 12))
-                            .foregroundStyle(.secondary)
-                    }
-                    .buttonStyle(.plain)
-                    .padding(4)
+            Text(entry.title)
+                .font(.system(size: 11))
+                .lineLimit(1)
+                .truncationMode(.tail)
+                .foregroundStyle(.primary)
+        }
+        .frame(width: 100, height: 80)
+        .background(.ultraThinMaterial)
+        .clipShape(RoundedRectangle(cornerRadius: 8))
+        .contentShape(RoundedRectangle(cornerRadius: 8))
+        .onTapGesture(perform: onTap)
+        .overlay(alignment: .topTrailing) {
+            if isHovered {
+                Button(action: onRemove) {
+                    Image(systemName: "xmark.circle.fill")
+                        .font(.system(size: 12))
+                        .foregroundStyle(.secondary)
                 }
+                .buttonStyle(.plain)
+                .padding(4)
             }
         }
-        .buttonStyle(.plain)
         .onHover { isHovered = $0 }
     }
 }
