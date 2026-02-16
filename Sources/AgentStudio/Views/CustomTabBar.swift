@@ -376,7 +376,7 @@ private struct TabBarArrangementButton: View {
         }
         .buttonStyle(.plain)
         .help("Arrangements")
-        .popover(isPresented: $showPanel) {
+        .popover(isPresented: $showPanel, arrowEdge: .bottom) {
             if let tab = activeTab, let onPaneAction, let onSaveArrangement {
                 ArrangementPanel(
                     tabId: tab.id,
