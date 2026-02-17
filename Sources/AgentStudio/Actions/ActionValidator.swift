@@ -180,7 +180,7 @@ enum ActionValidator {
 
         // Drawer actions — validate parent pane is in an active tab layout.
         // Store-level guards provide additional safety for panes in non-active arrangements.
-        case .addDrawerPane(let parentPaneId, _, _):
+        case .addDrawerPane(let parentPaneId):
             guard state.tabContaining(paneId: parentPaneId) != nil else {
                 return .failure(.paneNotFound(paneId: parentPaneId, tabId: state.activeTabId ?? UUID()))
             }

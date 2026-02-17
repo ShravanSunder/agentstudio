@@ -879,14 +879,7 @@ class TerminalTabViewController: NSViewController, CommandHandler {
             guard let tabId = store.activeTabId,
                   let tab = store.tab(tabId),
                   let paneId = tab.activePaneId else { break }
-            let content = PaneContent.terminal(
-                TerminalState(provider: .ghostty, lifetime: .temporary)
-            )
-            let metadata = PaneMetadata(
-                source: .floating(workingDirectory: nil, title: nil),
-                title: "Drawer"
-            )
-            dispatchAction(.addDrawerPane(parentPaneId: paneId, content: content, metadata: metadata))
+            dispatchAction(.addDrawerPane(parentPaneId: paneId))
 
         case .toggleDrawer:
             guard let tabId = store.activeTabId,

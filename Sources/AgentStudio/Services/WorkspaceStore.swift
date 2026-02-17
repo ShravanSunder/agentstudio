@@ -618,17 +618,23 @@ final class WorkspaceStore {
     // MARK: - Drawer Mutations
 
     /// Add a drawer pane to a parent pane. Creates a real `Pane` with `kind: .drawerChild`.
-    /// The new pane is added to `store.panes` and the parent's drawer.
+    /// Content and metadata are derived from the parent: zmx-backed, persistent,
+    /// with floating source inheriting the parent's worktree CWD.
     @discardableResult
-    func addDrawerPane(
-        to parentPaneId: UUID,
-        content: PaneContent,
-        metadata: PaneMetadata
-    ) -> Pane? {
-        guard panes[parentPaneId] != nil else {
+    func addDrawerPane(to parentPaneId: UUID) -> Pane? {
+        guard let parentPane = panes[parentPaneId] else {
             storeLogger.warning("addDrawerPane: parent pane \(parentPaneId) not found")
             return nil
         }
+
+        // Resolve initial CWD: parent's worktree path, falling back to live CWD
+        let parentCwd: URL? = parentPane.worktreeId.flatMap { worktree($0)?.path } ?? parentPane.metadata.cwd
+
+        let content = PaneContent.terminal(TerminalState(provider: .zmx, lifetime: .persistent))
+        let metadata = PaneMetadata(
+            source: .floating(workingDirectory: parentCwd, title: nil),
+            title: "Drawer"
+        )
 
         let drawerPane = Pane(
             content: content,
@@ -659,26 +665,33 @@ final class WorkspaceStore {
     }
 
     /// Insert a new drawer pane into a drawer's layout next to a specific target pane.
+    /// Content and metadata are derived from the parent (same as `addDrawerPane`).
     /// Returns the created pane, or nil if the parent or target is invalid.
     @discardableResult
     func insertDrawerPane(
         in parentPaneId: UUID,
         at targetDrawerPaneId: UUID,
         direction: Layout.SplitDirection,
-        position: Layout.Position,
-        content: PaneContent,
-        metadata: PaneMetadata
+        position: Layout.Position
     ) -> Pane? {
-        guard panes[parentPaneId] != nil,
-              panes[parentPaneId]!.drawer != nil else {
+        guard let parentPane = panes[parentPaneId],
+              parentPane.drawer != nil else {
             storeLogger.warning("insertDrawerPane: parent pane \(parentPaneId) has no drawer")
             return nil
         }
 
-        guard panes[parentPaneId]!.drawer!.layout.contains(targetDrawerPaneId) else {
+        guard parentPane.drawer!.layout.contains(targetDrawerPaneId) else {
             storeLogger.warning("insertDrawerPane: target \(targetDrawerPaneId) not in drawer layout")
             return nil
         }
+
+        let parentCwd: URL? = parentPane.worktreeId.flatMap { worktree($0)?.path } ?? parentPane.metadata.cwd
+
+        let content = PaneContent.terminal(TerminalState(provider: .zmx, lifetime: .persistent))
+        let metadata = PaneMetadata(
+            source: .floating(workingDirectory: parentCwd, title: nil),
+            title: "Drawer"
+        )
 
         let drawerPane = Pane(
             content: content,

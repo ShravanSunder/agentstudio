@@ -62,14 +62,7 @@ struct DrawerPanel: View {
     @ViewBuilder
     private var addDrawerButton: some View {
         Button {
-            let content = PaneContent.terminal(
-                TerminalState(provider: .ghostty, lifetime: .temporary)
-            )
-            let metadata = PaneMetadata(
-                source: .floating(workingDirectory: nil, title: nil),
-                title: "Drawer"
-            )
-            action(.addDrawerPane(parentPaneId: parentPaneId, content: content, metadata: metadata))
+            action(.addDrawerPane(parentPaneId: parentPaneId))
         } label: {
             Image(systemName: "plus")
                 .font(.system(size: 24, weight: .medium))

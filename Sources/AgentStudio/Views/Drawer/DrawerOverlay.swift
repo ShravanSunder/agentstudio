@@ -22,13 +22,6 @@ struct DrawerOverlay: View {
     }
 
     private func addDrawerPane() {
-        let content = PaneContent.terminal(
-            TerminalState(provider: .ghostty, lifetime: .temporary)
-        )
-        let metadata = PaneMetadata(
-            source: .floating(workingDirectory: nil, title: nil),
-            title: "Drawer"
-        )
-        action(.addDrawerPane(parentPaneId: paneId, content: content, metadata: metadata))
+        action(.addDrawerPane(parentPaneId: paneId))
     }
 }

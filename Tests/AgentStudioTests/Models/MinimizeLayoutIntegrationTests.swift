@@ -80,16 +80,8 @@ final class MinimizeLayoutIntegrationTests: XCTestCase {
         store.appendTab(tab)
         store.setActiveTab(tab.id)
 
-        let d1 = store.addDrawerPane(
-            to: pane.id,
-            content: .terminal(TerminalState(provider: .ghostty, lifetime: .temporary)),
-            metadata: PaneMetadata(source: .floating(workingDirectory: nil, title: nil), title: "D1")
-        )!
-        let d2 = store.addDrawerPane(
-            to: pane.id,
-            content: .terminal(TerminalState(provider: .ghostty, lifetime: .temporary)),
-            metadata: PaneMetadata(source: .floating(workingDirectory: nil, title: nil), title: "D2")
-        )!
+        let d1 = store.addDrawerPane(to: pane.id)!
+        let d2 = store.addDrawerPane(to: pane.id)!
 
         // Act
         let r1 = store.minimizeDrawerPane(d1.id, in: pane.id)

@@ -102,11 +102,7 @@ final class ObservableStoreTests: XCTestCase {
     func test_observationTracking_firesOnDrawerMutation() {
         // Arrange — create a pane with a drawer
         let parentPane = store.createPane(source: .floating(workingDirectory: nil, title: nil))
-        _ = store.addDrawerPane(
-            to: parentPane.id,
-            content: .terminal(TerminalState(provider: .ghostty, lifetime: .temporary)),
-            metadata: PaneMetadata(source: .floating(workingDirectory: nil, title: nil), title: "Drawer")
-        )
+        _ = store.addDrawerPane(to: parentPane.id)
         XCTAssertTrue(store.pane(parentPane.id)!.drawer!.isExpanded, "Precondition: drawer starts expanded")
 
         let flag = ObservationFlag()
@@ -136,11 +132,7 @@ final class ObservableStoreTests: XCTestCase {
         }
 
         // Act — add drawer pane (mutates panes dict entry)
-        _ = store.addDrawerPane(
-            to: parentPane.id,
-            content: .terminal(TerminalState(provider: .ghostty, lifetime: .temporary)),
-            metadata: PaneMetadata(source: .floating(workingDirectory: nil, title: nil), title: "D")
-        )
+        _ = store.addDrawerPane(to: parentPane.id)
 
         // Assert
         XCTAssertTrue(flag.fired, "Adding drawer pane must trigger observation")
@@ -245,11 +237,7 @@ final class ObservableStoreTests: XCTestCase {
         XCTAssertEqual(adapter.tabs.count, 1)
 
         // Act — add drawer (struct-in-dictionary mutation)
-        _ = store.addDrawerPane(
-            to: pane.id,
-            content: .terminal(TerminalState(provider: .ghostty, lifetime: .temporary)),
-            metadata: PaneMetadata(source: .floating(workingDirectory: nil, title: nil), title: "Drawer")
-        )
+        _ = store.addDrawerPane(to: pane.id)
 
         // Wait for bridge
         let e2 = XCTestExpectation(description: "Drawer change triggers bridge")

@@ -265,8 +265,8 @@ final class ActionExecutor {
             coordinator.teardownView(for: paneId)
             store.purgeOrphanedPane(paneId)
 
-        case .addDrawerPane(let parentPaneId, let content, let metadata):
-            if let drawerPane = store.addDrawerPane(to: parentPaneId, content: content, metadata: metadata) {
+        case .addDrawerPane(let parentPaneId):
+            if let drawerPane = store.addDrawerPane(to: parentPaneId) {
                 if coordinator.createViewForContent(pane: drawerPane) == nil {
                     executorLogger.warning("addDrawerPane: view creation failed for \(drawerPane.id) — panel will show placeholder")
                 }
@@ -473,21 +473,11 @@ final class ActionExecutor {
         let layoutDirection = bridgeDirection(direction)
         let position: Layout.Position = (direction == .left || direction == .up) ? .before : .after
 
-        let content = PaneContent.terminal(
-            TerminalState(provider: .ghostty, lifetime: .temporary)
-        )
-        let metadata = PaneMetadata(
-            source: .floating(workingDirectory: nil, title: nil),
-            title: "Drawer"
-        )
-
         guard let drawerPane = store.insertDrawerPane(
             in: parentPaneId,
             at: targetDrawerPaneId,
             direction: layoutDirection,
-            position: position,
-            content: content,
-            metadata: metadata
+            position: position
         ) else { return }
 
         if coordinator.createViewForContent(pane: drawerPane) == nil {

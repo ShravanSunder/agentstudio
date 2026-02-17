@@ -103,7 +103,7 @@ enum PaneAction: Equatable, Hashable {
     // Drawer operations
 
     /// Add a drawer pane to a parent pane.
-    case addDrawerPane(parentPaneId: UUID, content: PaneContent, metadata: PaneMetadata)
+    case addDrawerPane(parentPaneId: UUID)
     /// Remove a drawer pane from its parent.
     case removeDrawerPane(parentPaneId: UUID, drawerPaneId: UUID)
     /// Toggle a pane's drawer expanded/collapsed.

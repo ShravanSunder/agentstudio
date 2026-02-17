@@ -36,14 +36,6 @@ final class DrawerCommandIntegrationTests: XCTestCase {
 
     // MARK: - Helpers
 
-    private func makeTerminalContent() -> PaneContent {
-        .terminal(TerminalState(provider: .ghostty, lifetime: .temporary))
-    }
-
-    private func makeDrawerMetadata(title: String = "Drawer") -> PaneMetadata {
-        PaneMetadata(source: .floating(workingDirectory: nil, title: nil), title: title)
-    }
-
     /// Creates a parent pane in a tab and returns the pane ID.
     @discardableResult
     private func createParentPaneInTab() -> (paneId: UUID, tabId: UUID) {
@@ -58,11 +50,9 @@ final class DrawerCommandIntegrationTests: XCTestCase {
     func test_addDrawerPane_createsDrawerWithTerminalContent() {
         // Arrange
         let (parentPaneId, _) = createParentPaneInTab()
-        let content = makeTerminalContent()
-        let metadata = makeDrawerMetadata(title: "My Terminal Drawer")
 
         // Act
-        executor.execute(.addDrawerPane(parentPaneId: parentPaneId, content: content, metadata: metadata))
+        executor.execute(.addDrawerPane(parentPaneId: parentPaneId))
 
         // Assert
         let parentPane = store.pane(parentPaneId)
@@ -75,10 +65,17 @@ final class DrawerCommandIntegrationTests: XCTestCase {
         let drawerPaneId = drawer.paneIds[0]
         let drawerPane = store.pane(drawerPaneId)
         XCTAssertNotNil(drawerPane, "Drawer pane should exist in store")
-        XCTAssertEqual(drawerPane?.content, content, "Drawer pane content should be terminal")
-        XCTAssertEqual(drawerPane?.metadata.title, "My Terminal Drawer", "Drawer pane title should match")
+        XCTAssertEqual(drawerPane?.metadata.title, "Drawer", "Drawer pane title should be 'Drawer'")
         XCTAssertEqual(drawer.activePaneId, drawerPaneId, "The new drawer pane should be active")
         XCTAssertTrue(drawerPane?.isDrawerChild ?? false, "Drawer pane should be a drawer child")
+
+        // Verify centralized defaults: zmx provider, persistent lifetime
+        if case .terminal(let state) = drawerPane?.content {
+            XCTAssertEqual(state.provider, .zmx, "Drawer panes should use zmx provider")
+            XCTAssertEqual(state.lifetime, .persistent, "Drawer panes should be persistent")
+        } else {
+            XCTFail("Drawer pane content should be terminal")
+        }
     }
 
     // MARK: - test_closeDrawerPane_removesActiveDrawerPane
@@ -87,16 +84,8 @@ final class DrawerCommandIntegrationTests: XCTestCase {
         // Arrange — add 2 drawer panes
         let (parentPaneId, _) = createParentPaneInTab()
 
-        let dp1 = store.addDrawerPane(
-            to: parentPaneId,
-            content: makeTerminalContent(),
-            metadata: makeDrawerMetadata(title: "First")
-        )!
-        let dp2 = store.addDrawerPane(
-            to: parentPaneId,
-            content: makeTerminalContent(),
-            metadata: makeDrawerMetadata(title: "Second")
-        )!
+        let dp1 = store.addDrawerPane(to: parentPaneId)!
+        let dp2 = store.addDrawerPane(to: parentPaneId)!
         XCTAssertEqual(store.pane(parentPaneId)!.drawer!.paneIds.count, 2)
         XCTAssertEqual(store.pane(parentPaneId)!.drawer!.activePaneId, dp2.id,
                         "Last added drawer pane should be active initially")
@@ -117,7 +106,7 @@ final class DrawerCommandIntegrationTests: XCTestCase {
     func test_toggleDrawer_expandsCollapsedDrawer() {
         // Arrange
         let (parentPaneId, _) = createParentPaneInTab()
-        store.addDrawerPane(to: parentPaneId, content: makeTerminalContent(), metadata: makeDrawerMetadata())
+        store.addDrawerPane(to: parentPaneId)
         // Drawer auto-expands on add; collapse it first
         store.toggleDrawer(for: parentPaneId)
         XCTAssertFalse(store.pane(parentPaneId)!.drawer!.isExpanded)
@@ -132,7 +121,7 @@ final class DrawerCommandIntegrationTests: XCTestCase {
     func test_toggleDrawer_collapsesExpandedDrawer() {
         // Arrange
         let (parentPaneId, _) = createParentPaneInTab()
-        store.addDrawerPane(to: parentPaneId, content: makeTerminalContent(), metadata: makeDrawerMetadata())
+        store.addDrawerPane(to: parentPaneId)
         XCTAssertTrue(store.pane(parentPaneId)!.drawer!.isExpanded)
 
         // Act
@@ -147,8 +136,8 @@ final class DrawerCommandIntegrationTests: XCTestCase {
     func test_setActiveDrawerPane_switchesActivePaneId() {
         // Arrange
         let (parentPaneId, _) = createParentPaneInTab()
-        let dp1 = store.addDrawerPane(to: parentPaneId, content: makeTerminalContent(), metadata: makeDrawerMetadata(title: "A"))!
-        let dp2 = store.addDrawerPane(to: parentPaneId, content: makeTerminalContent(), metadata: makeDrawerMetadata(title: "B"))!
+        let dp1 = store.addDrawerPane(to: parentPaneId)!
+        let dp2 = store.addDrawerPane(to: parentPaneId)!
         XCTAssertEqual(store.pane(parentPaneId)!.drawer!.activePaneId, dp2.id)
 
         // Act
@@ -163,8 +152,8 @@ final class DrawerCommandIntegrationTests: XCTestCase {
     func test_minimizeDrawerPane_hidesPane() {
         // Arrange
         let (parentPaneId, _) = createParentPaneInTab()
-        let dp1 = store.addDrawerPane(to: parentPaneId, content: makeTerminalContent(), metadata: makeDrawerMetadata(title: "A"))!
-        store.addDrawerPane(to: parentPaneId, content: makeTerminalContent(), metadata: makeDrawerMetadata(title: "B"))
+        let dp1 = store.addDrawerPane(to: parentPaneId)!
+        store.addDrawerPane(to: parentPaneId)
 
         // Act
         executor.execute(.minimizeDrawerPane(parentPaneId: parentPaneId, drawerPaneId: dp1.id))
@@ -177,8 +166,8 @@ final class DrawerCommandIntegrationTests: XCTestCase {
     func test_expandDrawerPane_restoresMinimizedPane() {
         // Arrange
         let (parentPaneId, _) = createParentPaneInTab()
-        let dp1 = store.addDrawerPane(to: parentPaneId, content: makeTerminalContent(), metadata: makeDrawerMetadata(title: "A"))!
-        store.addDrawerPane(to: parentPaneId, content: makeTerminalContent(), metadata: makeDrawerMetadata(title: "B"))
+        let dp1 = store.addDrawerPane(to: parentPaneId)!
+        store.addDrawerPane(to: parentPaneId)
         store.minimizeDrawerPane(dp1.id, in: parentPaneId)
         XCTAssertTrue(store.pane(parentPaneId)!.drawer!.minimizedPaneIds.contains(dp1.id))
 
@@ -195,8 +184,8 @@ final class DrawerCommandIntegrationTests: XCTestCase {
     func test_resizeDrawerPane_updatesLayout() {
         // Arrange — create 2-pane drawer to get a split
         let (parentPaneId, _) = createParentPaneInTab()
-        store.addDrawerPane(to: parentPaneId, content: makeTerminalContent(), metadata: makeDrawerMetadata(title: "A"))
-        store.addDrawerPane(to: parentPaneId, content: makeTerminalContent(), metadata: makeDrawerMetadata(title: "B"))
+        store.addDrawerPane(to: parentPaneId)
+        store.addDrawerPane(to: parentPaneId)
 
         let drawer = store.pane(parentPaneId)!.drawer!
         // Find the split node ID in the drawer layout
@@ -221,8 +210,8 @@ final class DrawerCommandIntegrationTests: XCTestCase {
     func test_equalizeDrawerPanes_resetsRatios() {
         // Arrange — create 2-pane drawer and skew the ratio
         let (parentPaneId, _) = createParentPaneInTab()
-        store.addDrawerPane(to: parentPaneId, content: makeTerminalContent(), metadata: makeDrawerMetadata(title: "A"))
-        store.addDrawerPane(to: parentPaneId, content: makeTerminalContent(), metadata: makeDrawerMetadata(title: "B"))
+        store.addDrawerPane(to: parentPaneId)
+        store.addDrawerPane(to: parentPaneId)
 
         let drawer = store.pane(parentPaneId)!.drawer!
         guard case .split(let split) = drawer.layout.root else {
@@ -250,9 +239,9 @@ final class DrawerCommandIntegrationTests: XCTestCase {
         let (parentPaneId, _) = createParentPaneInTab()
 
         // Act — add 3 drawer panes
-        let dp1 = store.addDrawerPane(to: parentPaneId, content: makeTerminalContent(), metadata: makeDrawerMetadata(title: "A"))!
-        executor.execute(.addDrawerPane(parentPaneId: parentPaneId, content: makeTerminalContent(), metadata: makeDrawerMetadata(title: "B")))
-        executor.execute(.addDrawerPane(parentPaneId: parentPaneId, content: makeTerminalContent(), metadata: makeDrawerMetadata(title: "C")))
+        let dp1 = store.addDrawerPane(to: parentPaneId)!
+        executor.execute(.addDrawerPane(parentPaneId: parentPaneId))
+        executor.execute(.addDrawerPane(parentPaneId: parentPaneId))
 
         // Assert
         let drawer = store.pane(parentPaneId)!.drawer!
@@ -263,7 +252,7 @@ final class DrawerCommandIntegrationTests: XCTestCase {
     func test_removeLastDrawerPane_leavesEmptyDrawer() {
         // Arrange
         let (parentPaneId, _) = createParentPaneInTab()
-        let dp = store.addDrawerPane(to: parentPaneId, content: makeTerminalContent(), metadata: makeDrawerMetadata())!
+        let dp = store.addDrawerPane(to: parentPaneId)!
 
         // Act
         executor.execute(.removeDrawerPane(parentPaneId: parentPaneId, drawerPaneId: dp.id))
@@ -286,8 +275,8 @@ final class DrawerCommandIntegrationTests: XCTestCase {
         store.appendTab(tab)
         store.insertPane(p2.id, inTab: tab.id, at: p1.id, direction: .horizontal, position: .after)
 
-        let dp1 = store.addDrawerPane(to: p1.id, content: makeTerminalContent(), metadata: makeDrawerMetadata(title: "Child1"))!
-        let dp2 = store.addDrawerPane(to: p1.id, content: makeTerminalContent(), metadata: makeDrawerMetadata(title: "Child2"))!
+        let dp1 = store.addDrawerPane(to: p1.id)!
+        let dp2 = store.addDrawerPane(to: p1.id)!
 
         XCTAssertNotNil(store.pane(dp1.id))
         XCTAssertNotNil(store.pane(dp2.id))

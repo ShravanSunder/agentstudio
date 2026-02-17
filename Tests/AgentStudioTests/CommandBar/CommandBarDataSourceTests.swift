@@ -236,11 +236,7 @@ final class CommandBarDataSourceTests: XCTestCase {
         store.appendTab(tab)
         store.setActiveTab(tab.id)
 
-        store.addDrawerPane(
-            to: pane.id,
-            content: .terminal(TerminalState(provider: .ghostty, lifetime: .temporary)),
-            metadata: PaneMetadata(source: .floating(workingDirectory: nil, title: nil), title: "Drawer 1")
-        )
+        store.addDrawerPane(to: pane.id)
 
         // Act
         let items = CommandBarDataSource.items(scope: .commands, store: store, dispatcher: dispatcher)
@@ -258,16 +254,8 @@ final class CommandBarDataSourceTests: XCTestCase {
         store.appendTab(tab)
         store.setActiveTab(tab.id)
 
-        let drawer1 = store.addDrawerPane(
-            to: pane.id,
-            content: .terminal(TerminalState(provider: .ghostty, lifetime: .temporary)),
-            metadata: PaneMetadata(source: .floating(workingDirectory: nil, title: nil), title: "Drawer Alpha")
-        )
-        let drawer2 = store.addDrawerPane(
-            to: pane.id,
-            content: .terminal(TerminalState(provider: .ghostty, lifetime: .temporary)),
-            metadata: PaneMetadata(source: .floating(workingDirectory: nil, title: nil), title: "Drawer Beta")
-        )
+        let drawer1 = store.addDrawerPane(to: pane.id)
+        let drawer2 = store.addDrawerPane(to: pane.id)
         XCTAssertNotNil(drawer1, "First drawer pane should be created")
         XCTAssertNotNil(drawer2, "Second drawer pane should be created")
 
@@ -286,8 +274,7 @@ final class CommandBarDataSourceTests: XCTestCase {
         XCTAssertEqual(level.id, "level-navigateDrawerPane", "Level ID should match command")
 
         let levelTitles = level.items.map(\.title)
-        XCTAssertTrue(levelTitles.contains("Drawer Alpha"), "Level should contain Drawer Alpha")
-        XCTAssertTrue(levelTitles.contains("Drawer Beta"), "Level should contain Drawer Beta")
+        XCTAssertTrue(levelTitles.allSatisfy { $0 == "Drawer" }, "All drawer panes should have default title 'Drawer'")
 
         // Verify target IDs match the created drawer panes
         let levelIds = level.items.map(\.id)
