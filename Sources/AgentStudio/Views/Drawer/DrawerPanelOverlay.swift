@@ -179,7 +179,7 @@ struct DrawerPanelOverlay: View {
                     .frame(width: panelWidth, height: connectorHeight)
             }
             .clipShape(outlineShape)
-            .modifier(DrawerMaterialModifier(shape: outlineShape, panelFraction: panelFraction, panelHeight: panelHeight, cornerRadius: DrawerLayout.panelCornerRadius))
+            .modifier(DrawerMaterialModifier(shape: outlineShape, panelFraction: panelFraction))
             .contentShape(outlineShape)
             .onTapGesture { }  // Consume stray clicks to prevent ZStack pass-through
             // Layered shadow — tight contact + soft ambient
@@ -362,35 +362,36 @@ struct DrawerOutlineShape: Shape {
 // MARK: - DrawerMaterialModifier
 
 /// Applies liquid glass on macOS 26+, falls back to ultraThinMaterial on older versions.
-/// Panel gets glass effect; connector uses pure ultraThinMaterial (matching the icon bar toolbar).
+/// Includes a gradient mask that keeps full material on the panel and fades the connector.
 struct DrawerMaterialModifier: ViewModifier {
     let shape: DrawerOutlineShape
     let panelFraction: CGFloat
-    let panelHeight: CGFloat
-    let cornerRadius: CGFloat
 
     func body(content: Content) -> some View {
         if #available(macOS 26.0, *) {
             content
-                // Full shape: ultraThinMaterial background (connector = pure material, matching toolbar)
-                .background(shape.fill(.ultraThinMaterial))
-                // Panel only: liquid glass overlay (covers the ultraThinMaterial in the panel area)
-                .glassEffect(.regular, in: PanelOnlyShape(panelHeight: panelHeight, cornerRadius: cornerRadius))
+                .glassEffect(.regular, in: shape)
+                .overlay(connectorFadeOverlay)
         } else {
             content
                 .background(shape.fill(.ultraThinMaterial))
         }
     }
-}
 
-/// Shape covering only the panel rectangle (top portion of the overlay).
-/// Used to apply glass effect to the panel while the connector uses a different material.
-struct PanelOnlyShape: Shape {
-    let panelHeight: CGFloat
-    let cornerRadius: CGFloat
-
-    func path(in rect: CGRect) -> Path {
-        let r = min(cornerRadius, panelHeight / 2)
-        return Path(roundedRect: CGRect(x: 0, y: 0, width: rect.width, height: panelHeight), cornerRadius: r)
+    /// Gradient overlay that transitions the connector from glass toward the toolbar color.
+    /// Clear over the panel, gradually fading to the window background tint through the connector
+    /// so the bottom visually matches the icon bar toolbar.
+    private var connectorFadeOverlay: some View {
+        LinearGradient(
+            stops: [
+                .init(color: .clear, location: 0),
+                .init(color: .clear, location: panelFraction),
+                .init(color: Color(nsColor: .windowBackgroundColor).opacity(0.95), location: 1.0)
+            ],
+            startPoint: .top,
+            endPoint: .bottom
+        )
+        .clipShape(shape)
+        .allowsHitTesting(false)
     }
 }
