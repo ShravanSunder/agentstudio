@@ -70,14 +70,30 @@ struct DrawerIconBarFrameKey: PreferenceKey {
     }
 }
 
+// MARK: - Outside Dismiss Shape
+
+/// Hit-testing shape that covers the full tab area EXCEPT a rectangular exclusion zone.
+/// Used with `eoFill: true` so the exclusion rect becomes a "hole" — clicks inside
+/// the hole never reach the scrim's tap gesture, preventing accidental dismiss.
+private struct OutsideDismissShape: Shape {
+    let exclusionRect: CGRect
+
+    func path(in rect: CGRect) -> Path {
+        var p = Path()
+        p.addRect(rect)            // full tab area
+        p.addRect(exclusionRect)   // hole: drawer + icon bar area
+        return p
+    }
+}
+
 // MARK: - DrawerPanelOverlay
 
 /// Tab-level overlay that renders the expanded drawer panel on top of all panes.
 /// Positioned at the tab container level so it can extend beyond the originating
 /// pane's bounds, with an S-curve connector visually bridging the panel to the icon bar.
 ///
-/// Installs an NSEvent local monitor to dismiss the drawer when clicking outside
-/// the panel, connector, and icon bar regions.
+/// Uses an even-odd fill content shape to exclude the drawer area from dismiss
+/// hit-testing, so only clicks genuinely outside the drawer dismiss it.
 struct DrawerPanelOverlay: View {
     let store: WorkspaceStore
     let viewRegistry: ViewRegistry
@@ -107,16 +123,6 @@ struct DrawerPanelOverlay: View {
     var body: some View {
         // Read viewRevision so @Observable tracks it — triggers re-render after repair
         let _ = store.viewRevision
-
-        // Dismiss scrim — covers entire tab area behind the drawer.
-        // Clicks on scrim dismiss the drawer; clicks on drawer are consumed by contentShape.
-        if let paneId = expandedPaneInfo?.paneId {
-            Color.clear
-                .contentShape(Rectangle())
-                .onTapGesture {
-                    action(.toggleDrawer(paneId: paneId))
-                }
-        }
 
         if let info = expandedPaneInfo, tabSize.width > 0 {
             let drawerTree = viewRegistry.renderTree(for: info.drawer.layout)
@@ -159,43 +165,70 @@ struct DrawerPanelOverlay: View {
             )
             let panelFraction = panelHeight / totalHeight
 
-            VStack(spacing: 0) {
-                let drawerRenderInfo = SplitRenderInfo.compute(
-                    layout: info.drawer.layout,
-                    minimizedPaneIds: info.drawer.minimizedPaneIds
-                )
-                DrawerPanel(
-                    tree: drawerTree ?? PaneSplitTree(),
-                    parentPaneId: info.paneId,
-                    tabId: tabId,
-                    activePaneId: info.drawer.activePaneId,
-                    minimizedPaneIds: info.drawer.minimizedPaneIds,
-                    splitRenderInfo: drawerRenderInfo,
-                    height: panelHeight,
-                    store: store,
-                    action: action,
-                    onResize: { delta in
-                        let newRatio = min(DrawerLayout.heightRatioMax, max(DrawerLayout.heightRatioMin, heightRatio + Double(delta / tabSize.height)))
-                        heightRatio = newRatio
-                    },
-                    onDismiss: {
-                        action(.toggleDrawer(paneId: info.paneId))
-                    }
-                )
-                .frame(width: panelWidth)
+            // Exclusion rect: bounding box covering panel + connector + icon bar.
+            // Union of panel rect and pane's icon bar strip so the entire drawer
+            // area is excluded from dismiss hit-testing.
+            let exclusionLeft = min(centerX - panelWidth / 2, info.frame.minX)
+            let exclusionRight = max(centerX + panelWidth / 2, info.frame.maxX)
+            let exclusionTop = centerY - totalHeight / 2
+            let exclusionBottom = info.frame.maxY
+            let exclusionRect = CGRect(
+                x: exclusionLeft,
+                y: exclusionTop,
+                width: exclusionRight - exclusionLeft,
+                height: exclusionBottom - exclusionTop
+            )
 
-                // Connector space (visual bridge from panel to icon bar)
-                Color.clear
-                    .frame(width: panelWidth, height: connectorHeight)
-            }
-            .clipShape(outlineShape)
-            .modifier(DrawerMaterialModifier(shape: outlineShape, panelFraction: panelFraction))
-            .contentShape(outlineShape)
-            .onTapGesture { }  // Consume stray clicks to prevent ZStack pass-through
-            // Layered shadow — tight contact + soft ambient
-            .shadow(color: .black.opacity(0.15), radius: 4, y: 2)
-            .shadow(color: .black.opacity(0.2), radius: 16, y: 8)
-            .position(x: centerX, y: centerY)
+            // Dismiss scrim with even-odd fill: the exclusion rect is a "hole"
+            // so clicks inside the drawer area never reach this tap gesture.
+            Color.clear
+                .contentShape(
+                    .interaction,
+                    OutsideDismissShape(exclusionRect: exclusionRect),
+                    eoFill: true
+                )
+                .onTapGesture {
+                    action(.toggleDrawer(paneId: info.paneId))
+                }
+                .overlay {
+                    VStack(spacing: 0) {
+                        let drawerRenderInfo = SplitRenderInfo.compute(
+                            layout: info.drawer.layout,
+                            minimizedPaneIds: info.drawer.minimizedPaneIds
+                        )
+                        DrawerPanel(
+                            tree: drawerTree ?? PaneSplitTree(),
+                            parentPaneId: info.paneId,
+                            tabId: tabId,
+                            activePaneId: info.drawer.activePaneId,
+                            minimizedPaneIds: info.drawer.minimizedPaneIds,
+                            splitRenderInfo: drawerRenderInfo,
+                            height: panelHeight,
+                            store: store,
+                            action: action,
+                            onResize: { delta in
+                                let newRatio = min(DrawerLayout.heightRatioMax, max(DrawerLayout.heightRatioMin, heightRatio + Double(delta / tabSize.height)))
+                                heightRatio = newRatio
+                            },
+                            onDismiss: {
+                                action(.toggleDrawer(paneId: info.paneId))
+                            }
+                        )
+                        .frame(width: panelWidth)
+
+                        // Connector space (visual bridge from panel to icon bar)
+                        Color.clear
+                            .frame(width: panelWidth, height: connectorHeight)
+                    }
+                    .clipShape(outlineShape)
+                    .modifier(DrawerMaterialModifier(shape: outlineShape, panelFraction: panelFraction))
+                    .contentShape(outlineShape)
+                    // Layered shadow — tight contact + soft ambient
+                    .shadow(color: .black.opacity(0.15), radius: 4, y: 2)
+                    .shadow(color: .black.opacity(0.2), radius: 16, y: 8)
+                    .allowsHitTesting(true)
+                    .position(x: centerX, y: centerY)
+                }
         }
     }
 
