@@ -59,13 +59,24 @@ final class TerminalViewCoordinator {
     func createViewForContent(pane: Pane) -> PaneView? {
         switch pane.content {
         case .terminal:
+            // Main panes: have direct worktree association
             if let worktreeId = pane.worktreeId,
                let repoId = pane.repoId,
                let worktree = store.worktree(worktreeId),
                let repo = store.repo(repoId) {
                 return createView(for: pane, worktree: worktree, repo: repo)
+
+            // Drawer children: resolve worktree through parent pane
+            } else if let parentPaneId = pane.parentPaneId,
+                      let parentPane = store.pane(parentPaneId),
+                      let worktreeId = parentPane.worktreeId,
+                      let repoId = parentPane.repoId,
+                      let worktree = store.worktree(worktreeId),
+                      let repo = store.repo(repoId) {
+                return createView(for: pane, worktree: worktree, repo: repo)
+
             } else {
-                // Floating terminal (drawers, standalone terminals)
+                // Floating terminal (standalone terminals without worktree context)
                 return createFloatingTerminalView(for: pane)
             }
 
@@ -330,11 +341,18 @@ final class TerminalViewCoordinator {
     // MARK: - Helpers
 
     private func buildZmxAttachCommand(pane: Pane, worktree: Worktree, repo: Repo, zmxPath: String) -> String {
-        let zmxSessionName = ZmxBackend.sessionId(
-            repoStableKey: repo.stableKey,
-            worktreeStableKey: worktree.stableKey,
-            paneId: pane.id
-        )
+        let zmxSessionName: String
+        if let parentPaneId = pane.parentPaneId {
+            // Drawer pane: session ID based on parent + drawer pane UUIDs
+            zmxSessionName = ZmxBackend.drawerSessionId(parentPaneId: parentPaneId, drawerPaneId: pane.id)
+        } else {
+            // Main pane: session ID based on repo + worktree stable keys
+            zmxSessionName = ZmxBackend.sessionId(
+                repoStableKey: repo.stableKey,
+                worktreeStableKey: worktree.stableKey,
+                paneId: pane.id
+            )
+        }
         return ZmxBackend.buildAttachCommand(
             zmxPath: zmxPath,
             zmxDir: sessionConfig.zmxDir,
