@@ -96,13 +96,30 @@ enum AppStyle {
     static let panelCornerRadius: CGFloat = 8
 
     /// Corner radius for pill-shaped elements (tabs, capsule buttons).
-    static let pillCornerRadius: CGFloat = 12
+    static let pillCornerRadius: CGFloat = 14
 
     // MARK: - Spacing
+    //
+    // Three-tier scale used for padding and gaps. Components pick the tier
+    // that matches their context: tight for element-to-element gaps, standard
+    // for content inset inside interactive elements, loose for container edges.
+    //
+    // ```
+    // tight      4pt — between sibling elements (tab-to-tab, button-to-button)
+    // standard   6pt — content inset inside interactive elements (pills, bars)
+    // loose      8pt — container / section boundaries
+    // ```
 
-    /// Standard vertical padding around bar contents.
-    static let barPadding: CGFloat = 4
+    /// Tight spacing: gaps between sibling elements.
+    static let spacingTight: CGFloat = 4
 
-    /// Standard horizontal padding for bar contents.
-    static let barHorizontalPadding: CGFloat = 6
+    /// Standard spacing: content inset inside interactive elements.
+    static let spacingStandard: CGFloat = 6
+
+    /// Loose spacing: container and section boundary padding.
+    static let spacingLoose: CGFloat = 8
+
+    // Legacy aliases — prefer the spacing* names above.
+    static let barPadding: CGFloat = spacingTight
+    static let barHorizontalPadding: CGFloat = spacingStandard
 }

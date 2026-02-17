@@ -159,6 +159,7 @@ struct DrawerPanel: View {
             }
         }
         .frame(height: height)
+        .contentShape(RoundedRectangle(cornerRadius: DrawerLayout.panelCornerRadius, style: .continuous))
         .clipShape(RoundedRectangle(cornerRadius: DrawerLayout.panelCornerRadius, style: .continuous))
         .drawerPanelMaterial()
     }

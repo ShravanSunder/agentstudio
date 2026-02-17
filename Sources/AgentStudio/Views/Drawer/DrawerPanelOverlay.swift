@@ -1,8 +1,82 @@
 import SwiftUI
+import AppKit
+
+// MARK: - Dismiss Monitor
+
+/// Monitors mouseDown events and dismisses the drawer when clicking outside
+/// the drawer panel, trapezoid, and icon bar regions.
+/// Installed when the drawer opens, removed when it closes.
+@MainActor
+final class DrawerDismissMonitor {
+    private var monitor: Any?
+    /// Drawer panel + trapezoid bounding rect in global (flipped window) coordinates.
+    var drawerRect: CGRect = .zero
+    /// Icon bar bounding rect in global (flipped window) coordinates.
+    var iconBarRect: CGRect = .zero
+
+    private let onDismiss: () -> Void
+
+    init(onDismiss: @escaping () -> Void) {
+        self.onDismiss = onDismiss
+    }
+
+    func install() {
+        guard monitor == nil else { return }
+        monitor = NSEvent.addLocalMonitorForEvents(matching: .leftMouseDown) { [weak self] event in
+            guard let self else { return event }
+            guard let window = event.window else { return event }
+
+            // Convert NSEvent location (bottom-left window origin) to content view coordinates.
+            // NSHostingView.isFlipped == true → result is top-left origin, matching SwiftUI .global.
+            // Using convert(from: nil) handles titlebar offset and window style correctly.
+            guard let contentView = window.contentView else { return event }
+            let eventPoint = contentView.convert(event.locationInWindow, from: nil)
+
+            // Check if click is inside any exclusion zone
+            if self.drawerRect.contains(eventPoint) || self.iconBarRect.contains(eventPoint) {
+                return event
+            }
+
+            // Click is outside — dismiss the drawer
+            self.onDismiss()
+            return event
+        }
+    }
+
+    func remove() {
+        if let monitor {
+            NSEvent.removeMonitor(monitor)
+            self.monitor = nil
+        }
+    }
+
+    deinit {
+        if let monitor {
+            NSEvent.removeMonitor(monitor)
+        }
+    }
+}
+
+// MARK: - Preference Key for Icon Bar Frame
+
+/// Reports the icon bar's frame in the global coordinate space.
+/// DrawerPanelOverlay reads this to exclude the icon bar from dismiss hit testing.
+struct DrawerIconBarFrameKey: PreferenceKey {
+    static var defaultValue: CGRect = .zero
+    static func reduce(value: inout CGRect, nextValue: () -> CGRect) {
+        let next = nextValue()
+        if next != .zero { value = next }
+    }
+}
+
+// MARK: - DrawerPanelOverlay
 
 /// Tab-level overlay that renders the expanded drawer panel on top of all panes.
 /// Positioned at the tab container level so it can extend beyond the originating
 /// pane's bounds, with a trapezoid visually connecting the panel to the icon bar.
+///
+/// Installs an NSEvent local monitor to dismiss the drawer when clicking outside
+/// the panel, trapezoid, and icon bar regions.
 struct DrawerPanelOverlay: View {
     let store: WorkspaceStore
     let viewRegistry: ViewRegistry
@@ -12,6 +86,7 @@ struct DrawerPanelOverlay: View {
     let action: (PaneAction) -> Void
 
     @AppStorage("drawerHeightRatio") private var heightRatio: Double = DrawerLayout.heightRatioMax
+    @State private var dismissMonitor: DrawerDismissMonitor?
 
     /// Find the pane whose drawer is currently expanded.
     /// Invariant: only one drawer can be expanded at a time (toggle behavior).
@@ -24,6 +99,9 @@ struct DrawerPanelOverlay: View {
         }
         return nil
     }
+
+    /// Whether a drawer is currently expanded.
+    private var isExpanded: Bool { expandedPaneInfo != nil }
 
     var body: some View {
         // Read viewRevision so @Observable tracks it — triggers re-render after repair
@@ -88,9 +166,60 @@ struct DrawerPanelOverlay: View {
                 DrawerOverlayTrapezoid(bottomLeftInset: bottomLeftInset, bottomRightInset: bottomRightInset)
                     .fill(.ultraThinMaterial)
                     .frame(width: panelWidth, height: trapHeight)
+                    .contentShape(
+                        DrawerOverlayTrapezoid(bottomLeftInset: bottomLeftInset, bottomRightInset: bottomRightInset)
+                    )
             }
+            .contentShape(Rectangle())
+            .onTapGesture { }  // Consume stray clicks to prevent ZStack pass-through to terminals behind
+            .background(
+                GeometryReader { geo in
+                    Color.clear
+                        .onChange(of: geo.frame(in: .global)) { _, newFrame in
+                            dismissMonitor?.drawerRect = newFrame
+                        }
+                        .onAppear {
+                            dismissMonitor?.drawerRect = geo.frame(in: .global)
+                        }
+                }
+            )
             .position(x: centerX, y: centerY)
         }
+
+        // Monitor lifecycle: install when drawer opens, remove when it closes
+        Color.clear
+            .frame(width: 0, height: 0)
+            .onChange(of: isExpanded) { _, expanded in
+                if expanded {
+                    installMonitor()
+                } else {
+                    removeMonitor()
+                }
+            }
+            .onDisappear {
+                removeMonitor()
+            }
+            .onPreferenceChange(DrawerIconBarFrameKey.self) { frame in
+                dismissMonitor?.iconBarRect = frame
+            }
+    }
+
+    // MARK: - Monitor Management
+
+    private func installMonitor() {
+        removeMonitor()
+        let paneId = expandedPaneInfo?.paneId
+        let monitor = DrawerDismissMonitor {
+            guard let paneId else { return }
+            action(.toggleDrawer(paneId: paneId))
+        }
+        monitor.install()
+        dismissMonitor = monitor
+    }
+
+    private func removeMonitor() {
+        dismissMonitor?.remove()
+        dismissMonitor = nil
     }
 }
 

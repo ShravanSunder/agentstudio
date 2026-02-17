@@ -76,13 +76,14 @@ struct CustomTabBar: View {
     private static let tabMinWidth: CGFloat = 220
 
     /// Spacing between tab pills.
-    private static let tabSpacing: CGFloat = 4
+    private static let tabSpacing: CGFloat = AppStyle.spacingTight
 
     /// Computed width for each tab pill based on available space.
     private var computedTabWidth: CGFloat {
         let count = CGFloat(max(1, adapter.tabs.count))
         let totalSpacing = (count - 1) * Self.tabSpacing
-        let available = max(0, scrollAreaWidth - totalSpacing - 16) // 16 = horizontal padding
+        let scrollInset = AppStyle.spacingLoose * 2
+        let available = max(0, scrollAreaWidth - totalSpacing - scrollInset)
         let perTab = available / count
         return min(Self.tabMaxWidth, max(Self.tabMinWidth, perTab))
     }
@@ -101,7 +102,7 @@ struct CustomTabBar: View {
                     onPaneAction: onPaneAction,
                     onSaveArrangement: onSaveArrangement
                 )
-                .padding(.leading, 8)
+                .padding(.leading, AppStyle.spacingLoose)
 
                 // MARK: - Scroll area with gradient overlays
                 ZStack {
@@ -136,7 +137,7 @@ struct CustomTabBar: View {
 
                                 // Inline + button removed — now in fixed controls zone
                             }
-                            .padding(.horizontal, 8)
+                            .padding(.horizontal, AppStyle.spacingLoose)
                             .background(
                                 GeometryReader { geo in
                                     Color.clear.preference(
@@ -265,8 +266,8 @@ struct CustomTabBar: View {
                                     .font(.system(size: 10, weight: .semibold))
                             }
                             .foregroundStyle(.secondary)
-                            .padding(.horizontal, 8)
-                            .padding(.vertical, 4)
+                            .padding(.horizontal, AppStyle.spacingLoose)
+                            .padding(.vertical, AppStyle.spacingTight)
                             .background(
                                 Capsule()
                                     .fill(Color.white.opacity(AppStyle.fillHover))
@@ -283,7 +284,7 @@ struct CustomTabBar: View {
                         NewTabButton(onAdd: onAdd)
                     }
                 }
-                .padding(.horizontal, 4)
+                .padding(.horizontal, AppStyle.spacingTight)
             }
             .frame(maxWidth: .infinity)
             .frame(height: 36)
@@ -380,7 +381,7 @@ private struct TabBarArrangementButton: View {
             showPanel.toggle()
         } label: {
             Image(systemName: "rectangle.3.group")
-                .font(.system(size: AppStyle.toolbarIconSize, weight: .medium))
+                .font(.system(size: AppStyle.compactIconSize, weight: .medium))
                 .foregroundStyle(isHovered ? .primary : .secondary)
                 .frame(width: AppStyle.toolbarButtonSize, height: AppStyle.toolbarButtonSize)
                 .background(
@@ -414,7 +415,7 @@ private struct NewTabButton: View {
     var body: some View {
         Button(action: onAdd) {
             Image(systemName: "plus")
-                .font(.system(size: AppStyle.toolbarIconSize, weight: .medium))
+                .font(.system(size: AppStyle.compactIconSize, weight: .medium))
                 .foregroundStyle(isHovered ? .primary : .secondary)
                 .frame(width: AppStyle.toolbarButtonSize, height: AppStyle.toolbarButtonSize)
                 .background(
@@ -539,8 +540,8 @@ struct TabPillView: View {
                 }
             }
         }
-        .padding(.horizontal, 12)
-        .padding(.vertical, 6)
+        .padding(.horizontal, AppStyle.spacingStandard)
+        .padding(.vertical, AppStyle.spacingStandard)
         .frame(width: tabWidth)
         .background(
             RoundedRectangle(cornerRadius: AppStyle.pillCornerRadius)

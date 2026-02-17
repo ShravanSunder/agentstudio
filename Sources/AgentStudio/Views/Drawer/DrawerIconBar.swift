@@ -41,7 +41,7 @@ struct DrawerIconBar: View {
                 .foregroundStyle(isExpanded ? .primary : (isToggleHovered ? .primary : .secondary))
                 .background(
                     RoundedRectangle(cornerRadius: DrawerLayout.iconButtonCornerRadius)
-                        .fill(isExpanded ? Color.white.opacity(0.15) : (isToggleHovered ? Color.white.opacity(0.08) : Color.white.opacity(0.04)))
+                        .fill(isExpanded ? Color.white.opacity(AppStyle.fillActive) : (isToggleHovered ? Color.white.opacity(AppStyle.fillHover) : Color.white.opacity(AppStyle.fillSubtle)))
                 )
                 .onHover { hovering in
                     withAnimation(.easeInOut(duration: 0.12)) {
@@ -66,7 +66,7 @@ struct DrawerIconBar: View {
                 .foregroundStyle(isAddHovered ? .primary : .secondary)
                 .background(
                     RoundedRectangle(cornerRadius: DrawerLayout.iconButtonCornerRadius)
-                        .fill(isAddHovered ? Color.white.opacity(0.08) : Color.clear)
+                        .fill(isAddHovered ? Color.white.opacity(AppStyle.fillHover) : Color.clear)
                 )
                 .onHover { hovering in
                     withAnimation(.easeInOut(duration: 0.12)) {
@@ -81,6 +81,14 @@ struct DrawerIconBar: View {
             .padding(.vertical, DrawerLayout.iconBarVerticalPadding)
             .background(.ultraThinMaterial)
             .clipShape(RoundedRectangle(cornerRadius: DrawerLayout.iconBarCornerRadius))
+            .background(
+                GeometryReader { geo in
+                    Color.clear.preference(
+                        key: DrawerIconBarFrameKey.self,
+                        value: geo.frame(in: .global)
+                    )
+                }
+            )
         }
     }
 }
@@ -107,7 +115,7 @@ struct EmptyDrawerBar: View {
             .foregroundStyle(isHovered ? .primary : .secondary)
             .background(
                 RoundedRectangle(cornerRadius: DrawerLayout.iconButtonCornerRadius)
-                    .fill(isHovered ? Color.white.opacity(0.08) : Color.clear)
+                    .fill(isHovered ? Color.white.opacity(AppStyle.fillHover) : Color.clear)
             )
             .onHover { hovering in
                 withAnimation(.easeInOut(duration: 0.12)) {
