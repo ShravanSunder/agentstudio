@@ -88,15 +88,14 @@ Swift pushes into the **bridge content world**, which relays to the page world v
 try? await page.callJavaScript(
     "window.__bridgeInternal.merge(store, JSON.parse(data))",
     arguments: ["store": storeName, "data": jsonString],
-    in: page.mainFrame,        // Required: WebPage.Frame target
     contentWorld: bridgeWorld   // WKContentWorld, NOT page world
 )
 ```
 
 - Async, returns `Any?`
 - Arguments become JS local variables (safe — no string interpolation)
-- `in: page.mainFrame` specifies the target frame (required parameter per WebKit API)
 - `contentWorld: bridgeWorld` means this executes in the isolated bridge world
+- The `in:` (frame) parameter defaults to main frame when omitted. Only specify it when targeting a specific sub-frame.
 - Bridge world relays to page world (React) via `CustomEvent` (see §11.3)
 
 **Important**: Swift never calls into the page world directly. All pushes go through bridge world → CustomEvent relay → page world Zustand stores.
@@ -135,6 +134,13 @@ struct BinarySchemeHandler: URLSchemeHandler {
         AsyncStream { continuation in
             let task = Task {
                 do {
+                    // Guard against nil URL — URLRequest.url is Optional.
+                    // Global invariant #5: no force-unwraps in bridge code.
+                    guard let url = request.url else {
+                        continuation.finish(throwing: BridgeError.invalidRequest("Missing URL"))
+                        return
+                    }
+
                     let (data, mimeType) = try await resolveResource(for: request)
 
                     // Check for cancellation before yielding — WebKit cancels scheme tasks
@@ -142,7 +148,12 @@ struct BinarySchemeHandler: URLSchemeHandler {
                     // Ignoring cancellation wastes I/O and memory on abandoned file loads.
                     try Task.checkCancellation()
 
-                    continuation.yield(.response(URLResponse(url: request.url!, mimeType: mimeType, expectedContentLength: data.count, textEncodingName: nil)))
+                    continuation.yield(.response(URLResponse(
+                        url: url,
+                        mimeType: mimeType,
+                        expectedContentLength: data.count,
+                        textEncodingName: nil
+                    )))
                     continuation.yield(.data(data))
                     continuation.finish()
                 } catch is CancellationError {
@@ -160,6 +171,8 @@ struct BinarySchemeHandler: URLSchemeHandler {
     }
 }
 ```
+
+> **Note on full-buffer load**: The current design loads the entire file into memory before yielding. For files > 1MB, consider streaming via chunked yields (e.g., 64KB chunks with `Task.checkCancellation()` between each). This is a Phase 5 optimization — the initial implementation uses full-buffer load with the 50KB threshold keeping payloads manageable.
 
 React consumes via standard `fetch()`:
 ```typescript
@@ -231,7 +244,6 @@ State pushes are NOT JSON-RPC. They are `callJavaScript` calls into the **bridge
 try await page.callJavaScript(
     "window.__bridgeInternal.merge(store, JSON.parse(data))",
     arguments: ["store": "diff", "data": jsonString],
-    in: page.mainFrame,
     contentWorld: bridgeWorld
 )
 
@@ -239,7 +251,6 @@ try await page.callJavaScript(
 try await page.callJavaScript(
     "window.__bridgeInternal.replace(store, JSON.parse(data))",
     arguments: ["store": "diff", "data": jsonString],
-    in: page.mainFrame,
     contentWorld: bridgeWorld
 )
 ```
@@ -261,12 +272,18 @@ The [JSON-RPC 2.0 spec](https://www.jsonrpc.org/specification) defines batch req
 - **Future**: If a panel needs to send multiple related commands atomically, batch support can be added to `RPCRouter.dispatch()` by detecting array input and dispatching each element individually, collecting responses for requests and suppressing responses for notifications
 
 ```swift
-// RPCRouter.dispatch — reject batches for now
-guard !json.hasPrefix("[") else {
-    // Batch requests not supported — return -32600
-    if let id = /* extract first id if present */ nil as String? {
-        await coordinator.sendError(id: id, code: -32600, message: "Batch requests not supported")
+// RPCRouter.dispatch — reject batches before full envelope decode.
+// Use JSONSerialization to detect array (batch) vs object (single) reliably.
+// This handles leading whitespace, BOM, etc. that hasPrefix("[") would miss.
+if let rawData = json.data(using: .utf8),
+   let parsed = try? JSONSerialization.jsonObject(with: rawData),
+   parsed is [Any] {
+    // Batch request detected — extract first id for the error response
+    if let array = parsed as? [[String: Any]],
+       let firstId = array.first?["id"] as? String {
+        await coordinator.sendError(id: firstId, code: -32600, message: "Batch requests not supported")
     }
+    // No id found → drop silently (batch of notifications)
     return
 }
 ```
@@ -379,7 +396,6 @@ private func pushToJS<T: Codable>(store: String, value: T) async {
         try await page.callJavaScript(
             "window.__bridgeInternal.merge(store, JSON.parse(data))",
             arguments: ["store": store, "data": json],
-            in: page.mainFrame,
             contentWorld: bridgeWorld
         )
     } catch let encodingError as EncodingError {
@@ -487,7 +503,9 @@ export const useConnectionStore = create<ConnectionStore>()(
 
 ### 7.2 Bridge Receiver
 
-React (page world) listens for `CustomEvent` dispatched by the bridge world relay. It does NOT access `window.__bridge` or `window.__bridgeInternal` directly — those exist only in the bridge content world.
+React (page world) listens for `CustomEvent` dispatched by the bridge world relay. It does NOT access `window.__bridgeInternal` directly — that global exists only in the bridge content world.
+
+Push events are authenticated via a **push nonce** delivered through a one-time handshake at bootstrap (see §11.3 for full security rationale).
 
 ```typescript
 // bridge/receiver.ts — page world, listens for CustomEvents from bridge world
@@ -500,8 +518,19 @@ const stores: Record<string, { setState: (updater: (prev: any) => any) => void }
     connection: useConnectionStore,
 };
 
+// Capture push nonce from one-time handshake (bridge world dispatches this at bootstrap)
+let _pushNonce: string | null = null;
+document.addEventListener('__bridge_handshake', ((e: CustomEvent) => {
+    if (_pushNonce === null) {  // Accept only the first handshake
+        _pushNonce = e.detail.pushNonce;
+    }
+}) as EventListener, { once: true });
+
 // Listen for state pushes relayed from bridge world via CustomEvent
 document.addEventListener('__bridge_push', ((e: CustomEvent) => {
+    // Reject forged push events from page-world scripts
+    if (e.detail?.__pushNonce !== _pushNonce) return;
+
     const { type, store: storeName, data } = e.detail;
     const store = stores[storeName];
     if (!store) {
@@ -518,6 +547,7 @@ document.addEventListener('__bridge_push', ((e: CustomEvent) => {
 
 // Listen for direct JSON-RPC responses (rare path)
 document.addEventListener('__bridge_response', ((e: CustomEvent) => {
+    if (e.detail?.__pushNonce !== _pushNonce) return;  // Same nonce validation
     rpcClient.handleResponse(e.detail);
 }) as EventListener);
 ```
@@ -529,12 +559,24 @@ Typed command functions that send JSON-RPC notifications to Swift via CustomEven
 ```typescript
 // bridge/commands.ts
 
-// Read nonce from DOM attribute set by bridge world at bootstrap (see §11.3)
-const bridgeNonce = document.documentElement.getAttribute('data-bridge-nonce');
+// Lazy nonce reader — avoids startup race where bootstrap hasn't set the
+// data-bridge-nonce attribute yet. Reads on first command, caches thereafter.
+let _cachedNonce: string | null = null;
+function getBridgeNonce(): string | null {
+    if (_cachedNonce === null) {
+        _cachedNonce = document.documentElement.getAttribute('data-bridge-nonce');
+    }
+    return _cachedNonce;
+}
 
 function sendCommand(method: string, params?: unknown): void {
+    const nonce = getBridgeNonce();
+    if (!nonce) {
+        console.warn('[bridge] Nonce not available — command dropped:', method);
+        return;  // Bridge not ready yet; caller should retry or queue
+    }
     document.dispatchEvent(new CustomEvent('__bridge_command', {
-        detail: { jsonrpc: "2.0", method, params, __nonce: bridgeNonce }
+        detail: { jsonrpc: "2.0", method, params, __nonce: nonce }
     }));
 }
 
@@ -598,7 +640,14 @@ class RPCClient {
             });
 
             // Use CustomEvent relay — page world cannot call postMessage directly
-            const nonce = document.documentElement.getAttribute('data-bridge-nonce');
+            // Reuse lazy nonce from commands.ts (getBridgeNonce)
+            const nonce = getBridgeNonce();
+            if (!nonce) {
+                clearTimeout(timeout);
+                this.pending.delete(id);
+                reject(new Error('Bridge nonce not available'));
+                return;
+            }
             document.dispatchEvent(new CustomEvent('__bridge_command', {
                 detail: { jsonrpc: "2.0", id, method, params, __nonce: nonce }
             }));
@@ -874,6 +923,30 @@ class BridgeCoordinator {
         await router.dispatch(json: json, coordinator: self)
     }
 
+    /// Send a JSON-RPC success response to JS (rare direct-response path)
+    func sendResponse(id: String, result: Data) async {
+        let json = """
+        {"jsonrpc":"2.0","id":"\(id)","result":\(String(data: result, encoding: .utf8) ?? "null")}
+        """
+        try? await page.callJavaScript(
+            "window.__bridgeInternal.response(JSON.parse(json))",
+            arguments: ["json": json],
+            contentWorld: bridgeWorld
+        )
+    }
+
+    /// Send a JSON-RPC error response to JS
+    func sendError(id: String, code: Int, message: String) async {
+        let json = """
+        {"jsonrpc":"2.0","id":"\(id)","error":{"code":\(code),"message":"\(message)"}}
+        """
+        try? await page.callJavaScript(
+            "window.__bridgeInternal.response(JSON.parse(json))",
+            arguments: ["json": json],
+            contentWorld: bridgeWorld
+        )
+    }
+
     func teardown() {
         observationTask?.cancel()
     }
@@ -933,7 +1006,15 @@ actor RPCRouter {
     func register<M: RPCMethod>(_ type: M.Type,
                                 handler: @escaping (M.Params) async throws -> Void) {
         handlers[M.method] = AnyMethodHandler { paramsData in
-            let params = try JSONDecoder().decode(M.Params.self, from: paramsData)
+            let params: M.Params
+            if let paramsData {
+                params = try JSONDecoder().decode(M.Params.self, from: paramsData)
+            } else if M.Params.self == EmptyParams.self {
+                params = EmptyParams() as! M.Params
+            } else {
+                throw DecodingError.valueNotFound(M.Params.self,
+                    .init(codingPath: [], debugDescription: "Missing required params"))
+            }
             try await handler(params)
             return nil  // Notification handler — no direct response data
         }
@@ -943,32 +1024,58 @@ actor RPCRouter {
     func registerWithResponse<M: RPCMethod>(_ type: M.Type,
                                             handler: @escaping (M.Params) async throws -> M.Result) {
         handlers[M.method] = AnyMethodHandler { paramsData in
-            let params = try JSONDecoder().decode(M.Params.self, from: paramsData)
+            let params: M.Params
+            if let paramsData {
+                params = try JSONDecoder().decode(M.Params.self, from: paramsData)
+            } else if M.Params.self == EmptyParams.self {
+                params = EmptyParams() as! M.Params
+            } else {
+                throw DecodingError.valueNotFound(M.Params.self,
+                    .init(codingPath: [], debugDescription: "Missing required params"))
+            }
             let result = try await handler(params)
             return try JSONEncoder().encode(result)
         }
     }
 
     func dispatch(json: String, coordinator: BridgeCoordinator) async {
-        // Parse JSON-RPC envelope
+        // Step 1: Try to extract `id` from raw JSON for error responses.
+        // We need the id BEFORE full envelope decode so parse errors can still
+        // produce a valid JSON-RPC error response (spec §5.1).
+        let rawId = extractId(from: json)
+
+        // Step 2: Parse JSON-RPC envelope
         guard let data = json.data(using: .utf8),
               let envelope = try? JSONDecoder().decode(RPCEnvelope.self, from: data) else {
-            // Push parse error if has id
+            // Parse error — send -32700 if request had an id
+            if let id = rawId {
+                await coordinator.sendError(id: id, code: -32700, message: "Parse error")
+            }
+            // No id (notification or completely broken) → drop silently per spec
             return
         }
 
+        // Step 3: Find handler
         guard let handler = handlers[envelope.method] else {
-            // Push method-not-found error if has id
+            // Method not found — send -32601 if request has id
+            if let id = envelope.id {
+                await coordinator.sendError(id: id, code: -32601, message: "Method not found: \(envelope.method)")
+            }
+            // No id → notification for unknown method, drop silently
             return
         }
 
+        // Step 4: Execute handler
         do {
-            // Handle missing params — valid per JSON-RPC 2.0 (params is optional)
-            let paramsData: Data
+            // Handle missing params — valid per JSON-RPC 2.0 (params is optional).
+            // When params is nil, pass nil to the handler. The AnyMethodHandler
+            // checks for nil and uses the method's default (EmptyParams for no-param
+            // methods, or throws DecodingError for methods requiring params).
+            let paramsData: Data?
             if let params = envelope.params {
                 paramsData = try JSONEncoder().encode(params)
             } else {
-                paramsData = Data("{}".utf8)  // Empty object for no-param methods
+                paramsData = nil  // Distinct from Data("{}".utf8) — lets handler decide
             }
             let responseData = try await handler.handle(paramsData)
 
@@ -976,11 +1083,28 @@ actor RPCRouter {
             if let id = envelope.id, let responseData {
                 await coordinator.sendResponse(id: id, result: responseData)
             }
-        } catch {
+        } catch let error as DecodingError {
+            // Invalid params — send -32602 if request has id
             if let id = envelope.id {
-                await coordinator.sendError(id: id, error: error)
+                await coordinator.sendError(id: id, code: -32602, message: "Invalid params: \(error.localizedDescription)")
+            }
+        } catch {
+            // Internal error — send -32603 if request has id
+            if let id = envelope.id {
+                await coordinator.sendError(id: id, code: -32603, message: "Internal error")
             }
         }
+    }
+
+    /// Best-effort extraction of "id" from raw JSON string before full decode.
+    /// Returns nil if the JSON doesn't contain a parseable "id" field.
+    private func extractId(from json: String) -> String? {
+        guard let data = json.data(using: .utf8),
+              let obj = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
+              let id = obj["id"] else { return nil }
+        if let stringId = id as? String { return stringId }
+        if let intId = id as? Int { return String(intId) }
+        return nil
     }
 }
 
@@ -988,14 +1112,13 @@ struct RPCEnvelope: Codable {
     let jsonrpc: String
     let id: String?
     let method: String
-    let params: AnyCodable?  // See note below on AnyCodable
+    let params: AnyCodableValue?  // Reuses existing AnyCodableValue from PaneContent.swift
 }
 
-// NOTE: AnyCodable is NOT in the Swift standard library.
-// Options: (a) Use Flight-School/AnyCodable package, or
-// (b) Implement a lightweight custom AnyCodable wrapper that decodes
-//     arbitrary JSON into `Any` (enum over String/Int/Double/Bool/Array/Dict/null).
-// The custom approach avoids an external dependency for a single type.
+// AnyCodableValue already exists in Models/PaneContent.swift — a Codable enum over
+// String/Int/Double/Bool/Array/Dict/null. Reuse it for the RPC envelope's params field.
+// No external dependency needed. If it needs to move to a shared location, extract to
+// a dedicated Models/AnyCodableValue.swift file.
 
 protocol RPCMethod {
     associatedtype Params: Codable
@@ -1003,8 +1126,22 @@ protocol RPCMethod {
     static var method: String { get }
 }
 
+/// Marker type for methods that accept no parameters.
+/// Decodes from both `{}` and nil (missing params field).
+struct EmptyParams: Codable {
+    init() {}
+    init(from decoder: Decoder) throws {
+        // Accept both {} and nil
+        _ = try? decoder.container(keyedBy: CodingKeys.self)
+    }
+    private enum CodingKeys: CodingKey {}
+}
+
 struct AnyMethodHandler {
-    let handle: (Data) async throws -> Data?
+    /// Handler receives nil when JSON-RPC params field was omitted.
+    /// Methods using EmptyParams should handle nil → EmptyParams().
+    /// Methods requiring params should throw DecodingError on nil.
+    let handle: (Data?) async throws -> Data?
 }
 ```
 
@@ -1207,7 +1344,7 @@ func watchFileContents() async {
 ```swift
 private let bridgeWorld = WKContentWorld.world(name: "agentStudioBridge")
 
-// Bootstrap script — installs __bridge in the isolated world
+// Bootstrap script — installs __bridgeInternal in the isolated world
 // WKUserScript takes content world in its initializer, NOT in addUserScript
 let bootstrapScript = WKUserScript(
     source: bridgeBootstrapJS,
@@ -1222,27 +1359,55 @@ config.userContentController.addUserScript(bootstrapScript)  // No content world
 
 Since content worlds isolate JavaScript namespaces, the bridge world and page world (React) communicate through DOM events:
 
-**Bridge world → Page world (state push)**:
+**Bridge world → Page world (state push)** — includes a push nonce to prevent forgery from page-world scripts:
 ```javascript
 // Bridge world receives callJavaScript from Swift, relays via CustomEvent
+// pushNonce is a separate secret from bridgeNonce — only bridge world knows it
+const pushNonce = crypto.randomUUID();
+
+// Expose pushNonce to page world via a one-time handshake stored in a closure,
+// NOT via a DOM attribute (unlike bridgeNonce, this must not be readable by
+// arbitrary page-world scripts).
+// The receiver captures it at initialization via a '__bridge_handshake' event.
+document.dispatchEvent(new CustomEvent('__bridge_handshake', {
+    detail: { pushNonce }
+}));
+
 window.__bridgeInternal = {
     merge(store, data) {
         document.dispatchEvent(new CustomEvent('__bridge_push', {
-            detail: { type: 'merge', store, data }
+            detail: { type: 'merge', store, data, __pushNonce: pushNonce }
         }));
     },
     replace(store, data) {
         document.dispatchEvent(new CustomEvent('__bridge_push', {
-            detail: { type: 'replace', store, data }
+            detail: { type: 'replace', store, data, __pushNonce: pushNonce }
+        }));
+    },
+    response(payload) {
+        // Relay JSON-RPC response (success or error) to page world
+        document.dispatchEvent(new CustomEvent('__bridge_response', {
+            detail: { ...payload, __pushNonce: pushNonce }
         }));
     },
 };
 ```
 
-**Page world (React) listens**:
+**Page world (React) listens** — validates push nonce to reject forged events:
 ```typescript
 // bridge/receiver.ts — installed in page world
+// Capture push nonce from one-time handshake (bridge world dispatches this at bootstrap)
+let _pushNonce: string | null = null;
+document.addEventListener('__bridge_handshake', ((e: CustomEvent) => {
+    if (_pushNonce === null) {  // Accept only the first handshake
+        _pushNonce = e.detail.pushNonce;
+    }
+}) as EventListener, { once: true });
+
 document.addEventListener('__bridge_push', ((e: CustomEvent) => {
+    // Reject forged push events from page-world scripts
+    if (e.detail?.__pushNonce !== _pushNonce) return;
+
     const { type, store, data } = e.detail;
     const zustandStore = stores[store];
     if (!zustandStore) return;
@@ -1432,7 +1597,7 @@ Each phase is independently testable and shippable.
 - `BridgeCoordinator` creates `WebPage` with configuration
 - `BinarySchemeHandler` serves bundled React app from `agentstudio://app/*`
 - React app loads and renders in `WebView`
-- Bootstrap script installs `window.__bridge` in bridge content world
+- Bootstrap script installs `window.__bridgeInternal` in bridge content world
 - Message handler receives `postMessage` from bridge world
 - Round-trip test: Swift calls JS → JS posts message → Swift receives
 
@@ -1448,7 +1613,7 @@ Each phase is independently testable and shippable.
 
 **Deliverables**:
 - Zustand stores for `diff` and `connection` domains
-- Bridge receiver (`window.__bridge.merge/replace`) updates Zustand
+- Bridge receiver listens for `__bridge_push` CustomEvents relayed from `__bridgeInternal`, updates Zustand
 - `Observations` AsyncSequence watches `BridgeDomainState`
 - Push coalescing with debounce
 - Content world ↔ page world relay via CustomEvents
@@ -1534,9 +1699,41 @@ Each phase is independently testable and shippable.
 - Security: `agentstudio://../../etc/passwd` → verify rejected
 - Security: Rapid command flooding → verify no resource exhaustion
 
+### Global Design Invariants
+
+These invariants are cross-cutting rules that apply to ALL phases. Every implementation task and code review must verify compliance.
+
+| # | Invariant | Verification |
+|---|---|---|
+| **G1** | Swift is the single source of truth for domain state | No Zustand store mutates domain data without a push from Swift |
+| **G2** | All cross-boundary messages are structured (JSON-RPC 2.0 or typed push envelope) | No raw string passing; every message has a defined schema |
+| **G3** | Async lifecycles are explicit — every `Task` has a cancellation path | No fire-and-forget tasks; `observationTask?.cancel()` on teardown |
+| **G4** | Correlation IDs (`__pushId`) trace pushes end-to-end | Every push from Swift observation through JS merge to React rerender is traceable |
+| **G5** | No force-unwraps (`!`) in bridge code | All optionals use `guard let`, `if let`, or nil-coalescing |
+| **G6** | Page lifecycle is first-class — web process crash, navigation failure, page close all handled | `handlePageTermination` covers all three; observation loops cancel; health state updates |
+| **G7** | Performance is measured, not assumed | All latency claims backed by harness measurements (see below) |
+| **G8** | Security is by configuration, not convention | Content worlds, navigation policy, nonce validation — all enforced in code, not docs |
+| **G9** | Unsupported behavior is explicit | Batch rejection returns -32600; unknown methods return -32601; unknown stores log and drop |
+| **G10** | Phases ship independently | Each phase has its own tests and exit criteria; no phase depends on a later phase's deliverables |
+
+### Performance Measurement Harness
+
+All timing metrics in exit criteria must be collected under a consistent harness:
+
+| Parameter | Value | Rationale |
+|---|---|---|
+| **Warmup runs** | 3 | Eliminate JIT, caching, WebKit process spin-up variance |
+| **Measured runs** | 10 | Enough for stable median; low overhead |
+| **Reported metric** | p50 (median) | Resistant to outlier spikes from system load |
+| **Variance gate** | p95 < 2× p50 | If variance exceeds 2×, flag for investigation before accepting |
+| **Hardware** | Apple Silicon (M-series), macOS 26 | Target hardware; document exact chip in results |
+| **Process state** | Cold WebPage per run (teardown + recreate) | Isolates runs from previous state |
+
+Test code uses `ContinuousClock.measure {}` or `DispatchTime` for wall-clock timing. Results are logged as structured JSON for CI parsing.
+
 ### Phase Exit Criteria
 
-Each phase requires explicit acceptance criteria before proceeding to the next. A phase is **complete** when all required tests pass and metrics meet thresholds.
+Each phase requires explicit acceptance criteria before proceeding to the next. A phase is **complete** when all required tests pass and metrics meet thresholds (measured per the harness above).
 
 #### Phase 1 Exit Criteria
 - [ ] Round-trip latency benchmark: `callJavaScript` → `postMessage` → Swift handler < 5ms for < 5KB payload
@@ -1618,7 +1815,7 @@ Sources/AgentStudio/
 WebApp/                                    # React app (Vite + TypeScript)
 ├── src/
 │   ├── bridge/
-│   │   ├── receiver.ts                   # window.__bridge → Zustand
+│   │   ├── receiver.ts                   # __bridge_push CustomEvent → Zustand
 │   │   ├── commands.ts                   # Typed command senders
 │   │   ├── rpc-client.ts                 # Direct-response RPC (rare)
 │   │   └── types.ts                      # Shared protocol types
@@ -1673,11 +1870,11 @@ The existing `ViewRegistry`, `Layout`, drag/drop, and split system work unchange
 
 1. **Swift 6.2 API surface** — Build a minimal test target in Xcode 26 that exercises:
    - `Observations` type creation and `for await` iteration
-   - `.debounce(for:)` on `Observations` (may require `AsyncAlgorithms` package)
+   - `.debounce(for:)` on `Observations` (requires `AsyncAlgorithms` package — confirmed)
    - `WKContentWorld.world(name:)` creation
    - `WebPage.Configuration` with `userContentController` and `urlSchemeHandlers`
-   - `callJavaScript(_:arguments:in:contentWorld:)` — **Note**: Research confirmed the full signature includes an `in: WebPage.Frame` parameter. This doc uses `page.mainFrame` throughout. Verify `mainFrame` property exists on `WebPage` and confirm the exact parameter label is `in:`.
-   - `WKUserScript(source:injectionTime:forMainFrameOnly:in:)` — Verify content world parameter on init. Research found both `WKUserScript(in:)` and `addUserScript(_:contentWorld:)` patterns exist; confirm which is preferred in macOS 26.
+   - `callJavaScript(_:arguments:in:contentWorld:)` — The `in:` frame parameter is optional (defaults to main frame). Omit it for main-frame calls. Verify the default behavior.
+   - `WKUserScript(source:injectionTime:forMainFrameOnly:in:)` — This doc uses `in:` on the initializer. This is the chosen pattern. Verify exact parameter label.
    - `URLSchemeHandler` protocol conformance with `AsyncSequence` return
 
    If any APIs differ from this spec, update the design before Phase 1 implementation.
