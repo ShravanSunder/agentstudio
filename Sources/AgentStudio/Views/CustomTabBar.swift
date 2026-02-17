@@ -69,6 +69,24 @@ struct CustomTabBar: View {
     @State private var scrollProxy: ScrollViewProxy?
     @State private var scrollAreaWidth: CGFloat = 0
 
+    /// Maximum width a tab can grow to.
+    private static let tabMaxWidth: CGFloat = 400
+
+    /// Minimum width before overflow/scroll kicks in.
+    private static let tabMinWidth: CGFloat = 220
+
+    /// Spacing between tab pills.
+    private static let tabSpacing: CGFloat = 4
+
+    /// Computed width for each tab pill based on available space.
+    private var computedTabWidth: CGFloat {
+        let count = CGFloat(max(1, adapter.tabs.count))
+        let totalSpacing = (count - 1) * Self.tabSpacing
+        let available = max(0, scrollAreaWidth - totalSpacing - 16) // 16 = horizontal padding
+        let perTab = available / count
+        return min(Self.tabMaxWidth, max(Self.tabMinWidth, perTab))
+    }
+
     /// Whether the left gradient fade should be visible (scrolled past the start)
     private var showLeftFade: Bool {
         adapter.isOverflowing && scrollOffset < -5
@@ -105,7 +123,7 @@ struct CustomTabBar: View {
                                         index: index,
                                         isActive: tab.id == adapter.activeTabId,
                                         isDragging: adapter.draggingTabId == tab.id,
-                                        isOverflowing: adapter.isOverflowing,
+                                        tabWidth: computedTabWidth,
                                         showInsertBefore: adapter.dropTargetIndex == index && adapter.draggingTabId != tab.id,
                                         showInsertAfter: index == adapter.tabs.count - 1 && adapter.dropTargetIndex == adapter.tabs.count,
                                         onSelect: { onSelect(tab.id) },
@@ -251,7 +269,7 @@ struct CustomTabBar: View {
                             .padding(.vertical, 4)
                             .background(
                                 Capsule()
-                                    .fill(Color.white.opacity(0.08))
+                                    .fill(Color.white.opacity(AppStyle.fillHover))
                             )
                             .contentShape(Capsule())
                         }
@@ -262,15 +280,7 @@ struct CustomTabBar: View {
 
                     // New tab button (always visible)
                     if let onAdd = onAdd {
-                        Button(action: onAdd) {
-                            Image(systemName: "plus")
-                                .font(.system(size: AppStyle.compactIconSize, weight: .medium))
-                                .foregroundStyle(.secondary)
-                                .frame(width: AppStyle.compactButtonSize, height: AppStyle.compactButtonSize)
-                                .contentShape(Rectangle())
-                        }
-                        .buttonStyle(.plain)
-                        .help("New Tab")
+                        NewTabButton(onAdd: onAdd)
                     }
                 }
                 .padding(.horizontal, 4)
@@ -358,6 +368,7 @@ private struct TabBarArrangementButton: View {
     let onSaveArrangement: ((UUID) -> Void)?
 
     @State private var showPanel = false
+    @State private var isHovered = false
 
     private var activeTab: TabBarItem? {
         guard let activeId = adapter.activeTabId else { return nil }
@@ -369,12 +380,17 @@ private struct TabBarArrangementButton: View {
             showPanel.toggle()
         } label: {
             Image(systemName: "rectangle.3.group")
-                .font(.system(size: AppStyle.compactIconSize, weight: .medium))
-                .foregroundStyle(.secondary)
-                .frame(width: AppStyle.compactButtonSize, height: AppStyle.compactButtonSize)
-                .contentShape(Rectangle())
+                .font(.system(size: AppStyle.toolbarIconSize, weight: .medium))
+                .foregroundStyle(isHovered ? .primary : .secondary)
+                .frame(width: AppStyle.toolbarButtonSize, height: AppStyle.toolbarButtonSize)
+                .background(
+                    Circle()
+                        .fill(Color.white.opacity(isHovered ? AppStyle.fillPressed : AppStyle.fillMuted))
+                )
+                .contentShape(Circle())
         }
         .buttonStyle(.plain)
+        .onHover { hovering in isHovered = hovering }
         .help("Arrangements")
         .popover(isPresented: $showPanel, arrowEdge: .bottom) {
             if let tab = activeTab, let onPaneAction, let onSaveArrangement {
@@ -390,13 +406,36 @@ private struct TabBarArrangementButton: View {
     }
 }
 
+/// Circular "+" button for creating a new tab.
+private struct NewTabButton: View {
+    let onAdd: () -> Void
+    @State private var isHovered = false
+
+    var body: some View {
+        Button(action: onAdd) {
+            Image(systemName: "plus")
+                .font(.system(size: AppStyle.toolbarIconSize, weight: .medium))
+                .foregroundStyle(isHovered ? .primary : .secondary)
+                .frame(width: AppStyle.toolbarButtonSize, height: AppStyle.toolbarButtonSize)
+                .background(
+                    Circle()
+                        .fill(Color.white.opacity(isHovered ? AppStyle.fillPressed : AppStyle.fillMuted))
+                )
+                .contentShape(Circle())
+        }
+        .buttonStyle(.plain)
+        .onHover { hovering in isHovered = hovering }
+        .help("New Tab")
+    }
+}
+
 /// Individual pill-shaped tab
 struct TabPillView: View {
     let tab: TabBarItem
     let index: Int
     let isActive: Bool
     let isDragging: Bool
-    let isOverflowing: Bool
+    let tabWidth: CGFloat
     let showInsertBefore: Bool
     let showInsertAfter: Bool
     let onSelect: () -> Void
@@ -467,40 +506,47 @@ struct TabPillView: View {
     }
 
     private var tabContent: some View {
-        HStack(spacing: 8) {
+        ZStack {
+            // Centered title
             Text(tab.displayTitle)
                 .font(.system(size: 12))
                 .lineLimit(1)
                 .truncationMode(.tail)
                 .foregroundStyle(isActive ? .primary : .secondary)
 
-            // Keyboard shortcut hint
-            if index < 9 {
-                Text("⌘\(index + 1)")
-                    .font(.system(size: 10, weight: .medium))
-                    .foregroundStyle(.tertiary)
-            }
-
-            // Close button on hover
-            if isHovering {
-                Button(action: onClose) {
-                    Image(systemName: "xmark")
-                        .font(.system(size: 9, weight: .medium))
-                        .foregroundStyle(.secondary)
+            // Close (left) and shortcut (right)
+            HStack(spacing: 0) {
+                if isHovering {
+                    Button(action: onClose) {
+                        Image(systemName: "xmark")
+                            .font(.system(size: 9, weight: .medium))
+                            .foregroundStyle(.secondary)
+                            .frame(width: 18, height: 18)
+                            .background(
+                                Circle()
+                                    .fill(Color.white.opacity(AppStyle.fillPressed))
+                            )
+                    }
+                    .buttonStyle(.plain)
                 }
-                .buttonStyle(.plain)
-                .padding(2)
+
+                Spacer()
+
+                if index < 9 {
+                    Text("⌘\(index + 1)")
+                        .font(.system(size: 10, weight: .medium))
+                        .foregroundStyle(.tertiary)
+                }
             }
         }
         .padding(.horizontal, 12)
         .padding(.vertical, 6)
-        .frame(minWidth: 150, maxWidth: isOverflowing ? 240 : 320)
-        .fixedSize(horizontal: !isOverflowing, vertical: false)
+        .frame(width: tabWidth)
         .background(
-            RoundedRectangle(cornerRadius: 8)
+            RoundedRectangle(cornerRadius: AppStyle.pillCornerRadius)
                 .fill(backgroundColor)
         )
-        .contentShape(RoundedRectangle(cornerRadius: 8))
+        .contentShape(RoundedRectangle(cornerRadius: AppStyle.pillCornerRadius))
         .onTapGesture(perform: onSelect)
         .onHover { hovering in
             isHovering = hovering
@@ -508,9 +554,9 @@ struct TabPillView: View {
     }
 
     private var backgroundColor: Color {
-        if isActive { return Color.white.opacity(0.12) }
-        if isHovering { return Color.white.opacity(0.06) }
-        return Color.clear
+        if isActive { return Color.white.opacity(AppStyle.fillActive) }
+        if isHovering { return Color.white.opacity(AppStyle.fillHover) }
+        return Color.white.opacity(AppStyle.fillSubtle)
     }
 }
 

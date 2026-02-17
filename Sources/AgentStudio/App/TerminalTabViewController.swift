@@ -25,9 +25,6 @@ class TerminalTabViewController: NSViewController, CommandHandler {
     /// SwiftUI hosting view for the split container (created once, observes store via @Observable)
     private var splitHostingView: NSHostingView<ActiveTabContent>?
 
-    /// Floating arrangement button (positioned under active tab)
-    private var arrangementButtonHostingView: NSHostingView<AnyView>?
-
     /// Local event monitor for arrangement bar keyboard shortcut
     private var arrangementBarEventMonitor: Any?
 
@@ -79,7 +76,9 @@ class TerminalTabViewController: NSViewController, CommandHandler {
             onTabFramesChanged: { [weak self] frames in
                 self?.tabBarHostingView?.updateTabFrames(frames)
             },
-            onAdd: nil,
+            onAdd: { [weak self] in
+                self?.addNewTab()
+            },
             onPaneAction: { [weak self] action in
                 self?.dispatchAction(action)
             },
@@ -148,9 +147,6 @@ class TerminalTabViewController: NSViewController, CommandHandler {
         // Observe store for AppKit-level concerns (empty state visibility, focus management)
         updateEmptyState()
         observeForAppKitState()
-
-        // Set up the floating arrangement button (reactive via TabBarAdapter)
-        setupArrangementButton()
 
         // Listen for process termination
         NotificationCenter.default.addObserver(
@@ -476,40 +472,31 @@ class TerminalTabViewController: NSViewController, CommandHandler {
         tabBarHostingView.isHidden = !hasTerminals
         terminalContainer.isHidden = !hasTerminals
         emptyStateView?.isHidden = hasTerminals
-        arrangementButtonHostingView?.isHidden = !hasTerminals
     }
 
-    // MARK: - Arrangement Button
+    // MARK: - New Tab
 
-    private func setupArrangementButton() {
-        let button = ArrangementFloatingButton(
-            adapter: tabBarAdapter,
-            onPaneAction: { [weak self] action in
-                self?.dispatchAction(action)
-            },
-            onSaveArrangement: { [weak self] tabId in
-                guard let self, let tab = self.store.tab(tabId) else { return }
-                let name = Self.nextArrangementName(existing: tab.arrangements)
-                self.dispatchAction(.createArrangement(
-                    tabId: tabId, name: name, paneIds: Set(tab.paneIds)
-                ))
-            }
-        )
+    /// Create a new tab by cloning the active pane's worktree/repo context.
+    /// Falls back to the first available worktree if no active pane exists.
+    private func addNewTab() {
+        // Try to clone context from the active pane
+        if let activeTabId = store.activeTabId,
+           let tab = store.tab(activeTabId),
+           let activePaneId = tab.activePaneId,
+           let pane = store.pane(activePaneId),
+           let worktreeId = pane.worktreeId,
+           let repoId = pane.repoId,
+           let worktree = store.worktree(worktreeId),
+           let repo = store.repo(repoId) {
+            executor.openNewTerminal(for: worktree, in: repo)
+            return
+        }
 
-        let hostingView = NSHostingView(rootView: AnyView(button))
-        hostingView.translatesAutoresizingMaskIntoConstraints = false
-        hostingView.wantsLayer = true
-        hostingView.layer?.backgroundColor = .clear
-        view.addSubview(hostingView)
-
-        NSLayoutConstraint.activate([
-            hostingView.topAnchor.constraint(equalTo: tabBarHostingView.bottomAnchor),
-            hostingView.leadingAnchor.constraint(equalTo: view.leadingAnchor),
-            hostingView.trailingAnchor.constraint(equalTo: view.trailingAnchor),
-            hostingView.heightAnchor.constraint(equalToConstant: 20),
-        ])
-
-        arrangementButtonHostingView = hostingView
+        // Fallback: use the first worktree from the first repo
+        if let repo = store.repos.first,
+           let worktree = repo.worktrees.first {
+            executor.openNewTerminal(for: worktree, in: repo)
+        }
     }
 
     // MARK: - Terminal Management

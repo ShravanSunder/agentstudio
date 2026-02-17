@@ -55,6 +55,35 @@ enum AppStyle {
     /// Frame for in-pane control buttons: paneControlIconSize + 2 × paneControlIconPadding.
     static let paneControlButtonSize: CGFloat = paneControlIconSize + paneControlIconPadding * 2
 
+    // MARK: - Fill Opacities (white overlays on dark backgrounds)
+    //
+    // Five-step scale for interactive surfaces. Components pick the steps
+    // that match their state (resting, hover, active). Using `Color.white`
+    // at these opacities keeps the palette neutral and theme-independent.
+    //
+    // ```
+    // subtle   0.04 — barely visible resting state (inactive tabs)
+    // muted    0.06 — gentle resting state (standalone icon buttons)
+    // hover    0.08 — standard hover feedback
+    // pressed  0.10 — emphasized hover / pressed feedback
+    // active   0.12 — selected / active state (active tab, toggled-on)
+    // ```
+
+    /// Barely visible surface — inactive tabs, deemphasized elements.
+    static let fillSubtle: CGFloat = 0.04
+
+    /// Gentle resting state — standalone icon buttons at rest.
+    static let fillMuted: CGFloat = 0.06
+
+    /// Standard hover feedback.
+    static let fillHover: CGFloat = 0.08
+
+    /// Emphasized hover or pressed state.
+    static let fillPressed: CGFloat = 0.10
+
+    /// Selected / active state — active tab, toggled-on controls.
+    static let fillActive: CGFloat = 0.12
+
     // MARK: - Corner Radii
 
     /// Standard corner radius for bar backgrounds (icon bars, chip groups).
@@ -65,6 +94,9 @@ enum AppStyle {
 
     /// Standard corner radius for panel containers (drawer panel, popovers).
     static let panelCornerRadius: CGFloat = 8
+
+    /// Corner radius for pill-shaped elements (tabs, capsule buttons).
+    static let pillCornerRadius: CGFloat = 12
 
     // MARK: - Spacing
 

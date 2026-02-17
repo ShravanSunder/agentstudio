@@ -16,6 +16,43 @@ The window system has **three layers of organization**:
 
 The user's workspace is always the home base. Dynamic views are excursions. Pane drawers are local expansions. The user can always return to their workspace.
 
+### Pane Context Model
+
+Every pane carries context that determines its identity and behavior. This context flows from the project model down to the terminal:
+
+```
+Pane Context Chain:
+  Repo (git repository on disk)
+    └── Worktree (branch checkout — main, feature-x, etc.)
+          └── Pane (terminal / webview / code viewer)
+                ├── CWD (live working directory, propagated from shell)
+                ├── Parent Folder (auto-detected from repo path)
+                └── Drawer Panes (inherit context from parent pane)
+```
+
+**Context properties on every pane:**
+
+| Property | Source | Example |
+|----------|--------|---------|
+| `repoId` | From `TerminalSource.worktree` | UUID of "agent-studio" repo |
+| `worktreeId` | From `TerminalSource.worktree` | UUID of "feature-x" worktree |
+| `cwd` | Live from shell (propagated) | `~/dev/agent-studio/src` |
+| Parent folder | Auto-detected from repo path | `~/dev/agent-studio/` |
+
+**Floating terminals** (`TerminalSource.floating`) have no repo or worktree — just a working directory and optional title. They are standalone panes not tied to any project.
+
+**Tab-pane relationship:**
+- A tab is a container — it does not inherently belong to a repo
+- A tab's identity comes from its panes' contexts
+- A tab with all panes from one repo is effectively "that repo's tab"
+- A tab can contain panes from different repos (user's choice)
+- Dynamic views group panes by context (repo, worktree, parent folder) regardless of which tab they're in
+
+**New tab creation:**
+- From sidebar: creates a tab with a pane tied to the selected worktree/repo
+- From `+` button: clones the active pane's worktree/repo context into a new tab
+- Floating: creates a standalone pane with just a working directory
+
 ```
 Workspace (user's, persistent)
   ├── Tab "my-project"
@@ -533,7 +570,7 @@ A window-level toggle that enables pane manipulation controls. When off, panes s
 | Control | Always Visible When |
 |---------|-------------------|
 | Collapsed pane bar | Pane is minimized |
-| Arrangement button | Always (floating under active tab) |
+| Arrangement button | Always (left side of tab bar) |
 | Drawer bar | Always (bottom of every pane, even when empty) |
 | Drawer panel | Drawer is expanded |
 
@@ -614,23 +651,26 @@ When a pane is minimized, it collapses to a narrow bar. Not gated on edit mode �
 - Hamburger menu: Expand, Close options
 - Minimize state: `minimizedPaneIds: Set<UUID>` on Tab (transient, not persisted)
 
-### Arrangement Button
+### Tab Bar Layout
 
-A small floating button positioned directly under the active tab pill. Shows the active arrangement name. Click opens the pane management panel.
+Ghostty-style tab bar with equal-width tabs that fill available space.
 
 ```
 ┌─────────────────────────────────────────────────────────────┐
-│  [tab1]  [tab2 (active)]  [tab3]  [+]                      │  ← tab bar
-│              [≡ Default]                                     │  ← floating button
-├─────────────────────────────────────────────────────────────┤
-│                    Terminal content                          │
+│ [⊞]  [  tab1  ⌘1  ]  [  tab2  ⌘2  ]  [  tab3  ⌘3  ]  [+] │
+│  ^                                                       ^   │
+│  arrangement                                     new tab     │
 └─────────────────────────────────────────────────────────────┘
 ```
 
-- Always visible for ALL tabs (not gated on edit mode)
-- Shows active arrangement name: `[≡ Default]`, `[≡ coding]`, etc.
-- Positioned by TTVC as a separate element tracking the active tab pill's frame
-- Click opens the pane management panel as a popover
+**Tab sizing:** Tabs fill equally, max 400pt, min 220pt. When tabs would shrink below 220pt, overflow scroll kicks in with scroll arrows and a tab count dropdown.
+
+**Fixed controls:**
+- **Arrangement button** (left): `rectangle.3.group` icon, always visible. Click opens the active tab's arrangement panel popover.
+- **New tab button** (right): `+` icon, always visible. Creates a new tab cloning the active pane's worktree/repo context.
+- **Overflow controls** (right, when scrolling): scroll arrows + tab count badge dropdown.
+
+**Tab pill contents:** Title + keyboard shortcut hint + close button on hover. No icons inside pills.
 
 ### Pane Management Panel
 
