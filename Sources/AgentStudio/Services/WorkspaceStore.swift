@@ -1127,6 +1127,25 @@ final class WorkspaceStore {
         let validPaneIds = Set(panes.keys)
         pruneInvalidPanes(from: &tabs, validPaneIds: validPaneIds, activeTabId: &activeTabId)
 
+        // Prune stale drawer pane references from parent panes.
+        // After restore, a parent's drawer may reference child pane IDs that were pruned
+        // (e.g., if the child's data was corrupted). Clean dangling refs here.
+        for paneId in panes.keys {
+            guard panes[paneId]?.drawer != nil else { continue }
+            panes[paneId]!.withDrawer { drawer in
+                let stalePaneIds = drawer.paneIds.filter { !validPaneIds.contains($0) }
+                guard !stalePaneIds.isEmpty else { return }
+                storeLogger.warning("Pruning \(stalePaneIds.count) stale drawer pane(s) from parent \(paneId)")
+                drawer.paneIds.removeAll { !validPaneIds.contains($0) }
+                for staleId in stalePaneIds {
+                    drawer.layout = drawer.layout.removing(paneId: staleId) ?? Layout()
+                }
+                if let activeId = drawer.activePaneId, !validPaneIds.contains(activeId) {
+                    drawer.activePaneId = drawer.paneIds.first
+                }
+            }
+        }
+
         // Validate and repair tab structural invariants
         validateTabInvariants()
 
