@@ -88,6 +88,53 @@ final class ZmxBackendTests: XCTestCase {
         }
     }
 
+    // MARK: - Drawer Session ID Generation
+
+    func test_drawerSessionId_format() {
+        // Arrange
+        let parentPaneId = UUID(uuidString: "AABBCCDD-1122-3344-5566-778899001122")!
+        let drawerPaneId = UUID(uuidString: "11223344-5566-7788-99AA-BBCCDDEEFF00")!
+
+        // Act
+        let id = ZmxBackend.drawerSessionId(parentPaneId: parentPaneId, drawerPaneId: drawerPaneId)
+
+        // Assert — format: agentstudio-d--<parent16>--<drawer16>
+        XCTAssertTrue(id.hasPrefix("agentstudio-d--"))
+        XCTAssertEqual(id, "agentstudio-d--aabbccdd11223344--1122334455667788")
+    }
+
+    func test_drawerSessionId_isDeterministic() {
+        // Arrange
+        let parentPaneId = UUID()
+        let drawerPaneId = UUID()
+
+        // Act
+        let id1 = ZmxBackend.drawerSessionId(parentPaneId: parentPaneId, drawerPaneId: drawerPaneId)
+        let id2 = ZmxBackend.drawerSessionId(parentPaneId: parentPaneId, drawerPaneId: drawerPaneId)
+
+        // Assert
+        XCTAssertEqual(id1, id2)
+    }
+
+    func test_drawerSessionId_allSegmentsAreLowercaseHex() {
+        // Arrange
+        let parentPaneId = UUID()
+        let drawerPaneId = UUID()
+
+        // Act
+        let id = ZmxBackend.drawerSessionId(parentPaneId: parentPaneId, drawerPaneId: drawerPaneId)
+
+        // Assert — prefix is "agentstudio-d--", then two 16-char hex segments
+        let suffix = String(id.dropFirst("agentstudio-d--".count))
+        let segments = suffix.components(separatedBy: "--")
+        XCTAssertEqual(segments.count, 2)
+        let hexChars = CharacterSet(charactersIn: "0123456789abcdef")
+        for segment in segments {
+            XCTAssertEqual(segment.count, 16)
+            XCTAssertTrue(segment.unicodeScalars.allSatisfy { hexChars.contains($0) })
+        }
+    }
+
     // MARK: - PaneSessionHandle Validation
 
     func test_paneSessionHandle_hasValidId_validFormat() {
@@ -355,6 +402,23 @@ final class ZmxBackendTests: XCTestCase {
 
         // Assert
         XCTAssertTrue(orphans.isEmpty)
+    }
+
+    func test_discoverOrphanSessions_includesDrawerSessions() async {
+        // Arrange — mix of main and drawer sessions
+        executor.enqueue(ProcessResult(
+            exitCode: 0,
+            stdout: "agentstudio--abc--111--222\trunning\nagentstudio-d--aabb--ccdd\trunning\nuser-session\trunning",
+            stderr: ""
+        ))
+
+        // Act — exclude the main session, drawer should appear as orphan
+        let orphans = await backend.discoverOrphanSessions(excluding: ["agentstudio--abc--111--222"])
+
+        // Assert
+        XCTAssertEqual(orphans.count, 1)
+        XCTAssertTrue(orphans.contains("agentstudio-d--aabb--ccdd"))
+        XCTAssertFalse(orphans.contains("user-session"))
     }
 
     // MARK: - destroySessionById
