@@ -16,6 +16,21 @@ struct SplitRenderInfo {
         let leftMinimizedPaneIds: [UUID]
         /// Ordered minimized pane IDs from the right subtree (for rendering collapsed bars).
         let rightMinimizedPaneIds: [UUID]
+        /// Visible weight of the left subtree (for reverse ratio conversion during drag).
+        let leftVisibleWeight: Double
+        /// Visible weight of the right subtree (for reverse ratio conversion during drag).
+        let rightVisibleWeight: Double
+
+        /// Convert a render-space ratio back to model-space ratio.
+        /// Inverts: adjustedRatio = (L*r)/(L*r + R*(1-r)) → r = (a*R)/(L*(1-a) + a*R)
+        func modelRatio(fromRenderRatio renderRatio: Double) -> Double {
+            let lw = leftVisibleWeight
+            let rw = rightVisibleWeight
+            guard lw > 0, rw > 0 else { return renderRatio }
+            let denom = lw * (1.0 - renderRatio) + renderRatio * rw
+            guard denom > 0 else { return renderRatio }
+            return (renderRatio * rw) / denom
+        }
     }
 
     /// Rendering info keyed by split node UUID.
@@ -56,6 +71,10 @@ struct SplitRenderInfo {
         let leftFullyMin = split.left.isFullyMinimized(minimizedPaneIds: minimizedPaneIds)
         let rightFullyMin = split.right.isFullyMinimized(minimizedPaneIds: minimizedPaneIds)
 
+        // Compute visible weights for each subtree
+        let leftVW = split.left.visibleWeight(minimizedPaneIds: minimizedPaneIds)
+        let rightVW = split.right.visibleWeight(minimizedPaneIds: minimizedPaneIds)
+
         // Compute adjusted ratio
         let adjustedRatio: Double
         if leftFullyMin && rightFullyMin {
@@ -66,10 +85,10 @@ struct SplitRenderInfo {
             // Both sides have visible panes — proportional redistribute.
             // Scale each child's visible weight by the parent's ratio allocation
             // to get effective global weights.
-            let leftVW = split.left.visibleWeight(minimizedPaneIds: minimizedPaneIds) * split.ratio
-            let rightVW = split.right.visibleWeight(minimizedPaneIds: minimizedPaneIds) * (1.0 - split.ratio)
-            let total = leftVW + rightVW
-            adjustedRatio = total > 0 ? leftVW / total : split.ratio
+            let scaledLeft = leftVW * split.ratio
+            let scaledRight = rightVW * (1.0 - split.ratio)
+            let total = scaledLeft + scaledRight
+            adjustedRatio = total > 0 ? scaledLeft / total : split.ratio
         }
 
         let leftMinIds = leftFullyMin
@@ -84,7 +103,9 @@ struct SplitRenderInfo {
             leftFullyMinimized: leftFullyMin,
             rightFullyMinimized: rightFullyMin,
             leftMinimizedPaneIds: leftMinIds,
-            rightMinimizedPaneIds: rightMinIds
+            rightMinimizedPaneIds: rightMinIds,
+            leftVisibleWeight: leftVW,
+            rightVisibleWeight: rightVW
         )
 
         // Recurse into non-fully-minimized subtrees

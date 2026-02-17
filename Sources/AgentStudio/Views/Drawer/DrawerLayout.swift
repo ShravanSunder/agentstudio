@@ -17,7 +17,7 @@ enum DrawerLayout {
     static let panelWidthRatio: CGFloat = 0.8
 
     /// Corner radius for the drawer panel and its glass effect shape.
-    static let panelCornerRadius: CGFloat = AppStyle.panelCornerRadius
+    static let panelCornerRadius: CGFloat = 14
 
     /// Minimum panel height in points.
     static let panelMinHeight: CGFloat = 100
@@ -35,14 +35,13 @@ enum DrawerLayout {
     /// Matches `resizeHandleHeight` so the border around content is uniform on all sides.
     static let panelContentPadding: CGFloat = resizeHandleHeight
 
-    // MARK: - Trapezoid
+    // MARK: - Connector
 
-    /// Height of the tab-level trapezoid connecting the panel to the pane icon bar.
-    static let trapezoidHeight: CGFloat = 60
+    /// Height of the S-curve connector between the panel and pane icon bar.
+    static let overlayConnectorHeight: CGFloat = 40
 
-    /// Extra inset per side on the trapezoid bottom edges.
-    /// Sits the bottom slightly inside pane borders for cleaner visual alignment.
-    static let trapezoidInsetPadding: CGFloat = 10
+    /// Corner radius for the bottom corners of the connector bar.
+    static let connectorBottomCornerRadius: CGFloat = 6
 
     // MARK: - Icon Bar
 

@@ -148,4 +148,104 @@ final class SplitRenderInfoTests: XCTestCase {
         let info = SplitRenderInfo.compute(layout: layout, minimizedPaneIds: [])
         XCTAssertFalse(info.allMinimized)
     }
+
+    // MARK: - Visible weights stored
+
+    func test_partialMinimize_visibleWeightsStored() {
+        // Split(0.33, A, Split(0.5, B_min, C))
+        let a = UUID(), b = UUID(), c = UUID()
+        let outerSplitId = UUID()
+        let layout = Layout(root: .split(Layout.Split(
+            id: outerSplitId, direction: .horizontal, ratio: 0.33,
+            left: .leaf(paneId: a),
+            right: .split(Layout.Split(
+                direction: .horizontal, ratio: 0.5,
+                left: .leaf(paneId: b), right: .leaf(paneId: c)
+            ))
+        )))
+
+        let info = SplitRenderInfo.compute(layout: layout, minimizedPaneIds: [b])
+        let outerInfo = info.splitInfo[outerSplitId]!
+
+        // Left is a single visible leaf → weight 1.0
+        XCTAssertEqual(outerInfo.leftVisibleWeight, 1.0)
+        // Right is Split(0.5, B_min, C) → 0*0.5 + 1*0.5 = 0.5
+        XCTAssertEqual(outerInfo.rightVisibleWeight, 0.5)
+    }
+
+    // MARK: - Model ratio reverse conversion
+
+    func test_modelRatio_roundTrip() {
+        // Split(0.5, A, Split(0.5, B_min, C))
+        // adjustedRatio ≈ 0.667. Converting back should yield 0.5.
+        let a = UUID(), b = UUID(), c = UUID()
+        let outerSplitId = UUID()
+        let layout = Layout(root: .split(Layout.Split(
+            id: outerSplitId, direction: .horizontal, ratio: 0.5,
+            left: .leaf(paneId: a),
+            right: .split(Layout.Split(
+                direction: .horizontal, ratio: 0.5,
+                left: .leaf(paneId: b), right: .leaf(paneId: c)
+            ))
+        )))
+
+        let info = SplitRenderInfo.compute(layout: layout, minimizedPaneIds: [b])
+        let outerInfo = info.splitInfo[outerSplitId]!
+
+        // adjustedRatio should be 0.667 (left gets more space)
+        XCTAssertEqual(outerInfo.adjustedRatio, 0.667, accuracy: 0.01)
+
+        // Round-trip: converting adjustedRatio back should give original model ratio
+        let recovered = outerInfo.modelRatio(fromRenderRatio: outerInfo.adjustedRatio)
+        XCTAssertEqual(recovered, 0.5, accuracy: 0.001)
+    }
+
+    func test_modelRatio_equalWeights_identity() {
+        // When both sides have equal visible weight, adjustedRatio == modelRatio.
+        let splitInfo = SplitRenderInfo.SplitInfo(
+            adjustedRatio: 0.5,
+            leftFullyMinimized: false,
+            rightFullyMinimized: false,
+            leftMinimizedPaneIds: [],
+            rightMinimizedPaneIds: [],
+            leftVisibleWeight: 1.0,
+            rightVisibleWeight: 1.0
+        )
+
+        XCTAssertEqual(splitInfo.modelRatio(fromRenderRatio: 0.3), 0.3, accuracy: 0.001)
+        XCTAssertEqual(splitInfo.modelRatio(fromRenderRatio: 0.7), 0.7, accuracy: 0.001)
+    }
+
+    func test_modelRatio_zeroWeight_fallback() {
+        // When one weight is zero, reverse conversion falls back to render ratio.
+        let splitInfo = SplitRenderInfo.SplitInfo(
+            adjustedRatio: 0.5,
+            leftFullyMinimized: false,
+            rightFullyMinimized: false,
+            leftMinimizedPaneIds: [],
+            rightMinimizedPaneIds: [],
+            leftVisibleWeight: 0.0,
+            rightVisibleWeight: 1.0
+        )
+
+        XCTAssertEqual(splitInfo.modelRatio(fromRenderRatio: 0.6), 0.6)
+    }
+
+    func test_modelRatio_asymmetricWeights_invertsCorrectly() {
+        // Left weight 1.0, right weight 0.25
+        // Forward: modelRatio=0.4 → adj = (1.0*0.4)/(1.0*0.4 + 0.25*0.6) = 0.4/0.55 ≈ 0.727
+        // Reverse: 0.727 should map back to 0.4
+        let splitInfo = SplitRenderInfo.SplitInfo(
+            adjustedRatio: 0.727,
+            leftFullyMinimized: false,
+            rightFullyMinimized: false,
+            leftMinimizedPaneIds: [],
+            rightMinimizedPaneIds: [],
+            leftVisibleWeight: 1.0,
+            rightVisibleWeight: 0.25
+        )
+
+        let recovered = splitInfo.modelRatio(fromRenderRatio: 0.727)
+        XCTAssertEqual(recovered, 0.4, accuracy: 0.01)
+    }
 }

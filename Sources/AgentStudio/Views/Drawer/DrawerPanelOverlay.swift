@@ -4,12 +4,12 @@ import AppKit
 // MARK: - Dismiss Monitor
 
 /// Monitors mouseDown events and dismisses the drawer when clicking outside
-/// the drawer panel, trapezoid, and icon bar regions.
+/// the drawer panel, connector, and icon bar regions.
 /// Installed when the drawer opens, removed when it closes.
 @MainActor
 final class DrawerDismissMonitor {
     private var monitor: Any?
-    /// Drawer panel + trapezoid bounding rect in global (flipped window) coordinates.
+    /// Drawer panel + connector bounding rect in global (flipped window) coordinates.
     var drawerRect: CGRect = .zero
     /// Icon bar bounding rect in global (flipped window) coordinates.
     var iconBarRect: CGRect = .zero
@@ -73,16 +73,17 @@ struct DrawerIconBarFrameKey: PreferenceKey {
 
 /// Tab-level overlay that renders the expanded drawer panel on top of all panes.
 /// Positioned at the tab container level so it can extend beyond the originating
-/// pane's bounds, with a trapezoid visually connecting the panel to the icon bar.
+/// pane's bounds, with an S-curve connector visually bridging the panel to the icon bar.
 ///
 /// Installs an NSEvent local monitor to dismiss the drawer when clicking outside
-/// the panel, trapezoid, and icon bar regions.
+/// the panel, connector, and icon bar regions.
 struct DrawerPanelOverlay: View {
     let store: WorkspaceStore
     let viewRegistry: ViewRegistry
     let tabId: UUID
     let paneFrames: [UUID: CGRect]
     let tabSize: CGSize
+    let iconBarFrame: CGRect
     let action: (PaneAction) -> Void
 
     @AppStorage("drawerHeightRatio") private var heightRatio: Double = DrawerLayout.heightRatioMax
@@ -114,10 +115,10 @@ struct DrawerPanelOverlay: View {
                 DrawerLayout.panelMinHeight,
                 min(tabSize.height * CGFloat(heightRatio), tabSize.height - DrawerLayout.panelBottomMargin)
             )
-            let trapHeight = DrawerLayout.trapezoidHeight
-            let totalHeight = panelHeight + trapHeight
+            let connectorHeight = DrawerLayout.overlayConnectorHeight
+            let totalHeight = panelHeight + connectorHeight
 
-            // Bottom of overlay trapezoid aligns with top of pane's icon bar
+            // Bottom of overlay aligns with top of pane's icon bar
             let overlayBottomY = info.frame.maxY - DrawerLayout.iconBarFrameHeight
             let centerY = overlayBottomY - totalHeight / 2
 
@@ -126,12 +127,27 @@ struct DrawerPanelOverlay: View {
             let edgeMargin = DrawerLayout.tabEdgeMargin
             let centerX = max(halfPanel + edgeMargin, min(tabSize.width - halfPanel - edgeMargin, info.frame.midX))
 
-            // Asymmetric trapezoid insets: bottom edges align with pane borders.
-            // Edge panes get a flush side (inset ≈ 0), middle panes get symmetric taper.
+            // Junction insets: panel edge to pane boundary
             let panelLeft = centerX - halfPanel
-            let insetPad = DrawerLayout.trapezoidInsetPadding
-            let bottomLeftInset = max(0, info.frame.minX - panelLeft) + insetPad
-            let bottomRightInset = max(0, (panelLeft + panelWidth) - info.frame.maxX) + insetPad
+            let paneWidth = info.frame.width
+            let junctionLeftInset = max(0, info.frame.minX - panelLeft)
+            let junctionRightInset = max(0, (panelLeft + panelWidth) - info.frame.maxX)
+
+            // Bottom insets: junction + 1/3 pane width (bottom bar = center 1/3 of pane)
+            let bottomLeftInset = junctionLeftInset + paneWidth / 3
+            let bottomRightInset = junctionRightInset + paneWidth / 3
+
+            // Unified outline: panel (rounded rect) + S-curve connector
+            let outlineShape = DrawerOutlineShape(
+                panelHeight: panelHeight,
+                cornerRadius: DrawerLayout.panelCornerRadius,
+                junctionLeftInset: junctionLeftInset,
+                junctionRightInset: junctionRightInset,
+                bottomLeftInset: bottomLeftInset,
+                bottomRightInset: bottomRightInset,
+                bottomCornerRadius: DrawerLayout.connectorBottomCornerRadius
+            )
+            let panelFraction = panelHeight / totalHeight
 
             VStack(spacing: 0) {
                 let drawerRenderInfo = SplitRenderInfo.compute(
@@ -157,21 +173,18 @@ struct DrawerPanelOverlay: View {
                     }
                 )
                 .frame(width: panelWidth)
-                // Layered shadow — tight contact + soft ambient
-                .shadow(color: .black.opacity(0.15), radius: 4, y: 2)
-                .shadow(color: .black.opacity(0.2), radius: 16, y: 8)
 
-                // Trapezoid: visual bridge from panel to pane icon bar.
-                // Uses same material as DrawerIconBar for cohesive look.
-                DrawerOverlayTrapezoid(bottomLeftInset: bottomLeftInset, bottomRightInset: bottomRightInset)
-                    .fill(.ultraThinMaterial)
-                    .frame(width: panelWidth, height: trapHeight)
-                    .contentShape(
-                        DrawerOverlayTrapezoid(bottomLeftInset: bottomLeftInset, bottomRightInset: bottomRightInset)
-                    )
+                // Connector space (visual bridge from panel to icon bar)
+                Color.clear
+                    .frame(width: panelWidth, height: connectorHeight)
             }
-            .contentShape(Rectangle())
-            .onTapGesture { }  // Consume stray clicks to prevent ZStack pass-through to terminals behind
+            .clipShape(outlineShape)
+            .modifier(DrawerMaterialModifier(shape: outlineShape, panelFraction: panelFraction, panelHeight: panelHeight, cornerRadius: DrawerLayout.panelCornerRadius))
+            .contentShape(outlineShape)
+            .onTapGesture { }  // Consume stray clicks to prevent ZStack pass-through
+            // Layered shadow — tight contact + soft ambient
+            .shadow(color: .black.opacity(0.15), radius: 4, y: 2)
+            .shadow(color: .black.opacity(0.2), radius: 16, y: 8)
             .background(
                 GeometryReader { geo in
                     Color.clear
@@ -199,7 +212,7 @@ struct DrawerPanelOverlay: View {
             .onDisappear {
                 removeMonitor()
             }
-            .onPreferenceChange(DrawerIconBarFrameKey.self) { frame in
+            .onChange(of: iconBarFrame) { _, frame in
                 dismissMonitor?.iconBarRect = frame
             }
     }
@@ -213,6 +226,7 @@ struct DrawerPanelOverlay: View {
             guard let paneId else { return }
             action(.toggleDrawer(paneId: paneId))
         }
+        monitor.iconBarRect = iconBarFrame
         monitor.install()
         dismissMonitor = monitor
     }
@@ -223,19 +237,45 @@ struct DrawerPanelOverlay: View {
     }
 }
 
-/// Unified outline shape tracing the panel (rounded top corners) and trapezoid connector
-/// as a single continuous path, so the border reads as one cohesive element.
+// MARK: - DrawerOutlineShape
+
+/// Unified outline tracing the panel (rounded rectangle with all 4 corners) and
+/// S-curve connector as a single continuous path. The connector narrows from panel
+/// width to the bottom bar width via smooth cubic bezier S-curves, then continues
+/// with straight vertical sides to a rounded bottom edge.
 struct DrawerOutlineShape: Shape {
     let panelHeight: CGFloat
     let cornerRadius: CGFloat
+    let junctionLeftInset: CGFloat
+    let junctionRightInset: CGFloat
     let bottomLeftInset: CGFloat
     let bottomRightInset: CGFloat
+    let bottomCornerRadius: CGFloat
 
     func path(in rect: CGRect) -> Path {
         let w = rect.width
+        let h = rect.height
         let r = min(cornerRadius, panelHeight / 2)
+        let br = bottomCornerRadius
+
+        // Junction x-coordinates (where S-curves meet panel bottom edge)
+        // Clamped to corner radius so S-curves start after panel corner arcs
+        let jLeft = max(r, junctionLeftInset)
+        let jRight = w - max(r, junctionRightInset)
+
+        // Bottom bar x-coordinates
+        let bLeft = bottomLeftInset
+        let bRight = w - bottomRightInset
+
+        // S-curves end just above the bottom corner arcs
+        let sCurveBottomY = h - br
+
         var path = Path()
+
+        // --- Panel: rounded rectangle (all 4 corners identical) ---
+
         path.move(to: CGPoint(x: 0, y: r))
+
         // Top-left corner
         path.addArc(
             center: CGPoint(x: r, y: r),
@@ -244,8 +284,8 @@ struct DrawerOutlineShape: Shape {
             endAngle: .degrees(270),
             clockwise: false
         )
-        // Top edge
         path.addLine(to: CGPoint(x: w - r, y: 0))
+
         // Top-right corner
         path.addArc(
             center: CGPoint(x: w - r, y: r),
@@ -254,35 +294,103 @@ struct DrawerOutlineShape: Shape {
             endAngle: .degrees(0),
             clockwise: false
         )
-        // Right side → panel bottom
-        path.addLine(to: CGPoint(x: w, y: panelHeight))
-        // Trapezoid right slope
-        path.addLine(to: CGPoint(x: w - bottomRightInset, y: rect.height))
-        // Trapezoid bottom
-        path.addLine(to: CGPoint(x: bottomLeftInset, y: rect.height))
-        // Trapezoid left slope → panel bottom-left
-        path.addLine(to: CGPoint(x: 0, y: panelHeight))
+        path.addLine(to: CGPoint(x: w, y: panelHeight - r))
+
+        // Bottom-right panel corner
+        path.addArc(
+            center: CGPoint(x: w - r, y: panelHeight - r),
+            radius: r,
+            startAngle: .degrees(0),
+            endAngle: .degrees(90),
+            clockwise: false
+        )
+
+        // --- Right S-curve: panel bottom → bottom bar ---
+
+        path.addLine(to: CGPoint(x: jRight, y: panelHeight))
+        // S-curve spans full connector height: horizontal start, vertical end
+        path.addCurve(
+            to: CGPoint(x: bRight, y: sCurveBottomY),
+            control1: CGPoint(x: (jRight + bRight) / 2, y: panelHeight),
+            control2: CGPoint(x: bRight, y: (panelHeight + sCurveBottomY) / 2)
+        )
+
+        // --- Bottom bar (rounded corners) ---
+
+        path.addArc(
+            center: CGPoint(x: bRight - br, y: h - br),
+            radius: br,
+            startAngle: .degrees(0),
+            endAngle: .degrees(90),
+            clockwise: false
+        )
+        path.addLine(to: CGPoint(x: bLeft + br, y: h))
+        path.addArc(
+            center: CGPoint(x: bLeft + br, y: h - br),
+            radius: br,
+            startAngle: .degrees(90),
+            endAngle: .degrees(180),
+            clockwise: false
+        )
+
+        // --- Left S-curve: bottom bar → panel bottom ---
+
+        // S-curve spans full connector height: vertical start, horizontal end
+        path.addCurve(
+            to: CGPoint(x: jLeft, y: panelHeight),
+            control1: CGPoint(x: bLeft, y: (panelHeight + sCurveBottomY) / 2),
+            control2: CGPoint(x: (jLeft + bLeft) / 2, y: panelHeight)
+        )
+
+        // Panel bottom edge to bottom-left panel corner
+        path.addLine(to: CGPoint(x: r, y: panelHeight))
+
+        // Bottom-left panel corner
+        path.addArc(
+            center: CGPoint(x: r, y: panelHeight - r),
+            radius: r,
+            startAngle: .degrees(90),
+            endAngle: .degrees(180),
+            clockwise: false
+        )
+
         path.closeSubpath()
         return path
     }
 }
 
-/// Trapezoid shape for the drawer overlay connector.
-/// Full width at top (matches panel), narrower at bottom (matches originating pane).
-/// Supports asymmetric insets so edge panes get a flush side while middle panes taper symmetrically.
-struct DrawerOverlayTrapezoid: Shape {
-    /// How far the bottom-left corner is inset from the left edge (0 = flush).
-    let bottomLeftInset: CGFloat
-    /// How far the bottom-right corner is inset from the right edge (0 = flush).
-    let bottomRightInset: CGFloat
+// MARK: - DrawerMaterialModifier
+
+/// Applies liquid glass on macOS 26+, falls back to ultraThinMaterial on older versions.
+/// Panel gets glass effect; connector uses pure ultraThinMaterial (matching the icon bar toolbar).
+struct DrawerMaterialModifier: ViewModifier {
+    let shape: DrawerOutlineShape
+    let panelFraction: CGFloat
+    let panelHeight: CGFloat
+    let cornerRadius: CGFloat
+
+    func body(content: Content) -> some View {
+        if #available(macOS 26.0, *) {
+            content
+                // Full shape: ultraThinMaterial background (connector = pure material, matching toolbar)
+                .background(shape.fill(.ultraThinMaterial))
+                // Panel only: liquid glass overlay (covers the ultraThinMaterial in the panel area)
+                .glassEffect(.regular, in: PanelOnlyShape(panelHeight: panelHeight, cornerRadius: cornerRadius))
+        } else {
+            content
+                .background(shape.fill(.ultraThinMaterial))
+        }
+    }
+}
+
+/// Shape covering only the panel rectangle (top portion of the overlay).
+/// Used to apply glass effect to the panel while the connector uses a different material.
+struct PanelOnlyShape: Shape {
+    let panelHeight: CGFloat
+    let cornerRadius: CGFloat
 
     func path(in rect: CGRect) -> Path {
-        var path = Path()
-        path.move(to: CGPoint(x: 0, y: 0))                                          // top-left
-        path.addLine(to: CGPoint(x: rect.width, y: 0))                              // top-right
-        path.addLine(to: CGPoint(x: rect.width - bottomRightInset, y: rect.height)) // bottom-right
-        path.addLine(to: CGPoint(x: bottomLeftInset, y: rect.height))               // bottom-left
-        path.closeSubpath()
-        return path
+        let r = min(cornerRadius, panelHeight / 2)
+        return Path(roundedRect: CGRect(x: 0, y: 0, width: rect.width, height: panelHeight), cornerRadius: r)
     }
 }

@@ -32,6 +32,7 @@ struct TerminalSplitContainer: View {
     let viewRegistry: ViewRegistry
 
     @State private var paneFrames: [UUID: CGRect] = [:]
+    @State private var iconBarFrame: CGRect = .zero
 
     /// Content shown when all panes in the tab are minimized.
     /// Collapsed bars aligned left, remaining space empty.
@@ -115,10 +116,12 @@ struct TerminalSplitContainer: View {
                     tabId: tabId,
                     paneFrames: paneFrames,
                     tabSize: tabGeometry.size,
+                    iconBarFrame: iconBarFrame,
                     action: action
                 )
             }
             .onPreferenceChange(PaneFramePreferenceKey.self) { paneFrames = $0 }
+            .onPreferenceChange(DrawerIconBarFrameKey.self) { iconBarFrame = $0 }
         }
         .coordinateSpace(name: "tabContainer")
     }
@@ -189,7 +192,7 @@ struct SplitSubtreeView: View {
                 let ratio = info?.adjustedRatio ?? split.ratio
                 SplitView(
                     splitViewDirection,
-                    adjustedRatioBinding(for: split, renderRatio: ratio),
+                    adjustedRatioBinding(for: split, renderRatio: ratio, splitInfo: info),
                     left: {
                         subtreeView(node: split.left)
                     },
@@ -296,12 +299,18 @@ struct SplitSubtreeView: View {
         return split.direction
     }
 
-    private func adjustedRatioBinding(for split: PaneSplitTree.Node.Split, renderRatio: Double) -> Binding<CGFloat> {
+    private func adjustedRatioBinding(
+        for split: PaneSplitTree.Node.Split,
+        renderRatio: Double,
+        splitInfo: SplitRenderInfo.SplitInfo?
+    ) -> Binding<CGFloat> {
         let splitId = split.id
         return Binding(
             get: { CGFloat(renderRatio) },
-            set: { newRatio in
-                action(.resizePane(tabId: tabId, splitId: splitId, ratio: Double(newRatio)))
+            set: { newRenderRatio in
+                let modelRatio = splitInfo?.modelRatio(fromRenderRatio: Double(newRenderRatio))
+                    ?? Double(newRenderRatio)
+                action(.resizePane(tabId: tabId, splitId: splitId, ratio: modelRatio))
             }
         )
     }

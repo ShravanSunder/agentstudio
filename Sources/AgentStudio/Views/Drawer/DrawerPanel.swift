@@ -160,26 +160,11 @@ struct DrawerPanel: View {
         }
         .frame(height: height)
         .contentShape(RoundedRectangle(cornerRadius: DrawerLayout.panelCornerRadius, style: .continuous))
-        .clipShape(RoundedRectangle(cornerRadius: DrawerLayout.panelCornerRadius, style: .continuous))
-        .drawerPanelMaterial()
     }
 }
 
-// MARK: - Panel Material
-
-private extension View {
-    @ViewBuilder
-    func drawerPanelMaterial() -> some View {
-        if #available(macOS 26.0, *) {
-            self.glassEffect(.regular, in: RoundedRectangle(cornerRadius: DrawerLayout.panelCornerRadius, style: .continuous))
-        } else {
-            self.background(
-                RoundedRectangle(cornerRadius: DrawerLayout.panelCornerRadius, style: .continuous)
-                    .fill(.ultraThinMaterial)
-            )
-        }
-    }
-}
+// Panel material is now applied at the DrawerPanelOverlay level
+// using the unified DrawerOutlineShape (panel + S-curve connector as one surface).
 
 // MARK: - Preview
 
