@@ -281,6 +281,11 @@ final class ActionExecutor {
 
         case .setActiveDrawerPane(let parentPaneId, let drawerPaneId):
             store.setActiveDrawerPane(drawerPaneId, in: parentPaneId)
+            // Sync focus: drawer pane becomes the globally focused surface
+            if let terminalView = viewRegistry.terminalView(for: drawerPaneId) {
+                terminalView.window?.makeFirstResponder(terminalView)
+                SurfaceManager.shared.syncFocus(activeSurfaceId: terminalView.surfaceId)
+            }
 
         case .resizeDrawerPane(let parentPaneId, let splitId, let ratio):
             store.resizeDrawerPane(parentPaneId: parentPaneId, splitId: splitId, ratio: ratio)
