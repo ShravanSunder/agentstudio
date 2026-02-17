@@ -123,10 +123,19 @@ class AppDelegate: NSObject, NSApplicationDelegate {
 
         // Collect known zmx session IDs from persisted panes (main-actor access).
         // These are the panes we expect to exist — everything else is an orphan.
+        // Handles both main panes (worktree-based IDs) and drawer panes (parent+child UUID IDs).
         let knownSessionIds = Set(
             store.panes.values
                 .filter { $0.provider == .zmx }
                 .compactMap { pane -> String? in
+                    // Drawer pane: session ID from parent + drawer pane UUIDs
+                    if let parentPaneId = pane.parentPaneId {
+                        return ZmxBackend.drawerSessionId(
+                            parentPaneId: parentPaneId,
+                            drawerPaneId: pane.id
+                        )
+                    }
+                    // Main pane: session ID from repo + worktree stable keys
                     guard let worktreeId = pane.worktreeId,
                           let repo = store.repo(containing: worktreeId),
                           let worktree = store.worktree(worktreeId) else { return nil }
