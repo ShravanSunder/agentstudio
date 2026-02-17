@@ -246,6 +246,12 @@ try await page.callJavaScript(
 
 The bridge world's `__bridgeInternal.merge/replace` dispatches a `CustomEvent('__bridge_push', ...)` which the page world (React) listens for (see §7.2 and §11.3).
 
+**Push envelope metadata**: Each push includes a version and correlation ID for debugging:
+- `__v: 1` — Push envelope version (bump on shape changes)
+- `__pushId: "<uuid>"` — Correlation ID for tracing a push from Swift observation through JS merge to React rerender
+
+These are passed as additional arguments to `__bridgeInternal.merge/replace` and forwarded in the `CustomEvent` detail. The receiver logs them but does not use them for business logic.
+
 ### 5.5 JSON-RPC Batch Requests
 
 The [JSON-RPC 2.0 spec](https://www.jsonrpc.org/specification) defines batch requests (array of request objects). This bridge does **not support batching** in the initial implementation:

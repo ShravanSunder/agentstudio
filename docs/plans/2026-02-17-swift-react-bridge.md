@@ -10,6 +10,107 @@
 
 ---
 
+## Invariants & Exit Criteria Matrix
+
+### Global Invariants (all phases)
+
+1. **Swift = source of truth** — Swift owns domain state; React mirrors it and owns only ephemeral UI state.
+2. **Structured, versioned, validated messages** — Every cross-boundary message is structured (JSON-RPC or typed push), versioned (`__v` field on push envelopes), and validated before use.
+3. **Explicit async lifecycle** — Every async loop has explicit lifecycle ownership and cancellation on pane teardown.
+4. **Observable with correlation IDs** — Every state mutation path is observable with structured `os.log` and correlation IDs (`pushId` / `commandId`) for cross-boundary tracing.
+5. **No crash on bridge errors** — No force-unwrap or crash path on bridge errors; failures degrade to `health: .error` state.
+6. **Page lifecycle is first-class** — Page events (navigate, terminate, close) are first-class test scenarios, not afterthoughts.
+7. **Measured performance** — Performance claims are enforced by measured budgets, not assumptions.
+8. **Security by configuration** — Security boundaries are enforced by API configuration and negative tests.
+9. **Explicit unsupported behavior** — Protocol behavior for unsupported features (batch, unknown methods) is explicit and deterministic.
+10. **Independent phase shipping** — Any phase can ship independently without breaking previous phase guarantees.
+
+### Phase 1: Transport Foundation
+
+| Type | # | Requirement |
+|------|---|-------------|
+| Invariant | 1.1 | Exactly one `WebPage` per pane and one RPC handler registration per page lifecycle. |
+| Invariant | 1.2 | Bridge world identity is explicit (`WKContentWorld.world(name:)`) and used consistently. |
+| Invariant | 1.3 | User script world scoping is correct (`WKUserScript(... in:)` + `addUserScript(_)`). |
+| Test | 1.4 | Swift→JS `callJavaScript` success/failure on loaded, loading, and closed page states. |
+| Test | 1.5 | JS→Swift message delivery only through configured handler name/world. |
+| Test | 1.6 | Navigation during in-flight bridge call yields deterministic error handling. |
+| Perf | 1.7 | p95 bridge call latency baseline recorded for 1KB / 10KB / 50KB payloads. |
+| Perf | 1.8 | No unbounded retry loop when page unavailable. |
+| Exit | 1.9 | Transport roundtrip tests pass, lifecycle race tests pass, baseline metrics published. |
+
+### Phase 2: State Push Pipeline
+
+| Type | # | Requirement |
+|------|---|-------------|
+| Invariant | 2.1 | Observation loops are owned by coordinator and fully cancel on teardown. |
+| Invariant | 2.2 | Pushes are epoch-safe; stale epoch updates never mutate current pane state. |
+| Invariant | 2.3 | Hot scalar states bypass debounce; bulk states may debounce with explicit policy. |
+| Test | 2.4 | Transactional coalescing verified for grouped synchronous mutations. |
+| Test | 2.5 | Out-paced consumer behavior verified (latest consistency, intermediate skip tolerance). |
+| Test | 2.6 | `merge`/`replace` semantics produce deterministic store snapshots. |
+| Test | 2.7 | Selector fanout measured (only subscribed components rerender). |
+| Perf | 2.8 | Push pipeline p95 CPU and rerender counts stay within budget for 100-file simulation. |
+| Exit | 2.9 | Correctness tests pass, cancellation tests pass, rerender and latency budgets met. |
+
+### Phase 3: JSON-RPC Command Channel
+
+| Type | # | Requirement |
+|------|---|-------------|
+| Invariant | 3.1 | Notification (`id` absent) produces no response object. |
+| Invariant | 3.2 | Request (`id` present) produces exactly one terminal response (`result` or `error`). |
+| Invariant | 3.3 | Error codes map correctly: -32700 parse, -32600 invalid request, -32601 method not found, -32602 invalid params, -32603 internal. |
+| Invariant | 3.4 | Unsupported batch behavior is explicit (rejected with -32600). |
+| Test | 3.5 | Malformed JSON, wrong envelope shape, unknown method, bad params type, handler throw. |
+| Test | 3.6 | Mixed request/notification flow does not leak responses for notifications. |
+| Test | 3.7 | Timeout and orphaned pending request handling for rare direct-response path. |
+| Perf | 3.8 | Router dispatch throughput under burst load with no unbounded memory growth. |
+| Exit | 3.9 | JSON-RPC compliance suite passes for declared feature set and burst tests pass. |
+
+### Phase 4: Diff Viewer (Pierre Integration)
+
+| Type | # | Requirement |
+|------|---|-------------|
+| Invariant | 4.1 | Per-file state machine is valid (`pending → loading → loaded\|error`) with no illegal regressions. |
+| Invariant | 4.2 | `loadEpoch` prevents stale writes after source switch. |
+| Invariant | 4.3 | Duplicate file-content requests are deduped by lock/state guard. |
+| Invariant | 4.4 | File list render never blocks on file-content fetch. |
+| Test | 4.5 | 100+ file diff simulation with progressive content arrival correctness. |
+| Test | 4.6 | On-demand priority requests during scroll do not duplicate or corrupt file state. |
+| Test | 4.7 | Comment add/resolve/delete roundtrip and send-to-agent payload integrity. |
+| Perf | 4.8 | First meaningful file list render and incremental content update latency measured and budgeted. |
+| Exit | 4.9 | Large-diff functional suite passes, race-condition suite passes, UI performance budgets met. |
+
+### Phase 5: Binary Channel
+
+| Type | # | Requirement |
+|------|---|-------------|
+| Invariant | 5.1 | Threshold routing is deterministic (`≤ threshold` → JSON push, `> threshold` → scheme fetch). |
+| Invariant | 5.2 | URL scheme handler always emits `.response` before `.data` chunks. |
+| Invariant | 5.3 | Request cancellation is honored promptly (task cancellation stops I/O work). |
+| Invariant | 5.4 | MIME type and encoding are correct for all served resource classes. |
+| Invariant | 5.5 | Path validation blocks traversal and disallowed resource types. |
+| Test | 5.6 | Payload equivalence between JSON path and binary path for same file. |
+| Test | 5.7 | Cancellation during large stream, navigation away mid-stream, and concurrent fetch bursts. |
+| Perf | 5.8 | 100KB / 500KB / 1MB comparisons capture latency, throughput, memory, and CPU. |
+| Exit | 5.9 | Security validation passes, streaming correctness passes, binary path beats or matches JSON above threshold. |
+
+### Phase 6: Security Hardening
+
+| Type | # | Requirement |
+|------|---|-------------|
+| Invariant | 6.1 | Only allowlisted RPC methods are dispatchable. |
+| Invariant | 6.2 | Page-world script cannot directly access bridge-only handler surface. |
+| Invariant | 6.3 | Navigation policy allows only explicitly approved schemes/routes. |
+| Invariant | 6.4 | Dangerous schemes and malformed URLs are rejected safely. |
+| Invariant | 6.5 | RPC flooding is rate-limited or backpressured without process instability. |
+| Test | 6.6 | Forged command event, unknown method flood, malformed payload flood, traversal attempts. |
+| Test | 6.7 | External URL navigation attempt triggers intended handoff/block behavior. |
+| Test | 6.8 | Web-content process termination and restart path preserves security guarantees. |
+| Exit | 6.9 | Full negative security suite passes and no high-severity finding remains open. |
+
+---
+
 ## Prerequisites
 
 Before starting, verify you have:
