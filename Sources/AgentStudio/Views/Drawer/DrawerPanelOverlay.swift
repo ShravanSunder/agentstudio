@@ -26,14 +26,15 @@ final class DrawerDismissMonitor {
             guard let self else { return event }
             guard let window = event.window else { return event }
 
-            // Convert NSEvent location (bottom-left window origin) to content view coordinates.
-            // NSHostingView.isFlipped == true → result is top-left origin, matching SwiftUI .global.
-            // Using convert(from: nil) handles titlebar offset and window style correctly.
-            guard let contentView = window.contentView else { return event }
-            let eventPoint = contentView.convert(event.locationInWindow, from: nil)
+            // Convert event location to flipped screen coordinates matching SwiftUI .global.
+            // AppKit screen coords: origin at bottom-left of main screen, Y grows up.
+            // SwiftUI .global:      origin at top-left of main screen, Y grows down.
+            let screenPoint = window.convertPoint(toScreen: event.locationInWindow)
+            guard let screenMaxY = (window.screen ?? NSScreen.main)?.frame.maxY else { return event }
+            let globalPoint = CGPoint(x: screenPoint.x, y: screenMaxY - screenPoint.y)
 
             // Check if click is inside any exclusion zone
-            if self.drawerRect.contains(eventPoint) || self.iconBarRect.contains(eventPoint) {
+            if self.drawerRect.contains(globalPoint) || self.iconBarRect.contains(globalPoint) {
                 return event
             }
 
@@ -87,7 +88,6 @@ struct DrawerPanelOverlay: View {
     let action: (PaneAction) -> Void
 
     @AppStorage("drawerHeightRatio") private var heightRatio: Double = DrawerLayout.heightRatioMax
-    @State private var dismissMonitor: DrawerDismissMonitor?
 
     /// Find the pane whose drawer is currently expanded.
     /// Invariant: only one drawer can be expanded at a time (toggle behavior).
@@ -107,6 +107,16 @@ struct DrawerPanelOverlay: View {
     var body: some View {
         // Read viewRevision so @Observable tracks it — triggers re-render after repair
         let _ = store.viewRevision
+
+        // Dismiss scrim — covers entire tab area behind the drawer.
+        // Clicks on scrim dismiss the drawer; clicks on drawer are consumed by contentShape.
+        if let paneId = expandedPaneInfo?.paneId {
+            Color.clear
+                .contentShape(Rectangle())
+                .onTapGesture {
+                    action(.toggleDrawer(paneId: paneId))
+                }
+        }
 
         if let info = expandedPaneInfo, tabSize.width > 0 {
             let drawerTree = viewRegistry.renderTree(for: info.drawer.layout)
@@ -185,56 +195,10 @@ struct DrawerPanelOverlay: View {
             // Layered shadow — tight contact + soft ambient
             .shadow(color: .black.opacity(0.15), radius: 4, y: 2)
             .shadow(color: .black.opacity(0.2), radius: 16, y: 8)
-            .background(
-                GeometryReader { geo in
-                    Color.clear
-                        .onChange(of: geo.frame(in: .global)) { _, newFrame in
-                            dismissMonitor?.drawerRect = newFrame
-                        }
-                        .onAppear {
-                            dismissMonitor?.drawerRect = geo.frame(in: .global)
-                        }
-                }
-            )
             .position(x: centerX, y: centerY)
         }
-
-        // Monitor lifecycle: install when drawer opens, remove when it closes
-        Color.clear
-            .frame(width: 0, height: 0)
-            .onChange(of: isExpanded) { _, expanded in
-                if expanded {
-                    installMonitor()
-                } else {
-                    removeMonitor()
-                }
-            }
-            .onDisappear {
-                removeMonitor()
-            }
-            .onChange(of: iconBarFrame) { _, frame in
-                dismissMonitor?.iconBarRect = frame
-            }
     }
 
-    // MARK: - Monitor Management
-
-    private func installMonitor() {
-        removeMonitor()
-        let paneId = expandedPaneInfo?.paneId
-        let monitor = DrawerDismissMonitor {
-            guard let paneId else { return }
-            action(.toggleDrawer(paneId: paneId))
-        }
-        monitor.iconBarRect = iconBarFrame
-        monitor.install()
-        dismissMonitor = monitor
-    }
-
-    private func removeMonitor() {
-        dismissMonitor?.remove()
-        dismissMonitor = nil
-    }
 }
 
 // MARK: - DrawerOutlineShape
