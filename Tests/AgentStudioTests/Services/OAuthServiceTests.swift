@@ -186,6 +186,15 @@ final class OAuthServiceTests: XCTestCase {
         }
     }
 
+    func test_validateCallback_emptyCode_throwsMissingCode() {
+        let url = URL(string: "agentstudio://oauth/callback?code=&state=s")!
+        XCTAssertThrowsError(try OAuthService.validateCallback(url: url, expectedState: "s")) { error in
+            guard case OAuthError.missingCode = error else {
+                return XCTFail("Expected missingCode, got \(error)")
+            }
+        }
+    }
+
     func test_validateCallback_stateMismatch_throwsStateMismatch() {
         let url = URL(string: "agentstudio://oauth/callback?code=abc123&state=wrong")!
         XCTAssertThrowsError(try OAuthService.validateCallback(url: url, expectedState: "expected")) { error in
