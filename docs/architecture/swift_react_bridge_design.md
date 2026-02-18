@@ -1653,8 +1653,6 @@ const pushNonce = crypto.randomUUID();
 // To avoid a startup race (listener registers after event fires), the bridge
 // world stores the nonce and replays it on demand when it sees a
 // '__bridge_handshake_request' event from the page world.
-let _handshakeDelivered = false;
-
 document.addEventListener('__bridge_handshake_request', () => {
     // Page world missed the initial handshake — replay it
     document.dispatchEvent(new CustomEvent('__bridge_handshake', {
