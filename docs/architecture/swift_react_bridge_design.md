@@ -1,79 +1,107 @@
 # Swift ↔ React Bridge Architecture
 
 > **Target**: macOS 26 (Tahoe) · Swift 6.2 · WebKit for SwiftUI
-> **Pattern**: Push-dominant state sync with JSON-RPC command channel
-> **First use case**: Diff viewer with Pierre (@pierre/diffs)
+> **Pattern**: Three-stream architecture with push-dominant state sync
+> **First use case**: Diff viewer and code review with Pierre (@pierre/diffs, @pierre/file-tree)
 > **Status**: Design spec
 
 ---
 
 ## 1. Overview
 
-Agent Studio embeds React-based UI panels inside webview panes alongside native terminal panes. The bridge connects Swift (domain truth) to React (view layer) through a push-dominant architecture:
+Agent Studio embeds React-based UI panels inside webview panes alongside native terminal panes. The bridge connects Swift (domain truth) to React (view layer) through three distinct data streams:
 
-- **Swift → React**: State push via `callJavaScript` into Zustand stores
-- **React → Swift**: JSON-RPC commands via `postMessage`
-- **No optimistic updates**: XPC latency is sub-frame (~1-5ms), so React always renders real state
+1. **State stream** (Swift → React): Small state pushes via `callJavaScript` into Zustand stores. Status updates, comments, file metadata, review state. Revision-stamped, ordered, stale-dropped.
+2. **Data stream** (bidirectional): Large payloads via `agentstudio://` URL scheme. File contents fetched on demand by React when files enter the viewport. Pull-based, cancelable, priority-queued.
+3. **Agent event stream** (Swift → React): Append-only activity events via batched `callJavaScript`. Sequence-numbered, batched at 30-50ms cadence. Agent started, file completed, task done.
 
-The diff viewer (powered by Pierre) is the first panel that proves this architecture. Future panels (agent management, DB dashboards, log viewers) reuse the same bridge.
+React sends commands to Swift via `postMessage` (JSON-RPC 2.0 notifications with idempotent command IDs).
+
+The diff viewer and code review system (powered by Pierre) is the first panel. It supports reviewing diffs from git commits, branch comparisons, and agent-generated snapshots. Future panels reuse the same bridge.
 
 ---
 
 ## 2. Architecture Principles
 
-1. **Swift owns domain truth** — All business data (diffs, comments, agents, sessions) lives in `@Observable` Swift models. React never holds authoritative state.
-2. **React owns UI truth** — Panel open/closed, scroll position, selection, hover, drag, animation. Swift never tracks ephemeral UI state.
-3. **Push over pull** — Swift decides when to send data. React receives. The rare "pull" (lazy-load a file) is a command that triggers a push.
-4. **Commands, not requests** — React sends fire-and-forget commands to Swift. Responses arrive as state updates through the push pipeline. No pending promise maps.
-5. **One pipe per direction** — `callJavaScript` for push, `postMessage` for commands. No WebSockets, no HTTP, no polling.
+1. **Three tiers of state** — Swift domain state (authoritative), React mirror state (derived, normalized for UI), React local state (ephemeral: drafts, selection, scroll). Local state can be optimistic; domain state is confirmed by Swift.
+2. **Three streams, not one pipe** — State stream for small pushes, data stream for large payloads, agent event stream for append-only activity. Each stream has different ordering, delivery, and backpressure characteristics.
+3. **Metadata push, content pull** — Swift pushes file manifests (metadata) immediately. React pulls file contents on demand via the data stream when files enter the viewport. This keeps the state stream fast and memory bounded.
+4. **Idempotent commands with acks** — React sends commands with a `commandId` (UUID). Swift deduplicates and acknowledges via state push. Enables optimistic local UI with rollback on rejection.
+5. **Revision-ordered pushes** — Every push envelope carries a monotonic `revision` per store. React drops pushes with `revision <= lastSeen`. Combined with `epoch` for load cancellation.
 6. **Testable at every layer** — Transport, protocol, push pipeline, stores — each layer has a clear contract and can be tested in isolation.
 
 ---
 
 ## 3. State Ownership Model
 
+### 3.1 Three Tiers
+
 ```
-┌──────────────────────────────────────────┐
-│  Swift (@Observable)                      │
-│  "Source of Truth"                         │
-│                                            │
-│  • Diff state: files, contents, comments   │
-│  • Agent state: sessions, status, logs     │
-│  • Workspace state: repos, config          │
-│  • Codable models                          │
-│  • Observations AsyncSequence drives push  │
-└──────────────┬───────────────────────────┘
+┌──────────────────────────────────────────────────────┐
+│  Tier 1: Swift Domain State (authoritative)           │
+│  @Observable models, Codable, persisted               │
+│                                                        │
+│  • DiffManifest: file paths, sizes, hunk summaries    │
+│  • File contents (served via data stream on demand)   │
+│  • ReviewThread, ReviewComment, ReviewAction           │
+│  • AgentTask: status, completed files, output refs     │
+│  • TimelineEvent: immutable audit log                  │
+│  • Observations AsyncSequence drives state stream     │
+└──────────────┬─────────────────────────────────────────┘
                │
-               │  PUSH: callJavaScript → Zustand stores
-               │  COMMAND: postMessage JSON-RPC (JS→Swift)
-               │  BINARY: agentstudio:// scheme (large files)
+               │  STATE STREAM: callJavaScript → Zustand (small, frequent)
+               │  DATA STREAM: agentstudio:// scheme (large, on demand)
+               │  AGENT EVENTS: callJavaScript batched (append-only)
+               │  COMMANDS: postMessage JSON-RPC (React → Swift)
                │
-┌──────────────▼───────────────────────────┐
-│  React + Zustand (UI state + mirrors)     │
-│                                            │
-│  • Zustand stores mirror Swift state       │
-│  • Panel open/closed, scroll position      │
-│  • Selection, hover, drag state            │
-│  • Ephemeral form state (comment drafts)   │
-│  • Pierre diff rendering state             │
-└────────────────────────────────────────────┘
+┌──────────────▼─────────────────────────────────────────┐
+│  Tier 2: React Mirror State (derived from Swift)        │
+│  Zustand stores, normalized for UI rendering            │
+│                                                          │
+│  • DiffManifest mirror (file list, statuses)            │
+│  • File content LRU cache (~20 files in memory)         │
+│  • Review threads + comments (normalized by ID)          │
+│  • Agent task status                                     │
+│  • Derived selectors (filtered files, comment counts)    │
+│  • Revision-tracked: each store knows its last revision  │
+└──────────────┬───────────────────────────────────────────┘
+               │
+               │  React components subscribe via selectors + useShallow
+               │
+┌──────────────▼───────────────────────────────────────────┐
+│  Tier 3: React Local UI State (ephemeral)                 │
+│  Component state, not persisted, not pushed to Swift      │
+│                                                            │
+│  • Draft comment text, cursor position                    │
+│  • File tree expanded/collapsed nodes                     │
+│  • Scroll position, selection, hover state                │
+│  • Search/filter query (applied locally to manifest)      │
+│  • Optimistic UI state (pending comment, pending action)   │
+│  • Pierre rendering state (virtualizer, height caches)    │
+└────────────────────────────────────────────────────────────┘
 ```
 
-**Rule**: Domain state mutations always flow through Swift. React sends commands, Swift mutates, push pipeline delivers the update.
+### 3.2 State Flow Rules
 
-### Why no optimistic updates
+**Domain mutations flow through Swift**: React sends commands → Swift mutates domain state → state stream pushes update → React mirror updates → UI rerenders.
+
+**Local state is optimistic**: When user adds a comment, React immediately shows it in the UI (tier 3, status: `pending`). When Swift confirms via state push, it moves to tier 2 (status: `committed`). If Swift rejects, React rolls back the optimistic state.
+
+**Mirror state is derived, never mutated directly**: Zustand stores only update through the bridge receiver (state stream) or content loader (data stream). Components never call `setState` on mirror stores directly.
+
+### 3.3 XPC Latency Characteristics
 
 `callJavaScript` uses XPC (Mach message passing, same machine):
 
-| Payload Size | Latency | Context |
+| Payload Size | Latency | Use Case |
 |---|---|---|
-| < 5 KB JSON | Sub-millisecond to ~1ms | File list, status updates, comments |
-| 5–50 KB | 1–5ms | Individual file contents |
-| 50–500 KB | 5–20ms | Large files (serialization-dominated) |
+| < 5 KB JSON | Sub-millisecond to ~1ms | Status updates, comment CRUD, file metadata |
+| 5–50 KB | 1–5ms | DiffManifest (500 files ≈ 25KB), agent events batch |
+| 50–500 KB | 5–20ms | Reserved for data stream (agentstudio://) |
 
-A 60fps frame is 16.7ms. Even medium payloads arrive within a single frame.
+A 60fps frame is 16.7ms. State stream payloads (<50KB) arrive within a single frame. File contents are pulled via the data stream, keeping the state stream fast.
 
-> **Caveat**: These latency figures are estimates based on typical XPC/Mach message passing characteristics. Actual values must be validated on target hardware during Phase 1 verification. JSON serialization overhead, WebKit thread scheduling, and system load can shift these numbers. The Phase 1 transport test should include a round-trip latency benchmark across payload sizes.
+> **Caveat**: These latency figures are estimates. Actual values must be validated during Phase 1 verification.
 
 ---
 
@@ -172,7 +200,7 @@ struct BinarySchemeHandler: URLSchemeHandler {
 }
 ```
 
-> **Note on full-buffer load**: The current design loads the entire file into memory before yielding. For files > 1MB, consider streaming via chunked yields (e.g., 64KB chunks with `Task.checkCancellation()` between each). This is a Phase 5 optimization — the initial implementation uses full-buffer load with the 50KB threshold keeping payloads manageable.
+> **Note on full-buffer load**: The current design loads the entire file into memory before yielding. For files > 1MB, consider streaming via chunked yields (e.g., 64KB chunks with `Task.checkCancellation()` between each). This is a future optimization — the initial implementation uses full-buffer load, which is acceptable since content pull requests are serialized per file and LRU-bounded (~20 files in cache).
 
 React consumes via standard `fetch()`:
 ```typescript
@@ -180,13 +208,29 @@ const content = await fetch(`agentstudio://resource/file/${fileId}`);
 const text = await content.text();
 ```
 
-### 4.4 When to use each channel
+### 4.4 Three Streams Mapped to Transport
 
-| Channel | Direction | When | Example |
-|---|---|---|---|
-| `callJavaScript` | Swift → JS | State pushes, all domain data | File list, comments, status |
-| `postMessage` | JS → Swift | Commands, user actions | Request file contents, add comment |
-| `agentstudio://` | JS → Swift (request) → JS (response) | Large binary payloads | Full file contents > 50KB, images |
+| Stream | Transport | Direction | Payload Size | Frequency | Ordering |
+|---|---|---|---|---|---|
+| **State** | `callJavaScript` | Swift → React | 1-50KB | On mutation, debounced | Revision + epoch per store |
+| **Data** | `agentstudio://` | React → Swift → React | 50KB-5MB | On demand (viewport) | Request/response |
+| **Agent events** | `callJavaScript` (batched) | Swift → React | 0.1-5KB per event, batched | During agent work, 30-50ms cadence | Sequence number per task |
+| **Commands** | `postMessage` | React → Swift | 0.1-2KB | On user action | commandId for idempotency |
+
+### 4.5 Bridge Ready Handshake
+
+Before any stream can operate, the bridge must complete initialization. The handshake prevents push-before-listener races:
+
+```
+1. Swift loads page (agentstudio://app/index.html)
+2. Bridge bootstrap runs in bridge world (installs __bridgeInternal, nonces)
+3. React app mounts, bridge receiver initializes, subscribes to events
+4. React dispatches '__bridge_ready' CustomEvent
+5. Bridge world captures it, relays to Swift via postMessage({ type: "bridge.ready" })
+6. Swift starts observation loops + pushes initial DiffManifest
+```
+
+No state pushes or commands are allowed before step 6 completes. The `BridgeCoordinator` gates on receiving `bridge.ready` before starting observation loops.
 
 ---
 
@@ -194,15 +238,20 @@ const text = await content.text();
 
 ### 5.1 Commands (JS → Swift): JSON-RPC 2.0
 
-Commands use JSON-RPC 2.0 **notifications** (no `id` field). Responses arrive through state push, not as JSON-RPC responses.
+Commands use JSON-RPC 2.0 **notifications** (no `id` field) with an additional `commandId` for idempotency and ack tracking. Responses arrive through state push, not as JSON-RPC responses.
 
 ```json
 {
     "jsonrpc": "2.0",
     "method": "diff.requestFileContents",
-    "params": { "fileId": "abc123" }
+    "params": { "fileId": "abc123" },
+    "__commandId": "cmd_a1b2c3d4"
 }
 ```
+
+The `__commandId` (UUID, generated by React) enables:
+- **Idempotency**: Swift deduplicates commands with the same `commandId` within a sliding window (last 100 commands).
+- **Ack tracking**: Swift pushes a `commandAck` event in the state stream: `{ commandId, status: "ok" | "rejected", reason? }`. React uses this to confirm or roll back optimistic local UI state.
 
 For the rare case where JS needs a **direct response** (one-shot queries, validation), include an `id` and Swift sends a JSON-RPC response via `callJavaScript`:
 
@@ -219,7 +268,7 @@ For the rare case where JS needs a **direct response** (one-shot queries, valida
 | Namespace | Examples | Description |
 |---|---|---|
 | `diff.*` | `diff.requestFileContents`, `diff.loadDiff` | Diff operations |
-| `comment.*` | `comment.add`, `comment.resolve`, `comment.delete` | Comment lifecycle |
+| `review.*` | `review.addComment`, `review.resolveThread`, `review.deleteComment` | Review lifecycle |
 | `agent.*` | `agent.start`, `agent.stop`, `agent.injectPrompt` | Agent lifecycle |
 | `git.*` | `git.status`, `git.fileTree` | Git operations |
 | `system.*` | `system.health`, `system.capabilities` | System info |
@@ -257,11 +306,13 @@ try await page.callJavaScript(
 
 The bridge world's `__bridgeInternal.merge/replace` dispatches a `CustomEvent('__bridge_push', ...)` which the page world (React) listens for (see §7.2 and §11.3).
 
-**Push envelope metadata**: Each push includes a version and correlation ID for debugging:
+**Push envelope metadata**: Each push includes version, correlation ID, and ordering fields:
 - `__v: 1` — Push envelope version (bump on shape changes)
 - `__pushId: "<uuid>"` — Correlation ID for tracing a push from Swift observation through JS merge to React rerender
+- `__revision: <int>` — Monotonic counter per store. React drops pushes with `revision <= lastSeen`. Prevents out-of-order delivery.
+- `__epoch: <int>` — Load generation counter. Incremented when a new diff source is loaded. React discards pushes from stale epochs.
 
-These are passed as additional arguments to `__bridgeInternal.merge/replace` and forwarded in the `CustomEvent` detail. The receiver logs them but does not use them for business logic.
+These are passed as additional arguments to `__bridgeInternal.merge/replace` and forwarded in the `CustomEvent` detail. The receiver uses `__revision` and `__epoch` for ordering/staleness; `__pushId` and `__v` are for debugging only.
 
 ### 5.5 JSON-RPC Batch Requests
 
@@ -316,7 +367,7 @@ func watchDiffState() async {
 
 ### 6.2 Push Coalescing Strategy
 
-Even with `Observations` transactional coalescing, rapid async updates (file contents loading in parallel) can produce many yields. Use frame-aligned debouncing:
+Even with `Observations` transactional coalescing, rapid async updates (status changes, review thread mutations) can produce many yields. Use frame-aligned debouncing:
 
 ```swift
 func watchDiffState() async {
@@ -418,12 +469,13 @@ The push pipeline involves three CPU-bound steps per push: (1) Swift `JSONEncode
 
 | Strategy | When | Effect |
 |---|---|---|
-| **Granular per-file pushes** (§10.4) | File contents | Push only changed files, not entire `files` map |
+| **Metadata-only pushes** (§10.1) | Diff loaded | Push `DiffManifest` (file list + metadata), NOT file contents |
+| **Content pull on demand** (§10.2) | File enters viewport | React fetches via `agentstudio://resource/file/{id}` — no state stream overhead |
 | **Debounced observation** (§6.2) | Rapid mutations | Coalesce multiple changes into one push |
-| **Status-only push channel** | Loading indicators | Separate lightweight push for status scalars |
-| **Binary channel for large files** (§4.3) | Files > 50KB | Skip JSON encode/parse entirely |
+| **Batched agent events** (§4.4) | Agent activity | 30-50ms batching cadence, append-only |
+| **LRU content cache** (§10.4) | Memory pressure | ~20 files in React memory, oldest evicted |
 
-**Measurement requirement**: Phase 2 testing must include a benchmark: push a 100-file diff state object (file list + 10 loaded file contents ~50KB each), measure end-to-end time from Swift mutation to React rerender. If > 32ms (2 frames), increase granularity or move large payloads to binary channel.
+**Measurement requirement**: Phase 2 testing must include a benchmark: push a 100-file `DiffManifest` (metadata only, no file contents), measure end-to-end time from Swift mutation to React rerender. Target: < 32ms (2 frames). File contents are never pushed via the state stream — they're served on demand via the data stream.
 
 ---
 
@@ -449,32 +501,59 @@ interface DiffFile {
     size: number;
 }
 
-interface DiffComment {
-    id: string;
-    fileId: string;
-    lineNumber: number | null;
-    side: 'old' | 'new';
-    text: string;
-    createdAt: string;
-    author: { type: 'user' | 'agent'; name: string };
-}
-
+// Tier 2 mirror: DiffManifest store (pushed via state stream)
 interface DiffStore {
     source: DiffSource | null;
-    files: Record<string, DiffFile>;
-    fileOrder: string[];
-    comments: Record<string, DiffComment[]>;
-    status: 'idle' | 'loadingFileList' | 'loadingContents' | 'ready' | 'error';
+    manifest: FileManifest[] | null;
+    epoch: number;
+    status: 'idle' | 'loadingManifest' | 'manifestReady' | 'error';
     error: string | null;
+    lastRevision: number;           // tracks last accepted push revision
+}
+
+interface FileManifest {
+    id: string;
+    path: string;
+    oldPath: string | null;
+    changeType: 'added' | 'modified' | 'deleted' | 'renamed';
+    loadStatus: 'pending' | 'loading' | 'loaded' | 'error';
+    additions: number;
+    deletions: number;
+    size: number;
+    contextHash: string;
+    hunkSummary: HunkSummary[];
+}
+
+// Tier 2 mirror: Review store (pushed via state stream)
+interface ReviewStore {
+    threads: Record<string, ReviewThread>;
+    viewedFiles: Set<string>;
+    lastRevision: number;
+}
+
+interface ReviewThread {
+    id: string;
+    fileId: string;
+    anchor: { side: 'old' | 'new'; line: number; contextHash: string };
+    state: 'open' | 'resolved';
+    isOutdated: boolean;
+    comments: ReviewComment[];
+}
+
+interface ReviewComment {
+    id: string;
+    author: { type: 'user' | 'agent'; name: string };
+    body: string;
+    createdAt: string;
+    editedAt: string | null;
 }
 
 export const useDiffStore = create<DiffStore>()(
     devtools(
         () => ({
             source: null,
-            files: {},
-            fileOrder: [],
-            comments: {},
+            manifest: null,
+            epoch: 0,
             status: 'idle',
             error: null,
         }),
@@ -768,8 +847,9 @@ Domain state is split into two categories:
 @MainActor
 class PaneDomainState {
     var diff: DiffState = .init()
-    // Future: var agentChat: AgentChatState = .init()
-    // Future: var logViewer: LogViewerState = .init()
+    var review: ReviewState = .init()
+    var agentTasks: [UUID: AgentTask] = [:]
+    var timeline: [TimelineEvent] = []    // in-memory v1, .jsonl v2
 }
 ```
 
@@ -780,49 +860,52 @@ class PaneDomainState {
 @MainActor
 class SharedBridgeState {
     var connection: ConnectionState = .init()
-    // Future: var system: SystemState = .init()
 }
 ```
 
 **Ownership**: `BridgeCoordinator` owns one `PaneDomainState` and holds a reference to the singleton `SharedBridgeState`. Each pane's observation loops push both per-pane and shared state into their respective Zustand stores.
 
-### 8.2 Diff State
+### 8.2 Diff Source and Manifest
+
+The diff viewer supports three data sources, all producing the same review UI:
 
 ```swift
-@Observable
-class DiffState {
-    var source: DiffSource = .none
-    var files: [String: DiffFile] = [:]
-    var fileOrder: [String] = []
-    var comments: [String: [DiffComment]] = [:]
-    var status: DiffStatus = .idle
-    var error: String? = nil
-}
-
 enum DiffSource: Codable {
     case none
-    case workingTree(worktreeId: UUID)
-    case commitRange(from: String, to: String)
-    case branch(name: String, base: String)
+    case agentSnapshot(taskId: UUID, timestamp: Date)  // agent produced this
+    case commit(sha: String)                            // single commit review
+    case branchDiff(head: String, base: String)         // branch comparison
+}
+```
+
+The diff loading pipeline takes a `DiffSource` and produces a `DiffManifest` — lightweight file metadata pushed via the state stream. File contents are NOT included; they're fetched on demand via the data stream.
+
+```swift
+struct DiffManifest: Codable {
+    let source: DiffSource
+    let epoch: Int                          // incremented on new diff load
+    let files: [FileManifest]               // ordered list of changed files
 }
 
-enum DiffStatus: String, Codable {
-    case idle
-    case loadingFileList
-    case loadingContents
-    case ready
-    case error
-}
-
-struct DiffFile: Codable, Identifiable {
+struct FileManifest: Codable, Identifiable {
     let id: String
     let path: String
-    let oldPath: String?
+    let oldPath: String?                    // for renames
     let changeType: FileChangeType
-    var status: FileLoadStatus
-    var oldContent: String?
-    var newContent: String?
-    let size: Int
+    var loadStatus: FileLoadStatus
+    let additions: Int                      // line count
+    let deletions: Int                      // line count
+    let size: Int                           // bytes, for threshold decisions
+    let contextHash: String                 // hash of file content for comment anchoring
+    let hunkSummary: [HunkSummary]          // line ranges that changed
+}
+
+struct HunkSummary: Codable {
+    let oldStart: Int
+    let oldCount: Int
+    let newStart: Int
+    let newCount: Int
+    let header: String?                     // e.g., "func loadDiff()"
 }
 
 enum FileChangeType: String, Codable {
@@ -830,17 +913,66 @@ enum FileChangeType: String, Codable {
 }
 
 enum FileLoadStatus: String, Codable {
-    case pending, loading, loaded, error
+    case pending     // metadata known, content not yet requested
+    case loading     // content fetch in progress
+    case loaded      // content available via data stream
+    case error       // content fetch failed
+}
+```
+
+### 8.3 Diff State
+
+```swift
+@Observable
+class DiffState {
+    var source: DiffSource = .none
+    var manifest: DiffManifest? = nil       // pushed via state stream
+    var status: DiffStatus = .idle
+    var error: String? = nil
+    var epoch: Int = 0                      // current load generation
 }
 
-struct DiffComment: Codable, Identifiable {
+enum DiffStatus: String, Codable {
+    case idle
+    case loadingManifest                    // computing file list from git
+    case manifestReady                      // file list available, contents on demand
+    case error
+}
+```
+
+**Note**: File contents are NOT stored in `DiffState`. They're served on demand via `agentstudio://resource/file/{id}` and cached in React's tier 2 mirror state (LRU of ~20 files). This keeps the state stream fast and Swift memory bounded.
+
+### 8.4 Review Domain Objects
+
+```swift
+/// A comment thread anchored to a specific location in the diff.
+/// Anchored by content hash, not just line number, so comments survive line shifts.
+struct ReviewThread: Codable, Identifiable {
     let id: UUID
     let fileId: String
-    let lineNumber: Int?
-    let side: DiffSide
-    var text: String
-    let createdAt: Date
+    let anchor: CommentAnchor
+    var state: ThreadState
+    var isOutdated: Bool                    // true when contextHash no longer matches
+    var comments: [ReviewComment]
+}
+
+struct CommentAnchor: Codable {
+    let side: DiffSide                      // .old or .new
+    let line: Int                           // line number at time of comment
+    let contextHash: String                 // hash of surrounding ±3 lines
+}
+
+enum ThreadState: String, Codable {
+    case open
+    case resolved
+}
+
+struct ReviewComment: Codable, Identifiable {
+    let id: UUID
     let author: CommentAuthor
+    var body: String
+    let createdAt: Date
+    var editedAt: Date?
 }
 
 enum DiffSide: String, Codable { case old, new }
@@ -851,6 +983,77 @@ struct CommentAuthor: Codable {
     enum AuthorType: String, Codable { case user, agent }
 }
 
+/// User actions on review threads and files.
+enum ReviewAction: Codable {
+    case resolveThread(threadId: UUID)
+    case unresolveThread(threadId: UUID)
+    case markFileViewed(fileId: String)
+    case unmarkFileViewed(fileId: String)
+}
+
+/// Aggregate review state for the pane.
+@Observable
+class ReviewState: Codable {
+    var threads: [UUID: ReviewThread] = [:]
+    var viewedFiles: Set<String> = []       // file IDs marked as viewed
+}
+```
+
+### 8.5 Agent Task
+
+```swift
+/// A durable record of an agent task (e.g., "rewrite this function").
+/// Created when user requests agent work, survives across pushes.
+struct AgentTask: Codable, Identifiable {
+    let id: UUID
+    let source: AgentTaskSource
+    let prompt: String
+    var status: AgentTaskStatus
+    var modifiedFiles: [String]             // file IDs the agent changed
+    let createdAt: Date
+    var completedAt: Date?
+}
+
+enum AgentTaskSource: Codable {
+    case thread(threadId: UUID)             // spawned from a comment thread
+    case selection(fileId: String, lineRange: ClosedRange<Int>)  // spawned from a selection
+    case manual(description: String)        // user-initiated from command bar
+}
+
+enum AgentTaskStatus: Codable {
+    case queued
+    case running(completedFiles: [String], currentFile: String?)
+    case done
+    case failed(error: String)
+}
+```
+
+### 8.6 Timeline Event
+
+```swift
+/// Immutable audit log entry. In-memory for v1, .jsonl persistence for v2.
+struct TimelineEvent: Codable, Identifiable {
+    let id: UUID
+    let timestamp: Date
+    let kind: TimelineEventKind
+    let metadata: [String: AnyCodableValue]  // flexible payload per event type
+}
+
+enum TimelineEventKind: String, Codable {
+    case commentAdded
+    case commentResolved
+    case fileViewed
+    case agentTaskQueued
+    case agentTaskCompleted
+    case agentTaskFailed
+    case diffLoaded
+    case reviewSubmitted
+}
+```
+
+### 8.7 Connection State
+
+```swift
 @Observable
 class ConnectionState: Codable {
     var health: ConnectionHealth = .connected
@@ -859,9 +1062,9 @@ class ConnectionState: Codable {
 }
 ```
 
-### 8.3 Codable Conformance
+### 8.8 Codable Conformance
 
-All domain types conform to `Codable` for JSON serialization across the bridge. `@Observable` classes use the macro's auto-generated `Codable` conformance.
+All domain types conform to `Codable` for JSON serialization across the bridge. `@Observable` classes use the macro's auto-generated `Codable` conformance. `AnyCodableValue` (existing in `PaneContent.swift`) is reused for flexible metadata fields.
 
 ---
 
@@ -1167,162 +1370,128 @@ class RPCMessageHandler: NSObject, WKScriptMessageHandler {
 
 ---
 
-## 10. Chunked Progressive Loading
+## 10. Content Delivery: Metadata Push + Content Pull
 
-For large PRs (100+ files), loading happens in three phases:
+For large diffs (100+ files), content delivery separates metadata (state stream) from file contents (data stream).
 
-### 10.1 Phase 1 — File List (immediate)
+### 10.1 Metadata Push (State Stream)
 
-Swift pushes the file list with metadata (paths, change types, sizes) but NO file contents:
+Swift computes the `DiffManifest` (file paths, sizes, hunk summaries, statuses) and pushes it via the state stream. No file contents cross this stream.
 
 ```swift
 func loadDiff(source: DiffSource) async {
-    domainState.diff.source = source
-    domainState.diff.status = .loadingFileList
-
-    let changedFiles = try await gitService.listChangedFiles(source: source)
-
-    // Push file list without contents
-    for file in changedFiles {
-        domainState.diff.files[file.id] = DiffFile(
-            id: file.id, path: file.path, oldPath: file.oldPath,
-            changeType: file.changeType, status: .pending,
-            oldContent: nil, newContent: nil, size: file.size
-        )
-    }
-    domainState.diff.fileOrder = changedFiles.map(\.id)
-    domainState.diff.status = .loadingContents
-    // Observations triggers push → React renders file tree immediately
-}
-```
-
-### 10.2 Phase 2 — Background Batches (progressive)
-
-Swift loads file contents in batches of 10, prioritized by size (smaller first):
-
-```swift
-func loadFileContents() async {
-    let sortedFiles = domainState.diff.fileOrder
-        .compactMap { domainState.diff.files[$0] }
-        .filter { $0.status == .pending }
-        .sorted { $0.size < $1.size }
-
-    for batch in sortedFiles.chunked(into: 10) {
-        await withTaskGroup(of: Void.self) { group in
-            for file in batch {
-                group.addTask {
-                    await self.loadSingleFile(fileId: file.id)
-                }
-            }
-        }
-        // Each file status change triggers Observations → push
-    }
-
-    domainState.diff.status = .ready
-}
-
-private func loadSingleFile(fileId: String) async {
-    domainState.diff.files[fileId]?.status = .loading
+    paneState.diff.epoch += 1
+    paneState.diff.source = source
+    paneState.diff.status = .loadingManifest
 
     do {
-        let contents = try await gitService.readFileContents(fileId: fileId)
-        domainState.diff.files[fileId]?.oldContent = contents.old
-        domainState.diff.files[fileId]?.newContent = contents.new
-        domainState.diff.files[fileId]?.status = .loaded
+        let changedFiles = try await gitService.listChangedFiles(source: source)
+        paneState.diff.manifest = DiffManifest(
+            source: source,
+            epoch: paneState.diff.epoch,
+            files: changedFiles.map { file in
+                FileManifest(
+                    id: file.id, path: file.path, oldPath: file.oldPath,
+                    changeType: file.changeType, loadStatus: .pending,
+                    additions: file.additions, deletions: file.deletions,
+                    size: file.size, contextHash: file.contextHash,
+                    hunkSummary: file.hunks
+                )
+            }
+        )
+        paneState.diff.status = .manifestReady
+        // Observations triggers push → React renders file tree + diff list immediately
     } catch {
-        domainState.diff.files[fileId]?.status = .error
+        paneState.diff.status = .error
+        paneState.diff.error = error.localizedDescription
     }
 }
 ```
 
-### 10.3 Phase 3 — On-Demand Priority (user scroll)
+### 10.2 Content Pull (Data Stream)
 
-When the user scrolls to a file that hasn't loaded yet, React sends a command to prioritize it:
+React fetches file contents on demand via the `agentstudio://` binary channel. Content is requested when files enter Pierre's viewport (see §12 for Pierre virtualization).
 
 ```typescript
-// React: user scrolls to unloaded file
-const status = file?.status;
-useEffect(() => {
-    if (status === 'pending') {
-        commands.diff.requestFileContents(file.id);
+// React: triggered by Pierre's virtualizer when a file becomes visible
+async function loadFileContent(fileId: string): Promise<FileContents> {
+    const response = await fetch(`agentstudio://resource/file/${fileId}`);
+    if (!response.ok) throw new Error(`Failed to load file ${fileId}`);
+    const data = await response.json(); // { oldContent, newContent }
+    return data;
+}
+```
+
+```swift
+// Swift: BinarySchemeHandler serves file contents
+// Path: agentstudio://resource/file/{fileId}
+func resolveResource(for request: URLRequest) async throws -> (Data, String) {
+    guard let url = request.url,
+          let fileId = extractFileId(from: url) else {
+        throw BridgeError.invalidRequest("Invalid resource URL")
     }
-}, [file.id, status]);
-```
 
-```swift
-// Swift: handler reprioritizes the file
-await router.register(Methods.DiffRequestFileContents.self) { params in
-    await self.loadSingleFile(fileId: params.fileId)
-}
-```
-
-### 10.4 Race Condition Guards
-
-The same file can be requested concurrently by Phase 2 (batch) and Phase 3 (on-demand). Three guards prevent races:
-
-**1. Per-file load lock**: `loadSingleFile` checks and sets `.loading` atomically. If already `.loading`, skip:
-
-```swift
-private func loadSingleFile(fileId: String) async {
-    // Guard: skip if already loading or loaded
-    guard let file = paneState.diff.files[fileId],
-          file.status == .pending else { return }
-
-    paneState.diff.files[fileId]?.status = .loading
-    // ... load contents
-}
-```
-
-**2. Load epoch**: Each `loadDiff()` call increments an epoch counter. File loads check the epoch before writing results — stale loads from a previous diff source are discarded:
-
-```swift
-@Observable
-class DiffState {
-    var loadEpoch: Int = 0
-    // ...
-}
-
-private func loadSingleFile(fileId: String, epoch: Int) async {
-    do {
-        let contents = try await gitService.readFileContents(fileId: fileId)
-
-        // Transactional epoch check: verify BEFORE EACH property write after await.
-        // The await above is a suspension point — epoch could have changed while we waited.
-        guard paneState.diff.loadEpoch == epoch else { return }
-        paneState.diff.files[fileId]?.oldContent = contents.old
-
-        guard paneState.diff.loadEpoch == epoch else { return }
-        paneState.diff.files[fileId]?.newContent = contents.new
-
-        guard paneState.diff.loadEpoch == epoch else { return }
-        paneState.diff.files[fileId]?.status = .loaded
-    } catch {
-        guard paneState.diff.loadEpoch == epoch else { return }
-        paneState.diff.files[fileId]?.status = .error
+    // Epoch check: don't serve content from a stale diff
+    guard paneState.diff.manifest?.epoch == paneState.diff.epoch else {
+        throw BridgeError.staleRequest("Diff epoch has changed")
     }
+
+    let contents = try await gitService.readFileContents(fileId: fileId)
+    let json = try JSONEncoder().encode(contents)
+    return (json, "application/json")
 }
 ```
 
-**3. Debounced on-demand requests**: React debounces `requestFileContents` calls (e.g., 100ms) to avoid flooding Swift when the user scrolls rapidly through the file list.
+### 10.3 Priority Queue
 
-### 10.4 Push Granularity for File Contents
+React manages a priority queue for content requests:
 
-Individual file content updates push only the changed file, not the entire files map. This is achieved through granular observation:
+| Priority | Trigger | Behavior |
+|---|---|---|
+| **High** | File enters viewport (Pierre visibility) | Fetch immediately |
+| **Medium** | User clicks/hovers file in tree | Prefetch |
+| **Low** | Neighbor files (±5 from viewport) | Idle-time prefetch |
+| **Cancel** | File leaves viewport, new diff loaded | Abort in-flight fetch |
 
-```swift
-func watchFileContents() async {
-    // Observe individual file status changes
-    // Push only the changed file to avoid sending all 100 files on each update
-    for await _ in Observations({ self.domainState.diff.files }).debounce(for: .milliseconds(16)) {
-        // Diff the current files against last-pushed state
-        // Push only changed entries
-        let changed = diffAgainstLastPush(self.domainState.diff.files)
-        for (fileId, file) in changed {
-            await pushToJS(store: "diff", path: "files.\(fileId)", value: file)
-        }
+```typescript
+// React: content loader with priority queue
+const contentLoader = {
+    queue: new Map<string, { priority: number; controller: AbortController }>(),
+
+    request(fileId: string, priority: number) {
+        // Cancel lower-priority request for same file
+        const existing = this.queue.get(fileId);
+        if (existing && existing.priority >= priority) return;
+        existing?.controller.abort();
+
+        const controller = new AbortController();
+        this.queue.set(fileId, { priority, controller });
+
+        fetch(`agentstudio://resource/file/${fileId}`, { signal: controller.signal })
+            .then(res => res.json())
+            .then(data => {
+                fileContentCache.set(fileId, data); // LRU cache, max ~20 files
+                this.queue.delete(fileId);
+            })
+            .catch(err => {
+                if (err.name !== 'AbortError') this.queue.delete(fileId);
+            });
+    },
+
+    cancelAll() {
+        for (const [, { controller }] of this.queue) controller.abort();
+        this.queue.clear();
     }
-}
+};
 ```
+
+### 10.4 LRU Content Cache
+
+File contents are cached in React's tier 2 mirror state with an LRU policy (~20 files). This keeps memory bounded while avoiding re-fetches for recently viewed files:
+
+- **On viewport enter**: Check cache → cache hit = render immediately. Cache miss = fetch via data stream.
+- **On cache full**: Evict least-recently-used file content.
+- **On new diff load**: Clear entire cache (epoch change).
 
 ---
 
@@ -1487,26 +1656,51 @@ class AgentStudioNavigationDecider: WebPage.NavigationDeciding {
 
 ## 12. Diff Viewer Integration (Pierre)
 
-### 12.1 Pierre Component Usage
+### 12.1 Pierre Packages
 
-Pierre (`@pierre/diffs`, v1.0.11+) provides React components for rendering diffs from full file contents. Key exports: `MultiFileDiff`, `PatchDiff`. Note: Pierre's virtualized rendering is an internal implementation detail — consumers use the high-level components, not the internal `VirtualizedFileDiff`.
+The diff viewer uses two Pierre packages:
+
+| Package | Purpose | Key Exports |
+|---|---|---|
+| **`@pierre/diffs`** | Diff rendering with syntax highlighting | `MultiFileDiff`, `VirtualizedFileDiff`, `Virtualizer`, `WorkerPoolManager`, `FileStream` |
+| **`@pierre/file-tree`** | File tree sidebar with search | `FileTree` (React), `generateLazyDataLoader`, `onSelection` callback |
+
+### 12.2 Virtualized Diff Rendering
+
+Pierre has **built-in virtualization** via `VirtualizedFileDiff`. No external virtualizer (React Window/Virtuoso) needed. The `Virtualizer` manages the scroll container; each file gets a `VirtualizedFileDiff` that renders only visible lines plus buffers.
 
 ```typescript
 import { MultiFileDiff } from '@pierre/diffs/react';
+import { Virtualizer, VirtualizedFileDiff, WorkerPoolManager } from '@pierre/diffs';
+
+// Create shared instances for the diff panel
+const virtualizer = new Virtualizer(scrollContainer);
+const workerManager = new WorkerPoolManager();
 
 function DiffFileView({ fileId }: { fileId: string }) {
-    const file = useFileContent(fileId);
+    const manifest = useDiffManifest(fileId);
+    const content = useFileContent(fileId); // LRU cached, fetched via data stream
 
-    if (!file || file.status === 'pending') return <FileListItem skeleton />;
-    if (file.status === 'loading') return <FileListItem loading />;
-    if (file.status === 'error') return <FileListItem error />;
+    if (!content) {
+        // File content not yet loaded — Pierre still renders with approximate height
+        // Content loader triggers fetch when this file enters viewport
+        return <DiffFileSkeleton manifest={manifest} />;
+    }
 
     return (
         <MultiFileDiff
-            oldFile={{ name: file.oldPath ?? file.path, contents: file.oldContent ?? '' }}
-            newFile={{ name: file.path, contents: file.newContent ?? '' }}
+            oldFile={{
+                name: manifest.oldPath ?? manifest.path,
+                contents: content.oldContent ?? '',
+                cacheKey: `${fileId}:old`,  // enables worker highlight caching
+            }}
+            newFile={{
+                name: manifest.path,
+                contents: content.newContent ?? '',
+                cacheKey: `${fileId}:new`,
+            }}
             options={{
-                theme: { dark: 'pierre-dark', light: 'pierre-light' },
+                theme: 'pierre-dark',
                 diffStyle: 'split',
             }}
         />
@@ -1514,72 +1708,132 @@ function DiffFileView({ fileId }: { fileId: string }) {
 }
 ```
 
-### 12.2 File List with Progressive Loading
+**Key behaviors**:
+- `VirtualizedFileDiff` computes approximate heights from metadata (additions, deletions) before content loads
+- `setVisibility(true)` triggers the content loader to fetch via data stream
+- `WorkerPoolManager` offloads syntax highlighting to web workers — critical for 500-file diffs
+- `cacheKey` on `FileContents` enables worker-side AST caching; scrolling back to a file is instant
+
+### 12.3 File Tree (Pierre)
+
+Pierre's `@pierre/file-tree` provides a hierarchical file tree with search, expand/collapse, and lazy data loading for 500+ files:
 
 ```typescript
-function DiffPanel() {
-    const { fileOrder, files, status } = useDiffFiles();
+import { FileTree } from '@pierre/file-tree/react';
+import { generateLazyDataLoader } from '@pierre/file-tree';
 
-    return (
-        <div className="diff-panel">
-            <DiffHeader status={status} fileCount={fileOrder.length} />
-            <div className="file-list">
-                {fileOrder.map((fileId) => (
-                    <DiffFileView key={fileId} fileId={fileId} />
-                ))}
-            </div>
-        </div>
-    );
+function DiffSidebar() {
+    const manifest = useDiffManifest();
+    const viewedFiles = useViewedFiles();
+
+    const options = useMemo(() => ({
+        files: manifest.files.map(f => f.path),
+        dataLoader: generateLazyDataLoader(),  // on-demand node creation for 500+ files
+        onSelection: ([selected]) => {
+            if (!selected.isFolder) {
+                scrollToFile(selected.path);    // navigate diff view to selected file
+            }
+        },
+    }), [manifest]);
+
+    return <FileTree options={options} />;
 }
 ```
 
-### 12.3 Comment Integration
+**Custom badges**: Pierre's file tree renders `Icon` + `itemName` per node. To show status badges (change type, comment count, viewed), extend the tree item rendering or overlay badges via CSS selectors on `data-file-tree-item` attributes.
 
-Pierre supports annotations via the `lineAnnotations` prop and `renderAnnotation` render prop. Comments from the Zustand store map to Pierre's annotation API:
+**Search/filter**: Built-in via `fileTreeSearchFeature`. Supports `expand-matches` and `collapse-non-matches` modes. Bound to the search input with `data-file-tree-search-input`. Filtering 500 files is pure JS — <16ms, no bridge traffic.
+
+### 12.4 Content Loading Lifecycle
+
+```
+1. Swift pushes DiffManifest via state stream (file paths, sizes, hunk summaries)
+2. React passes manifest to Pierre FileTree + creates VirtualizedFileDiff per file
+3. Pierre Virtualizer determines which files are in viewport
+4. VirtualizedFileDiff.setVisibility(true) fires → content loader triggers
+5. Content loader fetches via agentstudio://resource/file/{id} (data stream)
+6. Content arrives → Pierre renders diff + WorkerPoolManager highlights
+7. User scrolls → Pierre manages visibility transitions:
+   - Files leaving viewport: DOM removed, height cached
+   - Files entering viewport: content fetched (or LRU cache hit), rendered
+```
+
+### 12.5 Comment Integration
+
+Pierre supports annotations via `lineAnnotations` and `renderAnnotation`. Review threads from the Zustand store map to Pierre's annotation API:
 
 ```typescript
 function DiffFileWithComments({ fileId }: { fileId: string }) {
-    const file = useFileContent(fileId);
-    const comments = useFileComments(fileId);
+    const content = useFileContent(fileId);
+    const threads = useFileThreads(fileId);
 
     const annotations = useMemo(() =>
-        comments.map((c) => ({
-            line: c.lineNumber,
-            side: c.side,
-            content: c.text,
-            author: c.author.name,
+        threads.map((thread) => ({
+            line: thread.anchor.line,
+            side: thread.anchor.side,
+            data: {
+                threadId: thread.id,
+                isOutdated: thread.isOutdated,
+                commentCount: thread.comments.length,
+                state: thread.state,
+            },
         })),
-        [comments]
+        [threads]
     );
 
-    // ... render MultiFileDiff with annotations
+    // ... render MultiFileDiff with annotations + renderAnnotation
 }
 ```
 
-### 12.4 Sending Comments to Agent
+### 12.6 Interaction Models and SLO Budgets
+
+| Interaction | Transport | Local/RPC | Budget (p50/p95) | Optimistic? |
+|---|---|---|---|---|
+| **Draft comment** (typing) | None (tier 3 local) | Local | 16ms / 16ms | N/A |
+| **Submit comment** | Command → state push | RPC | 100ms / 200ms | Yes (pending → committed) |
+| **Resolve thread** | Command → state push | RPC | 50ms / 100ms | Yes |
+| **Mark file viewed** | Command → state push | RPC | 25ms / 60ms | Yes |
+| **Apply file** (accept agent changes) | Command → disk op → push | RPC | 200ms / 400ms | No |
+| **Request agent rewrite** | Command → AgentTask | RPC | 60ms / 150ms | N/A (async) |
+| **Filter files** | None (tier 3 local) | Local | 16ms / 16ms | N/A |
+| **Search in diff** | None (Pierre built-in) | Local | 16ms / 16ms | N/A |
+| **Scroll to file** | Content fetch if needed | Data stream | 50ms / 200ms | N/A |
+| **File list load** | State stream push | Push | 50ms / 100ms | N/A |
+| **Agent status update** | Agent event stream | Push | 32ms / 100ms | N/A |
+| **Recovery resync** | Handshake + full push | Push | 500ms / 2000ms | N/A |
+
+### 12.7 Sending Review to Agent
 
 ```typescript
 function SendToAgentButton({ fileId }: { fileId: string }) {
-    const comments = useFileComments(fileId);
+    const threads = useFileThreads(fileId);
 
     const handleSend = () => {
-        const commentIds = comments.map((c) => c.id);
-        commands.comment.sendToAgent(commentIds);
+        const threadIds = threads.map((t) => t.id);
+        commands.agent.requestRewrite({
+            source: { type: 'threads', threadIds },
+            prompt: 'Address the review comments in these threads',
+        });
     };
 
     return <button onClick={handleSend}>Send to Agent</button>;
 }
 ```
 
-Swift handler formats comments as a structured prompt and injects into the terminal:
+Swift handler creates a durable `AgentTask` record and enqueues the work:
 
 ```swift
-await router.register(Methods.CommentSendToAgent.self) { params in
-    let comments = params.commentIds.compactMap { id in
-        self.domainState.diff.allComments.first { $0.id.uuidString == id }
-    }
-    let prompt = CommentFormatter.formatForAgent(comments: comments)
-    try await self.terminalService.injectText(prompt, sessionId: activeSessionId)
+await router.register(Methods.AgentRequestRewrite.self) { params in
+    let task = AgentTask(
+        id: UUID(),
+        source: .thread(threadId: params.threadIds.first!),
+        prompt: params.prompt,
+        status: .queued,
+        modifiedFiles: [],
+        createdAt: Date()
+    )
+    self.paneState.agentTasks[task.id] = task
+    // Agent runtime picks up queued tasks and streams progress
 }
 ```
 
@@ -1609,31 +1863,35 @@ Each phase is independently testable and shippable.
 
 ### Phase 2: State Push Pipeline
 
-**Goal**: Swift `@Observable` changes arrive in Zustand stores.
+**Goal**: Swift `@Observable` changes arrive in Zustand stores via state stream and agent event stream.
 
 **Deliverables**:
-- Zustand stores for `diff` and `connection` domains
-- Bridge receiver listens for `__bridge_push` CustomEvents relayed from `__bridgeInternal`, updates Zustand
-- `Observations` AsyncSequence watches `BridgeDomainState`
-- Push coalescing with debounce
+- Zustand stores for `diff`, `review`, `agent`, and `connection` domains
+- Bridge receiver listens for `__bridge_push` and `__bridge_agent` CustomEvents relayed from `__bridgeInternal`, routes to correct Zustand store
+- `Observations` AsyncSequence watches `PaneDomainState`
+- Push envelope carries `__revision` (per store) and `__epoch` (load generation) — React drops stale pushes
+- Push coalescing with debounce (state stream) and 30-50ms batching (agent event stream)
 - Content world ↔ page world relay via CustomEvents
 
 **Tests**:
 - Unit: `deepMerge` correctly merges partial state
 - Unit: Zustand store updates on `merge` and `replace` calls
-- Unit: Bridge receiver routes to correct store
+- Unit: Bridge receiver routes `__bridge_push` to correct store by `store` field
+- Unit: Stale push rejection — push with `revision <= lastSeen` dropped
+- Unit: Epoch mismatch — push with wrong `epoch` triggers cache clear
 - Integration: Mutate `@Observable` property in Swift → verify Zustand store updated
-- Integration: Rapid mutations coalesce into single push (verify with mock)
+- Integration: Rapid mutations coalesce into single push (verify with push counter)
 - Integration: Content world isolation — page world script cannot call `window.webkit.messageHandlers.rpc`
 
 ### Phase 3: JSON-RPC Command Channel
 
-**Goal**: React can send typed commands to Swift.
+**Goal**: React can send typed commands to Swift with idempotent command IDs.
 
 **Deliverables**:
 - `RPCRouter` with typed method registration
-- Method definitions for `diff.*` and `comment.*` namespaces
-- Command sender on JS side (`commands.diff.requestFileContents(...)`)
+- Method definitions for `diff.*`, `review.*`, and `agent.*` namespaces
+- Command sender on JS side (`commands.diff.requestFileContents(...)`) with `__commandId` (UUID)
+- Swift deduplicates commands by `commandId`, pushes `commandAck` via state stream
 - Error handling (method not found, invalid params, internal error)
 - Direct-response path for rare request/response needs
 
@@ -1642,44 +1900,63 @@ Each phase is independently testable and shippable.
 - Unit: Unknown methods return `-32601`
 - Unit: Invalid params return `-32602`
 - Unit: `RPCMethod` protocol correctly decodes typed params
-- Integration: JS sends command → Swift handler fires → state updates → push arrives in Zustand
+- Unit: Duplicate `commandId` → idempotent (no double execution)
+- Integration: JS sends command → Swift handler fires → commandAck pushed → state updates → push arrives in Zustand
 
-### Phase 4: Diff Viewer (Pierre Integration)
+### Phase 4: Diff Viewer & Content Delivery (Pierre Integration)
 
-**Goal**: Full diff viewer renders in a webview pane.
-
-**Deliverables**:
-- `DiffState` domain model with file list, contents, comments
-- `DiffLoader` with chunked progressive loading (3 phases)
-- Pierre `MultiFileDiff` component renders diffs
-- File list with loading indicators per file
-- Comment UI (add, resolve, delete)
-- "Send to Agent" flows comments to terminal
-
-**Tests**:
-- Unit: `DiffLoader` chunking logic (batch size, prioritization)
-- Unit: `DiffState` mutations produce correct Codable JSON
-- Unit: Pierre renders with mock file contents
-- Unit: Comment formatting for agent injection
-- Integration: Load a real git diff → file list renders → contents stream in progressively
-- Integration: Add comment → appears in Zustand → send to agent → verify terminal input
-- E2E: Open diff pane in Agent Studio → see real diff → add comment → inject into terminal
-
-### Phase 5: Binary Channel
-
-**Goal**: Large file contents served efficiently via URL scheme.
+**Goal**: Full diff viewer renders in a webview pane using metadata push + content pull.
 
 **Deliverables**:
-- Extend `BinarySchemeHandler` for `agentstudio://resource/file/{id}` paths
-- React fetches large files via `fetch()` instead of JSON push
-- Threshold logic: files > 50KB use binary channel, smaller use JSON push
-- Path validation and security hardening
+- `DiffManifest` and `FileManifest` domain models (Swift, §8)
+- `DiffSource` enum: `.agentSnapshot`, `.commit`, `.branchDiff`
+- State stream: Swift pushes `DiffManifest` (file metadata only) into diff Zustand store
+- Data stream: `BinarySchemeHandler` extended for `agentstudio://resource/file/{id}` — React pulls file contents on demand
+- Priority queue on React side: viewport files (high), hovered files (medium), neighbor files (low), cancel when leaving viewport
+- LRU content cache (~20 files) in React, cleared on epoch change
+- Pierre `VirtualizedFileDiff` renders diffs with built-in `Virtualizer`
+- Pierre `FileTree` with `generateLazyDataLoader` for file navigation and search
+- Pierre `WorkerPoolManager` offloads syntax highlighting to web workers
+- Path validation and security hardening for resource URLs
 
 **Tests**:
-- Unit: `BinarySchemeHandler` validates allowed resource types
-- Unit: `BinarySchemeHandler` rejects forbidden paths
+- Unit: `DiffManifest` / `FileManifest` Codable round-trip
+- Unit: `BinarySchemeHandler` validates allowed resource types and rejects forbidden paths
+- Unit: Priority queue ordering logic (viewport > hover > neighbor)
+- Unit: LRU cache evicts oldest entries beyond capacity, clears on epoch bump
+- Unit: Pierre `VirtualizedFileDiff` renders with mock file contents
+- Integration: Swift pushes `DiffManifest` → FileTree renders file list within 100ms
 - Integration: React `fetch('agentstudio://resource/file/xyz')` returns correct file content
-- Performance: Compare JSON push vs binary channel for 100KB, 500KB, 1MB files
+- Integration: Scroll file into viewport → content pull fires → diff renders within 200ms
+- Integration: Epoch guard: start new diff during active load → stale results discarded
+- Performance: Binary channel latency for 100KB, 500KB, 1MB files on target hardware
+- E2E: Open diff pane → FileTree renders → select file → diff renders with syntax highlighting
+
+### Phase 5: Review System & Agent Integration
+
+**Goal**: Comment threads, review actions, and agent task lifecycle.
+
+**Deliverables**:
+- `ReviewThread`, `ReviewComment`, `ReviewAction` domain models (Swift, §8)
+- `AgentTask` with per-file checkpoint status (`running(completedFiles:currentFile:)`)
+- `TimelineEvent` append-only audit log (in-memory v1, designed for `.jsonl` v2)
+- State stream: pushes review state (threads, viewed files) into review Zustand store
+- Agent event stream: batched agent activity (started, fileCompleted, done) via `callJavaScript`
+- Comment anchoring: content hash + line number, `isOutdated` flag when hash changes
+- Comment UI: add, resolve, delete — optimistic local state with commandId acks
+- "Send to Agent" creates durable `AgentTask` with review context, formats comments for terminal injection
+- Agent event Zustand store with sequence-numbered append, gap detection
+
+**Tests**:
+- Unit: `ReviewThread` / `ReviewComment` Codable round-trip
+- Unit: Comment anchor `contextHash` computation and `isOutdated` detection
+- Unit: `AgentTask` state machine transitions
+- Unit: Agent event sequence gap detection logic
+- Integration: Add comment → command with commandId → Swift acks → Zustand thread updated
+- Integration: Resolve thread → push updates thread state → UI reflects
+- Integration: "Send to Agent" → `AgentTask` created → formatted text injected into terminal
+- Integration: Agent event stream batching: 5 rapid events coalesce into 1-2 batched pushes
+- E2E: Full review flow — open diff → add comment → send to agent → agent completes → timeline updated
 
 ### Phase 6: Security Hardening
 
@@ -1758,22 +2035,29 @@ Each phase requires explicit acceptance criteria before proceeding to the next. 
 - [ ] Direct-response path: request with `id` → response arrives via `__bridge_response` CustomEvent
 
 #### Phase 4 Exit Criteria
-- [ ] File list renders within 100ms of `loadDiff` call (100 files)
-- [ ] Progressive loading: first 10 files visible within 500ms, remaining stream in
-- [ ] On-demand priority: scroll to unloaded file → content appears within 200ms
-- [ ] Race condition: simultaneous batch + on-demand for same file → no duplicate loads, no data corruption
-- [ ] Epoch guard: start new diff during active load → stale results discarded
-- [ ] Comment add/resolve/delete round-trips correctly
-- [ ] "Send to Agent" injects formatted text into terminal
+- [ ] `DiffManifest` push → FileTree renders file list within 100ms (100 files)
+- [ ] Content pull: scroll file into viewport → `fetch('agentstudio://resource/file/{id}')` → diff renders within 200ms
+- [ ] Priority queue: viewport files load before neighbor files (verified with request ordering log)
+- [ ] LRU cache: loading 25+ files evicts oldest, capacity stays at ~20
+- [ ] Epoch guard: start new diff during active load → stale results discarded, cache cleared
+- [ ] Cancellation: file leaves viewport during active fetch → request cancelled, no resource leak
+- [ ] Path traversal: `../../etc/passwd` → rejected with error
+- [ ] **Performance benchmarks** (measured on M-series Mac):
+  - 100KB file: binary channel < 5ms
+  - 500KB file: binary channel < 15ms
+  - 1MB file: binary channel < 30ms
+- [ ] Pierre `VirtualizedFileDiff` renders with syntax highlighting (WorkerPoolManager active)
+- [ ] Pierre `FileTree` search/filter works on 500+ file manifest
 
 #### Phase 5 Exit Criteria
-- [ ] Binary channel returns correct content for `agentstudio://resource/file/{id}`
-- [ ] **Performance benchmarks** (measured on M-series Mac):
-  - 100KB file: binary channel < 5ms, JSON push < 10ms
-  - 500KB file: binary channel < 15ms, JSON push < 50ms
-  - 1MB file: binary channel < 30ms
-- [ ] Cancellation: navigate away during active scheme request → task cancelled, no resource leak
-- [ ] Path traversal: `../../etc/passwd` → rejected with error
+- [ ] Comment add: optimistic local state appears immediately, confirmed by commandAck push
+- [ ] Comment resolve/delete: round-trip correctly with optimistic UI + rollback on rejection
+- [ ] Comment anchor: `contextHash` matches, `isOutdated` detects when file content changes
+- [ ] "Send to Agent" creates `AgentTask`, injects formatted review context into terminal
+- [ ] Agent event stream: batched at 30-50ms cadence, sequence numbers contiguous
+- [ ] Agent event gap detection: missing sequence triggers re-sync request
+- [ ] `AgentTask` status transitions: `pending` → `running(completedFiles:currentFile:)` → `completed`/`failed`
+- [ ] `TimelineEvent` append-only: events cannot be mutated after creation
 
 #### Phase 6 Exit Criteria
 - [ ] Content world isolation: 5 specific attack vectors tested and blocked
@@ -1793,45 +2077,52 @@ Each phase requires explicit acceptance criteria before proceeding to the next. 
 ```
 Sources/AgentStudio/
 ├── Bridge/
-│   ├── BridgeCoordinator.swift           # WebPage setup, observation loops, push
+│   ├── BridgeCoordinator.swift           # WebPage setup, observation loops, three-stream push
 │   ├── RPCRouter.swift                   # Method registry + dispatch
 │   ├── RPCMethod.swift                   # Protocol + type-erased handler
 │   ├── RPCMessageHandler.swift           # WKScriptMessageHandler for postMessage
-│   ├── BinarySchemeHandler.swift         # agentstudio:// URL scheme
+│   ├── BinarySchemeHandler.swift         # agentstudio:// URL scheme (app + resource)
 │   ├── NavigationDecider.swift           # WebPage.NavigationDeciding
 │   ├── BridgeBootstrap.swift             # JS bootstrap script for bridge world
 │   └── Methods/                          # One file per namespace
-│       ├── DiffMethods.swift
-│       ├── CommentMethods.swift
-│       ├── AgentMethods.swift
-│       └── SystemMethods.swift
+│       ├── DiffMethods.swift             # diff.requestFileContents, diff.loadDiff
+│       ├── ReviewMethods.swift           # review.addComment, review.resolveThread
+│       ├── AgentMethods.swift            # agent.sendReview, agent.cancelTask
+│       └── SystemMethods.swift           # system.ping, system.getCapabilities
 ├── Domain/
-│   ├── BridgeDomainState.swift           # @Observable root state
-│   ├── DiffState.swift                   # Diff domain model
-│   ├── ConnectionState.swift             # Connection health
-│   └── DiffLoader.swift                  # Chunked progressive loading logic
+│   ├── BridgeDomainState.swift           # @Observable root: PaneDomainState
+│   ├── DiffManifest.swift                # DiffManifest, FileManifest, HunkSummary, DiffSource
+│   ├── ReviewState.swift                 # ReviewThread, ReviewComment, ReviewAction, CommentAnchor
+│   ├── AgentTask.swift                   # AgentTask, AgentTaskStatus
+│   ├── TimelineEvent.swift               # TimelineEvent, TimelineEventKind (in-memory v1)
+│   └── ConnectionState.swift             # Connection health
 └── (existing Sources structure unchanged)
 
 WebApp/                                    # React app (Vite + TypeScript)
 ├── src/
 │   ├── bridge/
-│   │   ├── receiver.ts                   # __bridge_push CustomEvent → Zustand
-│   │   ├── commands.ts                   # Typed command senders
+│   │   ├── receiver.ts                   # __bridge_push/__bridge_agent CustomEvent → Zustand
+│   │   ├── commands.ts                   # Typed command senders with commandId
 │   │   ├── rpc-client.ts                 # Direct-response RPC (rare)
-│   │   └── types.ts                      # Shared protocol types
+│   │   └── types.ts                      # Shared protocol types, push envelope
 │   ├── stores/
-│   │   ├── diff-store.ts                 # Zustand diff state
-│   │   └── connection-store.ts           # Zustand connection state
+│   │   ├── diff-store.ts                 # Zustand: DiffManifest, FileManifest, epoch, revision
+│   │   ├── review-store.ts              # Zustand: ReviewThread, comments, viewed files
+│   │   ├── agent-store.ts              # Zustand: AgentTask, TimelineEvent, sequence tracking
+│   │   ├── content-cache.ts            # LRU cache (~20 files), priority queue, fetch manager
+│   │   └── connection-store.ts          # Zustand: connection health
 │   ├── hooks/
-│   │   ├── use-diff-files.ts
-│   │   ├── use-file-content.ts
-│   │   └── use-file-comments.ts
+│   │   ├── use-file-manifest.ts         # Derived selectors on DiffManifest
+│   │   ├── use-file-content.ts          # Content pull trigger + cache lookup
+│   │   ├── use-review-threads.ts        # Threads for a file, filtered by state
+│   │   └── use-agent-status.ts          # Current agent task progress
 │   ├── components/
-│   │   ├── DiffPanel.tsx                 # Main diff viewer
-│   │   ├── DiffFileView.tsx              # Per-file diff (Pierre)
-│   │   ├── DiffHeader.tsx                # Status bar
-│   │   ├── CommentOverlay.tsx            # Comment UI
-│   │   └── SendToAgentButton.tsx
+│   │   ├── DiffPanel.tsx                 # Layout: FileTree sidebar + VirtualizedFileDiff main
+│   │   ├── FileTreeSidebar.tsx           # Pierre FileTree with lazy data loader
+│   │   ├── FileDiffView.tsx              # Pierre VirtualizedFileDiff wrapper per file
+│   │   ├── ReviewThreadOverlay.tsx       # Comment thread UI (add, resolve, delete)
+│   │   ├── DiffHeader.tsx                # Status bar: source, file count, agent progress
+│   │   └── SendToAgentButton.tsx         # Creates AgentTask with review context
 │   ├── utils/
 │   │   └── deep-merge.ts
 │   └── App.tsx
@@ -1860,10 +2151,12 @@ The existing `ViewRegistry`, `Layout`, drag/drop, and split system work unchange
 
 ### Resolved (in this document)
 
-- ~~**DiffState scope**~~ → **Per-pane** `PaneDomainState`. Shared state (`ConnectionState`) is singleton. See §8.1.
+- ~~**Domain state scope**~~ → **Per-pane** `PaneDomainState` (diff, review, agent tasks, timeline). Shared state (`ConnectionState`) is singleton. See §8.1.
 - ~~**CustomEvent command forgery**~~ → **Nonce token** generated at bootstrap, validated by bridge world. See §11.3.
 - ~~**Push error handling**~~ → **do-catch** with logging and connection health state update. No force-unwraps. See §6.4.
-- ~~**File loading race conditions**~~ → **Per-file load lock + load epoch + debounced requests**. See §10.4.
+- ~~**File loading race conditions**~~ → **Metadata push + content pull with priority queue, LRU cache, and epoch guard**. See §10.
+- ~~**Large diff delivery**~~ → **Three-stream architecture**: metadata via state stream, file contents via data stream (pull-based), agent events via batched agent stream. See §1, §4.4, §10.
+- ~~**Comment anchoring across line shifts**~~ → **Content hash + line number** with `isOutdated` flag. See §8, §12.5.
 - ~~**Navigation policy edge cases**~~ → **Explicit blocklist** for `javascript:`, `data:`, `blob:`, `vbscript:`. See §11.4.
 
 ### Requires Verification Spike (before Phase 1)
