@@ -58,6 +58,7 @@ final class OAuthService: NSObject {
     // MARK: - State
 
     private var activeSession: ASWebAuthenticationSession?
+    private var presentationWindow: NSWindow?
 
     // MARK: - Authenticate
 
@@ -116,8 +117,20 @@ final class OAuthService: NSObject {
                 }
 
                 guard let callbackURL,
-                      let components = URLComponents(url: callbackURL, resolvingAgainstBaseURL: false),
-                      let code = components.queryItems?.first(where: { $0.name == "code" })?.value else {
+                      let components = URLComponents(url: callbackURL, resolvingAgainstBaseURL: false) else {
+                    oauthLogger.error("OAuth callback missing authorization code for \(provider.rawValue)")
+                    continuation.resume(throwing: OAuthError.missingCode)
+                    return
+                }
+
+                // Validate the callback URL path matches the expected OAuth callback
+                guard components.host == "oauth" && components.path == "/callback" else {
+                    oauthLogger.error("OAuth callback path mismatch for \(provider.rawValue): \(callbackURL)")
+                    continuation.resume(throwing: OAuthError.invalidCallback)
+                    return
+                }
+
+                guard let code = components.queryItems?.first(where: { $0.name == "code" })?.value else {
                     oauthLogger.error("OAuth callback missing authorization code for \(provider.rawValue)")
                     continuation.resume(throwing: OAuthError.missingCode)
                     return
@@ -139,6 +152,7 @@ final class OAuthService: NSObject {
             session.prefersEphemeralWebBrowserSession = false
             session.presentationContextProvider = self
 
+            self.presentationWindow = window
             self.activeSession = session
 
             if !session.start() {
@@ -152,6 +166,7 @@ final class OAuthService: NSObject {
     func cancel() {
         activeSession?.cancel()
         activeSession = nil
+        presentationWindow = nil
     }
 }
 
@@ -159,8 +174,7 @@ final class OAuthService: NSObject {
 
 extension OAuthService: ASWebAuthenticationPresentationContextProviding {
     func presentationAnchor(for session: ASWebAuthenticationSession) -> ASPresentationAnchor {
-        // Return the key window, or fall back to any available window
-        NSApp.keyWindow ?? NSApp.windows.first ?? NSWindow()
+        presentationWindow ?? NSApp.keyWindow ?? NSApp.windows.first ?? NSWindow()
     }
 }
 
