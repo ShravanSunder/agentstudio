@@ -508,12 +508,29 @@ struct TabPillView: View {
 
     private var tabContent: some View {
         ZStack {
-            // Centered title
+            // Centered title with fade-out mask to avoid overlapping close/shortcut
             Text(tab.displayTitle)
                 .font(.system(size: 12))
                 .lineLimit(1)
                 .truncationMode(.tail)
                 .foregroundStyle(isActive ? .primary : .secondary)
+                .mask(
+                    HStack(spacing: 0) {
+                        LinearGradient(
+                            colors: [.clear, .black],
+                            startPoint: .leading,
+                            endPoint: .trailing
+                        )
+                        .frame(width: 24)
+                        Color.black
+                        LinearGradient(
+                            colors: [.black, .clear],
+                            startPoint: .leading,
+                            endPoint: .trailing
+                        )
+                        .frame(width: 24)
+                    }
+                )
 
             // Close (left) and shortcut (right)
             HStack(spacing: 0) {

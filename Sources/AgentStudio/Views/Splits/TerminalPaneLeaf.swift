@@ -115,7 +115,7 @@ struct TerminalPaneLeaf: View {
                             } label: {
                                 Image(systemName: "minus.circle.fill")
                                     .font(.system(size: 16))
-                                    .foregroundStyle(.secondary)
+                                    .foregroundStyle(.white.opacity(0.6))
                                     .background(Circle().fill(.black.opacity(0.5)))
                             }
                             .buttonStyle(.plain)
@@ -126,7 +126,7 @@ struct TerminalPaneLeaf: View {
                             } label: {
                                 Image(systemName: "xmark.circle.fill")
                                     .font(.system(size: 16))
-                                    .foregroundStyle(.secondary)
+                                    .foregroundStyle(.white.opacity(0.6))
                                     .background(Circle().fill(.black.opacity(0.5)))
                             }
                             .buttonStyle(.plain)

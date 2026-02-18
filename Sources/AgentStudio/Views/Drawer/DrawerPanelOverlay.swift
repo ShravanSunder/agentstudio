@@ -149,9 +149,9 @@ struct DrawerPanelOverlay: View {
             let junctionLeftInset = max(0, info.frame.minX - panelLeft)
             let junctionRightInset = max(0, (panelLeft + panelWidth) - info.frame.maxX)
 
-            // Bottom insets: junction + 1/3 pane width (bottom bar = center 1/3 of pane)
-            let bottomLeftInset = junctionLeftInset + paneWidth / 3
-            let bottomRightInset = junctionRightInset + paneWidth / 3
+            // Bottom insets: junction + 1/6 pane width (bottom bar = center 2/3 of pane)
+            let bottomLeftInset = junctionLeftInset + paneWidth / 6
+            let bottomRightInset = junctionRightInset + paneWidth / 6
 
             // Unified outline: panel (rounded rect) + S-curve connector
             let outlineShape = DrawerOutlineShape(
