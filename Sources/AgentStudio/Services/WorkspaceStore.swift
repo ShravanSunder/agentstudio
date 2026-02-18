@@ -627,8 +627,9 @@ final class WorkspaceStore {
             return nil
         }
 
-        // Resolve initial CWD: parent's worktree path, falling back to live CWD
-        let parentCwd: URL? = parentPane.worktreeId.flatMap { worktree($0)?.path } ?? parentPane.metadata.cwd
+        // Resolve initial CWD: prefer parent's live CWD (respects user cd),
+        // fall back to worktree root path
+        let parentCwd: URL? = parentPane.metadata.cwd ?? parentPane.worktreeId.flatMap { worktree($0)?.path }
 
         let content = PaneContent.terminal(TerminalState(provider: .zmx, lifetime: .persistent))
         let metadata = PaneMetadata(
@@ -685,7 +686,9 @@ final class WorkspaceStore {
             return nil
         }
 
-        let parentCwd: URL? = parentPane.worktreeId.flatMap { worktree($0)?.path } ?? parentPane.metadata.cwd
+        // Resolve initial CWD: prefer parent's live CWD (respects user cd),
+        // fall back to worktree root path
+        let parentCwd: URL? = parentPane.metadata.cwd ?? parentPane.worktreeId.flatMap { worktree($0)?.path }
 
         let content = PaneContent.terminal(TerminalState(provider: .zmx, lifetime: .persistent))
         let metadata = PaneMetadata(

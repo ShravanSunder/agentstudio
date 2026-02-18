@@ -512,16 +512,18 @@ struct TabPillView: View {
             Text(tab.displayTitle)
                 .font(.system(size: AppStyle.fontBody))
                 .lineLimit(1)
-                .truncationMode(.tail)
                 .foregroundStyle(isActive ? .primary : .secondary)
+                .frame(maxWidth: .infinity)
                 .mask(
                     HStack(spacing: 0) {
-                        LinearGradient(
-                            colors: [.clear, .black],
-                            startPoint: .leading,
-                            endPoint: .trailing
-                        )
-                        .frame(width: 24)
+                        if isHovering {
+                            LinearGradient(
+                                colors: [.clear, .black],
+                                startPoint: .leading,
+                                endPoint: .trailing
+                            )
+                            .frame(width: 24)
+                        }
                         Color.black
                         LinearGradient(
                             colors: [.black, .clear],

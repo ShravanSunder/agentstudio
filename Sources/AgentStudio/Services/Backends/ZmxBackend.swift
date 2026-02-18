@@ -270,7 +270,7 @@ final class ZmxBackend: SessionBackend {
                     guard let first = tokens.first, !first.contains("=") else { return nil }
                     return String(first)
                 }
-                .filter { $0.hasPrefix("agentstudio") }
+                .filter { $0.hasPrefix(Self.sessionPrefix) || $0.hasPrefix("agentstudio-d--") }
                 .filter { !knownIds.contains($0) }
         } catch {
             zmxLogger.warning("Failed to discover orphan sessions: \(error.localizedDescription)")
