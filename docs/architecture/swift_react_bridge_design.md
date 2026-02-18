@@ -269,9 +269,9 @@ For the rare case where JS needs a **direct response** (one-shot queries, valida
 |---|---|---|
 | `diff.*` | `diff.requestFileContents`, `diff.loadDiff` | Diff operations |
 | `review.*` | `review.addComment`, `review.resolveThread`, `review.deleteComment` | Review lifecycle |
-| `agent.*` | `agent.start`, `agent.stop`, `agent.injectPrompt` | Agent lifecycle |
+| `agent.*` | `agent.requestRewrite`, `agent.cancelTask`, `agent.injectPrompt` | Agent lifecycle |
 | `git.*` | `git.status`, `git.fileTree` | Git operations |
-| `system.*` | `system.health`, `system.capabilities` | System info |
+| `system.*` | `system.health`, `system.capabilities`, `system.resyncAgentEvents` | System info + recovery |
 
 ### 5.3 Standard Error Codes
 
@@ -338,6 +338,42 @@ if let rawData = json.data(using: .utf8),
     return
 }
 ```
+
+### 5.6 Agent Event Stream Protocol
+
+Agent events use a separate relay path from state pushes. They are append-only (never merged or replaced) and carry sequence numbers for gap detection.
+
+**Transport**: `callJavaScript` into bridge content world, relayed via `CustomEvent('__bridge_agent', ...)` to page world.
+
+```swift
+// Swift pushes agent events into bridge world
+try await page.callJavaScript(
+    "window.__bridgeInternal.appendAgentEvents(JSON.parse(data))",
+    arguments: ["data": batchJsonString],
+    contentWorld: bridgeWorld
+)
+```
+
+**Envelope format**:
+```json
+{
+    "__v": 1,
+    "__pushId": "<uuid>",
+    "__epoch": 3,
+    "events": [
+        { "seq": 42, "kind": "fileCompleted", "taskId": "...", "payload": { "fileId": "abc" }, "timestamp": "..." },
+        { "seq": 43, "kind": "taskProgress", "taskId": "...", "payload": { "completedFiles": 5, "currentFile": "src/foo.ts" }, "timestamp": "..." }
+    ]
+}
+```
+
+**Ordering and delivery**:
+- `seq` is a monotonic per-pane counter. React tracks `lastSeq` and detects gaps.
+- Events are batched at 30-50ms cadence on the Swift side before pushing. Multiple events within a batch window are sent in a single `callJavaScript` call.
+- On gap detection (`incoming seq > lastSeq + 1`), React sends a `system.resyncAgentEvents` command with `{ fromSeq: lastSeq + 1 }`. Swift replays missed events from its in-memory buffer.
+- On epoch mismatch, React clears its agent event store and resets `lastSeq = 0`.
+
+**Event kinds**: `taskStarted`, `taskProgress`, `fileCompleted`, `taskCompleted`, `taskFailed`, `agentMessage`.
 
 ---
 
@@ -662,21 +698,29 @@ function sendCommand(method: string, params?: unknown): void {
 export const commands = {
     diff: {
         load: (source: DiffSource) =>
-            sendCommand("diff.load", { source }),
+            sendCommand("diff.loadDiff", { source }),
         requestFileContents: (fileId: string) =>
             sendCommand("diff.requestFileContents", { fileId }),
     },
-    comment: {
-        add: (fileId: string, lineNumber: number | null, side: 'old' | 'new', text: string) =>
-            sendCommand("comment.add", { fileId, lineNumber, side, text }),
-        resolve: (commentId: string) =>
-            sendCommand("comment.resolve", { commentId }),
-        delete: (commentId: string) =>
-            sendCommand("comment.delete", { commentId }),
-        sendToAgent: (commentIds: string[]) =>
-            sendCommand("comment.sendToAgent", { commentIds }),
+    review: {
+        addComment: (fileId: string, lineNumber: number | null, side: 'old' | 'new', text: string) =>
+            sendCommand("review.addComment", { fileId, lineNumber, side, text }),
+        resolveThread: (threadId: string) =>
+            sendCommand("review.resolveThread", { threadId }),
+        unresolveThread: (threadId: string) =>
+            sendCommand("review.unresolveThread", { threadId }),
+        deleteComment: (commentId: string) =>
+            sendCommand("review.deleteComment", { commentId }),
+        markFileViewed: (fileId: string) =>
+            sendCommand("review.markFileViewed", { fileId }),
+        unmarkFileViewed: (fileId: string) =>
+            sendCommand("review.unmarkFileViewed", { fileId }),
     },
     agent: {
+        requestRewrite: (params: { source: { type: string; threadIds: string[] }; prompt: string }) =>
+            sendCommand("agent.requestRewrite", params),
+        cancelTask: (taskId: string) =>
+            sendCommand("agent.cancelTask", { taskId }),
         injectPrompt: (text: string) =>
             sendCommand("agent.injectPrompt", { text }),
     },
@@ -1664,6 +1708,8 @@ The diff viewer uses two Pierre packages:
 |---|---|---|
 | **`@pierre/diffs`** | Diff rendering with syntax highlighting | `MultiFileDiff`, `VirtualizedFileDiff`, `Virtualizer`, `WorkerPoolManager`, `FileStream` |
 | **`@pierre/file-tree`** | File tree sidebar with search | `FileTree` (React), `generateLazyDataLoader`, `onSelection` callback |
+
+> **Import convention**: Pierre packages use `/react` sub-path for React components (e.g., `@pierre/diffs/react` for `MultiFileDiff`) and the bare package path for core utilities (e.g., `@pierre/diffs` for `Virtualizer`, `WorkerPoolManager`). Verify exact export paths against the installed package version — these are based on Pierre's current source structure.
 
 ### 12.2 Virtualized Diff Rendering
 
