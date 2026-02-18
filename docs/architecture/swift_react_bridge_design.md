@@ -359,6 +359,7 @@ try await page.callJavaScript(
 {
     "__v": 1,
     "__pushId": "<uuid>",
+    "__pushNonce": "<bootstrap-nonce>",
     "__epoch": 3,
     "events": [
         { "seq": 42, "kind": "fileCompleted", "taskId": "...", "payload": { "fileId": "abc" }, "timestamp": "..." },
@@ -367,11 +368,15 @@ try await page.callJavaScript(
 }
 ```
 
+**Security**: Agent event envelopes include `__pushNonce` and are validated identically to state pushes (see §11.3). The bridge world's `__bridgeInternal.appendAgentEvents` validates the nonce before dispatching the `__bridge_agent` CustomEvent to the page world. This prevents page-world scripts from forging agent events.
+
 **Ordering and delivery**:
-- `seq` is a monotonic per-pane counter. React tracks `lastSeq` and detects gaps.
+- `seq` is a monotonic per-pane counter (atomically incremented on `@MainActor`). React tracks `lastSeq` and detects gaps.
 - Events are batched at 30-50ms cadence on the Swift side before pushing. Multiple events within a batch window are sent in a single `callJavaScript` call.
-- On gap detection (`incoming seq > lastSeq + 1`), React sends a `system.resyncAgentEvents` command with `{ fromSeq: lastSeq + 1 }`. Swift replays missed events from its in-memory buffer.
+- On gap detection (`incoming seq > lastSeq + 1`), React sends a `system.resyncAgentEvents` **request** (with JSON-RPC `id`) carrying `{ fromSeq: lastSeq + 1 }`. Swift responds with the missed events via the direct-response path (`__bridge_response` CustomEvent, see §7.4). This is one of the few methods that uses request/response instead of notification.
 - On epoch mismatch, React clears its agent event store and resets `lastSeq = 0`.
+
+**In-memory buffer**: Swift maintains a circular buffer of the last 10,000 agent events per pane. Oldest events are evicted on overflow (FIFO). If `fromSeq` falls outside the buffer range, the resync response includes `{ truncated: true }` and React resets to the earliest available event.
 
 **Event kinds**: `taskStarted`, `taskProgress`, `fileCompleted`, `taskCompleted`, `taskFailed`, `agentMessage`.
 
@@ -727,6 +732,8 @@ export const commands = {
     system: {
         health: () =>
             sendCommand("system.health"),
+        resyncAgentEvents: (fromSeq: number) =>
+            sendRequest("system.resyncAgentEvents", { fromSeq }),
     },
 } as const;
 ```
