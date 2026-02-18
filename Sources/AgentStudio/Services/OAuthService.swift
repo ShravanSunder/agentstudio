@@ -78,7 +78,8 @@ final class OAuthService: NSObject {
             throw OAuthError.invalidCallback
         }
 
-        guard let code = components.queryItems?.first(where: { $0.name == "code" })?.value else {
+        guard let code = components.queryItems?.first(where: { $0.name == "code" })?.value,
+              !code.isEmpty else {
             throw OAuthError.missingCode
         }
 
