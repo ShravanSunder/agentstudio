@@ -20,6 +20,7 @@ final class TerminalViewCoordinator {
         self.viewRegistry = viewRegistry
         self.runtime = runtime
         subscribeToCWDNotifications()
+        setupPrePersistHook()
     }
 
     deinit {
@@ -51,6 +52,23 @@ final class TerminalViewCoordinator {
         store.updatePaneCWD(paneId, cwd: url)
     }
 
+    // MARK: - Webview State Sync
+
+    private func setupPrePersistHook() {
+        store.prePersistHook = { [weak self] in
+            self?.syncWebviewStates()
+        }
+    }
+
+    /// Sync runtime webview tab state back to persisted pane model.
+    /// Uses syncPaneWebviewState (not updatePaneWebviewState) to avoid
+    /// marking dirty during an in-flight persist, which would cause a save-loop.
+    private func syncWebviewStates() {
+        for (paneId, webviewView) in viewRegistry.allWebviewViews {
+            store.syncPaneWebviewState(paneId, state: webviewView.currentState())
+        }
+    }
+
     // MARK: - Create View (content-type dispatch)
 
     /// Create a view for any pane content type. Dispatches to the appropriate factory.
@@ -74,8 +92,12 @@ final class TerminalViewCoordinator {
 
         case .webview(let state):
             let view = WebviewPaneView(paneId: pane.id, state: state)
+            let paneId = pane.id
+            view.controller.onTitleChange = { [weak self] title in
+                self?.store.updatePaneTitle(paneId, title: title)
+            }
             viewRegistry.register(view, for: pane.id)
-            coordinatorLogger.info("Created webview stub for pane \(pane.id)")
+            coordinatorLogger.info("Created webview pane \(pane.id)")
             return view
 
         case .codeViewer(let state):

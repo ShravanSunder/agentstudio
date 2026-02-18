@@ -4,7 +4,7 @@ import AppKit
 /// Payload for drag-and-drop split operations.
 struct SplitDropPayload: Equatable, Codable {
     enum Kind: Equatable, Codable {
-        case existingTab(tabId: UUID, worktreeId: UUID, repoId: UUID, title: String)
+        case existingTab(tabId: UUID)
         case existingPane(paneId: UUID, sourceTabId: UUID)
         case newTerminal
     }

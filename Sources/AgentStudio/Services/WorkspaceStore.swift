@@ -301,6 +301,22 @@ final class WorkspaceStore: ObservableObject {
         markDirty()
     }
 
+    func updatePaneWebviewState(_ paneId: UUID, state: WebviewState) {
+        guard panes[paneId] != nil else {
+            storeLogger.warning("updatePaneWebviewState: pane \(paneId) not found")
+            return
+        }
+        panes[paneId]!.content = .webview(state)
+        markDirty()
+    }
+
+    /// Sync webview state without marking dirty — used by prePersistHook to avoid
+    /// a save-loop (persistNow → hook → markDirty → schedules another persistNow).
+    func syncPaneWebviewState(_ paneId: UUID, state: WebviewState) {
+        guard panes[paneId] != nil else { return }
+        panes[paneId]!.content = .webview(state)
+    }
+
     func setResidency(_ residency: SessionResidency, for paneId: UUID) {
         guard panes[paneId] != nil else {
             storeLogger.warning("setResidency: pane \(paneId) not found")
@@ -943,8 +959,13 @@ final class WorkspaceStore: ObservableObject {
         return persistNow()
     }
 
+    /// Hook called before each persist — used to sync runtime state (e.g. webview tabs)
+    /// back to the pane model before serialization.
+    var prePersistHook: (() -> Void)?
+
     @discardableResult
     private func persistNow() -> Bool {
+        prePersistHook?()
         persistor.ensureDirectory()
         updatedAt = Date()
 

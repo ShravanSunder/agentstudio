@@ -36,6 +36,16 @@ final class ViewRegistry {
         views[paneId] as? AgentStudioTerminalView
     }
 
+    /// Get the webview for a pane, if it is a webview.
+    func webviewView(for paneId: UUID) -> WebviewPaneView? {
+        views[paneId] as? WebviewPaneView
+    }
+
+    /// All registered webview pane views, keyed by pane ID.
+    var allWebviewViews: [UUID: WebviewPaneView] {
+        views.compactMapValues { $0 as? WebviewPaneView }
+    }
+
     /// All currently registered pane IDs.
     var registeredPaneIds: Set<UUID> {
         Set(views.keys)
