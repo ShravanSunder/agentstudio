@@ -224,8 +224,8 @@ struct DrawerPanelOverlay: View {
                     .modifier(DrawerMaterialModifier(shape: outlineShape, panelFraction: panelFraction))
                     .contentShape(outlineShape)
                     // Layered shadow — tight contact + soft ambient
-                    .shadow(color: .black.opacity(0.15), radius: 4, y: 2)
-                    .shadow(color: .black.opacity(0.2), radius: 16, y: 8)
+                    .shadow(color: .black.opacity(AppStyle.strokeMuted), radius: 4, y: 2)
+                    .shadow(color: .black.opacity(AppStyle.strokeHover), radius: 16, y: 8)
                     .allowsHitTesting(true)
                     .position(x: centerX, y: centerY)
                 }

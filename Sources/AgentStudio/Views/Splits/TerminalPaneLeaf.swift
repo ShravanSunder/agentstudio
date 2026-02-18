@@ -46,17 +46,17 @@ struct TerminalPaneLeaf: View {
                 if !isActive {
                     Rectangle()
                         .fill(Color.black)
-                        .opacity(0.15)
+                        .opacity(AppStyle.strokeMuted)
                         .allowsHitTesting(false)
                 }
 
                 // Hover border: drag affordance in management mode
                 if managementMode.isActive && isHovered && !store.isSplitResizing {
-                    RoundedRectangle(cornerRadius: 4)
-                        .strokeBorder(Color.white.opacity(0.25), lineWidth: 1)
+                    RoundedRectangle(cornerRadius: AppStyle.buttonCornerRadius)
+                        .strokeBorder(Color.white.opacity(AppStyle.strokeVisible), lineWidth: 1)
                         .padding(1)
                         .allowsHitTesting(false)
-                        .animation(.easeInOut(duration: 0.15), value: isHovered)
+                        .animation(.easeInOut(duration: AppStyle.animationFast), value: isHovered)
                 }
 
                 // Drag handle: compact centered pill (edit mode + hover + no active drop).
@@ -73,10 +73,10 @@ struct TerminalPaneLeaf: View {
                         ZStack {
                             RoundedRectangle(cornerRadius: 12)
                                 .fill(.ultraThinMaterial)
-                                .shadow(color: .black.opacity(0.25), radius: 4, y: 2)
+                                .shadow(color: .black.opacity(AppStyle.strokeVisible), radius: 4, y: 2)
                             Image(systemName: "arrow.up.and.down.and.arrow.left.and.right")
-                                .font(.system(size: 16, weight: .medium))
-                                .foregroundStyle(.white.opacity(0.6))
+                                .font(.system(size: AppStyle.toolbarIconSize, weight: .medium))
+                                .foregroundStyle(.white.opacity(AppStyle.foregroundMuted))
                         }
                         .frame(width: 20, height: 20 * 1.6)
                         .contentShape(RoundedRectangle(cornerRadius: 12))
@@ -92,7 +92,7 @@ struct TerminalPaneLeaf: View {
                                 RoundedRectangle(cornerRadius: 12)
                                     .fill(Color(.windowBackgroundColor).opacity(0.8))
                                 Image(systemName: "arrow.up.and.down.and.arrow.left.and.right")
-                                    .font(.system(size: 16, weight: .medium))
+                                    .font(.system(size: AppStyle.toolbarIconSize, weight: .medium))
                                     .foregroundStyle(.secondary)
                             }
                             .frame(width: 20, height: 20 * 1.6)
@@ -109,14 +109,14 @@ struct TerminalPaneLeaf: View {
                 // Pane controls: minimize + close (top-left, edit mode + hover)
                 if managementMode.isActive && isHovered && !store.isSplitResizing {
                     VStack {
-                        HStack(spacing: 4) {
+                        HStack(spacing: AppStyle.spacingTight) {
                             Button {
                                 action(.minimizePane(tabId: tabId, paneId: paneView.id))
                             } label: {
                                 Image(systemName: "minus.circle.fill")
-                                    .font(.system(size: 16))
-                                    .foregroundStyle(.white.opacity(0.6))
-                                    .background(Circle().fill(.black.opacity(0.5)))
+                                    .font(.system(size: AppStyle.toolbarIconSize))
+                                    .foregroundStyle(.white.opacity(AppStyle.foregroundMuted))
+                                    .background(Circle().fill(.black.opacity(AppStyle.foregroundDim)))
                             }
                             .buttonStyle(.plain)
                             .help("Minimize pane")
@@ -125,16 +125,16 @@ struct TerminalPaneLeaf: View {
                                 action(.closePane(tabId: tabId, paneId: paneView.id))
                             } label: {
                                 Image(systemName: "xmark.circle.fill")
-                                    .font(.system(size: 16))
-                                    .foregroundStyle(.white.opacity(0.6))
-                                    .background(Circle().fill(.black.opacity(0.5)))
+                                    .font(.system(size: AppStyle.toolbarIconSize))
+                                    .foregroundStyle(.white.opacity(AppStyle.foregroundMuted))
+                                    .background(Circle().fill(.black.opacity(AppStyle.foregroundDim)))
                             }
                             .buttonStyle(.plain)
                             .help("Close pane")
 
                             Spacer()
                         }
-                        .padding(6)
+                        .padding(AppStyle.spacingStandard)
                         Spacer()
                     }
                     .transition(.opacity)
@@ -154,8 +154,8 @@ struct TerminalPaneLeaf: View {
                                 ))
                             } label: {
                                 Image(systemName: "plus")
-                                    .font(.system(size: 10, weight: .bold))
-                                    .foregroundStyle(.white.opacity(0.6))
+                                    .font(.system(size: AppStyle.fontSmall, weight: .bold))
+                                    .foregroundStyle(.white.opacity(AppStyle.foregroundMuted))
                                     .frame(width: 20, height: 36)
                                     .background(
                                         UnevenRoundedRectangle(
@@ -164,13 +164,13 @@ struct TerminalPaneLeaf: View {
                                             bottomTrailingRadius: 0,
                                             topTrailingRadius: 0
                                         )
-                                        .fill(Color.black.opacity(0.5))
+                                        .fill(Color.black.opacity(AppStyle.foregroundDim))
                                     )
                             }
                             .buttonStyle(.plain)
                             .help("Split right")
                         }
-                        .padding(.top, 6)
+                        .padding(.top, AppStyle.spacingStandard)
                         Spacer()
                     }
                     .allowsHitTesting(true)
@@ -218,7 +218,7 @@ struct TerminalPaneLeaf: View {
                 dropZone = nil
             }
         }
-        .padding(2)
+        .padding(AppStyle.paneGap)
         .background(
             GeometryReader { geo in
                 // Report pane frame for tab-level overlay positioning (layout panes only).

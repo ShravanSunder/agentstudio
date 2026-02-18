@@ -23,8 +23,8 @@ struct CollapsedPaneBar: View {
                 action(.expandPane(tabId: tabId, paneId: paneId))
             } label: {
                 Image(systemName: "arrow.right.to.line")
-                    .font(.system(size: 11, weight: .medium))
-                    .foregroundStyle(.white.opacity(0.7))
+                    .font(.system(size: AppStyle.fontSecondary, weight: .medium))
+                    .foregroundStyle(.white.opacity(AppStyle.foregroundSecondary))
                     .frame(width: 22, height: 22)
             }
             .buttonStyle(.plain)
@@ -47,8 +47,8 @@ struct CollapsedPaneBar: View {
                 }
             } label: {
                 Image(systemName: "line.3.horizontal")
-                    .font(.system(size: 10))
-                    .foregroundStyle(.white.opacity(0.5))
+                    .font(.system(size: AppStyle.fontSmall))
+                    .foregroundStyle(.white.opacity(AppStyle.foregroundDim))
                     .frame(width: 22, height: 22)
             }
             .menuStyle(.borderlessButton)
@@ -59,8 +59,8 @@ struct CollapsedPaneBar: View {
 
             // Sideways text (bottom-to-top)
             Text(title)
-                .font(.system(size: 12, weight: .bold))
-                .foregroundStyle(.white.opacity(0.7))
+                .font(.system(size: AppStyle.fontBody, weight: .bold))
+                .foregroundStyle(.white.opacity(AppStyle.foregroundSecondary))
                 .lineLimit(1)
                 .truncationMode(.tail)
                 .rotationEffect(Angle(degrees: -90))
@@ -72,18 +72,18 @@ struct CollapsedPaneBar: View {
         .frame(width: Self.barWidth)
         .frame(maxHeight: .infinity)
         .background(
-            RoundedRectangle(cornerRadius: 4)
-                .fill(Color.black.opacity(isHovered ? 0.5 : 0.35))
+            RoundedRectangle(cornerRadius: AppStyle.buttonCornerRadius)
+                .fill(Color.black.opacity(isHovered ? AppStyle.foregroundDim : 0.35))
         )
         .overlay(
-            RoundedRectangle(cornerRadius: 4)
-                .strokeBorder(Color.white.opacity(isHovered ? 0.2 : 0.1), lineWidth: 1)
+            RoundedRectangle(cornerRadius: AppStyle.buttonCornerRadius)
+                .strokeBorder(Color.white.opacity(isHovered ? AppStyle.strokeHover : AppStyle.strokeSubtle), lineWidth: 1)
         )
         .contentShape(Rectangle())
         .onHover { isHovered = $0 }
         .onTapGesture {
             action(.expandPane(tabId: tabId, paneId: paneId))
         }
-        .padding(2)
+        .padding(AppStyle.paneGap)
     }
 }

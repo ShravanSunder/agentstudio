@@ -122,4 +122,102 @@ enum AppStyle {
     // Legacy aliases — prefer the spacing* names above.
     static let barPadding: CGFloat = spacingTight
     static let barHorizontalPadding: CGFloat = spacingStandard
+
+    // MARK: - Font Sizes
+    //
+    // Five-step scale for system font sizes. Components pick the step
+    // that matches their text hierarchy: caption for tiny labels,
+    // body for standard content.
+    //
+    // ```
+    // caption     9pt — close buttons, tiny labels
+    // small      10pt — compact labels, badge counts, zoom badge
+    // secondary  11pt — secondary text, collapsed bar titles
+    // body       12pt — tab titles, main body text
+    // primary    13pt — command bar input, prominent text
+    // ```
+
+    /// Tiny labels: close buttons, minimal annotations.
+    static let fontCaption: CGFloat = 9
+
+    /// Compact labels: badge counts, zoom indicators, arrangement labels.
+    static let fontSmall: CGFloat = 10
+
+    /// Secondary text: collapsed bar titles, arrangement panel text.
+    static let fontSecondary: CGFloat = 11
+
+    /// Standard body text: tab titles, empty state text.
+    static let fontBody: CGFloat = 12
+
+    /// Prominent text: command bar input, search fields.
+    static let fontPrimary: CGFloat = 13
+
+    // MARK: - Foreground Opacities (text & icon overlays)
+    //
+    // Three-step scale for text and icon foreground colors on dark backgrounds.
+    // Separate from the fill* surface scale — these apply to `.foregroundStyle`
+    // and icon tints where `.secondary` / `.tertiary` semantic colors are
+    // too coarse-grained.
+    //
+    // ```
+    // dim        0.5 — menu icons, secondary controls
+    // muted      0.6 — pane control icons, de-emphasized actions
+    // secondary  0.7 — expand arrows, collapsed bar text, zoom badge
+    // ```
+
+    /// Dim foreground: menu icons, de-emphasized secondary controls.
+    static let foregroundDim: CGFloat = 0.5
+
+    /// Muted foreground: pane control icons, in-pane action icons.
+    static let foregroundMuted: CGFloat = 0.6
+
+    /// Secondary foreground: expand arrows, collapsed bar text, zoom badge.
+    static let foregroundSecondary: CGFloat = 0.7
+
+    // MARK: - Stroke Opacities (borders & outlines)
+    //
+    // Four-step scale for border and outline opacities on dark backgrounds.
+    // Used with `Color.white.opacity(...)` for theme-neutral borders.
+    //
+    // ```
+    // subtle    0.10 — resting borders (collapsed pane bars)
+    // muted     0.15 — gentle borders (arrangement panel, pane dimming)
+    // hover     0.20 — hover feedback borders
+    // visible   0.25 — prominent borders (active hover, pane leaf borders)
+    // ```
+
+    /// Resting border: collapsed pane bars at rest.
+    static let strokeSubtle: CGFloat = 0.10
+
+    /// Gentle border: arrangement panel borders, pane dimming.
+    static let strokeMuted: CGFloat = 0.15
+
+    /// Hover border feedback.
+    static let strokeHover: CGFloat = 0.20
+
+    /// Prominent border: active hover states, pane leaf borders.
+    static let strokeVisible: CGFloat = 0.25
+
+    // MARK: - Animation Durations
+    //
+    // Two-step scale for transition and hover animations.
+    //
+    // ```
+    // fast       0.12s — hover feedback, icon bar transitions
+    // standard   0.20s — tab scroll, general transitions
+    // ```
+
+    /// Fast animation: hover feedback, icon bar transitions.
+    static let animationFast: Double = 0.12
+
+    /// Standard animation: tab scroll, general transitions.
+    static let animationStandard: Double = 0.20
+
+    // MARK: - Layout
+
+    /// Tab bar height in points.
+    static let tabBarHeight: CGFloat = 36
+
+    /// Inter-pane gap (padding around each pane leaf).
+    static let paneGap: CGFloat = 2
 }

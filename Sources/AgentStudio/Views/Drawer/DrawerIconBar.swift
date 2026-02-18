@@ -44,7 +44,7 @@ struct DrawerIconBar: View {
                         .fill(isExpanded ? Color.white.opacity(AppStyle.fillActive) : (isToggleHovered ? Color.white.opacity(AppStyle.fillHover) : Color.white.opacity(AppStyle.fillSubtle)))
                 )
                 .onHover { hovering in
-                    withAnimation(.easeInOut(duration: 0.12)) {
+                    withAnimation(.easeInOut(duration: AppStyle.animationFast)) {
                         isToggleHovered = hovering
                     }
                 }
@@ -69,7 +69,7 @@ struct DrawerIconBar: View {
                         .fill(isAddHovered ? Color.white.opacity(AppStyle.fillHover) : Color.clear)
                 )
                 .onHover { hovering in
-                    withAnimation(.easeInOut(duration: 0.12)) {
+                    withAnimation(.easeInOut(duration: AppStyle.animationFast)) {
                         isAddHovered = hovering
                     }
                 }
@@ -118,7 +118,7 @@ struct EmptyDrawerBar: View {
                     .fill(isHovered ? Color.white.opacity(AppStyle.fillHover) : Color.clear)
             )
             .onHover { hovering in
-                withAnimation(.easeInOut(duration: 0.12)) {
+                withAnimation(.easeInOut(duration: AppStyle.animationFast)) {
                     isHovered = hovering
                 }
             }

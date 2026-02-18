@@ -72,12 +72,12 @@ struct TerminalSplitContainer: View {
                             )
                             // Zoom indicator badge
                             Text("ZOOM")
-                                .font(.system(size: 10, weight: .medium, design: .monospaced))
-                                .foregroundStyle(.white.opacity(0.7))
-                                .padding(.horizontal, 6)
-                                .padding(.vertical, 2)
-                                .background(Capsule().fill(.white.opacity(0.15)))
-                                .padding(8)
+                                .font(.system(size: AppStyle.fontSmall, weight: .medium, design: .monospaced))
+                                .foregroundStyle(.white.opacity(AppStyle.foregroundSecondary))
+                                .padding(.horizontal, AppStyle.spacingStandard)
+                                .padding(.vertical, AppStyle.paneGap)
+                                .background(Capsule().fill(.white.opacity(AppStyle.strokeMuted)))
+                                .padding(AppStyle.spacingLoose)
                                 .allowsHitTesting(false)
                         }
                     } else if splitRenderInfo.allMinimized {

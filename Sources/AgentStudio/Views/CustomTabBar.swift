@@ -108,7 +108,7 @@ struct CustomTabBar: View {
                 ZStack {
                     ScrollViewReader { proxy in
                         ScrollView(.horizontal, showsIndicators: false) {
-                            HStack(spacing: 4) {
+                            HStack(spacing: AppStyle.spacingTight) {
                                 // Hidden anchor for scroll offset tracking
                                 GeometryReader { innerGeo in
                                     Color.clear.preference(
@@ -160,7 +160,7 @@ struct CustomTabBar: View {
                         }
                         .onChange(of: adapter.activeTabId) { _, newId in
                             if let newId = newId {
-                                withAnimation(.easeInOut(duration: 0.2)) {
+                                withAnimation(.easeInOut(duration: AppStyle.animationStandard)) {
                                     proxy.scrollTo(newId, anchor: .center)
                                 }
                             }
@@ -259,11 +259,11 @@ struct CustomTabBar: View {
                                 }
                             }
                         } label: {
-                            HStack(spacing: 4) {
+                            HStack(spacing: AppStyle.spacingTight) {
                                 Image(systemName: "rectangle.stack")
-                                    .font(.system(size: 10, weight: .medium))
+                                    .font(.system(size: AppStyle.fontSmall, weight: .medium))
                                 Text("\(adapter.tabs.count)")
-                                    .font(.system(size: 10, weight: .semibold))
+                                    .font(.system(size: AppStyle.fontSmall, weight: .semibold))
                             }
                             .foregroundStyle(.secondary)
                             .padding(.horizontal, AppStyle.spacingLoose)
@@ -287,7 +287,7 @@ struct CustomTabBar: View {
                 .padding(.horizontal, AppStyle.spacingTight)
             }
             .frame(maxWidth: .infinity)
-            .frame(height: 36)
+            .frame(height: AppStyle.tabBarHeight)
             .background(Color.clear)
             .coordinateSpace(name: "tabBar")
             .ignoresSafeArea()
@@ -298,7 +298,7 @@ struct CustomTabBar: View {
                 adapter.availableWidth = newWidth
             }
         }
-        .frame(height: 36)
+        .frame(height: AppStyle.tabBarHeight)
     }
 
     // MARK: - Scroll Navigation
@@ -321,7 +321,7 @@ struct CustomTabBar: View {
                 guard let frame = adapter.tabFrames[tab.id] else { return false }
                 return frame.maxX > scrollAreaWidth
             }) {
-                withAnimation(.easeInOut(duration: 0.2)) {
+                withAnimation(.easeInOut(duration: AppStyle.animationStandard)) {
                     proxy.scrollTo(target.id, anchor: .trailing)
                 }
             }
@@ -331,7 +331,7 @@ struct CustomTabBar: View {
                 guard let frame = adapter.tabFrames[tab.id] else { return false }
                 return frame.minX < 0
             }) {
-                withAnimation(.easeInOut(duration: 0.2)) {
+                withAnimation(.easeInOut(duration: AppStyle.animationStandard)) {
                     proxy.scrollTo(target.id, anchor: .leading)
                 }
             }
@@ -510,7 +510,7 @@ struct TabPillView: View {
         ZStack {
             // Centered title with fade-out mask to avoid overlapping close/shortcut
             Text(tab.displayTitle)
-                .font(.system(size: 12))
+                .font(.system(size: AppStyle.fontBody))
                 .lineLimit(1)
                 .truncationMode(.tail)
                 .foregroundStyle(isActive ? .primary : .secondary)
@@ -537,7 +537,7 @@ struct TabPillView: View {
                 if isHovering {
                     Button(action: onClose) {
                         Image(systemName: "xmark")
-                            .font(.system(size: 9, weight: .medium))
+                            .font(.system(size: AppStyle.fontCaption, weight: .medium))
                             .foregroundStyle(.secondary)
                             .frame(width: 18, height: 18)
                             .background(
@@ -552,7 +552,7 @@ struct TabPillView: View {
 
                 if index < 9 {
                     Text("⌘\(index + 1)")
-                        .font(.system(size: 10, weight: .medium))
+                        .font(.system(size: AppStyle.fontSmall, weight: .medium))
                         .foregroundStyle(.tertiary)
                 }
             }
@@ -585,15 +585,15 @@ struct TabBarEmptyState: View {
     var body: some View {
         HStack {
             Text("No terminals open")
-                .font(.system(size: 12))
+                .font(.system(size: AppStyle.fontBody))
                 .foregroundStyle(.secondary)
 
             Button(action: onAddTab) {
-                HStack(spacing: 4) {
+                HStack(spacing: AppStyle.spacingTight) {
                     Image(systemName: "plus")
                     Text("New Tab")
                 }
-                .font(.system(size: 12))
+                .font(.system(size: AppStyle.fontBody))
             }
             .buttonStyle(.plain)
             .foregroundStyle(.secondary)
@@ -601,7 +601,7 @@ struct TabBarEmptyState: View {
             Spacer()
         }
         .padding(.horizontal, 12)
-        .frame(height: 36)
+        .frame(height: AppStyle.tabBarHeight)
         .background(Color(nsColor: .windowBackgroundColor))
     }
 }

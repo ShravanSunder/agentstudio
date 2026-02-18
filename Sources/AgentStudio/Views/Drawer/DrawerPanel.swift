@@ -70,7 +70,7 @@ struct DrawerPanel: View {
                 .frame(width: 48, height: 48)
                 .background(
                     RoundedRectangle(cornerRadius: 10)
-                        .fill(Color.white.opacity(0.08))
+                        .fill(Color.white.opacity(AppStyle.fillHover))
                 )
         }
         .buttonStyle(.plain)
@@ -144,7 +144,7 @@ struct DrawerPanel: View {
                     Spacer()
                     addDrawerButton
                     Text("Add a drawer terminal")
-                        .font(.system(size: 11))
+                        .font(.system(size: AppStyle.fontSecondary))
                         .foregroundStyle(.tertiary)
                     Spacer()
                 }
