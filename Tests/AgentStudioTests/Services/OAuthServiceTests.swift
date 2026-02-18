@@ -103,6 +103,7 @@ final class OAuthServiceTests: XCTestCase {
         XCTAssertNotNil(OAuthError.invalidURL.errorDescription)
         XCTAssertNotNil(OAuthError.cancelled.errorDescription)
         XCTAssertNotNil(OAuthError.missingCode.errorDescription)
+        XCTAssertNotNil(OAuthError.invalidCallback.errorDescription)
         XCTAssertNotNil(OAuthError.stateMismatch.errorDescription)
         XCTAssertNotNil(OAuthError.startFailed.errorDescription)
     }
@@ -117,6 +118,11 @@ final class OAuthServiceTests: XCTestCase {
         XCTAssertTrue(error.errorDescription!.contains("CSRF"))
     }
 
+    func test_invalidCallbackError_description() {
+        let error = OAuthError.invalidCallback
+        XCTAssertTrue(error.errorDescription!.contains("callback"))
+    }
+
     // MARK: - isCancelled
 
     func test_isCancelled_true_forCancelled() {
@@ -127,6 +133,7 @@ final class OAuthServiceTests: XCTestCase {
         XCTAssertFalse(OAuthError.unsupportedProvider.isCancelled)
         XCTAssertFalse(OAuthError.invalidURL.isCancelled)
         XCTAssertFalse(OAuthError.missingCode.isCancelled)
+        XCTAssertFalse(OAuthError.invalidCallback.isCancelled)
         XCTAssertFalse(OAuthError.stateMismatch.isCancelled)
         XCTAssertFalse(OAuthError.startFailed.isCancelled)
     }
@@ -142,6 +149,68 @@ final class OAuthServiceTests: XCTestCase {
         let inner = NSError(domain: "test", code: 42, userInfo: [NSLocalizedDescriptionKey: "connection lost"])
         let error = OAuthError.sessionFailed(inner)
         XCTAssertTrue(error.errorDescription!.contains("connection lost"))
+    }
+
+    // MARK: - Callback Validation (Security)
+
+    func test_validateCallback_validURL_returnsCode() throws {
+        let url = URL(string: "agentstudio://oauth/callback?code=abc123&state=expected-state")!
+        let code = try OAuthService.validateCallback(url: url, expectedState: "expected-state")
+        XCTAssertEqual(code, "abc123")
+    }
+
+    func test_validateCallback_wrongHost_throwsInvalidCallback() {
+        let url = URL(string: "agentstudio://evil/callback?code=abc123&state=s")!
+        XCTAssertThrowsError(try OAuthService.validateCallback(url: url, expectedState: "s")) { error in
+            guard case OAuthError.invalidCallback = error else {
+                return XCTFail("Expected invalidCallback, got \(error)")
+            }
+        }
+    }
+
+    func test_validateCallback_wrongPath_throwsInvalidCallback() {
+        let url = URL(string: "agentstudio://oauth/evil?code=abc123&state=s")!
+        XCTAssertThrowsError(try OAuthService.validateCallback(url: url, expectedState: "s")) { error in
+            guard case OAuthError.invalidCallback = error else {
+                return XCTFail("Expected invalidCallback, got \(error)")
+            }
+        }
+    }
+
+    func test_validateCallback_missingCode_throwsMissingCode() {
+        let url = URL(string: "agentstudio://oauth/callback?state=s")!
+        XCTAssertThrowsError(try OAuthService.validateCallback(url: url, expectedState: "s")) { error in
+            guard case OAuthError.missingCode = error else {
+                return XCTFail("Expected missingCode, got \(error)")
+            }
+        }
+    }
+
+    func test_validateCallback_stateMismatch_throwsStateMismatch() {
+        let url = URL(string: "agentstudio://oauth/callback?code=abc123&state=wrong")!
+        XCTAssertThrowsError(try OAuthService.validateCallback(url: url, expectedState: "expected")) { error in
+            guard case OAuthError.stateMismatch = error else {
+                return XCTFail("Expected stateMismatch, got \(error)")
+            }
+        }
+    }
+
+    func test_validateCallback_missingState_throwsStateMismatch() {
+        let url = URL(string: "agentstudio://oauth/callback?code=abc123")!
+        XCTAssertThrowsError(try OAuthService.validateCallback(url: url, expectedState: "expected")) { error in
+            guard case OAuthError.stateMismatch = error else {
+                return XCTFail("Expected stateMismatch, got \(error)")
+            }
+        }
+    }
+
+    func test_validateCallback_extraPathSegment_throwsInvalidCallback() {
+        let url = URL(string: "agentstudio://oauth/callback/extra?code=abc123&state=s")!
+        XCTAssertThrowsError(try OAuthService.validateCallback(url: url, expectedState: "s")) { error in
+            guard case OAuthError.invalidCallback = error else {
+                return XCTFail("Expected invalidCallback, got \(error)")
+            }
+        }
     }
 
     // MARK: - Placeholder Validation

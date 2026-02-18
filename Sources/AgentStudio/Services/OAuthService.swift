@@ -55,10 +55,46 @@ final class OAuthService: NSObject {
         ),
     ]
 
+    // MARK: - Callback Validation
+
+    /// Validates an OAuth callback URL and extracts the authorization code.
+    ///
+    /// Checks that the callback URL has the expected path (`oauth/callback`),
+    /// contains an authorization code, and that the state parameter matches
+    /// to prevent CSRF attacks.
+    ///
+    /// - Parameters:
+    ///   - callbackURL: The URL received from the OAuth provider.
+    ///   - expectedState: The state parameter sent in the original authorization request.
+    /// - Returns: The authorization code string.
+    /// - Throws: `OAuthError` if validation fails.
+    nonisolated static func validateCallback(url callbackURL: URL, expectedState: String) throws -> String {
+        guard let components = URLComponents(url: callbackURL, resolvingAgainstBaseURL: false) else {
+            throw OAuthError.missingCode
+        }
+
+        // Validate the callback URL path matches the expected OAuth callback
+        guard components.host == "oauth" && components.path == "/callback" else {
+            throw OAuthError.invalidCallback
+        }
+
+        guard let code = components.queryItems?.first(where: { $0.name == "code" })?.value else {
+            throw OAuthError.missingCode
+        }
+
+        // Verify state parameter to prevent CSRF
+        let returnedState = components.queryItems?.first(where: { $0.name == "state" })?.value
+        guard returnedState == expectedState else {
+            throw OAuthError.stateMismatch
+        }
+
+        return code
+    }
+
     // MARK: - State
 
     private var activeSession: ASWebAuthenticationSession?
-    private var presentationWindow: NSWindow?
+    private weak var presentationWindow: NSWindow?
 
     // MARK: - Authenticate
 
@@ -99,6 +135,12 @@ final class OAuthService: NSObject {
 
         oauthLogger.info("Starting OAuth flow for \(provider.rawValue)")
 
+        // Clean up session state when authenticate completes (success or failure)
+        defer {
+            activeSession = nil
+            presentationWindow = nil
+        }
+
         // Bridge the completion-handler API to async/await
         return try await withCheckedThrowingContinuation { continuation in
             let session = ASWebAuthenticationSession(
@@ -116,36 +158,20 @@ final class OAuthService: NSObject {
                     return
                 }
 
-                guard let callbackURL,
-                      let components = URLComponents(url: callbackURL, resolvingAgainstBaseURL: false) else {
-                    oauthLogger.error("OAuth callback missing authorization code for \(provider.rawValue)")
+                guard let callbackURL else {
+                    oauthLogger.error("OAuth callback URL missing for \(provider.rawValue)")
                     continuation.resume(throwing: OAuthError.missingCode)
                     return
                 }
 
-                // Validate the callback URL path matches the expected OAuth callback
-                guard components.host == "oauth" && components.path == "/callback" else {
-                    oauthLogger.error("OAuth callback path mismatch for \(provider.rawValue): \(callbackURL)")
-                    continuation.resume(throwing: OAuthError.invalidCallback)
-                    return
+                do {
+                    let code = try OAuthService.validateCallback(url: callbackURL, expectedState: state)
+                    oauthLogger.info("OAuth succeeded for \(provider.rawValue)")
+                    continuation.resume(returning: code)
+                } catch {
+                    oauthLogger.error("OAuth callback validation failed for \(provider.rawValue): \(error.localizedDescription)")
+                    continuation.resume(throwing: error)
                 }
-
-                guard let code = components.queryItems?.first(where: { $0.name == "code" })?.value else {
-                    oauthLogger.error("OAuth callback missing authorization code for \(provider.rawValue)")
-                    continuation.resume(throwing: OAuthError.missingCode)
-                    return
-                }
-
-                // Verify state parameter to prevent CSRF
-                let returnedState = components.queryItems?.first(where: { $0.name == "state" })?.value
-                if returnedState != state {
-                    oauthLogger.error("OAuth state mismatch for \(provider.rawValue) — possible CSRF attack")
-                    continuation.resume(throwing: OAuthError.stateMismatch)
-                    return
-                }
-
-                oauthLogger.info("OAuth succeeded for \(provider.rawValue)")
-                continuation.resume(returning: code)
             }
 
             // Keep SSO cookies — if user is already logged in, auth completes instantly
@@ -187,6 +213,7 @@ enum OAuthError: Error, LocalizedError {
     case cancelled
     case sessionFailed(Error)
     case missingCode
+    case invalidCallback
     case stateMismatch
     case startFailed
 
@@ -203,6 +230,7 @@ enum OAuthError: Error, LocalizedError {
         case .cancelled: return "Authentication was cancelled"
         case .sessionFailed(let error): return "Authentication failed: \(error.localizedDescription)"
         case .missingCode: return "Authorization code not found in callback"
+        case .invalidCallback: return "OAuth callback URL path does not match expected callback"
         case .stateMismatch: return "OAuth state parameter mismatch (possible CSRF attack)"
         case .startFailed: return "Failed to start authentication session"
         }

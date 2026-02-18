@@ -427,9 +427,9 @@ class AppDelegate: NSObject, NSApplicationDelegate {
                 appLogger.info("OAuth succeeded for \(provider.rawValue), code length: \(code.count)")
                 // TODO: Exchange code for token and store credentials
             } catch is CancellationError {
-                appLogger.info("OAuth cancelled by user")
-            } catch let error as OAuthError where error.isCancelled {
-                appLogger.info("OAuth cancelled by user")
+                appLogger.info("OAuth task cancelled externally")
+            } catch OAuthError.cancelled {
+                appLogger.info("OAuth cancelled by user in browser")
             } catch {
                 appLogger.error("OAuth failed: \(error.localizedDescription)")
             }
