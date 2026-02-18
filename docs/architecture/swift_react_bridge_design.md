@@ -202,9 +202,9 @@ struct BinarySchemeHandler: URLSchemeHandler {
 
 > **Note on full-buffer load**: The current design loads the entire file into memory before yielding. For files > 1MB, consider streaming via chunked yields (e.g., 64KB chunks with `Task.checkCancellation()` between each). This is a future optimization — the initial implementation uses full-buffer load, which is acceptable since content pull requests are serialized per file and LRU-bounded (~20 files in cache).
 
-React consumes via standard `fetch()`:
+React consumes via standard `fetch()`, including the current epoch to prevent stale responses:
 ```typescript
-const content = await fetch(`agentstudio://resource/file/${fileId}`);
+const content = await fetch(`agentstudio://resource/file/${fileId}?epoch=${epoch}`);
 const text = await content.text();
 ```
 
@@ -331,8 +331,12 @@ if let rawData = json.data(using: .utf8),
    parsed is [Any] {
     // Batch request detected — extract first id for the error response
     if let array = parsed as? [[String: Any]],
-       let firstId = array.first?["id"] as? String {
-        await coordinator.sendError(id: firstId, code: -32600, message: "Batch requests not supported")
+       let rawId = array.first?["id"] {
+        let rpcId: RPCId
+        if let s = rawId as? String { rpcId = .string(s) }
+        else if let n = rawId as? Int { rpcId = .number(n) }
+        else { return }  // No valid id → drop silently
+        await coordinator.sendError(id: rpcId, code: -32600, message: "Batch requests not supported")
     }
     // No id found → drop silently (batch of notifications)
     return
@@ -638,13 +642,19 @@ const stores: Record<string, { setState: (updater: (prev: any) => any) => void }
     connection: useConnectionStore,
 };
 
-// Capture push nonce from one-time handshake (bridge world dispatches this at bootstrap)
+// Capture push nonce from handshake (bridge world dispatches at bootstrap).
+// If we missed the initial event, request a replay.
 let _pushNonce: string | null = null;
 document.addEventListener('__bridge_handshake', ((e: CustomEvent) => {
     if (_pushNonce === null) {  // Accept only the first handshake
         _pushNonce = e.detail.pushNonce;
     }
-}) as EventListener, { once: true });
+}) as EventListener);
+
+// Request replay in case bridge world fired before we registered
+if (_pushNonce === null) {
+    document.dispatchEvent(new CustomEvent('__bridge_handshake_request'));
+}
 
 // Listen for state pushes relayed from bridge world via CustomEvent
 document.addEventListener('__bridge_push', ((e: CustomEvent) => {
@@ -695,8 +705,9 @@ function sendCommand(method: string, params?: unknown): void {
         console.warn('[bridge] Nonce not available — command dropped:', method);
         return;  // Bridge not ready yet; caller should retry or queue
     }
+    const commandId = `cmd_${crypto.randomUUID()}`;
     document.dispatchEvent(new CustomEvent('__bridge_command', {
-        detail: { jsonrpc: "2.0", method, params, __nonce: nonce }
+        detail: { jsonrpc: "2.0", method, params, __nonce: nonce, __commandId: commandId }
     }));
 }
 
@@ -1162,13 +1173,16 @@ class BridgeCoordinator {
     func loadApp() {
         let url = URL(string: "agentstudio://app/index.html")!
         page.load(URLRequest(url: url))
+        // Observation loops start when bridge.ready is received (see handleBridgeReady).
+        // Do NOT start loops here — page.isLoading == false does not guarantee
+        // React has mounted and listeners are attached (§4.5).
+    }
 
-        // Start observation loops after page loads
+    /// Called by RPCMessageHandler when it receives { type: "bridge.ready" } from bridge world.
+    /// This is the ONLY trigger for starting observation loops (§4.5 step 6).
+    func handleBridgeReady() {
+        guard observationTask == nil else { return }  // idempotent
         observationTask = Task {
-            // Wait for page ready
-            while page.isLoading {
-                try? await Task.sleep(for: .milliseconds(50))
-            }
             await startObservationLoops()
         }
     }
@@ -1177,11 +1191,18 @@ class BridgeCoordinator {
         await router.dispatch(json: json, coordinator: self)
     }
 
-    /// Send a JSON-RPC success response to JS (rare direct-response path)
-    func sendResponse(id: String, result: Data) async {
-        let json = """
-        {"jsonrpc":"2.0","id":"\(id)","result":\(String(data: result, encoding: .utf8) ?? "null")}
-        """
+    /// Send a JSON-RPC success response to JS (rare direct-response path).
+    /// Uses JSONEncoder to build the response, avoiding string interpolation injection.
+    /// `result` is pre-encoded Data from the method handler.
+    func sendResponse(id: RPCId, result: Data) async {
+        // Build response by composing the envelope around pre-encoded result data
+        let resultJSON = String(data: result, encoding: .utf8) ?? "null"
+        struct Envelope: Encodable { let jsonrpc: String; let id: RPCId }
+        guard let envelopeData = try? JSONEncoder().encode(Envelope(jsonrpc: "2.0", id: id)),
+              var envelopeStr = String(data: envelopeData, encoding: .utf8) else { return }
+        // Insert result into the envelope (result is already valid JSON from handler)
+        envelopeStr.removeLast() // remove trailing }
+        let json = envelopeStr + ",\"result\":" + resultJSON + "}"
         try? await page.callJavaScript(
             "window.__bridgeInternal.response(JSON.parse(json))",
             arguments: ["json": json],
@@ -1189,11 +1210,13 @@ class BridgeCoordinator {
         )
     }
 
-    /// Send a JSON-RPC error response to JS
-    func sendError(id: String, code: Int, message: String) async {
-        let json = """
-        {"jsonrpc":"2.0","id":"\(id)","error":{"code":\(code),"message":"\(message)"}}
-        """
+    /// Send a JSON-RPC error response to JS.
+    /// Uses typed Encodable structs to avoid string interpolation injection.
+    func sendError(id: RPCId, code: Int, message: String) async {
+        struct ErrorBody: Encodable { let code: Int; let message: String }
+        struct ErrorResponse: Encodable { let jsonrpc: String; let id: RPCId; let error: ErrorBody }
+        let response = ErrorResponse(jsonrpc: "2.0", id: id, error: ErrorBody(code: code, message: message))
+        guard let json = try? String(data: JSONEncoder().encode(response), encoding: .utf8) else { return }
         try? await page.callJavaScript(
             "window.__bridgeInternal.response(JSON.parse(json))",
             arguments: ["json": json],
@@ -1351,22 +1374,54 @@ actor RPCRouter {
     }
 
     /// Best-effort extraction of "id" from raw JSON string before full decode.
+    /// Handles both String and Int ids per JSON-RPC 2.0 spec.
     /// Returns nil if the JSON doesn't contain a parseable "id" field.
-    private func extractId(from json: String) -> String? {
+    private func extractId(from json: String) -> RPCId? {
         guard let data = json.data(using: .utf8),
               let obj = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
               let id = obj["id"] else { return nil }
-        if let stringId = id as? String { return stringId }
-        if let intId = id as? Int { return String(intId) }
+        if let stringId = id as? String { return .string(stringId) }
+        if let intId = id as? Int { return .number(intId) }
         return nil
     }
 }
 
+/// JSON-RPC 2.0 envelope. The `id` field accepts both string and integer
+/// per the spec ("An identifier established by the Client that MUST contain
+/// a String, Number, or NULL value"). Decoded to String for internal use.
 struct RPCEnvelope: Codable {
     let jsonrpc: String
-    let id: String?
+    let id: RPCId?
     let method: String
     let params: AnyCodableValue?  // Reuses existing AnyCodableValue from PaneContent.swift
+}
+
+/// JSON-RPC id: accepts both String and Int, normalizes to String.
+enum RPCId: Codable, Equatable {
+    case string(String)
+    case number(Int)
+
+    var stringValue: String {
+        switch self {
+        case .string(let s): return s
+        case .number(let n): return String(n)
+        }
+    }
+
+    init(from decoder: Decoder) throws {
+        let container = try decoder.singleValueContainer()
+        if let s = try? container.decode(String.self) { self = .string(s) }
+        else if let n = try? container.decode(Int.self) { self = .number(n) }
+        else { throw DecodingError.dataCorruptedError(in: container, debugDescription: "id must be string or number") }
+    }
+
+    func encode(to encoder: Encoder) throws {
+        var container = encoder.singleValueContainer()
+        switch self {
+        case .string(let s): try container.encode(s)
+        case .number(let n): try container.encode(n)
+        }
+    }
 }
 
 // AnyCodableValue already exists in Models/PaneContent.swift — a Codable enum over
@@ -1464,9 +1519,10 @@ func loadDiff(source: DiffSource) async {
 React fetches file contents on demand via the `agentstudio://` binary channel. Content is requested when files enter Pierre's viewport (see §12 for Pierre virtualization).
 
 ```typescript
-// React: triggered by Pierre's virtualizer when a file becomes visible
-async function loadFileContent(fileId: string): Promise<FileContents> {
-    const response = await fetch(`agentstudio://resource/file/${fileId}`);
+// React: triggered by Pierre's virtualizer when a file becomes visible.
+// Includes current epoch in URL so server can reject stale requests.
+async function loadFileContent(fileId: string, epoch: number): Promise<FileContents> {
+    const response = await fetch(`agentstudio://resource/file/${fileId}?epoch=${epoch}`);
     if (!response.ok) throw new Error(`Failed to load file ${fileId}`);
     const data = await response.json(); // { oldContent, newContent }
     return data;
@@ -1475,16 +1531,19 @@ async function loadFileContent(fileId: string): Promise<FileContents> {
 
 ```swift
 // Swift: BinarySchemeHandler serves file contents
-// Path: agentstudio://resource/file/{fileId}
+// Path: agentstudio://resource/file/{fileId}?epoch={epoch}
+// The client includes its current epoch in the query string so the server can
+// reject requests from a previous diff generation even if file IDs overlap.
 func resolveResource(for request: URLRequest) async throws -> (Data, String) {
     guard let url = request.url,
-          let fileId = extractFileId(from: url) else {
-        throw BridgeError.invalidRequest("Invalid resource URL")
+          let fileId = extractFileId(from: url),
+          let clientEpoch = extractEpoch(from: url) else {
+        throw BridgeError.invalidRequest("Invalid resource URL — must include fileId and epoch")
     }
 
-    // Epoch check: don't serve content from a stale diff
-    guard paneState.diff.manifest?.epoch == paneState.diff.epoch else {
-        throw BridgeError.staleRequest("Diff epoch has changed")
+    // Epoch check: reject requests from a stale diff generation
+    guard clientEpoch == paneState.diff.epoch else {
+        throw BridgeError.staleRequest("Client epoch \(clientEpoch) != current \(paneState.diff.epoch)")
     }
 
     let contents = try await gitService.readFileContents(fileId: fileId)
@@ -1518,7 +1577,8 @@ const contentLoader = {
         const controller = new AbortController();
         this.queue.set(fileId, { priority, controller });
 
-        fetch(`agentstudio://resource/file/${fileId}`, { signal: controller.signal })
+        const epoch = useDiffStore.getState().epoch;
+        fetch(`agentstudio://resource/file/${fileId}?epoch=${epoch}`, { signal: controller.signal })
             .then(res => res.json())
             .then(data => {
                 fileContentCache.set(fileId, data); // LRU cache, max ~20 files
@@ -1585,10 +1645,23 @@ Since content worlds isolate JavaScript namespaces, the bridge world and page wo
 // pushNonce is a separate secret from bridgeNonce — only bridge world knows it
 const pushNonce = crypto.randomUUID();
 
-// Expose pushNonce to page world via a one-time handshake stored in a closure,
+// Expose pushNonce to page world via a handshake stored in a closure,
 // NOT via a DOM attribute (unlike bridgeNonce, this must not be readable by
 // arbitrary page-world scripts).
+//
 // The receiver captures it at initialization via a '__bridge_handshake' event.
+// To avoid a startup race (listener registers after event fires), the bridge
+// world stores the nonce and replays it on demand when it sees a
+// '__bridge_handshake_request' event from the page world.
+let _handshakeDelivered = false;
+
+document.addEventListener('__bridge_handshake_request', () => {
+    // Page world missed the initial handshake — replay it
+    document.dispatchEvent(new CustomEvent('__bridge_handshake', {
+        detail: { pushNonce }
+    }));
+});
+
 document.dispatchEvent(new CustomEvent('__bridge_handshake', {
     detail: { pushNonce }
 }));
@@ -1613,16 +1686,20 @@ window.__bridgeInternal = {
 };
 ```
 
-**Page world (React) listens** — validates push nonce to reject forged events:
+**Page world (React) listens** — validates push nonce to reject forged events. Uses replay request to handle startup race (see §7.2):
 ```typescript
 // bridge/receiver.ts — installed in page world
-// Capture push nonce from one-time handshake (bridge world dispatches this at bootstrap)
+// Capture push nonce from handshake (bridge world dispatches at bootstrap).
+// If missed, request a replay via '__bridge_handshake_request'.
 let _pushNonce: string | null = null;
 document.addEventListener('__bridge_handshake', ((e: CustomEvent) => {
-    if (_pushNonce === null) {  // Accept only the first handshake
+    if (_pushNonce === null) {
         _pushNonce = e.detail.pushNonce;
     }
-}) as EventListener, { once: true });
+}) as EventListener);
+if (_pushNonce === null) {
+    document.dispatchEvent(new CustomEvent('__bridge_handshake_request'));
+}
 
 document.addEventListener('__bridge_push', ((e: CustomEvent) => {
     // Reject forged push events from page-world scripts
@@ -1877,9 +1954,12 @@ Swift handler creates a durable `AgentTask` record and enqueues the work:
 
 ```swift
 await router.register(Methods.AgentRequestRewrite.self) { params in
+    guard !params.threadIds.isEmpty else {
+        throw RPCError.invalidParams("threadIds must not be empty")
+    }
     let task = AgentTask(
         id: UUID(),
-        source: .thread(threadId: params.threadIds.first!),
+        source: .threads(threadIds: params.threadIds),
         prompt: params.prompt,
         status: .queued,
         modifiedFiles: [],
