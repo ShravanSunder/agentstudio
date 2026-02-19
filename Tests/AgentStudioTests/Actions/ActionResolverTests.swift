@@ -105,7 +105,7 @@ final class ActionResolverTests: XCTestCase {
             payload: payload,
             destinationPaneId: targetPaneId,
             destinationTabId: targetTabId,
-            zone: .bottom,
+            zone: .right,
             state: snapshot
         )
 
@@ -114,7 +114,7 @@ final class ActionResolverTests: XCTestCase {
             source: .newTerminal,
             targetTabId: targetTabId,
             targetPaneId: targetPaneId,
-            direction: .down
+            direction: .right
         ))
     }
 
@@ -508,8 +508,6 @@ final class ActionResolverTests: XCTestCase {
         let zoneMappings: [(DropZone, SplitNewDirection)] = [
             (.left, .left),
             (.right, .right),
-            (.top, .up),
-            (.bottom, .down),
         ]
 
         for (zone, expectedDirection) in zoneMappings {

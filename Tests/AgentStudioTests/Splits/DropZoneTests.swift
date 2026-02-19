@@ -120,28 +120,12 @@ final class DropZoneTests: XCTestCase {
         XCTAssertEqual(result, .right)
     }
 
-    // MARK: - splitDirection
-
-    func test_splitDirection_leftRight_horizontal() {
-        // Assert
-        XCTAssertEqual(DropZone.left.splitDirection, .horizontal)
-        XCTAssertEqual(DropZone.right.splitDirection, .horizontal)
-    }
-
-    func test_splitDirection_topBottom_vertical() {
-        // Assert
-        XCTAssertEqual(DropZone.top.splitDirection, .vertical)
-        XCTAssertEqual(DropZone.bottom.splitDirection, .vertical)
-    }
-
     // MARK: - newDirection
 
     func test_newDirection_allCasesMapped() {
         // Assert
         XCTAssertEqual(DropZone.left.newDirection, .left)
         XCTAssertEqual(DropZone.right.newDirection, .right)
-        XCTAssertEqual(DropZone.top.newDirection, .up)
-        XCTAssertEqual(DropZone.bottom.newDirection, .down)
     }
 
     // MARK: - Non-Square Aspect Ratio
@@ -162,8 +146,8 @@ final class DropZoneTests: XCTestCase {
 
     // MARK: - CaseIterable
 
-    func test_caseIterable_hasFourCases() {
+    func test_caseIterable_hasTwoCases() {
         // Assert
-        XCTAssertEqual(DropZone.allCases.count, 4)
+        XCTAssertEqual(DropZone.allCases.count, 2)
     }
 }

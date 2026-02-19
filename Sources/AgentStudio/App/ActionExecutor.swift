@@ -161,11 +161,29 @@ final class ActionExecutor {
     private func undoPaneClose(_ snapshot: WorkspaceStore.PaneCloseSnapshot) {
         store.restoreFromPaneSnapshot(snapshot)
 
-        // Restore views for the pane and its drawer children
+        // Restore views for the pane and its drawer children.
+        // Use the same restoration path as undoTabClose: attempt surface undo
+        // via SurfaceManager to preserve scrollback, fall back to fresh creation.
         let allPanes = [snapshot.pane] + snapshot.drawerChildPanes
-        for pane in allPanes {
-            if viewRegistry.view(for: pane.id) == nil {
+        for pane in allPanes.reversed() {
+            guard viewRegistry.view(for: pane.id) == nil else { continue }
+
+            switch pane.content {
+            case .terminal:
+                if let worktreeId = pane.worktreeId,
+                   let repoId = pane.repoId,
+                   let worktree = store.worktree(worktreeId),
+                   let repo = store.repo(repoId) {
+                    coordinator.restoreView(for: pane, worktree: worktree, repo: repo)
+                } else {
+                    coordinator.createViewForContent(pane: pane)
+                }
+
+            case .webview, .codeViewer:
                 coordinator.createViewForContent(pane: pane)
+
+            case .unsupported:
+                executorLogger.warning("Cannot restore unsupported pane \(pane.id)")
             }
         }
 

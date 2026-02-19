@@ -259,8 +259,6 @@ enum ActionResolver {
         switch zone {
         case .left:   return .left
         case .right:  return .right
-        case .top:    return .up
-        case .bottom: return .down
         }
     }
 }
