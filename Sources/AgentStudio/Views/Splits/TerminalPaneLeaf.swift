@@ -63,10 +63,7 @@ struct TerminalPaneLeaf: View {
                 // Drawer children cannot be dragged out of their drawer.
                 // The Color.clear fills the ZStack for centering; allowsHitTesting(false)
                 // ensures only the capsule itself intercepts mouse events.
-                if managementMode.isActive && isSplit && !isDrawerChild && isHovered && !isTargeted && !store.isSplitResizing,
-                   let tv = terminalView,
-                   let worktree = tv.worktree,
-                   let repo = tv.repo {
+                if managementMode.isActive && isSplit && !isDrawerChild && isHovered && !isTargeted && !store.isSplitResizing {
                     ZStack {
                         Color.clear
                             .allowsHitTesting(false)
@@ -81,10 +78,8 @@ struct TerminalPaneLeaf: View {
                         .frame(width: 20, height: 20 * 1.6)
                         .contentShape(RoundedRectangle(cornerRadius: 12))
                         .draggable(PaneDragPayload(
-                            paneId: tv.id,
-                            tabId: tabId,
-                            worktreeId: worktree.id,
-                            repoId: repo.id
+                            paneId: paneView.id,
+                            tabId: tabId
                         )) {
                             // Solid drag preview — .ultraThinMaterial renders as
                             // concentric circles when captured without a background.
@@ -309,10 +304,7 @@ private struct SplitDropDelegate: DropDelegate {
 
                 DispatchQueue.main.async {
                     let splitPayload = SplitDropPayload(kind: .existingTab(
-                        tabId: payload.tabId,
-                        worktreeId: payload.worktreeId,
-                        repoId: payload.repoId,
-                        title: payload.title
+                        tabId: payload.tabId
                     ))
                     onDrop(splitPayload, destination.id, zone)
                 }
@@ -368,9 +360,6 @@ extension UTType {
 /// Payload for dragging an existing tab.
 struct TabDragPayload: Codable, Transferable {
     let tabId: UUID
-    let worktreeId: UUID
-    let repoId: UUID
-    let title: String
 
     static var transferRepresentation: some TransferRepresentation {
         CodableRepresentation(contentType: .agentStudioTab)
@@ -381,8 +370,6 @@ struct TabDragPayload: Codable, Transferable {
 struct PaneDragPayload: Codable, Transferable {
     let paneId: UUID
     let tabId: UUID
-    let worktreeId: UUID
-    let repoId: UUID
 
     static var transferRepresentation: some TransferRepresentation {
         CodableRepresentation(contentType: .agentStudioPane)

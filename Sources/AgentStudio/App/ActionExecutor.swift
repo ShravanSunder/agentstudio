@@ -76,6 +76,30 @@ final class ActionExecutor {
         return pane
     }
 
+    /// Open a new webview pane in a new tab. Loads about:blank with navigation bar visible.
+    @discardableResult
+    func openWebview(url: URL = URL(string: "about:blank")!) -> Pane? {
+        let state = WebviewState(url: url, showNavigation: true)
+        let host = url.host() ?? "New Tab"
+        let pane = store.createPane(
+            content: .webview(state),
+            metadata: PaneMetadata(source: .floating(workingDirectory: nil, title: host), title: host)
+        )
+
+        guard coordinator.createViewForContent(pane: pane) != nil else {
+            executorLogger.error("Webview creation failed — rolling back pane \(pane.id)")
+            store.removePane(pane.id)
+            return nil
+        }
+
+        let tab = Tab(paneId: pane.id)
+        store.appendTab(tab)
+        store.setActiveTab(tab.id)
+
+        executorLogger.info("Opened webview pane \(pane.id)")
+        return pane
+    }
+
     /// Undo the last close operation (tab or pane).
     func undoCloseTab() {
         while let entry = undoStack.popLast() {
@@ -110,14 +134,25 @@ final class ActionExecutor {
         // order of SurfaceManager's undo stack (panes were pushed in forward
         // order during close, so the last pane is on top of the stack).
         for pane in snapshot.panes.reversed() {
-            guard let worktreeId = pane.worktreeId,
-                  let repoId = pane.repoId,
-                  let worktree = store.worktree(worktreeId),
-                  let repo = store.repo(repoId) else {
-                executorLogger.warning("Could not find worktree/repo for pane \(pane.id)")
-                continue
+            switch pane.content {
+            case .terminal:
+                // Terminal panes attempt surface undo via SurfaceManager
+                guard let worktreeId = pane.worktreeId,
+                      let repoId = pane.repoId,
+                      let worktree = store.worktree(worktreeId),
+                      let repo = store.repo(repoId) else {
+                    executorLogger.warning("Could not find worktree/repo for pane \(pane.id)")
+                    continue
+                }
+                coordinator.restoreView(for: pane, worktree: worktree, repo: repo)
+
+            case .webview, .codeViewer:
+                // Non-terminal panes create a fresh view from their stored state
+                coordinator.createViewForContent(pane: pane)
+
+            case .unsupported:
+                executorLogger.warning("Cannot restore unsupported pane \(pane.id)")
             }
-            coordinator.restoreView(for: pane, worktree: worktree, repo: repo)
         }
     }
 
@@ -321,6 +356,18 @@ final class ActionExecutor {
     // MARK: - Private Execution
 
     private func executeCloseTab(_ tabId: UUID) {
+        // Sync live webview state back to the pane model before snapshotting,
+        // so undo-close restores the actual page, not stale initial state.
+        // Use tab.panes (all owned panes) not tab.paneIds (active arrangement only)
+        // to match the snapshot path which captures all panes.
+        if let tab = store.tab(tabId) {
+            for paneId in tab.panes {
+                if let webviewView = viewRegistry.webviewView(for: paneId) {
+                    store.syncPaneWebviewState(paneId, state: webviewView.currentState())
+                }
+            }
+        }
+
         // Snapshot for undo before closing
         if let snapshot = store.snapshotForClose(tabId: tabId) {
             undoStack.append(.tab(snapshot))

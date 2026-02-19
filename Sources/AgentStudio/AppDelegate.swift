@@ -20,6 +20,11 @@ class AppDelegate: NSObject, NSApplicationDelegate {
 
     private(set) var commandBarController: CommandBarPanelController!
 
+    // MARK: - OAuth
+
+    private var oauthService: OAuthService!
+    private var signInObserver: NSObjectProtocol?
+
     func applicationDidFinishLaunching(_ notification: Notification) {
         // Set GHOSTTY_RESOURCES_DIR before any GhosttyKit initialization.
         // This lets GhosttyKit find xterm-ghostty terminfo in both dev and bundle builds.
@@ -49,6 +54,7 @@ class AppDelegate: NSObject, NSApplicationDelegate {
         executor = ActionExecutor(store: store, viewRegistry: viewRegistry, coordinator: coordinator)
         tabBarAdapter = TabBarAdapter(store: store)
         commandBarController = CommandBarPanelController(store: store, dispatcher: .shared)
+        oauthService = OAuthService()
 
         // Restore terminal views for persisted panes
         coordinator.restoreAllViews()
@@ -66,6 +72,17 @@ class AppDelegate: NSObject, NSApplicationDelegate {
         // the frame set during init.
         if let window = mainWindowController?.window, let screen = window.screen ?? NSScreen.main {
             window.setFrame(screen.visibleFrame, display: true)
+        }
+
+        // Listen for OAuth sign-in requests
+        signInObserver = NotificationCenter.default.addObserver(
+            forName: .signInRequested,
+            object: nil,
+            queue: .main
+        ) { [weak self] notification in
+            MainActor.assumeIsolated {
+                self?.handleSignInRequested(notification)
+            }
         }
     }
 
@@ -212,8 +229,9 @@ class AppDelegate: NSObject, NSApplicationDelegate {
     }
 
     func applicationShouldTerminate(_ sender: NSApplication) -> NSApplication.TerminateReply {
-        guard let store, store.isDirty else { return .terminateNow }
-        // Flush before exit — guarantees pending markDirty() writes land on disk.
+        guard let store else { return .terminateNow }
+        // Always flush on quit — the pre-persist hook syncs runtime webview state
+        // back to the pane model, so this must run even when isDirty == false.
         if !store.flush() {
             appLogger.warning("Workspace flush failed at termination")
         }
@@ -305,6 +323,10 @@ class AppDelegate: NSObject, NSApplicationDelegate {
         viewMenu.addItem(paneModeItem)
         viewMenu.addItem(NSMenuItem.separator())
 
+        viewMenu.addItem(menuItem("Open New Webview Tab", command: .openWebview, action: #selector(openWebviewAction)))
+
+        viewMenu.addItem(NSMenuItem.separator())
+
         // Full Screen uses ⌃⌘F (not ⇧⌘F) to avoid conflict with Filter Sidebar
         viewMenu.addItem(NSMenuItem(title: "Enter Full Screen", action: #selector(NSWindow.toggleFullScreen(_:)), keyEquivalent: "f"))
         viewMenu.items.last?.keyEquivalentModifierMask = [.command, .control]
@@ -354,7 +376,7 @@ class AppDelegate: NSObject, NSApplicationDelegate {
         let window = NSWindow(contentViewController: hostingController)
         window.title = "Settings"
         window.styleMask = [.titled, .closable]
-        window.setContentSize(NSSize(width: 450, height: 300))
+        window.setContentSize(NSSize(width: 450, height: 380))
         window.center()
         window.makeKeyAndOrderFront(nil)
     }
@@ -397,6 +419,36 @@ class AppDelegate: NSObject, NSApplicationDelegate {
             object: nil,
             userInfo: ["index": sender.tag]
         )
+    }
+
+    // MARK: - Webview Actions
+
+    @objc private func openWebviewAction() {
+        NotificationCenter.default.post(name: .openWebviewRequested, object: nil)
+    }
+
+    private func handleSignInRequested(_ notification: Notification) {
+        guard let providerName = notification.userInfo?["provider"] as? String,
+              let provider = OAuthProvider(rawValue: providerName) else {
+            return
+        }
+        guard let window = NSApp.keyWindow ?? mainWindowController?.window else {
+            appLogger.warning("No window available for OAuth")
+            return
+        }
+        Task {
+            do {
+                let code = try await oauthService.authenticate(provider: provider, window: window)
+                appLogger.info("OAuth succeeded for \(provider.rawValue), code length: \(code.count)")
+                // TODO: Exchange code for token and store credentials
+            } catch is CancellationError {
+                appLogger.info("OAuth task cancelled externally")
+            } catch OAuthError.cancelled {
+                appLogger.info("OAuth cancelled by user in browser")
+            } catch {
+                appLogger.error("OAuth failed: \(error.localizedDescription)")
+            }
+        }
     }
 
     // MARK: - Command Bar Actions

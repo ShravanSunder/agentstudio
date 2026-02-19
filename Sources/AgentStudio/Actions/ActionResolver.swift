@@ -112,6 +112,7 @@ enum ActionResolver {
              .newTerminalInTab, .newTab, .undoCloseTab,
              .newWindow, .closeWindow,
              .quickFind, .commandBar,
+             .openWebview, .signInGitHub, .signInGoogle,
              .filterSidebar, .openNewTerminalInTab,
              .switchArrangement, .saveArrangement,
              .deleteArrangement, .renameArrangement,
@@ -134,7 +135,7 @@ enum ActionResolver {
         let direction = splitNewDirection(for: zone)
 
         switch payload.kind {
-        case .existingTab(let tabId, _, _, _):
+        case .existingTab(let tabId):
             // Look up source tab by ID
             guard let sourceTab = state.tab(tabId) else { return nil }
 
