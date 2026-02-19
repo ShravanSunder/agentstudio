@@ -13,10 +13,8 @@ final class TabSmokeTests: XCTestCase {
     func test_splitDropPayload_existingTab_equatable() {
         // Arrange
         let tabId = UUID()
-        let wtId = UUID()
-        let pId = UUID()
-        let p1 = SplitDropPayload(kind: .existingTab(tabId: tabId, worktreeId: wtId, repoId: pId, title: "Tab"))
-        let p2 = SplitDropPayload(kind: .existingTab(tabId: tabId, worktreeId: wtId, repoId: pId, title: "Tab"))
+        let p1 = SplitDropPayload(kind: .existingTab(tabId: tabId))
+        let p2 = SplitDropPayload(kind: .existingTab(tabId: tabId))
 
         // Assert
         XCTAssertEqual(p1, p2)
@@ -24,8 +22,8 @@ final class TabSmokeTests: XCTestCase {
 
     func test_splitDropPayload_differentTabIds_notEqual() {
         // Arrange
-        let p1 = SplitDropPayload(kind: .existingTab(tabId: UUID(), worktreeId: UUID(), repoId: UUID(), title: "A"))
-        let p2 = SplitDropPayload(kind: .existingTab(tabId: UUID(), worktreeId: UUID(), repoId: UUID(), title: "B"))
+        let p1 = SplitDropPayload(kind: .existingTab(tabId: UUID()))
+        let p2 = SplitDropPayload(kind: .existingTab(tabId: UUID()))
 
         // Assert
         XCTAssertNotEqual(p1, p2)
@@ -61,8 +59,6 @@ final class TabSmokeTests: XCTestCase {
         switch zone {
         case .left: return .left
         case .right: return .right
-        case .top: return .up
-        case .bottom: return .down
         }
     }
 

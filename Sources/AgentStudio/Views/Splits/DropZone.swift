@@ -1,29 +1,17 @@
 import SwiftUI
 
-/// Drop zone for split pane creation.
-/// Uses triangular proximity detection (Ghostty pattern) - the entire view is a drop target,
-/// and the split direction is determined by which edge the cursor is closest to.
+/// Drop zone for horizontal split pane creation.
+/// The entire view is a drop target; the split side is determined by
+/// which half of the pane the cursor is in.
 enum DropZone: String, Equatable, CaseIterable {
-    case top
-    case bottom
     case left
     case right
 
     /// Determines which drop zone the cursor is in based on horizontal position.
-    /// Only returns `.left` or `.right` — vertical splits are disabled
-    /// because drawers occupy the bottom space.
     static func calculate(at point: CGPoint, in size: CGSize) -> DropZone {
         guard size.width > 0 else { return .right }
         let relX = point.x / size.width
         return relX < 0.5 ? .left : .right
-    }
-
-    /// The split direction this drop zone would create.
-    var splitDirection: SplitViewDirection {
-        switch self {
-        case .left, .right: return .horizontal
-        case .top, .bottom: return .vertical
-        }
     }
 
     /// Convert to SplitTree.NewDirection for insertion.
@@ -31,8 +19,6 @@ enum DropZone: String, Equatable, CaseIterable {
         switch self {
         case .left: return .left
         case .right: return .right
-        case .top: return .up
-        case .bottom: return .down
         }
     }
 
@@ -44,22 +30,6 @@ enum DropZone: String, Equatable, CaseIterable {
         let inset: CGFloat = 4
 
         switch self {
-        case .top:
-            VStack(spacing: 0) {
-                RoundedRectangle(cornerRadius: 4)
-                    .fill(overlayColor)
-                    .padding(inset)
-                    .frame(height: geometry.size.height * 0.5)
-                Spacer()
-            }
-        case .bottom:
-            VStack(spacing: 0) {
-                Spacer()
-                RoundedRectangle(cornerRadius: 4)
-                    .fill(overlayColor)
-                    .padding(inset)
-                    .frame(height: geometry.size.height * 0.5)
-            }
         case .left:
             HStack(spacing: 0) {
                 RoundedRectangle(cornerRadius: 4)

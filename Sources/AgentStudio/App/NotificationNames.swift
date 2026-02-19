@@ -21,6 +21,10 @@ extension Notification.Name {
     // Pane management
     static let extractPaneRequested = Notification.Name("extractPaneRequested")
 
+    // Webview management
+    static let openWebviewRequested = Notification.Name("openWebviewRequested")
+    static let signInRequested = Notification.Name("signInRequested")
+
     // Surface repair
     static let repairSurfaceRequested = Notification.Name("repairSurfaceRequested")
 

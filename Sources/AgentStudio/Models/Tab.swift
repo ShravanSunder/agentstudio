@@ -59,8 +59,8 @@ struct Tab: Codable, Identifiable, Hashable {
         zoomedPaneId: UUID? = nil,
         minimizedPaneIds: Set<UUID> = []
     ) {
-        assert(!arrangements.isEmpty, "Tab must have at least one arrangement")
-        assert(arrangements.filter(\.isDefault).count == 1, "Tab must have exactly one default arrangement")
+        precondition(!arrangements.isEmpty, "Tab must have at least one arrangement")
+        precondition(arrangements.filter(\.isDefault).count == 1, "Tab must have exactly one default arrangement")
         self.id = id
         self.name = name
         self.panes = panes

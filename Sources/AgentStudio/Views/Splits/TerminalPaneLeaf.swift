@@ -1,6 +1,9 @@
 import SwiftUI
 import AppKit
 import UniformTypeIdentifiers
+import os.log
+
+private let splitLogger = Logger(subsystem: "com.agentstudio", category: "SplitDrop")
 
 /// Renders a single pane leaf with drop zone support for splitting.
 /// Handles terminal views (with surface dimming and drag handles) and
@@ -63,10 +66,7 @@ struct TerminalPaneLeaf: View {
                 // Drawer children cannot be dragged out of their drawer.
                 // The Color.clear fills the ZStack for centering; allowsHitTesting(false)
                 // ensures only the capsule itself intercepts mouse events.
-                if managementMode.isActive && isSplit && !isDrawerChild && isHovered && !isTargeted && !store.isSplitResizing,
-                   let tv = terminalView,
-                   let worktree = tv.worktree,
-                   let repo = tv.repo {
+                if managementMode.isActive && isSplit && !isDrawerChild && isHovered && !isTargeted && !store.isSplitResizing {
                     ZStack {
                         Color.clear
                             .allowsHitTesting(false)
@@ -81,10 +81,8 @@ struct TerminalPaneLeaf: View {
                         .frame(width: 20, height: 20 * 1.6)
                         .contentShape(RoundedRectangle(cornerRadius: 12))
                         .draggable(PaneDragPayload(
-                            paneId: tv.id,
-                            tabId: tabId,
-                            worktreeId: worktree.id,
-                            repoId: repo.id
+                            paneId: paneView.id,
+                            tabId: tabId
                         )) {
                             // Solid drag preview — .ultraThinMaterial renders as
                             // concentric circles when captured without a background.
@@ -302,17 +300,19 @@ private struct SplitDropDelegate: DropDelegate {
         // Check which type of drop
         if provider.hasItemConformingToTypeIdentifier(UTType.agentStudioTab.identifier) {
             _ = provider.loadDataRepresentation(forTypeIdentifier: UTType.agentStudioTab.identifier) { data, error in
+                if let error {
+                    splitLogger.warning("Tab drop: failed to load data — \(error.localizedDescription)")
+                    return
+                }
                 guard let data,
                       let payload = try? JSONDecoder().decode(TabDragPayload.self, from: data) else {
+                    splitLogger.warning("Tab drop: failed to decode TabDragPayload")
                     return
                 }
 
                 DispatchQueue.main.async {
                     let splitPayload = SplitDropPayload(kind: .existingTab(
-                        tabId: payload.tabId,
-                        worktreeId: payload.worktreeId,
-                        repoId: payload.repoId,
-                        title: payload.title
+                        tabId: payload.tabId
                     ))
                     onDrop(splitPayload, destination.id, zone)
                 }
@@ -322,8 +322,13 @@ private struct SplitDropDelegate: DropDelegate {
 
         if provider.hasItemConformingToTypeIdentifier(UTType.agentStudioPane.identifier) {
             _ = provider.loadDataRepresentation(forTypeIdentifier: UTType.agentStudioPane.identifier) { data, error in
+                if let error {
+                    splitLogger.warning("Pane drop: failed to load data — \(error.localizedDescription)")
+                    return
+                }
                 guard let data,
                       let payload = try? JSONDecoder().decode(PaneDragPayload.self, from: data) else {
+                    splitLogger.warning("Pane drop: failed to decode PaneDragPayload")
                     return
                 }
 
@@ -368,9 +373,6 @@ extension UTType {
 /// Payload for dragging an existing tab.
 struct TabDragPayload: Codable, Transferable {
     let tabId: UUID
-    let worktreeId: UUID
-    let repoId: UUID
-    let title: String
 
     static var transferRepresentation: some TransferRepresentation {
         CodableRepresentation(contentType: .agentStudioTab)
@@ -381,8 +383,6 @@ struct TabDragPayload: Codable, Transferable {
 struct PaneDragPayload: Codable, Transferable {
     let paneId: UUID
     let tabId: UUID
-    let worktreeId: UUID
-    let repoId: UUID
 
     static var transferRepresentation: some TransferRepresentation {
         CodableRepresentation(contentType: .agentStudioPane)

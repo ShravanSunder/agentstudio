@@ -230,8 +230,8 @@ final class TabBarAdapterTests: XCTestCase {
     }
 
     func test_fewTabs_withinSpace_notOverflowing() {
-        // Arrange — 3 tabs: 3×100 + 2×4 + 16 = 324px < 600px
-        for _ in 0..<3 {
+        // Arrange — 2 tabs: 2×220 + 1×4 + 16 = 460px < 600px
+        for _ in 0..<2 {
             let pane = store.createPane(source: .floating(workingDirectory: nil, title: nil))
             store.appendTab(Tab(paneId: pane.id))
         }
@@ -248,12 +248,12 @@ final class TabBarAdapterTests: XCTestCase {
         wait(for: [expectation2], timeout: 1.0)
 
         // Assert
-        XCTAssertEqual(adapter.tabs.count, 3)
+        XCTAssertEqual(adapter.tabs.count, 2)
         XCTAssertFalse(adapter.isOverflowing)
     }
 
     func test_manyTabs_exceedingSpace_overflowing() {
-        // Arrange — 8 tabs: 8×100 + 7×4 + 16 = 844px > 600px
+        // Arrange — 8 tabs: 8×220 + 7×4 + 16 = 1804px > 600px
         for _ in 0..<8 {
             let pane = store.createPane(source: .floating(workingDirectory: nil, title: nil))
             store.appendTab(Tab(paneId: pane.id))
@@ -374,9 +374,9 @@ final class TabBarAdapterTests: XCTestCase {
     }
 
     func test_overflowUpdates_whenTabsAddedOrRemoved() {
-        // Arrange — start with 6 tabs in 600px: 6×100 + 5×4 + 16 = 636px > 600px → overflow
+        // Arrange — start with 4 tabs in 600px: 4×220 + 3×4 + 16 = 908px > 600px → overflow
         var panes: [Pane] = []
-        for _ in 0..<6 {
+        for _ in 0..<4 {
             let pane = store.createPane(source: .floating(workingDirectory: nil, title: nil))
             store.appendTab(Tab(paneId: pane.id))
             panes.append(pane)
@@ -388,7 +388,7 @@ final class TabBarAdapterTests: XCTestCase {
         wait(for: [e1], timeout: 1.0)
         XCTAssertTrue(adapter.isOverflowing)
 
-        // Act — remove tabs until not overflowing: 4 tabs: 4×100 + 3×4 + 16 = 428px < 600px
+        // Act — remove tabs until not overflowing: 2 tabs: 2×220 + 1×4 + 16 = 460px < 600px
         let tabsToRemove = store.tabs.prefix(2)
         for tab in tabsToRemove {
             store.removeTab(tab.id)
@@ -399,7 +399,7 @@ final class TabBarAdapterTests: XCTestCase {
         wait(for: [e2], timeout: 1.0)
 
         // Assert
-        XCTAssertEqual(adapter.tabs.count, 4)
+        XCTAssertEqual(adapter.tabs.count, 2)
         XCTAssertFalse(adapter.isOverflowing)
     }
 }

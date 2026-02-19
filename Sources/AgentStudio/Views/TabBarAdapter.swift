@@ -52,6 +52,7 @@ final class TabBarAdapter: ObservableObject {
     static let minTabWidth: CGFloat = 220
     static let tabSpacing: CGFloat = 4
     static let tabBarPadding: CGFloat = 16
+    static let hysteresisBuffer: CGFloat = 50
 
     // MARK: - Edit Mode
 
@@ -194,7 +195,19 @@ final class TabBarAdapter: ObservableObject {
         let effectiveViewport = viewportWidth > 0 ? viewportWidth : availableWidth
         guard effectiveViewport > 0 else { return }
 
-        // Overflow when tabs at min width can't fit in the viewport.
+        // Content-width-based overflow: use actual measured content width when available.
+        if contentWidth > 0 {
+            if isOverflowing {
+                // Hysteresis: only turn off overflow when content width drops
+                // well below the viewport to prevent oscillation.
+                isOverflowing = contentWidth > (effectiveViewport - Self.hysteresisBuffer)
+            } else {
+                isOverflowing = contentWidth > effectiveViewport
+            }
+            return
+        }
+
+        // Fallback: estimate overflow from tab count when content width isn't measured yet.
         let tabCount = CGFloat(tabs.count)
         let totalMinWidth = tabCount * Self.minTabWidth
             + (tabCount - 1) * Self.tabSpacing

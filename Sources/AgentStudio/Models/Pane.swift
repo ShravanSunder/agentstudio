@@ -85,6 +85,12 @@ struct Pane: Codable, Identifiable, Hashable {
         return nil
     }
 
+    /// The webview state, if this pane holds webview content.
+    var webviewState: WebviewState? {
+        if case .webview(let state) = content { return state }
+        return nil
+    }
+
     /// Source from metadata.
     var source: TerminalSource { metadata.source }
 
