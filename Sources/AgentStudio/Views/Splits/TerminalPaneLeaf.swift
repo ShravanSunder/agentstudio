@@ -1,6 +1,9 @@
 import SwiftUI
 import AppKit
 import UniformTypeIdentifiers
+import os.log
+
+private let splitLogger = Logger(subsystem: "com.agentstudio", category: "SplitDrop")
 
 /// Renders a single pane leaf with drop zone support for splitting.
 /// Handles terminal views (with surface dimming and drag handles) and
@@ -297,8 +300,13 @@ private struct SplitDropDelegate: DropDelegate {
         // Check which type of drop
         if provider.hasItemConformingToTypeIdentifier(UTType.agentStudioTab.identifier) {
             _ = provider.loadDataRepresentation(forTypeIdentifier: UTType.agentStudioTab.identifier) { data, error in
+                if let error {
+                    splitLogger.warning("Tab drop: failed to load data — \(error.localizedDescription)")
+                    return
+                }
                 guard let data,
                       let payload = try? JSONDecoder().decode(TabDragPayload.self, from: data) else {
+                    splitLogger.warning("Tab drop: failed to decode TabDragPayload")
                     return
                 }
 
@@ -314,8 +322,13 @@ private struct SplitDropDelegate: DropDelegate {
 
         if provider.hasItemConformingToTypeIdentifier(UTType.agentStudioPane.identifier) {
             _ = provider.loadDataRepresentation(forTypeIdentifier: UTType.agentStudioPane.identifier) { data, error in
+                if let error {
+                    splitLogger.warning("Pane drop: failed to load data — \(error.localizedDescription)")
+                    return
+                }
                 guard let data,
                       let payload = try? JSONDecoder().decode(PaneDragPayload.self, from: data) else {
+                    splitLogger.warning("Pane drop: failed to decode PaneDragPayload")
                     return
                 }
 

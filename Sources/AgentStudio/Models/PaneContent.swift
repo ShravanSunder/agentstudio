@@ -57,9 +57,20 @@ extension PaneContent: Codable {
         case .terminal:
             self = .terminal(try container.decode(TerminalState.self, forKey: .state))
         case .webview:
-            self = .webview(try container.decode(WebviewState.self, forKey: .state))
+            do {
+                self = .webview(try container.decode(WebviewState.self, forKey: .state))
+            } catch {
+                // Schema changed between versions — preserve raw state for round-trip
+                let rawState = try? container.decodeIfPresent(AnyCodableValue.self, forKey: .state)
+                self = .unsupported(UnsupportedContent(type: "webview", version: version, rawState: rawState))
+            }
         case .codeViewer:
-            self = .codeViewer(try container.decode(CodeViewerState.self, forKey: .state))
+            do {
+                self = .codeViewer(try container.decode(CodeViewerState.self, forKey: .state))
+            } catch {
+                let rawState = try? container.decodeIfPresent(AnyCodableValue.self, forKey: .state)
+                self = .unsupported(UnsupportedContent(type: "codeViewer", version: version, rawState: rawState))
+            }
         }
         _ = version // reserved for future state migration
     }
