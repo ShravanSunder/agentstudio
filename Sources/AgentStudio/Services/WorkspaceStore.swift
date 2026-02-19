@@ -424,7 +424,10 @@ final class WorkspaceStore {
         direction: Layout.SplitDirection,
         position: Layout.Position
     ) {
-        guard let tabIndex = findTabIndex(tabId) else { return }
+        guard let tabIndex = findTabIndex(tabId) else {
+            storeLogger.warning("insertPane: tab \(tabId) not found")
+            return
+        }
         let arrIndex = tabs[tabIndex].activeArrangementIndex
 
         // Validate targetPaneId exists in active arrangement
@@ -461,7 +464,10 @@ final class WorkspaceStore {
     /// (last pane was removed) — caller is responsible for handling tab closure with undo.
     @discardableResult
     func removePaneFromLayout(_ paneId: UUID, inTab tabId: UUID) -> Bool {
-        guard let tabIndex = findTabIndex(tabId) else { return false }
+        guard let tabIndex = findTabIndex(tabId) else {
+            storeLogger.warning("removePaneFromLayout: tab \(tabId) not found")
+            return false
+        }
         let arrIndex = tabs[tabIndex].activeArrangementIndex
 
         // Clear zoom if the zoomed pane is being removed
@@ -503,7 +509,10 @@ final class WorkspaceStore {
     }
 
     func resizePane(tabId: UUID, splitId: UUID, ratio: Double) {
-        guard let tabIndex = findTabIndex(tabId) else { return }
+        guard let tabIndex = findTabIndex(tabId) else {
+            storeLogger.warning("resizePane: tab \(tabId) not found")
+            return
+        }
         let arrIndex = tabs[tabIndex].activeArrangementIndex
         tabs[tabIndex].arrangements[arrIndex].layout = tabs[tabIndex].arrangements[arrIndex].layout
             .resizing(splitId: splitId, ratio: ratio)
@@ -511,14 +520,20 @@ final class WorkspaceStore {
     }
 
     func equalizePanes(tabId: UUID) {
-        guard let tabIndex = findTabIndex(tabId) else { return }
+        guard let tabIndex = findTabIndex(tabId) else {
+            storeLogger.warning("equalizePanes: tab \(tabId) not found")
+            return
+        }
         let arrIndex = tabs[tabIndex].activeArrangementIndex
         tabs[tabIndex].arrangements[arrIndex].layout = tabs[tabIndex].arrangements[arrIndex].layout.equalized()
         markDirty()
     }
 
     func setActivePane(_ paneId: UUID?, inTab tabId: UUID) {
-        guard let tabIndex = findTabIndex(tabId) else { return }
+        guard let tabIndex = findTabIndex(tabId) else {
+            storeLogger.warning("setActivePane: tab \(tabId) not found")
+            return
+        }
         // Validate paneId exists in the pane dict and in the tab's pane list
         if let paneId = paneId {
             guard panes[paneId] != nil, tabs[tabIndex].panes.contains(paneId) else {
@@ -536,7 +551,10 @@ final class WorkspaceStore {
     /// The layout is derived from the default arrangement by removing panes not in the subset.
     @discardableResult
     func createArrangement(name: String, paneIds: Set<UUID>, inTab tabId: UUID) -> UUID? {
-        guard let tabIndex = findTabIndex(tabId) else { return nil }
+        guard let tabIndex = findTabIndex(tabId) else {
+            storeLogger.warning("createArrangement: tab \(tabId) not found")
+            return nil
+        }
         guard !paneIds.isEmpty else {
             storeLogger.warning("createArrangement: empty paneIds")
             return nil
@@ -573,7 +591,10 @@ final class WorkspaceStore {
     /// Remove a custom arrangement. Cannot remove the default arrangement.
     /// If the removed arrangement was active, switches to the default.
     func removeArrangement(_ arrangementId: UUID, inTab tabId: UUID) {
-        guard let tabIndex = findTabIndex(tabId) else { return }
+        guard let tabIndex = findTabIndex(tabId) else {
+            storeLogger.warning("removeArrangement: tab \(tabId) not found")
+            return
+        }
         guard let arrIndex = tabs[tabIndex].arrangements.firstIndex(where: { $0.id == arrangementId }) else {
             storeLogger.warning("removeArrangement: arrangement \(arrangementId) not found in tab \(tabId)")
             return
@@ -599,7 +620,10 @@ final class WorkspaceStore {
 
     /// Switch to a different arrangement within a tab.
     func switchArrangement(to arrangementId: UUID, inTab tabId: UUID) {
-        guard let tabIndex = findTabIndex(tabId) else { return }
+        guard let tabIndex = findTabIndex(tabId) else {
+            storeLogger.warning("switchArrangement: tab \(tabId) not found")
+            return
+        }
         guard tabs[tabIndex].arrangements.contains(where: { $0.id == arrangementId }) else {
             storeLogger.warning("switchArrangement: arrangement \(arrangementId) not found in tab \(tabId)")
             return
@@ -622,7 +646,10 @@ final class WorkspaceStore {
 
     /// Rename a custom arrangement.
     func renameArrangement(_ arrangementId: UUID, name: String, inTab tabId: UUID) {
-        guard let tabIndex = findTabIndex(tabId) else { return }
+        guard let tabIndex = findTabIndex(tabId) else {
+            storeLogger.warning("renameArrangement: tab \(tabId) not found")
+            return
+        }
         guard let arrIndex = tabs[tabIndex].arrangements.firstIndex(where: { $0.id == arrangementId }) else {
             storeLogger.warning("renameArrangement: arrangement \(arrangementId) not found in tab \(tabId)")
             return
@@ -824,7 +851,10 @@ final class WorkspaceStore {
     /// Resize a split within a drawer's layout.
     func resizeDrawerPane(parentPaneId: UUID, splitId: UUID, ratio: Double) {
         guard panes[parentPaneId] != nil,
-              panes[parentPaneId]!.drawer != nil else { return }
+              panes[parentPaneId]!.drawer != nil else {
+            storeLogger.warning("resizeDrawerPane: parent pane \(parentPaneId) not found or has no drawer")
+            return
+        }
         panes[parentPaneId]!.withDrawer { drawer in
             drawer.layout = drawer.layout.resizing(splitId: splitId, ratio: ratio)
         }
@@ -834,7 +864,10 @@ final class WorkspaceStore {
     /// Equalize all splits within a drawer's layout.
     func equalizeDrawerPanes(parentPaneId: UUID) {
         guard panes[parentPaneId] != nil,
-              panes[parentPaneId]!.drawer != nil else { return }
+              panes[parentPaneId]!.drawer != nil else {
+            storeLogger.warning("equalizeDrawerPanes: parent pane \(parentPaneId) not found or has no drawer")
+            return
+        }
         panes[parentPaneId]!.withDrawer { drawer in
             drawer.layout = drawer.layout.equalized()
         }
@@ -860,8 +893,11 @@ final class WorkspaceStore {
 
     /// Expand a minimized pane within a drawer (remove from minimizedPaneIds).
     func expandDrawerPane(_ drawerPaneId: UUID, in parentPaneId: UUID) {
-        guard panes[parentPaneId] != nil,
-              panes[parentPaneId]!.drawer?.minimizedPaneIds.contains(drawerPaneId) == true else { return }
+        guard panes[parentPaneId] != nil else {
+            storeLogger.warning("expandDrawerPane: parent pane \(parentPaneId) not found")
+            return
+        }
+        guard panes[parentPaneId]!.drawer?.minimizedPaneIds.contains(drawerPaneId) == true else { return }
 
         panes[parentPaneId]!.withDrawer { drawer in
             drawer.minimizedPaneIds.remove(drawerPaneId)
@@ -871,7 +907,10 @@ final class WorkspaceStore {
     // MARK: - Zoom
 
     func toggleZoom(paneId: UUID, inTab tabId: UUID) {
-        guard let tabIndex = findTabIndex(tabId) else { return }
+        guard let tabIndex = findTabIndex(tabId) else {
+            storeLogger.warning("toggleZoom: tab \(tabId) not found")
+            return
+        }
         if tabs[tabIndex].zoomedPaneId == paneId {
             tabs[tabIndex].zoomedPaneId = nil
         } else if tabs[tabIndex].layout.contains(paneId) {
@@ -886,7 +925,10 @@ final class WorkspaceStore {
     /// All panes can be minimized, including the last one (shows empty state).
     @discardableResult
     func minimizePane(_ paneId: UUID, inTab tabId: UUID) -> Bool {
-        guard let tabIndex = findTabIndex(tabId) else { return false }
+        guard let tabIndex = findTabIndex(tabId) else {
+            storeLogger.warning("minimizePane: tab \(tabId) not found")
+            return false
+        }
         let visiblePaneIds = tabs[tabIndex].paneIds
         guard visiblePaneIds.contains(paneId) else {
             storeLogger.warning("minimizePane: pane \(paneId) not in active arrangement")
@@ -906,24 +948,30 @@ final class WorkspaceStore {
             tabs[tabIndex].zoomedPaneId = nil
         }
 
-        markDirty()
+        // Do NOT markDirty() — minimizedPaneIds is transient, not persisted
         return true
     }
 
     /// Expand a minimized pane — restore it from the collapsed bar.
     func expandPane(_ paneId: UUID, inTab tabId: UUID) {
-        guard let tabIndex = findTabIndex(tabId) else { return }
+        guard let tabIndex = findTabIndex(tabId) else {
+            storeLogger.warning("expandPane: tab \(tabId) not found")
+            return
+        }
         guard tabs[tabIndex].minimizedPaneIds.contains(paneId) else { return }
 
         tabs[tabIndex].minimizedPaneIds.remove(paneId)
         tabs[tabIndex].activePaneId = paneId
-        markDirty()
+        // Do NOT markDirty() — minimizedPaneIds is transient, not persisted
     }
 
     // MARK: - Keyboard Resize
 
     func resizePaneByDelta(tabId: UUID, paneId: UUID, direction: SplitResizeDirection, amount: UInt16) {
-        guard let tabIndex = findTabIndex(tabId) else { return }
+        guard let tabIndex = findTabIndex(tabId) else {
+            storeLogger.warning("resizePaneByDelta: tab \(tabId) not found")
+            return
+        }
         let tab = tabs[tabIndex]
 
         // No-op while zoomed — no visual feedback for resize
@@ -937,7 +985,10 @@ final class WorkspaceStore {
             return
         }
 
-        guard let currentRatio = tab.layout.ratioForSplit(splitId) else { return }
+        guard let currentRatio = tab.layout.ratioForSplit(splitId) else {
+            storeLogger.warning("resizePaneByDelta: ratioForSplit returned nil for split \(splitId) — layout inconsistency")
+            return
+        }
 
         // Ratio step per Ghostty resize increment, clamped to safe bounds
         let delta = Self.resizeRatioStep * (Double(amount) / Self.resizeBaseAmount)

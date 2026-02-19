@@ -136,15 +136,17 @@ final class ActionExecutor {
         for pane in snapshot.panes.reversed() {
             switch pane.content {
             case .terminal:
-                // Terminal panes attempt surface undo via SurfaceManager
-                guard let worktreeId = pane.worktreeId,
-                      let repoId = pane.repoId,
-                      let worktree = store.worktree(worktreeId),
-                      let repo = store.repo(repoId) else {
-                    executorLogger.warning("Could not find worktree/repo for pane \(pane.id)")
-                    continue
+                // Terminal panes with worktree context attempt surface undo via SurfaceManager.
+                // Drawer children and floating terminals lack worktree context — fall back to
+                // createViewForContent which resolves context through the parent pane.
+                if let worktreeId = pane.worktreeId,
+                   let repoId = pane.repoId,
+                   let worktree = store.worktree(worktreeId),
+                   let repo = store.repo(repoId) {
+                    coordinator.restoreView(for: pane, worktree: worktree, repo: repo)
+                } else {
+                    coordinator.createViewForContent(pane: pane)
                 }
-                coordinator.restoreView(for: pane, worktree: worktree, repo: repo)
 
             case .webview, .codeViewer:
                 // Non-terminal panes create a fresh view from their stored state
@@ -373,9 +375,11 @@ final class ActionExecutor {
             undoStack.append(.tab(snapshot))
         }
 
-        // Teardown views for all panes in this tab (including drawer panes)
+        // Teardown views for all panes in this tab (including drawer panes).
+        // Use tab.panes (all owned panes across arrangements), not tab.paneIds
+        // (active arrangement only), to avoid leaking surfaces in non-active arrangements.
         if let tab = store.tab(tabId) {
-            for paneId in tab.paneIds {
+            for paneId in tab.panes {
                 teardownDrawerPanes(for: paneId)
                 coordinator.teardownView(for: paneId)
             }
@@ -438,6 +442,10 @@ final class ActionExecutor {
             undoStack.append(.pane(snapshot))
         }
 
+        // Capture drawer child IDs before any mutation — removePaneFromLayout may cascade
+        // and remove the pane from the store, making drawer data inaccessible afterward.
+        let drawerChildIds = store.pane(paneId)?.drawer?.paneIds ?? []
+
         // Teardown drawer panes first, then the pane itself
         teardownDrawerPanes(for: paneId)
         coordinator.teardownView(for: paneId)
@@ -449,11 +457,9 @@ final class ActionExecutor {
             return
         }
 
-        // Remove drawer children from store
-        if let pane = store.pane(paneId), let drawer = pane.drawer {
-            for drawerPaneId in drawer.paneIds {
-                store.removePane(drawerPaneId)
-            }
+        // Remove drawer children from store (using pre-captured IDs)
+        for drawerPaneId in drawerChildIds {
+            store.removePane(drawerPaneId)
         }
 
         // If the pane is no longer owned by any tab, remove it from the store.

@@ -508,7 +508,9 @@ struct TabPillView: View {
 
     private var tabContent: some View {
         ZStack {
-            // Centered title with fade-out mask to avoid overlapping close/shortcut
+            // Centered title with fade-out mask.
+            // Clear zones match the overlay positions so text is fully invisible
+            // behind the shortcut label and close button.
             Text(tab.displayTitle)
                 .font(.system(size: AppStyle.fontBody))
                 .lineLimit(1)
@@ -516,25 +518,40 @@ struct TabPillView: View {
                 .frame(maxWidth: .infinity)
                 .mask(
                     HStack(spacing: 0) {
+                        // Left: clear zone for close button + fade-in gradient
                         if isHovering {
+                            Color.clear.frame(width: 20)
                             LinearGradient(
                                 colors: [.clear, .black],
                                 startPoint: .leading,
                                 endPoint: .trailing
                             )
-                            .frame(width: 24)
+                            .frame(width: 14)
+                        } else {
+                            LinearGradient(
+                                colors: [.clear, .black],
+                                startPoint: .leading,
+                                endPoint: .trailing
+                            )
+                            .frame(width: 8)
                         }
+
                         Color.black
+
+                        // Right: fade-out gradient + clear zone for shortcut label
                         LinearGradient(
                             colors: [.black, .clear],
                             startPoint: .leading,
                             endPoint: .trailing
                         )
-                        .frame(width: 24)
+                        .frame(width: 14)
+                        if index < 9 {
+                            Color.clear.frame(width: 28)
+                        }
                     }
                 )
 
-            // Close (left) and shortcut (right)
+            // Close (left) and shortcut (right) overlay
             HStack(spacing: 0) {
                 if isHovering {
                     Button(action: onClose) {
@@ -548,6 +565,7 @@ struct TabPillView: View {
                             )
                     }
                     .buttonStyle(.plain)
+                    .transition(.opacity)
                 }
 
                 Spacer()
@@ -556,6 +574,7 @@ struct TabPillView: View {
                     Text("⌘\(index + 1)")
                         .font(.system(size: AppStyle.fontSmall, weight: .medium))
                         .foregroundStyle(.tertiary)
+                        .fixedSize()
                 }
             }
         }
@@ -569,7 +588,9 @@ struct TabPillView: View {
         .contentShape(RoundedRectangle(cornerRadius: AppStyle.pillCornerRadius))
         .onTapGesture(perform: onSelect)
         .onHover { hovering in
-            isHovering = hovering
+            withAnimation(.easeInOut(duration: 0.15)) {
+                isHovering = hovering
+            }
         }
     }
 
