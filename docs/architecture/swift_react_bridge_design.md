@@ -2380,16 +2380,154 @@ Tests/
 
 ## 15. Integration with Existing Pane System
 
-The diff viewer lives as a regular webview pane in the existing tab/split system:
+### 15.1 Current State (Post Window System 7)
 
-- `PaneContent.webview(WebviewState)` — already exists on `window-system-types` branch
-- `WebviewPaneView` — currently a stub, will host the `WebView` + `BridgeCoordinator`
-- **One `BridgeCoordinator` per webview pane** — each pane gets its own `WebPage`, `PaneDomainState`, and observation loops
-- **`SharedBridgeState` is singleton** — injected into each `BridgeCoordinator`, provides connection health across all panes
-- Pane creation: `ActionExecutor.openWebviewPane()` → creates `BridgeCoordinator(sharedState:)` + `WebView`
-- Pane teardown: `BridgeCoordinator.teardown()` cancels observation tasks, releases `WebPage`
+The pane system is fully operational. Webview panes already work as general-purpose browser panes:
 
-The existing `ViewRegistry`, `Layout`, drag/drop, and split system work unchanged — the webview pane is just another leaf in the layout tree.
+| Component | File | Role |
+|---|---|---|
+| `PaneContent.webview(WebviewState)` | `Models/PaneContent.swift` | Discriminated union case for webview panes |
+| `WebviewState` | `Models/PaneContent.swift` | Serializable state: `url`, `title`, `showNavigation` |
+| `WebviewPaneController` | `Services/WebviewPaneController.swift` | Per-pane `@Observable` controller owning a `WebPage` |
+| `WebviewPaneView` | `Views/WebviewPaneView.swift` | AppKit `PaneView` subclass hosting SwiftUI via `NSHostingView` |
+| `WebviewPaneContentView` | `Views/Webview/WebviewPaneContentView.swift` | SwiftUI view: nav bar + `WebView(controller.page)` |
+| `WebviewNavigationDecider` | `Services/WebviewNavigationDecider.swift` | Browser-oriented allowlist: `https`, `http`, `about`, `file`, `agentstudio` |
+| `WebviewDialogHandler` | `Services/WebviewDialogHandler.swift` | JS dialog handler (default implementations) |
+| `TerminalViewCoordinator.createViewForContent` | `App/TerminalViewCoordinator.swift` | Routes `PaneContent` → view creation; webview case at line 101 |
+| `ActionExecutor.openWebview(url:)` | `App/ActionExecutor.swift` | Creates browser pane with `WebviewState` + tab |
+
+All webview panes currently share a single static `WebPage.Configuration` (`WebviewPaneController.sharedConfiguration`) with default `websiteDataStore`. The `ViewRegistry` tracks all webview views and supports lookup by pane ID.
+
+### 15.2 Pane Kind Split: Browser vs Bridge
+
+Bridge panes (diff viewer, code review) have fundamentally different requirements from browser panes:
+
+| Concern | Browser Pane | Bridge Pane |
+|---|---|---|
+| **Navigation** | Open web (`http`, `https`, `file`) | Locked to `agentstudio://` + `about:` only |
+| **Configuration** | Shared static config, default data store | Per-pane config with `userContentController`, `urlSchemeHandlers`, bridge scripts |
+| **Content worlds** | Not used (page world only) | Bridge content world isolates `__bridgeInternal` from page scripts |
+| **Message handlers** | None | `rpc` handler scoped to bridge world |
+| **URL scheme** | Standard schemes | `agentstudio://app/*` serves bundled React app; `agentstudio://resource/*` serves file contents |
+| **Lifecycle** | Stateless (no observation loops) | `BridgeCoordinator` runs observation loops, pushes state, handles teardown |
+| **State model** | `WebviewState` (url, title, showNavigation) | `BridgePaneState` (source, panel type — no URL bar, no browser navigation) |
+
+**Implementation approach**: A new `PaneContent` case for bridge panes, with a dedicated controller type:
+
+```swift
+// PaneContent gains a new case:
+enum PaneContent: Hashable {
+    case terminal(TerminalState)
+    case webview(WebviewState)          // Browser panes (existing)
+    case bridgePanel(BridgePaneState)   // Bridge-backed app panels (new)
+    case codeViewer(CodeViewerState)
+    case unsupported(UnsupportedContent)
+}
+
+/// State for a bridge-backed panel (diff viewer, code review, etc.).
+/// Unlike WebviewState, this has no user-visible URL or navigation controls.
+struct BridgePaneState: Codable, Hashable {
+    let panelKind: BridgePanelKind
+    var source: BridgePaneSource?       // what this panel is displaying (set after creation)
+}
+
+enum BridgePanelKind: String, Codable, Hashable {
+    case diffViewer                     // Diff review panel (Pierre-based)
+    // Future: .agentDashboard, .prStatus, etc.
+}
+
+/// What the bridge panel is displaying. Serializable for persistence/restore.
+enum BridgePaneSource: Codable, Hashable {
+    case commit(sha: String)
+    case branchDiff(head: String, base: String)
+    case workspace(rootPath: String, baseline: WorkspaceBaseline)
+    case agentSnapshot(taskId: UUID, timestamp: Date)
+}
+```
+
+### 15.3 Routing and View Creation
+
+`TerminalViewCoordinator.createViewForContent` gains a new case:
+
+```swift
+case .bridgePanel(let state):
+    let controller = BridgePaneController(paneId: pane.id, state: state, sharedState: sharedBridgeState)
+    let view = BridgePaneView(paneId: pane.id, controller: controller)
+    viewRegistry.register(view, for: pane.id)
+    return view
+```
+
+`ActionExecutor` gains a new method:
+
+```swift
+func openDiffViewer(source: BridgePaneSource? = nil) -> Pane? {
+    let state = BridgePaneState(panelKind: .diffViewer, source: source)
+    let pane = store.createPane(
+        content: .bridgePanel(state),
+        metadata: PaneMetadata(source: .floating(workingDirectory: nil, title: "Diff Viewer"), title: "Diff Viewer")
+    )
+    // ... create view, tab, same pattern as openWebview
+}
+```
+
+### 15.4 Configuration Strategy
+
+| Pane Kind | Configuration | Rationale |
+|---|---|---|
+| **Browser** | `WebviewPaneController.sharedConfiguration` (static, shared) | All browser panes share cookies/localStorage; no custom handlers needed |
+| **Bridge** | Per-pane `WebPage.Configuration` (created in `BridgePaneController.init`) | Each bridge pane needs its own `userContentController` (message handler + bootstrap script), `urlSchemeHandlers` (app + resource serving), and content world setup |
+
+```swift
+// BridgePaneController creates a dedicated config per instance:
+init(paneId: UUID, state: BridgePaneState, sharedState: SharedBridgeState) {
+    var config = WebPage.Configuration()
+    // Bridge-specific: non-persistent data store (no cookies/history needed)
+    config.websiteDataStore = .nonPersistent()
+
+    // Per-pane message handler in bridge world
+    config.userContentController.add(
+        RPCMessageHandler(coordinator: self),
+        contentWorld: bridgeWorld,
+        name: "rpc"
+    )
+
+    // Per-pane bootstrap script in bridge world
+    let bootstrap = WKUserScript(
+        source: bridgeBootstrapJS,
+        injectionTime: .atDocumentStart,
+        forMainFrameOnly: true,
+        in: bridgeWorld
+    )
+    config.userContentController.addUserScript(bootstrap)
+
+    // Per-pane URL scheme handler
+    if let scheme = URLScheme("agentstudio") {
+        config.urlSchemeHandlers[scheme] = BridgeSchemeHandler(paneId: paneId)
+    }
+
+    self.page = WebPage(
+        configuration: config,
+        navigationDecider: BridgeNavigationDecider(),   // strict: agentstudio + about only
+        dialogPresenter: WebviewDialogHandler()          // reuse existing handler
+    )
+    // ...
+}
+```
+
+### 15.5 Pane Lifecycle
+
+- **Creation**: `ActionExecutor.openDiffViewer()` → `TerminalViewCoordinator.createViewForContent(.bridgePanel)` → `BridgePaneController` + `BridgePaneView` → `ViewRegistry.register`
+- **Active**: `BridgePaneController` owns observation loops (started on `bridge.ready`), pushes state to Zustand
+- **Teardown**: `BridgePaneController.teardown()` cancels observation tasks, releases `WebPage`. Triggered by pane removal via `WorkspaceStore.removePane` → `ViewRegistry.deregister`
+- **Persistence**: `BridgePaneState` is `Codable` — round-trips through workspace save/restore. On restore, the panel reloads from source (re-computes manifest from git)
+
+### 15.6 Shared State
+
+- **`SharedBridgeState` is singleton** — held by `TerminalViewCoordinator` (or `AppDelegate`), injected into each `BridgePaneController`
+- Provides connection health across all bridge panes
+- Browser panes do NOT interact with `SharedBridgeState`
+
+The existing `ViewRegistry`, `Layout`, drag/drop, and split system work unchanged — the bridge pane is just another leaf in the layout tree.
 
 ---
 
