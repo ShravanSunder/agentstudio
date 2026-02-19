@@ -86,6 +86,10 @@ enum PaneAction: Equatable, Hashable {
     /// Rename an arrangement.
     case renameArrangement(tabId: UUID, arrangementId: UUID, name: String)
 
+    // Minimize / Expand
+    case minimizePane(tabId: UUID, paneId: UUID)
+    case expandPane(tabId: UUID, paneId: UUID)
+
     // Orphaned pane pool
 
     /// Move a pane to the background pool (remove from layout, keep alive).
@@ -99,13 +103,23 @@ enum PaneAction: Equatable, Hashable {
     // Drawer operations
 
     /// Add a drawer pane to a parent pane.
-    case addDrawerPane(parentPaneId: UUID, content: PaneContent, metadata: PaneMetadata)
+    case addDrawerPane(parentPaneId: UUID)
     /// Remove a drawer pane from its parent.
     case removeDrawerPane(parentPaneId: UUID, drawerPaneId: UUID)
     /// Toggle a pane's drawer expanded/collapsed.
     case toggleDrawer(paneId: UUID)
     /// Switch the active drawer pane.
     case setActiveDrawerPane(parentPaneId: UUID, drawerPaneId: UUID)
+    /// Resize a split within a drawer's layout.
+    case resizeDrawerPane(parentPaneId: UUID, splitId: UUID, ratio: Double)
+    /// Equalize all splits within a drawer's layout.
+    case equalizeDrawerPanes(parentPaneId: UUID)
+    /// Minimize a pane within a drawer.
+    case minimizeDrawerPane(parentPaneId: UUID, drawerPaneId: UUID)
+    /// Expand a minimized pane within a drawer.
+    case expandDrawerPane(parentPaneId: UUID, drawerPaneId: UUID)
+    /// Insert a new pane into a drawer's layout next to a target drawer pane.
+    case insertDrawerPane(parentPaneId: UUID, targetDrawerPaneId: UUID, direction: SplitNewDirection)
 
     // System actions — dispatched by Reconciler and undo timers, not by user input.
 

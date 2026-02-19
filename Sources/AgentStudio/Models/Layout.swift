@@ -418,6 +418,58 @@ extension Layout.Node {
     }
 }
 
+// MARK: - Minimize Computation
+
+extension Layout.Node {
+
+    /// Whether every leaf in this subtree is minimized.
+    func isFullyMinimized(minimizedPaneIds: Set<UUID>) -> Bool {
+        switch self {
+        case .leaf(let paneId):
+            return minimizedPaneIds.contains(paneId)
+        case .split(let split):
+            return split.left.isFullyMinimized(minimizedPaneIds: minimizedPaneIds)
+                && split.right.isFullyMinimized(minimizedPaneIds: minimizedPaneIds)
+        }
+    }
+
+    /// Effective visible weight of this subtree. Root = 1.0.
+    /// Each split scales children by ratio (left) and 1-ratio (right).
+    /// Minimized leaves contribute 0.
+    func visibleWeight(minimizedPaneIds: Set<UUID>) -> Double {
+        switch self {
+        case .leaf(let paneId):
+            return minimizedPaneIds.contains(paneId) ? 0.0 : 1.0
+        case .split(let split):
+            let lw = split.left.visibleWeight(minimizedPaneIds: minimizedPaneIds) * split.ratio
+            let rw = split.right.visibleWeight(minimizedPaneIds: minimizedPaneIds) * (1.0 - split.ratio)
+            return lw + rw
+        }
+    }
+
+    /// Count of minimized leaves in this subtree.
+    func minimizedLeafCount(minimizedPaneIds: Set<UUID>) -> Int {
+        switch self {
+        case .leaf(let paneId):
+            return minimizedPaneIds.contains(paneId) ? 1 : 0
+        case .split(let split):
+            return split.left.minimizedLeafCount(minimizedPaneIds: minimizedPaneIds)
+                + split.right.minimizedLeafCount(minimizedPaneIds: minimizedPaneIds)
+        }
+    }
+
+    /// Minimized pane IDs in left-to-right tree traversal order.
+    func orderedMinimizedPaneIds(minimizedPaneIds: Set<UUID>) -> [UUID] {
+        switch self {
+        case .leaf(let paneId):
+            return minimizedPaneIds.contains(paneId) ? [paneId] : []
+        case .split(let split):
+            return split.left.orderedMinimizedPaneIds(minimizedPaneIds: minimizedPaneIds)
+                + split.right.orderedMinimizedPaneIds(minimizedPaneIds: minimizedPaneIds)
+        }
+    }
+}
+
 // MARK: - Node Codable
 
 extension Layout.Node {

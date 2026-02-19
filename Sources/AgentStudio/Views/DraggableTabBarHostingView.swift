@@ -28,6 +28,10 @@ class DraggableTabBarHostingView: NSView, NSDraggingSource {
     private var hostingView: NSHostingView<CustomTabBar>!
     weak var tabBarAdapter: TabBarAdapter?
     var onReorder: ((_ fromId: UUID, _ toIndex: Int) -> Void)?
+    /// Called when a tab is clicked (mouse down + up without drag) during edit mode.
+    /// The pan gesture recognizer consumes mouse events, preventing SwiftUI's
+    /// onTapGesture from firing. This callback forwards the click as a selection.
+    var onSelect: ((_ tabId: UUID) -> Void)?
     /// Provides drag payload data (worktreeId, repoId, title) for a tab ID.
     /// Injected by the view controller to decouple from WorkspaceStore.
     var dragPayloadProvider: ((_ tabId: UUID) -> TabDragPayload?)?
@@ -193,6 +197,11 @@ class DraggableTabBarHostingView: NSView, NSDraggingSource {
             }
 
         case .ended, .cancelled:
+            // If pan ended with no drag started, this was a click — forward as tab selection.
+            // The pan gesture consumes the mouse-down, preventing SwiftUI's onTapGesture.
+            if let tabId = panStartTabId, draggingTabId == nil {
+                onSelect?(tabId)
+            }
             panStartTabId = nil
             panStartEvent = nil
 

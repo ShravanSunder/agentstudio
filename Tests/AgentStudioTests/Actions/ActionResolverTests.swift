@@ -36,7 +36,7 @@ final class ActionResolverTests: XCTestCase {
         let targetTab = makeSinglePaneTab(tabId: targetTabId, paneId: targetPaneId)
         let snapshot = makeSnapshot(tabs: [sourceTab, targetTab])
         let payload = SplitDropPayload(kind: .existingTab(
-            tabId: sourceTabId, worktreeId: UUID(), repoId: UUID(), title: "test"
+            tabId: sourceTabId
         ))
 
         // Act
@@ -69,7 +69,7 @@ final class ActionResolverTests: XCTestCase {
         let targetTab = makeSinglePaneTab(tabId: targetTabId, paneId: targetPaneId)
         let snapshot = makeSnapshot(tabs: [sourceTab, targetTab])
         let payload = SplitDropPayload(kind: .existingTab(
-            tabId: sourceTabId, worktreeId: UUID(), repoId: UUID(), title: "test"
+            tabId: sourceTabId
         ))
 
         // Act
@@ -105,7 +105,7 @@ final class ActionResolverTests: XCTestCase {
             payload: payload,
             destinationPaneId: targetPaneId,
             destinationTabId: targetTabId,
-            zone: .bottom,
+            zone: .right,
             state: snapshot
         )
 
@@ -114,7 +114,7 @@ final class ActionResolverTests: XCTestCase {
             source: .newTerminal,
             targetTabId: targetTabId,
             targetPaneId: targetPaneId,
-            direction: .down
+            direction: .right
         ))
     }
 
@@ -127,7 +127,7 @@ final class ActionResolverTests: XCTestCase {
         let targetTab = makeSinglePaneTab(tabId: targetTabId, paneId: targetPaneId)
         let snapshot = makeSnapshot(tabs: [targetTab])
         let payload = SplitDropPayload(kind: .existingTab(
-            tabId: UUID(), worktreeId: UUID(), repoId: UUID(), title: "missing"
+            tabId: UUID()
         ))
 
         // Act
@@ -152,7 +152,7 @@ final class ActionResolverTests: XCTestCase {
         let tab = makeMultiPaneTab(tabId: tabId, paneIds: paneIds)
         let snapshot = makeSnapshot(tabs: [tab])
         let payload = SplitDropPayload(kind: .existingTab(
-            tabId: tabId, worktreeId: UUID(), repoId: UUID(), title: "self"
+            tabId: tabId
         ))
 
         // Act
@@ -398,7 +398,8 @@ final class ActionResolverTests: XCTestCase {
         ))
     }
 
-    func test_resolve_splitBelow_returnsInsertPane() {
+    func test_resolve_splitBelow_returnsNil() {
+        // Vertical splits disabled (drawers own bottom space)
         // Arrange
         let tabId = UUID()
         let paneId = UUID()
@@ -410,12 +411,7 @@ final class ActionResolverTests: XCTestCase {
         )
 
         // Assert
-        XCTAssertEqual(result, .insertPane(
-            source: .newTerminal,
-            targetTabId: tabId,
-            targetPaneId: paneId,
-            direction: .down
-        ))
+        XCTAssertNil(result)
     }
 
     // MARK: - resolve(command:) — Edge Cases
@@ -449,6 +445,16 @@ final class ActionResolverTests: XCTestCase {
         ))
         XCTAssertNil(ActionResolver.resolve(
             command: .openNewTerminalInTab, tabs: [tab], activeTabId: tabId
+        ))
+        // Webview/OAuth commands are non-pane commands
+        XCTAssertNil(ActionResolver.resolve(
+            command: .openWebview, tabs: [tab], activeTabId: tabId
+        ))
+        XCTAssertNil(ActionResolver.resolve(
+            command: .signInGitHub, tabs: [tab], activeTabId: tabId
+        ))
+        XCTAssertNil(ActionResolver.resolve(
+            command: .signInGoogle, tabs: [tab], activeTabId: tabId
         ))
     }
 
@@ -502,8 +508,6 @@ final class ActionResolverTests: XCTestCase {
         let zoneMappings: [(DropZone, SplitNewDirection)] = [
             (.left, .left),
             (.right, .right),
-            (.top, .up),
-            (.bottom, .down),
         ]
 
         for (zone, expectedDirection) in zoneMappings {

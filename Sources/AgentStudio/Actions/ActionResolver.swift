@@ -83,20 +83,28 @@ enum ActionResolver {
                   let prevId = tab.previousPaneId(before: paneId) else { return nil }
             return .focusPane(tabId: tab.id, paneId: prevId)
 
-        // Split directions (create new terminal)
+        // Split directions (horizontal only — vertical splits disabled for drawers)
         case .splitRight:
             return resolveSplit(.right, tabs: tabs, activeTabId: activeTabId)
-        case .splitBelow:
-            return resolveSplit(.down, tabs: tabs, activeTabId: activeTabId)
         case .splitLeft:
             return resolveSplit(.left, tabs: tabs, activeTabId: activeTabId)
-        case .splitAbove:
-            return resolveSplit(.up, tabs: tabs, activeTabId: activeTabId)
+        case .splitBelow, .splitAbove:
+            return nil
 
         case .toggleSplitZoom:
             guard let (tab, paneId) = activeTabAndPane(tabs: tabs, activeTabId: activeTabId)
             else { return nil }
             return .toggleSplitZoom(tabId: tab.id, paneId: paneId)
+
+        case .minimizePane:
+            guard let (tab, paneId) = activeTabAndPane(tabs: tabs, activeTabId: activeTabId)
+            else { return nil }
+            return .minimizePane(tabId: tab.id, paneId: paneId)
+
+        case .expandPane:
+            guard let (tab, paneId) = activeTabAndPane(tabs: tabs, activeTabId: activeTabId)
+            else { return nil }
+            return .expandPane(tabId: tab.id, paneId: paneId)
 
         // Non-pane commands: not resolved to PaneAction
         case .addRepo, .removeRepo, .refreshWorktrees,
@@ -104,7 +112,13 @@ enum ActionResolver {
              .newTerminalInTab, .newTab, .undoCloseTab,
              .newWindow, .closeWindow,
              .quickFind, .commandBar,
-             .filterSidebar, .openNewTerminalInTab:
+             .openWebview, .signInGitHub, .signInGoogle,
+             .filterSidebar, .openNewTerminalInTab,
+             .switchArrangement, .saveArrangement,
+             .deleteArrangement, .renameArrangement,
+             .addDrawerPane, .toggleDrawer,
+             .navigateDrawerPane, .closeDrawerPane,
+             .toggleEditMode:
             return nil
         }
     }
@@ -121,7 +135,7 @@ enum ActionResolver {
         let direction = splitNewDirection(for: zone)
 
         switch payload.kind {
-        case .existingTab(let tabId, _, _, _):
+        case .existingTab(let tabId):
             // Look up source tab by ID
             guard let sourceTab = state.tab(tabId) else { return nil }
 
@@ -245,8 +259,6 @@ enum ActionResolver {
         switch zone {
         case .left:   return .left
         case .right:  return .right
-        case .top:    return .up
-        case .bottom: return .down
         }
     }
 }

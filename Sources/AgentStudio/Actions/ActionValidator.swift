@@ -141,7 +141,9 @@ enum ActionValidator {
             return .success(ValidatedAction(action))
 
         case .toggleSplitZoom(let tabId, let paneId),
-             .resizePaneByDelta(let tabId, let paneId, _, _):
+             .resizePaneByDelta(let tabId, let paneId, _, _),
+             .minimizePane(let tabId, let paneId),
+             .expandPane(let tabId, let paneId):
             if let error = validateTabContainsPane(tabId: tabId, paneId: paneId, state: state) {
                 return .failure(error)
             }
@@ -178,13 +180,18 @@ enum ActionValidator {
 
         // Drawer actions — validate parent pane is in an active tab layout.
         // Store-level guards provide additional safety for panes in non-active arrangements.
-        case .addDrawerPane(let parentPaneId, _, _):
+        case .addDrawerPane(let parentPaneId):
             guard state.tabContaining(paneId: parentPaneId) != nil else {
                 return .failure(.paneNotFound(paneId: parentPaneId, tabId: state.activeTabId ?? UUID()))
             }
             return .success(ValidatedAction(action))
         case .removeDrawerPane(let parentPaneId, _),
-             .setActiveDrawerPane(let parentPaneId, _):
+             .setActiveDrawerPane(let parentPaneId, _),
+             .resizeDrawerPane(let parentPaneId, _, _),
+             .equalizeDrawerPanes(let parentPaneId),
+             .minimizeDrawerPane(let parentPaneId, _),
+             .expandDrawerPane(let parentPaneId, _),
+             .insertDrawerPane(let parentPaneId, _, _):
             guard state.tabContaining(paneId: parentPaneId) != nil else {
                 return .failure(.paneNotFound(paneId: parentPaneId, tabId: state.activeTabId ?? UUID()))
             }

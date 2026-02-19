@@ -1,10 +1,10 @@
-// swift-tools-version:5.9
+// swift-tools-version:6.2
 import PackageDescription
 
 let package = Package(
     name: "AgentStudio",
     platforms: [
-        .macOS(.v14)
+        .macOS(.v26)
     ],
     products: [
         .executable(name: "AgentStudio", targets: ["AgentStudio"])
@@ -25,6 +25,9 @@ let package = Package(
                 .copy("Resources/terminfo"),
                 .copy("Resources/ghostty"),
             ],
+            swiftSettings: [
+                .swiftLanguageMode(.v5)
+            ],
             linkerSettings: [
                 .linkedFramework("Metal"),
                 .linkedFramework("MetalKit"),
@@ -36,6 +39,8 @@ let package = Package(
                 .linkedFramework("UniformTypeIdentifiers"),
                 .linkedFramework("Carbon"),
                 .linkedFramework("CoreServices"),
+                .linkedFramework("WebKit"),
+                .linkedFramework("AuthenticationServices"),
                 .linkedLibrary("z"),
                 .linkedLibrary("c++")
             ]
@@ -43,7 +48,10 @@ let package = Package(
         .testTarget(
             name: "AgentStudioTests",
             dependencies: ["AgentStudio"],
-            path: "Tests/AgentStudioTests"
+            path: "Tests/AgentStudioTests",
+            swiftSettings: [
+                .swiftLanguageMode(.v5)
+            ]
         ),
         .binaryTarget(
             name: "GhosttyKit",

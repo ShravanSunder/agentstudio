@@ -218,4 +218,188 @@ final class TabBarAdapterTests: XCTestCase {
         // Assert
         XCTAssertEqual(adapter.tabFrames[tabId], frame)
     }
+
+    // MARK: - Overflow Detection
+
+    func test_noTabs_notOverflowing() {
+        // Arrange
+        adapter.availableWidth = 600
+
+        // Assert
+        XCTAssertFalse(adapter.isOverflowing)
+    }
+
+    func test_fewTabs_withinSpace_notOverflowing() {
+        // Arrange — 2 tabs: 2×220 + 1×4 + 16 = 460px < 600px
+        for _ in 0..<2 {
+            let pane = store.createPane(source: .floating(workingDirectory: nil, title: nil))
+            store.appendTab(Tab(paneId: pane.id))
+        }
+
+        let expectation = XCTestExpectation(description: "Adapter refreshes")
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.1) { expectation.fulfill() }
+        wait(for: [expectation], timeout: 1.0)
+
+        // Act
+        adapter.availableWidth = 600
+
+        let expectation2 = XCTestExpectation(description: "Overflow updates")
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.1) { expectation2.fulfill() }
+        wait(for: [expectation2], timeout: 1.0)
+
+        // Assert
+        XCTAssertEqual(adapter.tabs.count, 2)
+        XCTAssertFalse(adapter.isOverflowing)
+    }
+
+    func test_manyTabs_exceedingSpace_overflowing() {
+        // Arrange — 8 tabs: 8×220 + 7×4 + 16 = 1804px > 600px
+        for _ in 0..<8 {
+            let pane = store.createPane(source: .floating(workingDirectory: nil, title: nil))
+            store.appendTab(Tab(paneId: pane.id))
+        }
+
+        let expectation = XCTestExpectation(description: "Adapter refreshes")
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.1) { expectation.fulfill() }
+        wait(for: [expectation], timeout: 1.0)
+
+        // Act
+        adapter.availableWidth = 600
+
+        let expectation2 = XCTestExpectation(description: "Overflow updates")
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.1) { expectation2.fulfill() }
+        wait(for: [expectation2], timeout: 1.0)
+
+        // Assert
+        XCTAssertEqual(adapter.tabs.count, 8)
+        XCTAssertTrue(adapter.isOverflowing)
+    }
+
+    func test_zeroAvailableWidth_notOverflowing() {
+        // Arrange — layout not ready (width = 0)
+        let pane = store.createPane(source: .floating(workingDirectory: nil, title: nil))
+        store.appendTab(Tab(paneId: pane.id))
+
+        let expectation = XCTestExpectation(description: "Adapter refreshes")
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.1) { expectation.fulfill() }
+        wait(for: [expectation], timeout: 1.0)
+
+        // Assert — availableWidth defaults to 0
+        XCTAssertFalse(adapter.isOverflowing)
+    }
+
+    func test_viewportWidth_prefersOverAvailableWidth() {
+        // Arrange — 1 tab, set both availableWidth and viewportWidth
+        let pane = store.createPane(source: .floating(workingDirectory: nil, title: nil))
+        store.appendTab(Tab(paneId: pane.id))
+        adapter.availableWidth = 800  // outer container
+        adapter.viewportWidth = 600   // actual scroll viewport (smaller)
+        adapter.contentWidth = 700    // content exceeds viewport but not available
+
+        let e1 = XCTestExpectation(description: "Viewport overflow")
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.1) { e1.fulfill() }
+        wait(for: [e1], timeout: 1.0)
+
+        // Assert — should overflow based on viewport (700 > 600), not available (700 < 800)
+        XCTAssertTrue(adapter.isOverflowing)
+    }
+
+    func test_contentWidthOverflow_triggersWhenContentExceedsAvailable() {
+        // Arrange — 1 tab so tabs.count > 0
+        let pane = store.createPane(source: .floating(workingDirectory: nil, title: nil))
+        store.appendTab(Tab(paneId: pane.id))
+        adapter.availableWidth = 600
+
+        let e1 = XCTestExpectation(description: "Initial")
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.1) { e1.fulfill() }
+        wait(for: [e1], timeout: 1.0)
+        XCTAssertFalse(adapter.isOverflowing)
+
+        // Act — set content width wider than available
+        adapter.contentWidth = 700
+
+        let e2 = XCTestExpectation(description: "Content width update")
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.1) { e2.fulfill() }
+        wait(for: [e2], timeout: 1.0)
+
+        // Assert
+        XCTAssertTrue(adapter.isOverflowing)
+    }
+
+    func test_contentWidthOverflow_hysteresisPreventsOscillation() {
+        // Arrange — trigger overflow via content width
+        let pane = store.createPane(source: .floating(workingDirectory: nil, title: nil))
+        store.appendTab(Tab(paneId: pane.id))
+        adapter.availableWidth = 600
+        adapter.contentWidth = 700
+
+        let e1 = XCTestExpectation(description: "Initial overflow")
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.1) { e1.fulfill() }
+        wait(for: [e1], timeout: 1.0)
+        XCTAssertTrue(adapter.isOverflowing)
+
+        // Act — reduce content width slightly (simulates "+" button removed)
+        // Still within hysteresis buffer (600 - 50 = 550, and 570 > 550)
+        adapter.contentWidth = 570
+
+        let e2 = XCTestExpectation(description: "Still overflowing")
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.1) { e2.fulfill() }
+        wait(for: [e2], timeout: 1.0)
+
+        // Assert — should remain overflowing due to hysteresis
+        XCTAssertTrue(adapter.isOverflowing)
+    }
+
+    func test_contentWidthOverflow_turnsOffWhenWellUnderThreshold() {
+        // Arrange — trigger overflow via content width
+        let pane = store.createPane(source: .floating(workingDirectory: nil, title: nil))
+        store.appendTab(Tab(paneId: pane.id))
+        adapter.availableWidth = 600
+        adapter.contentWidth = 700
+
+        let e1 = XCTestExpectation(description: "Initial overflow")
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.1) { e1.fulfill() }
+        wait(for: [e1], timeout: 1.0)
+        XCTAssertTrue(adapter.isOverflowing)
+
+        // Act — reduce well below hysteresis threshold (600 - 50 = 550)
+        adapter.contentWidth = 500
+
+        let e2 = XCTestExpectation(description: "No longer overflowing")
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.1) { e2.fulfill() }
+        wait(for: [e2], timeout: 1.0)
+
+        // Assert
+        XCTAssertFalse(adapter.isOverflowing)
+    }
+
+    func test_overflowUpdates_whenTabsAddedOrRemoved() {
+        // Arrange — start with 4 tabs in 600px: 4×220 + 3×4 + 16 = 908px > 600px → overflow
+        var panes: [Pane] = []
+        for _ in 0..<4 {
+            let pane = store.createPane(source: .floating(workingDirectory: nil, title: nil))
+            store.appendTab(Tab(paneId: pane.id))
+            panes.append(pane)
+        }
+        adapter.availableWidth = 600
+
+        let e1 = XCTestExpectation(description: "Initial")
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.1) { e1.fulfill() }
+        wait(for: [e1], timeout: 1.0)
+        XCTAssertTrue(adapter.isOverflowing)
+
+        // Act — remove tabs until not overflowing: 2 tabs: 2×220 + 1×4 + 16 = 460px < 600px
+        let tabsToRemove = store.tabs.prefix(2)
+        for tab in tabsToRemove {
+            store.removeTab(tab.id)
+        }
+
+        let e2 = XCTestExpectation(description: "After removal")
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.1) { e2.fulfill() }
+        wait(for: [e2], timeout: 1.0)
+
+        // Assert
+        XCTAssertEqual(adapter.tabs.count, 2)
+        XCTAssertFalse(adapter.isOverflowing)
+    }
 }

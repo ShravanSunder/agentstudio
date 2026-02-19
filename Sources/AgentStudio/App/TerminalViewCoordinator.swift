@@ -20,6 +20,7 @@ final class TerminalViewCoordinator {
         self.viewRegistry = viewRegistry
         self.runtime = runtime
         subscribeToCWDNotifications()
+        setupPrePersistHook()
     }
 
     deinit {
@@ -51,6 +52,23 @@ final class TerminalViewCoordinator {
         store.updatePaneCWD(paneId, cwd: url)
     }
 
+    // MARK: - Webview State Sync
+
+    private func setupPrePersistHook() {
+        store.prePersistHook = { [weak self] in
+            self?.syncWebviewStates()
+        }
+    }
+
+    /// Sync runtime webview tab state back to persisted pane model.
+    /// Uses syncPaneWebviewState (not updatePaneWebviewState) to avoid
+    /// marking dirty during an in-flight persist, which would cause a save-loop.
+    private func syncWebviewStates() {
+        for (paneId, webviewView) in viewRegistry.allWebviewViews {
+            store.syncPaneWebviewState(paneId, state: webviewView.currentState())
+        }
+    }
+
     // MARK: - Create View (content-type dispatch)
 
     /// Create a view for any pane content type. Dispatches to the appropriate factory.
@@ -59,23 +77,35 @@ final class TerminalViewCoordinator {
     func createViewForContent(pane: Pane) -> PaneView? {
         switch pane.content {
         case .terminal:
-            // Terminal panes currently require worktree/repo context for surface creation.
-            // TODO: Support floating terminals (Source.floating) by making worktree/repo
-            // optional in AgentStudioTerminalView, or by creating a lightweight surface
-            // that doesn't need worktree context.
-            guard let worktreeId = pane.worktreeId,
-                  let repoId = pane.repoId,
-                  let worktree = store.worktree(worktreeId),
-                  let repo = store.repo(repoId) else {
-                coordinatorLogger.warning("Cannot create terminal view — pane \(pane.id) has no worktree/repo context")
-                return nil
+            // Main panes: have direct worktree association
+            if let worktreeId = pane.worktreeId,
+               let repoId = pane.repoId,
+               let worktree = store.worktree(worktreeId),
+               let repo = store.repo(repoId) {
+                return createView(for: pane, worktree: worktree, repo: repo)
+
+            // Drawer children: resolve worktree through parent pane
+            } else if let parentPaneId = pane.parentPaneId,
+                      let parentPane = store.pane(parentPaneId),
+                      let worktreeId = parentPane.worktreeId,
+                      let repoId = parentPane.repoId,
+                      let worktree = store.worktree(worktreeId),
+                      let repo = store.repo(repoId) {
+                return createView(for: pane, worktree: worktree, repo: repo)
+
+            } else {
+                // Floating terminal (standalone terminals without worktree context)
+                return createFloatingTerminalView(for: pane)
             }
-            return createView(for: pane, worktree: worktree, repo: repo)
 
         case .webview(let state):
             let view = WebviewPaneView(paneId: pane.id, state: state)
+            let paneId = pane.id
+            view.controller.onTitleChange = { [weak self] title in
+                self?.store.updatePaneTitle(paneId, title: title)
+            }
             viewRegistry.register(view, for: pane.id)
-            coordinatorLogger.info("Created webview stub for pane \(pane.id)")
+            coordinatorLogger.info("Created webview pane \(pane.id)")
             return view
 
         case .codeViewer(let state):
@@ -164,6 +194,52 @@ final class TerminalViewCoordinator {
         }
     }
 
+    // MARK: - Create Floating Terminal View
+
+    /// Create a terminal view for a floating pane (drawers, standalone terminals).
+    /// No worktree/repo context — uses home directory or pane's cwd.
+    @discardableResult
+    private func createFloatingTerminalView(for pane: Pane) -> AgentStudioTerminalView? {
+        let workingDir = pane.metadata.cwd ?? FileManager.default.homeDirectoryForCurrentUser
+        let cmd = "\(getDefaultShell()) -i -l"
+
+        let config = Ghostty.SurfaceConfiguration(
+            workingDirectory: workingDir.path,
+            command: cmd
+        )
+
+        let metadata = SurfaceMetadata(
+            workingDirectory: workingDir,
+            command: cmd,
+            title: pane.metadata.title,
+            paneId: pane.id
+        )
+
+        let result = SurfaceManager.shared.createSurface(config: config, metadata: metadata)
+
+        switch result {
+        case .success(let managed):
+            SurfaceManager.shared.attach(managed.id, to: pane.id)
+
+            let view = AgentStudioTerminalView(
+                restoredSurfaceId: managed.id,
+                paneId: pane.id,
+                title: pane.metadata.title
+            )
+            view.displaySurface(managed.surface)
+
+            viewRegistry.register(view, for: pane.id)
+            runtime.markRunning(pane.id)
+
+            coordinatorLogger.info("Created floating terminal view for pane \(pane.id)")
+            return view
+
+        case .failure(let error):
+            coordinatorLogger.error("Failed to create floating surface for pane \(pane.id): \(error.localizedDescription)")
+            return nil
+        }
+    }
+
     // MARK: - Teardown View
 
     /// Teardown a view — detach surface (if terminal), unregister.
@@ -242,7 +318,7 @@ final class TerminalViewCoordinator {
 
     // MARK: - Restore All Views
 
-    /// Recreate views for all restored panes in all tabs.
+    /// Recreate views for all restored panes in all tabs, including drawer panes.
     /// Called once at launch after store.restore() populates persisted state.
     func restoreAllViews() {
         // Use tab.panes (all owned panes) instead of tab.paneIds (active arrangement only)
@@ -254,6 +330,7 @@ final class TerminalViewCoordinator {
         }
 
         var restored = 0
+        var drawerRestored = 0
         for paneId in paneIds {
             guard let pane = store.pane(paneId) else {
                 coordinatorLogger.warning("Skipping view restore for pane \(paneId) — not in store")
@@ -262,8 +339,18 @@ final class TerminalViewCoordinator {
             if createViewForContent(pane: pane) != nil {
                 restored += 1
             }
+
+            // Also restore views for drawer panes owned by this pane
+            if let drawer = pane.drawer {
+                for drawerPaneId in drawer.paneIds {
+                    guard let drawerPane = store.pane(drawerPaneId) else { continue }
+                    if createViewForContent(pane: drawerPane) != nil {
+                        drawerRestored += 1
+                    }
+                }
+            }
         }
-        coordinatorLogger.info("Restored \(restored)/\(paneIds.count) pane views")
+        coordinatorLogger.info("Restored \(restored)/\(paneIds.count) pane views, \(drawerRestored) drawer pane views")
 
         // Sync focus after all views are restored — only the active terminal gets a blinking cursor.
         if let activeTab = store.activeTab,
@@ -276,11 +363,18 @@ final class TerminalViewCoordinator {
     // MARK: - Helpers
 
     private func buildZmxAttachCommand(pane: Pane, worktree: Worktree, repo: Repo, zmxPath: String) -> String {
-        let zmxSessionName = ZmxBackend.sessionId(
-            repoStableKey: repo.stableKey,
-            worktreeStableKey: worktree.stableKey,
-            paneId: pane.id
-        )
+        let zmxSessionName: String
+        if let parentPaneId = pane.parentPaneId {
+            // Drawer pane: session ID based on parent + drawer pane UUIDs
+            zmxSessionName = ZmxBackend.drawerSessionId(parentPaneId: parentPaneId, drawerPaneId: pane.id)
+        } else {
+            // Main pane: session ID based on repo + worktree stable keys
+            zmxSessionName = ZmxBackend.sessionId(
+                repoStableKey: repo.stableKey,
+                worktreeStableKey: worktree.stableKey,
+                paneId: pane.id
+            )
+        }
         return ZmxBackend.buildAttachCommand(
             zmxPath: zmxPath,
             zmxDir: sessionConfig.zmxDir,

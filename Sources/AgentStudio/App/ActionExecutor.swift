@@ -14,8 +14,8 @@ final class ActionExecutor {
     private let viewRegistry: ViewRegistry
     private let coordinator: TerminalViewCoordinator
 
-    /// In-memory undo stack for close snapshots.
-    private(set) var undoStack: [WorkspaceStore.CloseSnapshot] = []
+    /// Unified undo stack — holds both tab and pane close entries, chronologically ordered.
+    private(set) var undoStack: [WorkspaceStore.CloseEntry] = []
 
     /// Maximum undo stack entries before oldest are garbage-collected.
     private let maxUndoStackSize = 10
@@ -76,29 +76,119 @@ final class ActionExecutor {
         return pane
     }
 
-    /// Undo the last close operation.
-    func undoCloseTab() {
-        guard let snapshot = undoStack.popLast() else {
-            executorLogger.info("No tabs to restore from undo stack")
-            return
+    /// Open a new webview pane in a new tab. Loads about:blank with navigation bar visible.
+    @discardableResult
+    func openWebview(url: URL = URL(string: "about:blank")!) -> Pane? {
+        let state = WebviewState(url: url, showNavigation: true)
+        let host = url.host() ?? "New Tab"
+        let pane = store.createPane(
+            content: .webview(state),
+            metadata: PaneMetadata(source: .floating(workingDirectory: nil, title: host), title: host)
+        )
+
+        guard coordinator.createViewForContent(pane: pane) != nil else {
+            executorLogger.error("Webview creation failed — rolling back pane \(pane.id)")
+            store.removePane(pane.id)
+            return nil
         }
 
-        // Restore tab + panes in store
+        let tab = Tab(paneId: pane.id)
+        store.appendTab(tab)
+        store.setActiveTab(tab.id)
+
+        executorLogger.info("Opened webview pane \(pane.id)")
+        return pane
+    }
+
+    /// Undo the last close operation (tab or pane).
+    func undoCloseTab() {
+        while let entry = undoStack.popLast() {
+            switch entry {
+            case .tab(let snapshot):
+                undoTabClose(snapshot)
+                return
+
+            case .pane(let snapshot):
+                // Skip if the target tab no longer exists
+                guard store.tab(snapshot.tabId) != nil else {
+                    executorLogger.info("undoClose: tab \(snapshot.tabId) gone — skipping pane entry")
+                    continue
+                }
+                // For drawer children: skip if parent pane no longer exists
+                if snapshot.pane.isDrawerChild, let parentId = snapshot.anchorPaneId,
+                   store.pane(parentId) == nil {
+                    executorLogger.info("undoClose: parent pane \(parentId) gone — skipping drawer child entry")
+                    continue
+                }
+                undoPaneClose(snapshot)
+                return
+            }
+        }
+        executorLogger.info("No entries to restore from undo stack")
+    }
+
+    private func undoTabClose(_ snapshot: WorkspaceStore.TabCloseSnapshot) {
         store.restoreFromSnapshot(snapshot)
 
         // Restore views via coordinator — iterate in reverse to match the LIFO
         // order of SurfaceManager's undo stack (panes were pushed in forward
         // order during close, so the last pane is on top of the stack).
         for pane in snapshot.panes.reversed() {
-            guard let worktreeId = pane.worktreeId,
-                  let repoId = pane.repoId,
-                  let worktree = store.worktree(worktreeId),
-                  let repo = store.repo(repoId) else {
-                executorLogger.warning("Could not find worktree/repo for pane \(pane.id)")
-                continue
+            switch pane.content {
+            case .terminal:
+                // Terminal panes with worktree context attempt surface undo via SurfaceManager.
+                // Drawer children and floating terminals lack worktree context — fall back to
+                // createViewForContent which resolves context through the parent pane.
+                if let worktreeId = pane.worktreeId,
+                   let repoId = pane.repoId,
+                   let worktree = store.worktree(worktreeId),
+                   let repo = store.repo(repoId) {
+                    coordinator.restoreView(for: pane, worktree: worktree, repo: repo)
+                } else {
+                    coordinator.createViewForContent(pane: pane)
+                }
+
+            case .webview, .codeViewer:
+                // Non-terminal panes create a fresh view from their stored state
+                coordinator.createViewForContent(pane: pane)
+
+            case .unsupported:
+                executorLogger.warning("Cannot restore unsupported pane \(pane.id)")
             }
-            coordinator.restoreView(for: pane, worktree: worktree, repo: repo)
         }
+    }
+
+    private func undoPaneClose(_ snapshot: WorkspaceStore.PaneCloseSnapshot) {
+        store.restoreFromPaneSnapshot(snapshot)
+
+        // Restore views for the pane and its drawer children.
+        // Use the same restoration path as undoTabClose: attempt surface undo
+        // via SurfaceManager to preserve scrollback, fall back to fresh creation.
+        let allPanes = [snapshot.pane] + snapshot.drawerChildPanes
+        for pane in allPanes.reversed() {
+            guard viewRegistry.view(for: pane.id) == nil else { continue }
+
+            switch pane.content {
+            case .terminal:
+                if let worktreeId = pane.worktreeId,
+                   let repoId = pane.repoId,
+                   let worktree = store.worktree(worktreeId),
+                   let repo = store.repo(repoId) {
+                    coordinator.restoreView(for: pane, worktree: worktree, repo: repo)
+                } else {
+                    coordinator.createViewForContent(pane: pane)
+                }
+
+            case .webview, .codeViewer:
+                coordinator.createViewForContent(pane: pane)
+
+            case .unsupported:
+                executorLogger.warning("Cannot restore unsupported pane \(pane.id)")
+            }
+        }
+
+        // Switch to the tab containing the restored pane
+        store.setActiveTab(snapshot.tabId)
     }
 
     // MARK: - PaneAction Execution
@@ -124,6 +214,11 @@ final class ActionExecutor {
             _ = store.extractPane(paneId, fromTab: tabId)
 
         case .focusPane(let tabId, let paneId):
+            // Auto-expand if focusing a minimized pane
+            if let tab = store.tab(tabId), tab.minimizedPaneIds.contains(paneId) {
+                store.expandPane(paneId, inTab: tabId)
+                coordinator.reattachForViewSwitch(paneId: paneId)
+            }
             store.setActivePane(paneId, inTab: tabId)
 
         case .insertPane(let source, let targetTabId, let targetPaneId, let direction):
@@ -146,6 +241,15 @@ final class ActionExecutor {
         case .moveTab(let tabId, let delta):
             store.moveTabByDelta(tabId: tabId, delta: delta)
 
+        case .minimizePane(let tabId, let paneId):
+            if store.minimizePane(paneId, inTab: tabId) {
+                coordinator.detachForViewSwitch(paneId: paneId)
+            }
+
+        case .expandPane(let tabId, let paneId):
+            store.expandPane(paneId, inTab: tabId)
+            coordinator.reattachForViewSwitch(paneId: paneId)
+
         case .resizePaneByDelta(let tabId, let paneId, let direction, let amount):
             store.resizePaneByDelta(tabId: tabId, paneId: paneId, direction: direction, amount: amount)
 
@@ -164,7 +268,33 @@ final class ActionExecutor {
             store.removeArrangement(arrangementId, inTab: tabId)
 
         case .switchArrangement(let tabId, let arrangementId):
+            // Capture visible panes BEFORE switching
+            let previousVisiblePaneIds: Set<UUID>
+            if let tab = store.tab(tabId) {
+                previousVisiblePaneIds = tab.activeArrangement.visiblePaneIds
+            } else {
+                previousVisiblePaneIds = []
+            }
+
+            // Switch arrangement in store
             store.switchArrangement(to: arrangementId, inTab: tabId)
+
+            // Get newly visible panes AFTER switching
+            guard let tab = store.tab(tabId),
+                  let arrangement = tab.arrangements.first(where: { $0.id == arrangementId }) else { break }
+            let newVisiblePaneIds = arrangement.visiblePaneIds
+
+            // Detach surfaces for panes that were visible but are now hidden
+            let hiddenPaneIds = previousVisiblePaneIds.subtracting(newVisiblePaneIds)
+            for paneId in hiddenPaneIds {
+                coordinator.detachForViewSwitch(paneId: paneId)
+            }
+
+            // Reattach surfaces for panes that are now visible but were hidden
+            let revealedPaneIds = newVisiblePaneIds.subtracting(previousVisiblePaneIds)
+            for paneId in revealedPaneIds {
+                coordinator.reattachForViewSwitch(paneId: paneId)
+            }
 
         case .renameArrangement(let tabId, let arrangementId, let name):
             store.renameArrangement(arrangementId, name: name, inTab: tabId)
@@ -190,10 +320,15 @@ final class ActionExecutor {
             coordinator.teardownView(for: paneId)
             store.purgeOrphanedPane(paneId)
 
-        case .addDrawerPane(let parentPaneId, let content, let metadata):
-            _ = store.addDrawerPane(to: parentPaneId, content: content, metadata: metadata)
+        case .addDrawerPane(let parentPaneId):
+            if let drawerPane = store.addDrawerPane(to: parentPaneId) {
+                if coordinator.createViewForContent(pane: drawerPane) == nil {
+                    executorLogger.warning("addDrawerPane: view creation failed for \(drawerPane.id) — panel will show placeholder")
+                }
+            }
 
         case .removeDrawerPane(let parentPaneId, let drawerPaneId):
+            coordinator.teardownView(for: drawerPaneId)
             store.removeDrawerPane(drawerPaneId, from: parentPaneId)
 
         case .toggleDrawer(let paneId):
@@ -201,6 +336,33 @@ final class ActionExecutor {
 
         case .setActiveDrawerPane(let parentPaneId, let drawerPaneId):
             store.setActiveDrawerPane(drawerPaneId, in: parentPaneId)
+            // Sync focus: drawer pane becomes the globally focused surface
+            if let terminalView = viewRegistry.terminalView(for: drawerPaneId) {
+                terminalView.window?.makeFirstResponder(terminalView)
+                SurfaceManager.shared.syncFocus(activeSurfaceId: terminalView.surfaceId)
+            }
+
+        case .resizeDrawerPane(let parentPaneId, let splitId, let ratio):
+            store.resizeDrawerPane(parentPaneId: parentPaneId, splitId: splitId, ratio: ratio)
+
+        case .equalizeDrawerPanes(let parentPaneId):
+            store.equalizeDrawerPanes(parentPaneId: parentPaneId)
+
+        case .minimizeDrawerPane(let parentPaneId, let drawerPaneId):
+            if store.minimizeDrawerPane(drawerPaneId, in: parentPaneId) {
+                coordinator.detachForViewSwitch(paneId: drawerPaneId)
+            }
+
+        case .expandDrawerPane(let parentPaneId, let drawerPaneId):
+            store.expandDrawerPane(drawerPaneId, in: parentPaneId)
+            coordinator.reattachForViewSwitch(paneId: drawerPaneId)
+
+        case .insertDrawerPane(let parentPaneId, let targetDrawerPaneId, let direction):
+            executeInsertDrawerPane(
+                parentPaneId: parentPaneId,
+                targetDrawerPaneId: targetDrawerPaneId,
+                direction: direction
+            )
 
         case .expireUndoEntry(let paneId):
             // TODO: Phase 3 — remove pane from store, kill zmx, destroy surface
@@ -214,14 +376,29 @@ final class ActionExecutor {
     // MARK: - Private Execution
 
     private func executeCloseTab(_ tabId: UUID) {
-        // Snapshot for undo before closing
-        if let snapshot = store.snapshotForClose(tabId: tabId) {
-            undoStack.append(snapshot)
+        // Sync live webview state back to the pane model before snapshotting,
+        // so undo-close restores the actual page, not stale initial state.
+        // Use tab.panes (all owned panes) not tab.paneIds (active arrangement only)
+        // to match the snapshot path which captures all panes.
+        if let tab = store.tab(tabId) {
+            for paneId in tab.panes {
+                if let webviewView = viewRegistry.webviewView(for: paneId) {
+                    store.syncPaneWebviewState(paneId, state: webviewView.currentState())
+                }
+            }
         }
 
-        // Teardown views for all panes in this tab
+        // Snapshot for undo before closing
+        if let snapshot = store.snapshotForClose(tabId: tabId) {
+            undoStack.append(.tab(snapshot))
+        }
+
+        // Teardown views for all panes in this tab (including drawer panes).
+        // Use tab.panes (all owned panes across arrangements), not tab.paneIds
+        // (active arrangement only), to avoid leaking surfaces in non-active arrangements.
         if let tab = store.tab(tabId) {
-            for paneId in tab.paneIds {
+            for paneId in tab.panes {
+                teardownDrawerPanes(for: paneId)
                 coordinator.teardownView(for: paneId)
             }
         }
@@ -236,11 +413,27 @@ final class ActionExecutor {
     private func expireOldUndoEntries() {
         while undoStack.count > maxUndoStackSize {
             let expired = undoStack.removeFirst()
-            // Remove panes that are not owned by any tab (across all arrangements).
-            // Use tab.panes (ownership list) instead of tab.paneIds (active arrangement only)
-            // to avoid GC'ing panes hidden in non-active arrangements.
-            let allOwnedPaneIds = Set(store.tabs.flatMap(\.panes))
-            for pane in expired.panes where !allOwnedPaneIds.contains(pane.id) {
+
+            // Collect all pane IDs currently owned (layout + drawer children)
+            let allOwnedPaneIds = Set(store.tabs.flatMap { tab in
+                tab.panes.flatMap { paneId -> [UUID] in
+                    var ids = [paneId]
+                    if let drawer = store.pane(paneId)?.drawer {
+                        ids.append(contentsOf: drawer.paneIds)
+                    }
+                    return ids
+                }
+            })
+
+            // Extract panes from the expired entry
+            let expiredPanes: [Pane]
+            switch expired {
+            case .tab(let s): expiredPanes = s.panes
+            case .pane(let s): expiredPanes = [s.pane] + s.drawerChildPanes
+            }
+
+            for pane in expiredPanes where !allOwnedPaneIds.contains(pane.id) {
+                coordinator.teardownView(for: pane.id)
                 store.removePane(pane.id)
                 executorLogger.debug("GC'd orphaned pane \(pane.id) from expired undo entry")
             }
@@ -255,12 +448,36 @@ final class ActionExecutor {
     }
 
     private func executeClosePane(tabId: UUID, paneId: UUID) {
+        // Check if this is the last pane — escalation rule:
+        // closing the last pane escalates to tab close (only tab entry, no pane entry).
+        if let tab = store.tab(tabId), tab.paneIds.count <= 1 {
+            executeCloseTab(tabId)
+            return
+        }
+
+        // Snapshot before teardown for pane-level undo
+        if let snapshot = store.snapshotForPaneClose(paneId: paneId, inTab: tabId) {
+            undoStack.append(.pane(snapshot))
+        }
+
+        // Capture drawer child IDs before any mutation — removePaneFromLayout may cascade
+        // and remove the pane from the store, making drawer data inaccessible afterward.
+        let drawerChildIds = store.pane(paneId)?.drawer?.paneIds ?? []
+
+        // Teardown drawer panes first, then the pane itself
+        teardownDrawerPanes(for: paneId)
         coordinator.teardownView(for: paneId)
         let tabNowEmpty = store.removePaneFromLayout(paneId, inTab: tabId)
 
         if tabNowEmpty {
-            // Last pane removed — escalate to close tab (with undo support)
+            // Shouldn't reach here due to escalation above, but handle defensively
             executeCloseTab(tabId)
+            return
+        }
+
+        // Remove drawer children from store (using pre-captured IDs)
+        for drawerPaneId in drawerChildIds {
+            store.removePane(drawerPaneId)
         }
 
         // If the pane is no longer owned by any tab, remove it from the store.
@@ -268,6 +485,9 @@ final class ActionExecutor {
         if !allOwnedPaneIds.contains(paneId) {
             store.removePane(paneId)
         }
+
+        // GC oldest undo entries
+        expireOldUndoEntries()
     }
 
     private func executeInsertPane(
@@ -321,6 +541,26 @@ final class ActionExecutor {
         }
     }
 
+    private func executeInsertDrawerPane(
+        parentPaneId: UUID,
+        targetDrawerPaneId: UUID,
+        direction: SplitNewDirection
+    ) {
+        let layoutDirection = bridgeDirection(direction)
+        let position: Layout.Position = (direction == .left || direction == .up) ? .before : .after
+
+        guard let drawerPane = store.insertDrawerPane(
+            in: parentPaneId,
+            at: targetDrawerPaneId,
+            direction: layoutDirection,
+            position: position
+        ) else { return }
+
+        if coordinator.createViewForContent(pane: drawerPane) == nil {
+            executorLogger.warning("insertDrawerPane: view creation failed for \(drawerPane.id)")
+        }
+    }
+
     private func executeMergeTab(
         sourceTabId: UUID,
         targetTabId: UUID,
@@ -342,21 +582,27 @@ final class ActionExecutor {
     private func executeRepair(_ repairAction: RepairAction) {
         switch repairAction {
         case .recreateSurface(let paneId), .createMissingView(let paneId):
-            guard let pane = store.pane(paneId),
-                  let worktreeId = pane.worktreeId,
-                  let repoId = pane.repoId,
-                  let worktree = store.worktree(worktreeId),
-                  let repo = store.repo(repoId) else {
-                executorLogger.warning("repair \(String(describing: repairAction)): pane has no worktree/repo context")
+            guard let pane = store.pane(paneId) else {
+                executorLogger.warning("repair \(String(describing: repairAction)): pane not in store")
                 return
             }
             coordinator.teardownView(for: paneId)
-            coordinator.createView(for: pane, worktree: worktree, repo: repo)
+            coordinator.createViewForContent(pane: pane)
+            store.bumpViewRevision()
             executorLogger.info("Repaired view for pane \(paneId)")
 
         case .reattachZmx, .markSessionFailed, .cleanupOrphan:
             // TODO: Phase 4 — implement remaining repair actions
             executorLogger.warning("repair: \(String(describing: repairAction)) — not yet implemented")
+        }
+    }
+
+    /// Teardown views for all drawer panes owned by a parent pane.
+    private func teardownDrawerPanes(for parentPaneId: UUID) {
+        guard let pane = store.pane(parentPaneId),
+              let drawer = pane.drawer else { return }
+        for drawerPaneId in drawer.paneIds {
+            coordinator.teardownView(for: drawerPaneId)
         }
     }
 

@@ -161,6 +161,8 @@ extension MainWindowController: NSToolbarDelegate {
     func toolbarDefaultItemIdentifiers(_ toolbar: NSToolbar) -> [NSToolbarItem.Identifier] {
         return [
             .flexibleSpace,
+            .editMode,
+            .space,
             .addRepo
         ]
     }
@@ -171,6 +173,16 @@ extension MainWindowController: NSToolbarDelegate {
 
     func toolbar(_ toolbar: NSToolbar, itemForItemIdentifier itemIdentifier: NSToolbarItem.Identifier, willBeInsertedIntoToolbar flag: Bool) -> NSToolbarItem? {
         switch itemIdentifier {
+        case .editMode:
+            let item = NSToolbarItem(itemIdentifier: itemIdentifier)
+            item.label = "Edit Mode"
+            item.paletteLabel = "Edit Mode"
+            // SwiftUI hosting for reactive toggle state
+            let hostingView = NSHostingView(rootView: EditModeToolbarButton())
+            hostingView.sizingOptions = .intrinsicContentSize
+            item.view = hostingView
+            return item
+
         case .addRepo:
             let item = NSToolbarItem(itemIdentifier: itemIdentifier)
             item.label = "Add Repo"
@@ -195,5 +207,6 @@ extension MainWindowController: NSToolbarDelegate {
 // MARK: - Toolbar Item Identifiers
 
 extension NSToolbarItem.Identifier {
+    static let editMode = NSToolbarItem.Identifier("editMode")
     static let addRepo = NSToolbarItem.Identifier("addRepo")
 }

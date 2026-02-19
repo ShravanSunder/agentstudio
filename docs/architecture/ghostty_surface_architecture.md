@@ -296,4 +296,4 @@ view.displaySurface(restoredSurface)  // No orphan, view has no surface yet
 - **[Architecture Overview](README.md)** — System overview and document index
 - **[Component Architecture](component_architecture.md)** — Data model, service layer, ownership hierarchy
 - **[Session Lifecycle](session_lifecycle.md)** — Session creation, close, undo, restore, zmx backend
-- **[App Architecture](app_architecture.md)** — AppKit + SwiftUI hybrid, lifecycle management
+- **[App Architecture](appkit_swiftui_architecture.md)** — AppKit + SwiftUI hybrid, lifecycle management

@@ -87,6 +87,24 @@ else
     exit 1
 fi
 
+# Build zmx binary (before Swift build so findDevVendorZmx() can discover it during development)
+ZMX_DIR="$PROJECT_ROOT/vendor/zmx"
+if [ -f "$ZMX_DIR/build.zig" ]; then
+    echo ""
+    echo "🏗️  Building zmx..."
+    cd "$ZMX_DIR"
+    zig build -Doptimize=ReleaseFast
+    ZMX_BIN="$ZMX_DIR/zig-out/bin/zmx"
+    if [ -f "$ZMX_BIN" ]; then
+        echo "✅ zmx built at $ZMX_BIN"
+    else
+        echo "⚠️  zmx build produced no binary — session persistence disabled"
+    fi
+    cd "$PROJECT_ROOT"
+else
+    echo "⚠️  zmx source not found at $ZMX_DIR — session persistence disabled"
+fi
+
 # Build Swift application
 echo ""
 echo "🏗️  Building Swift application..."
@@ -122,22 +140,13 @@ if [ -d "$TERMINFO_DEV" ]; then
     echo "✅ terminfo copied to app bundle"
 fi
 
-# Build and copy zmx binary to app bundle (Contents/MacOS/zmx)
-ZMX_DIR="$PROJECT_ROOT/vendor/zmx"
-if [ -f "$ZMX_DIR/build.zig" ]; then
-    echo "🏗️  Building zmx..."
-    cd "$ZMX_DIR"
-    zig build -Doptimize=ReleaseFast
-    ZMX_BIN="$ZMX_DIR/zig-out/bin/zmx"
-    if [ -f "$ZMX_BIN" ]; then
-        cp "$ZMX_BIN" "$APP_DIR/MacOS/"
-        echo "✅ zmx binary copied to app bundle"
-    else
-        echo "⚠️  zmx binary not found at $ZMX_BIN — session persistence will use PATH fallback"
-    fi
-    cd "$PROJECT_ROOT"
+# Copy pre-built zmx binary to app bundle (Contents/MacOS/zmx)
+ZMX_BIN="$ZMX_DIR/zig-out/bin/zmx"
+if [ -f "$ZMX_BIN" ]; then
+    cp "$ZMX_BIN" "$APP_DIR/MacOS/"
+    echo "✅ zmx binary copied to app bundle"
 else
-    echo "⚠️  zmx source not found — session persistence will use PATH fallback"
+    echo "⚠️  zmx binary not found — session persistence will use PATH fallback"
 fi
 
 # Copy ghostty resources (shell-integration) to app bundle

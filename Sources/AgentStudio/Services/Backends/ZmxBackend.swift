@@ -105,6 +105,15 @@ final class ZmxBackend: SessionBackend {
         return "\(sessionPrefix)\(repoStableKey)--\(worktreeStableKey)--\(panePrefix)"
     }
 
+    /// Drawer session ID: `agentstudio-d--<parentPaneId16>--<drawerPaneId16>`
+    /// Uses pane UUIDs (not worktree stable keys) since drawer identity
+    /// flows through the parent pane relationship, not worktree association.
+    static func drawerSessionId(parentPaneId: UUID, drawerPaneId: UUID) -> String {
+        let parentPrefix = String(parentPaneId.uuidString.replacingOccurrences(of: "-", with: "").prefix(16)).lowercased()
+        let drawerPrefix = String(drawerPaneId.uuidString.replacingOccurrences(of: "-", with: "").prefix(16)).lowercased()
+        return "agentstudio-d--\(parentPrefix)--\(drawerPrefix)"
+    }
+
     // MARK: - Availability
 
     var isAvailable: Bool {
@@ -261,7 +270,7 @@ final class ZmxBackend: SessionBackend {
                     guard let first = tokens.first, !first.contains("=") else { return nil }
                     return String(first)
                 }
-                .filter { $0.hasPrefix(Self.sessionPrefix) }
+                .filter { $0.hasPrefix(Self.sessionPrefix) || $0.hasPrefix("agentstudio-d--") }
                 .filter { !knownIds.contains($0) }
         } catch {
             zmxLogger.warning("Failed to discover orphan sessions: \(error.localizedDescription)")

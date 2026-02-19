@@ -1,6 +1,6 @@
 import Foundation
 
-/// Metadata carried by every Pane and DrawerPane for context tracking and dynamic grouping.
+/// Metadata carried by every Pane for context tracking and dynamic grouping.
 struct PaneMetadata: Codable, Hashable {
     /// Origin: worktree or floating.
     var source: TerminalSource

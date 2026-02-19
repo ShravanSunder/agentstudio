@@ -86,7 +86,8 @@ final class ActionResolverTabConformanceTests: XCTestCase {
         ))
     }
 
-    func test_resolve_splitBelow_withTab() {
+    func test_resolve_splitBelow_withTab_returnsNil() {
+        // Vertical splits disabled (drawers own bottom space)
         // Arrange
         let paneId = UUID()
         let tab = Tab(paneId: paneId)
@@ -97,12 +98,7 @@ final class ActionResolverTabConformanceTests: XCTestCase {
         )
 
         // Assert
-        XCTAssertEqual(result, .insertPane(
-            source: .newTerminal,
-            targetTabId: tab.id,
-            targetPaneId: paneId,
-            direction: .down
-        ))
+        XCTAssertNil(result)
     }
 
     func test_resolve_nextTab_withTabs() {
