@@ -444,6 +444,11 @@ struct TabPillView: View {
     let onCommand: (AppCommand) -> Void
     @State private var isHovering = false
 
+    /// Clear zone in the mask for the close button (button frame + buffer).
+    private static let closeButtonClearWidth: CGFloat = 20
+    /// Clear zone in the mask for the ⌘N shortcut label.
+    private static let shortcutLabelClearWidth: CGFloat = 28
+
     var body: some View {
         HStack(spacing: 0) {
             // Insert line BEFORE
@@ -520,20 +525,20 @@ struct TabPillView: View {
                     HStack(spacing: 0) {
                         // Left: clear zone for close button + fade-in gradient
                         if isHovering {
-                            Color.clear.frame(width: 20)
+                            Color.clear.frame(width: Self.closeButtonClearWidth)
                             LinearGradient(
                                 colors: [.clear, .black],
                                 startPoint: .leading,
                                 endPoint: .trailing
                             )
-                            .frame(width: 14)
+                            .frame(width: AppStyle.maskFadeWidth)
                         } else {
                             LinearGradient(
                                 colors: [.clear, .black],
                                 startPoint: .leading,
                                 endPoint: .trailing
                             )
-                            .frame(width: 8)
+                            .frame(width: AppStyle.spacingLoose)
                         }
 
                         Color.black
@@ -544,9 +549,9 @@ struct TabPillView: View {
                             startPoint: .leading,
                             endPoint: .trailing
                         )
-                        .frame(width: 14)
+                        .frame(width: AppStyle.maskFadeWidth)
                         if index < 9 {
-                            Color.clear.frame(width: 28)
+                            Color.clear.frame(width: Self.shortcutLabelClearWidth)
                         }
                     }
                 )

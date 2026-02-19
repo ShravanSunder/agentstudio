@@ -213,6 +213,11 @@ enum AppStyle {
     /// Standard animation: tab scroll, general transitions.
     static let animationStandard: Double = 0.20
 
+    // MARK: - Mask
+
+    /// Standard gradient width for text fade masks (clear ↔ opaque transition).
+    static let maskFadeWidth: CGFloat = 14
+
     // MARK: - Layout
 
     /// Tab bar height in points.
