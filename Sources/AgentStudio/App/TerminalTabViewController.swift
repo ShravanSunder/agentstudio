@@ -1,7 +1,7 @@
 import AppKit
 import SwiftUI
 import GhosttyKit
-import Combine
+import Observation
 
 /// Tab-based terminal controller with custom Ghostty-style tab bar.
 ///
@@ -22,18 +22,15 @@ class TerminalTabViewController: NSViewController, CommandHandler {
     private var terminalContainer: NSView!
     private var emptyStateView: NSView?
 
-    /// SwiftUI hosting view for the split container
-    private var splitHostingView: NSHostingView<AnyView>?
+    /// SwiftUI hosting view for the split container (created once, observes store via @Observable)
+    private var splitHostingView: NSHostingView<ActiveTabContent>?
 
-    /// Combine subscriptions for store observation
-    private var cancellables = Set<AnyCancellable>()
+    /// Local event monitor for arrangement bar keyboard shortcut
+    private var arrangementBarEventMonitor: Any?
 
-    /// Tracks the last successfully rendered tab to avoid redundant view rebuilds.
-    /// Compared by value (Tab is Hashable) so layout/activePane changes trigger re-render
-    /// but unrelated store mutations (e.g. pane title updates) are skipped.
-    /// Also tracks ViewRegistry epoch to detect view replacements (e.g. surface repair).
-    private var lastRenderedTab: Tab?
-    private var lastRenderedRegistryEpoch: Int = -1
+    /// Focus tracking — only refocus when the active tab or pane actually changes
+    private var lastFocusedTabId: UUID?
+    private var lastFocusedPaneId: UUID?
 
     // MARK: - Init
 
@@ -79,7 +76,19 @@ class TerminalTabViewController: NSViewController, CommandHandler {
             onTabFramesChanged: { [weak self] frames in
                 self?.tabBarHostingView?.updateTabFrames(frames)
             },
-            onAdd: nil
+            onAdd: { [weak self] in
+                self?.addNewTab()
+            },
+            onPaneAction: { [weak self] action in
+                self?.dispatchAction(action)
+            },
+            onSaveArrangement: { [weak self] tabId in
+                guard let self, let tab = self.store.tab(tabId) else { return }
+                let name = Self.nextArrangementName(existing: tab.arrangements)
+                self.dispatchAction(.createArrangement(
+                    tabId: tabId, name: name, paneIds: Set(tab.paneIds)
+                ))
+            }
         )
         tabBarHostingView = DraggableTabBarHostingView(rootView: tabBar)
         tabBarHostingView.configure(adapter: tabBarAdapter) { [weak self] fromId, toIndex in
@@ -87,6 +96,9 @@ class TerminalTabViewController: NSViewController, CommandHandler {
         }
         tabBarHostingView.dragPayloadProvider = { [weak self] tabId in
             self?.createDragPayload(for: tabId)
+        }
+        tabBarHostingView.onSelect = { [weak self] tabId in
+            self?.dispatchAction(.selectTab(tabId: tabId))
         }
         tabBarHostingView.translatesAutoresizingMaskIntoConstraints = false
         tabBarHostingView.wantsLayer = true
@@ -128,12 +140,13 @@ class TerminalTabViewController: NSViewController, CommandHandler {
         // Register as command handler
         CommandDispatcher.shared.handler = self
 
-        // Observe store changes to refresh display
-        observeStore()
+        // Create stable SwiftUI content view — observes store directly via @Observable.
+        // Created once; @Observable tracking handles all re-renders automatically.
+        setupSplitContentView()
 
-        // Initial render for restored state — the store may already be
-        // populated before this VC exists (e.g., after app relaunch).
-        refreshDisplay()
+        // Observe store for AppKit-level concerns (empty state visibility, focus management)
+        updateEmptyState()
+        observeForAppKitState()
 
         // Listen for process termination
         NotificationCenter.default.addObserver(
@@ -182,6 +195,19 @@ class TerminalTabViewController: NSViewController, CommandHandler {
             name: .refocusTerminalRequested,
             object: nil
         )
+
+        // Cmd+E for edit mode — handled via command pipeline (key event monitor)
+        arrangementBarEventMonitor = NSEvent.addLocalMonitorForEvents(matching: .keyDown) { [weak self] event in
+            guard let self else { return event }
+            // Cmd+E toggles edit mode (negative modifier check: only bare Cmd+E)
+            if event.modifierFlags.contains([.command]),
+               !event.modifierFlags.contains([.shift, .option, .control]),
+               event.charactersIgnoringModifiers == "e" {
+                CommandDispatcher.shared.dispatch(.toggleEditMode)
+                return nil
+            }
+            return event
+        }
 
         // Listen for open webview requests
         NotificationCenter.default.addObserver(
@@ -233,38 +259,141 @@ class TerminalTabViewController: NSViewController, CommandHandler {
     }
 
     deinit {
+        if let monitor = arrangementBarEventMonitor {
+            NSEvent.removeMonitor(monitor)
+        }
         NotificationCenter.default.removeObserver(self)
     }
 
-    // MARK: - Store Observation
+    // MARK: - Store Observation (AppKit-Level Concerns)
 
-    private func observeStore() {
-        // Re-render when store changes (active tab, layout, etc.)
-        store.objectWillChange
-            .receive(on: DispatchQueue.main)
-            .sink { [weak self] _ in
-                self?.refreshDisplay()
+    /// Observe store for AppKit-level state: empty state visibility and focus management.
+    /// SwiftUI rendering is handled by ActiveTabContent via @Observable — this method
+    /// only handles things that live outside the SwiftUI tree (NSView visibility, firstResponder).
+    private func observeForAppKitState() {
+        withObservationTracking {
+            _ = self.store.tabs
+            _ = self.store.activeTabId
+        } onChange: {
+            Task { @MainActor [weak self] in
+                self?.handleAppKitStateChange()
+                self?.observeForAppKitState()
             }
-            .store(in: &cancellables)
+        }
     }
 
-    private func refreshDisplay() {
+    private func handleAppKitStateChange() {
         updateEmptyState()
-        guard let activeTabId = store.activeTabId,
-              let tab = store.tab(activeTabId) else {
-            lastRenderedTab = nil
-            return
+
+        // Deactivate edit mode if no tabs
+        if store.tabs.isEmpty && ManagementModeMonitor.shared.isActive {
+            ManagementModeMonitor.shared.deactivate()
         }
 
-        // Skip rebuild if the tab AND view registry haven't changed.
-        // Registry epoch catches view replacements (e.g. surface repair) that
-        // don't alter the Tab struct but do change the live view instances.
-        let currentEpoch = viewRegistry.epoch
-        guard tab != lastRenderedTab || currentEpoch != lastRenderedRegistryEpoch else { return }
+        // Focus management: only refocus when active tab or pane actually changes
+        let currentTabId = store.activeTabId
+        let currentPaneId = currentTabId.flatMap { store.tab($0) }?.activePaneId
 
-        if showTab(activeTabId) {
-            lastRenderedTab = tab
-            lastRenderedRegistryEpoch = currentEpoch
+        if currentTabId != lastFocusedTabId || currentPaneId != lastFocusedPaneId {
+            lastFocusedTabId = currentTabId
+            lastFocusedPaneId = currentPaneId
+            focusActivePane()
+        }
+    }
+
+    /// Make the active pane's NSView the first responder and sync Ghostty focus state.
+    private func focusActivePane() {
+        guard let activeTabId = store.activeTabId,
+              let tab = store.tab(activeTabId),
+              let activePaneId = tab.activePaneId,
+              let paneView = viewRegistry.view(for: activePaneId) else { return }
+
+        DispatchQueue.main.async { [weak paneView] in
+            guard let paneView = paneView, paneView.window != nil else { return }
+            paneView.window?.makeFirstResponder(paneView)
+
+            if let terminal = paneView as? AgentStudioTerminalView {
+                SurfaceManager.shared.syncFocus(activeSurfaceId: terminal.surfaceId)
+            }
+        }
+    }
+
+    // MARK: - Split Content View Setup
+
+    /// Create the NSHostingView for ActiveTabContent once. @Observable handles all re-renders.
+    private func setupSplitContentView() {
+        let contentView = ActiveTabContent(
+            store: store,
+            viewRegistry: viewRegistry,
+            action: { [weak self] action in self?.dispatchAction(action) },
+            shouldAcceptDrop: { [weak self] destPaneId, zone in
+                self?.evaluateDropAcceptance(destPaneId: destPaneId, zone: zone) ?? false
+            },
+            onDrop: { [weak self] payload, destPaneId, zone in
+                self?.handleSplitDrop(payload: payload, destPaneId: destPaneId, zone: zone)
+            }
+        )
+
+        let hostingView = NSHostingView(rootView: contentView)
+        hostingView.sizingOptions = [.minSize]
+        hostingView.translatesAutoresizingMaskIntoConstraints = false
+        terminalContainer.addSubview(hostingView)
+
+        NSLayoutConstraint.activate([
+            hostingView.topAnchor.constraint(equalTo: terminalContainer.topAnchor),
+            hostingView.leadingAnchor.constraint(equalTo: terminalContainer.leadingAnchor),
+            hostingView.trailingAnchor.constraint(equalTo: terminalContainer.trailingAnchor),
+            hostingView.bottomAnchor.constraint(equalTo: terminalContainer.bottomAnchor)
+        ])
+
+        splitHostingView = hostingView
+    }
+
+    /// Evaluate whether a drop is acceptable at the given pane and zone.
+    private func evaluateDropAcceptance(destPaneId: UUID, zone: DropZone) -> Bool {
+        // New terminal drags have no draggingTabId — always valid
+        guard let draggingTabId = tabBarAdapter.draggingTabId else { return true }
+        guard let tabId = store.activeTabId else { return false }
+
+        let snapshot = ActionResolver.snapshot(
+            from: store.tabs,
+            activeTabId: store.activeTabId,
+            isManagementModeActive: ManagementModeMonitor.shared.isActive
+        )
+        let payload = SplitDropPayload(kind: .existingTab(
+            tabId: draggingTabId
+        ))
+        guard let action = ActionResolver.resolveDrop(
+            payload: payload,
+            destinationPaneId: destPaneId,
+            destinationTabId: tabId,
+            zone: zone,
+            state: snapshot
+        ) else { return false }
+
+        if case .success = ActionValidator.validate(action, state: snapshot) {
+            return true
+        }
+        return false
+    }
+
+    /// Handle a completed drop on a split pane.
+    private func handleSplitDrop(payload: SplitDropPayload, destPaneId: UUID, zone: DropZone) {
+        guard let tabId = store.activeTabId else { return }
+
+        let snapshot = ActionResolver.snapshot(
+            from: store.tabs,
+            activeTabId: store.activeTabId,
+            isManagementModeActive: ManagementModeMonitor.shared.isActive
+        )
+        if let action = ActionResolver.resolveDrop(
+            payload: payload,
+            destinationPaneId: destPaneId,
+            destinationTabId: tabId,
+            zone: zone,
+            state: snapshot
+        ) {
+            dispatchAction(action)
         }
     }
 
@@ -357,6 +486,31 @@ class TerminalTabViewController: NSViewController, CommandHandler {
         emptyStateView?.isHidden = hasTerminals
     }
 
+    // MARK: - New Tab
+
+    /// Create a new tab by cloning the active pane's worktree/repo context.
+    /// Falls back to the first available worktree if no active pane exists.
+    private func addNewTab() {
+        // Try to clone context from the active pane
+        if let activeTabId = store.activeTabId,
+           let tab = store.tab(activeTabId),
+           let activePaneId = tab.activePaneId,
+           let pane = store.pane(activePaneId),
+           let worktreeId = pane.worktreeId,
+           let repoId = pane.repoId,
+           let worktree = store.worktree(worktreeId),
+           let repo = store.repo(repoId) {
+            executor.openNewTerminal(for: worktree, in: repo)
+            return
+        }
+
+        // Fallback: use the first worktree from the first repo
+        if let repo = store.repos.first,
+           let worktree = repo.worktrees.first {
+            executor.openNewTerminal(for: worktree, in: repo)
+        }
+    }
+
     // MARK: - Terminal Management
 
     func openTerminal(for worktree: Worktree, in repo: Repo) {
@@ -396,119 +550,6 @@ class TerminalTabViewController: NSViewController, CommandHandler {
         let tabs = store.tabs
         guard index >= 0, index < tabs.count else { return }
         dispatchAction(.selectTab(tabId: tabs[index].id))
-    }
-
-    // MARK: - Tab Display
-
-    @discardableResult
-    private func showTab(_ tabId: UUID) -> Bool {
-        guard let tab = store.tab(tabId) else {
-            ghosttyLogger.warning("showTab: tab \(tabId) not found in store")
-            return false
-        }
-
-        // Build renderable tree from Layout + ViewRegistry
-        guard let tree = viewRegistry.renderTree(for: tab.layout) else {
-            ghosttyLogger.warning("Could not render tree for tab \(tabId) — missing views")
-            return false
-        }
-
-        ghosttyLogger.info("showTab: rendering tab \(tabId) with \(tab.paneIds.count) pane(s)")
-
-        // Create the SwiftUI split container — views emit PaneAction directly
-        let splitContainer = TerminalSplitContainer(
-            tree: tree,
-            tabId: tabId,
-            activePaneId: tab.activePaneId,
-            zoomedPaneId: tab.zoomedPaneId,
-            action: { [weak self] action in
-                self?.dispatchAction(action)
-            },
-            onPersist: {
-                // Layout IS the tree — markDirty() handles persistence automatically
-            },
-            shouldAcceptDrop: { [weak self] (destPaneId: UUID, zone: DropZone) -> Bool in
-                guard let self else { return false }
-                // New terminal drags have no draggingTabId — always valid
-                guard let draggingTabId = self.tabBarAdapter.draggingTabId else { return true }
-
-                let snapshot = ActionResolver.snapshot(
-                    from: self.store.tabs,
-                    activeTabId: self.store.activeTabId,
-                    isManagementModeActive: ManagementModeMonitor.shared.isActive
-                )
-                let payload = SplitDropPayload(kind: .existingTab(
-                    tabId: draggingTabId
-                ))
-                guard let action = ActionResolver.resolveDrop(
-                    payload: payload,
-                    destinationPaneId: destPaneId,
-                    destinationTabId: tabId,
-                    zone: zone,
-                    state: snapshot
-                ) else { return false }
-
-                if case .success = ActionValidator.validate(action, state: snapshot) {
-                    return true
-                }
-                return false
-            },
-            onDrop: { [weak self] (payload: SplitDropPayload, destPaneId: UUID, zone: DropZone) in
-                guard let self else { return }
-                let snapshot = ActionResolver.snapshot(
-                    from: self.store.tabs,
-                    activeTabId: self.store.activeTabId,
-                    isManagementModeActive: ManagementModeMonitor.shared.isActive
-                )
-                if let action = ActionResolver.resolveDrop(
-                    payload: payload,
-                    destinationPaneId: destPaneId,
-                    destinationTabId: tabId,
-                    zone: zone,
-                    state: snapshot
-                ) {
-                    self.dispatchAction(action)
-                }
-            }
-        )
-
-        // Wrap in AnyView for type erasure
-        let anyView = AnyView(splitContainer)
-
-        // Update or create the hosting view
-        if let existingHostingView = splitHostingView {
-            existingHostingView.rootView = anyView
-        } else {
-            let hostingView = NSHostingView(rootView: anyView)
-            hostingView.translatesAutoresizingMaskIntoConstraints = false
-            terminalContainer.addSubview(hostingView)
-
-            NSLayoutConstraint.activate([
-                hostingView.topAnchor.constraint(equalTo: terminalContainer.topAnchor),
-                hostingView.leadingAnchor.constraint(equalTo: terminalContainer.leadingAnchor),
-                hostingView.trailingAnchor.constraint(equalTo: terminalContainer.trailingAnchor),
-                hostingView.bottomAnchor.constraint(equalTo: terminalContainer.bottomAnchor)
-            ])
-
-            splitHostingView = hostingView
-        }
-
-        // Focus the active pane on next run loop (allows SwiftUI layout to complete)
-        // Uses syncFocus to set ALL surfaces' focus state — only the active one gets true,
-        // all others get false. Mirrors Ghostty's syncFocusToSurfaceTree() pattern.
-        if let activePaneId = tab.activePaneId,
-           let paneView = viewRegistry.view(for: activePaneId) {
-            DispatchQueue.main.async { [weak paneView] in
-                guard let paneView = paneView, paneView.window != nil else { return }
-                paneView.window?.makeFirstResponder(paneView)
-
-                if let terminal = paneView as? AgentStudioTerminalView {
-                    SurfaceManager.shared.syncFocus(activeSurfaceId: terminal.surfaceId)
-                }
-            }
-        }
-
-        return true
     }
 
     // MARK: - Validated Action Pipeline
@@ -564,6 +605,17 @@ class TerminalTabViewController: NSViewController, CommandHandler {
             )
         case .newFloatingTerminal:
             action = nil
+        case .switchArrangement, .deleteArrangement, .renameArrangement:
+            // Arrangement management now handled through the arrangement panel popover
+            // in the tab bar. Context menu entries still work as no-ops here.
+            action = nil
+        case .saveArrangement:
+            // Direct action — save current layout as a new arrangement
+            guard let tab = store.tab(tabId) else { return }
+            let name = Self.nextArrangementName(existing: tab.arrangements)
+            action = .createArrangement(
+                tabId: tabId, name: name, paneIds: Set(tab.paneIds)
+            )
         default:
             action = nil
         }
@@ -794,6 +846,18 @@ class TerminalTabViewController: NSViewController, CommandHandler {
         }
     }
 
+    // MARK: - Arrangement Naming
+
+    /// Generate a unique arrangement name by finding the next unused index.
+    static func nextArrangementName(existing: [PaneArrangement]) -> String {
+        let existingNames = Set(existing.map(\.name))
+        var index = existing.count
+        while existingNames.contains("Arrangement \(index)") {
+            index += 1
+        }
+        return "Arrangement \(index)"
+    }
+
     // MARK: - CommandHandler Conformance
 
     func execute(_ command: AppCommand) {
@@ -807,10 +871,42 @@ class TerminalTabViewController: NSViewController, CommandHandler {
 
         // Non-pane commands handled directly
         switch command {
+        case .toggleEditMode:
+            ManagementModeMonitor.shared.toggle()
+
         case .addRepo:
             NotificationCenter.default.post(name: .addRepoRequested, object: nil)
         case .filterSidebar:
             NotificationCenter.default.post(name: .filterSidebarRequested, object: nil)
+        case .addDrawerPane:
+            guard let tabId = store.activeTabId,
+                  let tab = store.tab(tabId),
+                  let paneId = tab.activePaneId else { break }
+            dispatchAction(.addDrawerPane(parentPaneId: paneId))
+
+        case .toggleDrawer:
+            guard let tabId = store.activeTabId,
+                  let tab = store.tab(tabId),
+                  let paneId = tab.activePaneId else { break }
+            dispatchAction(.toggleDrawer(paneId: paneId))
+
+        case .closeDrawerPane:
+            guard let tabId = store.activeTabId,
+                  let tab = store.tab(tabId),
+                  let paneId = tab.activePaneId,
+                  let pane = store.pane(paneId),
+                  let drawer = pane.drawer,
+                  let activeDrawerPaneId = drawer.activePaneId else { break }
+            dispatchAction(.removeDrawerPane(parentPaneId: paneId, drawerPaneId: activeDrawerPaneId))
+
+        case .saveArrangement:
+            guard let tabId = store.activeTabId,
+                  let tab = store.tab(tabId) else { break }
+            let name = Self.nextArrangementName(existing: tab.arrangements)
+            dispatchAction(.createArrangement(
+                tabId: tabId, name: name, paneIds: Set(tab.paneIds)
+            ))
+
         case .openWebview:
             executor.openWebview()
         case .signInGitHub:
@@ -820,8 +916,10 @@ class TerminalTabViewController: NSViewController, CommandHandler {
         case .newTerminalInTab, .newFloatingTerminal,
              .removeRepo, .refreshWorktrees,
              .toggleSidebar, .quickFind, .commandBar,
-             .openNewTerminalInTab:
-            break // Handled elsewhere or require a target
+             .openNewTerminalInTab,
+             .switchArrangement, .deleteArrangement, .renameArrangement,
+             .navigateDrawerPane:
+            break // Handled via drill-in (target selection in command bar)
         default:
             break
         }
@@ -843,6 +941,20 @@ class TerminalTabViewController: NSViewController, CommandHandler {
                 guard let tab = store.tabs.first(where: { $0.paneIds.contains(target) })
                 else { return nil }
                 return .extractPaneToTab(tabId: tab.id, paneId: target)
+            case (.switchArrangement, .tab):
+                guard let tabId = store.activeTabId else { return nil }
+                return .switchArrangement(tabId: tabId, arrangementId: target)
+            case (.deleteArrangement, .tab):
+                guard let tabId = store.activeTabId else { return nil }
+                return .removeArrangement(tabId: tabId, arrangementId: target)
+            case (.renameArrangement, .tab):
+                // Name input will be added in a later task; for now, just select the target
+                return nil
+            case (.navigateDrawerPane, .pane):
+                guard let tabId = store.activeTabId,
+                      let tab = store.tab(tabId),
+                      let paneId = tab.activePaneId else { return nil }
+                return .setActiveDrawerPane(parentPaneId: paneId, drawerPaneId: target)
             default:
                 return nil
             }

@@ -59,10 +59,31 @@ let menu = NSHostingMenu(rootView: MenuView())
 
 The full data model, service layer, and mutation pipeline are documented in [Component Architecture](component_architecture.md). Key patterns relevant to the AppKit+SwiftUI boundary:
 
-- **WorkspaceStore**: `@MainActor ObservableObject` — the single source of truth. SwiftUI views observe `@Published` properties; AppKit controllers subscribe via Combine.
-- **Bindings**: Pass `Binding` objects from AppKit to SwiftUI for bidirectional data flow.
+- **WorkspaceStore**: `@Observable @MainActor` — the single source of truth. SwiftUI views observe store properties automatically via @Observable property tracking. No `@Published`, no `objectWillChange`, no Combine subscriptions.
+- **AppKit observation**: Non-SwiftUI code (e.g., `TabBarAdapter`) bridges to @Observable using `withObservationTracking` with re-registration pattern.
 - **Notifications**: `NotificationCenter` for loose coupling between AppKit menu actions and controllers (e.g., `.newTabRequested`, `.closeTabRequested`, `.undoCloseTabRequested`).
-- **Combine**: `TerminalTabViewController` subscribes to `store.$activeViewId` and re-renders the terminal container on changes.
+
+### NSHostingView → SwiftUI Root Mapping
+
+Each AppKit controller that hosts SwiftUI creates NSHostingView(s) **once** at setup time. @Observable drives all re-renders — no manual rootView replacement.
+
+**TerminalTabViewController** hosting regions:
+| NSHostingView | SwiftUI Root | Purpose |
+|---|---|---|
+| `tabBarHostingView` | `CustomTabBar` | Tab bar (top strip) |
+| `splitHostingView` | `ActiveTabContent` → `TerminalSplitContainer` | Main content area — renders active tab's split tree |
+| `arrangementButtonHostingView` | `ArrangementFloatingButton` | Floating arrangement button |
+| _(pure AppKit)_ | `emptyStateView` | Empty state when no tabs exist |
+
+**MainSplitViewController**:
+| NSHostingController | SwiftUI Root | Purpose |
+|---|---|---|
+| Sidebar hosting controller | `SidebarViewWrapper` → `SidebarContentView` | Worktree/repo sidebar |
+
+**CommandBarPanelController**:
+| NSHostingView | SwiftUI Root | Purpose |
+|---|---|---|
+| Panel hosting view | `CommandBarView` | Command palette UI |
 
 ### Ownership Hierarchy
 
@@ -70,12 +91,12 @@ Services are created in `AppDelegate.applicationDidFinishLaunching()` in depende
 
 ```
 AppDelegate
-├── WorkspaceStore      ← restore from disk
+├── WorkspaceStore      ← @Observable, restore from disk
 ├── SessionRuntime      ← runtime health tracking
-├── ViewRegistry        ← sessionId → NSView mapping
+├── ViewRegistry        ← paneId → NSView mapping (not @Observable)
 ├── TerminalViewCoordinator ← sole model↔view↔surface bridge
 ├── ActionExecutor      ← action dispatch hub
-├── TabBarAdapter       ← Combine-derived tab bar state
+├── TabBarAdapter       ← ObservableObject, bridges store via withObservationTracking
 ├── CommandBarPanelController ← command bar lifecycle (⌘P/⌘⇧P/⌘⌥P)
 └── MainWindowController
     └── MainSplitViewController

@@ -80,7 +80,11 @@ final class ActionExecutorTests: XCTestCase {
 
         // Assert
         XCTAssertEqual(executor.undoStack.count, 1)
-        XCTAssertEqual(executor.undoStack[0].tab.id, tab.id)
+        if case .tab(let snapshot) = executor.undoStack[0] {
+            XCTAssertEqual(snapshot.tab.id, tab.id)
+        } else {
+            XCTFail("Expected .tab entry")
+        }
     }
 
     func test_execute_closeTab_multipleCloses_stacksUndo() {
@@ -98,8 +102,16 @@ final class ActionExecutorTests: XCTestCase {
 
         // Assert
         XCTAssertEqual(executor.undoStack.count, 2)
-        XCTAssertEqual(executor.undoStack[0].tab.id, tab1.id)
-        XCTAssertEqual(executor.undoStack[1].tab.id, tab2.id)
+        if case .tab(let s1) = executor.undoStack[0] {
+            XCTAssertEqual(s1.tab.id, tab1.id)
+        } else {
+            XCTFail("Expected .tab entry at index 0")
+        }
+        if case .tab(let s2) = executor.undoStack[1] {
+            XCTAssertEqual(s2.tab.id, tab2.id)
+        } else {
+            XCTFail("Expected .tab entry at index 1")
+        }
     }
 
     // MARK: - Undo Close Tab
@@ -428,5 +440,227 @@ final class ActionExecutorTests: XCTestCase {
         // The 10 newest should still be in the store (in the undo stack)
         XCTAssertNotNil(store.pane(closedPaneIds[2]))
         XCTAssertNotNil(store.pane(closedPaneIds[11]))
+    }
+
+    // MARK: - Execute: switchArrangement
+
+    func test_execute_switchArrangement_updatesStoreState() {
+        // Arrange: tab with panes A, B, C. Default arrangement has all 3.
+        let pA = store.createPane(source: .floating(workingDirectory: nil, title: nil))
+        let pB = store.createPane(source: .floating(workingDirectory: nil, title: nil))
+        let pC = store.createPane(source: .floating(workingDirectory: nil, title: nil))
+
+        let tab = Tab(paneId: pA.id)
+        store.appendTab(tab)
+        store.insertPane(pB.id, inTab: tab.id, at: pA.id, direction: .horizontal, position: .after)
+        store.insertPane(pC.id, inTab: tab.id, at: pB.id, direction: .horizontal, position: .after)
+
+        // Create custom arrangement with only panes A and B
+        let arrId = store.createArrangement(
+            name: "Focus",
+            paneIds: Set([pA.id, pB.id]),
+            inTab: tab.id
+        )!
+
+        // Act: switch to custom arrangement via executor
+        executor.execute(.switchArrangement(tabId: tab.id, arrangementId: arrId))
+
+        // Assert: tab.paneIds returns only A and B (from active arrangement)
+        let updatedTab = store.tab(tab.id)!
+        XCTAssertEqual(updatedTab.activeArrangementId, arrId)
+        XCTAssertEqual(Set(updatedTab.paneIds), Set([pA.id, pB.id]))
+        // Pane C is still owned by the tab but not visible in active arrangement
+        XCTAssertTrue(updatedTab.panes.contains(pC.id))
+        XCTAssertFalse(updatedTab.paneIds.contains(pC.id))
+    }
+
+    func test_execute_switchArrangement_backToDefault_restoresAllPanes() {
+        // Arrange: tab with panes A, B, C
+        let pA = store.createPane(source: .floating(workingDirectory: nil, title: nil))
+        let pB = store.createPane(source: .floating(workingDirectory: nil, title: nil))
+        let pC = store.createPane(source: .floating(workingDirectory: nil, title: nil))
+
+        let tab = Tab(paneId: pA.id)
+        store.appendTab(tab)
+        store.insertPane(pB.id, inTab: tab.id, at: pA.id, direction: .horizontal, position: .after)
+        store.insertPane(pC.id, inTab: tab.id, at: pB.id, direction: .horizontal, position: .after)
+
+        let customArrId = store.createArrangement(
+            name: "Focus",
+            paneIds: Set([pA.id]),
+            inTab: tab.id
+        )!
+
+        // Switch to custom (only A)
+        executor.execute(.switchArrangement(tabId: tab.id, arrangementId: customArrId))
+        XCTAssertEqual(store.tab(tab.id)!.paneIds, [pA.id])
+
+        // Act: switch back to default
+        let defaultArrId = store.tab(tab.id)!.defaultArrangement.id
+        executor.execute(.switchArrangement(tabId: tab.id, arrangementId: defaultArrId))
+
+        // Assert: all three panes visible again
+        let updatedTab = store.tab(tab.id)!
+        XCTAssertEqual(updatedTab.activeArrangementId, defaultArrId)
+        XCTAssertEqual(Set(updatedTab.paneIds), Set([pA.id, pB.id, pC.id]))
+    }
+
+    func test_execute_switchArrangement_sameArrangement_noOp() {
+        // Arrange
+        let pA = store.createPane(source: .floating(workingDirectory: nil, title: nil))
+        let tab = Tab(paneId: pA.id)
+        store.appendTab(tab)
+
+        let defaultArrId = store.tab(tab.id)!.activeArrangementId
+
+        // Act: switch to same arrangement (should be no-op)
+        executor.execute(.switchArrangement(tabId: tab.id, arrangementId: defaultArrId))
+
+        // Assert: unchanged
+        XCTAssertEqual(store.tab(tab.id)!.activeArrangementId, defaultArrId)
+        XCTAssertEqual(store.tab(tab.id)!.paneIds, [pA.id])
+    }
+
+    func test_execute_switchArrangement_invalidTabId_noOp() {
+        // Act: should not crash
+        executor.execute(.switchArrangement(tabId: UUID(), arrangementId: UUID()))
+
+        // Assert: no tabs affected
+        XCTAssertTrue(store.tabs.isEmpty)
+    }
+
+    // MARK: - Execute: switchArrangement (ViewRegistry integration)
+
+    func test_execute_switchArrangement_viewRegistryRetainsAllViews() {
+        // Arrange: tab with 3 panes, each registered in ViewRegistry
+        let pA = store.createPane(source: .floating(workingDirectory: nil, title: nil))
+        let pB = store.createPane(source: .floating(workingDirectory: nil, title: nil))
+        let pC = store.createPane(source: .floating(workingDirectory: nil, title: nil))
+
+        let tab = Tab(paneId: pA.id)
+        store.appendTab(tab)
+        store.insertPane(pB.id, inTab: tab.id, at: pA.id, direction: .horizontal, position: .after)
+        store.insertPane(pC.id, inTab: tab.id, at: pB.id, direction: .horizontal, position: .after)
+
+        // Register stub PaneViews for all 3 panes
+        let viewA = PaneView(paneId: pA.id)
+        let viewB = PaneView(paneId: pB.id)
+        let viewC = PaneView(paneId: pC.id)
+        viewRegistry.register(viewA, for: pA.id)
+        viewRegistry.register(viewB, for: pB.id)
+        viewRegistry.register(viewC, for: pC.id)
+
+        // Create custom arrangement with only panes A and B
+        let customArrId = store.createArrangement(
+            name: "Focus",
+            paneIds: Set([pA.id, pB.id]),
+            inTab: tab.id
+        )!
+
+        // Act: switch to custom arrangement (hides pane C)
+        executor.execute(.switchArrangement(tabId: tab.id, arrangementId: customArrId))
+
+        // Assert: all 3 views are still in the ViewRegistry
+        XCTAssertNotNil(viewRegistry.view(for: pA.id), "View A should still be registered after arrangement switch")
+        XCTAssertNotNil(viewRegistry.view(for: pB.id), "View B should still be registered after arrangement switch")
+        XCTAssertNotNil(viewRegistry.view(for: pC.id), "View C should still be registered even though hidden")
+        XCTAssertEqual(viewRegistry.registeredPaneIds, Set([pA.id, pB.id, pC.id]))
+
+        // Verify the store correctly reflects only A and B as visible
+        let updatedTab = store.tab(tab.id)!
+        XCTAssertEqual(Set(updatedTab.paneIds), Set([pA.id, pB.id]))
+        // But pane C is still owned by the tab
+        XCTAssertTrue(updatedTab.panes.contains(pC.id))
+    }
+
+    func test_execute_switchArrangement_backToDefault_viewsStillRegistered() {
+        // Arrange: tab with 3 panes, each registered in ViewRegistry
+        let pA = store.createPane(source: .floating(workingDirectory: nil, title: nil))
+        let pB = store.createPane(source: .floating(workingDirectory: nil, title: nil))
+        let pC = store.createPane(source: .floating(workingDirectory: nil, title: nil))
+
+        let tab = Tab(paneId: pA.id)
+        store.appendTab(tab)
+        store.insertPane(pB.id, inTab: tab.id, at: pA.id, direction: .horizontal, position: .after)
+        store.insertPane(pC.id, inTab: tab.id, at: pB.id, direction: .horizontal, position: .after)
+
+        // Register stub PaneViews for all 3 panes
+        let viewA = PaneView(paneId: pA.id)
+        let viewB = PaneView(paneId: pB.id)
+        let viewC = PaneView(paneId: pC.id)
+        viewRegistry.register(viewA, for: pA.id)
+        viewRegistry.register(viewB, for: pB.id)
+        viewRegistry.register(viewC, for: pC.id)
+
+        // Create custom arrangement with only pane A
+        let customArrId = store.createArrangement(
+            name: "Solo",
+            paneIds: Set([pA.id]),
+            inTab: tab.id
+        )!
+
+        // Act: switch to custom, then back to default
+        executor.execute(.switchArrangement(tabId: tab.id, arrangementId: customArrId))
+        let defaultArrId = store.tab(tab.id)!.defaultArrangement.id
+        executor.execute(.switchArrangement(tabId: tab.id, arrangementId: defaultArrId))
+
+        // Assert: all 3 views are still registered after round-trip
+        XCTAssertNotNil(viewRegistry.view(for: pA.id), "View A should survive round-trip arrangement switch")
+        XCTAssertNotNil(viewRegistry.view(for: pB.id), "View B should survive round-trip arrangement switch")
+        XCTAssertNotNil(viewRegistry.view(for: pC.id), "View C should survive round-trip arrangement switch")
+        XCTAssertEqual(viewRegistry.registeredPaneIds, Set([pA.id, pB.id, pC.id]))
+
+        // Verify all panes are visible again in the default arrangement
+        let updatedTab = store.tab(tab.id)!
+        XCTAssertEqual(Set(updatedTab.paneIds), Set([pA.id, pB.id, pC.id]))
+    }
+
+    // MARK: - Execute: repair (viewRevision)
+
+    func test_viewRevision_defaultsToZero() {
+        // Assert
+        XCTAssertEqual(store.viewRevision, 0)
+    }
+
+    func test_executeRepair_recreateSurface_bumpsViewRevision() {
+        // Arrange
+        let pane = store.createPane(source: .floating(workingDirectory: nil, title: nil))
+        let tab = Tab(paneId: pane.id)
+        store.appendTab(tab)
+        let stubView = PaneView(paneId: pane.id)
+        viewRegistry.register(stubView, for: pane.id)
+        XCTAssertEqual(store.viewRevision, 0)
+
+        // Act
+        executor.execute(.repair(.recreateSurface(paneId: pane.id)))
+
+        // Assert
+        XCTAssertEqual(store.viewRevision, 1)
+    }
+
+    func test_executeRepair_createMissingView_bumpsViewRevision() {
+        // Arrange
+        let pane = store.createPane(source: .floating(workingDirectory: nil, title: nil))
+        let tab = Tab(paneId: pane.id)
+        store.appendTab(tab)
+        XCTAssertEqual(store.viewRevision, 0)
+
+        // Act
+        executor.execute(.repair(.createMissingView(paneId: pane.id)))
+
+        // Assert
+        XCTAssertEqual(store.viewRevision, 1)
+    }
+
+    func test_executeRepair_unknownPane_doesNotBumpViewRevision() {
+        // Arrange
+        let unknownId = UUID()
+        XCTAssertEqual(store.viewRevision, 0)
+
+        // Act
+        executor.execute(.repair(.recreateSurface(paneId: unknownId)))
+
+        // Assert — guard early-returns, no bump
+        XCTAssertEqual(store.viewRevision, 0)
     }
 }

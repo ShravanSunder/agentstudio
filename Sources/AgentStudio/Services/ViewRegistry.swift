@@ -5,25 +5,22 @@ private let registryLogger = Logger(subsystem: "com.agentstudio", category: "Vie
 
 /// Maps pane IDs to live PaneView instances (terminal, webview, code viewer).
 /// Runtime only — not persisted. Collaborator of WorkspaceStore.
+///
+/// NOT @Observable — views should not re-render based on surface registration.
+/// Store mutations (via @Observable WorkspaceStore) trigger SwiftUI re-renders;
+/// ViewRegistry provides the NSView instances to display during those renders.
 @MainActor
 final class ViewRegistry {
     private var views: [UUID: PaneView] = [:]
 
-    /// Monotonically increasing counter, bumped on every register/unregister.
-    /// Consumers can compare against a cached epoch to detect registry changes
-    /// without subscribing to Combine or notifications.
-    private(set) var epoch: Int = 0
-
     /// Register a view for a pane.
     func register(_ view: PaneView, for paneId: UUID) {
         views[paneId] = view
-        epoch += 1
     }
 
     /// Unregister a view for a pane.
     func unregister(_ paneId: UUID) {
         views.removeValue(forKey: paneId)
-        epoch += 1
     }
 
     /// Get the view for a pane, if registered.

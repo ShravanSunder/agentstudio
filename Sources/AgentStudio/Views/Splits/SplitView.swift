@@ -18,6 +18,9 @@ struct SplitView<L: View, R: View>: View {
     /// Called when the divider is double-tapped to equalize splits
     let onEqualize: () -> Void
 
+    /// Called once when a drag resize begins (for UI state like suppressing overlays)
+    let onResizeBegin: (() -> Void)?
+
     /// Called when a drag resize ends (for persistence)
     let onResizeEnd: (() -> Void)?
 
@@ -72,6 +75,7 @@ struct SplitView<L: View, R: View>: View {
         @ViewBuilder left: (() -> L),
         @ViewBuilder right: (() -> R),
         onEqualize: @escaping () -> Void,
+        onResizeBegin: (() -> Void)? = nil,
         onResizeEnd: (() -> Void)? = nil
     ) {
         self.direction = direction
@@ -80,12 +84,19 @@ struct SplitView<L: View, R: View>: View {
         self.left = left()
         self.right = right()
         self.onEqualize = onEqualize
+        self.onResizeBegin = onResizeBegin
         self.onResizeEnd = onResizeEnd
     }
+
+    @State private var hasStartedResize = false
 
     private func dragGesture(_ size: CGSize, splitterPoint: CGPoint) -> some Gesture {
         return DragGesture()
             .onChanged { gesture in
+                if !hasStartedResize {
+                    hasStartedResize = true
+                    onResizeBegin?()
+                }
                 switch direction {
                 case .horizontal:
                     let new = min(max(minSize, gesture.location.x), size.width - minSize)
@@ -97,6 +108,7 @@ struct SplitView<L: View, R: View>: View {
                 }
             }
             .onEnded { _ in
+                hasStartedResize = false
                 onResizeEnd?()
             }
     }

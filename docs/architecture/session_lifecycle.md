@@ -318,4 +318,4 @@ stateDiagram-v2
 - **[Architecture Overview](README.md)** — System overview and document index
 - **[Component Architecture](component_architecture.md)** — Data model, service layer, data flow, persistence
 - **[Surface Architecture](ghostty_surface_architecture.md)** — Surface ownership, state machine, undo close, health monitoring
-- **[App Architecture](app_architecture.md)** — AppKit + SwiftUI hybrid, lifecycle management
+- **[App Architecture](appkit_swiftui_architecture.md)** — AppKit + SwiftUI hybrid, lifecycle management

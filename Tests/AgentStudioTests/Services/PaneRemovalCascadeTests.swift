@@ -182,11 +182,7 @@ final class PaneRemovalCascadeTests: XCTestCase {
         store.appendTab(tab)
 
         // Add a drawer pane
-        _ = store.addDrawerPane(
-            to: pane.id,
-            content: .terminal(TerminalState(provider: .ghostty, lifetime: .temporary)),
-            metadata: PaneMetadata(source: .floating(workingDirectory: nil, title: nil), title: "Drawer")
-        )
+        _ = store.addDrawerPane(to: pane.id)
 
         // Extra pane so tab doesn't get removed
         let pane2 = store.createPane(source: .floating(workingDirectory: nil, title: nil))

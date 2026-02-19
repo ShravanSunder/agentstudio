@@ -26,9 +26,26 @@ enum AppCommand: String, CaseIterable {
     case focusPaneLeft, focusPaneRight, focusPaneUp, focusPaneDown
     case focusNextPane, focusPrevPane
     case toggleSplitZoom
+    case minimizePane
+    case expandPane
+
+    // Arrangement commands
+    case switchArrangement
+    case saveArrangement
+    case deleteArrangement
+    case renameArrangement
+
+    // Drawer commands
+    case addDrawerPane
+    case toggleDrawer
+    case navigateDrawerPane
+    case closeDrawerPane
 
     // Repo commands
     case addRepo, removeRepo, refreshWorktrees
+
+    // Edit mode
+    case toggleEditMode
 
     // Workspace commands
     case toggleSidebar
@@ -251,21 +268,9 @@ final class CommandDispatcher: ObservableObject {
                 appliesTo: [.pane, .tab]
             ),
             CommandDefinition(
-                command: .splitBelow,
-                label: "Split Below",
-                icon: "rectangle.split.2x1",
-                appliesTo: [.pane, .tab]
-            ),
-            CommandDefinition(
                 command: .splitLeft,
                 label: "Split Left",
                 icon: "rectangle.split.1x2",
-                appliesTo: [.pane, .tab]
-            ),
-            CommandDefinition(
-                command: .splitAbove,
-                label: "Split Above",
-                icon: "rectangle.split.2x1",
                 appliesTo: [.pane, .tab]
             ),
             CommandDefinition(
@@ -305,6 +310,72 @@ final class CommandDispatcher: ObservableObject {
                 icon: "arrow.left.circle"
             ),
 
+            // Minimize / Expand
+            CommandDefinition(
+                command: .minimizePane,
+                label: "Minimize Pane",
+                icon: "minus.circle",
+                appliesTo: [.pane]
+            ),
+            CommandDefinition(
+                command: .expandPane,
+                label: "Expand Pane",
+                icon: "arrow.up.left.and.arrow.down.right",
+                appliesTo: [.pane]
+            ),
+
+            // Arrangement commands
+            CommandDefinition(
+                command: .switchArrangement,
+                label: "Switch Arrangement",
+                icon: "rectangle.3.group",
+                appliesTo: [.tab]
+            ),
+            CommandDefinition(
+                command: .saveArrangement,
+                label: "Save Arrangement As...",
+                icon: "rectangle.3.group.fill",
+                appliesTo: [.tab]
+            ),
+            CommandDefinition(
+                command: .deleteArrangement,
+                label: "Delete Arrangement",
+                icon: "rectangle.3.group.bubble",
+                appliesTo: [.tab]
+            ),
+            CommandDefinition(
+                command: .renameArrangement,
+                label: "Rename Arrangement",
+                icon: "pencil",
+                appliesTo: [.tab]
+            ),
+
+            // Drawer commands
+            CommandDefinition(
+                command: .addDrawerPane,
+                label: "Add Drawer Pane",
+                icon: "rectangle.bottomhalf.inset.filled",
+                appliesTo: [.pane]
+            ),
+            CommandDefinition(
+                command: .toggleDrawer,
+                label: "Toggle Drawer",
+                icon: "rectangle.expand.vertical",
+                appliesTo: [.pane]
+            ),
+            CommandDefinition(
+                command: .navigateDrawerPane,
+                label: "Navigate to Drawer Pane",
+                icon: "arrow.down.to.line",
+                appliesTo: [.pane]
+            ),
+            CommandDefinition(
+                command: .closeDrawerPane,
+                label: "Close Drawer Pane",
+                icon: "xmark.rectangle.portrait",
+                appliesTo: [.pane]
+            ),
+
             // Repo commands
             CommandDefinition(
                 command: .addRepo,
@@ -324,6 +395,14 @@ final class CommandDispatcher: ObservableObject {
                 label: "Refresh Worktrees",
                 icon: "arrow.clockwise",
                 appliesTo: [.repo]
+            ),
+
+            // Edit mode
+            CommandDefinition(
+                command: .toggleEditMode,
+                keyBinding: KeyBinding(key: "e", modifiers: [.command]),
+                label: "Toggle Edit Mode",
+                icon: "rectangle.split.2x2"
             ),
 
             // Workspace commands

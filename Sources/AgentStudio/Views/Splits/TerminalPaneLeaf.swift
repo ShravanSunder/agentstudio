@@ -1,6 +1,9 @@
 import SwiftUI
 import AppKit
 import UniformTypeIdentifiers
+import os.log
+
+private let splitLogger = Logger(subsystem: "com.agentstudio", category: "SplitDrop")
 
 /// Renders a single pane leaf with drop zone support for splitting.
 /// Handles terminal views (with surface dimming and drag handles) and
@@ -10,6 +13,7 @@ struct TerminalPaneLeaf: View {
     let tabId: UUID
     let isActive: Bool
     let isSplit: Bool
+    let store: WorkspaceStore
     let action: (PaneAction) -> Void
     let shouldAcceptDrop: (UUID, DropZone) -> Bool
     let onDrop: (SplitDropPayload, UUID, DropZone) -> Void
@@ -18,6 +22,17 @@ struct TerminalPaneLeaf: View {
     @State private var isTargeted: Bool = false
     @State private var isHovered: Bool = false
     @ObservedObject private var managementMode = ManagementModeMonitor.shared
+
+    /// Whether this pane is a drawer child (no drag, no drop, no sub-drawer).
+    private var isDrawerChild: Bool {
+        store.pane(paneView.id)?.isDrawerChild ?? false
+    }
+
+    /// Drawer state derived from store via @Observable tracking.
+    /// Only layout panes have drawers; drawer children return nil.
+    private var drawer: Drawer? {
+        store.pane(paneView.id)?.drawer
+    }
 
     /// Downcast to terminal view for terminal-specific features.
     private var terminalView: AgentStudioTerminalView? {
@@ -31,40 +46,56 @@ struct TerminalPaneLeaf: View {
                 PaneViewRepresentable(paneView: paneView)
 
                 // Ghostty-style dimming for unfocused panes
-                if isSplit && !isActive {
+                if !isActive {
                     Rectangle()
                         .fill(Color.black)
-                        .opacity(0.15)
+                        .opacity(AppStyle.strokeMuted)
                         .allowsHitTesting(false)
                 }
 
                 // Hover border: drag affordance in management mode
-                if managementMode.isActive && isHovered && isSplit {
-                    RoundedRectangle(cornerRadius: 4)
-                        .strokeBorder(Color.white.opacity(0.25), lineWidth: 1)
+                if managementMode.isActive && isHovered && !store.isSplitResizing {
+                    RoundedRectangle(cornerRadius: AppStyle.buttonCornerRadius)
+                        .strokeBorder(Color.white.opacity(AppStyle.strokeVisible), lineWidth: 1)
                         .padding(1)
                         .allowsHitTesting(false)
-                        .animation(.easeInOut(duration: 0.15), value: isHovered)
+                        .animation(.easeInOut(duration: AppStyle.animationFast), value: isHovered)
                 }
 
-                // Drag handle (top-left, management mode + hover only, all pane types)
-                if managementMode.isActive && isHovered && isSplit {
-                    VStack {
-                        HStack {
-                            Image(systemName: "line.3.horizontal")
-                                .font(.system(size: 10))
-                                .foregroundStyle(.white.opacity(0.5))
-                                .frame(width: 20, height: 20)
-                                .contentShape(Rectangle())
-                                .draggable(PaneDragPayload(
-                                    paneId: paneView.id,
-                                    tabId: tabId
-                                ))
-                            Spacer()
+                // Drag handle: compact centered pill (edit mode + hover + no active drop).
+                // Drawer children cannot be dragged out of their drawer.
+                // The Color.clear fills the ZStack for centering; allowsHitTesting(false)
+                // ensures only the capsule itself intercepts mouse events.
+                if managementMode.isActive && isSplit && !isDrawerChild && isHovered && !isTargeted && !store.isSplitResizing {
+                    ZStack {
+                        Color.clear
+                            .allowsHitTesting(false)
+                        ZStack {
+                            RoundedRectangle(cornerRadius: 12)
+                                .fill(.ultraThinMaterial)
+                                .shadow(color: .black.opacity(AppStyle.strokeVisible), radius: 4, y: 2)
+                            Image(systemName: "arrow.up.and.down.and.arrow.left.and.right")
+                                .font(.system(size: AppStyle.toolbarIconSize, weight: .medium))
+                                .foregroundStyle(.white.opacity(AppStyle.foregroundMuted))
                         }
-                        Spacer()
+                        .frame(width: 20, height: 20 * 1.6)
+                        .contentShape(RoundedRectangle(cornerRadius: 12))
+                        .draggable(PaneDragPayload(
+                            paneId: paneView.id,
+                            tabId: tabId
+                        )) {
+                            // Solid drag preview — .ultraThinMaterial renders as
+                            // concentric circles when captured without a background.
+                            ZStack {
+                                RoundedRectangle(cornerRadius: 12)
+                                    .fill(Color(.windowBackgroundColor).opacity(0.8))
+                                Image(systemName: "arrow.up.and.down.and.arrow.left.and.right")
+                                    .font(.system(size: AppStyle.toolbarIconSize, weight: .medium))
+                                    .foregroundStyle(.secondary)
+                            }
+                            .frame(width: 20, height: 20 * 1.6)
+                        }
                     }
-                    .allowsHitTesting(true)
                 }
 
                 // Drop zone overlay
@@ -73,19 +104,85 @@ struct TerminalPaneLeaf: View {
                         .allowsHitTesting(false)
                 }
 
-                // Close pane button (management mode only)
-                if isSplit && managementMode.isActive {
-                    Button {
-                        action(.closePane(tabId: tabId, paneId: paneView.id))
-                    } label: {
-                        Image(systemName: "xmark.circle.fill")
-                            .font(.system(size: 14))
-                            .foregroundStyle(.secondary)
-                            .background(Circle().fill(.black.opacity(0.5)))
+                // Pane controls: minimize + close (top-left, edit mode + hover)
+                if managementMode.isActive && isHovered && !store.isSplitResizing {
+                    VStack {
+                        HStack(spacing: AppStyle.spacingTight) {
+                            Button {
+                                action(.minimizePane(tabId: tabId, paneId: paneView.id))
+                            } label: {
+                                Image(systemName: "minus.circle.fill")
+                                    .font(.system(size: AppStyle.toolbarIconSize))
+                                    .foregroundStyle(.white.opacity(AppStyle.foregroundMuted))
+                                    .background(Circle().fill(.black.opacity(AppStyle.foregroundDim)))
+                            }
+                            .buttonStyle(.plain)
+                            .help("Minimize pane")
+
+                            Button {
+                                action(.closePane(tabId: tabId, paneId: paneView.id))
+                            } label: {
+                                Image(systemName: "xmark.circle.fill")
+                                    .font(.system(size: AppStyle.toolbarIconSize))
+                                    .foregroundStyle(.white.opacity(AppStyle.foregroundMuted))
+                                    .background(Circle().fill(.black.opacity(AppStyle.foregroundDim)))
+                            }
+                            .buttonStyle(.plain)
+                            .help("Close pane")
+
+                            Spacer()
+                        }
+                        .padding(AppStyle.spacingStandard)
+                        Spacer()
                     }
-                    .buttonStyle(.plain)
-                    .padding(6)
                     .transition(.opacity)
+                }
+
+                // Quarter-moon split button (top-right, edit mode + hover)
+                if managementMode.isActive && isHovered && !store.isSplitResizing {
+                    VStack {
+                        HStack {
+                            Spacer()
+                            Button {
+                                action(.insertPane(
+                                    source: .newTerminal,
+                                    targetTabId: tabId,
+                                    targetPaneId: paneView.id,
+                                    direction: .right
+                                ))
+                            } label: {
+                                Image(systemName: "plus")
+                                    .font(.system(size: AppStyle.fontSmall, weight: .bold))
+                                    .foregroundStyle(.white.opacity(AppStyle.foregroundMuted))
+                                    .frame(width: 20, height: 36)
+                                    .background(
+                                        UnevenRoundedRectangle(
+                                            topLeadingRadius: 10,
+                                            bottomLeadingRadius: 10,
+                                            bottomTrailingRadius: 0,
+                                            topTrailingRadius: 0
+                                        )
+                                        .fill(Color.black.opacity(AppStyle.foregroundDim))
+                                    )
+                            }
+                            .buttonStyle(.plain)
+                            .help("Split right")
+                        }
+                        .padding(.top, AppStyle.spacingStandard)
+                        Spacer()
+                    }
+                    .allowsHitTesting(true)
+                    .transition(.opacity)
+                }
+
+                // Drawer icon bar (bottom of pane, layout panes only — no nested drawers)
+                if !isDrawerChild {
+                    DrawerOverlay(
+                        paneId: paneView.id,
+                        drawer: drawer,
+                        isIconBarVisible: true,
+                        action: action
+                    )
                 }
             }
             .contentShape(Rectangle())
@@ -103,7 +200,37 @@ struct TerminalPaneLeaf: View {
             ))
         }
         .clipShape(RoundedRectangle(cornerRadius: 1))
-        .padding(2)
+        .onChange(of: managementMode.isActive) { _, isActive in
+            // Clear stale drag overlay when management mode toggles off
+            if !isActive {
+                isTargeted = false
+                dropZone = nil
+            }
+        }
+        .onChange(of: isHovered) { _, hovering in
+            // Safety: clear stuck drop overlay when cursor leaves the pane.
+            // SwiftUI's dropExited can be unreliable when drags cancel or
+            // leave the window boundary.
+            if !hovering && isTargeted {
+                isTargeted = false
+                dropZone = nil
+            }
+        }
+        .padding(AppStyle.paneGap)
+        .background(
+            GeometryReader { geo in
+                // Report pane frame for tab-level overlay positioning (layout panes only).
+                // Drawer children are inside the drawer panel, not in the tab coordinate space.
+                if !isDrawerChild {
+                    Color.clear.preference(
+                        key: PaneFramePreferenceKey.self,
+                        value: [paneView.id: geo.frame(in: .named("tabContainer"))]
+                    )
+                } else {
+                    Color.clear
+                }
+            }
+        )
     }
 }
 
@@ -173,8 +300,13 @@ private struct SplitDropDelegate: DropDelegate {
         // Check which type of drop
         if provider.hasItemConformingToTypeIdentifier(UTType.agentStudioTab.identifier) {
             _ = provider.loadDataRepresentation(forTypeIdentifier: UTType.agentStudioTab.identifier) { data, error in
+                if let error {
+                    splitLogger.warning("Tab drop: failed to load data — \(error.localizedDescription)")
+                    return
+                }
                 guard let data,
                       let payload = try? JSONDecoder().decode(TabDragPayload.self, from: data) else {
+                    splitLogger.warning("Tab drop: failed to decode TabDragPayload")
                     return
                 }
 
@@ -190,8 +322,13 @@ private struct SplitDropDelegate: DropDelegate {
 
         if provider.hasItemConformingToTypeIdentifier(UTType.agentStudioPane.identifier) {
             _ = provider.loadDataRepresentation(forTypeIdentifier: UTType.agentStudioPane.identifier) { data, error in
+                if let error {
+                    splitLogger.warning("Pane drop: failed to load data — \(error.localizedDescription)")
+                    return
+                }
                 guard let data,
                       let payload = try? JSONDecoder().decode(PaneDragPayload.self, from: data) else {
+                    splitLogger.warning("Pane drop: failed to decode PaneDragPayload")
                     return
                 }
 
