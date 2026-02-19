@@ -73,6 +73,9 @@ final class AgentStudioTerminalView: PaneView, SurfaceHealthDelegate {
         let currentSize = surface.bounds.size
         guard currentSize != lastReportedSurfaceSize else { return }
         lastReportedSurfaceSize = currentSize
+        RestoreTrace.log(
+            "AgentStudioTerminalView.layout pane=\(paneId) surface=\(surfaceId?.uuidString ?? "nil") paneBounds=\(NSStringFromRect(bounds)) surfaceBounds=\(NSStringFromRect(surface.bounds))"
+        )
         surface.sizeDidChange(currentSize)
     }
 
@@ -81,6 +84,9 @@ final class AgentStudioTerminalView: PaneView, SurfaceHealthDelegate {
     func displaySurface(_ surfaceView: Ghostty.SurfaceView) {
         // Remove existing surface if any
         ghosttySurface?.removeFromSuperview()
+        RestoreTrace.log(
+            "AgentStudioTerminalView.displaySurface pane=\(paneId) surface=\(surfaceId?.uuidString ?? "nil") hostBounds=\(NSStringFromRect(bounds)) incomingSurfaceFrame=\(NSStringFromRect(surfaceView.frame))"
+        )
 
         surfaceView.translatesAutoresizingMaskIntoConstraints = false
         addSubview(surfaceView)
@@ -94,6 +100,9 @@ final class AgentStudioTerminalView: PaneView, SurfaceHealthDelegate {
 
         self.ghosttySurface = surfaceView
         self.lastReportedSurfaceSize = .zero
+        RestoreTrace.log(
+            "AgentStudioTerminalView.displaySurface mounted pane=\(paneId) surface=\(surfaceId?.uuidString ?? "nil")"
+        )
 
         // Make this view layer-backed AFTER the surface is created
         self.wantsLayer = true
@@ -192,7 +201,11 @@ final class AgentStudioTerminalView: PaneView, SurfaceHealthDelegate {
     @objc private func handleSurfaceClose(_ notification: Notification) {
         guard isProcessRunning else { return }
         isProcessRunning = false
-        handleProcessTerminated(exitCode: 0)
+        let processAlive = notification.userInfo?["processAlive"] as? Bool
+        RestoreTrace.log(
+            "AgentStudioTerminalView.handleSurfaceClose pane=\(paneId) surface=\(surfaceId?.uuidString ?? "nil") processAlive=\(String(describing: processAlive))"
+        )
+        handleProcessTerminated(exitCode: nil)
     }
 
     // MARK: - Process Management
@@ -237,6 +250,7 @@ final class AgentStudioTerminalView: PaneView, SurfaceHealthDelegate {
             if let surfaceId = surfaceId {
                 SurfaceManager.shared.setFocus(surfaceId, focused: true)
             }
+            RestoreTrace.log("AgentStudioTerminalView.becomeFirstResponder pane=\(paneId) surface=\(surfaceId?.uuidString ?? "nil")")
             return window.makeFirstResponder(surface)
         }
         return super.becomeFirstResponder()
@@ -246,6 +260,7 @@ final class AgentStudioTerminalView: PaneView, SurfaceHealthDelegate {
         if let surfaceId = surfaceId {
             SurfaceManager.shared.setFocus(surfaceId, focused: false)
         }
+        RestoreTrace.log("AgentStudioTerminalView.resignFirstResponder pane=\(paneId) surface=\(surfaceId?.uuidString ?? "nil")")
         return super.resignFirstResponder()
     }
 

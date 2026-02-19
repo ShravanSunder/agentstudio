@@ -213,15 +213,20 @@ final class ActionExecutor {
             store.removeArrangement(arrangementId, inTab: tabId)
 
         case .switchArrangement(let tabId, let arrangementId):
-            // Capture visible panes BEFORE switching
+            // Capture visible panes and minimized set BEFORE switching.
+            // Minimized panes are detached but still in visiblePaneIds,
+            // so we must track them separately for reattachment.
             let previousVisiblePaneIds: Set<UUID>
+            let previouslyMinimizedPaneIds: Set<UUID>
             if let tab = store.tab(tabId) {
                 previousVisiblePaneIds = tab.activeArrangement.visiblePaneIds
+                previouslyMinimizedPaneIds = tab.minimizedPaneIds
             } else {
                 previousVisiblePaneIds = []
+                previouslyMinimizedPaneIds = []
             }
 
-            // Switch arrangement in store
+            // Switch arrangement in store (clears minimizedPaneIds)
             store.switchArrangement(to: arrangementId, inTab: tabId)
 
             // Get newly visible panes AFTER switching
@@ -235,9 +240,13 @@ final class ActionExecutor {
                 coordinator.detachForViewSwitch(paneId: paneId)
             }
 
-            // Reattach surfaces for panes that are now visible but were hidden
+            // Reattach surfaces for panes that are now visible but were hidden,
+            // PLUS panes that were minimized (detached) and remain in the new arrangement.
+            // Without this, panes present in both arrangements but previously minimized
+            // would render without surface content after the switch clears minimization.
             let revealedPaneIds = newVisiblePaneIds.subtracting(previousVisiblePaneIds)
-            for paneId in revealedPaneIds {
+            let unminimizedPaneIds = previouslyMinimizedPaneIds.intersection(newVisiblePaneIds)
+            for paneId in revealedPaneIds.union(unminimizedPaneIds) {
                 coordinator.reattachForViewSwitch(paneId: paneId)
             }
 

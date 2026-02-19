@@ -37,6 +37,46 @@ struct Pane: Codable, Identifiable, Hashable {
         self.kind = kind
     }
 
+    // MARK: - Legacy Decoding
+
+    /// Custom decoder supporting both the current schema (`kind: PaneKind`) and the
+    /// legacy schema (`drawer: Drawer?`). Workspaces persisted before the PaneKind
+    /// migration have no `kind` key — they store drawer state directly on Pane.
+    /// This decoder reads `kind` first; if absent, falls back to the legacy `drawer`
+    /// field and maps it to `.layout(drawer:)`.
+    init(from decoder: Decoder) throws {
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+        self.id = try container.decode(UUID.self, forKey: .id)
+        self.content = try container.decode(PaneContent.self, forKey: .content)
+        self.metadata = try container.decode(PaneMetadata.self, forKey: .metadata)
+        self.residency = try container.decode(SessionResidency.self, forKey: .residency)
+
+        if let kind = try container.decodeIfPresent(PaneKind.self, forKey: .kind) {
+            // Current schema — kind is present
+            self.kind = kind
+        } else {
+            // Legacy schema — read optional drawer field, default to empty drawer
+            let drawer = try container.decodeIfPresent(Drawer.self, forKey: .legacyDrawer) ?? Drawer()
+            self.kind = .layout(drawer: drawer)
+        }
+    }
+
+    /// Encodes using the current schema only (writes `kind`, never the legacy `drawer` key).
+    func encode(to encoder: Encoder) throws {
+        var container = encoder.container(keyedBy: CodingKeys.self)
+        try container.encode(id, forKey: .id)
+        try container.encode(content, forKey: .content)
+        try container.encode(metadata, forKey: .metadata)
+        try container.encode(residency, forKey: .residency)
+        try container.encode(kind, forKey: .kind)
+    }
+
+    private enum CodingKeys: String, CodingKey {
+        case id, content, metadata, residency, kind
+        /// Legacy key: pre-PaneKind workspaces stored `drawer` directly on Pane.
+        case legacyDrawer = "drawer"
+    }
+
     // MARK: - Convenience Accessors
 
     /// The terminal state, if this pane holds terminal content.

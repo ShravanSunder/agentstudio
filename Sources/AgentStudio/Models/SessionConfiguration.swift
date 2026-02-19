@@ -38,6 +38,10 @@ struct SessionConfiguration: Sendable {
             .flatMap { Double($0) }
             ?? 30.0
 
+        RestoreTrace.log(
+            "SessionConfiguration.detect enabled=\(isEnabled) zmxPath=\(zmxPath ?? "nil") zmxDir=\(zmxDir) healthInterval=\(healthInterval)"
+        )
+
         return SessionConfiguration(
             isEnabled: isEnabled,
             zmxPath: zmxPath,

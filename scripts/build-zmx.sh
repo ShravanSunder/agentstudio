@@ -29,9 +29,23 @@ fi
 # Navigate to zmx directory
 cd "$ZMX_DIR"
 
-# Build zmx in release mode
+# Build zmx in release mode with an explicit macOS deployment target.
+# Without this, Zig may emit binaries that target the latest SDK min version
+# (e.g. macOS 26.x), which then fail to launch on normal developer machines.
+ARCH="$(uname -m)"
+case "$ARCH" in
+    arm64) ZIG_ARCH="aarch64" ;;
+    x86_64) ZIG_ARCH="x86_64" ;;
+    *)
+        echo "Error: unsupported architecture: $ARCH"
+        exit 1
+        ;;
+esac
+ZIG_TARGET="${ZIG_ARCH}-macos.13.0"
+
 echo "Building zmx binary..."
-zig build -Doptimize=ReleaseFast
+echo "Using target: $ZIG_TARGET"
+zig build -Doptimize=ReleaseFast -Dtarget="$ZIG_TARGET"
 
 # Verify binary was produced
 ZMX_BIN="$ZMX_DIR/zig-out/bin/zmx"

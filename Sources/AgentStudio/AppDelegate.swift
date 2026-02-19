@@ -21,12 +21,16 @@ class AppDelegate: NSObject, NSApplicationDelegate {
     private(set) var commandBarController: CommandBarPanelController!
 
     func applicationDidFinishLaunching(_ notification: Notification) {
+        RestoreTrace.log("appDidFinishLaunching: begin")
         // Set GHOSTTY_RESOURCES_DIR before any GhosttyKit initialization.
         // This lets GhosttyKit find xterm-ghostty terminfo in both dev and bundle builds.
         // The value must be a subdirectory (e.g. .../ghostty) whose parent contains
         // terminfo/, because GhosttyKit computes TERMINFO = dirname(this) + "/terminfo".
         if let resourcesDir = SessionConfiguration.resolveGhosttyResourcesDir() {
             setenv("GHOSTTY_RESOURCES_DIR", resourcesDir, 1)  // 1 = overwrite; our resolved path must take priority
+            RestoreTrace.log("GHOSTTY_RESOURCES_DIR=\(resourcesDir)")
+        } else {
+            RestoreTrace.log("GHOSTTY_RESOURCES_DIR unresolved")
         }
 
         // Check for worktrunk dependency
@@ -38,6 +42,9 @@ class AppDelegate: NSObject, NSApplicationDelegate {
         // Create new services
         store = WorkspaceStore()
         store.restore()
+        RestoreTrace.log(
+            "store.restore complete tabs=\(store.tabs.count) panes=\(store.panes.count) activeTab=\(store.activeTabId?.uuidString ?? "nil")"
+        )
 
         runtime = SessionRuntime(store: store)
 
@@ -51,7 +58,9 @@ class AppDelegate: NSObject, NSApplicationDelegate {
         commandBarController = CommandBarPanelController(store: store, dispatcher: .shared)
 
         // Restore terminal views for persisted panes
+        RestoreTrace.log("restoreAllViews: start")
         coordinator.restoreAllViews()
+        RestoreTrace.log("restoreAllViews: end registeredViews=\(viewRegistry.registeredPaneIds.count)")
 
         // Create main window
         mainWindowController = MainWindowController(
@@ -61,12 +70,23 @@ class AppDelegate: NSObject, NSApplicationDelegate {
             viewRegistry: viewRegistry
         )
         mainWindowController?.showWindow(nil)
+        if let window = mainWindowController?.window {
+            RestoreTrace.log(
+                "mainWindow showWindow frame=\(NSStringFromRect(window.frame)) content=\(NSStringFromRect(window.contentLayoutRect))"
+            )
+        } else {
+            RestoreTrace.log("mainWindow showWindow: window=nil")
+        }
 
         // Force maximized after showWindow — macOS state restoration may override
         // the frame set during init.
         if let window = mainWindowController?.window, let screen = window.screen ?? NSScreen.main {
             window.setFrame(screen.visibleFrame, display: true)
+            RestoreTrace.log(
+                "mainWindow forceMaximize screenVisible=\(NSStringFromRect(screen.visibleFrame)) finalFrame=\(NSStringFromRect(window.frame))"
+            )
         }
+        RestoreTrace.log("appDidFinishLaunching: end")
     }
 
     // MARK: - Dependency Check
