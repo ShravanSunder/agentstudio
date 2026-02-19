@@ -89,7 +89,20 @@ The diff viewer and code review system (powered by Pierre) is the first panel. I
 
 **Mirror state is derived, never mutated directly**: Zustand stores only update through the bridge receiver (state stream) or content loader (data stream). Components never call `setState` on mirror stores directly.
 
-### 3.3 XPC Latency Characteristics
+### 3.3 Authority Matrix (Hard Boundary)
+
+To prevent "local-first everywhere" complexity from leaking into this design, ownership is explicit:
+
+| Concern | Owner | Persistence | Latency Target | Notes |
+|---|---|---|---|---|
+| Draft text, cursor, hover, selection, scroll, expanded tree nodes | React local (tier 3) | In-memory only | < 16ms | Never round-trip through Swift |
+| Optimistic overlay (`pending` rows, temporary IDs) | React local (tier 3) | In-memory only | < 16ms | Overlay is reconciled or expired; not durable |
+| Diff source, manifest metadata, review threads, command outcomes, agent task lifecycle | Swift domain (tier 1) | Durable/session durable | 50-300ms | Authoritative truth |
+| File contents/buffers | Data stream (`agentstudio://`) | LRU in React mirror | On-demand | Not pushed via state stream |
+
+**Non-goal**: This architecture does NOT implement offline-first durable operation logs, CRDT merge, or multi-writer conflict resolution. Swift remains the single writer for domain state.
+
+### 3.4 XPC Latency Characteristics
 
 `callJavaScript` uses XPC (Mach message passing, same machine):
 
@@ -263,6 +276,33 @@ For the rare case where JS needs a **direct response** (one-shot queries, valida
 { "jsonrpc": "2.0", "id": "req_001", "result": { "status": "ok" } }
 ```
 
+#### 5.1.1 Optimistic Mutation Contract (Comments, Resolve, Viewed)
+
+Optimistic UX is required for interactive actions (for example: adding a comment). The browser must never wait for Swift round-trip before rendering visible intent.
+
+**Required fields on every optimistic command**:
+
+| Field | Source | Purpose |
+|---|---|---|
+| `__commandId` | React | Idempotency and end-to-end correlation |
+| `tempId` | React | Reconcile temporary UI entity to canonical entity |
+| `clientTimestamp` | React | TTL/expiry and debugging |
+| `epoch` | React mirror state | Reject stale commands from previous loads |
+
+**Lifecycle**:
+
+```text
+idle -> pending(local overlay) -> committed(canonical Swift push)
+                               -> failed(rejected/timeout; retry allowed)
+                               -> expired(TTL exceeded; prompt user action)
+```
+
+**Rules**:
+- Swift acks every command with `{ commandId, status, reason?, canonicalId? }`.
+- React reconciles by `commandId` first, then maps `tempId -> canonicalId` when present.
+- Pending overlays have TTL (default 10s). On expiry, mark `failed` and surface retry.
+- Overlay is in-memory only. It is never persisted as domain truth.
+
 ### 5.2 Method Namespaces
 
 | Namespace | Examples | Description |
@@ -383,6 +423,17 @@ try await page.callJavaScript(
 **In-memory buffer**: Swift maintains a circular buffer of the last 10,000 agent events per pane. Oldest events are evicted on overflow (FIFO). If `fromSeq` falls outside the buffer range, the resync response includes `{ truncated: true }` and React resets to the earliest available event.
 
 **Event kinds**: `taskStarted`, `taskProgress`, `fileCompleted`, `taskCompleted`, `taskFailed`, `agentMessage`.
+
+### 5.7 Protocol Invariants (Must Hold in Tests)
+
+| Invariant | Enforcement |
+|---|---|
+| Monotonic `__revision` per store | Drop pushes with `revision <= lastSeen` |
+| Monotonic `__epoch` for each diff load | Drop all stale epoch pushes and responses |
+| Exactly-once command semantics at app level | Deduplicate by `__commandId` (sliding window) |
+| No large file buffers on state stream | State stream is metadata-only; file buffers via data stream |
+| Every cross-boundary payload is typed | Validate against shared contract fixtures in Swift + TS tests |
+| Every async load is cancellable | Cancel on epoch change, viewport exit, pane teardown |
 
 ---
 
@@ -929,7 +980,7 @@ class SharedBridgeState {
 
 ### 8.2 Diff Source and Manifest
 
-The diff viewer supports three data sources, all producing the same review UI:
+The diff viewer supports four data sources, all producing the same review UI:
 
 ```swift
 enum DiffSource: Codable {
@@ -937,6 +988,13 @@ enum DiffSource: Codable {
     case agentSnapshot(taskId: UUID, timestamp: Date)  // agent produced this
     case commit(sha: String)                            // single commit review
     case branchDiff(head: String, base: String)         // branch comparison
+    case workspace(rootPath: String, baseline: WorkspaceBaseline) // live workspace review
+}
+
+enum WorkspaceBaseline: Codable {
+    case workingTreeVsHEAD
+    case workingTreeVsBranch(name: String)
+    case indexVsHEAD
 }
 ```
 
@@ -1604,6 +1662,25 @@ File contents are cached in React's tier 2 mirror state with an LRU policy (~20 
 - **On cache full**: Evict least-recently-used file content.
 - **On new diff load**: Clear entire cache (epoch change).
 
+### 10.5 Workspace Refresh Strategy (Event-First, Poll-Safe)
+
+For live workspace sources, refresh is event-driven first with periodic safety revalidation:
+
+| Trigger | Cadence | Action |
+|---|---|---|
+| File-system/git change event | Debounced 250-500ms | Incremental recompute for changed paths only |
+| Manual refresh command | On demand | Force manifest recompute for current source |
+| Safety revalidation timer | Every 10-15s | Verify event stream health and reconcile drift |
+
+**Algorithm**:
+1. Collect changed paths during debounce window.
+2. Recompute metadata only for affected files.
+3. Patch manifest in-place (insert/update/remove file entries).
+4. Bump per-store `revision` (same `epoch` for incremental update).
+5. If base source changes (new branch/commit/snapshot/workspace target), bump `epoch`, clear content cache, cancel in-flight loads, push fresh manifest.
+
+**Why**: This avoids full-manifest rebuild every few seconds, keeps bridge traffic small, and preserves scroll/context in large diffs.
+
 ---
 
 ## 11. Security Model
@@ -1786,23 +1863,22 @@ class AgentStudioNavigationDecider: WebPage.NavigationDeciding {
 
 The diff viewer uses two Pierre packages:
 
-| Package | Purpose | Key Exports |
+| Package | Purpose | Verified Exports (contracted) |
 |---|---|---|
-| **`@pierre/diffs`** | Diff rendering with syntax highlighting | `MultiFileDiff`, `VirtualizedFileDiff`, `Virtualizer`, `WorkerPoolManager`, `FileStream` |
-| **`@pierre/file-tree`** | File tree sidebar with search | `FileTree` (React), `generateLazyDataLoader`, `onSelection` callback |
+| **`@pierre/diffs`** | Diff rendering with syntax highlighting | `@pierre/diffs/react` for React components (`MultiFileDiff`, `PatchDiff`, `FileDiff`), `@pierre/diffs/worker` for worker APIs (`WorkerPoolManager`) |
+| **`@pierre/file-tree`** | File tree sidebar with search | `@pierre/file-tree/react` React entry point and core package APIs from `@pierre/file-tree` |
 
-> **Import convention**: Pierre packages use `/react` sub-path for React components (e.g., `@pierre/diffs/react` for `MultiFileDiff`) and the bare package path for core utilities (e.g., `@pierre/diffs` for `Virtualizer`, `WorkerPoolManager`). Verify exact export paths against the installed package version — these are based on Pierre's current source structure.
+> **Verification rule**: Use only symbols exported by the installed package version. Do not rely on internal symbols or undocumented paths. If a symbol is not in package exports, treat it as unavailable.
 
 ### 12.2 Virtualized Diff Rendering
 
-Pierre has **built-in virtualization** via `VirtualizedFileDiff`. No external virtualizer (React Window/Virtuoso) needed. The `Virtualizer` manages the scroll container; each file gets a `VirtualizedFileDiff` that renders only visible lines plus buffers.
+Pierre provides performant diff rendering with worker-backed highlighting. For large manifests, keep viewport-driven content loading in our bridge regardless of Pierre component shape.
 
 ```typescript
 import { MultiFileDiff } from '@pierre/diffs/react';
-import { Virtualizer, VirtualizedFileDiff, WorkerPoolManager } from '@pierre/diffs';
+import { WorkerPoolManager } from '@pierre/diffs/worker';
 
-// Create shared instances for the diff panel
-const virtualizer = new Virtualizer(scrollContainer);
+// Shared worker pool for syntax highlighting
 const workerManager = new WorkerPoolManager();
 
 function DiffFileView({ fileId }: { fileId: string }) {
@@ -1837,34 +1913,27 @@ function DiffFileView({ fileId }: { fileId: string }) {
 ```
 
 **Key behaviors**:
-- `VirtualizedFileDiff` computes approximate heights from metadata (additions, deletions) before content loads
-- `setVisibility(true)` triggers the content loader to fetch via data stream
+- Diff components should render from manifest metadata first, then hydrate with content from the data stream
+- Visibility/viewport signals trigger content loading via our priority queue
 - `WorkerPoolManager` offloads syntax highlighting to web workers — critical for 500-file diffs
 - `cacheKey` on `FileContents` enables worker-side AST caching; scrolling back to a file is instant
 
 ### 12.3 File Tree (Pierre)
 
-Pierre's `@pierre/file-tree` provides a hierarchical file tree with search, expand/collapse, and lazy data loading for 500+ files:
+Pierre's file tree APIs vary by version. The currently documented integration model is plugin-oriented (`createFileTree` + React plugin). Use that as the default shape and keep the adapter isolated:
 
 ```typescript
-import { FileTree } from '@pierre/file-tree/react';
-import { generateLazyDataLoader } from '@pierre/file-tree';
+import { createFileTree } from '@pierre/file-tree';
+import { fileTreeReactPlugin, FileTreeComponent } from '@pierre/file-tree/react';
 
 function DiffSidebar() {
     const manifest = useDiffManifest();
-    const viewedFiles = useViewedFiles();
-
-    const options = useMemo(() => ({
-        files: manifest.files.map(f => f.path),
-        dataLoader: generateLazyDataLoader(),  // on-demand node creation for 500+ files
-        onSelection: ([selected]) => {
-            if (!selected.isFolder) {
-                scrollToFile(selected.path);    // navigate diff view to selected file
-            }
-        },
+    const tree = useMemo(() => createFileTree({
+        plugins: [fileTreeReactPlugin()],
+        files: manifest.files.map((f) => f.path),
     }), [manifest]);
 
-    return <FileTree options={options} />;
+    return <FileTreeComponent tree={tree} />;
 }
 ```
 
@@ -1876,9 +1945,9 @@ function DiffSidebar() {
 
 ```
 1. Swift pushes DiffManifest via state stream (file paths, sizes, hunk summaries)
-2. React passes manifest to Pierre FileTree + creates VirtualizedFileDiff per file
-3. Pierre Virtualizer determines which files are in viewport
-4. VirtualizedFileDiff.setVisibility(true) fires → content loader triggers
+2. React passes manifest to Pierre FileTree + creates diff components per file
+3. Viewport visibility signals determine which files are active
+4. Active file signal fires → content loader triggers
 5. Content loader fetches via agentstudio://resource/file/{id} (data stream)
 6. Content arrives → Pierre renders diff + WorkerPoolManager highlights
 7. User scrolls → Pierre manages visibility transitions:
@@ -1974,6 +2043,35 @@ await router.register(Methods.AgentRequestRewrite.self) { params in
 
 Each phase is independently testable and shippable.
 
+### 13.0 Cross-Session Continuity Artifacts
+
+Agent memory loss is expected; continuity is preserved through repository artifacts:
+
+| Artifact | Location | Required Content |
+|---|---|---|
+| Architecture Decision Records (ADRs) | `docs/architecture/adr/` | Decision, alternatives, tradeoffs, reversal conditions |
+| Bridge contract fixtures | `Tests/BridgeContractFixtures/` and `WebApp/test/fixtures/bridge/` | Valid/invalid/stale/duplicate/reordered payload examples |
+| Stage handoff notes | `docs/architecture/swift_react_bridge_design.md` (phase checklist) | What is done, what is pending, which tests must pass next |
+| Failure mode matrix | `docs/architecture/swift_react_bridge_failures.md` | Timeout, duplication, reorder, stale epoch, cancellation behavior |
+
+No phase is considered complete unless these artifacts are updated.
+
+### 13.1 Test Pyramid and Contract Parity
+
+Testing prioritizes correctness under protocol failure modes, not snapshot volume:
+
+| Layer | Focus | Required |
+|---|---|---|
+| Unit (majority) | Reducers, reconciler, envelope parsing, dedupe, epoch/revision rules | Fast and exhaustive |
+| Integration | Swift bridge <-> page world transport, shared fixtures, cancellation, ordering | Deterministic harness |
+| E2E (small set) | User-critical flows: instant comment UX, large diff loading, recovery/resync | Budgeted performance assertions |
+
+**Contract parity rule**:
+- Every bridge payload shape must have fixture-driven tests in BOTH Swift and TypeScript.
+- Additions to contract types are blocked until both suites are updated.
+- Invalid fixtures must fail decoding/validation deterministically in both runtimes.
+- Test failures must print `commandId`, `epoch`, `revision`, and method/store names to make CI logs "see-through" without a custom inspector UI.
+
 ### Phase 1: Transport Foundation
 
 **Goal**: `callJavaScript` and `postMessage` work bidirectionally.
@@ -2040,26 +2138,28 @@ Each phase is independently testable and shippable.
 
 **Deliverables**:
 - `DiffManifest` and `FileManifest` domain models (Swift, §8)
-- `DiffSource` enum: `.agentSnapshot`, `.commit`, `.branchDiff`
+- `DiffSource` enum: `.agentSnapshot`, `.commit`, `.branchDiff`, `.workspace`
 - State stream: Swift pushes `DiffManifest` (file metadata only) into diff Zustand store
 - Data stream: `BinarySchemeHandler` extended for `agentstudio://resource/file/{id}` — React pulls file contents on demand
 - Priority queue on React side: viewport files (high), hovered files (medium), neighbor files (low), cancel when leaving viewport
 - LRU content cache (~20 files) in React, cleared on epoch change
-- Pierre `VirtualizedFileDiff` renders diffs with built-in `Virtualizer`
-- Pierre `FileTree` with `generateLazyDataLoader` for file navigation and search
+- Pierre diff renderer integration (`@pierre/diffs/react`) with viewport-driven content hydration
+- Pierre file tree adapter (`@pierre/file-tree`) for navigation and search
 - Pierre `WorkerPoolManager` offloads syntax highlighting to web workers
 - Path validation and security hardening for resource URLs
+- Workspace refresh pipeline: event-driven incremental manifest updates + 10-15s safety revalidation
 
 **Tests**:
 - Unit: `DiffManifest` / `FileManifest` Codable round-trip
 - Unit: `BinarySchemeHandler` validates allowed resource types and rejects forbidden paths
 - Unit: Priority queue ordering logic (viewport > hover > neighbor)
 - Unit: LRU cache evicts oldest entries beyond capacity, clears on epoch bump
-- Unit: Pierre `VirtualizedFileDiff` renders with mock file contents
+- Unit: Pierre diff component renders with mock file contents
 - Integration: Swift pushes `DiffManifest` → FileTree renders file list within 100ms
 - Integration: React `fetch('agentstudio://resource/file/xyz')` returns correct file content
 - Integration: Scroll file into viewport → content pull fires → diff renders within 200ms
 - Integration: Epoch guard: start new diff during active load → stale results discarded
+- Integration: Workspace file change burst (N updates in debounce window) triggers incremental manifest patch, not full reload
 - Performance: Binary channel latency for 100KB, 500KB, 1MB files on target hardware
 - E2E: Open diff pane → FileTree renders → select file → diff renders with syntax highlighting
 
@@ -2123,6 +2223,8 @@ These invariants are cross-cutting rules that apply to ALL phases. Every impleme
 | **G8** | Security is by configuration, not convention | Content worlds, navigation policy, nonce validation — all enforced in code, not docs |
 | **G9** | Unsupported behavior is explicit | Batch rejection returns -32600; unknown methods return -32601; unknown stores log and drop |
 | **G10** | Phases ship independently | Each phase has its own tests and exit criteria; no phase depends on a later phase's deliverables |
+| **G11** | Contract parity is enforced across Swift and TS | Every contract change updates shared fixtures + both test suites |
+| **G12** | Optimistic overlay never becomes authoritative | Pending UI entities expire or reconcile; only Swift-pushed state is durable truth |
 
 ### Performance Measurement Harness
 
@@ -2177,8 +2279,9 @@ Each phase requires explicit acceptance criteria before proceeding to the next. 
   - 100KB file: binary channel < 5ms
   - 500KB file: binary channel < 15ms
   - 1MB file: binary channel < 30ms
-- [ ] Pierre `VirtualizedFileDiff` renders with syntax highlighting (WorkerPoolManager active)
+- [ ] Pierre diff renderer path renders with syntax highlighting (WorkerPoolManager active)
 - [ ] Pierre `FileTree` search/filter works on 500+ file manifest
+- [ ] Workspace refresh: bursty file changes produce incremental manifest patch (same epoch), not full reset
 
 #### Phase 5 Exit Criteria
 - [ ] Comment add: optimistic local state appears immediately, confirmed by commandAck push
@@ -2248,9 +2351,9 @@ WebApp/                                    # React app (Vite + TypeScript)
 │   │   ├── use-review-threads.ts        # Threads for a file, filtered by state
 │   │   └── use-agent-status.ts          # Current agent task progress
 │   ├── components/
-│   │   ├── DiffPanel.tsx                 # Layout: FileTree sidebar + VirtualizedFileDiff main
-│   │   ├── FileTreeSidebar.tsx           # Pierre FileTree with lazy data loader
-│   │   ├── FileDiffView.tsx              # Pierre VirtualizedFileDiff wrapper per file
+│   │   ├── DiffPanel.tsx                 # Layout: FileTree sidebar + diff renderer main
+│   │   ├── FileTreeSidebar.tsx           # Pierre FileTree adapter (plugin/component API)
+│   │   ├── FileDiffView.tsx              # Pierre diff component wrapper per file
 │   │   ├── ReviewThreadOverlay.tsx       # Comment thread UI (add, resolve, delete)
 │   │   ├── DiffHeader.tsx                # Status bar: source, file count, agent progress
 │   │   └── SendToAgentButton.tsx         # Creates AgentTask with review context
@@ -2259,6 +2362,18 @@ WebApp/                                    # React app (Vite + TypeScript)
 │   └── App.tsx
 ├── vite.config.ts
 └── package.json
+
+Contracts/
+├── bridge/
+│   ├── command.schema.json               # JSON-RPC command envelope extensions
+│   ├── push.schema.json                  # state/agent push envelope schema
+│   └── ack.schema.json                   # commandAck schema
+
+Tests/
+├── BridgeContractFixtures/               # Shared fixture corpus consumed by Swift + TS tests
+│   ├── valid/
+│   ├── invalid/
+│   └── edge/
 ```
 
 ---
@@ -2289,6 +2404,8 @@ The existing `ViewRegistry`, `Layout`, drag/drop, and split system work unchange
 - ~~**Large diff delivery**~~ → **Three-stream architecture**: metadata via state stream, file contents via data stream (pull-based), agent events via batched agent stream. See §1, §4.4, §10.
 - ~~**Comment anchoring across line shifts**~~ → **Content hash + line number** with `isOutdated` flag. See §8, §12.5.
 - ~~**Navigation policy edge cases**~~ → **Explicit blocklist** for `javascript:`, `data:`, `blob:`, `vbscript:`. See §11.4.
+- ~~**"Swift is too slow for interaction UX" concern**~~ → **Authority matrix**: interaction state is local in React; Swift owns durable domain truth. See §3.3.
+- ~~**Periodic workspace updates vs efficiency**~~ → **Event-first refresh with safety poll and incremental invalidation**. See §10.5.
 
 ### Requires Verification Spike (before Phase 1)
 
@@ -2302,10 +2419,14 @@ The existing `ViewRegistry`, `Layout`, drag/drop, and split system work unchange
    - `URLSchemeHandler` protocol conformance with `AsyncSequence` return
 
    If any APIs differ from this spec, update the design before Phase 1 implementation.
+2. **Workspace change feed implementation** — Verify the concrete watcher strategy used by Agent Studio:
+   - FSEvents or DispatchSource-based file watching for workspace roots
+   - Git-aware filtering (ignore build/cache artifacts and dot directories)
+   - CPU profile under bursty file writes (save-all, branch switch)
 
 ### Still Open
 
-2. **React app bundling** — Vite build output bundled as app resources? Or served from disk via the scheme handler? Need to decide the build pipeline and how `BinarySchemeHandler` locates the built assets.
-3. **WebPage lifecycle** — How does the WebPage behave when the pane is hidden (backgrounded via view switch)? Does it keep running JS? Do observation loops need to pause to avoid wasted work?
-4. **Pierre license and bundle size** — Verify `@pierre/diffs` license compatibility and evaluate bundle size impact.
-5. **Terminal injection mechanism** — What is the exact API for injecting text into a Ghostty terminal session? Need to trace through `SurfaceManager` → Ghostty C API.
+3. **React app bundling** — Vite build output bundled as app resources? Or served from disk via the scheme handler? Need to decide the build pipeline and how `BinarySchemeHandler` locates the built assets.
+4. **WebPage lifecycle** — How does the WebPage behave when the pane is hidden (backgrounded via view switch)? Does it keep running JS? Do observation loops need to pause to avoid wasted work?
+5. **Pierre license and bundle size** — Verify `@pierre/diffs` license compatibility and evaluate bundle size impact.
+6. **Terminal injection mechanism** — What is the exact API for injecting text into a Ghostty terminal session? Need to trace through `SurfaceManager` → Ghostty C API.
