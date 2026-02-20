@@ -65,4 +65,32 @@ final class BridgeBootstrapTests: XCTestCase {
         XCTAssertNotEqual(script1, script2,
             "Different nonces should produce different bootstrap scripts")
     }
+
+    // MARK: - Handshake Replay (P1)
+
+    func test_script_contains_handshake_replay_listener() {
+        let script = BridgeBootstrap.generateScript(bridgeNonce: "test-nonce", pushNonce: "push-nonce")
+        XCTAssertTrue(script.contains("__bridge_handshake_request"),
+            "Bootstrap must listen for __bridge_handshake_request so late page-world listeners can recover the pushNonce")
+    }
+
+    // MARK: - Push Envelope Metadata (P2)
+
+    func test_push_relay_includes_revision_and_epoch_at_detail_level() {
+        let script = BridgeBootstrap.generateScript(bridgeNonce: "test-nonce", pushNonce: "push-nonce")
+        // merge and replace functions should accept revision and epoch params
+        // and include __revision/__epoch at the event detail level
+        XCTAssertTrue(script.contains("__revision: revision"),
+            "Push relay must expose __revision at event detail level for stale guards")
+        XCTAssertTrue(script.contains("__epoch: epoch"),
+            "Push relay must expose __epoch at event detail level for epoch checks")
+    }
+
+    func test_applyEnvelope_extracts_metadata_from_envelope() {
+        let script = BridgeBootstrap.generateScript(bridgeNonce: "test-nonce", pushNonce: "push-nonce")
+        XCTAssertTrue(script.contains("envelope.__revision"),
+            "applyEnvelope must extract __revision from envelope")
+        XCTAssertTrue(script.contains("envelope.__epoch"),
+            "applyEnvelope must extract __epoch from envelope")
+    }
 }

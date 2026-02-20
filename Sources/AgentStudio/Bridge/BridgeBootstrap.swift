@@ -31,23 +31,29 @@ enum BridgeBootstrap {
             // Install bridge internal API in bridge world only.
             // Page world cannot access this (content world isolation).
             window.__bridgeInternal = {
-                // Push state to page world via CustomEvent
-                merge: function(store, data) {
+                // Push state to page world via CustomEvent.
+                // Envelope metadata (__revision, __epoch) is lifted to detail level
+                // so receiver-side stale/epoch guards work without nested unwrapping.
+                merge: function(store, data, revision, epoch) {
                     document.dispatchEvent(new CustomEvent('__bridge_push', {
-                        detail: { op: 'merge', store: store, data: data, nonce: PUSH_NONCE }
+                        detail: { op: 'merge', store: store, data: data, __revision: revision, __epoch: epoch, nonce: PUSH_NONCE }
                     }));
                 },
-                replace: function(store, data) {
+                replace: function(store, data, revision, epoch) {
                     document.dispatchEvent(new CustomEvent('__bridge_push', {
-                        detail: { op: 'replace', store: store, data: data, nonce: PUSH_NONCE }
+                        detail: { op: 'replace', store: store, data: data, __revision: revision, __epoch: epoch, nonce: PUSH_NONCE }
                     }));
                 },
                 applyEnvelope: function(envelope) {
                     const op = envelope.op || 'replace';
+                    const revision = envelope.__revision;
+                    const epoch = envelope.__epoch;
+                    const store = envelope.store;
+                    // Forward envelope as data with metadata lifted to detail level.
                     if (op === 'merge') {
-                        this.merge(envelope.store, envelope);
+                        this.merge(store, envelope, revision, epoch);
                     } else {
-                        this.replace(envelope.store, envelope);
+                        this.replace(store, envelope, revision, epoch);
                     }
                 },
                 appendAgentEvents: function(events) {
@@ -88,6 +94,16 @@ enum BridgeBootstrap {
             document.dispatchEvent(new CustomEvent('__bridge_handshake', {
                 detail: { pushNonce: PUSH_NONCE }
             }));
+
+            // Replay handshake for late page-world listeners (P1 fix).
+            // The initial __bridge_handshake fires at document start, but the React
+            // bundle typically loads later and misses it. Page world can dispatch
+            // __bridge_handshake_request to receive a replayed __bridge_handshake.
+            document.addEventListener('__bridge_handshake_request', function() {
+                document.dispatchEvent(new CustomEvent('__bridge_handshake', {
+                    detail: { pushNonce: PUSH_NONCE }
+                }));
+            });
 
             // Set nonce attribute on documentElement for page world command sender
             document.documentElement.setAttribute('data-bridge-nonce', BRIDGE_NONCE);
