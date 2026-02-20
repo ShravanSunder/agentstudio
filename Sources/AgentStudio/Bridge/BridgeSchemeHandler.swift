@@ -83,9 +83,10 @@ struct BridgeSchemeHandler: URLSchemeHandler {
 
         let host = url.host() ?? ""
         let path = url.path()
+        let rawPath = url.absoluteString
 
-        // Reject path traversal
-        if path.contains("..") {
+        // Reject path traversal — check both decoded and raw forms
+        if path.contains("..") || rawPath.contains("%2e") || rawPath.contains("%2E") {
             return .invalid
         }
 

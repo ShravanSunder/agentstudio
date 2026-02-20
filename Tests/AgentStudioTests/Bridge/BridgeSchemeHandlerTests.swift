@@ -122,4 +122,10 @@ final class BridgeSchemeHandlerTests: XCTestCase {
         let result = BridgeSchemeHandler.classifyPath("agentstudio://app/assets/../secret.key")
         XCTAssertEqual(result, .invalid)
     }
+
+    func test_rejects_percent_encoded_path_traversal() {
+        // %2e%2e is URL-encoded ".."
+        let result = BridgeSchemeHandler.classifyPath("agentstudio://app/%2e%2e/etc/passwd")
+        XCTAssertEqual(result, .invalid)
+    }
 }
