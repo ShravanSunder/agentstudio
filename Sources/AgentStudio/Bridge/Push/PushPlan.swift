@@ -63,7 +63,7 @@ final class PushPlan<State: Observable & AnyObject> {
     }
 
     func stop() {
-        tasks.forEach { $0.cancel() }
+        for task in tasks { task.cancel() }
         tasks.removeAll()
     }
 }

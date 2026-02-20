@@ -346,13 +346,15 @@ try await page.callJavaScript(
 
 The bridge world's `__bridgeInternal.merge/replace` dispatches a `CustomEvent('__bridge_push', ...)` which the page world (React) listens for (see §7.2 and §11.3).
 
-**Push envelope metadata**: Each push includes version, correlation ID, and ordering fields:
-- `__v: 1` — Push envelope version (bump on shape changes)
-- `__pushId: "<uuid>"` — Correlation ID for tracing a push from Swift observation through JS merge to React rerender
+**Push envelope metadata**: Each push includes ordering fields and a security nonce:
 - `__revision: <int>` — Monotonic counter per store. React drops pushes with `revision <= lastSeen`. Prevents out-of-order delivery.
 - `__epoch: <int>` — Load generation counter. Incremented when a new diff source is loaded. React discards pushes from stale epochs.
+- `nonce: "<bootstrap-nonce>"` — Push nonce from bootstrap handshake. Page world validates this to reject forged push events.
+- `op: 'merge'|'replace'` — Operation type. Determines whether data is deep-merged into or replaces the store.
 
-These are passed as additional arguments to `__bridgeInternal.merge/replace` and forwarded in the `CustomEvent` detail. The receiver uses `__revision` and `__epoch` for ordering/staleness; `__pushId` and `__v` are for debugging only.
+These are passed as arguments to `__bridgeInternal.merge/replace(store, data, revision, epoch)` and forwarded in the `CustomEvent('__bridge_push', ...)` detail. The receiver uses `__revision` and `__epoch` for ordering/staleness; `nonce` is for security validation.
+
+> **Phase 4 additions**: Correlation ID (`__pushId`) and envelope version (`__v`) will be added when the full `callJavaScript` transport replaces the current Phase 2 stub.
 
 ### 5.5 JSON-RPC Batch Requests
 
@@ -398,21 +400,18 @@ try await page.callJavaScript(
 )
 ```
 
-**Envelope format**:
+**Envelope format** (as dispatched by `__bridgeInternal.appendAgentEvents`):
 ```json
 {
-    "__v": 1,
-    "__pushId": "<uuid>",
-    "__pushNonce": "<bootstrap-nonce>",
-    "__epoch": 3,
     "events": [
         { "seq": 42, "kind": "fileCompleted", "taskId": "...", "payload": { "fileId": "abc" }, "timestamp": "..." },
         { "seq": 43, "kind": "taskProgress", "taskId": "...", "payload": { "completedFiles": 5, "currentFile": "src/foo.ts" }, "timestamp": "..." }
-    ]
+    ],
+    "nonce": "<bootstrap-nonce>"
 }
 ```
 
-**Security**: Agent event envelopes include `__pushNonce` and are validated identically to state pushes (see §11.3). The bridge world's `__bridgeInternal.appendAgentEvents` validates the nonce before dispatching the `__bridge_agent` CustomEvent to the page world. This prevents page-world scripts from forging agent events.
+**Security**: Agent event envelopes include `nonce` (the push nonce from bootstrap) and are validated identically to state pushes (see §11.3). The bridge world's `__bridgeInternal.appendAgentEvents` dispatches the `__bridge_agent` CustomEvent with the nonce in the detail. Page world validates `nonce` before processing. This prevents page-world scripts from forging agent events.
 
 **Ordering and delivery**:
 - `seq` is a monotonic per-pane counter (atomically incremented on `@MainActor`). React tracks `lastSeq` and detects gaps.
@@ -1187,9 +1186,9 @@ const lastEpoch: Record<string, number> = {};
 // Listen for state pushes relayed from bridge world via CustomEvent
 document.addEventListener('__bridge_push', ((e: CustomEvent) => {
     // Reject forged push events from page-world scripts
-    if (e.detail?.__pushNonce !== _pushNonce) return;
+    if (e.detail?.nonce !== _pushNonce) return;
 
-    const { type, store: storeName, data, __revision, __epoch } = e.detail;
+    const { op, store: storeName, data, __revision, __epoch } = e.detail;
     const store = stores[storeName];
     if (!store) {
         console.warn(`[bridge] Unknown store: ${storeName}`);
@@ -1214,16 +1213,16 @@ document.addEventListener('__bridge_push', ((e: CustomEvent) => {
         lastRevision[storeName] = __revision;
     }
 
-    if (type === 'merge') {
+    if (op === 'merge') {
         store.setState((prev) => deepMerge(prev, data));
-    } else if (type === 'replace') {
+    } else if (op === 'replace') {
         store.setState(() => data);
     }
 }) as EventListener);
 
 // Listen for direct JSON-RPC responses (rare path)
 document.addEventListener('__bridge_response', ((e: CustomEvent) => {
-    if (e.detail?.__pushNonce !== _pushNonce) return;  // Same nonce validation
+    if (e.detail?.nonce !== _pushNonce) return;  // Same nonce validation
     rpcClient.handleResponse(e.detail);
 }) as EventListener);
 ```
@@ -2264,20 +2263,24 @@ document.dispatchEvent(new CustomEvent('__bridge_handshake', {
 }));
 
 window.__bridgeInternal = {
-    merge(store, data) {
+    merge(store, data, revision, epoch) {
         document.dispatchEvent(new CustomEvent('__bridge_push', {
-            detail: { type: 'merge', store, data, __pushNonce: pushNonce }
+            detail: { op: 'merge', store, data, __revision: revision, __epoch: epoch, nonce: pushNonce }
         }));
     },
-    replace(store, data) {
+    replace(store, data, revision, epoch) {
         document.dispatchEvent(new CustomEvent('__bridge_push', {
-            detail: { type: 'replace', store, data, __pushNonce: pushNonce }
+            detail: { op: 'replace', store, data, __revision: revision, __epoch: epoch, nonce: pushNonce }
         }));
     },
-    response(payload) {
-        // Relay JSON-RPC response (success or error) to page world
+    appendAgentEvents(events) {
+        document.dispatchEvent(new CustomEvent('__bridge_agent', {
+            detail: { events, nonce: pushNonce }
+        }));
+    },
+    response(id, result, error) {
         document.dispatchEvent(new CustomEvent('__bridge_response', {
-            detail: { ...payload, __pushNonce: pushNonce }
+            detail: { id, result, error, nonce: pushNonce }
         }));
     },
 };
@@ -2300,13 +2303,13 @@ if (_pushNonce === null) {
 
 document.addEventListener('__bridge_push', ((e: CustomEvent) => {
     // Reject forged push events from page-world scripts
-    if (e.detail?.__pushNonce !== _pushNonce) return;
+    if (e.detail?.nonce !== _pushNonce) return;
 
-    const { type, store, data } = e.detail;
+    const { op, store, data } = e.detail;
     const zustandStore = stores[store];
     if (!zustandStore) return;
 
-    if (type === 'merge') {
+    if (op === 'merge') {
         zustandStore.setState((prev) => deepMerge(prev, data));
     } else if (type === 'replace') {
         zustandStore.setState(() => data);

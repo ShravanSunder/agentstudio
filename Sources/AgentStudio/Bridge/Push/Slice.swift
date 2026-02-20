@@ -59,58 +59,33 @@ struct Slice<State: Observable & AnyObject, Snapshot: Encodable & Equatable & Se
                 let encoder = JSONEncoder()
 
                 let stream = Observations { capture(state) }
+                let source: any AsyncSequence<Snapshot, Never> =
+                    level == .hot ? stream : stream.debounce(for: level.debounce)
 
-                if level == .hot {
-                    for await snapshot in stream {
-                        guard snapshot != prev else { continue }
-                        prev = snapshot
-                        let revision = revisions.next(for: store)
-                        let epoch = epochProvider()
-                        let data: Data
-                        do {
-                            data = try encoder.encode(snapshot)
-                        } catch {
-                            logger.error("[PushEngine] encode failed slice=\(name) store=\(store.rawValue): \(error)")
-                            continue
-                        }
-                        await transport.pushJSON(
-                            store: store, op: op, level: level,
-                            revision: revision, epoch: epoch, json: data
-                        )
-                    }
-                } else {
-                    for await snapshot in stream.debounce(for: level.debounce) {
-                        guard snapshot != prev else { continue }
-                        prev = snapshot
-                        let revision = revisions.next(for: store)
-                        let epoch = epochProvider()
+                for await snapshot in source {
+                    guard snapshot != prev else { continue }
+                    prev = snapshot
+                    let revision = revisions.next(for: store)
+                    let epoch = epochProvider()
 
-                        let data: Data
+                    let data: Data
+                    do {
                         if level == .cold {
-                            do {
-                                data = try await Task.detached(priority: .utility) {
-                                    try encoder.encode(snapshot)
-                                }.value
-                            } catch {
-                                logger.error(
-                                    "[PushEngine] encode failed slice=\(name) store=\(store.rawValue): \(error)")
-                                continue
-                            }
+                            data = try await Task.detached(priority: .utility) {
+                                try encoder.encode(snapshot)
+                            }.value
                         } else {
-                            do {
-                                data = try encoder.encode(snapshot)
-                            } catch {
-                                logger.error(
-                                    "[PushEngine] encode failed slice=\(name) store=\(store.rawValue): \(error)")
-                                continue
-                            }
+                            data = try encoder.encode(snapshot)
                         }
-
-                        await transport.pushJSON(
-                            store: store, op: op, level: level,
-                            revision: revision, epoch: epoch, json: data
-                        )
+                    } catch {
+                        logger.error("[PushEngine] encode failed slice=\(name) store=\(store.rawValue): \(error)")
+                        continue
                     }
+
+                    await transport.pushJSON(
+                        store: store, op: op, level: level,
+                        revision: revision, epoch: epoch, json: data
+                    )
                 }
             }
         }

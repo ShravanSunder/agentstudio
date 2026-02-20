@@ -68,47 +68,27 @@ struct EntitySlice<
                 let encoder = JSONEncoder()
 
                 let stream = Observations { capture(state) }
+                let source: any AsyncSequence<[Key: Entity], Never> =
+                    level == .hot ? stream : stream.debounce(for: level.debounce)
 
-                if level == .hot {
-                    for await entities in stream {
-                        let delta = Self.computeDelta(
-                            entities: entities,
-                            lastVersions: &lastVersions,
-                            version: version,
-                            keyToString: keyToString
-                        )
-                        guard !delta.isEmpty else { continue }
-                        guard let data = try? encoder.encode(delta) else {
-                            logger.error("[PushEngine] encode failed slice=\(name) store=\(store.rawValue)")
-                            continue
-                        }
-                        let revision = revisions.next(for: store)
-                        let epoch = epochFn()
-                        await transport.pushJSON(
-                            store: store, op: .merge, level: level,
-                            revision: revision, epoch: epoch, json: data
-                        )
+                for await entities in source {
+                    let delta = Self.computeDelta(
+                        entities: entities,
+                        lastVersions: &lastVersions,
+                        version: version,
+                        keyToString: keyToString
+                    )
+                    guard !delta.isEmpty else { continue }
+                    guard let data = try? encoder.encode(delta) else {
+                        logger.error("[PushEngine] encode failed slice=\(name) store=\(store.rawValue)")
+                        continue
                     }
-                } else {
-                    for await entities in stream.debounce(for: level.debounce) {
-                        let delta = Self.computeDelta(
-                            entities: entities,
-                            lastVersions: &lastVersions,
-                            version: version,
-                            keyToString: keyToString
-                        )
-                        guard !delta.isEmpty else { continue }
-                        guard let data = try? encoder.encode(delta) else {
-                            logger.error("[PushEngine] encode failed slice=\(name) store=\(store.rawValue)")
-                            continue
-                        }
-                        let revision = revisions.next(for: store)
-                        let epoch = epochFn()
-                        await transport.pushJSON(
-                            store: store, op: .merge, level: level,
-                            revision: revision, epoch: epoch, json: data
-                        )
-                    }
+                    let revision = revisions.next(for: store)
+                    let epoch = epochFn()
+                    await transport.pushJSON(
+                        store: store, op: .merge, level: level,
+                        revision: revision, epoch: epoch, json: data
+                    )
                 }
             }
         }
