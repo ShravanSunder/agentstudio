@@ -383,11 +383,13 @@ extension Ghostty {
         }
 
         private func triggerDeferredStartupIfReady(source: String) {
-            guard !hasSentDeferredStartupCommand,
-                  let deferredStartupCommand,
-                  !deferredStartupCommand.isEmpty else { return }
-            guard window != nil else { return }
-            guard contentSize.width > 0 && contentSize.height > 0 else { return }
+            guard DeferredStartupReadiness.canSchedule(
+                hasSent: hasSentDeferredStartupCommand,
+                deferredStartupCommand: deferredStartupCommand,
+                hasWindow: window != nil,
+                contentSize: contentSize
+            ) else { return }
+            guard let deferredStartupCommand else { return }
 
             deferredStartupWorkItem?.cancel()
             RestoreTrace.log(
@@ -396,15 +398,18 @@ extension Ghostty {
             let workItem = DispatchWorkItem { [weak self] in
                 guard let self else { return }
                 defer { self.deferredStartupWorkItem = nil }
-                guard !self.hasSentDeferredStartupCommand else { return }
-                if self.processExited {
-                    RestoreTrace.log("Ghostty.SurfaceView.deferredStartup skipped process already exited source=\(source)")
-                    return
-                }
-                guard self.window != nil,
-                      self.contentSize.width > 0,
-                      self.contentSize.height > 0 else {
-                    RestoreTrace.log("Ghostty.SurfaceView.deferredStartup skipped invalid size/window source=\(source)")
+                guard DeferredStartupReadiness.canExecute(
+                    hasSent: self.hasSentDeferredStartupCommand,
+                    deferredStartupCommand: self.deferredStartupCommand,
+                    hasWindow: self.window != nil,
+                    contentSize: self.contentSize,
+                    processExited: self.processExited
+                ) else {
+                    if self.processExited {
+                        RestoreTrace.log("Ghostty.SurfaceView.deferredStartup skipped process already exited source=\(source)")
+                    } else {
+                        RestoreTrace.log("Ghostty.SurfaceView.deferredStartup skipped invalid readiness source=\(source)")
+                    }
                     return
                 }
                 self.hasSentDeferredStartupCommand = true
