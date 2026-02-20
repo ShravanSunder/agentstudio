@@ -89,6 +89,10 @@ Dynamic views regroup your entire workspace on demand — by repo, by worktree, 
 
 Agent Studio will embed a full diff viewer and code review experience directly in pane drawers — inline diffs with syntax highlighting, file tree navigation, comment threads, and review actions. When an agent finishes a task, its changes appear in the drawer right below it. Review, approve, move on. A VS Code-quality experience without leaving the workspace where your agents are running.
 
+**"I just gave an agent root access to my machine"** — agents execute shell commands, install packages, and make network requests with your full permissions. One bad tool call and credentials leak, repos corrupt, or packages install that you didn't authorize. No guardrails.
+
+Built-in sandboxing with network isolation (egress firewalls, domain allowlisting), credential injection (secrets stay on host, never enter the agent environment), and filesystem controls (read-only git, scoped workspace access). Full agent capability, bounded access.
+
 ## Architecture
 
 AppKit-main with SwiftUI views. Single `WorkspaceStore` owns all state. Immutable layout trees. Sessions exist independently of views or surfaces.
