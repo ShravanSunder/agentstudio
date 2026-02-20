@@ -155,7 +155,6 @@ final class ZmxBackend: SessionBackend {
     func attachCommand(for handle: PaneSessionHandle) -> String {
         Self.buildAttachCommand(
             zmxPath: zmxPath,
-            zmxDir: zmxDir,
             sessionId: handle.id,
             shell: Self.getDefaultShell()
         )
@@ -169,11 +168,9 @@ final class ZmxBackend: SessionBackend {
     /// zmx auto-creates a daemon on first attach — no separate create step needed.
     static func buildAttachCommand(
         zmxPath: String,
-        zmxDir: String,
         sessionId: String,
         shell: String
     ) -> String {
-        _ = zmxDir
         let escapedPath = shellEscape(zmxPath)
         let escapedId = shellEscape(sessionId)
         let escapedShell = shellEscape(shell)
@@ -182,14 +179,14 @@ final class ZmxBackend: SessionBackend {
 
     /// Double-quote a string for safe shell interpolation.
     ///
-    /// We intentionally avoid single quotes because Ghostty may wrap the full
-    /// command in single quotes when invoking `login -c 'exec -l ...'`.
-    /// Nested single quotes would break parsing and fail launch.
+    /// This string is injected into an interactive shell via `sendText`, so it
+    /// must survive one level of shell parsing in a double-quoted context.
     static func shellEscape(_ value: String) -> String {
         let escaped = value
             .replacingOccurrences(of: "\\", with: "\\\\")
             .replacingOccurrences(of: "\"", with: "\\\"")
             .replacingOccurrences(of: "$", with: "\\$")
+            .replacingOccurrences(of: "!", with: "\\!")
             .replacingOccurrences(of: "`", with: "\\`")
         return "\"\(escaped)\""
     }

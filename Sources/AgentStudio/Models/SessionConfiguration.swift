@@ -159,18 +159,23 @@ struct SessionConfiguration: Sendable {
     /// Candidates are validated with a lightweight `--version` probe because
     /// some environments may report a path as executable while launch still fails.
     private static func findZmx() -> String? {
+        // Avoid blocking startup on main thread. Launch-time detection should stay
+        // lightweight; deeper usability probes can run off-main.
+        let allowBlockingProbe = !Thread.isMainThread
+
         // 1. Bundled binary: same directory as the app executable (Contents/MacOS/zmx or .build/debug/zmx)
         if let bundled = Bundle.main.executableURL?
             .deletingLastPathComponent()
             .appendingPathComponent("zmx").path {
-            if isUsableZmxBinary(bundled) {
+            if isUsableZmxBinary(bundled, allowBlockingProbe: allowBlockingProbe) {
                 return bundled
             }
             RestoreTrace.log("findZmx skip unusable bundled candidate=\(bundled)")
         }
 
         // 2. Vendor build output: for dev builds where zmx was built but not copied
-        if let vendorBin = findDevVendorZmx(), isUsableZmxBinary(vendorBin) {
+        if let vendorBin = findDevVendorZmx(),
+           isUsableZmxBinary(vendorBin, allowBlockingProbe: allowBlockingProbe) {
             return vendorBin
         }
 
@@ -179,7 +184,7 @@ struct SessionConfiguration: Sendable {
             "/opt/homebrew/bin/zmx",
             "/usr/local/bin/zmx",
         ]
-        if let found = candidates.first(where: { isUsableZmxBinary($0) }) {
+        if let found = candidates.first(where: { isUsableZmxBinary($0, allowBlockingProbe: allowBlockingProbe) }) {
             return found
         }
 
@@ -197,11 +202,13 @@ struct SessionConfiguration: Sendable {
             let data = pipe.fileHandleForReading.readDataToEndOfFile()
             let path = String(data: data, encoding: .utf8)?
                 .trimmingCharacters(in: .whitespacesAndNewlines)
-            if let path, !path.isEmpty, isUsableZmxBinary(path) {
+            if let path, !path.isEmpty,
+               isUsableZmxBinary(path, allowBlockingProbe: allowBlockingProbe) {
                 return path
             }
         } catch {
             // which not available or failed
+            configLogger.warning("which zmx failed during detection: \(error.localizedDescription)")
         }
         return nil
     }
@@ -236,8 +243,9 @@ struct SessionConfiguration: Sendable {
     }
 
     /// Validate that a candidate zmx binary can actually launch and respond.
-    private static func isUsableZmxBinary(_ candidatePath: String) -> Bool {
+    private static func isUsableZmxBinary(_ candidatePath: String, allowBlockingProbe: Bool) -> Bool {
         guard FileManager.default.isExecutableFile(atPath: candidatePath) else { return false }
+        guard allowBlockingProbe else { return true }
 
         let process = Process()
         process.executableURL = URL(fileURLWithPath: candidatePath)
@@ -248,23 +256,27 @@ struct SessionConfiguration: Sendable {
         do {
             try process.run()
         } catch {
+            configLogger.warning("zmx candidate failed to launch: \(candidatePath) error=\(error.localizedDescription)")
             return false
         }
 
-        let timeoutNs: UInt64 = 2_000_000_000
-        let pollNs: UInt64 = 20_000_000
-        var waitedNs: UInt64 = 0
-        while process.isRunning && waitedNs < timeoutNs {
-            usleep(useconds_t(pollNs / 1_000))
-            waitedNs += pollNs
+        let waitGroup = DispatchGroup()
+        waitGroup.enter()
+        process.terminationHandler = { _ in
+            waitGroup.leave()
         }
-
-        if process.isRunning {
+        if waitGroup.wait(timeout: .now() + .seconds(2)) == .timedOut {
             process.terminate()
+            configLogger.warning("zmx candidate probe timed out: \(candidatePath)")
             return false
         }
 
-        guard process.terminationStatus == 0 else { return false }
+        guard process.terminationStatus == 0 else {
+            configLogger.warning(
+                "zmx candidate probe failed: \(candidatePath) exit=\(process.terminationStatus)"
+            )
+            return false
+        }
         return true
     }
 }

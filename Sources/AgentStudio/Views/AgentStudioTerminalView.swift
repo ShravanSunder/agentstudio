@@ -201,15 +201,16 @@ final class AgentStudioTerminalView: PaneView, SurfaceHealthDelegate {
     @objc private func handleSurfaceClose(_ notification: Notification) {
         guard isProcessRunning else { return }
         isProcessRunning = false
-        let processAlive = notification.userInfo?["processAlive"] as? Bool
         RestoreTrace.log(
-            "AgentStudioTerminalView.handleSurfaceClose pane=\(paneId) surface=\(surfaceId?.uuidString ?? "nil") processAlive=\(String(describing: processAlive))"
+            "AgentStudioTerminalView.handleSurfaceClose pane=\(paneId) surface=\(surfaceId?.uuidString ?? "nil")"
         )
         handleProcessTerminated(exitCode: nil)
     }
 
     // MARK: - Process Management
 
+    /// `exitCode == nil` means the process terminated without a reliable numeric
+    /// code (e.g. surface-level close callback / force-destroy path).
     func handleProcessTerminated(exitCode: Int32?) {
         isProcessRunning = false
         var userInfo: [String: Any] = ["exitCode": exitCode as Any]

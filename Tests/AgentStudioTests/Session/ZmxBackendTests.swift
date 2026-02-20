@@ -251,7 +251,6 @@ final class ZmxBackendTests: XCTestCase {
         // Act
         let cmd = ZmxBackend.buildAttachCommand(
             zmxPath: "/opt/homebrew/bin/zmx",
-            zmxDir: "/home/user/.agentstudio/zmx",
             sessionId: "agentstudio--abc--def--ghi",
             shell: "/bin/zsh"
         )
@@ -275,6 +274,26 @@ final class ZmxBackendTests: XCTestCase {
 
     func test_shellEscape_pathWithSingleQuote() {
         XCTAssertEqual(ZmxBackend.shellEscape("/tmp/it's"), "\"/tmp/it's\"")
+    }
+
+    func test_shellEscape_escapesDollar() {
+        XCTAssertEqual(ZmxBackend.shellEscape("/tmp/$HOME"), "\"/tmp/\\$HOME\"")
+    }
+
+    func test_shellEscape_escapesBacktick() {
+        XCTAssertEqual(ZmxBackend.shellEscape("/tmp/`pwd`"), "\"/tmp/\\`pwd\\`\"")
+    }
+
+    func test_shellEscape_escapesDoubleQuote() {
+        XCTAssertEqual(ZmxBackend.shellEscape("/tmp/\"quoted\""), "\"/tmp/\\\"quoted\\\"\"")
+    }
+
+    func test_shellEscape_escapesBackslash() {
+        XCTAssertEqual(ZmxBackend.shellEscape("/tmp/foo\\bar"), "\"/tmp/foo\\\\bar\"")
+    }
+
+    func test_shellEscape_escapesHistoryBang() {
+        XCTAssertEqual(ZmxBackend.shellEscape("/tmp/bang!"), "\"/tmp/bang\\!\"")
     }
 
     // MARK: - healthCheck

@@ -188,6 +188,62 @@ final class PaneTests: XCTestCase {
         XCTAssertEqual(decoded.residency, .backgrounded)
     }
 
+    // MARK: - Legacy Decoding
+
+    func test_legacyDecode_withoutKind_usesTopLevelDrawer() throws {
+        let drawerPaneId = UUID()
+        let drawer = Drawer(
+            paneIds: [drawerPaneId],
+            layout: Layout(paneId: drawerPaneId),
+            activePaneId: drawerPaneId,
+            isExpanded: true
+        )
+        let pane = Pane(
+            content: .terminal(TerminalState(provider: .zmx, lifetime: .persistent)),
+            metadata: PaneMetadata(source: .floating(workingDirectory: nil, title: nil), title: "Legacy Host"),
+            kind: .layout(drawer: drawer)
+        )
+
+        let currentData = try encoder.encode(pane)
+        var legacyObject = try XCTUnwrap(
+            JSONSerialization.jsonObject(with: currentData) as? [String: Any]
+        )
+        legacyObject.removeValue(forKey: "kind")
+        legacyObject["drawer"] = try JSONSerialization.jsonObject(with: encoder.encode(drawer))
+
+        let legacyData = try JSONSerialization.data(withJSONObject: legacyObject)
+        let decoded = try decoder.decode(Pane.self, from: legacyData)
+
+        XCTAssertEqual(decoded.id, pane.id)
+        XCTAssertNotNil(decoded.drawer)
+        XCTAssertEqual(decoded.drawer?.paneIds, [drawerPaneId])
+        XCTAssertEqual(decoded.drawer?.activePaneId, drawerPaneId)
+        XCTAssertTrue(decoded.drawer?.isExpanded ?? false)
+    }
+
+    func test_legacyDecode_withoutKindAndDrawer_defaultsEmptyDrawer() throws {
+        let pane = makePane(
+            source: .floating(workingDirectory: nil, title: nil),
+            title: "Legacy Empty Drawer",
+            provider: .zmx
+        )
+
+        let currentData = try encoder.encode(pane)
+        var legacyObject = try XCTUnwrap(
+            JSONSerialization.jsonObject(with: currentData) as? [String: Any]
+        )
+        legacyObject.removeValue(forKey: "kind")
+        legacyObject.removeValue(forKey: "drawer")
+
+        let legacyData = try JSONSerialization.data(withJSONObject: legacyObject)
+        let decoded = try decoder.decode(Pane.self, from: legacyData)
+
+        XCTAssertEqual(decoded.id, pane.id)
+        XCTAssertNotNil(decoded.drawer)
+        XCTAssertTrue(decoded.drawer?.paneIds.isEmpty ?? false)
+        XCTAssertNil(decoded.drawer?.activePaneId)
+    }
+
     // MARK: - PaneMetadata
 
     func test_metadata_worktreeId_extractsFromWorktreeSource() {

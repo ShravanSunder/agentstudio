@@ -427,7 +427,6 @@ final class TerminalViewCoordinator {
         )
         return ZmxBackend.buildAttachCommand(
             zmxPath: zmxPath,
-            zmxDir: sessionConfig.zmxDir,
             sessionId: zmxSessionName,
             shell: getDefaultShell()
         )

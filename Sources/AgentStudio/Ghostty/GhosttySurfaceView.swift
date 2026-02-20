@@ -98,6 +98,7 @@ extension Ghostty {
         private var deferredStartupCommand: String?
         private var hasSentDeferredStartupCommand = false
         private var deferredStartupWorkItem: DispatchWorkItem?
+        private let deferredStartupDelaySeconds: TimeInterval = 0.18
 
         // MARK: - Initialization
 
@@ -415,12 +416,15 @@ extension Ghostty {
                 self.hasSentDeferredStartupCommand = true
                 // `sendText` is paste-like and may not execute pasted newlines under
                 // shell bracketed-paste protections. Send Return as a real key event.
-                self.sendText(deferredStartupCommand)
+                // Prefix with a single space to reduce history pollution in shells
+                // that honor "leading-space means don't save to history".
+                self.sendText(" \(deferredStartupCommand)")
                 self.sendProgrammaticReturnKey()
+                ghosttyLogger.debug("Deferred startup command sent")
                 RestoreTrace.log("Ghostty.SurfaceView.deferredStartup sent source=\(source)")
             }
             deferredStartupWorkItem = workItem
-            DispatchQueue.main.asyncAfter(deadline: .now() + 0.18, execute: workItem)
+            DispatchQueue.main.asyncAfter(deadline: .now() + deferredStartupDelaySeconds, execute: workItem)
         }
 
         // MARK: - Input Handling

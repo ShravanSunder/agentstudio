@@ -164,17 +164,6 @@ class AppDelegate: NSObject, NSApplicationDelegate {
             return
         }
 
-        // Fail-safe: if we have persisted zmx panes, prioritize reliable restore
-        // over aggressive orphan cleanup. Killing a valid daemon at startup loses
-        // terminal history and makes restore appear broken.
-        let persistedZmxPaneCount = store.panes.values.filter { $0.provider == .zmx }.count
-        if persistedZmxPaneCount > 0 {
-            appLogger.info(
-                "Skipping orphan zmx cleanup: \(persistedZmxPaneCount) persisted zmx pane(s) present"
-            )
-            return
-        }
-
         // Collect known zmx session IDs from persisted panes (main-actor access).
         // These are the panes we expect to exist — everything else is an orphan.
         // Handles both main panes (worktree-based IDs) and drawer panes (parent+child UUID IDs).
@@ -212,6 +201,9 @@ class AppDelegate: NSObject, NSApplicationDelegate {
                 "Skipping orphan zmx cleanup: unable to resolve one or more main-pane session IDs from persisted state"
             )
             return
+        }
+        if !knownSessionIds.isEmpty {
+            appLogger.info("Orphan cleanup: protecting \(knownSessionIds.count) known persisted zmx session(s)")
         }
 
         let backend = ZmxBackend(zmxPath: zmxPath, zmxDir: config.zmxDir)
