@@ -294,7 +294,7 @@ stateDiagram-v2
 
 | File | Role |
 |------|------|
-| `Services/WorkspaceStore.swift` | Central state owner — sessions, views, tabs, layouts, persistence |
+| `Services/WorkspaceStore.swift` | Atomic store — workspace structure (sessions, views, tabs, layouts, persistence) |
 | `Services/WorkspacePersistor.swift` | JSON serialization/deserialization |
 | `Services/SessionRuntime.swift` | Runtime health monitoring and status tracking |
 | `App/ActionExecutor.swift` | Dispatches actions (open, close, split, undo, etc.) |

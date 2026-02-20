@@ -551,7 +551,7 @@ Multiple UI surfaces that trigger operations through the same `PaneAction` → `
 
 A window-level toggle that enables pane manipulation controls. When off, panes show clean content with no distractions. When on, hover reveals controls for rearranging, splitting, minimizing, and closing panes.
 
-- Stored in `ManagementModeMonitor.shared` — singleton `ObservableObject` with `@Published var isActive: Bool`
+- Stored in `ManagementModeMonitor.shared` — singleton `@Observable` with `private(set) var isActive: Bool`
 - Toggled via toolbar button (separate button group, left of "Add Repo") or keyboard shortcut
 - Icon: `slider.horizontal.3`, highlighted when active
 
@@ -922,7 +922,7 @@ flowchart LR
     V -->|pass| E[Execute<br/>mutate owned state]
     V -->|fail| R[Reject<br/>show error]
     E --> EM[Emit<br/>domain events]
-    EM --> UI[UI Update<br/>Combine publishers]
+    EM --> UI[UI Update<br/>@Observable + AsyncStream]
 
     style V fill:#8b4513,color:#fff
     style R fill:#8b0000,color:#fff
