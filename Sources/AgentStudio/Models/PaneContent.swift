@@ -45,7 +45,8 @@ extension PaneContent: Codable {
 
         // Try to decode the type discriminator; fall back to unsupported if unknown
         guard let typeString = try? container.decode(String.self, forKey: .type),
-              let contentType = ContentType(rawValue: typeString) else {
+            let contentType = ContentType(rawValue: typeString)
+        else {
             // Unknown type — preserve raw JSON for round-trip
             let rawType = (try? container.decode(String.self, forKey: .type)) ?? "unknown"
             let rawState = try container.decodeIfPresent(AnyCodableValue.self, forKey: .state)
@@ -72,7 +73,7 @@ extension PaneContent: Codable {
                 self = .unsupported(UnsupportedContent(type: "codeViewer", version: version, rawState: rawState))
             }
         }
-        _ = version // reserved for future state migration
+        _ = version  // reserved for future state migration
     }
 
     func encode(to encoder: Encoder) throws {
@@ -114,8 +115,8 @@ enum AnyCodableValue: Codable, Hashable {
     case int(Int)
     case double(Double)
     case bool(Bool)
-    case array([AnyCodableValue])
-    case object([String: AnyCodableValue])
+    case array([Self])
+    case object([String: Self])
     case null
 
     init(from decoder: Decoder) throws {
@@ -130,9 +131,9 @@ enum AnyCodableValue: Codable, Hashable {
             self = .double(d)
         } else if let s = try? container.decode(String.self) {
             self = .string(s)
-        } else if let a = try? container.decode([AnyCodableValue].self) {
+        } else if let a = try? container.decode([Self].self) {
             self = .array(a)
-        } else if let o = try? container.decode([String: AnyCodableValue].self) {
+        } else if let o = try? container.decode([String: Self].self) {
             self = .object(o)
         } else {
             self = .null
@@ -201,7 +202,8 @@ struct WebviewState: Codable, Hashable {
             self.url = url
             self.title = try container.decodeIfPresent(String.self, forKey: .title) ?? ""
         } else if let tabs = try? container.decode([LegacyTabState].self, forKey: .tabs),
-                  let firstTab = tabs.first {
+            let firstTab = tabs.first
+        {
             // Multi-tab legacy shape — extract first tab's URL
             let activeIndex = (try? container.decode(Int.self, forKey: .activeTabIndex)) ?? 0
             let tab = (activeIndex >= 0 && activeIndex < tabs.count) ? tabs[activeIndex] : firstTab
@@ -209,8 +211,9 @@ struct WebviewState: Codable, Hashable {
             self.title = tab.title
         } else {
             throw DecodingError.dataCorrupted(
-                DecodingError.Context(codingPath: decoder.codingPath,
-                                      debugDescription: "WebviewState: missing both 'url' and 'tabs'")
+                DecodingError.Context(
+                    codingPath: decoder.codingPath,
+                    debugDescription: "WebviewState: missing both 'url' and 'tabs'")
             )
         }
         self.showNavigation = try container.decodeIfPresent(Bool.self, forKey: .showNavigation) ?? true

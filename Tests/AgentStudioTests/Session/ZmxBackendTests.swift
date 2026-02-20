@@ -1,4 +1,5 @@
 import XCTest
+
 @testable import AgentStudio
 
 final class ZmxBackendTests: XCTestCase {
@@ -364,11 +365,13 @@ final class ZmxBackendTests: XCTestCase {
 
     func test_discoverOrphanSessions_filtersCorrectly() async {
         // Arrange
-        executor.enqueue(ProcessResult(
-            exitCode: 0,
-            stdout: "agentstudio--abc--111--222\trunning\nagentstudio--def--333--444\trunning\nuser-session\trunning\nagentstudio--ghi--555--666\trunning",
-            stderr: ""
-        ))
+        executor.enqueue(
+            ProcessResult(
+                exitCode: 0,
+                stdout:
+                    "agentstudio--abc--111--222\trunning\nagentstudio--def--333--444\trunning\nuser-session\trunning\nagentstudio--ghi--555--666\trunning",
+                stderr: ""
+            ))
 
         // Act
         let orphans = await backend.discoverOrphanSessions(excluding: ["agentstudio--abc--111--222"])
@@ -406,11 +409,13 @@ final class ZmxBackendTests: XCTestCase {
 
     func test_discoverOrphanSessions_includesDrawerSessions() async {
         // Arrange — mix of main and drawer sessions
-        executor.enqueue(ProcessResult(
-            exitCode: 0,
-            stdout: "agentstudio--abc--111--222\trunning\nagentstudio-d--aabb--ccdd\trunning\nuser-session\trunning",
-            stderr: ""
-        ))
+        executor.enqueue(
+            ProcessResult(
+                exitCode: 0,
+                stdout:
+                    "agentstudio--abc--111--222\trunning\nagentstudio-d--aabb--ccdd\trunning\nuser-session\trunning",
+                stderr: ""
+            ))
 
         // Act — exclude the main session, drawer should appear as orphan
         let orphans = await backend.discoverOrphanSessions(excluding: ["agentstudio--abc--111--222"])

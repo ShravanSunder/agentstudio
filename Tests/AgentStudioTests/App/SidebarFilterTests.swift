@@ -1,4 +1,5 @@
 import XCTest
+
 @testable import AgentStudio
 
 /// Tests for SidebarFilter — the extracted filter algorithm
@@ -26,14 +27,18 @@ final class SidebarFilterTests: XCTestCase {
     func test_filter_repoNameMatch_returnsAllWorktrees() {
         // Arrange
         let repos = [
-            makeRepo(name: "my-project", worktrees: [
-                makeWorktree(name: "main"),
-                makeWorktree(name: "feature-x"),
-                makeWorktree(name: "bugfix-y"),
-            ]),
-            makeRepo(name: "other-repo", worktrees: [
-                makeWorktree(name: "main"),
-            ]),
+            makeRepo(
+                name: "my-project",
+                worktrees: [
+                    makeWorktree(name: "main"),
+                    makeWorktree(name: "feature-x"),
+                    makeWorktree(name: "bugfix-y"),
+                ]),
+            makeRepo(
+                name: "other-repo",
+                worktrees: [
+                    makeWorktree(name: "main")
+                ]),
         ]
 
         // Act
@@ -48,7 +53,7 @@ final class SidebarFilterTests: XCTestCase {
     func test_filter_repoNameMatch_caseInsensitive() {
         // Arrange
         let repos = [
-            makeRepo(name: "AgentStudio", worktrees: [makeWorktree(name: "main")]),
+            makeRepo(name: "AgentStudio", worktrees: [makeWorktree(name: "main")])
         ]
 
         // Act
@@ -64,11 +69,13 @@ final class SidebarFilterTests: XCTestCase {
     func test_filter_worktreeNameMatch_returnsOnlyMatchingWorktrees() {
         // Arrange
         let repos = [
-            makeRepo(name: "my-repo", worktrees: [
-                makeWorktree(name: "main"),
-                makeWorktree(name: "feature-auth"),
-                makeWorktree(name: "feature-payment"),
-            ]),
+            makeRepo(
+                name: "my-repo",
+                worktrees: [
+                    makeWorktree(name: "main"),
+                    makeWorktree(name: "feature-auth"),
+                    makeWorktree(name: "feature-payment"),
+                ])
         ]
 
         // Act
@@ -83,9 +90,11 @@ final class SidebarFilterTests: XCTestCase {
     func test_filter_worktreeNameMatch_caseInsensitive() {
         // Arrange
         let repos = [
-            makeRepo(name: "repo", worktrees: [
-                makeWorktree(name: "Feature-Auth"),
-            ]),
+            makeRepo(
+                name: "repo",
+                worktrees: [
+                    makeWorktree(name: "Feature-Auth")
+                ])
         ]
 
         // Act
@@ -99,11 +108,13 @@ final class SidebarFilterTests: XCTestCase {
     func test_filter_multipleWorktreesMatch_returnsAllMatching() {
         // Arrange
         let repos = [
-            makeRepo(name: "repo", worktrees: [
-                makeWorktree(name: "feature-login"),
-                makeWorktree(name: "feature-logout"),
-                makeWorktree(name: "bugfix-crash"),
-            ]),
+            makeRepo(
+                name: "repo",
+                worktrees: [
+                    makeWorktree(name: "feature-login"),
+                    makeWorktree(name: "feature-logout"),
+                    makeWorktree(name: "bugfix-crash"),
+                ])
         ]
 
         // Act
@@ -135,17 +146,23 @@ final class SidebarFilterTests: XCTestCase {
     func test_filter_mixedMatches_repoAndWorktree() {
         // Arrange
         let repos = [
-            makeRepo(name: "auth-service", worktrees: [
-                makeWorktree(name: "main"),
-                makeWorktree(name: "develop"),
-            ]),
-            makeRepo(name: "payment-service", worktrees: [
-                makeWorktree(name: "auth-migration"),
-                makeWorktree(name: "main"),
-            ]),
-            makeRepo(name: "frontend", worktrees: [
-                makeWorktree(name: "main"),
-            ]),
+            makeRepo(
+                name: "auth-service",
+                worktrees: [
+                    makeWorktree(name: "main"),
+                    makeWorktree(name: "develop"),
+                ]),
+            makeRepo(
+                name: "payment-service",
+                worktrees: [
+                    makeWorktree(name: "auth-migration"),
+                    makeWorktree(name: "main"),
+                ]),
+            makeRepo(
+                name: "frontend",
+                worktrees: [
+                    makeWorktree(name: "main")
+                ]),
         ]
 
         // Act
@@ -171,7 +188,7 @@ final class SidebarFilterTests: XCTestCase {
     func test_filter_substringMatch_works() {
         // Arrange
         let repos = [
-            makeRepo(name: "my-cool-repo", worktrees: [makeWorktree(name: "main")]),
+            makeRepo(name: "my-cool-repo", worktrees: [makeWorktree(name: "main")])
         ]
 
         // Act
@@ -194,7 +211,7 @@ final class SidebarFilterTests: XCTestCase {
     func test_filter_repoWithNoWorktrees_noMatch() {
         // Arrange
         let repos = [
-            makeRepo(name: "empty-repo", worktrees: []),
+            makeRepo(name: "empty-repo", worktrees: [])
         ]
 
         // Act
@@ -207,7 +224,7 @@ final class SidebarFilterTests: XCTestCase {
     func test_filter_repoWithNoWorktrees_repoNameMatch() {
         // Arrange
         let repos = [
-            makeRepo(name: "empty-repo", worktrees: []),
+            makeRepo(name: "empty-repo", worktrees: [])
         ]
 
         // Act

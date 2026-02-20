@@ -1,4 +1,5 @@
 import XCTest
+
 @testable import AgentStudio
 
 // MARK: - Mock Command Handler
@@ -228,7 +229,7 @@ final class AppCommandTests: XCTestCase {
         // Assert
         XCTAssertEqual(handler.executedCommands.count, 1)
         XCTAssertEqual(handler.executedCommands[0].0, .closeTab)
-        XCTAssertNil(handler.executedCommands[0].1) // no target
+        XCTAssertNil(handler.executedCommands[0].1)  // no target
 
         // Cleanup
         dispatcher.handler = nil

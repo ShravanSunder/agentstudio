@@ -1,4 +1,5 @@
 import XCTest
+
 @testable import AgentStudio
 
 final class TerminalSourceTests: XCTestCase {
@@ -75,7 +76,7 @@ final class TerminalSourceTests: XCTestCase {
         // Act
         var set: Set<TerminalSource> = []
         set.insert(source)
-        set.insert(source) // duplicate
+        set.insert(source)  // duplicate
 
         // Assert
         XCTAssertEqual(set.count, 1)

@@ -1,5 +1,5 @@
-import Foundation
 import AppKit
+import Foundation
 import GhosttyKit
 import os
 
@@ -111,14 +111,16 @@ extension Ghostty {
                 userdata: Unmanaged.passUnretained(self).toOpaque(),
                 supports_selection_clipboard: true,
                 wakeup_cb: { userdata in
-                    guard let userdata = userdata else { return }
+                    guard let userdata else { return }
                     let app = Unmanaged<App>.fromOpaque(userdata).takeUnretainedValue()
                     DispatchQueue.main.async {
                         app.tick()
                     }
                 },
+                // C callbacks cannot use `Self` — it captures dynamic Self type.
+                // swiftlint:disable prefer_self_in_static_references
                 action_cb: { appPtr, target, action in
-                    return App.handleAction(appPtr!, target: target, action: action)
+                    App.handleAction(appPtr!, target: target, action: action)
                 },
                 read_clipboard_cb: { userdata, location, state in
                     App.readClipboard(userdata, location: location, state: state)
@@ -132,6 +134,7 @@ extension Ghostty {
                 close_surface_cb: { userdata, processAlive in
                     App.closeSurface(userdata, processAlive: processAlive)
                 }
+                // swiftlint:enable prefer_self_in_static_references
             )
 
             // Create the ghostty app
@@ -170,27 +173,27 @@ extension Ghostty {
 
         deinit {
             NotificationCenter.default.removeObserver(self)
-            if let app = app {
+            if let app {
                 ghostty_app_free(app)
             }
-            if let config = config {
+            if let config {
                 ghostty_config_free(config)
             }
         }
 
         /// Process pending ghostty events
         func tick() {
-            guard let app = app else { return }
+            guard let app else { return }
             ghostty_app_tick(app)
         }
 
         @objc private func applicationDidBecomeActive(_ notification: NSNotification) {
-            guard let app = app else { return }
+            guard let app else { return }
             ghostty_app_set_focus(app, true)
         }
 
         @objc private func applicationDidResignActive(_ notification: NSNotification) {
-            guard let app = app else { return }
+            guard let app else { return }
             ghostty_app_set_focus(app, false)
         }
 
@@ -214,7 +217,8 @@ extension Ghostty {
             case GHOSTTY_ACTION_SET_TITLE:
                 if target.tag == GHOSTTY_TARGET_SURFACE, let surface = target.target.surface {
                     if let surfaceView = surfaceView(from: surface),
-                       let titlePtr = action.action.set_title.title {
+                        let titlePtr = action.action.set_title.title
+                    {
                         let title = String(cString: titlePtr)
                         DispatchQueue.main.async {
                             surfaceView.titleDidChange(title)
@@ -237,19 +241,24 @@ extension Ghostty {
             // Split actions
             case GHOSTTY_ACTION_NEW_SPLIT:
                 let direction = action.action.new_split
-                return postSurfaceNotification(target, name: .ghosttyNewSplit,
-                                               userInfo: ["direction": direction.rawValue])
+                return postSurfaceNotification(
+                    target, name: .ghosttyNewSplit,
+                    userInfo: ["direction": direction.rawValue])
 
             case GHOSTTY_ACTION_GOTO_SPLIT:
                 let goto = action.action.goto_split
-                return postSurfaceNotification(target, name: .ghosttyGotoSplit,
-                                               userInfo: ["goto": goto.rawValue])
+                return postSurfaceNotification(
+                    target, name: .ghosttyGotoSplit,
+                    userInfo: ["goto": goto.rawValue])
 
             case GHOSTTY_ACTION_RESIZE_SPLIT:
                 let resize = action.action.resize_split
-                return postSurfaceNotification(target, name: .ghosttyResizeSplit,
-                                               userInfo: ["amount": resize.amount,
-                                                          "direction": resize.direction.rawValue])
+                return postSurfaceNotification(
+                    target, name: .ghosttyResizeSplit,
+                    userInfo: [
+                        "amount": resize.amount,
+                        "direction": resize.direction.rawValue,
+                    ])
 
             case GHOSTTY_ACTION_EQUALIZE_SPLITS:
                 return postSurfaceNotification(target, name: .ghosttyEqualizeSplits)
@@ -260,18 +269,21 @@ extension Ghostty {
             // Tab actions
             case GHOSTTY_ACTION_CLOSE_TAB:
                 let mode = action.action.close_tab_mode
-                return postSurfaceNotification(target, name: .ghosttyCloseTab,
-                                               userInfo: ["mode": mode.rawValue])
+                return postSurfaceNotification(
+                    target, name: .ghosttyCloseTab,
+                    userInfo: ["mode": mode.rawValue])
 
             case GHOSTTY_ACTION_GOTO_TAB:
                 let gotoTab = action.action.goto_tab
-                return postSurfaceNotification(target, name: .ghosttyGotoTab,
-                                               userInfo: ["target": gotoTab.rawValue])
+                return postSurfaceNotification(
+                    target, name: .ghosttyGotoTab,
+                    userInfo: ["target": gotoTab.rawValue])
 
             case GHOSTTY_ACTION_MOVE_TAB:
                 let moveTab = action.action.move_tab
-                return postSurfaceNotification(target, name: .ghosttyMoveTab,
-                                               userInfo: ["amount": moveTab.amount])
+                return postSurfaceNotification(
+                    target, name: .ghosttyMoveTab,
+                    userInfo: ["amount": moveTab.amount])
 
             default:
                 return false
@@ -286,16 +298,19 @@ extension Ghostty {
             userInfo: [String: Any]? = nil
         ) -> Bool {
             guard target.tag == GHOSTTY_TARGET_SURFACE,
-                  let surface = target.target.surface,
-                  let surfaceView = surfaceView(from: surface) else { return false }
+                let surface = target.target.surface,
+                let surfaceView = surfaceView(from: surface)
+            else { return false }
             DispatchQueue.main.async {
                 NotificationCenter.default.post(name: name, object: surfaceView, userInfo: userInfo)
             }
             return true
         }
 
-        static func readClipboard(_ userdata: UnsafeMutableRawPointer?, location: ghostty_clipboard_e, state: UnsafeMutableRawPointer?) {
-            guard let userdata = userdata else { return }
+        static func readClipboard(
+            _ userdata: UnsafeMutableRawPointer?, location: ghostty_clipboard_e, state: UnsafeMutableRawPointer?
+        ) {
+            guard let userdata else { return }
             let surfaceView = Unmanaged<SurfaceView>.fromOpaque(userdata).takeUnretainedValue()
             guard let surface = surfaceView.surface else { return }
 
@@ -306,8 +321,11 @@ extension Ghostty {
             }
         }
 
-        static func confirmReadClipboard(_ userdata: UnsafeMutableRawPointer?, string: UnsafePointer<CChar>?, state: UnsafeMutableRawPointer?, request: ghostty_clipboard_request_e) {
-            guard let userdata = userdata else { return }
+        static func confirmReadClipboard(
+            _ userdata: UnsafeMutableRawPointer?, string: UnsafePointer<CChar>?, state: UnsafeMutableRawPointer?,
+            request: ghostty_clipboard_request_e
+        ) {
+            guard let userdata else { return }
             let surfaceView = Unmanaged<SurfaceView>.fromOpaque(userdata).takeUnretainedValue()
             guard let surface = surfaceView.surface else { return }
 
@@ -316,8 +334,11 @@ extension Ghostty {
             }
         }
 
-        static func writeClipboard(_ userdata: UnsafeMutableRawPointer?, location: ghostty_clipboard_e, content: UnsafePointer<ghostty_clipboard_content_s>?, len: Int, confirm: Bool) {
-            guard let content = content, len > 0 else { return }
+        static func writeClipboard(
+            _ userdata: UnsafeMutableRawPointer?, location: ghostty_clipboard_e,
+            content: UnsafePointer<ghostty_clipboard_content_s>?, len: Int, confirm: Bool
+        ) {
+            guard let content, len > 0 else { return }
 
             let pasteboard = NSPasteboard.general
             let item = content[0]
@@ -329,7 +350,7 @@ extension Ghostty {
         }
 
         static func closeSurface(_ userdata: UnsafeMutableRawPointer?, processAlive: Bool) {
-            guard let userdata = userdata else { return }
+            guard let userdata else { return }
             let surfaceView = Unmanaged<SurfaceView>.fromOpaque(userdata).takeUnretainedValue()
 
             NotificationCenter.default.post(

@@ -1,6 +1,6 @@
 import AppKit
-import os.log
 import SwiftUI
+import os.log
 
 private let appLogger = Logger(subsystem: "com.agentstudio", category: "AppDelegate")
 
@@ -93,7 +93,8 @@ class AppDelegate: NSObject, NSApplicationDelegate {
 
         let alert = NSAlert()
         alert.messageText = "Worktrunk Not Installed"
-        alert.informativeText = "AgentStudio uses Worktrunk for git worktree management. Would you like to install it via Homebrew?"
+        alert.informativeText =
+            "AgentStudio uses Worktrunk for git worktree management. Would you like to install it via Homebrew?"
         alert.alertStyle = .warning
         alert.addButton(withTitle: "Install with Homebrew")
         alert.addButton(withTitle: "Copy Command")
@@ -154,8 +155,9 @@ class AppDelegate: NSObject, NSApplicationDelegate {
                     }
                     // Main pane: session ID from repo + worktree stable keys
                     guard let worktreeId = pane.worktreeId,
-                          let repo = store.repo(containing: worktreeId),
-                          let worktree = store.worktree(worktreeId) else { return nil }
+                        let repo = store.repo(containing: worktreeId),
+                        let worktree = store.worktree(worktreeId)
+                    else { return nil }
                     return ZmxBackend.sessionId(
                         repoStableKey: repo.stableKey,
                         worktreeStableKey: worktree.stableKey,
@@ -181,7 +183,8 @@ class AppDelegate: NSObject, NSApplicationDelegate {
                                 } catch is CancellationError {
                                     throw CancellationError()
                                 } catch {
-                                    appLogger.warning("Failed to kill orphan zmx session \(orphanId): \(error.localizedDescription)")
+                                    appLogger.warning(
+                                        "Failed to kill orphan zmx session \(orphanId): \(error.localizedDescription)")
                                 }
                             }
                         }
@@ -203,7 +206,7 @@ class AppDelegate: NSObject, NSApplicationDelegate {
     }
 
     func applicationShouldTerminateAfterLastWindowClosed(_ sender: NSApplication) -> Bool {
-        return false  // Keep running for menu bar / dock
+        false  // Keep running for menu bar / dock
     }
 
     func applicationShouldHandleReopen(_ sender: NSApplication, hasVisibleWindows flag: Bool) -> Bool {
@@ -239,7 +242,7 @@ class AppDelegate: NSObject, NSApplicationDelegate {
     }
 
     func applicationSupportsSecureRestorableState(_ app: NSApplication) -> Bool {
-        return true
+        true
     }
 
     // MARK: - Menu Setup
@@ -261,17 +264,25 @@ class AppDelegate: NSObject, NSApplicationDelegate {
 
         // App menu
         let appMenu = NSMenu()
-        appMenu.addItem(NSMenuItem(title: "About AgentStudio", action: #selector(NSApplication.orderFrontStandardAboutPanel(_:)), keyEquivalent: ""))
+        appMenu.addItem(
+            NSMenuItem(
+                title: "About AgentStudio", action: #selector(NSApplication.orderFrontStandardAboutPanel(_:)),
+                keyEquivalent: ""))
         appMenu.addItem(NSMenuItem.separator())
         appMenu.addItem(NSMenuItem(title: "Settings...", action: #selector(openSettings), keyEquivalent: ","))
         appMenu.addItem(NSMenuItem.separator())
-        appMenu.addItem(NSMenuItem(title: "Hide AgentStudio", action: #selector(NSApplication.hide(_:)), keyEquivalent: "h"))
-        let hideOthersItem = NSMenuItem(title: "Hide Others", action: #selector(NSApplication.hideOtherApplications(_:)), keyEquivalent: "h")
+        appMenu.addItem(
+            NSMenuItem(title: "Hide AgentStudio", action: #selector(NSApplication.hide(_:)), keyEquivalent: "h"))
+        let hideOthersItem = NSMenuItem(
+            title: "Hide Others", action: #selector(NSApplication.hideOtherApplications(_:)), keyEquivalent: "h")
         hideOthersItem.keyEquivalentModifierMask = [.command, .option]
         appMenu.addItem(hideOthersItem)
-        appMenu.addItem(NSMenuItem(title: "Show All", action: #selector(NSApplication.unhideAllApplications(_:)), keyEquivalent: ""))
+        appMenu.addItem(
+            NSMenuItem(title: "Show All", action: #selector(NSApplication.unhideAllApplications(_:)), keyEquivalent: "")
+        )
         appMenu.addItem(NSMenuItem.separator())
-        appMenu.addItem(NSMenuItem(title: "Quit AgentStudio", action: #selector(NSApplication.terminate(_:)), keyEquivalent: "q"))
+        appMenu.addItem(
+            NSMenuItem(title: "Quit AgentStudio", action: #selector(NSApplication.terminate(_:)), keyEquivalent: "q"))
 
         let appMenuItem = NSMenuItem()
         appMenuItem.submenu = appMenu
@@ -315,7 +326,8 @@ class AppDelegate: NSObject, NSApplicationDelegate {
 
         // Command bar shortcuts
         viewMenu.addItem(NSMenuItem(title: "Quick Open", action: #selector(showCommandBar), keyEquivalent: "p"))
-        let commandModeItem = NSMenuItem(title: "Command Palette", action: #selector(showCommandBarCommands), keyEquivalent: "p")
+        let commandModeItem = NSMenuItem(
+            title: "Command Palette", action: #selector(showCommandBarCommands), keyEquivalent: "p")
         commandModeItem.keyEquivalentModifierMask = [.command, .shift]
         viewMenu.addItem(commandModeItem)
         let paneModeItem = NSMenuItem(title: "Go to Pane", action: #selector(showCommandBarPanes), keyEquivalent: "p")
@@ -328,7 +340,9 @@ class AppDelegate: NSObject, NSApplicationDelegate {
         viewMenu.addItem(NSMenuItem.separator())
 
         // Full Screen uses ⌃⌘F (not ⇧⌘F) to avoid conflict with Filter Sidebar
-        viewMenu.addItem(NSMenuItem(title: "Enter Full Screen", action: #selector(NSWindow.toggleFullScreen(_:)), keyEquivalent: "f"))
+        viewMenu.addItem(
+            NSMenuItem(title: "Enter Full Screen", action: #selector(NSWindow.toggleFullScreen(_:)), keyEquivalent: "f")
+        )
         viewMenu.items.last?.keyEquivalentModifierMask = [.command, .control]
 
         let viewMenuItem = NSMenuItem()
@@ -337,10 +351,13 @@ class AppDelegate: NSObject, NSApplicationDelegate {
 
         // Window menu
         let windowMenu = NSMenu(title: "Window")
-        windowMenu.addItem(NSMenuItem(title: "Minimize", action: #selector(NSWindow.performMiniaturize(_:)), keyEquivalent: "m"))
+        windowMenu.addItem(
+            NSMenuItem(title: "Minimize", action: #selector(NSWindow.performMiniaturize(_:)), keyEquivalent: "m"))
         windowMenu.addItem(NSMenuItem(title: "Zoom", action: #selector(NSWindow.performZoom(_:)), keyEquivalent: ""))
         windowMenu.addItem(NSMenuItem.separator())
-        windowMenu.addItem(NSMenuItem(title: "Bring All to Front", action: #selector(NSApplication.arrangeInFront(_:)), keyEquivalent: ""))
+        windowMenu.addItem(
+            NSMenuItem(
+                title: "Bring All to Front", action: #selector(NSApplication.arrangeInFront(_:)), keyEquivalent: ""))
 
         // Tab switching shortcuts (⌘1 through ⌘9)
         windowMenu.addItem(NSMenuItem.separator())
@@ -356,7 +373,8 @@ class AppDelegate: NSObject, NSApplicationDelegate {
 
         // Help menu
         let helpMenu = NSMenu(title: "Help")
-        helpMenu.addItem(NSMenuItem(title: "AgentStudio Help", action: #selector(NSApplication.showHelp(_:)), keyEquivalent: "?"))
+        helpMenu.addItem(
+            NSMenuItem(title: "AgentStudio Help", action: #selector(NSApplication.showHelp(_:)), keyEquivalent: "?"))
 
         let helpMenuItem = NSMenuItem()
         helpMenuItem.submenu = helpMenu
@@ -429,7 +447,8 @@ class AppDelegate: NSObject, NSApplicationDelegate {
 
     private func handleSignInRequested(_ notification: Notification) {
         guard let providerName = notification.userInfo?["provider"] as? String,
-              let provider = OAuthProvider(rawValue: providerName) else {
+            let provider = OAuthProvider(rawValue: providerName)
+        else {
             return
         }
         guard let window = NSApp.keyWindow ?? mainWindowController?.window else {

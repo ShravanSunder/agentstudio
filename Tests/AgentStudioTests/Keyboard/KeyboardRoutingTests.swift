@@ -1,5 +1,6 @@
-import XCTest
 import AppKit
+import XCTest
+
 @testable import AgentStudio
 
 final class KeyboardRoutingTests: XCTestCase {

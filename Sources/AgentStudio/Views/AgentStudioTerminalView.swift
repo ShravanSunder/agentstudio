@@ -58,8 +58,10 @@ final class AgentStudioTerminalView: PaneView, SurfaceHealthDelegate {
     deinit {
         // Safety net: coordinator.teardownView() should have detached before dealloc.
         // If surfaceId is still set, the normal teardown path was missed.
-        if let surfaceId = surfaceId {
-            debugLog("[AgentStudioTerminalView] WARNING: deinit with surfaceId \(surfaceId) still attached — teardown was missed")
+        if let surfaceId {
+            debugLog(
+                "[AgentStudioTerminalView] WARNING: deinit with surfaceId \(surfaceId) still attached — teardown was missed"
+            )
         }
     }
 
@@ -89,7 +91,7 @@ final class AgentStudioTerminalView: PaneView, SurfaceHealthDelegate {
             surfaceView.topAnchor.constraint(equalTo: topAnchor),
             surfaceView.leadingAnchor.constraint(equalTo: leadingAnchor),
             surfaceView.trailingAnchor.constraint(equalTo: trailingAnchor),
-            surfaceView.bottomAnchor.constraint(equalTo: bottomAnchor)
+            surfaceView.bottomAnchor.constraint(equalTo: bottomAnchor),
         ])
 
         self.ghosttySurface = surfaceView
@@ -158,7 +160,7 @@ final class AgentStudioTerminalView: PaneView, SurfaceHealthDelegate {
                 overlay.topAnchor.constraint(equalTo: topAnchor),
                 overlay.leadingAnchor.constraint(equalTo: leadingAnchor),
                 overlay.trailingAnchor.constraint(equalTo: trailingAnchor),
-                overlay.bottomAnchor.constraint(equalTo: bottomAnchor)
+                overlay.bottomAnchor.constraint(equalTo: bottomAnchor),
             ])
 
             errorOverlay = overlay
@@ -211,20 +213,20 @@ final class AgentStudioTerminalView: PaneView, SurfaceHealthDelegate {
     }
 
     func requestClose() {
-        guard let surfaceId = surfaceId else { return }
+        guard let surfaceId else { return }
         SurfaceManager.shared.detach(surfaceId, reason: .close)
         handleProcessTerminated(exitCode: nil)
     }
 
     func terminateProcess() {
-        guard isProcessRunning, let surfaceId = surfaceId else { return }
+        guard isProcessRunning, let surfaceId else { return }
         isProcessRunning = false
         SurfaceManager.shared.destroy(surfaceId)
         self.surfaceId = nil
     }
 
     var processExited: Bool {
-        guard let surfaceId = surfaceId else { return true }
+        guard let surfaceId else { return true }
         return SurfaceManager.shared.hasProcessExited(surfaceId)
     }
 
@@ -233,8 +235,8 @@ final class AgentStudioTerminalView: PaneView, SurfaceHealthDelegate {
     override var acceptsFirstResponder: Bool { true }
 
     override func becomeFirstResponder() -> Bool {
-        if let surface = ghosttySurface, let window = window {
-            if let surfaceId = surfaceId {
+        if let surface = ghosttySurface, let window {
+            if let surfaceId {
                 SurfaceManager.shared.setFocus(surfaceId, focused: true)
             }
             return window.makeFirstResponder(surface)
@@ -243,7 +245,7 @@ final class AgentStudioTerminalView: PaneView, SurfaceHealthDelegate {
     }
 
     override func resignFirstResponder() -> Bool {
-        if let surfaceId = surfaceId {
+        if let surfaceId {
             SurfaceManager.shared.setFocus(surfaceId, focused: false)
         }
         return super.resignFirstResponder()

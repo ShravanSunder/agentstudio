@@ -61,6 +61,26 @@ if [ -d "$TERMINFO_SRC" ]; then
 fi
 """
 
+# --- Format & lint tasks ---
+
+[tasks.format]
+description = "Format Swift sources with swift-format"
+run = """
+swift-format format --in-place --recursive Sources/ Tests/
+echo "Formatted all Swift sources"
+"""
+
+[tasks.lint]
+description = "Lint Swift sources with swift-format and swiftlint"
+run = """
+#!/usr/bin/env bash
+set -e
+echo "--- swift-format lint ---"
+swift-format lint --recursive Sources/ Tests/ 2>&1 && echo "swift-format: OK" || { echo "swift-format: FAIL"; exit 1; }
+echo "--- swiftlint ---"
+swiftlint lint --strict 2>&1 && echo "swiftlint: OK" || { echo "swiftlint: FAIL"; exit 1; }
+"""
+
 # --- Composite build tasks ---
 
 [tasks.build]

@@ -57,7 +57,8 @@ final class URLHistoryService {
     /// Record a visited URL. Deduplicates by URL string, updates title and timestamp.
     func record(url: URL, title: String) {
         guard let scheme = url.scheme?.lowercased(),
-              scheme == "https" || scheme == "http" else { return }
+            scheme == "https" || scheme == "http"
+        else { return }
         guard let host = url.host(), !host.isEmpty else { return }
 
         let displayTitle = title.isEmpty ? host : title
@@ -136,8 +137,8 @@ final class URLHistoryService {
 
         var results: [URLHistoryEntry] = favorites.filter { entry in
             trimmed.isEmpty
-            || entry.url.absoluteString.lowercased().contains(trimmed)
-            || entry.title.lowercased().contains(trimmed)
+                || entry.url.absoluteString.lowercased().contains(trimmed)
+                || entry.title.lowercased().contains(trimmed)
         }
 
         let favoriteKeys = Set(results.map { $0.url.absoluteString.lowercased() })
@@ -170,7 +171,8 @@ final class URLHistoryService {
 
     private func loadHistory() {
         guard let data = storage.data(forKey: Self.historyKey),
-              let decoded = try? JSONDecoder().decode([URLHistoryEntry].self, from: data) else {
+            let decoded = try? JSONDecoder().decode([URLHistoryEntry].self, from: data)
+        else {
             return
         }
         entries = decoded
@@ -188,7 +190,8 @@ final class URLHistoryService {
 
     private func loadFavorites() {
         if let data = storage.data(forKey: Self.favoritesKey),
-           let decoded = try? JSONDecoder().decode([URLHistoryEntry].self, from: data) {
+            let decoded = try? JSONDecoder().decode([URLHistoryEntry].self, from: data)
+        {
             favorites = decoded
         } else {
             // Seed defaults on first run

@@ -1,4 +1,5 @@
 import XCTest
+
 @testable import AgentStudio
 
 /// Tests that `Tab` works correctly as a `ResolvableTab` with `ActionResolver`.
@@ -78,12 +79,14 @@ final class ActionResolverTabConformanceTests: XCTestCase {
         )
 
         // Assert
-        XCTAssertEqual(result, .insertPane(
-            source: .newTerminal,
-            targetTabId: tab.id,
-            targetPaneId: paneId,
-            direction: .right
-        ))
+        XCTAssertEqual(
+            result,
+            .insertPane(
+                source: .newTerminal,
+                targetTabId: tab.id,
+                targetPaneId: paneId,
+                direction: .right
+            ))
     }
 
     func test_resolve_splitBelow_withTab_returnsNil() {

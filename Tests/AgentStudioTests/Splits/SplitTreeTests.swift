@@ -1,5 +1,6 @@
-import XCTest
 import AppKit
+import XCTest
+
 @testable import AgentStudio
 
 final class SplitTreeTests: XCTestCase {
@@ -435,4 +436,3 @@ final class SplitTreeTests: XCTestCase {
         XCTAssertTrue(views[1] === viewB)
     }
 }
-

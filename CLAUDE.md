@@ -21,6 +21,8 @@ agent-studio/
 ## Key Files
 - `Package.swift` - SPM manifest, links GhosttyKit as binary target
 - `.mise.toml` - Tool versions (zig) and build task definitions
+- `.swift-format` - swift-format configuration (4-space indent, 120-char lines)
+- `.swiftlint.yml` - SwiftLint configuration (strict mode, Swift 6 rules)
 - `.gitignore` - Excludes build artifacts (.zig-cache, macos/build, *.xcframework)
 
 ## Build Flow
@@ -41,6 +43,15 @@ Individual steps:
 - `mise run build-zmx` — Build zmx binary only
 - `mise run setup-dev-resources` — Copy shell-integration + terminfo for SPM
 - `mise run copy-xcframework` — Copy xcframework to Frameworks/
+
+### Formatting & Linting
+
+```bash
+mise run format               # Auto-format all Swift sources with swift-format
+mise run lint                  # Lint all Swift sources (swift-format + swiftlint)
+```
+
+Requires `brew install swift-format swiftlint`. A PostToolUse hook (`.claude/hooks/check.sh`) runs swift-format and swiftlint automatically after every Edit/Write on `.swift` files.
 
 ### ⚠️ Running Swift Commands (CRITICAL)
 

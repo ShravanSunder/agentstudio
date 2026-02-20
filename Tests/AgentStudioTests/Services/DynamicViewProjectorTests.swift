@@ -1,4 +1,5 @@
 import XCTest
+
 @testable import AgentStudio
 
 final class DynamicViewProjectorTests: XCTestCase {
@@ -14,9 +15,13 @@ final class DynamicViewProjectorTests: XCTestCase {
         let wtB1 = makeWorktree(name: "main", path: "/Users/dev/projects/askluna/main")
 
         var repoAWithWTs = repoA
-        repoAWithWTs = Repo(id: repoA.id, name: repoA.name, repoPath: repoA.repoPath, worktrees: [wtA1, wtA2], createdAt: repoA.createdAt, updatedAt: repoA.updatedAt)
+        repoAWithWTs = Repo(
+            id: repoA.id, name: repoA.name, repoPath: repoA.repoPath, worktrees: [wtA1, wtA2],
+            createdAt: repoA.createdAt, updatedAt: repoA.updatedAt)
         var repoBWithWTs = repoB
-        repoBWithWTs = Repo(id: repoB.id, name: repoB.name, repoPath: repoB.repoPath, worktrees: [wtB1], createdAt: repoB.createdAt, updatedAt: repoB.updatedAt)
+        repoBWithWTs = Repo(
+            id: repoB.id, name: repoB.name, repoPath: repoB.repoPath, worktrees: [wtB1], createdAt: repoB.createdAt,
+            updatedAt: repoB.updatedAt)
 
         let pane1 = Pane(
             content: .terminal(TerminalState(provider: .zmx, lifetime: .persistent)),
@@ -123,7 +128,7 @@ final class DynamicViewProjectorTests: XCTestCase {
         XCTAssertEqual(result.groups.count, 4)
 
         let groupNames = Set(result.groups.map(\.name))
-        XCTAssertTrue(groupNames.contains("main"))        // wtA1 and wtB1 both named "main" — they're different IDs
+        XCTAssertTrue(groupNames.contains("main"))  // wtA1 and wtB1 both named "main" — they're different IDs
         XCTAssertTrue(groupNames.contains("feature-x"))
         XCTAssertTrue(groupNames.contains("Floating"))
     }
@@ -156,8 +161,8 @@ final class DynamicViewProjectorTests: XCTestCase {
 
         let groupNames = Set(result.groups.map(\.name))
         XCTAssertTrue(groupNames.contains("Claude Code"))  // pane1 + pane3
-        XCTAssertTrue(groupNames.contains("Codex"))         // pane2
-        XCTAssertTrue(groupNames.contains("No Agent"))      // pane4
+        XCTAssertTrue(groupNames.contains("Codex"))  // pane2
+        XCTAssertTrue(groupNames.contains("No Agent"))  // pane4
 
         let claudeGroup = result.groups.first { $0.name == "Claude Code" }!
         XCTAssertEqual(claudeGroup.paneIds.count, 2)
@@ -237,8 +242,9 @@ final class DynamicViewProjectorTests: XCTestCase {
         )
 
         for group in result.groups {
-            XCTAssertEqual(Set(group.layout.paneIds), Set(group.paneIds),
-                           "Layout pane IDs should match group pane IDs for \(group.name)")
+            XCTAssertEqual(
+                Set(group.layout.paneIds), Set(group.paneIds),
+                "Layout pane IDs should match group pane IDs for \(group.name)")
         }
     }
 

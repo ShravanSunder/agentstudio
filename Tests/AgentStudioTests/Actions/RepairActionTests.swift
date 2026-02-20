@@ -1,4 +1,5 @@
 import XCTest
+
 @testable import AgentStudio
 
 final class RepairActionTests: XCTestCase {
@@ -100,7 +101,7 @@ final class RepairActionTests: XCTestCase {
         let set: Set<RepairAction> = [
             .reattachZmx(paneId: id),
             .recreateSurface(paneId: id),
-            .reattachZmx(paneId: id) // duplicate
+            .reattachZmx(paneId: id),  // duplicate
         ]
         XCTAssertEqual(set.count, 2)
     }

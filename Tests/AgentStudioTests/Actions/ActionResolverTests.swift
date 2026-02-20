@@ -1,4 +1,5 @@
 import XCTest
+
 @testable import AgentStudio
 
 final class ActionResolverTests: XCTestCase {
@@ -35,9 +36,10 @@ final class ActionResolverTests: XCTestCase {
         let sourceTab = makeMultiPaneTab(tabId: sourceTabId)
         let targetTab = makeSinglePaneTab(tabId: targetTabId, paneId: targetPaneId)
         let snapshot = makeSnapshot(tabs: [sourceTab, targetTab])
-        let payload = SplitDropPayload(kind: .existingTab(
-            tabId: sourceTabId
-        ))
+        let payload = SplitDropPayload(
+            kind: .existingTab(
+                tabId: sourceTabId
+            ))
 
         // Act
         let result = ActionResolver.resolveDrop(
@@ -49,12 +51,14 @@ final class ActionResolverTests: XCTestCase {
         )
 
         // Assert
-        XCTAssertEqual(result, .mergeTab(
-            sourceTabId: sourceTabId,
-            targetTabId: targetTabId,
-            targetPaneId: targetPaneId,
-            direction: .right
-        ))
+        XCTAssertEqual(
+            result,
+            .mergeTab(
+                sourceTabId: sourceTabId,
+                targetTabId: targetTabId,
+                targetPaneId: targetPaneId,
+                direction: .right
+            ))
     }
 
     // MARK: - resolveDrop: Single-pane tab → insertPane
@@ -68,9 +72,10 @@ final class ActionResolverTests: XCTestCase {
         let sourceTab = makeSinglePaneTab(tabId: sourceTabId, paneId: sourcePaneId)
         let targetTab = makeSinglePaneTab(tabId: targetTabId, paneId: targetPaneId)
         let snapshot = makeSnapshot(tabs: [sourceTab, targetTab])
-        let payload = SplitDropPayload(kind: .existingTab(
-            tabId: sourceTabId
-        ))
+        let payload = SplitDropPayload(
+            kind: .existingTab(
+                tabId: sourceTabId
+            ))
 
         // Act
         let result = ActionResolver.resolveDrop(
@@ -82,12 +87,14 @@ final class ActionResolverTests: XCTestCase {
         )
 
         // Assert
-        XCTAssertEqual(result, .insertPane(
-            source: .existingPane(paneId: sourcePaneId, sourceTabId: sourceTabId),
-            targetTabId: targetTabId,
-            targetPaneId: targetPaneId,
-            direction: .left
-        ))
+        XCTAssertEqual(
+            result,
+            .insertPane(
+                source: .existingPane(paneId: sourcePaneId, sourceTabId: sourceTabId),
+                targetTabId: targetTabId,
+                targetPaneId: targetPaneId,
+                direction: .left
+            ))
     }
 
     // MARK: - resolveDrop: New terminal → insertPane
@@ -110,12 +117,14 @@ final class ActionResolverTests: XCTestCase {
         )
 
         // Assert
-        XCTAssertEqual(result, .insertPane(
-            source: .newTerminal,
-            targetTabId: targetTabId,
-            targetPaneId: targetPaneId,
-            direction: .right
-        ))
+        XCTAssertEqual(
+            result,
+            .insertPane(
+                source: .newTerminal,
+                targetTabId: targetTabId,
+                targetPaneId: targetPaneId,
+                direction: .right
+            ))
     }
 
     // MARK: - resolveDrop: Source tab not found → nil
@@ -126,9 +135,10 @@ final class ActionResolverTests: XCTestCase {
         let targetPaneId = UUID()
         let targetTab = makeSinglePaneTab(tabId: targetTabId, paneId: targetPaneId)
         let snapshot = makeSnapshot(tabs: [targetTab])
-        let payload = SplitDropPayload(kind: .existingTab(
-            tabId: UUID()
-        ))
+        let payload = SplitDropPayload(
+            kind: .existingTab(
+                tabId: UUID()
+            ))
 
         // Act
         let result = ActionResolver.resolveDrop(
@@ -151,9 +161,10 @@ final class ActionResolverTests: XCTestCase {
         let paneIds = [UUID(), UUID()]
         let tab = makeMultiPaneTab(tabId: tabId, paneIds: paneIds)
         let snapshot = makeSnapshot(tabs: [tab])
-        let payload = SplitDropPayload(kind: .existingTab(
-            tabId: tabId
-        ))
+        let payload = SplitDropPayload(
+            kind: .existingTab(
+                tabId: tabId
+            ))
 
         // Act
         let result = ActionResolver.resolveDrop(
@@ -165,12 +176,14 @@ final class ActionResolverTests: XCTestCase {
         )
 
         // Assert — resolver produces the action, validator will reject it
-        XCTAssertEqual(result, .mergeTab(
-            sourceTabId: tabId,
-            targetTabId: tabId,
-            targetPaneId: paneIds[0],
-            direction: .right
-        ))
+        XCTAssertEqual(
+            result,
+            .mergeTab(
+                sourceTabId: tabId,
+                targetTabId: tabId,
+                targetPaneId: paneIds[0],
+                direction: .right
+            ))
 
         // Verify validator rejects self-merge
         let validation = ActionValidator.validate(result!, state: snapshot)
@@ -390,12 +403,14 @@ final class ActionResolverTests: XCTestCase {
         )
 
         // Assert
-        XCTAssertEqual(result, .insertPane(
-            source: .newTerminal,
-            targetTabId: tabId,
-            targetPaneId: paneId,
-            direction: .right
-        ))
+        XCTAssertEqual(
+            result,
+            .insertPane(
+                source: .newTerminal,
+                targetTabId: tabId,
+                targetPaneId: paneId,
+                direction: .right
+            ))
     }
 
     func test_resolve_splitBelow_returnsNil() {
@@ -434,28 +449,35 @@ final class ActionResolverTests: XCTestCase {
 
         // Act & Assert — non-structural commands return nil
         XCTAssertNil(ActionResolver.resolve(command: .addRepo, tabs: [tab], activeTabId: tabId))
-        XCTAssertNil(ActionResolver.resolve(
-            command: .toggleSidebar, tabs: [tab], activeTabId: tabId
-        ))
-        XCTAssertNil(ActionResolver.resolve(
-            command: .newFloatingTerminal, tabs: [tab], activeTabId: tabId
-        ))
-        XCTAssertNil(ActionResolver.resolve(
-            command: .filterSidebar, tabs: [tab], activeTabId: tabId
-        ))
-        XCTAssertNil(ActionResolver.resolve(
-            command: .openNewTerminalInTab, tabs: [tab], activeTabId: tabId
-        ))
+        XCTAssertNil(
+            ActionResolver.resolve(
+                command: .toggleSidebar, tabs: [tab], activeTabId: tabId
+            ))
+        XCTAssertNil(
+            ActionResolver.resolve(
+                command: .newFloatingTerminal, tabs: [tab], activeTabId: tabId
+            ))
+        XCTAssertNil(
+            ActionResolver.resolve(
+                command: .filterSidebar, tabs: [tab], activeTabId: tabId
+            ))
+        XCTAssertNil(
+            ActionResolver.resolve(
+                command: .openNewTerminalInTab, tabs: [tab], activeTabId: tabId
+            ))
         // Webview/OAuth commands are non-pane commands
-        XCTAssertNil(ActionResolver.resolve(
-            command: .openWebview, tabs: [tab], activeTabId: tabId
-        ))
-        XCTAssertNil(ActionResolver.resolve(
-            command: .signInGitHub, tabs: [tab], activeTabId: tabId
-        ))
-        XCTAssertNil(ActionResolver.resolve(
-            command: .signInGoogle, tabs: [tab], activeTabId: tabId
-        ))
+        XCTAssertNil(
+            ActionResolver.resolve(
+                command: .openWebview, tabs: [tab], activeTabId: tabId
+            ))
+        XCTAssertNil(
+            ActionResolver.resolve(
+                command: .signInGitHub, tabs: [tab], activeTabId: tabId
+            ))
+        XCTAssertNil(
+            ActionResolver.resolve(
+                command: .signInGoogle, tabs: [tab], activeTabId: tabId
+            ))
     }
 
     func test_resolve_noActivePaneId_returnsNil() {
@@ -521,12 +543,14 @@ final class ActionResolverTests: XCTestCase {
             )
 
             // Assert
-            XCTAssertEqual(result, .insertPane(
-                source: .newTerminal,
-                targetTabId: tabId,
-                targetPaneId: paneId,
-                direction: expectedDirection
-            ), "Zone \(zone) should map to direction \(expectedDirection)")
+            XCTAssertEqual(
+                result,
+                .insertPane(
+                    source: .newTerminal,
+                    targetTabId: tabId,
+                    targetPaneId: paneId,
+                    direction: expectedDirection
+                ), "Zone \(zone) should map to direction \(expectedDirection)")
         }
     }
 }

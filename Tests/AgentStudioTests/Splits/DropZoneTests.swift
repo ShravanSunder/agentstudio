@@ -1,5 +1,6 @@
-import XCTest
 import CoreGraphics
+import XCTest
+
 @testable import AgentStudio
 
 final class DropZoneTests: XCTestCase {
@@ -60,7 +61,7 @@ final class DropZoneTests: XCTestCase {
         // At (0, 0): distToLeft=0, distToTop=0. Left wins (checked first in if-chain).
         // Arrange
         let size = CGSize(width: 400, height: 400)
-        let point = CGPoint(x: 0, y: 0)
+        let point = CGPoint.zero
 
         // Act
         let result = DropZone.calculate(at: point, in: size)
@@ -111,7 +112,7 @@ final class DropZoneTests: XCTestCase {
     func test_calculate_negativeDimensions_returnsRight() {
         // Arrange
         let size = CGSize(width: -100, height: -100)
-        let point = CGPoint(x: 0, y: 0)
+        let point = CGPoint.zero
 
         // Act
         let result = DropZone.calculate(at: point, in: size)

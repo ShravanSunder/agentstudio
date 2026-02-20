@@ -1,4 +1,5 @@
 import XCTest
+
 @testable import AgentStudio
 
 final class TabArrangementTests: XCTestCase {
@@ -17,11 +18,14 @@ final class TabArrangementTests: XCTestCase {
     }
 
     func test_defaultArrangement_returnsIsDefaultTrue() {
-        let paneA = UUID(), paneB = UUID()
+        let paneA = UUID()
+        let paneB = UUID()
         let defaultLayout = Layout(paneId: paneA)
             .inserting(paneId: paneB, at: paneA, direction: .horizontal, position: .after)
-        let defaultArr = PaneArrangement(name: "Default", isDefault: true, layout: defaultLayout, visiblePaneIds: Set(defaultLayout.paneIds))
-        let customArr = PaneArrangement(name: "Focus", isDefault: false, layout: Layout(paneId: paneA), visiblePaneIds: [paneA])
+        let defaultArr = PaneArrangement(
+            name: "Default", isDefault: true, layout: defaultLayout, visiblePaneIds: Set(defaultLayout.paneIds))
+        let customArr = PaneArrangement(
+            name: "Focus", isDefault: false, layout: Layout(paneId: paneA), visiblePaneIds: [paneA])
 
         let tab = Tab(
             panes: defaultLayout.paneIds,
@@ -36,11 +40,13 @@ final class TabArrangementTests: XCTestCase {
     }
 
     func test_activeArrangement_returnsSelectedArrangement() {
-        let paneA = UUID(), paneB = UUID()
+        let paneA = UUID()
+        let paneB = UUID()
         let defaultLayout = Layout(paneId: paneA)
             .inserting(paneId: paneB, at: paneA, direction: .horizontal, position: .after)
         let defaultArr = PaneArrangement(name: "Default", isDefault: true, layout: defaultLayout)
-        let customArr = PaneArrangement(name: "Solo", isDefault: false, layout: Layout(paneId: paneA), visiblePaneIds: [paneA])
+        let customArr = PaneArrangement(
+            name: "Solo", isDefault: false, layout: Layout(paneId: paneA), visiblePaneIds: [paneA])
 
         let tab = Tab(
             panes: defaultLayout.paneIds,
@@ -71,12 +77,15 @@ final class TabArrangementTests: XCTestCase {
     // MARK: - Derived Properties Delegate to Active Arrangement
 
     func test_paneIds_comesFromActiveArrangement() {
-        let paneA = UUID(), paneB = UUID(), paneC = UUID()
+        let paneA = UUID()
+        let paneB = UUID()
+        let paneC = UUID()
         let fullLayout = Layout(paneId: paneA)
             .inserting(paneId: paneB, at: paneA, direction: .horizontal, position: .after)
             .inserting(paneId: paneC, at: paneB, direction: .horizontal, position: .after)
         let defaultArr = PaneArrangement(name: "Default", isDefault: true, layout: fullLayout)
-        let focusArr = PaneArrangement(name: "Focus", isDefault: false, layout: Layout(paneId: paneA), visiblePaneIds: [paneA])
+        let focusArr = PaneArrangement(
+            name: "Focus", isDefault: false, layout: Layout(paneId: paneA), visiblePaneIds: [paneA])
 
         // Active is the focus arrangement
         let tab = Tab(
@@ -91,7 +100,8 @@ final class TabArrangementTests: XCTestCase {
     }
 
     func test_isSplit_reflectsActiveArrangementLayout() {
-        let paneA = UUID(), paneB = UUID()
+        let paneA = UUID()
+        let paneB = UUID()
         let splitLayout = Layout(paneId: paneA)
             .inserting(paneId: paneB, at: paneA, direction: .horizontal, position: .after)
         let defaultArr = PaneArrangement(name: "Default", isDefault: true, layout: splitLayout)
@@ -117,7 +127,8 @@ final class TabArrangementTests: XCTestCase {
 
     func test_defaultArrangementIndex_findsCorrectIndex() {
         let paneA = UUID()
-        let customArr = PaneArrangement(name: "Custom", isDefault: false, layout: Layout(paneId: paneA), visiblePaneIds: [paneA])
+        let customArr = PaneArrangement(
+            name: "Custom", isDefault: false, layout: Layout(paneId: paneA), visiblePaneIds: [paneA])
         let defaultArr = PaneArrangement(name: "Default", isDefault: true, layout: Layout(paneId: paneA))
 
         let tab = Tab(
@@ -133,7 +144,8 @@ final class TabArrangementTests: XCTestCase {
     func test_activeArrangementIndex_findsCorrectIndex() {
         let paneA = UUID()
         let defaultArr = PaneArrangement(name: "Default", isDefault: true, layout: Layout(paneId: paneA))
-        let customArr = PaneArrangement(name: "Custom", isDefault: false, layout: Layout(paneId: paneA), visiblePaneIds: [paneA])
+        let customArr = PaneArrangement(
+            name: "Custom", isDefault: false, layout: Layout(paneId: paneA), visiblePaneIds: [paneA])
 
         let tab = Tab(
             panes: [paneA],
@@ -162,11 +174,13 @@ final class TabArrangementTests: XCTestCase {
     // MARK: - Codable with Arrangements
 
     func test_codable_roundTrip_multipleArrangements() throws {
-        let paneA = UUID(), paneB = UUID()
+        let paneA = UUID()
+        let paneB = UUID()
         let splitLayout = Layout(paneId: paneA)
             .inserting(paneId: paneB, at: paneA, direction: .horizontal, position: .after)
         let defaultArr = PaneArrangement(name: "Default", isDefault: true, layout: splitLayout)
-        let customArr = PaneArrangement(name: "Focus", isDefault: false, layout: Layout(paneId: paneA), visiblePaneIds: [paneA])
+        let customArr = PaneArrangement(
+            name: "Focus", isDefault: false, layout: Layout(paneId: paneA), visiblePaneIds: [paneA])
 
         let tab = Tab(
             panes: [paneA, paneB],
@@ -201,7 +215,8 @@ final class TabArrangementTests: XCTestCase {
     // MARK: - PaneArrangement Model
 
     func test_paneArrangement_visiblePaneIds_defaultsToLayoutPanes() {
-        let paneA = UUID(), paneB = UUID()
+        let paneA = UUID()
+        let paneB = UUID()
         let layout = Layout(paneId: paneA)
             .inserting(paneId: paneB, at: paneA, direction: .horizontal, position: .after)
 
@@ -211,7 +226,8 @@ final class TabArrangementTests: XCTestCase {
     }
 
     func test_paneArrangement_visiblePaneIds_canBeSubset() {
-        let paneA = UUID(), paneB = UUID()
+        let paneA = UUID()
+        let paneB = UUID()
         let layout = Layout(paneId: paneA)
             .inserting(paneId: paneB, at: paneA, direction: .horizontal, position: .after)
 

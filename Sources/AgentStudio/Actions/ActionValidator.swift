@@ -1,3 +1,4 @@
+// swiftlint:disable cyclomatic_complexity function_body_length
 import Foundation
 
 /// Wrapper that proves an action has passed validation.
@@ -94,8 +95,9 @@ enum ActionValidator {
             }
             if case .existingPane(let sourcePaneId, let sourceTabId) = source {
                 guard state.tabContainsPane(sourceTabId, paneId: sourcePaneId) else {
-                    return .failure(.sourcePaneNotFound(
-                        paneId: sourcePaneId, sourceTabId: sourceTabId))
+                    return .failure(
+                        .sourcePaneNotFound(
+                            paneId: sourcePaneId, sourceTabId: sourceTabId))
                 }
                 // Self-insertion check: can't drop a pane onto itself
                 guard sourcePaneId != targetPaneId else {
@@ -141,9 +143,9 @@ enum ActionValidator {
             return .success(ValidatedAction(action))
 
         case .toggleSplitZoom(let tabId, let paneId),
-             .resizePaneByDelta(let tabId, let paneId, _, _),
-             .minimizePane(let tabId, let paneId),
-             .expandPane(let tabId, let paneId):
+            .resizePaneByDelta(let tabId, let paneId, _, _),
+            .minimizePane(let tabId, let paneId),
+            .expandPane(let tabId, let paneId):
             if let error = validateTabContainsPane(tabId: tabId, paneId: paneId, state: state) {
                 return .failure(error)
             }
@@ -157,9 +159,9 @@ enum ActionValidator {
 
         // Arrangement actions — validate tab exists
         case .createArrangement(let tabId, _, _),
-             .removeArrangement(let tabId, _),
-             .switchArrangement(let tabId, _),
-             .renameArrangement(let tabId, _, _):
+            .removeArrangement(let tabId, _),
+            .switchArrangement(let tabId, _),
+            .renameArrangement(let tabId, _, _):
             guard state.tab(tabId) != nil else {
                 return .failure(.tabNotFound(tabId: tabId))
             }
@@ -186,12 +188,12 @@ enum ActionValidator {
             }
             return .success(ValidatedAction(action))
         case .removeDrawerPane(let parentPaneId, _),
-             .setActiveDrawerPane(let parentPaneId, _),
-             .resizeDrawerPane(let parentPaneId, _, _),
-             .equalizeDrawerPanes(let parentPaneId),
-             .minimizeDrawerPane(let parentPaneId, _),
-             .expandDrawerPane(let parentPaneId, _),
-             .insertDrawerPane(let parentPaneId, _, _):
+            .setActiveDrawerPane(let parentPaneId, _),
+            .resizeDrawerPane(let parentPaneId, _, _),
+            .equalizeDrawerPanes(let parentPaneId),
+            .minimizeDrawerPane(let parentPaneId, _),
+            .expandDrawerPane(let parentPaneId, _),
+            .insertDrawerPane(let parentPaneId, _, _):
             guard state.tabContaining(paneId: parentPaneId) != nil else {
                 return .failure(.paneNotFound(paneId: parentPaneId, tabId: state.activeTabId ?? UUID()))
             }

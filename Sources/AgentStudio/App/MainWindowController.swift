@@ -9,8 +9,10 @@ class MainWindowController: NSWindowController, NSWindowDelegate {
     private static let windowFrameKey = "windowFrame"
     private static let estimatedTitlebarHeight: CGFloat = 40
 
-    convenience init(store: WorkspaceStore, executor: ActionExecutor,
-                     tabBarAdapter: TabBarAdapter, viewRegistry: ViewRegistry) {
+    convenience init(
+        store: WorkspaceStore, executor: ActionExecutor,
+        tabBarAdapter: TabBarAdapter, viewRegistry: ViewRegistry
+    ) {
         let window = NSWindow(
             contentRect: NSRect(x: 0, y: 0, width: 1200, height: 800),
             styleMask: [.titled, .closable, .miniaturizable, .resizable, .fullSizeContentView],
@@ -159,19 +161,22 @@ class MainWindowController: NSWindowController, NSWindowDelegate {
 
 extension MainWindowController: NSToolbarDelegate {
     func toolbarDefaultItemIdentifiers(_ toolbar: NSToolbar) -> [NSToolbarItem.Identifier] {
-        return [
+        [
             .flexibleSpace,
             .editMode,
             .space,
-            .addRepo
+            .addRepo,
         ]
     }
 
     func toolbarAllowedItemIdentifiers(_ toolbar: NSToolbar) -> [NSToolbarItem.Identifier] {
-        return toolbarDefaultItemIdentifiers(toolbar)
+        toolbarDefaultItemIdentifiers(toolbar)
     }
 
-    func toolbar(_ toolbar: NSToolbar, itemForItemIdentifier itemIdentifier: NSToolbarItem.Identifier, willBeInsertedIntoToolbar flag: Bool) -> NSToolbarItem? {
+    func toolbar(
+        _ toolbar: NSToolbar, itemForItemIdentifier itemIdentifier: NSToolbarItem.Identifier,
+        willBeInsertedIntoToolbar flag: Bool
+    ) -> NSToolbarItem? {
         switch itemIdentifier {
         case .editMode:
             let item = NSToolbarItem(itemIdentifier: itemIdentifier)

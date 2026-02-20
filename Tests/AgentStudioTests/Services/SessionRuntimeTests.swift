@@ -1,4 +1,5 @@
 import XCTest
+
 @testable import AgentStudio
 
 @MainActor
@@ -129,7 +130,7 @@ final class SessionRuntimeTests: XCTestCase {
         runtime.registerBackend(backend)
         // No direct way to query backends, but startSession should use it
         // Tested via integration in startSession tests
-        XCTAssertTrue(true) // Backend registered without error
+        XCTAssertTrue(true)  // Backend registered without error
     }
 
     // MARK: - Backend Operations

@@ -67,7 +67,7 @@ class DraggableTabBarHostingView: NSView, NSDraggingSource {
             hostingView.topAnchor.constraint(equalTo: topAnchor),
             hostingView.leadingAnchor.constraint(equalTo: leadingAnchor),
             hostingView.trailingAnchor.constraint(equalTo: trailingAnchor),
-            hostingView.bottomAnchor.constraint(equalTo: bottomAnchor)
+            hostingView.bottomAnchor.constraint(equalTo: bottomAnchor),
         ])
 
         // Register as drag destination for internal reorder, tab drop, and pane drop
@@ -269,7 +269,7 @@ class DraggableTabBarHostingView: NSView, NSDraggingSource {
         if let tab = tabBarAdapter?.tabs.first(where: { $0.id == tabId }) {
             let attrs: [NSAttributedString.Key: Any] = [
                 .font: NSFont.systemFont(ofSize: 12),
-                .foregroundColor: NSColor.white
+                .foregroundColor: NSColor.white,
             ]
             let title = tab.title as NSString
             let titleSize = title.size(withAttributes: attrs)
@@ -286,8 +286,10 @@ class DraggableTabBarHostingView: NSView, NSDraggingSource {
 
     // MARK: - NSDraggingSource
 
-    func draggingSession(_ session: NSDraggingSession, sourceOperationMaskFor context: NSDraggingContext) -> NSDragOperation {
-        return context == .withinApplication ? .move : []
+    func draggingSession(_ session: NSDraggingSession, sourceOperationMaskFor context: NSDraggingContext)
+        -> NSDragOperation
+    {
+        context == .withinApplication ? .move : []
     }
 
     func draggingSession(_ session: NSDraggingSession, willBeginAt screenPoint: NSPoint) {
@@ -346,22 +348,24 @@ class DraggableTabBarHostingView: NSView, NSDraggingSource {
 
         // Handle internal tab reorder (only when management mode is still active)
         if let idString = pasteboard.string(forType: .agentStudioTabInternal),
-           let tabId = UUID(uuidString: idString),
-           let targetIndex = tabBarAdapter?.dropTargetIndex,
-           ManagementModeMonitor.shared.isActive {
+            let tabId = UUID(uuidString: idString),
+            let targetIndex = tabBarAdapter?.dropTargetIndex,
+            ManagementModeMonitor.shared.isActive
+        {
             onReorder?(tabId, targetIndex)
             return true
         }
 
         // Handle pane drop → extract pane to new tab
         if let paneData = pasteboard.data(forType: .agentStudioPaneDrop),
-           let payload = try? JSONDecoder().decode(PaneDragPayload.self, from: paneData) {
+            let payload = try? JSONDecoder().decode(PaneDragPayload.self, from: paneData)
+        {
             NotificationCenter.default.post(
                 name: .extractPaneRequested,
                 object: nil,
                 userInfo: [
                     "tabId": payload.tabId,
-                    "paneId": payload.paneId
+                    "paneId": payload.paneId,
                 ]
             )
             return true
@@ -374,13 +378,14 @@ class DraggableTabBarHostingView: NSView, NSDraggingSource {
         let point = convert(sender.draggingLocation, from: nil)
 
         DispatchQueue.main.async { [weak self] in
-            guard let self = self else { return }
+            guard let self else { return }
 
             if let index = self.dropIndexAtPoint(point) {
                 // Don't highlight if dropping in same position
                 if let draggingId = self.draggingTabId,
-                   let currentIndex = self.tabBarAdapter?.tabs.firstIndex(where: { $0.id == draggingId }),
-                   (index == currentIndex || index == currentIndex + 1) {
+                    let currentIndex = self.tabBarAdapter?.tabs.firstIndex(where: { $0.id == draggingId }),
+                    index == currentIndex || index == currentIndex + 1
+                {
                     self.tabBarAdapter?.dropTargetIndex = nil
                 } else {
                     self.tabBarAdapter?.dropTargetIndex = index
