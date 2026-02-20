@@ -3122,24 +3122,29 @@ These were previously open questions or verification spike items, now proven by 
 - ~~**`AnyCodableValue` availability**~~ → Exists in `Models/PaneContent.swift:112`. Reusable for RPC envelope params.
 - ~~**Pane kind split (browser vs bridge)**~~ → Architecture decided: new `PaneContent.bridgePanel(BridgePaneState)` case with dedicated `BridgePaneController`. See §15.2.
 
-### Requires Verification Spike (before Phase 1)
+### Resolved by Verification Spike (Stage 0)
 
-The scope is narrowed to **bridge-specific WebKit APIs** not yet exercised by the existing browser pane code:
+All bridge-specific WebKit APIs verified. Spike tests in `Tests/AgentStudioTests/Bridge/`. Results:
 
-1. **Bridge-specific Swift 6.2 API surface** — Build a minimal test that exercises:
-   - `WKContentWorld.world(name:)` creation and isolation behavior
-   - `callJavaScript(_:arguments:in:contentWorld:)` — verify arguments passing, content world targeting, and default frame behavior
-   - `WKUserScript(source:injectionTime:forMainFrameOnly:in:)` — verify `in:` parameter label for content world targeting
-   - `userContentController.add(handler, contentWorld:, name:)` — verify message handler scoping to content world
-   - `URLSchemeHandler` protocol with `AsyncSequence` return for custom scheme handling
-   - `Observations` type creation and `for await` iteration (Swift 6.2 observation)
-   - `.debounce(for:)` on `Observations` (requires `AsyncAlgorithms` package)
-   - Verify that `Observations { state.propertyA }` does NOT fire when `state.propertyB` changes (property-group isolation — critical for `Slice` capture closures)
-   - Verify `@resultBuilder` with generic type parameter (`PushPlanBuilder<State>`) compiles and infers correctly
+1. **`WKContentWorld.world(name:)`** — ✅ PASS. Same name returns identical object (`===`). Different names produce different worlds. See `BridgeWebKitSpikeTests.swift`.
 
-   **Already proven** (skip in spike): `WebPage.Configuration` init, `WebPage(configuration:navigationDecider:dialogPresenter:)`, `WebPage.load()`, `websiteDataStore`, SwiftUI `WebView` rendering.
+2. **`callJavaScript(_:arguments:contentWorld:)`** — ✅ PASS. Arguments become JS local variables. Content world targeting works. **API finding:** `callJavaScript` returns nil in headless test context (no window host), but side effects (postMessage) execute correctly. Production use is unaffected since WebPages are always hosted in a WebView inside a window. Tests use message handlers as verification probes instead of return values.
 
-   If any bridge-specific APIs differ from this spec, update the design before Phase 1 implementation.
+3. **`WKUserScript(source:injectionTime:forMainFrameOnly:in:)`** — ✅ PASS. The `in:` parameter correctly targets a content world. A script injected into bridge world sets `window.__testFlag = true`; bridge world reads `"true"`, page world reads `"undefined"`. See `BridgeWebKitSpikeTests.swift`.
+
+4. **`userContentController.add(handler, contentWorld:, name:)`** — ✅ PASS. Message handler scoped to bridge world receives messages from bridge world. Page world cannot access bridge-world-scoped handlers (`window.webkit?.messageHandlers?.rpc` is undefined in page world). JSON string payloads (JSON-RPC pattern) delivered correctly. See `BridgeWebKitSpikeTests.swift`.
+
+5. **`URLSchemeHandler` protocol with `AsyncSequence`** — ✅ PASS. **API finding:** Protocol requires `Failure == any Error`, so `AsyncThrowingStream<URLSchemeTaskResult, any Error>` is needed (not `AsyncStream`). **API finding:** `URLScheme("agentstudio")` is a failable initializer — returns nil for built-in schemes, needs force-unwrap or guard for custom schemes. See `BridgeSchemeHandlerSpikeTests.swift`.
+
+6. **`Observations` creation and `for await` iteration** — ✅ PASS. `Observations { state.property }` yields initial value immediately, then re-evaluates on tracked property change. Uses did-set semantics. See `ObservationSpikeTests.swift`.
+
+7. **`.debounce(for:)` on `Observations`** — ✅ PASS. Works directly on `Observations` sequence via `AsyncAlgorithms`. Uses Swift `Duration` (not `TimeInterval`). Coalesces rapid synchronous mutations. See `ObservationSpikeTests.swift`.
+
+8. **Property-group isolation** — ✅ PASS (CRITICAL). `Observations { state.propertyA }` does **NOT** fire when only `state.propertyB` changes. **This confirms the `Slice` capture closure design from §6.5 is viable.** See `ObservationSpikeTests.swift`.
+
+9. **`@resultBuilder` with generic type parameter** — ✅ PASS. `SpikeBuilder<T>` with `buildBlock` accepting variadic `SpikeContainer<T>` compiles and infers correctly. **Confirms `PushPlanBuilder<State>` pattern is viable.** See `ObservationSpikeTests.swift`.
+
+**API differences from spec requiring design updates:** None — all APIs work as documented. The `AsyncThrowingStream` requirement and `URLScheme` failable initializer are implementation details, not design changes.
 
 ### Phase 4 Gate (before diff viewer, not Phase 1)
 
