@@ -34,8 +34,8 @@ enum SurfaceHealth: Equatable {
 /// State of a surface in the lifecycle
 enum SurfaceState: Equatable {
     case active(paneId: UUID)  // Attached to a visible container
-    case hidden                      // Alive but no container
-    case pendingUndo(expiresAt: Date) // In undo stack
+    case hidden  // Alive but no container
+    case pendingUndo(expiresAt: Date)  // In undo stack
 
     var isActive: Bool {
         if case .active = self { return true }
@@ -176,9 +176,9 @@ enum SurfaceError: Error, LocalizedError {
 
 /// Reason for detaching a surface from its container
 enum SurfaceDetachReason {
-    case hide   // User hid the terminal (keep alive)
+    case hide  // User hid the terminal (keep alive)
     case close  // User closed the tab (undo-able)
-    case move   // Moving to different container
+    case move  // Moving to different container
 }
 
 // MARK: - Surface Lifecycle Delegate

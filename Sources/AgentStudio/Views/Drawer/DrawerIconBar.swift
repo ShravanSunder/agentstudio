@@ -41,7 +41,12 @@ struct DrawerIconBar: View {
                 .foregroundStyle(isExpanded ? .primary : (isToggleHovered ? .primary : .secondary))
                 .background(
                     RoundedRectangle(cornerRadius: DrawerLayout.iconButtonCornerRadius)
-                        .fill(isExpanded ? Color.white.opacity(AppStyle.fillActive) : (isToggleHovered ? Color.white.opacity(AppStyle.fillHover) : Color.white.opacity(AppStyle.fillSubtle)))
+                        .fill(
+                            isExpanded
+                                ? Color.white.opacity(AppStyle.fillActive)
+                                : (isToggleHovered
+                                    ? Color.white.opacity(AppStyle.fillHover)
+                                    : Color.white.opacity(AppStyle.fillSubtle)))
                 )
                 .onHover { hovering in
                     withAnimation(.easeInOut(duration: AppStyle.animationFast)) {
@@ -134,19 +139,19 @@ struct EmptyDrawerBar: View {
 // MARK: - Preview
 
 #if DEBUG
-struct DrawerIconBar_Previews: PreviewProvider {
-    static var previews: some View {
-        VStack {
-            Spacer()
-            DrawerIconBar(
-                isExpanded: true,
-                onAdd: {},
-                onToggleExpand: {}
-            )
-            Spacer()
+    struct DrawerIconBar_Previews: PreviewProvider {
+        static var previews: some View {
+            VStack {
+                Spacer()
+                DrawerIconBar(
+                    isExpanded: true,
+                    onAdd: {},
+                    onToggleExpand: {}
+                )
+                Spacer()
+            }
+            .frame(width: 400, height: 200)
+            .background(Color(nsColor: .windowBackgroundColor))
         }
-        .frame(width: 400, height: 200)
-        .background(Color(nsColor: .windowBackgroundColor))
     }
-}
 #endif

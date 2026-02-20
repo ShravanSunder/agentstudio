@@ -38,7 +38,7 @@ final class ManagementModeMonitor: ObservableObject {
             // keyCode 53 = Escape
             if event.keyCode == 53 {
                 self.deactivate()
-                return nil // consume the event
+                return nil  // consume the event
             }
             return event
         }

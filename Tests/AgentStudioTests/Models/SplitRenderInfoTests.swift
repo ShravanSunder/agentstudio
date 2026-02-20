@@ -1,4 +1,5 @@
 import XCTest
+
 @testable import AgentStudio
 
 final class SplitRenderInfoTests: XCTestCase {
@@ -6,11 +7,14 @@ final class SplitRenderInfoTests: XCTestCase {
     // MARK: - No minimized panes
 
     func test_noMinimized_emptyDictionary() {
-        let a = UUID(), b = UUID()
-        let layout = Layout(root: .split(Layout.Split(
-            direction: .horizontal, ratio: 0.5,
-            left: .leaf(paneId: a), right: .leaf(paneId: b)
-        )))
+        let a = UUID()
+        let b = UUID()
+        let layout = Layout(
+            root: .split(
+                Layout.Split(
+                    direction: .horizontal, ratio: 0.5,
+                    left: .leaf(paneId: a), right: .leaf(paneId: b)
+                )))
 
         let info = SplitRenderInfo.compute(layout: layout, minimizedPaneIds: [])
 
@@ -21,12 +25,15 @@ final class SplitRenderInfoTests: XCTestCase {
     // MARK: - One side fully minimized
 
     func test_rightFullyMinimized_adjustedRatio() {
-        let a = UUID(), b = UUID()
+        let a = UUID()
+        let b = UUID()
         let splitId = UUID()
-        let layout = Layout(root: .split(Layout.Split(
-            id: splitId, direction: .horizontal, ratio: 0.5,
-            left: .leaf(paneId: a), right: .leaf(paneId: b)
-        )))
+        let layout = Layout(
+            root: .split(
+                Layout.Split(
+                    id: splitId, direction: .horizontal, ratio: 0.5,
+                    left: .leaf(paneId: a), right: .leaf(paneId: b)
+                )))
 
         let info = SplitRenderInfo.compute(layout: layout, minimizedPaneIds: [b])
 
@@ -38,12 +45,15 @@ final class SplitRenderInfoTests: XCTestCase {
     }
 
     func test_leftFullyMinimized_adjustedRatio() {
-        let a = UUID(), b = UUID()
+        let a = UUID()
+        let b = UUID()
         let splitId = UUID()
-        let layout = Layout(root: .split(Layout.Split(
-            id: splitId, direction: .horizontal, ratio: 0.5,
-            left: .leaf(paneId: a), right: .leaf(paneId: b)
-        )))
+        let layout = Layout(
+            root: .split(
+                Layout.Split(
+                    id: splitId, direction: .horizontal, ratio: 0.5,
+                    left: .leaf(paneId: a), right: .leaf(paneId: b)
+                )))
 
         let info = SplitRenderInfo.compute(layout: layout, minimizedPaneIds: [a])
 
@@ -57,16 +67,22 @@ final class SplitRenderInfoTests: XCTestCase {
 
     func test_partialMinimize_adjustedRatio() {
         // Split(0.33, A, Split(0.5, B_min, C))
-        let a = UUID(), b = UUID(), c = UUID()
-        let innerSplitId = UUID(), outerSplitId = UUID()
-        let layout = Layout(root: .split(Layout.Split(
-            id: outerSplitId, direction: .horizontal, ratio: 0.33,
-            left: .leaf(paneId: a),
-            right: .split(Layout.Split(
-                id: innerSplitId, direction: .horizontal, ratio: 0.5,
-                left: .leaf(paneId: b), right: .leaf(paneId: c)
-            ))
-        )))
+        let a = UUID()
+        let b = UUID()
+        let c = UUID()
+        let innerSplitId = UUID()
+        let outerSplitId = UUID()
+        let layout = Layout(
+            root: .split(
+                Layout.Split(
+                    id: outerSplitId, direction: .horizontal, ratio: 0.33,
+                    left: .leaf(paneId: a),
+                    right: .split(
+                        Layout.Split(
+                            id: innerSplitId, direction: .horizontal, ratio: 0.5,
+                            left: .leaf(paneId: b), right: .leaf(paneId: c)
+                        ))
+                )))
 
         let info = SplitRenderInfo.compute(layout: layout, minimizedPaneIds: [b])
 
@@ -88,11 +104,14 @@ final class SplitRenderInfoTests: XCTestCase {
     // MARK: - All minimized
 
     func test_allMinimized_flagSet() {
-        let a = UUID(), b = UUID()
-        let layout = Layout(root: .split(Layout.Split(
-            direction: .horizontal, ratio: 0.5,
-            left: .leaf(paneId: a), right: .leaf(paneId: b)
-        )))
+        let a = UUID()
+        let b = UUID()
+        let layout = Layout(
+            root: .split(
+                Layout.Split(
+                    direction: .horizontal, ratio: 0.5,
+                    left: .leaf(paneId: a), right: .leaf(paneId: b)
+                )))
 
         let info = SplitRenderInfo.compute(layout: layout, minimizedPaneIds: [a, b])
 
@@ -104,16 +123,21 @@ final class SplitRenderInfoTests: XCTestCase {
 
     func test_nestedFullyMinimized_collapsesCorrectly() {
         // Split(0.5, A, Split(0.5, B_min, C_min))
-        let a = UUID(), b = UUID(), c = UUID()
+        let a = UUID()
+        let b = UUID()
+        let c = UUID()
         let outerSplitId = UUID()
-        let layout = Layout(root: .split(Layout.Split(
-            id: outerSplitId, direction: .horizontal, ratio: 0.5,
-            left: .leaf(paneId: a),
-            right: .split(Layout.Split(
-                direction: .horizontal, ratio: 0.5,
-                left: .leaf(paneId: b), right: .leaf(paneId: c)
-            ))
-        )))
+        let layout = Layout(
+            root: .split(
+                Layout.Split(
+                    id: outerSplitId, direction: .horizontal, ratio: 0.5,
+                    left: .leaf(paneId: a),
+                    right: .split(
+                        Layout.Split(
+                            direction: .horizontal, ratio: 0.5,
+                            left: .leaf(paneId: b), right: .leaf(paneId: c)
+                        ))
+                )))
 
         let info = SplitRenderInfo.compute(layout: layout, minimizedPaneIds: [b, c])
 
@@ -153,16 +177,21 @@ final class SplitRenderInfoTests: XCTestCase {
 
     func test_partialMinimize_visibleWeightsStored() {
         // Split(0.33, A, Split(0.5, B_min, C))
-        let a = UUID(), b = UUID(), c = UUID()
+        let a = UUID()
+        let b = UUID()
+        let c = UUID()
         let outerSplitId = UUID()
-        let layout = Layout(root: .split(Layout.Split(
-            id: outerSplitId, direction: .horizontal, ratio: 0.33,
-            left: .leaf(paneId: a),
-            right: .split(Layout.Split(
-                direction: .horizontal, ratio: 0.5,
-                left: .leaf(paneId: b), right: .leaf(paneId: c)
-            ))
-        )))
+        let layout = Layout(
+            root: .split(
+                Layout.Split(
+                    id: outerSplitId, direction: .horizontal, ratio: 0.33,
+                    left: .leaf(paneId: a),
+                    right: .split(
+                        Layout.Split(
+                            direction: .horizontal, ratio: 0.5,
+                            left: .leaf(paneId: b), right: .leaf(paneId: c)
+                        ))
+                )))
 
         let info = SplitRenderInfo.compute(layout: layout, minimizedPaneIds: [b])
         let outerInfo = info.splitInfo[outerSplitId]!
@@ -178,16 +207,21 @@ final class SplitRenderInfoTests: XCTestCase {
     func test_modelRatio_roundTrip() {
         // Split(0.5, A, Split(0.5, B_min, C))
         // adjustedRatio ≈ 0.667. Converting back should yield 0.5.
-        let a = UUID(), b = UUID(), c = UUID()
+        let a = UUID()
+        let b = UUID()
+        let c = UUID()
         let outerSplitId = UUID()
-        let layout = Layout(root: .split(Layout.Split(
-            id: outerSplitId, direction: .horizontal, ratio: 0.5,
-            left: .leaf(paneId: a),
-            right: .split(Layout.Split(
-                direction: .horizontal, ratio: 0.5,
-                left: .leaf(paneId: b), right: .leaf(paneId: c)
-            ))
-        )))
+        let layout = Layout(
+            root: .split(
+                Layout.Split(
+                    id: outerSplitId, direction: .horizontal, ratio: 0.5,
+                    left: .leaf(paneId: a),
+                    right: .split(
+                        Layout.Split(
+                            direction: .horizontal, ratio: 0.5,
+                            left: .leaf(paneId: b), right: .leaf(paneId: c)
+                        ))
+                )))
 
         let info = SplitRenderInfo.compute(layout: layout, minimizedPaneIds: [b])
         let outerInfo = info.splitInfo[outerSplitId]!

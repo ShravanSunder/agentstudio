@@ -17,11 +17,13 @@ struct ActiveTabContent: View {
 
     var body: some View {
         // Read viewRevision so @Observable tracks it — triggers re-render after repair
-        let _ = store.viewRevision
+        // swiftlint:disable:next redundant_discardable_let
+        let _ = store.viewRevision  // swift-format:ignore
 
         if let activeTabId = store.activeTabId,
-           let tab = store.tab(activeTabId),
-           let tree = viewRegistry.renderTree(for: tab.layout) {
+            let tab = store.tab(activeTabId),
+            let tree = viewRegistry.renderTree(for: tab.layout)
+        {
             let renderInfo = SplitRenderInfo.compute(
                 layout: tab.layout,
                 minimizedPaneIds: tab.minimizedPaneIds

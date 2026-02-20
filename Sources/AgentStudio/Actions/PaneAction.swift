@@ -55,8 +55,9 @@ enum PaneAction: Equatable, Hashable {
     case focusPane(tabId: UUID, paneId: UUID)
 
     // Split operations
-    case insertPane(source: PaneSource, targetTabId: UUID,
-                    targetPaneId: UUID, direction: SplitNewDirection)
+    case insertPane(
+        source: PaneSource, targetTabId: UUID,
+        targetPaneId: UUID, direction: SplitNewDirection)
     case resizePane(tabId: UUID, splitId: UUID, ratio: Double)
     case equalizePanes(tabId: UUID)
 
@@ -67,13 +68,15 @@ enum PaneAction: Equatable, Hashable {
     case moveTab(tabId: UUID, delta: Int)
 
     /// Resize a pane by keyboard delta (Ghostty's resize_split action).
-    case resizePaneByDelta(tabId: UUID, paneId: UUID,
-                           direction: SplitResizeDirection, amount: UInt16)
+    case resizePaneByDelta(
+        tabId: UUID, paneId: UUID,
+        direction: SplitResizeDirection, amount: UInt16)
 
     /// Move ALL panes from sourceTab into targetTab at targetPaneId position.
     /// Source tab is removed after merge.
-    case mergeTab(sourceTabId: UUID, targetTabId: UUID,
-                  targetPaneId: UUID, direction: SplitNewDirection)
+    case mergeTab(
+        sourceTabId: UUID, targetTabId: UUID,
+        targetPaneId: UUID, direction: SplitNewDirection)
 
     // Arrangement operations
 
@@ -95,8 +98,9 @@ enum PaneAction: Equatable, Hashable {
     /// Move a pane to the background pool (remove from layout, keep alive).
     case backgroundPane(paneId: UUID)
     /// Reactivate a backgrounded pane into a tab layout.
-    case reactivatePane(paneId: UUID, targetTabId: UUID,
-                        targetPaneId: UUID, direction: SplitNewDirection)
+    case reactivatePane(
+        paneId: UUID, targetTabId: UUID,
+        targetPaneId: UUID, direction: SplitNewDirection)
     /// Permanently destroy a backgrounded pane.
     case purgeOrphanedPane(paneId: UUID)
 

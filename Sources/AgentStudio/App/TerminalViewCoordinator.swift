@@ -45,7 +45,8 @@ final class TerminalViewCoordinator {
 
     private func onSurfaceCWDChanged(_ notification: Notification) {
         guard let surfaceId = notification.userInfo?["surfaceId"] as? UUID,
-              let paneId = SurfaceManager.shared.metadata(for: surfaceId)?.paneId else {
+            let paneId = SurfaceManager.shared.metadata(for: surfaceId)?.paneId
+        else {
             return
         }
         let url = notification.userInfo?["url"] as? URL
@@ -79,18 +80,20 @@ final class TerminalViewCoordinator {
         case .terminal:
             // Main panes: have direct worktree association
             if let worktreeId = pane.worktreeId,
-               let repoId = pane.repoId,
-               let worktree = store.worktree(worktreeId),
-               let repo = store.repo(repoId) {
+                let repoId = pane.repoId,
+                let worktree = store.worktree(worktreeId),
+                let repo = store.repo(repoId)
+            {
                 return createView(for: pane, worktree: worktree, repo: repo)
 
-            // Drawer children: resolve worktree through parent pane
+                // Drawer children: resolve worktree through parent pane
             } else if let parentPaneId = pane.parentPaneId,
-                      let parentPane = store.pane(parentPaneId),
-                      let worktreeId = parentPane.worktreeId,
-                      let repoId = parentPane.repoId,
-                      let worktree = store.worktree(worktreeId),
-                      let repo = store.repo(repoId) {
+                let parentPane = store.pane(parentPaneId),
+                let worktreeId = parentPane.worktreeId,
+                let repoId = parentPane.repoId,
+                let worktree = store.worktree(worktreeId),
+                let repo = store.repo(repoId)
+            {
                 return createView(for: pane, worktree: worktree, repo: repo)
 
             } else {
@@ -235,7 +238,8 @@ final class TerminalViewCoordinator {
             return view
 
         case .failure(let error):
-            coordinatorLogger.error("Failed to create floating surface for pane \(pane.id): \(error.localizedDescription)")
+            coordinatorLogger.error(
+                "Failed to create floating surface for pane \(pane.id): \(error.localizedDescription)")
             return nil
         }
     }
@@ -246,7 +250,8 @@ final class TerminalViewCoordinator {
     func teardownView(for paneId: UUID) {
         // Terminal-specific: detach surface before unregistering
         if let terminal = viewRegistry.terminalView(for: paneId),
-           let surfaceId = terminal.surfaceId {
+            let surfaceId = terminal.surfaceId
+        {
             SurfaceManager.shared.detach(surfaceId, reason: .close)
         }
 
@@ -260,7 +265,8 @@ final class TerminalViewCoordinator {
     /// Detach a pane's surface for a view switch (hide, not destroy).
     func detachForViewSwitch(paneId: UUID) {
         if let terminal = viewRegistry.terminalView(for: paneId),
-           let surfaceId = terminal.surfaceId {
+            let surfaceId = terminal.surfaceId
+        {
             SurfaceManager.shared.detach(surfaceId, reason: .hide)
         }
         coordinatorLogger.debug("Detached pane \(paneId) for view switch")
@@ -269,7 +275,8 @@ final class TerminalViewCoordinator {
     /// Reattach a pane's surface after a view switch.
     func reattachForViewSwitch(paneId: UUID) {
         if let terminal = viewRegistry.terminalView(for: paneId),
-           let surfaceId = terminal.surfaceId {
+            let surfaceId = terminal.surfaceId
+        {
             if let surfaceView = SurfaceManager.shared.attach(surfaceId, to: paneId) {
                 terminal.displaySurface(surfaceView)
             }
@@ -354,8 +361,9 @@ final class TerminalViewCoordinator {
 
         // Sync focus after all views are restored — only the active terminal gets a blinking cursor.
         if let activeTab = store.activeTab,
-           let activePaneId = activeTab.activePaneId,
-           let terminalView = viewRegistry.terminalView(for: activePaneId) {
+            let activePaneId = activeTab.activePaneId,
+            let terminalView = viewRegistry.terminalView(for: activePaneId)
+        {
             SurfaceManager.shared.syncFocus(activeSurfaceId: terminalView.surfaceId)
         }
     }

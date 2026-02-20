@@ -1,4 +1,5 @@
 import XCTest
+
 @testable import AgentStudio
 
 @MainActor
@@ -87,8 +88,9 @@ final class DrawerCommandIntegrationTests: XCTestCase {
         let dp1 = store.addDrawerPane(to: parentPaneId)!
         let dp2 = store.addDrawerPane(to: parentPaneId)!
         XCTAssertEqual(store.pane(parentPaneId)!.drawer!.paneIds.count, 2)
-        XCTAssertEqual(store.pane(parentPaneId)!.drawer!.activePaneId, dp2.id,
-                        "Last added drawer pane should be active initially")
+        XCTAssertEqual(
+            store.pane(parentPaneId)!.drawer!.activePaneId, dp2.id,
+            "Last added drawer pane should be active initially")
 
         // Act — close the active drawer pane (dp2)
         executor.execute(.removeDrawerPane(parentPaneId: parentPaneId, drawerPaneId: dp2.id))

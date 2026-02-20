@@ -34,10 +34,10 @@ struct Worktree: Codable, Identifiable, Hashable {
 // MARK: - Worktree Status
 
 enum WorktreeStatus: String, Codable, CaseIterable {
-    case idle           // No agent running
-    case running        // Agent actively working
+    case idle  // No agent running
+    case running  // Agent actively working
     case pendingReview  // Agent done, checkpoints need review
-    case error          // Something went wrong
+    case error  // Something went wrong
 
     var displayName: String {
         switch self {
@@ -61,11 +61,11 @@ enum WorktreeStatus: String, Codable, CaseIterable {
 // MARK: - Agent Type
 
 enum AgentType: String, Codable, CaseIterable {
-    case claude = "claude"
-    case codex = "codex"
-    case gemini = "gemini"
-    case aider = "aider"
-    case custom = "custom"
+    case claude
+    case codex
+    case gemini
+    case aider
+    case custom
 
     var displayName: String {
         switch self {

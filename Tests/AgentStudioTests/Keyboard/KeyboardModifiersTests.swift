@@ -1,6 +1,7 @@
-import XCTest
 import AppKit
 import GhosttyKit
+import XCTest
+
 @testable import AgentStudio
 
 final class KeyboardModifiersTests: XCTestCase {

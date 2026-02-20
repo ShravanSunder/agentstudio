@@ -79,7 +79,8 @@ final class OAuthService: NSObject {
         }
 
         guard let code = components.queryItems?.first(where: { $0.name == "code" })?.value,
-              !code.isEmpty else {
+            !code.isEmpty
+        else {
             throw OAuthError.missingCode
         }
 
@@ -166,11 +167,12 @@ final class OAuthService: NSObject {
                 }
 
                 do {
-                    let code = try OAuthService.validateCallback(url: callbackURL, expectedState: state)
+                    let code = try Self.validateCallback(url: callbackURL, expectedState: state)
                     oauthLogger.info("OAuth succeeded for \(provider.rawValue)")
                     continuation.resume(returning: code)
                 } catch {
-                    oauthLogger.error("OAuth callback validation failed for \(provider.rawValue): \(error.localizedDescription)")
+                    oauthLogger.error(
+                        "OAuth callback validation failed for \(provider.rawValue): \(error.localizedDescription)")
                     continuation.resume(throwing: error)
                 }
             }
@@ -226,7 +228,8 @@ enum OAuthError: Error, LocalizedError {
     var errorDescription: String? {
         switch self {
         case .unsupportedProvider: return "Unsupported OAuth provider"
-        case .notConfigured(let provider): return "\(provider.rawValue) OAuth is not configured — register an OAuth app and set the client ID"
+        case .notConfigured(let provider):
+            return "\(provider.rawValue) OAuth is not configured — register an OAuth app and set the client ID"
         case .invalidURL: return "Failed to construct authorization URL"
         case .cancelled: return "Authentication was cancelled"
         case .sessionFailed(let error): return "Authentication failed: \(error.localizedDescription)"

@@ -1,4 +1,5 @@
 import AppKit
+
 @testable import AgentStudio
 
 /// Minimal NSView mock satisfying SplitTree's generic constraints.

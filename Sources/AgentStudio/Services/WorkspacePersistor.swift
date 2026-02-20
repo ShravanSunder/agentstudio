@@ -132,11 +132,13 @@ struct WorkspacePersistor {
 
     /// Check if any workspace files exist on disk (distinguishes first-launch from load-failure).
     func hasWorkspaceFiles() -> Bool {
-        guard let contents = try? FileManager.default.contentsOfDirectory(
-            at: workspacesDir,
-            includingPropertiesForKeys: nil,
-            options: .skipsHiddenFiles
-        ) else { return false }
+        guard
+            let contents = try? FileManager.default.contentsOfDirectory(
+                at: workspacesDir,
+                includingPropertiesForKeys: nil,
+                options: .skipsHiddenFiles
+            )
+        else { return false }
         return contents.contains { $0.pathExtension == "json" }
     }
 

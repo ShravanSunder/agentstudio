@@ -5,9 +5,6 @@ on:
     tags:
       - 'v*'
 
-env:
-  ZIG_VERSION: '0.15.2'
-
 permissions:
   contents: write
 
@@ -21,44 +18,106 @@ jobs:
         with:
           submodules: recursive
 
-      - name: Setup Zig
-        uses: goto-bus-stop/setup-zig@v2
-        with:
-          version: ${{ env.ZIG_VERSION }}
+      - name: Setup mise
+        uses: jdx/mise-action@v3
 
-      - name: Cache Zig
+      # --- Submodule commit SHAs (cache keys) ---
+
+      - name: Get submodule SHAs
+        id: submodules
+        run: |
+          GHOSTTY_SHA=$(git -C vendor/ghostty rev-parse HEAD)
+          ZMX_SHA=$(git -C vendor/zmx rev-parse HEAD)
+          echo "ghostty_sha=$GHOSTTY_SHA" >> "$GITHUB_OUTPUT"
+          echo "zmx_sha=$ZMX_SHA" >> "$GITHUB_OUTPUT"
+          echo "Ghostty: $GHOSTTY_SHA"
+          echo "zmx: $ZMX_SHA"
+
+      # --- Artifact caches (skip zig builds on hit) ---
+
+      - name: Cache Ghostty artifacts
+        id: cache-ghostty
+        uses: actions/cache@v4
+        with:
+          path: |
+            vendor/ghostty/macos/GhosttyKit.xcframework
+            vendor/ghostty/zig-out/share
+          key: ghostty-${{ runner.os }}-${{ steps.submodules.outputs.ghostty_sha }}
+
+      - name: Cache zmx artifacts
+        id: cache-zmx
+        uses: actions/cache@v4
+        with:
+          path: vendor/zmx/zig-out
+          key: zmx-${{ runner.os }}-${{ steps.submodules.outputs.zmx_sha }}
+
+      # --- Zig compilation cache (speeds up builds on cache miss) ---
+      # Following Ghostty's pattern: explicit cache dirs for zig internals
+
+      - name: Cache Zig compilation
+        if: steps.cache-ghostty.outputs.cache-hit != 'true' || steps.cache-zmx.outputs.cache-hit != 'true'
         uses: actions/cache@v4
         with:
           path: |
             ~/.cache/zig
             vendor/ghostty/.zig-cache
             vendor/zmx/.zig-cache
-          key: ${{ runner.os }}-zig-${{ env.ZIG_VERSION }}-${{ hashFiles('vendor/ghostty/build.zig.zon', 'vendor/zmx/build.zig.zon') }}
+          key: zig-compile-${{ runner.os }}-${{ hashFiles('.mise.toml') }}-${{ steps.submodules.outputs.ghostty_sha }}-${{ steps.submodules.outputs.zmx_sha }}
           restore-keys: |
-            ${{ runner.os }}-zig-${{ env.ZIG_VERSION }}-
+            zig-compile-${{ runner.os }}-${{ hashFiles('.mise.toml') }}-
 
-      - name: Cache Swift
-        uses: actions/cache@v4
-        with:
-          path: .build
-          key: ${{ runner.os }}-swift-${{ hashFiles('Package.resolved') }}
-          restore-keys: |
-            ${{ runner.os }}-swift-
+      # --- Build Ghostty (only on cache miss) ---
 
       - name: Build Ghostty XCFramework
+        if: steps.cache-ghostty.outputs.cache-hit != 'true'
         run: |
           cd vendor/ghostty
           zig build -Doptimize=ReleaseFast -Demit-xcframework=true -Demit-macos-app=false -Dxcframework-target=native
+
+      # --- Build zmx (only on cache miss) ---
+
+      - name: Build zmx
+        if: steps.cache-zmx.outputs.cache-hit != 'true'
+        run: |
+          cd vendor/zmx
+          zig build -Doptimize=ReleaseFast
+
+      # --- Always: copy framework, setup resources, build Swift, bundle ---
 
       - name: Copy XCFramework
         run: |
           mkdir -p Frameworks
           cp -R vendor/ghostty/macos/GhosttyKit.xcframework Frameworks/
 
-      - name: Build zmx
+      - name: Setup dev resources
         run: |
-          cd vendor/zmx
-          zig build -Doptimize=ReleaseFast
+          # Shell integration (prefer zig-out, fall back to vendor source)
+          if [ -d "vendor/ghostty/zig-out/share/ghostty/shell-integration" ]; then
+            SRC="vendor/ghostty/zig-out/share/ghostty/shell-integration"
+          elif [ -d "vendor/ghostty/src/shell-integration" ]; then
+            SRC="vendor/ghostty/src/shell-integration"
+          else
+            echo "ERROR: shell-integration not found" && exit 1
+          fi
+          mkdir -p Sources/AgentStudio/Resources/ghostty
+          rm -rf Sources/AgentStudio/Resources/ghostty/shell-integration
+          cp -R "$SRC" Sources/AgentStudio/Resources/ghostty/shell-integration
+
+          # Terminfo
+          TERMINFO_SRC="vendor/ghostty/zig-out/share/terminfo"
+          if [ -d "$TERMINFO_SRC" ]; then
+            mkdir -p Sources/AgentStudio/Resources/terminfo/78 Sources/AgentStudio/Resources/terminfo/67
+            [ -f "$TERMINFO_SRC/78/xterm-ghostty" ] && cp "$TERMINFO_SRC/78/xterm-ghostty" Sources/AgentStudio/Resources/terminfo/78/
+            [ -f "$TERMINFO_SRC/67/ghostty" ] && cp "$TERMINFO_SRC/67/ghostty" Sources/AgentStudio/Resources/terminfo/67/
+          fi
+
+      - name: Cache Swift build
+        uses: actions/cache@v4
+        with:
+          path: .build
+          key: swift-${{ runner.os }}-${{ hashFiles('Package.swift', 'Package.resolved') }}
+          restore-keys: |
+            swift-${{ runner.os }}-
 
       - name: Build AgentStudio
         run: swift build -c release
@@ -66,46 +125,22 @@ jobs:
       - name: Create App Bundle
         run: |
           APP_DIR="AgentStudio.app/Contents"
-          mkdir -p "$APP_DIR/MacOS"
-          mkdir -p "$APP_DIR/Resources"
-          mkdir -p "$APP_DIR/Frameworks"
+          rm -rf AgentStudio.app
+          mkdir -p "$APP_DIR/MacOS" "$APP_DIR/Resources" "$APP_DIR/Frameworks"
 
-          # Copy binary
           cp .build/release/AgentStudio "$APP_DIR/MacOS/"
-
-          # Copy zmx binary (session persistence)
-          if [ -f "vendor/zmx/zig-out/bin/zmx" ]; then
-            cp vendor/zmx/zig-out/bin/zmx "$APP_DIR/MacOS/"
-          fi
-
-          # Copy Info.plist
+          [ -f "vendor/zmx/zig-out/bin/zmx" ] && cp vendor/zmx/zig-out/bin/zmx "$APP_DIR/MacOS/"
           cp Sources/AgentStudio/Resources/Info.plist "$APP_DIR/"
-
-          # Copy app icon
           cp Sources/AgentStudio/Resources/AppIcon.icns "$APP_DIR/Resources/"
-
-          # Copy GhosttyKit framework
+          [ -d "Sources/AgentStudio/Resources/terminfo" ] && cp -R Sources/AgentStudio/Resources/terminfo "$APP_DIR/Resources/"
+          if [ -d "Sources/AgentStudio/Resources/ghostty" ]; then
+            mkdir -p "$APP_DIR/Resources/ghostty"
+            cp -R Sources/AgentStudio/Resources/ghostty/. "$APP_DIR/Resources/ghostty/"
+          fi
           cp -R Frameworks/GhosttyKit.xcframework "$APP_DIR/Frameworks/"
 
-      - name: Copy Resources to App Bundle
-        run: |
-          APP_DIR="AgentStudio.app/Contents"
-
-          # Copy terminfo
-          TERMINFO_SRC="vendor/ghostty/zig-out/share/terminfo"
-          if [ -d "$TERMINFO_SRC" ]; then
-            cp -R "$TERMINFO_SRC" "$APP_DIR/Resources/"
-          fi
-
-          # Copy shell-integration
-          SHELL_INTEGRATION_SRC="vendor/ghostty/zig-out/share/ghostty/shell-integration"
-          if [ -d "$SHELL_INTEGRATION_SRC" ]; then
-            mkdir -p "$APP_DIR/Resources/ghostty"
-            cp -R "$SHELL_INTEGRATION_SRC" "$APP_DIR/Resources/ghostty/"
-          fi
-
-      - name: Ad-hoc Sign
-        run: codesign --force --deep --sign - AgentStudio.app
+          codesign --force --deep --sign - AgentStudio.app
+          echo "AgentStudio.app created and signed"
 
       - name: Create ZIP Archive
         run: |

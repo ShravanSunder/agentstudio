@@ -1,4 +1,5 @@
 import XCTest
+
 @testable import AgentStudio
 
 @MainActor
@@ -8,9 +9,10 @@ final class MinimizeLayoutIntegrationTests: XCTestCase {
 
     override func setUp() {
         super.setUp()
-        store = WorkspaceStore(persistor: WorkspacePersistor(
-            workspacesDir: FileManager.default.temporaryDirectory.appending(path: UUID().uuidString)
-        ))
+        store = WorkspaceStore(
+            persistor: WorkspacePersistor(
+                workspacesDir: FileManager.default.temporaryDirectory.appending(path: UUID().uuidString)
+            ))
     }
 
     // MARK: - Helpers
@@ -133,7 +135,9 @@ final class MinimizeLayoutIntegrationTests: XCTestCase {
     func test_closePaneWithAllOthersMinimized_preservesMinimizedState() {
         // Arrange: 3 panes, minimize B and C, then close A
         let (tab, paneIds) = createTabWithPanes(3)
-        let a = paneIds[0], b = paneIds[1], c = paneIds[2]
+        let a = paneIds[0]
+        let b = paneIds[1]
+        let c = paneIds[2]
         store.minimizePane(b, inTab: tab.id)
         store.minimizePane(c, inTab: tab.id)
 
@@ -170,16 +174,20 @@ final class MinimizeLayoutIntegrationTests: XCTestCase {
 
         // Assert: not all minimized, has split info entries
         XCTAssertFalse(renderInfo.allMinimized)
-        XCTAssertFalse(renderInfo.splitInfo.isEmpty,
-                       "Should have render info for splits with minimized panes")
+        XCTAssertFalse(
+            renderInfo.splitInfo.isEmpty,
+            "Should have render info for splits with minimized panes")
 
         // Find the inner split (B|C) — one side should be fully minimized
         let innerSplitInfo = renderInfo.splitInfo.values.first {
             $0.leftFullyMinimized || $0.rightFullyMinimized
         }
         XCTAssertNotNil(innerSplitInfo, "Inner split should have one fully-minimized side")
-        XCTAssertEqual(innerSplitInfo?.leftMinimizedPaneIds.count ?? 0
-                       + (innerSplitInfo?.rightMinimizedPaneIds.count ?? 0), 1,
-                       "Exactly one pane should be in the minimized IDs")
+        let minimizedCount =
+            (innerSplitInfo?.leftMinimizedPaneIds.count ?? 0)
+            + (innerSplitInfo?.rightMinimizedPaneIds.count ?? 0)
+        XCTAssertEqual(
+            minimizedCount, 1,
+            "Exactly one pane should be in the minimized IDs")
     }
 }

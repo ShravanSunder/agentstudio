@@ -1,5 +1,5 @@
-import SwiftUI
 import AppKit
+import SwiftUI
 import UniformTypeIdentifiers
 
 // MARK: - Scroll Offset Preference Key
@@ -125,8 +125,10 @@ struct CustomTabBar: View {
                                         isActive: tab.id == adapter.activeTabId,
                                         isDragging: adapter.draggingTabId == tab.id,
                                         tabWidth: computedTabWidth,
-                                        showInsertBefore: adapter.dropTargetIndex == index && adapter.draggingTabId != tab.id,
-                                        showInsertAfter: index == adapter.tabs.count - 1 && adapter.dropTargetIndex == adapter.tabs.count,
+                                        showInsertBefore: adapter.dropTargetIndex == index
+                                            && adapter.draggingTabId != tab.id,
+                                        showInsertAfter: index == adapter.tabs.count - 1
+                                            && adapter.dropTargetIndex == adapter.tabs.count,
                                         onSelect: { onSelect(tab.id) },
                                         onClose: { onClose(tab.id) },
                                         onCommand: { command in onCommand?(command, tab.id) }
@@ -159,7 +161,7 @@ struct CustomTabBar: View {
                             }
                         }
                         .onChange(of: adapter.activeTabId) { _, newId in
-                            if let newId = newId {
+                            if let newId {
                                 withAnimation(.easeInOut(duration: AppStyle.animationStandard)) {
                                     proxy.scrollTo(newId, anchor: .center)
                                 }
@@ -176,7 +178,7 @@ struct CustomTabBar: View {
                             LinearGradient(
                                 colors: [
                                     Color(nsColor: .windowBackgroundColor),
-                                    Color(nsColor: .windowBackgroundColor).opacity(0)
+                                    Color(nsColor: .windowBackgroundColor).opacity(0),
                                 ],
                                 startPoint: .leading,
                                 endPoint: .trailing
@@ -194,7 +196,7 @@ struct CustomTabBar: View {
                             LinearGradient(
                                 colors: [
                                     Color(nsColor: .windowBackgroundColor).opacity(0),
-                                    Color(nsColor: .windowBackgroundColor)
+                                    Color(nsColor: .windowBackgroundColor),
                                 ],
                                 startPoint: .leading,
                                 endPoint: .trailing
@@ -280,7 +282,7 @@ struct CustomTabBar: View {
                     }
 
                     // New tab button (always visible)
-                    if let onAdd = onAdd {
+                    if let onAdd {
                         NewTabButton(onAdd: onAdd)
                     }
                 }
@@ -637,30 +639,30 @@ struct TabBarEmptyState: View {
 // MARK: - Preview
 
 #if DEBUG
-struct CustomTabBar_Previews: PreviewProvider {
-    static var previews: some View {
-        let tempDir = FileManager.default.temporaryDirectory
-            .appending(path: "preview-\(UUID().uuidString)")
-        let persistor = WorkspacePersistor(workspacesDir: tempDir)
-        let store = WorkspaceStore(persistor: persistor)
-        store.restore()
-        let adapter = TabBarAdapter(store: store)
+    struct CustomTabBar_Previews: PreviewProvider {
+        static var previews: some View {
+            let tempDir = FileManager.default.temporaryDirectory
+                .appending(path: "preview-\(UUID().uuidString)")
+            let persistor = WorkspacePersistor(workspacesDir: tempDir)
+            let store = WorkspaceStore(persistor: persistor)
+            store.restore()
+            let adapter = TabBarAdapter(store: store)
 
-        return VStack(spacing: 0) {
-            CustomTabBar(
-                adapter: adapter,
-                onSelect: { _ in },
-                onClose: { _ in },
-                onCommand: { _, _ in },
-                onAdd: {},
-                onPaneAction: { _ in },
-                onSaveArrangement: { _ in }
-            )
+            return VStack(spacing: 0) {
+                CustomTabBar(
+                    adapter: adapter,
+                    onSelect: { _ in },
+                    onClose: { _ in },
+                    onCommand: { _, _ in },
+                    onAdd: {},
+                    onPaneAction: { _ in },
+                    onSaveArrangement: { _ in }
+                )
 
-            Spacer()
+                Spacer()
+            }
+            .frame(width: 600, height: 400)
+            .background(Color(nsColor: .windowBackgroundColor))
         }
-        .frame(width: 600, height: 400)
-        .background(Color(nsColor: .windowBackgroundColor))
     }
-}
 #endif

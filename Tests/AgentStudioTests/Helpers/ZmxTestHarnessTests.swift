@@ -21,7 +21,8 @@ final class ZmxTestHarnessTests: XCTestCase {
 
     func testExtractSessionNameFromRealZmxListFormat() {
         // Exact format: session_name=<name>\tpid=<pid>\tclients=<n>
-        let line = "session_name=agentstudio--a1b2c3d4e5f6a7b8--00112233aabbccdd--aabbccdd11223344\tpid=12345\tclients=0"
+        let line =
+            "session_name=agentstudio--a1b2c3d4e5f6a7b8--00112233aabbccdd--aabbccdd11223344\tpid=12345\tclients=0"
         let name = ZmxTestHarness.extractSessionName(from: line)
         XCTAssertEqual(name, "agentstudio--a1b2c3d4e5f6a7b8--00112233aabbccdd--aabbccdd11223344")
     }

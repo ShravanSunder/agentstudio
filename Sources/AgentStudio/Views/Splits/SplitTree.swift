@@ -72,14 +72,14 @@ struct SplitTree<ViewType: NSView & Identifiable> {
     /// Insert a new view at the given view point by creating a split in the given direction.
     func inserting(view: ViewType, at target: ViewType, direction: NewDirection) throws -> Self {
         guard let root else { throw SplitError.emptyTree }
-        return SplitTree(root: try root.inserting(view: view, at: target, direction: direction))
+        return Self(root: try root.inserting(view: view, at: target, direction: direction))
     }
 
     /// Remove a view from the tree. If removing results in empty tree, returns nil.
     func removing(view: ViewType) -> Self? {
         guard let root else { return nil }
         if let newRoot = root.removing(view: view) {
-            return SplitTree(root: newRoot)
+            return Self(root: newRoot)
         }
         return nil
     }
@@ -87,24 +87,24 @@ struct SplitTree<ViewType: NSView & Identifiable> {
     /// Update the ratio of a split node identified by split ID.
     func resizing(splitId: UUID, ratio: Double) -> Self {
         guard let root else { return self }
-        return SplitTree(root: root.resizing(splitId: splitId, ratio: ratio))
+        return Self(root: root.resizing(splitId: splitId, ratio: ratio))
     }
 
     /// Update the ratio of a split node containing the given view (legacy pane-based lookup).
     func resizing(view: ViewType, ratio: Double) -> Self {
         guard let root else { return self }
-        return SplitTree(root: root.resizing(view: view, ratio: ratio))
+        return Self(root: root.resizing(view: view, ratio: ratio))
     }
 
     /// Equalize splits so all panes have equal ratios.
     func equalized() -> Self {
         guard let root else { return self }
-        return SplitTree(root: root.equalized())
+        return Self(root: root.equalized())
     }
 
     /// Find a view by its ID.
     func find(id: ViewType.ID) -> ViewType? {
-        return root?.find(id: id)
+        root?.find(id: id)
     }
 
     /// Get all leaf views in the tree (left to right traversal).
@@ -151,34 +151,37 @@ extension SplitTree.Node {
             let newLeaf = Self.leaf(view: view)
             let existingLeaf = Self.leaf(view: existingView)
 
-            return .split(Split(
-                direction: splitDirection,
-                ratio: 0.5,
-                left: newViewOnLeft ? newLeaf : existingLeaf,
-                right: newViewOnLeft ? existingLeaf : newLeaf
-            ))
+            return .split(
+                Split(
+                    direction: splitDirection,
+                    ratio: 0.5,
+                    left: newViewOnLeft ? newLeaf : existingLeaf,
+                    right: newViewOnLeft ? existingLeaf : newLeaf
+                ))
 
         case .split(let split):
             // Try to find target in left subtree
             if split.left.contains(id: target.id) {
-                return .split(Split(
-                    id: split.id,
-                    direction: split.direction,
-                    ratio: split.ratio,
-                    left: try split.left.inserting(view: view, at: target, direction: direction),
-                    right: split.right
-                ))
+                return .split(
+                    Split(
+                        id: split.id,
+                        direction: split.direction,
+                        ratio: split.ratio,
+                        left: try split.left.inserting(view: view, at: target, direction: direction),
+                        right: split.right
+                    ))
             }
 
             // Try right subtree
             if split.right.contains(id: target.id) {
-                return .split(Split(
-                    id: split.id,
-                    direction: split.direction,
-                    ratio: split.ratio,
-                    left: split.left,
-                    right: try split.right.inserting(view: view, at: target, direction: direction)
-                ))
+                return .split(
+                    Split(
+                        id: split.id,
+                        direction: split.direction,
+                        ratio: split.ratio,
+                        left: split.left,
+                        right: try split.right.inserting(view: view, at: target, direction: direction)
+                    ))
             }
 
             throw SplitError.viewNotFound
@@ -199,13 +202,14 @@ extension SplitTree.Node {
             let newRight = split.right.removing(view: view)
 
             if let left = newLeft, let right = newRight {
-                return .split(Split(
-                    id: split.id,
-                    direction: split.direction,
-                    ratio: split.ratio,
-                    left: left,
-                    right: right
-                ))
+                return .split(
+                    Split(
+                        id: split.id,
+                        direction: split.direction,
+                        ratio: split.ratio,
+                        left: left,
+                        right: right
+                    ))
             }
 
             if let left = newLeft {
@@ -227,22 +231,24 @@ extension SplitTree.Node {
 
         case .split(let split):
             if split.id == splitId {
-                return .split(Split(
-                    id: split.id,
-                    direction: split.direction,
-                    ratio: max(0.1, min(0.9, ratio)),
-                    left: split.left,
-                    right: split.right
-                ))
+                return .split(
+                    Split(
+                        id: split.id,
+                        direction: split.direction,
+                        ratio: max(0.1, min(0.9, ratio)),
+                        left: split.left,
+                        right: split.right
+                    ))
             }
 
-            return .split(Split(
-                id: split.id,
-                direction: split.direction,
-                ratio: split.ratio,
-                left: split.left.resizing(splitId: splitId, ratio: ratio),
-                right: split.right.resizing(splitId: splitId, ratio: ratio)
-            ))
+            return .split(
+                Split(
+                    id: split.id,
+                    direction: split.direction,
+                    ratio: split.ratio,
+                    left: split.left.resizing(splitId: splitId, ratio: ratio),
+                    right: split.right.resizing(splitId: splitId, ratio: ratio)
+                ))
         }
     }
 
@@ -257,22 +263,24 @@ extension SplitTree.Node {
             let rightContains = split.right.containsDirectly(id: view.id)
 
             if leftContains || rightContains {
-                return .split(Split(
-                    id: split.id,
-                    direction: split.direction,
-                    ratio: max(0.1, min(0.9, ratio)),
-                    left: split.left,
-                    right: split.right
-                ))
+                return .split(
+                    Split(
+                        id: split.id,
+                        direction: split.direction,
+                        ratio: max(0.1, min(0.9, ratio)),
+                        left: split.left,
+                        right: split.right
+                    ))
             }
 
-            return .split(Split(
-                id: split.id,
-                direction: split.direction,
-                ratio: split.ratio,
-                left: split.left.resizing(view: view, ratio: ratio),
-                right: split.right.resizing(view: view, ratio: ratio)
-            ))
+            return .split(
+                Split(
+                    id: split.id,
+                    direction: split.direction,
+                    ratio: split.ratio,
+                    left: split.left.resizing(view: view, ratio: ratio),
+                    right: split.right.resizing(view: view, ratio: ratio)
+                ))
         }
     }
 
@@ -283,13 +291,14 @@ extension SplitTree.Node {
             return self
 
         case .split(let split):
-            return .split(Split(
-                id: split.id,
-                direction: split.direction,
-                ratio: 0.5,
-                left: split.left.equalized(),
-                right: split.right.equalized()
-            ))
+            return .split(
+                Split(
+                    id: split.id,
+                    direction: split.direction,
+                    ratio: 0.5,
+                    left: split.left.equalized(),
+                    right: split.right.equalized()
+                ))
         }
     }
 
@@ -343,10 +352,10 @@ extension SplitTree.Node {
 extension SplitTree.Node: Equatable {
     static func == (lhs: Self, rhs: Self) -> Bool {
         switch (lhs, rhs) {
-        case let (.leaf(view1), .leaf(view2)):
+        case (.leaf(let view1), .leaf(let view2)):
             return view1 === view2  // Object identity for NSView references
 
-        case let (.split(split1), .split(split2)):
+        case (.split(let split1), .split(let split2)):
             return split1 == split2
 
         default:
@@ -355,7 +364,6 @@ extension SplitTree.Node: Equatable {
     }
 }
 
-
 // MARK: - Equatable
 
 extension SplitTree: Equatable {
@@ -363,7 +371,7 @@ extension SplitTree: Equatable {
         switch (lhs.root, rhs.root) {
         case (nil, nil):
             return true
-        case let (l?, r?):
+        case (let l?, let r?):
             return l == r
         default:
             return false
@@ -385,7 +393,6 @@ extension SplitTree: Sequence {
         }
     }
 }
-
 
 // MARK: - Navigation
 
@@ -500,10 +507,10 @@ extension SplitTree.Node {
     /// Ratios are intentionally excluded — ratio changes should not cause view recreation.
     fileprivate func isStructurallyEqual(to other: SplitTree.Node) -> Bool {
         switch (self, other) {
-        case let (.leaf(view1), .leaf(view2)):
+        case (.leaf(let view1), .leaf(let view2)):
             return view1 === view2
 
-        case let (.split(split1), .split(split2)):
+        case (.split(let split1), .split(let split2)):
             return split1.direction == split2.direction
                 && split1.left.isStructurallyEqual(to: split2.left)
                 && split1.right.isStructurallyEqual(to: split2.right)

@@ -12,7 +12,7 @@ final class WebviewNavigationDecider: WebPage.NavigationDeciding {
     // MARK: - Allowed Schemes
 
     static let allowedSchemes: Set<String> = [
-        "https", "http", "about", "file", "agentstudio"
+        "https", "http", "about", "file", "agentstudio",
     ]
 
     // MARK: - NavigationDeciding

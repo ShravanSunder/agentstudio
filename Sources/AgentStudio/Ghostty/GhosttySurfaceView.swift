@@ -1,7 +1,7 @@
-import Foundation
 import AppKit
-import GhosttyKit
 import Combine
+import Foundation
+import GhosttyKit
 import QuartzCore
 
 extension Ghostty {
@@ -45,19 +45,19 @@ extension Ghostty {
         private weak var ghosttyApp: App?
 
         /// Marked text for input method
-        private var markedText: NSMutableAttributedString = NSMutableAttributedString()
+        private var markedText = NSMutableAttributedString()
 
         /// Whether this view has focus
         private(set) var focused: Bool = false
 
         /// Text accumulator for key events
-        private var keyTextAccumulator: [String]? = nil
+        private var keyTextAccumulator: [String]?
 
         /// Content size for the terminal (may differ from frame during resize)
         private var contentSize: NSSize = .zero
 
         /// Current working directory reported by the shell via OSC 7
-        private(set) var pwd: String? = nil {
+        private(set) var pwd: String? {
             didSet {
                 if pwd != oldValue {
                     NotificationCenter.default.post(
@@ -103,9 +103,10 @@ extension Ghostty {
             var surfaceConfig = ghostty_surface_config_new()
             surfaceConfig.userdata = Unmanaged.passUnretained(self).toOpaque()
             surfaceConfig.platform_tag = GHOSTTY_PLATFORM_MACOS
-            surfaceConfig.platform = ghostty_platform_u(macos: ghostty_platform_macos_s(
-                nsview: Unmanaged.passUnretained(self).toOpaque()
-            ))
+            surfaceConfig.platform = ghostty_platform_u(
+                macos: ghostty_platform_macos_s(
+                    nsview: Unmanaged.passUnretained(self).toOpaque()
+                ))
             surfaceConfig.scale_factor = Double(NSScreen.main?.backingScaleFactor ?? 2.0)
             surfaceConfig.font_size = config?.fontSize ?? 0
 
@@ -148,7 +149,7 @@ extension Ghostty {
         }
 
         deinit {
-            if let surface = surface {
+            if let surface {
                 ghostty_surface_free(surface)
             }
         }
@@ -170,7 +171,7 @@ extension Ghostty {
             let result = super.becomeFirstResponder()
             if result {
                 focused = true
-                if let surface = surface {
+                if let surface {
                     ghostty_surface_set_focus(surface, true)
                 }
             }
@@ -181,7 +182,7 @@ extension Ghostty {
             let result = super.resignFirstResponder()
             if result {
                 focused = false
-                if let surface = surface {
+                if let surface {
                     ghostty_surface_set_focus(surface, false)
                 }
             }
@@ -218,7 +219,7 @@ extension Ghostty {
         }
 
         override func mouseExited(with event: NSEvent) {
-            guard let surface = surface else { return }
+            guard let surface else { return }
             let mods = ghosttyMods(from: event.modifierFlags)
             // Send -1,-1 to indicate cursor left the viewport
             ghostty_surface_mouse_pos(surface, -1, -1, mods)
@@ -227,7 +228,7 @@ extension Ghostty {
         override func viewDidChangeBackingProperties() {
             super.viewDidChangeBackingProperties()
 
-            guard let window = window else { return }
+            guard let window else { return }
             let scaleFactor = window.backingScaleFactor
 
             // Update layer's contentsScale within a CATransaction to disable animations
@@ -236,7 +237,7 @@ extension Ghostty {
             layer?.contentsScale = scaleFactor
             CATransaction.commit()
 
-            guard let surface = surface else { return }
+            guard let surface else { return }
 
             // Calculate x and y scale factors separately (official pattern)
             let fbFrame = convertToBacking(frame)
@@ -256,7 +257,7 @@ extension Ghostty {
         }
 
         private func updateScaleFactor(_ scaleFactor: CGFloat) {
-            guard let surface = surface else { return }
+            guard let surface else { return }
 
             // Update layer's contentsScale
             CATransaction.begin()
@@ -273,7 +274,7 @@ extension Ghostty {
         }
 
         func sizeDidChange(_ size: NSSize) {
-            guard let surface = surface else { return }
+            guard let surface else { return }
             guard size.width > 0 && size.height > 0 else { return }
 
             // Track content size (official pattern)
@@ -322,9 +323,9 @@ extension Ghostty {
 
         /// Shortcuts that Agent Studio owns — always pass to macOS menu bar, never to Ghostty.
         static let appOwnedShortcuts: [(key: String, mods: NSEvent.ModifierFlags)] = [
-            ("p", [.command]),                  // ⌘P — Quick Open
-            ("p", [.command, .shift]),           // ⌘⇧P — Command Palette
-            ("p", [.command, .option]),           // ⌘⌥P — Go to Pane
+            ("p", [.command]),  // ⌘P — Quick Open
+            ("p", [.command, .shift]),  // ⌘⇧P — Command Palette
+            ("p", [.command, .option]),  // ⌘⌥P — Go to Pane
         ]
 
         override func performKeyEquivalent(with event: NSEvent) -> Bool {
@@ -349,7 +350,7 @@ extension Ghostty {
                     return true
                 }
 
-                guard let surface = surface else { return false }
+                guard let surface else { return false }
 
                 var keyEvent = ghostty_input_key_s()
                 keyEvent.action = GHOSTTY_ACTION_PRESS
@@ -360,7 +361,8 @@ extension Ghostty {
 
                 if event.type == .keyDown || event.type == .keyUp {
                     if let chars = event.characters(byApplyingModifiers: []),
-                       let codepoint = chars.unicodeScalars.first {
+                        let codepoint = chars.unicodeScalars.first
+                    {
                         keyEvent.unshifted_codepoint = codepoint.value
                     }
                 }
@@ -422,7 +424,7 @@ extension Ghostty {
         }
 
         private func sendKeyEvent(_ event: NSEvent, action: ghostty_input_action_e, text: String? = nil) {
-            guard let surface = surface else { return }
+            guard let surface else { return }
 
             var keyEvent = ghostty_input_key_s()
             keyEvent.action = action
@@ -433,7 +435,8 @@ extension Ghostty {
             // Compute unshifted codepoint (key without modifiers)
             if event.type == .keyDown || event.type == .keyUp {
                 if let chars = event.characters(byApplyingModifiers: []),
-                   let codepoint = chars.unicodeScalars.first {
+                    let codepoint = chars.unicodeScalars.first
+                {
                     keyEvent.unshifted_codepoint = codepoint.value
                 }
             }
@@ -454,7 +457,8 @@ extension Ghostty {
 
             // Only send text if it's not a control character
             if let text = textToSend, !text.isEmpty,
-               let codepoint = text.utf8.first, codepoint >= 0x20 {
+                let codepoint = text.utf8.first, codepoint >= 0x20
+            {
                 text.withCString { ptr in
                     keyEvent.text = ptr
                     ghostty_surface_key(surface, keyEvent)
@@ -552,17 +556,17 @@ extension Ghostty {
         }
 
         override func scrollWheel(with event: NSEvent) {
-            guard let surface = surface else { return }
+            guard let surface else { return }
 
             let mods = ghosttyMods(from: event.modifierFlags)
             var scrollMods: ghostty_input_scroll_mods_t = Int32(mods.rawValue)
 
-            if event.momentumPhase != [] {
-                scrollMods |= 0x10 // GHOSTTY_SCROLL_MODS_MOMENTUM
+            if !event.momentumPhase.isEmpty {
+                scrollMods |= 0x10  // GHOSTTY_SCROLL_MODS_MOMENTUM
             }
 
             if event.hasPreciseScrollingDeltas {
-                scrollMods |= 0x20 // GHOSTTY_SCROLL_MODS_PRECISION
+                scrollMods |= 0x20  // GHOSTTY_SCROLL_MODS_PRECISION
             }
 
             ghostty_surface_mouse_scroll(
@@ -573,15 +577,17 @@ extension Ghostty {
             )
         }
 
-        private func sendMouseButton(_ event: NSEvent, action: ghostty_input_mouse_state_e, button: ghostty_input_mouse_button_e) {
-            guard let surface = surface else { return }
+        private func sendMouseButton(
+            _ event: NSEvent, action: ghostty_input_mouse_state_e, button: ghostty_input_mouse_button_e
+        ) {
+            guard let surface else { return }
             let mods = ghosttyMods(from: event.modifierFlags)
             ghostty_surface_mouse_button(surface, action, button, mods)
             // Note: Official Ghostty does NOT call sendMousePos after button events
         }
 
         private func sendMousePos(_ event: NSEvent) {
-            guard let surface = surface else { return }
+            guard let surface else { return }
 
             let pos = convert(event.locationInWindow, from: nil)
             let mods = ghosttyMods(from: event.modifierFlags)
@@ -606,7 +612,7 @@ extension Ghostty {
         // MARK: - Edit Menu Responders
 
         @objc func copy(_ sender: Any?) {
-            guard let surface = surface else { return }
+            guard let surface else { return }
             let action = "copy_to_clipboard"
             action.withCString { ptr in
                 _ = ghostty_surface_binding_action(surface, ptr, UInt(action.utf8.count))
@@ -614,7 +620,7 @@ extension Ghostty {
         }
 
         @objc func paste(_ sender: Any?) {
-            guard let surface = surface else { return }
+            guard let surface else { return }
             let action = "paste_from_clipboard"
             action.withCString { ptr in
                 _ = ghostty_surface_binding_action(surface, ptr, UInt(action.utf8.count))
@@ -622,7 +628,7 @@ extension Ghostty {
         }
 
         @objc override func selectAll(_ sender: Any?) {
-            guard let surface = surface else { return }
+            guard let surface else { return }
             let action = "select_all"
             action.withCString { ptr in
                 _ = ghostty_surface_binding_action(surface, ptr, UInt(action.utf8.count))
@@ -633,7 +639,7 @@ extension Ghostty {
 
         /// Send text to the terminal as if it was typed
         func sendText(_ text: String) {
-            guard let surface = surface else { return }
+            guard let surface else { return }
             text.withCString { ptr in
                 ghostty_surface_text(surface, ptr, UInt(text.utf8.count))
             }
@@ -641,19 +647,19 @@ extension Ghostty {
 
         /// Request that this surface be closed
         func requestClose() {
-            guard let surface = surface else { return }
+            guard let surface else { return }
             ghostty_surface_request_close(surface)
         }
 
         /// Check if the process has exited
         var processExited: Bool {
-            guard let surface = surface else { return true }
+            guard let surface else { return true }
             return ghostty_surface_process_exited(surface)
         }
 
         /// Check if confirmation is needed before quitting
         var needsConfirmQuit: Bool {
-            guard let surface = surface else { return false }
+            guard let surface else { return false }
             return ghostty_surface_needs_confirm_quit(surface)
         }
     }
@@ -665,7 +671,7 @@ extension Ghostty.SurfaceView: NSTextInputClient {
     func insertText(_ string: Any, replacementRange: NSRange) {
         // Must have a current event
         guard NSApp.currentEvent != nil else { return }
-        guard let surface = surface else { return }
+        guard let surface else { return }
 
         let text: String
         if let str = string as? String {
@@ -706,7 +712,7 @@ extension Ghostty.SurfaceView: NSTextInputClient {
     }
 
     func selectedRange() -> NSRange {
-        return NSRange(location: NSNotFound, length: 0)
+        NSRange(location: NSNotFound, length: 0)
     }
 
     func markedRange() -> NSRange {
@@ -717,15 +723,15 @@ extension Ghostty.SurfaceView: NSTextInputClient {
     }
 
     func hasMarkedText() -> Bool {
-        return markedText.length > 0
+        markedText.length > 0
     }
 
     func attributedSubstring(forProposedRange range: NSRange, actualRange: NSRangePointer?) -> NSAttributedString? {
-        return nil
+        nil
     }
 
     func validAttributesForMarkedText() -> [NSAttributedString.Key] {
-        return []
+        []
     }
 
     func firstRect(forCharacterRange range: NSRange, actualRange: NSRangePointer?) -> NSRect {
@@ -735,6 +741,6 @@ extension Ghostty.SurfaceView: NSTextInputClient {
     }
 
     func characterIndex(for point: NSPoint) -> Int {
-        return 0
+        0
     }
 }

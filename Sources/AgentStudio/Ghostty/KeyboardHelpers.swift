@@ -19,7 +19,7 @@ func ghosttyMods(from flags: NSEvent.ModifierFlags) -> ghostty_input_mods_e {
 /// Determines if text should be sent for a key event
 /// Control characters (< 0x20) should not be sent - Ghostty handles encoding
 func shouldSendKeyEventText(_ text: String?) -> Bool {
-    guard let text = text, !text.isEmpty else { return false }
+    guard let text, !text.isEmpty else { return false }
     guard let codepoint = text.utf8.first else { return false }
     return codepoint >= 0x20
 }
@@ -33,7 +33,7 @@ func filterGhosttyCharacters(
     byApplyingModifiers: (_ flags: NSEvent.ModifierFlags) -> String?,
     modifierFlags: NSEvent.ModifierFlags
 ) -> String? {
-    guard let characters = characters else { return nil }
+    guard let characters else { return nil }
 
     if characters.count == 1, let scalar = characters.unicodeScalars.first {
         // Control characters < 0x20: strip control modifier
@@ -52,9 +52,9 @@ func filterGhosttyCharacters(
 
 /// Decision for how to route a key event
 enum KeyRoutingDecision: Equatable {
-    case passToSystem          // Return false, let macOS handle
-    case handleInTerminal      // Call keyDown, return true
-    case modifyAndHandle(String) // Modify char, call keyDown, return true
+    case passToSystem  // Return false, let macOS handle
+    case handleInTerminal  // Call keyDown, return true
+    case modifyAndHandle(String)  // Modify char, call keyDown, return true
 }
 
 /// Determines how to route a key equivalent event

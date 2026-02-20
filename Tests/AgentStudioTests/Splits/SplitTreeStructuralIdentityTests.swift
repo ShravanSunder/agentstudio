@@ -1,5 +1,6 @@
-import XCTest
 import AppKit
+import XCTest
+
 @testable import AgentStudio
 
 final class SplitTreeStructuralIdentityTests: XCTestCase {
@@ -69,7 +70,7 @@ final class SplitTreeStructuralIdentityTests: XCTestCase {
         let horizontalTree = try TestSplitTree(view: viewA)
             .inserting(view: viewB, at: viewA, direction: .right)  // horizontal
         let verticalTree = try TestSplitTree(view: viewA)
-            .inserting(view: viewB, at: viewA, direction: .down)   // vertical
+            .inserting(view: viewB, at: viewA, direction: .down)  // vertical
 
         // Act
         let id1 = horizontalTree.root!.structuralIdentity

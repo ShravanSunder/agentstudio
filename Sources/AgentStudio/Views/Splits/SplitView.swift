@@ -52,15 +52,17 @@ struct SplitView<L: View, R: View>: View {
                     .offset(x: rightRect.origin.x, y: rightRect.origin.y)
                     .accessibilityElement(children: .contain)
                     .accessibilityLabel(rightPaneLabel)
-                Divider(direction: direction,
-                        gapSize: splitterGapSize,
-                        hitSize: splitterHitSize,
-                        split: $split)
-                    .position(splitterPoint)
-                    .gesture(dragGesture(geo.size, splitterPoint: splitterPoint))
-                    .onTapGesture(count: 2) {
-                        onEqualize()
-                    }
+                Divider(
+                    direction: direction,
+                    gapSize: splitterGapSize,
+                    hitSize: splitterHitSize,
+                    split: $split
+                )
+                .position(splitterPoint)
+                .gesture(dragGesture(geo.size, splitterPoint: splitterPoint))
+                .onTapGesture(count: 2) {
+                    onEqualize()
+                }
             }
             .accessibilityElement(children: .contain)
             .accessibilityLabel(splitViewLabel)
@@ -91,7 +93,7 @@ struct SplitView<L: View, R: View>: View {
     @State private var hasStartedResize = false
 
     private func dragGesture(_ size: CGSize, splitterPoint: CGPoint) -> some Gesture {
-        return DragGesture()
+        DragGesture()
             .onChanged { gesture in
                 if !hasStartedResize {
                     hasStartedResize = true
@@ -118,12 +120,12 @@ struct SplitView<L: View, R: View>: View {
         var result = CGRect(x: 0, y: 0, width: size.width, height: size.height)
         switch direction {
         case .horizontal:
-            result.size.width = result.size.width * split
+            result.size.width *= split
             result.size.width -= splitterGapSize / 2
             result.size.width -= result.size.width.truncatingRemainder(dividingBy: resizeIncrements.width)
 
         case .vertical:
-            result.size.height = result.size.height * split
+            result.size.height *= split
             result.size.height -= splitterGapSize / 2
             result.size.height -= result.size.height.truncatingRemainder(dividingBy: resizeIncrements.height)
         }

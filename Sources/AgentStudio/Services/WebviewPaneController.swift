@@ -1,6 +1,6 @@
 import Foundation
-import WebKit
 import Observation
+import WebKit
 
 /// Per-pane browser controller. Each webview pane owns one controller
 /// that manages a single WebPage and exposes observable navigation state
@@ -108,7 +108,8 @@ final class WebviewPaneController {
     /// and notify the coordinator to sync the pane title in the store.
     func recordCurrentPage() {
         guard let url = page.url,
-              !page.isLoading else { return }
+            !page.isLoading
+        else { return }
         let displayTitle = page.title.isEmpty ? (url.host() ?? "Web") : page.title
         URLHistoryService.shared.record(url: url, title: displayTitle)
         onTitleChange?(displayTitle)

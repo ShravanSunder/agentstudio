@@ -77,7 +77,8 @@ struct CollapsedPaneBar: View {
         )
         .overlay(
             RoundedRectangle(cornerRadius: AppStyle.buttonCornerRadius)
-                .strokeBorder(Color.white.opacity(isHovered ? AppStyle.strokeHover : AppStyle.strokeSubtle), lineWidth: 1)
+                .strokeBorder(
+                    Color.white.opacity(isHovered ? AppStyle.strokeHover : AppStyle.strokeSubtle), lineWidth: 1)
         )
         .contentShape(Rectangle())
         .onHover { isHovered = $0 }

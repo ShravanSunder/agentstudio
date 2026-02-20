@@ -1,4 +1,5 @@
 import XCTest
+
 @testable import AgentStudio
 
 final class ManagementModeTests: XCTestCase {
@@ -31,7 +32,7 @@ final class ManagementModeTests: XCTestCase {
     func test_managementMode_deactivate() {
         // Arrange
         let monitor = ManagementModeMonitor.shared
-        monitor.toggle() // activate
+        monitor.toggle()  // activate
 
         // Act
         monitor.deactivate()
@@ -44,7 +45,7 @@ final class ManagementModeTests: XCTestCase {
     func test_managementMode_deactivateWhenAlreadyInactive() {
         // Arrange
         let monitor = ManagementModeMonitor.shared
-        monitor.deactivate() // ensure inactive
+        monitor.deactivate()  // ensure inactive
 
         // Act — should be no-op
         monitor.deactivate()
