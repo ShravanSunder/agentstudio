@@ -24,7 +24,7 @@ final class PushPerformanceBenchmarkTests: XCTestCase {
         }
     }
 
-    // MARK: - 100-file manifest push latency (§6.10 line 1042)
+    // MARK: - 100-file entity slice push latency (§6.10 line 1042)
 
     func test_100file_manifest_push_under_32ms() async throws {
         // Arrange
@@ -38,36 +38,41 @@ final class PushPerformanceBenchmarkTests: XCTestCase {
             revisions: clock,
             epoch: { diffState.epoch },
             slices: {
-                Slice("diffManifest", store: .diff, level: .hot, op: .replace) { state in
-                    state.manifest  // Using .hot to measure raw push time without debounce
-                }
+                EntitySlice(
+                    "diffFiles", store: .diff, level: .hot,
+                    capture: { (state: DiffState) in state.files },
+                    version: { file in file.version },
+                    keyToString: { $0 }
+                )
             }
         )
 
         plan.start()
         try await Task.sleep(for: .milliseconds(50))
 
-        // Generate 100-file manifest (metadata only, no file contents)
-        let manifest = DiffManifest(
-            files: (0..<100).map { i in
-                FileManifest(
-                    id: UUID().uuidString,
-                    path: "src/components/Component\(i).tsx",
-                    oldPath: nil,
-                    changeType: .modified,
-                    additions: Int.random(in: 1...50),
-                    deletions: Int.random(in: 1...30),
-                    size: Int.random(in: 100...10_000),
-                    contextHash: UUID().uuidString
-                )
-            })
+        // Generate 100-file dictionary (metadata only, no file contents)
+        var files: [String: FileManifest] = [:]
+        for i in 0..<100 {
+            let fileId = "file-\(i)"
+            files[fileId] = FileManifest(
+                id: fileId,
+                version: 1,
+                path: "src/components/Component\(i).tsx",
+                oldPath: nil,
+                changeType: .modified,
+                additions: Int.random(in: 1...50),
+                deletions: Int.random(in: 1...30),
+                size: Int.random(in: 100...10_000),
+                contextHash: UUID().uuidString
+            )
+        }
 
         // Record the baseline push count (initial observation fires once)
         let baselinePushCount = transport.pushCount
 
-        // Act — mutate the observable state with a 100-file manifest
+        // Act — mutate the observable state with a 100-file dictionary
         let mutationInstant = ContinuousClock.now
-        diffState.manifest = manifest
+        diffState.files = files
 
         // Wait for push to arrive at transport
         try await Task.sleep(for: .milliseconds(200))
@@ -75,7 +80,7 @@ final class PushPerformanceBenchmarkTests: XCTestCase {
         // Assert — push was triggered
         XCTAssertGreaterThan(
             transport.pushCount, baselinePushCount,
-            "100-file manifest mutation should trigger at least one push beyond baseline")
+            "100-file entity slice mutation should trigger at least one push beyond baseline")
 
         guard let pushInstant = transport.lastPushInstant else {
             XCTFail("Transport should have recorded a push timestamp")
@@ -89,10 +94,10 @@ final class PushPerformanceBenchmarkTests: XCTestCase {
         // Target: < 32ms from mutation to transport.pushJSON call
         // Note: This measures Swift-side only (observation + JSON encode + pushJSON call).
         // Full end-to-end includes JS JSON.parse + store update.
-        print("[PushBenchmark] 100-file manifest push latency: \(latency)")
+        print("[PushBenchmark] 100-file entity slice push latency: \(latency)")
         XCTAssertLessThan(
             latency, .milliseconds(32),
-            "100-file manifest push should complete within 32ms (Swift-side observation + encode + transport call). "
+            "100-file entity slice push should complete within 32ms (Swift-side observation + encode + transport call). "
                 + "Measured: \(latency)")
 
         plan.stop()

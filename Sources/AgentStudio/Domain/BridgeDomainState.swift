@@ -18,27 +18,22 @@ class DiffState {
     var status: DiffStatus = .idle
     var error: String?
     var epoch: Int = 0
-    var manifest: DiffManifest?
+    var files: [String: FileManifest] = [:]
 }
 
 enum DiffStatus: String, Codable, Equatable, Sendable {
     case idle, loading, ready, error
 }
 
-/// Diff manifest — metadata for files in a diff.
-/// Minimal shape for Phase 2 push benchmark (100-file manifest).
-struct DiffManifest: Encodable, Equatable, Sendable {
-    var files: [FileManifest]
-}
-
 struct FileManifest: Encodable, Equatable, Sendable {
     let id: String
+    var version: Int
     let path: String
     let oldPath: String?
     let changeType: ChangeType
-    let additions: Int
-    let deletions: Int
-    let size: Int
+    var additions: Int
+    var deletions: Int
+    var size: Int
     let contextHash: String
 
     enum ChangeType: String, Encodable, Equatable, Sendable {

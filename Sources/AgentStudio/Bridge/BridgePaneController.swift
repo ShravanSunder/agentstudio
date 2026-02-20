@@ -191,9 +191,12 @@ final class BridgePaneController {
                 Slice("diffStatus", store: .diff, level: .hot) { state in
                     DiffStatusSlice(status: state.status, error: state.error, epoch: state.epoch)
                 }
-                Slice("diffManifest", store: .diff, level: .cold, op: .replace) { state in
-                    state.manifest
-                }
+                EntitySlice(
+                    "diffFiles", store: .diff, level: .cold,
+                    capture: { state in state.files },
+                    version: { file in file.version },
+                    keyToString: { $0 }
+                )
             }
         )
     }
