@@ -148,7 +148,7 @@ final class ActionExecutor {
                     coordinator.createViewForContent(pane: pane)
                 }
 
-            case .webview, .codeViewer:
+            case .webview, .codeViewer, .bridgePanel:
                 // Non-terminal panes create a fresh view from their stored state
                 coordinator.createViewForContent(pane: pane)
 
@@ -179,7 +179,7 @@ final class ActionExecutor {
                     coordinator.createViewForContent(pane: pane)
                 }
 
-            case .webview, .codeViewer:
+            case .webview, .codeViewer, .bridgePanel:
                 coordinator.createViewForContent(pane: pane)
 
             case .unsupported:

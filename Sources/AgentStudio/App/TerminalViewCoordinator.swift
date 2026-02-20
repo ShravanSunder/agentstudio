@@ -114,6 +114,11 @@ final class TerminalViewCoordinator {
             coordinatorLogger.info("Created code viewer stub for pane \(pane.id)")
             return view
 
+        case .bridgePanel:
+            // TODO: Task 2.1-2.3 — wire BridgePaneController + BridgePaneView
+            coordinatorLogger.warning("Bridge panel view not yet implemented — pane \(pane.id)")
+            return nil
+
         case .unsupported:
             coordinatorLogger.warning("Cannot create view for unsupported content type — pane \(pane.id)")
             return nil
