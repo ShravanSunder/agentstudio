@@ -2,26 +2,33 @@
 
 ## Agent Studio — Individual CLA
 
-Thank you for contributing to Agent Studio. This lightweight CLA ensures we can maintain and distribute the project while preserving your rights as a contributor.
+Thank you for contributing to Agent Studio. This lightweight CLA ensures we can maintain, distribute, and license the project while preserving your rights as a contributor.
 
 ### What You Agree To
 
-By submitting a pull request or otherwise contributing code to this repository, you agree to the following:
+By submitting a pull request or otherwise contributing to this repository, you agree to the following:
 
-**1. Copyright Assignment**
+**1. License Grant**
 
-You assign copyright of your contribution to Shravan Sunder. In jurisdictions where copyright assignment is not permitted, you instead grant an irrevocable, worldwide, royalty-free, exclusive license to use, reproduce, modify, distribute, sublicense, and otherwise exploit your contribution in any form.
+You grant to Shravan Sunder and to recipients of software distributed as Agent Studio a perpetual, worldwide, non-exclusive, royalty-free, irrevocable license to use, reproduce, modify, prepare derivative works of, publicly display, publicly perform, distribute, and sublicense your contributions — including the right to sublicense under any license, including proprietary licenses.
 
-**2. License Back**
+You retain full copyright ownership of your contributions.
 
-You retain the right to use, modify, and distribute your own contributions for any purpose. The copyright assignment does not restrict your ability to use code you wrote.
+**2. Patent Grant**
+
+You grant to Shravan Sunder and to recipients of software distributed as Agent Studio a perpetual, worldwide, non-exclusive, royalty-free, irrevocable patent license to make, have made, use, offer to sell, sell, import, and otherwise transfer your contributions, where such license applies only to patents you own or have the right to license.
 
 **3. Representations**
 
 You represent that:
 - The contribution is your original work
 - You have the right to submit it under these terms
-- Your contribution does not violate any third-party rights
+- Your contribution does not violate any third-party intellectual property rights
+- If your employer has rights to intellectual property you create, you have obtained permission to make this contribution or your employer has waived such rights
+
+**4. No Warranty**
+
+You provide your contributions on an "AS IS" basis, without warranties of any kind.
 
 ### How to Sign
 
@@ -33,4 +40,4 @@ One signature covers all future contributions.
 
 ### Dual Licensing Notice
 
-Agent Studio is licensed under AGPL-3.0. The copyright holder reserves the right to offer the software under additional commercial licenses. This CLA enables that by consolidating copyright ownership. Contributors always retain their license-back rights described above.
+Agent Studio is licensed under AGPL-3.0. The project maintainer reserves the right to offer the software under additional commercial licenses. This CLA enables that through the sublicensing rights granted above. Contributors always retain full copyright ownership and can use their own contributions for any purpose.
