@@ -13,7 +13,7 @@ brew tap ShravanSunder/agentstudio
 brew install --cask agent-studio
 ```
 
-Requires macOS 15+. No external dependencies.
+Requires macOS 26+. No external dependencies.
 
 ## Why
 
@@ -25,21 +25,45 @@ Agent Studio is a ground-up redesign of the development experience around agents
 
 ## How It Works
 
-**Everything in one workspace.** Terminals and webviews sit side by side. View GitHub PRs, review diffs, or browse documentation right next to the agents doing the work — without switching windows.
+### One pane per unit of work. Everything else in its drawer.
 
-![GitHub and terminals in one workspace](web/images/screen4.png)
+Each worktree, agent, or task gets a main terminal pane. Below it, a **drawer** holds everything associated with that work — sub-terminals, git operations, build output, webviews, whatever context belongs together.
 
-**Context that travels with you.** Every pane knows its project, worktree, and working directory. Terminals for a worktree live in the pane's drawer — associated, not scattered. Close a pane, its children come with it.
+```
+┌─────────────────────────────────────┐
+│  Claude Code — feature-auth         │  ← main pane (your agent)
+│  > Implementing OAuth flow...       │
+│                                     │
+├─────────────────────────────────────┤
+│ [shell] [git log] [build] [+]       │  ← drawer (associated context)
+│ ┌─────────────────────────────────┐ │
+│ │ $ git diff --stat               │ │
+│ │  src/auth.swift | 42 +++---     │ │
+│ └─────────────────────────────────┘ │
+└─────────────────────────────────────┘
+```
+
+Agent spawns a build? It lands in the drawer. Need to check git status? It's already there. Open a webview to review the PR? Drawer. Close the main pane — the drawer goes with it. Move it to another tab — the drawer follows.
+
+This is what keeps you oriented. Not a flat list of 30 terminals — a structured workspace where every pane has a home.
 
 ![Pane drawers and project context](web/images/screen1.png)
 
-**Saved focus modes.** Pane arrangements let you switch between "coding", "reviewing", and "monitoring" layouts per tab. Sessions keep running in the background — nothing is lost when you switch.
+### GitHub, PRs, and diffs without leaving the workspace
 
-**Session continuity.** Close the app, reopen, pick up where you left off. zmx restores your sessions without tmux, without scripts, without configuration.
+Webview panes sit alongside your terminals. Review a pull request, check CI status, or browse documentation right next to the agent doing the work. No alt-tab. No lost context.
 
-**Any agent, any pane.** Claude Code, Codex, aider, Cursor CLI — Agent Studio doesn't care. It provides the workspace. The agent is just a process in a terminal.
+![GitHub and terminals in one workspace](web/images/screen4.png)
 
-**Command bar (Cmd+P).** One interaction point for everything — switch arrangements, navigate panes, create terminals, move panes between tabs.
+### The rest
+
+**Pane arrangements** — save named layouts per tab ("coding", "reviewing", "monitoring") and switch between them. Sessions keep running in the background.
+
+**Session restore** — close the app, reopen, pick up where you left off. zmx handles persistence with no tmux, no scripts, no configuration.
+
+**Any agent, any pane** — Claude Code, Codex, aider, Cursor CLI. Agent Studio provides the workspace. The agent is just a process.
+
+**Command bar (Cmd+P)** — one interaction point for everything.
 
 ![Multi-pane agent workflow](web/images/screen2.png)
 
@@ -87,7 +111,7 @@ See the [Architecture Overview](docs/architecture/README.md) for the full system
 
 ### Prerequisites
 
-- macOS 15+, Xcode 15+
+- macOS 26+, Xcode 26+, Swift 6
 - [mise](https://mise.jdx.dev/) (`brew install mise`)
 
 ### Build and Run
