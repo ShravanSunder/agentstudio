@@ -1,5 +1,8 @@
 import Foundation
 import WebKit
+import os.log
+
+private let messageHandlerLogger = Logger(subsystem: "com.agentstudio", category: "RPCMessageHandler")
 
 /// Receives postMessage from the bridge content world and forwards validated JSON upstream.
 ///
@@ -55,7 +58,9 @@ final class RPCMessageHandler: NSObject, WKScriptMessageHandler {
         didReceive message: WKScriptMessage
     ) {
         guard let json = Self.extractJSON(from: message.body) else {
-            return  // Silently drop non-JSON messages
+            messageHandlerLogger.debug(
+                "[RPCMessageHandler] dropped non-JSON message body type=\(type(of: message.body))")
+            return
         }
 
         // Forward to upstream handler on main actor.

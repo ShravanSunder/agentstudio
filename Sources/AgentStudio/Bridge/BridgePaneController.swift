@@ -51,7 +51,7 @@ final class BridgePaneController {
 
     private let router: RPCRouter
     private let bridgeWorld = WKContentWorld.world(name: "agentStudioBridge")
-    private var lastPushedJSON: [StoreKey: Data] = [:]
+    private var lastPushedJSON: [String: Data] = [:]
 
     // MARK: - Init
 
@@ -252,9 +252,12 @@ extension BridgePaneController: PushTransport {
         epoch: Int,
         json: Data
     ) async {
-        // Content guard — skip identical pushes to same store
-        if lastPushedJSON[store] == json { return }
-        lastPushedJSON[store] = json
+        // Content guard — skip identical pushes to same store+op pair.
+        // Using store:op as key ensures a .replace and .merge to the same store
+        // with identical bytes are NOT deduplicated (they have different semantics).
+        let dedupKey = "\(store.rawValue):\(op.rawValue)"
+        if lastPushedJSON[dedupKey] == json { return }
+        lastPushedJSON[dedupKey] = json
 
         // Phase 2 stub: log the push. Full callJavaScript implementation in Phase 4.
         bridgeControllerLogger.debug(

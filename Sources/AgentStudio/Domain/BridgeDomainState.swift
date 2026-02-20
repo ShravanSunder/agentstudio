@@ -27,6 +27,12 @@ enum DiffStatus: String, Codable, Equatable, Sendable {
 
 struct FileManifest: Encodable, Equatable, Sendable {
     let id: String
+    /// Monotonic version counter for EntitySlice change detection.
+    ///
+    /// **Contract**: Callers MUST increment `version` whenever any mutable field
+    /// (`additions`, `deletions`, `size`) changes. EntitySlice compares this value
+    /// to detect per-entity changes — if `version` is not bumped, the change is
+    /// silently skipped and React sees stale data.
     var version: Int
     let path: String
     let oldPath: String?

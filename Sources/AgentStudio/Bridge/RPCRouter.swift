@@ -49,10 +49,11 @@ final class RPCRouter {
         }
 
         // Step 1: Parse JSON — malformed JSON is a parse error (-32700)
-        let raw = try? JSONSerialization.jsonObject(with: data)
-
-        guard let raw else {
-            onError?(-32_700, "Parse error", nil)
+        let raw: Any
+        do {
+            raw = try JSONSerialization.jsonObject(with: data)
+        } catch {
+            onError?(-32_700, "Parse error: \(error.localizedDescription)", nil)
             return
         }
 

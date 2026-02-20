@@ -119,6 +119,72 @@ final class EntitySliceTests: XCTestCase {
 
         task.cancel()
     }
+
+    // MARK: - Version Contract Tests
+
+    /// Documents that EntitySlice relies on `version` for change detection.
+    /// If a field mutates but version doesn't increment, the change is NOT pushed.
+    /// This is by design — callers are responsible for bumping version.
+    func test_entitySlice_skips_entity_when_version_unchanged() async throws {
+        // Arrange
+        let state = TestState()
+        let transport = MockPushTransport()
+        let clock = RevisionClock()
+
+        let id1 = UUID()
+        state.items[id1] = TestEntity(name: "original", version: 1)
+
+        let slice = EntitySlice<TestState, UUID, TestEntity>(
+            "testItems", store: .review, level: .hot,
+            capture: { state in state.items },
+            version: { entity in entity.version },
+            keyToString: { $0.uuidString }
+        )
+
+        let task = slice.erased().makeTask(state, transport, clock) { 1 }
+        try await Task.sleep(for: .milliseconds(50))
+
+        let countAfterInitial = transport.pushCount
+
+        // Act — mutate name but DON'T bump version
+        state.items[id1] = TestEntity(name: "changed-name", version: 1)
+        try await Task.sleep(for: .milliseconds(100))
+
+        // Assert — EntitySlice should NOT push because version is unchanged
+        // This documents the version contract: callers must bump version for changes to propagate
+        XCTAssertEqual(
+            transport.pushCount, countAfterInitial,
+            "EntitySlice should skip push when version is unchanged despite field mutation")
+
+        task.cancel()
+    }
+
+    // MARK: - Encoder Determinism Tests
+
+    /// Verifies that JSONEncoder produces deterministic output for identical values.
+    /// The transport content guard relies on byte-equality of encoded JSON.
+    func test_jsonEncoder_determinism_for_content_guard() throws {
+        let encoder = JSONEncoder()
+        // Use sorted keys to ensure determinism (JSONEncoder's default key ordering is implementation-defined)
+        encoder.outputFormatting = .sortedKeys
+
+        let manifest = FileManifest(
+            id: "test-file",
+            version: 1,
+            path: "src/app.tsx",
+            oldPath: nil,
+            changeType: .modified,
+            additions: 10,
+            deletions: 5,
+            size: 1024,
+            contextHash: "abc123"
+        )
+
+        let data1 = try encoder.encode(manifest)
+        let data2 = try encoder.encode(manifest)
+
+        XCTAssertEqual(data1, data2, "JSONEncoder must produce identical bytes for identical values")
+    }
 }
 
 // MARK: - Test Helpers
