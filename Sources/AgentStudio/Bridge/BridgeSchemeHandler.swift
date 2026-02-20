@@ -73,7 +73,10 @@ struct BridgeSchemeHandler: URLSchemeHandler {
 
     /// Classify a URL string into app asset, resource request, or invalid.
     ///
-    /// Security: Rejects path traversal attempts containing ".." anywhere in the path.
+    /// Security: Rejects path traversal attempts by checking decoded path segments
+    /// for ".." components. Uses `URL.path()` which percent-decodes, so encoded
+    /// traversal like `%2e%2e` is caught after decoding. Segment-based checking
+    /// avoids false-rejecting benign paths containing dots (e.g. `my.file.txt`).
     static func classifyPath(_ urlString: String) -> PathType {
         guard let url = URL(string: urlString),
             url.scheme == "agentstudio"
@@ -82,11 +85,15 @@ struct BridgeSchemeHandler: URLSchemeHandler {
         }
 
         let host = url.host() ?? ""
-        let path = url.path()
-        let rawPath = url.absoluteString
+        let rawPath = url.path()
+        // Explicitly percent-decode for custom schemes (Foundation does not auto-decode
+        // custom scheme paths the way it does for http/https).
+        let path = rawPath.removingPercentEncoding ?? rawPath
 
-        // Reject path traversal — check both decoded and raw forms
-        if path.contains("..") || rawPath.contains("%2e") || rawPath.contains("%2E") {
+        // Reject path traversal — check for ".." as a complete path segment.
+        // Segment-based check avoids false-rejecting benign filenames like "my..config.js".
+        let segments = path.split(separator: "/")
+        if segments.contains("..") {
             return .invalid
         }
 

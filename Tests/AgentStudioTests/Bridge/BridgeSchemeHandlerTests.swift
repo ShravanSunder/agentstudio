@@ -124,8 +124,21 @@ final class BridgeSchemeHandlerTests: XCTestCase {
     }
 
     func test_rejects_percent_encoded_path_traversal() {
-        // %2e%2e is URL-encoded ".."
+        // %2e%2e is URL-encoded ".." — url.path() decodes it before segment check
         let result = BridgeSchemeHandler.classifyPath("agentstudio://app/%2e%2e/etc/passwd")
         XCTAssertEqual(result, .invalid)
+    }
+
+    func test_allows_benign_encoded_paths() {
+        // %2e is a single encoded dot — not traversal, should NOT be rejected
+        // e.g. "my%2efile.txt" decodes to "my.file.txt" which is a valid filename
+        let result = BridgeSchemeHandler.classifyPath("agentstudio://app/my%2efile.txt")
+        XCTAssertEqual(result, .app("my.file.txt"))
+    }
+
+    func test_allows_filenames_containing_double_dots() {
+        // "my..config.js" is a valid filename — not a traversal segment
+        let result = BridgeSchemeHandler.classifyPath("agentstudio://app/my..config.js")
+        XCTAssertEqual(result, .app("my..config.js"))
     }
 }
