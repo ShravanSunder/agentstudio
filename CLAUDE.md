@@ -67,7 +67,7 @@ swift test --filter "CommandBarState" > /tmp/test-output.txt 2>&1 && echo "PASS"
 
 **Lock contention.** If you see "Another instance of SwiftPM is already running using '.build', waiting..." — don't launch more swift commands. Either wait for the other process, or kill it (`pkill -f "swift-build"`) and retry.
 
-**Timeouts:** 50 seconds for `swift test` and `swift build`. Tests ~15s, builds ~5s. Longer usually means lock contention.
+**Timeouts are mandatory.** Always set the Bash tool's `timeout` parameter: 60000 (60s) for `swift test`, 30000 (30s) for `swift build`. Tests ~15s, builds ~5s — if it runs longer, it's stuck or lock-contended. Without an explicit timeout the tool hangs indefinitely.
 
 
 ### Launching the App
