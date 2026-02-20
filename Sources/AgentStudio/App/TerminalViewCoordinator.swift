@@ -132,8 +132,8 @@ final class TerminalViewCoordinator {
     ) -> AgentStudioTerminalView? {
         let workingDir = worktree.path
 
-        let cmd: String
-        let deferredStartupCommand: String?
+        let shellCommand = "\(getDefaultShell()) -i -l"
+        let startupStrategy: Ghostty.SurfaceStartupStrategy
         var environmentVariables: [String: String] = [:]
         switch pane.provider {
         case .zmx:
@@ -144,19 +144,15 @@ final class TerminalViewCoordinator {
                     repo: repo,
                     zmxPath: zmxPath
                 )
-                // Start an interactive shell first, then inject attach after the
-                // view is attached to a window and has a resolved size.
-                cmd = "\(getDefaultShell()) -i -l"
-                deferredStartupCommand = attachCommand
+                // Start in shell mode and inject zmx attach after first sizing.
+                startupStrategy = .deferredInShell(command: attachCommand)
                 environmentVariables["ZMX_DIR"] = sessionConfig.zmxDir
             } else {
                 coordinatorLogger.warning("zmx not found, falling back to ephemeral session for \(pane.id)")
-                cmd = "\(getDefaultShell()) -i -l"
-                deferredStartupCommand = nil
+                startupStrategy = .surfaceCommand(shellCommand)
             }
         case .ghostty:
-            cmd = "\(getDefaultShell()) -i -l"
-            deferredStartupCommand = nil
+            startupStrategy = .surfaceCommand(shellCommand)
         case .none:
             coordinatorLogger.error("Cannot create view for non-terminal pane \(pane.id)")
             return nil
@@ -164,18 +160,17 @@ final class TerminalViewCoordinator {
 
         let config = Ghostty.SurfaceConfiguration(
             workingDirectory: workingDir.path,
-            command: cmd,
-            deferredStartupCommand: deferredStartupCommand,
+            startupStrategy: startupStrategy,
             environmentVariables: environmentVariables
         )
 
         RestoreTrace.log(
-            "createView pane=\(pane.id) provider=\(pane.provider?.rawValue ?? "none") launchMode=deferred worktree=\(worktree.name) cwd=\(workingDir.path) cmd=\(cmd) deferred=\(deferredStartupCommand ?? "nil") env=\(environmentVariables)"
+            "createView pane=\(pane.id) provider=\(pane.provider?.rawValue ?? "none") startup=\(String(describing: startupStrategy)) worktree=\(worktree.name) cwd=\(workingDir.path) shell=\(shellCommand) env=\(environmentVariables)"
         )
 
         let metadata = SurfaceMetadata(
             workingDirectory: workingDir,
-            command: cmd,
+            command: shellCommand,
             title: worktree.name,
             worktreeId: worktree.id,
             repoId: repo.id,
@@ -236,7 +231,7 @@ final class TerminalViewCoordinator {
 
         let config = Ghostty.SurfaceConfiguration(
             workingDirectory: workingDir.path,
-            command: cmd
+            startupStrategy: .surfaceCommand(cmd)
         )
 
         let metadata = SurfaceMetadata(

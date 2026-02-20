@@ -4,6 +4,50 @@ import SwiftUI
 
 private let appLogger = Logger(subsystem: "com.agentstudio", category: "AppDelegate")
 
+struct ZmxOrphanCleanupPlan: Equatable {
+    let knownSessionIds: Set<String>
+    let shouldSkipCleanup: Bool
+}
+
+enum ZmxOrphanCleanupCandidate: Equatable {
+    case drawer(parentPaneId: UUID, paneId: UUID)
+    case main(paneId: UUID, repoStableKey: String?, worktreeStableKey: String?)
+}
+
+enum ZmxOrphanCleanupPlanner {
+    static func plan(candidates: [ZmxOrphanCleanupCandidate]) -> ZmxOrphanCleanupPlan {
+        var hasUnresolvableMainPane = false
+        var knownSessionIds: Set<String> = []
+        knownSessionIds.reserveCapacity(candidates.count)
+
+        for candidate in candidates {
+            switch candidate {
+            case .drawer(let parentPaneId, let paneId):
+                knownSessionIds.insert(
+                    ZmxBackend.drawerSessionId(parentPaneId: parentPaneId, drawerPaneId: paneId)
+                )
+            case .main(let paneId, let repoStableKey, let worktreeStableKey):
+                guard let repoStableKey, let worktreeStableKey else {
+                    hasUnresolvableMainPane = true
+                    continue
+                }
+                knownSessionIds.insert(
+                    ZmxBackend.sessionId(
+                        repoStableKey: repoStableKey,
+                        worktreeStableKey: worktreeStableKey,
+                        paneId: paneId
+                    )
+                )
+            }
+        }
+
+        return ZmxOrphanCleanupPlan(
+            knownSessionIds: knownSessionIds,
+            shouldSkipCleanup: hasUnresolvableMainPane
+        )
+    }
+}
+
 class AppDelegate: NSObject, NSApplicationDelegate {
     var mainWindowController: MainWindowController?
 
@@ -164,46 +208,38 @@ class AppDelegate: NSObject, NSApplicationDelegate {
             return
         }
 
-        // Collect known zmx session IDs from persisted panes (main-actor access).
-        // These are the panes we expect to exist — everything else is an orphan.
-        // Handles both main panes (worktree-based IDs) and drawer panes (parent+child UUID IDs).
-        var hasUnresolvableMainPane = false
-        let knownSessionIds = Set(
-            store.panes.values
-                .filter { $0.provider == .zmx }
-                .compactMap { pane -> String? in
-                    // Drawer pane: session ID from parent + drawer pane UUIDs
-                    if let parentPaneId = pane.parentPaneId {
-                        return ZmxBackend.drawerSessionId(
-                            parentPaneId: parentPaneId,
-                            drawerPaneId: pane.id
-                        )
-                    }
-                    // Main pane: session ID from repo + worktree stable keys.
-                    // If we cannot resolve this deterministically, we must skip orphan
-                    // cleanup entirely to avoid deleting valid sessions.
-                    guard let worktreeId = pane.worktreeId,
-                          let repo = store.repo(containing: worktreeId),
-                          let worktree = store.worktree(worktreeId) else {
-                        hasUnresolvableMainPane = true
-                        return nil
-                    }
-                    return ZmxBackend.sessionId(
-                        repoStableKey: repo.stableKey,
-                        worktreeStableKey: worktree.stableKey,
-                        paneId: pane.id
-                    )
+        // Collect known zmx session IDs from persisted panes. If any main pane cannot
+        // resolve stable repo/worktree keys, skip cleanup to avoid deleting valid sessions.
+        let candidates: [ZmxOrphanCleanupCandidate] = store.panes.values
+            .filter { $0.provider == .zmx }
+            .map { pane in
+                if let parentPaneId = pane.parentPaneId {
+                    return .drawer(parentPaneId: parentPaneId, paneId: pane.id)
                 }
-        )
+                let resolvedKeys: (repoStableKey: String?, worktreeStableKey: String?)
+                if let worktreeId = pane.worktreeId,
+                   let repo = store.repo(containing: worktreeId),
+                   let worktree = store.worktree(worktreeId) {
+                    resolvedKeys = (repo.stableKey, worktree.stableKey)
+                } else {
+                    resolvedKeys = (nil, nil)
+                }
+                return .main(
+                    paneId: pane.id,
+                    repoStableKey: resolvedKeys.repoStableKey,
+                    worktreeStableKey: resolvedKeys.worktreeStableKey
+                )
+            }
+        let plan = ZmxOrphanCleanupPlanner.plan(candidates: candidates)
 
-        if hasUnresolvableMainPane {
+        if plan.shouldSkipCleanup {
             appLogger.warning(
                 "Skipping orphan zmx cleanup: unable to resolve one or more main-pane session IDs from persisted state"
             )
             return
         }
-        if !knownSessionIds.isEmpty {
-            appLogger.info("Orphan cleanup: protecting \(knownSessionIds.count) known persisted zmx session(s)")
+        if !plan.knownSessionIds.isEmpty {
+            appLogger.info("Orphan cleanup: protecting \(plan.knownSessionIds.count) known persisted zmx session(s)")
         }
 
         let backend = ZmxBackend(zmxPath: zmxPath, zmxDir: config.zmxDir)
@@ -212,7 +248,7 @@ class AppDelegate: NSObject, NSApplicationDelegate {
             do {
                 try await withThrowingTaskGroup(of: Void.self) { group in
                     group.addTask {
-                        let orphans = await backend.discoverOrphanSessions(excluding: knownSessionIds)
+                        let orphans = await backend.discoverOrphanSessions(excluding: plan.knownSessionIds)
                         if !orphans.isEmpty {
                             appLogger.info("Found \(orphans.count) orphan zmx session(s) — cleaning up")
                             for orphanId in orphans {

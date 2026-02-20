@@ -5,6 +5,31 @@ import Combine
 import QuartzCore
 
 extension Ghostty {
+    enum SurfaceStartupStrategy: Equatable {
+        /// Pass this command directly to Ghostty when creating the surface.
+        case surfaceCommand(String?)
+        /// Start the shell normally, then inject this command after first sizing.
+        case deferredInShell(command: String)
+
+        var startupCommandForSurface: String? {
+            switch self {
+            case .surfaceCommand(let command):
+                return command
+            case .deferredInShell:
+                return nil
+            }
+        }
+
+        var deferredStartupCommand: String? {
+            switch self {
+            case .surfaceCommand:
+                return nil
+            case .deferredInShell(let command):
+                return command
+            }
+        }
+    }
+
     /// Errors that can occur during surface creation
     enum SurfaceCreationError: Error, LocalizedError {
         case failedToCreate
@@ -23,21 +48,18 @@ extension Ghostty {
     /// Configuration for creating a new surface
     struct SurfaceConfiguration {
         var workingDirectory: String?
-        var command: String?
-        var deferredStartupCommand: String?
+        var startupStrategy: SurfaceStartupStrategy
         var fontSize: Float?
         var environmentVariables: [String: String]
 
         init(
             workingDirectory: String? = nil,
-            command: String? = nil,
-            deferredStartupCommand: String? = nil,
+            startupStrategy: SurfaceStartupStrategy = .surfaceCommand(nil),
             fontSize: Float? = nil,
             environmentVariables: [String: String] = [:]
         ) {
             self.workingDirectory = workingDirectory
-            self.command = command
-            self.deferredStartupCommand = deferredStartupCommand
+            self.startupStrategy = startupStrategy
             self.fontSize = fontSize
             self.environmentVariables = environmentVariables
         }
@@ -104,13 +126,11 @@ extension Ghostty {
 
         init(app: App, config: SurfaceConfiguration? = nil) {
             self.ghosttyApp = app
-            self.deferredStartupCommand = config?.deferredStartupCommand
+            self.deferredStartupCommand = config?.startupStrategy.deferredStartupCommand
             super.init(frame: NSRect(x: 0, y: 0, width: 800, height: 600))
-            let startupCommandForSurface = (config?.deferredStartupCommand?.isEmpty == false)
-                ? nil
-                : config?.command
+            let startupCommandForSurface = config?.startupStrategy.startupCommandForSurface
             RestoreTrace.log(
-                "Ghostty.SurfaceView.init placeholderFrame=\(NSStringFromRect(frame)) cwd=\(config?.workingDirectory ?? "nil") hasCommand=\(startupCommandForSurface != nil) hasDeferred=\(config?.deferredStartupCommand != nil)"
+                "Ghostty.SurfaceView.init placeholderFrame=\(NSStringFromRect(frame)) cwd=\(config?.workingDirectory ?? "nil") hasCommand=\(startupCommandForSurface != nil) hasDeferred=\(self.deferredStartupCommand != nil)"
             )
 
             // Note: Ghostty's Metal renderer will set up the layer properly
@@ -361,7 +381,6 @@ extension Ghostty {
             super.setFrameSize(newSize)
             RestoreTrace.log("Ghostty.SurfaceView.setFrameSize newSize=\(NSStringFromSize(newSize))")
             sizeDidChange(newSize)
-            triggerDeferredStartupIfReady(source: "setFrameSize")
         }
 
         func sizeDidChange(_ size: NSSize) {

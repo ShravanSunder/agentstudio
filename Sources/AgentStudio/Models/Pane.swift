@@ -74,6 +74,8 @@ struct Pane: Codable, Identifiable, Hashable {
     private enum CodingKeys: String, CodingKey {
         case id, content, metadata, residency, kind
         /// Legacy key: pre-PaneKind workspaces stored `drawer` directly on Pane.
+        /// Keep this until we intentionally drop backward compatibility for old
+        /// serialized workspaces.
         case legacyDrawer = "drawer"
     }
 
