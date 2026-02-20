@@ -138,7 +138,7 @@ agent-studio/
 │   └── Services/             # WorkspaceStore, SessionRuntime, WorktrunkService
 ├── Frameworks/               # Generated: GhosttyKit.xcframework (not in git)
 ├── vendor/ghostty/           # Git submodule: Ghostty source
-├── vendor/zmx/               # Session multiplexer
+├── vendor/zmx/               # Session persistence
 ├── docs/                     # Architecture and design docs
 └── Package.swift             # SPM manifest
 ```
@@ -154,4 +154,4 @@ Contributions welcome. Fork, branch, test, PR. By submitting a pull request you 
 ## Acknowledgments
 
 - [Ghostty](https://github.com/ghostty-org/ghostty) — terminal emulator
-- [zmx](vendor/zmx/) — session multiplexer for persistence
+- [zmx](vendor/zmx/) — session persistence for terminal processes
