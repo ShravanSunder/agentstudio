@@ -1,0 +1,132 @@
+[tools]
+zig = "0.15.2"
+
+[env]
+PROJECT_ROOT = "{{config_root}}"
+
+# --- Low-level build tasks ---
+
+[tasks.build-ghostty]
+description = "Build Ghostty XCFramework"
+run = "zig build -Doptimize=ReleaseFast -Demit-xcframework=true -Demit-macos-app=false -Dxcframework-target=native"
+dir = "vendor/ghostty"
+
+[tasks.build-zmx]
+description = "Build zmx session multiplexer"
+run = "zig build -Doptimize=ReleaseFast"
+dir = "vendor/zmx"
+
+[tasks.copy-xcframework]
+description = "Copy GhosttyKit.xcframework to Frameworks/"
+depends = ["build-ghostty"]
+run = """
+mkdir -p Frameworks
+rm -rf Frameworks/GhosttyKit.xcframework
+cp -R vendor/ghostty/macos/GhosttyKit.xcframework Frameworks/
+"""
+
+[tasks.setup-dev-resources]
+description = "Copy shell-integration and terminfo for SPM resource bundling"
+depends = ["build-ghostty"]
+run = """
+#!/usr/bin/env bash
+set -e
+
+# --- Shell Integration ---
+SHELL_INTEGRATION_ZIG="vendor/ghostty/zig-out/share/ghostty/shell-integration"
+SHELL_INTEGRATION_VENDOR="vendor/ghostty/src/shell-integration"
+SHELL_INTEGRATION_DEV="Sources/AgentStudio/Resources/ghostty/shell-integration"
+
+if [ -d "$SHELL_INTEGRATION_ZIG" ]; then
+  SRC="$SHELL_INTEGRATION_ZIG"
+elif [ -d "$SHELL_INTEGRATION_VENDOR" ]; then
+  SRC="$SHELL_INTEGRATION_VENDOR"
+else
+  echo "ERROR: shell-integration not found" && exit 1
+fi
+
+mkdir -p "$(dirname "$SHELL_INTEGRATION_DEV")"
+rm -rf "$SHELL_INTEGRATION_DEV"
+cp -R "$SRC" "$SHELL_INTEGRATION_DEV"
+echo "shell-integration -> $SHELL_INTEGRATION_DEV"
+
+# --- Terminfo (Ghostty entries only, preserve custom xterm-256color) ---
+TERMINFO_SRC="vendor/ghostty/zig-out/share/terminfo"
+TERMINFO_DEV="Sources/AgentStudio/Resources/terminfo"
+if [ -d "$TERMINFO_SRC" ]; then
+  mkdir -p "$TERMINFO_DEV/78" "$TERMINFO_DEV/67"
+  [ -f "$TERMINFO_SRC/78/xterm-ghostty" ] && cp "$TERMINFO_SRC/78/xterm-ghostty" "$TERMINFO_DEV/78/"
+  [ -f "$TERMINFO_SRC/67/ghostty" ] && cp "$TERMINFO_SRC/67/ghostty" "$TERMINFO_DEV/67/"
+  echo "terminfo updated (custom xterm-256color preserved)"
+fi
+"""
+
+# --- Composite build tasks ---
+
+[tasks.build]
+description = "Full debug build (ghostty + zmx + swift)"
+depends = ["copy-xcframework", "setup-dev-resources", "build-zmx"]
+run = """
+swift build > /tmp/build-output.txt 2>&1 && echo "BUILD OK" || { echo "BUILD FAIL"; tail -20 /tmp/build-output.txt; exit 1; }
+"""
+
+[tasks.build-release]
+description = "Full release build (ghostty + zmx + swift)"
+depends = ["copy-xcframework", "setup-dev-resources", "build-zmx"]
+run = """
+swift build -c release > /tmp/build-output.txt 2>&1 && echo "BUILD OK" || { echo "BUILD FAIL"; tail -20 /tmp/build-output.txt; exit 1; }
+"""
+
+[tasks.test]
+description = "Run all tests"
+depends = ["copy-xcframework", "setup-dev-resources"]
+run = """
+swift test > /tmp/test-output.txt 2>&1 && echo "PASS" || { echo "FAIL"; tail -20 /tmp/test-output.txt; exit 1; }
+"""
+
+[tasks.clean]
+description = "Clean all build artifacts"
+run = """
+rm -rf .build Frameworks/GhosttyKit.xcframework AgentStudio.app
+rm -rf Sources/AgentStudio/Resources/ghostty
+rm -rf vendor/ghostty/.zig-cache vendor/ghostty/zig-out vendor/ghostty/macos/build vendor/ghostty/macos/*.xcframework
+rm -rf vendor/zmx/.zig-cache vendor/zmx/zig-out
+echo "Cleaned all build artifacts"
+"""
+
+[tasks.create-app-bundle]
+description = "Create signed AgentStudio.app bundle"
+depends = ["build-release"]
+run = """
+#!/usr/bin/env bash
+set -e
+
+APP_DIR="AgentStudio.app/Contents"
+rm -rf AgentStudio.app
+mkdir -p "$APP_DIR/MacOS" "$APP_DIR/Resources" "$APP_DIR/Frameworks"
+
+# Binary
+cp .build/release/AgentStudio "$APP_DIR/MacOS/"
+
+# zmx
+[ -f "vendor/zmx/zig-out/bin/zmx" ] && cp vendor/zmx/zig-out/bin/zmx "$APP_DIR/MacOS/"
+
+# Info.plist + icon
+cp Sources/AgentStudio/Resources/Info.plist "$APP_DIR/"
+cp Sources/AgentStudio/Resources/AppIcon.icns "$APP_DIR/Resources/"
+
+# terminfo
+TERMINFO="Sources/AgentStudio/Resources/terminfo"
+[ -d "$TERMINFO" ] && cp -R "$TERMINFO" "$APP_DIR/Resources/"
+
+# shell-integration
+GHOSTTY_RES="Sources/AgentStudio/Resources/ghostty"
+[ -d "$GHOSTTY_RES" ] && { mkdir -p "$APP_DIR/Resources/ghostty"; cp -R "$GHOSTTY_RES/." "$APP_DIR/Resources/ghostty/"; }
+
+# GhosttyKit framework
+cp -R Frameworks/GhosttyKit.xcframework "$APP_DIR/Frameworks/"
+
+# Sign
+codesign --force --deep --sign - AgentStudio.app
+echo "AgentStudio.app created and signed"
+"""

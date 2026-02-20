@@ -5,9 +5,6 @@ on:
     tags:
       - 'v*'
 
-env:
-  ZIG_VERSION: '0.15.2'
-
 permissions:
   contents: write
 
@@ -21,91 +18,30 @@ jobs:
         with:
           submodules: recursive
 
-      - name: Setup Zig
-        uses: goto-bus-stop/setup-zig@v2
-        with:
-          version: ${{ env.ZIG_VERSION }}
+      - name: Setup mise
+        uses: jdx/mise-action@v3
 
-      - name: Cache Zig
+      - name: Cache Swift build
+        uses: actions/cache@v4
+        with:
+          path: .build
+          key: ${{ runner.os }}-swift-${{ hashFiles('Package.swift', 'Package.resolved') }}
+          restore-keys: |
+            ${{ runner.os }}-swift-
+
+      - name: Cache Zig build artifacts
         uses: actions/cache@v4
         with:
           path: |
             ~/.cache/zig
             vendor/ghostty/.zig-cache
             vendor/zmx/.zig-cache
-          key: ${{ runner.os }}-zig-${{ env.ZIG_VERSION }}-${{ hashFiles('vendor/ghostty/build.zig.zon', 'vendor/zmx/build.zig.zon') }}
+          key: ${{ runner.os }}-zig-${{ hashFiles('.mise.toml', 'vendor/ghostty/build.zig.zon', 'vendor/zmx/build.zig.zon') }}
           restore-keys: |
-            ${{ runner.os }}-zig-${{ env.ZIG_VERSION }}-
+            ${{ runner.os }}-zig-
 
-      - name: Cache Swift
-        uses: actions/cache@v4
-        with:
-          path: .build
-          key: ${{ runner.os }}-swift-${{ hashFiles('Package.resolved') }}
-          restore-keys: |
-            ${{ runner.os }}-swift-
-
-      - name: Build Ghostty XCFramework
-        run: |
-          cd vendor/ghostty
-          zig build -Doptimize=ReleaseFast -Demit-xcframework=true -Demit-macos-app=false -Dxcframework-target=native
-
-      - name: Copy XCFramework
-        run: |
-          mkdir -p Frameworks
-          cp -R vendor/ghostty/macos/GhosttyKit.xcframework Frameworks/
-
-      - name: Build zmx
-        run: |
-          cd vendor/zmx
-          zig build -Doptimize=ReleaseFast
-
-      - name: Build AgentStudio
-        run: swift build -c release
-
-      - name: Create App Bundle
-        run: |
-          APP_DIR="AgentStudio.app/Contents"
-          mkdir -p "$APP_DIR/MacOS"
-          mkdir -p "$APP_DIR/Resources"
-          mkdir -p "$APP_DIR/Frameworks"
-
-          # Copy binary
-          cp .build/release/AgentStudio "$APP_DIR/MacOS/"
-
-          # Copy zmx binary (session persistence)
-          if [ -f "vendor/zmx/zig-out/bin/zmx" ]; then
-            cp vendor/zmx/zig-out/bin/zmx "$APP_DIR/MacOS/"
-          fi
-
-          # Copy Info.plist
-          cp Sources/AgentStudio/Resources/Info.plist "$APP_DIR/"
-
-          # Copy app icon
-          cp Sources/AgentStudio/Resources/AppIcon.icns "$APP_DIR/Resources/"
-
-          # Copy GhosttyKit framework
-          cp -R Frameworks/GhosttyKit.xcframework "$APP_DIR/Frameworks/"
-
-      - name: Copy Resources to App Bundle
-        run: |
-          APP_DIR="AgentStudio.app/Contents"
-
-          # Copy terminfo
-          TERMINFO_SRC="vendor/ghostty/zig-out/share/terminfo"
-          if [ -d "$TERMINFO_SRC" ]; then
-            cp -R "$TERMINFO_SRC" "$APP_DIR/Resources/"
-          fi
-
-          # Copy shell-integration
-          SHELL_INTEGRATION_SRC="vendor/ghostty/zig-out/share/ghostty/shell-integration"
-          if [ -d "$SHELL_INTEGRATION_SRC" ]; then
-            mkdir -p "$APP_DIR/Resources/ghostty"
-            cp -R "$SHELL_INTEGRATION_SRC" "$APP_DIR/Resources/ghostty/"
-          fi
-
-      - name: Ad-hoc Sign
-        run: codesign --force --deep --sign - AgentStudio.app
+      - name: Build and create app bundle
+        run: mise run create-app-bundle
 
       - name: Create ZIP Archive
         run: |

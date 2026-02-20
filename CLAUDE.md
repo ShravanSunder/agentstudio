@@ -13,20 +13,34 @@ agent-studio/
 │   └── Services/             # WorkspaceStore, SessionRuntime, WorktrunkService
 ├── Frameworks/               # Generated: GhosttyKit.xcframework (not in git)
 ├── vendor/ghostty/           # Git submodule: Ghostty source
-├── scripts/                  # Build automation
+├── scripts/                  # Utility scripts (icon generation)
 ├── docs/                     # Detailed documentation
 └── tmp/                      # Temporary docs and status files
 ```
 
 ## Key Files
 - `Package.swift` - SPM manifest, links GhosttyKit as binary target
-- `scripts/build-ghostty.sh` - Builds Ghostty → generates xcframework
+- `.mise.toml` - Tool versions (zig) and build task definitions
 - `.gitignore` - Excludes build artifacts (.zig-cache, macos/build, *.xcframework)
 
 ## Build Flow
-1. `./scripts/build-ghostty.sh` - Runs `zig build -Demit-xcframework=true` in vendor/ghostty
-2. Copies `macos/GhosttyKit.xcframework` → `Frameworks/`
-3. `swift build > /tmp/build-output.txt 2>&1 && echo "BUILD OK" || echo "BUILD FAIL"` - Links against xcframework
+
+Build orchestration uses [mise](https://mise.jdx.dev/). Install with `brew install mise`.
+
+```bash
+mise install                  # Install pinned tool versions (zig 0.15.2)
+mise run build                # Full debug build (ghostty + zmx + dev resources + swift)
+mise run build-release        # Full release build
+mise run test                 # Run tests
+mise run create-app-bundle    # Create signed AgentStudio.app
+mise run clean                # Remove all build artifacts
+```
+
+Individual steps:
+- `mise run build-ghostty` — Build GhosttyKit.xcframework only
+- `mise run build-zmx` — Build zmx binary only
+- `mise run setup-dev-resources` — Copy shell-integration + terminfo for SPM
+- `mise run copy-xcframework` — Copy xcframework to Frameworks/
 
 ### ⚠️ Running Swift Commands (CRITICAL)
 
