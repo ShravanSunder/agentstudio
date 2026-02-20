@@ -1,5 +1,6 @@
-import XCTest
 import Observation
+import XCTest
+
 @testable import AgentStudio
 
 /// Integration tests for Phase 2 push pipeline.
@@ -22,12 +23,13 @@ final class PushPipelineIntegrationTests: XCTestCase {
             state: diffState,
             transport: transport,
             revisions: clock,
-            epoch: { diffState.epoch }
-        ) {
-            Slice("diffStatus", store: .diff, level: .hot) { state in
-                DiffStatusSlice(status: state.status, error: state.error, epoch: state.epoch)
+            epoch: { diffState.epoch },
+            slices: {
+                Slice("diffStatus", store: .diff, level: .hot) { state in
+                    DiffStatusSlice(status: state.status, error: state.error, epoch: state.epoch)
+                }
             }
-        }
+        )
 
         plan.start()
         try await Task.sleep(for: .milliseconds(50))
@@ -40,7 +42,8 @@ final class PushPipelineIntegrationTests: XCTestCase {
         try await Task.sleep(for: .milliseconds(100))
 
         // Assert — mutation triggered push through the full pipeline
-        XCTAssertGreaterThan(transport.pushCount, baselineCount,
+        XCTAssertGreaterThan(
+            transport.pushCount, baselineCount,
             "Observable mutation should trigger push via PushPlan")
         XCTAssertEqual(transport.lastStore, .diff)
         XCTAssertEqual(transport.lastLevel, .hot)
@@ -62,12 +65,13 @@ final class PushPipelineIntegrationTests: XCTestCase {
             state: diffState,
             transport: transport,
             revisions: clock,
-            epoch: { diffState.epoch }
-        ) {
-            Slice("diffEpoch", store: .diff, level: .cold, op: .replace) { state in
-                state.epoch
+            epoch: { diffState.epoch },
+            slices: {
+                Slice("diffEpoch", store: .diff, level: .cold, op: .replace) { state in
+                    state.epoch
+                }
             }
-        }
+        )
 
         plan.start()
         try await Task.sleep(for: .milliseconds(50))
@@ -83,9 +87,11 @@ final class PushPipelineIntegrationTests: XCTestCase {
 
         // Assert — debounce coalesced rapid mutations into fewer pushes than mutations
         let pushesAfterMutations = transport.pushCount - baselineCount
-        XCTAssertLessThan(pushesAfterMutations, 5,
+        XCTAssertLessThan(
+            pushesAfterMutations, 5,
             "Cold debounce should coalesce rapid mutations into fewer pushes (got \(pushesAfterMutations))")
-        XCTAssertGreaterThanOrEqual(pushesAfterMutations, 1,
+        XCTAssertGreaterThanOrEqual(
+            pushesAfterMutations, 1,
             "At least one push should have fired after the mutations settled")
 
         plan.stop()
@@ -105,15 +111,16 @@ final class PushPipelineIntegrationTests: XCTestCase {
             state: sharedState,
             transport: transport,
             revisions: clock,
-            epoch: { 0 }
-        ) {
-            Slice("connectionHealth", store: .connection, level: .hot) { state in
-                ConnectionSlice(
-                    health: state.connection.health,
-                    latencyMs: state.connection.latencyMs
-                )
+            epoch: { 0 },
+            slices: {
+                Slice("connectionHealth", store: .connection, level: .hot) { state in
+                    ConnectionSlice(
+                        health: state.connection.health,
+                        latencyMs: state.connection.latencyMs
+                    )
+                }
             }
-        }
+        )
 
         plan.start()
         try await Task.sleep(for: .milliseconds(50))
@@ -126,7 +133,8 @@ final class PushPipelineIntegrationTests: XCTestCase {
         try await Task.sleep(for: .milliseconds(50))
 
         // Assert — hot slice pushed immediately
-        XCTAssertEqual(transport.pushCount, baselineCount + 1,
+        XCTAssertEqual(
+            transport.pushCount, baselineCount + 1,
             "Hot slice should push immediately on mutation")
         XCTAssertEqual(transport.lastStore, .connection)
         XCTAssertEqual(transport.lastLevel, .hot)
@@ -148,18 +156,20 @@ final class PushPipelineIntegrationTests: XCTestCase {
             state: diffState,
             transport: transport,
             revisions: clock,
-            epoch: { diffState.epoch }
-        ) {
-            Slice("diffStatus", store: .diff, level: .hot) { state in
-                DiffStatusSlice(status: state.status, error: state.error, epoch: state.epoch)
+            epoch: { diffState.epoch },
+            slices: {
+                Slice("diffStatus", store: .diff, level: .hot) { state in
+                    DiffStatusSlice(status: state.status, error: state.error, epoch: state.epoch)
+                }
             }
-        }
+        )
 
         plan.start()
         try await Task.sleep(for: .milliseconds(50))
 
         // Initial emission should stamp revision 1
-        XCTAssertEqual(transport.lastRevision, 1,
+        XCTAssertEqual(
+            transport.lastRevision, 1,
             "Initial observation should stamp revision 1")
 
         // Act — two sequential mutations
@@ -192,18 +202,20 @@ final class PushPipelineIntegrationTests: XCTestCase {
             state: diffState,
             transport: transport,
             revisions: clock,
-            epoch: { diffState.epoch }
-        ) {
-            Slice("diffStatus", store: .diff, level: .hot) { state in
-                DiffStatusSlice(status: state.status, error: state.error, epoch: state.epoch)
+            epoch: { diffState.epoch },
+            slices: {
+                Slice("diffStatus", store: .diff, level: .hot) { state in
+                    DiffStatusSlice(status: state.status, error: state.error, epoch: state.epoch)
+                }
             }
-        }
+        )
 
         plan.start()
         try await Task.sleep(for: .milliseconds(50))
 
         // Initial emission with epoch 0
-        XCTAssertEqual(transport.lastEpoch, 0,
+        XCTAssertEqual(
+            transport.lastEpoch, 0,
             "Initial push should carry epoch 0")
 
         // Act — update epoch and trigger mutation
@@ -212,7 +224,8 @@ final class PushPipelineIntegrationTests: XCTestCase {
         try await Task.sleep(for: .milliseconds(100))
 
         // Assert — epoch propagated
-        XCTAssertEqual(transport.lastEpoch, 42,
+        XCTAssertEqual(
+            transport.lastEpoch, 42,
             "Push should carry the epoch value from the provider at push time")
 
         plan.stop()

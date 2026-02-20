@@ -31,7 +31,8 @@ final class RPCMessageHandler: NSObject, WKScriptMessageHandler {
     /// Non-string bodies (NSDictionary, NSNumber, NSArray) are rejected.
     static func extractJSON(from body: Any) -> String? {
         guard let jsonString = body as? String,
-              !jsonString.isEmpty else {
+            !jsonString.isEmpty
+        else {
             return nil
         }
 
@@ -39,7 +40,8 @@ final class RPCMessageHandler: NSObject, WKScriptMessageHandler {
         // JSONSerialization handles edge cases (BOM, leading whitespace, etc.)
         // that manual prefix checking would miss.
         guard let data = jsonString.data(using: .utf8),
-              (try? JSONSerialization.jsonObject(with: data)) != nil else {
+            (try? JSONSerialization.jsonObject(with: data)) != nil
+        else {
             return nil
         }
 
@@ -53,7 +55,7 @@ final class RPCMessageHandler: NSObject, WKScriptMessageHandler {
         didReceive message: WKScriptMessage
     ) {
         guard let json = Self.extractJSON(from: message.body) else {
-            return // Silently drop non-JSON messages
+            return  // Silently drop non-JSON messages
         }
 
         // Forward to upstream handler on main actor.

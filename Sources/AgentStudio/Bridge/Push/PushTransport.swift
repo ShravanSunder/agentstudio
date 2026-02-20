@@ -17,7 +17,7 @@ enum PushLevel: Sendable {
     /// Debounce duration per level. Single source of truth for cadence policy.
     var debounce: Duration {
         switch self {
-        case .hot:  .zero
+        case .hot: .zero
         case .warm: .milliseconds(12)
         case .cold: .milliseconds(32)
         }

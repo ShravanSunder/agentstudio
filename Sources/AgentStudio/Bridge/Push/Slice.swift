@@ -1,6 +1,6 @@
+import AsyncAlgorithms
 import Foundation
 import Observation
-import AsyncAlgorithms
 import os.log
 
 private let logger = Logger(subsystem: "com.agentstudio", category: "PushEngine")
@@ -12,9 +12,10 @@ typealias EpochProvider = @MainActor () -> Int
 /// task for this slice when the engine starts.
 struct AnyPushSlice<State: Observable & AnyObject> {
     let name: String
-    let makeTask: @MainActor (
-        State, PushTransport, RevisionClock, @escaping EpochProvider
-    ) -> Task<Void, Never>
+    let makeTask:
+        @MainActor (
+            State, PushTransport, RevisionClock, @escaping EpochProvider
+        ) -> Task<Void, Never>
 }
 
 /// Value-level observation slice. Captures a snapshot from @Observable state,
@@ -54,7 +55,7 @@ struct Slice<State: Observable & AnyObject, Snapshot: Encodable & Equatable & Se
 
         return AnyPushSlice(name: name) { state, transport, revisions, epochProvider in
             Task { @MainActor in
-                var prev: Snapshot? = nil
+                var prev: Snapshot?
                 let encoder = JSONEncoder()
 
                 let stream = Observations { capture(state) }
@@ -91,14 +92,16 @@ struct Slice<State: Observable & AnyObject, Snapshot: Encodable & Equatable & Se
                                     try encoder.encode(snapshot)
                                 }.value
                             } catch {
-                                logger.error("[PushEngine] encode failed slice=\(name) store=\(store.rawValue): \(error)")
+                                logger.error(
+                                    "[PushEngine] encode failed slice=\(name) store=\(store.rawValue): \(error)")
                                 continue
                             }
                         } else {
                             do {
                                 data = try encoder.encode(snapshot)
                             } catch {
-                                logger.error("[PushEngine] encode failed slice=\(name) store=\(store.rawValue): \(error)")
+                                logger.error(
+                                    "[PushEngine] encode failed slice=\(name) store=\(store.rawValue): \(error)")
                                 continue
                             }
                         }

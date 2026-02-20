@@ -1,4 +1,5 @@
 import XCTest
+
 @testable import AgentStudio
 
 /// Tests for BridgeNavigationDecider URL scheme policy.

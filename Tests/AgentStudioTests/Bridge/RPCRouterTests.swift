@@ -1,4 +1,5 @@
 import XCTest
+
 @testable import AgentStudio
 
 /// Tests for RPCRouter dispatch, error handling, batch rejection, and commandId dedup.
@@ -40,12 +41,13 @@ final class RPCRouterTests: XCTestCase {
         router.onError = { code, _, _ in errorCode = code }
 
         // Act
-        try await router.dispatch(json: """
-            {"jsonrpc":"2.0","method":"nonexistent.method","params":{}}
-        """)
+        try await router.dispatch(
+            json: """
+                    {"jsonrpc":"2.0","method":"nonexistent.method","params":{}}
+                """)
 
         // Assert
-        XCTAssertEqual(errorCode, -32601)
+        XCTAssertEqual(errorCode, -32_601)
     }
 
     // MARK: - Missing method field
@@ -62,7 +64,7 @@ final class RPCRouterTests: XCTestCase {
         try await router.dispatch(json: fixture)
 
         // Assert
-        XCTAssertEqual(errorCode, -32600)
+        XCTAssertEqual(errorCode, -32_600)
     }
 
     // MARK: - Batch rejection (§5.5)
@@ -79,7 +81,7 @@ final class RPCRouterTests: XCTestCase {
         try await router.dispatch(json: fixture)
 
         // Assert
-        XCTAssertEqual(errorCode, -32600)
+        XCTAssertEqual(errorCode, -32_600)
     }
 
     // MARK: - Duplicate commandId idempotency
@@ -104,9 +106,9 @@ final class RPCRouterTests: XCTestCase {
 
     private func loadFixture(_ name: String) throws -> String {
         let root = URL(fileURLWithPath: #filePath)
-            .deletingLastPathComponent() // Bridge/
-            .deletingLastPathComponent() // AgentStudioTests/
-            .deletingLastPathComponent() // Tests/
+            .deletingLastPathComponent()  // Bridge/
+            .deletingLastPathComponent()  // AgentStudioTests/
+            .deletingLastPathComponent()  // Tests/
         let fixtureURL = root.appendingPathComponent("BridgeContractFixtures/\(name)")
         return try String(contentsOf: fixtureURL, encoding: .utf8)
     }

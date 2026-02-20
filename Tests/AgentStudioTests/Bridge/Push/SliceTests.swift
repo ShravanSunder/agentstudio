@@ -1,5 +1,6 @@
-import XCTest
 import Observation
+import XCTest
+
 @testable import AgentStudio
 
 @MainActor
@@ -29,7 +30,8 @@ final class SliceTests: XCTestCase {
         // Observations emits the initial value ("idle"), which triggers the first push
         // since prev starts as nil. Record baseline after initial emission settles.
         let baselineCount = transport.pushCount
-        XCTAssertEqual(baselineCount, 1,
+        XCTAssertEqual(
+            baselineCount, 1,
             "Initial observation should trigger one push (initial snapshot differs from nil)")
 
         // Act — set to the same value (no-op mutation)
@@ -37,7 +39,8 @@ final class SliceTests: XCTestCase {
         try await Task.sleep(for: .milliseconds(100))
 
         // Assert — no additional push because value did not change (Equatable skip)
-        XCTAssertEqual(transport.pushCount, baselineCount,
+        XCTAssertEqual(
+            transport.pushCount, baselineCount,
             "Setting same value should not trigger push (Equatable skip)")
 
         // Act — set to a different value
@@ -45,7 +48,8 @@ final class SliceTests: XCTestCase {
         try await Task.sleep(for: .milliseconds(100))
 
         // Assert — push triggered for actual change
-        XCTAssertEqual(transport.pushCount, baselineCount + 1,
+        XCTAssertEqual(
+            transport.pushCount, baselineCount + 1,
             "Setting different value should trigger one additional push")
 
         task.cancel()
@@ -91,12 +95,13 @@ final class SliceTests: XCTestCase {
         let task = Slice<TestState, String>(
             "testStatus", store: .diff, level: .hot
         ) { state in state.status }
-            .erased().makeTask(state, transport, clock) { 1 }
+        .erased().makeTask(state, transport, clock) { 1 }
 
         try await Task.sleep(for: .milliseconds(50))
 
         // Initial emission gets revision 1
-        XCTAssertEqual(transport.lastRevision, 1,
+        XCTAssertEqual(
+            transport.lastRevision, 1,
             "Initial observation emission should stamp revision 1")
 
         // Act — first mutation
@@ -130,8 +135,10 @@ final class MockPushTransport: PushTransport {
     var lastEpoch: Int?
     var lastJSON: Data?
 
-    func pushJSON(store: StoreKey, op: PushOp, level: PushLevel,
-                  revision: Int, epoch: Int, json: Data) async {
+    func pushJSON(
+        store: StoreKey, op: PushOp, level: PushLevel,
+        revision: Int, epoch: Int, json: Data
+    ) async {
         pushCount += 1
         lastStore = store
         lastOp = op

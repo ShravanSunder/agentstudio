@@ -1,6 +1,6 @@
-import XCTest
-import Observation
 import AsyncAlgorithms
+import Observation
+import XCTest
 
 // MARK: - Test Support Types
 
@@ -81,9 +81,11 @@ final class ObservationSpikeTests: XCTestCase {
         await fulfillment(of: [expectation], timeout: 2.0)
         observationTask.cancel()
 
-        XCTAssertGreaterThanOrEqual(collectedValues.count, 3,
+        XCTAssertGreaterThanOrEqual(
+            collectedValues.count, 3,
             "Expected initial value + 2 mutations = at least 3 values")
-        XCTAssertEqual(collectedValues.first, 0,
+        XCTAssertEqual(
+            collectedValues.first, 0,
             "First emitted value should be the initial value (0)")
         XCTAssertTrue(collectedValues.contains(10), "Should contain mutation value 10")
         XCTAssertTrue(collectedValues.contains(20), "Should contain mutation value 20")
@@ -136,11 +138,13 @@ final class ObservationSpikeTests: XCTestCase {
         // The debounced stream should have fewer values than the 4 events
         // (initial 0, then 1, 2, 3). The rapid 1/2/3 mutations should
         // coalesce so we get fewer than 4 distinct emissions.
-        XCTAssertLessThan(collectedValues.count, 4,
+        XCTAssertLessThan(
+            collectedValues.count, 4,
             "Debounce should coalesce rapid mutations: got \(collectedValues) (\(collectedValues.count) values)")
 
         // The last emitted value should be 3 (the final settled value)
-        XCTAssertEqual(collectedValues.last, 3,
+        XCTAssertEqual(
+            collectedValues.last, 3,
             "Last debounced value should be the final mutation (3), got \(collectedValues)")
     }
 
@@ -198,12 +202,14 @@ final class ObservationSpikeTests: XCTestCase {
         propertyBTask.cancel()
 
         // propertyB observer MUST have fired
-        XCTAssertTrue(propertyBValues.contains("changed"),
+        XCTAssertTrue(
+            propertyBValues.contains("changed"),
             "propertyB observer must fire when propertyB changes. Got: \(propertyBValues)")
 
         // CRITICAL: propertyA observer must NOT have received new values
         // after the initial emission
-        XCTAssertEqual(propertyAValues.count, propertyACountBeforeMutation,
+        XCTAssertEqual(
+            propertyAValues.count, propertyACountBeforeMutation,
             """
             CRITICAL FAILURE: Property-group isolation is broken!
             propertyA observer fired when only propertyB changed.
@@ -227,7 +233,8 @@ final class ObservationSpikeTests: XCTestCase {
         }
 
         // Assert
-        XCTAssertEqual(intContainer.elements, [1, 2, 3],
+        XCTAssertEqual(
+            intContainer.elements, [1, 2, 3],
             "SpikeBuilder<Int> should collect integer expressions into an array")
 
         // Arrange & Act — String container
@@ -237,7 +244,8 @@ final class ObservationSpikeTests: XCTestCase {
         }
 
         // Assert
-        XCTAssertEqual(stringContainer.elements, ["hello", "world"],
+        XCTAssertEqual(
+            stringContainer.elements, ["hello", "world"],
             "SpikeBuilder<String> should collect string expressions into an array")
     }
 }

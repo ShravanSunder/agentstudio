@@ -1,7 +1,7 @@
 import Foundation
 import Observation
-import os.log
 import WebKit
+import os.log
 
 private let bridgeControllerLogger = Logger(subsystem: "com.agentstudio", category: "BridgePaneController")
 
@@ -187,15 +187,16 @@ final class BridgePaneController {
             state: paneState.diff,
             transport: self,
             revisions: revisionClock,
-            epoch: { [paneState] in paneState.diff.epoch }
-        ) {
-            Slice("diffStatus", store: .diff, level: .hot) { state in
-                DiffStatusSlice(status: state.status, error: state.error, epoch: state.epoch)
+            epoch: { [paneState] in paneState.diff.epoch },
+            slices: {
+                Slice("diffStatus", store: .diff, level: .hot) { state in
+                    DiffStatusSlice(status: state.status, error: state.error, epoch: state.epoch)
+                }
+                Slice("diffManifest", store: .diff, level: .cold, op: .replace) { state in
+                    state.manifest
+                }
             }
-            Slice("diffManifest", store: .diff, level: .cold, op: .replace) { state in
-                state.manifest
-            }
-        }
+        )
     }
 
     private func makeReviewPushPlan() -> PushPlan<ReviewState> {
@@ -206,18 +207,19 @@ final class BridgePaneController {
             // Review epoch tracks diff epoch for now (Phase 2 stub — ReviewState has no
             // independent epoch). Phase 3+ should add review.epoch if review data has its own
             // version timeline separate from diffs.
-            epoch: { [paneState] in paneState.diff.epoch }
-        ) {
-            EntitySlice(
-                "reviewThreads", store: .review, level: .warm,
-                capture: { state in state.threads },
-                version: { thread in thread.version },
-                keyToString: { $0.uuidString }
-            )
-            Slice("reviewViewedFiles", store: .review, level: .warm) { state in
-                state.viewedFiles.sorted()
+            epoch: { [paneState] in paneState.diff.epoch },
+            slices: {
+                EntitySlice(
+                    "reviewThreads", store: .review, level: .warm,
+                    capture: { state in state.threads },
+                    version: { thread in thread.version },
+                    keyToString: { $0.uuidString }
+                )
+                Slice("reviewViewedFiles", store: .review, level: .warm) { state in
+                    state.viewedFiles.sorted()
+                }
             }
-        }
+        )
     }
 
     private func makeConnectionPushPlan() -> PushPlan<SharedBridgeState> {
@@ -225,12 +227,13 @@ final class BridgePaneController {
             state: sharedState,
             transport: self,
             revisions: revisionClock,
-            epoch: { 0 }
-        ) {
-            Slice("connectionHealth", store: .connection, level: .hot) { state in
-                ConnectionSlice(health: state.connection.health, latencyMs: state.connection.latencyMs)
+            epoch: { 0 },
+            slices: {
+                Slice("connectionHealth", store: .connection, level: .hot) { state in
+                    ConnectionSlice(health: state.connection.health, latencyMs: state.connection.latencyMs)
+                }
             }
-        }
+        )
     }
 }
 

@@ -1,4 +1,5 @@
 import XCTest
+
 @testable import AgentStudio
 
 /// Tests for BridgePaneState Codable round-trip and Hashable conformance.
@@ -49,7 +50,7 @@ final class BridgePaneStateTests: XCTestCase {
 
     func test_codable_roundTrip_with_agentSnapshotSource() throws {
         let id = UUID()
-        let date = Date(timeIntervalSince1970: 1000000)
+        let date = Date(timeIntervalSince1970: 1_000_000)
         let state = BridgePaneState(
             panelKind: .diffViewer,
             source: .agentSnapshot(taskId: id, timestamp: date)
@@ -96,8 +97,8 @@ final class BridgePaneStateTests: XCTestCase {
         // Simulate a future version that adds unknown fields by manually crafting JSON
         // with an unrecognized state shape that will fail BridgePaneState decoding
         let json = """
-        {"type":"bridgePanel","version":99,"state":{"unknownField":"value"}}
-        """
+            {"type":"bridgePanel","version":99,"state":{"unknownField":"value"}}
+            """
         let data = Data(json.utf8)
         let decoded = try JSONDecoder().decode(PaneContent.self, from: data)
 

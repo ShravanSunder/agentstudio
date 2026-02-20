@@ -1,5 +1,6 @@
-import XCTest
 import Observation
+import XCTest
+
 @testable import AgentStudio
 
 @MainActor
@@ -53,7 +54,8 @@ final class EntitySliceTests: XCTestCase {
         let data = try! JSONEncoder().encode(delta)
         let json = try! JSONSerialization.jsonObject(with: data) as! [String: Any]
         let changed = json["changed"] as? [String: Any]
-        XCTAssertNotNil(changed?["key1"],
+        XCTAssertNotNil(
+            changed?["key1"],
             "EntityDelta keys must be String in wire format")
     }
 
@@ -66,7 +68,8 @@ final class EntitySliceTests: XCTestCase {
         let data = try! JSONEncoder().encode(changedOnly)
         let json = try! JSONSerialization.jsonObject(with: data) as! [String: Any]
         XCTAssertNotNil(json["changed"])
-        XCTAssertNil(json["removed"],
+        XCTAssertNil(
+            json["removed"],
             "nil removed field should be omitted from JSON")
     }
 
@@ -100,14 +103,17 @@ final class EntitySliceTests: XCTestCase {
         state.items[id1] = TestEntity(name: "first-updated", version: 2)
         try await Task.sleep(for: .milliseconds(100))
 
-        XCTAssertGreaterThan(transport.pushCount, initialCount,
+        XCTAssertGreaterThan(
+            transport.pushCount, initialCount,
             "Transport should receive a push after entity mutation")
 
         if let json = transport.lastJSON {
             let delta = try JSONDecoder().decode(EntityDeltaTestShape.self, from: json)
-            XCTAssertNotNil(delta.changed?[id1.uuidString],
+            XCTAssertNotNil(
+                delta.changed?[id1.uuidString],
                 "Changed entity should be in delta")
-            XCTAssertNil(delta.changed?[id2.uuidString],
+            XCTAssertNil(
+                delta.changed?[id2.uuidString],
                 "Unchanged entity should NOT be in delta")
         }
 

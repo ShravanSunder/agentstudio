@@ -1,6 +1,6 @@
+import AsyncAlgorithms
 import Foundation
 import Observation
-import AsyncAlgorithms
 import os.log
 
 private let logger = Logger(subsystem: "com.agentstudio", category: "PushEngine")

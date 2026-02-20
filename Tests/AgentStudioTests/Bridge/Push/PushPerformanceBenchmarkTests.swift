@@ -1,5 +1,6 @@
-import XCTest
 import Observation
+import XCTest
+
 @testable import AgentStudio
 
 @MainActor
@@ -14,8 +15,10 @@ final class PushPerformanceBenchmarkTests: XCTestCase {
         var pushCount = 0
         var lastPushInstant: ContinuousClock.Instant?
 
-        func pushJSON(store: StoreKey, op: PushOp, level: PushLevel,
-                      revision: Int, epoch: Int, json: Data) async {
+        func pushJSON(
+            store: StoreKey, op: PushOp, level: PushLevel,
+            revision: Int, epoch: Int, json: Data
+        ) async {
             pushCount += 1
             lastPushInstant = ContinuousClock.now
         }
@@ -33,29 +36,31 @@ final class PushPerformanceBenchmarkTests: XCTestCase {
             state: diffState,
             transport: transport,
             revisions: clock,
-            epoch: { diffState.epoch }
-        ) {
-            Slice("diffManifest", store: .diff, level: .hot, op: .replace) { state in
-                state.manifest  // Using .hot to measure raw push time without debounce
+            epoch: { diffState.epoch },
+            slices: {
+                Slice("diffManifest", store: .diff, level: .hot, op: .replace) { state in
+                    state.manifest  // Using .hot to measure raw push time without debounce
+                }
             }
-        }
+        )
 
         plan.start()
         try await Task.sleep(for: .milliseconds(50))
 
         // Generate 100-file manifest (metadata only, no file contents)
-        let manifest = DiffManifest(files: (0..<100).map { i in
-            FileManifest(
-                id: UUID().uuidString,
-                path: "src/components/Component\(i).tsx",
-                oldPath: nil,
-                changeType: .modified,
-                additions: Int.random(in: 1...50),
-                deletions: Int.random(in: 1...30),
-                size: Int.random(in: 100...10000),
-                contextHash: UUID().uuidString
-            )
-        })
+        let manifest = DiffManifest(
+            files: (0..<100).map { i in
+                FileManifest(
+                    id: UUID().uuidString,
+                    path: "src/components/Component\(i).tsx",
+                    oldPath: nil,
+                    changeType: .modified,
+                    additions: Int.random(in: 1...50),
+                    deletions: Int.random(in: 1...30),
+                    size: Int.random(in: 100...10_000),
+                    contextHash: UUID().uuidString
+                )
+            })
 
         // Record the baseline push count (initial observation fires once)
         let baselinePushCount = transport.pushCount
@@ -68,7 +73,8 @@ final class PushPerformanceBenchmarkTests: XCTestCase {
         try await Task.sleep(for: .milliseconds(200))
 
         // Assert — push was triggered
-        XCTAssertGreaterThan(transport.pushCount, baselinePushCount,
+        XCTAssertGreaterThan(
+            transport.pushCount, baselinePushCount,
             "100-file manifest mutation should trigger at least one push beyond baseline")
 
         guard let pushInstant = transport.lastPushInstant else {
@@ -84,9 +90,10 @@ final class PushPerformanceBenchmarkTests: XCTestCase {
         // Note: This measures Swift-side only (observation + JSON encode + pushJSON call).
         // Full end-to-end includes JS JSON.parse + store update.
         print("[PushBenchmark] 100-file manifest push latency: \(latency)")
-        XCTAssertLessThan(latency, .milliseconds(32),
+        XCTAssertLessThan(
+            latency, .milliseconds(32),
             "100-file manifest push should complete within 32ms (Swift-side observation + encode + transport call). "
-            + "Measured: \(latency)")
+                + "Measured: \(latency)")
 
         plan.stop()
     }

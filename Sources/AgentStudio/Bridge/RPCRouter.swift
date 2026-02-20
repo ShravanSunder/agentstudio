@@ -44,29 +44,30 @@ final class RPCRouter {
     /// via `onError` rather than thrown, following fire-and-forget notification semantics.
     func dispatch(json: String) async throws {
         guard let data = json.data(using: .utf8) else {
-            onError?(-32700, "Parse error", nil)
+            onError?(-32_700, "Parse error", nil)
             return
         }
 
         // Step 1: Detect batch (array) — reject per §5.5
         let raw = try? JSONSerialization.jsonObject(with: data)
         if raw is [Any] {
-            onError?(-32600, "Batch requests not supported", nil)
+            onError?(-32_600, "Batch requests not supported", nil)
             return
         }
 
         // Step 2: Parse envelope — require method field
         guard let dict = raw as? [String: Any],
-              let method = dict["method"] as? String else {
+            let method = dict["method"] as? String
+        else {
             let requestId = (raw as? [String: Any])?["id"]
-            onError?(-32600, "Invalid request: missing method", requestId)
+            onError?(-32_600, "Invalid request: missing method", requestId)
             return
         }
 
         // Step 3: Check __commandId dedup (sliding window)
         if let commandId = dict["__commandId"] as? String {
             if seenCommandIds.contains(commandId) {
-                return // Idempotent — already processed
+                return  // Idempotent — already processed
             }
             seenCommandIds.append(commandId)
             if seenCommandIds.count > maxCommandIdHistory {
@@ -77,7 +78,7 @@ final class RPCRouter {
         // Step 4: Find and execute handler
         guard let handler = handlers[method] else {
             let requestId = dict["id"]
-            onError?(-32601, "Method not found: \(method)", requestId)
+            onError?(-32_601, "Method not found: \(method)", requestId)
             return
         }
 

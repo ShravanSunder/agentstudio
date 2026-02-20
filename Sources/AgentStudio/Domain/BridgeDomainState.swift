@@ -15,9 +15,9 @@ class PaneDomainState {
 @MainActor
 class DiffState {
     var status: DiffStatus = .idle
-    var error: String? = nil
+    var error: String?
     var epoch: Int = 0
-    var manifest: DiffManifest? = nil
+    var manifest: DiffManifest?
 }
 
 enum DiffStatus: String, Codable, Equatable, Sendable {

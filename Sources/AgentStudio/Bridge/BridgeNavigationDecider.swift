@@ -11,7 +11,7 @@ final class BridgeNavigationDecider: WebPage.NavigationDeciding {
     // MARK: - Allowed Schemes
 
     static let allowedSchemes: Set<String> = [
-        "agentstudio", "about"
+        "agentstudio", "about",
     ]
 
     // MARK: - NavigationDeciding

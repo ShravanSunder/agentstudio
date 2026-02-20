@@ -28,24 +28,28 @@ struct BridgeSchemeHandler: URLSchemeHandler {
                 let html = "<html><head><title>Bridge</title></head><body>App: \(relativePath)</body></html>"
                 let data = Data(html.utf8)
                 let mime = Self.mimeType(for: relativePath)
-                continuation.yield(.response(URLResponse(
-                    url: url,
-                    mimeType: mime,
-                    expectedContentLength: data.count,
-                    textEncodingName: "utf-8"
-                )))
+                continuation.yield(
+                    .response(
+                        URLResponse(
+                            url: url,
+                            mimeType: mime,
+                            expectedContentLength: data.count,
+                            textEncodingName: "utf-8"
+                        )))
                 continuation.yield(.data(data))
                 continuation.finish()
 
             case .resource(let fileId):
                 // TODO: Phase 4 — resolve file content from workspace
                 let placeholder = Data("resource:\(fileId)".utf8)
-                continuation.yield(.response(URLResponse(
-                    url: url,
-                    mimeType: "application/octet-stream",
-                    expectedContentLength: placeholder.count,
-                    textEncodingName: nil
-                )))
+                continuation.yield(
+                    .response(
+                        URLResponse(
+                            url: url,
+                            mimeType: "application/octet-stream",
+                            expectedContentLength: placeholder.count,
+                            textEncodingName: nil
+                        )))
                 continuation.yield(.data(placeholder))
                 continuation.finish()
 
@@ -72,7 +76,8 @@ struct BridgeSchemeHandler: URLSchemeHandler {
     /// Security: Rejects path traversal attempts containing ".." anywhere in the path.
     static func classifyPath(_ urlString: String) -> PathType {
         guard let url = URL(string: urlString),
-              url.scheme == "agentstudio" else {
+            url.scheme == "agentstudio"
+        else {
             return .invalid
         }
 
@@ -86,7 +91,7 @@ struct BridgeSchemeHandler: URLSchemeHandler {
 
         switch host {
         case "app":
-            let relativePath = String(path.dropFirst()) // remove leading /
+            let relativePath = String(path.dropFirst())  // remove leading /
             guard !relativePath.isEmpty else { return .invalid }
             return .app(relativePath)
 
@@ -94,8 +99,9 @@ struct BridgeSchemeHandler: URLSchemeHandler {
             // Expected: /file/<fileId>
             let components = path.split(separator: "/")
             guard components.count == 2,
-                  components[0] == "file",
-                  !components[1].isEmpty else {
+                components[0] == "file",
+                !components[1].isEmpty
+            else {
                 return .invalid
             }
             return .resource(fileId: String(components[1]))
@@ -115,16 +121,16 @@ struct BridgeSchemeHandler: URLSchemeHandler {
         let ext = (filename as NSString).pathExtension.lowercased()
         switch ext {
         case "html", "htm": return "text/html"
-        case "js", "mjs":  return "application/javascript"
-        case "css":         return "text/css"
-        case "json":        return "application/json"
-        case "svg":         return "image/svg+xml"
-        case "png":         return "image/png"
+        case "js", "mjs": return "application/javascript"
+        case "css": return "text/css"
+        case "json": return "application/json"
+        case "svg": return "image/svg+xml"
+        case "png": return "image/png"
         case "jpg", "jpeg": return "image/jpeg"
-        case "woff2":       return "font/woff2"
-        case "woff":        return "font/woff"
-        case "wasm":        return "application/wasm"
-        default:            return "application/octet-stream"
+        case "woff2": return "font/woff2"
+        case "woff": return "font/woff"
+        case "wasm": return "application/wasm"
+        default: return "application/octet-stream"
         }
     }
 }

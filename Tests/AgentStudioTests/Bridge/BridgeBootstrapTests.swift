@@ -1,4 +1,5 @@
 import XCTest
+
 @testable import AgentStudio
 
 /// Tests for BridgeBootstrap JavaScript generator.
@@ -13,7 +14,8 @@ final class BridgeBootstrapTests: XCTestCase {
 
     func test_script_contains_bridgeInternal_global() {
         let script = BridgeBootstrap.generateScript(bridgeNonce: "test-nonce", pushNonce: "push-nonce")
-        XCTAssertTrue(script.contains("window.__bridgeInternal"),
+        XCTAssertTrue(
+            script.contains("window.__bridgeInternal"),
             "Bootstrap must install __bridgeInternal in bridge world")
     }
 
@@ -21,7 +23,8 @@ final class BridgeBootstrapTests: XCTestCase {
 
     func test_script_contains_command_listener() {
         let script = BridgeBootstrap.generateScript(bridgeNonce: "test-nonce", pushNonce: "push-nonce")
-        XCTAssertTrue(script.contains("__bridge_command"),
+        XCTAssertTrue(
+            script.contains("__bridge_command"),
             "Bootstrap must listen for __bridge_command CustomEvents from page world")
     }
 
@@ -29,7 +32,8 @@ final class BridgeBootstrapTests: XCTestCase {
 
     func test_script_contains_nonce_validation() {
         let script = BridgeBootstrap.generateScript(bridgeNonce: "test-nonce", pushNonce: "push-nonce")
-        XCTAssertTrue(script.contains("test-nonce"),
+        XCTAssertTrue(
+            script.contains("test-nonce"),
             "Bootstrap must embed bridge nonce for command validation")
     }
 
@@ -37,7 +41,8 @@ final class BridgeBootstrapTests: XCTestCase {
 
     func test_script_contains_push_relay() {
         let script = BridgeBootstrap.generateScript(bridgeNonce: "test-nonce", pushNonce: "push-nonce")
-        XCTAssertTrue(script.contains("__bridge_push"),
+        XCTAssertTrue(
+            script.contains("__bridge_push"),
             "Bootstrap must dispatch __bridge_push CustomEvents to page world")
     }
 
@@ -45,7 +50,8 @@ final class BridgeBootstrapTests: XCTestCase {
 
     func test_script_contains_ready_listener() {
         let script = BridgeBootstrap.generateScript(bridgeNonce: "test-nonce", pushNonce: "push-nonce")
-        XCTAssertTrue(script.contains("__bridge_ready") || script.contains("bridge.ready"),
+        XCTAssertTrue(
+            script.contains("__bridge_ready") || script.contains("bridge.ready"),
             "Bootstrap must relay bridge.ready from page world to Swift")
     }
 
@@ -53,7 +59,8 @@ final class BridgeBootstrapTests: XCTestCase {
 
     func test_script_contains_handshake_dispatch() {
         let script = BridgeBootstrap.generateScript(bridgeNonce: "test-nonce", pushNonce: "push-nonce")
-        XCTAssertTrue(script.contains("__bridge_handshake"),
+        XCTAssertTrue(
+            script.contains("__bridge_handshake"),
             "Bootstrap must dispatch handshake with pushNonce to page world")
     }
 
@@ -62,7 +69,8 @@ final class BridgeBootstrapTests: XCTestCase {
     func test_different_nonces_produce_different_scripts() {
         let script1 = BridgeBootstrap.generateScript(bridgeNonce: "nonce-a", pushNonce: "push-a")
         let script2 = BridgeBootstrap.generateScript(bridgeNonce: "nonce-b", pushNonce: "push-b")
-        XCTAssertNotEqual(script1, script2,
+        XCTAssertNotEqual(
+            script1, script2,
             "Different nonces should produce different bootstrap scripts")
     }
 
@@ -70,8 +78,10 @@ final class BridgeBootstrapTests: XCTestCase {
 
     func test_script_contains_handshake_replay_listener() {
         let script = BridgeBootstrap.generateScript(bridgeNonce: "test-nonce", pushNonce: "push-nonce")
-        XCTAssertTrue(script.contains("__bridge_handshake_request"),
-            "Bootstrap must listen for __bridge_handshake_request so late page-world listeners can recover the pushNonce")
+        XCTAssertTrue(
+            script.contains("__bridge_handshake_request"),
+            "Bootstrap must listen for __bridge_handshake_request so late page-world listeners can recover the pushNonce"
+        )
     }
 
     // MARK: - Push Envelope Metadata (P2)
@@ -80,17 +90,21 @@ final class BridgeBootstrapTests: XCTestCase {
         let script = BridgeBootstrap.generateScript(bridgeNonce: "test-nonce", pushNonce: "push-nonce")
         // merge and replace functions should accept revision and epoch params
         // and include __revision/__epoch at the event detail level
-        XCTAssertTrue(script.contains("__revision: revision"),
+        XCTAssertTrue(
+            script.contains("__revision: revision"),
             "Push relay must expose __revision at event detail level for stale guards")
-        XCTAssertTrue(script.contains("__epoch: epoch"),
+        XCTAssertTrue(
+            script.contains("__epoch: epoch"),
             "Push relay must expose __epoch at event detail level for epoch checks")
     }
 
     func test_applyEnvelope_extracts_metadata_from_envelope() {
         let script = BridgeBootstrap.generateScript(bridgeNonce: "test-nonce", pushNonce: "push-nonce")
-        XCTAssertTrue(script.contains("envelope.__revision"),
+        XCTAssertTrue(
+            script.contains("envelope.__revision"),
             "applyEnvelope must extract __revision from envelope")
-        XCTAssertTrue(script.contains("envelope.__epoch"),
+        XCTAssertTrue(
+            script.contains("envelope.__epoch"),
             "applyEnvelope must extract __epoch from envelope")
     }
 }

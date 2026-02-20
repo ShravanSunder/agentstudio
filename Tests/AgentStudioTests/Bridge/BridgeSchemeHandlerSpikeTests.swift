@@ -1,5 +1,6 @@
-import XCTest
 import WebKit
+import XCTest
+
 @testable import AgentStudio
 
 // MARK: - Spike Scheme Handler
@@ -23,12 +24,14 @@ private struct SpikeSchemeHandler: URLSchemeHandler {
                 continuation.finish()
                 return
             }
-            continuation.yield(.response(URLResponse(
-                url: url,
-                mimeType: "text/html",
-                expectedContentLength: data.count,
-                textEncodingName: "utf-8"
-            )))
+            continuation.yield(
+                .response(
+                    URLResponse(
+                        url: url,
+                        mimeType: "text/html",
+                        expectedContentLength: data.count,
+                        textEncodingName: "utf-8"
+                    )))
             continuation.yield(.data(data))
             continuation.finish()
         }
@@ -55,11 +58,14 @@ final class BridgeSchemeHandlerSpikeTests: XCTestCase {
         try await waitForPageLoad(page)
 
         // Assert — scheme handler served the page
-        XCTAssertEqual(page.url?.absoluteString, "agentstudio://app/test.html",
+        XCTAssertEqual(
+            page.url?.absoluteString, "agentstudio://app/test.html",
             "Page URL should reflect the custom scheme URL")
-        XCTAssertFalse(page.isLoading,
+        XCTAssertFalse(
+            page.isLoading,
             "Page should finish loading")
-        XCTAssertEqual(page.title, "Spike Test",
+        XCTAssertEqual(
+            page.title, "Spike Test",
             "page.title should reflect <title> from scheme handler HTML")
     }
 
@@ -81,10 +87,12 @@ final class BridgeSchemeHandlerSpikeTests: XCTestCase {
         let jsResult = try await page.callJavaScript("document.title")
 
         // Assert — nil in headless context (spike finding)
-        XCTAssertNil(jsResult,
+        XCTAssertNil(
+            jsResult,
             "Spike finding: callJavaScript returns nil without a window/view host")
         // But page.title works
-        XCTAssertEqual(page.title, "Spike Test",
+        XCTAssertEqual(
+            page.title, "Spike Test",
             "page.title works even without a window")
     }
 

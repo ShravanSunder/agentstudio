@@ -1,4 +1,5 @@
 import XCTest
+
 @testable import AgentStudio
 
 /// Tests for BridgeSchemeHandler static helpers: MIME type resolution and path classification.
@@ -78,7 +79,8 @@ final class BridgeSchemeHandlerTests: XCTestCase {
     }
 
     func test_pathType_resourceRoute_uuidFileId() {
-        let result = BridgeSchemeHandler.classifyPath("agentstudio://resource/file/550e8400-e29b-41d4-a716-446655440000")
+        let result = BridgeSchemeHandler.classifyPath(
+            "agentstudio://resource/file/550e8400-e29b-41d4-a716-446655440000")
         XCTAssertEqual(result, .resource(fileId: "550e8400-e29b-41d4-a716-446655440000"))
     }
 

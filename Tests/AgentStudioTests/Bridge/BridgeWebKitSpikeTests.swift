@@ -1,5 +1,6 @@
-import XCTest
 import WebKit
+import XCTest
+
 @testable import AgentStudio
 
 // MARK: - Test Helpers
@@ -30,12 +31,14 @@ private struct BlankPageSchemeHandler: URLSchemeHandler {
                 continuation.finish()
                 return
             }
-            continuation.yield(.response(URLResponse(
-                url: url,
-                mimeType: "text/html",
-                expectedContentLength: data.count,
-                textEncodingName: "utf-8"
-            )))
+            continuation.yield(
+                .response(
+                    URLResponse(
+                        url: url,
+                        mimeType: "text/html",
+                        expectedContentLength: data.count,
+                        textEncodingName: "utf-8"
+                    )))
             continuation.yield(.data(data))
             continuation.finish()
         }
@@ -79,7 +82,8 @@ final class BridgeWebKitSpikeTests: XCTestCase {
 
         // Assert -- same name should return the same (identical) world object
         XCTAssertNotNil(worldA)
-        XCTAssertTrue(worldA === worldB,
+        XCTAssertTrue(
+            worldA === worldB,
             "WKContentWorld.world(name:) with the same name should return the identical object")
     }
 
@@ -90,7 +94,8 @@ final class BridgeWebKitSpikeTests: XCTestCase {
         let worldC = WKContentWorld.world(name: "differentWorld")
 
         // Assert
-        XCTAssertFalse(worldA === worldC,
+        XCTAssertFalse(
+            worldA === worldC,
             "Different content world names should produce different world objects")
     }
 
@@ -131,9 +136,11 @@ final class BridgeWebKitSpikeTests: XCTestCase {
         try await Task.sleep(for: .milliseconds(300))
 
         // Assert -- message should contain the argument value
-        XCTAssertEqual(handler.receivedMessages.count, 1,
+        XCTAssertEqual(
+            handler.receivedMessages.count, 1,
             "callJavaScript with contentWorld should execute and postMessage should work")
-        XCTAssertEqual(handler.receivedMessages.first as? String, "42",
+        XCTAssertEqual(
+            handler.receivedMessages.first as? String, "42",
             "Arguments passed to callJavaScript should be available as JS local variables")
     }
 
@@ -188,11 +195,13 @@ final class BridgeWebKitSpikeTests: XCTestCase {
 
         // Assert
         XCTAssertEqual(bridgeHandler.receivedMessages.count, 1)
-        XCTAssertEqual(bridgeHandler.receivedMessages.first as? String, "bridge-only",
+        XCTAssertEqual(
+            bridgeHandler.receivedMessages.first as? String, "bridge-only",
             "Bridge world should see its own global variable")
 
         XCTAssertEqual(pageHandler.receivedMessages.count, 1)
-        XCTAssertEqual(pageHandler.receivedMessages.first as? String, "NOT_FOUND",
+        XCTAssertEqual(
+            pageHandler.receivedMessages.first as? String, "NOT_FOUND",
             "Page world should NOT see bridge world's global variable (isolation)")
     }
 
@@ -256,12 +265,14 @@ final class BridgeWebKitSpikeTests: XCTestCase {
 
         // Assert -- bridge world should see the flag
         XCTAssertEqual(bridgeHandler.receivedMessages.count, 1)
-        XCTAssertEqual(bridgeHandler.receivedMessages.first as? String, "true",
+        XCTAssertEqual(
+            bridgeHandler.receivedMessages.first as? String, "true",
             "WKUserScript injected with `in: world` should set __testFlag in bridge world")
 
         // Assert -- page world should NOT see the flag
         XCTAssertEqual(pageHandler.receivedMessages.count, 1)
-        XCTAssertEqual(pageHandler.receivedMessages.first as? String, "undefined",
+        XCTAssertEqual(
+            pageHandler.receivedMessages.first as? String, "undefined",
             "Page world should NOT see __testFlag set by bridge-world WKUserScript (isolation)")
     }
 
@@ -298,9 +309,11 @@ final class BridgeWebKitSpikeTests: XCTestCase {
         try await Task.sleep(for: .milliseconds(300))
 
         // Assert -- handler received the message
-        XCTAssertEqual(handler.receivedMessages.count, 1,
+        XCTAssertEqual(
+            handler.receivedMessages.count, 1,
             "Message posted from bridge world should reach the handler")
-        XCTAssertEqual(handler.receivedMessages.first as? String, "hello",
+        XCTAssertEqual(
+            handler.receivedMessages.first as? String, "hello",
             "Message body should be the posted value")
     }
 
@@ -336,7 +349,8 @@ final class BridgeWebKitSpikeTests: XCTestCase {
         try await Task.sleep(for: .milliseconds(300))
 
         // Assert -- handler should NOT have received a message from page world
-        XCTAssertEqual(handler.receivedMessages.count, 0,
+        XCTAssertEqual(
+            handler.receivedMessages.count, 0,
             "Page world should NOT be able to post to a bridge-world-scoped message handler")
     }
 
@@ -377,7 +391,8 @@ final class BridgeWebKitSpikeTests: XCTestCase {
         XCTAssertNotNil(body, "postMessage with JSON.stringify should deliver a String body")
         if let body {
             let parsed = try? JSONSerialization.jsonObject(with: Data(body.utf8)) as? [String: Any]
-            XCTAssertEqual(parsed?["method"] as? String, "test.ping",
+            XCTAssertEqual(
+                parsed?["method"] as? String, "test.ping",
                 "JSON string payload should be parseable and contain the method")
         }
     }

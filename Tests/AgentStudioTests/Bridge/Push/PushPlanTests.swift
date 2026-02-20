@@ -1,5 +1,6 @@
-import XCTest
 import Observation
+import XCTest
+
 @testable import AgentStudio
 
 @MainActor
@@ -22,17 +23,19 @@ final class PushPlanTests: XCTestCase {
             state: state,
             transport: transport,
             revisions: clock,
-            epoch: { 1 }
-        ) {
-            Slice("status", store: .diff, level: .hot) { s in s.status }
-            Slice("count", store: .diff, level: .cold) { s in s.count }
-        }
+            epoch: { 1 },
+            slices: {
+                Slice("status", store: .diff, level: .hot) { s in s.status }
+                Slice("count", store: .diff, level: .cold) { s in s.count }
+            }
+        )
 
         // Act
         plan.start()
 
         // Assert
-        XCTAssertEqual(plan.taskCount, 2,
+        XCTAssertEqual(
+            plan.taskCount, 2,
             "PushPlan should create one task per slice")
         plan.stop()
     }
@@ -47,10 +50,11 @@ final class PushPlanTests: XCTestCase {
             state: state,
             transport: transport,
             revisions: clock,
-            epoch: { 1 }
-        ) {
-            Slice("status", store: .diff, level: .hot) { s in s.status }
-        }
+            epoch: { 1 },
+            slices: {
+                Slice("status", store: .diff, level: .hot) { s in s.status }
+            }
+        )
 
         // Act
         plan.start()
@@ -71,16 +75,17 @@ final class PushPlanTests: XCTestCase {
             state: state,
             transport: transport,
             revisions: clock,
-            epoch: { 1 }
-        ) {
-            Slice("status", store: .diff, level: .hot) { s in s.status }
-            EntitySlice(
-                "items", store: .review, level: .warm,
-                capture: { s in s.items },
-                version: { _ in 1 },
-                keyToString: { $0.uuidString }
-            )
-        }
+            epoch: { 1 },
+            slices: {
+                Slice("status", store: .diff, level: .hot) { s in s.status }
+                EntitySlice(
+                    "items", store: .review, level: .warm,
+                    capture: { s in s.items },
+                    version: { _ in 1 },
+                    keyToString: { $0.uuidString }
+                )
+            }
+        )
 
         // Act
         plan.start()

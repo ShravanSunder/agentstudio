@@ -1,5 +1,6 @@
-import XCTest
 import WebKit
+import XCTest
+
 @testable import AgentStudio
 
 /// Integration tests for the BridgePaneController's assembled transport pipeline.
@@ -27,21 +28,24 @@ final class BridgeTransportIntegrationTests: XCTestCase {
         let controller = BridgePaneController(paneId: paneId, state: state)
 
         // Assert — before handshake, bridge is not ready
-        XCTAssertFalse(controller.isBridgeReady,
+        XCTAssertFalse(
+            controller.isBridgeReady,
             "isBridgeReady should be false before bridge.ready handshake")
 
         // Act — first handshake call
         controller.handleBridgeReady()
 
         // Assert — after first call, bridge is ready
-        XCTAssertTrue(controller.isBridgeReady,
+        XCTAssertTrue(
+            controller.isBridgeReady,
             "isBridgeReady should be true after handleBridgeReady()")
 
         // Act — second handshake call (idempotent, should be a no-op)
         controller.handleBridgeReady()
 
         // Assert — still true, no crash, no state change
-        XCTAssertTrue(controller.isBridgeReady,
+        XCTAssertTrue(
+            controller.isBridgeReady,
             "isBridgeReady should remain true after repeated handleBridgeReady() calls (idempotent)")
 
         // Cleanup
@@ -61,7 +65,8 @@ final class BridgeTransportIntegrationTests: XCTestCase {
         controller.teardown()
 
         // Assert — bridge state is reset
-        XCTAssertFalse(controller.isBridgeReady,
+        XCTAssertFalse(
+            controller.isBridgeReady,
             "teardown() should reset isBridgeReady to false")
     }
 
@@ -81,13 +86,16 @@ final class BridgeTransportIntegrationTests: XCTestCase {
         try await waitForPageLoad(controller.page)
 
         // Assert — page loaded from custom scheme with expected URL
-        XCTAssertEqual(controller.page.url?.absoluteString, "agentstudio://app/index.html",
+        XCTAssertEqual(
+            controller.page.url?.absoluteString, "agentstudio://app/index.html",
             "loadApp() should navigate to agentstudio://app/index.html")
-        XCTAssertFalse(controller.page.isLoading,
+        XCTAssertFalse(
+            controller.page.isLoading,
             "Page should finish loading after loadApp()")
 
         // Assert — BridgeSchemeHandler serves the page (Phase 1 stub returns "Bridge" title)
-        XCTAssertEqual(controller.page.title, "Bridge",
+        XCTAssertEqual(
+            controller.page.title, "Bridge",
             "BridgeSchemeHandler should serve HTML with <title>Bridge</title> for app routes")
 
         // Cleanup
@@ -161,9 +169,11 @@ final class BridgeTransportIntegrationTests: XCTestCase {
         try await Task.sleep(for: .milliseconds(500))
 
         // Assert — page world should see __bridgeInternal as undefined
-        XCTAssertEqual(pageProbe.receivedMessages.count, 1,
+        XCTAssertEqual(
+            pageProbe.receivedMessages.count, 1,
             "Page world probe should receive exactly one message")
-        XCTAssertEqual(pageProbe.receivedMessages.first as? String, "undefined",
+        XCTAssertEqual(
+            pageProbe.receivedMessages.first as? String, "undefined",
             "window.__bridgeInternal should be 'undefined' in page world (content world isolation)")
     }
 
