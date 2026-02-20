@@ -185,7 +185,8 @@ final class ZmxBackend: SessionBackend {
     /// This string is injected into an interactive shell via `sendText`, so it
     /// must survive one level of shell parsing in a double-quoted context.
     static func shellEscape(_ value: String) -> String {
-        let escaped = value
+        let escaped =
+            value
             .replacingOccurrences(of: "\\", with: "\\\\")
             .replacingOccurrences(of: "\"", with: "\\\"")
             .replacingOccurrences(of: "$", with: "\\$")

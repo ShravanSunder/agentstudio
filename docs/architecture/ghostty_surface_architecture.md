@@ -157,7 +157,7 @@ Terminal shell (cd /foo)
     ▼
 ⑤ WorkspaceStore                            [WorkspaceStore.swift]
     │ session.lastKnownCWD = url (dedup + markDirty)
-    │ @Published sessions → SwiftUI
+    │ @Observable → SwiftUI
     ▼
 UI consumers (search by CWD, breadcrumbs, grouping)
 ```

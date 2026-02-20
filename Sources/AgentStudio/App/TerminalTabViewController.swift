@@ -328,7 +328,8 @@ class TerminalTabViewController: NSViewController, CommandHandler {
 
             if let terminal = paneView as? AgentStudioTerminalView {
                 SurfaceManager.shared.syncFocus(activeSurfaceId: terminal.surfaceId)
-                RestoreTrace.log("TerminalTabVC.focusActivePane syncFocus activeSurface=\(terminal.surfaceId?.uuidString ?? "nil")")
+                RestoreTrace.log(
+                    "TerminalTabVC.focusActivePane syncFocus activeSurface=\(terminal.surfaceId?.uuidString ?? "nil")")
             }
         }
     }
@@ -709,7 +710,9 @@ class TerminalTabViewController: NSViewController, CommandHandler {
 
             if let terminal = paneView as? AgentStudioTerminalView {
                 SurfaceManager.shared.syncFocus(activeSurfaceId: terminal.surfaceId)
-                RestoreTrace.log("TerminalTabVC.handleRefocusTerminal syncFocus activeSurface=\(terminal.surfaceId?.uuidString ?? "nil")")
+                RestoreTrace.log(
+                    "TerminalTabVC.handleRefocusTerminal syncFocus activeSurface=\(terminal.surfaceId?.uuidString ?? "nil")"
+                )
             }
         }
     }

@@ -2,7 +2,7 @@
 
 ## TL;DR
 
-Agent Studio is a macOS terminal application that embeds Ghostty terminal surfaces within a project/worktree management shell. The app uses an **AppKit-main** architecture hosting SwiftUI views for declarative UI. All state lives in a single `WorkspaceStore` backed by immutable value-type models. Sessions are the primary identity — they exist independently of layout, view, or surface. Actions flow through a validated pipeline, and persistence is debounced.
+Agent Studio is a macOS terminal application that embeds Ghostty terminal surfaces within a project/worktree management shell. The app uses an **AppKit-main** architecture hosting SwiftUI views for declarative UI. State is distributed across independent `@Observable` stores (Jotai-style atomic stores) with `private(set)` for unidirectional flow (Valtio-style). A coordinator pattern sequences cross-store operations. Sessions are the primary identity — they exist independently of layout, view, or surface. Actions flow through a validated pipeline, and persistence is debounced.
 
 ## System Overview
 
@@ -11,35 +11,34 @@ Agent Studio is a macOS terminal application that embeds Ghostty terminal surfac
 │                        AppDelegate                            │
 │                                                               │
 │  ┌───────────────┐  ┌───────────────┐  ┌──────────────────┐  │
-│  │WorkspaceStore │  │SessionRuntime │  │  ViewRegistry     │  │
-│  │ (all state)   │  │(health/status)│  │ (sessionId→View) │  │
+│  │WorkspaceStore │  │SessionRuntime │  │SurfaceManager    │  │
+│  │ (workspace)   │  │(backends)     │  │(surfaces)        │  │
 │  └───────┬───────┘  └───────┬───────┘  └────────┬─────────┘  │
 │          │                  │                    │             │
 │  ┌───────┴──────────────────┴────────────────────┴──────────┐ │
-│  │              TerminalViewCoordinator                      │ │
-│  │          (sole bridge: model ↔ view ↔ surface)            │ │
+│  │              PaneCoordinator                              │ │
+│  │     (sequences cross-store ops, owns no domain state)     │ │
 │  └──────────────────────────┬───────────────────────────────┘ │
 │                             │                                 │
-│  ┌──────────────────────────┴───────────────────────────────┐ │
-│  │                SurfaceManager (singleton)                 │ │
-│  │           active | hidden | undoStack surfaces            │ │
-│  └──────────────────────────────────────────────────────────┘ │
-│                                                               │
-│  ┌──────────────┐  ┌──────────────┐  ┌──────────────────────┐│
-│  │ActionExecutor│  │ TabBarAdapter│  │CommandBarPanel       ││
-│  │(action hub)  │  │(derived UI)  │  │Controller (⌘P)      ││
+│  ┌──────────────┐  ┌───────┴──────┐  ┌──────────────────────┐│
+│  │ ViewRegistry │  │ TabBarAdapter│  │CommandBarPanel       ││
+│  │(paneId→View) │  │(derived UI)  │  │Controller (⌘P)      ││
 │  └──────────────┘  └──────────────┘  └──────────────────────┘│
 └───────────────────────────────────────────────────────────────┘
   * WorkspacePersistor is internal to WorkspaceStore (JSON I/O)
+  * Each store is @Observable with private(set) for unidirectional flow
 ```
 
 ## Architecture Principles
 
 - **Session as primary entity** — `TerminalSession` is the stable identity for a terminal, independent of layout, view, or surface
-- **Single ownership boundary** — `WorkspaceStore` owns all persisted state; other services are collaborators, not peers
+- **Atomic stores (Jotai-style)** — Each domain has its own `@Observable` store: `WorkspaceStore` (workspace structure), `SurfaceManager` (Ghostty surfaces), `SessionRuntime` (backends). No god-store. Each store owns one domain and has one reason to change.
+- **Unidirectional flow (Valtio-style)** — All store state is `private(set)`. External code reads freely, mutates only through store methods. No action enums, no reducers.
+- **Coordinator for cross-store sequencing** — A coordinator sequences operations across stores for a single user action. Owns no state, contains no domain logic.
 - **Immutable layout tree** — `Layout` is a pure value type; operations return new instances, never mutate
 - **Surface independence** — Ghostty surfaces are ephemeral runtime resources; the model layer never holds `NSView` references
 - **@MainActor everywhere** — Thread safety enforced at compile time, no runtime races
+- **AsyncStream over Combine/NotificationCenter** — All new event plumbing uses `AsyncStream` + `swift-async-algorithms`. Existing Combine/NotificationCenter migrated incrementally.
 
 ## Data Model at a Glance
 
@@ -63,12 +62,12 @@ WorkspaceStore
 
 ```
 User Action → PaneAction → ActionResolver → ActionValidator
-  → ActionExecutor → WorkspaceStore.mutate()
-    → @Published fires → SwiftUI re-renders
+  → PaneCoordinator → Store.mutate()
+    → @Observable tracks → SwiftUI re-renders
     → markDirty() → debounced save (500ms)
 
 Command Bar → CommandDispatcher.dispatch() → CommandHandler
-  → ActionResolver → ActionValidator → ActionExecutor
+  → ActionResolver → ActionValidator → PaneCoordinator
 ```
 
 ## Document Index
@@ -80,6 +79,7 @@ Command Bar → CommandDispatcher.dispatch() → CommandHandler
 | [Zmx Restore and Sizing](zmx_restore_and_sizing.md) | Deferred attach sequencing, geometry readiness, and zmx restore/sizing test coverage |
 | [Surface Architecture](ghostty_surface_architecture.md) | Ghostty surface ownership, state machine, health monitoring, crash isolation, CWD propagation |
 | [App Architecture](appkit_swiftui_architecture.md) | AppKit+SwiftUI hybrid shell, controllers, command bar panel, event handling |
+| [Directory Structure](directory_structure.md) | Module boundaries, Core vs Features decision process, import rule, component placement |
 
 ## Related
 
