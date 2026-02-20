@@ -59,7 +59,7 @@ Webview panes sit alongside your terminals. Review a pull request, check CI stat
 
 **Pane arrangements** — save named layouts per tab ("coding", "reviewing", "monitoring") and switch between them. Sessions keep running in the background.
 
-**Session restore** — close the app, reopen, pick up where you left off. zmx handles persistence with no tmux, no scripts, no configuration.
+**Session restore** — close the app, reopen, pick up where you left off. Optional zmx-backed persistence is on by default — no tmux, no scripts, no configuration.
 
 **Any agent, any pane** — Claude Code, Codex, aider, Cursor CLI. Agent Studio provides the workspace. The agent is just a process.
 
@@ -69,35 +69,19 @@ Webview panes sit alongside your terminals. Review a pull request, check CI stat
 
 ## Roadmap
 
-### Window System
+### Solved
 
-- [x] Multi-pane split layouts with drag-to-rearrange
-- [x] Pane arrangements — saved layout configurations per tab
-- [x] Pane drawers — contextual sub-panes with cascade lifecycle
-- [x] Webview panes — embedded browser alongside terminals
-- [x] Session restore via zmx
-- [x] Project and worktree sidebar
-- [ ] Dynamic views — computed grouping by repo, worktree, agent type, or CWD
-- [ ] Pane movement between tabs
-- [ ] Ghostty integration layer improvements (type-safe bridge, @Observable surface state)
+**Pane explosion** — agents and worktrees generate dozens of terminals. Pane drawers keep sub-processes associated with their parent. Split layouts and arrangements let you organize what's visible without killing what's running.
 
-### Bridge and Diff Viewer
+**Lost sessions** — close the app, lose your work. Optional zmx-backed session restore (on by default) brings every session back on relaunch. No tmux, no scripts.
 
-A Swift-to-React bridge that embeds rich UI panels inside webview panes. The first use case is an inline diff viewer and code review system.
+**No project context** — terminals are anonymous. Agent Studio ties every pane to its repo, worktree, and working directory automatically.
 
-- [ ] Transport foundation — bidirectional Swift-to-JavaScript messaging
-- [ ] State push pipeline — Swift @Observable changes synced to React stores
-- [ ] JSON-RPC command channel — React commands back to Swift
-- [ ] Diff viewer — inline diffs with file tree navigation
-- [ ] Review system — comment threads, review actions, agent event integration
-- [ ] Security hardening — content world isolation, navigation policy
+### Solving next
 
-### Future
+**"Which pane was that?"** — you're running agents across five repos. You need to see all panes for one project, or all panes running Claude Code, or all panes in a specific worktree. Today you hunt through tabs. Dynamic views will regroup your entire workspace on demand — by repo, by worktree, by agent type, by CWD — without touching your layout. Switch to "By Agent" and every Claude pane appears in one tab, every aider pane in another. Switch back and your workspace is untouched.
 
-- Auth isolation per project context
-- Session teleportation between machines
-- Tag-based dynamic grouping
-- Notification routing per workspace group
+**"I have to leave to review diffs"** — agents generate diffs constantly and you alt-tab to GitHub or VS Code to review them. Agent Studio will embed a full diff viewer and code review experience directly in pane drawers — inline diffs with syntax highlighting, file tree navigation, comment threads, and review actions. When an agent finishes a task, its changes appear in the drawer right below it. Review, approve, move on. A VS Code-quality editing experience without leaving the workspace where your agents are running.
 
 ## Architecture
 
