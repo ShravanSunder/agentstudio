@@ -1,6 +1,10 @@
 # Agent Studio
 
-A macOS application that integrates the Ghostty terminal emulator, providing a modern terminal experience with advanced features.
+![Agent Studio workspace](web/images/screen3.png)
+
+A macOS workspace for agent-assisted development. Run multiple coding agents across projects simultaneously — and stay oriented while they work.
+
+Agent-agnostic. Keyboard-first. Native macOS. Built on [Ghostty](https://github.com/ghostty-org/ghostty).
 
 ## Install
 
@@ -9,178 +13,131 @@ brew tap ShravanSunder/agentstudio
 brew install --cask agent-studio
 ```
 
-This installs AgentStudio.app to `/Applications/`. Session persistence is handled by the bundled **zmx** binary (no external dependencies).
+Requires macOS 15+. No external dependencies.
 
-## Features
+## Why
 
-- Native macOS application built with AppKit
-- Embedded Ghostty terminal emulator
-- Project and worktree management
-- Session management for terminal tabs
-- Integration with worktrunk for git worktree workflows
+Development is changing. Coding agents run alongside you now — sometimes several at once, across multiple projects and worktrees. But the tools weren't built for this.
 
-## Prerequisites
+Your terminals multiply. Context scatters across terminal tabs, browser windows, and editor panels. You alt-tab to GitHub to check a diff, lose your place, and spend more time managing your workspace than doing the work. Agents spawn sub-processes — builds, tests, tool calls — that float away from the parent with no association. You end up with dozens of panes and no way to tell which belongs to which project, which worktree, or which agent.
 
-- **macOS 14.0 or later**
-- **Xcode 15.0 or later** (for Swift compilation)
-- **[Zig compiler](https://ziglang.org/download/)** (for building Ghostty from source)
+Agent Studio is a ground-up redesign of the development experience around agents. Not a terminal with extra features — a workspace where agents, terminals, diffs, PRs, and project context live together.
 
-### Installing Zig
+## How It Works
 
-```bash
-# Using Homebrew (recommended)
-brew install zig
+**Everything in one workspace.** Terminals and webviews sit side by side. View GitHub PRs, review diffs, or browse documentation right next to the agents doing the work — without switching windows.
 
-# Or download directly from https://ziglang.org/download/
-```
+![GitHub and terminals in one workspace](web/images/screen4.png)
 
-Verify installation:
-```bash
-zig version
-```
+**Context that travels with you.** Every pane knows its project, worktree, and working directory. Terminals for a worktree live in the pane's drawer — associated, not scattered. Close a pane, its children come with it.
 
-## Quick Start
+![Pane drawers and project context](web/images/screen1.png)
 
-1. **Clone the repository with submodules:**
-```bash
-git clone --recurse-submodules https://github.com/ShravanSunder/agentstudio.git
-cd agent-studio
-```
+**Saved focus modes.** Pane arrangements let you switch between "coding", "reviewing", and "monitoring" layouts per tab. Sessions keep running in the background — nothing is lost when you switch.
 
-Or if you already cloned without submodules:
-```bash
-git submodule update --init --recursive
-```
+**Session continuity.** Close the app, reopen, pick up where you left off. zmx restores your sessions without tmux, without scripts, without configuration.
 
-2. **Build Ghostty and generate the XCFramework:**
-```bash
-./scripts/build-ghostty.sh
-```
+**Any agent, any pane.** Claude Code, Codex, aider, Cursor CLI — Agent Studio doesn't care. It provides the workspace. The agent is just a process in a terminal.
 
-This script will:
-- Verify Zig is installed
-- Build Ghostty from source in `vendor/ghostty/`
-- Generate the `GhosttyKit.xcframework`
-- Copy it to the `Frameworks/` directory
+**Command bar (Cmd+P).** One interaction point for everything — switch arrangements, navigate panes, create terminals, move panes between tabs.
 
-**Note:** This step takes 5-10 minutes on first build. Subsequent builds are faster.
+![Multi-pane agent workflow](web/images/screen2.png)
 
-3. **Build the Swift package:**
-```bash
-swift build
-```
+## Roadmap
 
-4. **Run the application:**
-```bash
-swift run AgentStudio
-```
+### Window System
+
+- [x] Multi-pane split layouts with drag-to-rearrange
+- [x] Pane arrangements — saved layout configurations per tab
+- [x] Pane drawers — contextual sub-panes with cascade lifecycle
+- [x] Webview panes — embedded browser alongside terminals
+- [x] Session restore via zmx
+- [x] Project and worktree sidebar
+- [ ] Dynamic views — computed grouping by repo, worktree, agent type, or CWD
+- [ ] Pane movement between tabs
+- [ ] Ghostty integration layer improvements (type-safe bridge, @Observable surface state)
+
+### Bridge and Diff Viewer
+
+A Swift-to-React bridge that embeds rich UI panels inside webview panes. The first use case is an inline diff viewer and code review system.
+
+- [ ] Transport foundation — bidirectional Swift-to-JavaScript messaging
+- [ ] State push pipeline — Swift @Observable changes synced to React stores
+- [ ] JSON-RPC command channel — React commands back to Swift
+- [ ] Diff viewer — inline diffs with file tree navigation
+- [ ] Review system — comment threads, review actions, agent event integration
+- [ ] Security hardening — content world isolation, navigation policy
+
+### Future
+
+- Auth isolation per project context
+- Session teleportation between machines
+- Tag-based dynamic grouping
+- Notification routing per workspace group
+
+## Architecture
+
+AppKit-main with SwiftUI views. Single `WorkspaceStore` owns all state. Immutable layout trees. Sessions exist independently of views or surfaces.
+
+Built with Swift 6.2, Swift Package Manager, Ghostty (via C API), and Zig build system. Targets macOS 26.
+
+See the [Architecture Overview](docs/architecture/README.md) for the full system design.
 
 ## Development
+
+### Prerequisites
+
+- macOS 15+, Xcode 15+
+- [mise](https://mise.jdx.dev/) (`brew install mise`)
+
+### Build and Run
+
+```bash
+mise install                  # Install pinned tool versions
+mise run build                # Full debug build (ghostty + zmx + swift)
+.build/debug/AgentStudio      # Launch
+```
+
+### Test, Format, and Lint
+
+```bash
+mise run test                 # Run tests
+mise run format               # Auto-format Swift sources
+mise run lint                 # swift-format + swiftlint
+```
 
 ### Project Structure
 
 ```
 agent-studio/
-├── Sources/AgentStudio/     # Swift source code
-│   ├── App/                 # Main app controllers
-│   ├── Ghostty/             # Ghostty integration
-│   ├── Models/              # Data models
-│   └── Services/            # Business logic
-├── Frameworks/              # Built XCFrameworks (generated, not in git)
-├── vendor/ghostty/          # Ghostty source code
-├── scripts/                 # Build and maintenance scripts
-├── Package.swift            # Swift package manifest
-└── README.md
+├── Sources/AgentStudio/      # Swift source
+│   ├── App/                  # Window/tab controllers
+│   ├── Ghostty/              # Ghostty C API wrapper
+│   ├── Models/               # TerminalSession, Layout, Tab, Pane
+│   └── Services/             # WorkspaceStore, SessionRuntime, WorktrunkService
+├── Frameworks/               # Generated: GhosttyKit.xcframework (not in git)
+├── vendor/ghostty/           # Git submodule: Ghostty source
+├── vendor/zmx/               # Session multiplexer
+├── docs/                     # Architecture and design docs
+└── Package.swift             # SPM manifest
 ```
 
-### Key Components
-
-- **GhosttySurfaceView** - SwiftUI/AppKit view wrapping Ghostty terminal
-- **WorkspaceStore** - Central state store for sessions, tabs, and layouts
-- **WorktrunkService** - Git worktree integration
-- **MainWindowController** - Main application window management
-
-### Rebuilding Ghostty
-
-After pulling updates to the Ghostty submodule:
+### Clone with Submodules
 
 ```bash
-./scripts/build-ghostty.sh
-```
-
-To clean and rebuild everything:
-
-```bash
-# Clean all build artifacts
-rm -rf .build Frameworks/GhosttyKit.xcframework
-cd vendor/ghostty && rm -rf .zig-cache zig-out macos/build && cd ../..
-
-# Rebuild
-./scripts/build-ghostty.sh
-swift build
-```
-
-### Build Artifacts (Not in Git)
-
-The following directories are generated during build and excluded from version control:
-
-- `Frameworks/GhosttyKit.xcframework/` - Built Ghostty framework (~135MB)
-- `vendor/ghostty/.zig-cache/` - Zig build cache
-- `vendor/ghostty/macos/build/` - Xcode build artifacts
-- `vendor/ghostty/zig-out/` - Zig build outputs
-- `.build/` - Swift build artifacts
-
-## Troubleshooting
-
-### "Zig not found" error
-
-Install Zig using Homebrew:
-```bash
-brew install zig
-```
-
-### "XCFramework not found" after build
-
-The build script may have failed. Check the output for errors. Common issues:
-- Xcode command line tools not installed: `xcode-select --install`
-- Wrong Xcode version selected: `sudo xcode-select --switch /Applications/Xcode.app`
-
-### Build takes very long
-
-First build of Ghostty compiles from source and takes 5-10 minutes. This is normal. Subsequent builds are incremental and much faster.
-
-### "Cannot find 'GhosttyKit'" in Swift
-
-The XCFramework wasn't built. Run:
-```bash
-./scripts/build-ghostty.sh
+git clone --recurse-submodules https://github.com/ShravanSunder/agentstudio.git
+cd agent-studio
 ```
 
 ## Contributing
 
-Contributions are welcome! Please:
-
-1. Fork the repository
-2. Create a feature branch
-3. Make your changes
-4. Test thoroughly
-5. Submit a pull request
-
-## Architecture
-
-Agent Studio is built using:
-- **Swift 5.9+** with Swift Package Manager
-- **AppKit** for native macOS UI
-- **Ghostty** (via C API) for terminal emulation
-- **Zig build system** for Ghostty compilation
-
-The application embeds Ghostty as a binary XCFramework, providing a native Swift interface to the terminal emulator while maintaining high performance.
+Contributions welcome. Fork, branch, test, PR.
 
 ## License
 
-[Your license here]
+TBD
 
 ## Acknowledgments
 
-- [Ghostty](https://github.com/ghostty-org/ghostty) - Fast, native, feature-rich terminal emulator
-- Built with ❤️ for developers who love great terminal experiences
+- [Ghostty](https://github.com/ghostty-org/ghostty) — terminal emulator
+- [zmx](vendor/zmx/) — session multiplexer for persistence
