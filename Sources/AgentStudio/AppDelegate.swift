@@ -1,8 +1,52 @@
 import AppKit
-import os.log
 import SwiftUI
+import os.log
 
 private let appLogger = Logger(subsystem: "com.agentstudio", category: "AppDelegate")
+
+struct ZmxOrphanCleanupPlan: Equatable {
+    let knownSessionIds: Set<String>
+    let shouldSkipCleanup: Bool
+}
+
+enum ZmxOrphanCleanupCandidate: Equatable {
+    case drawer(parentPaneId: UUID, paneId: UUID)
+    case main(paneId: UUID, repoStableKey: String?, worktreeStableKey: String?)
+}
+
+enum ZmxOrphanCleanupPlanner {
+    static func plan(candidates: [ZmxOrphanCleanupCandidate]) -> ZmxOrphanCleanupPlan {
+        var hasUnresolvableMainPane = false
+        var knownSessionIds: Set<String> = []
+        knownSessionIds.reserveCapacity(candidates.count)
+
+        for candidate in candidates {
+            switch candidate {
+            case .drawer(let parentPaneId, let paneId):
+                knownSessionIds.insert(
+                    ZmxBackend.drawerSessionId(parentPaneId: parentPaneId, drawerPaneId: paneId)
+                )
+            case .main(let paneId, let repoStableKey, let worktreeStableKey):
+                guard let repoStableKey, let worktreeStableKey else {
+                    hasUnresolvableMainPane = true
+                    continue
+                }
+                knownSessionIds.insert(
+                    ZmxBackend.sessionId(
+                        repoStableKey: repoStableKey,
+                        worktreeStableKey: worktreeStableKey,
+                        paneId: paneId
+                    )
+                )
+            }
+        }
+
+        return ZmxOrphanCleanupPlan(
+            knownSessionIds: knownSessionIds,
+            shouldSkipCleanup: hasUnresolvableMainPane
+        )
+    }
+}
 
 class AppDelegate: NSObject, NSApplicationDelegate {
     var mainWindowController: MainWindowController?
@@ -26,12 +70,23 @@ class AppDelegate: NSObject, NSApplicationDelegate {
     private var signInObserver: NSObjectProtocol?
 
     func applicationDidFinishLaunching(_ notification: Notification) {
+        RestoreTrace.log("appDidFinishLaunching: begin")
         // Set GHOSTTY_RESOURCES_DIR before any GhosttyKit initialization.
         // This lets GhosttyKit find xterm-ghostty terminfo in both dev and bundle builds.
         // The value must be a subdirectory (e.g. .../ghostty) whose parent contains
         // terminfo/, because GhosttyKit computes TERMINFO = dirname(this) + "/terminfo".
         if let resourcesDir = SessionConfiguration.resolveGhosttyResourcesDir() {
             setenv("GHOSTTY_RESOURCES_DIR", resourcesDir, 1)  // 1 = overwrite; our resolved path must take priority
+            RestoreTrace.log("GHOSTTY_RESOURCES_DIR=\(resourcesDir)")
+        } else {
+            RestoreTrace.log("GHOSTTY_RESOURCES_DIR unresolved")
+        }
+
+        // Some parent shells export NO_COLOR=1, which disables ANSI color in CLIs
+        // (Codex, Gemini, etc.). Clear it for app-hosted terminal sessions.
+        if getenv("NO_COLOR") != nil {
+            unsetenv("NO_COLOR")
+            RestoreTrace.log("unset NO_COLOR for terminal color support")
         }
 
         // Check for worktrunk dependency
@@ -43,6 +98,9 @@ class AppDelegate: NSObject, NSApplicationDelegate {
         // Create new services
         store = WorkspaceStore()
         store.restore()
+        RestoreTrace.log(
+            "store.restore complete tabs=\(store.tabs.count) panes=\(store.panes.count) activeTab=\(store.activeTabId?.uuidString ?? "nil")"
+        )
 
         runtime = SessionRuntime(store: store)
 
@@ -57,7 +115,9 @@ class AppDelegate: NSObject, NSApplicationDelegate {
         oauthService = OAuthService()
 
         // Restore terminal views for persisted panes
+        RestoreTrace.log("restoreAllViews: start")
         coordinator.restoreAllViews()
+        RestoreTrace.log("restoreAllViews: end registeredViews=\(viewRegistry.registeredPaneIds.count)")
 
         // Create main window
         mainWindowController = MainWindowController(
@@ -67,13 +127,22 @@ class AppDelegate: NSObject, NSApplicationDelegate {
             viewRegistry: viewRegistry
         )
         mainWindowController?.showWindow(nil)
+        if let window = mainWindowController?.window {
+            RestoreTrace.log(
+                "mainWindow showWindow frame=\(NSStringFromRect(window.frame)) content=\(NSStringFromRect(window.contentLayoutRect))"
+            )
+        } else {
+            RestoreTrace.log("mainWindow showWindow: window=nil")
+        }
 
         // Force maximized after showWindow — macOS state restoration may override
         // the frame set during init.
         if let window = mainWindowController?.window, let screen = window.screen ?? NSScreen.main {
             window.setFrame(screen.visibleFrame, display: true)
+            RestoreTrace.log(
+                "mainWindow forceMaximize screenVisible=\(NSStringFromRect(screen.visibleFrame)) finalFrame=\(NSStringFromRect(window.frame))"
+            )
         }
-
         // Listen for OAuth sign-in requests
         signInObserver = NotificationCenter.default.addObserver(
             forName: .signInRequested,
@@ -84,6 +153,7 @@ class AppDelegate: NSObject, NSApplicationDelegate {
                 self?.handleSignInRequested(notification)
             }
         }
+        RestoreTrace.log("appDidFinishLaunching: end")
     }
 
     // MARK: - Dependency Check
@@ -93,7 +163,8 @@ class AppDelegate: NSObject, NSApplicationDelegate {
 
         let alert = NSAlert()
         alert.messageText = "Worktrunk Not Installed"
-        alert.informativeText = "AgentStudio uses Worktrunk for git worktree management. Would you like to install it via Homebrew?"
+        alert.informativeText =
+            "AgentStudio uses Worktrunk for git worktree management. Would you like to install it via Homebrew?"
         alert.alertStyle = .warning
         alert.addButton(withTitle: "Install with Homebrew")
         alert.addButton(withTitle: "Copy Command")
@@ -138,31 +209,41 @@ class AppDelegate: NSObject, NSApplicationDelegate {
             return
         }
 
-        // Collect known zmx session IDs from persisted panes (main-actor access).
-        // These are the panes we expect to exist — everything else is an orphan.
-        // Handles both main panes (worktree-based IDs) and drawer panes (parent+child UUID IDs).
-        let knownSessionIds = Set(
-            store.panes.values
-                .filter { $0.provider == .zmx }
-                .compactMap { pane -> String? in
-                    // Drawer pane: session ID from parent + drawer pane UUIDs
-                    if let parentPaneId = pane.parentPaneId {
-                        return ZmxBackend.drawerSessionId(
-                            parentPaneId: parentPaneId,
-                            drawerPaneId: pane.id
-                        )
-                    }
-                    // Main pane: session ID from repo + worktree stable keys
-                    guard let worktreeId = pane.worktreeId,
-                          let repo = store.repo(containing: worktreeId),
-                          let worktree = store.worktree(worktreeId) else { return nil }
-                    return ZmxBackend.sessionId(
-                        repoStableKey: repo.stableKey,
-                        worktreeStableKey: worktree.stableKey,
-                        paneId: pane.id
-                    )
+        // Collect known zmx session IDs from persisted panes. If any main pane cannot
+        // resolve stable repo/worktree keys, skip cleanup to avoid deleting valid sessions.
+        let candidates: [ZmxOrphanCleanupCandidate] = store.panes.values
+            .filter { $0.provider == .zmx }
+            .map { pane in
+                if let parentPaneId = pane.parentPaneId {
+                    return .drawer(parentPaneId: parentPaneId, paneId: pane.id)
                 }
-        )
+                let resolvedKeys: (repoStableKey: String?, worktreeStableKey: String?)
+                if let worktreeId = pane.worktreeId,
+                    let repo = store.repo(containing: worktreeId),
+                    let worktree = store.worktree(worktreeId)
+                {
+                    resolvedKeys = (repo.stableKey, worktree.stableKey)
+                } else {
+                    resolvedKeys = (nil, nil)
+                }
+                return .main(
+                    paneId: pane.id,
+                    repoStableKey: resolvedKeys.repoStableKey,
+                    worktreeStableKey: resolvedKeys.worktreeStableKey
+                )
+            }
+
+        let plan = ZmxOrphanCleanupPlanner.plan(candidates: candidates)
+
+        if plan.shouldSkipCleanup {
+            appLogger.warning(
+                "Skipping orphan zmx cleanup: unable to resolve one or more main-pane session IDs from persisted state"
+            )
+            return
+        }
+        if !plan.knownSessionIds.isEmpty {
+            appLogger.info("Orphan cleanup: protecting \(plan.knownSessionIds.count) known persisted zmx session(s)")
+        }
 
         let backend = ZmxBackend(zmxPath: zmxPath, zmxDir: config.zmxDir)
 
@@ -170,7 +251,7 @@ class AppDelegate: NSObject, NSApplicationDelegate {
             do {
                 try await withThrowingTaskGroup(of: Void.self) { group in
                     group.addTask {
-                        let orphans = await backend.discoverOrphanSessions(excluding: knownSessionIds)
+                        let orphans = await backend.discoverOrphanSessions(excluding: plan.knownSessionIds)
                         if !orphans.isEmpty {
                             appLogger.info("Found \(orphans.count) orphan zmx session(s) — cleaning up")
                             for orphanId in orphans {
@@ -181,7 +262,8 @@ class AppDelegate: NSObject, NSApplicationDelegate {
                                 } catch is CancellationError {
                                     throw CancellationError()
                                 } catch {
-                                    appLogger.warning("Failed to kill orphan zmx session \(orphanId): \(error.localizedDescription)")
+                                    appLogger.warning(
+                                        "Failed to kill orphan zmx session \(orphanId): \(error.localizedDescription)")
                                 }
                             }
                         }
@@ -203,7 +285,7 @@ class AppDelegate: NSObject, NSApplicationDelegate {
     }
 
     func applicationShouldTerminateAfterLastWindowClosed(_ sender: NSApplication) -> Bool {
-        return false  // Keep running for menu bar / dock
+        false  // Keep running for menu bar / dock
     }
 
     func applicationShouldHandleReopen(_ sender: NSApplication, hasVisibleWindows flag: Bool) -> Bool {
@@ -239,7 +321,7 @@ class AppDelegate: NSObject, NSApplicationDelegate {
     }
 
     func applicationSupportsSecureRestorableState(_ app: NSApplication) -> Bool {
-        return true
+        true
     }
 
     // MARK: - Menu Setup
@@ -261,17 +343,25 @@ class AppDelegate: NSObject, NSApplicationDelegate {
 
         // App menu
         let appMenu = NSMenu()
-        appMenu.addItem(NSMenuItem(title: "About AgentStudio", action: #selector(NSApplication.orderFrontStandardAboutPanel(_:)), keyEquivalent: ""))
+        appMenu.addItem(
+            NSMenuItem(
+                title: "About AgentStudio", action: #selector(NSApplication.orderFrontStandardAboutPanel(_:)),
+                keyEquivalent: ""))
         appMenu.addItem(NSMenuItem.separator())
         appMenu.addItem(NSMenuItem(title: "Settings...", action: #selector(openSettings), keyEquivalent: ","))
         appMenu.addItem(NSMenuItem.separator())
-        appMenu.addItem(NSMenuItem(title: "Hide AgentStudio", action: #selector(NSApplication.hide(_:)), keyEquivalent: "h"))
-        let hideOthersItem = NSMenuItem(title: "Hide Others", action: #selector(NSApplication.hideOtherApplications(_:)), keyEquivalent: "h")
+        appMenu.addItem(
+            NSMenuItem(title: "Hide AgentStudio", action: #selector(NSApplication.hide(_:)), keyEquivalent: "h"))
+        let hideOthersItem = NSMenuItem(
+            title: "Hide Others", action: #selector(NSApplication.hideOtherApplications(_:)), keyEquivalent: "h")
         hideOthersItem.keyEquivalentModifierMask = [.command, .option]
         appMenu.addItem(hideOthersItem)
-        appMenu.addItem(NSMenuItem(title: "Show All", action: #selector(NSApplication.unhideAllApplications(_:)), keyEquivalent: ""))
+        appMenu.addItem(
+            NSMenuItem(title: "Show All", action: #selector(NSApplication.unhideAllApplications(_:)), keyEquivalent: "")
+        )
         appMenu.addItem(NSMenuItem.separator())
-        appMenu.addItem(NSMenuItem(title: "Quit AgentStudio", action: #selector(NSApplication.terminate(_:)), keyEquivalent: "q"))
+        appMenu.addItem(
+            NSMenuItem(title: "Quit AgentStudio", action: #selector(NSApplication.terminate(_:)), keyEquivalent: "q"))
 
         let appMenuItem = NSMenuItem()
         appMenuItem.submenu = appMenu
@@ -315,7 +405,8 @@ class AppDelegate: NSObject, NSApplicationDelegate {
 
         // Command bar shortcuts
         viewMenu.addItem(NSMenuItem(title: "Quick Open", action: #selector(showCommandBar), keyEquivalent: "p"))
-        let commandModeItem = NSMenuItem(title: "Command Palette", action: #selector(showCommandBarCommands), keyEquivalent: "p")
+        let commandModeItem = NSMenuItem(
+            title: "Command Palette", action: #selector(showCommandBarCommands), keyEquivalent: "p")
         commandModeItem.keyEquivalentModifierMask = [.command, .shift]
         viewMenu.addItem(commandModeItem)
         let paneModeItem = NSMenuItem(title: "Go to Pane", action: #selector(showCommandBarPanes), keyEquivalent: "p")
@@ -328,7 +419,9 @@ class AppDelegate: NSObject, NSApplicationDelegate {
         viewMenu.addItem(NSMenuItem.separator())
 
         // Full Screen uses ⌃⌘F (not ⇧⌘F) to avoid conflict with Filter Sidebar
-        viewMenu.addItem(NSMenuItem(title: "Enter Full Screen", action: #selector(NSWindow.toggleFullScreen(_:)), keyEquivalent: "f"))
+        viewMenu.addItem(
+            NSMenuItem(title: "Enter Full Screen", action: #selector(NSWindow.toggleFullScreen(_:)), keyEquivalent: "f")
+        )
         viewMenu.items.last?.keyEquivalentModifierMask = [.command, .control]
 
         let viewMenuItem = NSMenuItem()
@@ -337,10 +430,13 @@ class AppDelegate: NSObject, NSApplicationDelegate {
 
         // Window menu
         let windowMenu = NSMenu(title: "Window")
-        windowMenu.addItem(NSMenuItem(title: "Minimize", action: #selector(NSWindow.performMiniaturize(_:)), keyEquivalent: "m"))
+        windowMenu.addItem(
+            NSMenuItem(title: "Minimize", action: #selector(NSWindow.performMiniaturize(_:)), keyEquivalent: "m"))
         windowMenu.addItem(NSMenuItem(title: "Zoom", action: #selector(NSWindow.performZoom(_:)), keyEquivalent: ""))
         windowMenu.addItem(NSMenuItem.separator())
-        windowMenu.addItem(NSMenuItem(title: "Bring All to Front", action: #selector(NSApplication.arrangeInFront(_:)), keyEquivalent: ""))
+        windowMenu.addItem(
+            NSMenuItem(
+                title: "Bring All to Front", action: #selector(NSApplication.arrangeInFront(_:)), keyEquivalent: ""))
 
         // Tab switching shortcuts (⌘1 through ⌘9)
         windowMenu.addItem(NSMenuItem.separator())
@@ -356,7 +452,8 @@ class AppDelegate: NSObject, NSApplicationDelegate {
 
         // Help menu
         let helpMenu = NSMenu(title: "Help")
-        helpMenu.addItem(NSMenuItem(title: "AgentStudio Help", action: #selector(NSApplication.showHelp(_:)), keyEquivalent: "?"))
+        helpMenu.addItem(
+            NSMenuItem(title: "AgentStudio Help", action: #selector(NSApplication.showHelp(_:)), keyEquivalent: "?"))
 
         let helpMenuItem = NSMenuItem()
         helpMenuItem.submenu = helpMenu
@@ -429,7 +526,8 @@ class AppDelegate: NSObject, NSApplicationDelegate {
 
     private func handleSignInRequested(_ notification: Notification) {
         guard let providerName = notification.userInfo?["provider"] as? String,
-              let provider = OAuthProvider(rawValue: providerName) else {
+            let provider = OAuthProvider(rawValue: providerName)
+        else {
             return
         }
         guard let window = NSApp.keyWindow ?? mainWindowController?.window else {

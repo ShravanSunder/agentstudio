@@ -1,4 +1,5 @@
 import XCTest
+
 @testable import AgentStudio
 
 final class SessionConfigurationTests: XCTestCase {
@@ -58,7 +59,7 @@ final class SessionConfigurationTests: XCTestCase {
             zmxPath: "/usr/local/bin/zmx",
             zmxDir: "/tmp/zmx",
             healthCheckInterval: 30,
-            maxCheckpointAge: 604800
+            maxCheckpointAge: 604_800
         )
         XCTAssertTrue(withZmx.isOperational)
 
@@ -68,7 +69,7 @@ final class SessionConfigurationTests: XCTestCase {
             zmxPath: nil,
             zmxDir: "/tmp/zmx",
             healthCheckInterval: 30,
-            maxCheckpointAge: 604800
+            maxCheckpointAge: 604_800
         )
         XCTAssertFalse(noZmx.isOperational)
 
@@ -78,7 +79,7 @@ final class SessionConfigurationTests: XCTestCase {
             zmxPath: "/usr/local/bin/zmx",
             zmxDir: "/tmp/zmx",
             healthCheckInterval: 30,
-            maxCheckpointAge: 604800
+            maxCheckpointAge: 604_800
         )
         XCTAssertFalse(disabled.isOperational)
 
@@ -88,7 +89,7 @@ final class SessionConfigurationTests: XCTestCase {
             zmxPath: nil,
             zmxDir: "/tmp/zmx",
             healthCheckInterval: 30,
-            maxCheckpointAge: 604800
+            maxCheckpointAge: 604_800
         )
         XCTAssertFalse(both.isOperational)
     }
@@ -156,10 +157,11 @@ final class SessionConfigurationTests: XCTestCase {
 
         // Act — find the terminfo directory in the SPM resource bundle
         guard let bundleURL = Bundle.module.url(forResource: "terminfo", withExtension: nil),
-              let contents = try? FileManager.default.contentsOfDirectory(
-                  at: bundleURL.appendingPathComponent("78"),
-                  includingPropertiesForKeys: nil
-              ) else {
+            let contents = try? FileManager.default.contentsOfDirectory(
+                at: bundleURL.appendingPathComponent("78"),
+                includingPropertiesForKeys: nil
+            )
+        else {
             XCTFail("terminfo/78/ directory not found in bundle")
             return
         }

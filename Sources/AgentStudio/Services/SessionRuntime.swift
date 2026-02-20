@@ -171,7 +171,8 @@ final class SessionRuntime: ObservableObject {
         for (id, pane) in store.panes {
             guard statuses[id] == .running else { continue }
             guard let provider = pane.provider,
-                  let backend = backends[provider] else { continue }
+                let backend = backends[provider]
+            else { continue }
 
             let alive = await backend.isAlive(pane: pane)
             if !alive {
@@ -186,9 +187,10 @@ final class SessionRuntime: ObservableObject {
     /// Start a session for a pane via its backend.
     func startSession(_ pane: Pane) async throws -> String? {
         guard let provider = pane.provider,
-              let backend = backends[provider] else {
+            let backend = backends[provider]
+        else {
             runtimeLogger.warning("No backend registered for pane \(pane.id)")
-            markRunning(pane.id) // Ghostty panes are "running" immediately
+            markRunning(pane.id)  // Ghostty panes are "running" immediately
             return nil
         }
 
@@ -201,7 +203,8 @@ final class SessionRuntime: ObservableObject {
     /// Attempt to restore a pane's session via its backend.
     func restoreSession(_ pane: Pane) async -> Bool {
         guard let provider = pane.provider,
-              let backend = backends[provider] else {
+            let backend = backends[provider]
+        else {
             markRunning(pane.id)
             return true
         }
@@ -214,7 +217,8 @@ final class SessionRuntime: ObservableObject {
     /// Terminate a pane's session via its backend.
     func terminateSession(_ pane: Pane) async {
         guard let provider = pane.provider,
-              let backend = backends[provider] else {
+            let backend = backends[provider]
+        else {
             statuses[pane.id] = .exited
             return
         }

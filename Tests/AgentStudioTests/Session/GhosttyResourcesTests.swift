@@ -1,4 +1,5 @@
 import XCTest
+
 @testable import AgentStudio
 
 /// Tests that the terminfo resource layout satisfies GhosttyKit's dirname convention.
@@ -53,7 +54,8 @@ final class GhosttyResourcesTests: XCTestCase {
         // resolveGhosttyResourcesDir() returns `<resourcesDir>/ghostty`.
         // Verify that dirname(<resourcesDir>/ghostty) + "/terminfo" resolves correctly.
         let simulatedGhosttyResourcesDir = resourcesDir + "/ghostty"
-        let computedTerminfo = (simulatedGhosttyResourcesDir as NSString)
+        let computedTerminfo =
+            (simulatedGhosttyResourcesDir as NSString)
             .deletingLastPathComponent + "/terminfo"
 
         // computedTerminfo should equal <resourcesDir>/terminfo

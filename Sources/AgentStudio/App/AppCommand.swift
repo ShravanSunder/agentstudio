@@ -1,3 +1,4 @@
+// swiftlint:disable function_body_length
 import AppKit
 import Foundation
 
@@ -476,15 +477,24 @@ final class CommandDispatcher: ObservableObject {
             ),
 
             // Tab selection commands (⌘1 through ⌘9)
-            CommandDefinition(command: .selectTab1, keyBinding: KeyBinding(key: "1", modifiers: [.command]), label: "Select Tab 1"),
-            CommandDefinition(command: .selectTab2, keyBinding: KeyBinding(key: "2", modifiers: [.command]), label: "Select Tab 2"),
-            CommandDefinition(command: .selectTab3, keyBinding: KeyBinding(key: "3", modifiers: [.command]), label: "Select Tab 3"),
-            CommandDefinition(command: .selectTab4, keyBinding: KeyBinding(key: "4", modifiers: [.command]), label: "Select Tab 4"),
-            CommandDefinition(command: .selectTab5, keyBinding: KeyBinding(key: "5", modifiers: [.command]), label: "Select Tab 5"),
-            CommandDefinition(command: .selectTab6, keyBinding: KeyBinding(key: "6", modifiers: [.command]), label: "Select Tab 6"),
-            CommandDefinition(command: .selectTab7, keyBinding: KeyBinding(key: "7", modifiers: [.command]), label: "Select Tab 7"),
-            CommandDefinition(command: .selectTab8, keyBinding: KeyBinding(key: "8", modifiers: [.command]), label: "Select Tab 8"),
-            CommandDefinition(command: .selectTab9, keyBinding: KeyBinding(key: "9", modifiers: [.command]), label: "Select Tab 9"),
+            CommandDefinition(
+                command: .selectTab1, keyBinding: KeyBinding(key: "1", modifiers: [.command]), label: "Select Tab 1"),
+            CommandDefinition(
+                command: .selectTab2, keyBinding: KeyBinding(key: "2", modifiers: [.command]), label: "Select Tab 2"),
+            CommandDefinition(
+                command: .selectTab3, keyBinding: KeyBinding(key: "3", modifiers: [.command]), label: "Select Tab 3"),
+            CommandDefinition(
+                command: .selectTab4, keyBinding: KeyBinding(key: "4", modifiers: [.command]), label: "Select Tab 4"),
+            CommandDefinition(
+                command: .selectTab5, keyBinding: KeyBinding(key: "5", modifiers: [.command]), label: "Select Tab 5"),
+            CommandDefinition(
+                command: .selectTab6, keyBinding: KeyBinding(key: "6", modifiers: [.command]), label: "Select Tab 6"),
+            CommandDefinition(
+                command: .selectTab7, keyBinding: KeyBinding(key: "7", modifiers: [.command]), label: "Select Tab 7"),
+            CommandDefinition(
+                command: .selectTab8, keyBinding: KeyBinding(key: "8", modifiers: [.command]), label: "Select Tab 8"),
+            CommandDefinition(
+                command: .selectTab9, keyBinding: KeyBinding(key: "9", modifiers: [.command]), label: "Select Tab 9"),
         ]
 
         for def in defs {

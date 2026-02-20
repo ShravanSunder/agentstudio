@@ -34,7 +34,9 @@ struct WebviewNavigationBar: View {
 
     private var navigationButtons: some View {
         HStack(spacing: 8) {
-            Button { controller.goBack() } label: {
+            Button {
+                controller.goBack()
+            } label: {
                 Image(systemName: "chevron.left")
                     .font(.system(size: 12, weight: .medium))
             }
@@ -44,7 +46,9 @@ struct WebviewNavigationBar: View {
             .keyboardShortcut("[", modifiers: .command)
             .help("Back (⌘[)")
 
-            Button { controller.goForward() } label: {
+            Button {
+                controller.goForward()
+            } label: {
                 Image(systemName: "chevron.right")
                     .font(.system(size: 12, weight: .medium))
             }
@@ -55,14 +59,18 @@ struct WebviewNavigationBar: View {
             .help("Forward (⌘])")
 
             if controller.isLoading {
-                Button { controller.stopLoading() } label: {
+                Button {
+                    controller.stopLoading()
+                } label: {
                     Image(systemName: "xmark")
                         .font(.system(size: 11, weight: .medium))
                 }
                 .buttonStyle(.plain)
                 .help("Stop loading")
             } else {
-                Button { controller.reload() } label: {
+                Button {
+                    controller.reload()
+                } label: {
                     Image(systemName: "arrow.clockwise")
                         .font(.system(size: 11, weight: .medium))
                 }
@@ -71,7 +79,9 @@ struct WebviewNavigationBar: View {
                 .help("Reload (⌘R)")
             }
 
-            Button { controller.goHome() } label: {
+            Button {
+                controller.goHome()
+            } label: {
                 Image(systemName: "house")
                     .font(.system(size: 11, weight: .medium))
             }

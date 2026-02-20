@@ -1,5 +1,6 @@
-import XCTest
 import Observation
+import XCTest
+
 @testable import AgentStudio
 
 /// Thread-safe flag for use in @Sendable `withObservationTracking` onChange closures.

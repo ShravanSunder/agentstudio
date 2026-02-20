@@ -1,0 +1,167 @@
+# SwiftLint configuration for Agent Studio
+# Swift 6 compatible, strict rules for macOS AppKit+SwiftUI app
+
+included:
+  - Sources
+  - Tests
+
+excluded:
+  - vendor
+  - .build
+  - Frameworks
+
+# Strict mode: treat warnings as errors in CI
+strict: true
+
+# Rules configuration
+opt_in_rules:
+  # Style
+  - closure_spacing
+  - collection_alignment
+  - comma_inheritance
+  - contains_over_filter_count
+  - contains_over_filter_is_empty
+  - contains_over_first_not_nil
+  - contains_over_range_nil_comparison
+  - discouraged_none_name
+  - empty_collection_literal
+  - empty_count
+  - empty_string
+  - enum_case_associated_values_count
+  - explicit_init
+  - fallthrough
+  - fatal_error_message
+  - file_name_no_space
+  - first_where
+  - flatmap_over_map_reduce
+  - identical_operands
+  - implicit_return
+  - joined_default_parameter
+  - last_where
+  - legacy_multiple
+  - lower_acl_than_parent
+  - number_separator
+  - operator_usage_whitespace
+  - overridden_super_call
+  - prefer_self_in_static_references
+  - prefer_self_type_over_type_of_self
+  - prefer_zero_over_explicit_init
+  - private_action
+  - private_outlet
+  - prohibited_super_call
+  - redundant_nil_coalescing
+  - redundant_type_annotation
+  - return_value_from_void_function
+  - shorthand_optional_binding
+  - sorted_first_last
+  - toggle_bool
+  - unneeded_parentheses_in_closure_argument
+  - unowned_variable_capture
+  - vertical_parameter_alignment_on_call
+  - yoda_condition
+
+disabled_rules:
+  # Too noisy for AppKit code that uses @objc and Objective-C interop
+  - force_cast
+  - force_try
+  - force_unwrapping
+  # Opening brace style is handled by swift-format
+  - opening_brace
+  # Trailing whitespace handled by swift-format
+  - trailing_whitespace
+  # Line length handled by swift-format
+  - line_length
+  # We use 4-space indentation, not tabs — handled by swift-format
+  - indentation_width
+  # TODOs are legitimate during development
+  - todo
+  # for_where has many false positives with complex predicates
+  - for_where
+  # Allow file-level swiftlint:disable for legacy files
+  - blanket_disable_command
+  # Trailing commas handled by swift-format (multiline: yes, single-line: no)
+  - trailing_comma
+
+# Rule-specific configuration
+identifier_name:
+  min_length:
+    warning: 2
+    error: 1
+  max_length:
+    warning: 60
+    error: 80
+  excluded:
+    - id
+    - x
+    - y
+    - i
+    - j
+    - ok
+    - fd
+    - to
+    - a
+    - b
+    - c
+    - d
+    - e
+    - h
+    - l
+    - m
+    - o
+    - p
+    - r
+    - s
+    - t
+    - u
+    - v
+    - w
+
+type_name:
+  min_length:
+    warning: 3
+    error: 2
+  max_length:
+    warning: 50
+    error: 60
+
+# Thresholds accommodate existing large files:
+#   WorkspaceStore.swift: 1646 lines, type body 1195 lines
+#   WorkspaceStoreTests.swift: 1479 lines, type body 945 lines
+#   TerminalTabViewController.swift: 1041 lines, type body 810 lines
+# These use file-level swiftlint:disable. Tighten limits as files are refactored.
+file_length:
+  warning: 1000
+  error: 2000
+
+function_body_length:
+  warning: 100
+  error: 300
+
+type_body_length:
+  warning: 800
+  error: 1500
+
+function_parameter_count:
+  warning: 6
+  error: 8
+
+# Accommodates large switch-statement functions:
+#   ActionValidator.validate: 52, ActionExecutor.execute: 45, ActionResolver.resolve: 41
+# These use file-level swiftlint:disable. Tighten as functions are decomposed.
+cyclomatic_complexity:
+  warning: 25
+  error: 60
+
+nesting:
+  type_level:
+    warning: 3
+  function_level:
+    warning: 5
+
+large_tuple:
+  warning: 3
+  error: 4
+
+number_separator:
+  minimum_length: 5
+

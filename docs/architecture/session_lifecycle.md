@@ -212,6 +212,8 @@ Key points:
 
 The zmx backend provides session persistence across app restarts. When enabled, terminal sessions survive app crashes — the user sees only a Ghostty terminal surface while zmx preserves the PTY and scrollback in the background via raw byte passthrough daemons.
 
+For the startup sequencing details (deferred attach, geometry readiness, and test coverage), see [Zmx Restore and Sizing](zmx_restore_and_sizing.md).
+
 ### Architecture
 
 zmx is a ~1000 LOC Zig tool that provides raw byte passthrough with zero terminal emulation. It uses libghostty-vt for state tracking, meaning `TERM=xterm-ghostty` flows through natively:
@@ -222,7 +224,10 @@ zmx is a ~1000 LOC Zig tool that provides raw byte passthrough with zero termina
 
 ### ZMX_DIR Isolation
 
-All zmx calls use `ZMX_DIR=~/.agentstudio/zmx/` to isolate Agent Studio sessions from any user-owned zmx sessions. The env var is embedded inline in the attach command: `ZMX_DIR=<path> zmx attach <name> <shell>`.
+All zmx calls use `ZMX_DIR=~/.agentstudio/zmx/` to isolate Agent Studio sessions from any user-owned zmx sessions.
+
+- Destroy/list/health paths pass `ZMX_DIR` via process environment.
+- Attach path passes `ZMX_DIR` through Ghostty surface environment variables.
 
 ### zmx CLI Commands
 
@@ -231,6 +236,14 @@ All zmx calls use `ZMX_DIR=~/.agentstudio/zmx/` to isolate Agent Studio sessions
 | `zmx attach <name> <cmd...>` | Attach to (or create) a session with the given name |
 | `zmx kill <name>` | Kill a session by name |
 | `zmx list` | List all active sessions (tab-delimited key=value pairs) |
+
+### Testing
+
+The zmx path is covered by layered tests:
+
+1. unit tests for backend command/session behavior,
+2. integration tests against a real zmx binary with isolated `ZMX_DIR`,
+3. end-to-end tests for full lifecycle and backend recreation restore semantics.
 
 ### zmx Binary Resolution
 

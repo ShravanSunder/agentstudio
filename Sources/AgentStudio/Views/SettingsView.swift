@@ -152,7 +152,7 @@ struct AgentSettingsView: View {
         let searchPaths = [
             "/opt/homebrew/bin",
             "/usr/local/bin",
-            "/usr/bin"
+            "/usr/bin",
         ]
 
         for path in searchPaths {

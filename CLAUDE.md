@@ -31,7 +31,7 @@ agent-studio/
 │   └── Infrastructure/               # Domain-agnostic utilities
 ├── Frameworks/                       # Generated: GhosttyKit.xcframework (not in git)
 ├── vendor/ghostty/                   # Git submodule: Ghostty source
-├── scripts/                          # Build automation
+├── scripts/                          # Utility scripts (icon generation)
 ├── docs/                             # Detailed documentation
 └── tmp/                              # Temporary docs and status files
 ```
@@ -42,36 +42,54 @@ agent-studio/
 
 ## Key Files
 - `Package.swift` - SPM manifest, links GhosttyKit as binary target
-- `scripts/build-ghostty.sh` - Builds Ghostty → generates xcframework
+- `.mise.toml` - Tool versions (zig) and build task definitions
+- `.swift-format` - swift-format configuration (4-space indent, 120-char lines)
+- `.swiftlint.yml` - SwiftLint configuration (strict mode, Swift 6 rules)
 - `.gitignore` - Excludes build artifacts (.zig-cache, macos/build, *.xcframework)
 
 ## Build Flow
-1. `./scripts/build-ghostty.sh` - Runs `zig build -Demit-xcframework=true` in vendor/ghostty
-2. Copies `macos/GhosttyKit.xcframework` → `Frameworks/`
-3. `swift build > /tmp/build-output.txt 2>&1 && echo "BUILD OK" || echo "BUILD FAIL"` - Links against xcframework
 
-### ⚠️ Running Swift Commands (CRITICAL)
-
-**NEVER pipe `swift build` or `swift test` output through grep, tail, head, or any other command.** These commands use interactive output (progress bars, carriage returns) that breaks when piped, causing the process to hang indefinitely.
-
-**ALWAYS redirect output to a file and check the exit code.** This avoids capturing 100KB+ of interactive output in the tool response, which causes massive slowdowns and round-trip overhead.
+Build orchestration uses [mise](https://mise.jdx.dev/). Install with `brew install mise`.
 
 ```bash
-# CORRECT — dump to file, check exit code
-swift test > /tmp/test-output.txt 2>&1 && echo "PASS" || echo "FAIL: $(tail -20 /tmp/test-output.txt)"
-swift build > /tmp/build-output.txt 2>&1 && echo "BUILD OK" || echo "BUILD FAIL: $(tail -20 /tmp/build-output.txt)"
-
-# Filtered tests
-swift test --filter "CommandBarState" > /tmp/test-output.txt 2>&1 && echo "PASS" || echo "FAIL: $(tail -20 /tmp/test-output.txt)"
-
-# WRONG — captures 100KB+ of interactive output, extremely slow
-swift test
-swift build
-swift test 2>&1 | tail -5
-swift test 2>&1 | grep "passed"
+mise install                  # Install pinned tool versions (zig 0.15.2)
+mise run build                # Full debug build (ghostty + zmx + dev resources + swift)
+mise run build-release        # Full release build
+mise run test                 # Run tests
+mise run create-app-bundle    # Create signed AgentStudio.app
+mise run clean                # Remove all build artifacts
 ```
 
-**Timeouts:** Use a 50-second timeout for `swift test` and `swift build` commands. Tests complete in ~15 seconds; builds in ~5 seconds. Anything longer means something is stuck.
+Individual steps:
+- `mise run build-ghostty` — Build GhosttyKit.xcframework only
+- `mise run build-zmx` — Build zmx binary only
+- `mise run setup-dev-resources` — Copy shell-integration + terminfo for SPM
+- `mise run copy-xcframework` — Copy xcframework to Frameworks/
+
+### Formatting & Linting
+
+```bash
+mise run format               # Auto-format all Swift sources with swift-format
+mise run lint                  # Lint all Swift sources (swift-format + swiftlint)
+```
+
+Requires `brew install swift-format swiftlint`. A PostToolUse hook (`.claude/hooks/check.sh`) runs swift-format and swiftlint automatically after every Edit/Write on `.swift` files.
+
+### ⚠️ Running Swift Commands
+
+SwiftPM's interactive progress output (carriage returns, ANSI escapes) breaks in agent bash contexts. Always redirect to a file and check the exit code.
+
+```bash
+swift test > /tmp/test-output.txt 2>&1 && echo "PASS" || echo "FAIL: $(tail -20 /tmp/test-output.txt)"
+swift build > /tmp/build-output.txt 2>&1 && echo "BUILD OK" || echo "BUILD FAIL: $(tail -20 /tmp/build-output.txt)"
+swift test --filter "CommandBarState" > /tmp/test-output.txt 2>&1 && echo "PASS" || echo "FAIL: $(tail -20 /tmp/test-output.txt)"
+```
+
+**No parallel Swift commands.** SwiftPM holds an exclusive lock on `.build`. Concurrent `swift build`/`swift test`/`swift package` calls — even with different `--filter` flags or in background tasks — will block for up to 256 seconds then fail. Run them sequentially, or just run all tests at once.
+
+**Lock contention.** If you see "Another instance of SwiftPM is already running using '.build', waiting..." — don't launch more swift commands. Either wait for the other process, or kill it (`pkill -f "swift-build"`) and retry.
+
+**Timeouts are mandatory.** Always set the Bash tool's `timeout` parameter: 60000 (60s) for `swift test`, 30000 (30s) for `swift build`. Tests ~15s, builds ~5s — if it runs longer, it's stuck or lock-contended. Without an explicit timeout the tool hangs indefinitely.
 
 
 ### Launching the App

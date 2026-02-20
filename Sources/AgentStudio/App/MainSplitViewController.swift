@@ -1,6 +1,6 @@
 import AppKit
-import os.log
 import SwiftUI
+import os.log
 
 private let sidebarLogger = Logger(subsystem: "com.agentstudio", category: "Sidebar")
 
@@ -16,8 +16,10 @@ class MainSplitViewController: NSSplitViewController {
     private let tabBarAdapter: TabBarAdapter
     private let viewRegistry: ViewRegistry
 
-    init(store: WorkspaceStore, executor: ActionExecutor,
-         tabBarAdapter: TabBarAdapter, viewRegistry: ViewRegistry) {
+    init(
+        store: WorkspaceStore, executor: ActionExecutor,
+        tabBarAdapter: TabBarAdapter, viewRegistry: ViewRegistry
+    ) {
         self.store = store
         self.executor = executor
         self.tabBarAdapter = tabBarAdapter
@@ -147,8 +149,9 @@ class MainSplitViewController: NSSplitViewController {
 
     @objc private func handleOpenWorktree(_ notification: Notification) {
         guard let userInfo = notification.userInfo,
-              let worktree = userInfo["worktree"] as? Worktree,
-              let repo = userInfo["repo"] as? Repo else {
+            let worktree = userInfo["worktree"] as? Worktree,
+            let repo = userInfo["repo"] as? Repo
+        else {
             sidebarLogger.error("Invalid openWorktreeRequested notification payload")
             return
         }
@@ -158,8 +161,9 @@ class MainSplitViewController: NSSplitViewController {
 
     @objc private func handleOpenNewTerminal(_ notification: Notification) {
         guard let userInfo = notification.userInfo,
-              let worktree = userInfo["worktree"] as? Worktree,
-              let repo = userInfo["repo"] as? Repo else {
+            let worktree = userInfo["worktree"] as? Worktree,
+            let repo = userInfo["repo"] as? Repo
+        else {
             sidebarLogger.error("Invalid openNewTerminalRequested notification payload")
             return
         }
@@ -173,7 +177,8 @@ class MainSplitViewController: NSSplitViewController {
 
     @objc private func handleSelectTab(_ notification: Notification) {
         guard let userInfo = notification.userInfo,
-              let index = userInfo["index"] as? Int else {
+            let index = userInfo["index"] as? Int
+        else {
             return
         }
 
@@ -196,7 +201,10 @@ class MainSplitViewController: NSSplitViewController {
 
     // MARK: - Subtle Divider
 
-    override func splitView(_ splitView: NSSplitView, effectiveRect proposedEffectiveRect: NSRect, forDrawnRect drawnRect: NSRect, ofDividerAt dividerIndex: Int) -> NSRect {
+    override func splitView(
+        _ splitView: NSSplitView, effectiveRect proposedEffectiveRect: NSRect, forDrawnRect drawnRect: NSRect,
+        ofDividerAt dividerIndex: Int
+    ) -> NSRect {
         // Make the divider very thin/subtle
         var rect = proposedEffectiveRect
         rect.size.width = 1

@@ -9,7 +9,7 @@ func makeKeyEvent(
     keyCode: UInt16 = 0,
     isARepeat: Bool = false
 ) -> NSEvent? {
-    return NSEvent.keyEvent(
+    NSEvent.keyEvent(
         with: type,
         location: .zero,
         modifierFlags: modifierFlags,

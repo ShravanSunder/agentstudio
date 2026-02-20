@@ -1,5 +1,6 @@
 import AppKit
 import XCTest
+
 @testable import AgentStudio
 
 final class GhosttySurfaceShortcutTests: XCTestCase {

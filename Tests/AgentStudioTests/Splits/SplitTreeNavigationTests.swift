@@ -1,5 +1,6 @@
-import XCTest
 import AppKit
+import XCTest
+
 @testable import AgentStudio
 
 final class SplitTreeNavigationTests: XCTestCase {
@@ -31,7 +32,7 @@ final class SplitTreeNavigationTests: XCTestCase {
 
         // Assert
         XCTAssertEqual(next1?.id, v2.id)
-        XCTAssertEqual(next2?.id, v1.id) // wraps
+        XCTAssertEqual(next2?.id, v1.id)  // wraps
     }
 
     func test_previousView_twoViews_wrapsAround() throws {
@@ -46,7 +47,7 @@ final class SplitTreeNavigationTests: XCTestCase {
         let prev2 = tree.previousView(before: v2.id)
 
         // Assert
-        XCTAssertEqual(prev1?.id, v2.id) // wraps
+        XCTAssertEqual(prev1?.id, v2.id)  // wraps
         XCTAssertEqual(prev2?.id, v1.id)
     }
 

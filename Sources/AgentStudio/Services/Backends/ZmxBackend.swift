@@ -22,7 +22,8 @@ struct PaneSessionHandle: Equatable, Sendable, Codable, Hashable {
         let segments = suffix.components(separatedBy: "--")
         let hexChars = CharacterSet(charactersIn: "0123456789abcdef")
         guard segments.count == 3,
-              segments.allSatisfy({ $0.count == 16 }) else { return false }
+            segments.allSatisfy({ $0.count == 16 })
+        else { return false }
         return segments.allSatisfy { seg in
             seg.unicodeScalars.allSatisfy { hexChars.contains($0) }
         }
@@ -109,8 +110,10 @@ final class ZmxBackend: SessionBackend {
     /// Uses pane UUIDs (not worktree stable keys) since drawer identity
     /// flows through the parent pane relationship, not worktree association.
     static func drawerSessionId(parentPaneId: UUID, drawerPaneId: UUID) -> String {
-        let parentPrefix = String(parentPaneId.uuidString.replacingOccurrences(of: "-", with: "").prefix(16)).lowercased()
-        let drawerPrefix = String(drawerPaneId.uuidString.replacingOccurrences(of: "-", with: "").prefix(16)).lowercased()
+        let parentPrefix = String(parentPaneId.uuidString.replacingOccurrences(of: "-", with: "").prefix(16))
+            .lowercased()
+        let drawerPrefix = String(drawerPaneId.uuidString.replacingOccurrences(of: "-", with: "").prefix(16))
+            .lowercased()
         return "agentstudio-d--\(parentPrefix)--\(drawerPrefix)"
     }
 
@@ -155,7 +158,6 @@ final class ZmxBackend: SessionBackend {
     func attachCommand(for handle: PaneSessionHandle) -> String {
         Self.buildAttachCommand(
             zmxPath: zmxPath,
-            zmxDir: zmxDir,
             sessionId: handle.id,
             shell: Self.getDefaultShell()
         )
@@ -163,27 +165,33 @@ final class ZmxBackend: SessionBackend {
 
     /// Build the zmx attach command.
     ///
-    /// Format: `/usr/bin/env ZMX_DIR=<dir> <zmxPath> attach <sessionId> <shell> -i -l`
+    /// Format: `<zmxPath> attach <sessionId> <shell> -i -l`
     ///
-    /// Uses `/usr/bin/env` to set ZMX_DIR because macOS Ghostty wraps commands
-    /// through `login(1)` which may interfere with inline `VAR=val cmd` syntax.
+    /// `ZMX_DIR` must be provided via process environment (Ghostty surface env vars).
     /// zmx auto-creates a daemon on first attach — no separate create step needed.
     static func buildAttachCommand(
         zmxPath: String,
-        zmxDir: String,
         sessionId: String,
         shell: String
     ) -> String {
-        let escapedDir = shellEscape(zmxDir)
         let escapedPath = shellEscape(zmxPath)
         let escapedId = shellEscape(sessionId)
         let escapedShell = shellEscape(shell)
-        return "/usr/bin/env ZMX_DIR=\(escapedDir) \(escapedPath) attach \(escapedId) \(escapedShell) -i -l"
+        return "\(escapedPath) attach \(escapedId) \(escapedShell) -i -l"
     }
 
-    /// Single-quote a string for safe shell interpolation.
-    static func shellEscape(_ path: String) -> String {
-        "'" + path.replacingOccurrences(of: "'", with: "'\\''") + "'"
+    /// Double-quote a string for safe shell interpolation.
+    ///
+    /// This string is injected into an interactive shell via `sendText`, so it
+    /// must survive one level of shell parsing in a double-quoted context.
+    static func shellEscape(_ value: String) -> String {
+        let escaped = value
+            .replacingOccurrences(of: "\\", with: "\\\\")
+            .replacingOccurrences(of: "\"", with: "\\\"")
+            .replacingOccurrences(of: "$", with: "\\$")
+            .replacingOccurrences(of: "!", with: "\\!")
+            .replacingOccurrences(of: "`", with: "\\`")
+        return "\"\(escaped)\""
     }
 
     func destroyPaneSession(_ handle: PaneSessionHandle) async throws {

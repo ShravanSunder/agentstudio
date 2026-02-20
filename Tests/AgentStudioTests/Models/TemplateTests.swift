@@ -1,4 +1,5 @@
 import XCTest
+
 @testable import AgentStudio
 
 final class TemplateTests: XCTestCase {
@@ -99,7 +100,6 @@ final class TemplateTests: XCTestCase {
             XCTAssertTrue(tab.paneIds.contains(pane.id))
         }
     }
-
 
     func test_worktreeTemplate_codable_roundTrip() throws {
         let template = WorktreeTemplate(

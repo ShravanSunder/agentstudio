@@ -1,4 +1,5 @@
 import XCTest
+
 @testable import AgentStudio
 
 @MainActor
@@ -335,12 +336,13 @@ final class ActionExecutorTests: XCTestCase {
         store.appendTab(tab2)
 
         // Act
-        executor.execute(.insertPane(
-            source: .existingPane(paneId: p2.id, sourceTabId: tab2.id),
-            targetTabId: tab1.id,
-            targetPaneId: p1.id,
-            direction: .right
-        ))
+        executor.execute(
+            .insertPane(
+                source: .existingPane(paneId: p2.id, sourceTabId: tab2.id),
+                targetTabId: tab1.id,
+                targetPaneId: p1.id,
+                direction: .right
+            ))
 
         // Assert — tab2 was removed (last pane extracted), tab1 now has split
         XCTAssertEqual(store.tabs.count, 1)
@@ -361,12 +363,13 @@ final class ActionExecutorTests: XCTestCase {
         store.appendTab(tab2)
 
         // Act
-        executor.execute(.mergeTab(
-            sourceTabId: tab2.id,
-            targetTabId: tab1.id,
-            targetPaneId: p1.id,
-            direction: .right
-        ))
+        executor.execute(
+            .mergeTab(
+                sourceTabId: tab2.id,
+                targetTabId: tab1.id,
+                targetPaneId: p1.id,
+                direction: .right
+            ))
 
         // Assert
         XCTAssertEqual(store.tabs.count, 1)
@@ -443,6 +446,48 @@ final class ActionExecutorTests: XCTestCase {
     }
 
     // MARK: - Execute: switchArrangement
+
+    func test_computeSwitchArrangementTransitions_includesPreviouslyMinimizedVisiblePaneInReattachSet() {
+        // Arrange
+        let paneA = UUID()
+        let paneB = UUID()
+        let paneC = UUID()
+        let previousVisiblePaneIds: Set<UUID> = [paneA, paneB]
+        let previouslyMinimizedPaneIds: Set<UUID> = [paneB]
+        let newVisiblePaneIds: Set<UUID> = [paneB, paneC]
+
+        // Act
+        let transitions = ActionExecutor.computeSwitchArrangementTransitions(
+            previousVisiblePaneIds: previousVisiblePaneIds,
+            previouslyMinimizedPaneIds: previouslyMinimizedPaneIds,
+            newVisiblePaneIds: newVisiblePaneIds
+        )
+
+        // Assert
+        XCTAssertEqual(transitions.hiddenPaneIds, Set([paneA]))
+        XCTAssertEqual(transitions.paneIdsToReattach, Set([paneB, paneC]))
+    }
+
+    func test_computeSwitchArrangementTransitions_whenNoMinimizedPanes_reattachesOnlyRevealedPanes() {
+        // Arrange
+        let paneA = UUID()
+        let paneB = UUID()
+        let paneC = UUID()
+        let previousVisiblePaneIds: Set<UUID> = [paneA, paneB]
+        let previouslyMinimizedPaneIds: Set<UUID> = []
+        let newVisiblePaneIds: Set<UUID> = [paneB, paneC]
+
+        // Act
+        let transitions = ActionExecutor.computeSwitchArrangementTransitions(
+            previousVisiblePaneIds: previousVisiblePaneIds,
+            previouslyMinimizedPaneIds: previouslyMinimizedPaneIds,
+            newVisiblePaneIds: newVisiblePaneIds
+        )
+
+        // Assert
+        XCTAssertEqual(transitions.hiddenPaneIds, Set([paneA]))
+        XCTAssertEqual(transitions.paneIdsToReattach, Set([paneC]))
+    }
 
     func test_execute_switchArrangement_updatesStoreState() {
         // Arrange: tab with panes A, B, C. Default arrangement has all 3.

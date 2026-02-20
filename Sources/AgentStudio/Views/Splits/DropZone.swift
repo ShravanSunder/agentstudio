@@ -8,7 +8,7 @@ enum DropZone: String, Equatable, CaseIterable {
     case right
 
     /// Determines which drop zone the cursor is in based on horizontal position.
-    static func calculate(at point: CGPoint, in size: CGSize) -> DropZone {
+    static func calculate(at point: CGPoint, in size: CGSize) -> Self {
         guard size.width > 0 else { return .right }
         let relX = point.x / size.width
         return relX < 0.5 ? .left : .right

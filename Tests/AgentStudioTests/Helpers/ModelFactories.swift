@@ -1,4 +1,5 @@
 import Foundation
+
 @testable import AgentStudio
 
 // MARK: - Worktree Factory
@@ -136,4 +137,3 @@ func makePaneSessionHandle(
         workingDirectory: URL(fileURLWithPath: workingDirectory)
     )
 }
-

@@ -69,9 +69,9 @@ struct Layout: Codable, Hashable {
     /// Auto-tiled layout from multiple pane IDs.
     /// Produces a balanced binary split tree alternating horizontal/vertical splits.
     /// Empty input produces an empty layout. Single pane produces a single leaf.
-    static func autoTiled(_ paneIds: [UUID]) -> Layout {
-        guard !paneIds.isEmpty else { return Layout() }
-        return Layout(root: buildTiledNode(paneIds: paneIds, horizontal: true))
+    static func autoTiled(_ paneIds: [UUID]) -> Self {
+        guard !paneIds.isEmpty else { return Self() }
+        return Self(root: buildTiledNode(paneIds: paneIds, horizontal: true))
     }
 
     private static func buildTiledNode(paneIds: [UUID], horizontal: Bool) -> Node {
@@ -81,11 +81,12 @@ struct Layout: Codable, Hashable {
         let mid = paneIds.count / 2
         let left = Array(paneIds[..<mid])
         let right = Array(paneIds[mid...])
-        return .split(Split(
-            direction: horizontal ? .horizontal : .vertical,
-            left: buildTiledNode(paneIds: left, horizontal: !horizontal),
-            right: buildTiledNode(paneIds: right, horizontal: !horizontal)
-        ))
+        return .split(
+            Split(
+                direction: horizontal ? .horizontal : .vertical,
+                left: buildTiledNode(paneIds: left, horizontal: !horizontal),
+                right: buildTiledNode(paneIds: right, horizontal: !horizontal)
+            ))
     }
 
     // MARK: - Properties
@@ -117,38 +118,40 @@ struct Layout: Codable, Hashable {
         at target: UUID,
         direction: SplitDirection,
         position: Position
-    ) -> Layout {
+    ) -> Self {
         guard let root else { return self }
-        guard let newRoot = root.inserting(
-            paneId: paneId,
-            at: target,
-            direction: direction,
-            position: position
-        ) else {
+        guard
+            let newRoot = root.inserting(
+                paneId: paneId,
+                at: target,
+                direction: direction,
+                position: position
+            )
+        else {
             return self
         }
-        return Layout(root: newRoot)
+        return Self(root: newRoot)
     }
 
     /// Remove a pane from the layout. Returns nil if the layout becomes empty.
-    func removing(paneId: UUID) -> Layout? {
+    func removing(paneId: UUID) -> Self? {
         guard let root else { return nil }
         guard let newRoot = root.removing(paneId: paneId) else {
             return nil
         }
-        return Layout(root: newRoot)
+        return Self(root: newRoot)
     }
 
     /// Update the ratio of a split node by ID.
-    func resizing(splitId: UUID, ratio: Double) -> Layout {
+    func resizing(splitId: UUID, ratio: Double) -> Self {
         guard let root else { return self }
-        return Layout(root: root.resizing(splitId: splitId, ratio: ratio))
+        return Self(root: root.resizing(splitId: splitId, ratio: ratio))
     }
 
     /// Set all split ratios to 0.5.
-    func equalized() -> Layout {
+    func equalized() -> Self {
         guard let root else { return self }
-        return Layout(root: root.equalized())
+        return Self(root: root.equalized())
     }
 
     // MARK: - Resize Target
@@ -234,38 +237,45 @@ extension Layout.Node {
             let newLeaf = Layout.Node.leaf(paneId: paneId)
             let existingLeaf = self
             let isNewOnLeft = position == .before
-            return .split(Layout.Split(
-                direction: direction,
-                left: isNewOnLeft ? newLeaf : existingLeaf,
-                right: isNewOnLeft ? existingLeaf : newLeaf
-            ))
+            return .split(
+                Layout.Split(
+                    direction: direction,
+                    left: isNewOnLeft ? newLeaf : existingLeaf,
+                    right: isNewOnLeft ? existingLeaf : newLeaf
+                ))
 
         case .split(let split):
             if split.left.contains(target) {
-                guard let newLeft = split.left.inserting(
-                    paneId: paneId, at: target,
-                    direction: direction, position: position
-                ) else { return nil }
-                return .split(Layout.Split(
-                    id: split.id,
-                    direction: split.direction,
-                    ratio: split.ratio,
-                    left: newLeft,
-                    right: split.right
-                ))
+                guard
+                    let newLeft = split.left.inserting(
+                        paneId: paneId, at: target,
+                        direction: direction, position: position
+                    )
+                else { return nil }
+                return .split(
+                    Layout.Split(
+                        id: split.id,
+                        direction: split.direction,
+                        ratio: split.ratio,
+                        left: newLeft,
+                        right: split.right
+                    ))
             }
             if split.right.contains(target) {
-                guard let newRight = split.right.inserting(
-                    paneId: paneId, at: target,
-                    direction: direction, position: position
-                ) else { return nil }
-                return .split(Layout.Split(
-                    id: split.id,
-                    direction: split.direction,
-                    ratio: split.ratio,
-                    left: split.left,
-                    right: newRight
-                ))
+                guard
+                    let newRight = split.right.inserting(
+                        paneId: paneId, at: target,
+                        direction: direction, position: position
+                    )
+                else { return nil }
+                return .split(
+                    Layout.Split(
+                        id: split.id,
+                        direction: split.direction,
+                        ratio: split.ratio,
+                        left: split.left,
+                        right: newRight
+                    ))
             }
             return nil
         }
@@ -282,13 +292,14 @@ extension Layout.Node {
             let newRight = split.right.removing(paneId: paneId)
 
             if let left = newLeft, let right = newRight {
-                return .split(Layout.Split(
-                    id: split.id,
-                    direction: split.direction,
-                    ratio: split.ratio,
-                    left: left,
-                    right: right
-                ))
+                return .split(
+                    Layout.Split(
+                        id: split.id,
+                        direction: split.direction,
+                        ratio: split.ratio,
+                        left: left,
+                        right: right
+                    ))
             }
             // Collapse: one side removed → promote the other
             return newLeft ?? newRight
@@ -302,21 +313,23 @@ extension Layout.Node {
             return self
         case .split(let split):
             if split.id == splitId {
-                return .split(Layout.Split(
+                return .split(
+                    Layout.Split(
+                        id: split.id,
+                        direction: split.direction,
+                        ratio: ratio,
+                        left: split.left,
+                        right: split.right
+                    ))
+            }
+            return .split(
+                Layout.Split(
                     id: split.id,
                     direction: split.direction,
-                    ratio: ratio,
-                    left: split.left,
-                    right: split.right
+                    ratio: split.ratio,
+                    left: split.left.resizing(splitId: splitId, ratio: ratio),
+                    right: split.right.resizing(splitId: splitId, ratio: ratio)
                 ))
-            }
-            return .split(Layout.Split(
-                id: split.id,
-                direction: split.direction,
-                ratio: split.ratio,
-                left: split.left.resizing(splitId: splitId, ratio: ratio),
-                right: split.right.resizing(splitId: splitId, ratio: ratio)
-            ))
         }
     }
 
@@ -326,13 +339,14 @@ extension Layout.Node {
         case .leaf:
             return self
         case .split(let split):
-            return .split(Layout.Split(
-                id: split.id,
-                direction: split.direction,
-                ratio: 0.5,
-                left: split.left.equalized(),
-                right: split.right.equalized()
-            ))
+            return .split(
+                Layout.Split(
+                    id: split.id,
+                    direction: split.direction,
+                    ratio: 0.5,
+                    left: split.left.equalized(),
+                    right: split.right.equalized()
+                ))
         }
     }
 

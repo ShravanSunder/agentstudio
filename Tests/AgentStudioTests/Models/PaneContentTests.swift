@@ -1,4 +1,5 @@
 import XCTest
+
 @testable import AgentStudio
 
 final class PaneContentTests: XCTestCase {
@@ -36,10 +37,11 @@ final class PaneContentTests: XCTestCase {
     // MARK: - Round-Trip: Webview
 
     func test_roundTrip_webview() throws {
-        let content = PaneContent.webview(WebviewState(
-            url: URL(string: "https://example.com")!,
-            showNavigation: true
-        ))
+        let content = PaneContent.webview(
+            WebviewState(
+                url: URL(string: "https://example.com")!,
+                showNavigation: true
+            ))
 
         let data = try encoder.encode(content)
         let decoded = try decoder.decode(PaneContent.self, from: data)
@@ -49,11 +51,12 @@ final class PaneContentTests: XCTestCase {
 
     func test_roundTrip_webview_withTitle() throws {
         // Arrange
-        let content = PaneContent.webview(WebviewState(
-            url: URL(string: "https://github.com")!,
-            title: "GitHub",
-            showNavigation: false
-        ))
+        let content = PaneContent.webview(
+            WebviewState(
+                url: URL(string: "https://github.com")!,
+                title: "GitHub",
+                showNavigation: false
+            ))
 
         // Act
         let data = try encoder.encode(content)
@@ -73,10 +76,11 @@ final class PaneContentTests: XCTestCase {
     // MARK: - Round-Trip: CodeViewer
 
     func test_roundTrip_codeViewer() throws {
-        let content = PaneContent.codeViewer(CodeViewerState(
-            filePath: URL(fileURLWithPath: "/tmp/test.swift"),
-            scrollToLine: 42
-        ))
+        let content = PaneContent.codeViewer(
+            CodeViewerState(
+                filePath: URL(fileURLWithPath: "/tmp/test.swift"),
+                scrollToLine: 42
+            ))
 
         let data = try encoder.encode(content)
         let decoded = try decoder.decode(PaneContent.self, from: data)
@@ -85,10 +89,11 @@ final class PaneContentTests: XCTestCase {
     }
 
     func test_roundTrip_codeViewer_noScrollLine() throws {
-        let content = PaneContent.codeViewer(CodeViewerState(
-            filePath: URL(fileURLWithPath: "/tmp/test.swift"),
-            scrollToLine: nil
-        ))
+        let content = PaneContent.codeViewer(
+            CodeViewerState(
+                filePath: URL(fileURLWithPath: "/tmp/test.swift"),
+                scrollToLine: nil
+            ))
 
         let data = try encoder.encode(content)
         let decoded = try decoder.decode(PaneContent.self, from: data)
@@ -110,10 +115,11 @@ final class PaneContentTests: XCTestCase {
     }
 
     func test_encode_webview_typeField() throws {
-        let content = PaneContent.webview(WebviewState(
-            url: URL(string: "https://example.com")!,
-            showNavigation: false
-        ))
+        let content = PaneContent.webview(
+            WebviewState(
+                url: URL(string: "https://example.com")!,
+                showNavigation: false
+            ))
 
         let data = try encoder.encode(content)
         let json = try JSONSerialization.jsonObject(with: data) as! [String: Any]
@@ -123,11 +129,12 @@ final class PaneContentTests: XCTestCase {
 
     func test_encode_webview_encodesURLAndTitle() throws {
         // Arrange
-        let content = PaneContent.webview(WebviewState(
-            url: URL(string: "https://example.com")!,
-            title: "Example",
-            showNavigation: true
-        ))
+        let content = PaneContent.webview(
+            WebviewState(
+                url: URL(string: "https://example.com")!,
+                title: "Example",
+                showNavigation: true
+            ))
 
         // Act
         let data = try encoder.encode(content)
@@ -142,10 +149,11 @@ final class PaneContentTests: XCTestCase {
     }
 
     func test_encode_codeViewer_typeField() throws {
-        let content = PaneContent.codeViewer(CodeViewerState(
-            filePath: URL(fileURLWithPath: "/tmp/test.swift"),
-            scrollToLine: nil
-        ))
+        let content = PaneContent.codeViewer(
+            CodeViewerState(
+                filePath: URL(fileURLWithPath: "/tmp/test.swift"),
+                scrollToLine: nil
+            ))
 
         let data = try encoder.encode(content)
         let json = try JSONSerialization.jsonObject(with: data) as! [String: Any]
@@ -159,7 +167,7 @@ final class PaneContentTests: XCTestCase {
         let json: [String: Any] = [
             "type": "aiAssistant",
             "version": 2,
-            "state": ["model": "claude-4", "temperature": 0.7]
+            "state": ["model": "claude-4", "temperature": 0.7],
         ]
         let data = try JSONSerialization.data(withJSONObject: json)
 
@@ -177,7 +185,7 @@ final class PaneContentTests: XCTestCase {
     func test_decode_unknownType_noState_decodesAsUnsupported() throws {
         let json: [String: Any] = [
             "type": "futureType",
-            "version": 5
+            "version": 5,
         ]
         let data = try JSONSerialization.data(withJSONObject: json)
 
@@ -195,7 +203,7 @@ final class PaneContentTests: XCTestCase {
     func test_decode_missingType_decodesAsUnsupported() throws {
         let json: [String: Any] = [
             "version": 1,
-            "state": ["foo": "bar"]
+            "state": ["foo": "bar"],
         ]
         let data = try JSONSerialization.data(withJSONObject: json)
 
@@ -216,8 +224,8 @@ final class PaneContentTests: XCTestCase {
             "version": 3,
             "state": [
                 "model": "claude-4",
-                "config": ["temperature": 0.7, "maxTokens": 1000]
-            ]
+                "config": ["temperature": 0.7, "maxTokens": 1000],
+            ],
         ]
         let data = try JSONSerialization.data(withJSONObject: json)
         let decoded = try decoder.decode(PaneContent.self, from: data)
@@ -236,7 +244,7 @@ final class PaneContentTests: XCTestCase {
     func test_decode_missingVersion_defaultsTo1() throws {
         let json: [String: Any] = [
             "type": "terminal",
-            "state": ["provider": "zmx", "lifetime": "persistent"]
+            "state": ["provider": "zmx", "lifetime": "persistent"],
         ]
         let data = try JSONSerialization.data(withJSONObject: json)
 
@@ -260,7 +268,7 @@ final class PaneContentTests: XCTestCase {
             "bool": .bool(true),
             "null": .null,
             "array": .array([.int(1), .string("two"), .null]),
-            "nested": .object(["key": .string("value")])
+            "nested": .object(["key": .string("value")]),
         ])
 
         let data = try encoder.encode(value)
@@ -321,7 +329,7 @@ final class PaneContentTests: XCTestCase {
         // Arrange — v1 shape: {url, showNavigation} (no title)
         let json: [String: Any] = [
             "url": "https://example.com",
-            "showNavigation": true
+            "showNavigation": true,
         ]
         let data = try JSONSerialization.data(withJSONObject: json)
 
@@ -337,7 +345,7 @@ final class PaneContentTests: XCTestCase {
     func test_decode_legacyV1_noNavigation() throws {
         let json: [String: Any] = [
             "url": "https://example.com",
-            "showNavigation": false
+            "showNavigation": false,
         ]
         let data = try JSONSerialization.data(withJSONObject: json)
 
@@ -354,7 +362,7 @@ final class PaneContentTests: XCTestCase {
                 ["url": "https://docs.swift.org", "title": "Docs", "id": UUID().uuidString],
             ],
             "activeTabIndex": 1,
-            "showNavigation": true
+            "showNavigation": true,
         ]
         let data = try JSONSerialization.data(withJSONObject: json)
 
@@ -370,10 +378,10 @@ final class PaneContentTests: XCTestCase {
         // Arrange — tabs shape with out-of-range activeTabIndex
         let json: [String: Any] = [
             "tabs": [
-                ["url": "https://github.com", "title": "GitHub", "id": UUID().uuidString],
+                ["url": "https://github.com", "title": "GitHub", "id": UUID().uuidString]
             ],
             "activeTabIndex": 99,
-            "showNavigation": false
+            "showNavigation": false,
         ]
         let data = try JSONSerialization.data(withJSONObject: json)
 
@@ -391,11 +399,11 @@ final class PaneContentTests: XCTestCase {
             "version": 2,
             "state": [
                 "tabs": [
-                    ["url": "https://github.com", "title": "GitHub", "id": UUID().uuidString],
+                    ["url": "https://github.com", "title": "GitHub", "id": UUID().uuidString]
                 ],
                 "activeTabIndex": 0,
-                "showNavigation": true
-            ]
+                "showNavigation": true,
+            ],
         ]
         let data = try JSONSerialization.data(withJSONObject: json)
 
@@ -417,8 +425,8 @@ final class PaneContentTests: XCTestCase {
             "version": 1,
             "state": [
                 "url": "https://github.com",
-                "showNavigation": true
-            ]
+                "showNavigation": true,
+            ],
         ]
         let data = try JSONSerialization.data(withJSONObject: json)
 

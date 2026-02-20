@@ -43,9 +43,9 @@ struct SplitRenderInfo {
     let allMinimizedPaneIds: [UUID]
 
     /// Compute render info from a layout and minimized pane set.
-    static func compute(layout: Layout, minimizedPaneIds: Set<UUID>) -> SplitRenderInfo {
+    static func compute(layout: Layout, minimizedPaneIds: Set<UUID>) -> Self {
         guard let root = layout.root else {
-            return SplitRenderInfo(splitInfo: [:], allMinimized: false, allMinimizedPaneIds: [])
+            return Self(splitInfo: [:], allMinimized: false, allMinimizedPaneIds: [])
         }
 
         let allMin = root.isFullyMinimized(minimizedPaneIds: minimizedPaneIds)
@@ -53,12 +53,12 @@ struct SplitRenderInfo {
 
         // If no panes are minimized, no adjustments needed
         guard !minimizedPaneIds.isEmpty else {
-            return SplitRenderInfo(splitInfo: [:], allMinimized: false, allMinimizedPaneIds: [])
+            return Self(splitInfo: [:], allMinimized: false, allMinimizedPaneIds: [])
         }
 
         var info: [UUID: SplitInfo] = [:]
         computeNode(root, minimizedPaneIds: minimizedPaneIds, into: &info)
-        return SplitRenderInfo(splitInfo: info, allMinimized: allMin, allMinimizedPaneIds: allMinIds)
+        return Self(splitInfo: info, allMinimized: allMin, allMinimizedPaneIds: allMinIds)
     }
 
     private static func computeNode(
@@ -78,9 +78,9 @@ struct SplitRenderInfo {
         // Compute adjusted ratio
         let adjustedRatio: Double
         if leftFullyMin && rightFullyMin {
-            adjustedRatio = split.ratio // Both minimized, doesn't matter
+            adjustedRatio = split.ratio  // Both minimized, doesn't matter
         } else if leftFullyMin || rightFullyMin {
-            adjustedRatio = split.ratio // One side is bars, other fills rest
+            adjustedRatio = split.ratio  // One side is bars, other fills rest
         } else {
             // Both sides have visible panes — proportional redistribute.
             // Scale each child's visible weight by the parent's ratio allocation
@@ -91,10 +91,12 @@ struct SplitRenderInfo {
             adjustedRatio = total > 0 ? scaledLeft / total : split.ratio
         }
 
-        let leftMinIds = leftFullyMin
+        let leftMinIds =
+            leftFullyMin
             ? split.left.orderedMinimizedPaneIds(minimizedPaneIds: minimizedPaneIds)
             : []
-        let rightMinIds = rightFullyMin
+        let rightMinIds =
+            rightFullyMin
             ? split.right.orderedMinimizedPaneIds(minimizedPaneIds: minimizedPaneIds)
             : []
 

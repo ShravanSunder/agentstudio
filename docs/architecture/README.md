@@ -76,6 +76,7 @@ Command Bar → CommandDispatcher.dispatch() → CommandHandler
 |----------|--------|
 | [Component Architecture](component_architecture.md) | Data model, service layer, command bar, data flow, persistence, invariants |
 | [Session Lifecycle](session_lifecycle.md) | Session creation, close, undo, restore, runtime status, zmx backend |
+| [Zmx Restore and Sizing](zmx_restore_and_sizing.md) | Deferred attach sequencing, geometry readiness, and zmx restore/sizing test coverage |
 | [Surface Architecture](ghostty_surface_architecture.md) | Ghostty surface ownership, state machine, health monitoring, crash isolation, CWD propagation |
 | [App Architecture](appkit_swiftui_architecture.md) | AppKit+SwiftUI hybrid shell, controllers, command bar panel, event handling |
 | [Directory Structure](directory_structure.md) | Module boundaries, Core vs Features decision process, import rule, component placement |

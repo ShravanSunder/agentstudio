@@ -12,7 +12,7 @@ final class WorktrunkService {
     var isInstalled: Bool {
         let paths = [
             "/opt/homebrew/bin/wt",
-            "/usr/local/bin/wt"
+            "/usr/local/bin/wt",
         ]
         return paths.contains { FileManager.default.fileExists(atPath: $0) }
     }
@@ -49,7 +49,8 @@ final class WorktrunkService {
 
         // Parse JSON output from worktrunk
         guard let data = result.output.data(using: .utf8),
-              let entries = try? JSONDecoder().decode([WorktrunkEntry].self, from: data) else {
+            let entries = try? JSONDecoder().decode([WorktrunkEntry].self, from: data)
+        else {
             return nil
         }
 
@@ -60,7 +61,8 @@ final class WorktrunkService {
 
         return filtered.map { entry in
             let pathURL = URL(fileURLWithPath: entry.path)
-            let name = entry.branch.replacingOccurrences(of: "refs/heads/", with: "")
+            let name =
+                entry.branch.replacingOccurrences(of: "refs/heads/", with: "")
                 .components(separatedBy: "/").last ?? entry.branch
 
             return Worktree(
@@ -96,11 +98,12 @@ final class WorktrunkService {
                     let name = pathURL.lastPathComponent
                     let branch = currentBranch ?? name
 
-                    worktrees.append(Worktree(
-                        name: name,
-                        path: pathURL,
-                        branch: branch
-                    ))
+                    worktrees.append(
+                        Worktree(
+                            name: name,
+                            path: pathURL,
+                            branch: branch
+                        ))
                 }
 
                 currentPath = String(line.dropFirst(9))
@@ -117,11 +120,12 @@ final class WorktrunkService {
             let name = pathURL.lastPathComponent
             let branch = currentBranch ?? name
 
-            worktrees.append(Worktree(
-                name: name,
-                path: pathURL,
-                branch: branch
-            ))
+            worktrees.append(
+                Worktree(
+                    name: name,
+                    path: pathURL,
+                    branch: branch
+                ))
         }
 
         return worktrees
@@ -130,7 +134,9 @@ final class WorktrunkService {
     // MARK: - Worktree Management
 
     /// Create a new worktree using worktrunk
-    func createWorktree(name: String, in projectPath: URL, baseBranch: String? = nil) -> Result<Worktree, WorktrunkError> {
+    func createWorktree(name: String, in projectPath: URL, baseBranch: String? = nil) -> Result<
+        Worktree, WorktrunkError
+    > {
         var args = ["switch", "-c", name]
         if let base = baseBranch {
             args.append(contentsOf: ["--base", base])
@@ -164,7 +170,9 @@ final class WorktrunkService {
 
     // MARK: - Shell Helper
 
-    private func shell(_ command: String, args: [String], cwd: URL? = nil) -> (exitCode: Int, output: String, error: String) {
+    private func shell(_ command: String, args: [String], cwd: URL? = nil) -> (
+        exitCode: Int, output: String, error: String
+    ) {
         let process = Process()
         process.executableURL = URL(fileURLWithPath: "/usr/bin/env")
         process.arguments = [command] + args
