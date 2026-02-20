@@ -1,3 +1,4 @@
+// swiftlint:disable file_length type_body_length
 import Foundation
 import Observation
 import os.log
@@ -38,12 +39,12 @@ final class WorkspaceStore {
 
     // MARK: - Internal State
 
-    private(set) var workspaceId: UUID = UUID()
+    private(set) var workspaceId = UUID()
     private(set) var workspaceName: String = "Default Workspace"
     private(set) var sidebarWidth: CGFloat = 250
     private(set) var windowFrame: CGRect?
-    private(set) var createdAt: Date = Date()
-    private(set) var updatedAt: Date = Date()
+    private(set) var createdAt = Date()
+    private(set) var updatedAt = Date()
 
     // MARK: - Constants
 
@@ -116,7 +117,8 @@ final class WorkspaceStore {
             // If active arrangement is now empty but default still has panes,
             // fall back to default so the tab doesn't render as blank.
             if tabs[tabIndex].activeArrangement.layout.isEmpty
-                && !tabs[tabIndex].defaultArrangement.layout.isEmpty {
+                && !tabs[tabIndex].defaultArrangement.layout.isEmpty
+            {
                 tabs[tabIndex].activeArrangementId = tabs[tabIndex].defaultArrangement.id
             }
             if tabs[tabIndex].activePaneId == paneId {
@@ -162,7 +164,8 @@ final class WorkspaceStore {
         }
         let arrIndex = tabs[tabIndex].activeArrangementIndex
         guard tabs[tabIndex].arrangements[arrIndex].layout.contains(targetPaneId) else {
-            storeLogger.warning("reactivatePane: targetPaneId \(targetPaneId) not in active arrangement — keeping pane backgrounded")
+            storeLogger.warning(
+                "reactivatePane: targetPaneId \(targetPaneId) not in active arrangement — keeping pane backgrounded")
             return
         }
 
@@ -535,7 +538,7 @@ final class WorkspaceStore {
             return
         }
         // Validate paneId exists in the pane dict and in the tab's pane list
-        if let paneId = paneId {
+        if let paneId {
             guard panes[paneId] != nil, tabs[tabIndex].panes.contains(paneId) else {
                 storeLogger.warning("setActivePane: paneId \(paneId) not found in tab \(tabId)")
                 return
@@ -609,7 +612,8 @@ final class WorkspaceStore {
             tabs[tabIndex].activeArrangementId = tabs[tabIndex].defaultArrangement.id
             // Update activePaneId to one visible in default
             if let activePaneId = tabs[tabIndex].activePaneId,
-               !tabs[tabIndex].defaultArrangement.layout.contains(activePaneId) {
+                !tabs[tabIndex].defaultArrangement.layout.contains(activePaneId)
+            {
                 tabs[tabIndex].activePaneId = tabs[tabIndex].defaultArrangement.layout.paneIds.first
             }
         }
@@ -637,7 +641,8 @@ final class WorkspaceStore {
 
         // Update activePaneId if current one isn't in the new arrangement
         if let activePaneId = tabs[tabIndex].activePaneId,
-           !tabs[tabIndex].activeArrangement.layout.contains(activePaneId) {
+            !tabs[tabIndex].activeArrangement.layout.contains(activePaneId)
+        {
             tabs[tabIndex].activePaneId = tabs[tabIndex].activeArrangement.layout.paneIds.first
         }
 
@@ -719,7 +724,8 @@ final class WorkspaceStore {
         position: Layout.Position
     ) -> Pane? {
         guard let parentPane = panes[parentPaneId],
-              parentPane.drawer != nil else {
+            parentPane.drawer != nil
+        else {
             storeLogger.warning("insertDrawerPane: parent pane \(parentPaneId) has no drawer")
             return nil
         }
@@ -765,7 +771,8 @@ final class WorkspaceStore {
     /// the layout leaf, and the store entry. Resets drawer if empty.
     func removeDrawerPane(_ drawerPaneId: UUID, from parentPaneId: UUID) {
         guard panes[parentPaneId] != nil,
-              panes[parentPaneId]!.drawer != nil else {
+            panes[parentPaneId]!.drawer != nil
+        else {
             storeLogger.warning("removeDrawerPane: parent pane \(parentPaneId) has no drawer")
             return
         }
@@ -802,7 +809,8 @@ final class WorkspaceStore {
     /// Works even when the drawer has no panes (shows empty state).
     func toggleDrawer(for paneId: UUID) {
         guard panes[paneId] != nil,
-              panes[paneId]!.drawer != nil else {
+            panes[paneId]!.drawer != nil
+        else {
             storeLogger.warning("toggleDrawer: pane \(paneId) has no drawer")
             return
         }
@@ -838,8 +846,9 @@ final class WorkspaceStore {
     /// Set the active drawer pane within a pane's drawer.
     func setActiveDrawerPane(_ drawerPaneId: UUID, in parentPaneId: UUID) {
         guard panes[parentPaneId] != nil,
-              let drawer = panes[parentPaneId]!.drawer,
-              drawer.paneIds.contains(drawerPaneId) else {
+            let drawer = panes[parentPaneId]!.drawer,
+            drawer.paneIds.contains(drawerPaneId)
+        else {
             storeLogger.warning("setActiveDrawerPane: drawer pane \(drawerPaneId) not found in pane \(parentPaneId)")
             return
         }
@@ -851,7 +860,8 @@ final class WorkspaceStore {
     /// Resize a split within a drawer's layout.
     func resizeDrawerPane(parentPaneId: UUID, splitId: UUID, ratio: Double) {
         guard panes[parentPaneId] != nil,
-              panes[parentPaneId]!.drawer != nil else {
+            panes[parentPaneId]!.drawer != nil
+        else {
             storeLogger.warning("resizeDrawerPane: parent pane \(parentPaneId) not found or has no drawer")
             return
         }
@@ -864,7 +874,8 @@ final class WorkspaceStore {
     /// Equalize all splits within a drawer's layout.
     func equalizeDrawerPanes(parentPaneId: UUID) {
         guard panes[parentPaneId] != nil,
-              panes[parentPaneId]!.drawer != nil else {
+            panes[parentPaneId]!.drawer != nil
+        else {
             storeLogger.warning("equalizeDrawerPanes: parent pane \(parentPaneId) not found or has no drawer")
             return
         }
@@ -878,8 +889,9 @@ final class WorkspaceStore {
     @discardableResult
     func minimizeDrawerPane(_ drawerPaneId: UUID, in parentPaneId: UUID) -> Bool {
         guard panes[parentPaneId] != nil,
-              let drawer = panes[parentPaneId]!.drawer,
-              drawer.paneIds.contains(drawerPaneId) else { return false }
+            let drawer = panes[parentPaneId]!.drawer,
+            drawer.paneIds.contains(drawerPaneId)
+        else { return false }
 
         panes[parentPaneId]!.withDrawer { drawer in
             drawer.minimizedPaneIds.insert(drawerPaneId)
@@ -986,7 +998,8 @@ final class WorkspaceStore {
         }
 
         guard let currentRatio = tab.layout.ratioForSplit(splitId) else {
-            storeLogger.warning("resizePaneByDelta: ratioForSplit returned nil for split \(splitId) — layout inconsistency")
+            storeLogger.warning(
+                "resizePaneByDelta: ratioForSplit returned nil for split \(splitId) — layout inconsistency")
             return
         }
 
@@ -1082,7 +1095,8 @@ final class WorkspaceStore {
         position: Layout.Position
     ) {
         guard let sourceTabIndex = tabs.firstIndex(where: { $0.id == sourceId }),
-              let targetTabIndex = tabs.firstIndex(where: { $0.id == targetId }) else { return }
+            let targetTabIndex = tabs.firstIndex(where: { $0.id == targetId })
+        else { return }
 
         // Validate targetPaneId exists in target arrangement
         let targetArrIndex = tabs[targetTabIndex].activeArrangementIndex
@@ -1099,7 +1113,8 @@ final class WorkspaceStore {
         // Insert each source pane into target layout
         var currentTarget = targetPaneId
         for paneId in sourcePaneIds {
-            tabs[targetTabIndex].arrangements[targetArrIndex].layout = tabs[targetTabIndex].arrangements[targetArrIndex].layout
+            tabs[targetTabIndex].arrangements[targetArrIndex].layout = tabs[targetTabIndex].arrangements[targetArrIndex]
+                .layout
                 .inserting(paneId: paneId, at: currentTarget, direction: direction, position: position)
             tabs[targetTabIndex].arrangements[targetArrIndex].visiblePaneIds.insert(paneId)
             if !tabs[targetTabIndex].panes.contains(paneId) {
@@ -1176,7 +1191,8 @@ final class WorkspaceStore {
             windowFrame = state.windowFrame
             createdAt = state.createdAt
             updatedAt = state.updatedAt
-            storeLogger.info("Restored workspace '\(state.name)' with \(state.panes.count) pane(s), \(state.tabs.count) tab(s)")
+            storeLogger.info(
+                "Restored workspace '\(state.name)' with \(state.panes.count) pane(s), \(state.tabs.count) tab(s)")
         } else if persistor.hasWorkspaceFiles() {
             storeLogger.error("Workspace files exist on disk but failed to load — starting with empty state.")
         } else {
@@ -1262,12 +1278,13 @@ final class WorkspaceStore {
         updatedAt = Date()
 
         // Filter out temporary panes — they are never persisted
-        let persistablePanes = Array(panes.values.filter { pane in
-            if case .terminal(let termState) = pane.content {
-                return termState.lifetime != .temporary
-            }
-            return true
-        })
+        let persistablePanes = Array(
+            panes.values.filter { pane in
+                if case .terminal(let termState) = pane.content {
+                    return termState.lifetime != .temporary
+                }
+                return true
+            })
         let validPaneIds = Set(persistablePanes.map(\.id))
 
         // Prune tabs: remove temporary pane IDs from layouts in the PERSISTED COPY.
@@ -1488,7 +1505,9 @@ final class WorkspaceStore {
 
             // Prune each arrangement
             for arrIndex in tabs[tabIndex].arrangements.indices {
-                let invalidIds = tabs[tabIndex].arrangements[arrIndex].layout.paneIds.filter { !validPaneIds.contains($0) }
+                let invalidIds = tabs[tabIndex].arrangements[arrIndex].layout.paneIds.filter {
+                    !validPaneIds.contains($0)
+                }
                 for paneId in invalidIds {
                     storeLogger.warning("Pruning invalid pane \(paneId) from tab \(tabId)")
                     totalPruned += 1
@@ -1566,7 +1585,9 @@ final class WorkspaceStore {
                 let visible = tabs[tabIndex].arrangements[arrIndex].visiblePaneIds
                 if visible != arrLayoutPaneIds {
                     tabs[tabIndex].arrangements[arrIndex].visiblePaneIds = arrLayoutPaneIds
-                    storeLogger.warning("Tab \(tabId): arrangement \(self.tabs[tabIndex].arrangements[arrIndex].id) visiblePaneIds drifted — synced")
+                    storeLogger.warning(
+                        "Tab \(tabId): arrangement \(self.tabs[tabIndex].arrangements[arrIndex].id) visiblePaneIds drifted — synced"
+                    )
                     repairCount += 1
                 }
             }
@@ -1576,13 +1597,16 @@ final class WorkspaceStore {
             let listedPaneIds = Set(tabs[tabIndex].panes)
             if layoutPaneIds != listedPaneIds {
                 tabs[tabIndex].panes = Array(layoutPaneIds)
-                storeLogger.warning("Tab \(tabId): panes list drifted from layouts — synced (\(listedPaneIds.count) → \(layoutPaneIds.count))")
+                storeLogger.warning(
+                    "Tab \(tabId): panes list drifted from layouts — synced (\(listedPaneIds.count) → \(layoutPaneIds.count))"
+                )
                 repairCount += 1
             }
 
             // 5. Ensure activePaneId is in the active arrangement
             if let apId = tabs[tabIndex].activePaneId,
-               !tabs[tabIndex].activeArrangement.layout.paneIds.contains(apId) {
+                !tabs[tabIndex].activeArrangement.layout.paneIds.contains(apId)
+            {
                 tabs[tabIndex].activePaneId = tabs[tabIndex].activeArrangement.layout.paneIds.first
                 storeLogger.warning("Tab \(tabId): activePaneId \(apId) not in layout — reset")
                 repairCount += 1
@@ -1608,7 +1632,8 @@ final class WorkspaceStore {
 
             // 7. Re-validate activePaneId after duplicate repair may have removed panes
             if let apId = tabs[tabIndex].activePaneId,
-               !tabs[tabIndex].activeArrangement.layout.paneIds.contains(apId) {
+                !tabs[tabIndex].activeArrangement.layout.paneIds.contains(apId)
+            {
                 tabs[tabIndex].activePaneId = tabs[tabIndex].activeArrangement.layout.paneIds.first
                 storeLogger.warning("Tab \(tabId): activePaneId \(apId) stale after duplicate repair — reset")
                 repairCount += 1

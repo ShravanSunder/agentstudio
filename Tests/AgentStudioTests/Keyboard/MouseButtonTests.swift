@@ -1,5 +1,6 @@
-import XCTest
 import GhosttyKit
+import XCTest
+
 @testable import AgentStudio
 
 final class MouseButtonTests: XCTestCase {

@@ -1,3 +1,4 @@
+// swiftlint:disable cyclomatic_complexity
 import Foundation
 
 /// Resolves user intents into fully-specified PaneActions.
@@ -30,12 +31,14 @@ enum ActionResolver {
 
         case .nextTab:
             guard let tabId = activeTabId,
-                  let nextId = nextTabId(after: tabId, in: tabs) else { return nil }
+                let nextId = nextTabId(after: tabId, in: tabs)
+            else { return nil }
             return .selectTab(tabId: nextId)
 
         case .prevTab:
             guard let tabId = activeTabId,
-                  let prevId = previousTabId(before: tabId, in: tabs) else { return nil }
+                let prevId = previousTabId(before: tabId, in: tabs)
+            else { return nil }
             return .selectTab(tabId: prevId)
 
         case .selectTab1: return selectTabByIndex(0, tabs: tabs)
@@ -75,12 +78,14 @@ enum ActionResolver {
 
         case .focusNextPane:
             guard let (tab, paneId) = activeTabAndPane(tabs: tabs, activeTabId: activeTabId),
-                  let nextId = tab.nextPaneId(after: paneId) else { return nil }
+                let nextId = tab.nextPaneId(after: paneId)
+            else { return nil }
             return .focusPane(tabId: tab.id, paneId: nextId)
 
         case .focusPrevPane:
             guard let (tab, paneId) = activeTabAndPane(tabs: tabs, activeTabId: activeTabId),
-                  let prevId = tab.previousPaneId(before: paneId) else { return nil }
+                let prevId = tab.previousPaneId(before: paneId)
+            else { return nil }
             return .focusPane(tabId: tab.id, paneId: prevId)
 
         // Split directions (horizontal only — vertical splits disabled for drawers)
@@ -108,17 +113,17 @@ enum ActionResolver {
 
         // Non-pane commands: not resolved to PaneAction
         case .addRepo, .removeRepo, .refreshWorktrees,
-             .toggleSidebar, .newFloatingTerminal,
-             .newTerminalInTab, .newTab, .undoCloseTab,
-             .newWindow, .closeWindow,
-             .quickFind, .commandBar,
-             .openWebview, .signInGitHub, .signInGoogle,
-             .filterSidebar, .openNewTerminalInTab,
-             .switchArrangement, .saveArrangement,
-             .deleteArrangement, .renameArrangement,
-             .addDrawerPane, .toggleDrawer,
-             .navigateDrawerPane, .closeDrawerPane,
-             .toggleEditMode:
+            .toggleSidebar, .newFloatingTerminal,
+            .newTerminalInTab, .newTab, .undoCloseTab,
+            .newWindow, .closeWindow,
+            .quickFind, .commandBar,
+            .openWebview, .signInGitHub, .signInGoogle,
+            .filterSidebar, .openNewTerminalInTab,
+            .switchArrangement, .saveArrangement,
+            .deleteArrangement, .renameArrangement,
+            .addDrawerPane, .toggleDrawer,
+            .navigateDrawerPane, .closeDrawerPane,
+            .toggleEditMode:
             return nil
         }
     }
@@ -203,8 +208,9 @@ enum ActionResolver {
         tabs: [T], activeTabId: UUID?
     ) -> (T, UUID)? {
         guard let tabId = activeTabId,
-              let tab = tabs.first(where: { $0.id == tabId }),
-              let paneId = tab.activePaneId else { return nil }
+            let tab = tabs.first(where: { $0.id == tabId }),
+            let paneId = tab.activePaneId
+        else { return nil }
         return (tab, paneId)
     }
 
@@ -219,7 +225,8 @@ enum ActionResolver {
         after tabId: UUID, in tabs: [T]
     ) -> UUID? {
         guard let idx = tabs.firstIndex(where: { $0.id == tabId }),
-              tabs.count > 1 else { return nil }
+            tabs.count > 1
+        else { return nil }
         return tabs[(idx + 1) % tabs.count].id
     }
 
@@ -227,7 +234,8 @@ enum ActionResolver {
         before tabId: UUID, in tabs: [T]
     ) -> UUID? {
         guard let idx = tabs.firstIndex(where: { $0.id == tabId }),
-              tabs.count > 1 else { return nil }
+            tabs.count > 1
+        else { return nil }
         return tabs[(idx - 1 + tabs.count) % tabs.count].id
     }
 
@@ -236,7 +244,7 @@ enum ActionResolver {
         tabs: [T], activeTabId: UUID?
     ) -> PaneAction? {
         guard let (tab, paneId) = activeTabAndPane(tabs: tabs, activeTabId: activeTabId),
-              let neighborId = tab.neighborPaneId(of: paneId, direction: direction)
+            let neighborId = tab.neighborPaneId(of: paneId, direction: direction)
         else { return nil }
         return .focusPane(tabId: tab.id, paneId: neighborId)
     }
@@ -257,8 +265,8 @@ enum ActionResolver {
 
     private static func splitNewDirection(for zone: DropZone) -> SplitNewDirection {
         switch zone {
-        case .left:   return .left
-        case .right:  return .right
+        case .left: return .left
+        case .right: return .right
         }
     }
 }

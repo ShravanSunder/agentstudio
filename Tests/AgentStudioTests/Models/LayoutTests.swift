@@ -1,4 +1,5 @@
 import XCTest
+
 @testable import AgentStudio
 
 final class LayoutTests: XCTestCase {
@@ -312,7 +313,8 @@ final class LayoutTests: XCTestCase {
             .inserting(paneId: paneC, at: paneB, direction: .vertical, position: .after)
 
         guard case .split(let rootSplit) = layout.root,
-              case .split(let nestedSplit) = rootSplit.right else {
+            case .split(let nestedSplit) = rootSplit.right
+        else {
             XCTFail("Expected nested split structure")
             return
         }
@@ -364,12 +366,14 @@ final class LayoutTests: XCTestCase {
             .inserting(paneId: paneC, at: paneB, direction: .vertical, position: .after)
 
         guard case .split(let rootSplit) = layout.root,
-              case .split(let nestedSplit) = rootSplit.right else {
+            case .split(let nestedSplit) = rootSplit.right
+        else {
             XCTFail("Expected structure")
             return
         }
 
-        let resized = layout
+        let resized =
+            layout
             .resizing(splitId: rootSplit.id, ratio: 0.3)
             .resizing(splitId: nestedSplit.id, ratio: 0.7)
 

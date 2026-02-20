@@ -1,4 +1,5 @@
 import XCTest
+
 @testable import AgentStudio
 
 final class TabTests: XCTestCase {
@@ -38,8 +39,11 @@ final class TabTests: XCTestCase {
             .inserting(paneId: paneB, at: paneA, direction: .horizontal, position: .after)
 
         // Act
-        let arrangement = PaneArrangement(name: "Default", isDefault: true, layout: layout, visiblePaneIds: Set(layout.paneIds))
-        let tab = Tab(panes: layout.paneIds, arrangements: [arrangement], activeArrangementId: arrangement.id, activePaneId: paneA)
+        let arrangement = PaneArrangement(
+            name: "Default", isDefault: true, layout: layout, visiblePaneIds: Set(layout.paneIds))
+        let tab = Tab(
+            panes: layout.paneIds, arrangements: [arrangement], activeArrangementId: arrangement.id, activePaneId: paneA
+        )
 
         // Assert
         XCTAssertEqual(tab.paneIds, [paneA, paneB])
@@ -59,8 +63,11 @@ final class TabTests: XCTestCase {
             .inserting(paneId: paneC, at: paneB, direction: .vertical, position: .after)
 
         // Act
-        let arrangement = PaneArrangement(name: "Default", isDefault: true, layout: layout, visiblePaneIds: Set(layout.paneIds))
-        let tab = Tab(panes: layout.paneIds, arrangements: [arrangement], activeArrangementId: arrangement.id, activePaneId: paneA)
+        let arrangement = PaneArrangement(
+            name: "Default", isDefault: true, layout: layout, visiblePaneIds: Set(layout.paneIds))
+        let tab = Tab(
+            panes: layout.paneIds, arrangements: [arrangement], activeArrangementId: arrangement.id, activePaneId: paneA
+        )
 
         // Assert
         XCTAssertEqual(tab.paneIds, [paneA, paneB, paneC])
@@ -82,8 +89,11 @@ final class TabTests: XCTestCase {
             .inserting(paneId: paneB, at: paneA, direction: .horizontal, position: .after)
 
         // Act
-        let arrangement = PaneArrangement(name: "Default", isDefault: true, layout: layout, visiblePaneIds: Set(layout.paneIds))
-        let tab = Tab(panes: layout.paneIds, arrangements: [arrangement], activeArrangementId: arrangement.id, activePaneId: paneA)
+        let arrangement = PaneArrangement(
+            name: "Default", isDefault: true, layout: layout, visiblePaneIds: Set(layout.paneIds))
+        let tab = Tab(
+            panes: layout.paneIds, arrangements: [arrangement], activeArrangementId: arrangement.id, activePaneId: paneA
+        )
 
         // Assert
         XCTAssertTrue(tab.isSplit)
@@ -112,8 +122,11 @@ final class TabTests: XCTestCase {
         let paneB = UUID()
         let layout = Layout(paneId: paneA)
             .inserting(paneId: paneB, at: paneA, direction: .horizontal, position: .after)
-        let arrangement = PaneArrangement(name: "Default", isDefault: true, layout: layout, visiblePaneIds: Set(layout.paneIds))
-        let tab = Tab(panes: layout.paneIds, arrangements: [arrangement], activeArrangementId: arrangement.id, activePaneId: paneB)
+        let arrangement = PaneArrangement(
+            name: "Default", isDefault: true, layout: layout, visiblePaneIds: Set(layout.paneIds))
+        let tab = Tab(
+            panes: layout.paneIds, arrangements: [arrangement], activeArrangementId: arrangement.id, activePaneId: paneB
+        )
 
         // Act
         let data = try JSONEncoder().encode(tab)

@@ -61,10 +61,13 @@ struct ArrangementPanel: View {
         }
         .padding(10)
         .frame(minWidth: 180, maxWidth: 260)
-        .alert("Rename Arrangement", isPresented: Binding(
-            get: { renamingArrangementId != nil },
-            set: { if !$0 { renamingArrangementId = nil } }
-        )) {
+        .alert(
+            "Rename Arrangement",
+            isPresented: Binding(
+                get: { renamingArrangementId != nil },
+                set: { if !$0 { renamingArrangementId = nil } }
+            )
+        ) {
             TextField("Name", text: $renameText)
             Button("Rename") {
                 if let id = renamingArrangementId, !renameText.isEmpty {
@@ -130,7 +133,9 @@ struct ArrangementPanel: View {
             .padding(.vertical, AppStyle.spacingTight)
             .background(
                 RoundedRectangle(cornerRadius: AppStyle.barCornerRadius)
-                    .fill(arr.isActive ? Color.white.opacity(AppStyle.fillActive) : Color.white.opacity(AppStyle.fillSubtle))
+                    .fill(
+                        arr.isActive
+                            ? Color.white.opacity(AppStyle.fillActive) : Color.white.opacity(AppStyle.fillSubtle))
             )
             .contentShape(Rectangle())
             .onTapGesture {

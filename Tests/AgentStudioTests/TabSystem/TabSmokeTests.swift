@@ -1,6 +1,7 @@
-import XCTest
 import AppKit
 import CoreGraphics
+import XCTest
+
 @testable import AgentStudio
 
 /// Temporary smoke tests for tab/split orchestration types.

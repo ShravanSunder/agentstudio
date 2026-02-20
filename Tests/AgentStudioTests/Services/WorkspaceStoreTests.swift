@@ -1,4 +1,6 @@
+// swiftlint:disable file_length type_body_length
 import XCTest
+
 @testable import AgentStudio
 
 @MainActor
@@ -858,7 +860,7 @@ final class WorkspaceStoreTests: XCTestCase {
         let tab = Tab(
             panes: [pane.id],
             arrangements: [arrangement],
-            activeArrangementId: UUID(), // stale — doesn't match `arrangement.id`
+            activeArrangementId: UUID(),  // stale — doesn't match `arrangement.id`
             activePaneId: pane.id
         )
         var state = WorkspacePersistor.PersistableState()
@@ -887,7 +889,7 @@ final class WorkspaceStoreTests: XCTestCase {
             panes: [pane.id],
             arrangements: [arrangement],
             activeArrangementId: arrangement.id,
-            activePaneId: UUID() // stale — not in layout
+            activePaneId: UUID()  // stale — not in layout
         )
         var state = WorkspacePersistor.PersistableState()
         state.panes = [pane]
@@ -936,7 +938,7 @@ final class WorkspaceStoreTests: XCTestCase {
             .inserting(paneId: p2.id, at: p1.id, direction: .horizontal, position: .after)
         let arrangement = PaneArrangement(name: "Default", isDefault: true, layout: layout)
         let tab = Tab(
-            panes: [p1.id], // missing p2 — drifted
+            panes: [p1.id],  // missing p2 — drifted
             arrangements: [arrangement],
             activeArrangementId: arrangement.id,
             activePaneId: p1.id
@@ -963,13 +965,15 @@ final class WorkspaceStoreTests: XCTestCase {
         let p2 = makePane()
         let layout1 = Layout(paneId: p1.id)
             .inserting(paneId: p2.id, at: p1.id, direction: .horizontal, position: .after)
-        let layout2 = Layout(paneId: p2.id) // p2 duplicated across tabs
+        let layout2 = Layout(paneId: p2.id)  // p2 duplicated across tabs
         let arr1 = PaneArrangement(name: "Default", isDefault: true, layout: layout1)
         let arr2 = PaneArrangement(name: "Default", isDefault: true, layout: layout2)
-        let tab1 = Tab(panes: [p1.id, p2.id], arrangements: [arr1],
-                       activeArrangementId: arr1.id, activePaneId: p1.id)
-        let tab2 = Tab(panes: [p2.id], arrangements: [arr2],
-                       activeArrangementId: arr2.id, activePaneId: p2.id)
+        let tab1 = Tab(
+            panes: [p1.id, p2.id], arrangements: [arr1],
+            activeArrangementId: arr1.id, activePaneId: p1.id)
+        let tab2 = Tab(
+            panes: [p2.id], arrangements: [arr2],
+            activeArrangementId: arr2.id, activePaneId: p2.id)
         var state = WorkspacePersistor.PersistableState()
         state.panes = [p1, p2]
         state.tabs = [tab1, tab2]
@@ -997,10 +1001,12 @@ final class WorkspaceStoreTests: XCTestCase {
         let layout2 = Layout(paneId: p2.id)
         let arr1 = PaneArrangement(name: "Default", isDefault: true, layout: layout1)
         let arr2 = PaneArrangement(name: "Default", isDefault: true, layout: layout2)
-        let tab1 = Tab(panes: [p1.id, p2.id], arrangements: [arr1],
-                       activeArrangementId: arr1.id, activePaneId: p1.id)
-        let tab2 = Tab(panes: [p2.id], arrangements: [arr2],
-                       activeArrangementId: arr2.id, activePaneId: p2.id) // active is the duplicate
+        let tab1 = Tab(
+            panes: [p1.id, p2.id], arrangements: [arr1],
+            activeArrangementId: arr1.id, activePaneId: p1.id)
+        let tab2 = Tab(
+            panes: [p2.id], arrangements: [arr2],
+            activeArrangementId: arr2.id, activePaneId: p2.id)  // active is the duplicate
         var state = WorkspacePersistor.PersistableState()
         state.panes = [p1, p2]
         state.tabs = [tab1, tab2]
@@ -1017,30 +1023,33 @@ final class WorkspaceStoreTests: XCTestCase {
         // Tab2 may be empty and removed, which is also a valid repair outcome
         for tab in store2.tabs {
             if let apId = tab.activePaneId {
-                XCTAssertTrue(tab.activeArrangement.layout.paneIds.contains(apId),
-                              "activePaneId \(apId) should be in the active arrangement layout")
+                XCTAssertTrue(
+                    tab.activeArrangement.layout.paneIds.contains(apId),
+                    "activePaneId \(apId) should be in the active arrangement layout")
             }
         }
     }
 
     func test_persistence_activeTabIdNotMutatedDuringSave() {
         // Arrange — create tabs: tab1 has temporary pane (pruned on save), tab2 is persistent
-        let p1 = store.createPane(source: .floating(workingDirectory: nil, title: nil),
-                                  lifetime: .temporary)
+        let p1 = store.createPane(
+            source: .floating(workingDirectory: nil, title: nil),
+            lifetime: .temporary)
         let tab1 = Tab(paneId: p1.id)
         store.appendTab(tab1)
         let p2 = store.createPane(source: .floating(workingDirectory: nil, title: nil))
         let tab2 = Tab(paneId: p2.id)
         store.appendTab(tab2)
-        store.setActiveTab(tab1.id) // select the temporary tab
+        store.setActiveTab(tab1.id)  // select the temporary tab
 
         // Act — flush() calls persistNow() which prunes tab1 (all-temporary)
         // from the persisted copy. This should NOT change live activeTabId.
         _ = store.flush()
 
         // Assert — live activeTabId still points to tab1
-        XCTAssertEqual(store.activeTabId, tab1.id,
-                       "flush/persistNow should not mutate live activeTabId")
+        XCTAssertEqual(
+            store.activeTabId, tab1.id,
+            "flush/persistNow should not mutate live activeTabId")
     }
 
     // MARK: - moveTabByDelta

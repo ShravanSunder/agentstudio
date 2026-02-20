@@ -39,6 +39,6 @@ struct Drawer: Codable, Hashable {
         layout = try container.decode(Layout.self, forKey: .layout)
         activePaneId = try container.decodeIfPresent(UUID.self, forKey: .activePaneId)
         isExpanded = try container.decode(Bool.self, forKey: .isExpanded)
-        minimizedPaneIds = [] // transient — always starts empty on decode
+        minimizedPaneIds = []  // transient — always starts empty on decode
     }
 }

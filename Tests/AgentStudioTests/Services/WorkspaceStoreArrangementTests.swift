@@ -1,4 +1,5 @@
 import XCTest
+
 @testable import AgentStudio
 
 @MainActor
@@ -8,7 +9,9 @@ final class WorkspaceStoreArrangementTests: XCTestCase {
 
     override func setUp() {
         super.setUp()
-        store = WorkspaceStore(persistor: WorkspacePersistor(workspacesDir: FileManager.default.temporaryDirectory.appending(path: UUID().uuidString)))
+        store = WorkspaceStore(
+            persistor: WorkspacePersistor(
+                workspacesDir: FileManager.default.temporaryDirectory.appending(path: UUID().uuidString)))
     }
 
     // MARK: - Helpers
@@ -94,7 +97,7 @@ final class WorkspaceStoreArrangementTests: XCTestCase {
         )
 
         XCTAssertNil(arrId)
-        XCTAssertEqual(store.tab(tab.id)!.arrangements.count, 1) // only default
+        XCTAssertEqual(store.tab(tab.id)!.arrangements.count, 1)  // only default
     }
 
     func test_createArrangement_invalidPaneId_returnsNil() {
@@ -224,7 +227,7 @@ final class WorkspaceStoreArrangementTests: XCTestCase {
 
         store.removeArrangement(arrId, inTab: tab.id)
 
-        XCTAssertEqual(store.tab(tab.id)!.arrangements.count, 1) // only default remains
+        XCTAssertEqual(store.tab(tab.id)!.arrangements.count, 1)  // only default remains
     }
 
     func test_removeArrangement_cannotRemoveDefault() {
@@ -265,7 +268,7 @@ final class WorkspaceStoreArrangementTests: XCTestCase {
         store.removeArrangement(bId, inTab: tab.id)
 
         XCTAssertEqual(store.tab(tab.id)!.activeArrangementId, arr1)
-        XCTAssertEqual(store.tab(tab.id)!.arrangements.count, 2) // default + A
+        XCTAssertEqual(store.tab(tab.id)!.arrangements.count, 2)  // default + A
     }
 
     // MARK: - renameArrangement

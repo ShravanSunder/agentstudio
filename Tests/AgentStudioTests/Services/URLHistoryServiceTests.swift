@@ -1,4 +1,5 @@
 import XCTest
+
 @testable import AgentStudio
 
 /// In-memory storage for testing URLHistoryService without touching UserDefaults.

@@ -1,5 +1,5 @@
-import SwiftUI
 import AppKit
+import SwiftUI
 
 // MARK: - Dismiss Monitor
 
@@ -80,8 +80,8 @@ private struct OutsideDismissShape: Shape {
 
     func path(in rect: CGRect) -> Path {
         var p = Path()
-        p.addRect(rect)            // full tab area
-        p.addRect(exclusionRect)   // hole: drawer + icon bar area
+        p.addRect(rect)  // full tab area
+        p.addRect(exclusionRect)  // hole: drawer + icon bar area
         return p
     }
 }
@@ -110,7 +110,8 @@ struct DrawerPanelOverlay: View {
     private var expandedPaneInfo: (paneId: UUID, frame: CGRect, drawer: Drawer)? {
         for (paneId, frame) in paneFrames {
             if let drawer = store.pane(paneId)?.drawer,
-               drawer.isExpanded {
+                drawer.isExpanded
+            {
                 return (paneId, frame, drawer)
             }
         }
@@ -122,7 +123,8 @@ struct DrawerPanelOverlay: View {
 
     var body: some View {
         // Read viewRevision so @Observable tracks it — triggers re-render after repair
-        let _ = store.viewRevision
+        // swiftlint:disable:next redundant_discardable_let
+        let _ = store.viewRevision  // swift-format:ignore
 
         if let info = expandedPaneInfo, tabSize.width > 0 {
             let drawerTree = viewRegistry.renderTree(for: info.drawer.layout)
@@ -207,7 +209,9 @@ struct DrawerPanelOverlay: View {
                             store: store,
                             action: action,
                             onResize: { delta in
-                                let newRatio = min(DrawerLayout.heightRatioMax, max(DrawerLayout.heightRatioMin, heightRatio + Double(delta / tabSize.height)))
+                                let newRatio = min(
+                                    DrawerLayout.heightRatioMax,
+                                    max(DrawerLayout.heightRatioMin, heightRatio + Double(delta / tabSize.height)))
                                 heightRatio = newRatio
                             },
                             onDismiss: {
@@ -383,7 +387,7 @@ struct DrawerMaterialModifier: ViewModifier {
             stops: [
                 .init(color: .clear, location: 0),
                 .init(color: .clear, location: panelFraction),
-                .init(color: Color(nsColor: .windowBackgroundColor).opacity(0.95), location: 1.0)
+                .init(color: Color(nsColor: .windowBackgroundColor).opacity(0.95), location: 1.0),
             ],
             startPoint: .top,
             endPoint: .bottom

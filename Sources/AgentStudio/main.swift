@@ -32,6 +32,7 @@ let app = NSApplication.shared
 
 // Set activation policy to make it a proper GUI app (required for CLI-launched binaries)
 app.setActivationPolicy(.regular)
+RestoreTrace.log("main: app activation policy set, debugLogPath=\(debugLogPath)")
 
 let delegate = AppDelegate()
 app.delegate = delegate
@@ -40,6 +41,8 @@ app.delegate = delegate
 let ghosttyInitialized = Ghostty.initialize()
 if !ghosttyInitialized {
     print("Warning: Failed to initialize Ghostty terminal engine")
+} else {
+    RestoreTrace.log("main: Ghostty.initialize succeeded")
 }
 
 // Activate the app to bring it to front

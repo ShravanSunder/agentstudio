@@ -5,9 +5,9 @@ import SwiftUI
 
 /// Scope of the command bar, determined by prefix character in the search input.
 enum CommandBarScope {
-    case everything     // no prefix — shows recents, tabs, panes, commands, worktrees
-    case commands       // ">" prefix — shows only commands grouped by category
-    case panes          // "@" prefix — shows only panes grouped by tab
+    case everything  // no prefix — shows recents, tabs, panes, commands, worktrees
+    case commands  // ">" prefix — shows only commands grouped by category
+    case panes  // "@" prefix — shows only panes grouped by tab
 }
 
 // MARK: - CommandBarAction
@@ -78,13 +78,13 @@ struct ShortcutKey: Identifiable, Hashable {
     let id = UUID()
     let symbol: String
 
-    static func from(keyBinding: KeyBinding) -> [ShortcutKey] {
-        var keys: [ShortcutKey] = []
-        if keyBinding.modifiers.contains(.command) { keys.append(ShortcutKey(symbol: "⌘")) }
-        if keyBinding.modifiers.contains(.shift) { keys.append(ShortcutKey(symbol: "⇧")) }
-        if keyBinding.modifiers.contains(.option) { keys.append(ShortcutKey(symbol: "⌥")) }
-        if keyBinding.modifiers.contains(.control) { keys.append(ShortcutKey(symbol: "⌃")) }
-        keys.append(ShortcutKey(symbol: keyBinding.key.uppercased()))
+    static func from(keyBinding: KeyBinding) -> [Self] {
+        var keys: [Self] = []
+        if keyBinding.modifiers.contains(.command) { keys.append(Self(symbol: "⌘")) }
+        if keyBinding.modifiers.contains(.shift) { keys.append(Self(symbol: "⇧")) }
+        if keyBinding.modifiers.contains(.option) { keys.append(Self(symbol: "⌥")) }
+        if keyBinding.modifiers.contains(.control) { keys.append(Self(symbol: "⌃")) }
+        keys.append(Self(symbol: keyBinding.key.uppercased()))
         return keys
     }
 }

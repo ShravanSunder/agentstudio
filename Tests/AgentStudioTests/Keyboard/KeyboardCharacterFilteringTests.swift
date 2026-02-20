@@ -1,5 +1,6 @@
-import XCTest
 import AppKit
+import XCTest
+
 @testable import AgentStudio
 
 final class KeyboardCharacterFilteringTests: XCTestCase {
@@ -127,7 +128,7 @@ final class KeyboardCharacterFilteringTests: XCTestCase {
 
     func test_filterGhosttyCharacters_functionKey_returnsNil() {
         // Arrange - F1 key in PUA range
-        let characters = "\u{F704}" // NSF1FunctionKey
+        let characters = "\u{F704}"  // NSF1FunctionKey
 
         // Act
         let result = filterGhosttyCharacters(

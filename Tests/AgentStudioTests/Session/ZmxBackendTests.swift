@@ -1,4 +1,5 @@
 import XCTest
+
 @testable import AgentStudio
 
 final class ZmxBackendTests: XCTestCase {
@@ -217,10 +218,10 @@ final class ZmxBackendTests: XCTestCase {
         let cmd = backend.attachCommand(for: handle)
 
         // Assert
-        XCTAssertTrue(cmd.hasPrefix("/usr/bin/env ZMX_DIR="))
-        XCTAssertTrue(cmd.contains("'/usr/local/bin/zmx'"))
+        XCTAssertFalse(cmd.contains("ZMX_DIR="))
+        XCTAssertTrue(cmd.hasPrefix("\"/usr/local/bin/zmx\""))
         XCTAssertTrue(cmd.contains("attach"))
-        XCTAssertTrue(cmd.contains("'agentstudio--a1b2c3d4e5f6a7b8--00112233aabbccdd--aabbccdd11223344'"))
+        XCTAssertTrue(cmd.contains("\"agentstudio--a1b2c3d4e5f6a7b8--00112233aabbccdd--aabbccdd11223344\""))
         XCTAssertTrue(cmd.contains("-i -l"))
         // No ghost.conf, no mouse-off, no unbind-key
         XCTAssertFalse(cmd.contains("ghost.conf"))
@@ -243,15 +244,14 @@ final class ZmxBackendTests: XCTestCase {
         let cmd = spacedBackend.attachCommand(for: handle)
 
         // Assert
-        XCTAssertTrue(cmd.contains("'/Users/test user/.agentstudio/zmx'"))
-        XCTAssertTrue(cmd.contains("'/Users/test user/bin/zmx'"))
+        XCTAssertFalse(cmd.contains("/Users/test user/.agentstudio/zmx"))
+        XCTAssertTrue(cmd.contains("\"/Users/test user/bin/zmx\""))
     }
 
     func test_buildAttachCommand_staticMethod() {
         // Act
         let cmd = ZmxBackend.buildAttachCommand(
             zmxPath: "/opt/homebrew/bin/zmx",
-            zmxDir: "/home/user/.agentstudio/zmx",
             sessionId: "agentstudio--abc--def--ghi",
             shell: "/bin/zsh"
         )
@@ -259,22 +259,42 @@ final class ZmxBackendTests: XCTestCase {
         // Assert
         XCTAssertEqual(
             cmd,
-            "/usr/bin/env ZMX_DIR='/home/user/.agentstudio/zmx' '/opt/homebrew/bin/zmx' attach 'agentstudio--abc--def--ghi' '/bin/zsh' -i -l"
+            "\"/opt/homebrew/bin/zmx\" attach \"agentstudio--abc--def--ghi\" \"/bin/zsh\" -i -l"
         )
     }
 
     // MARK: - Shell Escape
 
     func test_shellEscape_simplePath() {
-        XCTAssertEqual(ZmxBackend.shellEscape("/usr/bin/zmx"), "'/usr/bin/zmx'")
+        XCTAssertEqual(ZmxBackend.shellEscape("/usr/bin/zmx"), "\"/usr/bin/zmx\"")
     }
 
     func test_shellEscape_pathWithSpaces() {
-        XCTAssertEqual(ZmxBackend.shellEscape("/Users/test user/bin/zmx"), "'/Users/test user/bin/zmx'")
+        XCTAssertEqual(ZmxBackend.shellEscape("/Users/test user/bin/zmx"), "\"/Users/test user/bin/zmx\"")
     }
 
     func test_shellEscape_pathWithSingleQuote() {
-        XCTAssertEqual(ZmxBackend.shellEscape("/tmp/it's"), "'/tmp/it'\\''s'")
+        XCTAssertEqual(ZmxBackend.shellEscape("/tmp/it's"), "\"/tmp/it's\"")
+    }
+
+    func test_shellEscape_escapesDollar() {
+        XCTAssertEqual(ZmxBackend.shellEscape("/tmp/$HOME"), "\"/tmp/\\$HOME\"")
+    }
+
+    func test_shellEscape_escapesBacktick() {
+        XCTAssertEqual(ZmxBackend.shellEscape("/tmp/`pwd`"), "\"/tmp/\\`pwd\\`\"")
+    }
+
+    func test_shellEscape_escapesDoubleQuote() {
+        XCTAssertEqual(ZmxBackend.shellEscape("/tmp/\"quoted\""), "\"/tmp/\\\"quoted\\\"\"")
+    }
+
+    func test_shellEscape_escapesBackslash() {
+        XCTAssertEqual(ZmxBackend.shellEscape("/tmp/foo\\bar"), "\"/tmp/foo\\\\bar\"")
+    }
+
+    func test_shellEscape_escapesHistoryBang() {
+        XCTAssertEqual(ZmxBackend.shellEscape("/tmp/bang!"), "\"/tmp/bang\\!\"")
     }
 
     // MARK: - healthCheck
@@ -364,11 +384,13 @@ final class ZmxBackendTests: XCTestCase {
 
     func test_discoverOrphanSessions_filtersCorrectly() async {
         // Arrange
-        executor.enqueue(ProcessResult(
-            exitCode: 0,
-            stdout: "agentstudio--abc--111--222\trunning\nagentstudio--def--333--444\trunning\nuser-session\trunning\nagentstudio--ghi--555--666\trunning",
-            stderr: ""
-        ))
+        executor.enqueue(
+            ProcessResult(
+                exitCode: 0,
+                stdout:
+                    "agentstudio--abc--111--222\trunning\nagentstudio--def--333--444\trunning\nuser-session\trunning\nagentstudio--ghi--555--666\trunning",
+                stderr: ""
+            ))
 
         // Act
         let orphans = await backend.discoverOrphanSessions(excluding: ["agentstudio--abc--111--222"])
@@ -406,11 +428,13 @@ final class ZmxBackendTests: XCTestCase {
 
     func test_discoverOrphanSessions_includesDrawerSessions() async {
         // Arrange — mix of main and drawer sessions
-        executor.enqueue(ProcessResult(
-            exitCode: 0,
-            stdout: "agentstudio--abc--111--222\trunning\nagentstudio-d--aabb--ccdd\trunning\nuser-session\trunning",
-            stderr: ""
-        ))
+        executor.enqueue(
+            ProcessResult(
+                exitCode: 0,
+                stdout:
+                    "agentstudio--abc--111--222\trunning\nagentstudio-d--aabb--ccdd\trunning\nuser-session\trunning",
+                stderr: ""
+            ))
 
         // Act — exclude the main session, drawer should appear as orphan
         let orphans = await backend.discoverOrphanSessions(excluding: ["agentstudio--abc--111--222"])

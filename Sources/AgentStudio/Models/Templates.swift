@@ -40,10 +40,11 @@ struct TerminalTemplate: Codable, Identifiable, Hashable {
     /// Create a Pane from this template for a given worktree/repo.
     func instantiate(worktreeId: UUID, repoId: UUID) -> Pane {
         Pane(
-            content: .terminal(TerminalState(
-                provider: provider,
-                lifetime: .persistent
-            )),
+            content: .terminal(
+                TerminalState(
+                    provider: provider,
+                    lifetime: .persistent
+                )),
             metadata: PaneMetadata(
                 source: .worktree(worktreeId: worktreeId, repoId: repoId),
                 title: title,

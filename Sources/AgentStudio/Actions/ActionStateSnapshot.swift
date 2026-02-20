@@ -56,7 +56,7 @@ struct ActionStateSnapshot: Equatable {
         Set(tabs.flatMap(\.paneIds))
     }
 
-    static func == (lhs: ActionStateSnapshot, rhs: ActionStateSnapshot) -> Bool {
+    static func == (lhs: Self, rhs: Self) -> Bool {
         lhs.tabs == rhs.tabs
             && lhs.activeTabId == rhs.activeTabId
             && lhs.isManagementModeActive == rhs.isManagementModeActive

@@ -158,7 +158,7 @@ enum CommandBarSearch {
         recentIds: [String] = [],
         threshold: Double = defaultThreshold
     ) -> Double? {
-        guard !query.isEmpty else { return 0.0 } // No query = show everything, score 0 (best)
+        guard !query.isEmpty else { return 0.0 }  // No query = show everything, score 0 (best)
 
         var bestScore: Double = 1.0
 
@@ -202,7 +202,8 @@ enum CommandBarSearch {
     ) -> [CommandBarItem] {
         guard !query.isEmpty else { return items }
 
-        return items
+        return
+            items
             .compactMap { item -> (CommandBarItem, Double)? in
                 guard let score = scoreItem(item, query: query, recentIds: recentIds, threshold: threshold) else {
                     return nil

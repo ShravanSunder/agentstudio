@@ -1,5 +1,5 @@
-import Foundation
 import Combine
+import Foundation
 import Observation
 
 /// Pane info exposed to the tab bar for arrangement panel display.
@@ -25,7 +25,7 @@ struct TabBarItem: Identifiable, Equatable {
     var isSplit: Bool
     var displayTitle: String
     var activeArrangementName: String?  // nil when only default exists
-    var arrangementCount: Int           // total arrangements (1 = default only)
+    var arrangementCount: Int  // total arrangements (1 = default only)
     var panes: [TabBarPaneInfo]
     var arrangements: [TabBarArrangementInfo]
     var minimizedCount: Int
@@ -143,7 +143,8 @@ final class TabBarAdapter: ObservableObject {
             let paneTitles = tab.paneIds.compactMap { paneId in
                 store.pane(paneId)?.title
             }
-            let displayTitle = paneTitles.count > 1
+            let displayTitle =
+                paneTitles.count > 1
                 ? paneTitles.joined(separator: " | ")
                 : paneTitles.first ?? "Terminal"
 
@@ -185,7 +186,7 @@ final class TabBarAdapter: ObservableObject {
     }
 
     private func updateOverflow() {
-        guard tabs.count > 0 else {
+        guard !tabs.isEmpty else {
             isOverflowing = false
             return
         }
@@ -209,7 +210,8 @@ final class TabBarAdapter: ObservableObject {
 
         // Fallback: estimate overflow from tab count when content width isn't measured yet.
         let tabCount = CGFloat(tabs.count)
-        let totalMinWidth = tabCount * Self.minTabWidth
+        let totalMinWidth =
+            tabCount * Self.minTabWidth
             + (tabCount - 1) * Self.tabSpacing
             + Self.tabBarPadding
         isOverflowing = totalMinWidth > effectiveViewport

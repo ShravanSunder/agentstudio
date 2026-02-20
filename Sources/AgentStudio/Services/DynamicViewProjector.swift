@@ -34,7 +34,8 @@ enum DynamicViewProjector {
         }
 
         // Build groups with auto-tiled layouts, sorted alphabetically
-        let groups = grouped
+        let groups =
+            grouped
             .filter { !$0.paneIds.isEmpty }
             .sorted { $0.name.localizedCaseInsensitiveCompare($1.name) == .orderedAscending }
             .map { entry in
@@ -152,9 +153,10 @@ enum DynamicViewProjector {
         repos: [Repo]
     ) -> [(key: String, name: String, paneIds: [UUID])] {
         // Build repo → parent folder lookup
-        let repoParentFolder: [UUID: URL] = Dictionary(uniqueKeysWithValues: repos.map {
-            ($0.id, $0.repoPath.deletingLastPathComponent())
-        })
+        let repoParentFolder: [UUID: URL] = Dictionary(
+            uniqueKeysWithValues: repos.map {
+                ($0.id, $0.repoPath.deletingLastPathComponent())
+            })
 
         var groups: [String: (name: String, paneIds: [UUID])] = [:]
         var ungrouped: [UUID] = []

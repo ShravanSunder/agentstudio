@@ -1,4 +1,5 @@
 import XCTest
+
 @testable import AgentStudio
 
 @MainActor
@@ -8,7 +9,9 @@ final class PaneContentWiringTests: XCTestCase {
 
     override func setUp() {
         super.setUp()
-        store = WorkspaceStore(persistor: WorkspacePersistor(workspacesDir: FileManager.default.temporaryDirectory.appending(path: UUID().uuidString)))
+        store = WorkspaceStore(
+            persistor: WorkspacePersistor(
+                workspacesDir: FileManager.default.temporaryDirectory.appending(path: UUID().uuidString)))
     }
 
     // MARK: - WorkspaceStore.createPane(content:)
@@ -79,8 +82,9 @@ final class PaneContentWiringTests: XCTestCase {
 
         let tab = Tab(paneId: terminalPane.id)
         store.appendTab(tab)
-        store.insertPane(webPane.id, inTab: tab.id, at: terminalPane.id,
-                         direction: .horizontal, position: .after)
+        store.insertPane(
+            webPane.id, inTab: tab.id, at: terminalPane.id,
+            direction: .horizontal, position: .after)
 
         let updatedTab = store.tab(tab.id)!
         XCTAssertTrue(updatedTab.panes.contains(terminalPane.id))

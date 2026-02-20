@@ -1,4 +1,5 @@
 import XCTest
+
 @testable import AgentStudio
 
 final class LayoutAutoTileTests: XCTestCase {
@@ -19,7 +20,8 @@ final class LayoutAutoTileTests: XCTestCase {
     }
 
     func test_autoTiled_twoPanes_producesSplit() {
-        let a = UUID(), b = UUID()
+        let a = UUID()
+        let b = UUID()
         let layout = Layout.autoTiled([a, b])
 
         XCTAssertTrue(layout.isSplit)
@@ -28,7 +30,9 @@ final class LayoutAutoTileTests: XCTestCase {
     }
 
     func test_autoTiled_threePanes_allPresent() {
-        let a = UUID(), b = UUID(), c = UUID()
+        let a = UUID()
+        let b = UUID()
+        let c = UUID()
         let layout = Layout.autoTiled([a, b, c])
 
         XCTAssertEqual(layout.paneIds.count, 3)
@@ -52,7 +56,8 @@ final class LayoutAutoTileTests: XCTestCase {
 
         // Both children should also be splits (2 panes each)
         guard case .split(let left) = root.left,
-              case .split(let right) = root.right else {
+            case .split(let right) = root.right
+        else {
             XCTFail("Expected both children to be splits for 4 panes")
             return
         }

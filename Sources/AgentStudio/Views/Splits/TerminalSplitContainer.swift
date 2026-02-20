@@ -1,5 +1,5 @@
-import SwiftUI
 import AppKit
+import SwiftUI
 
 /// Payload for drag-and-drop split operations.
 struct SplitDropPayload: Equatable, Codable {
@@ -57,7 +57,8 @@ struct TerminalSplitContainer: View {
             ZStack {
                 if let node = tree.root {
                     if let zoomedPaneId,
-                       let zoomedView = tree.allViews.first(where: { $0.id == zoomedPaneId }) {
+                        let zoomedView = tree.allViews.first(where: { $0.id == zoomedPaneId })
+                    {
                         // Zoomed: render single pane at full size
                         ZStack(alignment: .topTrailing) {
                             TerminalPaneLeaf(
@@ -277,7 +278,7 @@ struct SplitSubtreeView: View {
     /// Create a child SplitSubtreeView with all params forwarded.
     @ViewBuilder
     private func subtreeView(node: PaneSplitTree.Node) -> some View {
-        SplitSubtreeView(
+        Self(
             node: node,
             tabId: tabId,
             isSplit: true,
@@ -308,7 +309,8 @@ struct SplitSubtreeView: View {
         return Binding(
             get: { CGFloat(renderRatio) },
             set: { newRenderRatio in
-                let modelRatio = splitInfo?.modelRatio(fromRenderRatio: Double(newRenderRatio))
+                let modelRatio =
+                    splitInfo?.modelRatio(fromRenderRatio: Double(newRenderRatio))
                     ?? Double(newRenderRatio)
                 action(.resizePane(tabId: tabId, splitId: splitId, ratio: modelRatio))
             }

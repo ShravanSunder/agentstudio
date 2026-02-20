@@ -1,4 +1,5 @@
 import XCTest
+
 @testable import AgentStudio
 
 final class CommandBarSearchTests: XCTestCase {
@@ -217,7 +218,7 @@ final class CommandBarSearchTests: XCTestCase {
     func test_filter_noMatches_returnsEmpty() {
         // Arrange
         let items = [
-            makeCommandBarItem(id: "a", title: "Close Tab"),
+            makeCommandBarItem(id: "a", title: "Close Tab")
         ]
 
         // Act

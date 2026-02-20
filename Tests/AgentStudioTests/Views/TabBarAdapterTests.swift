@@ -1,4 +1,5 @@
 import XCTest
+
 @testable import AgentStudio
 
 @MainActor
@@ -293,8 +294,8 @@ final class TabBarAdapterTests: XCTestCase {
         let pane = store.createPane(source: .floating(workingDirectory: nil, title: nil))
         store.appendTab(Tab(paneId: pane.id))
         adapter.availableWidth = 800  // outer container
-        adapter.viewportWidth = 600   // actual scroll viewport (smaller)
-        adapter.contentWidth = 700    // content exceeds viewport but not available
+        adapter.viewportWidth = 600  // actual scroll viewport (smaller)
+        adapter.contentWidth = 700  // content exceeds viewport but not available
 
         let e1 = XCTestExpectation(description: "Viewport overflow")
         DispatchQueue.main.asyncAfter(deadline: .now() + 0.1) { e1.fulfill() }

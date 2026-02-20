@@ -10,11 +10,13 @@ struct EditModeToolbarButton: View {
         Button {
             managementMode.toggle()
         } label: {
-            Image(systemName: managementMode.isActive
-                  ? "rectangle.split.2x2.fill"
-                  : "rectangle.split.2x2")
-                .font(.system(size: 14, weight: .medium))
-                .foregroundStyle(managementMode.isActive ? Color.accentColor : .primary)
+            Image(
+                systemName: managementMode.isActive
+                    ? "rectangle.split.2x2.fill"
+                    : "rectangle.split.2x2"
+            )
+            .font(.system(size: 14, weight: .medium))
+            .foregroundStyle(managementMode.isActive ? Color.accentColor : .primary)
         }
         .buttonStyle(.plain)
         .help("Toggle Edit Mode (\u{2318}E)")
