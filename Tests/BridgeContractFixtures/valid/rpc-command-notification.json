@@ -1,0 +1,6 @@
+{
+  "jsonrpc": "2.0",
+  "method": "diff.requestFileContents",
+  "params": { "fileId": "abc123" },
+  "__commandId": "cmd_00000000-0000-0000-0000-000000000001"
+}
