@@ -131,7 +131,7 @@ cd agent-studio
 
 ## Contributing
 
-Contributions welcome. Fork, branch, test, PR.
+Contributions welcome. Fork, branch, test, PR. By submitting a pull request you agree to the [Contributor License Agreement](CLA.md).
 
 ## License
 
