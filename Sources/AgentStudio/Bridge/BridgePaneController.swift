@@ -1,6 +1,9 @@
 import Foundation
 import Observation
+import os.log
 import WebKit
+
+private let bridgeControllerLogger = Logger(subsystem: "com.agentstudio", category: "BridgePaneController")
 
 /// Per-pane controller for bridge-backed panels (diff viewer, code review, etc.).
 ///
@@ -32,6 +35,18 @@ final class BridgePaneController {
     /// No state pushes or commands are allowed before this becomes `true`.
     /// Gated and idempotent — once set, subsequent `bridge.ready` messages are ignored.
     private(set) var isBridgeReady = false
+
+    // MARK: - Domain State
+
+    let paneState = PaneDomainState()
+    let sharedState = SharedBridgeState()
+    let revisionClock = RevisionClock()
+
+    // MARK: - Push Plans
+
+    private var diffPushPlan: PushPlan<DiffState>?
+    private var reviewPushPlan: PushPlan<ReviewState>?
+    private var connectionPushPlan: PushPlan<SharedBridgeState>?
 
     // MARK: - Private State
 
@@ -121,7 +136,12 @@ final class BridgePaneController {
     /// Called when the pane is being removed or the controller is being deallocated.
     /// Push plan teardown will be added in Stage 3.
     func teardown() {
-        // Stage 3: Cancel all active push plan tasks here.
+        diffPushPlan?.stop()
+        reviewPushPlan?.stop()
+        connectionPushPlan?.stop()
+        diffPushPlan = nil
+        reviewPushPlan = nil
+        connectionPushPlan = nil
         isBridgeReady = false
     }
 
@@ -138,6 +158,82 @@ final class BridgePaneController {
     func handleBridgeReady() {
         guard !isBridgeReady else { return }
         isBridgeReady = true
-        // Stage 3: Start push plans here (diffPushPlan, reviewPushPlan, connectionPushPlan).
+
+        diffPushPlan = makeDiffPushPlan()
+        reviewPushPlan = makeReviewPushPlan()
+        connectionPushPlan = makeConnectionPushPlan()
+
+        diffPushPlan?.start()
+        reviewPushPlan?.start()
+        connectionPushPlan?.start()
+    }
+
+    // MARK: - Push Plan Factories
+
+    private func makeDiffPushPlan() -> PushPlan<DiffState> {
+        PushPlan(
+            state: paneState.diff,
+            transport: self,
+            revisions: revisionClock,
+            epoch: { [paneState] in paneState.diff.epoch }
+        ) {
+            Slice("diffStatus", store: .diff, level: .hot) { state in
+                DiffStatusSlice(status: state.status, error: state.error, epoch: state.epoch)
+            }
+            Slice("diffManifest", store: .diff, level: .cold, op: .replace) { state in
+                state.manifest
+            }
+        }
+    }
+
+    private func makeReviewPushPlan() -> PushPlan<ReviewState> {
+        PushPlan(
+            state: paneState.review,
+            transport: self,
+            revisions: revisionClock,
+            epoch: { [paneState] in paneState.diff.epoch }
+        ) {
+            EntitySlice(
+                "reviewThreads", store: .review, level: .warm,
+                capture: { state in state.threads },
+                version: { thread in thread.version },
+                keyToString: { $0.uuidString }
+            )
+            Slice("reviewViewedFiles", store: .review, level: .warm) { state in
+                state.viewedFiles.sorted()
+            }
+        }
+    }
+
+    private func makeConnectionPushPlan() -> PushPlan<SharedBridgeState> {
+        PushPlan(
+            state: sharedState,
+            transport: self,
+            revisions: revisionClock,
+            epoch: { 0 }
+        ) {
+            Slice("connectionHealth", store: .connection, level: .hot) { state in
+                ConnectionSlice(health: state.connection.health, latencyMs: state.connection.latencyMs)
+            }
+        }
+    }
+}
+
+// MARK: - PushTransport Conformance
+
+extension BridgePaneController: PushTransport {
+    func pushJSON(
+        store: StoreKey,
+        op: PushOp,
+        level: PushLevel,
+        revision: Int,
+        epoch: Int,
+        json: Data
+    ) async {
+        // Phase 2 stub: log the push. Full callJavaScript implementation in Phase 4.
+        // This allows push plans to run end-to-end through MockPushTransport in tests.
+        bridgeControllerLogger.debug(
+            "[BridgePaneController] pushJSON store=\(store.rawValue) op=\(op.rawValue) level=\(String(describing: level)) rev=\(revision) epoch=\(epoch) bytes=\(json.count)"
+        )
     }
 }

@@ -26,11 +26,11 @@ enum DiffStatus: String, Codable, Equatable, Sendable {
 
 /// Diff manifest — metadata for files in a diff.
 /// Minimal shape for Phase 2 push benchmark (100-file manifest).
-struct DiffManifest: Encodable, Equatable {
+struct DiffManifest: Encodable, Equatable, Sendable {
     var files: [FileManifest]
 }
 
-struct FileManifest: Encodable, Equatable {
+struct FileManifest: Encodable, Equatable, Sendable {
     let id: String
     let path: String
     let oldPath: String?
@@ -40,7 +40,7 @@ struct FileManifest: Encodable, Equatable {
     let size: Int
     let contextHash: String
 
-    enum ChangeType: String, Encodable, Equatable {
+    enum ChangeType: String, Encodable, Equatable, Sendable {
         case added, modified, deleted, renamed
     }
 }
