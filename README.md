@@ -135,7 +135,7 @@ Contributions welcome. Fork, branch, test, PR.
 
 ## License
 
-TBD
+[AGPL-3.0](LICENSE)
 
 ## Acknowledgments
 
