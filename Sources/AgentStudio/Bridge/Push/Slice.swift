@@ -65,8 +65,11 @@ struct Slice<State: Observable & AnyObject, Snapshot: Encodable & Equatable & Se
                         prev = snapshot
                         let revision = revisions.next(for: store)
                         let epoch = epochProvider()
-                        guard let data = try? encoder.encode(snapshot) else {
-                            logger.error("[PushEngine] encode failed slice=\(name) store=\(store.rawValue)")
+                        let data: Data
+                        do {
+                            data = try encoder.encode(snapshot)
+                        } catch {
+                            logger.error("[PushEngine] encode failed slice=\(name) store=\(store.rawValue): \(error)")
                             continue
                         }
                         await transport.pushJSON(
@@ -92,11 +95,12 @@ struct Slice<State: Observable & AnyObject, Snapshot: Encodable & Equatable & Se
                                 continue
                             }
                         } else {
-                            guard let encoded = try? encoder.encode(snapshot) else {
-                                logger.error("[PushEngine] encode failed slice=\(name) store=\(store.rawValue)")
+                            do {
+                                data = try encoder.encode(snapshot)
+                            } catch {
+                                logger.error("[PushEngine] encode failed slice=\(name) store=\(store.rawValue): \(error)")
                                 continue
                             }
-                            data = encoded
                         }
 
                         await transport.pushJSON(

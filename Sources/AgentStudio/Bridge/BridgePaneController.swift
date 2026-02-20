@@ -104,6 +104,14 @@ final class BridgePaneController {
 
         self.router = RPCRouter()
 
+        // Log RPC-level errors (parse errors, unknown methods, batch rejection).
+        // Handler execution errors are caught separately in the onValidJSON callback below.
+        router.onError = { code, message, id in
+            bridgeControllerLogger.warning(
+                "[BridgePaneController] RPC error code=\(code) msg=\(message) id=\(String(describing: id))"
+            )
+        }
+
         // Wire message handler → router: validated JSON from postMessage is dispatched to handlers.
         messageHandler.onValidJSON = { [weak self] json in
             do {
@@ -195,6 +203,9 @@ final class BridgePaneController {
             state: paneState.review,
             transport: self,
             revisions: revisionClock,
+            // Review epoch tracks diff epoch for now (Phase 2 stub — ReviewState has no
+            // independent epoch). Phase 3+ should add review.epoch if review data has its own
+            // version timeline separate from diffs.
             epoch: { [paneState] in paneState.diff.epoch }
         ) {
             EntitySlice(
