@@ -38,6 +38,12 @@ final class PushPlan<State: Observable & AnyObject> {
     private let slices: [AnyPushSlice<State>]
     private var tasks: [Task<Void, Never>] = []
 
+    /// Guards against post-stop emissions. Task cancellation is cooperative —
+    /// an in-flight iteration between `for await` yield and `pushJSON` won't
+    /// see cancellation until the next suspension point. This flag is checked
+    /// by the guarded transport wrapper before forwarding to the real transport.
+    private(set) var isStopped = true
+
     /// Number of active observation tasks. Exposed for testing.
     var taskCount: Int { tasks.count }
 
@@ -57,13 +63,43 @@ final class PushPlan<State: Observable & AnyObject> {
 
     func start() {
         stop()
+        isStopped = false
+        let guardedTransport = StopGuardedTransport(plan: self, inner: transport)
         tasks = slices.map { slice in
-            slice.makeTask(state, transport, revisions, epochProvider)
+            slice.makeTask(state, guardedTransport, revisions, epochProvider)
         }
     }
 
     func stop() {
+        isStopped = true
         for task in tasks { task.cancel() }
         tasks.removeAll()
+    }
+}
+
+// MARK: - Stop-Guarded Transport
+
+/// Wraps a real transport and drops pushes if the owning plan has been stopped.
+/// Prevents post-stop emissions from in-flight slice iterations that haven't
+/// yet observed task cancellation.
+@MainActor
+private final class StopGuardedTransport<State: Observable & AnyObject>: PushTransport {
+    private weak var plan: PushPlan<State>?
+    private let inner: PushTransport
+
+    init(plan: PushPlan<State>, inner: PushTransport) {
+        self.plan = plan
+        self.inner = inner
+    }
+
+    func pushJSON(
+        store: StoreKey, op: PushOp, level: PushLevel,
+        revision: Int, epoch: Int, json: Data
+    ) async {
+        guard plan?.isStopped == false else { return }
+        await inner.pushJSON(
+            store: store, op: op, level: level,
+            revision: revision, epoch: epoch, json: json
+        )
     }
 }

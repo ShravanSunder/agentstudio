@@ -80,10 +80,23 @@ struct EntitySlice<
                         keyToString: keyToString
                     )
                     guard !delta.isEmpty else { continue }
-                    guard let data = try? encoder.encode(delta) else {
-                        logger.error("[PushEngine] encode failed slice=\(name) store=\(store.rawValue)")
+
+                    let data: Data
+                    do {
+                        if level == .cold {
+                            // Offload JSON encoding for cold slices (e.g. diffFiles) to
+                            // avoid blocking the main actor on large payloads.
+                            data = try await Task.detached(priority: .utility) {
+                                try encoder.encode(delta)
+                            }.value
+                        } else {
+                            data = try encoder.encode(delta)
+                        }
+                    } catch {
+                        logger.error("[PushEngine] encode failed slice=\(name) store=\(store.rawValue): \(error)")
                         continue
                     }
+
                     let revision = revisions.next(for: store)
                     let epoch = epochFn()
                     await transport.pushJSON(
