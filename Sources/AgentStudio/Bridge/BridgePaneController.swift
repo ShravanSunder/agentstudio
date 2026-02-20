@@ -252,10 +252,12 @@ extension BridgePaneController: PushTransport {
         epoch: Int,
         json: Data
     ) async {
-        // Content guard — skip identical pushes to same store+op pair.
-        // Using store:op as key ensures a .replace and .merge to the same store
-        // with identical bytes are NOT deduplicated (they have different semantics).
-        let dedupKey = "\(store.rawValue):\(op.rawValue)"
+        // Content guard — skip identical pushes to same store+op+epoch triple.
+        // Including epoch ensures a new load generation (same data, new epoch) is
+        // never suppressed — React needs to see the epoch change to update tracking.
+        // Including op ensures .replace and .merge with identical bytes are not
+        // deduplicated (they have different semantics).
+        let dedupKey = "\(store.rawValue):\(op.rawValue):\(epoch)"
         if lastPushedJSON[dedupKey] == json { return }
         lastPushedJSON[dedupKey] = json
 

@@ -1,17 +1,29 @@
+import AppKit
 import Foundation
 import WebKit
+import os.log
+
+private let navigationLogger = Logger(subsystem: "com.agentstudio", category: "BridgeNavigationDecider")
 
 /// URL scheme security policy for bridge panes.
 ///
 /// Strict allowlist: only `agentstudio` (custom scheme for bundled React app)
-/// and `about` (initial blank page). All web schemes (https, http, file, etc.)
-/// are blocked — bridge panes must NOT navigate to external content.
+/// and `about` (initial blank page) are loaded in the pane. External URLs
+/// (`http`/`https`) are opened in the default browser instead.
+/// All other schemes (file, ftp, etc.) are blocked silently.
+///
+/// Design doc §11.4.
 final class BridgeNavigationDecider: WebPage.NavigationDeciding {
 
     // MARK: - Allowed Schemes
 
     static let allowedSchemes: Set<String> = [
         "agentstudio", "about",
+    ]
+
+    /// Schemes that should be redirected to the default browser, not loaded in-pane.
+    static let externalSchemes: Set<String> = [
+        "http", "https",
     ]
 
     // MARK: - NavigationDeciding
@@ -24,11 +36,19 @@ final class BridgeNavigationDecider: WebPage.NavigationDeciding {
         guard let url = action.request.url else { return .cancel }
         let scheme = url.scheme?.lowercased() ?? ""
 
-        // Block all schemes except agentstudio and about
-        guard Self.allowedSchemes.contains(scheme) else {
+        // Internal schemes: load in pane
+        if Self.allowedSchemes.contains(scheme) {
+            return .allow
+        }
+
+        // External web URLs: open in default browser, don't load in pane
+        if Self.externalSchemes.contains(scheme) {
+            navigationLogger.debug("[BridgeNavigationDecider] opening external URL in browser: \(url.absoluteString)")
+            NSWorkspace.shared.open(url)
             return .cancel
         }
 
-        return .allow
+        // Everything else: block silently
+        return .cancel
     }
 }
