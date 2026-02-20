@@ -1,0 +1,103 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+
+jobs:
+  build:
+    runs-on: macos-26
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          submodules: recursive
+
+      - name: Setup mise
+        uses: jdx/mise-action@v3
+
+      # --- Submodule SHAs for cache keys ---
+
+      - name: Get submodule SHAs
+        id: submodules
+        run: |
+          GHOSTTY_SHA=$(git -C vendor/ghostty rev-parse HEAD)
+          ZMX_SHA=$(git -C vendor/zmx rev-parse HEAD)
+          echo "ghostty_sha=$GHOSTTY_SHA" >> "$GITHUB_OUTPUT"
+          echo "zmx_sha=$ZMX_SHA" >> "$GITHUB_OUTPUT"
+
+      # --- Cache/build Ghostty ---
+
+      - name: Cache Ghostty artifacts
+        id: cache-ghostty
+        uses: actions/cache@v4
+        with:
+          path: |
+            vendor/ghostty/macos/GhosttyKit.xcframework
+            vendor/ghostty/zig-out/share
+          key: ghostty-${{ runner.os }}-${{ steps.submodules.outputs.ghostty_sha }}
+
+      - name: Build Ghostty XCFramework
+        if: steps.cache-ghostty.outputs.cache-hit != 'true'
+        run: |
+          cd vendor/ghostty
+          zig build -Doptimize=ReleaseFast -Demit-xcframework=true -Demit-macos-app=false -Dxcframework-target=native
+
+      # --- Cache/build zmx ---
+
+      - name: Cache zmx artifacts
+        id: cache-zmx
+        uses: actions/cache@v4
+        with:
+          path: vendor/zmx/zig-out
+          key: zmx-${{ runner.os }}-${{ steps.submodules.outputs.zmx_sha }}
+
+      - name: Build zmx
+        if: steps.cache-zmx.outputs.cache-hit != 'true'
+        run: |
+          cd vendor/zmx
+          zig build -Doptimize=ReleaseFast
+
+      # --- Setup resources + build + test ---
+
+      - name: Copy XCFramework
+        run: |
+          mkdir -p Frameworks
+          cp -R vendor/ghostty/macos/GhosttyKit.xcframework Frameworks/
+
+      - name: Setup dev resources
+        run: |
+          if [ -d "vendor/ghostty/zig-out/share/ghostty/shell-integration" ]; then
+            SRC="vendor/ghostty/zig-out/share/ghostty/shell-integration"
+          elif [ -d "vendor/ghostty/src/shell-integration" ]; then
+            SRC="vendor/ghostty/src/shell-integration"
+          else
+            echo "ERROR: shell-integration not found" && exit 1
+          fi
+          mkdir -p Sources/AgentStudio/Resources/ghostty
+          rm -rf Sources/AgentStudio/Resources/ghostty/shell-integration
+          cp -R "$SRC" Sources/AgentStudio/Resources/ghostty/shell-integration
+
+          TERMINFO_SRC="vendor/ghostty/zig-out/share/terminfo"
+          if [ -d "$TERMINFO_SRC" ]; then
+            mkdir -p Sources/AgentStudio/Resources/terminfo/78 Sources/AgentStudio/Resources/terminfo/67
+            [ -f "$TERMINFO_SRC/78/xterm-ghostty" ] && cp "$TERMINFO_SRC/78/xterm-ghostty" Sources/AgentStudio/Resources/terminfo/78/
+            [ -f "$TERMINFO_SRC/67/ghostty" ] && cp "$TERMINFO_SRC/67/ghostty" Sources/AgentStudio/Resources/terminfo/67/
+          fi
+
+      - name: Cache Swift build
+        uses: actions/cache@v4
+        with:
+          path: .build
+          key: swift-${{ runner.os }}-${{ hashFiles('Package.swift', 'Package.resolved') }}
+          restore-keys: |
+            swift-${{ runner.os }}-
+
+      - name: Build
+        run: swift build -c release
+
+      - name: Test
+        run: swift test
