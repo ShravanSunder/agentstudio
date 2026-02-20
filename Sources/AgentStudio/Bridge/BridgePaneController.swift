@@ -106,7 +106,11 @@ final class BridgePaneController {
 
         // Wire message handler → router: validated JSON from postMessage is dispatched to handlers.
         messageHandler.onValidJSON = { [weak self] json in
-            try? await self?.router.dispatch(json: json)
+            do {
+                try await self?.router.dispatch(json: json)
+            } catch {
+                bridgeControllerLogger.error("[BridgePaneController] RPC dispatch error: \(error)")
+            }
         }
 
         // Register bridge.ready handler — the ONLY trigger for starting push plans (§4.5 step 6).

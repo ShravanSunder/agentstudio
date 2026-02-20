@@ -62,14 +62,17 @@ enum BridgeBootstrap {
                 }
             };
 
-            // Listen for commands from page world — validate nonce before forwarding to Swift
+            // Listen for commands from page world — validate nonce before forwarding to Swift.
+            // Design doc §4.2: page world sends { jsonrpc, method, params, __nonce }.
+            // Bridge world validates __nonce, strips it, and forwards the rest as stringified JSON.
             document.addEventListener('__bridge_command', function(event) {
                 const detail = event.detail;
-                if (!detail || detail.nonce !== BRIDGE_NONCE) {
+                if (!detail || detail.__nonce !== BRIDGE_NONCE) {
                     return; // Reject commands without valid nonce
                 }
-                // Forward validated command to Swift via postMessage
-                window.webkit.messageHandlers.rpc.postMessage(detail.payload);
+                // Strip nonce before forwarding to Swift
+                const { __nonce, ...payload } = detail;
+                window.webkit.messageHandlers.rpc.postMessage(JSON.stringify(payload));
             });
 
             // Listen for bridge.ready from page world

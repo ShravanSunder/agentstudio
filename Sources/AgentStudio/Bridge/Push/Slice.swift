@@ -24,7 +24,7 @@ struct AnyPushSlice<State: Observable & AnyObject> {
 /// Cold payloads encode off-main-actor. Hot/warm encode on-main-actor.
 ///
 /// Design doc section 6.5.
-struct Slice<State: Observable & AnyObject, Snapshot: Encodable & Equatable> {
+struct Slice<State: Observable & AnyObject, Snapshot: Encodable & Equatable & Sendable> {
     let name: String
     let store: StoreKey
     let level: PushLevel

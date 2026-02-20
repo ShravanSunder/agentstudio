@@ -118,6 +118,7 @@ final class TerminalViewCoordinator {
             let controller = BridgePaneController(paneId: pane.id, state: state)
             let view = BridgePaneView(paneId: pane.id, controller: controller)
             viewRegistry.register(view, for: pane.id)
+            controller.loadApp()
             coordinatorLogger.info("Created bridge panel view for pane \(pane.id)")
             return view
 
@@ -255,6 +256,11 @@ final class TerminalViewCoordinator {
         if let terminal = viewRegistry.terminalView(for: paneId),
            let surfaceId = terminal.surfaceId {
             SurfaceManager.shared.detach(surfaceId, reason: .close)
+        }
+
+        // Bridge pane-specific: stop push plans and reset state before unregistering
+        if let bridgeView = viewRegistry.view(for: paneId) as? BridgePaneView {
+            bridgeView.controller.teardown()
         }
 
         viewRegistry.unregister(paneId)
