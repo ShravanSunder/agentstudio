@@ -52,7 +52,10 @@ let package = Package(
         ),
         .testTarget(
             name: "AgentStudioTests",
-            dependencies: ["AgentStudio"],
+            dependencies: [
+                "AgentStudio",
+                .product(name: "AsyncAlgorithms", package: "swift-async-algorithms"),
+            ],
             path: "Tests/AgentStudioTests",
             swiftSettings: [
                 .swiftLanguageMode(.v5)
