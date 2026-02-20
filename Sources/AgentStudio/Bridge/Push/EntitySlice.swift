@@ -66,6 +66,7 @@ struct EntitySlice<
             return Task { @MainActor in
                 var lastVersions: [Key: Int] = [:]
                 let encoder = JSONEncoder()
+                encoder.outputFormatting = .sortedKeys
 
                 let stream = Observations { capture(state) }
                 let source: any AsyncSequence<[Key: Entity], Never> =

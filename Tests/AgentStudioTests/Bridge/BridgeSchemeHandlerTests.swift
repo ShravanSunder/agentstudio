@@ -141,4 +141,11 @@ final class BridgeSchemeHandlerTests: XCTestCase {
         let result = BridgeSchemeHandler.classifyPath("agentstudio://app/my..config.js")
         XCTAssertEqual(result, .app("my..config.js"))
     }
+
+    func test_rejects_double_encoded_path_traversal() {
+        // %252e%252e → first decode → %2e%2e → second decode → ".."
+        // Stable-decode loop catches this.
+        let result = BridgeSchemeHandler.classifyPath("agentstudio://app/%252e%252e/etc/passwd")
+        XCTAssertEqual(result, .invalid)
+    }
 }

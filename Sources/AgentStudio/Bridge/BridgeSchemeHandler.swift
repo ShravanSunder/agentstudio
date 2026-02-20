@@ -85,10 +85,14 @@ struct BridgeSchemeHandler: URLSchemeHandler {
         }
 
         let host = url.host() ?? ""
-        let rawPath = url.path()
-        // Explicitly percent-decode for custom schemes (Foundation does not auto-decode
-        // custom scheme paths the way it does for http/https).
-        let path = rawPath.removingPercentEncoding ?? rawPath
+        // Stable-decode: iteratively percent-decode until the string stops changing.
+        // Catches double-encoding attacks like %252e%252e → %2e%2e → ".."
+        var path = url.path()
+        var previous: String?
+        while path != previous {
+            previous = path
+            path = path.removingPercentEncoding ?? path
+        }
 
         // Reject path traversal — check for ".." as a complete path segment.
         // Segment-based check avoids false-rejecting benign filenames like "my..config.js".

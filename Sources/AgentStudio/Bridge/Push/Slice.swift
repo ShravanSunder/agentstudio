@@ -57,6 +57,7 @@ struct Slice<State: Observable & AnyObject, Snapshot: Encodable & Equatable & Se
             Task { @MainActor in
                 var prev: Snapshot?
                 let encoder = JSONEncoder()
+                encoder.outputFormatting = .sortedKeys
 
                 let stream = Observations { capture(state) }
                 let source: any AsyncSequence<Snapshot, Never> =
