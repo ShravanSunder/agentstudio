@@ -510,6 +510,8 @@ Each slice is a capture closure that reads specific properties from an `@Observa
 
 Revisions must be **monotonic per store across all slices in the pane** (§5.7 invariant). A single `RevisionClock` is owned by `BridgePaneController` and shared across all `PushPlan` instances for that pane.
 
+> **Concurrency safety**: `RevisionClock` is `@MainActor`-isolated. All callers (`PushPlan.observe()`) must call `clock.next(for:)` on the main actor **before** detaching any encoding work (e.g., `.cold` payloads use `Task.detached` for JSON encoding). The revision value is captured as a `let` before the detached block, so no race is possible. This is a high-risk area for future refactoring — moving `next(for:)` into a detached context would break the monotonicity invariant.
+
 ```swift
 /// Monotonic revision counter per store. Shared across all push plans
 /// for a pane to ensure revision ordering per §5.7.
@@ -594,7 +596,7 @@ extension BridgePaneController: PushTransport {
                 "[Bridge] push failed store=\(store.rawValue) rev=\(revision) "
                 + "epoch=\(epoch) pushId=\(pushId) level=\(level): \(error)"
             )
-            sharedState.connection.health = .error
+            domainState.connection.health = .error
         }
     }
 }
@@ -965,7 +967,7 @@ private func makeReviewPushPlan() -> PushPlan<ReviewState> {
 /// Connection state push plan: 1 hot slice.
 private func makeConnectionPushPlan() -> PushPlan<SharedBridgeState> {
     PushPlan(
-        state: sharedState,
+        state: domainState,
         transport: self,
         revisions: revisionClock,
         epoch: { 0 }  // connection has no epoch concept
@@ -1462,11 +1464,12 @@ class PaneDomainState {
 @Observable
 @MainActor
 class SharedBridgeState {
-    var connection: ConnectionState = .init()
+    // Shared state that is truly application-wide (not per-pane).
+    // Connection health was moved to PaneDomainState — see §8.7.
 }
 ```
 
-**Ownership**: `BridgePaneController` owns one `PaneDomainState` and holds a reference to the singleton `SharedBridgeState`. Each pane's observation loops push both per-pane and shared state into their respective Zustand stores.
+**Ownership**: `BridgePaneController` owns one `PaneDomainState` (which includes `ConnectionState` — see §8.7). It holds a reference to the singleton `SharedBridgeState` for any truly application-wide state. Each pane's observation loops push per-pane state into their respective Zustand stores.
 
 ### 8.2 Diff Source and Manifest
 
@@ -1599,6 +1602,8 @@ enum ReviewAction: Codable {
     case unresolveThread(threadId: UUID)
     case markFileViewed(fileId: String)
     case unmarkFileViewed(fileId: String)
+    case editComment(commentId: UUID, body: String)
+    case deleteComment(commentId: UUID)
 }
 
 /// Aggregate review state for the pane.
@@ -1663,6 +1668,8 @@ enum TimelineEventKind: String, Codable {
 
 ### 8.7 Connection State
 
+Connection health is **per-pane**, not shared. Each `BridgePaneController` owns its own `ConnectionState` because WebKit process crashes are per-WebPage — one pane crashing must not mark other panes as disconnected.
+
 ```swift
 @Observable
 class ConnectionState: Codable {
@@ -1671,6 +1678,8 @@ class ConnectionState: Codable {
     enum ConnectionHealth: String, Codable { case connected, disconnected, error }
 }
 ```
+
+> **Design decision**: Earlier drafts placed `ConnectionState` in `SharedBridgeState` as a singleton. This was incorrect — WebKit isolates each `WebPage` in its own web content process, so crashes are per-pane. `ConnectionState` is now owned by `PaneDomainState` alongside other per-pane state.
 
 ### 8.8 Codable Conformance
 
@@ -1817,7 +1826,7 @@ class BridgePaneController {
     /// web-content process termination. The bridge must detect these, update health state,
     /// and cleanly tear down push plans.
     func handlePageTermination(reason: PageTerminationReason) {
-        sharedState.connection.health = .disconnected
+        domainState.connection.health = .disconnected
         teardown()
 
         switch reason {
@@ -1840,7 +1849,7 @@ class BridgePaneController {
     /// Re-pushes full state to ensure React is synchronized.
     func resumeAfterReload() {
         guard diffPushPlan == nil else { return }
-        sharedState.connection.health = .connected
+        domainState.connection.health = .connected
 
         Task {
             while page.isLoading {
@@ -3089,7 +3098,7 @@ init(paneId: UUID, state: BridgePaneState, sharedState: SharedBridgeState) {
 ### 15.6 Shared State
 
 - **`SharedBridgeState` is singleton** — held by `TerminalViewCoordinator` (or `AppDelegate`), injected into each `BridgePaneController`
-- Provides connection health across all bridge panes
+- Holds truly application-wide state (not per-pane). Connection health is **per-pane** (see §8.7)
 - Browser panes do NOT interact with `SharedBridgeState`
 
 The existing `ViewRegistry`, `Layout`, drag/drop, and split system work unchanged — the bridge pane is just another leaf in the layout tree.
@@ -3100,7 +3109,7 @@ The existing `ViewRegistry`, `Layout`, drag/drop, and split system work unchange
 
 ### Resolved (in this document)
 
-- ~~**Domain state scope**~~ → **Per-pane** `PaneDomainState` (diff, review, agent tasks, timeline). Shared state (`ConnectionState`) is singleton. See §8.1.
+- ~~**Domain state scope**~~ → **Per-pane** `PaneDomainState` (diff, review, agent tasks, timeline, connection health). `SharedBridgeState` exists for truly application-wide state. See §8.1, §8.7.
 - ~~**CustomEvent command forgery**~~ → **Nonce token** generated at bootstrap, validated by bridge world. See §11.3.
 - ~~**Push error handling**~~ → **do-catch** with logging and connection health state update. No force-unwraps. See §6.4.
 - ~~**File loading race conditions**~~ → **Metadata push + content pull with priority queue, LRU cache, and epoch guard**. See §10.
@@ -3158,4 +3167,6 @@ All bridge-specific WebKit APIs verified. Spike tests in `Tests/AgentStudioTests
 3. **React app bundling** — Vite build output bundled as app resources? Or served from disk via the scheme handler? Need to decide the build pipeline and how `BridgeSchemeHandler` locates the built assets.
 4. **WebPage lifecycle when hidden** — How does the WebPage behave when the pane is hidden (backgrounded via view switch)? Does it keep running JS? Do observation loops need to pause to avoid wasted work?
 5. **Pierre license and bundle size** — Verify `@pierre/diffs` license compatibility and evaluate bundle size impact.
-6. **Terminal injection mechanism** — What is the exact API for injecting text into a Ghostty terminal session? Need to trace through `SurfaceManager` → Ghostty C API.
+6. **Terminal injection mechanism** — What is the exact API for injecting text into a Ghostty terminal session? Need to trace through `SurfaceManager` → Ghostty C API. Candidate approaches: (a) Ghostty C API `ghostty_surface_write()` for direct terminal input injection, (b) accessibility-based paste simulation, (c) PTY stdin write via file descriptor. Need to spike each approach and determine which works within the Ghostty embedding model.
+7. **Full-diff search API** — The "metadata push, content pull" model with ~20-file LRU cache (§10.4) means React only holds partial file contents. A "Find in Diff" (Cmd+F) searching across all changed files will fail for files not yet loaded. Solution: add a `diff.search(query)` RPC method that scans full content on the Swift side and returns matches with file IDs and line ranges. React can then display results and trigger content pulls for matched files. This is a Phase 4 UX requirement, not Phase 1-2.
+8. **Optimistic mutation cascading rollback** — The current optimistic model (§5.1.1) handles single-command rollback: React shows optimistic state, Swift confirms or rejects, React rolls back on rejection. But dependent optimistic updates (e.g., create Thread A → add Comment B to A → Swift rejects A) need cascading rollback. Options: (a) batch dependent mutations into a single command, (b) track dependency chains in React's pending state, (c) accept that dependent optimistic mutations are rare enough to handle with a simple "refresh all" on rejection. Decide before Phase 4 review features.

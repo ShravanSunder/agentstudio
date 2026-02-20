@@ -397,13 +397,18 @@ final class BridgeWebKitSpikeTests: XCTestCase {
         )
     }
 
-    /// Wait for page load to complete with a timeout.
-    /// Uses page.isLoading polling plus settle time for WebKit internals.
-    private func waitForPageLoad(_ page: WebPage) async throws {
-        let deadline = ContinuousClock.now + .seconds(5)
+    /// Wait for page load to complete, throwing on timeout.
+    /// Polls `page.isLoading` and enforces a hard deadline so tests
+    /// fail explicitly rather than asserting against an unready page.
+    private func waitForPageLoad(_ page: WebPage, timeout: Duration = .seconds(5)) async throws {
+        let deadline = ContinuousClock.now + timeout
         while ContinuousClock.now < deadline {
             if !page.isLoading { break }
             try await Task.sleep(for: .milliseconds(100))
+        }
+        guard !page.isLoading else {
+            XCTFail("Page did not finish loading within \(timeout)")
+            return
         }
         // Settle time for WebKit internals after isLoading flips
         try await Task.sleep(for: .milliseconds(200))
