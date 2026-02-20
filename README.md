@@ -21,8 +21,8 @@ This installs AgentStudio.app to `/Applications/`. Session persistence is handle
 
 ## Prerequisites
 
-- **macOS 14.0 or later**
-- **Xcode 15.0 or later** (for Swift compilation)
+- **macOS 26 or later**
+- **Xcode 26 or later** (Swift 6.2)
 - **[Zig compiler](https://ziglang.org/download/)** (for building Ghostty from source)
 
 ### Installing Zig
@@ -169,7 +169,7 @@ Contributions are welcome! Please:
 ## Architecture
 
 Agent Studio is built using:
-- **Swift 5.9+** with Swift Package Manager
+- **Swift 6.2** with Swift Package Manager, `@Observable`, `AsyncStream`, and `swift-async-algorithms`
 - **AppKit** for native macOS UI
 - **Ghostty** (via C API) for terminal emulation
 - **Zig build system** for Ghostty compilation

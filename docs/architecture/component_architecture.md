@@ -2,7 +2,7 @@
 
 ## TL;DR
 
-`WorkspaceStore` owns all persisted state: repos, sessions, views, and layouts. `TerminalSession` is the primary identity — referenced by UUID across every layer. Layouts are immutable value-type trees where leaves point to session IDs. All mutations flow through `ActionExecutor` → `WorkspaceStore`, which fires `@Published` for SwiftUI re-renders and debounces persistence. Twelve invariants are enforced at all times.
+State is distributed across independent `@Observable` stores (Jotai-style atomic stores) with `private(set)` for unidirectional flow (Valtio-style). `WorkspaceStore` owns workspace structure, `SurfaceManager` owns Ghostty surfaces, `SessionRuntime` owns backends. A coordinator sequences cross-store operations. `TerminalSession` is the primary identity — referenced by UUID across every layer. Layouts are immutable value-type trees where leaves point to session IDs. `@Observable` drives SwiftUI re-renders; persistence is debounced. Twelve invariants are enforced at all times.
 
 ---
 
@@ -11,12 +11,15 @@
 ### 1.1 Architecture Principles
 
 1. **Session as primary entity** — A `TerminalSession` exists independently of layout, view, or surface. It can move between tabs, views, and layout positions while keeping the same identity.
-2. **Single ownership boundary** — `WorkspaceStore` owns all persisted state. `ViewRegistry`, `SessionRuntime`, `WorkspacePersistor` are collaborators, not peers.
-3. **Explicit layout model** — The split tree is a structured, queryable `Layout` value type. Leaves reference sessions by ID. No `NSView` references, no opaque blobs.
-4. **View model** — Multiple named `ViewDefinition`s organize sessions into tab arrangements. Switching views reattaches surfaces without recreation.
-5. **Surface independence** — Ghostty surfaces are ephemeral runtime resources. The model layer never holds `NSView` references.
-6. **Provider abstraction** — zmx is a headless restore backend. The model carries provider metadata without coupling to zmx specifics.
-7. **Testability** — Core model and layout logic are pure value types with no singletons or `@MainActor` requirements.
+2. **Atomic stores (Jotai-style)** — Each domain has its own `@Observable` store. `WorkspaceStore` owns workspace structure (tabs, layouts, views). `SurfaceManager` owns Ghostty surfaces. `SessionRuntime` owns backends. No god-store — each store has one domain, one reason to change, testable in isolation.
+3. **Unidirectional flow (Valtio-style)** — All store state is `private(set)`. External code reads freely, mutates only through store methods. No action enums, no reducers — the compiler enforces the boundary.
+4. **Coordinator for cross-store sequencing** — A coordinator sequences operations across multiple stores for a single user action. Owns no state, contains no domain logic. If a coordinator method contains an `if` that decides what to do with domain data, that logic belongs in a store.
+5. **Explicit layout model** — The split tree is a structured, queryable `Layout` value type. Leaves reference sessions by ID. No `NSView` references, no opaque blobs.
+6. **View model** — Multiple named `ViewDefinition`s organize sessions into tab arrangements. Switching views reattaches surfaces without recreation.
+7. **Surface independence** — Ghostty surfaces are ephemeral runtime resources. The model layer never holds `NSView` references.
+8. **Provider abstraction** — zmx is a headless restore backend. The model carries provider metadata without coupling to zmx specifics.
+9. **AsyncStream over Combine/NotificationCenter** — All new event plumbing uses `AsyncStream` + `swift-async-algorithms`. Existing Combine/NotificationCenter migrated incrementally.
+10. **Testability** — Core model and layout logic are pure value types. Injectable `Clock` for time-dependent logic. No real delays in tests.
 
 ### 1.2 High-Level System Diagram
 
@@ -242,7 +245,7 @@ Templates define the initial session layout when opening a worktree. Not yet wir
 
 ```
 AppDelegate (creates all services in dependency order)
-├── WorkspaceStore           ← single source of truth
+├── WorkspaceStore           ← workspace structure (atomic store)
 ├── SessionRuntime           ← runtime status tracking
 ├── ViewRegistry             ← sessionId → NSView mapping
 ├── TerminalViewCoordinator  ← sole model↔view↔surface bridge
@@ -264,9 +267,9 @@ Singletons:
 
 ### 3.2 WorkspaceStore
 
-Single source of truth for all persisted workspace state. `@MainActor`, `ObservableObject`.
+Owns all workspace structure state. `@Observable`, `@MainActor`. All properties are `private(set)` — external code mutates only through methods.
 
-**Published state** (drives SwiftUI):
+**Observable state** (drives SwiftUI via `@Observable` property tracking):
 - `repos: [Repo]`, `sessions: [TerminalSession]`, `views: [ViewDefinition]`, `activeViewId: UUID?`
 - Transient UI: `draggingTabId`, `dropTargetIndex`, `tabFrames`
 
@@ -289,7 +292,7 @@ Single source of truth for all persisted workspace state. `@MainActor`, `Observa
 
 ### 3.3 SessionRuntime
 
-Manages live session state. Does **not** own sessions — reads the session list from `WorkspaceStore`. Tracks runtime status per session, schedules health checks, coordinates backends. `@MainActor`, `ObservableObject`.
+Manages live session state. Does **not** own sessions — reads the session list from `WorkspaceStore`. Tracks runtime status per session, schedules health checks, coordinates backends. `@Observable`, `@MainActor`.
 
 **Runtime status:** `SessionRuntimeStatus` — `.initializing`, `.running`, `.exited`, `.unhealthy`
 
@@ -329,6 +332,8 @@ Resolves dynamic and worktree views at runtime. Pure static methods. `@MainActor
 
 ### 3.6 TerminalViewCoordinator
 
+> **Refactoring note:** `TerminalViewCoordinator` and `ActionExecutor` (§3.7) will be merged into `PaneCoordinator` as part of LUNA-325/327. The target coordinator pattern is described in [CLAUDE.md — State Management Mental Model](../../CLAUDE.md#state-management-mental-model).
+
 The **sole bridge** between model, view, and surface layers. Views never call `SurfaceManager` directly. `SurfaceManager` never knows about the model layer.
 
 - `createView(for:worktree:repo:)` — Create surface → attach → create `AgentStudioTerminalView` → register in `ViewRegistry`
@@ -339,6 +344,8 @@ The **sole bridge** between model, view, and surface layers. Views never call `S
 > **File:** `App/TerminalViewCoordinator.swift`
 
 ### 3.7 ActionExecutor
+
+> **Refactoring note:** Will be merged with `TerminalViewCoordinator` (§3.6) into `PaneCoordinator` as part of LUNA-325/327. The target coordinator pattern — no domain logic, no owned state, pure sequencing — is described in [CLAUDE.md — State Management Mental Model](../../CLAUDE.md#state-management-mental-model).
 
 Action dispatch hub. Coordinates `WorkspaceStore`, `ViewRegistry`, and `TerminalViewCoordinator`. Manages the undo stack.
 
@@ -356,7 +363,7 @@ Action dispatch hub. Coordinates `WorkspaceStore`, `ViewRegistry`, and `Terminal
 
 ### 3.8 TabBarAdapter
 
-Combine-based derived state bridge between `WorkspaceStore` and the tab bar SwiftUI view. Observes `@Published` properties and transforms them into tab bar display items.
+Derived state bridge between `WorkspaceStore` and the tab bar SwiftUI view. Bridges `@Observable` store state via `withObservationTracking` and transforms it into tab bar display items.
 
 > **File:** `Views/TabBarAdapter.swift`
 
@@ -427,38 +434,37 @@ Also builds `CommandBarLevel` targets for drill-in commands (e.g., "Close Tab...
 
 ### 4.1 Mutation Pipeline
 
+> **Note:** This diagram shows the TARGET flow with `PaneCoordinator`. The current codebase uses `ActionExecutor` → `TerminalViewCoordinator` (see §3.6–3.7). The refactoring is tracked in LUNA-325/327.
+
 Every state change follows this path:
 
 ```mermaid
 sequenceDiagram
     participant User
     participant TTVC as TerminalTabViewController
-    participant AE as ActionExecutor
+    participant PC as PaneCoordinator
     participant Store as WorkspaceStore
-    participant Coord as TerminalViewCoordinator
     participant SM as SurfaceManager
     participant VR as ViewRegistry
 
     User->>TTVC: keyboard / mouse / drag
     TTVC->>TTVC: AppCommand / Notification
-    TTVC->>AE: execute(PaneAction)
-    AE->>Store: mutate state
-    Store-->>Store: @Published fires
+    TTVC->>PC: execute(PaneAction)
+    PC->>Store: mutate state (private(set))
+    Store-->>Store: @Observable tracks
     Store-->>TTVC: SwiftUI re-renders
     Store->>Store: markDirty()
     Note over Store: debounced 500ms
     Store->>Store: persistNow() → JSON
 
     alt Surface creation needed
-        AE->>Coord: createView(session, worktree, repo)
-        Coord->>SM: createSurface() + attach()
-        Coord->>VR: register(view, sessionId)
+        PC->>SM: createSurface() + attach()
+        PC->>VR: register(view, sessionId)
     end
 
     alt Surface teardown needed
-        AE->>Coord: teardownView(sessionId)
-        Coord->>VR: unregister(sessionId)
-        Coord->>SM: detach(surfaceId, reason)
+        PC->>VR: unregister(sessionId)
+        PC->>SM: detach(surfaceId, reason)
     end
 ```
 
@@ -619,7 +625,7 @@ These rules are enforced by `WorkspaceStore` and model types at all times:
 | `Models/StateMachine/StateMachine.swift` | Generic state machine with effect handling |
 | `Models/StateMachine/SessionStatus.swift` | 7-state session lifecycle machine (future zmx health) |
 | **Services** | |
-| `Services/WorkspaceStore.swift` | Single ownership boundary for all state |
+| `Services/WorkspaceStore.swift` | Atomic store for workspace structure (tabs, layouts, views) |
 | `Services/WorkspacePersistor.swift` | JSON persistence I/O |
 | `Services/SessionRuntime.swift` | Runtime status tracking and health checks |
 | `Services/ViewRegistry.swift` | Session ID → NSView mapping |
@@ -632,7 +638,7 @@ These rules are enforced by `WorkspaceStore` and model types at all times:
 | `App/TerminalViewCoordinator.swift` | Sole model↔view↔surface bridge |
 | `App/MainWindowController.swift` | Primary window management |
 | `App/MainSplitViewController.swift` | Split view: sidebar + terminal panes |
-| `App/TerminalTabViewController.swift` | Tab controller, subscribes to store via Combine |
+| `App/TerminalTabViewController.swift` | Tab controller, observes store via @Observable |
 | **Actions** | |
 | `Actions/PaneAction.swift` | Action enum for all pane operations |
 | `Actions/ActionResolver.swift` | Resolves user input → PaneAction |

@@ -26,12 +26,14 @@ enum DeferredStartupReadiness {
         contentSize: CGSize,
         processExited: Bool
     ) -> Bool {
-        guard canSchedule(
-            hasSent: hasSent,
-            deferredStartupCommand: deferredStartupCommand,
-            hasWindow: hasWindow,
-            contentSize: contentSize
-        ) else { return false }
+        guard
+            canSchedule(
+                hasSent: hasSent,
+                deferredStartupCommand: deferredStartupCommand,
+                hasWindow: hasWindow,
+                contentSize: contentSize
+            )
+        else { return false }
         guard !processExited else { return false }
         return true
     }

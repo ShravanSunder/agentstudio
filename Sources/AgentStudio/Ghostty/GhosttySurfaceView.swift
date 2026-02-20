@@ -404,12 +404,14 @@ extension Ghostty {
         }
 
         private func triggerDeferredStartupIfReady(source: String) {
-            guard DeferredStartupReadiness.canSchedule(
-                hasSent: hasSentDeferredStartupCommand,
-                deferredStartupCommand: deferredStartupCommand,
-                hasWindow: window != nil,
-                contentSize: contentSize
-            ) else { return }
+            guard
+                DeferredStartupReadiness.canSchedule(
+                    hasSent: hasSentDeferredStartupCommand,
+                    deferredStartupCommand: deferredStartupCommand,
+                    hasWindow: window != nil,
+                    contentSize: contentSize
+                )
+            else { return }
             guard let deferredStartupCommand else { return }
 
             deferredStartupWorkItem?.cancel()
@@ -419,17 +421,21 @@ extension Ghostty {
             let workItem = DispatchWorkItem { [weak self] in
                 guard let self else { return }
                 defer { self.deferredStartupWorkItem = nil }
-                guard DeferredStartupReadiness.canExecute(
-                    hasSent: self.hasSentDeferredStartupCommand,
-                    deferredStartupCommand: self.deferredStartupCommand,
-                    hasWindow: self.window != nil,
-                    contentSize: self.contentSize,
-                    processExited: self.processExited
-                ) else {
+                guard
+                    DeferredStartupReadiness.canExecute(
+                        hasSent: self.hasSentDeferredStartupCommand,
+                        deferredStartupCommand: self.deferredStartupCommand,
+                        hasWindow: self.window != nil,
+                        contentSize: self.contentSize,
+                        processExited: self.processExited
+                    )
+                else {
                     if self.processExited {
-                        RestoreTrace.log("Ghostty.SurfaceView.deferredStartup skipped process already exited source=\(source)")
+                        RestoreTrace.log(
+                            "Ghostty.SurfaceView.deferredStartup skipped process already exited source=\(source)")
                     } else {
-                        RestoreTrace.log("Ghostty.SurfaceView.deferredStartup skipped invalid readiness source=\(source)")
+                        RestoreTrace.log(
+                            "Ghostty.SurfaceView.deferredStartup skipped invalid readiness source=\(source)")
                     }
                     return
                 }
@@ -808,12 +814,12 @@ extension Ghostty {
         /// Needed for deferred startup commands because newline inside `sendText`
         /// can be treated as pasted content and not execute immediately.
         private func sendProgrammaticReturnKey() {
-            guard let surface = surface else { return }
+            guard let surface else { return }
             var keyDown = ghostty_input_key_s()
             keyDown.action = GHOSTTY_ACTION_PRESS
             keyDown.mods = GHOSTTY_MODS_NONE
             keyDown.consumed_mods = GHOSTTY_MODS_NONE
-            keyDown.keycode = 36 // macOS Return key virtual keycode.
+            keyDown.keycode = 36  // macOS Return key virtual keycode.
             keyDown.unshifted_codepoint = 0x0D
             keyDown.composing = false
             keyDown.text = nil
