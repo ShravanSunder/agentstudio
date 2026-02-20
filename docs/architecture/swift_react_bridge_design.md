@@ -170,7 +170,7 @@ document.addEventListener('__bridge_command', (e) => {
 For large payloads (file contents > 50KB) where JSON serialization overhead matters:
 
 ```swift
-struct BinarySchemeHandler: URLSchemeHandler {
+struct BridgeSchemeHandler: URLSchemeHandler {
     func reply(for request: URLRequest) -> some AsyncSequence<URLSchemeTaskResult, any Error> {
         AsyncStream { continuation in
             let task = Task {
@@ -243,7 +243,7 @@ Before any stream can operate, the bridge must complete initialization. The hand
 6. Swift starts observation loops + pushes initial DiffManifest
 ```
 
-No state pushes or commands are allowed before step 6 completes. The `BridgeCoordinator` gates on receiving `bridge.ready` before starting observation loops.
+No state pushes or commands are allowed before step 6 completes. The `BridgePaneController` gates on receiving `bridge.ready` before starting observation loops.
 
 ---
 
@@ -439,127 +439,592 @@ try await page.callJavaScript(
 
 ## 6. State Push Pipeline
 
-### 6.1 Observations AsyncSequence (Swift 6.2)
+### 6.1 Design Principles
 
-Swift 6.2's `Observations` type replaces the `withObservationTracking` re-register loop. Key behaviors:
+State classes are **pure `@Observable`** — they hold domain data and nothing else. Push mechanics (observation, debounce, encoding, transport) are handled by a separate **declarative push infrastructure** (`PushPlan` + `PushEngine`). The two never mix.
 
-- **Transactional coalescing**: Multiple synchronous mutations yield ONCE with the final value
-- **Auto-re-registers**: No manual re-tracking needed
-- **Multi-property tracking**: Any accessed property triggers a yield
-- **No backpressure**: Slow consumers see latest value, skip intermediates
-
-```swift
-func watchDiffState() async {
-    let changes = Observations { [weak self] in
-        guard let self else { return nil as DiffState? }
-        return self.domainState.diff
-    }
-
-    for await diffState in changes.compactMap({ $0 }) {
-        await pushToJS(store: "diff", value: diffState)
-    }
-}
-```
-
-### 6.2 Push Coalescing Strategy
-
-Even with `Observations` transactional coalescing, rapid async updates (status changes, review thread mutations) can produce many yields. Use frame-aligned debouncing:
-
-```swift
-func watchDiffState() async {
-    let changes = Observations { [weak self] in
-        self?.domainState.diff
-    }
-
-    // Debounce to ~1 frame (16ms) to batch rapid async updates
-    for await diffState in changes.compactMap({ $0 }).debounce(for: .milliseconds(16)) {
-        await pushToJS(store: "diff", value: diffState)
-    }
-}
-```
+This separation means:
+- Adding a new state property requires zero push-infrastructure changes.
+- Adding a new push slice is one declarative `Slice(...)` or `EntitySlice(...)` call.
+- Observation scope is defined by capture closures, not by state class structure.
+- The push engine is generic infrastructure, written once, never touched per state class.
 
 > **Dependency**: `.debounce(for:)` is NOT built into `Observations` or the standard library `AsyncSequence`. It requires the **[swift-async-algorithms](https://github.com/apple/swift-async-algorithms)** package (`import AsyncAlgorithms`). Add this as a Package.swift dependency.
 
-> **Intermediate state visibility**: Per [SE-0475](https://github.com/swiftlang/swift-evolution/blob/main/proposals/0475-observed.md), `Observations` uses transactional coalescing — when the producer outpaces the consumer, intermediate states are skipped and only the latest value is yielded. This means rapid `.pending → .loading → .loaded` transitions on `DiffFile.status` may skip the `.loading` state in the push pipeline. **Mitigation**: Use a separate, non-debounced observation loop for status-only changes (see §6.3 granular observation), ensuring the UI can show loading indicators even during fast loads.
+> **Intermediate state visibility**: Per [SE-0475](https://github.com/swiftlang/swift-evolution/blob/main/proposals/0475-observed.md), intermediate values may be skipped when the producer outpaces the consumer. For `.hot` slices where transitions matter (`.loading` indicators, connection changes), keep observation loops separate and non-debounced. If every intermediate transition must be visible (not just the latest value), use the agent event stream (append-only, sequence-numbered) instead of the state stream.
 
-For hot scalar state (connection health, agent status), skip debouncing — push immediately:
+### 6.2 Push Policy Levels (`.cold`, `.warm`, `.hot`)
 
-```swift
-func watchConnectionState() async {
-    let changes = Observations { [weak self] in
-        self?.domainState.connection
-    }
+Not all observed state should be pushed with the same cadence. This spec uses three explicit policy levels:
 
-    for await state in changes.compactMap({ $0 }) {
-        await pushToJS(store: "connection", value: state)
-    }
-}
-```
+| Level | Typical Size | Typical Rate | Examples | Push Strategy |
+|---|---|---|---|---|
+| **`.hot`** | < 1KB | 5-60Hz bursts | `connection.health`, loading/status flags | No debounce, `replace` |
+| **`.warm`** | 1-10KB | 1-20Hz | review thread updates, command acks, small task updates | 8-16ms debounce, `merge` (entity) or `replace` (scalar) |
+| **`.cold`** | > 10KB | < 2Hz | `DiffManifest` snapshots for 100-500 files | 16-50ms debounce, `replace` |
 
-### 6.3 Granular Observation
-
-Observe at the right granularity to avoid pushing the entire world on every change:
-
-| What to observe | Push scope | Why |
-|---|---|---|
-| `diff.files` (the map) | Whole files map | Additions/removals affect file list |
-| `diff.files[id].status` | Single file status | Loading indicator per file |
-| `diff.files[id].oldContent` | Single file content | Large payload, push individually |
-| `diff.comments` | All comments | Small, push whole |
-| `agent.status` | Scalar | Hot state, no debounce |
-
-Implementation uses multiple observation loops, each watching a specific slice:
+**Policy rule**:
+- Default every slice to `.cold`.
+- Opt into `.warm` or `.hot` only when latency requires it.
+- Debounce durations come from the `PushLevel` enum (single source of truth), not hardcoded per slice.
 
 ```swift
-func startObservationLoops() async {
-    await withTaskGroup(of: Void.self) { group in
-        // File list changes (additions, removals, reorders)
-        group.addTask { await self.watchFileList() }
+enum PushLevel: Sendable {
+    case hot
+    case warm
+    case cold
 
-        // Per-file content loading (granular, debounced)
-        group.addTask { await self.watchFileContents() }
-
-        // Comments (small, push whole)
-        group.addTask { await self.watchComments() }
-
-        // Connection health (hot, no debounce)
-        group.addTask { await self.watchConnectionState() }
-    }
-}
-```
-
-### 6.4 Push Serialization
-
-```swift
-private func pushToJS<T: Codable>(store: String, value: T) async {
-    do {
-        let data = try encoder.encode(value)
-        guard let json = String(data: data, encoding: .utf8) else {
-            logger.error("[Bridge] Failed to encode \(store) state as UTF-8")
-            return
+    /// Debounce duration per level. Single source of truth for cadence policy.
+    /// .hot: immediate (no debounce). .warm: 12ms. .cold: 32ms.
+    var debounce: Duration {
+        switch self {
+        case .hot:  .zero
+        case .warm: .milliseconds(12)
+        case .cold: .milliseconds(32)
         }
+    }
+}
 
-        // Push into bridge world → __bridgeInternal relays via CustomEvent to page world
-        try await page.callJavaScript(
-            "window.__bridgeInternal.merge(store, JSON.parse(data))",
-            arguments: ["store": store, "data": json],
-            contentWorld: bridgeWorld
-        )
-    } catch let encodingError as EncodingError {
-        logger.error("[Bridge] Encoding failed for \(store): \(encodingError)")
-    } catch {
-        // callJavaScript failure — page may be unloaded or navigating
-        logger.warning("[Bridge] Push to \(store) failed: \(error)")
-        sharedState.connection.health = .error
+enum PushOp: String, Sendable, Encodable { case merge, replace }
+enum StoreKey: String, Sendable, Encodable { case diff, review, agent, connection }
+```
+
+### 6.3 Observation Slices (Current Domain Shape)
+
+Each slice is a capture closure that reads specific properties from an `@Observable` state object. `Observations` (SE-0475) tracks whatever properties the closure reads — this defines the observation scope. Separate closures = separate tracking = separate fire schedules.
+
+| Slice name | Capture reads | Store | Level | Op | Notes |
+|---|---|---|---|---|---|
+| `diffStatus` | `.status`, `.error`, `.epoch` | `.diff` | `.hot` | `.replace` | immediate user feedback |
+| `diffManifest` | `.manifest` | `.diff` | `.cold` | `.replace` | metadata only; no file contents |
+| `reviewThreads` | `.threads` | `.review` | `.warm` | `.merge` | per-entity diff by thread version |
+| `reviewViewedFiles` | `.viewedFiles` | `.review` | `.warm` | `.replace` | set comparison |
+| `agentTasks` | `agentTasks` dict | `.agent` | `.warm` | `.merge` | per-entity diff by task version |
+| `connectionHealth` | `.health`, `.latencyMs` | `.connection` | `.hot` | `.replace` | no debounce |
+
+> **Property group isolation**: If a developer accidentally reads `.manifest` inside the `diffStatus` capture closure (e.g., in a log statement), the hot loop silently becomes hot+cold — it fires on manifest changes too. This is a maintenance fragility. Code review should enforce that each capture closure reads only its declared properties.
+
+### 6.4 Push Infrastructure Types
+
+#### 6.4.1 Shared RevisionClock
+
+Revisions must be **monotonic per store across all slices in the pane** (§5.7 invariant). A single `RevisionClock` is owned by `BridgePaneController` and shared across all `PushPlan` instances for that pane.
+
+```swift
+/// Monotonic revision counter per store. Shared across all push plans
+/// for a pane to ensure revision ordering per §5.7.
+@MainActor
+final class RevisionClock {
+    private var counters: [StoreKey: Int] = [:]
+
+    func next(for store: StoreKey) -> Int {
+        let v = (counters[store] ?? 0) + 1
+        counters[store] = v
+        return v
     }
 }
 ```
 
-**Error strategy**: Encoding failures are logged and skipped (data model bug — should not happen in production). `callJavaScript` failures update connection health state, which React can display. No crashes.
+#### 6.4.2 EpochProvider
 
-### 6.5 Push Cost Considerations
+Each push must carry the real epoch for its domain (§5.7 stale-drop invariant). The `EpochProvider` closure reads the current epoch from the state at push time.
 
-The push pipeline involves three CPU-bound steps per push: (1) Swift `JSONEncoder.encode()`, (2) JS `JSON.parse()`, (3) JS `deepMerge()`. For large state (100+ file diff with contents), this can spike CPU and drive rerender fanout.
+```swift
+/// Reads the current epoch from domain state at push time.
+/// Provided per-plan so each domain can define its own epoch source.
+typealias EpochProvider = @MainActor () -> Int
+```
+
+#### 6.4.3 PushTransport
+
+The transport protocol handles envelope stamping (revision, epoch, pushId, level, op) and the actual `callJavaScript` call. `BridgePaneController` conforms to this.
+
+```swift
+/// Responsible for stamping push envelopes (revision/epoch/pushId/level/op)
+/// and calling into the bridge content world.
+@MainActor
+protocol PushTransport: AnyObject {
+    /// Encode and push a JSON payload to the bridge.
+    /// Transport stamps the envelope with revision, epoch, pushId, level, op.
+    /// For .cold payloads, encoding happens off-main-actor.
+    /// On failure, logs store/level/revision/epoch/pushId per §13.1.
+    func pushJSON(
+        store: StoreKey,
+        op: PushOp,
+        level: PushLevel,
+        revision: Int,
+        epoch: Int,
+        json: Data
+    ) async
+}
+```
+
+**Transport implementation** (inside `BridgePaneController`):
+
+```swift
+extension BridgePaneController: PushTransport {
+    func pushJSON(
+        store: StoreKey,
+        op: PushOp,
+        level: PushLevel,
+        revision: Int,
+        epoch: Int,
+        json: Data
+    ) async {
+        let pushId = UUID().uuidString
+        // Build envelope: wrap payload JSON inside metadata envelope
+        // Uses pre-encoded payload data to avoid double-encoding
+        let envelopeJSON = buildEnvelopeJSON(
+            v: 1, pushId: pushId, revision: revision, epoch: epoch,
+            level: level.rawValue, store: store.rawValue, op: op.rawValue,
+            payloadData: json
+        )
+
+        do {
+            guard let jsonString = String(data: envelopeJSON, encoding: .utf8) else {
+                throw BridgeError.encoding("UTF-8 conversion failed")
+            }
+            try await page.callJavaScript(
+                "window.__bridgeInternal.applyEnvelope(JSON.parse(json))",
+                arguments: ["json": jsonString],
+                contentWorld: bridgeWorld
+            )
+        } catch {
+            logger.warning(
+                "[Bridge] push failed store=\(store.rawValue) rev=\(revision) "
+                + "epoch=\(epoch) pushId=\(pushId) level=\(level): \(error)"
+            )
+            sharedState.connection.health = .error
+        }
+    }
+}
+```
+
+#### 6.4.4 Type-Erased Slice
+
+Every `Slice` and `EntitySlice` erases to this type. The `makeTask` closure creates the observation loop task when the engine starts.
+
+```swift
+/// Type-erased push slice. Holds a closure that creates the observation
+/// task for this slice when the engine starts.
+/// Not marked Sendable — closures capture @MainActor state and transport.
+struct AnyPushSlice<State: Observable & AnyObject> {
+    let name: String
+    let makeTask: @MainActor (
+        State, PushTransport, RevisionClock, EpochProvider
+    ) -> Task<Void, Never>
+}
+```
+
+> **Sendable note**: `AnyPushSlice` is NOT `Sendable`. The `makeTask` closure captures `@MainActor`-isolated state and transport references. Marking it `Sendable` would require sendability constraints on all captured types, which is unnecessarily restrictive for a type that only lives on `@MainActor`.
+
+### 6.5 Slice (Value-Level Observation)
+
+For scalars and small structs where the whole snapshot is compared and replaced:
+
+```swift
+struct Slice<State: Observable & AnyObject, Snapshot: Encodable & Equatable> {
+    let name: String
+    let store: StoreKey
+    let level: PushLevel
+    let op: PushOp
+    let capture: @MainActor @Sendable (State) -> Snapshot
+
+    init(
+        _ name: String,
+        store: StoreKey,
+        level: PushLevel,
+        op: PushOp = .replace,
+        capture: @escaping @MainActor @Sendable (State) -> Snapshot
+    ) {
+        self.name = name; self.store = store
+        self.level = level; self.op = op; self.capture = capture
+    }
+
+    func erased() -> AnyPushSlice<State> {
+        let capture = self.capture
+        let level = self.level
+        let op = self.op
+        let store = self.store
+        let name = self.name
+
+        return AnyPushSlice(name: name) { state, transport, revisions, epochProvider in
+            Task { @MainActor in
+                var prev: Snapshot? = nil
+                let encoder = JSONEncoder()
+
+                // Observations yields the capture result when any
+                // property it reads changes. The capture closure
+                // defines the tracking scope.
+                let stream = Observations { capture(state) }
+
+                // Debounce by level. Type-erase via for-await
+                // to avoid conditional type mismatch (Observations
+                // vs AsyncDebounceSequence are different types).
+                if level == .hot {
+                    for await snapshot in stream {
+                        guard snapshot != prev else { continue }
+                        prev = snapshot
+                        let revision = revisions.next(for: store)
+                        let epoch = epochProvider()
+                        // .hot payloads are small — encode on main actor
+                        guard let data = try? encoder.encode(snapshot) else {
+                            logger.error("[PushEngine] encode failed slice=\(name) store=\(store)")
+                            continue
+                        }
+                        await transport.pushJSON(
+                            store: store, op: op, level: level,
+                            revision: revision, epoch: epoch, json: data
+                        )
+                    }
+                } else {
+                    for await snapshot in stream.debounce(for: level.debounce) {
+                        guard snapshot != prev else { continue }
+                        prev = snapshot
+                        let revision = revisions.next(for: store)
+                        let epoch = epochProvider()
+
+                        let data: Data
+                        if level == .cold {
+                            // .cold payloads may be large — encode off main actor
+                            do {
+                                data = try await Task.detached(priority: .utility) {
+                                    try encoder.encode(snapshot)
+                                }.value
+                            } catch {
+                                logger.error("[PushEngine] encode failed slice=\(name) store=\(store): \(error)")
+                                continue
+                            }
+                        } else {
+                            // .warm payloads are moderate — encode on main actor
+                            guard let encoded = try? encoder.encode(snapshot) else {
+                                logger.error("[PushEngine] encode failed slice=\(name) store=\(store)")
+                                continue
+                            }
+                            data = encoded
+                        }
+
+                        await transport.pushJSON(
+                            store: store, op: op, level: level,
+                            revision: revision, epoch: epoch, json: data
+                        )
+                    }
+                }
+            }
+        }
+    }
+}
+```
+
+### 6.6 EntitySlice (Keyed Collection Observation)
+
+For dictionaries where one entity changes at a time and you need per-entity diffing. Only changed entities are pushed. Keys are normalized to `String` in wire payloads for safe JSON interop (e.g., `UUID` → `String`).
+
+```swift
+struct EntitySlice<
+    State: Observable & AnyObject,
+    Key: Hashable,
+    Entity: Encodable
+> {
+    let name: String
+    let store: StoreKey
+    let level: PushLevel
+    let capture: @MainActor @Sendable (State) -> [Key: Entity]
+    let version: @Sendable (Entity) -> Int
+    let keyToString: @Sendable (Key) -> String
+
+    init(
+        _ name: String,
+        store: StoreKey,
+        level: PushLevel,
+        capture: @escaping @MainActor @Sendable (State) -> [Key: Entity],
+        version: @escaping @Sendable (Entity) -> Int,
+        keyToString: @escaping @Sendable (Key) -> String = { "\($0)" }
+    ) {
+        self.name = name; self.store = store; self.level = level
+        self.capture = capture; self.version = version
+        self.keyToString = keyToString
+    }
+
+    func erased() -> AnyPushSlice<State> {
+        let capture = self.capture
+        let version = self.version
+        let keyToString = self.keyToString
+        let level = self.level
+        let store = self.store
+        let name = self.name
+
+        return AnyPushSlice(name: name) { state, transport, revisions, epochProvider in
+            Task { @MainActor in
+                var lastVersions: [Key: Int] = [:]
+                let encoder = JSONEncoder()
+
+                let stream = Observations { capture(state) }
+
+                if level == .hot {
+                    for await entities in stream {
+                        let delta = Self.computeDelta(
+                            entities: entities, lastVersions: &lastVersions,
+                            version: version, keyToString: keyToString
+                        )
+                        guard !delta.isEmpty else { continue }
+                        guard let data = try? encoder.encode(delta) else {
+                            logger.error("[PushEngine] encode failed slice=\(name) store=\(store)")
+                            continue
+                        }
+                        let revision = revisions.next(for: store)
+                        let epoch = epochProvider()
+                        await transport.pushJSON(
+                            store: store, op: .merge, level: level,
+                            revision: revision, epoch: epoch, json: data
+                        )
+                    }
+                } else {
+                    for await entities in stream.debounce(for: level.debounce) {
+                        let delta = Self.computeDelta(
+                            entities: entities, lastVersions: &lastVersions,
+                            version: version, keyToString: keyToString
+                        )
+                        guard !delta.isEmpty else { continue }
+                        guard let data = try? encoder.encode(delta) else {
+                            logger.error("[PushEngine] encode failed slice=\(name) store=\(store)")
+                            continue
+                        }
+                        let revision = revisions.next(for: store)
+                        let epoch = epochProvider()
+                        await transport.pushJSON(
+                            store: store, op: .merge, level: level,
+                            revision: revision, epoch: epoch, json: data
+                        )
+                    }
+                }
+            }
+        }
+    }
+
+    /// Compute changed + removed entities. Keys normalized to String for JSON wire format.
+    private static func computeDelta(
+        entities: [Key: Entity],
+        lastVersions: inout [Key: Int],
+        version: (Entity) -> Int,
+        keyToString: (Key) -> String
+    ) -> EntityDelta<Entity> {
+        var changed: [String: Entity] = [:]
+        for (key, entity) in entities {
+            let v = version(entity)
+            if lastVersions[key] != v {
+                changed[keyToString(key)] = entity
+                lastVersions[key] = v
+            }
+        }
+        let removed = lastVersions.keys
+            .filter { entities[$0] == nil }
+            .map { keyToString($0) }
+        for key in lastVersions.keys where entities[key] == nil {
+            lastVersions.removeValue(forKey: key)
+        }
+        return EntityDelta(changed: changed.isEmpty ? nil : changed,
+                           removed: removed.isEmpty ? nil : removed)
+    }
+}
+
+/// Wire format for entity deltas. Keys are always String (normalized from Key type).
+/// Omits empty fields to minimize payload size.
+struct EntityDelta<Entity: Encodable>: Encodable {
+    let changed: [String: Entity]?
+    let removed: [String]?
+
+    var isEmpty: Bool { (changed?.isEmpty ?? true) && (removed?.isEmpty ?? true) }
+}
+```
+
+### 6.7 PushPlan (Declarative Configuration)
+
+A `PushPlan` groups slices for one state object. One plan per state class, one observation task per slice. The result builder provides clean declarative syntax.
+
+```swift
+@resultBuilder
+struct PushPlanBuilder<State: Observable & AnyObject> {
+    static func buildExpression<Snapshot: Encodable & Equatable>(
+        _ slice: Slice<State, Snapshot>
+    ) -> AnyPushSlice<State> {
+        slice.erased()
+    }
+
+    static func buildExpression<Key: Hashable, Entity: Encodable>(
+        _ slice: EntitySlice<State, Key, Entity>
+    ) -> AnyPushSlice<State> {
+        slice.erased()
+    }
+
+    static func buildBlock(_ slices: AnyPushSlice<State>...) -> [AnyPushSlice<State>] {
+        Array(slices)
+    }
+}
+
+/// Declarative push configuration for one state object.
+/// Creates one observation task per slice. All slices share
+/// the same RevisionClock (monotonic per store across the pane)
+/// and EpochProvider (reads current epoch from domain state).
+@MainActor
+final class PushPlan<State: Observable & AnyObject> {
+    private let state: State
+    private let transport: PushTransport
+    private let revisions: RevisionClock
+    private let epochProvider: EpochProvider
+    private let slices: [AnyPushSlice<State>]
+    private var tasks: [Task<Void, Never>] = []
+
+    init(
+        state: State,
+        transport: PushTransport,
+        revisions: RevisionClock,
+        epoch: @escaping EpochProvider,
+        @PushPlanBuilder<State> slices: () -> [AnyPushSlice<State>]
+    ) {
+        self.state = state
+        self.transport = transport
+        self.revisions = revisions
+        self.epochProvider = epoch
+        self.slices = slices()
+    }
+
+    func start() {
+        stop()
+        tasks = slices.map { slice in
+            slice.makeTask(state, transport, revisions, epochProvider)
+        }
+    }
+
+    func stop() {
+        tasks.forEach { $0.cancel() }
+        tasks.removeAll()
+    }
+}
+```
+
+### 6.8 Push Plan Configuration (Current Domain Shape)
+
+State classes remain pure `@Observable` (see §8 for full definitions). Push configuration is declared separately:
+
+```swift
+// ── Snapshot types: small Encodable+Equatable structs ──────────
+// These are the wire payloads pushed to React. They double as the
+// cross-boundary contract — TypeScript stores expect these shapes.
+
+struct DiffStatusSlice: Encodable, Equatable {
+    let status: DiffStatus
+    let error: String?
+    let epoch: Int
+}
+
+struct ConnectionSlice: Encodable, Equatable {
+    let health: ConnectionState.ConnectionHealth
+    let latencyMs: Int
+}
+
+// ── Push plan declarations (inside BridgePaneController) ──────
+
+/// Diff state push plan: 2 slices (hot status + cold manifest).
+private func makeDiffPushPlan() -> PushPlan<DiffState> {
+    PushPlan(
+        state: paneState.diff,
+        transport: self,
+        revisions: revisionClock,
+        epoch: { [paneState] in paneState.diff.epoch }
+    ) {
+        Slice("diffStatus", store: .diff, level: .hot) { state in
+            DiffStatusSlice(status: state.status, error: state.error, epoch: state.epoch)
+        }
+        Slice("diffManifest", store: .diff, level: .cold, op: .replace) { state in
+            state.manifest
+        }
+    }
+}
+
+/// Review state push plan: 2 slices (entity threads + scalar viewedFiles).
+private func makeReviewPushPlan() -> PushPlan<ReviewState> {
+    PushPlan(
+        state: paneState.review,
+        transport: self,
+        revisions: revisionClock,
+        epoch: { [paneState] in paneState.diff.epoch }
+    ) {
+        EntitySlice(
+            "reviewThreads", store: .review, level: .warm,
+            capture: { state in state.threads },
+            version: { thread in thread.version },
+            keyToString: { $0.uuidString }
+        )
+        Slice("viewedFiles", store: .review, level: .warm) { state in
+            state.viewedFiles
+        }
+    }
+}
+
+/// Connection state push plan: 1 hot slice.
+private func makeConnectionPushPlan() -> PushPlan<SharedBridgeState> {
+    PushPlan(
+        state: sharedState,
+        transport: self,
+        revisions: revisionClock,
+        epoch: { 0 }  // connection has no epoch concept
+    ) {
+        Slice("connectionHealth", store: .connection, level: .hot) { state in
+            ConnectionSlice(health: state.connection.health,
+                            latencyMs: state.connection.latencyMs)
+        }
+    }
+}
+```
+
+Lifecycle integration (in `BridgePaneController`):
+
+```swift
+private var diffPushPlan: PushPlan<DiffState>?
+private var reviewPushPlan: PushPlan<ReviewState>?
+private var connectionPushPlan: PushPlan<SharedBridgeState>?
+
+/// Called when bridge.ready is received from React (§4.5 step 6).
+func handleBridgeReady() {
+    diffPushPlan = makeDiffPushPlan()
+    reviewPushPlan = makeReviewPushPlan()
+    connectionPushPlan = makeConnectionPushPlan()
+
+    diffPushPlan?.start()       // creates 2 observation tasks
+    reviewPushPlan?.start()     // creates 2 observation tasks
+    connectionPushPlan?.start() // creates 1 observation task
+}
+
+func teardown() {
+    diffPushPlan?.stop()
+    reviewPushPlan?.stop()
+    connectionPushPlan?.stop()
+}
+```
+
+### 6.9 How Observation Scoping Works
+
+`Observations` (SE-0475) tracks which properties are **read** inside its closure. Each `Slice` capture closure defines its own tracking scope:
+
+```swift
+// This capture reads ONLY .status, .error, .epoch on DiffState.
+// Observations tracks these three properties.
+// Changes to .manifest do NOT fire this loop.
+{ state in DiffStatusSlice(status: state.status, error: state.error, epoch: state.epoch) }
+
+// This capture reads ONLY .manifest on DiffState.
+// Changes to .status do NOT fire this loop.
+{ state in state.manifest }
+```
+
+Two closures reading different properties of the same `@Observable` object fire independently. The PushPlan creates one `Task` per slice, so each slice has its own independent observation loop with its own debounce and push level.
+
+**Change detection**: `Observations` tells you "something you tracked changed" but NOT which property changed. The `Equatable` comparison (`snapshot != prev`) inside each loop filters no-op mutations (e.g., setting `.status = .idle` when it was already `.idle`).
+
+### 6.10 Push Cost Considerations
+
+The push pipeline involves three CPU-bound steps per push: (1) Swift `JSONEncoder.encode()`, (2) JS `JSON.parse()`, (3) JS store update (replace or merge). For large state (100+ file manifest), this can spike CPU and drive rerender fanout.
 
 **Mitigations**:
 
@@ -567,7 +1032,10 @@ The push pipeline involves three CPU-bound steps per push: (1) Swift `JSONEncode
 |---|---|---|
 | **Metadata-only pushes** (§10.1) | Diff loaded | Push `DiffManifest` (file list + metadata), NOT file contents |
 | **Content pull on demand** (§10.2) | File enters viewport | React fetches via `agentstudio://resource/file/{id}` — no state stream overhead |
-| **Debounced observation** (§6.2) | Rapid mutations | Coalesce multiple changes into one push |
+| **Debounced observation** (§6.2) | Rapid mutations | Coalesce multiple changes into one push (per-level cadence) |
+| **Off-main encoding** (§6.5) | `.cold` payloads | `Task.detached(priority: .utility)` keeps main actor responsive |
+| **Equatable skip** (§6.9) | No-op mutations | Snapshot comparison prevents push when value unchanged |
+| **Per-entity diff** (§6.6) | Keyed collections | Only changed entities in delta payload, not full collection |
 | **Batched agent events** (§4.4) | Agent activity | 30-50ms batching cadence, append-only |
 | **LRU content cache** (§10.4) | Memory pressure | ~20 files in React memory, oldest evicted |
 
@@ -707,16 +1175,38 @@ if (_pushNonce === null) {
     document.dispatchEvent(new CustomEvent('__bridge_handshake_request'));
 }
 
+// Per-store tracking for revision ordering and epoch staleness (§5.7)
+const lastRevision: Record<string, number> = {};
+const lastEpoch: Record<string, number> = {};
+
 // Listen for state pushes relayed from bridge world via CustomEvent
 document.addEventListener('__bridge_push', ((e: CustomEvent) => {
     // Reject forged push events from page-world scripts
     if (e.detail?.__pushNonce !== _pushNonce) return;
 
-    const { type, store: storeName, data } = e.detail;
+    const { type, store: storeName, data, __revision, __epoch } = e.detail;
     const store = stores[storeName];
     if (!store) {
         console.warn(`[bridge] Unknown store: ${storeName}`);
         return;
+    }
+
+    // Epoch check: if epoch is older than current, drop entirely (stale load generation)
+    if (__epoch !== undefined && lastEpoch[storeName] !== undefined && __epoch < lastEpoch[storeName]) {
+        return;
+    }
+    // Epoch advance: clear store state for new load generation
+    if (__epoch !== undefined && __epoch > (lastEpoch[storeName] ?? 0)) {
+        lastEpoch[storeName] = __epoch;
+        lastRevision[storeName] = 0;  // reset revision tracking for new epoch
+    }
+
+    // Revision check: drop out-of-order pushes within same epoch
+    if (__revision !== undefined && __revision <= (lastRevision[storeName] ?? 0)) {
+        return;
+    }
+    if (__revision !== undefined) {
+        lastRevision[storeName] = __revision;
     }
 
     if (type === 'merge') {
@@ -976,7 +1466,7 @@ class SharedBridgeState {
 }
 ```
 
-**Ownership**: `BridgeCoordinator` owns one `PaneDomainState` and holds a reference to the singleton `SharedBridgeState`. Each pane's observation loops push both per-pane and shared state into their respective Zustand stores.
+**Ownership**: `BridgePaneController` owns one `PaneDomainState` and holds a reference to the singleton `SharedBridgeState`. Each pane's observation loops push both per-pane and shared state into their respective Zustand stores.
 
 ### 8.2 Diff Source and Manifest
 
@@ -1192,37 +1682,63 @@ All domain types conform to `Codable` for JSON serialization across the bridge. 
 
 ### 9.1 Bridge Coordinator
 
-One coordinator per WebPage (per pane). Owns its `PaneDomainState`, holds a reference to shared state:
+> **Naming**: The bridge coordinator is called `BridgePaneController` in the implementation (see §15.2). This follows the existing naming convention set by `WebviewPaneController` — each pane kind gets a `*PaneController`. The term "BridgeCoordinator" in this section refers to the same type; the implementation name takes precedence.
+
+> **Relationship to `WebviewPaneController`**: The existing `WebviewPaneController` (`Services/WebviewPaneController.swift`) is a general-purpose browser controller that uses a shared static `WebPage.Configuration`. `BridgePaneController` is a separate type that creates a **per-pane** configuration with content world isolation, message handlers, URL scheme handlers, and bootstrap scripts. They share the same `WebPage` + `WebView` rendering path but have different configuration, lifecycle, and navigation policies. See §15.4 for the configuration strategy.
+
+One controller per WebPage (per pane). Owns its `PaneDomainState`, holds a reference to shared state. Uses `PushPlan` (§6.7) for all observation loops — no hand-written observation code.
 
 ```swift
 @Observable
 @MainActor
-class BridgeCoordinator {
+class BridgePaneController {
+    let paneId: UUID
     let page: WebPage
     let paneState: PaneDomainState
     let sharedState: SharedBridgeState
     private let router: RPCRouter
-    private let encoder = JSONEncoder()
     private let bridgeWorld = WKContentWorld.world(name: "agentStudioBridge")
-    private var observationTask: Task<Void, Never>?
 
-    init(sharedState: SharedBridgeState) {
+    // Push infrastructure (§6)
+    let revisionClock = RevisionClock()       // shared across all plans for this pane
+    private var diffPushPlan: PushPlan<DiffState>?
+    private var reviewPushPlan: PushPlan<ReviewState>?
+    private var connectionPushPlan: PushPlan<SharedBridgeState>?
+
+    init(paneId: UUID, state: BridgePaneState, sharedState: SharedBridgeState) {
+        self.paneId = paneId
         self.paneState = PaneDomainState()
         self.sharedState = sharedState
 
+        // Per-pane configuration — NOT shared (unlike WebviewPaneController.sharedConfiguration).
+        // Each bridge pane needs its own userContentController, urlSchemeHandlers, and bootstrap scripts.
         var config = WebPage.Configuration()
+        config.websiteDataStore = .nonPersistent()  // No cookies/history needed for internal app panels
 
         // Register message handler in bridge world only
         config.userContentController.add(RPCMessageHandler(coordinator: self),
                                          contentWorld: bridgeWorld,
                                          name: "rpc")
 
-        // Register binary scheme handler
+        // Bootstrap script — installs __bridgeInternal in bridge content world
+        let bootstrap = WKUserScript(
+            source: Self.bridgeBootstrapJS,
+            injectionTime: .atDocumentStart,
+            forMainFrameOnly: true,
+            in: bridgeWorld
+        )
+        config.userContentController.addUserScript(bootstrap)
+
+        // Register binary scheme handler for agentstudio:// URLs
         if let scheme = URLScheme("agentstudio") {
-            config.urlSchemeHandlers[scheme] = BinarySchemeHandler()
+            config.urlSchemeHandlers[scheme] = BridgeSchemeHandler(paneId: paneId)
         }
 
-        self.page = WebPage(configuration: config)
+        self.page = WebPage(
+            configuration: config,
+            navigationDecider: BridgeNavigationDecider(),    // strict: agentstudio + about only
+            dialogPresenter: WebviewDialogHandler()           // reuse existing handler
+        )
         self.router = RPCRouter()
 
         Task { await registerHandlers() }
@@ -1231,18 +1747,24 @@ class BridgeCoordinator {
     func loadApp() {
         let url = URL(string: "agentstudio://app/index.html")!
         page.load(URLRequest(url: url))
-        // Observation loops start when bridge.ready is received (see handleBridgeReady).
-        // Do NOT start loops here — page.isLoading == false does not guarantee
+        // Push plans start when bridge.ready is received (see handleBridgeReady).
+        // Do NOT start here — page.isLoading == false does not guarantee
         // React has mounted and listeners are attached (§4.5).
     }
 
     /// Called by RPCMessageHandler when it receives { type: "bridge.ready" } from bridge world.
-    /// This is the ONLY trigger for starting observation loops (§4.5 step 6).
+    /// This is the ONLY trigger for starting push plans (§4.5 step 6).
     func handleBridgeReady() {
-        guard observationTask == nil else { return }  // idempotent
-        observationTask = Task {
-            await startObservationLoops()
-        }
+        guard diffPushPlan == nil else { return }  // idempotent
+
+        // Create and start push plans (see §6.8 for plan declarations)
+        diffPushPlan = makeDiffPushPlan()
+        reviewPushPlan = makeReviewPushPlan()
+        connectionPushPlan = makeConnectionPushPlan()
+
+        diffPushPlan?.start()       // 2 observation tasks (status + manifest)
+        reviewPushPlan?.start()     // 2 observation tasks (threads + viewedFiles)
+        connectionPushPlan?.start() // 1 observation task (health)
     }
 
     func handleCommand(json: String) async {
@@ -1250,17 +1772,14 @@ class BridgeCoordinator {
     }
 
     /// Send a JSON-RPC success response to JS (rare direct-response path).
-    /// Uses JSONEncoder to build the response, avoiding string interpolation injection.
-    /// `result` is pre-encoded Data from the method handler.
+    /// Uses a typed Encodable struct to avoid string surgery.
     func sendResponse(id: RPCId, result: Data) async {
-        // Build response by composing the envelope around pre-encoded result data
-        let resultJSON = String(data: result, encoding: .utf8) ?? "null"
-        struct Envelope: Encodable { let jsonrpc: String; let id: RPCId }
-        guard let envelopeData = try? JSONEncoder().encode(Envelope(jsonrpc: "2.0", id: id)),
-              var envelopeStr = String(data: envelopeData, encoding: .utf8) else { return }
-        // Insert result into the envelope (result is already valid JSON from handler)
-        envelopeStr.removeLast() // remove trailing }
-        let json = envelopeStr + ",\"result\":" + resultJSON + "}"
+        struct ResponseEnvelope: Encodable {
+            let jsonrpc: String; let id: RPCId; let result: AnyCodableValue
+        }
+        guard let resultValue = try? JSONDecoder().decode(AnyCodableValue.self, from: result) else { return }
+        let response = ResponseEnvelope(jsonrpc: "2.0", id: id, result: resultValue)
+        guard let json = try? String(data: JSONEncoder().encode(response), encoding: .utf8) else { return }
         try? await page.callJavaScript(
             "window.__bridgeInternal.response(JSON.parse(json))",
             arguments: ["json": json],
@@ -1283,7 +1802,12 @@ class BridgeCoordinator {
     }
 
     func teardown() {
-        observationTask?.cancel()
+        diffPushPlan?.stop()
+        reviewPushPlan?.stop()
+        connectionPushPlan?.stop()
+        diffPushPlan = nil
+        reviewPushPlan = nil
+        connectionPushPlan = nil
     }
 
     // MARK: - Page Lifecycle
@@ -1291,16 +1815,14 @@ class BridgeCoordinator {
     /// Handle WebPage termination events (page close, web process crash, navigation failure).
     /// WebPage can terminate due to: pageClosed, provisional navigation failure, or
     /// web-content process termination. The bridge must detect these, update health state,
-    /// and cleanly tear down observation loops.
+    /// and cleanly tear down push plans.
     func handlePageTermination(reason: PageTerminationReason) {
         sharedState.connection.health = .disconnected
-        observationTask?.cancel()
-        observationTask = nil
+        teardown()
 
         switch reason {
         case .webProcessCrash:
             logger.error("[Bridge] Web content process crashed — bridge disconnected")
-            // Optionally trigger reload after delay
         case .pageClosed:
             logger.info("[Bridge] Page closed — bridge torn down")
         case .navigationFailure:
@@ -1314,19 +1836,19 @@ class BridgeCoordinator {
         case navigationFailure
     }
 
-    /// Resume observation loops after page reload (e.g., after web process crash recovery).
+    /// Resume push plans after page reload (e.g., after web process crash recovery).
     /// Re-pushes full state to ensure React is synchronized.
     func resumeAfterReload() {
-        guard observationTask == nil else { return }
+        guard diffPushPlan == nil else { return }
         sharedState.connection.health = .connected
 
-        observationTask = Task {
+        Task {
             while page.isLoading {
                 try? await Task.sleep(for: .milliseconds(50))
             }
             // Full state re-push on reload to sync React
             await pushFullState()
-            await startObservationLoops()
+            handleBridgeReady()
         }
     }
 }
@@ -1373,7 +1895,7 @@ actor RPCRouter {
         }
     }
 
-    func dispatch(json: String, coordinator: BridgeCoordinator) async {
+    func dispatch(json: String, coordinator: BridgePaneController) async {
         // Step 1: Try to extract `id` from raw JSON for error responses.
         // We need the id BEFORE full envelope decode so parse errors can still
         // produce a valid JSON-RPC error response (spec §5.1).
@@ -1516,9 +2038,9 @@ struct AnyMethodHandler {
 
 ```swift
 class RPCMessageHandler: NSObject, WKScriptMessageHandler {
-    private weak var coordinator: BridgeCoordinator?
+    private weak var coordinator: BridgePaneController?
 
-    init(coordinator: BridgeCoordinator) {
+    init(coordinator: BridgePaneController) {
         self.coordinator = coordinator
     }
 
@@ -1588,7 +2110,7 @@ async function loadFileContent(fileId: string, epoch: number): Promise<FileConte
 ```
 
 ```swift
-// Swift: BinarySchemeHandler serves file contents
+// Swift: BridgeSchemeHandler serves file contents
 // Path: agentstudio://resource/file/{fileId}?epoch={epoch}
 // The client includes its current epoch in the query string so the server can
 // reject requests from a previous diff generation even if file IDs overlap.
@@ -1826,11 +2348,25 @@ export function sendCommand(method: string, params?: unknown): void {
 
 ### 11.4 Navigation Policy
 
-```swift
-class AgentStudioNavigationDecider: WebPage.NavigationDeciding {
-    private static let allowedSchemes: Set<String> = ["agentstudio", "about"]
-    private static let blockedSchemes: Set<String> = ["javascript", "data", "blob", "vbscript"]
+The codebase has two navigation deciders for different pane kinds:
 
+| Decider | File | Pane Kind | Allowed Schemes | Behavior for Other Schemes |
+|---|---|---|---|---|
+| `WebviewNavigationDecider` | `Services/WebviewNavigationDecider.swift` | Browser panes | `https`, `http`, `about`, `file`, `agentstudio` | Block silently |
+| `BridgeNavigationDecider` | `Bridge/BridgeNavigationDecider.swift` (new) | Bridge panes | `agentstudio`, `about` | Block; `http`/`https` open in default browser |
+
+The bridge decider is **strictly locked down** — bridge panels load only our bundled React app via `agentstudio://` and never navigate to external URLs:
+
+```swift
+/// Navigation policy for bridge-backed panels. Allows only internal schemes.
+/// External URLs (http/https) are opened in the default browser, not rendered in the panel.
+///
+/// Contrast with `WebviewNavigationDecider` which allows http/https for browser panes.
+final class BridgeNavigationDecider: WebPage.NavigationDeciding {
+    static let allowedSchemes: Set<String> = ["agentstudio", "about"]
+    private static let externalSchemes: Set<String> = ["http", "https"]
+
+    @MainActor
     func decidePolicy(
         for action: WebPage.NavigationAction,
         preferences: inout WebPage.NavigationPreferences
@@ -1842,14 +2378,11 @@ class AgentStudioNavigationDecider: WebPage.NavigationDeciding {
             return .allow
         }
 
-        if Self.blockedSchemes.contains(scheme) {
-            return .cancel  // silently block dangerous schemes
-        }
-
-        // External URLs (http, https, etc.) — open in default browser
-        if scheme == "http" || scheme == "https" {
+        // External URLs — open in default browser, don't render in panel
+        if Self.externalSchemes.contains(scheme) {
             NSWorkspace.shared.open(url)
         }
+        // All other schemes (javascript:, data:, blob:, vbscript:, etc.) — block silently
         return .cancel
     }
 }
@@ -2077,39 +2610,49 @@ Testing prioritizes correctness under protocol failure modes, not snapshot volum
 **Goal**: `callJavaScript` and `postMessage` work bidirectionally.
 
 **Deliverables**:
-- `BridgeCoordinator` creates `WebPage` with configuration
-- `BinarySchemeHandler` serves bundled React app from `agentstudio://app/*`
+- `BridgePaneController` creates `WebPage` with per-pane configuration
+- `BridgeSchemeHandler` serves bundled React app from `agentstudio://app/*`
 - React app loads and renders in `WebView`
 - Bootstrap script installs `window.__bridgeInternal` in bridge content world
 - Message handler receives `postMessage` from bridge world
 - Round-trip test: Swift calls JS → JS posts message → Swift receives
 
 **Tests**:
-- Unit: `BinarySchemeHandler` returns correct MIME types and data for app resources
+- Unit: `BridgeSchemeHandler` returns correct MIME types and data for app resources
 - Unit: `RPCMessageHandler` parses valid/invalid JSON correctly
 - Integration: WebPage loads `agentstudio://app/index.html` and renders React
 - Integration: Round-trip `callJavaScript` → `postMessage` → Swift handler fires
 
 ### Phase 2: State Push Pipeline
 
-**Goal**: Swift `@Observable` changes arrive in Zustand stores via state stream and agent event stream.
+**Goal**: Swift `@Observable` changes arrive in Zustand stores via declarative `PushPlan` infrastructure (§6) and agent event stream.
 
 **Deliverables**:
+- Push infrastructure: `PushPlan`, `Slice`, `EntitySlice`, `PushTransport`, `RevisionClock` (§6.4–6.7)
+- Push plan declarations for `DiffState`, `ReviewState`, `SharedBridgeState` (§6.8)
+- `BridgePaneController` conforms to `PushTransport`, owns `RevisionClock` shared across all plans
 - Zustand stores for `diff`, `review`, `agent`, and `connection` domains
 - Bridge receiver listens for `__bridge_push` and `__bridge_agent` CustomEvents relayed from `__bridgeInternal`, routes to correct Zustand store
-- `Observations` AsyncSequence watches `PaneDomainState`
-- Push envelope carries `__revision` (per store) and `__epoch` (load generation) — React drops stale pushes
-- Push coalescing with debounce (state stream) and 30-50ms batching (agent event stream)
+- Push envelope carries `__revision` (per store, monotonic via shared `RevisionClock`) and `__epoch` (from `EpochProvider`) — React drops stale pushes
+- `.hot` slices push immediately; `.warm`/`.cold` use debounce from `PushLevel.debounce` (§6.2)
+- `.cold` payloads encode off-main-actor via `Task.detached(priority: .utility)` (§6.5)
+- Error handling: push failures log `store/level/revision/epoch/pushId` per §13.1
 - Content world ↔ page world relay via CustomEvents
 
 **Tests**:
-- Unit: `deepMerge` correctly merges partial state
+- Unit: `PushPlan` creates correct number of observation tasks per slice
+- Unit: `Slice` snapshot comparison filters no-op mutations (same value → no push)
+- Unit: `EntitySlice` per-entity diff — only changed entities appear in delta
+- Unit: `EntityDelta` normalizes keys to String in wire format
+- Unit: `RevisionClock` produces monotonic values per store across concurrent callers
+- Unit: `deepMerge` correctly merges partial state (if used; `replace`-only stores skip this)
 - Unit: Zustand store updates on `merge` and `replace` calls
 - Unit: Bridge receiver routes `__bridge_push` to correct store by `store` field
 - Unit: Stale push rejection — push with `revision <= lastSeen` dropped
 - Unit: Epoch mismatch — push with wrong `epoch` triggers cache clear
-- Integration: Mutate `@Observable` property in Swift → verify Zustand store updated
-- Integration: Rapid mutations coalesce into single push (verify with push counter)
+- Integration: Mutate `@Observable` property in Swift → verify Zustand store updated via PushPlan
+- Integration: Rapid mutations coalesce into single push (verify with push counter per slice)
+- Integration: `.hot` slice pushes immediately; `.cold` slice debounces (verify with timing)
 - Integration: Content world isolation — page world script cannot call `window.webkit.messageHandlers.rpc`
 
 ### Phase 3: JSON-RPC Command Channel
@@ -2140,7 +2683,7 @@ Testing prioritizes correctness under protocol failure modes, not snapshot volum
 - `DiffManifest` and `FileManifest` domain models (Swift, §8)
 - `DiffSource` enum: `.agentSnapshot`, `.commit`, `.branchDiff`, `.workspace`
 - State stream: Swift pushes `DiffManifest` (file metadata only) into diff Zustand store
-- Data stream: `BinarySchemeHandler` extended for `agentstudio://resource/file/{id}` — React pulls file contents on demand
+- Data stream: `BridgeSchemeHandler` extended for `agentstudio://resource/file/{id}` — React pulls file contents on demand
 - Priority queue on React side: viewport files (high), hovered files (medium), neighbor files (low), cancel when leaving viewport
 - LRU content cache (~20 files) in React, cleared on epoch change
 - Pierre diff renderer integration (`@pierre/diffs/react`) with viewport-driven content hydration
@@ -2151,7 +2694,7 @@ Testing prioritizes correctness under protocol failure modes, not snapshot volum
 
 **Tests**:
 - Unit: `DiffManifest` / `FileManifest` Codable round-trip
-- Unit: `BinarySchemeHandler` validates allowed resource types and rejects forbidden paths
+- Unit: `BridgeSchemeHandler` validates allowed resource types and rejects forbidden paths
 - Unit: Priority queue ordering logic (viewport > hover > neighbor)
 - Unit: LRU cache evicts oldest entries beyond capacity, clears on epoch bump
 - Unit: Pierre diff component renders with mock file contents
@@ -2253,10 +2796,16 @@ Each phase requires explicit acceptance criteria before proceeding to the next. 
 - [ ] Page world script CANNOT call `window.webkit.messageHandlers.rpc` (verified negative test)
 
 #### Phase 2 Exit Criteria
-- [ ] Mutate `@Observable` property → Zustand store updated within 1 frame (< 16ms)
-- [ ] 10 rapid synchronous mutations coalesce into ≤ 2 pushes (verify with push counter)
-- [ ] `deepMerge` produces correct structural sharing (unit test with reference equality checks)
-- [ ] Push 100-file diff state: end-to-end < 32ms on target hardware
+- [ ] `PushPlan` + `Slice` + `EntitySlice` infrastructure compiles and creates correct observation tasks
+- [ ] `RevisionClock` produces monotonic revisions per store across all plans in a pane
+- [ ] `EpochProvider` reads real epoch from domain state (not hardcoded 0)
+- [ ] `.hot` slice: mutate `@Observable` property → Zustand store updated within 1 frame (< 16ms)
+- [ ] `.cold` slice: payload encodes off-main-actor via `Task.detached` (verify main actor not blocked)
+- [ ] 10 rapid synchronous mutations coalesce into ≤ 2 pushes per slice (verify with push counter)
+- [ ] `EntitySlice`: single entity change → delta contains only that entity (not full collection)
+- [ ] `EntityDelta` wire format uses String keys (UUID normalized, not raw)
+- [ ] Push failures log `store/level/revision/epoch/pushId` (verify log output format)
+- [ ] Push 100-file `DiffManifest` (metadata only): end-to-end < 32ms on target hardware
 - [ ] Content world isolation verified: page world listener cannot forge `__bridge_push` events that bypass bridge world
 
 #### Phase 3 Exit Criteria
@@ -2311,26 +2860,42 @@ Each phase requires explicit acceptance criteria before proceeding to the next. 
 ```
 Sources/AgentStudio/
 ├── Bridge/
-│   ├── BridgeCoordinator.swift           # WebPage setup, observation loops, three-stream push
+│   ├── BridgePaneController.swift        # Per-pane controller: WebPage setup, PushPlan lifecycle, PushTransport conformance
+│   ├── BridgePaneState.swift             # BridgePaneState, BridgePanelKind, BridgePaneSource
+│   ├── BridgePaneView.swift              # AppKit PaneView hosting BridgePaneContentView
+│   ├── BridgePaneContentView.swift       # SwiftUI view: WebView(controller.page), no nav bar
 │   ├── RPCRouter.swift                   # Method registry + dispatch
 │   ├── RPCMethod.swift                   # Protocol + type-erased handler
 │   ├── RPCMessageHandler.swift           # WKScriptMessageHandler for postMessage
-│   ├── BinarySchemeHandler.swift         # agentstudio:// URL scheme (app + resource)
-│   ├── NavigationDecider.swift           # WebPage.NavigationDeciding
+│   ├── BridgeSchemeHandler.swift         # agentstudio:// URL scheme (app + resource)
+│   ├── BridgeNavigationDecider.swift     # Strict navigation: agentstudio + about only
 │   ├── BridgeBootstrap.swift             # JS bootstrap script for bridge world
+│   ├── Push/                             # Declarative push infrastructure (§6)
+│   │   ├── PushPlan.swift                # PushPlan, PushPlanBuilder (result builder)
+│   │   ├── Slice.swift                   # Slice (value-level observation)
+│   │   ├── EntitySlice.swift             # EntitySlice (keyed collection, per-entity diff)
+│   │   ├── PushTransport.swift           # PushTransport protocol, PushLevel, PushOp, StoreKey
+│   │   ├── RevisionClock.swift           # Monotonic per-store revision counter
+│   │   └── PushSnapshots.swift           # DiffStatusSlice, ConnectionSlice, EntityDelta (wire types)
 │   └── Methods/                          # One file per namespace
 │       ├── DiffMethods.swift             # diff.requestFileContents, diff.loadDiff
 │       ├── ReviewMethods.swift           # review.addComment, review.resolveThread
 │       ├── AgentMethods.swift            # agent.sendReview, agent.cancelTask
 │       └── SystemMethods.swift           # system.ping, system.getCapabilities
-├── Domain/
-│   ├── BridgeDomainState.swift           # @Observable root: PaneDomainState
+├── Domain/                               # Bridge-specific domain models (separate from Models/)
+│   ├── BridgeDomainState.swift           # @Observable root: PaneDomainState, SharedBridgeState
 │   ├── DiffManifest.swift                # DiffManifest, FileManifest, HunkSummary, DiffSource
 │   ├── ReviewState.swift                 # ReviewThread, ReviewComment, ReviewAction, CommentAnchor
 │   ├── AgentTask.swift                   # AgentTask, AgentTaskStatus
 │   ├── TimelineEvent.swift               # TimelineEvent, TimelineEventKind (in-memory v1)
 │   └── ConnectionState.swift             # Connection health
-└── (existing Sources structure unchanged)
+│   # Note: BridgePaneState and BridgePanelKind live in Bridge/ (co-located with controller)
+├── Services/                             # Existing services (unchanged)
+│   ├── WebviewPaneController.swift       # Browser pane controller (shared config, browser navigation)
+│   ├── WebviewNavigationDecider.swift    # Browser navigation policy (http/https/file/about/agentstudio)
+│   ├── WebviewDialogHandler.swift        # JS dialog handler (reused by bridge panes)
+│   └── ...
+└── (rest of existing Sources structure unchanged)
 
 WebApp/                                    # React app (Vite + TypeScript)
 ├── src/
@@ -2409,7 +2974,7 @@ Bridge panes (diff viewer, code review) have fundamentally different requirement
 | **Content worlds** | Not used (page world only) | Bridge content world isolates `__bridgeInternal` from page scripts |
 | **Message handlers** | None | `rpc` handler scoped to bridge world |
 | **URL scheme** | Standard schemes | `agentstudio://app/*` serves bundled React app; `agentstudio://resource/*` serves file contents |
-| **Lifecycle** | Stateless (no observation loops) | `BridgeCoordinator` runs observation loops, pushes state, handles teardown |
+| **Lifecycle** | Stateless (no observation loops) | `BridgePaneController` runs observation loops, pushes state, handles teardown |
 | **State model** | `WebviewState` (url, title, showNavigation) | `BridgePaneState` (source, panel type — no URL bar, no browser navigation) |
 
 **Implementation approach**: A new `PaneContent` case for bridge panes, with a dedicated controller type:
@@ -2541,30 +3106,51 @@ The existing `ViewRegistry`, `Layout`, drag/drop, and split system work unchange
 - ~~**File loading race conditions**~~ → **Metadata push + content pull with priority queue, LRU cache, and epoch guard**. See §10.
 - ~~**Large diff delivery**~~ → **Three-stream architecture**: metadata via state stream, file contents via data stream (pull-based), agent events via batched agent stream. See §1, §4.4, §10.
 - ~~**Comment anchoring across line shifts**~~ → **Content hash + line number** with `isOutdated` flag. See §8, §12.5.
-- ~~**Navigation policy edge cases**~~ → **Explicit blocklist** for `javascript:`, `data:`, `blob:`, `vbscript:`. See §11.4.
+- ~~**Navigation policy edge cases**~~ → **Explicit blocklist** for `javascript:`, `data:`, `blob:`, `vbscript:`. Two deciders: `WebviewNavigationDecider` for browser panes, `BridgeNavigationDecider` for bridge panes. See §11.4.
 - ~~**"Swift is too slow for interaction UX" concern**~~ → **Authority matrix**: interaction state is local in React; Swift owns durable domain truth. See §3.3.
 - ~~**Periodic workspace updates vs efficiency**~~ → **Event-first refresh with safety poll and incremental invalidation**. See §10.5.
 
+### Resolved by Existing Codebase (Post Window System 7 Merge)
+
+These were previously open questions or verification spike items, now proven by working production code:
+
+- ~~**`WebPage` initialization with `Configuration`**~~ → `WebviewPaneController` creates `WebPage(configuration:navigationDecider:dialogPresenter:)` successfully. See `Services/WebviewPaneController.swift:52`.
+- ~~**`WebPage.NavigationDeciding` protocol**~~ → `WebviewNavigationDecider` implements the protocol with `decidePolicy(for:preferences:)`. Proven pattern. See `Services/WebviewNavigationDecider.swift:10`.
+- ~~**`WebPage.DialogPresenting` protocol**~~ → `WebviewDialogHandler` conforms with default implementations. See `Services/WebviewDialogHandler.swift:9`.
+- ~~**SwiftUI `WebView` rendering**~~ → `WebView(controller.page)` renders in `WebviewPaneContentView`. See `Views/Webview/WebviewPaneContentView.swift:25`.
+- ~~**Pane system integration**~~ → Full create/teardown/persist/restore lifecycle working. `PaneContent.webview`, `WebviewState`, `TerminalViewCoordinator.createViewForContent`, `ActionExecutor.openWebview`, `ViewRegistry` — all operational.
+- ~~**`AnyCodableValue` availability**~~ → Exists in `Models/PaneContent.swift:112`. Reusable for RPC envelope params.
+- ~~**Pane kind split (browser vs bridge)**~~ → Architecture decided: new `PaneContent.bridgePanel(BridgePaneState)` case with dedicated `BridgePaneController`. See §15.2.
+
 ### Requires Verification Spike (before Phase 1)
 
-1. **Swift 6.2 API surface** — Build a minimal test target in Xcode 26 that exercises:
-   - `Observations` type creation and `for await` iteration
-   - `.debounce(for:)` on `Observations` (requires `AsyncAlgorithms` package — confirmed)
-   - `WKContentWorld.world(name:)` creation
-   - `WebPage.Configuration` with `userContentController` and `urlSchemeHandlers`
-   - `callJavaScript(_:arguments:in:contentWorld:)` — The `in:` frame parameter is optional (defaults to main frame). Omit it for main-frame calls. Verify the default behavior.
-   - `WKUserScript(source:injectionTime:forMainFrameOnly:in:)` — This doc uses `in:` on the initializer. This is the chosen pattern. Verify exact parameter label.
-   - `URLSchemeHandler` protocol conformance with `AsyncSequence` return
+The scope is narrowed to **bridge-specific WebKit APIs** not yet exercised by the existing browser pane code:
 
-   If any APIs differ from this spec, update the design before Phase 1 implementation.
-2. **Workspace change feed implementation** — Verify the concrete watcher strategy used by Agent Studio:
+1. **Bridge-specific Swift 6.2 API surface** — Build a minimal test that exercises:
+   - `WKContentWorld.world(name:)` creation and isolation behavior
+   - `callJavaScript(_:arguments:in:contentWorld:)` — verify arguments passing, content world targeting, and default frame behavior
+   - `WKUserScript(source:injectionTime:forMainFrameOnly:in:)` — verify `in:` parameter label for content world targeting
+   - `userContentController.add(handler, contentWorld:, name:)` — verify message handler scoping to content world
+   - `URLSchemeHandler` protocol with `AsyncSequence` return for custom scheme handling
+   - `Observations` type creation and `for await` iteration (Swift 6.2 observation)
+   - `.debounce(for:)` on `Observations` (requires `AsyncAlgorithms` package)
+   - Verify that `Observations { state.propertyA }` does NOT fire when `state.propertyB` changes (property-group isolation — critical for `Slice` capture closures)
+   - Verify `@resultBuilder` with generic type parameter (`PushPlanBuilder<State>`) compiles and infers correctly
+
+   **Already proven** (skip in spike): `WebPage.Configuration` init, `WebPage(configuration:navigationDecider:dialogPresenter:)`, `WebPage.load()`, `websiteDataStore`, SwiftUI `WebView` rendering.
+
+   If any bridge-specific APIs differ from this spec, update the design before Phase 1 implementation.
+
+### Phase 4 Gate (before diff viewer, not Phase 1)
+
+2. **Workspace change feed implementation** — Verify the concrete watcher strategy:
    - FSEvents or DispatchSource-based file watching for workspace roots
    - Git-aware filtering (ignore build/cache artifacts and dot directories)
    - CPU profile under bursty file writes (save-all, branch switch)
 
 ### Still Open
 
-3. **React app bundling** — Vite build output bundled as app resources? Or served from disk via the scheme handler? Need to decide the build pipeline and how `BinarySchemeHandler` locates the built assets.
-4. **WebPage lifecycle** — How does the WebPage behave when the pane is hidden (backgrounded via view switch)? Does it keep running JS? Do observation loops need to pause to avoid wasted work?
+3. **React app bundling** — Vite build output bundled as app resources? Or served from disk via the scheme handler? Need to decide the build pipeline and how `BridgeSchemeHandler` locates the built assets.
+4. **WebPage lifecycle when hidden** — How does the WebPage behave when the pane is hidden (backgrounded via view switch)? Does it keep running JS? Do observation loops need to pause to avoid wasted work?
 5. **Pierre license and bundle size** — Verify `@pierre/diffs` license compatibility and evaluate bundle size impact.
 6. **Terminal injection mechanism** — What is the exact API for injecting text into a Ghostty terminal session? Need to trace through `SurfaceManager` → Ghostty C API.
