@@ -77,7 +77,9 @@ final class Machine<State: MachineState> {
         var drained = 0
         while !eventQueue.isEmpty {
             guard drained < Self.maxQueueDepth else {
-                machineLogger.error("StateMachine queue depth exceeded \(Self.maxQueueDepth) — possible cycle. Dropping \(self.eventQueue.count) queued events.")
+                machineLogger.error(
+                    "StateMachine queue depth exceeded \(Self.maxQueueDepth) — possible cycle. Dropping \(self.eventQueue.count) queued events."
+                )
                 eventQueue.removeAll()
                 break
             }

@@ -1,4 +1,5 @@
 import XCTest
+
 @testable import AgentStudio
 
 @MainActor
@@ -169,10 +170,8 @@ final class CommandBarDataSourceTests: XCTestCase {
 
         // Assert
         let arrangementItems = items.filter {
-            $0.id == "cmd-switchArrangement" ||
-            $0.id == "cmd-saveArrangement" ||
-            $0.id == "cmd-deleteArrangement" ||
-            $0.id == "cmd-renameArrangement"
+            $0.id == "cmd-switchArrangement" || $0.id == "cmd-saveArrangement" || $0.id == "cmd-deleteArrangement"
+                || $0.id == "cmd-renameArrangement"
         }
         XCTAssertEqual(arrangementItems.count, 4, "All four arrangement commands should be present")
         XCTAssertTrue(arrangementItems.allSatisfy { $0.group == "Tab" })
@@ -220,10 +219,8 @@ final class CommandBarDataSourceTests: XCTestCase {
 
         // Assert — all drawer commands should be in the "Pane" group
         let drawerItems = items.filter {
-            $0.id == "cmd-addDrawerPane" ||
-            $0.id == "cmd-toggleDrawer" ||
-            $0.id == "cmd-navigateDrawerPane" ||
-            $0.id == "cmd-closeDrawerPane"
+            $0.id == "cmd-addDrawerPane" || $0.id == "cmd-toggleDrawer" || $0.id == "cmd-navigateDrawerPane"
+                || $0.id == "cmd-closeDrawerPane"
         }
         XCTAssertEqual(drawerItems.count, 4, "All four drawer commands should be present")
         XCTAssertTrue(drawerItems.allSatisfy { $0.group == "Pane" }, "All drawer commands should be in the Pane group")
@@ -278,8 +275,10 @@ final class CommandBarDataSourceTests: XCTestCase {
 
         // Verify target IDs match the created drawer panes
         let levelIds = level.items.map(\.id)
-        XCTAssertTrue(levelIds.contains("target-drawer-\(drawer1!.id.uuidString)"), "Level should target first drawer pane")
-        XCTAssertTrue(levelIds.contains("target-drawer-\(drawer2!.id.uuidString)"), "Level should target second drawer pane")
+        XCTAssertTrue(
+            levelIds.contains("target-drawer-\(drawer1!.id.uuidString)"), "Level should target first drawer pane")
+        XCTAssertTrue(
+            levelIds.contains("target-drawer-\(drawer2!.id.uuidString)"), "Level should target second drawer pane")
 
         // Verify the active drawer pane has "Active" subtitle (last added becomes active)
         let activeItem = level.items.first { $0.id == "target-drawer-\(drawer2!.id.uuidString)" }

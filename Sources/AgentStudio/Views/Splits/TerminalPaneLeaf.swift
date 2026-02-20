@@ -1,5 +1,5 @@
-import SwiftUI
 import AppKit
+import SwiftUI
 import UniformTypeIdentifiers
 import os.log
 
@@ -66,7 +66,9 @@ struct TerminalPaneLeaf: View {
                 // Drawer children cannot be dragged out of their drawer.
                 // The Color.clear fills the ZStack for centering; allowsHitTesting(false)
                 // ensures only the capsule itself intercepts mouse events.
-                if managementMode.isActive && isSplit && !isDrawerChild && isHovered && !isTargeted && !store.isSplitResizing {
+                if managementMode.isActive && isSplit && !isDrawerChild && isHovered && !isTargeted
+                    && !store.isSplitResizing
+                {
                     ZStack {
                         Color.clear
                             .allowsHitTesting(false)
@@ -80,10 +82,12 @@ struct TerminalPaneLeaf: View {
                         }
                         .frame(width: 20, height: 20 * 1.6)
                         .contentShape(RoundedRectangle(cornerRadius: 12))
-                        .draggable(PaneDragPayload(
-                            paneId: paneView.id,
-                            tabId: tabId
-                        )) {
+                        .draggable(
+                            PaneDragPayload(
+                                paneId: paneView.id,
+                                tabId: tabId
+                            )
+                        ) {
                             // Solid drag preview — .ultraThinMaterial renders as
                             // concentric circles when captured without a background.
                             ZStack {
@@ -144,12 +148,13 @@ struct TerminalPaneLeaf: View {
                         HStack {
                             Spacer()
                             Button {
-                                action(.insertPane(
-                                    source: .newTerminal,
-                                    targetTabId: tabId,
-                                    targetPaneId: paneView.id,
-                                    direction: .right
-                                ))
+                                action(
+                                    .insertPane(
+                                        source: .newTerminal,
+                                        targetTabId: tabId,
+                                        targetPaneId: paneView.id,
+                                        direction: .right
+                                    ))
                             } label: {
                                 Image(systemName: "plus")
                                     .font(.system(size: AppStyle.fontSmall, weight: .bold))
@@ -190,14 +195,16 @@ struct TerminalPaneLeaf: View {
             .onTapGesture {
                 action(.focusPane(tabId: tabId, paneId: paneView.id))
             }
-            .onDrop(of: [.agentStudioTab, .agentStudioNewTab, .agentStudioPane], delegate: SplitDropDelegate(
-                viewSize: geometry.size,
-                destination: paneView,
-                dropZone: $dropZone,
-                isTargeted: $isTargeted,
-                shouldAcceptDrop: shouldAcceptDrop,
-                onDrop: onDrop
-            ))
+            .onDrop(
+                of: [.agentStudioTab, .agentStudioNewTab, .agentStudioPane],
+                delegate: SplitDropDelegate(
+                    viewSize: geometry.size,
+                    destination: paneView,
+                    dropZone: $dropZone,
+                    isTargeted: $isTargeted,
+                    shouldAcceptDrop: shouldAcceptDrop,
+                    onDrop: onDrop
+                ))
         }
         .clipShape(RoundedRectangle(cornerRadius: 1))
         .onChange(of: managementMode.isActive) { _, isActive in
@@ -305,15 +312,17 @@ private struct SplitDropDelegate: DropDelegate {
                     return
                 }
                 guard let data,
-                      let payload = try? JSONDecoder().decode(TabDragPayload.self, from: data) else {
+                    let payload = try? JSONDecoder().decode(TabDragPayload.self, from: data)
+                else {
                     splitLogger.warning("Tab drop: failed to decode TabDragPayload")
                     return
                 }
 
                 DispatchQueue.main.async {
-                    let splitPayload = SplitDropPayload(kind: .existingTab(
-                        tabId: payload.tabId
-                    ))
+                    let splitPayload = SplitDropPayload(
+                        kind: .existingTab(
+                            tabId: payload.tabId
+                        ))
                     onDrop(splitPayload, destination.id, zone)
                 }
             }
@@ -327,16 +336,18 @@ private struct SplitDropDelegate: DropDelegate {
                     return
                 }
                 guard let data,
-                      let payload = try? JSONDecoder().decode(PaneDragPayload.self, from: data) else {
+                    let payload = try? JSONDecoder().decode(PaneDragPayload.self, from: data)
+                else {
                     splitLogger.warning("Pane drop: failed to decode PaneDragPayload")
                     return
                 }
 
                 DispatchQueue.main.async {
-                    let splitPayload = SplitDropPayload(kind: .existingPane(
-                        paneId: payload.paneId,
-                        sourceTabId: payload.tabId
-                    ))
+                    let splitPayload = SplitDropPayload(
+                        kind: .existingPane(
+                            paneId: payload.paneId,
+                            sourceTabId: payload.tabId
+                        ))
                     onDrop(splitPayload, destination.id, zone)
                 }
             }

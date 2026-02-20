@@ -1,4 +1,5 @@
 import XCTest
+
 @testable import AgentStudio
 
 /// Tests for OAuthService configuration, URL construction, and error types.

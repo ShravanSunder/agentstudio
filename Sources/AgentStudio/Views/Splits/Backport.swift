@@ -14,13 +14,13 @@ extension View {
 extension Backport where Content: View {
     func pointerStyle(_ style: BackportPointerStyle?) -> some View {
         #if canImport(AppKit)
-        if #available(macOS 15, *) {
-            return content.pointerStyle(style?.official)
-        } else {
-            return content
-        }
+            if #available(macOS 15, *) {
+                return content.pointerStyle(style?.official)
+            } else {
+                return content
+            }
         #else
-        return content
+            return content
         #endif
     }
 }
@@ -31,13 +31,13 @@ enum BackportPointerStyle {
     case resizeLeftRight
 
     #if canImport(AppKit)
-    @available(macOS 15, *)
-    var official: PointerStyle {
-        switch self {
-        case .default: return .default
-        case .resizeUpDown: return .frameResize(position: .top)
-        case .resizeLeftRight: return .frameResize(position: .trailing)
+        @available(macOS 15, *)
+        var official: PointerStyle {
+            switch self {
+            case .default: return .default
+            case .resizeUpDown: return .frameResize(position: .top)
+            case .resizeLeftRight: return .frameResize(position: .trailing)
+            }
         }
-    }
     #endif
 }

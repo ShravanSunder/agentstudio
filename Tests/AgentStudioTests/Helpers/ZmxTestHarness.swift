@@ -1,5 +1,6 @@
 import Foundation
 import XCTest
+
 @testable import AgentStudio
 
 /// Isolated zmx environment for integration tests.
@@ -23,7 +24,8 @@ final class ZmxTestHarness {
         if let vendored = vendoredPath {
             self.zmxPath = vendored
         } else if let found = ["/opt/homebrew/bin/zmx", "/usr/local/bin/zmx"]
-            .first(where: { FileManager.default.isExecutableFile(atPath: $0) }) {
+            .first(where: { FileManager.default.isExecutableFile(atPath: $0) })
+        {
             self.zmxPath = found
         } else {
             // 2. Fallback: check PATH via which
@@ -81,7 +83,8 @@ final class ZmxTestHarness {
                 for session in sessions {
                     // Parse both full list output (`session_name=<id> ...`) and short output (`<id>`).
                     if let name = Self.extractSessionName(from: session),
-                       name.hasPrefix(ZmxBackend.sessionPrefix) {
+                        name.hasPrefix(ZmxBackend.sessionPrefix)
+                    {
                         _ = try? await executor.execute(
                             command: zmxPath,
                             args: ["kill", name],

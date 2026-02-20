@@ -116,19 +116,21 @@ struct DefaultProcessExecutor: ProcessExecutor {
 
                 // Use our flag to detect timeout (more reliable than exit code matching).
                 if timedOut.value {
-                    continuation.resume(throwing: ProcessError.timedOut(
-                        command: command, seconds: timeoutSeconds
-                    ))
+                    continuation.resume(
+                        throwing: ProcessError.timedOut(
+                            command: command, seconds: timeoutSeconds
+                        ))
                     return
                 }
 
-                continuation.resume(returning: ProcessResult(
-                    exitCode: Int(process.terminationStatus),
-                    stdout: String(data: stdoutData, encoding: .utf8)?
-                        .trimmingCharacters(in: .whitespacesAndNewlines) ?? "",
-                    stderr: String(data: stderrData, encoding: .utf8)?
-                        .trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
-                ))
+                continuation.resume(
+                    returning: ProcessResult(
+                        exitCode: Int(process.terminationStatus),
+                        stdout: String(data: stdoutData, encoding: .utf8)?
+                            .trimmingCharacters(in: .whitespacesAndNewlines) ?? "",
+                        stderr: String(data: stderrData, encoding: .utf8)?
+                            .trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+                    ))
             }
         }
 

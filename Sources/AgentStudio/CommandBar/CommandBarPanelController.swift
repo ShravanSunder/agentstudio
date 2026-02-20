@@ -124,15 +124,17 @@ final class CommandBarPanelController {
         let panelToRemove = panel
         self.panel = nil
 
-        NSAnimationContext.runAnimationGroup({ context in
-            context.duration = 0.08
-            context.timingFunction = CAMediaTimingFunction(name: .easeIn)
-            panelToRemove.animator().alphaValue = 0
-        }, completionHandler: {
-            panelToRemove.parent?.removeChildWindow(panelToRemove)
-            panelToRemove.orderOut(nil)
-            controllerLogger.debug("Command bar panel dismissed")
-        })
+        NSAnimationContext.runAnimationGroup(
+            { context in
+                context.duration = 0.08
+                context.timingFunction = CAMediaTimingFunction(name: .easeIn)
+                panelToRemove.animator().alphaValue = 0
+            },
+            completionHandler: {
+                panelToRemove.parent?.removeChildWindow(panelToRemove)
+                panelToRemove.orderOut(nil)
+                controllerLogger.debug("Command bar panel dismissed")
+            })
 
         // Remove backdrop
         hideBackdrop()
@@ -170,13 +172,15 @@ final class CommandBarPanelController {
     private func hideBackdrop() {
         guard let backdrop = backdropView else { return }
 
-        NSAnimationContext.runAnimationGroup({ context in
-            context.duration = 0.08
-            context.timingFunction = CAMediaTimingFunction(name: .easeIn)
-            backdrop.animator().alphaValue = 0
-        }, completionHandler: {
-            backdrop.removeFromSuperview()
-        })
+        NSAnimationContext.runAnimationGroup(
+            { context in
+                context.duration = 0.08
+                context.timingFunction = CAMediaTimingFunction(name: .easeIn)
+                backdrop.animator().alphaValue = 0
+            },
+            completionHandler: {
+                backdrop.removeFromSuperview()
+            })
         backdropView = nil
     }
 }
@@ -195,10 +199,9 @@ final class CommandBarBackdropView: NSView {
     }
 
     @available(*, unavailable)
-    required init?(coder: NSCoder) { fatalError() }
+    required init?(coder: NSCoder) { fatalError("CommandBarPanelController does not support NSCoder") }
 
     override func mouseDown(with event: NSEvent) {
         onDismiss()
     }
 }
-

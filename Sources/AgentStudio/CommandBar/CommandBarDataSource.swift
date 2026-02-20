@@ -56,7 +56,8 @@ enum CommandBarDataSource {
     /// Group a flat list of items into display groups, ordered by priority.
     static func grouped(_ items: [CommandBarItem]) -> [CommandBarItemGroup] {
         let dict = Dictionary(grouping: items, by: \.group)
-        return dict
+        return
+            dict
             .map { name, groupItems in
                 let priority = groupItems.first?.groupPriority ?? 999
                 return CommandBarItemGroup(
@@ -78,7 +79,9 @@ enum CommandBarDataSource {
         var items: [CommandBarItem] = []
         items.append(contentsOf: tabItems(store: store))
         items.append(contentsOf: paneItems(store: store))
-        items.append(contentsOf: allCommandItems(dispatcher: dispatcher, store: store, groupName: Group.commands, priority: Priority.commands))
+        items.append(
+            contentsOf: allCommandItems(
+                dispatcher: dispatcher, store: store, groupName: Group.commands, priority: Priority.commands))
         items.append(contentsOf: worktreeItems(store: store))
         return items
     }
@@ -88,7 +91,8 @@ enum CommandBarDataSource {
     private static func tabItems(store: WorkspaceStore) -> [CommandBarItem] {
         store.tabs.enumerated().map { index, tab in
             let paneTitles = tab.paneIds.compactMap { store.pane($0)?.title }
-            let title = paneTitles.count > 1
+            let title =
+                paneTitles.count > 1
                 ? paneTitles.joined(separator: " | ")
                 : paneTitles.first ?? "Terminal"
             let isActive = tab.id == store.activeTabId
@@ -124,24 +128,25 @@ enum CommandBarDataSource {
 
                 let capturedPaneId = pane.id
                 let parentTabId = tab.id
-                items.append(CommandBarItem(
-                    id: "pane-\(pane.id.uuidString)",
-                    title: pane.title,
-                    subtitle: "Tab \(tabIndex + 1)" + (isActive ? " · Active" : ""),
-                    icon: iconForPane(pane),
-                    iconColor: pane.agent?.color,
-                    group: Group.panes,
-                    groupPriority: Priority.panes,
-                    keywords: keywordsForPane(pane, store: store),
-                    action: .custom {
-                        // Select the parent tab and focus the specific pane
-                        NotificationCenter.default.post(
-                            name: .selectTabById,
-                            object: nil,
-                            userInfo: ["tabId": parentTabId, "paneId": capturedPaneId]
-                        )
-                    }
-                ))
+                items.append(
+                    CommandBarItem(
+                        id: "pane-\(pane.id.uuidString)",
+                        title: pane.title,
+                        subtitle: "Tab \(tabIndex + 1)" + (isActive ? " · Active" : ""),
+                        icon: iconForPane(pane),
+                        iconColor: pane.agent?.color,
+                        group: Group.panes,
+                        groupPriority: Priority.panes,
+                        keywords: keywordsForPane(pane, store: store),
+                        action: .custom {
+                            // Select the parent tab and focus the specific pane
+                            NotificationCenter.default.post(
+                                name: .selectTabById,
+                                object: nil,
+                                userInfo: ["tabId": parentTabId, "paneId": capturedPaneId]
+                            )
+                        }
+                    ))
             }
         }
         return items
@@ -153,7 +158,8 @@ enum CommandBarDataSource {
         var items: [CommandBarItem] = []
         for (tabIndex, tab) in store.tabs.enumerated() {
             let paneTitles = tab.paneIds.compactMap { store.pane($0)?.title }
-            let tabTitle = paneTitles.count > 1
+            let tabTitle =
+                paneTitles.count > 1
                 ? paneTitles.joined(separator: " | ")
                 : paneTitles.first ?? "Terminal"
             let tabGroupName = "Tab \(tabIndex + 1): \(tabTitle)"
@@ -161,22 +167,23 @@ enum CommandBarDataSource {
 
             // Tab as selectable item
             let tabId = tab.id
-            items.append(CommandBarItem(
-                id: "tab-\(tab.id.uuidString)",
-                title: tabTitle,
-                subtitle: isActiveTab ? "Active Tab" : nil,
-                icon: "rectangle.stack",
-                group: tabGroupName,
-                groupPriority: tabIndex,
-                keywords: ["tab", "switch"],
-                action: .custom {
-                    NotificationCenter.default.post(
-                        name: .selectTabById,
-                        object: nil,
-                        userInfo: ["tabId": tabId]
-                    )
-                }
-            ))
+            items.append(
+                CommandBarItem(
+                    id: "tab-\(tab.id.uuidString)",
+                    title: tabTitle,
+                    subtitle: isActiveTab ? "Active Tab" : nil,
+                    icon: "rectangle.stack",
+                    group: tabGroupName,
+                    groupPriority: tabIndex,
+                    keywords: ["tab", "switch"],
+                    action: .custom {
+                        NotificationCenter.default.post(
+                            name: .selectTabById,
+                            object: nil,
+                            userInfo: ["tabId": tabId]
+                        )
+                    }
+                ))
 
             // Panes within this tab
             for paneId in tab.paneIds {
@@ -185,23 +192,24 @@ enum CommandBarDataSource {
 
                 let capturedTabId = tab.id
                 let capturedPaneId = pane.id
-                items.append(CommandBarItem(
-                    id: "pane-\(pane.id.uuidString)",
-                    title: pane.title,
-                    subtitle: isActive ? "Active Pane" : nil,
-                    icon: iconForPane(pane),
-                    iconColor: pane.agent?.color,
-                    group: tabGroupName,
-                    groupPriority: tabIndex,
-                    keywords: keywordsForPane(pane, store: store),
-                    action: .custom {
-                        NotificationCenter.default.post(
-                            name: .selectTabById,
-                            object: nil,
-                            userInfo: ["tabId": capturedTabId, "paneId": capturedPaneId]
-                        )
-                    }
-                ))
+                items.append(
+                    CommandBarItem(
+                        id: "pane-\(pane.id.uuidString)",
+                        title: pane.title,
+                        subtitle: isActive ? "Active Pane" : nil,
+                        icon: iconForPane(pane),
+                        iconColor: pane.agent?.color,
+                        group: tabGroupName,
+                        groupPriority: tabIndex,
+                        keywords: keywordsForPane(pane, store: store),
+                        action: .custom {
+                            NotificationCenter.default.post(
+                                name: .selectTabById,
+                                object: nil,
+                                userInfo: ["tabId": capturedTabId, "paneId": capturedPaneId]
+                            )
+                        }
+                    ))
             }
         }
         return items
@@ -278,9 +286,9 @@ enum CommandBarDataSource {
     private static func isTargetableCommand(_ command: AppCommand) -> Bool {
         switch command {
         case .closeTab, .closePane, .extractPaneToTab, .focusPaneLeft, .focusPaneRight,
-             .focusPaneUp, .focusPaneDown, .focusNextPane, .focusPrevPane,
-             .switchArrangement, .deleteArrangement, .renameArrangement,
-             .navigateDrawerPane:
+            .focusPaneUp, .focusPaneDown, .focusNextPane, .focusPrevPane,
+            .switchArrangement, .deleteArrangement, .renameArrangement,
+            .navigateDrawerPane:
             return true
         default:
             return false
@@ -308,21 +316,23 @@ enum CommandBarDataSource {
         let appliesToPane = def.appliesTo.contains(.pane) || def.appliesTo.contains(.floatingTerminal)
 
         if appliesToTab {
-            items.append(contentsOf: store.tabs.enumerated().map { index, tab in
-                let paneTitles = tab.paneIds.compactMap { store.pane($0)?.title }
-                let title = paneTitles.count > 1
-                    ? paneTitles.joined(separator: " | ")
-                    : paneTitles.first ?? "Terminal"
-                return CommandBarItem(
-                    id: "target-tab-\(tab.id.uuidString)",
-                    title: title,
-                    subtitle: "Tab \(index + 1)",
-                    icon: "rectangle.stack",
-                    group: "Tabs",
-                    groupPriority: 0,
-                    action: .dispatchTargeted(def.command, target: tab.id, targetType: .tab)
-                )
-            })
+            items.append(
+                contentsOf: store.tabs.enumerated().map { index, tab in
+                    let paneTitles = tab.paneIds.compactMap { store.pane($0)?.title }
+                    let title =
+                        paneTitles.count > 1
+                        ? paneTitles.joined(separator: " | ")
+                        : paneTitles.first ?? "Terminal"
+                    return CommandBarItem(
+                        id: "target-tab-\(tab.id.uuidString)",
+                        title: title,
+                        subtitle: "Tab \(index + 1)",
+                        icon: "rectangle.stack",
+                        group: "Tabs",
+                        groupPriority: 0,
+                        action: .dispatchTargeted(def.command, target: tab.id, targetType: .tab)
+                    )
+                })
         }
 
         if appliesToPane {
@@ -334,16 +344,17 @@ enum CommandBarDataSource {
                     case .floating: targetType = .floatingTerminal
                     case .worktree: targetType = .pane
                     }
-                    items.append(CommandBarItem(
-                        id: "target-pane-\(pane.id.uuidString)",
-                        title: pane.title,
-                        subtitle: "Tab \(tabIndex + 1)",
-                        icon: iconForPane(pane),
-                        iconColor: pane.agent?.color,
-                        group: "Panes",
-                        groupPriority: 1,
-                        action: .dispatchTargeted(def.command, target: pane.id, targetType: targetType)
-                    ))
+                    items.append(
+                        CommandBarItem(
+                            id: "target-pane-\(pane.id.uuidString)",
+                            title: pane.title,
+                            subtitle: "Tab \(tabIndex + 1)",
+                            icon: iconForPane(pane),
+                            iconColor: pane.agent?.color,
+                            group: "Panes",
+                            groupPriority: 1,
+                            action: .dispatchTargeted(def.command, target: pane.id, targetType: targetType)
+                        ))
                 }
             }
         }
@@ -395,10 +406,11 @@ enum CommandBarDataSource {
         var items: [CommandBarItem] = []
 
         if let activeTabId = store.activeTabId,
-           let tab = store.tab(activeTabId),
-           let activePaneId = tab.activePaneId,
-           let pane = store.pane(activePaneId),
-           let drawer = pane.drawer {
+            let tab = store.tab(activeTabId),
+            let activePaneId = tab.activePaneId,
+            let pane = store.pane(activePaneId),
+            let drawer = pane.drawer
+        {
             items = drawer.paneIds.enumerated().compactMap { index, drawerPaneId in
                 guard let drawerPane = store.pane(drawerPaneId) else { return nil }
                 let isActive = drawer.activePaneId == drawerPaneId
@@ -482,12 +494,12 @@ enum CommandBarDataSource {
     private static func isHiddenCommand(_ command: AppCommand) -> Bool {
         switch command {
         case .selectTab1, .selectTab2, .selectTab3, .selectTab4, .selectTab5,
-             .selectTab6, .selectTab7, .selectTab8, .selectTab9,
-             .quickFind, .commandBar,
-             // OAuth sign-in commands hidden until real client IDs are configured.
-             // These will use ASWebAuthenticationSession to authenticate in Safari
-             // (where 1Password works), then inject session cookies into WKWebView.
-             .signInGitHub, .signInGoogle:
+            .selectTab6, .selectTab7, .selectTab8, .selectTab9,
+            .quickFind, .commandBar,
+            // OAuth sign-in commands hidden until real client IDs are configured.
+            // These will use ASWebAuthenticationSession to authenticate in Safari
+            // (where 1Password works), then inject session cookies into WKWebView.
+            .signInGitHub, .signInGoogle:
             return true
         default:
             return false
@@ -497,14 +509,14 @@ enum CommandBarDataSource {
     private static func commandGroup(for command: AppCommand) -> (name: String, priority: Int) {
         switch command {
         case .closePane, .extractPaneToTab, .splitRight, .splitBelow, .splitLeft, .splitAbove,
-             .equalizePanes, .toggleSplitZoom,
-             .addDrawerPane, .toggleDrawer, .navigateDrawerPane, .closeDrawerPane:
+            .equalizePanes, .toggleSplitZoom,
+            .addDrawerPane, .toggleDrawer, .navigateDrawerPane, .closeDrawerPane:
             return (Group.paneCommands, 0)
         case .focusPaneLeft, .focusPaneRight, .focusPaneUp, .focusPaneDown,
-             .focusNextPane, .focusPrevPane:
+            .focusNextPane, .focusPrevPane:
             return (Group.focusCommands, 1)
         case .closeTab, .breakUpTab, .newTerminalInTab, .nextTab, .prevTab, .openNewTerminalInTab,
-             .switchArrangement, .saveArrangement, .deleteArrangement, .renameArrangement:
+            .switchArrangement, .saveArrangement, .deleteArrangement, .renameArrangement:
             return (Group.tabCommands, 2)
         case .addRepo, .removeRepo, .refreshWorktrees:
             return (Group.repoCommands, 3)

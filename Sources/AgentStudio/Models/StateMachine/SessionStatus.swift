@@ -54,7 +54,7 @@ enum SessionStatus: Equatable, Sendable, MachineState {
 
     // MARK: - Transitions
 
-    static func transition(from state: SessionStatus, on event: Event) -> Transition<SessionStatus, Effect> {
+    static func transition(from state: Self, on event: Event) -> Transition<Self, Effect> {
         switch (state, event) {
 
         // --- Unknown ---

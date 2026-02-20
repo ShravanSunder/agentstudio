@@ -1,5 +1,5 @@
-import Foundation
 import AppKit
+import Foundation
 import GhosttyKit
 import os
 
@@ -316,9 +316,9 @@ final class SurfaceManager: ObservableObject {
     /// Swap two surfaces between containers
     func swap(_ surfaceA: UUID, with surfaceB: UUID) {
         guard var managedA = activeSurfaces[surfaceA],
-              var managedB = activeSurfaces[surfaceB],
-              case .active(let containerA) = managedA.state,
-              case .active(let containerB) = managedB.state
+            var managedB = activeSurfaces[surfaceB],
+            case .active(let containerA) = managedA.state,
+            case .active(let containerB) = managedB.state
         else {
             logger.warning("Cannot swap surfaces - not both active")
             return
@@ -429,14 +429,16 @@ final class SurfaceManager: ObservableObject {
     /// Check if a process is running in the surface
     func isProcessRunning(_ surfaceId: UUID) -> Bool {
         guard let managed = activeSurfaces[surfaceId] ?? hiddenSurfaces[surfaceId],
-              let surface = managed.surface.surface else { return false }
+            let surface = managed.surface.surface
+        else { return false }
         return ghostty_surface_needs_confirm_quit(surface)
     }
 
     /// Check if the process has exited
     func hasProcessExited(_ surfaceId: UUID) -> Bool {
         guard let managed = activeSurfaces[surfaceId] ?? hiddenSurfaces[surfaceId],
-              let surface = managed.surface.surface else { return true }
+            let surface = managed.surface.surface
+        else { return true }
         return ghostty_surface_process_exited(surface)
     }
 
@@ -546,7 +548,8 @@ extension SurfaceManager {
 
     @objc private func onRendererHealthChanged(_ notification: Notification) {
         guard let surfaceView = notification.object as? Ghostty.SurfaceView,
-              let surfaceId = surfaceViewToId[ObjectIdentifier(surfaceView)] else {
+            let surfaceId = surfaceViewToId[ObjectIdentifier(surfaceView)]
+        else {
             return
         }
 
@@ -562,7 +565,8 @@ extension SurfaceManager {
 
     @objc private func onWorkingDirectoryChanged(_ notification: Notification) {
         guard let surfaceView = notification.object as? Ghostty.SurfaceView,
-              let surfaceId = surfaceViewToId[ObjectIdentifier(surfaceView)] else {
+            let surfaceId = surfaceViewToId[ObjectIdentifier(surfaceView)]
+        else {
             return
         }
 
@@ -588,7 +592,7 @@ extension SurfaceManager {
 
         // Post higher-level notification for upstream consumers
         var userInfo: [String: Any] = ["surfaceId": surfaceId]
-        if let url = url {
+        if let url {
             userInfo["url"] = url
         }
         NotificationCenter.default.post(
@@ -677,7 +681,8 @@ extension SurfaceManager {
 
     private func setOcclusion(_ surfaceId: UUID, visible: Bool) {
         guard let managed = activeSurfaces[surfaceId] ?? hiddenSurfaces[surfaceId],
-              let surface = managed.surface.surface else {
+            let surface = managed.surface.surface
+        else {
             return
         }
         ghostty_surface_set_occlusion(surface, visible)
@@ -686,7 +691,8 @@ extension SurfaceManager {
     /// Set focus state for a surface
     func setFocus(_ surfaceId: UUID, focused: Bool) {
         guard let managed = activeSurfaces[surfaceId],
-              let surface = managed.surface.surface else {
+            let surface = managed.surface.surface
+        else {
             RestoreTrace.log("SurfaceManager.setFocus skipped surface=\(surfaceId) focused=\(focused) active=\(activeSurfaces[surfaceId] != nil)")
             return
         }
@@ -765,45 +771,45 @@ extension SurfaceManager {
 // MARK: - Debug/Testing
 
 #if DEBUG
-extension SurfaceManager {
+    extension SurfaceManager {
 
-    /// Test crash isolation - use in development only
-    func testCrash(_ surfaceId: UUID, thread: CrashThread) {
-        _ = withSurface(surfaceId) { surface in
-            let action: String
-            switch thread {
-            case .main: action = "crash:main"
-            case .io: action = "crash:io"
-            case .render: action = "crash:render"
+        /// Test crash isolation - use in development only
+        func testCrash(_ surfaceId: UUID, thread: CrashThread) {
+            _ = withSurface(surfaceId) { surface in
+                let action: String
+                switch thread {
+                case .main: action = "crash:main"
+                case .io: action = "crash:io"
+                case .render: action = "crash:render"
+                }
+
+                action.withCString { ptr in
+                    _ = ghostty_surface_binding_action(surface, ptr, UInt(action.utf8.count))
+                }
             }
+        }
 
-            action.withCString { ptr in
-                _ = ghostty_surface_binding_action(surface, ptr, UInt(action.utf8.count))
+        enum CrashThread {
+            case main  // Will crash entire app
+            case io  // Should be isolated
+            case render  // Should be isolated
+        }
+
+        /// Debug: Print all surface states
+        func debugPrintState() {
+            print("=== SurfaceManager State ===")
+            print("Active: \(activeSurfaces.count)")
+            for (id, managed) in activeSurfaces {
+                print("  - \(id): \(managed.metadata.title), health: \(surfaceHealth[id] ?? .dead)")
+            }
+            print("Hidden: \(hiddenSurfaces.count)")
+            for (id, managed) in hiddenSurfaces {
+                print("  - \(id): \(managed.metadata.title), health: \(surfaceHealth[id] ?? .dead)")
+            }
+            print("Undo stack: \(undoStack.count)")
+            for entry in undoStack {
+                print("  - \(entry.surface.id): expires \(entry.expiresAt)")
             }
         }
     }
-
-    enum CrashThread {
-        case main   // Will crash entire app
-        case io     // Should be isolated
-        case render // Should be isolated
-    }
-
-    /// Debug: Print all surface states
-    func debugPrintState() {
-        print("=== SurfaceManager State ===")
-        print("Active: \(activeSurfaces.count)")
-        for (id, managed) in activeSurfaces {
-            print("  - \(id): \(managed.metadata.title), health: \(surfaceHealth[id] ?? .dead)")
-        }
-        print("Hidden: \(hiddenSurfaces.count)")
-        for (id, managed) in hiddenSurfaces {
-            print("  - \(id): \(managed.metadata.title), health: \(surfaceHealth[id] ?? .dead)")
-        }
-        print("Undo stack: \(undoStack.count)")
-        for entry in undoStack {
-            print("  - \(entry.surface.id): expires \(entry.expiresAt)")
-        }
-    }
-}
 #endif

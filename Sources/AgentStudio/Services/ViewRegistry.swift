@@ -82,13 +82,14 @@ final class ViewRegistry {
                 case .horizontal: viewDirection = .horizontal
                 case .vertical: viewDirection = .vertical
                 }
-                return .split(PaneSplitTree.Node.Split(
-                    id: split.id,
-                    direction: viewDirection,
-                    ratio: split.ratio,
-                    left: left,
-                    right: right
-                ))
+                return .split(
+                    PaneSplitTree.Node.Split(
+                        id: split.id,
+                        direction: viewDirection,
+                        ratio: split.ratio,
+                        left: left,
+                        right: right
+                    ))
             }
 
             // One child missing → promote the surviving side

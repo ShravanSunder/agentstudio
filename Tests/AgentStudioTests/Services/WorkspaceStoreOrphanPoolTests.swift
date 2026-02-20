@@ -1,4 +1,5 @@
 import XCTest
+
 @testable import AgentStudio
 
 @MainActor
@@ -8,7 +9,9 @@ final class WorkspaceStoreOrphanPoolTests: XCTestCase {
 
     override func setUp() {
         super.setUp()
-        store = WorkspaceStore(persistor: WorkspacePersistor(workspacesDir: FileManager.default.temporaryDirectory.appending(path: UUID().uuidString)))
+        store = WorkspaceStore(
+            persistor: WorkspacePersistor(
+                workspacesDir: FileManager.default.temporaryDirectory.appending(path: UUID().uuidString)))
     }
 
     // MARK: - Helpers
@@ -48,8 +51,9 @@ final class WorkspaceStoreOrphanPoolTests: XCTestCase {
         let pane2 = store.createPane(source: .floating(workingDirectory: nil, title: nil))
         let tab = Tab(paneId: pane1.id)
         store.appendTab(tab)
-        store.insertPane(pane2.id, inTab: tab.id, at: pane1.id,
-                         direction: .horizontal, position: .after)
+        store.insertPane(
+            pane2.id, inTab: tab.id, at: pane1.id,
+            direction: .horizontal, position: .after)
 
         store.backgroundPane(pane1.id)
 
@@ -78,8 +82,9 @@ final class WorkspaceStoreOrphanPoolTests: XCTestCase {
         let pane2 = store.createPane(source: .floating(workingDirectory: nil, title: nil))
         let tab = Tab(paneId: pane1.id)
         store.appendTab(tab)
-        store.insertPane(pane2.id, inTab: tab.id, at: pane1.id,
-                         direction: .horizontal, position: .after)
+        store.insertPane(
+            pane2.id, inTab: tab.id, at: pane1.id,
+            direction: .horizontal, position: .after)
         store.setActivePane(pane1.id, inTab: tab.id)
 
         store.backgroundPane(pane1.id)
@@ -93,8 +98,9 @@ final class WorkspaceStoreOrphanPoolTests: XCTestCase {
         let pane2 = store.createPane(source: .floating(workingDirectory: nil, title: nil))
         let tab = Tab(paneId: pane1.id)
         store.appendTab(tab)
-        store.insertPane(pane2.id, inTab: tab.id, at: pane1.id,
-                         direction: .horizontal, position: .after)
+        store.insertPane(
+            pane2.id, inTab: tab.id, at: pane1.id,
+            direction: .horizontal, position: .after)
         store.toggleZoom(paneId: pane1.id, inTab: tab.id)
 
         store.backgroundPane(pane1.id)
@@ -135,8 +141,9 @@ final class WorkspaceStoreOrphanPoolTests: XCTestCase {
     func test_reactivatePane_nonBackgrounded_noOp() {
         let (tab, pane1) = createTabWithPane()
         let pane2 = store.createPane(source: .floating(workingDirectory: nil, title: nil))
-        store.insertPane(pane2.id, inTab: tab.id, at: pane1.id,
-                         direction: .horizontal, position: .after)
+        store.insertPane(
+            pane2.id, inTab: tab.id, at: pane1.id,
+            direction: .horizontal, position: .after)
 
         // pane2 is active, not backgrounded
         store.reactivatePane(
@@ -177,8 +184,9 @@ final class WorkspaceStoreOrphanPoolTests: XCTestCase {
         let pane2 = store.createPane(source: .floating(workingDirectory: nil, title: nil))
         let tab = Tab(paneId: pane1.id)
         store.appendTab(tab)
-        store.insertPane(pane2.id, inTab: tab.id, at: pane1.id,
-                         direction: .horizontal, position: .after)
+        store.insertPane(
+            pane2.id, inTab: tab.id, at: pane1.id,
+            direction: .horizontal, position: .after)
 
         // Background pane2
         store.backgroundPane(pane2.id)

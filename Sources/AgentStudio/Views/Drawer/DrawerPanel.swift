@@ -25,7 +25,7 @@ struct DrawerResizeHandle: View {
                         isDragging = true
                         let delta = value.translation.height - lastTranslation
                         lastTranslation = value.translation.height
-                        onDrag(-delta) // Negative: drag up = more height
+                        onDrag(-delta)  // Negative: drag up = more height
                     }
                     .onEnded { _ in
                         isDragging = false
@@ -91,7 +91,9 @@ struct DrawerPanel: View {
             case .closePane(_, let paneId):
                 action(.removeDrawerPane(parentPaneId: parentPaneId, drawerPaneId: paneId))
             case .insertPane(_, _, let targetPaneId, let direction):
-                action(.insertDrawerPane(parentPaneId: parentPaneId, targetDrawerPaneId: targetPaneId, direction: direction))
+                action(
+                    .insertDrawerPane(
+                        parentPaneId: parentPaneId, targetDrawerPaneId: targetPaneId, direction: direction))
             case .focusPane(_, let paneId):
                 action(.setActiveDrawerPane(parentPaneId: parentPaneId, drawerPaneId: paneId))
             default:
@@ -162,27 +164,28 @@ struct DrawerPanel: View {
 // MARK: - Preview
 
 #if DEBUG
-struct DrawerPanel_Previews: PreviewProvider {
-    static var previews: some View {
-        VStack {
-            Spacer()
-            DrawerPanel(
-                tree: PaneSplitTree(),
-                parentPaneId: UUID(),
-                tabId: UUID(),
-                activePaneId: nil,
-                minimizedPaneIds: [],
-                splitRenderInfo: SplitRenderInfo.compute(layout: Layout(), minimizedPaneIds: []),
-                height: 200,
-                store: WorkspaceStore(persistor: WorkspacePersistor(workspacesDir: FileManager.default.temporaryDirectory)),
-                action: { _ in },
-                onResize: { _ in },
-                onDismiss: {}
-            )
-            Spacer()
+    struct DrawerPanel_Previews: PreviewProvider {
+        static var previews: some View {
+            VStack {
+                Spacer()
+                DrawerPanel(
+                    tree: PaneSplitTree(),
+                    parentPaneId: UUID(),
+                    tabId: UUID(),
+                    activePaneId: nil,
+                    minimizedPaneIds: [],
+                    splitRenderInfo: SplitRenderInfo.compute(layout: Layout(), minimizedPaneIds: []),
+                    height: 200,
+                    store: WorkspaceStore(
+                        persistor: WorkspacePersistor(workspacesDir: FileManager.default.temporaryDirectory)),
+                    action: { _ in },
+                    onResize: { _ in },
+                    onDismiss: {}
+                )
+                Spacer()
+            }
+            .frame(width: 500, height: 400)
+            .background(Color(nsColor: .windowBackgroundColor))
         }
-        .frame(width: 500, height: 400)
-        .background(Color(nsColor: .windowBackgroundColor))
     }
-}
 #endif

@@ -1,3 +1,4 @@
+// swiftlint:disable cyclomatic_complexity function_body_length
 import Foundation
 import os.log
 
@@ -82,7 +83,8 @@ final class ActionExecutor {
         )
 
         guard coordinator.createView(for: pane, worktree: worktree, repo: repo) != nil else {
-            executorLogger.error("Surface creation failed for worktree '\(worktree.name)' — rolling back pane \(pane.id)")
+            executorLogger.error(
+                "Surface creation failed for worktree '\(worktree.name)' — rolling back pane \(pane.id)")
             store.removePane(pane.id)
             return nil
         }
@@ -135,7 +137,8 @@ final class ActionExecutor {
                 }
                 // For drawer children: skip if parent pane no longer exists
                 if snapshot.pane.isDrawerChild, let parentId = snapshot.anchorPaneId,
-                   store.pane(parentId) == nil {
+                    store.pane(parentId) == nil
+                {
                     executorLogger.info("undoClose: parent pane \(parentId) gone — skipping drawer child entry")
                     continue
                 }
@@ -159,9 +162,10 @@ final class ActionExecutor {
                 // Drawer children and floating terminals lack worktree context — fall back to
                 // createViewForContent which resolves context through the parent pane.
                 if let worktreeId = pane.worktreeId,
-                   let repoId = pane.repoId,
-                   let worktree = store.worktree(worktreeId),
-                   let repo = store.repo(repoId) {
+                    let repoId = pane.repoId,
+                    let worktree = store.worktree(worktreeId),
+                    let repo = store.repo(repoId)
+                {
                     coordinator.restoreView(for: pane, worktree: worktree, repo: repo)
                 } else {
                     coordinator.createViewForContent(pane: pane)
@@ -190,9 +194,10 @@ final class ActionExecutor {
             switch pane.content {
             case .terminal:
                 if let worktreeId = pane.worktreeId,
-                   let repoId = pane.repoId,
-                   let worktree = store.worktree(worktreeId),
-                   let repo = store.repo(repoId) {
+                    let repoId = pane.repoId,
+                    let worktree = store.worktree(worktreeId),
+                    let repo = store.repo(repoId)
+                {
                     coordinator.restoreView(for: pane, worktree: worktree, repo: repo)
                 } else {
                     coordinator.createViewForContent(pane: pane)
@@ -305,7 +310,8 @@ final class ActionExecutor {
 
             // Get newly visible panes AFTER switching
             guard let tab = store.tab(tabId),
-                  let arrangement = tab.arrangements.first(where: { $0.id == arrangementId }) else { break }
+                let arrangement = tab.arrangements.first(where: { $0.id == arrangementId })
+            else { break }
             let newVisiblePaneIds = arrangement.visiblePaneIds
 
             let transitions = Self.computeSwitchArrangementTransitions(
@@ -334,8 +340,9 @@ final class ActionExecutor {
         case .reactivatePane(let paneId, let targetTabId, let targetPaneId, let direction):
             let layoutDirection = bridgeDirection(direction)
             let position: Layout.Position = (direction == .left || direction == .up) ? .before : .after
-            store.reactivatePane(paneId, inTab: targetTabId, at: targetPaneId,
-                                 direction: layoutDirection, position: position)
+            store.reactivatePane(
+                paneId, inTab: targetTabId, at: targetPaneId,
+                direction: layoutDirection, position: position)
             // After reactivation, ensure the pane has a view.
             // Backgrounded panes lose their view on restart (restoreAllViews skips them).
             if viewRegistry.view(for: paneId) == nil, let pane = store.pane(paneId) {
@@ -352,7 +359,8 @@ final class ActionExecutor {
         case .addDrawerPane(let parentPaneId):
             if let drawerPane = store.addDrawerPane(to: parentPaneId) {
                 if coordinator.createViewForContent(pane: drawerPane) == nil {
-                    executorLogger.warning("addDrawerPane: view creation failed for \(drawerPane.id) — panel will show placeholder")
+                    executorLogger.warning(
+                        "addDrawerPane: view creation failed for \(drawerPane.id) — panel will show placeholder")
                 }
             }
 
@@ -444,15 +452,16 @@ final class ActionExecutor {
             let expired = undoStack.removeFirst()
 
             // Collect all pane IDs currently owned (layout + drawer children)
-            let allOwnedPaneIds = Set(store.tabs.flatMap { tab in
-                tab.panes.flatMap { paneId -> [UUID] in
-                    var ids = [paneId]
-                    if let drawer = store.pane(paneId)?.drawer {
-                        ids.append(contentsOf: drawer.paneIds)
+            let allOwnedPaneIds = Set(
+                store.tabs.flatMap { tab in
+                    tab.panes.flatMap { paneId -> [UUID] in
+                        var ids = [paneId]
+                        if let drawer = store.pane(paneId)?.drawer {
+                            ids.append(contentsOf: drawer.paneIds)
+                        }
+                        return ids
                     }
-                    return ids
-                }
-            })
+                })
 
             // Extract panes from the expired entry
             let expiredPanes: [Pane]
@@ -544,9 +553,10 @@ final class ActionExecutor {
             // Look up worktree/repo from the target pane.
             let targetPane = store.pane(targetPaneId)
             guard let worktreeId = targetPane?.worktreeId,
-                  let repoId = targetPane?.repoId,
-                  let worktree = store.worktree(worktreeId),
-                  let repo = store.repo(repoId) else {
+                let repoId = targetPane?.repoId,
+                let worktree = store.worktree(worktreeId),
+                let repo = store.repo(repoId)
+            else {
                 executorLogger.warning("Cannot insert new terminal pane — target pane has no worktree/repo context")
                 return
             }
@@ -578,12 +588,14 @@ final class ActionExecutor {
         let layoutDirection = bridgeDirection(direction)
         let position: Layout.Position = (direction == .left || direction == .up) ? .before : .after
 
-        guard let drawerPane = store.insertDrawerPane(
-            in: parentPaneId,
-            at: targetDrawerPaneId,
-            direction: layoutDirection,
-            position: position
-        ) else { return }
+        guard
+            let drawerPane = store.insertDrawerPane(
+                in: parentPaneId,
+                at: targetDrawerPaneId,
+                direction: layoutDirection,
+                position: position
+            )
+        else { return }
 
         if coordinator.createViewForContent(pane: drawerPane) == nil {
             executorLogger.warning("insertDrawerPane: view creation failed for \(drawerPane.id)")
@@ -629,7 +641,8 @@ final class ActionExecutor {
     /// Teardown views for all drawer panes owned by a parent pane.
     private func teardownDrawerPanes(for parentPaneId: UUID) {
         guard let pane = store.pane(parentPaneId),
-              let drawer = pane.drawer else { return }
+            let drawer = pane.drawer
+        else { return }
         for drawerPaneId in drawer.paneIds {
             coordinator.teardownView(for: drawerPaneId)
         }

@@ -22,7 +22,8 @@ struct PaneSessionHandle: Equatable, Sendable, Codable, Hashable {
         let segments = suffix.components(separatedBy: "--")
         let hexChars = CharacterSet(charactersIn: "0123456789abcdef")
         guard segments.count == 3,
-              segments.allSatisfy({ $0.count == 16 }) else { return false }
+            segments.allSatisfy({ $0.count == 16 })
+        else { return false }
         return segments.allSatisfy { seg in
             seg.unicodeScalars.allSatisfy { hexChars.contains($0) }
         }
@@ -109,8 +110,10 @@ final class ZmxBackend: SessionBackend {
     /// Uses pane UUIDs (not worktree stable keys) since drawer identity
     /// flows through the parent pane relationship, not worktree association.
     static func drawerSessionId(parentPaneId: UUID, drawerPaneId: UUID) -> String {
-        let parentPrefix = String(parentPaneId.uuidString.replacingOccurrences(of: "-", with: "").prefix(16)).lowercased()
-        let drawerPrefix = String(drawerPaneId.uuidString.replacingOccurrences(of: "-", with: "").prefix(16)).lowercased()
+        let parentPrefix = String(parentPaneId.uuidString.replacingOccurrences(of: "-", with: "").prefix(16))
+            .lowercased()
+        let drawerPrefix = String(drawerPaneId.uuidString.replacingOccurrences(of: "-", with: "").prefix(16))
+            .lowercased()
         return "agentstudio-d--\(parentPrefix)--\(drawerPrefix)"
     }
 

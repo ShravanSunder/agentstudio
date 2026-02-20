@@ -1,3 +1,4 @@
+import AppKit
 import SwiftUI
 
 /// Overlay view shown when a surface encounters an error
@@ -112,7 +113,7 @@ struct SurfaceErrorOverlay: View {
 
     private var actionButtons: some View {
         HStack(spacing: 12) {
-            if let onDismiss = onDismiss {
+            if let onDismiss {
                 Button("Close Tab") {
                     onDismiss()
                 }
@@ -131,7 +132,8 @@ struct SurfaceErrorOverlay: View {
     private func unhealthyMessage(for reason: SurfaceHealth.UnhealthyReason) -> String {
         switch reason {
         case .rendererUnhealthy:
-            return "The terminal renderer encountered an issue. This is usually due to exhausting available GPU memory. Please free up resources and try again."
+            return
+                "The terminal renderer encountered an issue. This is usually due to exhausting available GPU memory. Please free up resources and try again."
         case .initializationFailed:
             return "The terminal failed to initialize. Please check the logs for more information."
         case .unknown:
@@ -141,8 +143,6 @@ struct SurfaceErrorOverlay: View {
 }
 
 // MARK: - NSView Wrapper for AppKit Integration
-
-import AppKit
 
 /// AppKit wrapper for SurfaceErrorOverlay
 final class SurfaceErrorOverlayView: NSView {
@@ -208,32 +208,32 @@ final class SurfaceErrorOverlayView: NSView {
 // MARK: - Preview
 
 #if DEBUG
-struct SurfaceErrorOverlay_Previews: PreviewProvider {
-    static var previews: some View {
-        Group {
-            SurfaceErrorOverlay(
-                health: .unhealthy(reason: .rendererUnhealthy),
-                onRestart: {},
-                onDismiss: {}
-            )
-            .previewDisplayName("Unhealthy")
+    struct SurfaceErrorOverlay_Previews: PreviewProvider {
+        static var previews: some View {
+            Group {
+                SurfaceErrorOverlay(
+                    health: .unhealthy(reason: .rendererUnhealthy),
+                    onRestart: {},
+                    onDismiss: {}
+                )
+                .previewDisplayName("Unhealthy")
 
-            SurfaceErrorOverlay(
-                health: .processExited(exitCode: 1),
-                onRestart: {},
-                onDismiss: {}
-            )
-            .previewDisplayName("Process Exited")
+                SurfaceErrorOverlay(
+                    health: .processExited(exitCode: 1),
+                    onRestart: {},
+                    onDismiss: {}
+                )
+                .previewDisplayName("Process Exited")
 
-            SurfaceErrorOverlay(
-                health: .dead,
-                onRestart: {},
-                onDismiss: {}
-            )
-            .previewDisplayName("Dead")
+                SurfaceErrorOverlay(
+                    health: .dead,
+                    onRestart: {},
+                    onDismiss: {}
+                )
+                .previewDisplayName("Dead")
+            }
+            .frame(width: 600, height: 400)
+            .background(Color.black)
         }
-        .frame(width: 600, height: 400)
-        .background(Color.black)
     }
-}
 #endif

@@ -1,4 +1,5 @@
 import XCTest
+
 @testable import AgentStudio
 
 final class PaneTests: XCTestCase {
@@ -384,7 +385,7 @@ final class PaneTests: XCTestCase {
             kind: .drawerChild(parentPaneId: parentId)
         )
         pane.withDrawer { drawer in
-            drawer.paneIds.append(UUID()) // should be no-op
+            drawer.paneIds.append(UUID())  // should be no-op
         }
         XCTAssertNil(pane.drawer)
     }

@@ -64,7 +64,8 @@ struct CommandBarTextField: NSViewRepresentable {
         /// Deselect all text and place cursor at end.
         func controlTextDidBeginEditing(_ obj: Notification) {
             guard let field = obj.object as? NSTextField,
-                  let editor = field.currentEditor() as? NSTextView else { return }
+                let editor = field.currentEditor() as? NSTextView
+            else { return }
             let len = field.stringValue.count
             editor.setSelectedRange(NSRange(location: len, length: 0))
         }

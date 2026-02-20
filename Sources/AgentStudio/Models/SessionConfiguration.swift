@@ -24,17 +24,19 @@ struct SessionConfiguration: Sendable {
     // MARK: - Factory
 
     /// Detect configuration from the current environment.
-    static func detect(environment: [String: String] = ProcessInfo.processInfo.environment) -> SessionConfiguration {
+    static func detect(environment: [String: String] = ProcessInfo.processInfo.environment) -> Self {
         let env = environment
 
-        let isEnabled = env["AGENTSTUDIO_SESSION_RESTORE"]
+        let isEnabled =
+            env["AGENTSTUDIO_SESSION_RESTORE"]
             .map { $0.lowercased() == "true" || $0 == "1" }
             ?? true
 
         let zmxPath = findZmx()
         let zmxDir = ZmxBackend.defaultZmxDir
 
-        let healthInterval = env["AGENTSTUDIO_HEALTH_INTERVAL"]
+        let healthInterval =
+            env["AGENTSTUDIO_HEALTH_INTERVAL"]
             .flatMap { Double($0) }
             ?? 30.0
 
@@ -42,7 +44,7 @@ struct SessionConfiguration: Sendable {
             "SessionConfiguration.detect enabled=\(isEnabled) zmxPath=\(zmxPath ?? "nil") zmxDir=\(zmxDir) healthInterval=\(healthInterval)"
         )
 
-        return SessionConfiguration(
+        return Self(
             isEnabled: isEnabled,
             zmxPath: zmxPath,
             zmxDir: zmxDir,

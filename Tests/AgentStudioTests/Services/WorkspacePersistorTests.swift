@@ -1,4 +1,5 @@
 import XCTest
+
 @testable import AgentStudio
 
 final class WorkspacePersistorTests: XCTestCase {
@@ -82,7 +83,9 @@ final class WorkspacePersistorTests: XCTestCase {
 
     func test_saveAndLoad_withSplitLayout() throws {
         // Arrange
-        let s1 = UUID(), s2 = UUID(), s3 = UUID()
+        let s1 = UUID()
+        let s2 = UUID()
+        let s3 = UUID()
         let tab = makeTab(paneIds: [s1, s2, s3], activePaneId: s1)
         var state = WorkspacePersistor.PersistableState()
         state.tabs = [tab]

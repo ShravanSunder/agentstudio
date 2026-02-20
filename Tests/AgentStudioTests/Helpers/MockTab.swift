@@ -1,4 +1,5 @@
 import Foundation
+
 @testable import AgentStudio
 
 /// Lightweight `ResolvableTab` mock for testing `ActionResolver.resolve(command:)`.

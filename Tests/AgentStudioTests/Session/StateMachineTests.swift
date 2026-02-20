@@ -1,4 +1,5 @@
 import XCTest
+
 @testable import AgentStudio
 
 @MainActor
@@ -39,7 +40,8 @@ final class StateMachineTests: XCTestCase {
         // Assert
         XCTAssertEqual(machine.state, .verifying)
         XCTAssertEqual(executedEffects.count, 1)
-        if case .checkSocket = executedEffects.first {} else {
+        if case .checkSocket = executedEffects.first {
+        } else {
             XCTFail("Expected .checkSocket effect")
         }
     }
@@ -112,7 +114,8 @@ final class StateMachineTests: XCTestCase {
         // Assert — machine should have capped at maxQueueDepth instead of looping forever.
         // Each healthCheckPassed → scheduleHealthCheck → handler sends healthCheckPassed,
         // so effectCount tracks how many cycles occurred.
-        XCTAssertLessThanOrEqual(effectCount, Machine<SessionStatus>.maxQueueDepth + 1,
+        XCTAssertLessThanOrEqual(
+            effectCount, Machine<SessionStatus>.maxQueueDepth + 1,
             "Queue depth guard should cap runaway cycles")
         // Machine should still be in a valid state (alive, since healthCheckPassed→alive)
         XCTAssertEqual(machine.state, .alive)

@@ -1,4 +1,5 @@
 import XCTest
+
 @testable import AgentStudio
 
 /// End-to-end tests that exercise the full zmx daemon lifecycle against a real zmx binary.
@@ -230,11 +231,11 @@ final class ZmxE2ETests: XCTestCase {
         process.executableURL = URL(fileURLWithPath: "/bin/sh")
         process.arguments = [
             "-c",
-            "ZMX_DIR=\(ZmxBackend.shellEscape(zmxDir)) \(ZmxBackend.shellEscape(zmxPath)) attach \(ZmxBackend.shellEscape(sessionId)) \(commandArgs.map { ZmxBackend.shellEscape($0) }.joined(separator: " "))"
+            "ZMX_DIR=\(ZmxBackend.shellEscape(zmxDir)) \(ZmxBackend.shellEscape(zmxPath)) attach \(ZmxBackend.shellEscape(sessionId)) \(commandArgs.map { ZmxBackend.shellEscape($0) }.joined(separator: " "))",
         ]
         process.standardOutput = FileHandle.nullDevice
         process.standardError = FileHandle.nullDevice
-        process.standardInput = Pipe() // keep stdin open (not /dev/null) so zmx client stays attached
+        process.standardInput = Pipe()  // keep stdin open (not /dev/null) so zmx client stays attached
         try process.run()
         return process
     }
@@ -246,7 +247,7 @@ final class ZmxE2ETests: XCTestCase {
                 makePaneSessionHandle(id: sessionId)
             )
             if alive { return true }
-            try? await Task.sleep(nanoseconds: 250_000_000) // 250ms
+            try? await Task.sleep(nanoseconds: 250_000_000)  // 250ms
         }
         return false
     }
@@ -258,7 +259,7 @@ final class ZmxE2ETests: XCTestCase {
                 makePaneSessionHandle(id: sessionId)
             )
             if !alive { return true }
-            try? await Task.sleep(nanoseconds: 250_000_000) // 250ms
+            try? await Task.sleep(nanoseconds: 250_000_000)  // 250ms
         }
         return false
     }

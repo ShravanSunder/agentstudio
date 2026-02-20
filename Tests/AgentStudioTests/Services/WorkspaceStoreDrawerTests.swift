@@ -1,4 +1,5 @@
 import XCTest
+
 @testable import AgentStudio
 
 @MainActor
@@ -8,7 +9,9 @@ final class WorkspaceStoreDrawerTests: XCTestCase {
 
     override func setUp() {
         super.setUp()
-        store = WorkspaceStore(persistor: WorkspacePersistor(workspacesDir: FileManager.default.temporaryDirectory.appending(path: UUID().uuidString)))
+        store = WorkspaceStore(
+            persistor: WorkspacePersistor(
+                workspacesDir: FileManager.default.temporaryDirectory.appending(path: UUID().uuidString)))
     }
 
     // MARK: - addDrawerPane
@@ -44,7 +47,7 @@ final class WorkspaceStoreDrawerTests: XCTestCase {
 
         let updated = store.pane(pane.id)!
         XCTAssertEqual(updated.drawer!.paneIds.count, 2)
-        XCTAssertEqual(updated.drawer!.activePaneId, dp2.id) // last added becomes active
+        XCTAssertEqual(updated.drawer!.activePaneId, dp2.id)  // last added becomes active
         XCTAssertEqual(updated.drawer!.paneIds[1], dp2.id)
 
         // Both drawer panes are in the layout
@@ -391,7 +394,7 @@ final class WorkspaceStoreDrawerTests: XCTestCase {
         let pane1 = store.createPane(source: .floating(workingDirectory: nil, title: nil))
         let pane2 = store.createPane(source: .floating(workingDirectory: nil, title: nil))
         _ = store.addDrawerPane(to: pane1.id)
-        store.toggleDrawer(for: pane2.id) // expand empty drawer
+        store.toggleDrawer(for: pane2.id)  // expand empty drawer
         XCTAssertTrue(store.pane(pane2.id)!.drawer!.isExpanded)
 
         // Act
@@ -433,7 +436,9 @@ final class WorkspaceStoreDrawerTests: XCTestCase {
         let store2 = WorkspaceStore(persistor: persistor)
         store2.restore()
 
-        let restoredPane = store2.panes.values.first { !$0.isDrawerChild && $0.drawer != nil && !$0.drawer!.paneIds.isEmpty }
+        let restoredPane = store2.panes.values.first {
+            !$0.isDrawerChild && $0.drawer != nil && !$0.drawer!.paneIds.isEmpty
+        }
         XCTAssertNotNil(restoredPane, "Expected pane with non-empty drawer after restore")
         if let restored = restoredPane {
             XCTAssertEqual(restored.drawer!.paneIds.count, 1)
