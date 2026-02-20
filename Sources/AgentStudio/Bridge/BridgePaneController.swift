@@ -51,6 +51,7 @@ final class BridgePaneController {
 
     private let router: RPCRouter
     private let bridgeWorld = WKContentWorld.world(name: "agentStudioBridge")
+    private var lastPushedJSON: [StoreKey: Data] = [:]
 
     // MARK: - Init
 
@@ -153,6 +154,7 @@ final class BridgePaneController {
         diffPushPlan = nil
         reviewPushPlan = nil
         connectionPushPlan = nil
+        lastPushedJSON.removeAll()
         isBridgeReady = false
     }
 
@@ -250,8 +252,11 @@ extension BridgePaneController: PushTransport {
         epoch: Int,
         json: Data
     ) async {
+        // Content guard — skip identical pushes to same store
+        if lastPushedJSON[store] == json { return }
+        lastPushedJSON[store] = json
+
         // Phase 2 stub: log the push. Full callJavaScript implementation in Phase 4.
-        // This allows push plans to run end-to-end through MockPushTransport in tests.
         bridgeControllerLogger.debug(
             "[BridgePaneController] pushJSON store=\(store.rawValue) op=\(op.rawValue) level=\(String(describing: level)) rev=\(revision) epoch=\(epoch) bytes=\(json.count)"
         )
