@@ -31,7 +31,7 @@ agent-studio/
 │   └── Infrastructure/               # Domain-agnostic utilities
 ├── Frameworks/                       # Generated: GhosttyKit.xcframework (not in git)
 ├── vendor/ghostty/                   # Git submodule: Ghostty source
-├── scripts/                          # Utility scripts (icon generation)
+├── scripts/                          # Icon generation
 ├── docs/                             # Detailed documentation
 └── tmp/                              # Temporary docs and status files
 ```
