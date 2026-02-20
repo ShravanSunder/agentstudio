@@ -53,28 +53,21 @@ mise run lint                  # Lint all Swift sources (swift-format + swiftlin
 
 Requires `brew install swift-format swiftlint`. A PostToolUse hook (`.claude/hooks/check.sh`) runs swift-format and swiftlint automatically after every Edit/Write on `.swift` files.
 
-### ⚠️ Running Swift Commands (CRITICAL)
+### ⚠️ Running Swift Commands
 
-**NEVER pipe `swift build` or `swift test` output through grep, tail, head, or any other command.** These commands use interactive output (progress bars, carriage returns) that breaks when piped, causing the process to hang indefinitely.
-
-**ALWAYS redirect output to a file and check the exit code.** This avoids capturing 100KB+ of interactive output in the tool response, which causes massive slowdowns and round-trip overhead.
+SwiftPM's interactive progress output (carriage returns, ANSI escapes) breaks in agent bash contexts. Always redirect to a file and check the exit code.
 
 ```bash
-# CORRECT — dump to file, check exit code
 swift test > /tmp/test-output.txt 2>&1 && echo "PASS" || echo "FAIL: $(tail -20 /tmp/test-output.txt)"
 swift build > /tmp/build-output.txt 2>&1 && echo "BUILD OK" || echo "BUILD FAIL: $(tail -20 /tmp/build-output.txt)"
-
-# Filtered tests
 swift test --filter "CommandBarState" > /tmp/test-output.txt 2>&1 && echo "PASS" || echo "FAIL: $(tail -20 /tmp/test-output.txt)"
-
-# WRONG — captures 100KB+ of interactive output, extremely slow
-swift test
-swift build
-swift test 2>&1 | tail -5
-swift test 2>&1 | grep "passed"
 ```
 
-**Timeouts:** Use a 50-second timeout for `swift test` and `swift build` commands. Tests complete in ~15 seconds; builds in ~5 seconds. Anything longer means something is stuck.
+**No parallel Swift commands.** SwiftPM holds an exclusive lock on `.build`. Concurrent `swift build`/`swift test`/`swift package` calls — even with different `--filter` flags or in background tasks — will block for up to 256 seconds then fail. Run them sequentially, or just run all tests at once.
+
+**Lock contention.** If you see "Another instance of SwiftPM is already running using '.build', waiting..." — don't launch more swift commands. Either wait for the other process, or kill it (`pkill -f "swift-build"`) and retry.
+
+**Timeouts:** 50 seconds for `swift test` and `swift build`. Tests ~15s, builds ~5s. Longer usually means lock contention.
 
 
 ### Launching the App
