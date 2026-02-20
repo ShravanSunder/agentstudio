@@ -4,19 +4,41 @@
 macOS terminal application embedding Ghostty terminal emulator with project/worktree management.
 
 ## Structure
+
+See [Directory Structure](docs/architecture/directory_structure.md) for the full module boundary spec, Core vs Features decision process, and component placement rationale.
+
 ```
 agent-studio/
-├── Sources/AgentStudio/      # Swift source
-│   ├── App/                  # Window/tab controllers
-│   ├── Ghostty/              # Ghostty C API wrapper
-│   ├── Models/               # TerminalSession, Layout, Tab, ViewDefinition
-│   └── Services/             # WorkspaceStore, SessionRuntime, WorktrunkService
-├── Frameworks/               # Generated: GhosttyKit.xcframework (not in git)
-├── vendor/ghostty/           # Git submodule: Ghostty source
-├── scripts/                  # Build automation
-├── docs/                     # Detailed documentation
-└── tmp/                      # Temporary docs and status files
+├── Sources/AgentStudio/
+│   ├── App/                          # Composition root — wires everything, imports all
+│   │   ├── AppDelegate.swift
+│   │   ├── MainWindowController.swift
+│   │   ├── MainSplitViewController.swift
+│   │   └── PaneCoordinator.swift     # Cross-feature sequencing
+│   ├── Core/                         # Shared domain — models, stores, pane system
+│   │   ├── Models/                   # TerminalSession, Layout, Tab, ViewDefinition
+│   │   ├── Stores/                   # WorkspaceStore, SessionRuntime
+│   │   ├── Actions/                  # PaneAction, ActionResolver, ActionValidator
+│   │   ├── ViewRegistry.swift
+│   │   └── PaneTabViewController.swift
+│   ├── Features/
+│   │   ├── Terminal/                 # Everything Ghostty-specific
+│   │   │   ├── Ghostty/              # C API bridge, SurfaceManager, SurfaceTypes
+│   │   │   └── Views/               # AgentStudioTerminalView, SurfaceErrorOverlay
+│   │   ├── Bridge/                   # React/WebView pane system (future)
+│   │   ├── CommandBar/               # ⌘P command palette
+│   │   └── Sidebar/                  # Repo list, worktree tree
+│   └── Infrastructure/               # Domain-agnostic utilities
+├── Frameworks/                       # Generated: GhosttyKit.xcframework (not in git)
+├── vendor/ghostty/                   # Git submodule: Ghostty source
+├── scripts/                          # Build automation
+├── docs/                             # Detailed documentation
+└── tmp/                              # Temporary docs and status files
 ```
+
+**Import rule:** `App/ → Core/, Features/, Infrastructure/` | `Features/ → Core/, Infrastructure/` | `Core/ → Infrastructure/` | Never `Core/ → Features/`
+
+> **Note:** The codebase currently uses flat layer-based directories (`Models/`, `Services/`, `Views/`, `Ghostty/`). LUNA-334 tracks the restructure to the layout above. Swift imports are by module, not file path — the move changes zero import statements.
 
 ## Key Files
 - `Package.swift` - SPM manifest, links GhosttyKit as binary target
@@ -96,12 +118,26 @@ Never guess at UX solutions. Research first, discuss with user, then implement.
 
 ## Linear Work Organization
 
-Solo project. Organizational overhead that doesn't directly serve building is waste.
+### The paradigm: docs are truth, tickets are tracking
 
-- **Two levels only: milestones and tasks.** Milestones are conceptual phases. Tasks are deliverables within them. Never create sub-tasks — checklists in the description carry that role.
+Architecture documents in `docs/architecture/` are the source of truth for design, plans, and implementation details. Linear tickets are project management — they track progress, dependencies, and what's blocked. Understanding why this split exists matters:
+
+**Agents lose context between sessions.** A ticket description is ephemeral — it lives in an API, not the repo. An architecture doc is durable — it's versioned, searchable, and survives context loss. When a new session starts, the agent reads docs from the repo and has full context. If the spec lived only in tickets, continuity would depend on fetching and re-reading every ticket, which is fragile and slow.
+
+**Two sources of truth always drift.** If a ticket duplicates what's in a design doc, one will become stale. The doc gets updated during implementation; the ticket doesn't. Now the ticket is lying. Instead, tickets link to the doc sections they cover. One truth, one place.
+
+**Tickets answer "what's done and what's next."** Docs answer "how does it work and why." These are different questions with different update cadences. Mixing them creates noise in both directions.
+
+### What a ticket looks like
+
+A ticket has: a title, a rough scope description, links to the architecture doc sections it covers, `blockedBy`/`blocks` dependencies, and acceptance criteria. The doc is the plan; the ticket tracks whether the plan is done. Checklists in the ticket description track implementation steps within a single deliverable.
+
+### Structural principles
+
+- **Two levels only: milestones and tasks.** Milestones are conceptual phases. Tasks are deliverables within them. No sub-tasks — checklists in the description carry that role.
 - **A task is a concept, not an implementation step.** "Dynamic view engine" is a task. "Facet indexer", "tab generator", "navigation wiring" are implementation details that belong in the description.
 - **If two tasks always ship together, they're one task.** The test: can each task be delivered and verified independently? If not, merge them.
-- **Depth belongs in the description, not in ticket count.** A rich description with acceptance criteria, design notes, and checklists is better than splitting scope across multiple shallow tickets.
+- **Dependencies are first-class.** Cross-project and cross-milestone dependencies use Linear's `blockedBy`/`blocks` relations. This is how agents know what's unblocked and what to work on next.
 
 ## State Management Mental Model
 
@@ -253,6 +289,7 @@ system design, data model, and document index. Target: macOS 26 only.
 - **Session Lifecycle**: [Session Lifecycle](docs/architecture/session_lifecycle.md) — creation, close, undo, restore, zmx backend
 - **Surface Architecture**: [Surface Management](docs/architecture/ghostty_surface_architecture.md) — ownership, state machine, health, crash isolation
 - **App Architecture**: [App Architecture](docs/architecture/appkit_swiftui_architecture.md) — AppKit+SwiftUI hybrid, controllers, events
+- **Directory Structure**: [Directory Structure](docs/architecture/directory_structure.md) — module boundaries, Core vs Features decision process, import rule
 - **Style Guide**: [macOS Design & Style](docs/guides/style_guide.md)
 
 ## Agent Resources
