@@ -3,7 +3,7 @@
 > **Target**: macOS 26 (Tahoe) · Swift 6.2 · WebKit for SwiftUI
 > **Pattern**: Three-stream architecture with push-dominant state sync
 > **First use case**: Diff viewer and code review with Pierre (@pierre/diffs, @pierre/file-tree)
-> **Status**: Design spec
+> **Status**: Phase 1 (bridge infrastructure) and Phase 2 (push pipeline) implemented. Phase 3+ is design spec.
 
 ---
 
@@ -41,7 +41,7 @@ The diff viewer and code review system (powered by Pierre) is the first panel. I
 │  Tier 1: Swift Domain State (authoritative)           │
 │  @Observable models, Codable, persisted               │
 │                                                        │
-│  • DiffManifest: file paths, sizes, hunk summaries    │
+│  • DiffManifest: file metadata as keyed collection (per-file EntitySlice)  │
 │  • File contents (served via data stream on demand)   │
 │  • ReviewThread, ReviewComment, ReviewAction           │
 │  • AgentTask: status, completed files, output refs     │
@@ -938,9 +938,12 @@ private func makeDiffPushPlan() -> PushPlan<DiffState> {
         Slice("diffStatus", store: .diff, level: .hot) { state in
             DiffStatusSlice(status: state.status, error: state.error, epoch: state.epoch)
         }
-        Slice("diffManifest", store: .diff, level: .cold, op: .replace) { state in
-            state.manifest
-        }
+        EntitySlice(
+            "diffFiles", store: .diff, level: .cold,
+            capture: { state in state.files },
+            version: { file in file.version },
+            keyToString: { $0 }
+        )
     }
 }
 
@@ -965,9 +968,9 @@ private func makeReviewPushPlan() -> PushPlan<ReviewState> {
 }
 
 /// Connection state push plan: 1 hot slice.
-private func makeConnectionPushPlan() -> PushPlan<SharedBridgeState> {
+private func makeConnectionPushPlan() -> PushPlan<PaneDomainState> {
     PushPlan(
-        state: domainState,
+        state: paneState,
         transport: self,
         revisions: revisionClock,
         epoch: { 0 }  // connection has no epoch concept
@@ -985,7 +988,7 @@ Lifecycle integration (in `BridgePaneController`):
 ```swift
 private var diffPushPlan: PushPlan<DiffState>?
 private var reviewPushPlan: PushPlan<ReviewState>?
-private var connectionPushPlan: PushPlan<SharedBridgeState>?
+private var connectionPushPlan: PushPlan<PaneDomainState>?
 
 /// Called when bridge.ready is received from React (§4.5 step 6).
 func handleBridgeReady() {
@@ -1012,12 +1015,12 @@ func teardown() {
 ```swift
 // This capture reads ONLY .status, .error, .epoch on DiffState.
 // Observations tracks these three properties.
-// Changes to .manifest do NOT fire this loop.
+// Changes to .files do NOT fire this loop.
 { state in DiffStatusSlice(status: state.status, error: state.error, epoch: state.epoch) }
 
-// This capture reads ONLY .manifest on DiffState.
+// This capture reads ONLY .files on DiffState.
 // Changes to .status do NOT fire this loop.
-{ state in state.manifest }
+{ state in state.files }
 ```
 
 Two closures reading different properties of the same `@Observable` object fire independently. The PushPlan creates one `Task` per slice, so each slice has its own independent observation loop with its own debounce and push level.
@@ -1453,23 +1456,15 @@ Domain state is split into two categories:
 class PaneDomainState {
     var diff: DiffState = .init()
     var review: ReviewState = .init()
+    let connection = ConnectionState()
     var agentTasks: [UUID: AgentTask] = [:]
     var timeline: [TimelineEvent] = []    // in-memory v1, .jsonl v2
 }
 ```
 
-**Shared state** — Singleton, shared across all panes. Connection health, system capabilities:
+**Shared state** — Reserved for truly application-wide state (not per-pane). Currently empty — `ConnectionState` was moved to `PaneDomainState` (see §8.7).
 
-```swift
-@Observable
-@MainActor
-class SharedBridgeState {
-    // Shared state that is truly application-wide (not per-pane).
-    // Connection health was moved to PaneDomainState — see §8.7.
-}
-```
-
-**Ownership**: `BridgePaneController` owns one `PaneDomainState` (which includes `ConnectionState` — see §8.7). It holds a reference to the singleton `SharedBridgeState` for any truly application-wide state. Each pane's observation loops push per-pane state into their respective Zustand stores.
+**Ownership**: `BridgePaneController` owns one `PaneDomainState` (which includes `ConnectionState` — see §8.7). Each pane's observation loops push per-pane state into their respective Zustand stores.
 
 ### 8.2 Diff Source and Manifest
 
@@ -1491,24 +1486,21 @@ enum WorkspaceBaseline: Codable {
 }
 ```
 
-The diff loading pipeline takes a `DiffSource` and produces a `DiffManifest` — lightweight file metadata pushed via the state stream. File contents are NOT included; they're fetched on demand via the data stream.
+The diff loading pipeline takes a `DiffSource` and produces file metadata pushed via the state stream. File contents are NOT included; they're fetched on demand via the data stream.
+
+The diff state stores file metadata as a `[String: FileManifest]` dictionary keyed by file ID. This enables per-file delta pushes via `EntitySlice` — when one file changes out of 100, only that file's data is pushed.
 
 ```swift
-struct DiffManifest: Codable {
-    let source: DiffSource
-    let epoch: Int                          // incremented on new diff load
-    let files: [FileManifest]               // ordered list of changed files
-}
-
 struct FileManifest: Codable, Identifiable {
     let id: String
+    var version: Int                        // bumped when any field changes
     let path: String
     let oldPath: String?                    // for renames
     let changeType: FileChangeType
     var loadStatus: FileLoadStatus
-    let additions: Int                      // line count
-    let deletions: Int                      // line count
-    let size: Int                           // bytes, for threshold decisions
+    var additions: Int                      // line count
+    var deletions: Int                      // line count
+    var size: Int                           // bytes, for threshold decisions
     let contextHash: String                 // hash of file content for comment anchoring
     let hunkSummary: [HunkSummary]          // line ranges that changed
 }
@@ -1539,7 +1531,7 @@ enum FileLoadStatus: String, Codable {
 @Observable
 class DiffState {
     var source: DiffSource = .none
-    var manifest: DiffManifest? = nil       // pushed via state stream
+    var files: [String: FileManifest] = [:] // keyed by file ID, pushed via EntitySlice
     var status: DiffStatus = .idle
     var error: String? = nil
     var epoch: Int = 0                      // current load generation
@@ -1695,7 +1687,7 @@ All domain types conform to `Codable` for JSON serialization across the bridge. 
 
 > **Relationship to `WebviewPaneController`**: The existing `WebviewPaneController` (`Services/WebviewPaneController.swift`) is a general-purpose browser controller that uses a shared static `WebPage.Configuration`. `BridgePaneController` is a separate type that creates a **per-pane** configuration with content world isolation, message handlers, URL scheme handlers, and bootstrap scripts. They share the same `WebPage` + `WebView` rendering path but have different configuration, lifecycle, and navigation policies. See §15.4 for the configuration strategy.
 
-One controller per WebPage (per pane). Owns its `PaneDomainState`, holds a reference to shared state. Uses `PushPlan` (§6.7) for all observation loops — no hand-written observation code.
+One controller per WebPage (per pane). Owns its `PaneDomainState` (which includes `ConnectionState`). Uses `PushPlan` (§6.7) for all observation loops — no hand-written observation code.
 
 ```swift
 @Observable
@@ -1704,20 +1696,19 @@ class BridgePaneController {
     let paneId: UUID
     let page: WebPage
     let paneState: PaneDomainState
-    let sharedState: SharedBridgeState
     private let router: RPCRouter
     private let bridgeWorld = WKContentWorld.world(name: "agentStudioBridge")
+    private var lastPushedJSON: [StoreKey: Data] = [:]  // content guard: skip identical pushes
 
     // Push infrastructure (§6)
     let revisionClock = RevisionClock()       // shared across all plans for this pane
     private var diffPushPlan: PushPlan<DiffState>?
     private var reviewPushPlan: PushPlan<ReviewState>?
-    private var connectionPushPlan: PushPlan<SharedBridgeState>?
+    private var connectionPushPlan: PushPlan<PaneDomainState>?
 
-    init(paneId: UUID, state: BridgePaneState, sharedState: SharedBridgeState) {
+    init(paneId: UUID, state: BridgePaneState) {
         self.paneId = paneId
         self.paneState = PaneDomainState()
-        self.sharedState = sharedState
 
         // Per-pane configuration — NOT shared (unlike WebviewPaneController.sharedConfiguration).
         // Each bridge pane needs its own userContentController, urlSchemeHandlers, and bootstrap scripts.
@@ -2638,7 +2629,7 @@ Testing prioritizes correctness under protocol failure modes, not snapshot volum
 
 **Deliverables**:
 - Push infrastructure: `PushPlan`, `Slice`, `EntitySlice`, `PushTransport`, `RevisionClock` (§6.4–6.7)
-- Push plan declarations for `DiffState`, `ReviewState`, `SharedBridgeState` (§6.8)
+- Push plan declarations for `DiffState`, `ReviewState`, `PaneDomainState` (§6.8)
 - `BridgePaneController` conforms to `PushTransport`, owns `RevisionClock` shared across all plans
 - Zustand stores for `diff`, `review`, `agent`, and `connection` domains
 - Bridge receiver listens for `__bridge_push` and `__bridge_agent` CustomEvents relayed from `__bridgeInternal`, routes to correct Zustand store
@@ -2892,7 +2883,7 @@ Sources/AgentStudio/
 │       ├── AgentMethods.swift            # agent.sendReview, agent.cancelTask
 │       └── SystemMethods.swift           # system.ping, system.getCapabilities
 ├── Domain/                               # Bridge-specific domain models (separate from Models/)
-│   ├── BridgeDomainState.swift           # @Observable root: PaneDomainState, SharedBridgeState
+│   ├── BridgeDomainState.swift           # @Observable root: PaneDomainState, DiffState, ReviewState, ConnectionState
 │   ├── DiffManifest.swift                # DiffManifest, FileManifest, HunkSummary, DiffSource
 │   ├── ReviewState.swift                 # ReviewThread, ReviewComment, ReviewAction, CommentAnchor
 │   ├── AgentTask.swift                   # AgentTask, AgentTaskStatus
@@ -3053,7 +3044,7 @@ func openDiffViewer(source: BridgePaneSource? = nil) -> Pane? {
 
 ```swift
 // BridgePaneController creates a dedicated config per instance:
-init(paneId: UUID, state: BridgePaneState, sharedState: SharedBridgeState) {
+init(paneId: UUID, state: BridgePaneState) {
     var config = WebPage.Configuration()
     // Bridge-specific: non-persistent data store (no cookies/history needed)
     config.websiteDataStore = .nonPersistent()
@@ -3097,9 +3088,7 @@ init(paneId: UUID, state: BridgePaneState, sharedState: SharedBridgeState) {
 
 ### 15.6 Shared State
 
-- **`SharedBridgeState` is singleton** — held by `TerminalViewCoordinator` (or `AppDelegate`), injected into each `BridgePaneController`
-- Holds truly application-wide state (not per-pane). Connection health is **per-pane** (see §8.7)
-- Browser panes do NOT interact with `SharedBridgeState`
+`SharedBridgeState` was removed in Phase 2 implementation. Connection health is **per-pane** (owned by `PaneDomainState.connection` — see §8.7). If truly application-wide state is needed in the future, a shared state type can be reintroduced and injected into controllers.
 
 The existing `ViewRegistry`, `Layout`, drag/drop, and split system work unchanged — the bridge pane is just another leaf in the layout tree.
 
@@ -3109,7 +3098,7 @@ The existing `ViewRegistry`, `Layout`, drag/drop, and split system work unchange
 
 ### Resolved (in this document)
 
-- ~~**Domain state scope**~~ → **Per-pane** `PaneDomainState` (diff, review, agent tasks, timeline, connection health). `SharedBridgeState` exists for truly application-wide state. See §8.1, §8.7.
+- ~~**Domain state scope**~~ → **Per-pane** `PaneDomainState` (diff, review, agent tasks, timeline, connection health). All state is per-pane. See §8.1, §8.7.
 - ~~**CustomEvent command forgery**~~ → **Nonce token** generated at bootstrap, validated by bridge world. See §11.3.
 - ~~**Push error handling**~~ → **do-catch** with logging and connection health state update. No force-unwraps. See §6.4.
 - ~~**File loading race conditions**~~ → **Metadata push + content pull with priority queue, LRU cache, and epoch guard**. See §10.
