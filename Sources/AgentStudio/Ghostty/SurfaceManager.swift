@@ -210,7 +210,7 @@ final class SurfaceManager: ObservableObject {
 
         // Check undo stack
         if let idx = undoStack.firstIndex(where: { $0.surface.id == surfaceId }) {
-            var entry = undoStack.remove(at: idx)
+            let entry = undoStack.remove(at: idx)
             entry.expirationTask?.cancel()
 
             var managed = entry.surface
@@ -338,7 +338,7 @@ final class SurfaceManager: ObservableObject {
     /// Restore the most recently closed surface
     /// - Returns: The restored surface if available
     func undoClose() -> ManagedSurface? {
-        guard var entry = undoStack.popLast() else {
+        guard let entry = undoStack.popLast() else {
             logger.info("Nothing to undo")
             return nil
         }
