@@ -103,12 +103,12 @@ final class PushPipelineIntegrationTests: XCTestCase {
     /// without coalescing via debounce.
     func test_hot_slice_pushes_on_mutation() async throws {
         // Arrange
-        let sharedState = SharedBridgeState()
+        let paneState = PaneDomainState()
         let transport = MockPushTransport()
         let clock = RevisionClock()
 
         let plan = PushPlan(
-            state: sharedState,
+            state: paneState,
             transport: transport,
             revisions: clock,
             epoch: { 0 },
@@ -129,7 +129,7 @@ final class PushPipelineIntegrationTests: XCTestCase {
         let baselineCount = transport.pushCount
 
         // Act — mutate connection health
-        sharedState.connection.health = .error
+        paneState.connection.health = .error
         try await Task.sleep(for: .milliseconds(50))
 
         // Assert — hot slice pushed immediately

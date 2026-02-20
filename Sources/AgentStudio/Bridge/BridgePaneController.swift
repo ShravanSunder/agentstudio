@@ -39,14 +39,13 @@ final class BridgePaneController {
     // MARK: - Domain State
 
     let paneState = PaneDomainState()
-    let sharedState = SharedBridgeState()
     let revisionClock = RevisionClock()
 
     // MARK: - Push Plans
 
     private var diffPushPlan: PushPlan<DiffState>?
     private var reviewPushPlan: PushPlan<ReviewState>?
-    private var connectionPushPlan: PushPlan<SharedBridgeState>?
+    private var connectionPushPlan: PushPlan<PaneDomainState>?
 
     // MARK: - Private State
 
@@ -222,9 +221,9 @@ final class BridgePaneController {
         )
     }
 
-    private func makeConnectionPushPlan() -> PushPlan<SharedBridgeState> {
+    private func makeConnectionPushPlan() -> PushPlan<PaneDomainState> {
         PushPlan(
-            state: sharedState,
+            state: paneState,
             transport: self,
             revisions: revisionClock,
             epoch: { 0 },

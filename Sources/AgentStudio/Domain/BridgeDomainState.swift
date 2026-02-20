@@ -9,6 +9,7 @@ import Observation
 class PaneDomainState {
     let diff = DiffState()
     let review = ReviewState()
+    let connection = ConnectionState()
 }
 
 @Observable
@@ -57,12 +58,6 @@ struct ReviewThread: Encodable {
     let id: UUID
     var version: Int
     var body: String
-}
-
-@Observable
-@MainActor
-class SharedBridgeState {
-    let connection = ConnectionState()
 }
 
 @Observable
