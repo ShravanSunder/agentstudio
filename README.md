@@ -19,7 +19,9 @@ Requires macOS 26+. No external dependencies.
 
 Development is changing. Coding agents run alongside you now — sometimes several at once, across multiple projects and worktrees. But the tools weren't built for this.
 
-Your terminals multiply. Context scatters across terminal tabs, browser windows, and editor panels. You alt-tab to GitHub to check a diff, lose your place, and spend more time managing your workspace than doing the work. Agents spawn sub-processes — builds, tests, tool calls — that float away from the parent with no association. You end up with dozens of panes and no way to tell which belongs to which project, which worktree, or which agent.
+Your terminals multiply. Context scatters across terminal tabs, browser windows, and editor panels. You alt-tab to GitHub to check a diff, lose your place, and spend more time managing your workspace than doing the work.
+
+Agents spawn sub-processes — builds, tests, tool calls — that float away from the parent with no association. You end up with dozens of panes and no way to tell which belongs to which project, which worktree, or which agent.
 
 Agent Studio is a ground-up redesign of the development experience around agents. Not a terminal with extra features — a workspace where agents, terminals, diffs, PRs, and project context live together.
 
@@ -55,7 +57,7 @@ Webview panes sit alongside your terminals. Review a pull request, check CI stat
 
 ![GitHub and terminals in one workspace](web/images/screen4.png)
 
-### The rest
+### Built for the keyboard
 
 **Pane arrangements** — save named layouts per tab ("coding", "reviewing", "monitoring") and switch between them. Sessions keep running in the background.
 
@@ -79,9 +81,13 @@ Webview panes sit alongside your terminals. Review a pull request, check CI stat
 
 ### Solving next
 
-**"Which pane was that?"** — you're running agents across five repos. You need to see all panes for one project, or all panes running Claude Code, or all panes in a specific worktree. Today you hunt through tabs. Dynamic views will regroup your entire workspace on demand — by repo, by worktree, by agent type, by CWD — without touching your layout. Switch to "By Agent" and every Claude pane appears in one tab, every aider pane in another. Switch back and your workspace is untouched.
+**"Which pane was that?"** — you're running agents across five repos. You need to see all panes for one project, or all panes running Claude Code, or all panes in a specific worktree. Today you hunt through tabs.
 
-**"I have to leave to review diffs"** — agents generate diffs constantly and you alt-tab to GitHub or VS Code to review them. Agent Studio will embed a full diff viewer and code review experience directly in pane drawers — inline diffs with syntax highlighting, file tree navigation, comment threads, and review actions. When an agent finishes a task, its changes appear in the drawer right below it. Review, approve, move on. A VS Code-quality editing experience without leaving the workspace where your agents are running.
+Dynamic views regroup your entire workspace on demand — by repo, by worktree, by agent type, by CWD — without touching your layout. Switch to "By Agent" and every Claude pane appears in one tab, every aider pane in another. Switch back and your workspace is untouched.
+
+**"I have to leave to review diffs"** — agents generate diffs constantly and you alt-tab to GitHub or VS Code to review them.
+
+Agent Studio will embed a full diff viewer and code review experience directly in pane drawers — inline diffs with syntax highlighting, file tree navigation, comment threads, and review actions. When an agent finishes a task, its changes appear in the drawer right below it. Review, approve, move on. A VS Code-quality experience without leaving the workspace where your agents are running.
 
 ## Architecture
 
@@ -114,6 +120,13 @@ mise run format               # Auto-format Swift sources
 mise run lint                 # swift-format + swiftlint
 ```
 
+### Clone
+
+```bash
+git clone --recurse-submodules https://github.com/ShravanSunder/agentstudio.git
+cd agent-studio
+```
+
 ### Project Structure
 
 ```
@@ -128,13 +141,6 @@ agent-studio/
 ├── vendor/zmx/               # Session multiplexer
 ├── docs/                     # Architecture and design docs
 └── Package.swift             # SPM manifest
-```
-
-### Clone with Submodules
-
-```bash
-git clone --recurse-submodules https://github.com/ShravanSunder/agentstudio.git
-cd agent-studio
 ```
 
 ## Contributing
