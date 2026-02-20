@@ -155,17 +155,22 @@ struct SessionConfiguration: Sendable {
 
     /// Find the zmx binary.
     /// Fallback chain: bundled binary → vendor build output → well-known PATH → `which zmx`.
+    ///
+    /// Candidates are validated with a lightweight `--version` probe because
+    /// some environments may report a path as executable while launch still fails.
     private static func findZmx() -> String? {
         // 1. Bundled binary: same directory as the app executable (Contents/MacOS/zmx or .build/debug/zmx)
         if let bundled = Bundle.main.executableURL?
             .deletingLastPathComponent()
-            .appendingPathComponent("zmx").path,
-           FileManager.default.isExecutableFile(atPath: bundled) {
-            return bundled
+            .appendingPathComponent("zmx").path {
+            if isUsableZmxBinary(bundled) {
+                return bundled
+            }
+            RestoreTrace.log("findZmx skip unusable bundled candidate=\(bundled)")
         }
 
         // 2. Vendor build output: for dev builds where zmx was built but not copied
-        if let vendorBin = findDevVendorZmx() {
+        if let vendorBin = findDevVendorZmx(), isUsableZmxBinary(vendorBin) {
             return vendorBin
         }
 
@@ -174,7 +179,7 @@ struct SessionConfiguration: Sendable {
             "/opt/homebrew/bin/zmx",
             "/usr/local/bin/zmx",
         ]
-        if let found = candidates.first(where: { FileManager.default.isExecutableFile(atPath: $0) }) {
+        if let found = candidates.first(where: { isUsableZmxBinary($0) }) {
             return found
         }
 
@@ -192,7 +197,7 @@ struct SessionConfiguration: Sendable {
             let data = pipe.fileHandleForReading.readDataToEndOfFile()
             let path = String(data: data, encoding: .utf8)?
                 .trimmingCharacters(in: .whitespacesAndNewlines)
-            if let path, !path.isEmpty, FileManager.default.isExecutableFile(atPath: path) {
+            if let path, !path.isEmpty, isUsableZmxBinary(path) {
                 return path
             }
         } catch {
@@ -228,5 +233,38 @@ struct SessionConfiguration: Sendable {
             }
         }
         return nil
+    }
+
+    /// Validate that a candidate zmx binary can actually launch and respond.
+    private static func isUsableZmxBinary(_ candidatePath: String) -> Bool {
+        guard FileManager.default.isExecutableFile(atPath: candidatePath) else { return false }
+
+        let process = Process()
+        process.executableURL = URL(fileURLWithPath: candidatePath)
+        process.arguments = ["--version"]
+        process.standardOutput = Pipe()
+        process.standardError = Pipe()
+
+        do {
+            try process.run()
+        } catch {
+            return false
+        }
+
+        let timeoutNs: UInt64 = 2_000_000_000
+        let pollNs: UInt64 = 20_000_000
+        var waitedNs: UInt64 = 0
+        while process.isRunning && waitedNs < timeoutNs {
+            usleep(useconds_t(pollNs / 1_000))
+            waitedNs += pollNs
+        }
+
+        if process.isRunning {
+            process.terminate()
+            return false
+        }
+
+        guard process.terminationStatus == 0 else { return false }
+        return true
     }
 }

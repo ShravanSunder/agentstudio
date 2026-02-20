@@ -133,18 +133,31 @@ final class TerminalViewCoordinator {
         let workingDir = worktree.path
 
         let cmd: String
+        let deferredStartupCommand: String?
         var environmentVariables: [String: String] = [:]
         switch pane.provider {
         case .zmx:
             if let zmxPath = sessionConfig.zmxPath {
-                cmd = buildZmxAttachCommand(pane: pane, worktree: worktree, repo: repo, zmxPath: zmxPath)
+                let attachCommand = buildZmxAttachCommand(
+                    pane: pane,
+                    worktree: worktree,
+                    repo: repo,
+                    zmxPath: zmxPath
+                )
+                // Experiment mode: launch zmx attach directly from shell startup
+                // (no deferred post-size injection).
+                let startupAttach = "exec \(attachCommand)"
+                cmd = "\(getDefaultShell()) -i -l -c \(ZmxBackend.shellEscape(startupAttach))"
+                deferredStartupCommand = nil
                 environmentVariables["ZMX_DIR"] = sessionConfig.zmxDir
             } else {
                 coordinatorLogger.warning("zmx not found, falling back to ephemeral session for \(pane.id)")
                 cmd = "\(getDefaultShell()) -i -l"
+                deferredStartupCommand = nil
             }
         case .ghostty:
             cmd = "\(getDefaultShell()) -i -l"
+            deferredStartupCommand = nil
         case .none:
             coordinatorLogger.error("Cannot create view for non-terminal pane \(pane.id)")
             return nil
@@ -153,11 +166,12 @@ final class TerminalViewCoordinator {
         let config = Ghostty.SurfaceConfiguration(
             workingDirectory: workingDir.path,
             command: cmd,
+            deferredStartupCommand: deferredStartupCommand,
             environmentVariables: environmentVariables
         )
 
         RestoreTrace.log(
-            "createView pane=\(pane.id) provider=\(pane.provider?.rawValue ?? "none") worktree=\(worktree.name) cwd=\(workingDir.path) cmd=\(cmd) env=\(environmentVariables)"
+            "createView pane=\(pane.id) provider=\(pane.provider?.rawValue ?? "none") worktree=\(worktree.name) cwd=\(workingDir.path) cmd=\(cmd) deferred=\(deferredStartupCommand ?? "nil") env=\(environmentVariables)"
         )
 
         let metadata = SurfaceMetadata(
@@ -423,4 +437,5 @@ final class TerminalViewCoordinator {
     private func getDefaultShell() -> String {
         SessionConfiguration.defaultShell()
     }
+
 }

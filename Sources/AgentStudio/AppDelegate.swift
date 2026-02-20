@@ -38,6 +38,13 @@ class AppDelegate: NSObject, NSApplicationDelegate {
             RestoreTrace.log("GHOSTTY_RESOURCES_DIR unresolved")
         }
 
+        // Some parent shells export NO_COLOR=1, which disables ANSI color in CLIs
+        // (Codex, Gemini, etc.). Clear it for app-hosted terminal sessions.
+        if getenv("NO_COLOR") != nil {
+            unsetenv("NO_COLOR")
+            RestoreTrace.log("unset NO_COLOR for terminal color support")
+        }
+
         // Check for worktrunk dependency
         checkWorktrunkInstallation()
 
@@ -157,9 +164,21 @@ class AppDelegate: NSObject, NSApplicationDelegate {
             return
         }
 
+        // Fail-safe: if we have persisted zmx panes, prioritize reliable restore
+        // over aggressive orphan cleanup. Killing a valid daemon at startup loses
+        // terminal history and makes restore appear broken.
+        let persistedZmxPaneCount = store.panes.values.filter { $0.provider == .zmx }.count
+        if persistedZmxPaneCount > 0 {
+            appLogger.info(
+                "Skipping orphan zmx cleanup: \(persistedZmxPaneCount) persisted zmx pane(s) present"
+            )
+            return
+        }
+
         // Collect known zmx session IDs from persisted panes (main-actor access).
         // These are the panes we expect to exist — everything else is an orphan.
         // Handles both main panes (worktree-based IDs) and drawer panes (parent+child UUID IDs).
+        var hasUnresolvableMainPane = false
         let knownSessionIds = Set(
             store.panes.values
                 .filter { $0.provider == .zmx }
@@ -171,10 +190,15 @@ class AppDelegate: NSObject, NSApplicationDelegate {
                             drawerPaneId: pane.id
                         )
                     }
-                    // Main pane: session ID from repo + worktree stable keys
+                    // Main pane: session ID from repo + worktree stable keys.
+                    // If we cannot resolve this deterministically, we must skip orphan
+                    // cleanup entirely to avoid deleting valid sessions.
                     guard let worktreeId = pane.worktreeId,
                           let repo = store.repo(containing: worktreeId),
-                          let worktree = store.worktree(worktreeId) else { return nil }
+                          let worktree = store.worktree(worktreeId) else {
+                        hasUnresolvableMainPane = true
+                        return nil
+                    }
                     return ZmxBackend.sessionId(
                         repoStableKey: repo.stableKey,
                         worktreeStableKey: worktree.stableKey,
@@ -182,6 +206,13 @@ class AppDelegate: NSObject, NSApplicationDelegate {
                     )
                 }
         )
+
+        if hasUnresolvableMainPane {
+            appLogger.warning(
+                "Skipping orphan zmx cleanup: unable to resolve one or more main-pane session IDs from persisted state"
+            )
+            return
+        }
 
         let backend = ZmxBackend(zmxPath: zmxPath, zmxDir: config.zmxDir)
 

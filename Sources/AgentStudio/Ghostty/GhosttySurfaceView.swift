@@ -24,17 +24,20 @@ extension Ghostty {
     struct SurfaceConfiguration {
         var workingDirectory: String?
         var command: String?
+        var deferredStartupCommand: String?
         var fontSize: Float?
         var environmentVariables: [String: String]
 
         init(
             workingDirectory: String? = nil,
             command: String? = nil,
+            deferredStartupCommand: String? = nil,
             fontSize: Float? = nil,
             environmentVariables: [String: String] = [:]
         ) {
             self.workingDirectory = workingDirectory
             self.command = command
+            self.deferredStartupCommand = deferredStartupCommand
             self.fontSize = fontSize
             self.environmentVariables = environmentVariables
         }
@@ -91,14 +94,22 @@ extension Ghostty {
 
         /// Any error during surface initialization
         private(set) var error: Error?
+        /// Command to run after first real surface sizing (post-window attach).
+        private var deferredStartupCommand: String?
+        private var hasSentDeferredStartupCommand = false
+        private var deferredStartupWorkItem: DispatchWorkItem?
 
         // MARK: - Initialization
 
         init(app: App, config: SurfaceConfiguration? = nil) {
             self.ghosttyApp = app
+            self.deferredStartupCommand = config?.deferredStartupCommand
             super.init(frame: NSRect(x: 0, y: 0, width: 800, height: 600))
+            let startupCommandForSurface = (config?.deferredStartupCommand?.isEmpty == false)
+                ? nil
+                : config?.command
             RestoreTrace.log(
-                "Ghostty.SurfaceView.init placeholderFrame=\(NSStringFromRect(frame)) cwd=\(config?.workingDirectory ?? "nil") hasCommand=\(config?.command != nil)"
+                "Ghostty.SurfaceView.init placeholderFrame=\(NSStringFromRect(frame)) cwd=\(config?.workingDirectory ?? "nil") hasCommand=\(startupCommandForSurface != nil) hasDeferred=\(config?.deferredStartupCommand != nil)"
             )
 
             // Note: Ghostty's Metal renderer will set up the layer properly
@@ -125,7 +136,7 @@ extension Ghostty {
                     wd.withCString { wdPtr in
                         surfaceConfig.working_directory = wdPtr
 
-                        if let cmd = config?.command {
+                        if let cmd = startupCommandForSurface {
                             cmd.withCString { cmdPtr in
                                 surfaceConfig.command = cmdPtr
                                 self.surface = ghostty_surface_new(ghosttyApp, &surfaceConfig)
@@ -134,7 +145,7 @@ extension Ghostty {
                             self.surface = ghostty_surface_new(ghosttyApp, &surfaceConfig)
                         }
                     }
-                } else if let cmd = config?.command {
+                } else if let cmd = startupCommandForSurface {
                     cmd.withCString { cmdPtr in
                         surfaceConfig.command = cmdPtr
                         self.surface = ghostty_surface_new(ghosttyApp, &surfaceConfig)
@@ -201,6 +212,7 @@ extension Ghostty {
         }
 
         deinit {
+            deferredStartupWorkItem?.cancel()
             if let surface = surface {
                 ghostty_surface_free(surface)
             }
@@ -268,6 +280,7 @@ extension Ghostty {
                         "Ghostty.SurfaceView.viewDidMoveToWindow async sizeDidChange size=\(NSStringFromSize(size)) frame=\(NSStringFromRect(self.frame))"
                     )
                     self.sizeDidChange(size)
+                    self.triggerDeferredStartupIfReady(source: "viewDidMoveToWindow.async")
                 }
             }
         }
@@ -347,6 +360,7 @@ extension Ghostty {
             super.setFrameSize(newSize)
             RestoreTrace.log("Ghostty.SurfaceView.setFrameSize newSize=\(NSStringFromSize(newSize))")
             sizeDidChange(newSize)
+            triggerDeferredStartupIfReady(source: "setFrameSize")
         }
 
         func sizeDidChange(_ size: NSSize) {
@@ -365,6 +379,43 @@ extension Ghostty {
                 UInt32(backingSize.width),
                 UInt32(backingSize.height)
             )
+            triggerDeferredStartupIfReady(source: "sizeDidChange")
+        }
+
+        private func triggerDeferredStartupIfReady(source: String) {
+            guard !hasSentDeferredStartupCommand,
+                  let deferredStartupCommand,
+                  !deferredStartupCommand.isEmpty else { return }
+            guard window != nil else { return }
+            guard contentSize.width > 0 && contentSize.height > 0 else { return }
+
+            deferredStartupWorkItem?.cancel()
+            RestoreTrace.log(
+                "Ghostty.SurfaceView.deferredStartup scheduling source=\(source) size=\(NSStringFromSize(contentSize)) cmd=\(deferredStartupCommand)"
+            )
+            let workItem = DispatchWorkItem { [weak self] in
+                guard let self else { return }
+                defer { self.deferredStartupWorkItem = nil }
+                guard !self.hasSentDeferredStartupCommand else { return }
+                if self.processExited {
+                    RestoreTrace.log("Ghostty.SurfaceView.deferredStartup skipped process already exited source=\(source)")
+                    return
+                }
+                guard self.window != nil,
+                      self.contentSize.width > 0,
+                      self.contentSize.height > 0 else {
+                    RestoreTrace.log("Ghostty.SurfaceView.deferredStartup skipped invalid size/window source=\(source)")
+                    return
+                }
+                self.hasSentDeferredStartupCommand = true
+                // `sendText` is paste-like and may not execute pasted newlines under
+                // shell bracketed-paste protections. Send Return as a real key event.
+                self.sendText(deferredStartupCommand)
+                self.sendProgrammaticReturnKey()
+                RestoreTrace.log("Ghostty.SurfaceView.deferredStartup sent source=\(source)")
+            }
+            deferredStartupWorkItem = workItem
+            DispatchQueue.main.asyncAfter(deadline: .now() + 0.18, execute: workItem)
         }
 
         // MARK: - Input Handling
@@ -717,6 +768,26 @@ extension Ghostty {
             text.withCString { ptr in
                 ghostty_surface_text(surface, ptr, UInt(text.utf8.count))
             }
+        }
+
+        /// Send Return/Enter as a key event (press+release).
+        /// Needed for deferred startup commands because newline inside `sendText`
+        /// can be treated as pasted content and not execute immediately.
+        private func sendProgrammaticReturnKey() {
+            guard let surface = surface else { return }
+            var keyDown = ghostty_input_key_s()
+            keyDown.action = GHOSTTY_ACTION_PRESS
+            keyDown.mods = GHOSTTY_MODS_NONE
+            keyDown.consumed_mods = GHOSTTY_MODS_NONE
+            keyDown.keycode = 36 // macOS Return key virtual keycode.
+            keyDown.unshifted_codepoint = 0x0D
+            keyDown.composing = false
+            keyDown.text = nil
+            ghostty_surface_key(surface, keyDown)
+
+            var keyUp = keyDown
+            keyUp.action = GHOSTTY_ACTION_RELEASE
+            ghostty_surface_key(surface, keyUp)
         }
 
         /// Request that this surface be closed
