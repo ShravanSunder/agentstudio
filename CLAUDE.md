@@ -94,6 +94,15 @@ Never guess at UX solutions. Research first, discuss with user, then implement.
 4. **Implement** - Write code only after alignment
 5. **Verify** - Use Peekaboo to visually confirm
 
+## Linear Work Organization
+
+Solo project. Organizational overhead that doesn't directly serve building is waste.
+
+- **Two levels only: milestones and tasks.** Milestones are conceptual phases. Tasks are deliverables within them. Never create sub-tasks — checklists in the description carry that role.
+- **A task is a concept, not an implementation step.** "Dynamic view engine" is a task. "Facet indexer", "tab generator", "navigation wiring" are implementation details that belong in the description.
+- **If two tasks always ship together, they're one task.** The test: can each task be delivered and verified independently? If not, merge them.
+- **Depth belongs in the description, not in ticket count.** A rich description with acceptance criteria, design notes, and checklists is better than splitting scope across multiple shallow tickets.
+
 ## Architectural Guidance
 Agent Studio follows an **AppKit-main** architecture. See the
 [Architecture Overview](docs/architecture/README.md) for the full
