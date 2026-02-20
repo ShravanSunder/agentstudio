@@ -693,7 +693,9 @@ extension SurfaceManager {
         guard let managed = activeSurfaces[surfaceId],
             let surface = managed.surface.surface
         else {
-            RestoreTrace.log("SurfaceManager.setFocus skipped surface=\(surfaceId) focused=\(focused) active=\(activeSurfaces[surfaceId] != nil)")
+            RestoreTrace.log(
+                "SurfaceManager.setFocus skipped surface=\(surfaceId) focused=\(focused) active=\(activeSurfaces[surfaceId] != nil)"
+            )
             return
         }
         ghostty_surface_set_focus(surface, focused)
@@ -703,7 +705,9 @@ extension SurfaceManager {
     /// Sync all surface focus states. Only activeSurfaceId gets focus=true; all others get false.
     /// Mirrors Ghostty's BaseTerminalController.syncFocusToSurfaceTree() pattern.
     func syncFocus(activeSurfaceId: UUID?) {
-        RestoreTrace.log("SurfaceManager.syncFocus activeSurface=\(activeSurfaceId?.uuidString ?? "nil") activeCount=\(activeSurfaces.count)")
+        RestoreTrace.log(
+            "SurfaceManager.syncFocus activeSurface=\(activeSurfaceId?.uuidString ?? "nil") activeCount=\(activeSurfaces.count)"
+        )
         for (id, managed) in activeSurfaces {
             guard let surface = managed.surface.surface else { continue }
             ghostty_surface_set_focus(surface, id == activeSurfaceId)
