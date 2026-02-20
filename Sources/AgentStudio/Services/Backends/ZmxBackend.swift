@@ -158,7 +158,6 @@ final class ZmxBackend: SessionBackend {
     func attachCommand(for handle: PaneSessionHandle) -> String {
         Self.buildAttachCommand(
             zmxPath: zmxPath,
-            zmxDir: zmxDir,
             sessionId: handle.id,
             shell: Self.getDefaultShell()
         )
@@ -166,27 +165,33 @@ final class ZmxBackend: SessionBackend {
 
     /// Build the zmx attach command.
     ///
-    /// Format: `/usr/bin/env ZMX_DIR=<dir> <zmxPath> attach <sessionId> <shell> -i -l`
+    /// Format: `<zmxPath> attach <sessionId> <shell> -i -l`
     ///
-    /// Uses `/usr/bin/env` to set ZMX_DIR because macOS Ghostty wraps commands
-    /// through `login(1)` which may interfere with inline `VAR=val cmd` syntax.
+    /// `ZMX_DIR` must be provided via process environment (Ghostty surface env vars).
     /// zmx auto-creates a daemon on first attach — no separate create step needed.
     static func buildAttachCommand(
         zmxPath: String,
-        zmxDir: String,
         sessionId: String,
         shell: String
     ) -> String {
-        let escapedDir = shellEscape(zmxDir)
         let escapedPath = shellEscape(zmxPath)
         let escapedId = shellEscape(sessionId)
         let escapedShell = shellEscape(shell)
-        return "/usr/bin/env ZMX_DIR=\(escapedDir) \(escapedPath) attach \(escapedId) \(escapedShell) -i -l"
+        return "\(escapedPath) attach \(escapedId) \(escapedShell) -i -l"
     }
 
-    /// Single-quote a string for safe shell interpolation.
-    static func shellEscape(_ path: String) -> String {
-        "'" + path.replacingOccurrences(of: "'", with: "'\\''") + "'"
+    /// Double-quote a string for safe shell interpolation.
+    ///
+    /// This string is injected into an interactive shell via `sendText`, so it
+    /// must survive one level of shell parsing in a double-quoted context.
+    static func shellEscape(_ value: String) -> String {
+        let escaped = value
+            .replacingOccurrences(of: "\\", with: "\\\\")
+            .replacingOccurrences(of: "\"", with: "\\\"")
+            .replacingOccurrences(of: "$", with: "\\$")
+            .replacingOccurrences(of: "!", with: "\\!")
+            .replacingOccurrences(of: "`", with: "\\`")
+        return "\"\(escaped)\""
     }
 
     func destroyPaneSession(_ handle: PaneSessionHandle) async throws {

@@ -11,6 +11,11 @@ private let executorLogger = Logger(subsystem: "com.agentstudio", category: "Act
 /// in TerminalTabViewController. All state mutations flow through here.
 @MainActor
 final class ActionExecutor {
+    struct SwitchArrangementTransitions: Equatable {
+        let hiddenPaneIds: Set<UUID>
+        let paneIdsToReattach: Set<UUID>
+    }
+
     private let store: WorkspaceStore
     private let viewRegistry: ViewRegistry
     private let coordinator: TerminalViewCoordinator
@@ -25,6 +30,20 @@ final class ActionExecutor {
         self.store = store
         self.viewRegistry = viewRegistry
         self.coordinator = coordinator
+    }
+
+    static func computeSwitchArrangementTransitions(
+        previousVisiblePaneIds: Set<UUID>,
+        previouslyMinimizedPaneIds: Set<UUID>,
+        newVisiblePaneIds: Set<UUID>
+    ) -> SwitchArrangementTransitions {
+        let hiddenPaneIds = previousVisiblePaneIds.subtracting(newVisiblePaneIds)
+        let revealedPaneIds = newVisiblePaneIds.subtracting(previousVisiblePaneIds)
+        let unminimizedPaneIds = previouslyMinimizedPaneIds.intersection(newVisiblePaneIds)
+        return SwitchArrangementTransitions(
+            hiddenPaneIds: hiddenPaneIds,
+            paneIdsToReattach: revealedPaneIds.union(unminimizedPaneIds)
+        )
     }
 
     // MARK: - High-Level Operations
@@ -273,15 +292,20 @@ final class ActionExecutor {
             store.removeArrangement(arrangementId, inTab: tabId)
 
         case .switchArrangement(let tabId, let arrangementId):
-            // Capture visible panes BEFORE switching
+            // Capture visible panes and minimized set BEFORE switching.
+            // Minimized panes are detached but still in visiblePaneIds,
+            // so we must track them separately for reattachment.
             let previousVisiblePaneIds: Set<UUID>
+            let previouslyMinimizedPaneIds: Set<UUID>
             if let tab = store.tab(tabId) {
                 previousVisiblePaneIds = tab.activeArrangement.visiblePaneIds
+                previouslyMinimizedPaneIds = tab.minimizedPaneIds
             } else {
                 previousVisiblePaneIds = []
+                previouslyMinimizedPaneIds = []
             }
 
-            // Switch arrangement in store
+            // Switch arrangement in store (clears minimizedPaneIds)
             store.switchArrangement(to: arrangementId, inTab: tabId)
 
             // Get newly visible panes AFTER switching
@@ -290,15 +314,20 @@ final class ActionExecutor {
             else { break }
             let newVisiblePaneIds = arrangement.visiblePaneIds
 
+            let transitions = Self.computeSwitchArrangementTransitions(
+                previousVisiblePaneIds: previousVisiblePaneIds,
+                previouslyMinimizedPaneIds: previouslyMinimizedPaneIds,
+                newVisiblePaneIds: newVisiblePaneIds
+            )
+
             // Detach surfaces for panes that were visible but are now hidden
-            let hiddenPaneIds = previousVisiblePaneIds.subtracting(newVisiblePaneIds)
-            for paneId in hiddenPaneIds {
+            for paneId in transitions.hiddenPaneIds {
                 coordinator.detachForViewSwitch(paneId: paneId)
             }
 
-            // Reattach surfaces for panes that are now visible but were hidden
-            let revealedPaneIds = newVisiblePaneIds.subtracting(previousVisiblePaneIds)
-            for paneId in revealedPaneIds {
+            // Reattach newly revealed panes, plus panes that were minimized in the
+            // previous arrangement and remain visible after the switch.
+            for paneId in transitions.paneIdsToReattach {
                 coordinator.reattachForViewSwitch(paneId: paneId)
             }
 

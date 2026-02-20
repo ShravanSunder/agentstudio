@@ -190,11 +190,13 @@ extension Ghostty {
         @objc private func applicationDidBecomeActive(_ notification: NSNotification) {
             guard let app else { return }
             ghostty_app_set_focus(app, true)
+            RestoreTrace.log("Ghostty.App applicationDidBecomeActive -> ghostty_app_set_focus(true)")
         }
 
         @objc private func applicationDidResignActive(_ notification: NSNotification) {
             guard let app else { return }
             ghostty_app_set_focus(app, false)
+            RestoreTrace.log("Ghostty.App applicationDidResignActive -> ghostty_app_set_focus(false)")
         }
 
         // MARK: - Static Callbacks
@@ -352,6 +354,9 @@ extension Ghostty {
         static func closeSurface(_ userdata: UnsafeMutableRawPointer?, processAlive: Bool) {
             guard let userdata else { return }
             let surfaceView = Unmanaged<SurfaceView>.fromOpaque(userdata).takeUnretainedValue()
+            RestoreTrace.log(
+                "Ghostty.App.closeSurface view=\(ObjectIdentifier(surfaceView)) processAlive=\(processAlive)"
+            )
 
             NotificationCenter.default.post(
                 name: .ghosttyCloseSurface,

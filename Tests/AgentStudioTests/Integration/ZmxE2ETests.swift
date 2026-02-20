@@ -160,6 +160,41 @@ final class ZmxE2ETests: XCTestCase {
         XCTAssertTrue(gone, "Session should be gone after destroySessionById")
     }
 
+    // MARK: - Restore Semantics E2E
+
+    func test_restoreAcrossBackendRecreation_detectsAndKillsExistingSession() async throws {
+        // Arrange — create a session and spawn a live daemon
+        let worktree = makeWorktree(name: "e2e-restore", path: "/tmp", branch: "e2e-restore")
+        let repo = makeRepo()
+        let handle = try await backend.createPaneSession(repo: repo, worktree: worktree, paneId: UUID())
+
+        let proc = try spawnZmxSession(
+            zmxPath: harness.zmxPath!, zmxDir: harness.zmxDir,
+            sessionId: handle.id, commandArgs: ["/bin/sleep", "300"]
+        )
+        defer { proc.terminate() }
+
+        guard await pollForSession(sessionId: handle.id, timeout: 10) else {
+            throw XCTSkip("zmx daemon did not start")
+        }
+
+        // Act — simulate app restart by creating a new backend instance.
+        guard let recreatedBackend = harness.createBackend() else {
+            throw XCTSkip("zmx backend unavailable during recreation")
+        }
+
+        // Assert — recreated backend can still discover and control the existing session.
+        let aliveAfterRecreate = await recreatedBackend.healthCheck(handle)
+        XCTAssertTrue(
+            aliveAfterRecreate,
+            "Recreated backend should detect live session (restore semantics)"
+        )
+
+        try await recreatedBackend.destroySessionById(handle.id)
+        let gone = await pollForSessionGone(sessionId: handle.id, timeout: 5)
+        XCTAssertTrue(gone, "Session should be gone after kill from recreated backend")
+    }
+
     // MARK: - Socket Exists E2E
 
     func test_socketExists_afterDaemonStarts() async throws {

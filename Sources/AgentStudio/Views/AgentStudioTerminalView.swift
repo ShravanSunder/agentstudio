@@ -75,6 +75,9 @@ final class AgentStudioTerminalView: PaneView, SurfaceHealthDelegate {
         let currentSize = surface.bounds.size
         guard currentSize != lastReportedSurfaceSize else { return }
         lastReportedSurfaceSize = currentSize
+        RestoreTrace.log(
+            "AgentStudioTerminalView.layout pane=\(paneId) surface=\(surfaceId?.uuidString ?? "nil") paneBounds=\(NSStringFromRect(bounds)) surfaceBounds=\(NSStringFromRect(surface.bounds))"
+        )
         surface.sizeDidChange(currentSize)
     }
 
@@ -83,6 +86,9 @@ final class AgentStudioTerminalView: PaneView, SurfaceHealthDelegate {
     func displaySurface(_ surfaceView: Ghostty.SurfaceView) {
         // Remove existing surface if any
         ghosttySurface?.removeFromSuperview()
+        RestoreTrace.log(
+            "AgentStudioTerminalView.displaySurface pane=\(paneId) surface=\(surfaceId?.uuidString ?? "nil") hostBounds=\(NSStringFromRect(bounds)) incomingSurfaceFrame=\(NSStringFromRect(surfaceView.frame))"
+        )
 
         surfaceView.translatesAutoresizingMaskIntoConstraints = false
         addSubview(surfaceView)
@@ -96,6 +102,9 @@ final class AgentStudioTerminalView: PaneView, SurfaceHealthDelegate {
 
         self.ghosttySurface = surfaceView
         self.lastReportedSurfaceSize = .zero
+        RestoreTrace.log(
+            "AgentStudioTerminalView.displaySurface mounted pane=\(paneId) surface=\(surfaceId?.uuidString ?? "nil")"
+        )
 
         // Make this view layer-backed AFTER the surface is created
         self.wantsLayer = true
@@ -194,11 +203,16 @@ final class AgentStudioTerminalView: PaneView, SurfaceHealthDelegate {
     @objc private func handleSurfaceClose(_ notification: Notification) {
         guard isProcessRunning else { return }
         isProcessRunning = false
-        handleProcessTerminated(exitCode: 0)
+        RestoreTrace.log(
+            "AgentStudioTerminalView.handleSurfaceClose pane=\(paneId) surface=\(surfaceId?.uuidString ?? "nil")"
+        )
+        handleProcessTerminated(exitCode: nil)
     }
 
     // MARK: - Process Management
 
+    /// `exitCode == nil` means the process terminated without a reliable numeric
+    /// code (e.g. surface-level close callback / force-destroy path).
     func handleProcessTerminated(exitCode: Int32?) {
         isProcessRunning = false
         var userInfo: [String: Any] = ["exitCode": exitCode as Any]
@@ -239,6 +253,7 @@ final class AgentStudioTerminalView: PaneView, SurfaceHealthDelegate {
             if let surfaceId {
                 SurfaceManager.shared.setFocus(surfaceId, focused: true)
             }
+            RestoreTrace.log("AgentStudioTerminalView.becomeFirstResponder pane=\(paneId) surface=\(surfaceId?.uuidString ?? "nil")")
             return window.makeFirstResponder(surface)
         }
         return super.becomeFirstResponder()
@@ -248,6 +263,7 @@ final class AgentStudioTerminalView: PaneView, SurfaceHealthDelegate {
         if let surfaceId {
             SurfaceManager.shared.setFocus(surfaceId, focused: false)
         }
+        RestoreTrace.log("AgentStudioTerminalView.resignFirstResponder pane=\(paneId) surface=\(surfaceId?.uuidString ?? "nil")")
         return super.resignFirstResponder()
     }
 

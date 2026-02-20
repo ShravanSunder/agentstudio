@@ -52,7 +52,7 @@ final class ZmxBackendIntegrationTests: XCTestCase {
 
     // MARK: - Attach Command Format
 
-    func test_attachCommand_containsZmxDirAndAttach() async throws {
+    func test_attachCommand_containsAttachAndSessionId() async throws {
         // Arrange
         let worktree = makeWorktree(name: "attach-test", path: "/tmp", branch: "attach-test")
         let repo = makeRepo()
@@ -62,7 +62,8 @@ final class ZmxBackendIntegrationTests: XCTestCase {
         let cmd = backend.attachCommand(for: handle)
 
         // Assert
-        XCTAssertTrue(cmd.hasPrefix("/usr/bin/env ZMX_DIR="), "Command must start with /usr/bin/env ZMX_DIR=")
+        XCTAssertFalse(cmd.contains("ZMX_DIR="), "Command must not inline ZMX_DIR in the shell command")
+        XCTAssertTrue(cmd.hasPrefix("\""), "Command should start with a quoted zmx binary path")
         XCTAssertTrue(cmd.contains("attach"), "Command must contain 'attach' subcommand")
         XCTAssertTrue(cmd.contains(handle.id), "Command must contain the session ID")
         XCTAssertTrue(cmd.contains("-i -l"), "Command must contain shell login flags")

@@ -135,17 +135,27 @@ final class TerminalViewCoordinator {
     ) -> AgentStudioTerminalView? {
         let workingDir = worktree.path
 
-        let cmd: String
+        let shellCommand = "\(getDefaultShell()) -i -l"
+        let startupStrategy: Ghostty.SurfaceStartupStrategy
+        var environmentVariables: [String: String] = [:]
         switch pane.provider {
         case .zmx:
             if let zmxPath = sessionConfig.zmxPath {
-                cmd = buildZmxAttachCommand(pane: pane, worktree: worktree, repo: repo, zmxPath: zmxPath)
+                let attachCommand = buildZmxAttachCommand(
+                    pane: pane,
+                    worktree: worktree,
+                    repo: repo,
+                    zmxPath: zmxPath
+                )
+                // Start in shell mode and inject zmx attach after first sizing.
+                startupStrategy = .deferredInShell(command: attachCommand)
+                environmentVariables["ZMX_DIR"] = sessionConfig.zmxDir
             } else {
                 coordinatorLogger.warning("zmx not found, falling back to ephemeral session for \(pane.id)")
-                cmd = "\(getDefaultShell()) -i -l"
+                startupStrategy = .surfaceCommand(shellCommand)
             }
         case .ghostty:
-            cmd = "\(getDefaultShell()) -i -l"
+            startupStrategy = .surfaceCommand(shellCommand)
         case .none:
             coordinatorLogger.error("Cannot create view for non-terminal pane \(pane.id)")
             return nil
@@ -153,12 +163,17 @@ final class TerminalViewCoordinator {
 
         let config = Ghostty.SurfaceConfiguration(
             workingDirectory: workingDir.path,
-            command: cmd
+            startupStrategy: startupStrategy,
+            environmentVariables: environmentVariables
+        )
+
+        RestoreTrace.log(
+            "createView pane=\(pane.id) provider=\(pane.provider?.rawValue ?? "none") startup=\(String(describing: startupStrategy)) worktree=\(worktree.name) cwd=\(workingDir.path) shell=\(shellCommand) env=\(environmentVariables)"
         )
 
         let metadata = SurfaceMetadata(
             workingDirectory: workingDir,
-            command: cmd,
+            command: shellCommand,
             title: worktree.name,
             worktreeId: worktree.id,
             repoId: repo.id,
@@ -170,6 +185,9 @@ final class TerminalViewCoordinator {
 
         switch result {
         case .success(let managed):
+            RestoreTrace.log(
+                "createSurface success pane=\(pane.id) surface=\(managed.id) initialSurfaceFrame=\(NSStringFromRect(managed.surface.frame))"
+            )
             // Attach surface
             SurfaceManager.shared.attach(managed.id, to: pane.id)
 
@@ -187,11 +205,15 @@ final class TerminalViewCoordinator {
 
             // Initialize runtime tracking
             runtime.markRunning(pane.id)
+            RestoreTrace.log(
+                "createView complete pane=\(pane.id) surface=\(managed.id) viewBounds=\(NSStringFromRect(view.bounds))"
+            )
 
             coordinatorLogger.info("Created view for pane \(pane.id) worktree: \(worktree.name)")
             return view
 
         case .failure(let error):
+            RestoreTrace.log("createSurface failure pane=\(pane.id) error=\(error.localizedDescription)")
             coordinatorLogger.error("Failed to create surface for pane \(pane.id): \(error.localizedDescription)")
             return nil
         }
@@ -206,9 +228,13 @@ final class TerminalViewCoordinator {
         let workingDir = pane.metadata.cwd ?? FileManager.default.homeDirectoryForCurrentUser
         let cmd = "\(getDefaultShell()) -i -l"
 
+        RestoreTrace.log(
+            "createFloatingView pane=\(pane.id) cwd=\(workingDir.path) cmd=\(cmd)"
+        )
+
         let config = Ghostty.SurfaceConfiguration(
             workingDirectory: workingDir.path,
-            command: cmd
+            startupStrategy: .surfaceCommand(cmd)
         )
 
         let metadata = SurfaceMetadata(
@@ -222,6 +248,9 @@ final class TerminalViewCoordinator {
 
         switch result {
         case .success(let managed):
+            RestoreTrace.log(
+                "createFloatingSurface success pane=\(pane.id) surface=\(managed.id) initialSurfaceFrame=\(NSStringFromRect(managed.surface.frame))"
+            )
             SurfaceManager.shared.attach(managed.id, to: pane.id)
 
             let view = AgentStudioTerminalView(
@@ -233,11 +262,13 @@ final class TerminalViewCoordinator {
 
             viewRegistry.register(view, for: pane.id)
             runtime.markRunning(pane.id)
+            RestoreTrace.log("createFloatingView complete pane=\(pane.id) surface=\(managed.id)")
 
             coordinatorLogger.info("Created floating terminal view for pane \(pane.id)")
             return view
 
         case .failure(let error):
+            RestoreTrace.log("createFloatingSurface failure pane=\(pane.id) error=\(error.localizedDescription)")
             coordinatorLogger.error(
                 "Failed to create floating surface for pane \(pane.id): \(error.localizedDescription)")
             return nil
@@ -331,8 +362,12 @@ final class TerminalViewCoordinator {
         // Use tab.panes (all owned panes) instead of tab.paneIds (active arrangement only)
         // to ensure panes in non-active arrangements also get views restored.
         let paneIds = store.tabs.flatMap(\.panes)
+        RestoreTrace.log(
+            "restoreAllViews begin tabs=\(store.tabs.count) paneIds=\(paneIds.count) activeTab=\(store.activeTabId?.uuidString ?? "nil")"
+        )
         guard !paneIds.isEmpty else {
             coordinatorLogger.info("No panes to restore views for")
+            RestoreTrace.log("restoreAllViews no panes")
             return
         }
 
@@ -341,8 +376,10 @@ final class TerminalViewCoordinator {
         for paneId in paneIds {
             guard let pane = store.pane(paneId) else {
                 coordinatorLogger.warning("Skipping view restore for pane \(paneId) — not in store")
+                RestoreTrace.log("restoreAllViews skip missing pane=\(paneId)")
                 continue
             }
+            RestoreTrace.log("restoreAllViews restoring pane=\(paneId) content=\(String(describing: pane.content))")
             if createViewForContent(pane: pane) != nil {
                 restored += 1
             }
@@ -351,6 +388,7 @@ final class TerminalViewCoordinator {
             if let drawer = pane.drawer {
                 for drawerPaneId in drawer.paneIds {
                     guard let drawerPane = store.pane(drawerPaneId) else { continue }
+                    RestoreTrace.log("restoreAllViews restoring drawer pane=\(drawerPaneId) parent=\(pane.id)")
                     if createViewForContent(pane: drawerPane) != nil {
                         drawerRestored += 1
                     }
@@ -365,7 +403,11 @@ final class TerminalViewCoordinator {
             let terminalView = viewRegistry.terminalView(for: activePaneId)
         {
             SurfaceManager.shared.syncFocus(activeSurfaceId: terminalView.surfaceId)
+            RestoreTrace.log(
+                "restoreAllViews syncFocus activeTab=\(activeTab.id) activePane=\(activePaneId) activeSurface=\(terminalView.surfaceId?.uuidString ?? "nil")"
+            )
         }
+        RestoreTrace.log("restoreAllViews end restored=\(restored) drawerRestored=\(drawerRestored)")
     }
 
     // MARK: - Helpers
@@ -383,9 +425,11 @@ final class TerminalViewCoordinator {
                 paneId: pane.id
             )
         }
+        RestoreTrace.log(
+            "buildZmxAttachCommand pane=\(pane.id) session=\(zmxSessionName) zmxPath=\(zmxPath) zmxDir=\(sessionConfig.zmxDir)"
+        )
         return ZmxBackend.buildAttachCommand(
             zmxPath: zmxPath,
-            zmxDir: sessionConfig.zmxDir,
             sessionId: zmxSessionName,
             shell: getDefaultShell()
         )

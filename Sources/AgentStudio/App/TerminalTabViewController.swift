@@ -316,12 +316,19 @@ class TerminalTabViewController: NSViewController, CommandHandler {
             let paneView = viewRegistry.view(for: activePaneId)
         else { return }
 
+        RestoreTrace.log(
+            "TerminalTabVC.focusActivePane tab=\(activeTabId) pane=\(activePaneId) paneClass=\(String(describing: type(of: paneView))) windowReady=\(paneView.window != nil)"
+        )
         DispatchQueue.main.async { [weak paneView] in
             guard let paneView, paneView.window != nil else { return }
             paneView.window?.makeFirstResponder(paneView)
+            RestoreTrace.log(
+                "TerminalTabVC.focusActivePane async firstResponder paneClass=\(String(describing: type(of: paneView)))"
+            )
 
             if let terminal = paneView as? AgentStudioTerminalView {
                 SurfaceManager.shared.syncFocus(activeSurfaceId: terminal.surfaceId)
+                RestoreTrace.log("TerminalTabVC.focusActivePane syncFocus activeSurface=\(terminal.surfaceId?.uuidString ?? "nil")")
             }
         }
     }
@@ -694,12 +701,15 @@ class TerminalTabViewController: NSViewController, CommandHandler {
             let activePaneId = tab.activePaneId,
             let paneView = viewRegistry.view(for: activePaneId)
         else { return }
+        RestoreTrace.log("TerminalTabVC.handleRefocusTerminal tab=\(activeTabId) pane=\(activePaneId)")
         DispatchQueue.main.async { [weak paneView] in
             guard let paneView, paneView.window != nil else { return }
             paneView.window?.makeFirstResponder(paneView)
+            RestoreTrace.log("TerminalTabVC.handleRefocusTerminal async firstResponder set")
 
             if let terminal = paneView as? AgentStudioTerminalView {
                 SurfaceManager.shared.syncFocus(activeSurfaceId: terminal.surfaceId)
+                RestoreTrace.log("TerminalTabVC.handleRefocusTerminal syncFocus activeSurface=\(terminal.surfaceId?.uuidString ?? "nil")")
             }
         }
     }
