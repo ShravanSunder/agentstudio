@@ -124,6 +124,11 @@ type_name:
     warning: 50
     error: 60
 
+# Thresholds accommodate existing large files:
+#   WorkspaceStore.swift: 1646 lines, type body 1195 lines
+#   WorkspaceStoreTests.swift: 1479 lines, type body 945 lines
+#   TerminalTabViewController.swift: 1041 lines, type body 810 lines
+# These use file-level swiftlint:disable. Tighten limits as files are refactored.
 file_length:
   warning: 1000
   error: 2000
@@ -140,6 +145,9 @@ function_parameter_count:
   warning: 6
   error: 8
 
+# Accommodates large switch-statement functions:
+#   ActionValidator.validate: 52, ActionExecutor.execute: 45, ActionResolver.resolve: 41
+# These use file-level swiftlint:disable. Tighten as functions are decomposed.
 cyclomatic_complexity:
   warning: 25
   error: 60

@@ -21,11 +21,11 @@ jobs:
 
       # --- Lint (fast, no build needed) ---
 
-      - name: Install swift-format
-        run: brew install swift-format
-
-      - name: Install SwiftLint
-        run: brew install swiftlint
+      - name: Install lint tools
+        env:
+          HOMEBREW_NO_AUTO_UPDATE: 1
+          HOMEBREW_NO_INSTALL_CLEANUP: 1
+        run: brew install swift-format swiftlint
 
       - name: swift-format lint
         run: swift-format lint --strict --recursive Sources/ Tests/
