@@ -132,7 +132,10 @@ final class BridgePaneController {
     /// This is gated and idempotent (§4.5 line 246):
     /// - First call sets `isBridgeReady = true` and will start push plans (Stage 3).
     /// - Subsequent calls are silently ignored.
-    private func handleBridgeReady() {
+    ///
+    /// `internal` (not `private`) for testability — allows integration tests to
+    /// invoke the handshake directly without routing through WebKit message handlers.
+    func handleBridgeReady() {
         guard !isBridgeReady else { return }
         isBridgeReady = true
         // Stage 3: Start push plans here (diffPushPlan, reviewPushPlan, connectionPushPlan).
