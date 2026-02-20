@@ -84,6 +84,21 @@ final class RPCRouterTests: XCTestCase {
         XCTAssertEqual(errorCode, -32_600)
     }
 
+    // MARK: - Malformed JSON parse error
+
+    func test_malformed_json_reports_32700() async throws {
+        // Arrange
+        let router = RPCRouter()
+        var errorCode: Int?
+        router.onError = { code, _, _ in errorCode = code }
+
+        // Act
+        try await router.dispatch(json: "{ not valid json !!!")
+
+        // Assert
+        XCTAssertEqual(errorCode, -32_700, "Malformed JSON should report parse error -32700, not -32600")
+    }
+
     // MARK: - Duplicate commandId idempotency
 
     func test_duplicate_commandId_is_idempotent() async throws {

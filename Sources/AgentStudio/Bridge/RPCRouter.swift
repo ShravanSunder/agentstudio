@@ -48,8 +48,15 @@ final class RPCRouter {
             return
         }
 
-        // Step 1: Detect batch (array) — reject per §5.5
+        // Step 1: Parse JSON — malformed JSON is a parse error (-32700)
         let raw = try? JSONSerialization.jsonObject(with: data)
+
+        guard let raw else {
+            onError?(-32_700, "Parse error", nil)
+            return
+        }
+
+        // Step 1b: Detect batch (array) — reject per §5.5
         if raw is [Any] {
             onError?(-32_600, "Batch requests not supported", nil)
             return
