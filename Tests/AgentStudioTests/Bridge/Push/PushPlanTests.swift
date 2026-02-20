@@ -227,8 +227,10 @@ final class PushPlanTests: XCTestCase {
     // MARK: - Debounce coalescing: warm level
 
     /// Proves that warm-level (.warm = 12ms debounce) coalesces rapid mutations
-    /// into fewer pushes. 5 mutations at 2ms intervals = 10ms total, within one
-    /// debounce window, should produce ~1 push (not 5).
+    /// into fewer pushes. 5 synchronous mutations within one run-loop turn are
+    /// guaranteed to land in a single debounce window, producing ~1 push (not 5).
+    /// Mutations are synchronous to avoid CI timing jitter inflating Task.sleep
+    /// beyond the debounce window.
     func test_warm_debounce_coalesces_rapid_mutations() async throws {
         // Arrange
         let state = TestState()
@@ -250,10 +252,9 @@ final class PushPlanTests: XCTestCase {
 
         let baselineCount = transport.pushCount
 
-        // Act — 5 rapid mutations within one 12ms debounce window
+        // Act — 5 synchronous mutations within one run-loop turn
         for i in 0..<5 {
             state.status = "state-\(i)"
-            try await Task.sleep(for: .milliseconds(2))
         }
 
         // Wait for debounce to flush
@@ -273,8 +274,10 @@ final class PushPlanTests: XCTestCase {
     // MARK: - Debounce coalescing: cold level with EntitySlice
 
     /// Proves that cold-level EntitySlice (.cold = 32ms debounce) coalesces rapid
-    /// entity additions. 10 entities added at 3ms intervals = 30ms, mostly within
-    /// one debounce window.
+    /// entity additions. 10 synchronous mutations within one run-loop turn land in
+    /// a single debounce window, producing ~1 push (not 10). Mutations are
+    /// synchronous to avoid CI timing jitter inflating Task.sleep beyond the
+    /// debounce window.
     func test_cold_entitySlice_debounce_coalesces() async throws {
         // Arrange
         let state = TestState()
@@ -301,10 +304,9 @@ final class PushPlanTests: XCTestCase {
 
         let baselineCount = transport.pushCount
 
-        // Act — 10 rapid entity additions at 3ms intervals (30ms total, within 32ms window)
+        // Act — 10 synchronous entity additions within one run-loop turn
         for i in 0..<10 {
             state.items[UUID()] = "item-\(i)"
-            try await Task.sleep(for: .milliseconds(3))
         }
 
         // Wait for debounce to flush
