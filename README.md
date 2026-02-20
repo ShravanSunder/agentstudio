@@ -169,7 +169,7 @@ Contributions are welcome! Please:
 ## Architecture
 
 Agent Studio is built using:
-- **Swift 6.2** with Swift Package Manager
+- **Swift 6.2** with Swift Package Manager, `@Observable`, `AsyncStream`, and `swift-async-algorithms`
 - **AppKit** for native macOS UI
 - **Ghostty** (via C API) for terminal emulation
 - **Zig build system** for Ghostty compilation
