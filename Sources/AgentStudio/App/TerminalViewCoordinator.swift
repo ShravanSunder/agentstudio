@@ -9,6 +9,11 @@ private let coordinatorLogger = Logger(subsystem: "com.agentstudio", category: "
 /// sole intermediary. TTVC dispatches actions; ActionExecutor delegates lifecycle to here.
 @MainActor
 final class TerminalViewCoordinator {
+    private enum ZmxAttachLaunchMode: String {
+        case immediate
+        case deferred
+    }
+
     private let store: WorkspaceStore
     private let viewRegistry: ViewRegistry
     private let runtime: SessionRuntime
@@ -144,11 +149,18 @@ final class TerminalViewCoordinator {
                     repo: repo,
                     zmxPath: zmxPath
                 )
-                // Experiment mode: launch zmx attach directly from shell startup
-                // (no deferred post-size injection).
-                let startupAttach = "exec \(attachCommand)"
-                cmd = "\(getDefaultShell()) -i -l -c \(ZmxBackend.shellEscape(startupAttach))"
-                deferredStartupCommand = nil
+                switch zmxAttachLaunchMode() {
+                case .immediate:
+                    // Launch zmx attach during shell startup (legacy behavior).
+                    let startupAttach = "exec \(attachCommand)"
+                    cmd = "\(getDefaultShell()) -i -l -c \(ZmxBackend.shellEscape(startupAttach))"
+                    deferredStartupCommand = nil
+                case .deferred:
+                    // Start an interactive shell first, then inject attach after the
+                    // view is attached to a window and has a resolved size.
+                    cmd = "\(getDefaultShell()) -i -l"
+                    deferredStartupCommand = attachCommand
+                }
                 environmentVariables["ZMX_DIR"] = sessionConfig.zmxDir
             } else {
                 coordinatorLogger.warning("zmx not found, falling back to ephemeral session for \(pane.id)")
@@ -170,8 +182,9 @@ final class TerminalViewCoordinator {
             environmentVariables: environmentVariables
         )
 
+        let zmxLaunchMode = pane.provider == .zmx ? zmxAttachLaunchMode().rawValue : "n/a"
         RestoreTrace.log(
-            "createView pane=\(pane.id) provider=\(pane.provider?.rawValue ?? "none") worktree=\(worktree.name) cwd=\(workingDir.path) cmd=\(cmd) deferred=\(deferredStartupCommand ?? "nil") env=\(environmentVariables)"
+            "createView pane=\(pane.id) provider=\(pane.provider?.rawValue ?? "none") launchMode=\(zmxLaunchMode) worktree=\(worktree.name) cwd=\(workingDir.path) cmd=\(cmd) deferred=\(deferredStartupCommand ?? "nil") env=\(environmentVariables)"
         )
 
         let metadata = SurfaceMetadata(
@@ -436,6 +449,20 @@ final class TerminalViewCoordinator {
 
     private func getDefaultShell() -> String {
         SessionConfiguration.defaultShell()
+    }
+
+    private func zmxAttachLaunchMode() -> ZmxAttachLaunchMode {
+        let raw = ProcessInfo.processInfo.environment["AGENTSTUDIO_ZMX_ATTACH_MODE"]?
+            .trimmingCharacters(in: .whitespacesAndNewlines)
+            .lowercased()
+        guard let raw, !raw.isEmpty else {
+            return .deferred
+        }
+        guard let mode = ZmxAttachLaunchMode(rawValue: raw) else {
+            RestoreTrace.log("Invalid AGENTSTUDIO_ZMX_ATTACH_MODE=\(raw); defaulting to deferred")
+            return .deferred
+        }
+        return mode
     }
 
 }
