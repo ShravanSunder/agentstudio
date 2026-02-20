@@ -2,7 +2,7 @@
 
 ## TL;DR
 
-Agent Studio uses an **AppKit-main** architecture hosting SwiftUI views for declarative UI. AppKit controls the window lifecycle, responder chain, and terminal surface management. SwiftUI handles forms, lists, and animations. Services are created in `AppDelegate` in dependency order, with `WorkspaceStore` as the single source of truth. See [Component Architecture](component_architecture.md) for the full data model and service layer.
+Agent Studio uses an **AppKit-main** architecture hosting SwiftUI views for declarative UI. AppKit controls the window lifecycle, responder chain, and terminal surface management. SwiftUI handles forms, lists, and animations. State is distributed across independent `@Observable` stores (Jotai-style) with `private(set)` for unidirectional flow (Valtio-style). A coordinator sequences cross-store operations. See [Component Architecture](component_architecture.md) for the full data model and service layer.
 
 ---
 
@@ -59,9 +59,10 @@ let menu = NSHostingMenu(rootView: MenuView())
 
 The full data model, service layer, and mutation pipeline are documented in [Component Architecture](component_architecture.md). Key patterns relevant to the AppKit+SwiftUI boundary:
 
-- **WorkspaceStore**: `@Observable @MainActor` — the single source of truth. SwiftUI views observe store properties automatically via @Observable property tracking. No `@Published`, no `objectWillChange`, no Combine subscriptions.
-- **AppKit observation**: Non-SwiftUI code (e.g., `TabBarAdapter`) bridges to @Observable using `withObservationTracking` with re-registration pattern.
-- **Notifications**: `NotificationCenter` for loose coupling between AppKit menu actions and controllers (e.g., `.newTabRequested`, `.closeTabRequested`, `.undoCloseTabRequested`).
+- **Atomic stores**: `WorkspaceStore`, `SurfaceManager`, `SessionRuntime` — each `@Observable @MainActor`, each owns one domain. All state is `private(set)` for unidirectional flow. SwiftUI views observe store properties automatically via `@Observable` property tracking. No `@Published`, no `objectWillChange`, no Combine subscriptions.
+- **Coordinator**: `PaneCoordinator` sequences cross-store operations (e.g., close tab touches `WorkspaceStore` + `SurfaceManager` + `SessionRuntime`). Owns no domain state.
+- **AppKit observation**: Non-SwiftUI code (e.g., `TabBarAdapter`) bridges to `@Observable` using `withObservationTracking` with re-registration pattern.
+- **Event transport**: New plumbing uses `AsyncStream` + `swift-async-algorithms`. Existing `NotificationCenter` for AppKit menu actions migrated incrementally.
 
 ### NSHostingView → SwiftUI Root Mapping
 
@@ -96,7 +97,7 @@ AppDelegate
 ├── ViewRegistry        ← paneId → NSView mapping (not @Observable)
 ├── TerminalViewCoordinator ← sole model↔view↔surface bridge
 ├── ActionExecutor      ← action dispatch hub
-├── TabBarAdapter       ← ObservableObject, bridges store via withObservationTracking
+├── TabBarAdapter       ← bridges @Observable store via withObservationTracking
 ├── CommandBarPanelController ← command bar lifecycle (⌘P/⌘⇧P/⌘⌥P)
 └── MainWindowController
     └── MainSplitViewController

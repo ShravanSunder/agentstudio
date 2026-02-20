@@ -168,7 +168,8 @@ struct SessionConfiguration: Sendable {
         // 1. Bundled binary: same directory as the app executable (Contents/MacOS/zmx or .build/debug/zmx)
         if let bundled = Bundle.main.executableURL?
             .deletingLastPathComponent()
-            .appendingPathComponent("zmx").path {
+            .appendingPathComponent("zmx").path
+        {
             if isUsableZmxBinary(bundled, allowBlockingProbe: allowBlockingProbe) {
                 return bundled
             }
@@ -177,7 +178,8 @@ struct SessionConfiguration: Sendable {
 
         // 2. Vendor build output: for dev builds where zmx was built but not copied
         if let vendorBin = findDevVendorZmx(),
-           isUsableZmxBinary(vendorBin, allowBlockingProbe: allowBlockingProbe) {
+            isUsableZmxBinary(vendorBin, allowBlockingProbe: allowBlockingProbe)
+        {
             return vendorBin
         }
 
@@ -205,7 +207,8 @@ struct SessionConfiguration: Sendable {
             let path = String(data: data, encoding: .utf8)?
                 .trimmingCharacters(in: .whitespacesAndNewlines)
             if let path, !path.isEmpty,
-               isUsableZmxBinary(path, allowBlockingProbe: allowBlockingProbe) {
+                isUsableZmxBinary(path, allowBlockingProbe: allowBlockingProbe)
+            {
                 return path
             }
         } catch {

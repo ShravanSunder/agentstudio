@@ -253,7 +253,8 @@ final class AgentStudioTerminalView: PaneView, SurfaceHealthDelegate {
             if let surfaceId {
                 SurfaceManager.shared.setFocus(surfaceId, focused: true)
             }
-            RestoreTrace.log("AgentStudioTerminalView.becomeFirstResponder pane=\(paneId) surface=\(surfaceId?.uuidString ?? "nil")")
+            RestoreTrace.log(
+                "AgentStudioTerminalView.becomeFirstResponder pane=\(paneId) surface=\(surfaceId?.uuidString ?? "nil")")
             return window.makeFirstResponder(surface)
         }
         return super.becomeFirstResponder()
@@ -263,7 +264,8 @@ final class AgentStudioTerminalView: PaneView, SurfaceHealthDelegate {
         if let surfaceId {
             SurfaceManager.shared.setFocus(surfaceId, focused: false)
         }
-        RestoreTrace.log("AgentStudioTerminalView.resignFirstResponder pane=\(paneId) surface=\(surfaceId?.uuidString ?? "nil")")
+        RestoreTrace.log(
+            "AgentStudioTerminalView.resignFirstResponder pane=\(paneId) surface=\(surfaceId?.uuidString ?? "nil")")
         return super.resignFirstResponder()
     }
 

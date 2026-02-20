@@ -1,5 +1,6 @@
 import CoreGraphics
 import XCTest
+
 @testable import AgentStudio
 
 final class DeferredStartupReadinessTests: XCTestCase {
