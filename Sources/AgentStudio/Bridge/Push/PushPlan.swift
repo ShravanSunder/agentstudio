@@ -38,10 +38,15 @@ final class PushPlan<State: Observable & AnyObject> {
     private let slices: [AnyPushSlice<State>]
     private var tasks: [Task<Void, Never>] = []
 
-    /// Guards against post-stop emissions. Task cancellation is cooperative —
-    /// an in-flight iteration between `for await` yield and `pushJSON` won't
-    /// see cancellation until the next suspension point. This flag is checked
-    /// by the guarded transport wrapper before forwarding to the real transport.
+    /// Monotonically increasing generation counter for restart-safe cancellation.
+    /// Each start() increments this. StopGuardedTransport captures the generation
+    /// at creation time and drops pushes when the captured generation doesn't match
+    /// the current one. This prevents late emissions from a previous generation's
+    /// in-flight tasks from leaking through after a stop→start restart.
+    private(set) var generation: Int = 0
+
+    /// Whether the plan is stopped (no active generation).
+    /// True when no tasks are running (initial state or after stop()).
     private(set) var isStopped = true
 
     /// Number of active observation tasks. Exposed for testing.
@@ -63,8 +68,11 @@ final class PushPlan<State: Observable & AnyObject> {
 
     func start() {
         stop()
+        generation += 1
         isStopped = false
-        let guardedTransport = StopGuardedTransport(plan: self, inner: transport)
+        let guardedTransport = StopGuardedTransport(
+            plan: self, inner: transport, validGeneration: generation
+        )
         tasks = slices.map { slice in
             slice.makeTask(state, guardedTransport, revisions, epochProvider)
         }
@@ -79,24 +87,28 @@ final class PushPlan<State: Observable & AnyObject> {
 
 // MARK: - Stop-Guarded Transport
 
-/// Wraps a real transport and drops pushes if the owning plan has been stopped.
-/// Prevents post-stop emissions from in-flight slice iterations that haven't
-/// yet observed task cancellation.
+/// Wraps a real transport and drops pushes from stale generations.
+/// Captures the generation counter at creation time and only forwards pushes
+/// when the plan's current generation matches. This is restart-safe:
+/// stop→start creates a new generation, and any late emissions from the
+/// previous generation's in-flight tasks are silently dropped.
 @MainActor
 private final class StopGuardedTransport<State: Observable & AnyObject>: PushTransport {
     private weak var plan: PushPlan<State>?
     private let inner: PushTransport
+    private let validGeneration: Int
 
-    init(plan: PushPlan<State>, inner: PushTransport) {
+    init(plan: PushPlan<State>, inner: PushTransport, validGeneration: Int) {
         self.plan = plan
         self.inner = inner
+        self.validGeneration = validGeneration
     }
 
     func pushJSON(
         store: StoreKey, op: PushOp, level: PushLevel,
         revision: Int, epoch: Int, json: Data
     ) async {
-        guard plan?.isStopped == false else { return }
+        guard let plan, !plan.isStopped, plan.generation == validGeneration else { return }
         await inner.pushJSON(
             store: store, op: op, level: level,
             revision: revision, epoch: epoch, json: json

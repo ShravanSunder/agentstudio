@@ -51,7 +51,13 @@ final class BridgePaneController {
 
     private let router: RPCRouter
     private let bridgeWorld = WKContentWorld.world(name: "agentStudioBridge")
-    private var lastPushedJSON: [String: Data] = [:]
+
+    /// Per store+op dedup cache. Bounded at O(StoreKey × PushOp) — currently 8 entries max.
+    /// Each entry stores the epoch it was pushed in + the payload bytes. Dedup only matches
+    /// within the same epoch — a new epoch always goes through even with identical bytes.
+    /// This avoids cross-store thrash that a global epoch tracker would cause (connection
+    /// uses epoch=0, diff uses diff.epoch, etc.)
+    private var lastPushed: [String: DedupEntry] = [:]
 
     // MARK: - Init
 
@@ -154,7 +160,7 @@ final class BridgePaneController {
         diffPushPlan = nil
         reviewPushPlan = nil
         connectionPushPlan = nil
-        lastPushedJSON.removeAll()
+        lastPushed.removeAll()
         isBridgeReady = false
     }
 
@@ -241,6 +247,16 @@ final class BridgePaneController {
     }
 }
 
+// MARK: - DedupEntry
+
+/// Cache entry for transport-level content dedup.
+/// Stores the epoch + payload for a given store+op key.
+/// Dedup only matches within the same epoch — epoch transitions always push through.
+private struct DedupEntry {
+    let epoch: Int
+    let payload: Data
+}
+
 // MARK: - PushTransport Conformance
 
 extension BridgePaneController: PushTransport {
@@ -252,14 +268,20 @@ extension BridgePaneController: PushTransport {
         epoch: Int,
         json: Data
     ) async {
-        // Content guard — skip identical pushes to same store+op+epoch triple.
-        // Including epoch ensures a new load generation (same data, new epoch) is
-        // never suppressed — React needs to see the epoch change to update tracking.
+        // Content guard — skip identical pushes to same store+op within the same epoch.
+        // Keyed by store+op (not epoch) so the cache is bounded at O(StoreKey × PushOp).
+        // Epoch is stored in the entry value — a new epoch always goes through even with
+        // identical bytes, because React needs to see epoch transitions for tracking.
         // Including op ensures .replace and .merge with identical bytes are not
         // deduplicated (they have different semantics).
-        let dedupKey = "\(store.rawValue):\(op.rawValue):\(epoch)"
-        if lastPushedJSON[dedupKey] == json { return }
-        lastPushedJSON[dedupKey] = json
+        let dedupKey = "\(store.rawValue):\(op.rawValue)"
+        if let previous = lastPushed[dedupKey],
+            previous.epoch == epoch,
+            previous.payload == json
+        {
+            return
+        }
+        lastPushed[dedupKey] = DedupEntry(epoch: epoch, payload: json)
 
         // Phase 2 stub: log the push. Full callJavaScript implementation in Phase 4.
         bridgeControllerLogger.debug(

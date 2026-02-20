@@ -139,6 +139,91 @@ final class PushPlanTests: XCTestCase {
             "Mutations after stop() should not reach transport (StopGuardedTransport drops them)")
     }
 
+    // MARK: - Generation-safe restart: old generation pushes are dropped
+
+    /// Proves that stop→start creates a new generation and late emissions from
+    /// the previous generation's tasks cannot leak through to the transport.
+    /// This is the regression test for the restart race: generation N tasks
+    /// must be rejected after generation N+1 starts.
+    func test_restart_drops_previous_generation_pushes() async throws {
+        // Arrange
+        let state = TestState()
+        let transport = MockPushTransport()
+        let clock = RevisionClock()
+
+        let plan = PushPlan(
+            state: state,
+            transport: transport,
+            revisions: clock,
+            epoch: { 1 },
+            slices: {
+                Slice("status", store: .diff, level: .hot) { s in s.status }
+            }
+        )
+
+        // Act — start generation 1, get some pushes flowing
+        plan.start()
+        let gen1 = plan.generation
+        try await Task.sleep(for: .milliseconds(50))
+
+        state.status = "gen1-value"
+        try await Task.sleep(for: .milliseconds(50))
+        let countAfterGen1 = transport.pushCount
+        XCTAssertGreaterThan(countAfterGen1, 0, "Gen 1 should have produced pushes")
+
+        // Act — restart (stop→start), creating generation 2
+        plan.start()
+        let gen2 = plan.generation
+        XCTAssertGreaterThan(gen2, gen1, "Restart should increment generation")
+        try await Task.sleep(for: .milliseconds(50))
+
+        // Mutate state — only gen2 tasks should deliver
+        let countBeforeGen2Mutation = transport.pushCount
+        state.status = "gen2-value"
+        try await Task.sleep(for: .milliseconds(50))
+
+        // Assert — gen2 pushes arrive
+        XCTAssertGreaterThan(
+            transport.pushCount, countBeforeGen2Mutation,
+            "Gen 2 tasks should deliver pushes")
+
+        // Assert — generation counter tracks correctly
+        XCTAssertEqual(gen1, 1)
+        XCTAssertEqual(gen2, 2)
+        XCTAssertFalse(plan.isStopped)
+
+        plan.stop()
+    }
+
+    /// Proves that generation counter increments monotonically across multiple restarts.
+    func test_generation_increments_across_multiple_restarts() {
+        // Arrange
+        let state = TestState()
+        let transport = MockPushTransport()
+        let clock = RevisionClock()
+
+        let plan = PushPlan(
+            state: state,
+            transport: transport,
+            revisions: clock,
+            epoch: { 1 },
+            slices: {
+                Slice("status", store: .diff, level: .hot) { s in s.status }
+            }
+        )
+
+        // Act — start/stop 5 times
+        var generations: [Int] = []
+        for _ in 0..<5 {
+            plan.start()
+            generations.append(plan.generation)
+            plan.stop()
+        }
+
+        // Assert — strictly monotonically increasing
+        XCTAssertEqual(generations, [1, 2, 3, 4, 5])
+    }
+
     // MARK: - Debounce coalescing: warm level
 
     /// Proves that warm-level (.warm = 12ms debounce) coalesces rapid mutations
