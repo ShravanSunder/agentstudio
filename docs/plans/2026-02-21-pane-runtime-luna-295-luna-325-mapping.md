@@ -1,62 +1,61 @@
-# Pane Runtime Architecture — LUNA-295 and LUNA-325 Mapping Plan
+# Pane Runtime Ticket Mapping (Minimal, Single Plan File)
 
-## Purpose
+## Canonical Design
 
-Provide an explicit contract mapping between:
-- `LUNA-295` (pane attach orchestration, priority scheduling, anti-flicker)
-- `LUNA-325` (bridge pattern, surface state, runtime refactor)
+- [`docs/architecture/pane_runtime_architecture.md`](../architecture/pane_runtime_architecture.md)
 
-This is a design-only mapping artifact to guide implementation sequencing and review.
+## Design Heading Index (numbered references)
 
-## Scope
+1. [Design Decisions](../architecture/pane_runtime_architecture.md#design-decisions) (`docs/architecture/pane_runtime_architecture.md:24`)
+2. [D1: Per-pane-type runtimes, not actor-per-pane](../architecture/pane_runtime_architecture.md#d1-per-pane-type-runtimes-not-actor-per-pane) (`docs/architecture/pane_runtime_architecture.md:28`)
+3. [D2: Single typed event stream, not three separate planes](../architecture/pane_runtime_architecture.md#d2-single-typed-event-stream-not-three-separate-planes) (`docs/architecture/pane_runtime_architecture.md:62`)
+4. [D3: @Observable for UI state, event stream for coordination](../architecture/pane_runtime_architecture.md#d3-observable-for-ui-state-event-stream-for-coordination) (`docs/architecture/pane_runtime_architecture.md:72`)
+5. [D4: GhosttyEvent enum at FFI boundary for exhaustive capture](../architecture/pane_runtime_architecture.md#d4-ghosttyevent-enum-at-ffi-boundary-for-exhaustive-capture) (`docs/architecture/pane_runtime_architecture.md:82`)
+6. [D5: Adapter -> Runtime -> Coordinator layering](../architecture/pane_runtime_architecture.md#d5-adapter--runtime--coordinator-layering) (`docs/architecture/pane_runtime_architecture.md:90`)
+7. [D6: Priority-aware event processing](../architecture/pane_runtime_architecture.md#d6-priority-aware-event-processing) (`docs/architecture/pane_runtime_architecture.md:99`)
+8. [D7: Filesystem observation with batched artifact production](../architecture/pane_runtime_architecture.md#d7-filesystem-observation-with-batched-artifact-production) (`docs/architecture/pane_runtime_architecture.md:105`)
+9. [D8: Execution backend as pane configuration, not pane type](../architecture/pane_runtime_architecture.md#d8-execution-backend-as-pane-configuration-not-pane-type-jtbd-7-jtbd-8) (`docs/architecture/pane_runtime_architecture.md:111`)
+10. [Contract 1: PaneRuntime Protocol](../architecture/pane_runtime_architecture.md#contract-1-paneruntime-protocol) (`docs/architecture/pane_runtime_architecture.md:276`)
+11. [Contract 2: PaneKindEvent Protocol + PaneRuntimeEvent Enum](../architecture/pane_runtime_architecture.md#contract-2-panekindevent-protocol--paneruntimeevent-enum) (`docs/architecture/pane_runtime_architecture.md:434`)
+12. [Contract 3: PaneEventEnvelope](../architecture/pane_runtime_architecture.md#contract-3-paneeventenvelope) (`docs/architecture/pane_runtime_architecture.md:615`)
+13. [Contract 5: PaneLifecycleStateMachine](../architecture/pane_runtime_architecture.md#contract-5-panelifecyclestatemachine) (`docs/architecture/pane_runtime_architecture.md:684`)
+14. [Contract 10: Inbound Action Dispatch](../architecture/pane_runtime_architecture.md#contract-10-inbound-action-dispatch) (`docs/architecture/pane_runtime_architecture.md:991`)
+15. [Contract 11: Runtime Registry](../architecture/pane_runtime_architecture.md#contract-11-runtime-registry) (`docs/architecture/pane_runtime_architecture.md:1126`)
+16. [Contract 12: NotificationReducer](../architecture/pane_runtime_architecture.md#contract-12-notificationreducer) (`docs/architecture/pane_runtime_architecture.md:1187`)
+17. [Contract 13: Workflow Engine (deferred)](../architecture/pane_runtime_architecture.md#contract-13-workflow-engine-deferred) (`docs/architecture/pane_runtime_architecture.md:1371`)
+18. [Contract 14: Replay Buffer](../architecture/pane_runtime_architecture.md#contract-14-replay-buffer) (`docs/architecture/pane_runtime_architecture.md:1379`)
+19. [Swift 6 Type and Concurrency Invariants](../architecture/pane_runtime_architecture.md#swift-6-type-and-concurrency-invariants) (`docs/architecture/pane_runtime_architecture.md:1579`)
 
-1. Map `LUNA-295` lifecycle and scheduler contracts to pane runtime lifecycle contracts.
-2. Map `LUNA-325` adapter/runtime/event contracts to the unified pane runtime model.
-3. Define integration points and boundaries so both tickets compose without overlap/conflict.
-4. Define Swift 6 strict typing/concurrency requirements for shared contracts.
+## Ticket Links
 
-## Contract Mapping
+1. `LUNA-295`: https://linear.app/askluna/issue/LUNA-295/pane-attach-orchestration-priority-scheduling-anti-flicker
+2. `LUNA-325`: https://linear.app/askluna/issue/LUNA-325/bridge-pattern-surface-state-runtime-refactor
+3. `LUNA-327`: https://linear.app/askluna/issue/LUNA-327/state-ownership-boundaries-observable-migration-coordinator-pattern
+4. `LUNA-342`: https://linear.app/askluna/issue/LUNA-342/pane-runtime-contract-freeze-minimal-system-before-luna-325
 
-### LUNA-295 → Pane Runtime
+## Ticket -> Design Mapping (minimal)
 
-1. `PaneAttachStateMachine` maps to `PaneRuntimeLifecycle` + attach sub-state machine.
-2. `PaneAttachSchedulerService` maps to coordinator-owned scheduling/orchestration logic.
-3. Priority tiers (`p0..p3`) map to event/action priority policy and routing urgency.
-4. Attach events map into lifecycle event family with pane/worktree identity.
-5. Background attach behavior maps to lifecycle invariants for non-foreground panes.
+1. `LUNA-327` -> state ownership and coordinator boundaries:
+`D1`, `D5`, `Contract 1`, `Contract 11`, `Swift 6 invariants`.
+2. `LUNA-342` -> contract freeze gate:
+`D1` through `D8`, `Contract 1`, `Contract 2`, `Contract 3`, `Contract 5`, `Contract 10`, `Contract 12`, `Contract 14`, `Swift 6 invariants`.
+3. `LUNA-325` -> terminal adapter/runtime implementation:
+`D4`, `D5`, `Contract 2`, `Contract 7`, `Contract 10`, `Contract 12`.
+4. `LUNA-295` -> attach orchestration/scheduling:
+`Architecture Overview` attach flow, `Contract 5`, `Contract 12`.
 
-### LUNA-325 → Pane Runtime
+## Deferred: Workflow Engine
 
-1. Bridge-per-surface contract maps to adapter layer responsibility.
-2. Ghostty callback translation maps to exhaustive `GhosttyEvent` enum boundary.
-3. Runtime state ownership maps to per-pane runtime instance and `@Observable` UI state.
-4. Typed event transport maps to unified coordination stream with envelopes.
-5. Surface/state/runtime split maps to adapter/runtime/coordinator layering.
+1. Workflow scope is deferred and remains design-only until `LUNA-342` freeze and baseline `LUNA-325` transport/runtime foundations are complete.
+2. Use `Contract 13` and `Contract 14` as the only canonical workflow references.
 
-## Integration Rules (No Ambiguity)
+## Gate To Start Broad `LUNA-325` Implementation
 
-1. `LUNA-295` owns attach scheduling semantics and lifecycle transition policy.
-2. `LUNA-325` owns terminal adapter/runtime contract and Ghostty event coverage.
-3. Shared types are defined once in pane runtime contract sections and referenced by both.
-4. No NotificationCenter or untyped event dispatch in new plumbing.
-5. Cross-ticket behavior changes must preserve lifecycle and event envelope invariants.
+1. Contract shapes frozen in `pane_runtime_architecture.md`.
+2. Swift 6 typing/concurrency invariants explicitly satisfied in design.
+3. Envelope/replay/workflow semantics aligned in design references above.
 
-## Swift 6 Design Requirements
+## Notes
 
-1. All cross-boundary contract types are `Sendable`.
-2. Public runtime protocol methods remain async to preserve actor-upgrade path.
-3. No stringly typed core contract surfaces for lifecycle/event identity.
-4. Existentials are explicit (`any`) only where required by protocol boundaries.
-5. C callback entry points use Swift 6-safe actor handoff patterns.
-6. Error types crossing async boundaries are strictly typed and `Sendable`.
-
-## Deliverables
-
-1. Updated architecture doc sections that reference this mapping.
-2. A checklist in review notes confirming each mapped item is addressed or deferred.
-3. Cross-reference links in both ticket sections (`LUNA-295`, `LUNA-325`) to shared contracts.
-
-## Status
-
-Open. This file is the canonical mapping checkpoint for `LUNA-295` + `LUNA-325`.
-
+This is the single plan file for pane-runtime ticket mapping.
+All contract details remain only in the architecture design doc.
