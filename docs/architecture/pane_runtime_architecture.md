@@ -69,6 +69,8 @@ RUNTIMES (per-pane, registered in RuntimeRegistry):
 
 **Why not three planes (control/state/data):** Two independent reviewers identified an ordering hazard: if control events ("diff generated") and state events ("diff pane loaded") travel on separate streams, a late-joining consumer can observe inconsistent state — seeing a loaded diff without knowing which terminal produced it. Single stream with per-source ordering eliminates this within a pane. Cross-source ordering relies on timestamps — sufficient for UI rendering and workflow matching, not for strict causal ordering.
 
+**Cross-source workflow example:** Terminal agent finishes (`source: .pane(agentA)`, `GhosttyEvent.commandFinished`) → filesystem watcher detects changes (`source: .worktree(wt1)`, `FilesystemEvent.filesChanged`) → coordinator creates diff pane. These events come from different sources, so `seq` is independent. The coordinator uses `correlationId` to link the workflow chain and `timestamp` to order them. This is sufficient: the coordinator doesn't need strict causal ordering — it only needs "commandFinished happened, then files changed" which timestamps guarantee within clock precision.
+
 **Clarification:** `@Observable` state for UI binding remains separate from the event stream. Terminal views bind directly to `runtime.searchState` or `runtime.scrollbarState` via `@Observable`. The event stream carries coordination events only — things the workspace or other panes need to react to.
 
 ### D3: @Observable for UI state, event stream for coordination
@@ -591,6 +593,11 @@ extension PaneRuntimeEvent {
 ///     Artifact events. The producing agent is routing identity.
 ///     worktreeId in payload = WHERE the artifact belongs (domain data,
 ///     may differ from producer's worktree).
+///
+///   ERROR EVENTS: envelope.source = source of the error
+///     RuntimeErrorEvent carries the source that produced the error.
+///     surfaceCrashed → .pane(id). adapterError → .pane(id).
+///     resourceExhausted/internalStateCorrupted → whatever source triggered it.
 enum PaneLifecycleEvent: Sendable {
     // ── Pane-scoped: envelope.source = .pane(id) ────────
     case surfaceCreated
@@ -606,6 +613,14 @@ enum PaneLifecycleEvent: Sendable {
 
     // ── Workspace-scoped: envelope.source = .system(.coordinator) ──
     case tabSwitched(activeTabId: UUID)   // tabId IS domain data, not routing
+}
+
+/// Typed attach failure — Sendable, no bare Error.
+enum AttachError: Error, Sendable {
+    case surfaceNotFound
+    case surfaceAlreadyAttached
+    case backendUnavailable(reason: String)
+    case timeout(after: Duration)
 }
 
 /// Filesystem events. envelope.source = .worktree(id) — routing identity.
@@ -1584,6 +1599,154 @@ Dynamic view opens (e.g., "group by worktree")
        │
        └─► runtime.subscribe() → live envelopes going forward
 ```
+
+### Contract 15: Terminal Process Request/Response Channel (deferred)
+
+> **Status:** Design intent only. Implementation deferred until agent coordination features (JTBD 3, JTBD 6) move beyond basic terminal usage.
+
+This is NOT PTY/raw output. It is a typed request/response channel for agent↔harness coordination — structured commands sent by agents (via MCP or CLI) to Agent Studio, with structured responses back.
+
+```swift
+/// Coordination stream carries process milestones only.
+/// Adds one case to PaneRuntimeEvent:
+///   case terminalProcess(TerminalProcessEvent)
+///
+/// The coordination stream is NOT for bulk payload transport.
+/// It carries: "request accepted," "response completed," "request failed,"
+/// "process state changed." Actual data payloads travel on the
+/// request/response envelopes below.
+enum TerminalProcessEvent: PaneKindEvent {
+    case requestAccepted(processSessionId: UUID, requestId: UUID,
+                         operation: ProcessOperation)
+    case responseCompleted(processSessionId: UUID, requestId: UUID,
+                           status: ProcessStatus)
+    case requestFailed(processSessionId: UUID, requestId: UUID,
+                       reason: String)
+    case processStateChanged(processSessionId: UUID,
+                             state: ProcessLifecycleState)
+
+    var actionPolicy: ActionPolicy { .critical }
+    var eventName: EventIdentifier {
+        switch self {
+        case .requestAccepted:    return .init("process.requestAccepted")
+        case .responseCompleted:  return .init("process.responseCompleted")
+        case .requestFailed:      return .init("process.requestFailed")
+        case .processStateChanged: return .init("process.stateChanged")
+        }
+    }
+}
+
+/// Inbound: agent → Agent Studio. Typed request envelope.
+struct TerminalProcessRequestEnvelope: Sendable {
+    let paneId: PaneId
+    let processSessionId: UUID
+    let requestId: UUID               // idempotency key
+    let correlationId: UUID?
+    let operation: ProcessOperation
+    let cwd: URL?
+    let timestamp: ContinuousClock.Instant
+}
+
+/// Outbound: Agent Studio → agent. Typed response envelope.
+struct TerminalProcessResponseEnvelope: Sendable {
+    let paneId: PaneId
+    let processSessionId: UUID
+    let requestId: UUID               // matches request
+    let success: Bool
+    let result: ProcessResultPayload
+    let timestamp: ContinuousClock.Instant
+}
+```
+
+#### Contract 15 Invariants
+
+1. **Request/response keyed by `requestId`, idempotent.** Duplicate requestIds return the cached response, not re-execution.
+2. **Ordering guarantee is per `processSessionId`.** Within a process session, requests are processed in order. Cross-session ordering is best-effort.
+3. **No PTY/raw output on this channel.** This is structured RPC, not terminal I/O.
+4. **Core coordination stream carries milestones, not bulk payloads.** Data travels on request/response envelopes; the PaneRuntimeEvent stream gets milestone notifications only.
+
+#### Agent Harness Communication Model (design intent)
+
+The terminal process channel is the foundation for a broader agent harness architecture:
+
+```
+Agent (MCP client / CLI)
+        │
+        ▼
+Harness Adapter Layer
+(MCP server adapter, CLI adapter)
+        │
+        ▼
+Single Harness Command Bus (typed JSON-RPC)
+        │
+        ▼
+Agent Studio Command Gateway
+(authz, scope checks, idempotency)
+        │
+        ▼
+PaneCoordinator / WorkflowTracker / Stores
+        │
+        ▼
+PaneRuntimeEvent stream → Harness Event Gateway → adapters → agent
+```
+
+**One core protocol, two adapters:**
+- **CLI adapter** — fast, local, scriptable. For direct agent-to-harness communication.
+- **MCP adapter** — tool-friendly for LLM agents. Exposes Agent Studio operations as MCP tools.
+- Both map to the same internal command/event contracts.
+
+**Use cases:** Work tracker with dependencies and sub-projects, agent status queries, cross-agent coordination, project state management. Agents interact with Agent Studio as a structured workspace, not just a terminal host.
+
+### Contract 16: Pane Filesystem Context Stream (deferred)
+
+> **Status:** Design intent only. Implementation deferred until per-pane filesystem awareness features are built.
+
+A derived, per-pane filesystem context stream based on the pane's current CWD. Separate from the terminal process request/response channel.
+
+```swift
+/// Per-pane filesystem context — derived from worktree watcher + pane CWD.
+///
+/// DESIGN PRINCIPLES:
+///   1. One watcher per worktree/root (not per pane). Shared infrastructure.
+///   2. Per-pane stream is a FILTERED VIEW of the worktree watcher,
+///      scoped to the pane's current CWD subtree.
+///   3. When pane CWD changes, the filter re-scopes automatically.
+///   4. Batched events only (no per-file spam). Uses Contract 6 batching.
+///   5. This is SEPARATE from terminal process request/response (Contract 15).
+///
+/// Relationship to existing contracts:
+///   - Contract 6 (Filesystem Batching) provides the raw worktree-level batches
+///   - Contract 16 derives per-pane views from those batches
+///   - FilesystemEvent on the coordination stream is the worktree-level signal
+///   - PaneFilesystemContext is the pane-level derived stream
+struct PaneFilesystemContext: Sendable {
+    let paneId: PaneId
+    let cwd: URL                         // pane's current CWD
+    let worktreeId: WorktreeId           // which worktree watcher provides data
+}
+
+/// Derived per-pane filesystem events — filtered from worktree watcher.
+/// Only includes changes within the pane's CWD subtree.
+enum PaneFilesystemContextEvent: PaneKindEvent {
+    case cwdSubtreeChanged(paths: Set<String>, batchSeq: UInt64)
+    case gitStatusInCwd(staged: Int, unstaged: Int, untracked: Int)
+
+    var actionPolicy: ActionPolicy { .critical }
+    var eventName: EventIdentifier {
+        switch self {
+        case .cwdSubtreeChanged: return .init("fs.cwdSubtreeChanged")
+        case .gitStatusInCwd:    return .init("fs.gitStatusInCwd")
+        }
+    }
+}
+```
+
+#### Contract 16 Invariants
+
+1. **Filesystem context stream is derived, never primary.** Source of truth is the worktree watcher (Contract 6). Per-pane context is a filtered projection.
+2. **One watcher per worktree, not per pane.** Multiple panes in the same worktree share the same watcher. Per-pane filtering happens at the stream level.
+3. **CWD change re-scopes the filter.** When a pane's CWD changes (from CWD propagation), its filesystem context stream automatically re-filters.
+4. **Batched events only.** Inherits Contract 6 batching (500ms debounce, 2s max latency). No per-file spam on the per-pane stream.
 
 ---
 
