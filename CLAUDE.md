@@ -158,9 +158,10 @@ SWIFT_TEST_TIMEOUT_SECONDS=600 scripts/test-agent-timeout.sh
 SWIFT_TEST_TIMEOUT_SECONDS=600 scripts/test-agent-timeout.sh "CommandBarState"
 ```
 
-Run via `mise`:
+Run via `mise` (defaults to `.build-agent-0`, with the same env override semantics):
 
 ```bash
+SWIFT_TEST_TIMEOUT_SECONDS=600 SWIFT_BUILD_DIR=".build-agent-0" mise run test
 mise run test-agent-timeout
 ```
 

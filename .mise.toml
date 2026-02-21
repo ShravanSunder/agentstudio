@@ -102,7 +102,7 @@ description = "Run all tests"
 depends = ["copy-xcframework", "setup-dev-resources"]
 run = """
 SWIFT_TEST_TIMEOUT_SECONDS=${SWIFT_TEST_TIMEOUT_SECONDS:-600} \
-SWIFT_BUILD_DIR=".build-agent-0" \
+SWIFT_BUILD_DIR="${SWIFT_BUILD_DIR:-.build-agent-0}" \
 scripts/test-agent-timeout.sh
 """
 
@@ -110,8 +110,8 @@ scripts/test-agent-timeout.sh
 description = "Run tests with timeout and isolated agent build directory"
 depends = ["copy-xcframework", "setup-dev-resources"]
 run = """
-SWIFT_TEST_TIMEOUT_SECONDS=600 \
-SWIFT_BUILD_DIR=".build-agent-0" \
+SWIFT_TEST_TIMEOUT_SECONDS=${SWIFT_TEST_TIMEOUT_SECONDS:-600} \
+SWIFT_BUILD_DIR="${SWIFT_BUILD_DIR:-.build-agent-0}" \
 scripts/test-agent-timeout.sh
 """
 
