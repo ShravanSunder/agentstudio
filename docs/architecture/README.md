@@ -75,6 +75,7 @@ Command Bar → CommandDispatcher.dispatch() → CommandHandler
 | Document | Covers |
 |----------|--------|
 | [Component Architecture](component_architecture.md) | Data model, service layer, command bar, data flow, persistence, invariants |
+| [Pane Runtime Architecture](pane_runtime_architecture.md) | Pane runtime contracts, event taxonomy, priority system, adapter/runtime/coordinator layers, filesystem batching |
 | [Session Lifecycle](session_lifecycle.md) | Session creation, close, undo, restore, runtime status, zmx backend |
 | [Zmx Restore and Sizing](zmx_restore_and_sizing.md) | Deferred attach sequencing, geometry readiness, and zmx restore/sizing test coverage |
 | [Surface Architecture](ghostty_surface_architecture.md) | Ghostty surface ownership, state machine, health monitoring, crash isolation, CWD propagation |

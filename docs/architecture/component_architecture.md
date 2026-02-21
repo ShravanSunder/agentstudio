@@ -2,7 +2,7 @@
 
 ## TL;DR
 
-State is distributed across independent `@Observable` stores (Jotai-style atomic stores) with `private(set)` for unidirectional flow (Valtio-style). `WorkspaceStore` owns workspace structure, `SurfaceManager` owns Ghostty surfaces, `SessionRuntime` owns backends. A coordinator sequences cross-store operations. `TerminalSession` is the primary identity — referenced by UUID across every layer. Layouts are immutable value-type trees where leaves point to session IDs. `@Observable` drives SwiftUI re-renders; persistence is debounced. Twelve invariants are enforced at all times.
+State is distributed across independent `@Observable` stores (Jotai-style atomic stores) with `private(set)` for unidirectional flow (Valtio-style). `WorkspaceStore` owns workspace structure, `SurfaceManager` owns Ghostty surfaces, `SessionRuntime` owns backends. A coordinator sequences cross-store operations. `Pane` is the primary identity — referenced by UUID across every layer. Layouts are immutable value-type trees where leaves point to pane IDs. `@Observable` drives SwiftUI re-renders; persistence is debounced. Twelve invariants are enforced at all times.
 
 ---
 
@@ -313,9 +313,9 @@ Manages live session state. Does **not** own sessions — reads the session list
 
 Maps session IDs to live `AgentStudioTerminalView` instances. Runtime-only (not persisted). `@MainActor`.
 
-- `register(view, sessionId)` / `unregister(sessionId)` — View lifecycle
-- `view(for: sessionId)` — Lookup
-- `renderTree(for: Layout) -> TerminalSplitTree?` — Traverse a `Layout` tree, resolve each leaf to a registered view, return a renderable split tree. Gracefully promotes single-child splits when one side's view is missing.
+- `register(view, paneId)` / `unregister(paneId)` — View lifecycle
+- `view(for: paneId)` — Lookup
+- `renderTree(for: Layout) -> TerminalSplitTree?` — Traverse a `Layout` tree, resolve each leaf to a registered pane view, return a renderable split tree. Gracefully promotes single-child splits when one side's view is missing.
 
 > **File:** `App/Panes/ViewRegistry.swift`
 
@@ -341,15 +341,13 @@ The `PaneCoordinator` is the canonical orchestration boundary for action executi
 **Key operations:**
 - `execute(_ action: PaneAction)` — dispatch all pane actions (selectTab, closeTab, closePane, insertPane, extractPaneToTab, resizePane, equalizePanes, mergeTab, breakUpTab, focusPane, repair)
 - `openTerminal(for:in:)` — Create session + surface + tab. Rolls back session if surface creation fails.
-- `openWebview(url:)` — Open webview terminal pane and append to the active arrangement
-- `openDiffViewer()` — Open bridge-backed diff viewer pane (where available)
+- `openWebview(url:)` — Open a webview pane and append it as a new tab
 - `undoCloseTab()` — pop `WorkspaceStore.CloseEntry` from undo stack, restore to store, reattach surfaces in reverse order
 - `createView(for:worktree:repo:)` — Create surface → attach → create `AgentStudioTerminalView` → register in `ViewRegistry`
+- `createViewForContent(pane:)` — create/register non-terminal pane views (webview/code/bridge)
 - `teardownView(for: paneId)` — Unregister → detach surface (with undo support)
 - `restoreView(for:worktree:repo:)` — Pop surface from `SurfaceManager.undoClose()` LIFO stack → reattach
 - `restoreAllViews()` — App launch: create views for all panes in active tabs
-- `handleViewSwitch(from:to:)` — detach/reattach surfaces as layout and view changes are applied
-- `markForeground(paneId:)` — coordinate runtime focus and rendering transitions
 
 **Undo stack:**
 - `undoStack: [WorkspaceStore.CloseEntry]` — in-memory LIFO, max 10 entries

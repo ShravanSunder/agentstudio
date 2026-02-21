@@ -7,6 +7,26 @@ import os.log
 private let paneCoordinatorLogger = Logger(subsystem: "com.agentstudio", category: "PaneCoordinator")
 
 @MainActor
+protocol PaneCoordinatorSurfaceManaging: AnyObject {
+    var surfaceCWDChanges: AsyncStream<SurfaceManager.SurfaceCWDChangeEvent> { get }
+
+    func syncFocus(activeSurfaceId: UUID?)
+
+    func createSurface(
+        config: Ghostty.SurfaceConfiguration,
+        metadata: SurfaceMetadata
+    ) -> Result<ManagedSurface, SurfaceError>
+
+    @discardableResult
+    func attach(_ surfaceId: UUID, to paneId: UUID) -> Ghostty.SurfaceView?
+    func detach(_ surfaceId: UUID, reason: SurfaceDetachReason)
+    func undoClose() -> ManagedSurface?
+    func destroy(_ surfaceId: UUID)
+}
+
+extension SurfaceManager: PaneCoordinatorSurfaceManaging {}
+
+@MainActor
 final class PaneCoordinator {
     struct SwitchArrangementTransitions: Equatable {
         let hiddenPaneIds: Set<UUID>
@@ -16,6 +36,7 @@ final class PaneCoordinator {
     private let store: WorkspaceStore
     private let viewRegistry: ViewRegistry
     private let runtime: SessionRuntime
+    private let surfaceManager: PaneCoordinatorSurfaceManaging
     private lazy var sessionConfig = SessionConfiguration.detect()
     private var cwdChangesTask: Task<Void, Never>?
 
@@ -28,10 +49,29 @@ final class PaneCoordinator {
     /// Maximum undo stack entries before oldest are garbage-collected.
     private let maxUndoStackSize = 10
 
-    init(store: WorkspaceStore, viewRegistry: ViewRegistry, runtime: SessionRuntime) {
+    convenience init(
+        store: WorkspaceStore,
+        viewRegistry: ViewRegistry,
+        runtime: SessionRuntime
+    ) {
+        self.init(
+            store: store,
+            viewRegistry: viewRegistry,
+            runtime: runtime,
+            surfaceManager: SurfaceManager.shared
+        )
+    }
+
+    init(
+        store: WorkspaceStore,
+        viewRegistry: ViewRegistry,
+        runtime: SessionRuntime,
+        surfaceManager: PaneCoordinatorSurfaceManaging
+    ) {
         self.store = store
         self.viewRegistry = viewRegistry
         self.runtime = runtime
+        self.surfaceManager = surfaceManager
         subscribeToCWDChanges()
         setupPrePersistHook()
     }
@@ -44,9 +84,10 @@ final class PaneCoordinator {
 
     private func subscribeToCWDChanges() {
         cwdChangesTask = Task { @MainActor [weak self] in
-            for await event in SurfaceManager.shared.surfaceCWDChanges {
+            guard let self else { return }
+            for await event in self.surfaceManager.surfaceCWDChanges {
                 if Task.isCancelled { break }
-                self?.onSurfaceCWDChanged(event)
+                self.onSurfaceCWDChanged(event)
             }
         }
     }
@@ -460,7 +501,7 @@ final class PaneCoordinator {
             // Sync focus: drawer pane becomes the globally focused surface
             if let terminalView = viewRegistry.terminalView(for: drawerPaneId) {
                 terminalView.window?.makeFirstResponder(terminalView)
-                SurfaceManager.shared.syncFocus(activeSurfaceId: terminalView.surfaceId)
+                surfaceManager.syncFocus(activeSurfaceId: terminalView.surfaceId)
             }
 
         case .resizeDrawerPane(let parentPaneId, let splitId, let ratio):
@@ -845,14 +886,14 @@ final class PaneCoordinator {
             paneId: pane.id
         )
 
-        let result = SurfaceManager.shared.createSurface(config: config, metadata: metadata)
+        let result = surfaceManager.createSurface(config: config, metadata: metadata)
 
         switch result {
         case .success(let managed):
             RestoreTrace.log(
                 "createView success pane=\(pane.id) surface=\(managed.id) initialSurfaceFrame=\(NSStringFromRect(managed.surface.frame))"
             )
-            SurfaceManager.shared.attach(managed.id, to: pane.id)
+            surfaceManager.attach(managed.id, to: pane.id)
 
             let view = AgentStudioTerminalView(
                 worktree: worktree,
@@ -903,14 +944,14 @@ final class PaneCoordinator {
             paneId: pane.id
         )
 
-        let result = SurfaceManager.shared.createSurface(config: config, metadata: metadata)
+        let result = surfaceManager.createSurface(config: config, metadata: metadata)
 
         switch result {
         case .success(let managed):
             RestoreTrace.log(
                 "createFloatingSurface success pane=\(pane.id) surface=\(managed.id) initialSurfaceFrame=\(NSStringFromRect(managed.surface.frame))"
             )
-            SurfaceManager.shared.attach(managed.id, to: pane.id)
+            surfaceManager.attach(managed.id, to: pane.id)
 
             let view = AgentStudioTerminalView(
                 restoredSurfaceId: managed.id,
@@ -943,7 +984,7 @@ final class PaneCoordinator {
         if let terminal = viewRegistry.terminalView(for: paneId),
             let surfaceId = terminal.surfaceId
         {
-            SurfaceManager.shared.detach(surfaceId, reason: .close)
+            surfaceManager.detach(surfaceId, reason: .close)
         }
 
         if let bridgeView = viewRegistry.view(for: paneId) as? BridgePaneView {
@@ -962,7 +1003,7 @@ final class PaneCoordinator {
         if let terminal = viewRegistry.terminalView(for: paneId),
             let surfaceId = terminal.surfaceId
         {
-            SurfaceManager.shared.detach(surfaceId, reason: .hide)
+            surfaceManager.detach(surfaceId, reason: .hide)
         }
         paneCoordinatorLogger.debug("Detached pane \(paneId) for view switch")
     }
@@ -972,7 +1013,7 @@ final class PaneCoordinator {
         if let terminal = viewRegistry.terminalView(for: paneId),
             let surfaceId = terminal.surfaceId
         {
-            if let surfaceView = SurfaceManager.shared.attach(surfaceId, to: paneId) {
+            if let surfaceView = surfaceManager.attach(surfaceId, to: paneId) {
                 terminal.displaySurface(surfaceView)
             }
         }
@@ -988,7 +1029,7 @@ final class PaneCoordinator {
         worktree: Worktree,
         repo: Repo
     ) -> AgentStudioTerminalView? {
-        if let undone = SurfaceManager.shared.undoClose() {
+        if let undone = surfaceManager.undoClose() {
             if undone.metadata.paneId == pane.id {
                 let view = AgentStudioTerminalView(
                     worktree: worktree,
@@ -996,7 +1037,7 @@ final class PaneCoordinator {
                     restoredSurfaceId: undone.id,
                     paneId: pane.id
                 )
-                SurfaceManager.shared.attach(undone.id, to: pane.id)
+                surfaceManager.attach(undone.id, to: pane.id)
                 view.displaySurface(undone.surface)
                 viewRegistry.register(view, for: pane.id)
                 runtime.markRunning(pane.id)
@@ -1006,7 +1047,7 @@ final class PaneCoordinator {
                 paneCoordinatorLogger.warning(
                     "Undo surface metadata mismatch: expected pane \(pane.id), got \(undone.metadata.paneId?.uuidString ?? "nil") — creating fresh"
                 )
-                SurfaceManager.shared.destroy(undone.id)
+                surfaceManager.destroy(undone.id)
             }
         }
 
@@ -1059,7 +1100,7 @@ final class PaneCoordinator {
             let activePaneId = activeTab.activePaneId,
             let terminalView = viewRegistry.terminalView(for: activePaneId)
         {
-            SurfaceManager.shared.syncFocus(activeSurfaceId: terminalView.surfaceId)
+            surfaceManager.syncFocus(activeSurfaceId: terminalView.surfaceId)
             RestoreTrace.log(
                 "restoreAllViews syncFocus activeTab=\(activeTab.id) activePane=\(activePaneId) activeSurface=\(terminalView.surfaceId?.uuidString ?? "nil")"
             )

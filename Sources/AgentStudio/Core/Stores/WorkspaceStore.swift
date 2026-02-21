@@ -496,7 +496,7 @@ final class WorkspaceStore {
             }
         } else {
             // Last pane removed — signal to caller that tab is now empty.
-            // Do NOT call removeTab here: let ActionExecutor handle it with undo support.
+            // Do NOT call removeTab here: let PaneCoordinator handle it with undo support.
             return true
         }
 

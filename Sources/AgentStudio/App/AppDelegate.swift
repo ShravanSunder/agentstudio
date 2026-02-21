@@ -109,7 +109,7 @@ class AppDelegate: NSObject, NSApplicationDelegate {
 
         viewRegistry = ViewRegistry()
         paneCoordinator = PaneCoordinator(store: store, viewRegistry: viewRegistry, runtime: runtime)
-        executor = ActionExecutor(store: store, viewRegistry: viewRegistry, coordinator: paneCoordinator)
+        executor = ActionExecutor(coordinator: paneCoordinator)
         tabBarAdapter = TabBarAdapter(store: store)
         commandBarController = CommandBarPanelController(store: store, dispatcher: .shared)
         oauthService = OAuthService()

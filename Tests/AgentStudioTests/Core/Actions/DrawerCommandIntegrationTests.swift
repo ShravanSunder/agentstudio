@@ -23,7 +23,7 @@ final class DrawerCommandIntegrationTests {
         viewRegistry = ViewRegistry()
         runtime = SessionRuntime(store: store)
         coordinator = PaneCoordinator(store: store, viewRegistry: viewRegistry, runtime: runtime)
-        executor = ActionExecutor(store: store, viewRegistry: viewRegistry, coordinator: coordinator)
+        executor = ActionExecutor(coordinator: coordinator)
     }
 
     deinit {

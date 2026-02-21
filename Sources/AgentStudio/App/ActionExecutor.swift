@@ -9,7 +9,7 @@ final class ActionExecutor {
 
     private let coordinator: PaneCoordinator
 
-    init(store: WorkspaceStore, viewRegistry: ViewRegistry, coordinator: PaneCoordinator) {
+    init(coordinator: PaneCoordinator) {
         self.coordinator = coordinator
     }
 

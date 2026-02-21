@@ -97,6 +97,7 @@ final class TabBarAdapter {
         // withObservationTracking fires once per registration, so we re-register
         // after each change. Task { @MainActor } satisfies @Sendable and ensures
         // we read new values (onChange has willSet semantics — old values only).
+        isEditModeActive = ManagementModeMonitor.shared.isActive
         observeStore()
         observeManagementMode()
 
@@ -128,18 +129,15 @@ final class TabBarAdapter {
     private func observeManagementMode() {
         guard !isObservingManagementMode else { return }
         isObservingManagementMode = true
-        Task { @MainActor [weak self] in
-            guard let self else { return }
-            withObservationTracking {
-                // Track only reads; writes stay in onChange.
-                _ = ManagementModeMonitor.shared.isActive
-            } onChange: { [weak self] in
-                Task { @MainActor [weak self] in
-                    guard let self else { return }
-                    self.isObservingManagementMode = false
-                    self.isEditModeActive = ManagementModeMonitor.shared.isActive
-                    self.observeManagementMode()
-                }
+        withObservationTracking {
+            // Track only reads; writes stay in onChange.
+            _ = ManagementModeMonitor.shared.isActive
+        } onChange: { [weak self] in
+            Task { @MainActor [weak self] in
+                guard let self else { return }
+                self.isObservingManagementMode = false
+                self.isEditModeActive = ManagementModeMonitor.shared.isActive
+                self.observeManagementMode()
             }
         }
     }
@@ -189,7 +187,13 @@ final class TabBarAdapter {
             )
         }
 
-        activeTabId = store.activeTabId ?? tabs.last?.id
+        if let storeActiveTabId = store.activeTabId {
+            activeTabId = storeActiveTabId
+        } else {
+            // Defensive UI fallback for transient restore/repair windows where tabs
+            // exist but activeTabId has not been recomputed yet.
+            activeTabId = tabs.last?.id
+        }
         updateOverflow()
     }
 
