@@ -9,11 +9,16 @@ let package = Package(
     products: [
         .executable(name: "AgentStudio", targets: ["AgentStudio"])
     ],
-    dependencies: [],
+    dependencies: [
+        .package(url: "https://github.com/apple/swift-async-algorithms", from: "1.0.0"),
+    ],
     targets: [
         .executableTarget(
             name: "AgentStudio",
-            dependencies: ["GhosttyKit"],
+            dependencies: [
+                "GhosttyKit",
+                .product(name: "AsyncAlgorithms", package: "swift-async-algorithms"),
+            ],
             path: "Sources/AgentStudio",
             exclude: [
                 "Resources/Info.plist",
@@ -47,7 +52,10 @@ let package = Package(
         ),
         .testTarget(
             name: "AgentStudioTests",
-            dependencies: ["AgentStudio"],
+            dependencies: [
+                "AgentStudio",
+                .product(name: "AsyncAlgorithms", package: "swift-async-algorithms"),
+            ],
             path: "Tests/AgentStudioTests",
             swiftSettings: [
                 .swiftLanguageMode(.v5)

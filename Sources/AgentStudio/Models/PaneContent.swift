@@ -14,6 +14,8 @@ enum PaneContent: Hashable {
     case terminal(TerminalState)
     /// Embedded web content (future: diff viewer, PR status, dev server).
     case webview(WebviewState)
+    /// Bridge-backed app panel (diff viewer, code review). Design doc §15.2.
+    case bridgePanel(BridgePaneState)
     /// Source code viewer (future: file review, annotations).
     case codeViewer(CodeViewerState)
     /// Placeholder for content types not recognized by this app version.
@@ -30,6 +32,7 @@ extension PaneContent: Codable {
     private enum ContentType: String, Codable {
         case terminal
         case webview
+        case bridgePanel
         case codeViewer
     }
 
@@ -65,6 +68,13 @@ extension PaneContent: Codable {
                 let rawState = try? container.decodeIfPresent(AnyCodableValue.self, forKey: .state)
                 self = .unsupported(UnsupportedContent(type: "webview", version: version, rawState: rawState))
             }
+        case .bridgePanel:
+            do {
+                self = .bridgePanel(try container.decode(BridgePaneState.self, forKey: .state))
+            } catch {
+                let rawState = try? container.decodeIfPresent(AnyCodableValue.self, forKey: .state)
+                self = .unsupported(UnsupportedContent(type: "bridgePanel", version: version, rawState: rawState))
+            }
         case .codeViewer:
             do {
                 self = .codeViewer(try container.decode(CodeViewerState.self, forKey: .state))
@@ -86,6 +96,9 @@ extension PaneContent: Codable {
             try container.encode(state, forKey: .state)
         case .webview(let state):
             try container.encode(ContentType.webview.rawValue, forKey: .type)
+            try container.encode(state, forKey: .state)
+        case .bridgePanel(let state):
+            try container.encode(ContentType.bridgePanel.rawValue, forKey: .type)
             try container.encode(state, forKey: .state)
         case .codeViewer(let state):
             try container.encode(ContentType.codeViewer.rawValue, forKey: .type)

@@ -466,6 +466,7 @@ enum CommandBarDataSource {
     private static func iconForPane(_ pane: Pane) -> String {
         switch pane.content {
         case .webview: return "globe"
+        case .bridgePanel: return "rectangle.split.2x1"
         case .codeViewer: return "doc.text"
         default:
             switch pane.source {
@@ -479,6 +480,8 @@ enum CommandBarDataSource {
         var keywords = ["pane", pane.title]
         if case .webview = pane.content {
             keywords.append(contentsOf: ["web", "browser", "url"])
+        } else if case .bridgePanel = pane.content {
+            keywords.append(contentsOf: ["diff", "review", "bridge"])
         } else {
             keywords.append("terminal")
         }

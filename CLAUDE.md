@@ -85,11 +85,15 @@ swift build > /tmp/build-output.txt 2>&1 && echo "BUILD OK" || echo "BUILD FAIL:
 swift test --filter "CommandBarState" > /tmp/test-output.txt 2>&1 && echo "PASS" || echo "FAIL: $(tail -20 /tmp/test-output.txt)"
 ```
 
-**No parallel Swift commands.** SwiftPM holds an exclusive lock on `.build`. Concurrent `swift build`/`swift test`/`swift package` calls — even with different `--filter` flags or in background tasks — will block for up to 256 seconds then fail. Run them sequentially, or just run all tests at once.
+**No parallel Swift commands. No background Swift commands.** SwiftPM holds an exclusive lock on `.build/`. Two concurrent swift processes — even `swift test --filter A` and `swift test --filter B`, or a foreground + background task — will deadlock waiting for the lock (up to 256s then fail). This means:
+- NEVER use `run_in_background: true` for any `swift build`, `swift test`, or `swift package` command
+- NEVER issue two Bash tool calls that both invoke swift in the same message (parallel tool calls)
+- NEVER launch a swift subagent while a swift command is running in the main session
+- Run them strictly one at a time, sequentially. If you need multiple test filters, just run the full suite once.
 
-**Lock contention.** If you see "Another instance of SwiftPM is already running using '.build', waiting..." — don't launch more swift commands. Either wait for the other process, or kill it (`pkill -f "swift-build"`) and retry.
+**Lock contention recovery.** If you see "Another instance of SwiftPM is already running using '.build', waiting..." — do NOT launch more swift commands. Kill the stuck process (`pkill -f "swift-build"`) and retry.
 
-**Timeouts are mandatory.** Always set the Bash tool's `timeout` parameter: 60000 (60s) for `swift test`, 30000 (30s) for `swift build`. Tests ~15s, builds ~5s — if it runs longer, it's stuck or lock-contended. Without an explicit timeout the tool hangs indefinitely.
+**Timeouts are mandatory.** Always set the Bash tool's `timeout` parameter: `60000` (60s) for `swift test`, `30000` (30s) for `swift build`. Tests complete in ~15s, builds in ~5s. Anything longer means lock contention or a hung process. Without an explicit timeout the Bash tool uses its 2-minute default, which silently wastes time on a stuck process the user then has to manually kill.
 
 
 ### Launching the App

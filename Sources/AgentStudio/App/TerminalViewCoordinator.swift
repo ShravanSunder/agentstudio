@@ -117,6 +117,14 @@ final class TerminalViewCoordinator {
             coordinatorLogger.info("Created code viewer stub for pane \(pane.id)")
             return view
 
+        case .bridgePanel(let state):
+            let controller = BridgePaneController(paneId: pane.id, state: state)
+            let view = BridgePaneView(paneId: pane.id, controller: controller)
+            viewRegistry.register(view, for: pane.id)
+            controller.loadApp()
+            coordinatorLogger.info("Created bridge panel view for pane \(pane.id)")
+            return view
+
         case .unsupported:
             coordinatorLogger.warning("Cannot create view for unsupported content type — pane \(pane.id)")
             return nil
@@ -284,6 +292,11 @@ final class TerminalViewCoordinator {
             let surfaceId = terminal.surfaceId
         {
             SurfaceManager.shared.detach(surfaceId, reason: .close)
+        }
+
+        // Bridge pane-specific: stop push plans and reset state before unregistering
+        if let bridgeView = viewRegistry.view(for: paneId) as? BridgePaneView {
+            bridgeView.controller.teardown()
         }
 
         viewRegistry.unregister(paneId)
