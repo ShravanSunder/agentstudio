@@ -10,6 +10,8 @@ This document defines the pane runtime communication architecture: how panes of 
 
 ### Jobs This Architecture Solves
 
+> JTBD 1-8 and Pain Points P1-P8 are defined in [JTBD & Requirements](jtbd_and_requirements.md). This table maps the subset addressed by the pane runtime architecture.
+
 | JTBD | How This Architecture Addresses It |
 |------|-----------------------------------|
 | **JTBD 1 — Context tracking** | Every event carries pane identity (paneId, worktreeId, agentType, CWD). Metadata changes from terminal CWD, webview URL, or diff file paths all flow through typed events with source identity. |
@@ -2002,4 +2004,4 @@ This architecture was reviewed by four independent analyses:
 | **Supacode** (supabitapp/supacode) | GhosttySurfaceBridge per surface, ~40 @Observable properties on flat GhosttySurfaceState, TCA TerminalClient dependency, 8-category action handlers | Bridge-per-surface pattern, exhaustive action handling, @Observable state for UI binding |
 | **cmux** (manaflow-ai/cmux) | WebSocket PTY server, typed ServerEvent broadcast, server-authoritative state | Event broadcast model, typed event dispatch |
 | **Zed** (zed-industries/zed) | Entity/component system (gpui), event log with total ordering, deterministic replay, per-entity error isolation | Single event log (not three planes), bounded replay for late-joining consumers, per-pane error isolation |
-| **VS Code** | Extension host process isolation, RPC command dispatch, incremental state updates | Shared runtime per pane TYPE (not per instance), command ID + async result pattern |
+| **VS Code** | Extension host process isolation, RPC command dispatch, incremental state updates | Command ID + async result pattern, RPC dispatch model. NOTE: VS Code uses shared runtime per pane type; we chose per-pane instances instead (D1, A2). |

@@ -4,28 +4,28 @@
 
 - [`docs/architecture/pane_runtime_architecture.md`](../architecture/pane_runtime_architecture.md)
 
-## Design Heading Index (numbered references)
+## Design Heading Index (anchor links — no line numbers, they drift)
 
-1. [Design Decisions](../architecture/pane_runtime_architecture.md#design-decisions) (`docs/architecture/pane_runtime_architecture.md:24`)
-2. [D1: Per-pane-type runtimes, not actor-per-pane](../architecture/pane_runtime_architecture.md#d1-per-pane-type-runtimes-not-actor-per-pane) (`docs/architecture/pane_runtime_architecture.md:28`)
-3. [D2: Single typed event stream, not three separate planes](../architecture/pane_runtime_architecture.md#d2-single-typed-event-stream-not-three-separate-planes) (`docs/architecture/pane_runtime_architecture.md:62`)
-4. [D3: @Observable for UI state, event stream for coordination](../architecture/pane_runtime_architecture.md#d3-observable-for-ui-state-event-stream-for-coordination) (`docs/architecture/pane_runtime_architecture.md:72`)
-5. [D4: GhosttyEvent enum at FFI boundary for exhaustive capture](../architecture/pane_runtime_architecture.md#d4-ghosttyevent-enum-at-ffi-boundary-for-exhaustive-capture) (`docs/architecture/pane_runtime_architecture.md:82`)
-6. [D5: Adapter -> Runtime -> Coordinator layering](../architecture/pane_runtime_architecture.md#d5-adapter--runtime--coordinator-layering) (`docs/architecture/pane_runtime_architecture.md:90`)
-7. [D6: Priority-aware event processing](../architecture/pane_runtime_architecture.md#d6-priority-aware-event-processing) (`docs/architecture/pane_runtime_architecture.md:99`)
-8. [D7: Filesystem observation with batched artifact production](../architecture/pane_runtime_architecture.md#d7-filesystem-observation-with-batched-artifact-production) (`docs/architecture/pane_runtime_architecture.md:105`)
-9. [D8: Execution backend as pane configuration, not pane type](../architecture/pane_runtime_architecture.md#d8-execution-backend-as-pane-configuration-not-pane-type-jtbd-7-jtbd-8) (`docs/architecture/pane_runtime_architecture.md:111`)
-10. [Contract 1: PaneRuntime Protocol](../architecture/pane_runtime_architecture.md#contract-1-paneruntime-protocol) (`docs/architecture/pane_runtime_architecture.md:276`)
-11. [Contract 2: PaneKindEvent Protocol + PaneRuntimeEvent Enum](../architecture/pane_runtime_architecture.md#contract-2-panekindevent-protocol--paneruntimeevent-enum) (`docs/architecture/pane_runtime_architecture.md:434`)
-12. [Contract 3: PaneEventEnvelope](../architecture/pane_runtime_architecture.md#contract-3-paneeventenvelope) (`docs/architecture/pane_runtime_architecture.md:615`)
-13. [Contract 5: PaneLifecycleStateMachine](../architecture/pane_runtime_architecture.md#contract-5-panelifecyclestatemachine) (`docs/architecture/pane_runtime_architecture.md:684`)
-14. [Contract 10: Inbound Action Dispatch](../architecture/pane_runtime_architecture.md#contract-10-inbound-action-dispatch) (`docs/architecture/pane_runtime_architecture.md:991`)
-15. [Contract 11: Runtime Registry](../architecture/pane_runtime_architecture.md#contract-11-runtime-registry) (`docs/architecture/pane_runtime_architecture.md:1126`)
-16. [Contract 12: NotificationReducer](../architecture/pane_runtime_architecture.md#contract-12-notificationreducer) (`docs/architecture/pane_runtime_architecture.md:1187`)
-17. [Contract 13: Workflow Engine (deferred)](../architecture/pane_runtime_architecture.md#contract-13-workflow-engine-deferred) (`docs/architecture/pane_runtime_architecture.md:1371`)
+1. [Design Decisions](../architecture/pane_runtime_architecture.md#design-decisions)
+2. [D1: Per-pane-type runtimes](../architecture/pane_runtime_architecture.md#d1-per-pane-type-runtimes-not-actor-per-pane)
+3. [D2: Single typed event stream](../architecture/pane_runtime_architecture.md#d2-single-typed-event-stream-not-three-separate-planes)
+4. [D3: @Observable for UI, event stream for coordination](../architecture/pane_runtime_architecture.md#d3-observable-for-ui-state-event-stream-for-coordination)
+5. [D4: GhosttyEvent FFI enum](../architecture/pane_runtime_architecture.md#d4-ghosttyevent-enum-at-ffi-boundary-for-exhaustive-capture)
+6. [D5: Adapter → Runtime → Coordinator](../architecture/pane_runtime_architecture.md#d5-adapter--runtime--coordinator-layering)
+7. [D6: Priority-aware event processing](../architecture/pane_runtime_architecture.md#d6-priority-aware-event-processing)
+8. [D7: Filesystem observation](../architecture/pane_runtime_architecture.md#d7-filesystem-observation-with-batched-artifact-production)
+9. [D8: Execution backend config](../architecture/pane_runtime_architecture.md#d8-execution-backend-as-pane-configuration-not-pane-type-jtbd-7-jtbd-8)
+10. [Contract 1: PaneRuntime Protocol](../architecture/pane_runtime_architecture.md#contract-1-paneruntime-protocol)
+11. [Contract 2: PaneKindEvent + PaneRuntimeEvent](../architecture/pane_runtime_architecture.md#contract-2-panekindevent-protocol--paneruntimeevent-enum)
+12. [Contract 3: PaneEventEnvelope](../architecture/pane_runtime_architecture.md#contract-3-paneeventenvelope)
+13. [Contract 5: PaneLifecycleStateMachine](../architecture/pane_runtime_architecture.md#contract-5-panelifecyclestatemachine)
+14. [Contract 10: Inbound Action Dispatch](../architecture/pane_runtime_architecture.md#contract-10-inbound-action-dispatch)
+15. [Contract 11: Runtime Registry](../architecture/pane_runtime_architecture.md#contract-11-runtime-registry)
+16. [Contract 12: NotificationReducer](../architecture/pane_runtime_architecture.md#contract-12-notificationreducer)
+17. [Contract 13: Workflow Engine (deferred)](../architecture/pane_runtime_architecture.md#contract-13-workflow-engine-deferred)
 18. [Contract 14: Replay Buffer](../architecture/pane_runtime_architecture.md#contract-14-replay-buffer)
-19. [Contract 15: Terminal Process Request/Response Channel (deferred)](../architecture/pane_runtime_architecture.md#contract-15-terminal-process-requestresponse-channel-deferred)
-20. [Contract 16: Pane Filesystem Context Stream (deferred)](../architecture/pane_runtime_architecture.md#contract-16-pane-filesystem-context-stream-deferred)
+19. [Contract 15: Terminal Process RPC (deferred)](../architecture/pane_runtime_architecture.md#contract-15-terminal-process-requestresponse-channel-deferred)
+20. [Contract 16: Pane Filesystem Context (deferred)](../architecture/pane_runtime_architecture.md#contract-16-pane-filesystem-context-stream-deferred)
 21. [Architectural Invariants (A1-A15)](../architecture/pane_runtime_architecture.md#architectural-invariants)
 22. [Swift 6 Type and Concurrency Invariants](../architecture/pane_runtime_architecture.md#swift-6-type-and-concurrency-invariants)
 
@@ -60,7 +60,7 @@
 | **Replay invariants** | Arch Invariants A9, A10 | v1 no restart-safe replay, bounded per source | LUNA-342 (freeze) | Design frozen |
 | **Inbound action dispatch** | Contract 10 | `PaneActionEnvelope`, capability check, lifecycle guard | LUNA-325 | Design frozen |
 | **Filesystem batching** | Contract 6 | 500ms debounce, 2s max latency, per-worktree | LUNA-325 | Design frozen |
-| **Execution backend** | D8, Contract 8 | Per-pane config, immutable, security events | LUNA-325 | Design frozen |
+| **Execution backend** | D8, Contract 9 | Per-pane config, immutable, security events | LUNA-325 | Design frozen |
 | **Execution backend invariant** | Arch Invariant A14 | Immutable after creation, no live migration in v1 | LUNA-342 (freeze) | Design frozen |
 | **Metadata & dynamic views** | Contract 1 (PaneMetadata) | Optional fields, dynamic view contract | LUNA-325 | Design frozen |
 | **Metadata invariant** | Arch Invariant A13 | All live fields optional, nil = excluded from grouping | LUNA-342 (freeze) | Design frozen |
