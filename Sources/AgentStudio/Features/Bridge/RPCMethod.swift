@@ -1,15 +1,16 @@
 import Foundation
 
 /// Type-erased command result container for typed JSON-RPC method handlers.
-public struct RPCNoResponse: Codable, Sendable {}
+/// An explicit empty response type for methods that intentionally return no payload.
+struct RPCNoResponse: Codable, Sendable {}
 
 /// Protocol for strongly-typed JSON-RPC methods.
 ///
 /// Typed methods bind the request `Params` type to a handler and allow
 /// decoding-time validation instead of ad-hoc dictionary inspection.
-public protocol RPCMethod {
-    associatedtype Params: Decodable
-    associatedtype Result: Encodable
+protocol RPCMethod {
+    associatedtype Params: Decodable, Sendable
+    associatedtype Result: Encodable, Sendable
 
     /// JSON-RPC method name.
     static var method: String { get }
@@ -21,15 +22,20 @@ public protocol RPCMethod {
 
     /// Erased handler construction for registration in a method-name keyed router map.
     static func makeHandler(
-        _ handler: @escaping (Params) async throws -> Result?
+        _ handler: @escaping @Sendable (Params) async throws -> Result?
     ) -> any AnyRPCMethodHandler
 }
 
-public protocol AnyRPCMethodHandler: Sendable {
+protocol AnyRPCMethodHandler: Sendable {
     func run(id: RPCIdentifier?, paramsData: Data?) async throws -> Encodable?
 }
 
-public extension RPCMethod {
+enum RPCMethodDispatchError: Error, Sendable {
+    case invalidParams(Error)
+    case handlerFailure(Error)
+}
+
+extension RPCMethod {
     /// Default payload decoding behavior for JSON-RPC parameters:
     /// decode from `data` when present, otherwise decode `{}`.
     static func decodeParams(from data: Data?) throws -> Params {
@@ -40,13 +46,13 @@ public extension RPCMethod {
 
     /// Default typed handler adapter.
     static func makeHandler(
-        _ handler: @escaping (Params) async throws -> Result?
+        _ handler: @escaping @Sendable (Params) async throws -> Result?
     ) -> any AnyRPCMethodHandler {
         TypedRPCMethodHandler<Self>(handler)
     }
 }
 
-/// Sends a typed handler through a non-generic registration surface.
+/// Adapts a typed method handler to a non-generic registration surface.
 private struct TypedRPCMethodHandler<Method: RPCMethod>: AnyRPCMethodHandler {
     private let handler: @Sendable (Method.Params) async throws -> Method.Result?
 
@@ -54,16 +60,66 @@ private struct TypedRPCMethodHandler<Method: RPCMethod>: AnyRPCMethodHandler {
         self.handler = handler
     }
 
-    func run(id: RPCIdentifier?, paramsData: Data?) async throws -> Encodable? {
-        let params = try Method.decodeParams(from: paramsData)
-        return try await handler(params)
+    func runWithDecode(_ paramsData: Data?) throws -> Method.Params {
+        do {
+            return try Method.decodeParams(from: paramsData)
+        } catch {
+            throw RPCMethodDispatchError.invalidParams(error)
+        }
+    }
+
+    func run(_ id: RPCIdentifier?, paramsData: Data?) async throws -> Encodable? {
+        let params = try runWithDecode(paramsData)
+        do {
+            return try await handler(params)
+        } catch {
+            throw RPCMethodDispatchError.handlerFailure(error)
+        }
     }
 }
 
 /// JSON-RPC id parity contract.
-public enum RPCIdentifier: Codable, Equatable, Sendable {
+enum RPCIdentifier: Codable, Equatable, Sendable {
     case string(String)
     case integer(Int64)
     case double(Double)
     case null
+
+    init(from decoder: Decoder) throws {
+        let container = try decoder.singleValueContainer()
+        if container.decodeNil() {
+            self = .null
+            return
+        }
+        if let string = try? container.decode(String.self) {
+            self = .string(string)
+            return
+        }
+        if let integer = try? container.decode(Int64.self) {
+            self = .integer(integer)
+            return
+        }
+        if let double = try? container.decode(Double.self) {
+            self = .double(double)
+            return
+        }
+        throw DecodingError.dataCorruptedError(
+            in: container,
+            debugDescription: "RPC identifier must be a string, integer, float, or null"
+        )
+    }
+
+    func encode(to encoder: Encoder) throws {
+        var container = encoder.singleValueContainer()
+        switch self {
+        case .string(let value):
+            try container.encode(value)
+        case .integer(let value):
+            try container.encode(value)
+        case .double(let value):
+            try container.encode(value)
+        case .null:
+            try container.encodeNil()
+        }
+    }
 }

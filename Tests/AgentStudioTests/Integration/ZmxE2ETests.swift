@@ -248,7 +248,6 @@ struct ZmxE2ETests {
             harness.createBackend(),
             "ZmxTestHarness failed to resolve zmx path; integration test requires zmx"
         )
-        #require(await backend.isAvailable, "zmx is unavailable in this environment")
 
         try FileManager.default.createDirectory(
             atPath: harness.zmxDir,
@@ -257,6 +256,7 @@ struct ZmxE2ETests {
         )
 
         do {
+            try #require(await backend.isAvailable, "zmx is unavailable in this environment")
             try await withTimeout(seconds: 30) {
                 try await test(harness, backend)
             }

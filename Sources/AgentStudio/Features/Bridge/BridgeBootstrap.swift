@@ -49,11 +49,15 @@ enum BridgeBootstrap {
                     const revision = envelope.__revision;
                     const epoch = envelope.__epoch;
                     const store = envelope.store;
+                    const payload = envelope.payload !== undefined ? envelope.payload : envelope.data;
+                    if (payload === undefined) {
+                        return;
+                    }
                     // Forward envelope as data with metadata lifted to detail level.
                     if (op === 'merge') {
-                        this.merge(store, envelope, revision, epoch);
+                        this.merge(store, payload, revision, epoch);
                     } else {
-                        this.replace(store, envelope, revision, epoch);
+                        this.replace(store, payload, revision, epoch);
                     }
                 },
                 appendAgentEvents: function(events) {

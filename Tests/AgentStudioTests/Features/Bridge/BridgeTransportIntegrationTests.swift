@@ -68,6 +68,64 @@ final class BridgeTransportIntegrationTests {
         #expect(!(controller.isBridgeReady), "teardown() should reset isBridgeReady to false")
     }
 
+    /// Verify that transport pushes execute through the bridge world `callJavaScript`
+    /// path and emit `__bridge_push` events into the page event stream.
+    @Test
+    func test_pushJSON_dispatches_to_bridge_internal_applyEnvelope() async throws {
+        // Arrange
+        struct PushProbeMethod: RPCMethod {
+            struct Params: Decodable {}
+
+            typealias Result = RPCNoResponse
+            static let method = "agent.pushProbe"
+        }
+
+        let paneId = UUID()
+        let state = BridgePaneState(panelKind: .diffViewer, source: nil)
+        let controller = BridgePaneController(
+            paneId: paneId,
+            state: state
+        )
+
+        var pushProbeCallCount = 0
+        var transportErrorCode: Int?
+        controller.router.register(method: PushProbeMethod.self) { _ in
+            pushProbeCallCount += 1
+            return nil
+        }
+        controller.router.onError = { code, _, _ in
+            transportErrorCode = code
+        }
+
+        controller.loadApp()
+        try await waitForPageLoad(controller.page)
+        controller.handleBridgeReady()
+
+        let bridgeWorld = WKContentWorld.world(name: "agentStudioBridge")
+        let installProbeScript = """
+            document.addEventListener('__bridge_push', function() {
+                window.webkit.messageHandlers.rpc.postMessage(JSON.stringify({
+                    jsonrpc: '2.0',
+                    method: 'agent.pushProbe'
+                }));
+            });
+            """
+        _ = try await controller.page.callJavaScript(installProbeScript, contentWorld: bridgeWorld)
+
+        // Act — mutate diff state to force a non-batch state push
+        controller.paneState.diff.status = .loading
+
+        // Assert — at least one bridge push should replay through the probe method
+        let deadline = ContinuousClock.now + .seconds(2)
+        while ContinuousClock.now < deadline && pushProbeCallCount == 0 {
+            try await Task.sleep(for: .milliseconds(25))
+        }
+        #expect(pushProbeCallCount > 0)
+        #expect(transportErrorCode == nil)
+
+        controller.teardown()
+    }
+
     // MARK: - Test 2: Scheme handler serves app HTML
 
     /// Verify that `loadApp()` triggers the BridgeSchemeHandler to serve content

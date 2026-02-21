@@ -52,6 +52,7 @@ final class BridgePaneController {
     private var diffPushPlan: PushPlan<DiffState>?
     private var reviewPushPlan: PushPlan<ReviewState>?
     private var connectionPushPlan: PushPlan<PaneDomainState>?
+    private var agentPushPlan: PushPlan<PaneDomainState>?
 
     // MARK: - Private State
 
@@ -124,14 +125,13 @@ final class BridgePaneController {
             )
         }
 
-        // Wire message handler → router: validated JSON from postMessage is dispatched to handlers.
-        messageHandler.shouldForwardJSON = { [weak self] json in
-            guard let self else {
-                return false
+        router.onCommandAck = { [weak self] ack in
+            Task { @MainActor in
+                self?.recordCommandAck(ack)
             }
-            let method = RPCMessageHandler.extractRPCMethod(from: json)
-            return self.isBridgeReady || method == "bridge.ready"
         }
+
+        // Wire message handler → router: validated JSON from postMessage is dispatched to handlers.
         messageHandler.onValidJSON = { [weak self] json in
             await self?.handleIncomingRPC(json)
         }
@@ -144,6 +144,36 @@ final class BridgePaneController {
             }
             return nil
         }
+
+        registerNamespaceHandlers()
+    }
+
+    /// Register no-op handlers for command namespaces until behavior wiring is fully implemented.
+    ///
+    /// Keeps non-`bridge.ready` production command names discoverable and avoids `-32601`:
+    /// diff.*, review.*, agent.*, and system.*.
+    private func registerNamespaceHandlers() {
+        // diff namespace
+        router.register(method: DiffMethods.RequestFileContentsMethod.self) { _ in nil }
+        router.register(method: DiffMethods.LoadDiffMethod.self) { _ in nil }
+
+        // review namespace
+        router.register(method: ReviewMethods.AddCommentMethod.self) { _ in nil }
+        router.register(method: ReviewMethods.ResolveThreadMethod.self) { _ in nil }
+        router.register(method: ReviewMethods.UnresolveThreadMethod.self) { _ in nil }
+        router.register(method: ReviewMethods.DeleteCommentMethod.self) { _ in nil }
+        router.register(method: ReviewMethods.MarkFileViewedMethod.self) { _ in nil }
+        router.register(method: ReviewMethods.UnmarkFileViewedMethod.self) { _ in nil }
+
+        // agent namespace
+        router.register(method: AgentMethods.RequestRewriteMethod.self) { _ in nil }
+        router.register(method: AgentMethods.CancelTaskMethod.self) { _ in nil }
+        router.register(method: AgentMethods.InjectPromptMethod.self) { _ in nil }
+
+        // system namespace
+        router.register(method: SystemMethods.HealthMethod.self) { _ in nil }
+        router.register(method: SystemMethods.CapabilitiesMethod.self) { _ in nil }
+        router.register(method: SystemMethods.ResyncAgentEventsMethod.self) { _ in nil }
     }
 
     // MARK: - Lifecycle
@@ -166,9 +196,12 @@ final class BridgePaneController {
         diffPushPlan?.stop()
         reviewPushPlan?.stop()
         connectionPushPlan?.stop()
+        agentPushPlan?.stop()
         diffPushPlan = nil
         reviewPushPlan = nil
         connectionPushPlan = nil
+        agentPushPlan = nil
+        paneState.commandAcks.removeAll()
         lastPushed.removeAll()
         isBridgeReady = false
     }
@@ -190,10 +223,12 @@ final class BridgePaneController {
         diffPushPlan = makeDiffPushPlan()
         reviewPushPlan = makeReviewPushPlan()
         connectionPushPlan = makeConnectionPushPlan()
+        agentPushPlan = makeAgentPushPlan()
 
         diffPushPlan?.start()
         reviewPushPlan?.start()
         connectionPushPlan?.start()
+        agentPushPlan?.start()
     }
 
     // MARK: - Test/entrypoint utility
@@ -202,16 +237,16 @@ final class BridgePaneController {
     ///
     /// Separated for tests and command-handler reuse.
     func handleIncomingRPC(_ json: String) async {
-        let method = RPCMessageHandler.extractRPCMethod(from: json)
-        guard isBridgeReady || method == "bridge.ready" else {
+        guard let method = RPCMessageHandler.extractRPCMethod(from: json) else {
+            bridgeControllerLogger.debug("[BridgePaneController] dropped command with malformed JSON")
+            return
+        }
+        guard isBridgeReady || method == BridgeReadyMethod.method else {
+            bridgeControllerLogger.debug("[BridgePaneController] dropped pre-ready command: \(method)")
             return
         }
 
-        do {
-            try await router.dispatch(json: json)
-        } catch {
-            bridgeControllerLogger.error("[BridgePaneController] RPC dispatch error: \(error)")
-        }
+        await router.dispatch(json: json)
     }
 
     // MARK: - Push Plan Factories
@@ -272,6 +307,24 @@ final class BridgePaneController {
             }
         )
     }
+
+    private func makeAgentPushPlan() -> PushPlan<PaneDomainState> {
+        PushPlan(
+            state: paneState,
+            transport: self,
+            revisions: revisionClock,
+            epoch: { 0 },
+            slices: {
+                Slice("commandAcks", store: .agent, level: .warm) { state in
+                    state.commandAcks
+                }
+            }
+        )
+    }
+
+    private func recordCommandAck(_ ack: CommandAck) {
+        paneState.commandAcks[ack.commandId] = ack
+    }
 }
 
 // MARK: - DedupEntry
@@ -310,9 +363,48 @@ extension BridgePaneController: PushTransport {
         }
         lastPushed[dedupKey] = DedupEntry(epoch: epoch, payload: json)
 
-        // Phase 2 stub: log the push. Full callJavaScript implementation in Phase 4.
-        bridgeControllerLogger.debug(
-            "[BridgePaneController] pushJSON store=\(store.rawValue) op=\(op.rawValue) level=\(String(describing: level)) rev=\(revision) epoch=\(epoch) bytes=\(json.count)"
-        )
+        do {
+            let payload = try JSONSerialization.jsonObject(with: json)
+            let envelope: [String: Any] = [
+                "__v": 1,
+                "__revision": revision,
+                "__epoch": epoch,
+                "__pushId": UUID().uuidString,
+                "store": store.rawValue,
+                "op": op.rawValue,
+                "level": level.rawValue,
+                "payload": payload,
+            ]
+            let envelopeJSON = try JSONSerialization.data(withJSONObject: envelope, options: [.sortedKeys])
+            guard let envelopeString = String(data: envelopeJSON, encoding: .utf8) else {
+                throw BridgeError.encoding("Unable to encode push envelope")
+            }
+
+            try await page.callJavaScript(
+                "window.__bridgeInternal.applyEnvelope(JSON.parse(json))",
+                arguments: ["json": envelopeString],
+                contentWorld: bridgeWorld
+            )
+            bridgeControllerLogger.debug(
+                "[BridgePaneController] pushJSON store=\(store.rawValue) op=\(op.rawValue) level=\(String(describing: level)) rev=\(revision) epoch=\(epoch) bytes=\(json.count)"
+            )
+        } catch {
+            bridgeControllerLogger.warning(
+                "[Bridge] push failed store=\(store.rawValue) rev=\(revision) "
+                    + "epoch=\(epoch) level=\(String(describing: level)): \(error)"
+            )
+            paneState.connection.health = .error
+        }
+    }
+}
+
+private enum BridgeError: Error, Sendable {
+    case encoding(String)
+
+    var localizedDescription: String {
+        switch self {
+        case .encoding(let message):
+            return message
+        }
     }
 }

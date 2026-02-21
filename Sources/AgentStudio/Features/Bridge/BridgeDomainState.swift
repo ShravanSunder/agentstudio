@@ -10,6 +10,7 @@ class PaneDomainState {
     let diff = DiffState()
     let review = ReviewState()
     let connection = ConnectionState()
+    var commandAcks: [String: CommandAck] = [:]
 }
 
 @Observable

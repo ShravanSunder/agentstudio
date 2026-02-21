@@ -133,4 +133,87 @@ struct BridgePaneControllerTests {
         #expect(controller.isBridgeReady == false)
         #expect(errorCode == nil)
     }
+
+    @Test("known namespace commands are registered after bridge.ready")
+    func known_namespace_commands_are_registered_after_bridge_ready() async {
+        // Arrange
+        let controller = BridgePaneController(
+            paneId: UUID(),
+            state: BridgePaneState(panelKind: .diffViewer, source: nil)
+        )
+        var errorCode: Int?
+        controller.router.onError = { code, _, _ in errorCode = code }
+
+        await controller.handleIncomingRPC(
+            #"{"jsonrpc":"2.0","method":"bridge.ready","params":{}}"#
+        )
+        #expect(controller.isBridgeReady == true)
+
+        // Act + Assert: registered production commands should not error with -32601
+        errorCode = nil
+        await controller.handleIncomingRPC(
+            #"{"jsonrpc":"2.0","method":"review.addComment","params":{"fileId":"abc","lineNumber":12,"side":"left","text":"hello"},"id":1}"#
+        )
+        #expect(errorCode == nil)
+
+        errorCode = nil
+        await controller.handleIncomingRPC(
+            #"{"jsonrpc":"2.0","method":"agent.cancelTask","params":{"taskId":"task-001"},"id":2}"#
+        )
+        #expect(errorCode == nil)
+
+        errorCode = nil
+        await controller.handleIncomingRPC(
+            #"{"jsonrpc":"2.0","method":"system.resyncAgentEvents","params":{"fromSeq":42},"id":3}"#
+        )
+        #expect(errorCode == nil)
+    }
+
+    @Test("unknown method still returns 32601")
+    func unknown_method_returns_32601() async {
+        // Arrange
+        let controller = BridgePaneController(
+            paneId: UUID(),
+            state: BridgePaneState(panelKind: .diffViewer, source: nil)
+        )
+        var errorCode: Int?
+        controller.router.onError = { code, _, _ in errorCode = code }
+
+        await controller.handleIncomingRPC(
+            #"{"jsonrpc":"2.0","method":"bridge.ready","params":{}}"#
+        )
+        #expect(controller.isBridgeReady == true)
+
+        // Act
+        await controller.handleIncomingRPC(
+            #"{"jsonrpc":"2.0","method":"nonexistent.namespaceMethod","params":{},"id":"abc"}"#
+        )
+
+        // Assert
+        #expect(errorCode == -32_601)
+    }
+
+    @Test("command success is emitted as agent ack")
+    func command_success_emits_command_ack() async {
+        // Arrange
+        let controller = BridgePaneController(
+            paneId: UUID(),
+            state: BridgePaneState(panelKind: .diffViewer, source: nil)
+        )
+        var observedAck: CommandAck?
+        controller.router.onCommandAck = { observedAck = $0 }
+
+        // Act
+        await controller.handleIncomingRPC(
+            #"{"jsonrpc":"2.0","method":"bridge.ready","params":{},"id":1}"#
+        )
+        await controller.handleIncomingRPC(
+            #"{"jsonrpc":"2.0","method":"review.markFileViewed","params":{"fileId":"abc"},"__commandId":"cmd-001"}"#
+        )
+
+        // Assert
+        #expect(observedAck?.commandId == "cmd-001")
+        #expect(observedAck?.status == .ok)
+        #expect(observedAck?.method == "review.markFileViewed")
+    }
 }

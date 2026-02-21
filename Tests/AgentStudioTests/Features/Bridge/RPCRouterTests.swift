@@ -24,6 +24,20 @@ final class RPCRouterTests {
         static let method = "diff.requestFileContents"
     }
 
+    private struct FailingMethod: RPCMethod {
+        struct Params: Decodable {}
+
+        typealias Result = NoResponse
+        static let method = "agent.fail"
+    }
+
+    private struct NoParamsMethod: RPCMethod {
+        struct Params: Decodable {}
+
+        typealias Result = NoResponse
+        static let method = "agent.noParams"
+    }
+
     // MARK: - Dispatch
 
     @Test
@@ -39,7 +53,7 @@ final class RPCRouterTests {
 
         // Act
         let fixture = try loadFixture("valid/rpc-command-notification.json")
-        try await router.dispatch(json: fixture)
+        await router.dispatch(json: fixture)
 
         // Assert
         #expect(receivedFileId == "abc123")
@@ -56,7 +70,7 @@ final class RPCRouterTests {
         router.onError = { code, _, _ in errorCode = code }
 
         // Act
-        try await router.dispatch(
+        await router.dispatch(
             json: """
                     {"jsonrpc":"2.0","method":"nonexistent.method","params":{}}
                 """)
@@ -77,7 +91,7 @@ final class RPCRouterTests {
 
         // Act
         let fixture = try loadFixture("invalid/rpc-missing-method.json")
-        try await router.dispatch(json: fixture)
+        await router.dispatch(json: fixture)
 
         // Assert
         #expect(errorCode == -32_600)
@@ -91,7 +105,7 @@ final class RPCRouterTests {
         router.onError = { code, _, _ in errorCode = code }
 
         // Act
-        try await router.dispatch(
+        await router.dispatch(
             json: """
                 {"jsonrpc":"1.0","method":"diff.requestFileContents","params":{"fileId":"abc123"}}
                 """
@@ -109,11 +123,26 @@ final class RPCRouterTests {
         router.onError = { code, _, _ in errorCode = code }
 
         // Act
-        try await router.dispatch(
+        await router.dispatch(
             json: """
                 {"jsonrpc":"2.0","id":true,"method":"diff.requestFileContents","params":{"fileId":"abc123"}}
                 """
         )
+
+        // Assert
+        #expect(errorCode == -32_600)
+    }
+
+    @Test
+    func test_id_false_is_rejected() async throws {
+        // Arrange
+        let router = RPCRouter()
+        var errorCode: Int?
+
+        router.onError = { code, _, _ in errorCode = code }
+
+        // Act
+        await router.dispatch(json: #"{"jsonrpc":"2.0","id":false,"method":"agent.fail"}"#)
 
         // Assert
         #expect(errorCode == -32_600)
@@ -137,11 +166,30 @@ final class RPCRouterTests {
 
         // Act
         let fixture = #"{"jsonrpc":"2.0","method":"diff.requestFileContents"}"#
-        try await router.dispatch(json: fixture)
+        await router.dispatch(json: fixture)
 
         // Assert
         #expect(errorCode == -32_602)
         #expect(requestedFileId == nil)
+    }
+
+    @Test
+    func test_null_params_is_rejected() async throws {
+        // Arrange
+        let router = RPCRouter()
+        var errorCode: Int?
+
+        router.register(method: DiffRequestFileContentsMethod.self) { _ in
+            nil
+        }
+
+        router.onError = { code, _, _ in errorCode = code }
+
+        // Act
+        await router.dispatch(json: #"{"jsonrpc":"2.0","method":"diff.requestFileContents","params":null}"#)
+
+        // Assert
+        #expect(errorCode == -32_602)
     }
 
     @Test
@@ -150,14 +198,12 @@ final class RPCRouterTests {
         let router = RPCRouter()
         var errorCode: Int?
 
-        router.register(method: DiffRequestFileContentsMethod.self) { _ in
-            return nil
-        }
+        router.register(method: DiffRequestFileContentsMethod.self) { _ in nil }
 
         router.onError = { code, _, _ in errorCode = code }
 
         // Act
-        try await router.dispatch(
+        await router.dispatch(
             json: """
                 {"jsonrpc":"2.0","method":"diff.requestFileContents","params":"abc"}
                 """
@@ -165,6 +211,32 @@ final class RPCRouterTests {
 
         // Assert
         #expect(errorCode == -32_602)
+    }
+
+    @Test
+    func test_handler_failure_reports_32603() async throws {
+        // Arrange
+        let router = RPCRouter()
+        var errorCode: Int?
+        var errorMessage: String?
+
+        router.register(method: FailingMethod.self) { _ in
+            throw NSError(domain: "agent-studio-tests", code: 9001, userInfo: [NSLocalizedDescriptionKey: "boom"])
+        }
+
+        router.onError = { code, message, _ in
+            errorCode = code
+            errorMessage = message
+        }
+
+        // Act
+        await router.dispatch(
+            json: #"{"jsonrpc":"2.0","method":"agent.fail","id":1}"#
+        )
+
+        // Assert
+        #expect(errorCode == -32_603)
+        #expect(errorMessage?.contains("boom") == true)
     }
 
     // MARK: - Batch rejection (§5.5)
@@ -179,7 +251,7 @@ final class RPCRouterTests {
 
         // Act
         let fixture = try loadFixture("invalid/rpc-batch-array.json")
-        try await router.dispatch(json: fixture)
+        await router.dispatch(json: fixture)
 
         // Assert
         #expect(errorCode == -32_600)
@@ -195,7 +267,7 @@ final class RPCRouterTests {
         router.onError = { code, _, _ in errorCode = code }
 
         // Act
-        try await router.dispatch(json: "{ not valid json !!!")
+        await router.dispatch(json: "{ not valid json !!!")
 
         // Assert
         #expect(errorCode == -32_700, "Malformed JSON should report parse error -32700, not -32600")
@@ -216,11 +288,83 @@ final class RPCRouterTests {
 
         // Act
         let fixture = try loadFixture("edge/rpc-duplicate-commandId.json")
-        try await router.dispatch(json: fixture)
-        try await router.dispatch(json: fixture)
+        await router.dispatch(json: fixture)
+        await router.dispatch(json: fixture)
 
         // Assert
         #expect(callCount == 1, "Duplicate commandId should not execute twice")
+    }
+
+    @Test
+    func test_parse_request_id_string_is_preserved() async throws {
+        // Arrange
+        let router = RPCRouter()
+        var requestID: RPCIdentifier?
+
+        router.register(method: FailingMethod.self) { _ in
+            nil
+        }
+        router.onError = { _, _, id in requestID = id }
+
+        // Act
+        await router.dispatch(json: #"{ "jsonrpc": "2.0", "id": "abc123", "method":"nonexistent.method" }"#)
+
+        // Assert
+        #expect(requestID == .string("abc123"))
+    }
+
+    @Test
+    func test_parse_request_id_integer_is_preserved() async throws {
+        // Arrange
+        let router = RPCRouter()
+        var requestID: RPCIdentifier?
+
+        router.register(method: FailingMethod.self) { _ in
+            nil
+        }
+        router.onError = { _, _, id in requestID = id }
+
+        // Act
+        await router.dispatch(json: #"{ "jsonrpc": "2.0", "id": 123, "method":"nonexistent.method" }"#)
+
+        // Assert
+        #expect(requestID == .integer(123))
+    }
+
+    @Test
+    func test_parse_request_id_null_is_preserved() async throws {
+        // Arrange
+        let router = RPCRouter()
+        var requestID: RPCIdentifier?
+
+        router.register(method: FailingMethod.self) { _ in
+            nil
+        }
+        router.onError = { _, _, id in requestID = id }
+
+        // Act
+        await router.dispatch(json: #"{ "jsonrpc": "2.0", "id": null, "method":"nonexistent.method" }"#)
+
+        // Assert
+        #expect(requestID == .null)
+    }
+
+    @Test
+    func test_empty_params_falls_back_to_empty_object() async throws {
+        // Arrange
+        let router = RPCRouter()
+        var called = false
+
+        router.register(method: NoParamsMethod.self) { _ in
+            called = true
+            return nil
+        }
+
+        // Act
+        await router.dispatch(json: #"{ "jsonrpc": "2.0", "method":"agent.noParams" }"#)
+
+        // Assert
+        #expect(called)
     }
 
     // MARK: - Helpers
