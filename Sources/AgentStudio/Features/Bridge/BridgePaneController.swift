@@ -4,6 +4,12 @@ import WebKit
 import os.log
 
 private let bridgeControllerLogger = Logger(subsystem: "com.agentstudio", category: "BridgePaneController")
+private enum BridgeReadyMethod: RPCMethod {
+    struct Params: Decodable {}
+    typealias Result = RPCNoResponse
+
+    static let method = "bridge.ready"
+}
 
 /// Per-pane controller for bridge-backed panels (diff viewer, code review, etc.).
 ///
@@ -49,7 +55,7 @@ final class BridgePaneController {
 
     // MARK: - Private State
 
-    private let router: RPCRouter
+    let router: RPCRouter
     private let bridgeWorld = WKContentWorld.world(name: "agentStudioBridge")
 
     /// Per store+op dedup cache. Bounded at O(StoreKey × PushOp) — currently 8 entries max.
@@ -119,20 +125,24 @@ final class BridgePaneController {
         }
 
         // Wire message handler → router: validated JSON from postMessage is dispatched to handlers.
-        messageHandler.onValidJSON = { [weak self] json in
-            do {
-                try await self?.router.dispatch(json: json)
-            } catch {
-                bridgeControllerLogger.error("[BridgePaneController] RPC dispatch error: \(error)")
+        messageHandler.shouldForwardJSON = { [weak self] json in
+            guard let self else {
+                return false
             }
+            let method = RPCMessageHandler.extractRPCMethod(from: json)
+            return self.isBridgeReady || method == "bridge.ready"
+        }
+        messageHandler.onValidJSON = { [weak self] json in
+            await self?.handleIncomingRPC(json)
         }
 
         // Register bridge.ready handler — the ONLY trigger for starting push plans (§4.5 step 6).
         // The closure is @Sendable and runs through an async dispatch path.
-        router.register("bridge.ready") { [weak self] _ in
+        router.register(method: BridgeReadyMethod.self) { [weak self] _ in
             await MainActor.run {
                 self?.handleBridgeReady()
             }
+            return nil
         }
     }
 
@@ -184,6 +194,24 @@ final class BridgePaneController {
         diffPushPlan?.start()
         reviewPushPlan?.start()
         connectionPushPlan?.start()
+    }
+
+    // MARK: - Test/entrypoint utility
+
+    /// Entry point for valid command payloads.
+    ///
+    /// Separated for tests and command-handler reuse.
+    func handleIncomingRPC(_ json: String) async {
+        let method = RPCMessageHandler.extractRPCMethod(from: json)
+        guard isBridgeReady || method == "bridge.ready" else {
+            return
+        }
+
+        do {
+            try await router.dispatch(json: json)
+        } catch {
+            bridgeControllerLogger.error("[BridgePaneController] RPC dispatch error: \(error)")
+        }
     }
 
     // MARK: - Push Plan Factories

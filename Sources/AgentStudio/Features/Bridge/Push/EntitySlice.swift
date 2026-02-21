@@ -9,7 +9,7 @@ private let logger = Logger(subsystem: "com.agentstudio", category: "PushEngine"
 
 /// Wire format for entity deltas. Keys are always String (normalized from Key type).
 /// Omits empty fields to minimize payload size.
-struct EntityDelta<Entity: Encodable>: Encodable {
+struct EntityDelta<Entity: Encodable & Sendable>: Encodable {
     let changed: [String: Entity]?
     let removed: [String]?
 
@@ -27,8 +27,8 @@ struct EntityDelta<Entity: Encodable>: Encodable {
 /// Design doc §6.6.
 struct EntitySlice<
     State: Observable & AnyObject,
-    Key: Hashable,
-    Entity: Encodable
+    Key: Hashable & Sendable,
+    Entity: Encodable & Sendable
 > {
     let name: String
     let store: StoreKey
@@ -90,7 +90,9 @@ struct EntitySlice<
                             // Offload JSON encoding for cold slices (e.g. diffFiles) to
                             // avoid blocking the main actor on large payloads.
                             data = try await Task.detached(priority: .utility) {
-                                try encoder.encode(delta)
+                                let coldEncoder = JSONEncoder()
+                                coldEncoder.outputFormatting = .sortedKeys
+                                return try coldEncoder.encode(delta)
                             }.value
                         } else {
                             data = try encoder.encode(delta)

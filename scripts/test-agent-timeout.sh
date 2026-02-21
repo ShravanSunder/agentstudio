@@ -2,7 +2,7 @@
 
 set -euo pipefail
 
-TIMEOUT_SECONDS="${SWIFT_TEST_TIMEOUT_SECONDS:-600}"
+TIMEOUT_SECONDS="${SWIFT_TEST_TIMEOUT_SECONDS:-60}"
 BUILD_DIR="${SWIFT_BUILD_DIR:-.build-agent-${RANDOM}}"
 FILTER="${1:-}"
 LOG_FILE="${2:-/tmp/test-output.txt}"

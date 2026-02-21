@@ -11,7 +11,7 @@ final class RPCRouter {
 
     // MARK: - Private State
 
-    private var handlers: [String: ([String: Any]) async throws -> Void] = [:]
+    private var handlers: [String: any AnyRPCMethodHandler] = [:]
     private var seenCommandIds: [String] = []
     private let maxCommandIdHistory = 100
 
@@ -23,16 +23,15 @@ final class RPCRouter {
     /// - `-32700`: Parse error
     /// - `-32600`: Invalid request (missing method, batch array)
     /// - `-32601`: Method not found
-    var onError: ((Int, String, Any?) -> Void)?
+    var onError: ((Int, String, RPCIdentifier?) -> Void)?
 
     // MARK: - Registration
 
-    /// Register a handler for a JSON-RPC method name.
+    /// Register a handler for a typed JSON-RPC method.
     ///
-    /// The handler receives the `params` dictionary from the JSON-RPC envelope.
     /// Only one handler per method name; later registrations replace earlier ones.
-    func register(_ method: String, handler: @escaping ([String: Any]) async throws -> Void) {
-        handlers[method] = handler
+    func register<M: RPCMethod>(method: M.Type, handler: @escaping (M.Params) async throws -> M.Result?) {
+        handlers[M.method] = M.makeHandler(handler)
     }
 
     // MARK: - Dispatch
@@ -63,16 +62,37 @@ final class RPCRouter {
             return
         }
 
-        // Step 2: Parse envelope — require method field
-        guard let dict = raw as? [String: Any],
-            let method = dict["method"] as? String
-        else {
-            let requestId = (raw as? [String: Any])?["id"]
+        guard let dict = raw as? [String: Any] else {
+            onError?(-32_600, "Invalid request", nil)
+            return
+        }
+
+        // Step 2: Parse request-id first so parity is preserved on every error.
+        let requestId: RPCIdentifier?
+        let idValidation = parseRequestID(dict["id"])
+        switch idValidation {
+        case .invalid:
+            onError?(-32_600, "Invalid request: invalid id", .null)
+            return
+        case .missing:
+            requestId = nil
+        case .valid(let parsedID):
+            requestId = parsedID
+        }
+
+        // Step 3: Validate JSON-RPC envelope metadata.
+        guard dict["jsonrpc"] as? String == "2.0" else {
+            onError?(-32_600, "Invalid request: unsupported jsonrpc version", requestId)
+            return
+        }
+
+        // Step 4: Parse method field.
+        guard let method = dict["method"] as? String else {
             onError?(-32_600, "Invalid request: missing method", requestId)
             return
         }
 
-        // Step 3: Check __commandId dedup (sliding window)
+        // Step 5: Check __commandId dedup (sliding window)
         if let commandId = dict["__commandId"] as? String {
             if seenCommandIds.contains(commandId) {
                 return  // Idempotent — already processed
@@ -83,14 +103,80 @@ final class RPCRouter {
             }
         }
 
-        // Step 4: Find and execute handler
+        // Step 6: Find and execute handler
         guard let handler = handlers[method] else {
-            let requestId = dict["id"]
             onError?(-32_601, "Method not found: \(method)", requestId)
             return
         }
 
-        let params = dict["params"] as? [String: Any] ?? [:]
-        try await handler(params)
+        do {
+            let paramsData = try decodeParamsData(from: dict["params"])
+            _ = try await handler.run(id: requestId, paramsData: paramsData)
+        } catch {
+            onError?(-32_602, "Invalid params: \(error.localizedDescription)", requestId)
+        }
     }
+
+    // MARK: - Envelope Parsing
+
+    /// Strictly decode `id` only to supported JSON-RPC forms:
+    /// - String
+    /// - Number (stored as `Int64` when integral, else `Double`)
+    /// - `null`
+    /// - Omitted
+    /// - Bool and other forms are invalid.
+    private enum RPCRequestIDState {
+        case missing
+        case valid(RPCIdentifier?)
+        case invalid
+    }
+
+    private func parseRequestID(_ raw: Any?) -> RPCRequestIDState {
+        guard let raw else {
+            return .missing
+        }
+
+        if let value = raw as? String {
+            return .valid(.string(value))
+        }
+        if let value = raw as? NSNumber {
+            if CFGetTypeID(value) == CFBooleanGetTypeID() {
+                return .invalid
+            }
+            let integer = value.doubleValue
+            if integer == trunc(integer) && integer >= Double(Int64.min) && integer <= Double(Int64.max) {
+                return .valid(.integer(Int64(integer)))
+            }
+            return .valid(.double(integer))
+        }
+        if raw is NSNull {
+            return .valid(.null)
+        }
+
+        return .invalid
+    }
+
+    /// Return serialized `params` payload bytes for typed decoding.
+    /// Returns `nil` when no params were provided so method defaulting can decide.
+    private func decodeParamsData(from rawParams: Any?) throws -> Data? {
+        guard let rawParams else {
+            return nil
+        }
+
+        if rawParams is NSNull {
+            throw RPCRouterParamsError.invalid
+        }
+
+        guard JSONSerialization.isValidJSONObject(rawParams) else {
+            throw RPCRouterParamsError.invalid
+        }
+
+        let data = try JSONSerialization.data(withJSONObject: rawParams)
+
+        return data
+    }
+}
+
+private enum RPCRouterParamsError: Error {
+    case invalid
 }

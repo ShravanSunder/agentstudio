@@ -13,6 +13,16 @@ import Testing
 @MainActor
 @Suite(.serialized)
 final class RPCRouterTests {
+    private struct NoResponse: Codable, Sendable {}
+
+    private struct DiffRequestFileContentsMethod: RPCMethod {
+        struct Params: Decodable {
+            let fileId: String
+        }
+
+        typealias Result = NoResponse
+        static let method = "diff.requestFileContents"
+    }
 
     // MARK: - Dispatch
 
@@ -22,8 +32,9 @@ final class RPCRouterTests {
         let router = RPCRouter()
         var receivedFileId: String?
 
-        router.register("diff.requestFileContents") { params in
-            receivedFileId = params["fileId"] as? String
+        router.register(method: DiffRequestFileContentsMethod.self) { params in
+            receivedFileId = params.fileId
+            return nil
         }
 
         // Act
@@ -72,6 +83,90 @@ final class RPCRouterTests {
         #expect(errorCode == -32_600)
     }
 
+    @Test
+    func test_invalid_jsonrpc_version_reports_32600() async throws {
+        // Arrange
+        let router = RPCRouter()
+        var errorCode: Int?
+        router.onError = { code, _, _ in errorCode = code }
+
+        // Act
+        try await router.dispatch(
+            json: """
+                {"jsonrpc":"1.0","method":"diff.requestFileContents","params":{"fileId":"abc123"}}
+                """
+        )
+
+        // Assert
+        #expect(errorCode == -32_600)
+    }
+
+    @Test
+    func test_invalid_id_reports_32600() async throws {
+        // Arrange
+        let router = RPCRouter()
+        var errorCode: Int?
+        router.onError = { code, _, _ in errorCode = code }
+
+        // Act
+        try await router.dispatch(
+            json: """
+                {"jsonrpc":"2.0","id":true,"method":"diff.requestFileContents","params":{"fileId":"abc123"}}
+                """
+        )
+
+        // Assert
+        #expect(errorCode == -32_600)
+    }
+
+    // MARK: - Invalid params
+
+    @Test
+    func test_missing_params_reports_32602() async throws {
+        // Arrange
+        let router = RPCRouter()
+        var errorCode: Int?
+        var requestedFileId: String?
+
+        router.register(method: DiffRequestFileContentsMethod.self) { params in
+            requestedFileId = params.fileId
+            return nil
+        }
+
+        router.onError = { code, _, _ in errorCode = code }
+
+        // Act
+        let fixture = #"{"jsonrpc":"2.0","method":"diff.requestFileContents"}"#
+        try await router.dispatch(json: fixture)
+
+        // Assert
+        #expect(errorCode == -32_602)
+        #expect(requestedFileId == nil)
+    }
+
+    @Test
+    func test_wrong_params_shape_reports_32602() async throws {
+        // Arrange
+        let router = RPCRouter()
+        var errorCode: Int?
+
+        router.register(method: DiffRequestFileContentsMethod.self) { _ in
+            return nil
+        }
+
+        router.onError = { code, _, _ in errorCode = code }
+
+        // Act
+        try await router.dispatch(
+            json: """
+                {"jsonrpc":"2.0","method":"diff.requestFileContents","params":"abc"}
+                """
+        )
+
+        // Assert
+        #expect(errorCode == -32_602)
+    }
+
     // MARK: - Batch rejection (§5.5)
 
     @Test
@@ -114,7 +209,10 @@ final class RPCRouterTests {
         let router = RPCRouter()
         var callCount = 0
 
-        router.register("diff.requestFileContents") { _ in callCount += 1 }
+        router.register(method: DiffRequestFileContentsMethod.self) { _ in
+            callCount += 1
+            return nil
+        }
 
         // Act
         let fixture = try loadFixture("edge/rpc-duplicate-commandId.json")

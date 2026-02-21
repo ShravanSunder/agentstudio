@@ -2,7 +2,7 @@
 
 ## TL;DR
 
-Agent Studio uses a **hybrid** directory structure: infrastructure stays layer-based (`App/`, `Ghostty/`, `Core/`, `Infrastructure/`) while user-facing capabilities live in feature directories (`Features/Terminal/`, `Features/Bridge/`, etc.). Swift imports are by module, not file path — moving files between directories has **zero impact on import statements** and causes no merge conflicts. The structure is enforced by a one-way import rule: `Core` never imports `Features`.
+Agent Studio uses a **hybrid** directory structure: infrastructure stays layer-based (`App/`, `Core/`, `Infrastructure/`) while user-facing capabilities live in feature directories (`Features/Terminal/`, `Features/Bridge/`, `Features/Webview/`, etc.). Swift imports are by module, not file path — moving files between directories has **zero impact on import statements** and causes no merge conflicts. The structure is enforced by a one-way import rule: `Core` never imports `Features`.
 
 ---
 
@@ -16,53 +16,49 @@ The hybrid approach (inspired by Ghostty's own codebase structure) keeps infrast
 
 ## Target Structure
 
+> **This is the target layout, not a snapshot of the current filesystem.** Some directories and files listed here are aspirational — they show where new code should go. Use this to make placement decisions. See `CLAUDE.md` for the current state of the codebase.
+
 ```
 Sources/AgentStudio/
 ├── App/                              # Composition root — wires everything together
 │   ├── AppDelegate.swift             # App lifecycle, restore, zmx cleanup
 │   ├── MainWindowController.swift    # Window management
 │   ├── MainSplitViewController.swift # Top-level split (sidebar/content)
-│   ├── Panes/
-│   │   ├── PaneTabViewController.swift # Tab container (manages any pane type)
-│   │   └── ViewRegistry.swift        # PaneId → NSView mapping (type-agnostic)
+│   ├── Panes/                        # Pane tab management and NSView registry
 │   └── PaneCoordinator.swift         # Cross-feature sequencing (imports from all)
 │
 ├── Core/                             # Shared domain — pane system, models, stores
-│   ├── Models/                       # TerminalSession, Layout, Tab, ViewDefinition, PaneView
+│   ├── Models/                       # Layout, Tab, Pane, PaneView, SessionStatus
 │   ├── Stores/                       # WorkspaceStore, SessionRuntime
 │   ├── Actions/                      # PaneAction, ActionResolver, ActionValidator
+│   └── Views/                        # Tab bar, splits, drawer, arrangement
+│       ├── Splits/                   # SplitTree, SplitView
+│       └── Drawer/                   # DrawerLayout, DrawerPanel
 │
 ├── Features/
 │   ├── Terminal/                     # Everything Ghostty-specific
 │   │   ├── Ghostty/                  # C API bridge, SurfaceManager, SurfaceTypes
-│   │   ├── Views/                    # AgentStudioTerminalView, SurfaceErrorOverlay
-│   │   └── GhosttyBridge.swift       # PaneBridge conformance for terminal surfaces
+│   │   └── Views/                    # AgentStudioTerminalView, SurfaceErrorOverlay
 │   │
-│   ├── Bridge/                       # React/WebView pane system (future)
-│   │   ├── Transport/                # JSON-RPC, WebSocket
-│   │   ├── State/                    # Push pipeline, slices
-│   │   └── WebViewBridge.swift       # PaneBridge conformance for web views
+│   ├── Bridge/                       # React/WebView pane system
+│   │   ├── Transport/                # JSON-RPC routing and message handling
+│   │   ├── Push/                     # State push pipeline, slices
+│   │   └── Views/                    # BridgePaneView, BridgePaneContentView
+│   │
+│   ├── Webview/                      # Browser pane (navigation, history, dialog)
+│   │   └── Views/                    # WebviewPaneView, WebviewNavigationBar
 │   │
 │   ├── CommandBar/                   # ⌘P command palette
-│   │   ├── CommandBarState.swift
-│   │   ├── CommandBarPanel.swift
-│   │   ├── CommandDispatcher.swift
-│   │   └── Commands/                 # Individual command handlers
+│   │   ├── Commands/                 # Individual command handlers
+│   │   └── Views/                    # CommandBarView, search field, results
 │   │
 │   └── Sidebar/                      # Sidebar content (repo list, worktree tree)
-│       ├── SidebarViewController.swift
-│       └── SidebarViews/
 │
 ├── Infrastructure/                   # Utilities used by anyone, domain-agnostic
-│   ├── ProcessExecutor.swift         # CLI execution protocol
-│   ├── CWDNormalizer.swift           # Path normalization
 │   ├── StateMachine/                 # Generic state machine + effects
 │   └── Extensions/                   # Foundation/AppKit extensions
 │
-├── Resources/                        # Assets, xib, storyboard
-├── AppDelegate.swift → App/
-├── main.swift
-└── Package.swift
+└── Resources/                        # Assets, icons, terminfo, shell-integration
 ```
 
 ---
@@ -205,16 +201,14 @@ Manages the top-level split between sidebar and content area. Feature-agnostic b
 
 ## Migration Strategy
 
-Since Swift imports are module-level (not path-based), the restructure is a pure file-move operation:
+The initial directory restructure (LUNA-334) is complete — files were moved via `git mv` with zero import changes (Swift imports are module-level, not path-based). The target structure is partially realized.
 
-1. Create the target directory structure
-2. Move files — `git mv` preserves history
-3. No import changes needed (same SPM module)
-4. ~~Rename `TerminalTabViewController` → `PaneTabViewController`~~ (done in LUNA-334)
-5. Update `CLAUDE.md` structure section
-6. Verify build compiles
+**Remaining migrations:**
+- `ActionExecutor` + `TerminalViewCoordinator` → `PaneCoordinator` (LUNA-327)
+- Bridge RPC files at `Bridge/` root → `Bridge/Transport/` subdirectory (when Bridge stabilizes)
+- Create `Infrastructure/Extensions/` and consolidate Foundation/AppKit extensions
 
-The restructure should be done on its own branch and merged into `main` and all active branches before other work continues — it's a pure organizational change with no behavioral impact.
+File moves within the same SPM module remain zero-cost — no import changes, no merge conflicts.
 
 ---
 

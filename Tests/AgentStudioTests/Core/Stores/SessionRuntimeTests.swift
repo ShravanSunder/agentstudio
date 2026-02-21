@@ -7,12 +7,7 @@ import Testing
 @MainActor
 final class SessionRuntimeTests {
 
-    private var runtime: SessionRuntime!
-
-    @BeforeEach
-    func setUp() {
-        runtime = SessionRuntime(healthCheckInterval: 1)
-    }
+    private let runtime = SessionRuntime(healthCheckInterval: 1)
 
     // MARK: - Status Queries
 

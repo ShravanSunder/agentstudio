@@ -23,6 +23,24 @@ final class RPCMessageHandler: NSObject, WKScriptMessageHandler {
     /// is nonisolated, but this property is set once during setup and read from the main thread only.
     nonisolated(unsafe) var onValidJSON: (@MainActor (String) async -> Void)?
 
+    /// Predicate for ingress gating. If set, returning `false` drops the JSON payload
+    /// before it reaches the command dispatch path.
+    nonisolated(unsafe) var shouldForwardJSON: (@MainActor (String) async -> Bool)?
+
+    /// Extract and validate the `method` field from a JSON-RPC envelope.
+    /// Returns `nil` when the payload is not a JSON object or does not contain
+    /// a string `method`.
+    static func extractRPCMethod(from json: String) -> String? {
+        guard let data = json.data(using: .utf8),
+            let raw = try? JSONSerialization.jsonObject(with: data),
+            let payload = raw as? [String: Any]
+        else {
+            return nil
+        }
+
+        return payload["method"] as? String
+    }
+
     // MARK: - JSON Extraction
 
     /// Extract and validate a JSON string from a WKScriptMessage body.
@@ -67,6 +85,11 @@ final class RPCMessageHandler: NSObject, WKScriptMessageHandler {
         // Fire-and-forget: errors are handled by the router's onError callback,
         // not propagated back through the message handler.
         Task { @MainActor in
+            let shouldForward = await shouldForwardJSON?(json) ?? true
+            guard shouldForward else {
+                messageHandlerLogger.debug("[RPCMessageHandler] dropped pre-ready command")
+                return
+            }
             await onValidJSON?(json)
         }
     }
