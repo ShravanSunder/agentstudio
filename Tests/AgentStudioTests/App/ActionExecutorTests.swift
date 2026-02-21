@@ -1,9 +1,10 @@
-import XCTest
+import Testing
 
 @testable import AgentStudio
 
 @MainActor
-final class ActionExecutorTests: XCTestCase {
+@Suite(.serialized)
+final class ActionExecutorTests {
 
     private var store: WorkspaceStore!
     private var viewRegistry: ViewRegistry!
@@ -12,8 +13,7 @@ final class ActionExecutorTests: XCTestCase {
     private var executor: ActionExecutor!
     private var tempDir: URL!
 
-    override func setUp() {
-        super.setUp()
+    init() {
         tempDir = FileManager.default.temporaryDirectory
             .appending(path: "executor-tests-\(UUID().uuidString)")
         let persistor = WorkspacePersistor(workspacesDir: tempDir)
@@ -25,18 +25,21 @@ final class ActionExecutorTests: XCTestCase {
         executor = ActionExecutor(store: store, viewRegistry: viewRegistry, coordinator: coordinator)
     }
 
-    override func tearDown() {
-        try? FileManager.default.removeItem(at: tempDir)
+    deinit {
+        if let tempDir {
+            try? FileManager.default.removeItem(at: tempDir)
+        }
         executor = nil
         coordinator = nil
         runtime = nil
         viewRegistry = nil
         store = nil
-        super.tearDown()
     }
 
     // MARK: - Execute: selectTab
 
+    
+    @Test
     func test_execute_selectTab_setsActiveTab() {
         // Arrange
         let p1 = store.createPane(source: .floating(workingDirectory: nil, title: nil))
@@ -51,25 +54,29 @@ final class ActionExecutorTests: XCTestCase {
         executor.execute(.selectTab(tabId: tab2.id))
 
         // Assert
-        XCTAssertEqual(store.activeTabId, tab2.id)
+        #expect(store.activeTabId == tab2.id)
     }
 
     // MARK: - Execute: closeTab
 
+    
+    @Test
     func test_execute_closeTab_removesTab() {
         // Arrange
         let p1 = store.createPane(source: .floating(workingDirectory: nil, title: nil))
         let tab = Tab(paneId: p1.id)
         store.appendTab(tab)
-        XCTAssertEqual(store.tabs.count, 1)
+        #expect(store.tabs.count == 1)
 
         // Act
         executor.execute(.closeTab(tabId: tab.id))
 
         // Assert
-        XCTAssertTrue(store.tabs.isEmpty)
+        #expect(store.tabs.isEmpty)
     }
 
+    
+    @Test
     func test_execute_closeTab_pushesToUndoStack() {
         // Arrange
         let pane = store.createPane(source: .floating(workingDirectory: nil, title: nil))
@@ -80,14 +87,16 @@ final class ActionExecutorTests: XCTestCase {
         executor.execute(.closeTab(tabId: tab.id))
 
         // Assert
-        XCTAssertEqual(executor.undoStack.count, 1)
+        #expect(executor.undoStack.count == 1)
         if case .tab(let snapshot) = executor.undoStack[0] {
-            XCTAssertEqual(snapshot.tab.id, tab.id)
+            #expect(snapshot.tab.id == tab.id)
         } else {
-            XCTFail("Expected .tab entry")
+            Issue.record("Expected .tab entry")
         }
     }
 
+    
+    @Test
     func test_execute_closeTab_multipleCloses_stacksUndo() {
         // Arrange
         let p1 = store.createPane(source: .floating(workingDirectory: nil, title: nil))
@@ -102,21 +111,23 @@ final class ActionExecutorTests: XCTestCase {
         executor.execute(.closeTab(tabId: tab2.id))
 
         // Assert
-        XCTAssertEqual(executor.undoStack.count, 2)
+        #expect(executor.undoStack.count == 2)
         if case .tab(let s1) = executor.undoStack[0] {
-            XCTAssertEqual(s1.tab.id, tab1.id)
+            #expect(s1.tab.id == tab1.id)
         } else {
-            XCTFail("Expected .tab entry at index 0")
+            Issue.record("Expected .tab entry at index 0")
         }
         if case .tab(let s2) = executor.undoStack[1] {
-            XCTAssertEqual(s2.tab.id, tab2.id)
+            #expect(s2.tab.id == tab2.id)
         } else {
-            XCTFail("Expected .tab entry at index 1")
+            Issue.record("Expected .tab entry at index 1")
         }
     }
 
     // MARK: - Undo Close Tab
 
+    
+    @Test
     func test_undoCloseTab_restoresTab() {
         // Arrange
         let pane = store.createPane(
@@ -125,27 +136,31 @@ final class ActionExecutorTests: XCTestCase {
         let tab = Tab(paneId: pane.id)
         store.appendTab(tab)
         executor.execute(.closeTab(tabId: tab.id))
-        XCTAssertTrue(store.tabs.isEmpty)
+        #expect(store.tabs.isEmpty)
 
         // Act
         executor.undoCloseTab()
 
         // Assert
-        XCTAssertEqual(store.tabs.count, 1)
-        XCTAssertEqual(store.tabs[0].id, tab.id)
-        XCTAssertTrue(executor.undoStack.isEmpty)
+        #expect(store.tabs.count == 1)
+        #expect(store.tabs[0].id == tab.id)
+        #expect(executor.undoStack.isEmpty)
     }
 
+    
+    @Test
     func test_undoCloseTab_emptyStack_noOp() {
         // Act — should not crash
         executor.undoCloseTab()
 
         // Assert
-        XCTAssertTrue(executor.undoStack.isEmpty)
+        #expect(executor.undoStack.isEmpty)
     }
 
     // MARK: - Execute: breakUpTab
 
+    
+    @Test
     func test_execute_breakUpTab_splitsIntoIndividualTabs() {
         // Arrange
         let p1 = store.createPane(source: .floating(workingDirectory: nil, title: nil))
@@ -170,13 +185,15 @@ final class ActionExecutorTests: XCTestCase {
         executor.execute(.breakUpTab(tabId: tab.id))
 
         // Assert
-        XCTAssertEqual(store.tabs.count, 2)
-        XCTAssertEqual(store.tabs[0].paneIds, [p1.id])
-        XCTAssertEqual(store.tabs[1].paneIds, [p2.id])
+        #expect(store.tabs.count == 2)
+        #expect(store.tabs[0].paneIds == [p1.id])
+        #expect(store.tabs[1].paneIds == [p2.id])
     }
 
     // MARK: - Execute: extractPaneToTab
 
+    
+    @Test
     func test_execute_extractPaneToTab_createsNewTab() {
         // Arrange
         let p1 = store.createPane(source: .floating(workingDirectory: nil, title: nil))
@@ -201,11 +218,13 @@ final class ActionExecutorTests: XCTestCase {
         executor.execute(.extractPaneToTab(tabId: tab.id, paneId: p2.id))
 
         // Assert
-        XCTAssertEqual(store.tabs.count, 2)
+        #expect(store.tabs.count == 2)
     }
 
     // MARK: - Execute: focusPane
 
+    
+    @Test
     func test_execute_focusPane_setsActivePane() {
         // Arrange
         let p1 = store.createPane(source: .floating(workingDirectory: nil, title: nil))
@@ -230,11 +249,13 @@ final class ActionExecutorTests: XCTestCase {
         executor.execute(.focusPane(tabId: tab.id, paneId: p2.id))
 
         // Assert
-        XCTAssertEqual(store.tabs[0].activePaneId, p2.id)
+        #expect(store.tabs[0].activePaneId == p2.id)
     }
 
     // MARK: - Execute: resizePane
 
+    
+    @Test
     func test_execute_resizePane_updatesRatio() {
         // Arrange
         let p1 = store.createPane(source: .floating(workingDirectory: nil, title: nil))
@@ -248,7 +269,7 @@ final class ActionExecutorTests: XCTestCase {
 
         // Get split ID
         guard case .split(let split) = store.tabs[0].layout.root else {
-            XCTFail("Expected split layout")
+            Issue.record("Expected split layout")
             return
         }
 
@@ -257,14 +278,16 @@ final class ActionExecutorTests: XCTestCase {
 
         // Assert
         guard case .split(let updatedSplit) = store.tabs[0].layout.root else {
-            XCTFail("Expected split layout")
+            Issue.record("Expected split layout")
             return
         }
-        XCTAssertEqual(updatedSplit.ratio, 0.3, accuracy: 0.001)
+        #expect(abs(updatedSplit.ratio - 0.3) < 0.001)
     }
 
     // MARK: - Execute: equalizePanes
 
+    
+    @Test
     func test_execute_equalizePanes_resetsRatios() {
         // Arrange
         let p1 = store.createPane(source: .floating(workingDirectory: nil, title: nil))
@@ -278,7 +301,7 @@ final class ActionExecutorTests: XCTestCase {
 
         // Resize first
         guard case .split(let split) = store.tabs[0].layout.root else {
-            XCTFail("Expected split")
+            Issue.record("Expected split")
             return
         }
         store.resizePane(tabId: tab.id, splitId: split.id, ratio: 0.3)
@@ -288,14 +311,16 @@ final class ActionExecutorTests: XCTestCase {
 
         // Assert
         guard case .split(let eqSplit) = store.tabs[0].layout.root else {
-            XCTFail("Expected split")
+            Issue.record("Expected split")
             return
         }
-        XCTAssertEqual(eqSplit.ratio, 0.5, accuracy: 0.001)
+        #expect(abs(eqSplit.ratio - 0.5) < 0.001)
     }
 
     // MARK: - Execute: closePane
 
+    
+    @Test
     func test_execute_closePane_removesFromLayout() {
         // Arrange
         let p1 = store.createPane(source: .floating(workingDirectory: nil, title: nil))
@@ -320,12 +345,14 @@ final class ActionExecutorTests: XCTestCase {
         executor.execute(.closePane(tabId: tab.id, paneId: p1.id))
 
         // Assert
-        XCTAssertEqual(store.tabs[0].paneIds, [p2.id])
-        XCTAssertFalse(store.tabs[0].isSplit)
+        #expect(store.tabs[0].paneIds == [p2.id])
+        #expect(!(store.tabs[0].isSplit))
     }
 
     // MARK: - Execute: insertPane (existingPane)
 
+    
+    @Test
     func test_execute_insertPane_existingPane_movesPane() {
         // Arrange — p2 in tab2, move to tab1 next to p1
         let p1 = store.createPane(source: .floating(workingDirectory: nil, title: nil))
@@ -345,14 +372,16 @@ final class ActionExecutorTests: XCTestCase {
             ))
 
         // Assert — tab2 was removed (last pane extracted), tab1 now has split
-        XCTAssertEqual(store.tabs.count, 1)
-        XCTAssertTrue(store.tabs[0].isSplit)
-        XCTAssertTrue(store.tabs[0].paneIds.contains(p1.id))
-        XCTAssertTrue(store.tabs[0].paneIds.contains(p2.id))
+        #expect(store.tabs.count == 1)
+        #expect(store.tabs[0].isSplit)
+        #expect(store.tabs[0].paneIds.contains(p1.id))
+        #expect(store.tabs[0].paneIds.contains(p2.id))
     }
 
     // MARK: - Execute: mergeTab
 
+    
+    @Test
     func test_execute_mergeTab_combinesTabs() {
         // Arrange
         let p1 = store.createPane(source: .floating(workingDirectory: nil, title: nil))
@@ -372,12 +401,14 @@ final class ActionExecutorTests: XCTestCase {
             ))
 
         // Assert
-        XCTAssertEqual(store.tabs.count, 1)
-        XCTAssertTrue(store.tabs[0].isSplit)
+        #expect(store.tabs.count == 1)
+        #expect(store.tabs[0].isSplit)
     }
 
     // MARK: - OpenTerminal
 
+    
+    @Test
     func test_openTerminal_surfaceFails_rollsBackPane() {
         // Arrange — coordinator.createView() returns nil in tests (no Ghostty runtime)
         let worktree = makeWorktree()
@@ -388,11 +419,13 @@ final class ActionExecutorTests: XCTestCase {
         let pane = executor.openTerminal(for: worktree, in: repo)
 
         // Assert — surface creation failed, pane rolled back, no tab created
-        XCTAssertNil(pane)
-        XCTAssertTrue(store.tabs.isEmpty)
-        XCTAssertEqual(store.panes.count, 0)
+        #expect(pane == nil)
+        #expect(store.tabs.isEmpty)
+        #expect(store.panes.count == 0)
     }
 
+    
+    @Test
     func test_openTerminal_existingPane_selectsTab() {
         // Arrange
         let worktreeId = UUID()
@@ -412,13 +445,15 @@ final class ActionExecutorTests: XCTestCase {
         let result = executor.openTerminal(for: worktree, in: repo)
 
         // Assert — returns nil (already exists), tab selected
-        XCTAssertNil(result)
-        XCTAssertEqual(store.tabs.count, 1)
-        XCTAssertEqual(store.activeTabId, tab.id)
+        #expect(result == nil)
+        #expect(store.tabs.count == 1)
+        #expect(store.activeTabId == tab.id)
     }
 
     // MARK: - Undo GC
 
+    
+    @Test
     func test_undoStack_expiresOldEntries() {
         // Arrange — close 12 tabs (exceeds maxUndoStackSize of 10)
         var closedPaneIds: [UUID] = []
@@ -433,20 +468,22 @@ final class ActionExecutorTests: XCTestCase {
         }
 
         // Assert — undo stack is capped at 10
-        XCTAssertEqual(executor.undoStack.count, 10)
+        #expect(executor.undoStack.count == 10)
 
         // The 2 oldest panes should be GC'd from the store
         // (they were in the expired undo entries and not in any layout)
-        XCTAssertNil(store.pane(closedPaneIds[0]))
-        XCTAssertNil(store.pane(closedPaneIds[1]))
+        #expect(store.pane(closedPaneIds[0]) == nil)
+        #expect(store.pane(closedPaneIds[1]) == nil)
 
         // The 10 newest should still be in the store (in the undo stack)
-        XCTAssertNotNil(store.pane(closedPaneIds[2]))
-        XCTAssertNotNil(store.pane(closedPaneIds[11]))
+        #expect(store.pane(closedPaneIds[2]) != nil)
+        #expect(store.pane(closedPaneIds[11]) != nil)
     }
 
     // MARK: - Execute: switchArrangement
 
+    
+    @Test
     func test_computeSwitchArrangementTransitions_includesPreviouslyMinimizedVisiblePaneInReattachSet() {
         // Arrange
         let paneA = UUID()
@@ -464,10 +501,12 @@ final class ActionExecutorTests: XCTestCase {
         )
 
         // Assert
-        XCTAssertEqual(transitions.hiddenPaneIds, Set([paneA]))
-        XCTAssertEqual(transitions.paneIdsToReattach, Set([paneB, paneC]))
+        #expect(transitions.hiddenPaneIds == Set([paneA]))
+        #expect(transitions.paneIdsToReattach == Set([paneB, paneC]))
     }
 
+    
+    @Test
     func test_computeSwitchArrangementTransitions_whenNoMinimizedPanes_reattachesOnlyRevealedPanes() {
         // Arrange
         let paneA = UUID()
@@ -485,10 +524,12 @@ final class ActionExecutorTests: XCTestCase {
         )
 
         // Assert
-        XCTAssertEqual(transitions.hiddenPaneIds, Set([paneA]))
-        XCTAssertEqual(transitions.paneIdsToReattach, Set([paneC]))
+        #expect(transitions.hiddenPaneIds == Set([paneA]))
+        #expect(transitions.paneIdsToReattach == Set([paneC]))
     }
 
+    
+    @Test
     func test_execute_switchArrangement_updatesStoreState() {
         // Arrange: tab with panes A, B, C. Default arrangement has all 3.
         let pA = store.createPane(source: .floating(workingDirectory: nil, title: nil))
@@ -512,13 +553,15 @@ final class ActionExecutorTests: XCTestCase {
 
         // Assert: tab.paneIds returns only A and B (from active arrangement)
         let updatedTab = store.tab(tab.id)!
-        XCTAssertEqual(updatedTab.activeArrangementId, arrId)
-        XCTAssertEqual(Set(updatedTab.paneIds), Set([pA.id, pB.id]))
+        #expect(updatedTab.activeArrangementId == arrId)
+        #expect(Set(updatedTab.paneIds) == Set([pA.id, pB.id]))
         // Pane C is still owned by the tab but not visible in active arrangement
-        XCTAssertTrue(updatedTab.panes.contains(pC.id))
-        XCTAssertFalse(updatedTab.paneIds.contains(pC.id))
+        #expect(updatedTab.panes.contains(pC.id))
+        #expect(!(updatedTab.paneIds.contains(pC.id)))
     }
 
+    
+    @Test
     func test_execute_switchArrangement_backToDefault_restoresAllPanes() {
         // Arrange: tab with panes A, B, C
         let pA = store.createPane(source: .floating(workingDirectory: nil, title: nil))
@@ -538,7 +581,7 @@ final class ActionExecutorTests: XCTestCase {
 
         // Switch to custom (only A)
         executor.execute(.switchArrangement(tabId: tab.id, arrangementId: customArrId))
-        XCTAssertEqual(store.tab(tab.id)!.paneIds, [pA.id])
+        #expect(store.tab(tab.id)!.paneIds == [pA.id])
 
         // Act: switch back to default
         let defaultArrId = store.tab(tab.id)!.defaultArrangement.id
@@ -546,10 +589,12 @@ final class ActionExecutorTests: XCTestCase {
 
         // Assert: all three panes visible again
         let updatedTab = store.tab(tab.id)!
-        XCTAssertEqual(updatedTab.activeArrangementId, defaultArrId)
-        XCTAssertEqual(Set(updatedTab.paneIds), Set([pA.id, pB.id, pC.id]))
+        #expect(updatedTab.activeArrangementId == defaultArrId)
+        #expect(Set(updatedTab.paneIds) == Set([pA.id, pB.id, pC.id]))
     }
 
+    
+    @Test
     func test_execute_switchArrangement_sameArrangement_noOp() {
         // Arrange
         let pA = store.createPane(source: .floating(workingDirectory: nil, title: nil))
@@ -562,20 +607,24 @@ final class ActionExecutorTests: XCTestCase {
         executor.execute(.switchArrangement(tabId: tab.id, arrangementId: defaultArrId))
 
         // Assert: unchanged
-        XCTAssertEqual(store.tab(tab.id)!.activeArrangementId, defaultArrId)
-        XCTAssertEqual(store.tab(tab.id)!.paneIds, [pA.id])
+        #expect(store.tab(tab.id)!.activeArrangementId == defaultArrId)
+        #expect(store.tab(tab.id)!.paneIds == [pA.id])
     }
 
+    
+    @Test
     func test_execute_switchArrangement_invalidTabId_noOp() {
         // Act: should not crash
         executor.execute(.switchArrangement(tabId: UUID(), arrangementId: UUID()))
 
         // Assert: no tabs affected
-        XCTAssertTrue(store.tabs.isEmpty)
+        #expect(store.tabs.isEmpty)
     }
 
     // MARK: - Execute: switchArrangement (ViewRegistry integration)
 
+    
+    @Test
     func test_execute_switchArrangement_viewRegistryRetainsAllViews() {
         // Arrange: tab with 3 panes, each registered in ViewRegistry
         let pA = store.createPane(source: .floating(workingDirectory: nil, title: nil))
@@ -606,18 +655,20 @@ final class ActionExecutorTests: XCTestCase {
         executor.execute(.switchArrangement(tabId: tab.id, arrangementId: customArrId))
 
         // Assert: all 3 views are still in the ViewRegistry
-        XCTAssertNotNil(viewRegistry.view(for: pA.id), "View A should still be registered after arrangement switch")
-        XCTAssertNotNil(viewRegistry.view(for: pB.id), "View B should still be registered after arrangement switch")
-        XCTAssertNotNil(viewRegistry.view(for: pC.id), "View C should still be registered even though hidden")
-        XCTAssertEqual(viewRegistry.registeredPaneIds, Set([pA.id, pB.id, pC.id]))
+        #expect(viewRegistry.view(for: pA.id) != nil) // View A should still be registered after arrangement switch
+        #expect(viewRegistry.view(for: pB.id) != nil) // View B should still be registered after arrangement switch
+        #expect(viewRegistry.view(for: pC.id) != nil) // View C should still be registered even though hidden
+        #expect(viewRegistry.registeredPaneIds == Set([pA.id, pB.id, pC.id]))
 
         // Verify the store correctly reflects only A and B as visible
         let updatedTab = store.tab(tab.id)!
-        XCTAssertEqual(Set(updatedTab.paneIds), Set([pA.id, pB.id]))
+        #expect(Set(updatedTab.paneIds) == Set([pA.id, pB.id]))
         // But pane C is still owned by the tab
-        XCTAssertTrue(updatedTab.panes.contains(pC.id))
+        #expect(updatedTab.panes.contains(pC.id))
     }
 
+    
+    @Test
     func test_execute_switchArrangement_backToDefault_viewsStillRegistered() {
         // Arrange: tab with 3 panes, each registered in ViewRegistry
         let pA = store.createPane(source: .floating(workingDirectory: nil, title: nil))
@@ -650,23 +701,27 @@ final class ActionExecutorTests: XCTestCase {
         executor.execute(.switchArrangement(tabId: tab.id, arrangementId: defaultArrId))
 
         // Assert: all 3 views are still registered after round-trip
-        XCTAssertNotNil(viewRegistry.view(for: pA.id), "View A should survive round-trip arrangement switch")
-        XCTAssertNotNil(viewRegistry.view(for: pB.id), "View B should survive round-trip arrangement switch")
-        XCTAssertNotNil(viewRegistry.view(for: pC.id), "View C should survive round-trip arrangement switch")
-        XCTAssertEqual(viewRegistry.registeredPaneIds, Set([pA.id, pB.id, pC.id]))
+        #expect(viewRegistry.view(for: pA.id) != nil) // View A should survive round-trip arrangement switch
+        #expect(viewRegistry.view(for: pB.id) != nil) // View B should survive round-trip arrangement switch
+        #expect(viewRegistry.view(for: pC.id) != nil) // View C should survive round-trip arrangement switch
+        #expect(viewRegistry.registeredPaneIds == Set([pA.id, pB.id, pC.id]))
 
         // Verify all panes are visible again in the default arrangement
         let updatedTab = store.tab(tab.id)!
-        XCTAssertEqual(Set(updatedTab.paneIds), Set([pA.id, pB.id, pC.id]))
+        #expect(Set(updatedTab.paneIds) == Set([pA.id, pB.id, pC.id]))
     }
 
     // MARK: - Execute: repair (viewRevision)
 
+    
+    @Test
     func test_viewRevision_defaultsToZero() {
         // Assert
-        XCTAssertEqual(store.viewRevision, 0)
+        #expect(store.viewRevision == 0)
     }
 
+    
+    @Test
     func test_executeRepair_recreateSurface_bumpsViewRevision() {
         // Arrange
         let pane = store.createPane(source: .floating(workingDirectory: nil, title: nil))
@@ -674,38 +729,42 @@ final class ActionExecutorTests: XCTestCase {
         store.appendTab(tab)
         let stubView = PaneView(paneId: pane.id)
         viewRegistry.register(stubView, for: pane.id)
-        XCTAssertEqual(store.viewRevision, 0)
+        #expect(store.viewRevision == 0)
 
         // Act
         executor.execute(.repair(.recreateSurface(paneId: pane.id)))
 
         // Assert
-        XCTAssertEqual(store.viewRevision, 1)
+        #expect(store.viewRevision == 1)
     }
 
+    
+    @Test
     func test_executeRepair_createMissingView_bumpsViewRevision() {
         // Arrange
         let pane = store.createPane(source: .floating(workingDirectory: nil, title: nil))
         let tab = Tab(paneId: pane.id)
         store.appendTab(tab)
-        XCTAssertEqual(store.viewRevision, 0)
+        #expect(store.viewRevision == 0)
 
         // Act
         executor.execute(.repair(.createMissingView(paneId: pane.id)))
 
         // Assert
-        XCTAssertEqual(store.viewRevision, 1)
+        #expect(store.viewRevision == 1)
     }
 
+    
+    @Test
     func test_executeRepair_unknownPane_doesNotBumpViewRevision() {
         // Arrange
         let unknownId = UUID()
-        XCTAssertEqual(store.viewRevision, 0)
+        #expect(store.viewRevision == 0)
 
         // Act
         executor.execute(.repair(.recreateSurface(paneId: unknownId)))
 
         // Assert — guard early-returns, no bump
-        XCTAssertEqual(store.viewRevision, 0)
+        #expect(store.viewRevision == 0)
     }
 }

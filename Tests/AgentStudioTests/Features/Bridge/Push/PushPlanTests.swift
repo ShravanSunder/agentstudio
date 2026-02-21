@@ -254,8 +254,6 @@ final class PushPlanTests: XCTestCase {
         let state = TestState()
         let transport = MockPushTransport()
         let clock = RevisionClock()
-        let debounceClock = TestPushClock()
-
         let plan = PushPlan(
             state: state,
             transport: transport,
@@ -268,20 +266,22 @@ final class PushPlanTests: XCTestCase {
                     level: .warm,
                     capture: { (s: TestState) in s.status }
                 )
-                .erased(debounceClock: debounceClock)
+                .erased()
             }
         )
 
         plan.start()
+        await Task.yield()
         let baselineCount = transport.pushCount
 
         // Act — 5 synchronous mutations within one run-loop turn
         for i in 0..<5 {
             state.status = "state-\(i)"
         }
+        await Task.yield()
 
         // Wait for debounce to flush
-        debounceClock.advance(by: .milliseconds(20))
+        try? await Task.sleep(for: .milliseconds(50))
         let didWaitForWarmPush = await transport.waitForPushCount(
             atLeast: baselineCount + 1
         )
@@ -308,8 +308,6 @@ final class PushPlanTests: XCTestCase {
         let state = TestState()
         let transport = MockPushTransport()
         let clock = RevisionClock()
-        let debounceClock = TestPushClock()
-
         let plan = PushPlan(
             state: state,
             transport: transport,
@@ -322,20 +320,22 @@ final class PushPlanTests: XCTestCase {
                     version: { (_ entity: String) in 1 },
                     keyToString: { (key: UUID) in key.uuidString }
                 )
-                .erased(debounceClock: debounceClock)
+                .erased()
             }
         )
 
         plan.start()
+        await Task.yield()
         let baselineCount = transport.pushCount
 
         // Act — 10 synchronous entity additions within one run-loop turn
         for i in 0..<10 {
             state.items[UUID()] = "item-\(i)"
         }
+        await Task.yield()
 
         // Wait for debounce to flush
-        debounceClock.advance(by: .milliseconds(40))
+        try? await Task.sleep(for: .milliseconds(100))
         let didWaitForColdPush = await transport.waitForPushCount(
             atLeast: baselineCount + 1
         )

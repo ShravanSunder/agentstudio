@@ -1,4 +1,4 @@
-import XCTest
+import Testing
 
 @testable import AgentStudio
 
@@ -23,37 +23,50 @@ final class MockCommandHandler: CommandHandler {
 
 // MARK: - AppCommand Tests
 
-final class AppCommandTests: XCTestCase {
+@Suite(.serialized)
+final class AppCommandTests {
 
     // MARK: - AppCommand Enum
 
+    
+
+    @Test
     func test_appCommand_allCases_notEmpty() {
         // Assert
-        XCTAssertFalse(AppCommand.allCases.isEmpty)
+        #expect(!(AppCommand.allCases.isEmpty))
     }
 
+    
+
+    @Test
     func test_appCommand_rawValues_unique() {
         // Arrange
         let rawValues = AppCommand.allCases.map(\.rawValue)
         let uniqueValues = Set(rawValues)
 
         // Assert
-        XCTAssertEqual(rawValues.count, uniqueValues.count, "All raw values should be unique")
+        #expect(rawValues.count == uniqueValues.count)
     }
 
     // MARK: - SearchItemType
 
+    
+
+    @Test
     func test_searchItemType_allCases_containsExpectedTypes() {
         // Assert
-        XCTAssertTrue(SearchItemType.allCases.contains(.repo))
-        XCTAssertTrue(SearchItemType.allCases.contains(.worktree))
-        XCTAssertTrue(SearchItemType.allCases.contains(.tab))
-        XCTAssertTrue(SearchItemType.allCases.contains(.pane))
-        XCTAssertTrue(SearchItemType.allCases.contains(.floatingTerminal))
+        #expect(SearchItemType.allCases.contains(.repo))
+        #expect(SearchItemType.allCases.contains(.worktree))
+        #expect(SearchItemType.allCases.contains(.tab))
+        #expect(SearchItemType.allCases.contains(.pane))
+        #expect(SearchItemType.allCases.contains(.floatingTerminal))
     }
 
     // MARK: - KeyBinding
 
+    
+
+    @Test
     func test_keyBinding_codable_roundTrip() throws {
         // Arrange
         let binding = KeyBinding(key: "w", modifiers: [.command])
@@ -63,10 +76,13 @@ final class AppCommandTests: XCTestCase {
         let decoded = try JSONDecoder().decode(KeyBinding.self, from: data)
 
         // Assert
-        XCTAssertEqual(decoded.key, "w")
-        XCTAssertEqual(decoded.modifiers, [.command])
+        #expect(decoded.key == "w")
+        #expect(decoded.modifiers == [.command])
     }
 
+    
+
+    @Test
     func test_keyBinding_codable_multipleModifiers_roundTrip() throws {
         // Arrange
         let binding = KeyBinding(key: "O", modifiers: [.command, .shift])
@@ -76,44 +92,56 @@ final class AppCommandTests: XCTestCase {
         let decoded = try JSONDecoder().decode(KeyBinding.self, from: data)
 
         // Assert
-        XCTAssertEqual(decoded.key, "O")
-        XCTAssertTrue(decoded.modifiers.contains(.command))
-        XCTAssertTrue(decoded.modifiers.contains(.shift))
+        #expect(decoded.key == "O")
+        #expect(decoded.modifiers.contains(.command))
+        #expect(decoded.modifiers.contains(.shift))
     }
 
+    
+
+    @Test
     func test_keyBinding_hashable_sameBindings_equal() {
         // Arrange
         let b1 = KeyBinding(key: "w", modifiers: [.command])
         let b2 = KeyBinding(key: "w", modifiers: [.command])
 
         // Assert
-        XCTAssertEqual(b1, b2)
+        #expect(b1 == b2)
     }
 
+    
+
+    @Test
     func test_keyBinding_hashable_differentKeys_notEqual() {
         // Arrange
         let b1 = KeyBinding(key: "w", modifiers: [.command])
         let b2 = KeyBinding(key: "q", modifiers: [.command])
 
         // Assert
-        XCTAssertNotEqual(b1, b2)
+        #expect(b1 != b2)
     }
 
     // MARK: - CommandDefinition
 
+    
+
+    @Test
     func test_commandDefinition_init_defaults() {
         // Act
         let def = CommandDefinition(command: .closeTab, label: "Close Tab")
 
         // Assert
-        XCTAssertEqual(def.command, .closeTab)
-        XCTAssertEqual(def.label, "Close Tab")
-        XCTAssertNil(def.keyBinding)
-        XCTAssertNil(def.icon)
-        XCTAssertTrue(def.appliesTo.isEmpty)
-        XCTAssertFalse(def.requiresManagementMode)
+        #expect(def.command == .closeTab)
+        #expect(def.label == "Close Tab")
+        #expect(def.keyBinding == nil)
+        #expect(def.icon == nil)
+        #expect(def.appliesTo.isEmpty)
+        #expect(!(def.requiresManagementMode))
     }
 
+    
+
+    @Test
     func test_commandDefinition_init_full() {
         // Act
         let def = CommandDefinition(
@@ -126,74 +154,86 @@ final class AppCommandTests: XCTestCase {
         )
 
         // Assert
-        XCTAssertEqual(def.command, .closePane)
-        XCTAssertNotNil(def.keyBinding)
-        XCTAssertEqual(def.icon, "xmark")
-        XCTAssertTrue(def.appliesTo.contains(.pane))
-        XCTAssertTrue(def.appliesTo.contains(.floatingTerminal))
-        XCTAssertTrue(def.requiresManagementMode)
+        #expect(def.command == .closePane)
+        #expect(def.keyBinding != nil)
+        #expect(def.icon == "xmark")
+        #expect(def.appliesTo.contains(.pane))
+        #expect(def.appliesTo.contains(.floatingTerminal))
+        #expect(def.requiresManagementMode)
     }
 
     // MARK: - CommandDispatcher
 
     @MainActor
+    
+    @Test
     func test_dispatcher_definitions_registered() {
         // Act
         let dispatcher = CommandDispatcher.shared
 
         // Assert
-        XCTAssertNotNil(dispatcher.definition(for: .closeTab))
-        XCTAssertNotNil(dispatcher.definition(for: .closePane))
-        XCTAssertNotNil(dispatcher.definition(for: .addRepo))
-        XCTAssertNotNil(dispatcher.definition(for: .toggleSidebar))
+        #expect(dispatcher.definition(for: .closeTab) != nil)
+        #expect(dispatcher.definition(for: .closePane) != nil)
+        #expect(dispatcher.definition(for: .addRepo) != nil)
+        #expect(dispatcher.definition(for: .toggleSidebar) != nil)
     }
 
     @MainActor
+    
+    @Test
     func test_dispatcher_closeTab_hasCorrectKeyBinding() {
         // Act
         let def = CommandDispatcher.shared.definition(for: .closeTab)
 
         // Assert
-        XCTAssertEqual(def?.keyBinding?.key, "w")
-        XCTAssertEqual(def?.keyBinding?.modifiers, [.command])
+        #expect(def?.keyBinding?.key == "w")
+        #expect(def?.keyBinding?.modifiers == [.command])
     }
 
     @MainActor
+    
+    @Test
     func test_dispatcher_commands_forTab_includesExpected() {
         // Act
         let tabCommands = CommandDispatcher.shared.commands(for: .tab)
 
         // Assert
         let commandNames = tabCommands.map(\.command)
-        XCTAssertTrue(commandNames.contains(.closeTab))
-        XCTAssertTrue(commandNames.contains(.breakUpTab))
-        XCTAssertTrue(commandNames.contains(.equalizePanes))
+        #expect(commandNames.contains(.closeTab))
+        #expect(commandNames.contains(.breakUpTab))
+        #expect(commandNames.contains(.equalizePanes))
     }
 
     @MainActor
+    
+    @Test
     func test_dispatcher_commands_forPane_includesExpected() {
         // Act
         let paneCommands = CommandDispatcher.shared.commands(for: .pane)
 
         // Assert
         let commandNames = paneCommands.map(\.command)
-        XCTAssertTrue(commandNames.contains(.closePane))
-        XCTAssertTrue(commandNames.contains(.extractPaneToTab))
+        #expect(commandNames.contains(.closePane))
+        #expect(commandNames.contains(.extractPaneToTab))
     }
 
     @MainActor
+    
+    @Test
     func test_dispatcher_commands_forRepo_includesExpected() {
         // Act
         let repoCommands = CommandDispatcher.shared.commands(for: .repo)
 
         // Assert
         let commandNames = repoCommands.map(\.command)
-        XCTAssertTrue(commandNames.contains(.addRepo))
-        XCTAssertTrue(commandNames.contains(.removeRepo))
-        XCTAssertTrue(commandNames.contains(.refreshWorktrees))
+        #expect(commandNames.contains(.addRepo))
+        #expect(commandNames.contains(.removeRepo))
+        #expect(commandNames.contains(.refreshWorktrees))
     }
 
     @MainActor
+    
+    @Test
     func test_dispatcher_dispatch_withoutHandler_doesNotCrash() {
         // Arrange
         let dispatcher = CommandDispatcher.shared
@@ -204,6 +244,8 @@ final class AppCommandTests: XCTestCase {
     }
 
     @MainActor
+    
+    @Test
     func test_dispatcher_canDispatch_withoutHandler_returnsFalse() {
         // Arrange
         let dispatcher = CommandDispatcher.shared
@@ -213,10 +255,12 @@ final class AppCommandTests: XCTestCase {
         let result = dispatcher.canDispatch(.closeTab)
 
         // Assert
-        XCTAssertFalse(result)
+        #expect(!(result))
     }
 
     @MainActor
+    
+    @Test
     func test_dispatcher_dispatch_callsHandler() {
         // Arrange
         let dispatcher = CommandDispatcher.shared
@@ -227,15 +271,17 @@ final class AppCommandTests: XCTestCase {
         dispatcher.dispatch(.closeTab)
 
         // Assert
-        XCTAssertEqual(handler.executedCommands.count, 1)
-        XCTAssertEqual(handler.executedCommands[0].0, .closeTab)
-        XCTAssertNil(handler.executedCommands[0].1)  // no target
+        #expect(handler.executedCommands.count == 1)
+        #expect(handler.executedCommands[0].0 == .closeTab)
+        #expect(handler.executedCommands[0].1 == nil)  // no target
 
         // Cleanup
         dispatcher.handler = nil
     }
 
     @MainActor
+    
+    @Test
     func test_dispatcher_dispatch_targeted_callsHandler() {
         // Arrange
         let dispatcher = CommandDispatcher.shared
@@ -247,16 +293,18 @@ final class AppCommandTests: XCTestCase {
         dispatcher.dispatch(.closeTab, target: targetId, targetType: .tab)
 
         // Assert
-        XCTAssertEqual(handler.executedCommands.count, 1)
-        XCTAssertEqual(handler.executedCommands[0].0, .closeTab)
-        XCTAssertEqual(handler.executedCommands[0].1, targetId)
-        XCTAssertEqual(handler.executedCommands[0].2, .tab)
+        #expect(handler.executedCommands.count == 1)
+        #expect(handler.executedCommands[0].0 == .closeTab)
+        #expect(handler.executedCommands[0].1 == targetId)
+        #expect(handler.executedCommands[0].2 == .tab)
 
         // Cleanup
         dispatcher.handler = nil
     }
 
     @MainActor
+    
+    @Test
     func test_dispatcher_cannotDispatch_whenHandlerReturnsFalse() {
         // Arrange
         let dispatcher = CommandDispatcher.shared
@@ -268,138 +316,166 @@ final class AppCommandTests: XCTestCase {
         dispatcher.dispatch(.closeTab)
 
         // Assert — command should not have been executed
-        XCTAssertTrue(handler.executedCommands.isEmpty)
+        #expect(handler.executedCommands.isEmpty)
 
         // Cleanup
         dispatcher.handler = nil
     }
 
     @MainActor
+    
+    @Test
     func test_dispatcher_closePane_requiresManagementMode() {
         // Act
         let def = CommandDispatcher.shared.definition(for: .closePane)
 
         // Assert
-        XCTAssertTrue(def?.requiresManagementMode ?? false)
+        #expect(def?.requiresManagementMode ?? false)
     }
 
     @MainActor
+    
+    @Test
     func test_dispatcher_closeTab_doesNotRequireManagementMode() {
         // Act
         let def = CommandDispatcher.shared.definition(for: .closeTab)
 
         // Assert
-        XCTAssertFalse(def?.requiresManagementMode ?? true)
+        #expect(!(def?.requiresManagementMode ?? true))
     }
 
     // MARK: - Sidebar Commands
 
     @MainActor
+    
+    @Test
     func test_dispatcher_filterSidebar_registered() {
         // Act
         let def = CommandDispatcher.shared.definition(for: .filterSidebar)
 
         // Assert
-        XCTAssertNotNil(def)
-        XCTAssertEqual(def?.label, "Filter Sidebar")
-        XCTAssertEqual(def?.icon, "magnifyingglass")
+        #expect(def != nil)
+        #expect(def?.label == "Filter Sidebar")
+        #expect(def?.icon == "magnifyingglass")
     }
 
     @MainActor
+    
+    @Test
     func test_dispatcher_filterSidebar_hasCorrectKeyBinding() {
         // Act
         let def = CommandDispatcher.shared.definition(for: .filterSidebar)
 
         // Assert
-        XCTAssertEqual(def?.keyBinding?.key, "f")
-        XCTAssertTrue(def?.keyBinding?.modifiers.contains(.command) ?? false)
-        XCTAssertTrue(def?.keyBinding?.modifiers.contains(.shift) ?? false)
+        #expect(def?.keyBinding?.key == "f")
+        #expect(def?.keyBinding?.modifiers.contains(.command) ?? false)
+        #expect(def?.keyBinding?.modifiers.contains(.shift) ?? false)
     }
 
     @MainActor
+    
+    @Test
     func test_dispatcher_openNewTerminalInTab_registered() {
         // Act
         let def = CommandDispatcher.shared.definition(for: .openNewTerminalInTab)
 
         // Assert
-        XCTAssertNotNil(def)
-        XCTAssertEqual(def?.label, "Open New Terminal in Tab")
-        XCTAssertEqual(def?.icon, "terminal.fill")
+        #expect(def != nil)
+        #expect(def?.label == "Open New Terminal in Tab")
+        #expect(def?.icon == "terminal.fill")
     }
 
     @MainActor
+    
+    @Test
     func test_dispatcher_openNewTerminalInTab_appliesToWorktree() {
         // Act
         let def = CommandDispatcher.shared.definition(for: .openNewTerminalInTab)
 
         // Assert
-        XCTAssertTrue(def?.appliesTo.contains(.worktree) ?? false)
+        #expect(def?.appliesTo.contains(.worktree) ?? false)
     }
 
     @MainActor
+    
+    @Test
     func test_dispatcher_commands_forWorktree_includesOpenNewTerminal() {
         // Act
         let worktreeCommands = CommandDispatcher.shared.commands(for: .worktree)
 
         // Assert
         let commandNames = worktreeCommands.map(\.command)
-        XCTAssertTrue(commandNames.contains(.openNewTerminalInTab))
+        #expect(commandNames.contains(.openNewTerminalInTab))
     }
 
     @MainActor
+    
+    @Test
     func test_dispatcher_filterSidebar_doesNotRequireManagementMode() {
         // Act
         let def = CommandDispatcher.shared.definition(for: .filterSidebar)
 
         // Assert
-        XCTAssertFalse(def?.requiresManagementMode ?? true)
+        #expect(!(def?.requiresManagementMode ?? true))
     }
 
     @MainActor
+    
+    @Test
     func test_dispatcher_filterSidebar_noAppliesTo() {
         // Act — filterSidebar is a global command, not tied to an item type
         let def = CommandDispatcher.shared.definition(for: .filterSidebar)
 
         // Assert
-        XCTAssertTrue(def?.appliesTo.isEmpty ?? false)
+        #expect(def?.appliesTo.isEmpty ?? false)
     }
 
     // MARK: - Webview Commands
 
     @MainActor
+    
+    @Test
     func test_dispatcher_openWebview_registered() {
         let def = CommandDispatcher.shared.definition(for: .openWebview)
-        XCTAssertNotNil(def)
-        XCTAssertEqual(def?.label, "Open New Webview Tab")
-        XCTAssertEqual(def?.icon, "globe")
+        #expect(def != nil)
+        #expect(def?.label == "Open New Webview Tab")
+        #expect(def?.icon == "globe")
     }
 
     @MainActor
+    
+    @Test
     func test_dispatcher_openWebview_noKeyBinding() {
         let def = CommandDispatcher.shared.definition(for: .openWebview)
-        XCTAssertNil(def?.keyBinding)
+        #expect(def?.keyBinding == nil)
     }
 
     @MainActor
+    
+    @Test
     func test_dispatcher_signInGitHub_registered() {
         let def = CommandDispatcher.shared.definition(for: .signInGitHub)
-        XCTAssertNotNil(def)
-        XCTAssertEqual(def?.label, "Sign in to GitHub")
-        XCTAssertEqual(def?.icon, "person.badge.key")
+        #expect(def != nil)
+        #expect(def?.label == "Sign in to GitHub")
+        #expect(def?.icon == "person.badge.key")
     }
 
     @MainActor
+    
+    @Test
     func test_dispatcher_signInGoogle_registered() {
         let def = CommandDispatcher.shared.definition(for: .signInGoogle)
-        XCTAssertNotNil(def)
-        XCTAssertEqual(def?.label, "Sign in to Google")
-        XCTAssertEqual(def?.icon, "person.badge.key")
+        #expect(def != nil)
+        #expect(def?.label == "Sign in to Google")
+        #expect(def?.icon == "person.badge.key")
     }
 
     @MainActor
+    
+    @Test
     func test_dispatcher_signIn_noKeyBindings() {
         // Sign-in commands are invoked from command bar, no global shortcuts
-        XCTAssertNil(CommandDispatcher.shared.definition(for: .signInGitHub)?.keyBinding)
-        XCTAssertNil(CommandDispatcher.shared.definition(for: .signInGoogle)?.keyBinding)
+        #expect(CommandDispatcher.shared.definition(for: .signInGitHub)?.keyBinding == nil)
+        #expect(CommandDispatcher.shared.definition(for: .signInGoogle)?.keyBinding == nil)
     }
 }

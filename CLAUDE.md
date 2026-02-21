@@ -136,6 +136,17 @@ swift test --filter "CommandBarState" > /tmp/test-output.txt 2>&1 && echo "PASS"
 - NEVER launch a swift subagent while a swift command is running in the main session
 - Run them strictly one at a time, sequentially. If you need multiple test filters, just run the full suite once.
 
+**Test/build contention across agents.** Use a unique `.build-agent-<suffix>` folder per agent session so SwiftPM lock files do not collide across concurrent sessions.
+
+```bash
+BUILD_DIR=".build-agent-$(uuidgen | tr -dc 'a-z0-9' | head -c 8)"
+swift test --build-path "$BUILD_DIR" --filter "ZmxE2ETests"
+swift build --build-path "$BUILD_DIR"
+swift test --build-path "$BUILD_DIR"
+```
+
+Keep this `BUILD_DIR` constant for your entire session to avoid mixing artifacts.
+
 **Lock contention recovery.** If you see "Another instance of SwiftPM is already running using '.build', waiting..." — do NOT launch more swift commands. Kill the stuck process (`pkill -f "swift-build"`) and retry.
 
 **Timeouts are mandatory.** Always set the Bash tool's `timeout` parameter: `60000` (60s) for `swift test`, `30000` (30s) for `swift build`. Tests complete in ~15s, builds in ~5s. Anything longer means lock contention or a hung process. Without an explicit timeout the Bash tool uses its 2-minute default, which silently wastes time on a stuck process the user then has to manually kill.

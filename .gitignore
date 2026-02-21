@@ -58,3 +58,4 @@ AgentStudio.app/
 docs/plans
 Frameworks/GhosttyKit.xcframework
 .build-zmxe2e
+.build-*

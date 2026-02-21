@@ -1,4 +1,5 @@
 import Observation
+import Foundation
 import XCTest
 
 @testable import AgentStudio
@@ -154,11 +155,12 @@ final class MockPushTransport: PushTransport {
     ) async -> Bool {
         if pushCount >= expectedCount { return true }
 
-        let start = ContinuousClock.now
-        let deadline = start + timeout
+        let timeoutInSeconds = Double(timeout.components.seconds)
+        let timeoutFractionalSeconds = Double(timeout.components.attoseconds) / 1_000_000_000_000_000_000
+        let deadline = Date().addingTimeInterval(timeoutInSeconds + timeoutFractionalSeconds)
 
-        while pushCount < expectedCount && ContinuousClock.now < deadline {
-            try? await Task.sleep(for: .milliseconds(2))
+        while pushCount < expectedCount && Date() < deadline {
+            try? await Task.sleep(for: .milliseconds(10))
         }
 
         if pushCount < expectedCount {
