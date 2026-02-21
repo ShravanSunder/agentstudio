@@ -6,14 +6,16 @@ import Testing
 @MainActor
 @Suite(.serialized)
 struct ActionExecutorTestsQuick {
-    private func makeHarness() -> (
-        WorkspaceStore,
-        ViewRegistry,
-        SessionRuntime,
-        TerminalViewCoordinator,
-        ActionExecutor,
-        URL
-    ) {
+    private struct ActionExecutorHarness {
+        let store: WorkspaceStore
+        let viewRegistry: ViewRegistry
+        let runtime: SessionRuntime
+        let coordinator: TerminalViewCoordinator
+        let executor: ActionExecutor
+        let tempDir: URL
+    }
+
+    private func makeHarness() -> ActionExecutorHarness {
         let tempDir = FileManager.default.temporaryDirectory
             .appending(path: "agentstudio-action-executor-tests-\(UUID().uuidString)")
         let persistor = WorkspacePersistor(workspacesDir: tempDir)
@@ -31,12 +33,23 @@ struct ActionExecutorTestsQuick {
             viewRegistry: viewRegistry,
             coordinator: coordinator
         )
-        return (store, viewRegistry, runtime, coordinator, executor, tempDir)
+        return ActionExecutorHarness(
+            store: store,
+            viewRegistry: viewRegistry,
+            runtime: runtime,
+            coordinator: coordinator,
+            executor: executor,
+            tempDir: tempDir
+        )
     }
 
     @Test("openWebview creates a tab and registers a webview pane")
     func openWebview_addsTabAndRegistersView() {
-        let (store, viewRegistry, _, _, executor, tempDir) = makeHarness()
+        let harness = makeHarness()
+        let store = harness.store
+        let viewRegistry = harness.viewRegistry
+        let executor = harness.executor
+        let tempDir = harness.tempDir
         defer { try? FileManager.default.removeItem(at: tempDir) }
 
         let pane = executor.openWebview(url: URL(string: "https://example.com")!)
@@ -50,7 +63,12 @@ struct ActionExecutorTestsQuick {
 
     @Test("repair recreateSurface replaces a missing webview view")
     func repair_recreateSurface_recreatesWebviewView() {
-        let (store, viewRegistry, _, coordinator, executor, tempDir) = makeHarness()
+        let harness = makeHarness()
+        let store = harness.store
+        let viewRegistry = harness.viewRegistry
+        let coordinator = harness.coordinator
+        let executor = harness.executor
+        let tempDir = harness.tempDir
         defer { try? FileManager.default.removeItem(at: tempDir) }
 
         let pane = store.createPane(
@@ -79,7 +97,10 @@ struct ActionExecutorTestsQuick {
 
     @Test("minimizePane hides pane and expandPane restores active pane")
     func minimize_then_expandPane_updatesTransientState() {
-        let (store, _, _, _, executor, tempDir) = makeHarness()
+        let harness = makeHarness()
+        let store = harness.store
+        let executor = harness.executor
+        let tempDir = harness.tempDir
         defer { try? FileManager.default.removeItem(at: tempDir) }
 
         let paneOne = store.createPane(source: .floating(workingDirectory: nil, title: nil))

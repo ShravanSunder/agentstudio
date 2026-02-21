@@ -18,16 +18,23 @@ struct TestPushClock: Clock {
     struct Instant: Sendable, Comparable, Hashable, InstantProtocol {
         fileprivate let nanoseconds: Int64
 
-        func advanced(by duration: Duration) -> Instant {
-            Instant(nanoseconds: TestPushClock.nanoseconds(for: duration) + nanoseconds)
+        func advanced(by duration: Self.Duration) -> Self {
+            Self(nanoseconds: Self.toNanoseconds(from: duration) + nanoseconds)
         }
 
-        func duration(to other: Instant) -> Duration {
-            .nanoseconds(other.nanoseconds - nanoseconds)
+        func duration(to other: Self) -> Self.Duration {
+            Self.Duration.nanoseconds(other.nanoseconds - nanoseconds)
         }
 
-        static func < (lhs: Instant, rhs: Instant) -> Bool {
+        static func < (lhs: Self, rhs: Self) -> Bool {
             lhs.nanoseconds < rhs.nanoseconds
+        }
+
+        private static func toNanoseconds(from duration: Duration) -> Int64 {
+            let components = duration.components
+            let fromSeconds = components.seconds.multipliedReportingOverflow(by: 1_000_000_000)
+            guard fromSeconds.overflow == false else { return fromSeconds.partialValue }
+            return fromSeconds.partialValue + components.attoseconds / 1_000_000_000
         }
     }
 

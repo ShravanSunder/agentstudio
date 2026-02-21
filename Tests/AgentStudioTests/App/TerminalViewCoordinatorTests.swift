@@ -6,13 +6,15 @@ import Testing
 @MainActor
 @Suite(.serialized)
 struct TerminalViewCoordinatorTests {
-    private func makeHarness() -> (
-        WorkspaceStore,
-        ViewRegistry,
-        SessionRuntime,
-        TerminalViewCoordinator,
-        URL
-    ) {
+    private struct TerminalViewCoordinatorHarness {
+        let store: WorkspaceStore
+        let viewRegistry: ViewRegistry
+        let runtime: SessionRuntime
+        let coordinator: TerminalViewCoordinator
+        let tempDir: URL
+    }
+
+    private func makeHarness() -> TerminalViewCoordinatorHarness {
         let tempDir = FileManager.default.temporaryDirectory
             .appending(path: "agentstudio-coordinator-tests-\(UUID().uuidString)")
         let persistor = WorkspacePersistor(workspacesDir: tempDir)
@@ -25,12 +27,21 @@ struct TerminalViewCoordinatorTests {
             viewRegistry: viewRegistry,
             runtime: runtime
         )
-        return (store, viewRegistry, runtime, coordinator, tempDir)
+        return TerminalViewCoordinatorHarness(
+            store: store,
+            viewRegistry: viewRegistry,
+            runtime: runtime,
+            coordinator: coordinator,
+            tempDir: tempDir
+        )
     }
 
     @Test("createViewForContent registers a webview view in the registry")
     func createViewForContent_registersWebviewView() {
-        let (_, viewRegistry, _, coordinator, tempDir) = makeHarness()
+        let harness = makeHarness()
+        let viewRegistry = harness.viewRegistry
+        let coordinator = harness.coordinator
+        let tempDir = harness.tempDir
         defer { try? FileManager.default.removeItem(at: tempDir) }
 
         let pane = Pane(
@@ -50,7 +61,10 @@ struct TerminalViewCoordinatorTests {
 
     @Test("createViewForContent registers a code viewer view in the registry")
     func createViewForContent_registersCodeViewerView() {
-        let (_, viewRegistry, _, coordinator, tempDir) = makeHarness()
+        let harness = makeHarness()
+        let viewRegistry = harness.viewRegistry
+        let coordinator = harness.coordinator
+        let tempDir = harness.tempDir
         defer { try? FileManager.default.removeItem(at: tempDir) }
 
         let pane = Pane(
@@ -71,7 +85,10 @@ struct TerminalViewCoordinatorTests {
 
     @Test("createViewForContent builds bridge view and teardown clears bridge readiness")
     func createViewForContent_bridgeView_tearsDownCleanly() {
-        let (_, viewRegistry, _, coordinator, tempDir) = makeHarness()
+        let harness = makeHarness()
+        let viewRegistry = harness.viewRegistry
+        let coordinator = harness.coordinator
+        let tempDir = harness.tempDir
         defer { try? FileManager.default.removeItem(at: tempDir) }
 
         let pane = Pane(
@@ -100,7 +117,10 @@ struct TerminalViewCoordinatorTests {
 
     @Test("createViewForContent returns nil for unsupported pane content")
     func createViewForContent_unsupportedContentReturnsNil() {
-        let (_, viewRegistry, _, coordinator, tempDir) = makeHarness()
+        let harness = makeHarness()
+        let viewRegistry = harness.viewRegistry
+        let coordinator = harness.coordinator
+        let tempDir = harness.tempDir
         defer { try? FileManager.default.removeItem(at: tempDir) }
 
         let pane = Pane(

@@ -26,8 +26,10 @@ final class TestPathResolverTests: XCTestCase {
         let markerPath = nested.appendingPathComponent("fixture.swift")
 
         let packageContents = "import PackageDescription\nlet package = Package(...)"
-        try packageContents.data(using: .utf8)?.write(to: packagePath)
-        try "let fixture = true".data(using: .utf8)?.write(to: markerPath)
+        let packageContentsData = Data("\(packageContents)".utf8)
+        let markerData = Data("let fixture = true".utf8)
+        try packageContentsData.write(to: packagePath)
+        try markerData.write(to: markerPath)
 
         let resolvedRoot = TestPathResolver.projectRoot(from: markerPath.path)
 

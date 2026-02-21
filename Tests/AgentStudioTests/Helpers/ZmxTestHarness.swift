@@ -176,7 +176,7 @@ final class ZmxTestHarness {
             )
             for pid in ([entry.processID] + descendants).reversed() {
                 if pid > 0 {
-                    let _ = Darwin.kill(pid, SIGKILL)
+                    _ = Darwin.kill(pid, SIGKILL)
                 }
             }
 
