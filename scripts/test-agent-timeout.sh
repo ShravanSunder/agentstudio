@@ -55,9 +55,7 @@ else
   CMD=(swift test --build-path "${BUILD_DIR}")
 fi
 
-run_with_timeout "${TIMEOUT_SECONDS}" "${LOG_FILE}" "${CMD[@]}"
-
-if [ $? -eq 0 ]; then
+if run_with_timeout "${TIMEOUT_SECONDS}" "${LOG_FILE}" "${CMD[@]}"; then
   echo "PASS"
 else
   echo "FAIL: $(tail -20 "${LOG_FILE}")"
