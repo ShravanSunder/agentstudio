@@ -50,6 +50,40 @@ agent-studio/
 
 **Import rule:** `App/ → Core/, Features/, Infrastructure/` | `Features/ → Core/, Infrastructure/` | `Core/ → Infrastructure/` | Never `Core/ → Features/`
 
+### Component → Slice Map
+
+Where each key component lives and why — use this to decide where new files go.
+
+| Component | Slice | Role | Change Driver |
+|-----------|-------|------|---------------|
+| `AppDelegate` | `App/` | App lifecycle, restore, zmx cleanup | App lifecycle |
+| `MainSplitViewController` | `App/` | Top-level sidebar/content split | App layout |
+| `MainWindowController` | `App/` | Window creation, toolbar, state restore | Window management |
+| `ActionExecutor` | `App/` | Dispatches PaneActions to stores | Cross-store sequencing |
+| `TerminalViewCoordinator` | `App/` | Manages Ghostty surface lifecycle (future: `PaneCoordinator`) | Cross-feature sequencing |
+| `WorkspaceStore` | `Core/Stores/` | Tabs, layouts, views, pane metadata | Workspace structure |
+| `SessionRuntime` | `Core/Stores/` | Session status, health checks, zmx backend | Session backends |
+| `WorkspacePersistor` | `Core/Stores/` | Disk persistence for workspace state | Persistence format |
+| `DynamicViewProjector` | `Core/Stores/` | Projects dynamic views into workspace | View projection |
+| `PaneTabViewController` | `Core/` | NSTabView container for any pane type | Tab management |
+| `ViewRegistry` | `Core/` | PaneId → NSView mapping (type-agnostic) | Pane registration |
+| `ActionResolver` | `Core/Actions/` | Resolves PaneAction to concrete mutations | Action resolution |
+| `Layout`, `Tab`, `Pane` | `Core/Models/` | Core domain models | Domain rules |
+| `SplitTree`, `SplitView` | `Core/Views/Splits/` | Split pane rendering | Split layout |
+| `DrawerLayout`, `DrawerPanel` | `Core/Views/Drawer/` | Drawer overlay system | Drawer UX |
+| `SurfaceManager` | `Features/Terminal/` | Ghostty surface lifecycle, health, undo | Terminal behavior |
+| `GhosttySurfaceView` | `Features/Terminal/` | NSView wrapping Ghostty surface | Terminal rendering |
+| `BridgePaneController` | `Features/Bridge/` | WKWebView lifecycle for React panes | Bridge integration |
+| `RPCRouter` | `Features/Bridge/` | JSON-RPC dispatch for bridge messages | RPC protocol |
+| `PushTransport` | `Features/Bridge/Push/` | State push pipeline to React | Push protocol |
+| `WebviewPaneController` | `Features/Webview/` | Browser pane lifecycle (independent of Bridge) | Browser UX |
+| `CommandBarState` | `Features/CommandBar/` | Command palette state machine | Command palette |
+| `SidebarFilter` | `Features/Sidebar/` | Sidebar filtering logic | Sidebar behavior |
+| `ProcessExecutor` | `Infrastructure/` | CLI execution protocol | Utility |
+| `StateMachine` | `Infrastructure/` | Generic state machine + effects | Utility |
+
+**Decision process for new files:** Apply the 4 tests from [directory_structure.md](docs/architecture/directory_structure.md): (1) Import test — what does it import? (2) Deletion test — could you delete a feature and it still compiles? (3) Change driver — what causes it to change? (4) Multiplicity — how many features use it?
+
 ## Key Files
 - `Package.swift` - SPM manifest, links GhosttyKit as binary target
 - `.mise.toml` - Tool versions (zig) and build task definitions
