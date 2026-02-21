@@ -158,4 +158,23 @@ final class MockPushTransport: PushTransport {
 
         return pushCount >= expectedCount
     }
+
+    /// Timer-agnostic wait helper used by tests that advance a mock clock.
+    /// Provide a closure that moves mocked time forward and this helper polls
+    /// `pushCount` with cooperative yields between ticks.
+    func waitForPushCount(
+        atLeast expectedCount: Int,
+        maxTicks: Int,
+        advanceClock: @MainActor () -> Void
+    ) async -> Bool {
+        if pushCount >= expectedCount { return true }
+        guard maxTicks > 0 else { return false }
+
+        for _ in 0..<maxTicks {
+            if pushCount >= expectedCount { return true }
+            advanceClock()
+            await Task.yield()
+        }
+        return pushCount >= expectedCount
+    }
 }

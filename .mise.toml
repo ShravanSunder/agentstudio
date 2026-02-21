@@ -106,6 +106,26 @@ SWIFT_BUILD_DIR="${SWIFT_BUILD_DIR:-.build-agent-$(uuidgen | tr -dc 'a-z0-9' | h
 scripts/test-agent-timeout.sh
 """
 
+[tasks.test-bench-push]
+description = "Run benchmark-style push performance tests in warn mode"
+depends = ["copy-xcframework", "setup-dev-resources"]
+run = """
+SWIFT_TEST_TIMEOUT_SECONDS=${SWIFT_TEST_TIMEOUT_SECONDS:-60} \
+SWIFT_BUILD_DIR="${SWIFT_BUILD_DIR:-.build-agent-$(uuidgen | tr -dc 'a-z0-9' | head -c 8)}" \
+AGENT_STUDIO_BENCHMARK_MODE=warn \
+scripts/test-agent-timeout.sh "PushPerformanceBenchmarkTests.test_singleFile_incremental_change_under_2ms"
+"""
+
+[tasks.test-bench-push-strict]
+description = "Run benchmark-style push performance tests in strict mode"
+depends = ["copy-xcframework", "setup-dev-resources"]
+run = """
+SWIFT_TEST_TIMEOUT_SECONDS=${SWIFT_TEST_TIMEOUT_SECONDS:-60} \
+SWIFT_BUILD_DIR="${SWIFT_BUILD_DIR:-.build-agent-$(uuidgen | tr -dc 'a-z0-9' | head -c 8)}" \
+AGENT_STUDIO_BENCHMARK_MODE=strict \
+scripts/test-agent-timeout.sh "PushPerformanceBenchmarkTests.test_singleFile_incremental_change_under_2ms"
+"""
+
 [tasks.test-agent-timeout]
 description = "Run tests with timeout and isolated agent build directory"
 depends = ["copy-xcframework", "setup-dev-resources"]

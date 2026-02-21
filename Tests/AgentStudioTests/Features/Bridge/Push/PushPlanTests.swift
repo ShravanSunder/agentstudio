@@ -258,11 +258,12 @@ final class PushPlanTests {
         // Arrange
         let state = TestState()
         let transport = MockPushTransport()
-        let clock = RevisionClock()
+        let debounceClock = TestPushClock()
+        let revisionClock = RevisionClock()
         let plan = PushPlan(
             state: state,
             transport: transport,
-            revisions: clock,
+            revisions: revisionClock,
             epoch: { 1 },
             slices: {
                 Slice(
@@ -270,7 +271,7 @@ final class PushPlanTests {
                     store: .diff,
                     level: .warm,
                     capture: { (s: TestState) in s.status }
-                )
+                ).erased(debounceClock: debounceClock)
             }
         )
 
@@ -284,7 +285,10 @@ final class PushPlanTests {
 
         let didWaitForWarmPush = await transport.waitForPushCount(
             atLeast: baselineCount + 1,
-            timeout: .seconds(2)
+            maxTicks: 40,
+            advanceClock: {
+                debounceClock.advance(by: PushLevel.warm.debounce)
+            }
         )
         #expect(didWaitForWarmPush)
 
@@ -309,11 +313,12 @@ final class PushPlanTests {
         // Arrange
         let state = TestState()
         let transport = MockPushTransport()
-        let clock = RevisionClock()
+        let debounceClock = TestPushClock()
+        let revisionClock = RevisionClock()
         let plan = PushPlan(
             state: state,
             transport: transport,
-            revisions: clock,
+            revisions: revisionClock,
             epoch: { 1 },
             slices: {
                 EntitySlice(
@@ -321,7 +326,7 @@ final class PushPlanTests {
                     capture: { (s: TestState) in s.items },
                     version: { (_ entity: String) in 1 },
                     keyToString: { (key: UUID) in key.uuidString }
-                )
+                ).erased(debounceClock: debounceClock)
             }
         )
 
@@ -335,7 +340,10 @@ final class PushPlanTests {
 
         let didWaitForColdPush = await transport.waitForPushCount(
             atLeast: baselineCount + 1,
-            timeout: .seconds(2)
+            maxTicks: 64,
+            advanceClock: {
+                debounceClock.advance(by: PushLevel.cold.debounce)
+            }
         )
         #expect(didWaitForColdPush)
 
@@ -352,4 +360,5 @@ final class PushPlanTests {
 
         plan.stop()
     }
+
 }
