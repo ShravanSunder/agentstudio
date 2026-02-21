@@ -319,24 +319,48 @@ typealias WorktreeId = UUID
 
 ```swift
 /// Rich pane identity — maps to R1 (Rich Pane Metadata from JTBD doc).
-/// Fixed fields set at creation. Live fields updated from events.
+///
+/// Two sections:
+///   FIXED (let): set at creation, immutable for pane lifetime.
+///   LIVE (var): updated from runtime events → coordinator → store.
+///
+/// DYNAMIC VIEW CONTRACT: Live fields are ALL OPTIONAL because not every
+/// pane has a repo, worktree, or agent. Dynamic views (R5) group panes
+/// by these facets — a nil value means the pane doesn't participate in
+/// that grouping dimension. This is intentional:
+///   - A floating terminal has no repoId, no worktreeId → excluded from
+///     "group by repo" and "group by worktree" views
+///   - A browser pane showing docs has no agentType → excluded from
+///     "group by agent" views
+///   - A terminal cd'd into /tmp has cwd but no worktreeId → included
+///     in "group by CWD" but not "group by worktree"
+///
+/// Dynamic view projector reads: repoId, worktreeId, cwd, parentFolder,
+/// checkoutRef, agentType, tags.
+/// Association fields can be nil independently. `tags` is always present as
+/// a set (possibly empty).
 struct PaneMetadata: Sendable {
-    // Fixed at creation
+    // ── Fixed at creation (immutable) ─────────────────────
     let paneId: PaneId
     let contentType: PaneContentType        // .terminal, .browser, .diff, .editor
     let source: PaneSource                  // .worktree(id), .floating
     let executionBackend: ExecutionBackend  // .local, .docker, .gondolin, .remote
     let createdAt: ContinuousClock.Instant
 
-    // Live-updated (from runtime events → coordinator → store)
-    var title: String?
-    var cwd: URL?
-    var repoId: UUID?
-    var worktreeId: UUID?
-    var agentType: AgentType?
-    var tags: Set<String>
+    // ── Live-updated (from runtime events → coordinator → store) ──
+    // ALL OPTIONAL — not every pane has every dimension.
+    // Updated from: CWD events, title events, agent detection, user tags.
+    var title: String?                      // from titleChanged event
+    var cwd: URL?                           // from cwdChanged event
+    var repoId: UUID?                       // resolved from cwd → repo mapping
+    var worktreeId: UUID?                   // resolved from cwd → worktree mapping
+    var parentFolder: String?               // auto-detected from repo path on disk
+    var checkoutRef: String?                // branch / commit / tag ref, if known
+    var agentType: AgentType?               // detected from process name or PTY
+    var tags: Set<String>                   // user-defined + auto-detected labels (empty = none)
 
-    // Computed: effective tags = repo tags ∪ pane tags
+    // ── Computed (not stored) ─────────────────────────────
+    // effectiveTags = repo.tags ∪ pane.tags
     // (repo tags resolved at query time by WorkspaceStore, not stored here)
 }
 
@@ -674,6 +698,17 @@ enum SystemSource: Sendable {
     case coordinator
 }
 ```
+
+#### Envelope Invariants (normative)
+
+1. Sequence ownership: each runtime (or system producer) is the sole writer of `seq` for its own `EventSource`.
+2. Monotonicity: `seq` is strictly increasing per `EventSource`. Gaps are allowed only due to bounded replay eviction.
+3. Source/payload compatibility:
+- Pane-scoped payloads (`.terminal`, `.browser`, `.diff`, `.editor`, `.plugin`) require `source = .pane(id)`.
+- Filesystem and security payloads require `source = .worktree(id)` or explicit system producer.
+- Workspace lifecycle events that are not pane-scoped require `source = .system(.coordinator)`.
+4. Invalid source/payload combinations are contract violations and must emit a typed runtime error event.
+5. `commandId` is optional and only present for command-correlated events.
 
 ### Contract 4: ActionPolicy (self-classifying priority)
 
@@ -1407,12 +1442,14 @@ extension PaneRuntimeEvent {
 ### Contract 14: Replay Buffer
 
 ```swift
-/// Bounded event ring buffer per pane for late-joining consumers.
+/// Bounded event ring buffer per EventSource for late-joining consumers.
 /// Used when: dynamic view opens (needs current state of all panes),
 /// drawer expands (needs parent pane context), tab switches (catch up
 /// on background events).
 ///
 /// NOT a persistence mechanism — events are ephemeral.
+/// Coordinator maintains one buffer per EventSource key:
+///   .pane(id), .worktree(id), and relevant .system(...) producers.
 @MainActor
 final class EventReplayBuffer {
 
@@ -1570,7 +1607,7 @@ Dynamic view opens (e.g., "group by worktree")
 
 **Risk:** Ring buffer per runtime accumulates unbounded memory if events are large or frequent.
 
-**Mitigation:** Bounded ring buffer per PANE (not per runtime). Each pane gets a 1000-event ring buffer with TTL (5 minutes) and max bytes cap (1MB). Oldest events evicted first. One noisy terminal doesn't starve replay for other panes.
+**Mitigation:** Bounded ring buffer per `EventSource` key (`.pane`, `.worktree`, `.system`). Each source gets a 1000-event ring buffer with TTL (5 minutes) and max bytes cap (1MB). Oldest events evicted first. One noisy source doesn't starve replay for others.
 
 ### 5. Lifecycle leaks for background panes
 
@@ -1616,11 +1653,15 @@ Hard rules for all types in this architecture. Violations are compile errors, no
 
 4. **Callback handoff is explicitly actor-safe.** Static `@Sendable` trampolines at FFI boundary. No closures capturing mutable state across isolation boundaries. Adapters are `@MainActor` — the trampoline is the only non-isolated code.
 
-5. **Clock/timer behavior is injectable and testable.** `NotificationReducer`, `EventReplayBuffer`, and any time-dependent component accept `any Clock<Duration>` as a constructor parameter. No hardwired `Task.sleep` or `ContinuousClock()` calls in production paths.
+5. **Clock/timer behavior is injectable and testable.** `NotificationReducer`, `EventReplayBuffer`, and any time-dependent component accept `any Clock<Duration>` as a constructor parameter. No hardwired `Task.sleep` in production paths. A production default clock may be provided at initializer boundaries only.
 
 6. **Existentials (`any`) are explicit and minimized.** `any PaneRuntime` at registry lookup boundaries. `any PaneKindEvent` at the plugin escape hatch. `any Clock<Duration>` for testable time. No implicit existential boxing — every `any` is a conscious decision at a boundary.
 
 7. **`@MainActor` is the isolation domain for all runtime state.** All stores, runtimes, coordinators, and registries are `@MainActor`. Thread safety enforced at compile time. The protocol is `async` to preserve the actor-per-pane upgrade path (D1), but current implementation is all-main-actor.
+
+8. **Envelope validity is enforced.** `source` + `event` compatibility and monotonic `seq` per `EventSource` are contract-level invariants, not best-effort behavior.
+
+9. **macOS 26 primitives are mandatory for new plumbing.** Use Observation (`@Observable`) for UI-facing state, `AsyncStream` + `swift-async-algorithms` for transport, `Clock<Duration>` for timing, and actor-safe callback handoff (`MainActor.assumeIsolated` / `Task { @MainActor in }`) at C boundaries.
 
 ---
 
