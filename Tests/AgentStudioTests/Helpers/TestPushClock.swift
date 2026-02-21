@@ -16,6 +16,8 @@ struct TestPushClock: Clock {
     }
 
     struct Instant: Sendable, Comparable, Hashable, InstantProtocol {
+        typealias Duration = TestPushClock.Duration
+
         fileprivate let nanoseconds: Int64
 
         func advanced(by duration: Self.Duration) -> Self {

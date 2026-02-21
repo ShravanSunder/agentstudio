@@ -25,8 +25,12 @@ final class PushPlanTests: XCTestCase {
             revisions: clock,
             epoch: { 1 },
             slices: {
-                Slice("status", store: .diff, level: .hot) { s in s.status }
-                Slice("count", store: .diff, level: .cold) { s in s.count }
+                Slice("status", store: .diff, level: .hot) { (s: TestState) in
+                    s.status
+                }
+                Slice("count", store: .diff, level: .cold) { (s: TestState) in
+                    s.count
+                }
             }
         )
 
@@ -52,7 +56,9 @@ final class PushPlanTests: XCTestCase {
             revisions: clock,
             epoch: { 1 },
             slices: {
-                Slice("status", store: .diff, level: .hot) { s in s.status }
+                Slice("status", store: .diff, level: .hot) { (s: TestState) in
+                    s.status
+                }
             }
         )
 
@@ -77,12 +83,14 @@ final class PushPlanTests: XCTestCase {
             revisions: clock,
             epoch: { 1 },
             slices: {
-                Slice("status", store: .diff, level: .hot) { s in s.status }
+                Slice("status", store: .diff, level: .hot) { (s: TestState) in
+                    s.status
+                }
                 EntitySlice(
                     "items", store: .review, level: .warm,
-                    capture: { s in s.items },
-                    version: { _ in 1 },
-                    keyToString: { $0.uuidString }
+                    capture: { (s: TestState) in s.items },
+                    version: { (_ entity: String) in 1 },
+                    keyToString: { (key: UUID) in key.uuidString }
                 )
             }
         )
@@ -113,16 +121,20 @@ final class PushPlanTests: XCTestCase {
             revisions: clock,
             epoch: { 1 },
             slices: {
-                Slice("status", store: .diff, level: .hot) { s in s.status }
+                Slice("status", store: .diff, level: .hot) { (s: TestState) in
+                    s.status
+                }
             }
         )
 
         plan.start()
-        await transport.waitForPushCount(atLeast: 1)
+        let didReceiveInitialPush = await transport.waitForPushCount(atLeast: 1)
+        XCTAssertTrue(didReceiveInitialPush)
 
         // Trigger a push to confirm transport is working
         state.status = "loading"
-        await transport.waitForPushCount(atLeast: 2)
+        let didReceiveMutationPush = await transport.waitForPushCount(atLeast: 2)
+        XCTAssertTrue(didReceiveMutationPush)
         let countBeforeStop = transport.pushCount
         XCTAssertGreaterThan(countBeforeStop, 0, "Should have received at least one push before stop")
 
@@ -157,17 +169,21 @@ final class PushPlanTests: XCTestCase {
             revisions: clock,
             epoch: { 1 },
             slices: {
-                Slice("status", store: .diff, level: .hot) { s in s.status }
+                Slice("status", store: .diff, level: .hot) { (s: TestState) in
+                    s.status
+                }
             }
         )
 
         // Act — start generation 1, get some pushes flowing
         plan.start()
         let gen1 = plan.generation
-        await transport.waitForPushCount(atLeast: 1)
+        let didReceiveGen1Initial = await transport.waitForPushCount(atLeast: 1)
+        XCTAssertTrue(didReceiveGen1Initial)
 
         state.status = "gen1-value"
-        await transport.waitForPushCount(atLeast: 2)
+        let didReceiveGen1Mutation = await transport.waitForPushCount(atLeast: 2)
+        XCTAssertTrue(didReceiveGen1Mutation)
         let countAfterGen1 = transport.pushCount
         XCTAssertGreaterThan(countAfterGen1, 0, "Gen 1 should have produced pushes")
 
@@ -175,12 +191,14 @@ final class PushPlanTests: XCTestCase {
         plan.start()
         let gen2 = plan.generation
         XCTAssertGreaterThan(gen2, gen1, "Restart should increment generation")
-        await transport.waitForPushCount(atLeast: countAfterGen1 + 1)
+        let didReceiveRestartPush = await transport.waitForPushCount(atLeast: countAfterGen1 + 1)
+        XCTAssertTrue(didReceiveRestartPush)
 
         // Mutate state — only gen2 tasks should deliver
         let countBeforeGen2Mutation = transport.pushCount
         state.status = "gen2-value"
-        await transport.waitForPushCount(atLeast: countBeforeGen2Mutation + 1)
+        let didReceiveGen2Mutation = await transport.waitForPushCount(atLeast: countBeforeGen2Mutation + 1)
+        XCTAssertTrue(didReceiveGen2Mutation)
 
         // Assert — gen2 pushes arrive
         XCTAssertGreaterThan(
@@ -208,7 +226,9 @@ final class PushPlanTests: XCTestCase {
             revisions: clock,
             epoch: { 1 },
             slices: {
-                Slice("status", store: .diff, level: .hot) { s in s.status }
+                Slice("status", store: .diff, level: .hot) { (s: TestState) in
+                    s.status
+                }
             }
         )
 
@@ -262,7 +282,10 @@ final class PushPlanTests: XCTestCase {
 
         // Wait for debounce to flush
         debounceClock.advance(by: .milliseconds(20))
-        await transport.waitForPushCount(atLeast: baselineCount + 1)
+        let didWaitForWarmPush = await transport.waitForPushCount(
+            atLeast: baselineCount + 1
+        )
+        XCTAssertTrue(didWaitForWarmPush)
 
         let pushCount = transport.pushCount - baselineCount
 
@@ -298,7 +321,8 @@ final class PushPlanTests: XCTestCase {
                     capture: { (s: TestState) in s.items },
                     version: { (_ entity: String) in 1 },
                     keyToString: { (key: UUID) in key.uuidString }
-                ).erased(debounceClock: debounceClock)
+                )
+                .erased(debounceClock: debounceClock)
             }
         )
 
@@ -312,7 +336,10 @@ final class PushPlanTests: XCTestCase {
 
         // Wait for debounce to flush
         debounceClock.advance(by: .milliseconds(40))
-        await transport.waitForPushCount(atLeast: baselineCount + 1)
+        let didWaitForColdPush = await transport.waitForPushCount(
+            atLeast: baselineCount + 1
+        )
+        XCTAssertTrue(didWaitForColdPush)
 
         let pushCount = transport.pushCount - baselineCount
 

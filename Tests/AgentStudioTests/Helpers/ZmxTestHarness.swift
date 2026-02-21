@@ -166,17 +166,28 @@ final class ZmxTestHarness {
     }
 
     private func terminateSpawnedProcesses() {
+        let parentProcessGroup = getpid() > 0 ? processGroupID(for: getpid()) : nil
+
         for entry in spawnedProcesses {
             if entry.processID <= 0 {
                 continue
             }
 
-            let descendants = collectDescendantProcessIDs(
-                of: entry.processID
-            )
-            for pid in ([entry.processID] + descendants).reversed() {
-                if pid > 0 {
-                    _ = Darwin.kill(pid, SIGKILL)
+            if
+                let processGroup = processGroupID(for: entry.processID),
+                let parentGroup = parentProcessGroup,
+                processGroup > 0,
+                processGroup != parentGroup
+            {
+                _ = Darwin.kill(-processGroup, SIGKILL)
+            } else {
+                let descendants = collectDescendantProcessIDs(
+                    of: entry.processID
+                )
+                for pid in ([entry.processID] + descendants).reversed() {
+                    if pid > 0 {
+                        _ = Darwin.kill(pid, SIGKILL)
+                    }
                 }
             }
 
@@ -186,6 +197,11 @@ final class ZmxTestHarness {
         }
 
         spawnedProcesses.removeAll()
+    }
+
+    private func processGroupID(for pid: pid_t) -> pid_t? {
+        let pgid = getpgid(pid)
+        return pgid > 0 ? pgid : nil
     }
 
     private func collectDescendantProcessIDs(of pid: pid_t) -> [pid_t] {

@@ -32,14 +32,24 @@ final class PushPipelineIntegrationTests: XCTestCase {
         )
 
         plan.start()
-        try await Task.sleep(for: .milliseconds(50))
+        let didReceiveInitialPush = await transport.waitForPushCount(
+            atLeast: 1,
+            timeout: .seconds(2)
+        )
+        XCTAssertTrue(didReceiveInitialPush, "Plan should emit initial snapshot")
 
         // Initial observation fires (nil -> initial snapshot), record baseline
         let baselineCount = transport.pushCount
 
         // Act — mutate observable
         diffState.status = .loading
-        try await Task.sleep(for: .milliseconds(100))
+        let didReceiveMutationPush = await transport.waitForPushCount(
+            atLeast: baselineCount + 1,
+            timeout: .seconds(2)
+        )
+        XCTAssertTrue(
+            didReceiveMutationPush,
+            "State mutation should emit push through plan")
 
         // Assert — mutation triggered push through the full pipeline
         XCTAssertGreaterThan(
@@ -74,7 +84,11 @@ final class PushPipelineIntegrationTests: XCTestCase {
         )
 
         plan.start()
-        try await Task.sleep(for: .milliseconds(50))
+        let didReceiveInitialPush = await transport.waitForPushCount(
+            atLeast: 1,
+            timeout: .seconds(2)
+        )
+        XCTAssertTrue(didReceiveInitialPush, "Plan should emit initial snapshot")
 
         // Record baseline after initial observation emission
         let baselineCount = transport.pushCount
@@ -83,7 +97,13 @@ final class PushPipelineIntegrationTests: XCTestCase {
         for epochValue in 1...5 {
             diffState.epoch = epochValue
         }
-        try await Task.sleep(for: .milliseconds(200))
+        let didReceiveCoalescedPush = await transport.waitForPushCount(
+            atLeast: baselineCount + 1,
+            timeout: .seconds(2)
+        )
+        XCTAssertTrue(
+            didReceiveCoalescedPush,
+            "Rapid cold-level mutations should coalesce into a push")
 
         // Assert — debounce coalesced rapid mutations into fewer pushes than mutations
         let pushesAfterMutations = transport.pushCount - baselineCount
@@ -123,14 +143,22 @@ final class PushPipelineIntegrationTests: XCTestCase {
         )
 
         plan.start()
-        try await Task.sleep(for: .milliseconds(50))
+        let didReceiveInitialPush = await transport.waitForPushCount(
+            atLeast: 1,
+            timeout: .seconds(2)
+        )
+        XCTAssertTrue(didReceiveInitialPush, "Plan should emit initial snapshot")
 
         // Record baseline after initial observation emission
         let baselineCount = transport.pushCount
 
         // Act — mutate connection health
         paneState.connection.health = .error
-        try await Task.sleep(for: .milliseconds(50))
+        let didReceiveMutationPush = await transport.waitForPushCount(
+            atLeast: baselineCount + 1,
+            timeout: .seconds(2)
+        )
+        XCTAssertTrue(didReceiveMutationPush, "Hot mutation should emit immediately")
 
         // Assert — hot slice pushed immediately
         XCTAssertEqual(
@@ -165,7 +193,11 @@ final class PushPipelineIntegrationTests: XCTestCase {
         )
 
         plan.start()
-        try await Task.sleep(for: .milliseconds(50))
+        let didReceiveInitialPush = await transport.waitForPushCount(
+            atLeast: 1,
+            timeout: .seconds(2)
+        )
+        XCTAssertTrue(didReceiveInitialPush, "Plan should emit initial revision")
 
         // Initial emission should stamp revision 1
         XCTAssertEqual(
@@ -174,11 +206,23 @@ final class PushPipelineIntegrationTests: XCTestCase {
 
         // Act — two sequential mutations
         diffState.status = .loading
-        try await Task.sleep(for: .milliseconds(100))
+        let didReceiveFirstMutation = await transport.waitForPushCount(
+            atLeast: 2,
+            timeout: .seconds(2)
+        )
+        XCTAssertTrue(
+            didReceiveFirstMutation,
+            "Mutation to loading should emit revision 2")
         let revisionAfterFirstMutation = transport.lastRevision
 
         diffState.status = .ready
-        try await Task.sleep(for: .milliseconds(100))
+        let didReceiveSecondMutation = await transport.waitForPushCount(
+            atLeast: 3,
+            timeout: .seconds(2)
+        )
+        XCTAssertTrue(
+            didReceiveSecondMutation,
+            "Mutation to ready should emit revision 3")
         let revisionAfterSecondMutation = transport.lastRevision
 
         // Assert — revisions increase monotonically
@@ -211,7 +255,11 @@ final class PushPipelineIntegrationTests: XCTestCase {
         )
 
         plan.start()
-        try await Task.sleep(for: .milliseconds(50))
+        let didReceiveInitialPush = await transport.waitForPushCount(
+            atLeast: 1,
+            timeout: .seconds(2)
+        )
+        XCTAssertTrue(didReceiveInitialPush, "Plan should emit initial epoch")
 
         // Initial emission with epoch 0
         XCTAssertEqual(
@@ -221,7 +269,11 @@ final class PushPipelineIntegrationTests: XCTestCase {
         // Act — update epoch and trigger mutation
         diffState.epoch = 42
         diffState.status = .loading
-        try await Task.sleep(for: .milliseconds(100))
+        let didReceiveMutationPush = await transport.waitForPushCount(
+            atLeast: 2,
+            timeout: .seconds(2)
+        )
+        XCTAssertTrue(didReceiveMutationPush, "Mutation should emit updated epoch")
 
         // Assert — epoch propagated
         XCTAssertEqual(
