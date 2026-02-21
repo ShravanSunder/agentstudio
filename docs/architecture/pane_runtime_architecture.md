@@ -667,7 +667,10 @@ struct FileChangeset: Sendable {
 /// Exhaustive mapping of ghostty_action_tag_e → Swift.
 /// Every Ghostty action has exactly one case.
 /// Adapter switch is exhaustive — compiler enforces coverage.
-enum GhosttyEvent: Sendable {
+///
+/// Conforms to PaneKindEvent — self-classifies priority via actionPolicy.
+/// See "Where Priority Lives" section for implementation pattern.
+enum GhosttyEvent: PaneKindEvent {
     // Workspace-facing (coordinator consumes, critical priority)
     case titleChanged(String)
     case cwdChanged(String)
@@ -735,7 +738,8 @@ Each pane kind has its own event enum — exhaustive within that domain, just as
 
 ```swift
 /// Browser/webview events — from WKNavigationDelegate and WKUIDelegate.
-enum BrowserEvent: Sendable {
+/// Conforms to PaneKindEvent — self-classifies priority via actionPolicy.
+enum BrowserEvent: PaneKindEvent {
     // Navigation
     case navigationStarted(url: URL)
     case navigationCompleted(url: URL, statusCode: Int?)
@@ -766,7 +770,8 @@ enum ConsoleLevel: String, Sendable { case log, warn, error, debug, info }
 enum DialogKind: String, Sendable { case alert, confirm, prompt }
 
 /// Diff viewer events — hunk review, approval workflow, commenting.
-enum DiffEvent: Sendable {
+/// Conforms to PaneKindEvent — self-classifies priority via actionPolicy.
+enum DiffEvent: PaneKindEvent {
     // Navigation within diff
     case fileSelected(path: String, hunkIndex: Int?)
     case hunkNavigated(hunkId: String, direction: NavigationDirection)
@@ -800,7 +805,8 @@ struct DiffStats: Sendable {
 }
 
 /// Code editor events — cursor, diagnostics, file lifecycle.
-enum EditorEvent: Sendable {
+/// Conforms to PaneKindEvent — self-classifies priority via actionPolicy.
+enum EditorEvent: PaneKindEvent {
     // Cursor/selection
     case cursorMoved(line: Int, column: Int)
     case selectionChanged(range: TextRange?)
@@ -1120,10 +1126,16 @@ final class RuntimeRegistry {
 /// Routes events through priority-aware processing.
 /// Two completely separate paths — critical and lossy never interact.
 ///
+/// Priority is SELF-CLASSIFIED: each event knows its own ActionPolicy
+/// via the PaneKindEvent protocol. The reducer reads event.actionPolicy
+/// directly — no centralized classify() method. This means plugin events
+/// self-classify without any core code changes.
+///
 /// Event flow:
 ///   Runtime.subscribe() → PaneRuntimeEvent
-///     → Coordinator wraps in PaneEventEnvelope (adds seq, priority, etc.)
-///     → NotificationReducer.submit(envelope, policy)
+///     → Coordinator wraps in PaneEventEnvelope (adds seq, etc.)
+///     → NotificationReducer.submit(envelope)
+///       → reads envelope.event.actionPolicy
 ///       → critical path: immediate yield to consumers
 ///       → lossy path: buffer until next frame, dedup by consolidation key
 ///     → Coordinator consumes from reducer's output streams
@@ -1147,9 +1159,10 @@ final class NotificationReducer {
     let batchedEvents: AsyncStream<[PaneEventEnvelope]>
 
     /// Submit an envelope for processing.
-    /// The coordinator calls this after wrapping raw runtime events.
-    func submit(_ envelope: PaneEventEnvelope, policy: ActionPolicy) {
-        switch policy {
+    /// Priority is read from the event itself — self-classifying.
+    /// Works for built-in AND plugin events without modification.
+    func submit(_ envelope: PaneEventEnvelope) {
+        switch envelope.event.actionPolicy {
         case .critical:
             criticalContinuation.yield(envelope)
 
@@ -1157,99 +1170,13 @@ final class NotificationReducer {
             let key = "\(envelope.paneId):\(consolidationKey)"
             lossyBuffer[key] = envelope     // latest wins
             if lossyBuffer.count > 1000 {
-                // drop oldest by timestamp
-                if let oldest = lossyBuffer.min(by: { $0.value.timestamp < $1.value.timestamp }) {
+                if let oldest = lossyBuffer.min(by: {
+                    $0.value.timestamp < $1.value.timestamp
+                }) {
                     lossyBuffer.removeValue(forKey: oldest.key)
                 }
             }
             ensureFrameTimer()
-        }
-    }
-
-    /// Classify any PaneRuntimeEvent to its ActionPolicy.
-    /// Centralized — runtimes don't decide their own priority.
-    static func classify(_ event: PaneRuntimeEvent) -> ActionPolicy {
-        switch event {
-        // Always critical
-        case .lifecycle:                    return .critical
-        case .filesystem:                   return .critical
-        case .artifact:                     return .critical
-        case .security:                     return .critical
-        case .error:                        return .critical
-
-        // Per-kind classification
-        case .terminal(_, let e):           return classifyTerminal(e)
-        case .browser(_, let e):            return classifyBrowser(e)
-        case .diff(_, let e):               return classifyDiff(e)
-        case .editor(_, let e):             return classifyEditor(e)
-        }
-    }
-
-    private static func classifyTerminal(_ e: GhosttyEvent) -> ActionPolicy {
-        switch e {
-        // Critical: workspace-facing, tab/split, metadata, config
-        case .titleChanged, .cwdChanged, .commandFinished, .bellRang,
-             .desktopNotification, .progressReport, .childExited, .closeSurface,
-             .newTab, .closeTab, .gotoTab, .moveTab, .newSplit, .gotoSplit,
-             .resizeSplit, .equalizeSplits, .toggleSplitZoom,
-             .configReload, .configChanged, .colorChanged, .secureInput,
-             .openConfig, .presentTerminal, .toggleFullscreen,
-             .toggleWindowDecorations, .toggleCommandPalette,
-             .toggleVisibility, .floatWindow, .quitTimer, .undo, .redo:
-            return .critical
-
-        // Lossy: high-frequency viewport/telemetry
-        case .scrollbarChanged:             return .lossy(consolidationKey: "scroll")
-        case .cellSize, .sizeLimits,
-             .initialSize:                  return .lossy(consolidationKey: "size")
-        case .searchStarted, .searchEnded,
-             .searchTotal, .searchSelected: return .lossy(consolidationKey: "search")
-        case .mouseShapeChanged,
-             .mouseVisibilityChanged,
-             .linkHover:                    return .lossy(consolidationKey: "mouse")
-        case .rendererHealth:               return .lossy(consolidationKey: "health")
-        case .keySequence, .keyTable,
-             .readOnly:                     return .lossy(consolidationKey: "input")
-        case .unhandled:                    return .lossy(consolidationKey: "unhandled")
-        }
-    }
-
-    private static func classifyBrowser(_ e: BrowserEvent) -> ActionPolicy {
-        switch e {
-        case .navigationStarted, .navigationCompleted, .navigationFailed,
-             .urlChanged, .titleChanged, .pageLoaded, .pageUnloaded,
-             .linkClicked, .downloadRequested, .dialogRequested,
-             .dialogDismissed, .authChallengeReceived:
-            return .critical
-        case .consoleMessage, .consoleCleared:
-            return .lossy(consolidationKey: "console")
-        case .contentSizeChanged:
-            return .lossy(consolidationKey: "contentSize")
-        }
-    }
-
-    private static func classifyDiff(_ e: DiffEvent) -> ActionPolicy {
-        switch e {
-        case .hunkApproved, .hunkRejected, .fileApproved,
-             .allApproved, .allRejected,
-             .commentAdded, .commentResolved, .commentDeleted,
-             .diffLoaded, .diffUpdated, .diffClosed:
-            return .critical
-        case .fileSelected, .hunkNavigated, .fileListScrolled:
-            return .lossy(consolidationKey: "diffNav")
-        }
-    }
-
-    private static func classifyEditor(_ e: EditorEvent) -> ActionPolicy {
-        switch e {
-        case .contentSaved, .contentReverted,
-             .fileOpened, .fileClosed, .languageDetected,
-             .diagnosticsUpdated, .diagnosticSelected:
-            return .critical
-        case .cursorMoved, .selectionChanged, .visibleRangeChanged:
-            return .lossy(consolidationKey: "cursor")
-        case .contentModified:
-            return .lossy(consolidationKey: "edit")
         }
     }
 
@@ -1277,6 +1204,62 @@ final class NotificationReducer {
 }
 ```
 
+#### Where Priority Lives (self-classifying events)
+
+Priority is NOT centralized in the NotificationReducer. Each per-kind event enum implements `actionPolicy` via the `PaneKindEvent` protocol:
+
+```swift
+// Built-in: GhosttyEvent knows its own priority
+enum GhosttyEvent: PaneKindEvent {
+    case commandFinished(exitCode: Int, duration: UInt64)
+    case scrollbarChanged(ScrollbarState)
+    // ...
+
+    var actionPolicy: ActionPolicy {
+        switch self {
+        case .commandFinished, .bellRang, .titleChanged, .cwdChanged,
+             .newTab, .closeTab /* ... all workspace-facing actions */ :
+            return .critical
+        case .scrollbarChanged:
+            return .lossy(consolidationKey: "scroll")
+        case .mouseShapeChanged, .mouseVisibilityChanged, .linkHover:
+            return .lossy(consolidationKey: "mouse")
+        // ... exhaustive — compiler catches unhandled cases
+        }
+    }
+}
+
+// Plugin: LogViewerEvent knows its own priority too
+struct LogViewerEvent: PaneKindEvent {
+    enum Kind { case lineAppended, filterChanged, sourceRotated }
+    let kind: Kind
+
+    var actionPolicy: ActionPolicy {
+        switch kind {
+        case .lineAppended:  return .lossy(consolidationKey: "logLine")
+        case .filterChanged: return .critical
+        case .sourceRotated: return .critical
+        }
+    }
+    // ...
+}
+
+// PaneRuntimeEvent delegates to the event:
+extension PaneRuntimeEvent {
+    var actionPolicy: ActionPolicy {
+        switch self {
+        case .terminal(_, let e):       return e.actionPolicy
+        case .browser(_, let e):        return e.actionPolicy
+        case .diff(_, let e):           return e.actionPolicy
+        case .editor(_, let e):         return e.actionPolicy
+        case .plugin(_, _, let e):      return e.actionPolicy  // plugins just work
+        case .lifecycle, .filesystem, .artifact, .security, .error:
+            return .critical
+        }
+    }
+}
+```
+
 #### Coordinator Event Loop (how it connects)
 
 ```
@@ -1287,8 +1270,7 @@ final class NotificationReducer {
 │    Task {                                                │
 │      for await event in runtime.subscribe() {            │
 │        let envelope = wrap(event, runtime, nextSeq())    │
-│        let policy = NotificationReducer.classify(event)  │
-│        reducer.submit(envelope, policy: policy)          │
+│        reducer.submit(envelope)  // self-classifying     │
 │        replayBuffer[runtime.paneId].append(envelope)     │
 │      }                                                   │
 │    }                                                     │
@@ -1313,106 +1295,13 @@ final class NotificationReducer {
 └──────────────────────────────────────────────────────────┘
 ```
 
-### Contract 13: Workflow Engine
+### Contract 13: Workflow Engine (deferred)
 
-```swift
-/// Tracks temporal workflows that span multiple panes and events.
-/// "Agent finishes → create diff → user approves → signal next agent"
-///
-/// Owned by PaneCoordinator. Pure state tracking — no domain logic.
-/// The coordinator uses this to know which workflow step to advance
-/// when a matching event arrives.
-///
-/// Restart-safe: on coordinator recovery, replay events from replay
-/// buffers to find the current position of each active workflow.
-@MainActor
-final class WorkflowTracker {
-
-    struct Workflow: Sendable {
-        let correlationId: UUID
-        let steps: [WorkflowStep]
-        var currentStepIndex: Int
-        var state: WorkflowState
-        let createdAt: ContinuousClock.Instant
-    }
-
-    struct WorkflowStep: Sendable {
-        let commandId: UUID
-        let description: String
-        /// What event completes this step. Matched by the tracker.
-        let completionPredicate: StepPredicate
-        var completed: Bool
-    }
-
-    /// How a step is considered complete.
-    enum StepPredicate: Sendable {
-        /// Any event with this commandId
-        case commandCompleted(UUID)
-        /// A specific event kind on a specific pane
-        case eventMatch(paneId: UUID, eventKind: String)
-        /// Approval decision on a specific pane
-        case approvalDecided(paneId: UUID)
-    }
-
-    enum WorkflowState: Sendable {
-        case active
-        case waitingForEvent(stepIndex: Int)
-        case completed
-        case failed(reason: String)
-        case timedOut
-    }
-
-    private var activeWorkflows: [UUID: Workflow] = [:]
-
-    /// Start tracking a new workflow. Returns correlationId.
-    func startWorkflow(steps: [WorkflowStep]) -> UUID { ... }
-
-    /// Process an incoming event. If it matches a step predicate,
-    /// advance the workflow and return what action to take next.
-    func processEvent(_ envelope: PaneEventEnvelope) -> WorkflowAdvance? { ... }
-
-    /// Recovery: replay events to reconstruct workflow positions.
-    /// Called on coordinator restart.
-    func recover(from events: [PaneEventEnvelope]) { ... }
-
-    /// Expire workflows older than TTL. Returns expired correlationIds.
-    func expireStale(ttl: Duration, now: ContinuousClock.Instant) -> [UUID] { ... }
-}
-
-enum WorkflowAdvance: Sendable {
-    /// Step completed, workflow still active. No action needed.
-    case stepCompleted(correlationId: UUID, stepIndex: Int)
-    /// Workflow fully completed. Clean up.
-    case workflowCompleted(correlationId: UUID)
-    /// Step completed, trigger next step's action.
-    case triggerNext(correlationId: UUID, action: PaneActionEnvelope)
-}
-```
-
-#### Workflow Example: Agent Finish → Diff → Approval
-
-```
-Workflow correlationId: abc-123
-Steps:
-  [0] commandFinished on pane-A (terminal)    ← completed by GhosttyEvent
-  [1] loadDiff on pane-D (diff viewer)        ← triggered by coordinator
-  [2] approvalDecided on pane-D               ← completed by user action
-  [3] sendInput on pane-B (next terminal)     ← triggered by coordinator
-
-Event arrives: .terminal(pane-A, .commandFinished(exitCode: 0))
-  → WorkflowTracker matches step [0]
-  → returns .triggerNext(abc-123, loadDiff action on pane-D)
-  → coordinator dispatches DiffAction.loadDiff to pane-D
-
-Event arrives: .diff(pane-D, .diffLoaded(stats))
-  → step [1] marked complete (event match)
-  → returns .stepCompleted (waiting for approval)
-
-Event arrives: .artifact(.approvalDecided(pane-D, .approved))
-  → step [2] matched
-  → returns .triggerNext(abc-123, sendInput action on pane-B)
-  → coordinator sends TerminalAction.sendInput to next agent
-```
+> Full spec extracted to [Workflow Engine Design](../plans/2026-02-21-workflow-engine-design.md).
+>
+> Tracks temporal workflows spanning multiple panes and events ("agent finishes → create diff → user approves → signal next agent"). Owned by PaneCoordinator. Implementation deferred until multi-agent orchestration (JTBD 6) moves to automated cross-agent handoffs.
+>
+> Key types: `WorkflowTracker`, `WorkflowStep`, `StepPredicate`, `WorkflowAdvance`. Integration points: `PaneEventEnvelope.correlationId`, `PaneKindEvent.eventName` for step matching, `EventReplayBuffer` for restart recovery.
 
 ### Contract 14: Replay Buffer
 
