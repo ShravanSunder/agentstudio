@@ -15,15 +15,14 @@ private final class ObservationFlag: @unchecked Sendable {
 /// These tests verify that WorkspaceStore's @Observable macro correctly
 /// triggers `withObservationTracking` callbacks when properties mutate.
 /// This is the core contract the migration depends on — ActiveTabContent,
-/// TabBarAdapter, and TTVC's observeForAppKitState() all rely on this.
+/// TabBarAdapter, and PaneTabViewController's observeForAppKitState() all rely on this.
 @MainActor
 @Suite(.serialized)
 final class ObservableStoreTests {
 
     private var store: WorkspaceStore!
 
-    @BeforeEach
-    func setUp() {
+        init() {
         let persistor = WorkspacePersistor(
             workspacesDir: FileManager.default.temporaryDirectory
                 .appending(path: "obs-tests-\(UUID().uuidString)")
@@ -32,8 +31,7 @@ final class ObservableStoreTests {
         store.restore()
     }
 
-    @AfterEach
-    func tearDown() {
+    deinit {
         store = nil
     }
 
@@ -154,13 +152,13 @@ final class ObservableStoreTests {
 
     /// Verifies that re-registering withObservationTracking after onChange
     /// correctly detects subsequent mutations. This is the pattern used by
-    /// TabBarAdapter.observeStore() and TTVC.observeForAppKitState().
+    /// TabBarAdapter.observeStore() and PaneTabViewController.observeForAppKitState().
     @Test
     func test_observationTracking_reregistration_detectsSubsequentChanges() {
         // Arrange — track only repos (single property, one fire per mutation)
         let flag = ObservationFlag()
 
-        nonisolated func register(store: WorkspaceStore, flag: ObservationFlag) {
+        @Sendable nonisolated func register(store: WorkspaceStore, flag: ObservationFlag) {
             withObservationTracking {
                 _ = MainActor.assumeIsolated { store.repos }
             } onChange: {

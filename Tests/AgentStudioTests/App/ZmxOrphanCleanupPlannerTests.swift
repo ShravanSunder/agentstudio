@@ -7,7 +7,6 @@ import Foundation
 struct ZmxOrphanCleanupPlannerTests {
 
     @Test("returns known session IDs without skip when candidates are resolvable")
-    @Test
     func test_plan_whenAllCandidatesResolvable_returnsKnownSessionIdsWithoutSkip() {
         // Arrange
         let parentPaneId = UUID(uuidString: "AAAAAAAA-AAAA-AAAA-AAAA-AAAAAAAAAAAA")!
@@ -40,7 +39,6 @@ struct ZmxOrphanCleanupPlannerTests {
     }
 
     @Test("marks cleanup skip when any main candidate is unresolvable")
-    @Test
     func test_plan_whenAnyMainCandidateUnresolvable_setsSkipCleanupTrue() {
         // Arrange
         let resolvablePaneId = UUID()

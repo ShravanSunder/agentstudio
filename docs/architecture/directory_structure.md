@@ -164,13 +164,13 @@ Today's `ActionExecutor` + `TerminalViewCoordinator` merges into `PaneCoordinato
 
 **Alternative considered:** Protocol-based `Core/` — define `PaneLifecycleHandler` protocol in Core, features implement it, coordinator dispatches through protocols without importing features. Cleaner dependency graph but more abstraction upfront. We chose `App/` for now (simpler, matches Ghostty's pattern). Can revisit when a third pane type arrives.
 
-### ViewRegistry → `Core/`
+### ViewRegistry → `App/Panes/`
 
 Stores views by pane ID. Doesn't care what type the view is — terminal, bridge, webview. Stores `PaneView` (the base class). Adding a new feature doesn't change ViewRegistry.
 
 **Deletion test:** passes for any single feature. **Change driver:** only changes if the pane registration mechanism itself changes, not when new pane types arrive.
 
-### PaneTabViewController → `Core/`
+### PaneTabViewController → `App/Panes/`
 
 Manages `NSTabViewItems` containing pane views. Handles focus, layout, tab switching. The container doesn't care what's inside — renamed from `TerminalTabViewController` during LUNA-334 restructure.
 

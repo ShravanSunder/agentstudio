@@ -9,16 +9,14 @@ final class WorkspacePersistorTests {
     private var tempDir: URL!
     private var persistor: WorkspacePersistor!
 
-    @BeforeEach
-    func setUp() {
+        init() {
         tempDir = FileManager.default.temporaryDirectory
             .appending(path: "persistor-tests-\(UUID().uuidString)")
         persistor = WorkspacePersistor(workspacesDir: tempDir)
         persistor.ensureDirectory()
     }
 
-    @AfterEach
-    func tearDown() {
+    deinit {
         try? FileManager.default.removeItem(at: tempDir)
     }
 
@@ -248,6 +246,9 @@ final class WorkspacePersistorTests {
         let state = WorkspacePersistor.PersistableState()
 
         // Act & Assert
-        #expect(throws: any Error.self) { try readOnlyPersistor.save(state) }
+        do {
+            try readOnlyPersistor.save(state)
+            #expect(Bool(false), "saving to non-writable path should throw")
+        } catch { }
     }
 }

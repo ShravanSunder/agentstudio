@@ -320,13 +320,14 @@ Maps session IDs to live `AgentStudioTerminalView` instances. Runtime-only (not 
 
 > **File:** `App/Panes/ViewRegistry.swift`
 
-### 3.5 ViewResolver
+### 3.5 Dynamic View Resolution
 
-Resolves dynamic and worktree views at runtime. Pure static methods. `@MainActor`.
+Dynamic and worktree view selection is implemented in the pane composition flow.
+There is no standalone `ViewResolver` type in code; this behavior is owned by the
+`App/Panes` layer.
 
-- `resolveWorktreeView()` — Generate a view showing all sessions for a worktree
-- `resolveDynamic()` — Dispatch to rule-specific resolvers
-- `resolveByRepo()`, `resolveByAgent()`, `resolveCustom()` — Rule implementations
+- `PaneTabViewController` observes app state and renders the active view arrangement.
+- `ViewRegistry` provides session-to-view mapping used by split rendering.
 
 > **File:** `App/Panes/ViewRegistry.swift`
 
@@ -441,18 +442,18 @@ Every state change follows this path:
 ```mermaid
 sequenceDiagram
     participant User
-    participant TTVC as PaneTabViewController
+    participant PaneTabViewController
     participant PC as PaneCoordinator
     participant Store as WorkspaceStore
     participant SM as SurfaceManager
     participant VR as ViewRegistry
 
-    User->>TTVC: keyboard / mouse / drag
-    TTVC->>TTVC: AppCommand / Notification
-    TTVC->>PC: execute(PaneAction)
+    User->>PaneTabViewController: keyboard / mouse / drag
+    PaneTabViewController->>PaneTabViewController: AppCommand / Notification
+    PaneTabViewController->>PC: execute(PaneAction)
     PC->>Store: mutate state (private(set))
     Store-->>Store: @Observable tracks
-    Store-->>TTVC: SwiftUI re-renders
+    Store-->>PaneTabViewController: SwiftUI re-renders
     Store->>Store: markDirty()
     Note over Store: debounced 500ms
     Store->>Store: persistNow() → JSON

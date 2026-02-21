@@ -6,6 +6,11 @@ import Foundation
 @Suite(.serialized)
 final class LayoutMinimizeTests {
 
+    private func expectApproximately(_ actual: Double, equals expected: Double, tolerance: Double) {
+        let difference = abs(actual - expected)
+        #expect(difference <= tolerance, "Expected \(actual) to be within \(tolerance) of \(expected) (difference: \(difference))")
+    }
+
     // MARK: - isFullyMinimized
 
     @Test
@@ -76,7 +81,7 @@ final class LayoutMinimizeTests {
     func test_visibleWeight_singleVisible_returns1() {
         let a = UUID()
         let node = Layout.Node.leaf(paneId: a)
-        #expect(node.visibleWeight(minimizedPaneIds: []) == 1.0, accuracy: 0.001)
+        expectApproximately(node.visibleWeight(minimizedPaneIds: []), equals: 1.0, tolerance: 0.001)
     }
 
     @Test
@@ -84,7 +89,7 @@ final class LayoutMinimizeTests {
     func test_visibleWeight_singleMinimized_returns0() {
         let a = UUID()
         let node = Layout.Node.leaf(paneId: a)
-        #expect(node.visibleWeight(minimizedPaneIds: [a]) == 0.0, accuracy: 0.001)
+        expectApproximately(node.visibleWeight(minimizedPaneIds: [a]), equals: 0.0, tolerance: 0.001)
     }
 
     @Test
@@ -98,7 +103,7 @@ final class LayoutMinimizeTests {
                 left: .leaf(paneId: a), right: .leaf(paneId: b)
             ))
         // B minimized: left weight = 0.5 * 1.0 = 0.5, right = 0.5 * 0.0 = 0
-        #expect(node.visibleWeight(minimizedPaneIds: [b]) == 0.5, accuracy: 0.001)
+        expectApproximately(node.visibleWeight(minimizedPaneIds: [b]), equals: 0.5, tolerance: 0.001)
     }
 
     @Test
@@ -118,7 +123,7 @@ final class LayoutMinimizeTests {
                     ))
             ))
         // B minimized: A=0.33, C=0.67*0.5=0.335, total visible=0.665
-        #expect(node.visibleWeight(minimizedPaneIds: [b]) == 0.665, accuracy: 0.01)
+        expectApproximately(node.visibleWeight(minimizedPaneIds: [b]), equals: 0.665, tolerance: 0.01)
     }
 
     @Test
@@ -131,7 +136,7 @@ final class LayoutMinimizeTests {
                 direction: .horizontal, ratio: 0.5,
                 left: .leaf(paneId: a), right: .leaf(paneId: b)
             ))
-        #expect(node.visibleWeight(minimizedPaneIds: [a, b]) == 0.0, accuracy: 0.001)
+        expectApproximately(node.visibleWeight(minimizedPaneIds: [a, b]), equals: 0.0, tolerance: 0.001)
     }
 
     @Test
@@ -144,7 +149,7 @@ final class LayoutMinimizeTests {
                 direction: .horizontal, ratio: 0.4,
                 left: .leaf(paneId: a), right: .leaf(paneId: b)
             ))
-        #expect(node.visibleWeight(minimizedPaneIds: []) == 1.0, accuracy: 0.001)
+        expectApproximately(node.visibleWeight(minimizedPaneIds: []), equals: 1.0, tolerance: 0.001)
     }
 
     // MARK: - minimizedLeafCount

@@ -160,7 +160,7 @@ final class MockPushTransport: PushTransport {
         }
 
         if pushCount < expectedCount {
-            #expect(false, """
+            #expect(Bool(false), """
                 Timed out waiting for push count (expected at least \(expectedCount), got \
                 \(pushCount)) after \(timeout)
                 """)

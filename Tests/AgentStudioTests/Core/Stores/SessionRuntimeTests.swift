@@ -3,21 +3,14 @@ import Foundation
 
 @testable import AgentStudio
 
-@MainActor
 @Suite(.serialized)
+@MainActor
 final class SessionRuntimeTests {
 
     private var runtime: SessionRuntime!
 
-    @BeforeEach
-    func setUp() {
+        init() {
         runtime = SessionRuntime(healthCheckInterval: 1)
-    }
-
-    @AfterEach
-    func tearDown() {
-        runtime.stopHealthChecks()
-        runtime = nil
     }
 
     // MARK: - Status Queries
@@ -150,9 +143,8 @@ final class SessionRuntimeTests {
     func test_registerBackend_storesCorrectly() {
         let backend = MockSessionRuntimeBackend(provider: .zmx)
         runtime.registerBackend(backend)
-        // No direct way to query backends, but startSession should use it
-        // Tested via integration in startSession tests
-        #expect(true)  // Backend registered without error
+        // No direct way to query backends, but startSession should use it.
+        // Integration coverage for backend registration is in startSession tests.
     }
 
     // MARK: - Backend Operations

@@ -11,7 +11,6 @@ struct ManagementModeTests {
 
     @MainActor
     @Test("defaults to inactive")
-    @Test
     func test_managementMode_defaultsToInactive() {
         // Assert
         let monitor = ManagementModeMonitor.shared
@@ -20,7 +19,6 @@ struct ManagementModeTests {
 
     @MainActor
     @Test("toggles activate and deactivate")
-    @Test
     func test_managementMode_toggleActivatesAndDeactivates() {
         // Arrange
         let monitor = ManagementModeMonitor.shared
@@ -37,7 +35,6 @@ struct ManagementModeTests {
 
     @MainActor
     @Test("deactivate disables mode")
-    @Test
     func test_managementMode_deactivate() {
         // Arrange
         let monitor = ManagementModeMonitor.shared
@@ -52,7 +49,6 @@ struct ManagementModeTests {
 
     @MainActor
     @Test("deactivate is no-op when already inactive")
-    @Test
     func test_managementMode_deactivateWhenAlreadyInactive() {
         // Arrange
         let monitor = ManagementModeMonitor.shared
@@ -67,7 +63,6 @@ struct ManagementModeTests {
 
     @MainActor
     @Test("toggleEditMode has expected command definition")
-    @Test
     func test_toggleEditMode_commandDefinition() {
         // Act
         let def = CommandDispatcher.shared.definition(for: .toggleEditMode)
@@ -83,7 +78,6 @@ struct ManagementModeTests {
 
     @MainActor
     @Test("closePane command requires management mode")
-    @Test
     func test_closePane_requiresManagementMode() {
         // Act
         let def = CommandDispatcher.shared.definition(for: .closePane)
@@ -94,7 +88,6 @@ struct ManagementModeTests {
 
     @MainActor
     @Test("closeTab does not require management mode")
-    @Test
     func test_closeTab_doesNotRequireManagementMode() {
         // Act
         let def = CommandDispatcher.shared.definition(for: .closeTab)
@@ -105,7 +98,6 @@ struct ManagementModeTests {
 
     @MainActor
     @Test("splitRight does not require management mode")
-    @Test
     func test_splitRight_doesNotRequireManagementMode() {
         // Act
         let def = CommandDispatcher.shared.definition(for: .splitRight)
@@ -116,7 +108,6 @@ struct ManagementModeTests {
 
     @MainActor
     @Test("addRepo does not require management mode")
-    @Test
     func test_addRepo_doesNotRequireManagementMode() {
         // Act
         let def = CommandDispatcher.shared.definition(for: .addRepo)

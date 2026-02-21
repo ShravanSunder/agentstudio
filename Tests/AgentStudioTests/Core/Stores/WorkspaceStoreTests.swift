@@ -11,8 +11,7 @@ final class WorkspaceStoreTests {
     private var store: WorkspaceStore!
     private var tempDir: URL!
 
-    @BeforeEach
-    func setUp() {
+        init() {
         // Use a temp directory to avoid polluting real workspace data
         tempDir = FileManager.default.temporaryDirectory
             .appending(path: "workspace-store-tests-\(UUID().uuidString)")
@@ -21,8 +20,7 @@ final class WorkspaceStoreTests {
         store.restore()
     }
 
-    @AfterEach
-    func tearDown() {
+    deinit {
         try? FileManager.default.removeItem(at: tempDir)
         store = nil
     }
@@ -467,7 +465,7 @@ final class WorkspaceStoreTests {
             Issue.record("Expected split")
             return
         }
-        #expect(eqSplit.ratio == 0.5, accuracy: 0.001)
+        #expect(abs((eqSplit.ratio) - (0.5)) <= 0.001)
     }
 
     // MARK: - Compound Operations
@@ -1459,7 +1457,7 @@ final class WorkspaceStoreTests {
             Issue.record("Expected split layout after resize")
             return
         }
-        #expect(updated.ratio == 0.7, accuracy: 0.001)
+        #expect(abs((updated.ratio) - (0.7)) <= 0.001)
     }
 
     // MARK: - resizePaneByDelta

@@ -9,8 +9,7 @@ final class MinimizeLayoutIntegrationTests {
 
     private var store: WorkspaceStore!
 
-    @BeforeEach
-    func setUp() {
+        init() {
         store = WorkspaceStore(
             persistor: WorkspacePersistor(
                 workspacesDir: FileManager.default.temporaryDirectory.appending(path: UUID().uuidString)

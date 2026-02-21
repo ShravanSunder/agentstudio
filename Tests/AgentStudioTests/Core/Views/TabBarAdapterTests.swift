@@ -11,8 +11,7 @@ final class TabBarAdapterTests {
     private var adapter: TabBarAdapter!
     private var tempDir: URL!
 
-    @BeforeEach
-    func setUp() {
+        init() {
         tempDir = FileManager.default.temporaryDirectory
             .appending(path: "adapter-tests-\(UUID().uuidString)")
         let persistor = WorkspacePersistor(workspacesDir: tempDir)
@@ -21,8 +20,7 @@ final class TabBarAdapterTests {
         adapter = TabBarAdapter(store: store)
     }
 
-    @AfterEach
-    func tearDown() {
+    deinit {
         try? FileManager.default.removeItem(at: tempDir)
         adapter = nil
         store = nil
@@ -51,17 +49,22 @@ final class TabBarAdapterTests {
         let tab = Tab(paneId: pane.id)
         store.appendTab(tab)
 
-        // Act — trigger refresh
-        adapter.objectWillChange.send()
-        // The adapter observes store changes; we need to wait for the async task
-        Thread.sleep(forTimeInterval: 0.1)
+        // Act — wait for the async observation pipeline to process
+        let updateDeadline = Date().addingTimeInterval(1.0)
+        while adapter.tabs.count != 1 && Date() < updateDeadline {
+            RunLoop.main.run(until: Date().addingTimeInterval(0.01))
+        }
 
         // Assert
         #expect(adapter.tabs.count == 1)
-        #expect(adapter.tabs[0].id == tab.id)
-        #expect(adapter.tabs[0].title == "MyTerminal")
-        #expect(adapter.tabs[0].displayTitle == "MyTerminal")
-        #expect(!(adapter.tabs[0].isSplit))
+        if let derivedTab = adapter.tabs.first {
+            #expect(derivedTab.id == tab.id)
+            #expect(derivedTab.title == "MyTerminal")
+            #expect(derivedTab.displayTitle == "MyTerminal")
+            #expect(!(derivedTab.isSplit))
+        } else {
+            #expect(false)
+        }
         #expect(adapter.activeTabId == tab.id)
     }
 
@@ -85,9 +88,13 @@ final class TabBarAdapterTests {
 
         // Assert
         #expect(adapter.tabs.count == 1)
-        #expect(adapter.tabs[0].isSplit)
-        #expect(adapter.tabs[0].displayTitle == "Left | Right")
-        #expect(adapter.tabs[0].title == "Left")
+        if let derivedTab = adapter.tabs.first {
+            #expect(derivedTab.isSplit)
+            #expect(derivedTab.displayTitle == "Left | Right")
+            #expect(derivedTab.title == "Left")
+        } else {
+            #expect(false)
+        }
     }
 
     @Test
@@ -112,8 +119,12 @@ final class TabBarAdapterTests {
 
         // Assert
         #expect(adapter.tabs.count == 2)
-        #expect(adapter.tabs[0].id == tab1.id)
-        #expect(adapter.tabs[1].id == tab2.id)
+        if let firstTab = adapter.tabs[safe: 0], let secondTab = adapter.tabs[safe: 1] {
+            #expect(firstTab.id == tab1.id)
+            #expect(secondTab.id == tab2.id)
+        } else {
+            #expect(false)
+        }
     }
 
     @Test
@@ -158,7 +169,11 @@ final class TabBarAdapterTests {
 
         // Assert
         #expect(adapter.tabs.count == 1)
-        #expect(adapter.tabs[0].id == tab2.id)
+        if let remainingTab = adapter.tabs[safe: 0] {
+            #expect(remainingTab.id == tab2.id)
+        } else {
+            #expect(false)
+        }
     }
 
     @Test
@@ -175,7 +190,11 @@ final class TabBarAdapterTests {
         Thread.sleep(forTimeInterval: 0.1)
 
         // Assert
-        #expect(adapter.tabs[0].displayTitle == "Terminal")
+        if let tabItem = adapter.tabs[safe: 0] {
+            #expect(tabItem.displayTitle == "Terminal")
+        } else {
+            #expect(false)
+        }
     }
 
     // MARK: - Transient State
@@ -386,5 +405,11 @@ final class TabBarAdapterTests {
         // Assert
         #expect(adapter.tabs.count == 2)
         #expect(!(adapter.isOverflowing))
+    }
+}
+
+private extension Array {
+    subscript(safe index: Int) -> Element? {
+        indices.contains(index) ? self[index] : nil
     }
 }

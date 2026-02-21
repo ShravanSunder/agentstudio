@@ -99,7 +99,7 @@ final class BridgePaneStateTests {
         if case .bridgePanel(let decodedState) = decoded {
             #expect(decodedState == bridgeState)
         } else {
-            #expect(false, "Expected .bridgePanel, got \(decoded)")
+            #expect(Bool(false), "Expected .bridgePanel, got \(decoded)")
         }
     }
 
@@ -117,7 +117,7 @@ final class BridgePaneStateTests {
             #expect(content.type == "bridgePanel")
             #expect(content.version == 99)
         } else {
-            #expect(false, "Expected .unsupported for malformed bridgePanel state, got \(decoded)")
+            #expect(Bool(false), "Expected .unsupported for malformed bridgePanel state, got \(decoded)")
         }
     }
 }

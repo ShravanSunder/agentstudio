@@ -184,7 +184,10 @@ final class SplitTreeTests {
         let newView = MockTerminalView(name: "new")
 
         // Act & Assert
-        #expect(throws: any Error.self) { try tree.inserting(view: newView, at: target, direction: .right) }
+        do {
+            _ = try tree.inserting(view: newView, at: target, direction: .right)
+            #expect(Bool(false), "inserting into empty tree should throw")
+        } catch { }
     }
 
     @Test
@@ -197,7 +200,10 @@ final class SplitTreeTests {
         let tree = TestSplitTree(view: existing)
 
         // Act & Assert
-        #expect(throws: any Error.self) { try tree.inserting(view: newView, at: wrongTarget, direction: .right) }
+        do {
+            _ = try tree.inserting(view: newView, at: wrongTarget, direction: .right)
+            #expect(Bool(false), "inserting with unknown target should throw")
+        } catch { }
     }
 
     @Test
@@ -342,13 +348,13 @@ final class SplitTreeTests {
             Issue.record("Expected split")
             return
         }
-        #expect(smallSplit.ratio == 0.1, accuracy: 0.001)
+        #expect(abs((smallSplit.ratio) - (0.1)) <= 0.001)
 
         guard case .split(let largeSplit) = tooLarge.root else {
             Issue.record("Expected split")
             return
         }
-        #expect(largeSplit.ratio == 0.9, accuracy: 0.001)
+        #expect(abs((largeSplit.ratio) - (0.9)) <= 0.001)
     }
 
     @Test
@@ -370,13 +376,13 @@ final class SplitTreeTests {
             Issue.record("Expected root split")
             return
         }
-        #expect(rootSplit.ratio == 0.5, accuracy: 0.001, "Root ratio should be unchanged")
+        #expect(abs((rootSplit.ratio) - (0.5)) <= 0.001, "Root ratio should be unchanged")
 
         guard case .split(let nestedSplit) = rootSplit.right else {
             Issue.record("Expected nested split")
             return
         }
-        #expect(nestedSplit.ratio == 0.3, accuracy: 0.001, "Nested ratio should be 0.3")
+        #expect(abs((nestedSplit.ratio) - (0.3)) <= 0.001, "Nested ratio should be 0.3")
     }
 
     // MARK: - Equalize
@@ -402,13 +408,13 @@ final class SplitTreeTests {
             Issue.record("Expected root split")
             return
         }
-        #expect(rootSplit.ratio == 0.5, accuracy: 0.001)
+        #expect(abs((rootSplit.ratio) - (0.5)) <= 0.001)
 
         guard case .split(let nestedSplit) = rootSplit.right else {
             Issue.record("Expected nested split")
             return
         }
-        #expect(nestedSplit.ratio == 0.5, accuracy: 0.001)
+        #expect(abs((nestedSplit.ratio) - (0.5)) <= 0.001)
     }
 
     // MARK: - allViews Ordering

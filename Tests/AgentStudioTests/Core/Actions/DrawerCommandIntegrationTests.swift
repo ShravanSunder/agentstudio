@@ -14,8 +14,7 @@ final class DrawerCommandIntegrationTests {
     private var executor: ActionExecutor!
     private var tempDir: URL!
 
-    @BeforeEach
-    func setUp() {
+        init() {
         tempDir = FileManager.default.temporaryDirectory
             .appending(path: "drawer-cmd-tests-\(UUID().uuidString)")
         let persistor = WorkspacePersistor(workspacesDir: tempDir)
@@ -27,8 +26,7 @@ final class DrawerCommandIntegrationTests {
         executor = ActionExecutor(store: store, viewRegistry: viewRegistry, coordinator: coordinator)
     }
 
-    @AfterEach
-    func tearDown() {
+    deinit {
         try? FileManager.default.removeItem(at: tempDir)
         executor = nil
         coordinator = nil
@@ -222,7 +220,7 @@ final class DrawerCommandIntegrationTests {
             Issue.record("Expected split node after resize")
             return
         }
-        #expect(updatedSplit.ratio == 0.7, accuracy: 0.001)
+        #expect(abs((updatedSplit.ratio) - (0.7)) <= 0.001)
     }
 
     @Test
@@ -249,7 +247,7 @@ final class DrawerCommandIntegrationTests {
             Issue.record("Expected split after equalize")
             return
         }
-        #expect(eqSplit.ratio == 0.5, accuracy: 0.001)
+        #expect(abs((eqSplit.ratio) - (0.5)) <= 0.001)
     }
 
     // MARK: - Multi-Pane Drawer Lifecycle

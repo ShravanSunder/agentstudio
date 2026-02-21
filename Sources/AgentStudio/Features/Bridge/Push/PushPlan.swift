@@ -1,5 +1,6 @@
 import Foundation
 import Observation
+import os.log
 
 /// Result builder for declaring push slices in a PushPlan.
 /// Accepts both `Slice` and `EntitySlice` via type-erased `AnyPushSlice`.
@@ -100,6 +101,8 @@ final class PushPlan<State: Observable & AnyObject> {
 /// previous generation's in-flight tasks are silently dropped.
 @MainActor
 private final class StopGuardedTransport<State: Observable & AnyObject>: PushTransport {
+    private let logger = Logger(subsystem: "com.agentstudio", category: "PushPlan")
+
     private weak var plan: PushPlan<State>?
     private let inner: PushTransport
     private let validGeneration: Int
@@ -114,7 +117,10 @@ private final class StopGuardedTransport<State: Observable & AnyObject>: PushTra
         store: StoreKey, op: PushOp, level: PushLevel,
         revision: Int, epoch: Int, json: Data
     ) async {
-        guard let plan, !plan.isStopped, plan.generation == validGeneration else { return }
+        guard let plan, !plan.isStopped, plan.generation == validGeneration else {
+            logger.debug("StopGuardedTransport dropped push for stale generation or stopped plan")
+            return
+        }
         await inner.pushJSON(
             store: store, op: op, level: level,
             revision: revision, epoch: epoch, json: json

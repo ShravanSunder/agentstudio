@@ -8,8 +8,7 @@ final class ZmxBackendTests {
     private var executor: MockProcessExecutor!
     private var backend: ZmxBackend!
 
-    @BeforeEach
-    func setUp() {
+        init() {
         executor = MockProcessExecutor()
         backend = ZmxBackend(executor: executor, zmxPath: "/usr/local/bin/zmx", zmxDir: "/tmp/zmx-test")
     }

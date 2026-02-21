@@ -94,7 +94,7 @@ final class LayoutTests {
             return
         }
         #expect(split.direction == .horizontal)
-        #expect(split.ratio == 0.5, accuracy: 0.001)
+        #expect(abs((split.ratio) - (0.5)) <= 0.001)
     }
 
     @Test
@@ -332,13 +332,13 @@ final class LayoutTests {
             Issue.record("Expected split")
             return
         }
-        #expect(smallSplit.ratio == 0.1, accuracy: 0.001)
+        #expect(abs((smallSplit.ratio) - (0.1)) <= 0.001)
 
         guard case .split(let largeSplit) = tooLarge.root else {
             Issue.record("Expected split")
             return
         }
-        #expect(largeSplit.ratio == 0.9, accuracy: 0.001)
+        #expect(abs((largeSplit.ratio) - (0.9)) <= 0.001)
     }
 
     @Test
@@ -367,13 +367,13 @@ final class LayoutTests {
             Issue.record("Expected split root")
             return
         }
-        #expect(newRoot.ratio == 0.5, accuracy: 0.001, "Root ratio should be unchanged")
+        #expect(abs((newRoot.ratio) - (0.5)) <= 0.001, "Root ratio should be unchanged")
 
         guard case .split(let newNested) = newRoot.right else {
             Issue.record("Expected nested split")
             return
         }
-        #expect(newNested.ratio == 0.3, accuracy: 0.001)
+        #expect(abs((newNested.ratio) - (0.3)) <= 0.001)
     }
 
     @Test
@@ -393,7 +393,7 @@ final class LayoutTests {
             Issue.record("Expected split")
             return
         }
-        #expect(split.ratio == 0.5, accuracy: 0.001, "Ratio should be unchanged")
+        #expect(abs((split.ratio) - (0.5)) <= 0.001, "Ratio should be unchanged")
     }
 
     // MARK: - Equalize
@@ -429,13 +429,13 @@ final class LayoutTests {
             Issue.record("Expected root split")
             return
         }
-        #expect(eqRoot.ratio == 0.5, accuracy: 0.001)
+        #expect(abs((eqRoot.ratio) - (0.5)) <= 0.001)
 
         guard case .split(let eqNested) = eqRoot.right else {
             Issue.record("Expected nested split")
             return
         }
-        #expect(eqNested.ratio == 0.5, accuracy: 0.001)
+        #expect(abs((eqNested.ratio) - (0.5)) <= 0.001)
     }
 
     // MARK: - Pane IDs Ordering
@@ -704,7 +704,7 @@ final class LayoutTests {
             return
         }
         #expect(decodedSplit.direction == .horizontal)
-        #expect(decodedSplit.ratio == 0.3, accuracy: 0.001)
+        #expect(abs((decodedSplit.ratio) - (0.3)) <= 0.001)
         #expect(decodedSplit.id == originalSplit.id)
     }
 
@@ -737,14 +737,14 @@ final class LayoutTests {
             return
         }
         #expect(decodedRoot.direction == .horizontal)
-        #expect(decodedRoot.ratio == 0.4, accuracy: 0.001)
+        #expect(abs((decodedRoot.ratio) - (0.4)) <= 0.001)
 
         guard case .split(let decodedNested) = decodedRoot.right else {
             Issue.record("Expected nested split")
             return
         }
         #expect(decodedNested.direction == .vertical)
-        #expect(decodedNested.ratio == 0.5, accuracy: 0.001)
+        #expect(abs((decodedNested.ratio) - (0.5)) <= 0.001)
     }
 
     // MARK: - Hashable
@@ -786,7 +786,7 @@ final class LayoutTests {
         )
 
         // Assert
-        #expect(split.ratio == 0.1, accuracy: 0.001)
+        #expect(abs((split.ratio) - (0.1)) <= 0.001)
     }
 
     @Test
@@ -801,7 +801,7 @@ final class LayoutTests {
         )
 
         // Assert
-        #expect(split.ratio == 0.9, accuracy: 0.001)
+        #expect(abs((split.ratio) - (0.9)) <= 0.001)
     }
 
     @Test
@@ -816,7 +816,7 @@ final class LayoutTests {
         )
 
         // Assert
-        #expect(split.ratio == 0.7, accuracy: 0.001)
+        #expect(abs((split.ratio) - (0.7)) <= 0.001)
     }
 
 }

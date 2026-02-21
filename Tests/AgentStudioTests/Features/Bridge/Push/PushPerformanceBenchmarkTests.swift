@@ -91,7 +91,7 @@ final class PushPerformanceBenchmarkTests {
 
         #expect(transport.pushCount > baselinePushCount)
         guard let pushInstant = transport.lastPushInstant else {
-            #expect(false, "Transport should have recorded a push timestamp")
+            #expect(Bool(false), "Transport should have recorded a push timestamp")
             plan.stop()
             return
         }
@@ -123,7 +123,7 @@ final class PushPerformanceBenchmarkTests {
 
         #expect(transport.pushCount > baselinePushCount)
         guard let pushInstant = transport.lastPushInstant else {
-            #expect(false, "Transport should have recorded a push timestamp")
+            #expect(Bool(false), "Transport should have recorded a push timestamp")
             plan.stop()
             return
         }
@@ -165,7 +165,7 @@ final class PushPerformanceBenchmarkTests {
 
         #expect(transport.pushCount > baselinePushCount, "Single-file version bump should trigger a push")
         guard let pushInstant = transport.lastPushInstant else {
-            #expect(false, "Transport should have recorded a push timestamp")
+            #expect(Bool(false), "Transport should have recorded a push timestamp")
             plan.stop()
             return
         }
@@ -266,7 +266,7 @@ final class PushPerformanceBenchmarkTests {
 
         #expect(transport.pushCount > baselinePushCount)
         guard let pushInstant = transport.lastPushInstant else {
-            #expect(false, "Transport should have recorded a push timestamp")
+            #expect(Bool(false), "Transport should have recorded a push timestamp")
             plan.stop()
             return
         }

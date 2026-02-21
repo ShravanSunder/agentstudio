@@ -241,7 +241,7 @@ final class ObservationSpikeTests {
     private func waitForCondition(
         timeout: Duration = .seconds(2),
         pollInterval: Duration = .milliseconds(10),
-        condition: @Sendable () -> Bool
+        condition: () -> Bool
     ) async throws -> Bool {
         let clock = ContinuousClock()
         let deadline = clock.now.advanced(by: timeout)

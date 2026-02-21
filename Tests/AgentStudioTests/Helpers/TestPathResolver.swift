@@ -11,6 +11,8 @@ enum TestPathResolver {
             }
         }
 
-        return current.path
+        preconditionFailure(
+            "Failed to find Package.swift while resolving project root from: \(filePath). Checked 20 ancestors."
+        )
     }
 }

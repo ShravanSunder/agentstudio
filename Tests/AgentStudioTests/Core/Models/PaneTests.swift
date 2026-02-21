@@ -208,7 +208,7 @@ final class PaneTests {
         let decoded = try decoder.decode(Pane.self, from: data)
 
         if case .pendingUndo(let decodedExpiry) = decoded.residency {
-            #expect(decodedExpiry.timeIntervalSince1970 == expiry.timeIntervalSince1970, accuracy: 0.001)
+            #expect(abs((decodedExpiry.timeIntervalSince1970) - (expiry.timeIntervalSince1970)) <= 0.001)
         } else {
             Issue.record("Expected .pendingUndo residency")
         }
@@ -244,9 +244,10 @@ final class PaneTests {
         )
 
         let currentData = try encoder.encode(pane)
-        var legacyObject = try #require(
-            JSONSerialization.jsonObject(with: currentData) as? [String: Any]
-        )
+        guard var legacyObject = try JSONSerialization.jsonObject(with: currentData) as? [String: Any] else {
+            Issue.record("Expected pane JSON dictionary")
+            return
+        }
         legacyObject.removeValue(forKey: "kind")
         legacyObject["drawer"] = try JSONSerialization.jsonObject(with: encoder.encode(drawer))
 
@@ -270,9 +271,10 @@ final class PaneTests {
         )
 
         let currentData = try encoder.encode(pane)
-        var legacyObject = try #require(
-            JSONSerialization.jsonObject(with: currentData) as? [String: Any]
-        )
+        guard var legacyObject = try JSONSerialization.jsonObject(with: currentData) as? [String: Any] else {
+            Issue.record("Expected pane JSON dictionary")
+            return
+        }
         legacyObject.removeValue(forKey: "kind")
         legacyObject.removeValue(forKey: "drawer")
 

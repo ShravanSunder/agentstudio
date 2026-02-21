@@ -72,6 +72,11 @@ final class ZmxTestHarness {
 
     /// Clean up all sessions in the test ZMX_DIR and remove the temp directory.
     func cleanup() async {
+        // Always attempt process + directory cleanup, even when zmx isn't available.
+        defer {
+            try? FileManager.default.removeItem(atPath: zmxDir)
+        }
+
         guard let zmxPath else { return }
 
         // Kill all sessions in our isolated ZMX_DIR
@@ -106,8 +111,7 @@ final class ZmxTestHarness {
 
         terminateSpawnedProcesses()
 
-        // Remove the temp directory
-        try? FileManager.default.removeItem(atPath: zmxDir)
+        // Remove the temp directory in defer.
     }
 
     /// Spawn a zmx attach command against a real zmx daemon.
@@ -141,10 +145,10 @@ final class ZmxTestHarness {
 
     /// Walk up from the test binary to find vendor/zmx/zig-out/bin/zmx.
     private static func findVendoredZmx() -> String? {
-        // The test binary is deep inside .build/; walk up to find the project root.
-        var dir = URL(fileURLWithPath: #filePath)  // .../Tests/AgentStudioTests/Helpers/ZmxTestHarness.swift
-        for _ in 0..<4 { dir = dir.deletingLastPathComponent() }  // → project root
-        let candidate = dir.appendingPathComponent("vendor/zmx/zig-out/bin/zmx").path
+        let projectRoot = TestPathResolver.projectRoot(from: #filePath)
+        let candidate = URL(fileURLWithPath: projectRoot)
+            .appendingPathComponent("vendor/zmx/zig-out/bin/zmx")
+            .path
         return FileManager.default.isExecutableFile(atPath: candidate) ? candidate : nil
     }
 
@@ -179,14 +183,14 @@ final class ZmxTestHarness {
                 processGroup > 0,
                 processGroup != parentGroup
             {
-                _ = Darwin.kill(-processGroup, SIGKILL)
+                terminateProcess(-processGroup, signal: SIGKILL)
             } else {
                 let descendants = collectDescendantProcessIDs(
                     of: entry.processID
                 )
                 for pid in ([entry.processID] + descendants).reversed() {
                     if pid > 0 {
-                        _ = Darwin.kill(pid, SIGKILL)
+                        terminateProcess(pid, signal: SIGKILL)
                     }
                 }
             }
@@ -218,33 +222,76 @@ final class ZmxTestHarness {
     }
 
     private func childProcessIDs(of parentPID: pid_t) -> [pid_t] {
+        let pgrepPath = "/usr/bin/pgrep"
+        guard FileManager.default.isExecutableFile(atPath: pgrepPath) else {
+            logError("pgrep is not executable at \(pgrepPath); cannot enumerate child processes")
+            return []
+        }
+
         let process = Process()
-        process.executableURL = URL(fileURLWithPath: "/usr/bin/pgrep")
+        process.executableURL = URL(fileURLWithPath: pgrepPath)
         process.arguments = ["-P", "\(parentPID)"]
-        process.standardOutput = Pipe()
-        process.standardError = FileHandle.nullDevice
+
+        let outputPipe = Pipe()
+        let errorPipe = Pipe()
+        process.standardOutput = outputPipe
+        process.standardError = errorPipe
 
         do {
             try process.run()
+            let outputData = try outputPipe.fileHandleForReading.readToEnd() ?? Data()
+            let errorData = try errorPipe.fileHandleForReading.readToEnd() ?? Data()
             process.waitUntilExit()
-            guard process.terminationStatus == 0 else { return [] }
 
-            guard
-                let outputData = (process.standardOutput as? Pipe)?
-                    .fileHandleForReading
-                    .readDataToEndOfFile(),
-                let output = String(data: outputData, encoding: .utf8)
-            else {
+            switch process.terminationStatus {
+            case 0:
+                guard let output = String(data: outputData, encoding: .utf8) else {
+                    logError("pgrep produced non-UTF8 output for parent PID \(parentPID)")
+                    return []
+                }
+                return output
+                    .split(whereSeparator: \.isNewline)
+                    .compactMap { Int32($0.trimmingCharacters(in: .whitespacesAndNewlines)) }
+                    .map { pid_t($0) }
+
+            case 1:
+                return []
+
+            default:
+                let stderr = String(data: errorData, encoding: .utf8)?
+                    .trimmingCharacters(in: .whitespacesAndNewlines)
+                let details = stderr.map { " stderr=\($0)" } ?? ""
+                logError("pgrep failed for parent PID \(parentPID) with exit status \(process.terminationStatus).\(details)")
                 return []
             }
-
-            return
-                output
-                .split(whereSeparator: \.isNewline)
-                .compactMap { Int32($0.trimmingCharacters(in: .whitespacesAndNewlines)) }
-                .map { pid_t($0) }
         } catch {
+            logError("pgrep invocation failed for parent PID \(parentPID): \(error)")
             return []
+        }
+    }
+
+    private func terminateProcess(_ pid: pid_t, signal: Int32) {
+        guard pid != 0 else { return }
+        let result = Darwin.kill(pid, signal)
+        if result == 0 { return }
+
+        let code = errno
+        let message = String(cString: strerror(code))
+        if code == ESRCH {
+            return
+        }
+
+        if code == EPERM {
+            logError("kill permission denied for pid \(pid) with signal \(signal): \(message) (errno \(code))")
+            return
+        }
+
+        logError("failed to kill pid \(pid) with signal \(signal): \(message) (errno \(code))")
+    }
+
+    private func logError(_ message: String) {
+        if let data = "[ZmxTestHarness] \(message)\n".data(using: .utf8) {
+            FileHandle.standardError.write(data)
         }
     }
 

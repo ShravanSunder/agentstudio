@@ -84,7 +84,7 @@ final class BridgeWebKitSpikeTests {
         let worldB = WKContentWorld.world(name: "agentStudioBridge")
 
         // Assert -- same name should return the same (identical) world object
-        #expect(worldA != nil)
+        
         #expect(worldA === worldB, "WKContentWorld.world(name:) with the same name should return the identical object")
     }
 
@@ -408,7 +408,7 @@ final class BridgeWebKitSpikeTests {
             try await Task.sleep(for: .milliseconds(100))
         }
         guard !page.isLoading else {
-            #expect(false, "Page did not finish loading within \(timeout)")
+            #expect(Bool(false), "Page did not finish loading within \(timeout)")
             return
         }
         // Settle time for WebKit internals after isLoading flips

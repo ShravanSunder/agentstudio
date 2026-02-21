@@ -14,7 +14,7 @@ struct OAuthServiceTests {
 
     @Test
     func test_githubConfigExists() {
-        let config = #require(OAuthService.providerConfigs[.github])
+        let config = OAuthService.providerConfigs[.github]!
         #expect(config.authorizeURL.contains("github.com"))
         #expect(!config.clientId.isEmpty)
         #expect(!config.scopes.isEmpty)
@@ -23,7 +23,7 @@ struct OAuthServiceTests {
 
     @Test
     func test_googleConfigExists() {
-        let config = #require(OAuthService.providerConfigs[.google])
+        let config = OAuthService.providerConfigs[.google]!
         #expect(config.authorizeURL.contains("accounts.google.com"))
         #expect(!config.clientId.isEmpty)
         #expect(!config.scopes.isEmpty)
@@ -140,14 +140,14 @@ struct OAuthServiceTests {
     @Test
     func test_stateMismatchError_description() {
         let error = OAuthError.stateMismatch
-        #expect(#require(error.errorDescription).contains("CSRF"))
+        #expect( (error.errorDescription?.contains("CSRF") ?? false) )
     }
 
 
     @Test
     func test_invalidCallbackError_description() {
         let error = OAuthError.invalidCallback
-        #expect(#require(error.errorDescription).contains("callback"))
+        #expect( (error.errorDescription?.contains("callback") ?? false) )
     }
 
     // MARK: - isCancelled
@@ -183,7 +183,7 @@ struct OAuthServiceTests {
     func test_sessionFailed_includesInnerErrorDescription() {
         let inner = NSError(domain: "test", code: 42, userInfo: [NSLocalizedDescriptionKey: "connection lost"])
         let error = OAuthError.sessionFailed(inner)
-        #expect(#require(error.errorDescription).contains("connection lost"))
+        #expect( (error.errorDescription?.contains("connection lost") ?? false) )
     }
 
     // MARK: - Callback Validation (Security)
@@ -308,21 +308,24 @@ struct OAuthServiceTests {
         // Current config uses placeholders — this test documents that OAuth
         // won't work until real client IDs are configured.
         let config = OAuthService.providerConfigs[.github]!
-        #expect(#require(config).clientId.hasPrefix("PLACEHOLDER"))
+        #expect(config.clientId.hasPrefix("PLACEHOLDER"))
     }
 
 
     @Test
     func test_googleClientId_isPlaceholder() {
         let config = OAuthService.providerConfigs[.google]!
-        #expect(#require(config).clientId.hasPrefix("PLACEHOLDER"))
+        #expect(config.clientId.hasPrefix("PLACEHOLDER"))
     }
 
 
     @Test
     func test_notConfigured_errorDescription_includesProvider() {
         let error = OAuthError.notConfigured(.github)
-        let description = #require(error.errorDescription)
+        #expect(error.errorDescription != nil)
+        guard let description = error.errorDescription else {
+            return
+        }
         #expect(description.contains("github"))
         #expect(description.contains("not configured"))
     }

@@ -102,7 +102,7 @@ final class SplitRenderInfoTests {
         let outerInfo = info.splitInfo[outerSplitId]!
         #expect(!(outerInfo.leftFullyMinimized))
         #expect(!(outerInfo.rightFullyMinimized))
-        #expect(outerInfo.adjustedRatio == 0.496, accuracy: 0.01)
+        #expect(abs((outerInfo.adjustedRatio) - (0.496)) <= 0.01)
 
         // Inner split: left (B) is fully minimized, right (C) is visible
         let innerInfo = info.splitInfo[innerSplitId]!
@@ -251,11 +251,11 @@ final class SplitRenderInfoTests {
         let outerInfo = info.splitInfo[outerSplitId]!
 
         // adjustedRatio should be 0.667 (left gets more space)
-        #expect(outerInfo.adjustedRatio == 0.667, accuracy: 0.01)
+        #expect(abs((outerInfo.adjustedRatio) - (0.667)) <= 0.01)
 
         // Round-trip: converting adjustedRatio back should give original model ratio
         let recovered = outerInfo.modelRatio(fromRenderRatio: outerInfo.adjustedRatio)
-        #expect(recovered == 0.5, accuracy: 0.001)
+        #expect(abs((recovered) - (0.5)) <= 0.001)
     }
 
     @Test
@@ -272,8 +272,8 @@ final class SplitRenderInfoTests {
             rightVisibleWeight: 1.0
         )
 
-        #expect(splitInfo.modelRatio(fromRenderRatio: 0.3) == 0.3, accuracy: 0.001)
-        #expect(splitInfo.modelRatio(fromRenderRatio: 0.7) == 0.7, accuracy: 0.001)
+        #expect(abs((splitInfo.modelRatio(fromRenderRatio: 0.3)) - (0.3)) <= 0.001)
+        #expect(abs((splitInfo.modelRatio(fromRenderRatio: 0.7)) - (0.7)) <= 0.001)
     }
 
     @Test
@@ -310,6 +310,6 @@ final class SplitRenderInfoTests {
         )
 
         let recovered = splitInfo.modelRatio(fromRenderRatio: 0.727)
-        #expect(recovered == 0.4, accuracy: 0.01)
+        #expect(abs((recovered) - (0.4)) <= 0.01)
     }
 }

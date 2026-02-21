@@ -43,6 +43,6 @@ struct ActiveTabContent: View {
                 viewRegistry: viewRegistry
             )
         }
-        // Empty/no-tab state handled by AppKit (TTVC toggles NSView visibility)
+        // Empty/no-tab state handled by AppKit (PaneTabViewController toggles NSView visibility)
     }
 }

@@ -11,7 +11,7 @@ final class RPCRouter {
 
     // MARK: - Private State
 
-    private var handlers: [String: @Sendable ([String: Any]) async throws -> Void] = [:]
+    private var handlers: [String: ([String: Any]) async throws -> Void] = [:]
     private var seenCommandIds: [String] = []
     private let maxCommandIdHistory = 100
 
@@ -31,7 +31,7 @@ final class RPCRouter {
     ///
     /// The handler receives the `params` dictionary from the JSON-RPC envelope.
     /// Only one handler per method name; later registrations replace earlier ones.
-    func register(_ method: String, handler: @escaping @Sendable ([String: Any]) -> Void) {
+    func register(_ method: String, handler: @escaping ([String: Any]) async throws -> Void) {
         handlers[method] = handler
     }
 

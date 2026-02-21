@@ -11,7 +11,6 @@ let package = Package(
     ],
     dependencies: [
         .package(url: "https://github.com/apple/swift-async-algorithms", from: "1.0.0"),
-        .package(url: "https://github.com/swiftlang/swift-testing", from: "0.12.0"),
     ],
     targets: [
         .executableTarget(
@@ -56,7 +55,6 @@ let package = Package(
             dependencies: [
                 "AgentStudio",
                 .product(name: "AsyncAlgorithms", package: "swift-async-algorithms"),
-                .product(name: "Testing", package: "swift-testing"),
             ],
             path: "Tests/AgentStudioTests",
             swiftSettings: [

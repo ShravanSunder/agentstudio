@@ -9,8 +9,7 @@ final class WorkspaceStoreDrawerTests {
 
     private var store: WorkspaceStore!
 
-    @BeforeEach
-    func setUp() {
+        init() {
         store = WorkspaceStore(
             persistor: WorkspacePersistor(
                 workspacesDir: FileManager.default.temporaryDirectory.appending(path: UUID().uuidString)))
@@ -245,7 +244,7 @@ final class WorkspaceStoreDrawerTests {
 
         // Assert
         let updated = store.pane(pane.id)!.drawer!
-        #expect(updated.layout.ratioForSplit(split.id) ?? 0 == 0.7, accuracy: 0.01)
+        #expect(abs((updated.layout.ratioForSplit(split.id) ?? 0) - (0.7)) <= 0.01)
     }
 
     @Test
@@ -268,7 +267,7 @@ final class WorkspaceStoreDrawerTests {
 
         // Assert
         let updated = store.pane(pane.id)!.drawer!
-        #expect(updated.layout.ratioForSplit(split.id) ?? 0 == 0.5, accuracy: 0.01)
+        #expect(abs((updated.layout.ratioForSplit(split.id) ?? 0) - (0.5)) <= 0.01)
     }
 
     // MARK: - minimizeDrawerPane / expandDrawerPane

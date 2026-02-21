@@ -11,15 +11,13 @@ final class CommandBarStateTests {
 
     private static let recentsKey = "CommandBarRecentItemIds"
 
-    @BeforeEach
-    private func setUp() {
+        init() {
         // Isolate UserDefaults — clear recents key before each test
         UserDefaults.standard.removeObject(forKey: Self.recentsKey)
         state = CommandBarState()
     }
 
-    @AfterEach
-    private func tearDown() {
+    deinit {
         // Clean up UserDefaults after each test
         UserDefaults.standard.removeObject(forKey: Self.recentsKey)
         state = nil

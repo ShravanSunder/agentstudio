@@ -12,8 +12,8 @@ struct CommandBarSearchTests {
         let result = CommandBarSearch.fuzzyMatch(pattern: "Close Tab", in: "Close Tab")
 
         // Assert
-        #expect(result != nil)
-        #expect(#require(result).score < 0.3)
+        guard let result else { Issue.record("Expected fuzzy match result"); return }
+        #expect(result.score < 0.3)
     }
 
     @Test
@@ -22,8 +22,8 @@ struct CommandBarSearchTests {
         let result = CommandBarSearch.fuzzyMatch(pattern: "clo", in: "Close Tab")
 
         // Assert
-        #expect(result != nil)
-        #expect(#require(result).score < 0.5)
+        guard let result else { Issue.record("Expected fuzzy match result"); return }
+        #expect(result.score < 0.5)
     }
 
     @Test
@@ -50,9 +50,9 @@ struct CommandBarSearchTests {
         let result = CommandBarSearch.fuzzyMatch(pattern: "", in: "Close Tab")
 
         // Assert
-        #expect(result != nil)
-        #expect(#require(result).score == 0.0)
-        #expect(#require(result).matchedRanges.isEmpty)
+        guard let result else { Issue.record("Expected fuzzy match result"); return }
+        #expect(result.score == 0.0)
+        #expect(result.matchedRanges.isEmpty)
     }
 
     @Test
@@ -73,9 +73,9 @@ struct CommandBarSearchTests {
         let scattered = CommandBarSearch.fuzzyMatch(pattern: "st", in: "Split Right")
 
         // Assert — both match, but consecutive should score better (lower)
-        #expect(consecutive != nil)
-        #expect(scattered != nil)
-        #expect(#require(consecutive).score < #require(scattered).score)
+        guard let consecutive else { Issue.record("Expected consecutive match"); return }
+        guard let scattered else { Issue.record("Expected scattered match"); return }
+        #expect(consecutive.score < scattered.score)
     }
 
     @Test
@@ -85,9 +85,9 @@ struct CommandBarSearchTests {
         let midWord = CommandBarSearch.fuzzyMatch(pattern: "pi", in: "Split Right")
 
         // Assert — word start (S + R) should score better
-        #expect(wordStart != nil)
-        #expect(midWord != nil)
-        #expect(#require(wordStart).score < #require(midWord).score)
+        guard let wordStart else { Issue.record("Expected word-start match"); return }
+        guard let midWord else { Issue.record("Expected mid-word match"); return }
+        #expect(wordStart.score < midWord.score)
     }
 
     // MARK: - Fuzzy Match — Ranges
@@ -98,8 +98,8 @@ struct CommandBarSearchTests {
         let result = CommandBarSearch.fuzzyMatch(pattern: "ct", in: "Close Tab")
 
         // Assert
-        #expect(result != nil)
-        #expect(#require(result).matchedRanges.isEmpty == false)
+        guard let result else { Issue.record("Expected fuzzy match result"); return }
+        #expect(result.matchedRanges.isEmpty == false)
     }
 
     @Test
@@ -108,8 +108,8 @@ struct CommandBarSearchTests {
         let result = CommandBarSearch.fuzzyMatch(pattern: "Clo", in: "Close Tab")
 
         // Assert — "Clo" should produce 1 contiguous range
-        #expect(result != nil)
-        #expect(#require(result).matchedRanges.count == 1)
+        guard let result else { Issue.record("Expected fuzzy match result"); return }
+        #expect(result.matchedRanges.count == 1)
     }
 
     @Test
@@ -118,8 +118,8 @@ struct CommandBarSearchTests {
         let result = CommandBarSearch.fuzzyMatch(pattern: "ct", in: "Close Tab")
 
         // Assert — "C" and "T" are non-contiguous → 2 ranges
-        #expect(result != nil)
-        #expect(#require(result).matchedRanges.count == 2)
+        guard let result else { Issue.record("Expected fuzzy match result"); return }
+        #expect(result.matchedRanges.count == 2)
     }
 
     // MARK: - Score Item
@@ -145,8 +145,8 @@ struct CommandBarSearchTests {
         let score = CommandBarSearch.scoreItem(item, query: "close")
 
         // Assert
-        #expect(score != nil)
-        #expect(#require(score) < 0.7)
+        guard let score else { Issue.record("Expected score for matching title"); return }
+        #expect(score < 0.7)
     }
 
     @Test
@@ -195,9 +195,9 @@ struct CommandBarSearchTests {
         let scoreWithRecent = CommandBarSearch.scoreItem(item, query: "close", recentIds: ["recent-item"])
 
         // Assert — recent item should score better (lower)
-        #expect(scoreWithoutRecent != nil)
-        #expect(scoreWithRecent != nil)
-        #expect(#require(scoreWithRecent) < #require(scoreWithoutRecent))
+        guard let scoreWithoutRecent else { Issue.record("Expected baseline score"); return }
+        guard let scoreWithRecent else { Issue.record("Expected boosted score"); return }
+        #expect(scoreWithRecent < scoreWithoutRecent)
     }
 
     // MARK: - Filter
