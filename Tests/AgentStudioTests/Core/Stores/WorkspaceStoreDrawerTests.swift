@@ -203,7 +203,7 @@ final class WorkspaceStoreDrawerTests {
     func test_setActiveDrawerPane_switches() {
         let pane = store.createPane(source: .floating(workingDirectory: nil, title: nil))
         let dp1 = store.addDrawerPane(to: pane.id)!
-        let dp2 = store.addDrawerPane(to: pane.id)!
+        _ = store.addDrawerPane(to: pane.id)!
 
         store.setActiveDrawerPane(dp1.id, in: pane.id)
 
@@ -229,8 +229,8 @@ final class WorkspaceStoreDrawerTests {
     func test_resizeDrawerPane_updatesLayout() {
         // Arrange
         let pane = store.createPane(source: .floating(workingDirectory: nil, title: nil))
-        let dp1 = store.addDrawerPane(to: pane.id)!
-        let dp2 = store.addDrawerPane(to: pane.id)!
+        _ = store.addDrawerPane(to: pane.id)!
+        _ = store.addDrawerPane(to: pane.id)!
 
         // Find the split ID
         let drawer = store.pane(pane.id)!.drawer!
