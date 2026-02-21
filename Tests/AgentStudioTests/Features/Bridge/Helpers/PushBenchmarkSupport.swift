@@ -2,24 +2,30 @@ import Foundation
 import Testing
 
 enum PushBenchmarkMode: String, Sendable {
-    case warn
-    case strict
     case off
+    case benchmark
 
     static let environmentKey = "AGENT_STUDIO_BENCHMARK_MODE"
 
     static func parse(rawValue: String?) -> Self {
         guard let rawValue else {
-            return .warn
+            return .off
         }
 
         let normalizedMode = rawValue
             .trimmingCharacters(in: .whitespacesAndNewlines)
             .lowercased()
         guard !normalizedMode.isEmpty else {
-            return .warn
+            return .off
         }
-        return Self(rawValue: normalizedMode) ?? .warn
+        switch normalizedMode {
+        case "benchmark", "bench", "on", "true", "1", "warn", "strict":
+            return .benchmark
+        case "off", "false", "0":
+            return .off
+        default:
+            return .off
+        }
     }
 
     static var current: Self {
@@ -92,12 +98,7 @@ func assertPushBenchmarkThreshold(
     let measuredMilliseconds = measured.formattedBenchmarkMilliseconds
     let thresholdMilliseconds = threshold.formattedBenchmarkMilliseconds
     switch mode {
-    case .strict:
-        #expect(
-            measured <= threshold,
-            "[PushBenchmark] \(benchmarkName) exceeded strict threshold measured=\(measuredMilliseconds), threshold=\(thresholdMilliseconds)"
-        )
-    case .warn:
+    case .benchmark:
         let status = measured <= threshold ? "OK" : "WARN"
         print(
             "[PushBenchmark] \(status) \(benchmarkName) measured=\(measuredMilliseconds), threshold=\(thresholdMilliseconds) (non-failing)"

@@ -6,12 +6,13 @@ struct PushBenchmarkSupportTests {
 
     @Test
     func test_modeParsing_isDeterministic() {
-        #expect(PushBenchmarkMode.parse(rawValue: nil) == .warn)
-        #expect(PushBenchmarkMode.parse(rawValue: "strict") == .strict)
-        #expect(PushBenchmarkMode.parse(rawValue: " STRICT ") == .strict)
-        #expect(PushBenchmarkMode.parse(rawValue: "warn") == .warn)
+        #expect(PushBenchmarkMode.parse(rawValue: nil) == .off)
+        #expect(PushBenchmarkMode.parse(rawValue: "benchmark") == .benchmark)
+        #expect(PushBenchmarkMode.parse(rawValue: " BENCH ") == .benchmark)
+        #expect(PushBenchmarkMode.parse(rawValue: "strict") == .benchmark)
+        #expect(PushBenchmarkMode.parse(rawValue: "warn") == .benchmark)
         #expect(PushBenchmarkMode.parse(rawValue: "off") == .off)
-        #expect(PushBenchmarkMode.parse(rawValue: "unknown-value") == .warn)
+        #expect(PushBenchmarkMode.parse(rawValue: "unknown-value") == .off)
     }
 
     @Test

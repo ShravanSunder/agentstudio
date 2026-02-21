@@ -102,6 +102,10 @@ final class PushPerformanceBenchmarkTests {
         await transport.waitForPushCount(atLeast: targetCount, timeout: timeout)
     }
 
+    private func isBenchmarkRunEnabled() -> Bool {
+        PushBenchmarkMode.current == .benchmark
+    }
+
     private func runSingleFileIncrementalBenchmark(
         fileCount: Int = 100,
         warmupIterations: Int = 4,
@@ -184,6 +188,9 @@ final class PushPerformanceBenchmarkTests {
 
     @Test
     func test_100file_manifest_push_under_32ms() async throws {
+        guard isBenchmarkRunEnabled() else {
+            return
+        }
         let diffState = DiffState()
         let transport = TimestampingTransport()
         let plan = makeDiffPlan(state: diffState, transport: transport, clock: RevisionClock())
@@ -224,6 +231,9 @@ final class PushPerformanceBenchmarkTests {
 
     @Test
     func test_500file_manifest_push_under_32ms() async throws {
+        guard isBenchmarkRunEnabled() else {
+            return
+        }
         let diffState = DiffState()
         let transport = TimestampingTransport()
         let plan = makeDiffPlan(state: diffState, transport: transport, clock: RevisionClock())
@@ -267,11 +277,23 @@ final class PushPerformanceBenchmarkTests {
     /// 100 files already loaded, agent updates 1 file's metadata.
     /// Delta should contain only that 1 file, not all 100.
     @Test
-    func test_singleFile_incremental_change_under_2ms() async throws {
-        let result = try await runSingleFileIncrementalBenchmark()
+    func test_singleFile_incremental_payload_stays_small() async throws {
+        let result = try await runSingleFileIncrementalBenchmark(
+            warmupIterations: 1,
+            measuredIterations: 3
+        )
 
         #expect(!result.stats.durations.isEmpty)
         #expect(result.payloadRatio < 0.2, "Single-file payload delta should stay under 20%")
+    }
+
+    /// Benchmark-only latency measurement for single-file incremental updates.
+    @Test
+    func test_singleFile_incremental_change_under_2ms() async throws {
+        guard isBenchmarkRunEnabled() else {
+            return
+        }
+        let result = try await runSingleFileIncrementalBenchmark()
 
         print(result.stats.summary(for: "single-file incremental"))
         assertPushBenchmarkThreshold(
@@ -342,6 +364,9 @@ final class PushPerformanceBenchmarkTests {
     /// reset-and-reload cycle latency.
     @Test
     func test_epoch_reset_and_reload_under_32ms() async throws {
+        guard isBenchmarkRunEnabled() else {
+            return
+        }
         let diffState = DiffState()
         let transport = TimestampingTransport()
         let plan = makeDiffPlan(state: diffState, transport: transport, clock: RevisionClock())

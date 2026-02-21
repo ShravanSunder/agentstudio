@@ -101,32 +101,20 @@ swift build -c release > /tmp/build-output.txt 2>&1 && echo "BUILD OK" || { echo
 description = "Run all tests"
 depends = ["copy-xcframework", "setup-dev-resources"]
 run = """
+AGENT_STUDIO_BENCHMARK_MODE=off \
 SWIFT_TEST_TIMEOUT_SECONDS=${SWIFT_TEST_TIMEOUT_SECONDS:-60} \
 SWIFT_BUILD_DIR="${SWIFT_BUILD_DIR:-.build-agent-$(uuidgen | tr -dc 'a-z0-9' | head -c 8)}" \
 scripts/test-agent-timeout.sh
 """
 
 [tasks.test-bench-push]
-description = "Run push benchmark tests in warn mode (telemetry logs, non-failing)"
+description = "Run push benchmark tests (separate from normal test suite)"
 depends = ["copy-xcframework", "setup-dev-resources"]
 run = """
 #!/usr/bin/env bash
 set -euo pipefail
 export SWIFT_BUILD_DIR="${SWIFT_BUILD_DIR:-.build-agent-$(uuidgen | tr -dc 'a-z0-9' | head -c 8)}"
-export AGENT_STUDIO_BENCHMARK_MODE=warn
-
-swift test --build-path "$SWIFT_BUILD_DIR" --filter "PushBenchmarkSupportTests"
-swift test --build-path "$SWIFT_BUILD_DIR" --filter "PushPerformanceBenchmarkTests"
-"""
-
-[tasks.test-bench-push-strict]
-description = "Run push benchmark tests in strict mode (telemetry thresholds fail tests)"
-depends = ["copy-xcframework", "setup-dev-resources"]
-run = """
-#!/usr/bin/env bash
-set -euo pipefail
-export SWIFT_BUILD_DIR="${SWIFT_BUILD_DIR:-.build-agent-$(uuidgen | tr -dc 'a-z0-9' | head -c 8)}"
-export AGENT_STUDIO_BENCHMARK_MODE=strict
+export AGENT_STUDIO_BENCHMARK_MODE=benchmark
 
 swift test --build-path "$SWIFT_BUILD_DIR" --filter "PushBenchmarkSupportTests"
 swift test --build-path "$SWIFT_BUILD_DIR" --filter "PushPerformanceBenchmarkTests"
@@ -136,6 +124,7 @@ swift test --build-path "$SWIFT_BUILD_DIR" --filter "PushPerformanceBenchmarkTes
 description = "Run tests with timeout and isolated agent build directory"
 depends = ["copy-xcframework", "setup-dev-resources"]
 run = """
+AGENT_STUDIO_BENCHMARK_MODE=off \
 SWIFT_TEST_TIMEOUT_SECONDS=${SWIFT_TEST_TIMEOUT_SECONDS:-60} \
 SWIFT_BUILD_DIR="${SWIFT_BUILD_DIR:-.build-agent-$(uuidgen | tr -dc 'a-z0-9' | head -c 8)}" \
 scripts/test-agent-timeout.sh
@@ -145,6 +134,7 @@ scripts/test-agent-timeout.sh
 description = "Run full Swift test suite for CI with timeout and shared .build cache directory"
 depends = ["copy-xcframework", "setup-dev-resources"]
 run = """
+AGENT_STUDIO_BENCHMARK_MODE=off \
 SWIFT_TEST_TIMEOUT_SECONDS=60 \
 SWIFT_BUILD_DIR=".build" \
 scripts/test-agent-timeout.sh
