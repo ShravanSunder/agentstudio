@@ -21,7 +21,7 @@ struct TerminalPaneLeaf: View {
     @State private var dropZone: DropZone?
     @State private var isTargeted: Bool = false
     @State private var isHovered: Bool = false
-    @ObservedObject private var managementMode = ManagementModeMonitor.shared
+    @Bindable private var managementMode = ManagementModeMonitor.shared
 
     /// Whether this pane is a drawer child (no drag, no drop, no sub-drawer).
     private var isDrawerChild: Bool {

@@ -3,6 +3,7 @@ import Foundation
 import GhosttyKit
 import os.log
 
+// swiftlint:disable file_length type_body_length
 private let paneCoordinatorLogger = Logger(subsystem: "com.agentstudio", category: "PaneCoordinator")
 
 @MainActor
@@ -259,6 +260,7 @@ final class PaneCoordinator {
 
     // MARK: - PaneAction Execution
 
+    // swiftlint:disable cyclomatic_complexity function_body_length
     /// Execute a resolved PaneAction.
     func execute(_ action: PaneAction) {
         paneCoordinatorLogger.debug("Executing: \(String(describing: action))")
@@ -408,7 +410,8 @@ final class PaneCoordinator {
             if let drawerPane = store.addDrawerPane(to: parentPaneId) {
                 if createViewForContent(pane: drawerPane) == nil {
                     paneCoordinatorLogger.warning(
-                        "addDrawerPane: view creation failed for \(drawerPane.id) — panel will show placeholder")
+                        "addDrawerPane: view creation failed for "
+                            + "\(drawerPane.id) — panel will show placeholder")
                 }
             }
 
@@ -457,6 +460,7 @@ final class PaneCoordinator {
             executeRepair(repairAction)
         }
     }
+    // swiftlint:enable cyclomatic_complexity function_body_length
 
     // MARK: - Private Execution
 
@@ -604,7 +608,9 @@ final class PaneCoordinator {
                 let worktree = store.worktree(worktreeId),
                 let repo = store.repo(repoId)
             else {
-                paneCoordinatorLogger.warning("Cannot insert new terminal pane — target pane has no worktree/repo context")
+                paneCoordinatorLogger.warning(
+                    "Cannot insert new terminal pane — target pane has "
+                        + "no worktree/repo context")
                 return
             }
 
@@ -1018,7 +1024,9 @@ final class PaneCoordinator {
                 }
             }
         }
-        paneCoordinatorLogger.info("Restored \(restored)/\(paneIds.count) pane views, \(drawerRestored) drawer pane views")
+        paneCoordinatorLogger.info(
+            "Restored \(restored)/\(paneIds.count) pane views, "
+                + "\(drawerRestored) drawer pane views")
 
         if let activeTab = store.activeTab,
             let activePaneId = activeTab.activePaneId,

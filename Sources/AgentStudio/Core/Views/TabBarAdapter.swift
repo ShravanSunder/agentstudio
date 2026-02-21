@@ -1,4 +1,3 @@
-import Combine
 import Foundation
 import Observation
 
@@ -35,19 +34,35 @@ struct TabBarItem: Identifiable, Equatable {
 /// Replaces TabBarState as the observable source for CustomTabBar.
 /// Owns only transient UI state (dragging, drop targets).
 @MainActor
-final class TabBarAdapter: ObservableObject {
+@Observable
+final class TabBarAdapter {
 
     // MARK: - Derived from WorkspaceStore
 
-    @Published private(set) var tabs: [TabBarItem] = []
-    @Published private(set) var activeTabId: UUID?
+    private(set) var tabs: [TabBarItem] = []
+    private(set) var activeTabId: UUID?
 
     // MARK: - Overflow Detection
 
-    @Published var availableWidth: CGFloat = 0
-    @Published private(set) var isOverflowing: Bool = false
-    @Published var contentWidth: CGFloat = 0
-    @Published var viewportWidth: CGFloat = 0
+    var availableWidth: CGFloat = 0 {
+        didSet {
+            guard oldValue != availableWidth else { return }
+            updateOverflow()
+        }
+    }
+    private(set) var isOverflowing: Bool = false
+    var contentWidth: CGFloat = 0 {
+        didSet {
+            guard oldValue != contentWidth else { return }
+            updateOverflow()
+        }
+    }
+    var viewportWidth: CGFloat = 0 {
+        didSet {
+            guard oldValue != viewportWidth else { return }
+            updateOverflow()
+        }
+    }
 
     static let minTabWidth: CGFloat = 220
     static let tabSpacing: CGFloat = 4
@@ -56,18 +71,19 @@ final class TabBarAdapter: ObservableObject {
 
     // MARK: - Edit Mode
 
-    @Published private(set) var isEditModeActive: Bool = false
+    private(set) var isEditModeActive: Bool = false
 
     // MARK: - Transient UI State
 
-    @Published var draggingTabId: UUID?
-    @Published var dropTargetIndex: Int?
-    @Published var tabFrames: [UUID: CGRect] = [:]
+    var draggingTabId: UUID?
+    var dropTargetIndex: Int?
+    var tabFrames: [UUID: CGRect] = [:]
 
     // MARK: - Internals
 
     private let store: WorkspaceStore
-    private var cancellables = Set<AnyCancellable>()
+    private var isObservingManagementMode = false
+    private var isObservingStore = false
 
     init(store: WorkspaceStore) {
         self.store = store
@@ -82,46 +98,17 @@ final class TabBarAdapter: ObservableObject {
         // after each change. Task { @MainActor } satisfies @Sendable and ensures
         // we read new values (onChange has willSet semantics — old values only).
         observeStore()
-
-        $availableWidth
-            .removeDuplicates()
-            .receive(on: DispatchQueue.main)
-            .sink { [weak self] _ in
-                self?.updateOverflow()
-            }
-            .store(in: &cancellables)
-
-        $contentWidth
-            .removeDuplicates()
-            .receive(on: DispatchQueue.main)
-            .sink { [weak self] _ in
-                self?.updateOverflow()
-            }
-            .store(in: &cancellables)
-
-        $viewportWidth
-            .removeDuplicates()
-            .receive(on: DispatchQueue.main)
-            .sink { [weak self] _ in
-                self?.updateOverflow()
-            }
-            .store(in: &cancellables)
-
-        ManagementModeMonitor.shared.$isActive
-            .removeDuplicates()
-            .receive(on: DispatchQueue.main)
-            .sink { [weak self] isActive in
-                self?.isEditModeActive = isActive
-            }
-            .store(in: &cancellables)
+        observeManagementMode()
 
         // Initial sync
         refresh()
     }
 
-    /// Bridge @Observable store → ObservableObject adapter via withObservationTracking.
+    /// Bridge @Observable store → adapter via withObservationTracking.
     /// Fires once per registration; re-registers after each change.
     private func observeStore() {
+        guard !isObservingStore else { return }
+        isObservingStore = true
         withObservationTracking {
             // Touch the store properties we derive state from.
             // @Observable tracks these accesses and fires onChange when any mutate.
@@ -130,8 +117,24 @@ final class TabBarAdapter: ObservableObject {
             _ = self.store.panes
         } onChange: {
             Task { @MainActor [weak self] in
+                self?.isObservingStore = false
                 self?.refresh()
                 self?.observeStore()
+            }
+        }
+    }
+
+    private func observeManagementMode() {
+        guard !isObservingManagementMode else { return }
+        isObservingManagementMode = true
+        Task { @MainActor [weak self] in
+            withObservationTracking {
+                self?.isEditModeActive = ManagementModeMonitor.shared.isActive
+            } onChange: {
+                Task { @MainActor [weak self] in
+                    self?.isObservingManagementMode = false
+                    self?.observeManagementMode()
+                }
             }
         }
     }

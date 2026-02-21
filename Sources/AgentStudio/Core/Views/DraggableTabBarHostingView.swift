@@ -1,5 +1,5 @@
 import AppKit
-import Combine
+import Observation
 import SwiftUI
 import UniformTypeIdentifiers
 
@@ -36,8 +36,11 @@ class DraggableTabBarHostingView: NSView, NSDraggingSource {
     private var panStartTabId: UUID?
     private var panStartEvent: NSEvent?
 
-    /// Combine subscriptions
-    private var cancellables = Set<AnyCancellable>()
+    private var managementModeObservation: Task<Void, Never>?
+
+    deinit {
+        managementModeObservation?.cancel()
+    }
 
     // MARK: - Initialization
 
@@ -68,28 +71,40 @@ class DraggableTabBarHostingView: NSView, NSDraggingSource {
         panGesture.delaysPrimaryMouseButtonEvents = false
         panGesture.isEnabled = ManagementModeMonitor.shared.isActive
         addGestureRecognizer(panGesture)
-
-        ManagementModeMonitor.shared.$isActive
-            .receive(on: DispatchQueue.main)
-            .sink { [weak self] isActive in
-                guard let self else { return }
-                self.panGesture.isEnabled = isActive
-                if !isActive {
-                    // Clean up any in-flight drag state when leaving management mode
-                    self.panStartTabId = nil
-                    self.panStartEvent = nil
-                    if self.draggingTabId != nil {
-                        self.draggingTabId = nil
-                        self.tabBarAdapter?.draggingTabId = nil
-                        self.tabBarAdapter?.dropTargetIndex = nil
-                    }
-                }
-            }
-            .store(in: &cancellables)
+        observeManagementMode()
     }
 
     required init?(coder: NSCoder) {
         fatalError("init(coder:) has not been implemented")
+    }
+
+    private func observeManagementMode() {
+        managementModeObservation?.cancel()
+        managementModeObservation = Task { @MainActor [weak self] in
+            withObservationTracking {
+                _ = ManagementModeMonitor.shared.isActive
+            } onChange: { [weak self] in
+                Task { @MainActor [weak self] in
+                    self?.updateManagementModeState()
+                    self?.observeManagementMode()
+                }
+            }
+        }
+        updateManagementModeState()
+    }
+
+    private func updateManagementModeState() {
+        panGesture.isEnabled = ManagementModeMonitor.shared.isActive
+        if !ManagementModeMonitor.shared.isActive {
+            // Clean up any in-flight drag state when leaving management mode
+            panStartTabId = nil
+            panStartEvent = nil
+            if draggingTabId != nil {
+                draggingTabId = nil
+                tabBarAdapter?.draggingTabId = nil
+                tabBarAdapter?.dropTargetIndex = nil
+            }
+        }
     }
 
     // MARK: - Setup
@@ -157,9 +172,8 @@ class DraggableTabBarHostingView: NSView, NSDraggingSource {
     // MARK: - Pan Gesture Handler
 
     @objc private func handlePan(_ gesture: NSPanGestureRecognizer) {
-        // No runtime guard needed — pan gesture is controlled via isEnabled toggle
-        // (Combine subscription in init) rather than cancelling after .began, which
-        // was consuming mouse events and interfering with SwiftUI's onTapGesture.
+        // No runtime guard needed — pan gesture is controlled via isEnabled toggle.
+        // This avoids consuming mouse events and interfering with SwiftUI's onTapGesture.
         let location = gesture.location(in: self)
 
         switch gesture.state {

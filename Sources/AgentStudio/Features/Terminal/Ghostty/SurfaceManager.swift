@@ -1,6 +1,7 @@
 import AppKit
 import Foundation
 import GhosttyKit
+import Observation
 import os
 
 private let logger = Logger(subsystem: "com.agentstudio", category: "SurfaceManager")
@@ -8,16 +9,17 @@ private let logger = Logger(subsystem: "com.agentstudio", category: "SurfaceMana
 /// Manages Ghostty surface lifecycle independent of UI containers
 /// Provides crash isolation, health monitoring, and undo support
 @MainActor
-final class SurfaceManager: ObservableObject {
+@Observable
+final class SurfaceManager {
     static let shared = SurfaceManager()
 
     // MARK: - Published State
 
     /// Count of active surfaces (for observation)
-    @Published private(set) var activeSurfaceCount: Int = 0
+    private(set) var activeSurfaceCount: Int = 0
 
     /// Count of hidden surfaces
-    @Published private(set) var hiddenSurfaceCount: Int = 0
+    private(set) var hiddenSurfaceCount: Int = 0
 
     // MARK: - Delegates
 
