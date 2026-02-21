@@ -335,11 +335,17 @@ struct PaneMetadata: Sendable {
     // (repo tags resolved at query time by WorkspaceStore, not stored here)
 }
 
-enum PaneContentType: String, Sendable {
-    case terminal
-    case browser
-    case diff
-    case editor
+/// Extensible content type. Built-in kinds have static constants.
+/// Plugins register additional types at runtime.
+struct PaneContentType: Hashable, Sendable {
+    let rawValue: String
+    init(_ rawValue: String) { self.rawValue = rawValue }
+
+    static let terminal = PaneContentType("terminal")
+    static let browser  = PaneContentType("browser")
+    static let diff     = PaneContentType("diff")
+    static let editor   = PaneContentType("editor")
+    // Plugins add: PaneContentType("logViewer"), PaneContentType("metrics"), etc.
 }
 
 enum PaneSource: Sendable {
@@ -410,34 +416,79 @@ enum ActionError: Error, Sendable {
 }
 ```
 
-### Contract 2: PaneRuntimeEvent Enum
+### Contract 2: PaneKindEvent Protocol + PaneRuntimeEvent Enum
 
 ```swift
-/// Single typed event stream. One enum, one ordering guarantee.
-/// The cases ARE the categories. Swift exhaustive switch ensures
-/// no new event type is silently ignored.
+/// Protocol for all per-kind events. Built-in enums (GhosttyEvent, BrowserEvent,
+/// DiffEvent, EditorEvent) conform to this AND have dedicated cases in
+/// PaneRuntimeEvent for pattern matching. Plugin event types conform to this
+/// and use the `.plugin` escape hatch.
+///
+/// Two roles:
+///   1. Self-classifying priority — each event knows its own ActionPolicy.
+///      NotificationReducer reads this directly instead of centralized classify().
+///   2. Workflow matching — eventName provides a stable string identity for
+///      WorkflowTracker step predicates.
+protocol PaneKindEvent: Sendable {
+    /// Priority classification for this event.
+    /// Critical = immediate delivery, never coalesced.
+    /// Lossy = batched on frame boundary, deduped by consolidation key.
+    var actionPolicy: ActionPolicy { get }
+
+    /// Stable string name for workflow matching.
+    /// e.g., "commandFinished", "navigationCompleted", "hunkApproved"
+    var eventName: String { get }
+}
+
+/// Single typed event stream. Discriminated union with plugin escape hatch.
+///
+/// Built-in pane kinds get dedicated cases (type safety, pattern matching,
+/// compiler-enforced handling). Plugin pane kinds use `.plugin` (protocol-
+/// based, extensible, downcast for specific handling).
 ///
 /// Two axes:
-///   PANE-SCOPED (carry paneId): terminal, browser, diff, editor
+///   PANE-SCOPED (carry paneId): terminal, browser, diff, editor, plugin
 ///   CROSS-CUTTING (carry worktreeId or broader): lifecycle, filesystem,
 ///     artifact, security, error
 enum PaneRuntimeEvent: Sendable {
-    // Lifecycle — all pane types (from LUNA-295 state machine)
+    // ── Lifecycle — all pane types ──────────────────────
     case lifecycle(PaneLifecycleEvent)
 
-    // Per-pane-kind events (one enum per pane type, pane-scoped)
+    // ── First-class pane kinds: exhaustive, pattern-matchable ──
     case terminal(paneId: UUID, event: GhosttyEvent)
     case browser(paneId: UUID, event: BrowserEvent)
     case diff(paneId: UUID, event: DiffEvent)
     case editor(paneId: UUID, event: EditorEvent)
 
-    // Cross-cutting events (not tied to one pane kind)
+    // ── Plugin escape hatch: protocol-based, extensible ──
+    // Plugin pane types (log viewer, metrics dashboard, etc.) use this.
+    // Events conform to PaneKindEvent. Downcast for specific handling.
+    // To promote a plugin to first-class: add a dedicated case above.
+    case plugin(paneId: UUID, kind: PaneContentType, event: any PaneKindEvent)
+
+    // ── Cross-cutting events ───────────────────────────
     case filesystem(FilesystemEvent)
     case artifact(ArtifactEvent)
     case security(SecurityEvent)
 
-    // Runtime errors
+    // ── Runtime errors ─────────────────────────────────
     case error(paneId: UUID?, error: RuntimeError)
+}
+
+/// Computed priority from self-classifying events.
+/// NotificationReducer reads this — no centralized classify() needed.
+extension PaneRuntimeEvent {
+    var actionPolicy: ActionPolicy {
+        switch self {
+        case .terminal(_, let e):       return e.actionPolicy
+        case .browser(_, let e):        return e.actionPolicy
+        case .diff(_, let e):           return e.actionPolicy
+        case .editor(_, let e):         return e.actionPolicy
+        case .plugin(_, _, let e):      return e.actionPolicy
+        case .lifecycle, .filesystem, .artifact, .security, .error:
+            return .critical
+        }
+    }
 }
 
 enum PaneLifecycleEvent: Sendable {
@@ -525,13 +576,19 @@ enum EventPriority: Sendable {
     case lossy      // batched on frame boundary, deduped by consolidation key
 }
 
-enum PaneRuntimeKind: String, Sendable {
-    case terminal
-    case browser
-    case diff
-    case editor
-    case filesystem  // watcher, not a pane but produces events
-    case security    // sandbox backend, not a pane but produces events
+/// Extensible runtime kind. Matches PaneContentType for pane-scoped events.
+/// Also includes non-pane event sources (filesystem, security).
+struct PaneRuntimeKind: Hashable, Sendable {
+    let rawValue: String
+    init(_ rawValue: String) { self.rawValue = rawValue }
+
+    static let terminal   = PaneRuntimeKind("terminal")
+    static let browser    = PaneRuntimeKind("browser")
+    static let diff       = PaneRuntimeKind("diff")
+    static let editor     = PaneRuntimeKind("editor")
+    static let filesystem = PaneRuntimeKind("filesystem")  // watcher, not a pane
+    static let security   = PaneRuntimeKind("security")    // sandbox, not a pane
+    // Plugins add their own kinds
 }
 ```
 
@@ -874,9 +931,16 @@ struct PaneActionEnvelope: Sendable {
     let timestamp: ContinuousClock.Instant
 }
 
+/// Protocol for per-kind actions. Same pattern as PaneKindEvent:
+/// built-in action enums conform AND have dedicated cases.
+/// Plugin actions conform and use the `.plugin` escape hatch.
+protocol PaneKindAction: Sendable {
+    var actionName: String { get }
+}
+
 /// What the coordinator can tell any runtime to do.
-/// Split into generic actions (all runtimes) and per-kind actions
-/// (runtime checks capabilities before handling).
+/// Discriminated union with plugin escape hatch — same pattern as
+/// PaneRuntimeEvent.
 enum PaneAction: Sendable {
     // Generic lifecycle — all runtimes handle these
     case activate                           // pane became visible/focused
@@ -886,11 +950,14 @@ enum PaneAction: Sendable {
     // State queries
     case requestSnapshot                    // coordinator wants current state
 
-    // Per-kind actions — runtime returns .unsupportedAction if irrelevant
+    // ── First-class per-kind actions ───────────────────
     case terminal(TerminalAction)
     case browser(BrowserAction)
     case diff(DiffAction)
     case editor(EditorAction)
+
+    // ── Plugin escape hatch ────────────────────────────
+    case plugin(any PaneKindAction)
 }
 
 enum TerminalAction: Sendable {
