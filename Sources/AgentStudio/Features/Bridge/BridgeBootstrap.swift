@@ -51,6 +51,7 @@ enum BridgeBootstrap {
                     const store = envelope.store;
                     const payload = envelope.payload !== undefined ? envelope.payload : envelope.data;
                     if (payload === undefined) {
+                        console.warn('[BridgeInternal] applyEnvelope: payload is undefined, envelope dropped', JSON.stringify({op: op, store: store}));
                         return;
                     }
                     // Forward envelope as data with metadata lifted to detail level.

@@ -259,7 +259,6 @@ final class PushPlanTests {
         let state = TestState()
         let transport = MockPushTransport()
         let clock = RevisionClock()
-        let debounceClock = TestPushClock()
         let plan = PushPlan(
             state: state,
             transport: transport,
@@ -272,24 +271,20 @@ final class PushPlanTests {
                     level: .warm,
                     capture: { (s: TestState) in s.status }
                 )
-                .erased(debounceClock: debounceClock)
             }
         )
 
         plan.start()
-        await Task.yield()
         let baselineCount = transport.pushCount
 
         // Act — 5 synchronous mutations within one run-loop turn
         for i in 0..<5 {
             state.status = "state-\(i)"
         }
-        await Task.yield()
-        debounceClock.advance(by: .milliseconds(20))
-        await Task.yield()
 
         let didWaitForWarmPush = await transport.waitForPushCount(
-            atLeast: baselineCount + 1
+            atLeast: baselineCount + 1,
+            timeout: .seconds(2)
         )
         #expect(didWaitForWarmPush)
 
@@ -315,7 +310,6 @@ final class PushPlanTests {
         let state = TestState()
         let transport = MockPushTransport()
         let clock = RevisionClock()
-        let debounceClock = TestPushClock()
         let plan = PushPlan(
             state: state,
             transport: transport,
@@ -328,24 +322,20 @@ final class PushPlanTests {
                     version: { (_ entity: String) in 1 },
                     keyToString: { (key: UUID) in key.uuidString }
                 )
-                .erased(debounceClock: debounceClock)
             }
         )
 
         plan.start()
-        await Task.yield()
         let baselineCount = transport.pushCount
 
         // Act — 10 synchronous entity additions within one run-loop turn
         for i in 0..<10 {
             state.items[UUID()] = "item-\(i)"
         }
-        await Task.yield()
-        debounceClock.advance(by: .milliseconds(40))
-        await Task.yield()
 
         let didWaitForColdPush = await transport.waitForPushCount(
-            atLeast: baselineCount + 1
+            atLeast: baselineCount + 1,
+            timeout: .seconds(2)
         )
         #expect(didWaitForColdPush)
 

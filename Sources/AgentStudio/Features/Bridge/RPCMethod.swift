@@ -1,7 +1,6 @@
 import Foundation
 
-/// Type-erased command result container for typed JSON-RPC method handlers.
-/// An explicit empty response type for methods that intentionally return no payload.
+/// Explicit empty response type for methods that intentionally return no payload.
 struct RPCNoResponse: Codable, Sendable {}
 
 /// Protocol for strongly-typed JSON-RPC methods.

@@ -87,10 +87,26 @@ final class BridgeTransportIntegrationTests {
             state: state
         )
 
-        var pushProbeCallCount = 0
+        actor SendableCounter {
+            private var value: Int
+
+            init(_ value: Int) {
+                self.value = value
+            }
+
+            func increment() {
+                value += 1
+            }
+
+            func get() -> Int {
+                value
+            }
+        }
+
+        let pushProbeCallCount = SendableCounter(0)
         var transportErrorCode: Int?
         controller.router.register(method: PushProbeMethod.self) { _ in
-            pushProbeCallCount += 1
+            await pushProbeCallCount.increment()
             return nil
         }
         controller.router.onError = { code, _, _ in
@@ -117,10 +133,13 @@ final class BridgeTransportIntegrationTests {
 
         // Assert — at least one bridge push should replay through the probe method
         let deadline = ContinuousClock.now + .seconds(2)
-        while ContinuousClock.now < deadline && pushProbeCallCount == 0 {
+        while ContinuousClock.now < deadline {
+            if await pushProbeCallCount.get() > 0 {
+                break
+            }
             try await Task.sleep(for: .milliseconds(25))
         }
-        #expect(pushProbeCallCount > 0)
+        #expect(await pushProbeCallCount.get() > 0)
         #expect(transportErrorCode == nil)
 
         controller.teardown()

@@ -15,6 +15,22 @@ struct BridgePaneControllerTests {
         static let method = "diff.requestFileContents"
     }
 
+    private actor SendableBox<Value> {
+        private var value: Value
+
+        init(_ value: Value) {
+            self.value = value
+        }
+
+        func set(_ newValue: Value) {
+            value = newValue
+        }
+
+        func get() -> Value {
+            value
+        }
+    }
+
     @Test("handleBridgeReady sets bridge readiness and teardown resets it")
     func handleBridgeReady_setsReadyAndTeardownResets() {
         let controller = BridgePaneController(
@@ -69,10 +85,10 @@ struct BridgePaneControllerTests {
             paneId: UUID(),
             state: BridgePaneState(panelKind: .diffViewer, source: nil)
         )
-        var executedFileId: String?
+        let executedFileId = SendableBox<String?>(nil)
 
         controller.router.register(method: DiffRequestFileContentsMethod.self) { params in
-            executedFileId = params.fileId
+            await executedFileId.set(params.fileId)
             return nil
         }
 
@@ -83,7 +99,7 @@ struct BridgePaneControllerTests {
 
         // Assert
         #expect(controller.isBridgeReady == false)
-        #expect(executedFileId == nil)
+        #expect((await executedFileId.get()) == nil)
     }
 
     @Test("ready command executes handler")
@@ -93,10 +109,10 @@ struct BridgePaneControllerTests {
             paneId: UUID(),
             state: BridgePaneState(panelKind: .diffViewer, source: nil)
         )
-        var executedFileId: String?
+        let executedFileId = SendableBox<String?>(nil)
 
         controller.router.register(method: DiffRequestFileContentsMethod.self) { params in
-            executedFileId = params.fileId
+            await executedFileId.set(params.fileId)
             return nil
         }
 
@@ -111,7 +127,7 @@ struct BridgePaneControllerTests {
         )
 
         // Assert
-        #expect(executedFileId == "abc123")
+        #expect((await executedFileId.get()) == "abc123")
     }
 
     @Test("non-ready commands are dropped before bridge.ready")

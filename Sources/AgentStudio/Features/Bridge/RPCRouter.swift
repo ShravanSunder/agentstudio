@@ -34,7 +34,11 @@ final class RPCRouter {
         let requestID = id.map { String(describing: $0) } ?? "nil"
         rpcRouterLogger.warning("RPC error code=\(code) message=\(message) id=\(requestID)")
     }
-    var onCommandAck: ((CommandAck) -> Void)?
+    var onCommandAck: ((CommandAck) -> Void) = { ack in
+        rpcRouterLogger.debug(
+            "RPC ack commandId=\(ack.commandId) method=\(ack.method) status=\(ack.status.rawValue)"
+        )
+    }
 
     // MARK: - Registration
 
@@ -52,13 +56,13 @@ final class RPCRouter {
     /// Validates the envelope, rejects batch arrays (§5.5), deduplicates by
     /// `__commandId`, and routes to the registered handler. Errors are reported
     /// via `onError` rather than thrown, following fire-and-forget notification semantics.
-    func dispatch(json: String, isBridgeReady: Bool = true) async {
+    func dispatch(json: String, isBridgeReady: Bool) async {
         guard let request = parseRequestEnvelope(from: json) else {
             return
         }
 
-        guard isBridgeReady || request.method == Self.bridgeReadyMethod else {
-            rpcRouterLogger.debug("[RPCRouter] dropped pre-ready command: \(request.method)")
+        guard isBridgeReady || request.method == BridgeReadyMethod.method else {
+            rpcRouterLogger.info("[RPCRouter] dropped pre-ready command: \(request.method)")
             return
         }
 
@@ -112,8 +116,6 @@ final class RPCRouter {
         let commandId: String?
         let params: Any?
     }
-
-    private static let bridgeReadyMethod = "bridge.ready"
 
     private func parseRequestEnvelope(from json: String) -> ParsedRPCRequest? {
         guard let data = json.data(using: .utf8) else {
@@ -174,6 +176,7 @@ final class RPCRouter {
             return false
         }
         guard !seenCommandIds.contains(commandId) else {
+            rpcRouterLogger.debug("[RPCRouter] dedup skip commandId=\(commandId)")
             return true
         }
         seenCommandIds.append(commandId)
@@ -201,13 +204,29 @@ final class RPCRouter {
         let message: String
         switch rpcErrorCode {
         case -32_602:
-            message = "Invalid params: \(error.localizedDescription)"
+            message = "Invalid params: \(errorMessage(from: error))"
         case -32_603:
-            message = "Internal error: \(error.localizedDescription)"
+            message = "Internal error: \(errorMessage(from: error))"
         default:
-            message = "\(error.localizedDescription)"
+            message = "\(errorMessage(from: error))"
         }
         return (rpcErrorCode, message)
+    }
+
+    private func errorMessage(from error: Error) -> String {
+        if let localized = (error as? LocalizedError)?.errorDescription {
+            return localized
+        }
+
+        if let rpcMethodError = error as? RPCMethodDispatchError {
+            switch rpcMethodError {
+            case .invalidParams(let underlyingError),
+                .handlerFailure(let underlyingError):
+                return underlyingError.localizedDescription
+            }
+        }
+
+        return error.localizedDescription
     }
 
     private func reportCommandAck(
@@ -219,7 +238,7 @@ final class RPCRouter {
         guard let commandId else {
             return
         }
-        onCommandAck?(
+        onCommandAck(
             CommandAck(
                 commandId: commandId,
                 status: status,

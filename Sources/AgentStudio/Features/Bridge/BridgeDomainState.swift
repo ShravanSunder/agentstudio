@@ -10,7 +10,15 @@ class PaneDomainState {
     let diff = DiffState()
     let review = ReviewState()
     let connection = ConnectionState()
-    var commandAcks: [String: CommandAck] = [:]
+    private(set) var commandAcks: [String: CommandAck] = [:]
+
+    func recordAck(_ ack: CommandAck) {
+        commandAcks[ack.commandId] = ack
+    }
+
+    func clearAcks() {
+        commandAcks.removeAll()
+    }
 }
 
 @Observable

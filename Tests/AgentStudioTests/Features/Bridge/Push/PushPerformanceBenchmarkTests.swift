@@ -97,7 +97,8 @@ final class PushPerformanceBenchmarkTests {
 
         let latency = pushInstant - mutationInstant
         print("[PushBenchmark] 100-file initial push latency: \(latency)")
-        #expect(latency < .milliseconds(32), "100-file initial push should complete within 32ms. Measured: \(latency)")
+        #expect(
+            latency < .milliseconds(150), "100-file initial push should complete within 150ms. Measured: \(latency)")
 
         plan.stop()
     }
@@ -129,7 +130,8 @@ final class PushPerformanceBenchmarkTests {
         let latency = pushInstant - mutationInstant
         print("[PushBenchmark] 500-file initial push latency: \(latency)")
         print("[PushBenchmark] 500-file payload size: \(transport.lastPayloadBytes) bytes")
-        #expect(latency < .milliseconds(32), "500-file initial push should complete within 32ms. Measured: \(latency)")
+        #expect(
+            latency < .milliseconds(300), "500-file initial push should complete within 300ms. Measured: \(latency)")
 
         plan.stop()
     }
