@@ -51,6 +51,13 @@ agent-studio/
 
 **Import rule:** `App/ → Core/, Features/, Infrastructure/` | `Features/ → Core/, Infrastructure/` | `Core/ → Infrastructure/` | Never `Core/ → Features/`
 
+### Slice Vocabulary
+
+- **Core slice**: shared, feature-agnostic domain/data logic.
+- **Vertical slice**: user-flow orchestration across layers (controllers, coordinators, feature entry points).
+
+If a file imports from multiple features, it is usually a vertical slice and belongs in `App/` unless it can be decomposed into smaller feature-specific coordinators.
+
 ### Component → Slice Map
 
 Where each key component lives and why — use this to decide where new files go.

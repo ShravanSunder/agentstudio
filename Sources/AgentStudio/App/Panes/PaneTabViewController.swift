@@ -6,9 +6,12 @@ import SwiftUI
 
 /// Tab-based terminal controller with custom Ghostty-style tab bar.
 ///
-/// PaneTabViewController is a dispatch-only controller — it reads from WorkspaceStore
-/// and dispatches actions through ActionExecutor. It never mutates
-/// store or runtime state directly.
+/// PaneTabViewController is a composition-oriented controller in `App/`. It reads
+/// from WorkspaceStore for state and routes user actions through the validated
+/// ActionExecutor pipeline. Most flow changes are dispatched, while AppKit-only
+/// concerns (focus, observers, empty-state visibility, tab bar coordination) stay
+/// local. It also handles direct tab-order updates (`store.moveTab`) from drag
+/// interactions as a UI-only mutation.
 class PaneTabViewController: NSViewController, CommandHandler {
     // MARK: - Dependencies (injected)
 

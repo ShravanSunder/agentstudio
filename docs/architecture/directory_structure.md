@@ -82,6 +82,25 @@ Infrastructure/ ──imports──►  (nothing internal)
 
 If a file needs to know about `SurfaceManager` (Terminal) **and** `BridgePaneController` (Bridge), it can't be in `Core`. It lives in `App/` (composition root) or uses protocols defined in `Core/`.
 
+### Slice Vocabulary (Core Slice vs Vertical Slice)
+
+To keep ownership decisions consistent, use these terms:
+
+- **Core slice**
+  - Reusable, feature-agnostic domain and infrastructure.
+  - Usually belongs in `Core/` or `Infrastructure/`.
+  - Examples: `WorkspaceStore`, `Tab`, `Layout`, `ActionResolver`, `ActionValidator`.
+
+- **Vertical slice**
+  - A user-facing slice that traverses multiple layers and orchestrates behavior for a flow.
+  - Usually belongs in `App/` (composition root) or a specific `Features/X/` directory.
+  - Includes controller/stateful orchestration, platform event wiring, and cross-service flow.
+  - Examples: `MainSplitViewController`, `PaneTabViewController`, `TerminalViewCoordinator`.
+
+Practical rule:
+- If a component imports two or more feature services, it is a vertical slice in `App/` (or should be split).
+- If a component has no feature-specific logic and is shared by multiple features, it belongs in a core slice.
+
 ### Why Swift Makes This Free
 
 Swift imports are by **module** (`import Foundation`, `import SwiftUI`), not by file path. Agent Studio is a single SPM target — all files share one module. Moving a file from `Services/WorkspaceStore.swift` to `Core/Stores/WorkspaceStore.swift` changes zero import statements in the entire codebase. No merge conflicts from the restructure itself.
