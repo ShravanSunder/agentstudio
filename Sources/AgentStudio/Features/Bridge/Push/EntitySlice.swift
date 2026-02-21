@@ -53,13 +53,16 @@ struct EntitySlice<
         self.keyToString = keyToString
     }
 
-    func erased() -> AnyPushSlice<State> {
+    func erased<C: Clock>(
+        debounceClock: C = ContinuousClock()
+    ) -> AnyPushSlice<State> where C.Duration == Duration {
         let capture = self.capture
         let version = self.version
         let keyToString = self.keyToString
         let level = self.level
         let store = self.store
         let name = self.name
+        let debounceClock = debounceClock
 
         return AnyPushSlice(name: name) { state, transport, revisions, epochProvider in
             let epochFn = epochProvider
@@ -70,7 +73,7 @@ struct EntitySlice<
 
                 let stream = Observations { capture(state) }
                 let source: any AsyncSequence<[Key: Entity], Never> =
-                    level == .hot ? stream : stream.debounce(for: level.debounce)
+                    level == .hot ? stream : stream.debounce(for: level.debounce, clock: debounceClock)
 
                 for await entities in source {
                     let delta = Self.computeDelta(

@@ -8,7 +8,6 @@ import Foundation
 final class ZmxTestHarness {
     private struct SpawnedProcess {
         let process: Process
-        let processGroupID: pid_t
         let processID: pid_t
     }
 
@@ -111,7 +110,7 @@ final class ZmxTestHarness {
         try? FileManager.default.removeItem(atPath: zmxDir)
     }
 
-    /// Spawn a zmx attach command against a real zmx daemon using `/bin/sh`.
+    /// Spawn a zmx attach command against a real zmx daemon.
     ///
     /// The returned process must be awaited by callers through `cleanup()`.
     func spawnZmxSession(
@@ -120,23 +119,22 @@ final class ZmxTestHarness {
         commandArgs: [String]
     ) throws -> Process {
         let process = Process()
-        process.executableURL = URL(fileURLWithPath: "/bin/sh")
-        process.arguments = [
-            "-c",
-            "ZMX_DIR=\(ZmxBackend.shellEscape(zmxDir)) \(ZmxBackend.shellEscape(zmxPath)) attach \(ZmxBackend.shellEscape(sessionId)) \(commandArgs.map(ZmxBackend.shellEscape).joined(separator: " "))",
-        ]
+        process.executableURL = URL(fileURLWithPath: zmxPath)
+        process.arguments = ["attach", sessionId] + commandArgs
         process.standardOutput = FileHandle.nullDevice
         process.standardError = FileHandle.nullDevice
         process.standardInput = Pipe()
+        var env = ProcessInfo.processInfo.environment
+        env["ZMX_DIR"] = zmxDir
+        process.environment = env
         try process.run()
 
         let processID = process.processIdentifier
-        let processGroupID = processGroupID(for: processID)
-        spawnedProcesses.append(SpawnedProcess(
-            process: process,
-            processGroupID: processGroupID,
-            processID: processID
-        ))
+        spawnedProcesses.append(
+            SpawnedProcess(
+                process: process,
+                processID: processID
+            ))
 
         return process
     }
@@ -173,17 +171,13 @@ final class ZmxTestHarness {
                 continue
             }
 
-            let groupID = entry.processGroupID
-            let currentGroup = getpgrp()
-            let targetGroup = groupID > 0 ? groupID : entry.processID
-            if targetGroup != currentGroup {
-                let result = Darwin.kill(-targetGroup, SIGKILL)
-                if result == -1 {
-                    // Ignore common teardown races (already gone).
-                    _ = errno
+            let descendants = collectDescendantProcessIDs(
+                of: entry.processID
+            )
+            for pid in ([entry.processID] + descendants).reversed() {
+                if pid > 0 {
+                    let _ = Darwin.kill(pid, SIGKILL)
                 }
-            } else {
-                Darwin.kill(entry.processID, SIGKILL)
             }
 
             if entry.process.isRunning {
@@ -194,11 +188,48 @@ final class ZmxTestHarness {
         spawnedProcesses.removeAll()
     }
 
-    private func processGroupID(for processIdentifier: pid_t) -> pid_t {
-        let processGroupID = getpgid(processIdentifier)
-        if processGroupID == -1 {
-            return processIdentifier
+    private func collectDescendantProcessIDs(of pid: pid_t) -> [pid_t] {
+        var descendants: [pid_t] = []
+        var queue: [pid_t] = [pid]
+
+        while let current = queue.popLast() {
+            let children = childProcessIDs(of: current)
+            descendants.append(contentsOf: children)
+            queue.append(contentsOf: children)
         }
-        return processGroupID
+
+        return descendants
     }
+
+    private func childProcessIDs(of parentPID: pid_t) -> [pid_t] {
+        let process = Process()
+        process.executableURL = URL(fileURLWithPath: "/usr/bin/pgrep")
+        process.arguments = ["-P", "\(parentPID)"]
+        process.standardOutput = Pipe()
+        process.standardError = FileHandle.nullDevice
+
+        do {
+            try process.run()
+            process.waitUntilExit()
+            guard process.terminationStatus == 0 else { return [] }
+
+            guard
+                let outputData = (process.standardOutput as? Pipe)?
+                    .fileHandleForReading
+                    .readDataToEndOfFile(),
+                let output = String(data: outputData, encoding: .utf8)
+            else {
+                return []
+            }
+
+            return
+                output
+                .split(whereSeparator: \.isNewline)
+                .compactMap { Int32($0.trimmingCharacters(in: .whitespacesAndNewlines)) }
+                .map { pid_t($0) }
+        } catch {
+            return []
+        }
+    }
+
 }

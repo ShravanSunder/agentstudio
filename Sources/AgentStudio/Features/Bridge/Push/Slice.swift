@@ -46,12 +46,15 @@ struct Slice<State: Observable & AnyObject, Snapshot: Encodable & Equatable & Se
         self.capture = capture
     }
 
-    func erased() -> AnyPushSlice<State> {
+    func erased<C: Clock>(
+        debounceClock: C = ContinuousClock()
+    ) -> AnyPushSlice<State> where C.Duration == Duration {
         let capture = self.capture
         let level = self.level
         let op = self.op
         let store = self.store
         let name = self.name
+        let debounceClock = debounceClock
 
         return AnyPushSlice(name: name) { state, transport, revisions, epochProvider in
             Task { @MainActor in
@@ -61,7 +64,7 @@ struct Slice<State: Observable & AnyObject, Snapshot: Encodable & Equatable & Se
 
                 let stream = Observations { capture(state) }
                 let source: any AsyncSequence<Snapshot, Never> =
-                    level == .hot ? stream : stream.debounce(for: level.debounce)
+                    level == .hot ? stream : stream.debounce(for: level.debounce, clock: debounceClock)
 
                 for await snapshot in source {
                     guard snapshot != prev else { continue }

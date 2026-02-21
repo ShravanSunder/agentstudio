@@ -252,11 +252,11 @@ struct ZmxE2ETests {
 
     /// Run backend setup and guaranteed cleanup for each zmx E2E case.
     private func withRealBackend(
-        _ test: (ZmxTestHarness, ZmxBackend) async throws -> Void
+        _ test: @escaping (ZmxTestHarness, ZmxBackend) async throws -> Void
     ) async throws {
         let harness = ZmxTestHarness()
         guard let backend = harness.createBackend(),
-              await backend.isAvailable
+            await backend.isAvailable
         else {
             return
         }
@@ -268,7 +268,9 @@ struct ZmxE2ETests {
         )
 
         do {
-            try await test(harness, backend)
+            try await withTimeout(seconds: 30) {
+                try await test(harness, backend)
+            }
             await harness.cleanup()
         } catch {
             await harness.cleanup()
@@ -276,7 +278,34 @@ struct ZmxE2ETests {
         }
     }
 
-    /// Poll `zmx list` until the given session ID appears, up to `timeout` seconds.
+    private enum TimeoutError: Error {
+        case exceeded
+    }
+
+    private func withTimeout<T>(
+        seconds: UInt64,
+        operation: @escaping () async throws -> T
+    ) async throws -> T {
+        try await withThrowingTaskGroup(of: T.self) { group in
+            group.addTask {
+                try await operation()
+            }
+            group.addTask {
+                try await Task.sleep(for: .seconds(Double(seconds)))
+                throw TimeoutError.exceeded
+            }
+
+            do {
+                let result = try await group.next()!
+                group.cancelAll()
+                return result
+            } catch {
+                group.cancelAll()
+                throw error
+            }
+        }
+    }
+
     private func pollForSession(
         backend: ZmxBackend,
         sessionId: String,

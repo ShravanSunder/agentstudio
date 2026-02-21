@@ -118,11 +118,11 @@ final class PushPlanTests: XCTestCase {
         )
 
         plan.start()
-        try await Task.sleep(for: .milliseconds(50))
+        await transport.waitForPushCount(atLeast: 1)
 
         // Trigger a push to confirm transport is working
         state.status = "loading"
-        try await Task.sleep(for: .milliseconds(50))
+        await transport.waitForPushCount(atLeast: 2)
         let countBeforeStop = transport.pushCount
         XCTAssertGreaterThan(countBeforeStop, 0, "Should have received at least one push before stop")
 
@@ -131,7 +131,7 @@ final class PushPlanTests: XCTestCase {
         XCTAssertTrue(plan.isStopped)
 
         state.status = "this-should-not-arrive"
-        try await Task.sleep(for: .milliseconds(100))
+        await Task.yield()
 
         // Assert — no additional pushes after stop
         XCTAssertEqual(
@@ -164,10 +164,10 @@ final class PushPlanTests: XCTestCase {
         // Act — start generation 1, get some pushes flowing
         plan.start()
         let gen1 = plan.generation
-        try await Task.sleep(for: .milliseconds(50))
+        await transport.waitForPushCount(atLeast: 1)
 
         state.status = "gen1-value"
-        try await Task.sleep(for: .milliseconds(50))
+        await transport.waitForPushCount(atLeast: 2)
         let countAfterGen1 = transport.pushCount
         XCTAssertGreaterThan(countAfterGen1, 0, "Gen 1 should have produced pushes")
 
@@ -175,12 +175,12 @@ final class PushPlanTests: XCTestCase {
         plan.start()
         let gen2 = plan.generation
         XCTAssertGreaterThan(gen2, gen1, "Restart should increment generation")
-        try await Task.sleep(for: .milliseconds(50))
+        await transport.waitForPushCount(atLeast: countAfterGen1 + 1)
 
         // Mutate state — only gen2 tasks should deliver
         let countBeforeGen2Mutation = transport.pushCount
         state.status = "gen2-value"
-        try await Task.sleep(for: .milliseconds(50))
+        await transport.waitForPushCount(atLeast: countBeforeGen2Mutation + 1)
 
         // Assert — gen2 pushes arrive
         XCTAssertGreaterThan(
@@ -228,14 +228,13 @@ final class PushPlanTests: XCTestCase {
 
     /// Proves that warm-level (.warm = 12ms debounce) coalesces rapid mutations
     /// into fewer pushes. 5 synchronous mutations within one run-loop turn are
-    /// guaranteed to land in a single debounce window, producing ~1 push (not 5).
-    /// Mutations are synchronous to avoid CI timing jitter inflating Task.sleep
-    /// beyond the debounce window.
+    /// expected to coalesce through the injected test clock into fewer than 5 pushes.
     func test_warm_debounce_coalesces_rapid_mutations() async throws {
         // Arrange
         let state = TestState()
         let transport = MockPushTransport()
         let clock = RevisionClock()
+        let debounceClock = TestPushClock()
 
         let plan = PushPlan(
             state: state,
@@ -243,13 +242,17 @@ final class PushPlanTests: XCTestCase {
             revisions: clock,
             epoch: { 1 },
             slices: {
-                Slice("status", store: .diff, level: .warm) { s in s.status }
+                Slice(
+                    "status",
+                    store: .diff,
+                    level: .warm,
+                    capture: { (s: TestState) in s.status }
+                )
+                .erased(debounceClock: debounceClock)
             }
         )
 
         plan.start()
-        try await Task.sleep(for: .milliseconds(50))
-
         let baselineCount = transport.pushCount
 
         // Act — 5 synchronous mutations within one run-loop turn
@@ -258,7 +261,8 @@ final class PushPlanTests: XCTestCase {
         }
 
         // Wait for debounce to flush
-        try await Task.sleep(for: .milliseconds(100))
+        debounceClock.advance(by: .milliseconds(20))
+        await transport.waitForPushCount(atLeast: baselineCount + 1)
 
         let pushCount = transport.pushCount - baselineCount
 
@@ -275,14 +279,13 @@ final class PushPlanTests: XCTestCase {
 
     /// Proves that cold-level EntitySlice (.cold = 32ms debounce) coalesces rapid
     /// entity additions. 10 synchronous mutations within one run-loop turn land in
-    /// a single debounce window, producing ~1 push (not 10). Mutations are
-    /// synchronous to avoid CI timing jitter inflating Task.sleep beyond the
-    /// debounce window.
+    /// a single debounce window, producing fewer than 10 pushes.
     func test_cold_entitySlice_debounce_coalesces() async throws {
         // Arrange
         let state = TestState()
         let transport = MockPushTransport()
         let clock = RevisionClock()
+        let debounceClock = TestPushClock()
 
         let plan = PushPlan(
             state: state,
@@ -292,16 +295,14 @@ final class PushPlanTests: XCTestCase {
             slices: {
                 EntitySlice(
                     "items", store: .review, level: .cold,
-                    capture: { s in s.items },
-                    version: { _ in 1 },
-                    keyToString: { $0.uuidString }
-                )
+                    capture: { (s: TestState) in s.items },
+                    version: { (_ entity: String) in 1 },
+                    keyToString: { (key: UUID) in key.uuidString }
+                ).erased(debounceClock: debounceClock)
             }
         )
 
         plan.start()
-        try await Task.sleep(for: .milliseconds(50))
-
         let baselineCount = transport.pushCount
 
         // Act — 10 synchronous entity additions within one run-loop turn
@@ -310,7 +311,8 @@ final class PushPlanTests: XCTestCase {
         }
 
         // Wait for debounce to flush
-        try await Task.sleep(for: .milliseconds(200))
+        debounceClock.advance(by: .milliseconds(40))
+        await transport.waitForPushCount(atLeast: baselineCount + 1)
 
         let pushCount = transport.pushCount - baselineCount
 

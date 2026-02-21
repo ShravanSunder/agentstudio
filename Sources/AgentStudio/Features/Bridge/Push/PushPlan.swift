@@ -7,6 +7,12 @@ import Observation
 /// Design doc section 6.7.
 @resultBuilder
 struct PushPlanBuilder<State: Observable & AnyObject> {
+    static func buildExpression(
+        _ slice: AnyPushSlice<State>
+    ) -> AnyPushSlice<State> {
+        slice
+    }
+
     static func buildExpression<Snapshot: Encodable & Equatable>(
         _ slice: Slice<State, Snapshot>
     ) -> AnyPushSlice<State> {

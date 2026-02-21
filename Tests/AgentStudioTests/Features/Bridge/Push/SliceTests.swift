@@ -134,6 +134,7 @@ final class MockPushTransport: PushTransport {
     var lastRevision: Int?
     var lastEpoch: Int?
     var lastJSON: Data?
+    private var pushWaiters: [(Int, CheckedContinuation<Void, Never>)] = []
 
     func pushJSON(
         store: StoreKey, op: PushOp, level: PushLevel,
@@ -146,5 +147,24 @@ final class MockPushTransport: PushTransport {
         lastRevision = revision
         lastEpoch = epoch
         lastJSON = json
+        flushPushWaiters()
+    }
+
+    func waitForPushCount(atLeast expectedCount: Int) async {
+        if pushCount >= expectedCount { return }
+        await withCheckedContinuation { continuation in
+            pushWaiters.append((expectedCount, continuation))
+        }
+    }
+
+    private func flushPushWaiters() {
+        let currentCount = pushCount
+        let satisfied: [(Int, CheckedContinuation<Void, Never>)] = pushWaiters.filter {
+            $0.0 <= currentCount
+        }
+        pushWaiters.removeAll(where: { $0.0 <= currentCount })
+        for waiter in satisfied {
+            waiter.1.resume()
+        }
     }
 }
