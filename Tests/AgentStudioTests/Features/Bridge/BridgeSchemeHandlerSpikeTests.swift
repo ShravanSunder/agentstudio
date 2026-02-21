@@ -1,6 +1,6 @@
-import WebKit
-import Testing
 import Foundation
+import Testing
+import WebKit
 
 @testable import AgentStudio
 
@@ -61,7 +61,8 @@ final class BridgeSchemeHandlerSpikeTests {
         try await waitForPageLoad(page)
 
         // Assert — scheme handler served the page
-        #expect(page.url?.absoluteString == "agentstudio://app/test.html", "Page URL should reflect the custom scheme URL")
+        #expect(
+            page.url?.absoluteString == "agentstudio://app/test.html", "Page URL should reflect the custom scheme URL")
         #expect(!(page.isLoading), "Page should finish loading")
         #expect(page.title == "Spike Test", "page.title should reflect <title> from scheme handler HTML")
     }

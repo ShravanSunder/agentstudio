@@ -1,6 +1,6 @@
+import Foundation
 import Observation
 import Testing
-import Foundation
 
 @testable import AgentStudio
 
@@ -174,11 +174,14 @@ final class PushPerformanceBenchmarkTests {
         print("[PushBenchmark] delta payload: \(deltaPayloadBytes) bytes vs initial: \(initialPayloadBytes) bytes")
 
         // Delta payload should be much smaller than full 100-file payload
-        #expect(deltaPayloadBytes < initialPayloadBytes / 5, "Single-file delta (\(deltaPayloadBytes)B) should be <20% of full payload (\(initialPayloadBytes)B)")
+        #expect(
+            deltaPayloadBytes < initialPayloadBytes / 5,
+            "Single-file delta (\(deltaPayloadBytes)B) should be <20% of full payload (\(initialPayloadBytes)B)")
 
         // Latency should generally stay low for a single entity encode
         // (target remains near-2ms while allowing for CI variability).
-        #expect(latency < .milliseconds(5), "Single-file incremental push should complete within 5ms. Measured: \(latency)")
+        #expect(
+            latency < .milliseconds(5), "Single-file incremental push should complete within 5ms. Measured: \(latency)")
 
         plan.stop()
     }
@@ -227,7 +230,9 @@ final class PushPerformanceBenchmarkTests {
 
         // With 20 mutations at 5ms intervals (100ms total) and 32ms debounce,
         // expect roughly 2-5 coalesced pushes, not 20 individual pushes.
-        #expect(pushCount < 10, "20 rapid mutations should coalesce to fewer than 10 pushes with cold debounce. Got: \(pushCount)")
+        #expect(
+            pushCount < 10,
+            "20 rapid mutations should coalesce to fewer than 10 pushes with cold debounce. Got: \(pushCount)")
         #expect(pushCount > 0, "At least one push should have fired after debounce")
 
         // Verify all 20 files arrived (final state is complete regardless of coalescing)
@@ -273,7 +278,9 @@ final class PushPerformanceBenchmarkTests {
         print("[PushBenchmark] epoch reset payload: \(transport.lastPayloadBytes) bytes")
 
         // This is the worst case: EntitySlice sees 100 removed + 200 new = full re-encode
-        #expect(latency < .milliseconds(32), "Epoch reset + 200-file reload should complete within 32ms. Measured: \(latency)")
+        #expect(
+            latency < .milliseconds(32),
+            "Epoch reset + 200-file reload should complete within 32ms. Measured: \(latency)")
 
         plan.stop()
     }

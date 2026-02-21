@@ -1,5 +1,5 @@
-import Testing
 import Foundation
+import Testing
 
 @testable import AgentStudio
 
@@ -23,7 +23,7 @@ struct CommandBarDataSourceTests {
 
         // Assert — should include command items
         let commandItems = items.filter { $0.id.hasPrefix("cmd-") }
-        #expect(commandItems.count > 0)
+        #expect(!commandItems.isEmpty)
     }
 
     @Test
@@ -36,8 +36,8 @@ struct CommandBarDataSourceTests {
         // Assert
         let tabItems = items.filter { $0.id.hasPrefix("tab-") }
         let paneItems = items.filter { $0.id.hasPrefix("pane-") }
-        #expect(tabItems.count == 0)
-        #expect(paneItems.count == 0)
+        #expect(tabItems.isEmpty)
+        #expect(paneItems.isEmpty)
     }
 
     // MARK: - Commands Scope
@@ -51,7 +51,7 @@ struct CommandBarDataSourceTests {
 
         // Assert — all items should be commands
         #expect(items.allSatisfy { $0.id.hasPrefix("cmd-") })
-        #expect(items.count > 0)
+        #expect(!items.isEmpty)
     }
 
     @Test
@@ -106,7 +106,7 @@ struct CommandBarDataSourceTests {
 
         // Assert — some commands have keyboard shortcuts
         let withShortcuts = items.filter { $0.shortcutKeys != nil && !$0.shortcutKeys!.isEmpty }
-        #expect(withShortcuts.count > 0)
+        #expect(!withShortcuts.isEmpty)
     }
 
     // MARK: - Panes Scope
@@ -298,7 +298,8 @@ struct CommandBarDataSourceTests {
 
         // Assert — action should be .navigate with a level containing both drawer panes
         guard case .navigate(let level) = navigateItem?.action else {
-            Issue.record("navigateDrawerPane action should be .navigate, got \(String(describing: navigateItem?.action))")
+            Issue.record(
+                "navigateDrawerPane action should be .navigate, got \(String(describing: navigateItem?.action))")
             return
         }
 

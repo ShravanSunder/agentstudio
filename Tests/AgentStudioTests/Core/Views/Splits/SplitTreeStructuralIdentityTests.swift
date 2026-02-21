@@ -1,6 +1,6 @@
- import AppKit
-import Testing
+import AppKit
 import Foundation
+import Testing
 
 @testable import AgentStudio
 
@@ -162,6 +162,8 @@ final class SplitTreeStructuralIdentityTests {
         let tree2 = TestSplitTree(view: view2)
 
         // Assert - structural identity uses object identity (===), not UUID
-        #expect(tree1.root!.structuralIdentity != tree2.root!.structuralIdentity, "Structural identity should use object identity, not value equality")
+        #expect(
+            tree1.root!.structuralIdentity != tree2.root!.structuralIdentity,
+            "Structural identity should use object identity, not value equality")
     }
 }

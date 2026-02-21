@@ -1,5 +1,5 @@
-import Testing
 import Foundation
+import Testing
 
 @testable import AgentStudio
 
@@ -41,7 +41,9 @@ final class GhosttyResourcesTests {
     func test_sourceTree_terminfoDirectoryIsDirectory() {
         let terminfoDir = resourcesDir + "/terminfo"
         var isDir: ObjCBool = false
-        #expect(FileManager.default.fileExists(atPath: terminfoDir, isDirectory: &isDir) && isDir.boolValue, "terminfo must be a directory at: \(terminfoDir)")
+        #expect(
+            FileManager.default.fileExists(atPath: terminfoDir, isDirectory: &isDir) && isDir.boolValue,
+            "terminfo must be a directory at: \(terminfoDir)")
     }
 
     // MARK: - Dirname Convention
@@ -56,10 +58,14 @@ final class GhosttyResourcesTests {
             .deletingLastPathComponent + "/terminfo"
 
         // computedTerminfo should equal <resourcesDir>/terminfo
-        #expect(computedTerminfo == resourcesDir + "/terminfo", "dirname(GHOSTTY_RESOURCES_DIR) + /terminfo should resolve to Resources/terminfo")
+        #expect(
+            computedTerminfo == resourcesDir + "/terminfo",
+            "dirname(GHOSTTY_RESOURCES_DIR) + /terminfo should resolve to Resources/terminfo")
 
         // And the xterm-ghostty entry must exist there
-        #expect(FileManager.default.fileExists(atPath: computedTerminfo + "/78/xterm-ghostty"), "xterm-ghostty must exist at the computed TERMINFO path: \(computedTerminfo)/78/xterm-ghostty")
+        #expect(
+            FileManager.default.fileExists(atPath: computedTerminfo + "/78/xterm-ghostty"),
+            "xterm-ghostty must exist at the computed TERMINFO path: \(computedTerminfo)/78/xterm-ghostty")
     }
 
     // MARK: - SPM Bundle Layout (post-build)
@@ -73,11 +79,14 @@ final class GhosttyResourcesTests {
 
         #expect(FileManager.default.fileExists(atPath: bundlePath), "SPM bundle should exist at: \(bundlePath)")
 
-        #expect(FileManager.default.fileExists(atPath: sentinel), "SPM bundle should contain xterm-ghostty at: \(sentinel)")
+        #expect(
+            FileManager.default.fileExists(atPath: sentinel), "SPM bundle should contain xterm-ghostty at: \(sentinel)")
 
         // Verify dirname convention holds for the bundle path too
         let simulatedDir = bundlePath + "/ghostty"
         let computedTerminfo = (simulatedDir as NSString).deletingLastPathComponent + "/terminfo"
-        #expect(FileManager.default.fileExists(atPath: computedTerminfo + "/78/xterm-ghostty"), "dirname convention must hold for SPM bundle: \(computedTerminfo)/78/xterm-ghostty")
+        #expect(
+            FileManager.default.fileExists(atPath: computedTerminfo + "/78/xterm-ghostty"),
+            "dirname convention must hold for SPM bundle: \(computedTerminfo)/78/xterm-ghostty")
     }
 }

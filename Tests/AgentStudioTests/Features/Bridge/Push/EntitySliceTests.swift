@@ -1,6 +1,6 @@
+import Foundation
 import Observation
 import Testing
-import Foundation
 
 @testable import AgentStudio
 
@@ -152,7 +152,9 @@ final class EntitySliceTests {
 
         // Assert — EntitySlice should NOT push because version is unchanged
         // This documents the version contract: callers must bump version for changes to propagate
-        #expect(transport.pushCount == countAfterInitial, "EntitySlice should skip push when version is unchanged despite field mutation")
+        #expect(
+            transport.pushCount == countAfterInitial,
+            "EntitySlice should skip push when version is unchanged despite field mutation")
 
         task.cancel()
     }

@@ -1,5 +1,5 @@
-import Testing
 import Foundation
+import Testing
 
 @testable import AgentStudio
 
@@ -11,7 +11,6 @@ struct OAuthServiceTests {
 
     // MARK: - Provider Configuration
 
-
     @Test
     func test_githubConfigExists() {
         let config = OAuthService.providerConfigs[.github]!
@@ -19,7 +18,6 @@ struct OAuthServiceTests {
         #expect(!config.clientId.isEmpty)
         #expect(!config.scopes.isEmpty)
     }
-
 
     @Test
     func test_googleConfigExists() {
@@ -31,13 +29,11 @@ struct OAuthServiceTests {
 
     // MARK: - Redirect URI
 
-
     @Test
     func test_redirectURI_github() {
         let uri = OAuthService.redirectURI(for: .github)
         #expect(uri == "agentstudio://oauth/callback")
     }
-
 
     @Test
     func test_redirectURI_google() {
@@ -47,12 +43,10 @@ struct OAuthServiceTests {
 
     // MARK: - Callback Scheme
 
-
     @Test
     func test_callbackScheme() {
         #expect(OAuthService.callbackScheme == "agentstudio")
     }
-
 
     @Test
     func test_callbackPath() {
@@ -60,7 +54,6 @@ struct OAuthServiceTests {
     }
 
     // MARK: - Authorization URL Construction
-
 
     @Test
     func test_githubAuthURL_containsRequiredParams() {
@@ -82,7 +75,6 @@ struct OAuthServiceTests {
         #expect(query.contains("state=test-state"))
         #expect(query.contains("response_type=code"))
     }
-
 
     @Test
     func test_googleAuthURL_containsRequiredParams() {
@@ -107,7 +99,6 @@ struct OAuthServiceTests {
 
     // MARK: - OAuth Provider
 
-
     @Test
     func test_allProviders() {
         #expect(OAuthProvider.allCases.count == 2)
@@ -116,7 +107,6 @@ struct OAuthServiceTests {
     }
 
     // MARK: - OAuthError
-
 
     @Test
     func test_errorDescriptions() {
@@ -129,35 +119,30 @@ struct OAuthServiceTests {
         #expect(OAuthError.startFailed.errorDescription != nil)
     }
 
-
     @Test
     func test_cancelledError_description() {
         let error = OAuthError.cancelled
         #expect(error.errorDescription == "Authentication was cancelled")
     }
 
-
     @Test
     func test_stateMismatchError_description() {
         let error = OAuthError.stateMismatch
-        #expect( (error.errorDescription?.contains("CSRF") ?? false) )
+        #expect((error.errorDescription?.contains("CSRF") ?? false))
     }
-
 
     @Test
     func test_invalidCallbackError_description() {
         let error = OAuthError.invalidCallback
-        #expect( (error.errorDescription?.contains("callback") ?? false) )
+        #expect((error.errorDescription?.contains("callback") ?? false))
     }
 
     // MARK: - isCancelled
-
 
     @Test
     func test_isCancelled_true_forCancelled() {
         #expect(OAuthError.cancelled.isCancelled)
     }
-
 
     @Test
     func test_isCancelled_false_forOtherErrors() {
@@ -169,7 +154,6 @@ struct OAuthServiceTests {
         #expect(!OAuthError.startFailed.isCancelled)
     }
 
-
     @Test
     func test_isCancelled_false_forSessionFailed() {
         let inner = NSError(domain: "test", code: 0)
@@ -178,12 +162,11 @@ struct OAuthServiceTests {
 
     // MARK: - SessionFailed wraps inner error
 
-
     @Test
     func test_sessionFailed_includesInnerErrorDescription() {
         let inner = NSError(domain: "test", code: 42, userInfo: [NSLocalizedDescriptionKey: "connection lost"])
         let error = OAuthError.sessionFailed(inner)
-        #expect( (error.errorDescription?.contains("connection lost") ?? false) )
+        #expect((error.errorDescription?.contains("connection lost") ?? false))
     }
 
     // MARK: - Callback Validation (Security)
@@ -194,7 +177,6 @@ struct OAuthServiceTests {
         let code = try OAuthService.validateCallback(url: url, expectedState: "expected-state")
         #expect(code == "abc123")
     }
-
 
     @Test
     func test_validateCallback_wrongHost_throwsInvalidCallback() {
@@ -210,7 +192,6 @@ struct OAuthServiceTests {
         }
     }
 
-
     @Test
     func test_validateCallback_wrongPath_throwsInvalidCallback() {
         let url = URL(string: "agentstudio://oauth/evil?code=abc123&state=s")!
@@ -224,7 +205,6 @@ struct OAuthServiceTests {
             }
         }
     }
-
 
     @Test
     func test_validateCallback_missingCode_throwsMissingCode() {
@@ -240,7 +220,6 @@ struct OAuthServiceTests {
         }
     }
 
-
     @Test
     func test_validateCallback_emptyCode_throwsMissingCode() {
         let url = URL(string: "agentstudio://oauth/callback?code=&state=s")!
@@ -254,7 +233,6 @@ struct OAuthServiceTests {
             }
         }
     }
-
 
     @Test
     func test_validateCallback_stateMismatch_throwsStateMismatch() {
@@ -270,7 +248,6 @@ struct OAuthServiceTests {
         }
     }
 
-
     @Test
     func test_validateCallback_missingState_throwsStateMismatch() {
         let url = URL(string: "agentstudio://oauth/callback?code=abc123")!
@@ -284,7 +261,6 @@ struct OAuthServiceTests {
             }
         }
     }
-
 
     @Test
     func test_validateCallback_extraPathSegment_throwsInvalidCallback() {
@@ -302,7 +278,6 @@ struct OAuthServiceTests {
 
     // MARK: - Placeholder Validation
 
-
     @Test
     func test_githubClientId_isPlaceholder() {
         // Current config uses placeholders — this test documents that OAuth
@@ -311,13 +286,11 @@ struct OAuthServiceTests {
         #expect(config.clientId.hasPrefix("PLACEHOLDER"))
     }
 
-
     @Test
     func test_googleClientId_isPlaceholder() {
         let config = OAuthService.providerConfigs[.google]!
         #expect(config.clientId.hasPrefix("PLACEHOLDER"))
     }
-
 
     @Test
     func test_notConfigured_errorDescription_includesProvider() {
@@ -329,7 +302,6 @@ struct OAuthServiceTests {
         #expect(description.contains("github"))
         #expect(description.contains("not configured"))
     }
-
 
     @Test
     func test_notConfigured_isCancelled_returnsFalse() {

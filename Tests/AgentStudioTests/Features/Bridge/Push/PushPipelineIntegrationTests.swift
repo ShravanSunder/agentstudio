@@ -1,6 +1,6 @@
+import Foundation
 import Observation
 import Testing
-import Foundation
 
 @testable import AgentStudio
 
@@ -105,7 +105,9 @@ final class PushPipelineIntegrationTests {
 
         // Assert — debounce coalesced rapid mutations into fewer pushes than mutations
         let pushesAfterMutations = transport.pushCount - baselineCount
-        #expect(pushesAfterMutations < 5, "Cold debounce should coalesce rapid mutations into fewer pushes (got \(pushesAfterMutations))")
+        #expect(
+            pushesAfterMutations < 5,
+            "Cold debounce should coalesce rapid mutations into fewer pushes (got \(pushesAfterMutations))")
         #expect(pushesAfterMutations >= 1, "At least one push should have fired after the mutations settled")
 
         plan.stop()

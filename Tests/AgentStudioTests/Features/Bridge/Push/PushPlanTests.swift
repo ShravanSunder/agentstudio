@@ -1,6 +1,6 @@
+import Foundation
 import Observation
 import Testing
-import Foundation
 
 @testable import AgentStudio
 
@@ -150,7 +150,9 @@ final class PushPlanTests {
         await Task.yield()
 
         // Assert — no additional pushes after stop
-        #expect(transport.pushCount == countBeforeStop, "Mutations after stop() should not reach transport (StopGuardedTransport drops them)")
+        #expect(
+            transport.pushCount == countBeforeStop,
+            "Mutations after stop() should not reach transport (StopGuardedTransport drops them)")
     }
 
     // MARK: - Generation-safe restart: old generation pushes are dropped
@@ -295,7 +297,9 @@ final class PushPlanTests {
 
         // Assert — should be fewer pushes than mutations (coalesced)
         #expect(pushCount > 0, "At least one push should fire after debounce")
-        #expect(pushCount < 5, "5 mutations within 12ms debounce window should coalesce to fewer than 5 pushes. Got: \(pushCount)")
+        #expect(
+            pushCount < 5,
+            "5 mutations within 12ms debounce window should coalesce to fewer than 5 pushes. Got: \(pushCount)")
 
         plan.stop()
     }
@@ -349,7 +353,9 @@ final class PushPlanTests {
 
         // Assert — should be coalesced (fewer pushes than mutations)
         #expect(pushCount > 0, "At least one push should fire after cold debounce")
-        #expect(pushCount < 10, "10 mutations within ~32ms debounce should coalesce to fewer than 10 pushes. Got: \(pushCount)")
+        #expect(
+            pushCount < 10,
+            "10 mutations within ~32ms debounce should coalesce to fewer than 10 pushes. Got: \(pushCount)")
 
         // Verify all 10 entities made it into the final delta
         #expect(state.items.count == 10)

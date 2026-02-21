@@ -1,6 +1,6 @@
 import CoreGraphics
-import Testing
 import Foundation
+import Testing
 
 @testable import AgentStudio
 
@@ -9,7 +9,8 @@ import Foundation
 final class DeferredStartupReadinessTests {
     @Test
     func test_canSchedule_true_whenReady() {
-        #expect(DeferredStartupReadiness.canSchedule(
+        #expect(
+            DeferredStartupReadiness.canSchedule(
                 hasSent: false,
                 deferredStartupCommand: "zmx attach test",
                 hasWindow: true,
@@ -19,7 +20,8 @@ final class DeferredStartupReadinessTests {
 
     @Test
     func test_canSchedule_false_whenAlreadySent() {
-        #expect(!(DeferredStartupReadiness.canSchedule(
+        #expect(
+            !(DeferredStartupReadiness.canSchedule(
                 hasSent: true,
                 deferredStartupCommand: "zmx attach test",
                 hasWindow: true,
@@ -29,13 +31,15 @@ final class DeferredStartupReadinessTests {
 
     @Test
     func test_canSchedule_false_whenCommandMissingOrEmpty() {
-        #expect(!(DeferredStartupReadiness.canSchedule(
+        #expect(
+            !(DeferredStartupReadiness.canSchedule(
                 hasSent: false,
                 deferredStartupCommand: nil,
                 hasWindow: true,
                 contentSize: CGSize(width: 1200, height: 700)
             )))
-        #expect(!(DeferredStartupReadiness.canSchedule(
+        #expect(
+            !(DeferredStartupReadiness.canSchedule(
                 hasSent: false,
                 deferredStartupCommand: "",
                 hasWindow: true,
@@ -45,7 +49,8 @@ final class DeferredStartupReadinessTests {
 
     @Test
     func test_canSchedule_false_whenWindowMissing() {
-        #expect(!(DeferredStartupReadiness.canSchedule(
+        #expect(
+            !(DeferredStartupReadiness.canSchedule(
                 hasSent: false,
                 deferredStartupCommand: "zmx attach test",
                 hasWindow: false,
@@ -55,13 +60,15 @@ final class DeferredStartupReadinessTests {
 
     @Test
     func test_canSchedule_false_whenSizeInvalid() {
-        #expect(!(DeferredStartupReadiness.canSchedule(
+        #expect(
+            !(DeferredStartupReadiness.canSchedule(
                 hasSent: false,
                 deferredStartupCommand: "zmx attach test",
                 hasWindow: true,
                 contentSize: .zero
             )))
-        #expect(!(DeferredStartupReadiness.canSchedule(
+        #expect(
+            !(DeferredStartupReadiness.canSchedule(
                 hasSent: false,
                 deferredStartupCommand: "zmx attach test",
                 hasWindow: true,
@@ -71,7 +78,8 @@ final class DeferredStartupReadinessTests {
 
     @Test
     func test_canExecute_false_whenProcessExited() {
-        #expect(!(DeferredStartupReadiness.canExecute(
+        #expect(
+            !(DeferredStartupReadiness.canExecute(
                 hasSent: false,
                 deferredStartupCommand: "zmx attach test",
                 hasWindow: true,
@@ -82,7 +90,8 @@ final class DeferredStartupReadinessTests {
 
     @Test
     func test_canExecute_false_whenScheduleConditionsFail() {
-        #expect(!(DeferredStartupReadiness.canExecute(
+        #expect(
+            !(DeferredStartupReadiness.canExecute(
                 hasSent: false,
                 deferredStartupCommand: "zmx attach test",
                 hasWindow: false,
@@ -93,7 +102,8 @@ final class DeferredStartupReadinessTests {
 
     @Test
     func test_canExecute_true_whenReadyAndProcessAlive() {
-        #expect(DeferredStartupReadiness.canExecute(
+        #expect(
+            DeferredStartupReadiness.canExecute(
                 hasSent: false,
                 deferredStartupCommand: "zmx attach test",
                 hasWindow: true,

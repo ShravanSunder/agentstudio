@@ -1,17 +1,16 @@
-import Testing
 import Foundation
+import Testing
 
 @testable import AgentStudio
 
 @Suite(.serialized)
 final class CommandBarStateTests {
 
-
     private var state: CommandBarState!
 
     private static let recentsKey = "CommandBarRecentItemIds"
 
-        init() {
+    init() {
         // Isolate UserDefaults — clear recents key before each test
         UserDefaults.standard.removeObject(forKey: Self.recentsKey)
         state = CommandBarState()

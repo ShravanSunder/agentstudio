@@ -1,5 +1,5 @@
-import Testing
 import Foundation
+import Testing
 
 @testable import AgentStudio
 
@@ -27,14 +27,15 @@ struct ZmxOrphanCleanupPlannerTests {
         // Assert
         #expect(!plan.shouldSkipCleanup)
         #expect(
-            plan.knownSessionIds == Set([
-                ZmxBackend.drawerSessionId(parentPaneId: parentPaneId, drawerPaneId: drawerPaneId),
-                ZmxBackend.sessionId(
-                    repoStableKey: "a1b2c3d4e5f6a7b8",
-                    worktreeStableKey: "00112233aabbccdd",
-                    paneId: mainPaneId
-                ),
-            ])
+            plan.knownSessionIds
+                == Set([
+                    ZmxBackend.drawerSessionId(parentPaneId: parentPaneId, drawerPaneId: drawerPaneId),
+                    ZmxBackend.sessionId(
+                        repoStableKey: "a1b2c3d4e5f6a7b8",
+                        worktreeStableKey: "00112233aabbccdd",
+                        paneId: mainPaneId
+                    ),
+                ])
         )
     }
 

@@ -1,5 +1,5 @@
-import Testing
 import Foundation
+import Testing
 
 @testable import AgentStudio
 
@@ -25,7 +25,9 @@ final class BridgeBootstrapTests {
     @Test
     func test_script_contains_command_listener() {
         let script = BridgeBootstrap.generateScript(bridgeNonce: "test-nonce", pushNonce: "push-nonce")
-        #expect(script.contains("__bridge_command"), "Bootstrap must listen for __bridge_command CustomEvents from page world")
+        #expect(
+            script.contains("__bridge_command"),
+            "Bootstrap must listen for __bridge_command CustomEvents from page world")
     }
 
     // MARK: - Nonce Validation
@@ -49,7 +51,9 @@ final class BridgeBootstrapTests {
     @Test
     func test_script_contains_ready_listener() {
         let script = BridgeBootstrap.generateScript(bridgeNonce: "test-nonce", pushNonce: "push-nonce")
-        #expect(script.contains("__bridge_ready") || script.contains("bridge.ready"), "Bootstrap must relay bridge.ready from page world to Swift")
+        #expect(
+            script.contains("__bridge_ready") || script.contains("bridge.ready"),
+            "Bootstrap must relay bridge.ready from page world to Swift")
     }
 
     // MARK: - Handshake Dispatch
@@ -74,7 +78,10 @@ final class BridgeBootstrapTests {
     @Test
     func test_script_contains_handshake_replay_listener() {
         let script = BridgeBootstrap.generateScript(bridgeNonce: "test-nonce", pushNonce: "push-nonce")
-        #expect(script.contains("__bridge_handshake_request"), "Bootstrap must listen for __bridge_handshake_request so late page-world listeners can recover the pushNonce")
+        #expect(
+            script.contains("__bridge_handshake_request"),
+            "Bootstrap must listen for __bridge_handshake_request so late page-world listeners can recover the pushNonce"
+        )
     }
 
     // MARK: - Push Envelope Metadata (P2)
@@ -84,8 +91,11 @@ final class BridgeBootstrapTests {
         let script = BridgeBootstrap.generateScript(bridgeNonce: "test-nonce", pushNonce: "push-nonce")
         // merge and replace functions should accept revision and epoch params
         // and include __revision/__epoch at the event detail level
-        #expect(script.contains("__revision: revision"), "Push relay must expose __revision at event detail level for stale guards")
-        #expect(script.contains("__epoch: epoch"), "Push relay must expose __epoch at event detail level for epoch checks")
+        #expect(
+            script.contains("__revision: revision"),
+            "Push relay must expose __revision at event detail level for stale guards")
+        #expect(
+            script.contains("__epoch: epoch"), "Push relay must expose __epoch at event detail level for epoch checks")
     }
 
     @Test

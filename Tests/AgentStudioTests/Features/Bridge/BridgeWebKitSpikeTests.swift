@@ -1,6 +1,6 @@
-import WebKit
-import Testing
 import Foundation
+import Testing
+import WebKit
 
 @testable import AgentStudio
 
@@ -84,7 +84,7 @@ final class BridgeWebKitSpikeTests {
         let worldB = WKContentWorld.world(name: "agentStudioBridge")
 
         // Assert -- same name should return the same (identical) world object
-        
+
         #expect(worldA === worldB, "WKContentWorld.world(name:) with the same name should return the identical object")
     }
 
@@ -137,8 +137,12 @@ final class BridgeWebKitSpikeTests {
         try await Task.sleep(for: .milliseconds(300))
 
         // Assert -- message should contain the argument value
-        #expect(handler.receivedMessages.count == 1, "callJavaScript with contentWorld should execute and postMessage should work")
-        #expect(handler.receivedMessages.first as? String == "42", "Arguments passed to callJavaScript should be available as JS local variables")
+        #expect(
+            handler.receivedMessages.count == 1,
+            "callJavaScript with contentWorld should execute and postMessage should work")
+        #expect(
+            handler.receivedMessages.first as? String == "42",
+            "Arguments passed to callJavaScript should be available as JS local variables")
     }
 
     /// Verify that callJavaScript in one content world cannot see globals
@@ -193,10 +197,14 @@ final class BridgeWebKitSpikeTests {
 
         // Assert
         #expect(bridgeHandler.receivedMessages.count == 1)
-        #expect(bridgeHandler.receivedMessages.first as? String == "bridge-only", "Bridge world should see its own global variable")
+        #expect(
+            bridgeHandler.receivedMessages.first as? String == "bridge-only",
+            "Bridge world should see its own global variable")
 
         #expect(pageHandler.receivedMessages.count == 1)
-        #expect(pageHandler.receivedMessages.first as? String == "NOT_FOUND", "Page world should NOT see bridge world's global variable (isolation)")
+        #expect(
+            pageHandler.receivedMessages.first as? String == "NOT_FOUND",
+            "Page world should NOT see bridge world's global variable (isolation)")
     }
 
     // MARK: - Item 3: WKUserScript with content world injection
@@ -260,11 +268,15 @@ final class BridgeWebKitSpikeTests {
 
         // Assert -- bridge world should see the flag
         #expect(bridgeHandler.receivedMessages.count == 1)
-        #expect(bridgeHandler.receivedMessages.first as? String == "true", "WKUserScript injected with `in: world` should set __testFlag in bridge world")
+        #expect(
+            bridgeHandler.receivedMessages.first as? String == "true",
+            "WKUserScript injected with `in: world` should set __testFlag in bridge world")
 
         // Assert -- page world should NOT see the flag
         #expect(pageHandler.receivedMessages.count == 1)
-        #expect(pageHandler.receivedMessages.first as? String == "undefined", "Page world should NOT see __testFlag set by bridge-world WKUserScript (isolation)")
+        #expect(
+            pageHandler.receivedMessages.first as? String == "undefined",
+            "Page world should NOT see __testFlag set by bridge-world WKUserScript (isolation)")
     }
 
     // MARK: - Item 4: Message handler scoped to content world
@@ -338,7 +350,9 @@ final class BridgeWebKitSpikeTests {
         try await Task.sleep(for: .milliseconds(300))
 
         // Assert -- handler should NOT have received a message from page world
-        #expect(handler.receivedMessages.count == 0, "Page world should NOT be able to post to a bridge-world-scoped message handler")
+        #expect(
+            handler.receivedMessages.isEmpty,
+            "Page world should NOT be able to post to a bridge-world-scoped message handler")
     }
 
     /// Verify that message handler receives structured JSON data (not just strings).
@@ -379,7 +393,9 @@ final class BridgeWebKitSpikeTests {
         #expect(body != nil, "postMessage with JSON.stringify should deliver a String body")
         if let body {
             let parsed = try? JSONSerialization.jsonObject(with: Data(body.utf8)) as? [String: Any]
-            #expect(parsed?["method"] as? String == "test.ping", "JSON string payload should be parseable and contain the method")
+            #expect(
+                parsed?["method"] as? String == "test.ping",
+                "JSON string payload should be parseable and contain the method")
         }
     }
 

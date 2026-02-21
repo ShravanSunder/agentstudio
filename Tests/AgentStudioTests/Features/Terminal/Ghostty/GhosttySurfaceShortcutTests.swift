@@ -1,6 +1,6 @@
 import AppKit
-import Testing
 import Foundation
+import Testing
 
 @testable import AgentStudio
 
@@ -13,7 +13,8 @@ final class GhosttySurfaceShortcutTests {
     @Test
     func test_appOwnedShortcuts_containsAtLeast3() {
         // Assert — at minimum the 3 command bar shortcuts are registered
-        #expect(Ghostty.SurfaceView.appOwnedShortcuts.count >= 3, "Expected at least 3 app-owned shortcuts (⌘P, ⌘⇧P, ⌘⌥P)")
+        #expect(
+            Ghostty.SurfaceView.appOwnedShortcuts.count >= 3, "Expected at least 3 app-owned shortcuts (⌘P, ⌘⇧P, ⌘⌥P)")
     }
 
     @Test

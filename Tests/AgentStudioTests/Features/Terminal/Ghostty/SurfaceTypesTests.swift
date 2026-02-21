@@ -1,5 +1,5 @@
-import Testing
 import Foundation
+import Testing
 
 @testable import AgentStudio
 
@@ -64,7 +64,8 @@ final class SurfaceTypesTests {
     @Test
     func test_surfaceHealth_equatable_sameReason() {
         // Assert
-        #expect(SurfaceHealth.unhealthy(reason: .rendererUnhealthy) == SurfaceHealth.unhealthy(reason: .rendererUnhealthy))
+        #expect(
+            SurfaceHealth.unhealthy(reason: .rendererUnhealthy) == SurfaceHealth.unhealthy(reason: .rendererUnhealthy))
     }
 
     @Test

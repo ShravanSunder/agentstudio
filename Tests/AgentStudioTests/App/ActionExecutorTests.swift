@@ -1,5 +1,5 @@
-import Testing
 import Foundation
+import Testing
 
 @testable import AgentStudio
 
@@ -39,7 +39,6 @@ final class ActionExecutorTests {
 
     // MARK: - Execute: selectTab
 
-    
     @Test
     func test_execute_selectTab_setsActiveTab() {
         // Arrange
@@ -60,7 +59,6 @@ final class ActionExecutorTests {
 
     // MARK: - Execute: closeTab
 
-    
     @Test
     func test_execute_closeTab_removesTab() {
         // Arrange
@@ -76,7 +74,6 @@ final class ActionExecutorTests {
         #expect(store.tabs.isEmpty)
     }
 
-    
     @Test
     func test_execute_closeTab_pushesToUndoStack() {
         // Arrange
@@ -96,7 +93,6 @@ final class ActionExecutorTests {
         }
     }
 
-    
     @Test
     func test_execute_closeTab_multipleCloses_stacksUndo() {
         // Arrange
@@ -127,7 +123,6 @@ final class ActionExecutorTests {
 
     // MARK: - Undo Close Tab
 
-    
     @Test
     func test_undoCloseTab_restoresTab() {
         // Arrange
@@ -148,7 +143,6 @@ final class ActionExecutorTests {
         #expect(executor.undoStack.isEmpty)
     }
 
-    
     @Test
     func test_undoCloseTab_emptyStack_noOp() {
         // Act — should not crash
@@ -160,7 +154,6 @@ final class ActionExecutorTests {
 
     // MARK: - Execute: breakUpTab
 
-    
     @Test
     func test_execute_breakUpTab_splitsIntoIndividualTabs() {
         // Arrange
@@ -193,7 +186,6 @@ final class ActionExecutorTests {
 
     // MARK: - Execute: extractPaneToTab
 
-    
     @Test
     func test_execute_extractPaneToTab_createsNewTab() {
         // Arrange
@@ -224,7 +216,6 @@ final class ActionExecutorTests {
 
     // MARK: - Execute: focusPane
 
-    
     @Test
     func test_execute_focusPane_setsActivePane() {
         // Arrange
@@ -255,7 +246,6 @@ final class ActionExecutorTests {
 
     // MARK: - Execute: resizePane
 
-    
     @Test
     func test_execute_resizePane_updatesRatio() {
         // Arrange
@@ -287,7 +277,6 @@ final class ActionExecutorTests {
 
     // MARK: - Execute: equalizePanes
 
-    
     @Test
     func test_execute_equalizePanes_resetsRatios() {
         // Arrange
@@ -320,7 +309,6 @@ final class ActionExecutorTests {
 
     // MARK: - Execute: closePane
 
-    
     @Test
     func test_execute_closePane_removesFromLayout() {
         // Arrange
@@ -352,7 +340,6 @@ final class ActionExecutorTests {
 
     // MARK: - Execute: insertPane (existingPane)
 
-    
     @Test
     func test_execute_insertPane_existingPane_movesPane() {
         // Arrange — p2 in tab2, move to tab1 next to p1
@@ -381,7 +368,6 @@ final class ActionExecutorTests {
 
     // MARK: - Execute: mergeTab
 
-    
     @Test
     func test_execute_mergeTab_combinesTabs() {
         // Arrange
@@ -408,7 +394,6 @@ final class ActionExecutorTests {
 
     // MARK: - OpenTerminal
 
-    
     @Test
     func test_openTerminal_surfaceFails_rollsBackPane() {
         // Arrange — coordinator.createView() returns nil in tests (no Ghostty runtime)
@@ -422,10 +407,9 @@ final class ActionExecutorTests {
         // Assert — surface creation failed, pane rolled back, no tab created
         #expect(pane == nil)
         #expect(store.tabs.isEmpty)
-        #expect(store.panes.count == 0)
+        #expect(store.panes.isEmpty)
     }
 
-    
     @Test
     func test_openTerminal_existingPane_selectsTab() {
         // Arrange
@@ -453,7 +437,6 @@ final class ActionExecutorTests {
 
     // MARK: - Undo GC
 
-    
     @Test
     func test_undoStack_expiresOldEntries() {
         // Arrange — close 12 tabs (exceeds maxUndoStackSize of 10)
@@ -483,7 +466,6 @@ final class ActionExecutorTests {
 
     // MARK: - Execute: switchArrangement
 
-    
     @Test
     func test_computeSwitchArrangementTransitions_includesPreviouslyMinimizedVisiblePaneInReattachSet() {
         // Arrange
@@ -506,7 +488,6 @@ final class ActionExecutorTests {
         #expect(transitions.paneIdsToReattach == Set([paneB, paneC]))
     }
 
-    
     @Test
     func test_computeSwitchArrangementTransitions_whenNoMinimizedPanes_reattachesOnlyRevealedPanes() {
         // Arrange
@@ -529,7 +510,6 @@ final class ActionExecutorTests {
         #expect(transitions.paneIdsToReattach == Set([paneC]))
     }
 
-    
     @Test
     func test_execute_switchArrangement_updatesStoreState() {
         // Arrange: tab with panes A, B, C. Default arrangement has all 3.
@@ -561,7 +541,6 @@ final class ActionExecutorTests {
         #expect(!(updatedTab.paneIds.contains(pC.id)))
     }
 
-    
     @Test
     func test_execute_switchArrangement_backToDefault_restoresAllPanes() {
         // Arrange: tab with panes A, B, C
@@ -594,7 +573,6 @@ final class ActionExecutorTests {
         #expect(Set(updatedTab.paneIds) == Set([pA.id, pB.id, pC.id]))
     }
 
-    
     @Test
     func test_execute_switchArrangement_sameArrangement_noOp() {
         // Arrange
@@ -612,7 +590,6 @@ final class ActionExecutorTests {
         #expect(store.tab(tab.id)!.paneIds == [pA.id])
     }
 
-    
     @Test
     func test_execute_switchArrangement_invalidTabId_noOp() {
         // Act: should not crash
@@ -624,7 +601,6 @@ final class ActionExecutorTests {
 
     // MARK: - Execute: switchArrangement (ViewRegistry integration)
 
-    
     @Test
     func test_execute_switchArrangement_viewRegistryRetainsAllViews() {
         // Arrange: tab with 3 panes, each registered in ViewRegistry
@@ -656,9 +632,9 @@ final class ActionExecutorTests {
         executor.execute(.switchArrangement(tabId: tab.id, arrangementId: customArrId))
 
         // Assert: all 3 views are still in the ViewRegistry
-        #expect(viewRegistry.view(for: pA.id) != nil) // View A should still be registered after arrangement switch
-        #expect(viewRegistry.view(for: pB.id) != nil) // View B should still be registered after arrangement switch
-        #expect(viewRegistry.view(for: pC.id) != nil) // View C should still be registered even though hidden
+        #expect(viewRegistry.view(for: pA.id) != nil)  // View A should still be registered after arrangement switch
+        #expect(viewRegistry.view(for: pB.id) != nil)  // View B should still be registered after arrangement switch
+        #expect(viewRegistry.view(for: pC.id) != nil)  // View C should still be registered even though hidden
         #expect(viewRegistry.registeredPaneIds == Set([pA.id, pB.id, pC.id]))
 
         // Verify the store correctly reflects only A and B as visible
@@ -668,7 +644,6 @@ final class ActionExecutorTests {
         #expect(updatedTab.panes.contains(pC.id))
     }
 
-    
     @Test
     func test_execute_switchArrangement_backToDefault_viewsStillRegistered() {
         // Arrange: tab with 3 panes, each registered in ViewRegistry
@@ -702,9 +677,9 @@ final class ActionExecutorTests {
         executor.execute(.switchArrangement(tabId: tab.id, arrangementId: defaultArrId))
 
         // Assert: all 3 views are still registered after round-trip
-        #expect(viewRegistry.view(for: pA.id) != nil) // View A should survive round-trip arrangement switch
-        #expect(viewRegistry.view(for: pB.id) != nil) // View B should survive round-trip arrangement switch
-        #expect(viewRegistry.view(for: pC.id) != nil) // View C should survive round-trip arrangement switch
+        #expect(viewRegistry.view(for: pA.id) != nil)  // View A should survive round-trip arrangement switch
+        #expect(viewRegistry.view(for: pB.id) != nil)  // View B should survive round-trip arrangement switch
+        #expect(viewRegistry.view(for: pC.id) != nil)  // View C should survive round-trip arrangement switch
         #expect(viewRegistry.registeredPaneIds == Set([pA.id, pB.id, pC.id]))
 
         // Verify all panes are visible again in the default arrangement
@@ -714,14 +689,12 @@ final class ActionExecutorTests {
 
     // MARK: - Execute: repair (viewRevision)
 
-    
     @Test
     func test_viewRevision_defaultsToZero() {
         // Assert
         #expect(store.viewRevision == 0)
     }
 
-    
     @Test
     func test_executeRepair_recreateSurface_bumpsViewRevision() {
         // Arrange
@@ -739,7 +712,6 @@ final class ActionExecutorTests {
         #expect(store.viewRevision == 1)
     }
 
-    
     @Test
     func test_executeRepair_createMissingView_bumpsViewRevision() {
         // Arrange
@@ -755,7 +727,6 @@ final class ActionExecutorTests {
         #expect(store.viewRevision == 1)
     }
 
-    
     @Test
     func test_executeRepair_unknownPane_doesNotBumpViewRevision() {
         // Arrange

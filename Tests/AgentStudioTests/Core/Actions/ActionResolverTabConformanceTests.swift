@@ -1,5 +1,5 @@
-import Testing
 import Foundation
+import Testing
 
 @testable import AgentStudio
 
@@ -93,12 +93,14 @@ final class ActionResolverTabConformanceTests {
         )
 
         // Assert
-        #expect(result == .insertPane(
-                source: .newTerminal,
-                targetTabId: tab.id,
-                targetPaneId: paneId,
-                direction: .right
-            ))
+        #expect(
+            result
+                == .insertPane(
+                    source: .newTerminal,
+                    targetTabId: tab.id,
+                    targetPaneId: paneId,
+                    direction: .right
+                ))
     }
 
     @Test
@@ -160,8 +162,10 @@ final class ActionResolverTabConformanceTests {
         let tabs = [tab1, tab2, tab3]
 
         // Act & Assert
-        #expect(ActionResolver.resolve(command: .selectTab1, tabs: tabs, activeTabId: nil) == .selectTab(tabId: tab1.id))
-        #expect(ActionResolver.resolve(command: .selectTab2, tabs: tabs, activeTabId: nil) == .selectTab(tabId: tab2.id))
+        #expect(
+            ActionResolver.resolve(command: .selectTab1, tabs: tabs, activeTabId: nil) == .selectTab(tabId: tab1.id))
+        #expect(
+            ActionResolver.resolve(command: .selectTab2, tabs: tabs, activeTabId: nil) == .selectTab(tabId: tab2.id))
         #expect((ActionResolver.resolve(command: .selectTab4, tabs: tabs, activeTabId: nil)) == nil)
     }
 

@@ -1,7 +1,7 @@
- import AppKit
+import AppKit
 import CoreGraphics
-import Testing
 import Foundation
+import Testing
 
 @testable import AgentStudio
 

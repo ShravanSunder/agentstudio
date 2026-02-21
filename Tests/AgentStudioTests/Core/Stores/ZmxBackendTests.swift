@@ -1,5 +1,5 @@
-import Testing
 import Foundation
+import Testing
 
 @testable import AgentStudio
 
@@ -8,7 +8,7 @@ final class ZmxBackendTests {
     private var executor: MockProcessExecutor!
     private var backend: ZmxBackend!
 
-        init() {
+    init() {
         executor = MockProcessExecutor()
         backend = ZmxBackend(executor: executor, zmxPath: "/usr/local/bin/zmx", zmxDir: "/tmp/zmx-test")
     }

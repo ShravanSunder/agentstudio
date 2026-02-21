@@ -1,5 +1,5 @@
-import Testing
 import Foundation
+import Testing
 
 @testable import AgentStudio
 
@@ -29,15 +29,11 @@ final class AppCommandTests {
 
     // MARK: - AppCommand Enum
 
-    
-
     @Test
     func test_appCommand_allCases_notEmpty() {
         // Assert
         #expect(!(AppCommand.allCases.isEmpty))
     }
-
-    
 
     @Test
     func test_appCommand_rawValues_unique() {
@@ -51,8 +47,6 @@ final class AppCommandTests {
 
     // MARK: - SearchItemType
 
-    
-
     @Test
     func test_searchItemType_allCases_containsExpectedTypes() {
         // Assert
@@ -64,8 +58,6 @@ final class AppCommandTests {
     }
 
     // MARK: - KeyBinding
-
-    
 
     @Test
     func test_keyBinding_codable_roundTrip() throws {
@@ -80,8 +72,6 @@ final class AppCommandTests {
         #expect(decoded.key == "w")
         #expect(decoded.modifiers == [.command])
     }
-
-    
 
     @Test
     func test_keyBinding_codable_multipleModifiers_roundTrip() throws {
@@ -98,8 +88,6 @@ final class AppCommandTests {
         #expect(decoded.modifiers.contains(.shift))
     }
 
-    
-
     @Test
     func test_keyBinding_hashable_sameBindings_equal() {
         // Arrange
@@ -109,8 +97,6 @@ final class AppCommandTests {
         // Assert
         #expect(b1 == b2)
     }
-
-    
 
     @Test
     func test_keyBinding_hashable_differentKeys_notEqual() {
@@ -123,8 +109,6 @@ final class AppCommandTests {
     }
 
     // MARK: - CommandDefinition
-
-    
 
     @Test
     func test_commandDefinition_init_defaults() {
@@ -139,8 +123,6 @@ final class AppCommandTests {
         #expect(def.appliesTo.isEmpty)
         #expect(!(def.requiresManagementMode))
     }
-
-    
 
     @Test
     func test_commandDefinition_init_full() {
@@ -166,7 +148,7 @@ final class AppCommandTests {
     // MARK: - CommandDispatcher
 
     @MainActor
-    
+
     @Test
     func test_dispatcher_definitions_registered() {
         // Act
@@ -180,7 +162,7 @@ final class AppCommandTests {
     }
 
     @MainActor
-    
+
     @Test
     func test_dispatcher_closeTab_hasCorrectKeyBinding() {
         // Act
@@ -192,7 +174,7 @@ final class AppCommandTests {
     }
 
     @MainActor
-    
+
     @Test
     func test_dispatcher_commands_forTab_includesExpected() {
         // Act
@@ -206,7 +188,7 @@ final class AppCommandTests {
     }
 
     @MainActor
-    
+
     @Test
     func test_dispatcher_commands_forPane_includesExpected() {
         // Act
@@ -219,7 +201,7 @@ final class AppCommandTests {
     }
 
     @MainActor
-    
+
     @Test
     func test_dispatcher_commands_forRepo_includesExpected() {
         // Act
@@ -233,7 +215,7 @@ final class AppCommandTests {
     }
 
     @MainActor
-    
+
     @Test
     func test_dispatcher_dispatch_withoutHandler_doesNotCrash() {
         // Arrange
@@ -245,7 +227,7 @@ final class AppCommandTests {
     }
 
     @MainActor
-    
+
     @Test
     func test_dispatcher_canDispatch_withoutHandler_returnsFalse() {
         // Arrange
@@ -260,7 +242,7 @@ final class AppCommandTests {
     }
 
     @MainActor
-    
+
     @Test
     func test_dispatcher_dispatch_callsHandler() {
         // Arrange
@@ -281,7 +263,7 @@ final class AppCommandTests {
     }
 
     @MainActor
-    
+
     @Test
     func test_dispatcher_dispatch_targeted_callsHandler() {
         // Arrange
@@ -304,7 +286,7 @@ final class AppCommandTests {
     }
 
     @MainActor
-    
+
     @Test
     func test_dispatcher_cannotDispatch_whenHandlerReturnsFalse() {
         // Arrange
@@ -324,7 +306,7 @@ final class AppCommandTests {
     }
 
     @MainActor
-    
+
     @Test
     func test_dispatcher_closePane_requiresManagementMode() {
         // Act
@@ -335,7 +317,7 @@ final class AppCommandTests {
     }
 
     @MainActor
-    
+
     @Test
     func test_dispatcher_closeTab_doesNotRequireManagementMode() {
         // Act
@@ -348,7 +330,7 @@ final class AppCommandTests {
     // MARK: - Sidebar Commands
 
     @MainActor
-    
+
     @Test
     func test_dispatcher_filterSidebar_registered() {
         // Act
@@ -361,7 +343,7 @@ final class AppCommandTests {
     }
 
     @MainActor
-    
+
     @Test
     func test_dispatcher_filterSidebar_hasCorrectKeyBinding() {
         // Act
@@ -374,7 +356,7 @@ final class AppCommandTests {
     }
 
     @MainActor
-    
+
     @Test
     func test_dispatcher_openNewTerminalInTab_registered() {
         // Act
@@ -387,7 +369,7 @@ final class AppCommandTests {
     }
 
     @MainActor
-    
+
     @Test
     func test_dispatcher_openNewTerminalInTab_appliesToWorktree() {
         // Act
@@ -398,7 +380,7 @@ final class AppCommandTests {
     }
 
     @MainActor
-    
+
     @Test
     func test_dispatcher_commands_forWorktree_includesOpenNewTerminal() {
         // Act
@@ -410,7 +392,7 @@ final class AppCommandTests {
     }
 
     @MainActor
-    
+
     @Test
     func test_dispatcher_filterSidebar_doesNotRequireManagementMode() {
         // Act
@@ -421,7 +403,7 @@ final class AppCommandTests {
     }
 
     @MainActor
-    
+
     @Test
     func test_dispatcher_filterSidebar_noAppliesTo() {
         // Act — filterSidebar is a global command, not tied to an item type
@@ -434,7 +416,7 @@ final class AppCommandTests {
     // MARK: - Webview Commands
 
     @MainActor
-    
+
     @Test
     func test_dispatcher_openWebview_registered() {
         let def = CommandDispatcher.shared.definition(for: .openWebview)
@@ -444,7 +426,7 @@ final class AppCommandTests {
     }
 
     @MainActor
-    
+
     @Test
     func test_dispatcher_openWebview_noKeyBinding() {
         let def = CommandDispatcher.shared.definition(for: .openWebview)
@@ -452,7 +434,7 @@ final class AppCommandTests {
     }
 
     @MainActor
-    
+
     @Test
     func test_dispatcher_signInGitHub_registered() {
         let def = CommandDispatcher.shared.definition(for: .signInGitHub)
@@ -462,7 +444,7 @@ final class AppCommandTests {
     }
 
     @MainActor
-    
+
     @Test
     func test_dispatcher_signInGoogle_registered() {
         let def = CommandDispatcher.shared.definition(for: .signInGoogle)
@@ -472,7 +454,7 @@ final class AppCommandTests {
     }
 
     @MainActor
-    
+
     @Test
     func test_dispatcher_signIn_noKeyBindings() {
         // Sign-in commands are invoked from command bar, no global shortcuts

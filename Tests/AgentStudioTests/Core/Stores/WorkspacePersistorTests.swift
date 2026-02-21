@@ -1,5 +1,5 @@
-import Testing
 import Foundation
+import Testing
 
 @testable import AgentStudio
 
@@ -9,7 +9,7 @@ final class WorkspacePersistorTests {
     private var tempDir: URL!
     private var persistor: WorkspacePersistor!
 
-        init() {
+    init() {
         tempDir = FileManager.default.temporaryDirectory
             .appending(path: "persistor-tests-\(UUID().uuidString)")
         persistor = WorkspacePersistor(workspacesDir: tempDir)

@@ -1,5 +1,5 @@
-import Testing
 import Foundation
+import Testing
 
 @testable import AgentStudio
 
@@ -55,12 +55,14 @@ final class ActionResolverTests {
         )
 
         // Assert
-        #expect(result == .mergeTab(
-                sourceTabId: sourceTabId,
-                targetTabId: targetTabId,
-                targetPaneId: targetPaneId,
-                direction: .right
-            ))
+        #expect(
+            result
+                == .mergeTab(
+                    sourceTabId: sourceTabId,
+                    targetTabId: targetTabId,
+                    targetPaneId: targetPaneId,
+                    direction: .right
+                ))
     }
 
     // MARK: - resolveDrop: Single-pane tab → insertPane
@@ -91,12 +93,14 @@ final class ActionResolverTests {
         )
 
         // Assert
-        #expect(result == .insertPane(
-                source: .existingPane(paneId: sourcePaneId, sourceTabId: sourceTabId),
-                targetTabId: targetTabId,
-                targetPaneId: targetPaneId,
-                direction: .left
-            ))
+        #expect(
+            result
+                == .insertPane(
+                    source: .existingPane(paneId: sourcePaneId, sourceTabId: sourceTabId),
+                    targetTabId: targetTabId,
+                    targetPaneId: targetPaneId,
+                    direction: .left
+                ))
     }
 
     // MARK: - resolveDrop: New terminal → insertPane
@@ -121,12 +125,14 @@ final class ActionResolverTests {
         )
 
         // Assert
-        #expect(result == .insertPane(
-                source: .newTerminal,
-                targetTabId: targetTabId,
-                targetPaneId: targetPaneId,
-                direction: .right
-            ))
+        #expect(
+            result
+                == .insertPane(
+                    source: .newTerminal,
+                    targetTabId: targetTabId,
+                    targetPaneId: targetPaneId,
+                    direction: .right
+                ))
     }
 
     // MARK: - resolveDrop: Source tab not found → nil
@@ -182,12 +188,14 @@ final class ActionResolverTests {
         )
 
         // Assert — resolver produces the action, validator will reject it
-        #expect(result == .mergeTab(
-                sourceTabId: tabId,
-                targetTabId: tabId,
-                targetPaneId: paneIds[0],
-                direction: .right
-            ))
+        #expect(
+            result
+                == .mergeTab(
+                    sourceTabId: tabId,
+                    targetTabId: tabId,
+                    targetPaneId: paneIds[0],
+                    direction: .right
+                ))
 
         // Verify validator rejects self-merge
         let validation = ActionValidator.validate(result!, state: snapshot)
@@ -425,12 +433,14 @@ final class ActionResolverTests {
         )
 
         // Assert
-        #expect(result == .insertPane(
-                source: .newTerminal,
-                targetTabId: tabId,
-                targetPaneId: paneId,
-                direction: .right
-            ))
+        #expect(
+            result
+                == .insertPane(
+                    source: .newTerminal,
+                    targetTabId: tabId,
+                    targetPaneId: paneId,
+                    direction: .right
+                ))
     }
 
     @Test
@@ -475,26 +485,33 @@ final class ActionResolverTests {
 
         // Act & Assert — non-structural commands return nil
         #expect((ActionResolver.resolve(command: .addRepo, tabs: [tab], activeTabId: tabId)) == nil)
-        #expect((ActionResolver.resolve(
+        #expect(
+            (ActionResolver.resolve(
                 command: .toggleSidebar, tabs: [tab], activeTabId: tabId
             )) == nil)
-        #expect((ActionResolver.resolve(
+        #expect(
+            (ActionResolver.resolve(
                 command: .newFloatingTerminal, tabs: [tab], activeTabId: tabId
             )) == nil)
-        #expect((ActionResolver.resolve(
+        #expect(
+            (ActionResolver.resolve(
                 command: .filterSidebar, tabs: [tab], activeTabId: tabId
             )) == nil)
-        #expect((ActionResolver.resolve(
+        #expect(
+            (ActionResolver.resolve(
                 command: .openNewTerminalInTab, tabs: [tab], activeTabId: tabId
             )) == nil)
         // Webview/OAuth commands are non-pane commands
-        #expect((ActionResolver.resolve(
+        #expect(
+            (ActionResolver.resolve(
                 command: .openWebview, tabs: [tab], activeTabId: tabId
             )) == nil)
-        #expect((ActionResolver.resolve(
+        #expect(
+            (ActionResolver.resolve(
                 command: .signInGitHub, tabs: [tab], activeTabId: tabId
             )) == nil)
-        #expect((ActionResolver.resolve(
+        #expect(
+            (ActionResolver.resolve(
                 command: .signInGoogle, tabs: [tab], activeTabId: tabId
             )) == nil)
     }
@@ -568,12 +585,14 @@ final class ActionResolverTests {
             )
 
             // Assert
-            #expect(result == .insertPane(
-                    source: .newTerminal,
-                    targetTabId: tabId,
-                    targetPaneId: paneId,
-                    direction: expectedDirection
-                ), "Zone \(zone) should map to direction \(expectedDirection)")
+            #expect(
+                result
+                    == .insertPane(
+                        source: .newTerminal,
+                        targetTabId: tabId,
+                        targetPaneId: paneId,
+                        direction: expectedDirection
+                    ), "Zone \(zone) should map to direction \(expectedDirection)")
         }
     }
 }

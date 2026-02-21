@@ -1,5 +1,5 @@
-import Testing
 import Foundation
+import Testing
 
 @testable import AgentStudio
 
@@ -8,7 +8,9 @@ final class LayoutMinimizeTests {
 
     private func expectApproximately(_ actual: Double, equals expected: Double, tolerance: Double) {
         let difference = abs(actual - expected)
-        #expect(difference <= tolerance, "Expected \(actual) to be within \(tolerance) of \(expected) (difference: \(difference))")
+        #expect(
+            difference <= tolerance,
+            "Expected \(actual) to be within \(tolerance) of \(expected) (difference: \(difference))")
     }
 
     // MARK: - isFullyMinimized

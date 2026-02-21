@@ -1,5 +1,5 @@
-import Testing
 import Foundation
+import Testing
 
 @testable import AgentStudio
 
@@ -264,7 +264,9 @@ final class DynamicViewProjectorTests {
         )
 
         for group in result.groups {
-            #expect(Set(group.layout.paneIds) == Set(group.paneIds), "Layout pane IDs should match group pane IDs for \(group.name)")
+            #expect(
+                Set(group.layout.paneIds) == Set(group.paneIds),
+                "Layout pane IDs should match group pane IDs for \(group.name)")
         }
     }
 

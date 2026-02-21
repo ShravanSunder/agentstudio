@@ -1,6 +1,6 @@
-import WebKit
-import Testing
 import Foundation
+import Testing
+import WebKit
 
 @testable import AgentStudio
 
@@ -43,7 +43,9 @@ final class BridgeTransportIntegrationTests {
         controller.handleBridgeReady()
 
         // Assert — still true, no crash, no state change
-        #expect(controller.isBridgeReady, "isBridgeReady should remain true after repeated handleBridgeReady() calls (idempotent)")
+        #expect(
+            controller.isBridgeReady,
+            "isBridgeReady should remain true after repeated handleBridgeReady() calls (idempotent)")
 
         // Cleanup
         controller.teardown()
@@ -83,11 +85,15 @@ final class BridgeTransportIntegrationTests {
         try await waitForPageLoad(controller.page)
 
         // Assert — page loaded from custom scheme with expected URL
-        #expect(controller.page.url?.absoluteString == "agentstudio://app/index.html", "loadApp() should navigate to agentstudio://app/index.html")
+        #expect(
+            controller.page.url?.absoluteString == "agentstudio://app/index.html",
+            "loadApp() should navigate to agentstudio://app/index.html")
         #expect(!(controller.page.isLoading), "Page should finish loading after loadApp()")
 
         // Assert — BridgeSchemeHandler serves the page (Phase 1 stub returns "Bridge" title)
-        #expect(controller.page.title == "Bridge", "BridgeSchemeHandler should serve HTML with <title>Bridge</title> for app routes")
+        #expect(
+            controller.page.title == "Bridge",
+            "BridgeSchemeHandler should serve HTML with <title>Bridge</title> for app routes")
 
         // Cleanup
         controller.teardown()
@@ -162,7 +168,9 @@ final class BridgeTransportIntegrationTests {
 
         // Assert — page world should see __bridgeInternal as undefined
         #expect(pageProbe.receivedMessages.count == 1, "Page world probe should receive exactly one message")
-        #expect(pageProbe.receivedMessages.first as? String == "undefined", "window.__bridgeInternal should be 'undefined' in page world (content world isolation)")
+        #expect(
+            pageProbe.receivedMessages.first as? String == "undefined",
+            "window.__bridgeInternal should be 'undefined' in page world (content world isolation)")
     }
 
     // MARK: - Helpers

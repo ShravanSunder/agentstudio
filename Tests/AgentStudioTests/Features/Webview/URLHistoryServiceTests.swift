@@ -1,5 +1,5 @@
-import Testing
 import Foundation
+import Testing
 
 @testable import AgentStudio
 
@@ -113,7 +113,7 @@ struct URLHistoryServiceTests {
     func test_record_addsEntry() {
         // Arrange
         let service = makeService()
-        #expect(service.entries.count == 0)
+        #expect(service.entries.isEmpty)
 
         // Act
         service.record(url: URL(string: "https://example.com/page")!, title: "Page")
@@ -150,7 +150,7 @@ struct URLHistoryServiceTests {
         service.record(url: URL(string: "file:///tmp/test")!, title: "File")
 
         // Assert — neither recorded
-        #expect(service.entries.count == 0)
+        #expect(service.entries.isEmpty)
     }
 
     @Test
@@ -209,7 +209,7 @@ struct URLHistoryServiceTests {
         let svc = URLHistoryService(storage: storage)
 
         // Assert — old entry pruned on load
-        #expect(svc.entries.count == 0)
+        #expect(svc.entries.isEmpty)
     }
 
     @Test

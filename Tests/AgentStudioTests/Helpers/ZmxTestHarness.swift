@@ -177,8 +177,7 @@ final class ZmxTestHarness {
                 continue
             }
 
-            if
-                let processGroup = processGroupID(for: entry.processID),
+            if let processGroup = processGroupID(for: entry.processID),
                 let parentGroup = parentProcessGroup,
                 processGroup > 0,
                 processGroup != parentGroup
@@ -249,7 +248,8 @@ final class ZmxTestHarness {
                     logError("pgrep produced non-UTF8 output for parent PID \(parentPID)")
                     return []
                 }
-                return output
+                return
+                    output
                     .split(whereSeparator: \.isNewline)
                     .compactMap { Int32($0.trimmingCharacters(in: .whitespacesAndNewlines)) }
                     .map { pid_t($0) }
@@ -261,7 +261,8 @@ final class ZmxTestHarness {
                 let stderr = String(data: errorData, encoding: .utf8)?
                     .trimmingCharacters(in: .whitespacesAndNewlines)
                 let details = stderr.map { " stderr=\($0)" } ?? ""
-                logError("pgrep failed for parent PID \(parentPID) with exit status \(process.terminationStatus).\(details)")
+                logError(
+                    "pgrep failed for parent PID \(parentPID) with exit status \(process.terminationStatus).\(details)")
                 return []
             }
         } catch {

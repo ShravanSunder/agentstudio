@@ -1,6 +1,6 @@
- import AppKit
-import Testing
+import AppKit
 import Foundation
+import Testing
 
 @testable import AgentStudio
 

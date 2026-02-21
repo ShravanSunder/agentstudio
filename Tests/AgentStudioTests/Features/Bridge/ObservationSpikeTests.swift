@@ -1,7 +1,7 @@
 import AsyncAlgorithms
+import Foundation
 import Observation
 import Testing
-import Foundation
 
 // MARK: - Test Support Types
 
@@ -136,10 +136,13 @@ final class ObservationSpikeTests {
         // The debounced stream should have fewer values than the 4 events
         // (initial 0, then 1, 2, 3). The rapid 1/2/3 mutations should
         // coalesce so we get fewer than 4 distinct emissions.
-        #expect(collectedValues.count < 4, "Debounce should coalesce rapid mutations: got \(collectedValues) (\(collectedValues.count) values)")
+        #expect(
+            collectedValues.count < 4,
+            "Debounce should coalesce rapid mutations: got \(collectedValues) (\(collectedValues.count) values)")
 
         // The last emitted value should be 3 (the final settled value)
-        #expect(collectedValues.last == 3, "Last debounced value should be the final mutation (3), got \(collectedValues)")
+        #expect(
+            collectedValues.last == 3, "Last debounced value should be the final mutation (3), got \(collectedValues)")
     }
 
     // MARK: - 3. Property-Group Isolation (CRITICAL)
@@ -198,11 +201,15 @@ final class ObservationSpikeTests {
         propertyBTask.cancel()
 
         // propertyB observer MUST have fired
-        #expect(propertyBValues.contains("changed"), "propertyB observer must fire when propertyB changes. Got: \(propertyBValues)")
+        #expect(
+            propertyBValues.contains("changed"),
+            "propertyB observer must fire when propertyB changes. Got: \(propertyBValues)")
 
         // CRITICAL: propertyA observer must NOT have received new values
         // after the initial emission
-        #expect(propertyAValues.count == propertyACountBeforeMutation, """
+        #expect(
+            propertyAValues.count == propertyACountBeforeMutation,
+            """
             CRITICAL FAILURE: Property-group isolation is broken!
             propertyA observer fired when only propertyB changed.
             propertyA values before mutation: \(propertyACountBeforeMutation)
@@ -226,7 +233,8 @@ final class ObservationSpikeTests {
         }
 
         // Assert
-        #expect(intContainer.elements == [1, 2, 3], "SpikeBuilder<Int> should collect integer expressions into an array")
+        #expect(
+            intContainer.elements == [1, 2, 3], "SpikeBuilder<Int> should collect integer expressions into an array")
 
         // Arrange & Act — String container
         let stringContainer = SpikeContainer<String> {
@@ -235,7 +243,9 @@ final class ObservationSpikeTests {
         }
 
         // Assert
-        #expect(stringContainer.elements == ["hello", "world"], "SpikeBuilder<String> should collect string expressions into an array")
+        #expect(
+            stringContainer.elements == ["hello", "world"],
+            "SpikeBuilder<String> should collect string expressions into an array")
     }
 
     private func waitForCondition(

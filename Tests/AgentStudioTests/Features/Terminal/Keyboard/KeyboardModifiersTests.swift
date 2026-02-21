@@ -1,7 +1,7 @@
 import AppKit
+import Foundation
 import GhosttyKit
 import Testing
-import Foundation
 
 @testable import AgentStudio
 

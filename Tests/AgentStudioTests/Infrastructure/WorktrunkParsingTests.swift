@@ -1,5 +1,5 @@
-import Testing
 import Foundation
+import Testing
 
 @testable import AgentStudio
 
@@ -9,7 +9,6 @@ struct WorktrunkParsingTests {
     private let service = WorktrunkService.shared
 
     // MARK: - parseGitWorktreeList
-
 
     @Test
     func test_parse_singleWorktree_withBranch() {
@@ -25,7 +24,6 @@ struct WorktrunkParsingTests {
         #expect(result[0].branch == "main")
         #expect(result[0].path == URL(fileURLWithPath: "/Users/dev/project/main"))
     }
-
 
     @Test
     func test_parse_multipleWorktrees() {
@@ -52,7 +50,6 @@ struct WorktrunkParsingTests {
         #expect(result[1].branch == "feature/feature-x")
     }
 
-
     @Test
     func test_parse_noBranchLine_usesPathName() {
         // Arrange
@@ -67,7 +64,6 @@ struct WorktrunkParsingTests {
         #expect(result[0].branch == "detached-head")
     }
 
-
     @Test
     func test_parse_emptyString_returnsEmpty() {
         // Act
@@ -77,7 +73,6 @@ struct WorktrunkParsingTests {
         #expect(result.isEmpty)
     }
 
-
     @Test
     func test_parse_trailingNewlinesOnly_returnsEmpty() {
         // Act
@@ -86,7 +81,6 @@ struct WorktrunkParsingTests {
         // Assert
         #expect(result.isEmpty)
     }
-
 
     @Test
     func test_parse_nestedBranch_stripsRefsHeads() {
@@ -139,7 +133,6 @@ struct WorktrunkParsingTests {
 
     // MARK: - WorktrunkError
 
-
     @Test
     func test_worktrunkError_descriptions_nonEmpty() {
         // Arrange
@@ -156,7 +149,6 @@ struct WorktrunkParsingTests {
         }
     }
 
-
     @Test
     func test_worktrunkError_commandFailed_includesMessage() {
         // Arrange
@@ -165,7 +157,6 @@ struct WorktrunkParsingTests {
         // Assert
         #expect(error.errorDescription?.contains("fatal: not a repo") == true)
     }
-
 
     @Test
     func test_worktrunkError_conformsToLocalizedError() {

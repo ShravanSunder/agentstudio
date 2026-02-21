@@ -1,5 +1,5 @@
-import Testing
 import Foundation
+import Testing
 
 @testable import AgentStudio
 
@@ -14,7 +14,7 @@ final class DrawerCommandIntegrationTests {
     private var executor: ActionExecutor!
     private var tempDir: URL!
 
-        init() {
+    init() {
         tempDir = FileManager.default.temporaryDirectory
             .appending(path: "drawer-cmd-tests-\(UUID().uuidString)")
         let persistor = WorkspacePersistor(workspacesDir: tempDir)
@@ -92,7 +92,9 @@ final class DrawerCommandIntegrationTests {
         let dp1 = store.addDrawerPane(to: parentPaneId)!
         let dp2 = store.addDrawerPane(to: parentPaneId)!
         #expect(store.pane(parentPaneId)!.drawer!.paneIds.count == 2)
-        #expect(store.pane(parentPaneId)!.drawer!.activePaneId == dp2.id, "Last added drawer pane should be active initially")
+        #expect(
+            store.pane(parentPaneId)!.drawer!.activePaneId == dp2.id,
+            "Last added drawer pane should be active initially")
 
         // Act — close the active drawer pane (dp2)
         executor.execute(.removeDrawerPane(parentPaneId: parentPaneId, drawerPaneId: dp2.id))

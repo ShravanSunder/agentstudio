@@ -1,6 +1,6 @@
- import CoreGraphics
-import Testing
+import CoreGraphics
 import Foundation
+import Testing
 
 @testable import AgentStudio
 

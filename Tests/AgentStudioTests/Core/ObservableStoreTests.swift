@@ -1,6 +1,6 @@
- import Observation
-import Testing
 import Foundation
+import Observation
+import Testing
 
 @testable import AgentStudio
 
@@ -22,7 +22,7 @@ final class ObservableStoreTests {
 
     private var store: WorkspaceStore!
 
-        init() {
+    init() {
         let persistor = WorkspacePersistor(
             workspacesDir: FileManager.default.temporaryDirectory
                 .appending(path: "obs-tests-\(UUID().uuidString)")
