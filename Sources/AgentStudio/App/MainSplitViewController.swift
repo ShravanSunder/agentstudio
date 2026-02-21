@@ -7,7 +7,7 @@ private let sidebarLogger = Logger(subsystem: "com.agentstudio", category: "Side
 /// Main split view controller with sidebar and terminal content area
 class MainSplitViewController: NSSplitViewController {
     private var sidebarHostingController: NSHostingController<AnyView>?
-    private var terminalTabViewController: TerminalTabViewController?
+    private var paneTabViewController: PaneTabViewController?
 
     // MARK: - Dependencies (injected)
 
@@ -53,18 +53,18 @@ class MainSplitViewController: NSSplitViewController {
         sidebarItem.collapseBehavior = .preferResizingSplitViewWithFixedSiblings
         addSplitViewItem(sidebarItem)
 
-        // Create terminal area (pure AppKit)
-        let terminalVC = TerminalTabViewController(
+        // Create pane tab area (pure AppKit)
+        let paneTabVC = PaneTabViewController(
             store: store,
             executor: executor,
             tabBarAdapter: tabBarAdapter,
             viewRegistry: viewRegistry
         )
-        self.terminalTabViewController = terminalVC
+        self.paneTabViewController = paneTabVC
 
-        let terminalItem = NSSplitViewItem(viewController: terminalVC)
-        terminalItem.minimumThickness = 400
-        addSplitViewItem(terminalItem)
+        let paneTabItem = NSSplitViewItem(viewController: paneTabVC)
+        paneTabItem.minimumThickness = 400
+        addSplitViewItem(paneTabItem)
 
         // Restore sidebar collapsed state
         if UserDefaults.standard.bool(forKey: Self.sidebarCollapsedKey) {
@@ -156,7 +156,7 @@ class MainSplitViewController: NSSplitViewController {
             return
         }
 
-        terminalTabViewController?.openTerminal(for: worktree, in: repo)
+        paneTabViewController?.openTerminal(for: worktree, in: repo)
     }
 
     @objc private func handleOpenNewTerminal(_ notification: Notification) {
@@ -168,11 +168,11 @@ class MainSplitViewController: NSSplitViewController {
             return
         }
 
-        terminalTabViewController?.openNewTerminal(for: worktree, in: repo)
+        paneTabViewController?.openNewTerminal(for: worktree, in: repo)
     }
 
     @objc private func handleCloseTab(_ notification: Notification) {
-        terminalTabViewController?.closeActiveTab()
+        paneTabViewController?.closeActiveTab()
     }
 
     @objc private func handleSelectTab(_ notification: Notification) {
@@ -182,7 +182,7 @@ class MainSplitViewController: NSSplitViewController {
             return
         }
 
-        terminalTabViewController?.selectTab(at: index)
+        paneTabViewController?.selectTab(at: index)
     }
 
     // MARK: - Sidebar State

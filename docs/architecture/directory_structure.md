@@ -22,14 +22,15 @@ Sources/AgentStudio/
 │   ├── AppDelegate.swift             # App lifecycle, restore, zmx cleanup
 │   ├── MainWindowController.swift    # Window management
 │   ├── MainSplitViewController.swift # Top-level split (sidebar/content)
+│   ├── Panes/
+│   │   ├── PaneTabViewController.swift # Tab container (manages any pane type)
+│   │   └── ViewRegistry.swift        # PaneId → NSView mapping (type-agnostic)
 │   └── PaneCoordinator.swift         # Cross-feature sequencing (imports from all)
 │
 ├── Core/                             # Shared domain — pane system, models, stores
 │   ├── Models/                       # TerminalSession, Layout, Tab, ViewDefinition, PaneView
 │   ├── Stores/                       # WorkspaceStore, SessionRuntime
 │   ├── Actions/                      # PaneAction, ActionResolver, ActionValidator
-│   ├── ViewRegistry.swift            # PaneId → NSView mapping (type-agnostic)
-│   └── PaneTabViewController.swift   # Tab container (manages any pane type)
 │
 ├── Features/
 │   ├── Terminal/                     # Everything Ghostty-specific
@@ -80,6 +81,25 @@ Infrastructure/ ──imports──►  (nothing internal)
 **Never:** `Core/ → Features/`, `Features/X → Features/Y`, `Infrastructure/ → Core/`
 
 If a file needs to know about `SurfaceManager` (Terminal) **and** `BridgePaneController` (Bridge), it can't be in `Core`. It lives in `App/` (composition root) or uses protocols defined in `Core/`.
+
+### Slice Vocabulary (Core Slice vs Vertical Slice)
+
+To keep ownership decisions consistent, use these terms:
+
+- **Core slice**
+  - Reusable, feature-agnostic domain and infrastructure.
+  - Usually belongs in `Core/` or `Infrastructure/`.
+  - Examples: `WorkspaceStore`, `Tab`, `Layout`, `ActionResolver`, `ActionValidator`.
+
+- **Vertical slice**
+  - A user-facing slice that traverses multiple layers and orchestrates behavior for a flow.
+  - Usually belongs in `App/` (composition root) or a specific `Features/X/` directory.
+  - Includes controller/stateful orchestration, platform event wiring, and cross-service flow.
+  - Examples: `MainSplitViewController`, `PaneTabViewController`, `TerminalViewCoordinator`.
+
+Practical rule:
+- If a component imports two or more feature services, it is a vertical slice in `App/` (or should be split).
+- If a component has no feature-specific logic and is shared by multiple features, it belongs in a core slice.
 
 ### Why Swift Makes This Free
 
@@ -163,15 +183,15 @@ Today's `ActionExecutor` + `TerminalViewCoordinator` merges into `PaneCoordinato
 
 **Alternative considered:** Protocol-based `Core/` — define `PaneLifecycleHandler` protocol in Core, features implement it, coordinator dispatches through protocols without importing features. Cleaner dependency graph but more abstraction upfront. We chose `App/` for now (simpler, matches Ghostty's pattern). Can revisit when a third pane type arrives.
 
-### ViewRegistry → `Core/`
+### ViewRegistry → `App/Panes/`
 
 Stores views by pane ID. Doesn't care what type the view is — terminal, bridge, webview. Stores `PaneView` (the base class). Adding a new feature doesn't change ViewRegistry.
 
 **Deletion test:** passes for any single feature. **Change driver:** only changes if the pane registration mechanism itself changes, not when new pane types arrive.
 
-### PaneTabViewController (currently TerminalTabViewController) → `Core/`
+### PaneTabViewController → `App/Panes/`
 
-Manages `NSTabViewItems` containing pane views. Handles focus, layout, tab switching. The container doesn't care what's inside — rename during restructure to reflect this.
+Manages `NSTabViewItems` containing pane views. Handles focus, layout, tab switching. The container doesn't care what's inside — renamed from `TerminalTabViewController` during LUNA-334 restructure.
 
 **Deletion test:** passes for any single feature. **Change driver:** tab management behavior changes, not new pane types.
 
@@ -190,7 +210,7 @@ Since Swift imports are module-level (not path-based), the restructure is a pure
 1. Create the target directory structure
 2. Move files — `git mv` preserves history
 3. No import changes needed (same SPM module)
-4. Rename `TerminalTabViewController` → `PaneTabViewController`
+4. ~~Rename `TerminalTabViewController` → `PaneTabViewController`~~ (done in LUNA-334)
 5. Update `CLAUDE.md` structure section
 6. Verify build compiles
 

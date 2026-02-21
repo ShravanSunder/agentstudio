@@ -6,7 +6,7 @@ private let coordinatorLogger = Logger(subsystem: "com.agentstudio", category: "
 
 /// Owns all surface/runtime lifecycle operations.
 /// Views never call SurfaceManager or SessionRuntime directly — this class is the
-/// sole intermediary. TTVC dispatches actions; ActionExecutor delegates lifecycle to here.
+/// sole intermediary. PaneTabViewController dispatches actions; ActionExecutor delegates lifecycle to here.
 @MainActor
 final class TerminalViewCoordinator {
     private let store: WorkspaceStore

@@ -1,9 +1,12 @@
-import XCTest
+import Foundation
+import Testing
 
 @testable import AgentStudio
 
-final class ZmxOrphanCleanupPlannerTests: XCTestCase {
+@Suite(.serialized)
+struct ZmxOrphanCleanupPlannerTests {
 
+    @Test("returns known session IDs without skip when candidates are resolvable")
     func test_plan_whenAllCandidatesResolvable_returnsKnownSessionIdsWithoutSkip() {
         // Arrange
         let parentPaneId = UUID(uuidString: "AAAAAAAA-AAAA-AAAA-AAAA-AAAAAAAAAAAA")!
@@ -22,20 +25,21 @@ final class ZmxOrphanCleanupPlannerTests: XCTestCase {
         let plan = ZmxOrphanCleanupPlanner.plan(candidates: candidates)
 
         // Assert
-        XCTAssertFalse(plan.shouldSkipCleanup)
-        XCTAssertEqual(
-            plan.knownSessionIds,
-            Set([
-                ZmxBackend.drawerSessionId(parentPaneId: parentPaneId, drawerPaneId: drawerPaneId),
-                ZmxBackend.sessionId(
-                    repoStableKey: "a1b2c3d4e5f6a7b8",
-                    worktreeStableKey: "00112233aabbccdd",
-                    paneId: mainPaneId
-                ),
-            ])
+        #expect(!plan.shouldSkipCleanup)
+        #expect(
+            plan.knownSessionIds
+                == Set([
+                    ZmxBackend.drawerSessionId(parentPaneId: parentPaneId, drawerPaneId: drawerPaneId),
+                    ZmxBackend.sessionId(
+                        repoStableKey: "a1b2c3d4e5f6a7b8",
+                        worktreeStableKey: "00112233aabbccdd",
+                        paneId: mainPaneId
+                    ),
+                ])
         )
     }
 
+    @Test("marks cleanup skip when any main candidate is unresolvable")
     func test_plan_whenAnyMainCandidateUnresolvable_setsSkipCleanupTrue() {
         // Arrange
         let resolvablePaneId = UUID()
@@ -57,8 +61,8 @@ final class ZmxOrphanCleanupPlannerTests: XCTestCase {
         let plan = ZmxOrphanCleanupPlanner.plan(candidates: candidates)
 
         // Assert
-        XCTAssertTrue(plan.shouldSkipCleanup)
-        XCTAssertTrue(
+        #expect(plan.shouldSkipCleanup)
+        #expect(
             plan.knownSessionIds.contains(
                 ZmxBackend.sessionId(
                     repoStableKey: "abcdef0123456789",

@@ -8,7 +8,7 @@ private let executorLogger = Logger(subsystem: "com.agentstudio", category: "Act
 /// ViewRegistry, TerminalViewCoordinator, and surface lifecycle.
 ///
 /// This is the action dispatch hub — replaces the giant switch statement
-/// in TerminalTabViewController. All state mutations flow through here.
+/// in PaneTabViewController. All state mutations flow through here.
 @MainActor
 final class ActionExecutor {
     struct SwitchArrangementTransitions: Equatable {

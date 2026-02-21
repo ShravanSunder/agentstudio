@@ -10,6 +10,7 @@ xcuserdata/
 
 # SwiftPM
 .swiftpm/
+*.log
 
 # macOS
 .DS_Store
@@ -56,4 +57,14 @@ AgentStudio.app/
 .claude/settings.local.json
 .claude/ralph-loop.local.md
 docs/plans
+arm64-apple-macosx/
+checkouts/
+repositories/
+debug
+debug.yaml
+plugin-tools.yaml
+workspace-state.json
 Frameworks/GhosttyKit.xcframework
+.build-zmxe2e
+.build-*
+test-inventory-*.md

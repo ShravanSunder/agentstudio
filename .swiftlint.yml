@@ -127,7 +127,7 @@ type_name:
 # Thresholds accommodate existing large files:
 #   WorkspaceStore.swift: 1646 lines, type body 1195 lines
 #   WorkspaceStoreTests.swift: 1479 lines, type body 945 lines
-#   TerminalTabViewController.swift: 1041 lines, type body 810 lines
+#   PaneTabViewController.swift: 1041 lines, type body 810 lines
 # These use file-level swiftlint:disable. Tighten limits as files are refactored.
 file_length:
   warning: 1000
