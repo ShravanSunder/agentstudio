@@ -11,7 +11,7 @@ final class WorkspaceStoreTests {
     private var store: WorkspaceStore!
     private var tempDir: URL!
 
-        init() {
+    init() {
         // Use a temp directory to avoid polluting real workspace data
         tempDir = FileManager.default.temporaryDirectory
             .appending(path: "workspace-store-tests-\(UUID().uuidString)")

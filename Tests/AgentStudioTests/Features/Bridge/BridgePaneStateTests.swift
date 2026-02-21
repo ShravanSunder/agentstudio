@@ -96,11 +96,16 @@ final class BridgePaneStateTests {
         let data = try JSONEncoder().encode(content)
         let decoded = try JSONDecoder().decode(PaneContent.self, from: data)
 
-        if case .bridgePanel(let decodedState) = decoded {
-            #expect(decodedState == bridgeState)
-        } else {
-            #expect(Bool(false), "Expected .bridgePanel, got \(decoded)")
-        }
+        let decodedState = try #require(
+            {
+                if case .bridgePanel(let value) = decoded {
+                    return value
+                }
+                return nil
+            }(),
+            "Expected .bridgePanel, got \(decoded)"
+        )
+        #expect(decodedState == bridgeState)
     }
 
     @Test
@@ -113,11 +118,16 @@ final class BridgePaneStateTests {
         let data = Data(json.utf8)
         let decoded = try JSONDecoder().decode(PaneContent.self, from: data)
 
-        if case .unsupported(let content) = decoded {
-            #expect(content.type == "bridgePanel")
-            #expect(content.version == 99)
-        } else {
-            #expect(Bool(false), "Expected .unsupported for malformed bridgePanel state, got \(decoded)")
-        }
+        let unsupported = try #require(
+            {
+                if case .unsupported(let content) = decoded {
+                    return content
+                }
+                return nil
+            }(),
+            "Expected .unsupported for malformed bridgePanel state, got \(decoded)"
+        )
+        #expect(unsupported.type == "bridgePanel")
+        #expect(unsupported.version == 99)
     }
 }

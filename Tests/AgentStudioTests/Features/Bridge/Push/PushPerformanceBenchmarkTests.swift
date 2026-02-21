@@ -90,11 +90,10 @@ final class PushPerformanceBenchmarkTests {
         try await Task.sleep(for: .milliseconds(200))
 
         #expect(transport.pushCount > baselinePushCount)
-        guard let pushInstant = transport.lastPushInstant else {
-            #expect(Bool(false), "Transport should have recorded a push timestamp")
-            plan.stop()
-            return
-        }
+        let pushInstant = try #require(
+            transport.lastPushInstant,
+            "Transport should have recorded a push timestamp"
+        )
 
         let latency = pushInstant - mutationInstant
         print("[PushBenchmark] 100-file initial push latency: \(latency)")
@@ -122,11 +121,10 @@ final class PushPerformanceBenchmarkTests {
         try await Task.sleep(for: .milliseconds(300))
 
         #expect(transport.pushCount > baselinePushCount)
-        guard let pushInstant = transport.lastPushInstant else {
-            #expect(Bool(false), "Transport should have recorded a push timestamp")
-            plan.stop()
-            return
-        }
+        let pushInstant = try #require(
+            transport.lastPushInstant,
+            "Transport should have recorded a push timestamp"
+        )
 
         let latency = pushInstant - mutationInstant
         print("[PushBenchmark] 500-file initial push latency: \(latency)")
@@ -164,11 +162,10 @@ final class PushPerformanceBenchmarkTests {
         try await Task.sleep(for: .milliseconds(200))
 
         #expect(transport.pushCount > baselinePushCount, "Single-file version bump should trigger a push")
-        guard let pushInstant = transport.lastPushInstant else {
-            #expect(Bool(false), "Transport should have recorded a push timestamp")
-            plan.stop()
-            return
-        }
+        let pushInstant = try #require(
+            transport.lastPushInstant,
+            "Transport should have recorded a push timestamp"
+        )
 
         let latency = pushInstant - mutationInstant
         let deltaPayloadBytes = transport.lastPayloadBytes
@@ -266,11 +263,10 @@ final class PushPerformanceBenchmarkTests {
         try await Task.sleep(for: .milliseconds(300))
 
         #expect(transport.pushCount > baselinePushCount)
-        guard let pushInstant = transport.lastPushInstant else {
-            #expect(Bool(false), "Transport should have recorded a push timestamp")
-            plan.stop()
-            return
-        }
+        let pushInstant = try #require(
+            transport.lastPushInstant,
+            "Transport should have recorded a push timestamp"
+        )
 
         let latency = pushInstant - mutationInstant
         print("[PushBenchmark] epoch reset + 200-file reload latency: \(latency)")

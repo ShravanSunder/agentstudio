@@ -71,10 +71,7 @@ final class GhosttyResourcesTests {
         let bundlePath = projectRoot + "/.build/debug/AgentStudio_AgentStudio.bundle"
         let sentinel = bundlePath + "/terminfo/78/xterm-ghostty"
 
-        guard FileManager.default.fileExists(atPath: bundlePath) else {
-            // Bundle not built yet — skip (not a failure, just a build-order issue)
-            return
-        }
+        #expect(FileManager.default.fileExists(atPath: bundlePath), "SPM bundle should exist at: \(bundlePath)")
 
         #expect(FileManager.default.fileExists(atPath: sentinel), "SPM bundle should contain xterm-ghostty at: \(sentinel)")
 

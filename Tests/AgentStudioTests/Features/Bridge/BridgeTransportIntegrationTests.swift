@@ -175,10 +175,7 @@ final class BridgeTransportIntegrationTests {
             if !page.isLoading { break }
             try await Task.sleep(for: .milliseconds(100))
         }
-        guard !page.isLoading else {
-            #expect(Bool(false), "Page did not finish loading within \(timeout)")
-            return
-        }
+        try #require(!page.isLoading, "Page did not finish loading within \(timeout)")
         // Settle time for WebKit internals after isLoading flips
         try await Task.sleep(for: .milliseconds(200))
     }

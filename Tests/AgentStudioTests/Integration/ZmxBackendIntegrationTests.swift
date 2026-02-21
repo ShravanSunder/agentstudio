@@ -16,15 +16,11 @@ struct ZmxBackendIntegrationTests {
         _ test: @escaping (ZmxTestHarness, ZmxBackend) async throws -> Void
     ) async throws {
         let harness = ZmxTestHarness()
-        guard let backend = harness.createBackend() else {
-            Issue.record("ZmxTestHarness failed to resolve zmx path; skipping integration test")
-            return
-        }
-
-        guard await backend.isAvailable else {
-            Issue.record("zmx is unavailable in this environment; skipping integration test")
-            return
-        }
+        let backend = try #require(
+            harness.createBackend(),
+            "ZmxTestHarness failed to resolve zmx path for integration test"
+        )
+        #require(await backend.isAvailable, "zmx should be available for integration test")
         do {
             try await test(harness, backend)
             await harness.cleanup()

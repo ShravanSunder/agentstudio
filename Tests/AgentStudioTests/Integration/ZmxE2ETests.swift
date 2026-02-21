@@ -20,12 +20,8 @@ struct ZmxE2ETests {
             let repo = makeRepo()
             let paneId = UUID()
             let handle = try await backend.createPaneSession(repo: repo, worktree: worktree, paneId: paneId)
+            let zmxPath = try #require(harness.zmxPath, "Expected zmx path to be available")
 
-            // Act 1 — spawn a zmx daemon
-            guard let zmxPath = harness.zmxPath else {
-                Issue.record("Expected zmx path to be available")
-                return
-            }
             _ = try harness.spawnZmxSession(
                 zmxPath: zmxPath,
                 sessionId: handle.id,
@@ -88,14 +84,10 @@ struct ZmxE2ETests {
             let worktree1 = makeWorktree(name: "e2e-known", path: "/tmp", branch: "e2e-known")
             let worktree2 = makeWorktree(name: "e2e-orphan", path: "/tmp", branch: "e2e-orphan")
             let repo = makeRepo()
+            let zmxPath = try #require(harness.zmxPath, "Expected zmx path to be available")
 
             let handle1 = try await backend.createPaneSession(repo: repo, worktree: worktree1, paneId: UUID())
             let handle2 = try await backend.createPaneSession(repo: repo, worktree: worktree2, paneId: UUID())
-
-            guard let zmxPath = harness.zmxPath else {
-                Issue.record("Expected zmx path to be available")
-                return
-            }
             _ = try harness.spawnZmxSession(
                 zmxPath: zmxPath,
                 sessionId: handle1.id,
@@ -139,11 +131,8 @@ struct ZmxE2ETests {
             let worktree = makeWorktree(name: "e2e-destroy", path: "/tmp", branch: "e2e-destroy")
             let repo = makeRepo()
             let handle = try await backend.createPaneSession(repo: repo, worktree: worktree, paneId: UUID())
+            let zmxPath = try #require(harness.zmxPath, "Expected zmx path to be available")
 
-            guard let zmxPath = harness.zmxPath else {
-                Issue.record("Expected zmx path to be available")
-                return
-            }
             _ = try harness.spawnZmxSession(
                 zmxPath: zmxPath,
                 sessionId: handle.id,
@@ -179,11 +168,8 @@ struct ZmxE2ETests {
             let worktree = makeWorktree(name: "e2e-restore", path: "/tmp", branch: "e2e-restore")
             let repo = makeRepo()
             let handle = try await backend.createPaneSession(repo: repo, worktree: worktree, paneId: UUID())
+            let zmxPath = try #require(harness.zmxPath, "Expected zmx path to be available")
 
-            guard let zmxPath = harness.zmxPath else {
-                Issue.record("Expected zmx path to be available")
-                return
-            }
             _ = try harness.spawnZmxSession(
                 zmxPath: zmxPath,
                 sessionId: handle.id,
@@ -198,10 +184,10 @@ struct ZmxE2ETests {
             #expect(appeared, "zmx daemon should start before recreation checks")
 
             // Act — simulate app restart by creating a new backend instance.
-            guard let recreatedBackend = harness.createBackend() else {
-                Issue.record("Expected recreated backend for restore semantics test")
-                return
-            }
+            let recreatedBackend = try #require(
+                harness.createBackend(),
+                "Expected recreated backend for restore semantics test"
+            )
 
             // Assert — recreated backend can still discover and control the existing session.
             #expect(
@@ -228,11 +214,8 @@ struct ZmxE2ETests {
             let worktree = makeWorktree(name: "e2e-socket", path: "/tmp", branch: "e2e-socket")
             let repo = makeRepo()
             let handle = try await backend.createPaneSession(repo: repo, worktree: worktree, paneId: UUID())
+            let zmxPath = try #require(harness.zmxPath, "Expected zmx path to be available")
 
-            guard let zmxPath = harness.zmxPath else {
-            Issue.record("Expected zmx path to be available")
-            return
-        }
             _ = try harness.spawnZmxSession(
                 zmxPath: zmxPath,
                 sessionId: handle.id,
@@ -261,15 +244,11 @@ struct ZmxE2ETests {
         _ test: @escaping (ZmxTestHarness, ZmxBackend) async throws -> Void
     ) async throws {
         let harness = ZmxTestHarness()
-        guard let backend = harness.createBackend() else {
-            Issue.record("ZmxTestHarness failed to resolve zmx path; skipping integration test")
-            return
-        }
-
-        if !(await backend.isAvailable) {
-            Issue.record("zmx is unavailable in this environment; skipping integration test")
-            return
-        }
+        let backend = try #require(
+            harness.createBackend(),
+            "ZmxTestHarness failed to resolve zmx path; integration test requires zmx"
+        )
+        #require(await backend.isAvailable, "zmx is unavailable in this environment")
 
         try FileManager.default.createDirectory(
             atPath: harness.zmxDir,

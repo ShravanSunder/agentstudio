@@ -33,6 +33,15 @@ jobs:
       - name: SwiftLint
         run: swiftlint lint --strict
 
+      - name: Format check (swift-format)
+        run: |
+          swift-format format --in-place --recursive Sources/ Tests/
+          git diff --quiet -- Sources/ Tests/ || {
+            echo "Swift formatting changes detected. Run mise run format locally.";
+            git diff -- Sources/ Tests/;
+            exit 1;
+          }
+
       # --- Submodule SHAs for cache keys ---
 
       - name: Get submodule SHAs

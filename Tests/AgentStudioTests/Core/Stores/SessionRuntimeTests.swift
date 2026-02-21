@@ -9,7 +9,8 @@ final class SessionRuntimeTests {
 
     private var runtime: SessionRuntime!
 
-        init() {
+    @BeforeEach
+    func setUp() {
         runtime = SessionRuntime(healthCheckInterval: 1)
     }
 
@@ -18,7 +19,8 @@ final class SessionRuntimeTests {
     @Test
 
     func test_status_unknownPane_returnsInitializing() {
-        #expect(runtime.status(for: UUID()) == .initializing)
+        let status = runtime.status(for: UUID())
+        #expect(status == .initializing)
     }
 
     @Test
@@ -26,7 +28,8 @@ final class SessionRuntimeTests {
     func test_status_afterInitialize_returnsInitializing() {
         let id = UUID()
         runtime.initializeSession(id)
-        #expect(runtime.status(for: id) == .initializing)
+        let status = runtime.status(for: id)
+        #expect(status == .initializing)
     }
 
     @Test
@@ -35,7 +38,8 @@ final class SessionRuntimeTests {
         let id = UUID()
         runtime.initializeSession(id)
         runtime.markRunning(id)
-        #expect(runtime.status(for: id) == .running)
+        let status = runtime.status(for: id)
+        #expect(status == .running)
     }
 
     @Test
@@ -44,7 +48,8 @@ final class SessionRuntimeTests {
         let id = UUID()
         runtime.markRunning(id)
         runtime.markExited(id)
-        #expect(runtime.status(for: id) == .exited)
+        let status = runtime.status(for: id)
+        #expect(status == .exited)
     }
 
     @Test
@@ -54,7 +59,8 @@ final class SessionRuntimeTests {
         runtime.markRunning(id)
         runtime.removeSession(id)
         // Should return default (initializing) since entry is gone
-        #expect(runtime.status(for: id) == .initializing)
+        let status = runtime.status(for: id)
+        #expect(status == .initializing)
         #expect(!(runtime.statuses.keys.contains(id)))
     }
 
@@ -68,7 +74,8 @@ final class SessionRuntimeTests {
         runtime.markExited(ids[0])
         runtime.markExited(ids[1])
 
-        #expect(runtime.runningCount == 3)
+        let runningCount = runtime.runningCount
+        #expect(runningCount == 3)
     }
 
     @Test
@@ -110,7 +117,8 @@ final class SessionRuntimeTests {
 
         runtime.syncWithStore()
 
-        #expect(runtime.status(for: pane.id) == .initializing)
+        let status = runtime.status(for: pane.id)
+        #expect(status == .initializing)
         #expect(runtime.statuses.keys.contains(pane.id))
 
         try? FileManager.default.removeItem(at: tempDir)
@@ -131,7 +139,8 @@ final class SessionRuntimeTests {
 
         runtime.syncWithStore()
 
-        #expect(!(runtime.statuses.keys.contains(staleId)))
+        let hasStale = runtime.statuses.keys.contains(staleId)
+        #expect(!hasStale)
 
         try? FileManager.default.removeItem(at: tempDir)
     }
@@ -140,11 +149,18 @@ final class SessionRuntimeTests {
 
     @Test
 
-    func test_registerBackend_storesCorrectly() {
+    func test_registerBackend_storesCorrectly() async throws {
         let backend = MockSessionRuntimeBackend(provider: .zmx)
         runtime.registerBackend(backend)
-        // No direct way to query backends, but startSession should use it.
-        // Integration coverage for backend registration is in startSession tests.
+        let pane = makePane(
+            source: .floating(workingDirectory: nil, title: "Terminal"),
+            provider: .zmx
+        )
+
+        let handle = try await runtime.startSession(pane)
+
+        #expect(handle == "mock-handle-\(pane.id)")
+        #expect(backend.startCount == 1)
     }
 
     // MARK: - Backend Operations
@@ -160,7 +176,8 @@ final class SessionRuntimeTests {
         let handle = try await runtime.startSession(pane)
 
         #expect((handle) == nil)
-        #expect(runtime.status(for: pane.id) == .running)
+        let status = runtime.status(for: pane.id)
+        #expect(status == .running)
     }
 
     @Test
@@ -177,7 +194,8 @@ final class SessionRuntimeTests {
         let handle = try await runtime.startSession(pane)
 
         #expect(handle == "mock-handle-\(pane.id)")
-        #expect(runtime.status(for: pane.id) == .running)
+        let status = runtime.status(for: pane.id)
+        #expect(status == .running)
         #expect(backend.startCount == 1)
     }
 
@@ -192,7 +210,8 @@ final class SessionRuntimeTests {
         let restored = await runtime.restoreSession(pane)
 
         #expect(restored)
-        #expect(runtime.status(for: pane.id) == .running)
+        let status = runtime.status(for: pane.id)
+        #expect(status == .running)
     }
 
     @Test
@@ -210,7 +229,8 @@ final class SessionRuntimeTests {
         let restored = await runtime.restoreSession(pane)
 
         #expect(restored)
-        #expect(runtime.status(for: pane.id) == .running)
+        let status = runtime.status(for: pane.id)
+        #expect(status == .running)
     }
 
     @Test
@@ -228,7 +248,8 @@ final class SessionRuntimeTests {
         let restored = await runtime.restoreSession(pane)
 
         #expect(!(restored))
-        #expect(runtime.status(for: pane.id) == .exited)
+        let status = runtime.status(for: pane.id)
+        #expect(status == .exited)
     }
 
     @Test
@@ -245,7 +266,8 @@ final class SessionRuntimeTests {
 
         await runtime.terminateSession(pane)
 
-        #expect(runtime.status(for: pane.id) == .exited)
+        let status = runtime.status(for: pane.id)
+        #expect(status == .exited)
         #expect(backend.terminateCount == 1)
     }
 
@@ -260,7 +282,8 @@ final class SessionRuntimeTests {
 
         await runtime.terminateSession(pane)
 
-        #expect(runtime.status(for: pane.id) == .exited)
+        let status = runtime.status(for: pane.id)
+        #expect(status == .exited)
     }
 }
 

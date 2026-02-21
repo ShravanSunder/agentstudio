@@ -207,7 +207,7 @@ final class ObservableStoreTests {
     /// Verifies TabBarAdapter's withObservationTracking bridge automatically
     /// refreshes when the store changes, without manual objectWillChange.send().
     @Test
-    func test_tabBarAdapter_bridgeAutoRefreshes_onStoreTabChange() async {
+    func test_tabBarAdapter_bridgeAutoRefreshes_onStoreTabChange() async throws {
         // Arrange
         let adapter = TabBarAdapter(store: store)
         #expect(adapter.tabs.isEmpty)
@@ -226,11 +226,8 @@ final class ObservableStoreTests {
 
         // Assert — adapter derived state updated
         #expect(adapter.tabs.count == 1, "TabBarAdapter must auto-refresh via observation bridge")
-        if let firstTab = adapter.tabs.first {
-            #expect(firstTab.title == "AutoRefresh")
-        } else {
-            #expect(Bool(false), "Expected derived tab to exist")
-        }
+        let firstTab = try #require(adapter.tabs.first, "Expected derived tab to exist")
+        #expect(firstTab.title == "AutoRefresh")
         #expect(adapter.activeTabId == tab.id)
     }
 

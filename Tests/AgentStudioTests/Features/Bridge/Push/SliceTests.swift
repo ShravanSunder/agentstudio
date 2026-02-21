@@ -151,22 +151,11 @@ final class MockPushTransport: PushTransport {
     ) async -> Bool {
         if pushCount >= expectedCount { return true }
 
-        let timeoutInSeconds = Double(timeout.components.seconds)
-        let timeoutFractionalSeconds = Double(timeout.components.attoseconds) / 1_000_000_000_000_000_000
-        let deadline = Date().addingTimeInterval(timeoutInSeconds + timeoutFractionalSeconds)
-
-        while pushCount < expectedCount && Date() < deadline {
+        let deadline = ContinuousClock().now.advanced(by: timeout)
+        while pushCount < expectedCount && ContinuousClock().now < deadline {
             try? await Task.sleep(for: .milliseconds(10))
         }
 
-        if pushCount < expectedCount {
-            #expect(Bool(false), """
-                Timed out waiting for push count (expected at least \(expectedCount), got \
-                \(pushCount)) after \(timeout)
-                """)
-            return false
-        }
-
-        return true
+        return pushCount >= expectedCount
     }
 }

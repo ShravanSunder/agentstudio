@@ -26,7 +26,7 @@ struct WebviewPaneControllerTests {
 
         // Assert
         #expect(controller.showNavigation)
-        #expect(controller.url != nil)
+        #expect(controller.url == state.url)
     }
 
     @Test

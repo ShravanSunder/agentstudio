@@ -246,9 +246,8 @@ final class WorkspacePersistorTests {
         let state = WorkspacePersistor.PersistableState()
 
         // Act & Assert
-        do {
+        #expect(throws: Error.self) {
             try readOnlyPersistor.save(state)
-            #expect(Bool(false), "saving to non-writable path should throw")
-        } catch { }
+        }
     }
 }

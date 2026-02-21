@@ -11,7 +11,7 @@ final class TabBarAdapterTests {
     private var adapter: TabBarAdapter!
     private var tempDir: URL!
 
-        init() {
+    init() {
         tempDir = FileManager.default.temporaryDirectory
             .appending(path: "adapter-tests-\(UUID().uuidString)")
         let persistor = WorkspacePersistor(workspacesDir: tempDir)
@@ -40,7 +40,7 @@ final class TabBarAdapterTests {
 
     @Test
 
-    func test_singleTab_derivesTabBarItem() async {
+    func test_singleTab_derivesTabBarItem() async throws {
         // Arrange
         let pane = store.createPane(
             source: .floating(workingDirectory: nil, title: "MyTerminal"),
@@ -54,20 +54,17 @@ final class TabBarAdapterTests {
 
         // Assert
         #expect(adapter.tabs.count == 1)
-        if let derivedTab = adapter.tabs.first {
-            #expect(derivedTab.id == tab.id)
-            #expect(derivedTab.title == "MyTerminal")
-            #expect(derivedTab.displayTitle == "MyTerminal")
-            #expect(!(derivedTab.isSplit))
-        } else {
-            #expect(Bool(false), "Expected derived tab to exist")
-        }
+        let derivedTab = try #require(adapter.tabs.first)
+        #expect(derivedTab.id == tab.id)
+        #expect(derivedTab.title == "MyTerminal")
+        #expect(derivedTab.displayTitle == "MyTerminal")
+        #expect(!(derivedTab.isSplit))
         #expect(adapter.activeTabId == tab.id)
     }
 
     @Test
 
-    func test_splitTab_showsJoinedTitle() async {
+    func test_splitTab_showsJoinedTitle() async throws {
         // Arrange
         let s1 = store.createPane(
             source: .floating(workingDirectory: nil, title: "Left"),
@@ -85,18 +82,15 @@ final class TabBarAdapterTests {
 
         // Assert
         #expect(adapter.tabs.count == 1)
-        if let derivedTab = adapter.tabs.first {
-            #expect(derivedTab.isSplit)
-            #expect(derivedTab.displayTitle == "Left | Right")
-            #expect(derivedTab.title == "Left")
-        } else {
-            #expect(Bool(false), "Expected derived tab to exist")
-        }
+        let derivedTab = try #require(adapter.tabs.first)
+        #expect(derivedTab.isSplit)
+        #expect(derivedTab.displayTitle == "Left | Right")
+        #expect(derivedTab.title == "Left")
     }
 
     @Test
 
-    func test_multipleTabs_derivesAll() async {
+    func test_multipleTabs_derivesAll() async throws {
         // Arrange
         let s1 = store.createPane(
             source: .floating(workingDirectory: nil, title: "Tab1"),
@@ -116,12 +110,10 @@ final class TabBarAdapterTests {
 
         // Assert
         #expect(adapter.tabs.count == 2)
-        if let firstTab = adapter.tabs[safe: 0], let secondTab = adapter.tabs[safe: 1] {
-            #expect(firstTab.id == tab1.id)
-            #expect(secondTab.id == tab2.id)
-        } else {
-            #expect(Bool(false), "Expected two derived tabs to exist")
-        }
+        let firstTab = try #require(adapter.tabs[safe: 0], "Expected two derived tabs to exist")
+        let secondTab = try #require(adapter.tabs[safe: 1], "Expected two derived tabs to exist")
+        #expect(firstTab.id == tab1.id)
+        #expect(secondTab.id == tab2.id)
     }
 
     @Test
@@ -145,7 +137,7 @@ final class TabBarAdapterTests {
 
     @Test
 
-    func test_tabRemoved_adapterUpdates() async {
+    func test_tabRemoved_adapterUpdates() async throws {
         // Arrange
         let s1 = store.createPane(source: .floating(workingDirectory: nil, title: nil))
         let s2 = store.createPane(source: .floating(workingDirectory: nil, title: nil))
@@ -166,16 +158,13 @@ final class TabBarAdapterTests {
 
         // Assert
         #expect(adapter.tabs.count == 1)
-        if let remainingTab = adapter.tabs[safe: 0] {
-            #expect(remainingTab.id == tab2.id)
-        } else {
-            #expect(Bool(false), "Expected remaining tab to exist")
-        }
+        let remainingTab = try #require(adapter.tabs[safe: 0], "Expected remaining tab to exist")
+        #expect(remainingTab.id == tab2.id)
     }
 
     @Test
 
-    func test_paneWithNoTitle_defaultsToTerminal() async {
+    func test_paneWithNoTitle_defaultsToTerminal() async throws {
         // Arrange
         let pane = store.createPane(
             source: .floating(workingDirectory: nil, title: nil)
@@ -187,11 +176,8 @@ final class TabBarAdapterTests {
         await waitForAdapterRefresh()
 
         // Assert
-        if let tabItem = adapter.tabs[safe: 0] {
-            #expect(tabItem.displayTitle == "Terminal")
-        } else {
-            #expect(Bool(false), "Expected derived tab to exist")
-        }
+        let tabItem = try #require(adapter.tabs[safe: 0], "Expected derived tab to exist")
+        #expect(tabItem.displayTitle == "Terminal")
     }
 
     // MARK: - Transient State
@@ -286,12 +272,12 @@ final class TabBarAdapterTests {
 
     @Test
 
-    func test_zeroAvailableWidth_notOverflowing() {
+    func test_zeroAvailableWidth_notOverflowing() async {
         // Arrange — layout not ready (width = 0)
         let pane = store.createPane(source: .floating(workingDirectory: nil, title: nil))
         store.appendTab(Tab(paneId: pane.id))
 
-        Thread.sleep(forTimeInterval: 0.1)
+        await waitForAdapterRefresh()
 
         // Assert — availableWidth defaults to 0
         #expect(!(adapter.isOverflowing))

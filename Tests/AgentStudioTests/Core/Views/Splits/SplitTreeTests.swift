@@ -184,10 +184,9 @@ final class SplitTreeTests {
         let newView = MockTerminalView(name: "new")
 
         // Act & Assert
-        do {
+        #expect(throws: Error.self) {
             _ = try tree.inserting(view: newView, at: target, direction: .right)
-            #expect(Bool(false), "inserting into empty tree should throw")
-        } catch { }
+        }
     }
 
     @Test
@@ -200,10 +199,9 @@ final class SplitTreeTests {
         let tree = TestSplitTree(view: existing)
 
         // Act & Assert
-        do {
+        #expect(throws: Error.self) {
             _ = try tree.inserting(view: newView, at: wrongTarget, direction: .right)
-            #expect(Bool(false), "inserting with unknown target should throw")
-        } catch { }
+        }
     }
 
     @Test

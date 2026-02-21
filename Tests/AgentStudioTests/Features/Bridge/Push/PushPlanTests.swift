@@ -257,6 +257,7 @@ final class PushPlanTests {
         let state = TestState()
         let transport = MockPushTransport()
         let clock = RevisionClock()
+        let debounceClock = TestPushClock()
         let plan = PushPlan(
             state: state,
             transport: transport,
@@ -269,7 +270,7 @@ final class PushPlanTests {
                     level: .warm,
                     capture: { (s: TestState) in s.status }
                 )
-                .erased()
+                .erased(debounceClock: debounceClock)
             }
         )
 
@@ -282,9 +283,9 @@ final class PushPlanTests {
             state.status = "state-\(i)"
         }
         await Task.yield()
+        debounceClock.advance(by: .milliseconds(20))
+        await Task.yield()
 
-        // Wait for debounce to flush
-        try? await Task.sleep(for: .milliseconds(50))
         let didWaitForWarmPush = await transport.waitForPushCount(
             atLeast: baselineCount + 1
         )
@@ -310,6 +311,7 @@ final class PushPlanTests {
         let state = TestState()
         let transport = MockPushTransport()
         let clock = RevisionClock()
+        let debounceClock = TestPushClock()
         let plan = PushPlan(
             state: state,
             transport: transport,
@@ -322,7 +324,7 @@ final class PushPlanTests {
                     version: { (_ entity: String) in 1 },
                     keyToString: { (key: UUID) in key.uuidString }
                 )
-                .erased()
+                .erased(debounceClock: debounceClock)
             }
         )
 
@@ -335,9 +337,9 @@ final class PushPlanTests {
             state.items[UUID()] = "item-\(i)"
         }
         await Task.yield()
+        debounceClock.advance(by: .milliseconds(40))
+        await Task.yield()
 
-        // Wait for debounce to flush
-        try? await Task.sleep(for: .milliseconds(100))
         let didWaitForColdPush = await transport.waitForPushCount(
             atLeast: baselineCount + 1
         )
