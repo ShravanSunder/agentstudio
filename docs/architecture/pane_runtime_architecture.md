@@ -53,7 +53,9 @@ RUNTIMES (per-pane, registered in RuntimeRegistry):
   RuntimeRegistry[pane-C] → BrowserRuntime instance
 ```
 
-**Why not actor-per-pane:** Swift actors impose async boundaries on every property access. For a macOS UI app where all state feeds `@Observable` views on the main thread, this adds overhead without matching benefit. `@MainActor` already provides thread safety. If profiling shows contention (>1000 events/sec sustained), individual runtimes can be upgraded to actors without protocol changes because the protocol is already `async`.
+**Why not actor-per-pane:** Swift actors impose async boundaries on every property access. For a macOS UI app where all state feeds `@Observable` views on the main thread, this adds overhead without matching benefit. `@MainActor` already provides thread safety.
+
+**Actor migration path (honest cost):** The protocol is `async` from day one, which minimizes caller-side changes if a runtime is later moved to its own actor. However, `@MainActor` on the protocol itself and sync property access (`paneId`, `metadata`, `lifecycle`, `capabilities`, `snapshot()`) lock current conformers to main-actor isolation. Migrating to actor-per-pane would require: (1) removing `@MainActor` from the protocol, (2) making sync properties `async` or using `nonisolated`, (3) updating all callsites. This is a real migration cost — the protocol reduces it but does not eliminate it. Profile before deciding (>1000 events/sec sustained).
 
 **Why not single coordinator handling all events:** Becomes a god object as pane types grow. Per-type runtimes have clear ownership, are testable in isolation, and scale with new pane types.
 
@@ -100,7 +102,9 @@ RUNTIMES (per-pane, registered in RuntimeRegistry):
 
 **User problem:** When 5 agents are running, the active pane's "command finished" notification must not be delayed by background terminal telemetry (JTBD 6, P8).
 
-**Decision:** Events classified as `critical` (never coalesced, immediate delivery) or `lossy` (batched on frame boundary, deduped). Priority tiers from LUNA-295: `p0_activePane → p1_activeDrawer → p2_visibleActiveTab → p3_background`.
+**Decision:** Events self-classify as `critical` (never coalesced, immediate delivery) or `lossy` (batched on frame boundary, deduped by consolidation key). This is the **event classification** axis.
+
+**Visibility tiers (deferred):** LUNA-295 defines a separate axis: `p0_activePane → p1_activeDrawer → p2_visibleActiveTab → p3_background`. This is a **delivery scheduling** concern — which pane's events get processed first when multiple critical events arrive in the same frame. The current contracts encode classification (critical/lossy) only. Visibility-tier scheduling requires the NotificationReducer to know pane visibility state, which is a coordinator→reducer dependency not yet specified. Adding visibility tiers later is additive (new `VisibilityTier` parameter on `submit()`, ordering within the critical queue) and does not change the event or envelope contracts.
 
 ### D7: Filesystem observation with batched artifact production
 
@@ -579,11 +583,14 @@ extension PaneRuntimeEvent {
 ///     Tab switch. The activeTabId IS domain data (which tab), not routing.
 ///
 ///   WORKTREE-SCOPED: envelope.source = .worktree(id)
-///     Filesystem changes, security events. No worktreeId in event payload.
+///     Filesystem changes, security events. No worktreeId in event cases.
+///     Exception: FileChangeset.worktreeId is a DENORMALIZED COPY of
+///     envelope.source for convenience — envelope.source is authoritative.
 ///
 ///   AGENT-SCOPED: envelope.source = .pane(agentPaneId)
 ///     Artifact events. The producing agent is routing identity.
-///     worktreeId in payload = WHERE the artifact belongs (domain data).
+///     worktreeId in payload = WHERE the artifact belongs (domain data,
+///     may differ from producer's worktree).
 enum PaneLifecycleEvent: Sendable {
     // ── Pane-scoped: envelope.source = .pane(id) ────────
     case surfaceCreated
@@ -686,13 +693,13 @@ struct PaneEventEnvelope: Sendable {
 /// Who produced an event. Replaces required paneId on envelope.
 /// Pane-scoped events carry .pane(id). Cross-cutting events carry
 /// .worktree(id) or .system (filesystem watcher, security backend).
-enum EventSource: Sendable {
+enum EventSource: Hashable, Sendable {
     case pane(PaneId)
     case worktree(WorktreeId)
     case system(SystemSource)
 }
 
-enum SystemSource: Sendable {
+enum SystemSource: Hashable, Sendable {
     case filesystemWatcher
     case securityBackend
     case coordinator
@@ -779,8 +786,21 @@ enum PaneRuntimeLifecycle: Sendable {
 /// Standalone data structure — may be serialized/stored independently.
 /// worktreeId denormalized here for self-documenting data. Canonical
 /// source is envelope.source = .worktree(id).
+/// IDENTITY vs DOMAIN DATA clarification:
+///
+/// FileChangeset.worktreeId is a DENORMALIZED COPY of envelope.source's
+/// WorktreeId. It exists for convenience — consumers can access worktreeId
+/// without unwrapping the envelope. Routing decisions use envelope.source;
+/// this field is a read-through copy, not a separate source of truth.
+///
+/// Same pattern as ArtifactEvent.diffProduced(worktreeId:) — worktreeId
+/// in the payload is DOMAIN DATA ("which worktree this changeset covers"),
+/// while envelope.source = .worktree(id) is ROUTING IDENTITY.
+///
+/// In practice, FileChangeset.worktreeId == envelope.source.worktreeId
+/// always. If they ever diverge, envelope.source is authoritative.
 struct FileChangeset: Sendable {
-    let worktreeId: WorktreeId       // denormalized from envelope.source
+    let worktreeId: WorktreeId       // denormalized from envelope.source (domain data)
     let paths: Set<String>           // deduped relative paths
     let timestamp: ContinuousClock.Instant
     let batchSeq: UInt64             // monotonic per worktree
@@ -968,8 +988,10 @@ enum DiagnosticSeverity: String, Sendable { case error, warning, info, hint }
 /// Per-pane CONFIGURATION, not a pane type. A terminal pane can run
 /// on any backend. The runtime contract doesn't change.
 ///
-/// Stored on PaneMetadata. Set at pane creation. Can be migrated
-/// (sandboxMigrated event) but this is rare.
+/// Stored on PaneMetadata. Set at pane creation, immutable for pane lifetime.
+/// Live migration between backends is a FUTURE capability — no
+/// SecurityEvent case exists for this yet. To change backends today,
+/// close the pane and create a new one.
 enum ExecutionBackend: Sendable {
     /// Direct host execution. No isolation. Default.
     case local
@@ -1215,7 +1237,12 @@ final class RuntimeRegistry {
         return runtime
     }
 
-    /// Lookup by paneId. Returns nil if not registered or terminated.
+    /// Lookup by paneId. Returns nil if not registered.
+    ///
+    /// CONTRACT: Coordinator MUST call unregister() when a runtime reaches
+    /// .terminated. This means terminated runtimes are never in the map.
+    /// The registry does NOT check lifecycle internally — it is a pure
+    /// lookup. Lifecycle enforcement is the coordinator's responsibility.
     func runtime(for paneId: PaneId) -> (any PaneRuntime)? {
         runtimes[paneId]
     }
@@ -1330,7 +1357,13 @@ final class NotificationReducer {
 
     private func flushLossyBuffer() {
         guard !lossyBuffer.isEmpty else { return }
-        let batch = Array(lossyBuffer.values)
+        // Sort by (source, seq) to preserve per-source ordering within batch.
+        // Dictionary values have no inherent order — sorting is required to
+        // uphold the per-source ordering guarantee from the envelope contract.
+        let batch = lossyBuffer.values.sorted { a, b in
+            if a.source == b.source { return a.seq < b.seq }
+            return a.timestamp < b.timestamp  // cross-source: best-effort
+        }
         lossyBuffer.removeAll(keepingCapacity: true)
         batchContinuation.yield(batch)
     }
@@ -1619,25 +1652,109 @@ Dynamic view opens (e.g., "group by worktree")
 
 **Risk:** Coordinator restarts mid-workflow (crash, suspension). "Agent finished → create diff → wait for approval" loses its place.
 
-**Mitigation:** Every workflow step carries `commandId` (idempotent per-step) and `correlationId` (links the full workflow chain). Coordinator must be restart-safe: on recovery, replay events since last known sequence, detect completed steps via commandId, resume from the correct point.
+**Mitigation:** Every workflow step carries `commandId` (idempotent per-step) and `correlationId` (links the full workflow chain). Coordinator can detect completed steps via commandId on replay.
+
+**Limitation (v1):** Restart-safe replay requires `epoch` to distinguish "caught up in current runtime" from "new runtime, seq reset." Since `epoch` is `0` in v1, `eventsSince(seq:)` after a runtime restart may return events from the new epoch with overlapping seq numbers. **Consumers must use `snapshot()` after runtime restart, not `eventsSince()`.** True restart-safe replay requires activating epoch (see Sharp Edge #7).
 
 ### 7. Epoch field deferred but reserved
 
 **Risk:** Adding `epoch` later requires protocol changes and migration.
 
-**Mitigation:** `epoch` field is in the envelope now, set to `0`. Comment: "reserved — increments on runtime restart/reconnect for stale-view detection." Zero cost to carry. Activated when late-joining consumer semantics or app-restore replay are implemented.
+**Mitigation:** `epoch` field is in the envelope now, set to `0`. Zero cost to carry. When activated, epoch increments on runtime restart/reconnect, enabling stale-view detection and safe seq comparison across restarts.
+
+**v1 constraint:** With `epoch == 0`, `eventsSince(seq:)` is NOT safe across runtime restarts — seq resets but epoch doesn't increment, so the consumer can't detect the reset. **After runtime restart, consumers must call `snapshot()` to re-sync, not `eventsSince()`.** This is documented in Sharp Edge #6 and the Architectural Invariants (A9).
 
 ### 8. Execution backend lifecycle mismatch
 
 **Risk:** Sandbox (Gondolin/Docker) starts before the runtime is ready, or crashes while the runtime is still producing events.
 
-**Mitigation:** Execution backend lifecycle is independent of pane runtime lifecycle. The sandbox starts and becomes healthy before the runtime transitions to `ready`. If the sandbox dies, a `SecurityEvent.sandboxHealthChanged(healthy: false)` fires, and the coordinator can either restart the sandbox or transition the runtime to `draining`. The pane's `PaneMetadata.executionBackend` is immutable after creation — to change backends, close the pane and create a new one (or use the reserved `sandboxMigrated` event for live migration later).
+**Mitigation:** Execution backend lifecycle is independent of pane runtime lifecycle. The sandbox starts and becomes healthy before the runtime transitions to `ready`. If the sandbox dies, a `SecurityEvent.sandboxHealthChanged(healthy: false)` fires, and the coordinator can either restart the sandbox or transition the runtime to `draining`. The pane's `PaneMetadata.executionBackend` is immutable after creation — to change backends, close the pane and create a new one. Live backend migration is a future capability (no SecurityEvent case exists for it yet).
 
 ### 9. Bus becoming a god object
 
 **Risk:** Event bus accumulates routing logic, filtering, batching, domain decisions, workflow branching.
 
 **Mitigation:** Bus only routes, filters, and batches. It never makes domain decisions. Workflow logic lives in the coordinator. Domain logic lives in runtimes. The bus is infrastructure — a typed `AsyncStream` with merge, filter, and throttle operators from `swift-async-algorithms`. If the bus grows methods that aren't pure stream operations, it's doing too much.
+
+---
+
+## Architectural Invariants
+
+Structural guarantees that hold across all contracts. Each invariant is enforced at a specific layer and has a defined violation response. These are the rules implementation MUST uphold — not aspirational guidelines.
+
+### Identity & Routing
+
+**A1. Routing identity lives on the envelope, never in event payloads.** `EventSource` on `PaneEventEnvelope` is the single source of truth for "who produced this event." Event payloads carry domain data only (e.g., `ArtifactEvent.worktreeId` = "where the artifact belongs," not "who produced it"). If routing identity and domain data happen to match (e.g., `FileChangeset.worktreeId` == `envelope.source.worktreeId`), the envelope is authoritative on any divergence.
+
+*Enforced by:* Code review + contract tests asserting no `paneId`/`worktreeId` routing fields in event enum cases.
+
+**A2. One runtime instance per pane. One adapter instance per backend technology.** `RuntimeRegistry` enforces uniqueness via `precondition` on `register()`. Adapters (`GhosttyAdapter`, `WebKitAdapter`) are shared singletons that route by surface/webview ID to the correct runtime instance. No pane ever has two runtimes; no runtime ever serves two panes.
+
+*Enforced by:* `RuntimeRegistry.register()` precondition. Violation = fatal assertion (programmer error).
+
+**A3. RuntimeRegistry is the sole lookup for paneId → runtime.** No parallel maps, no caching of runtime references outside the registry. Coordinator, event bus, and all consumers go through `RuntimeRegistry.runtime(for:)`. Terminated runtimes are removed via `unregister()` — the registry never contains terminated entries.
+
+*Enforced by:* `unregister()` called by coordinator as part of the termination sequence. Violation = leaked runtime (detected by periodic registry audit in debug builds).
+
+### Ordering & Sequencing
+
+**A4. `seq` is monotonic per `EventSource`.** Each runtime (or system producer) is the sole writer of its own sequence counter. `seq` values are strictly increasing within a single `EventSource`. Gaps are allowed only due to replay buffer eviction.
+
+*Enforced by:* Runtime produces envelopes with `seq` from its own counter. No external code writes `seq`.
+
+**A5. Cross-source ordering is best-effort via `timestamp`.** No global sequence number exists. Cross-source ordering uses `ContinuousClock.Instant` timestamps. This is sufficient for UI rendering and workflow matching but NOT for strict causal ordering across panes.
+
+*Enforced by:* Design decision (D2). No global sequence counter to maintain.
+
+**A6. Lossy batch ordering preserves per-source order.** When `NotificationReducer` flushes the lossy buffer, events are sorted by `(source, seq)` within the batch. Cross-source ordering within a batch uses timestamps (best-effort).
+
+*Enforced by:* `flushLossyBuffer()` sorts before yielding. Unit tests verify per-source ordering in batched output.
+
+### Classification & Priority
+
+**A7. Self-classifying priority — single classification authority per event.** Each per-kind event enum implements `actionPolicy` via `PaneKindEvent` conformance. `NotificationReducer` reads `envelope.event.actionPolicy` — no centralized `classify()` method, no priority field cached on the envelope. Plugin events self-classify without core code changes.
+
+*Enforced by:* `PaneKindEvent` protocol requirement. Compile error if `actionPolicy` is missing.
+
+**A8. Critical and lossy paths never interact.** Critical events bypass coalescing entirely (immediate delivery, wake main loop). Lossy events batch on frame boundary (16.67ms). The `NotificationReducer` maintains two separate queues. No priority inversion is possible between these paths.
+
+*Enforced by:* `submit()` branches on `actionPolicy` at the top level. No shared buffer between paths.
+
+### Replay & Recovery
+
+**A9. `eventsSince(seq:)` is NOT safe across runtime restarts in v1.** With `epoch == 0`, a runtime restart resets `seq` but epoch doesn't increment. Consumers cannot distinguish "caught up in current runtime" from "new epoch." **After runtime restart, consumers MUST call `snapshot()` to re-sync.** True restart-safe replay requires activating the epoch field (future).
+
+*Enforced by:* Documentation. Implementation will add `precondition(epoch > 0)` guard when epoch is activated.
+
+**A10. Replay buffer is bounded per `EventSource`.** Each source gets its own ring buffer (default: 1000 events, 1MB, 5-minute TTL). One noisy source cannot starve replay for others. Eviction is oldest-first. Gap detection via `ReplayResult.gapDetected` tells the consumer to fall back to `snapshot()`.
+
+*Enforced by:* `EventReplayBuffer.Config` bounds. Buffer constructor validates config.
+
+### Lifecycle
+
+**A11. Lifecycle transitions are forward-only.** `created → ready → draining → terminated`. No backward transitions. No skipping states. `handleAction()` rejects commands if `lifecycle != .ready`. After `terminated`, no events emitted, no commands accepted, runtime is unregistered from `RuntimeRegistry`.
+
+*Enforced by:* `PaneRuntimeLifecycle` state machine with compile-time transition validation. Violation = `.failure(.runtimeNotReady)`.
+
+**A12. `shutdown(timeout:)` is idempotent.** Safe to call multiple times. First call initiates draining. Subsequent calls are no-ops that return the same unfinished command list.
+
+*Enforced by:* Guard on lifecycle state in `shutdown()` implementation.
+
+### Metadata & Dynamic Views
+
+**A13. PaneMetadata live fields are ALL OPTIONAL.** `repoId`, `worktreeId`, `parentFolder`, `cwd`, `agentType`, `tags` — each can be `nil` independently. Not every pane participates in every dynamic view grouping dimension. A `nil` value excludes the pane from that grouping. This is intentional, not a missing-data bug.
+
+*Enforced by:* All live fields typed as optionals (`UUID?`, `URL?`, `String?`, `AgentType?`, `Set<String>` defaults empty). Dynamic view projector handles nil gracefully — nil means "excluded from this facet."
+
+**A14. `PaneMetadata.executionBackend` is immutable after creation.** To change backends, close the pane and create a new one. Live migration is a future capability with no current SecurityEvent case.
+
+*Enforced by:* `let executionBackend` (immutable). Compile error on mutation attempt.
+
+### Event Scoping
+
+**A15. Source/payload compatibility is a contract invariant.** Pane-scoped payloads (`.terminal`, `.browser`, `.diff`, `.editor`, `.plugin`) require `source = .pane(id)`. Filesystem/security payloads require `source = .worktree(id)`. Workspace lifecycle events not pane-scoped require `source = .system(.coordinator)`. Invalid combinations are contract violations — runtime emits `RuntimeErrorEvent` rather than silently misrouting.
+
+*Enforced by:* Envelope invariant #3 and #4 (Contract 3). Validated at envelope creation in runtime.
 
 ---
 
@@ -1657,7 +1774,7 @@ Hard rules for all types in this architecture. Violations are compile errors, no
 
 6. **Existentials (`any`) are explicit and minimized.** `any PaneRuntime` at registry lookup boundaries. `any PaneKindEvent` at the plugin escape hatch. `any Clock<Duration>` for testable time. No implicit existential boxing — every `any` is a conscious decision at a boundary.
 
-7. **`@MainActor` is the isolation domain for all runtime state.** All stores, runtimes, coordinators, and registries are `@MainActor`. Thread safety enforced at compile time. The protocol is `async` to preserve the actor-per-pane upgrade path (D1), but current implementation is all-main-actor.
+7. **`@MainActor` is the isolation domain for all runtime state.** All stores, runtimes, coordinators, and registries are `@MainActor`. Thread safety enforced at compile time. The protocol is `async` to reduce (not eliminate) actor-per-pane migration cost (D1). Sync protocol members would need conversion; see D1 for honest cost assessment.
 
 8. **Envelope validity is enforced.** `source` + `event` compatibility and monotonic `seq` per `EventSource` are contract-level invariants, not best-effort behavior.
 
@@ -1677,7 +1794,7 @@ You **pay** more upfront contracts and stricter schemas. Every new event kind mu
 
 You **avoid** major complexity (actor async boundaries on every property access, mailbox lifecycle management, ordering challenges) and migration cost.
 
-You **accept** the risk that `@MainActor` becomes a bottleneck for high-frequency terminals. Mitigation: protocol is async from day one, so upgrading a single runtime to an actor later doesn't change callers. Profile before deciding.
+You **accept** the risk that `@MainActor` becomes a bottleneck for high-frequency terminals. Mitigation: protocol is `async` from day one, which minimizes (but does not eliminate) caller-side migration cost. Sync protocol members (`paneId`, `metadata`, `snapshot()`) would need conversion to `async` or `nonisolated`. Profile before deciding.
 
 ### Compared to three separate planes
 
