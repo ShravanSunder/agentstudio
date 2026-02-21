@@ -121,7 +121,7 @@ Individual steps:
 This worktree is SwiftPM-first and Swift 6 `Testing` only:
 
 - Use `import Testing` with `@Suite`, `@Test`, and `#expect`.
-- Do not adopt XCTest-style APIs (`XCTestCase`, `XCTAssert*`, `setUp`/`tearDown`).
+- Do not adopt legacy XCTest-style APIs (`XCTestCase`, `XCTAssert*`, `setUp`/`tearDown`).
 - Do not use legacy XCTest-style or Xcode UI test scaffolding.
 - Prefer `mise run test` (Swift 6 `Testing`) and SwiftPM-native test execution.
 

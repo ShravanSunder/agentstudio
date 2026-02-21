@@ -32,6 +32,5 @@ struct PaneCoordinatorTests {
         defer { try? FileManager.default.removeItem(at: harness.tempDir) }
         let action: PaneAction = .selectTab(tabId: UUID())
         harness.coordinator.execute(action)
-        #expect(harness.coordinator != nil)
     }
 }

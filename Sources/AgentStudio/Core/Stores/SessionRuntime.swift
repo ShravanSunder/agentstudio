@@ -70,9 +70,9 @@ final class SessionRuntime {
         self.healthCheckInterval = healthCheckInterval
     }
 
+    @MainActor
     deinit {
-        let task = MainActor.assumeIsolated { healthCheckTask }
-        task?.cancel()
+        stopHealthChecks()
     }
 
     // MARK: - Backend Registration
@@ -193,7 +193,7 @@ final class SessionRuntime {
             let backend = backends[provider]
         else {
             runtimeLogger.warning("No backend registered for pane \(pane.id)")
-            markRunning(pane.id)  // Ghostty panes are "running" immediately
+            markExited(pane.id)
             return nil
         }
 
@@ -208,8 +208,8 @@ final class SessionRuntime {
         guard let provider = pane.provider,
             let backend = backends[provider]
         else {
-            markRunning(pane.id)
-            return true
+            markExited(pane.id)
+            return false
         }
 
         let restored = await backend.restore(pane: pane)

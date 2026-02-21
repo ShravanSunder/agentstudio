@@ -259,7 +259,6 @@ final class PushPlanTests {
         let state = TestState()
         let transport = MockPushTransport()
         let clock = RevisionClock()
-        let debounceClock = TestPushClock()
         let plan = PushPlan(
             state: state,
             transport: transport,
@@ -272,12 +271,13 @@ final class PushPlanTests {
                     level: .warm,
                     capture: { (s: TestState) in s.status }
                 )
-                .erased(debounceClock: debounceClock)
+                .erased()
             }
         )
 
         plan.start()
         await Task.yield()
+        _ = await transport.waitForPushCount(atLeast: 1)
         let baselineCount = transport.pushCount
 
         // Act — 5 synchronous mutations within one run-loop turn
@@ -285,8 +285,7 @@ final class PushPlanTests {
             state.status = "state-\(i)"
         }
         await Task.yield()
-        debounceClock.advance(by: .milliseconds(20))
-        await Task.yield()
+        try await Task.sleep(for: .milliseconds(40))
 
         let didWaitForWarmPush = await transport.waitForPushCount(
             atLeast: baselineCount + 1
@@ -315,7 +314,6 @@ final class PushPlanTests {
         let state = TestState()
         let transport = MockPushTransport()
         let clock = RevisionClock()
-        let debounceClock = TestPushClock()
         let plan = PushPlan(
             state: state,
             transport: transport,
@@ -328,12 +326,13 @@ final class PushPlanTests {
                     version: { (_ entity: String) in 1 },
                     keyToString: { (key: UUID) in key.uuidString }
                 )
-                .erased(debounceClock: debounceClock)
+                .erased()
             }
         )
 
         plan.start()
         await Task.yield()
+        _ = await transport.waitForPushCount(atLeast: 1)
         let baselineCount = transport.pushCount
 
         // Act — 10 synchronous entity additions within one run-loop turn
@@ -341,8 +340,7 @@ final class PushPlanTests {
             state.items[UUID()] = "item-\(i)"
         }
         await Task.yield()
-        debounceClock.advance(by: .milliseconds(40))
-        await Task.yield()
+        try await Task.sleep(for: .milliseconds(80))
 
         let didWaitForColdPush = await transport.waitForPushCount(
             atLeast: baselineCount + 1

@@ -1,7 +1,2 @@
-import Foundation
-
-extension UserDefaults: URLHistoryStorage {
-    func set(_ data: Data?, forKey key: String) {
-        set(data as Any?, forKey: key)
-    }
-}
+// Intentionally empty.
+// URLHistoryStorage conformance now lives in Features/Webview/URLHistoryService.swift

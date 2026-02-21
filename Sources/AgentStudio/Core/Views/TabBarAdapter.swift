@@ -115,11 +115,12 @@ final class TabBarAdapter {
             _ = self.store.tabs
             _ = self.store.activeTabId
             _ = self.store.panes
-        } onChange: {
-            Task { @MainActor [weak self] in
-                self?.isObservingStore = false
-                self?.refresh()
-                self?.observeStore()
+        } onChange: { [weak self] in
+            guard let self else { return }
+            Task { @MainActor in
+                self.isObservingStore = false
+                self.refresh()
+                self.observeStore()
             }
         }
     }
@@ -128,12 +129,16 @@ final class TabBarAdapter {
         guard !isObservingManagementMode else { return }
         isObservingManagementMode = true
         Task { @MainActor [weak self] in
+            guard let self else { return }
             withObservationTracking {
-                self?.isEditModeActive = ManagementModeMonitor.shared.isActive
-            } onChange: {
+                // Track only reads; writes stay in onChange.
+                _ = ManagementModeMonitor.shared.isActive
+            } onChange: { [weak self] in
                 Task { @MainActor [weak self] in
-                    self?.isObservingManagementMode = false
-                    self?.observeManagementMode()
+                    guard let self else { return }
+                    self.isObservingManagementMode = false
+                    self.isEditModeActive = ManagementModeMonitor.shared.isActive
+                    self.observeManagementMode()
                 }
             }
         }
@@ -184,7 +189,7 @@ final class TabBarAdapter {
             )
         }
 
-        activeTabId = store.activeTabId
+        activeTabId = store.activeTabId ?? tabs.last?.id
         updateOverflow()
     }
 

@@ -12,6 +12,12 @@ protocol URLHistoryStorage: Sendable {
     func set(_ data: Data?, forKey key: String)
 }
 
+extension UserDefaults: URLHistoryStorage {
+    func set(_ data: Data?, forKey key: String) {
+        set(data as Any?, forKey: key)
+    }
+}
+
 // MARK: - URLHistoryService
 
 /// Tracks visited URLs and user favorites across all webview panes.

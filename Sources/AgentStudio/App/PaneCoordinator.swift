@@ -17,7 +17,7 @@ final class PaneCoordinator {
     private let viewRegistry: ViewRegistry
     private let runtime: SessionRuntime
     private lazy var sessionConfig = SessionConfiguration.detect()
-    private var cwdObserver: NSObjectProtocol?
+    private var cwdChangesTask: Task<Void, Never>?
 
     /// Unified undo stack — holds both tab and pane close entries, chronologically ordered.
     /// NOTE: Undo stack owned here (not in a store) because undo is fundamentally
@@ -32,38 +32,28 @@ final class PaneCoordinator {
         self.store = store
         self.viewRegistry = viewRegistry
         self.runtime = runtime
-        subscribeToCWDNotifications()
+        subscribeToCWDChanges()
         setupPrePersistHook()
     }
 
     deinit {
-        if let observer = cwdObserver {
-            NotificationCenter.default.removeObserver(observer)
-        }
+        cwdChangesTask?.cancel()
     }
 
     // MARK: - CWD Propagation
 
-    private func subscribeToCWDNotifications() {
-        cwdObserver = NotificationCenter.default.addObserver(
-            forName: Ghostty.Notification.surfaceCWDChanged,
-            object: SurfaceManager.shared,
-            queue: .main
-        ) { [weak self] notification in
-            MainActor.assumeIsolated {
-                self?.onSurfaceCWDChanged(notification)
+    private func subscribeToCWDChanges() {
+        cwdChangesTask = Task { @MainActor [weak self] in
+            for await event in SurfaceManager.shared.surfaceCWDChanges {
+                if Task.isCancelled { break }
+                self?.onSurfaceCWDChanged(event)
             }
         }
     }
 
-    private func onSurfaceCWDChanged(_ notification: Notification) {
-        guard let surfaceId = notification.userInfo?["surfaceId"] as? UUID,
-            let paneId = SurfaceManager.shared.metadata(for: surfaceId)?.paneId
-        else {
-            return
-        }
-        let url = notification.userInfo?["url"] as? URL
-        store.updatePaneCWD(paneId, cwd: url)
+    private func onSurfaceCWDChanged(_ event: SurfaceManager.SurfaceCWDChangeEvent) {
+        guard let paneId = event.paneId else { return }
+        store.updatePaneCWD(paneId, cwd: event.cwd)
     }
 
     // MARK: - Webview State Sync
@@ -202,40 +192,42 @@ final class PaneCoordinator {
 
     private func undoTabClose(_ snapshot: WorkspaceStore.TabCloseSnapshot) {
         store.restoreFromSnapshot(snapshot)
+        var failedPaneIds: [UUID] = []
 
         // Restore views via lifecycle layer — iterate in reverse to match the LIFO
         // order of SurfaceManager's undo stack (panes were pushed in forward
         // order during close, so the last pane is on top of the stack).
         for pane in snapshot.panes.reversed() {
-            switch pane.content {
-            case .terminal:
-                if let worktreeId = pane.worktreeId,
-                    let repoId = pane.repoId,
-                    let worktree = store.worktree(worktreeId),
-                    let repo = store.repo(repoId)
-                {
-                    if restoreView(for: pane, worktree: worktree, repo: repo) == nil {
-                        paneCoordinatorLogger.error("Failed to restore terminal pane \(pane.id)")
-                    }
-                } else {
-                    if createViewForContent(pane: pane) == nil {
-                        paneCoordinatorLogger.error("Failed to recreate terminal pane \(pane.id)")
-                    }
-                }
-
-            case .webview, .codeViewer, .bridgePanel:
-                if createViewForContent(pane: pane) == nil {
-                    paneCoordinatorLogger.error("Failed to recreate pane \(pane.id)")
-                }
-
-            case .unsupported:
-                paneCoordinatorLogger.warning("Cannot restore unsupported pane \(pane.id)")
+            let restored = restoreUndoPane(
+                pane,
+                worktree: nil,
+                repo: nil,
+                label: "Tab"
+            )
+            if !restored {
+                failedPaneIds.append(pane.id)
             }
+        }
+
+        for paneId in failedPaneIds {
+            paneCoordinatorLogger.warning(
+                "undoTabClose: removing broken pane \(paneId) from tab \(snapshot.tab.id)"
+            )
+            teardownView(for: paneId)
+        }
+
+        store.setActiveTab(snapshot.tab.id)
+
+        if !failedPaneIds.isEmpty {
+            paneCoordinatorLogger.warning(
+                "undoTabClose: tab \(snapshot.tab.id) restored with \(failedPaneIds.count) failed panes"
+            )
         }
     }
 
     private func undoPaneClose(_ snapshot: WorkspaceStore.PaneCloseSnapshot) {
         store.restoreFromPaneSnapshot(snapshot)
+        var failedPaneIds: [UUID] = []
 
         // Restore views for the pane and its drawer children.
         // Use the same restoration path as undoTabClose: attempt surface undo
@@ -243,34 +235,60 @@ final class PaneCoordinator {
         let allPanes = [snapshot.pane] + snapshot.drawerChildPanes
         for pane in allPanes.reversed() {
             guard viewRegistry.view(for: pane.id) == nil else { continue }
-
-            switch pane.content {
-            case .terminal:
-                if let worktreeId = pane.worktreeId,
-                    let repoId = pane.repoId,
-                    let worktree = store.worktree(worktreeId),
-                    let repo = store.repo(repoId)
-                {
-                    if restoreView(for: pane, worktree: worktree, repo: repo) == nil {
-                        paneCoordinatorLogger.error("Failed to restore terminal pane \(pane.id)")
-                    }
-                } else {
-                    if createViewForContent(pane: pane) == nil {
-                        paneCoordinatorLogger.error("Failed to recreate terminal pane \(pane.id)")
-                    }
-                }
-
-            case .webview, .codeViewer, .bridgePanel:
-                if createViewForContent(pane: pane) == nil {
-                    paneCoordinatorLogger.error("Failed to recreate pane \(pane.id)")
-                }
-
-            case .unsupported:
-                paneCoordinatorLogger.warning("Cannot restore unsupported pane \(pane.id)")
+            let worktree = pane.worktreeId.flatMap(store.worktree)
+            let repo = pane.repoId.flatMap { store.repo($0) }
+            let restored = restoreUndoPane(
+                pane,
+                worktree: worktree,
+                repo: repo,
+                label: "Pane"
+            )
+            if !restored {
+                failedPaneIds.append(pane.id)
             }
         }
 
+        for paneId in failedPaneIds {
+            paneCoordinatorLogger.warning(
+                "undoPaneClose: removing broken pane \(paneId) in tab \(snapshot.tabId)"
+            )
+            teardownView(for: paneId)
+        }
+
         store.setActiveTab(snapshot.tabId)
+    }
+
+    private func restoreUndoPane(
+        _ pane: Pane,
+        worktree: Worktree?,
+        repo: Repo?,
+        label: String
+    ) -> Bool {
+        switch pane.content {
+        case .terminal:
+            if let worktree, let repo {
+                if restoreView(for: pane, worktree: worktree, repo: repo) != nil {
+                    return true
+                }
+                paneCoordinatorLogger.error("Failed to restore terminal pane \(pane.id)")
+            } else if createViewForContent(pane: pane) != nil {
+                return true
+            } else {
+                paneCoordinatorLogger.error("Failed to recreate terminal pane \(pane.id)")
+            }
+            return false
+
+        case .webview, .codeViewer, .bridgePanel:
+            if createViewForContent(pane: pane) != nil {
+                return true
+            }
+            paneCoordinatorLogger.error("Failed to recreate \(label.lowercased()) pane \(pane.id)")
+            return false
+
+        case .unsupported:
+            paneCoordinatorLogger.warning("Cannot restore unsupported pane \(pane.id)")
+            return true
+        }
     }
 
     // MARK: - PaneAction Execution
@@ -800,7 +818,9 @@ final class PaneCoordinator {
                 startupStrategy = .deferredInShell(command: attachCommand)
                 environmentVariables["ZMX_DIR"] = sessionConfig.zmxDir
             } else {
-                paneCoordinatorLogger.warning("zmx not found, falling back to ephemeral session for \(pane.id)")
+                paneCoordinatorLogger.error(
+                    "zmx not found; using ephemeral session for \(pane.id) (state will not persist)"
+                )
                 startupStrategy = .surfaceCommand(shellCommand)
             }
         case .ghostty:

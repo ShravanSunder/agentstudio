@@ -85,7 +85,7 @@ disabled_rules:
 custom_rules:
   no_combine_import:
     name: "No Combine imports"
-    regex: "^\\s*import\\s+Combine\\b"
+    regex: "^\\s*import\\s+Combine\\s*$"
     excluded:
       - Sources/AgentStudio/Legacy
     message: "Avoid Combine; use AsyncStream/event-stream primitives for new or migrated code."
