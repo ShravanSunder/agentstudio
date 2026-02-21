@@ -210,8 +210,3 @@ extension MainWindowController: NSToolbarDelegate {
 }
 
 // MARK: - Toolbar Item Identifiers
-
-extension NSToolbarItem.Identifier {
-    static let editMode = NSToolbarItem.Identifier("editMode")
-    static let addRepo = NSToolbarItem.Identifier("addRepo")
-}

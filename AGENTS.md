@@ -25,7 +25,6 @@ agent-studio/
 │   │   ├── Views/                    # Tab bar, splits, drawer, arrangement
 │   │   │   ├── Splits/              # SplitTree, SplitView, TerminalPaneLeaf
 │   │   │   └── Drawer/             # DrawerLayout, DrawerPanel, DrawerIconBar
-│   │   └── NotificationNames.swift
 │   ├── Features/
 │   │   ├── Terminal/                 # Everything Ghostty-specific
 │   │   │   ├── Ghostty/              # C API bridge, SurfaceManager, SurfaceTypes
@@ -40,7 +39,8 @@ agent-studio/
 │   │   └── Sidebar/                  # Sidebar filter (future: repo list, worktree tree)
 │   └── Infrastructure/               # Domain-agnostic utilities
 │       ├── StateMachine/            # Generic state machine
-│       └── Diagnostics/             # RestoreTrace
+│       ├── Diagnostics/             # RestoreTrace
+│       └── Extensions/              # Foundation/AppKit/UTType helper extensions
 ├── Frameworks/                       # Generated: GhosttyKit.xcframework (not in git)
 ├── vendor/ghostty/                   # Git submodule: Ghostty source
 ├── scripts/                          # Icon generation
@@ -105,7 +105,7 @@ Build orchestration uses [mise](https://mise.jdx.dev/). Install with `brew insta
 mise install                  # Install pinned tool versions (zig 0.15.2)
 mise run build                # Full debug build (ghostty + zmx + dev resources + swift)
 mise run build-release        # Full release build
-mise run test                 # Run tests
+mise run test                 # Run tests (Swift 6 `Testing`)
 mise run create-app-bundle    # Create signed AgentStudio.app
 mise run clean                # Remove all build artifacts
 ```
@@ -115,6 +115,15 @@ Individual steps:
 - `mise run build-zmx` — Build zmx binary only
 - `mise run setup-dev-resources` — Copy shell-integration + terminfo for SPM
 - `mise run copy-xcframework` — Copy xcframework to Frameworks/
+
+## Testing Standard
+
+This worktree is SwiftPM-first and Swift 6 `Testing` only:
+
+- Use `import Testing` with `@Suite`, `@Test`, and `#expect`.
+- Do not adopt XCTest-style APIs (`XCTestCase`, `XCTAssert*`, `setUp`/`tearDown`).
+- Do not use legacy XCTest-style or Xcode UI test scaffolding.
+- Prefer `mise run test` and SwiftPM-native test execution.
 
 ### Formatting & Linting
 
@@ -244,7 +253,7 @@ A ticket has: a title, a rough scope description, links to the architecture doc 
 
 Agent Studio's state architecture draws from two JavaScript patterns adapted for Swift's type system and concurrency model. These are the governing principles for **all new code** and the target for incremental refactoring of existing code.
 
-> **Implementation status:** These patterns are the TARGET architecture in this worktree: `PaneCoordinator` is the canonical cross-feature coordinator (consolidated action dispatch + surface orchestration), domain state lives in `@Observable` stores, and ownership is surfaced with `private(set)` where state is mutable. Existing `ObservableObject`/`@Published` and Combine/NotificationCenter usage is migration debt to be removed as files are touched.
+> **Implementation status:** These patterns are the TARGET architecture in this worktree: `PaneCoordinator` is the canonical cross-feature coordinator (consolidated action dispatch + surface orchestration), and domain state is owned by `@Observable` stores with `private(set)` where state is mutable.
 
 ### Valtio-style: `private(set)` for Unidirectional Flow
 
@@ -317,7 +326,7 @@ This extends to future pane types: `GhosttyBridge`, `WebViewBridge`, `CodeViewer
 
 ### Event Transport: AsyncStream
 
-All new event plumbing uses `AsyncStream` + `swift-async-algorithms`. No new Combine subscriptions. No new NotificationCenter observers. Existing Combine/NotificationCenter usage is migrated incrementally.
+All new event plumbing uses `AsyncStream` + `swift-async-algorithms`. No new Combine subscriptions. No new NotificationCenter observers. Keep new code on AsyncStream/event-stream primitives and avoid adding new Combine/NotificationCenter usage.
 
 ```swift
 @MainActor

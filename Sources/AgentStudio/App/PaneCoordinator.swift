@@ -970,7 +970,7 @@ final class PaneCoordinator {
                 return view
             } else {
                 paneCoordinatorLogger.warning(
-                    "Undo surface metadata mismatch: expected pane \(pane.id), got \(undone.metadata.paneId?.uuidString ?? \"nil\") — creating fresh"
+                    "Undo surface metadata mismatch: expected pane \(pane.id), got \(undone.metadata.paneId?.uuidString ?? "nil") — creating fresh"
                 )
                 SurfaceManager.shared.destroy(undone.id)
             }
@@ -987,7 +987,7 @@ final class PaneCoordinator {
     func restoreAllViews() {
         let paneIds = store.tabs.flatMap(\.panes)
         RestoreTrace.log(
-            "restoreAllViews begin tabs=\(store.tabs.count) paneIds=\(paneIds.count) activeTab=\(store.activeTabId?.uuidString ?? \"nil\")"
+            "restoreAllViews begin tabs=\(store.tabs.count) paneIds=\(paneIds.count) activeTab=\(store.activeTabId?.uuidString ?? "nil")"
         )
         guard !paneIds.isEmpty else {
             paneCoordinatorLogger.info("No panes to restore views for")
@@ -1026,7 +1026,7 @@ final class PaneCoordinator {
         {
             SurfaceManager.shared.syncFocus(activeSurfaceId: terminalView.surfaceId)
             RestoreTrace.log(
-                "restoreAllViews syncFocus activeTab=\(activeTab.id) activePane=\(activePaneId) activeSurface=\(terminalView.surfaceId?.uuidString ?? \"nil\")"
+                "restoreAllViews syncFocus activeTab=\(activeTab.id) activePane=\(activePaneId) activeSurface=\(terminalView.surfaceId?.uuidString ?? "nil")"
             )
         }
         RestoreTrace.log("restoreAllViews end restored=\(restored) drawerRestored=\(drawerRestored)")

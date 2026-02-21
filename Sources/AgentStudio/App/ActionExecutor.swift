@@ -3,8 +3,7 @@ import Foundation
 
 /// Executes validated PaneActions by delegating to `PaneCoordinator`.
 /// This class remains the app-facing entry point and preserves historical action
-/// API semantics while orchestration now lives in the new `PaneCoordinator` primary
-/// owner.
+/// API semantics while orchestration now lives in `PaneCoordinator`.
 @MainActor
 final class ActionExecutor {
     typealias SwitchArrangementTransitions = PaneCoordinator.SwitchArrangementTransitions
@@ -13,10 +12,6 @@ final class ActionExecutor {
 
     init(store: WorkspaceStore, viewRegistry: ViewRegistry, coordinator: PaneCoordinator) {
         self.coordinator = coordinator
-    }
-
-    init(store: WorkspaceStore, viewRegistry: ViewRegistry, coordinator: TerminalViewCoordinator) {
-        self.coordinator = coordinator.paneCoordinator
     }
 
     static func computeSwitchArrangementTransitions(

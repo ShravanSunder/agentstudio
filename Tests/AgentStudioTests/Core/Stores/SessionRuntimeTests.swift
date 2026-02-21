@@ -1,4 +1,5 @@
 import Foundation
+import Observation
 import Testing
 
 @testable import AgentStudio
@@ -6,19 +7,38 @@ import Testing
 @Suite(.serialized)
 @MainActor
 final class SessionRuntimeTests {
+    private func makeRuntime(
+        store: WorkspaceStore? = nil,
+        healthCheckInterval: TimeInterval = 1
+    ) -> SessionRuntime {
+        SessionRuntime(store: store, healthCheckInterval: healthCheckInterval)
+    }
 
-    private var runtime: SessionRuntime!
-
-    @BeforeEach
-    func setUp() {
-        runtime = SessionRuntime(healthCheckInterval: 1)
+    private final class ObservationFlag: @unchecked Sendable {
+        var fired = false
     }
 
     // MARK: - Status Queries
 
     @Test
+    func test_sessionRuntime_statusUpdatesAreObservedThroughObservable() {
+        let runtime = makeRuntime()
+        let flag = ObservationFlag()
+        withObservationTracking {
+            _ = runtime.statuses
+        } onChange: {
+            flag.fired = true
+        }
+
+        let id = UUID()
+        runtime.markRunning(id)
+        #expect(flag.fired)
+    }
+
+    @Test
 
     func test_status_unknownPane_returnsInitializing() {
+        let runtime = makeRuntime()
         let status = runtime.status(for: UUID())
         #expect(status == .initializing)
     }
@@ -26,6 +46,7 @@ final class SessionRuntimeTests {
     @Test
 
     func test_status_afterInitialize_returnsInitializing() {
+        let runtime = makeRuntime()
         let id = UUID()
         runtime.initializeSession(id)
         let status = runtime.status(for: id)
@@ -35,6 +56,7 @@ final class SessionRuntimeTests {
     @Test
 
     func test_status_afterMarkRunning_returnsRunning() {
+        let runtime = makeRuntime()
         let id = UUID()
         runtime.initializeSession(id)
         runtime.markRunning(id)
@@ -45,6 +67,7 @@ final class SessionRuntimeTests {
     @Test
 
     func test_status_afterMarkExited_returnsExited() {
+        let runtime = makeRuntime()
         let id = UUID()
         runtime.markRunning(id)
         runtime.markExited(id)
@@ -55,6 +78,7 @@ final class SessionRuntimeTests {
     @Test
 
     func test_removeSession_clearsStatus() {
+        let runtime = makeRuntime()
         let id = UUID()
         runtime.markRunning(id)
         runtime.removeSession(id)
@@ -69,6 +93,7 @@ final class SessionRuntimeTests {
     @Test
 
     func test_runningCount_reflectsState() {
+        let runtime = makeRuntime()
         let ids = (0..<5).map { _ in UUID() }
         for id in ids { runtime.markRunning(id) }
         runtime.markExited(ids[0])
@@ -81,6 +106,7 @@ final class SessionRuntimeTests {
     @Test
 
     func test_panesWithStatus_filtersCorrectly() {
+        let runtime = makeRuntime()
         let runningId = UUID()
         let exitedId = UUID()
         let initId = UUID()
@@ -109,7 +135,7 @@ final class SessionRuntimeTests {
         let persistor = WorkspacePersistor(workspacesDir: tempDir)
         let store = WorkspaceStore(persistor: persistor)
         store.restore()
-        let runtime = SessionRuntime(store: store)
+        let runtime = makeRuntime(store: store)
 
         let pane = store.createPane(
             source: .floating(workingDirectory: nil, title: nil)
@@ -132,7 +158,7 @@ final class SessionRuntimeTests {
         let persistor = WorkspacePersistor(workspacesDir: tempDir)
         let store = WorkspaceStore(persistor: persistor)
         store.restore()
-        let runtime = SessionRuntime(store: store)
+        let runtime = makeRuntime(store: store)
 
         let staleId = UUID()
         runtime.markRunning(staleId)
@@ -150,6 +176,7 @@ final class SessionRuntimeTests {
     @Test
 
     func test_registerBackend_storesCorrectly() async throws {
+        let runtime = makeRuntime()
         let backend = MockSessionRuntimeBackend(provider: .zmx)
         runtime.registerBackend(backend)
         let pane = makePane(
@@ -168,6 +195,7 @@ final class SessionRuntimeTests {
     @Test
 
     func test_startSession_withoutBackend_marksRunning() async throws {
+        let runtime = makeRuntime()
         let pane = makePane(
             source: .floating(workingDirectory: nil, title: nil),
             provider: .ghostty
@@ -183,6 +211,7 @@ final class SessionRuntimeTests {
     @Test
 
     func test_startSession_withBackend_callsStart() async throws {
+        let runtime = makeRuntime()
         let backend = MockSessionRuntimeBackend(provider: .zmx)
         runtime.registerBackend(backend)
 
@@ -202,6 +231,7 @@ final class SessionRuntimeTests {
     @Test
 
     func test_restoreSession_withoutBackend_marksRunning() async {
+        let runtime = makeRuntime()
         let pane = makePane(
             source: .floating(workingDirectory: nil, title: nil),
             provider: .ghostty
@@ -217,6 +247,7 @@ final class SessionRuntimeTests {
     @Test
 
     func test_restoreSession_withBackend_success() async {
+        let runtime = makeRuntime()
         let backend = MockSessionRuntimeBackend(provider: .zmx)
         backend.restoreResult = true
         runtime.registerBackend(backend)
@@ -236,6 +267,7 @@ final class SessionRuntimeTests {
     @Test
 
     func test_restoreSession_withBackend_failure() async {
+        let runtime = makeRuntime()
         let backend = MockSessionRuntimeBackend(provider: .zmx)
         backend.restoreResult = false
         runtime.registerBackend(backend)
@@ -255,6 +287,7 @@ final class SessionRuntimeTests {
     @Test
 
     func test_terminateSession_withBackend_marksExited() async {
+        let runtime = makeRuntime()
         let backend = MockSessionRuntimeBackend(provider: .zmx)
         runtime.registerBackend(backend)
 
@@ -274,6 +307,7 @@ final class SessionRuntimeTests {
     @Test
 
     func test_terminateSession_withoutBackend_marksExited() async {
+        let runtime = makeRuntime()
         let pane = makePane(
             source: .floating(workingDirectory: nil, title: nil),
             provider: .ghostty

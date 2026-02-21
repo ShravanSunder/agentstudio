@@ -1,4 +1,5 @@
 import Foundation
+import Observation
 import os.log
 
 private let runtimeLogger = Logger(subsystem: "com.agentstudio", category: "SessionRuntime")
@@ -42,11 +43,12 @@ protocol SessionBackendProtocol: Sendable {
 
 /// Manages live session state. Reads pane list from WorkspaceStore (doesn't own it).
 /// Tracks runtime status per pane, schedules health checks, coordinates backends.
+@Observable
 @MainActor
-final class SessionRuntime: ObservableObject {
+final class SessionRuntime {
 
     /// Runtime status for each pane.
-    @Published private(set) var statuses: [UUID: SessionRuntimeStatus] = [:]
+    private(set) var statuses: [UUID: SessionRuntimeStatus] = [:]
 
     /// Registered backends by provider type.
     private var backends: [SessionProvider: any SessionBackendProtocol] = [:]
@@ -69,7 +71,9 @@ final class SessionRuntime: ObservableObject {
     }
 
     deinit {
-        healthCheckTask?.cancel()
+        MainActor.assumeIsolated {
+            healthCheckTask?.cancel()
+        }
     }
 
     // MARK: - Backend Registration

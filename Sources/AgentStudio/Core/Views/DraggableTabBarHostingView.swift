@@ -3,19 +3,6 @@ import Combine
 import SwiftUI
 import UniformTypeIdentifiers
 
-// MARK: - Pasteboard Type
-
-extension NSPasteboard.PasteboardType {
-    // Internal tab reordering within tab bar
-    static let agentStudioTabInternal = NSPasteboard.PasteboardType("com.agentstudio.tab.internal")
-
-    // For SwiftUI drop compatibility (matches UTType.agentStudioTab)
-    static let agentStudioTabDrop = NSPasteboard.PasteboardType(UTType.agentStudioTab.identifier)
-
-    // For pane drag-to-tab-bar (extract pane to new tab)
-    static let agentStudioPaneDrop = NSPasteboard.PasteboardType(UTType.agentStudioPane.identifier)
-}
-
 // MARK: - Draggable Tab Bar Container
 
 /// Container view that wraps NSHostingView and handles drag-to-reorder for tabs.
