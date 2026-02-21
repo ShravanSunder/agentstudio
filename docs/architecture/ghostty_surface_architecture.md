@@ -2,7 +2,7 @@
 
 ## TL;DR
 
-Agent Studio embeds Ghostty terminal surfaces via libghostty. `SurfaceManager` (singleton) **owns** all surfaces. `AgentStudioTerminalView` only **displays** them. `TerminalViewCoordinator` is the sole intermediary — views and the model layer never call `SurfaceManager` directly. Surfaces live in exactly one of three collections (active, hidden, undoStack), with dual-layer health monitoring and crash isolation per terminal.
+Agent Studio embeds Ghostty terminal surfaces via libghostty. `SurfaceManager` (singleton) **owns** all surfaces. `AgentStudioTerminalView` only **displays** them. `PaneCoordinator` is the sole intermediary — views and the model layer never call `SurfaceManager` directly. Surfaces live in exactly one of three collections (active, hidden, undoStack), with dual-layer health monitoring and crash isolation per terminal.
 
 ---
 
@@ -11,7 +11,7 @@ Agent Studio embeds Ghostty terminal surfaces via libghostty. `SurfaceManager` (
 The key architectural decision is **separation of ownership from display**:
 - `SurfaceManager` **owns** all surfaces (creation, lifecycle, destruction)
 - `AgentStudioTerminalView` containers only **display** surfaces
-- `TerminalViewCoordinator` is the sole intermediary for surface/runtime lifecycle
+- `PaneCoordinator` is the sole intermediary for surface/runtime lifecycle
 
 ```
 ┌─────────────────────────────────────────────────────────────────────┐
@@ -31,7 +31,7 @@ The key architectural decision is **separation of ownership from display**:
                               │
                     attach() / detach()
                               │
-                    (via TerminalViewCoordinator)
+                    (via PaneCoordinator)
                               │
                               ▼
 ┌─────────────────────────────────────────────────────────────────────┐
@@ -77,14 +77,14 @@ stateDiagram-v2
 
 ## Tab Close → Undo Flow
 
-The close/undo flow is coordinated through `ActionExecutor` → `TerminalViewCoordinator` → `SurfaceManager`. Views never call `SurfaceManager` directly.
+The close/undo flow is coordinated through `PaneCoordinator` → `SurfaceManager`. Views never call `SurfaceManager` directly.
 
 ```
 User closes tab
        │
        ▼
 ┌──────────────────────────────────────────────────────────────┐
-│ ActionExecutor.executeCloseTab(tabId)                        │
+│ PaneCoordinator.executeCloseTab(tabId)                        │
 │   ├─► store.snapshotForClose() → CloseSnapshot               │
 │   ├─► Push to undo stack (max 10 entries)                    │
 │   │                                                          │
@@ -105,7 +105,7 @@ User presses Cmd+Shift+T
        │
        ▼
 ┌──────────────────────────────────────────────────────────────┐
-│ ActionExecutor.undoCloseTab()                                │
+│ PaneCoordinator.undoCloseTab()                                │
 │   ├─► Pop CloseSnapshot from undo stack                      │
 │   ├─► store.restoreFromSnapshot() → re-insert tab            │
 │   │                                                          │
@@ -151,7 +151,7 @@ Terminal shell (cd /foo)
     │ SurfaceMetadata.workingDirectory = url
     │ post .surfaceCWDChanged (surfaceId + URL)
     ▼
-④ TerminalViewCoordinator                   [TerminalViewCoordinator.swift]
+④ PaneCoordinator                          [PaneCoordinator.swift]
     │ surfaceId → sessionId (via metadata.sessionId)
     │ store.updateSessionCWD(sessionId, url)
     ▼

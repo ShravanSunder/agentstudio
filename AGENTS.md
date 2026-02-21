@@ -17,8 +17,7 @@ agent-studio/
 │   │   ├── Panes/                    # Pane tab management and NSView registry
 │   │   │   ├── PaneTabViewController.swift
 │   │   │   └── ViewRegistry.swift
-│   │   ├── ActionExecutor.swift
-│   │   └── TerminalViewCoordinator.swift  # Future: PaneCoordinator
+│   │   └── PaneCoordinator.swift         # Cross-feature sequencing and orchestration
 │   ├── Core/                         # Shared domain — models, stores, pane system
 │   │   ├── Models/                   # Layout, Tab, Pane, PaneView, SessionStatus
 │   │   ├── Stores/                   # WorkspaceStore, SessionRuntime, WorkspacePersistor
@@ -67,8 +66,7 @@ Where each key component lives and why — use this to decide where new files go
 | `AppDelegate` | `App/` | App lifecycle, restore, zmx cleanup | App lifecycle |
 | `MainSplitViewController` | `App/` | Top-level sidebar/content split | App layout |
 | `MainWindowController` | `App/` | Window creation, toolbar, state restore | Window management |
-| `ActionExecutor` | `App/` | Dispatches PaneActions to stores | Cross-store sequencing |
-| `TerminalViewCoordinator` | `App/` | Manages Ghostty surface lifecycle (future: `PaneCoordinator`) | Cross-feature sequencing |
+| `PaneCoordinator` | `App/` | Dispatches PaneActions to stores and manages model↔view↔surface orchestration | Cross-store sequencing |
 | `WorkspaceStore` | `Core/Stores/` | Tabs, layouts, views, pane metadata | Workspace structure |
 | `SessionRuntime` | `Core/Stores/` | Session status, health checks, zmx backend | Session backends |
 | `WorkspacePersistor` | `Core/Stores/` | Disk persistence for workspace state | Persistence format |
@@ -246,7 +244,7 @@ A ticket has: a title, a rough scope description, links to the architecture doc 
 
 Agent Studio's state architecture draws from two JavaScript patterns adapted for Swift's type system and concurrency model. These are the governing principles for **all new code** and the target for incremental refactoring of existing code.
 
-> **Implementation status:** These patterns are the TARGET architecture being implemented via LUNA-325 (bridge + surface state + runtime refactor), LUNA-326 (native scrollbar), and LUNA-327 (state ownership + @Observable migration + coordinator). The current codebase still uses `ActionExecutor` + `TerminalViewCoordinator` (two separate classes) which will be refactored into `PaneCoordinator`. Existing `ObservableObject`/`@Published` will migrate to `@Observable`/`private(set)`. Existing Combine/NotificationCenter will migrate to AsyncStream. **For new code, follow these patterns. For existing code, refactor incrementally when touching those files.**
+> **Implementation status:** These patterns are the TARGET architecture in this worktree: `PaneCoordinator` is the canonical cross-feature coordinator (consolidated action dispatch + surface orchestration), domain state lives in `@Observable` stores, and ownership is surfaced with `private(set)` where state is mutable. Existing `ObservableObject`/`@Published` and Combine/NotificationCenter usage is migration debt to be removed as files are touched.
 
 ### Valtio-style: `private(set)` for Unidirectional Flow
 

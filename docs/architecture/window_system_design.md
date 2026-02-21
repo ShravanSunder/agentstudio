@@ -99,7 +99,7 @@ Dynamic Views (computed, ephemeral — generates tabs)
 | `NSHostingView` / `NSHostingController` bridge | Pane overlay controls, drawer UI |
 | Surface management (Ghostty `NSView`) | All visual content and animations |
 
-One command system, multiple trigger surfaces. Every operation dispatches `PaneAction` through `ActionExecutor`. All UI surfaces are entry points to the same pipeline.
+One command system, multiple trigger surfaces. Every operation dispatches `PaneAction` through `PaneCoordinator`. All UI surfaces are entry points to the same pipeline.
 
 ---
 
@@ -533,7 +533,7 @@ The central interaction point for all window system operations. All actions rout
 
 ### Definition
 
-Multiple UI surfaces that trigger operations through the same `PaneAction` → `ActionExecutor` pipeline. Every control dispatches typed actions — the UI is just a trigger surface.
+Multiple UI surfaces that trigger operations through the same `PaneAction` → `PaneCoordinator` pipeline. Every control dispatches typed actions — the UI is just a trigger surface.
 
 ### Trigger Surface Matrix
 
@@ -976,4 +976,3 @@ stateDiagram-v2
     DV_R --> DV_C: Switch view type
     DV_C --> DV_R: Switch view type
 ```
-

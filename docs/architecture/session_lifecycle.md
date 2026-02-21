@@ -2,7 +2,7 @@
 
 ## TL;DR
 
-A terminal session's identity (`UUID`) is stable across its entire lifecycle — creation, layout changes, view switches, close/undo, persistence, and restore. `WorkspaceStore` owns session records. `SessionRuntime` tracks runtime health. `TerminalViewCoordinator` bridges sessions to surfaces. Sessions survive layout removal (they persist in `store.sessions`) and can be undone via a `CloseSnapshot` stack. The zmx backend provides persistence across app restarts.
+A terminal session's identity (`UUID`) is stable across its entire lifecycle — creation, layout changes, view switches, close/undo, persistence, and restore. `WorkspaceStore` owns session records. `SessionRuntime` tracks runtime health. `PaneCoordinator` bridges sessions to surfaces. Sessions survive layout removal (they persist in `store.sessions`) and can be undone via a `CloseSnapshot` stack. The zmx backend provides persistence across app restarts.
 
 ---
 
@@ -81,9 +81,9 @@ stateDiagram-v2
 ```mermaid
 sequenceDiagram
     participant User
-    participant AE as ActionExecutor
+    participant AE as PaneCoordinator
     participant Store as WorkspaceStore
-    participant Coord as TerminalViewCoordinator
+    participant Coord as PaneCoordinator
     participant SM as SurfaceManager
     participant VR as ViewRegistry
     participant RT as SessionRuntime
@@ -119,7 +119,7 @@ sequenceDiagram
 
 ### Close Tab
 
-1. `ActionExecutor.executeCloseTab(tabId)`:
+1. `PaneCoordinator.executeCloseTab(tabId)`:
    - `store.snapshotForClose(tabId)` → `CloseSnapshot` (tab, sessions, viewId, tabIndex)
    - Push to `undoStack` (LIFO, max 10 entries)
    - For each session in the tab: `coordinator.teardownView(sessionId)`
@@ -130,7 +130,7 @@ sequenceDiagram
 
 ### Undo Close Tab (`Cmd+Shift+T`)
 
-2. `ActionExecutor.undoCloseTab()`:
+2. `PaneCoordinator.undoCloseTab()`:
    - Pop `CloseSnapshot` from undo stack
    - `store.restoreFromSnapshot(snapshot)` — re-insert tab at original position
    - For each session in **reversed** order (matching SurfaceManager LIFO):
@@ -155,7 +155,7 @@ sequenceDiagram
     participant AD as AppDelegate
     participant Store as WorkspaceStore
     participant P as WorkspacePersistor
-    participant Coord as TerminalViewCoordinator
+    participant Coord as PaneCoordinator
 
     AD->>Store: restore()
     Store->>P: load()
@@ -310,8 +310,7 @@ stateDiagram-v2
 | `Services/WorkspaceStore.swift` | Atomic store — workspace structure (sessions, views, tabs, layouts, persistence) |
 | `Services/WorkspacePersistor.swift` | JSON serialization/deserialization |
 | `Services/SessionRuntime.swift` | Runtime health monitoring and status tracking |
-| `App/ActionExecutor.swift` | Dispatches actions (open, close, split, undo, etc.) |
-| `App/TerminalViewCoordinator.swift` | Creates/restores views, sole intermediary for surface lifecycle |
+| `App/PaneCoordinator.swift` | Dispatches actions (open, close, split, undo, etc.) and is the sole intermediary for view/surface orchestration |
 | `Models/TerminalSession.swift` | Session identity with source, provider, lifetime, residency |
 | `Models/SessionLifetime.swift` | `.persistent` / `.temporary` enum |
 | `Models/SessionResidency.swift` | `.active` / `.pendingUndo` / `.backgrounded` enum |
