@@ -207,7 +207,7 @@ final class ObservableStoreTests {
     /// Verifies TabBarAdapter's withObservationTracking bridge automatically
     /// refreshes when the store changes, without manual objectWillChange.send().
     @Test
-    func test_tabBarAdapter_bridgeAutoRefreshes_onStoreTabChange() {
+    func test_tabBarAdapter_bridgeAutoRefreshes_onStoreTabChange() async {
         // Arrange
         let adapter = TabBarAdapter(store: store)
         #expect(adapter.tabs.isEmpty)
@@ -221,18 +221,22 @@ final class ObservableStoreTests {
         // Act — mutate store directly (no manual objectWillChange.send())
         store.appendTab(tab)
 
-        // Wait for async bridge (Task { @MainActor } fires next runloop)
-        Thread.sleep(forTimeInterval: 0.15)
+        // Wait for async bridge (Task { @MainActor } fires on next runloop)
+        await awaitTaskBoundary()
 
         // Assert — adapter derived state updated
         #expect(adapter.tabs.count == 1, "TabBarAdapter must auto-refresh via observation bridge")
-        #expect(adapter.tabs[0].title == "AutoRefresh")
+        if let firstTab = adapter.tabs.first {
+            #expect(firstTab.title == "AutoRefresh")
+        } else {
+            #expect(Bool(false), "Expected derived tab to exist")
+        }
         #expect(adapter.activeTabId == tab.id)
     }
 
     @Test
 
-    func test_tabBarAdapter_bridgeAutoRefreshes_onDrawerChange() {
+    func test_tabBarAdapter_bridgeAutoRefreshes_onDrawerChange() async {
         // Arrange
         let adapter = TabBarAdapter(store: store)
         let pane = store.createPane(
@@ -243,14 +247,14 @@ final class ObservableStoreTests {
         store.appendTab(tab)
 
         // Wait for initial sync
-        Thread.sleep(forTimeInterval: 0.15)
+        await awaitTaskBoundary()
         #expect(adapter.tabs.count == 1)
 
         // Act — add drawer (struct-in-dictionary mutation)
         _ = store.addDrawerPane(to: pane.id)
 
         // Wait for bridge
-        Thread.sleep(forTimeInterval: 0.15)
+        await awaitTaskBoundary()
 
         // Assert — panes mutation triggered re-derive
         #expect(adapter.tabs.count == 1, "Adapter should still have 1 tab after drawer change")
@@ -260,6 +264,7 @@ final class ObservableStoreTests {
 
     /// Tests the exact data path ActiveTabContent.body uses:
     /// store.activeTabId → store.tab(id) → tab properties.
+
     @Test
     func test_activeTabContent_dataPath_resolvesCorrectly() {
         // Arrange
@@ -387,5 +392,11 @@ final class ObservableStoreTests {
         // Assert
         #expect(flag.fired)
         #expect(store.tab(tab.id)?.zoomedPaneId == p1.id)
+    }
+
+    func awaitTaskBoundary() async {
+        await Task.yield()
+        try? await Task.sleep(for: .milliseconds(10))
+        await Task.yield()
     }
 }

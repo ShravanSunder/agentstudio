@@ -26,7 +26,7 @@ struct WebviewPaneControllerTests {
 
         // Assert
         #expect(controller.showNavigation)
-        #expect(controller.page != nil)
+        #expect(controller.url != nil)
     }
 
     @Test
@@ -65,7 +65,7 @@ struct WebviewPaneControllerTests {
 
         // Assert
         #expect(snapshot.showNavigation)
-        #expect(snapshot.url != nil)
+        #expect(snapshot.url.host() == "example.com")
     }
 
     @Test

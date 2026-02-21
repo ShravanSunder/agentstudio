@@ -40,7 +40,7 @@ final class TabBarAdapterTests {
 
     @Test
 
-    func test_singleTab_derivesTabBarItem() {
+    func test_singleTab_derivesTabBarItem() async {
         // Arrange
         let pane = store.createPane(
             source: .floating(workingDirectory: nil, title: "MyTerminal"),
@@ -50,10 +50,7 @@ final class TabBarAdapterTests {
         store.appendTab(tab)
 
         // Act — wait for the async observation pipeline to process
-        let updateDeadline = Date().addingTimeInterval(1.0)
-        while adapter.tabs.count != 1 && Date() < updateDeadline {
-            RunLoop.main.run(until: Date().addingTimeInterval(0.01))
-        }
+        await waitForAdapterRefresh()
 
         // Assert
         #expect(adapter.tabs.count == 1)
@@ -63,14 +60,14 @@ final class TabBarAdapterTests {
             #expect(derivedTab.displayTitle == "MyTerminal")
             #expect(!(derivedTab.isSplit))
         } else {
-            #expect(false)
+            #expect(Bool(false), "Expected derived tab to exist")
         }
         #expect(adapter.activeTabId == tab.id)
     }
 
     @Test
 
-    func test_splitTab_showsJoinedTitle() {
+    func test_splitTab_showsJoinedTitle() async {
         // Arrange
         let s1 = store.createPane(
             source: .floating(workingDirectory: nil, title: "Left"),
@@ -84,7 +81,7 @@ final class TabBarAdapterTests {
         store.appendTab(tab)
 
         // Wait for async refresh
-        Thread.sleep(forTimeInterval: 0.1)
+        await waitForAdapterRefresh()
 
         // Assert
         #expect(adapter.tabs.count == 1)
@@ -93,13 +90,13 @@ final class TabBarAdapterTests {
             #expect(derivedTab.displayTitle == "Left | Right")
             #expect(derivedTab.title == "Left")
         } else {
-            #expect(false)
+            #expect(Bool(false), "Expected derived tab to exist")
         }
     }
 
     @Test
 
-    func test_multipleTabs_derivesAll() {
+    func test_multipleTabs_derivesAll() async {
         // Arrange
         let s1 = store.createPane(
             source: .floating(workingDirectory: nil, title: "Tab1"),
@@ -115,7 +112,7 @@ final class TabBarAdapterTests {
         store.appendTab(tab2)
 
         // Wait for async refresh
-        Thread.sleep(forTimeInterval: 0.1)
+        await waitForAdapterRefresh()
 
         // Assert
         #expect(adapter.tabs.count == 2)
@@ -123,13 +120,13 @@ final class TabBarAdapterTests {
             #expect(firstTab.id == tab1.id)
             #expect(secondTab.id == tab2.id)
         } else {
-            #expect(false)
+            #expect(Bool(false), "Expected two derived tabs to exist")
         }
     }
 
     @Test
 
-    func test_activeTabId_tracksStore() {
+    func test_activeTabId_tracksStore() async {
         // Arrange
         let s1 = store.createPane(source: .floating(workingDirectory: nil, title: nil))
         let s2 = store.createPane(source: .floating(workingDirectory: nil, title: nil))
@@ -140,7 +137,7 @@ final class TabBarAdapterTests {
         store.setActiveTab(tab1.id)
 
         // Wait for async refresh
-        Thread.sleep(forTimeInterval: 0.1)
+        await waitForAdapterRefresh()
 
         // Assert
         #expect(adapter.activeTabId == tab1.id)
@@ -148,7 +145,7 @@ final class TabBarAdapterTests {
 
     @Test
 
-    func test_tabRemoved_adapterUpdates() {
+    func test_tabRemoved_adapterUpdates() async {
         // Arrange
         let s1 = store.createPane(source: .floating(workingDirectory: nil, title: nil))
         let s2 = store.createPane(source: .floating(workingDirectory: nil, title: nil))
@@ -158,27 +155,27 @@ final class TabBarAdapterTests {
         store.appendTab(tab2)
 
         // Wait for initial sync
-        Thread.sleep(forTimeInterval: 0.1)
+        await waitForAdapterRefresh()
         #expect(adapter.tabs.count == 2)
 
         // Act
         store.removeTab(tab1.id)
 
         // Wait for update
-        Thread.sleep(forTimeInterval: 0.1)
+        await waitForAdapterRefresh()
 
         // Assert
         #expect(adapter.tabs.count == 1)
         if let remainingTab = adapter.tabs[safe: 0] {
             #expect(remainingTab.id == tab2.id)
         } else {
-            #expect(false)
+            #expect(Bool(false), "Expected remaining tab to exist")
         }
     }
 
     @Test
 
-    func test_paneWithNoTitle_defaultsToTerminal() {
+    func test_paneWithNoTitle_defaultsToTerminal() async {
         // Arrange
         let pane = store.createPane(
             source: .floating(workingDirectory: nil, title: nil)
@@ -187,13 +184,13 @@ final class TabBarAdapterTests {
         store.appendTab(tab)
 
         // Wait for refresh
-        Thread.sleep(forTimeInterval: 0.1)
+        await waitForAdapterRefresh()
 
         // Assert
         if let tabItem = adapter.tabs[safe: 0] {
             #expect(tabItem.displayTitle == "Terminal")
         } else {
-            #expect(false)
+            #expect(Bool(false), "Expected derived tab to exist")
         }
     }
 
@@ -247,19 +244,19 @@ final class TabBarAdapterTests {
 
     @Test
 
-    func test_fewTabs_withinSpace_notOverflowing() {
+    func test_fewTabs_withinSpace_notOverflowing() async {
         // Arrange — 2 tabs: 2×220 + 1×4 + 16 = 460px < 600px
         for _ in 0..<2 {
             let pane = store.createPane(source: .floating(workingDirectory: nil, title: nil))
             store.appendTab(Tab(paneId: pane.id))
         }
 
-        Thread.sleep(forTimeInterval: 0.1)
+        await waitForAdapterRefresh()
 
         // Act
         adapter.availableWidth = 600
 
-        Thread.sleep(forTimeInterval: 0.1)
+        await waitForAdapterRefresh()
 
         // Assert
         #expect(adapter.tabs.count == 2)
@@ -268,19 +265,19 @@ final class TabBarAdapterTests {
 
     @Test
 
-    func test_manyTabs_exceedingSpace_overflowing() {
+    func test_manyTabs_exceedingSpace_overflowing() async {
         // Arrange — 8 tabs: 8×220 + 7×4 + 16 = 1804px > 600px
         for _ in 0..<8 {
             let pane = store.createPane(source: .floating(workingDirectory: nil, title: nil))
             store.appendTab(Tab(paneId: pane.id))
         }
 
-        Thread.sleep(forTimeInterval: 0.1)
+        await waitForAdapterRefresh()
 
         // Act
         adapter.availableWidth = 600
 
-        Thread.sleep(forTimeInterval: 0.1)
+        await waitForAdapterRefresh()
 
         // Assert
         #expect(adapter.tabs.count == 8)
@@ -302,7 +299,7 @@ final class TabBarAdapterTests {
 
     @Test
 
-    func test_viewportWidth_prefersOverAvailableWidth() {
+    func test_viewportWidth_prefersOverAvailableWidth() async {
         // Arrange — 1 tab, set both availableWidth and viewportWidth
         let pane = store.createPane(source: .floating(workingDirectory: nil, title: nil))
         store.appendTab(Tab(paneId: pane.id))
@@ -310,7 +307,7 @@ final class TabBarAdapterTests {
         adapter.viewportWidth = 600  // actual scroll viewport (smaller)
         adapter.contentWidth = 700  // content exceeds viewport but not available
 
-        Thread.sleep(forTimeInterval: 0.1)
+        await waitForAdapterRefresh()
 
         // Assert — should overflow based on viewport (700 > 600), not available (700 < 800)
         #expect(adapter.isOverflowing)
@@ -318,19 +315,19 @@ final class TabBarAdapterTests {
 
     @Test
 
-    func test_contentWidthOverflow_triggersWhenContentExceedsAvailable() {
+    func test_contentWidthOverflow_triggersWhenContentExceedsAvailable() async {
         // Arrange — 1 tab so tabs.count > 0
         let pane = store.createPane(source: .floating(workingDirectory: nil, title: nil))
         store.appendTab(Tab(paneId: pane.id))
         adapter.availableWidth = 600
 
-        Thread.sleep(forTimeInterval: 0.1)
+        await waitForAdapterRefresh()
         #expect(!(adapter.isOverflowing))
 
         // Act — set content width wider than available
         adapter.contentWidth = 700
 
-        Thread.sleep(forTimeInterval: 0.1)
+        await waitForAdapterRefresh()
 
         // Assert
         #expect(adapter.isOverflowing)
@@ -338,21 +335,21 @@ final class TabBarAdapterTests {
 
     @Test
 
-    func test_contentWidthOverflow_hysteresisPreventsOscillation() {
+    func test_contentWidthOverflow_hysteresisPreventsOscillation() async {
         // Arrange — trigger overflow via content width
         let pane = store.createPane(source: .floating(workingDirectory: nil, title: nil))
         store.appendTab(Tab(paneId: pane.id))
         adapter.availableWidth = 600
         adapter.contentWidth = 700
 
-        Thread.sleep(forTimeInterval: 0.1)
+        await waitForAdapterRefresh()
         #expect(adapter.isOverflowing)
 
         // Act — reduce content width slightly (simulates "+" button removed)
         // Still within hysteresis buffer (600 - 50 = 550, and 570 > 550)
         adapter.contentWidth = 570
 
-        Thread.sleep(forTimeInterval: 0.1)
+        await waitForAdapterRefresh()
 
         // Assert — should remain overflowing due to hysteresis
         #expect(adapter.isOverflowing)
@@ -360,20 +357,20 @@ final class TabBarAdapterTests {
 
     @Test
 
-    func test_contentWidthOverflow_turnsOffWhenWellUnderThreshold() {
+    func test_contentWidthOverflow_turnsOffWhenWellUnderThreshold() async {
         // Arrange — trigger overflow via content width
         let pane = store.createPane(source: .floating(workingDirectory: nil, title: nil))
         store.appendTab(Tab(paneId: pane.id))
         adapter.availableWidth = 600
         adapter.contentWidth = 700
 
-        Thread.sleep(forTimeInterval: 0.1)
+        await waitForAdapterRefresh()
         #expect(adapter.isOverflowing)
 
         // Act — reduce well below hysteresis threshold (600 - 50 = 550)
         adapter.contentWidth = 500
 
-        Thread.sleep(forTimeInterval: 0.1)
+        await waitForAdapterRefresh()
 
         // Assert
         #expect(!(adapter.isOverflowing))
@@ -381,7 +378,7 @@ final class TabBarAdapterTests {
 
     @Test
 
-    func test_overflowUpdates_whenTabsAddedOrRemoved() {
+    func test_overflowUpdates_whenTabsAddedOrRemoved() async {
         // Arrange — start with 4 tabs in 600px: 4×220 + 3×4 + 16 = 908px > 600px → overflow
         var panes: [Pane] = []
         for _ in 0..<4 {
@@ -391,7 +388,7 @@ final class TabBarAdapterTests {
         }
         adapter.availableWidth = 600
 
-        Thread.sleep(forTimeInterval: 0.1)
+        await waitForAdapterRefresh()
         #expect(adapter.isOverflowing)
 
         // Act — remove tabs until not overflowing: 2 tabs: 2×220 + 1×4 + 16 = 460px < 600px
@@ -400,11 +397,16 @@ final class TabBarAdapterTests {
             store.removeTab(tab.id)
         }
 
-        Thread.sleep(forTimeInterval: 0.1)
+        await waitForAdapterRefresh()
 
         // Assert
         #expect(adapter.tabs.count == 2)
         #expect(!(adapter.isOverflowing))
+    }
+    private func waitForAdapterRefresh() async {
+        await Task.yield()
+        try? await Task.sleep(for: .milliseconds(10))
+        await Task.yield()
     }
 }
 
