@@ -1,11 +1,15 @@
-import CoreGraphics
-import XCTest
+ import CoreGraphics
+import Testing
+import Foundation
 
 @testable import AgentStudio
 
-final class DropZoneTests: XCTestCase {
+@Suite(.serialized)
+final class DropZoneTests {
 
     // MARK: - Edge Proximity Detection
+
+    @Test
 
     func test_calculate_nearLeftEdge_returnsLeft() {
         // Arrange
@@ -16,8 +20,10 @@ final class DropZoneTests: XCTestCase {
         let result = DropZone.calculate(at: point, in: size)
 
         // Assert
-        XCTAssertEqual(result, .left)
+        #expect(result == .left)
     }
+
+    @Test
 
     func test_calculate_nearRightEdge_returnsRight() {
         // Arrange
@@ -28,8 +34,10 @@ final class DropZoneTests: XCTestCase {
         let result = DropZone.calculate(at: point, in: size)
 
         // Assert
-        XCTAssertEqual(result, .right)
+        #expect(result == .right)
     }
+
+    @Test
 
     func test_calculate_nearTopEdge_returnsLeftOrRight() {
         // Vertical splits disabled — top/bottom snap to left/right based on x position.
@@ -39,9 +47,11 @@ final class DropZoneTests: XCTestCase {
         let pointLeftSide = CGPoint(x: 100, y: 10)
 
         // Act & Assert
-        XCTAssertEqual(DropZone.calculate(at: pointCenter, in: size), .right)
-        XCTAssertEqual(DropZone.calculate(at: pointLeftSide, in: size), .left)
+        #expect(DropZone.calculate(at: pointCenter, in: size) == .right)
+        #expect(DropZone.calculate(at: pointLeftSide, in: size) == .left)
     }
+
+    @Test
 
     func test_calculate_nearBottomEdge_returnsLeftOrRight() {
         // Vertical splits disabled — near bottom edge snaps to left/right.
@@ -51,11 +61,13 @@ final class DropZoneTests: XCTestCase {
         let pointLeft = CGPoint(x: 100, y: 390)
 
         // Act & Assert
-        XCTAssertEqual(DropZone.calculate(at: pointRight, in: size), .right)
-        XCTAssertEqual(DropZone.calculate(at: pointLeft, in: size), .left)
+        #expect(DropZone.calculate(at: pointRight, in: size) == .right)
+        #expect(DropZone.calculate(at: pointLeft, in: size) == .left)
     }
 
     // MARK: - Tie-Breaking
+
+    @Test
 
     func test_calculate_topLeftCorner_returnsLeft() {
         // At (0, 0): distToLeft=0, distToTop=0. Left wins (checked first in if-chain).
@@ -67,8 +79,10 @@ final class DropZoneTests: XCTestCase {
         let result = DropZone.calculate(at: point, in: size)
 
         // Assert
-        XCTAssertEqual(result, .left)
+        #expect(result == .left)
     }
+
+    @Test
 
     func test_calculate_exactCenter_returnsRight() {
         // relX = 0.5, which is not < 0.5, so returns .right
@@ -80,10 +94,12 @@ final class DropZoneTests: XCTestCase {
         let result = DropZone.calculate(at: point, in: size)
 
         // Assert
-        XCTAssertEqual(result, .right)
+        #expect(result == .right)
     }
 
     // MARK: - Degenerate Sizes
+
+    @Test
 
     func test_calculate_zeroWidth_returnsRight() {
         // Arrange
@@ -94,8 +110,10 @@ final class DropZoneTests: XCTestCase {
         let result = DropZone.calculate(at: point, in: size)
 
         // Assert
-        XCTAssertEqual(result, .right)
+        #expect(result == .right)
     }
+
+    @Test
 
     func test_calculate_zeroHeight_returnsRight() {
         // Arrange
@@ -106,8 +124,10 @@ final class DropZoneTests: XCTestCase {
         let result = DropZone.calculate(at: point, in: size)
 
         // Assert
-        XCTAssertEqual(result, .right)
+        #expect(result == .right)
     }
+
+    @Test
 
     func test_calculate_negativeDimensions_returnsRight() {
         // Arrange
@@ -118,18 +138,22 @@ final class DropZoneTests: XCTestCase {
         let result = DropZone.calculate(at: point, in: size)
 
         // Assert
-        XCTAssertEqual(result, .right)
+        #expect(result == .right)
     }
 
     // MARK: - newDirection
 
+    @Test
+
     func test_newDirection_allCasesMapped() {
         // Assert
-        XCTAssertEqual(DropZone.left.newDirection, .left)
-        XCTAssertEqual(DropZone.right.newDirection, .right)
+        #expect(DropZone.left.newDirection == .left)
+        #expect(DropZone.right.newDirection == .right)
     }
 
     // MARK: - Non-Square Aspect Ratio
+
+    @Test
 
     func test_calculate_wideContainer_leftRegionLarger() {
         // In a wide container (800x200), left/right regions dominate.
@@ -142,13 +166,15 @@ final class DropZoneTests: XCTestCase {
         let result = DropZone.calculate(at: point, in: size)
 
         // Assert
-        XCTAssertEqual(result, .left)
+        #expect(result == .left)
     }
 
     // MARK: - CaseIterable
 
+    @Test
+
     func test_caseIterable_hasTwoCases() {
         // Assert
-        XCTAssertEqual(DropZone.allCases.count, 2)
+        #expect(DropZone.allCases.count == 2)
     }
 }

@@ -1,11 +1,15 @@
-import AppKit
-import XCTest
+ import AppKit
+import Testing
+import Foundation
 
 @testable import AgentStudio
 
-final class SplitTreeNavigationTests: XCTestCase {
+@Suite(.serialized)
+final class SplitTreeNavigationTests {
 
     // MARK: - Next/Previous
+
+    @Test
 
     func test_nextView_singleView_returnsSelf() {
         // Arrange
@@ -16,8 +20,10 @@ final class SplitTreeNavigationTests: XCTestCase {
         let next = tree.nextView(after: v1.id)
 
         // Assert
-        XCTAssertEqual(next?.id, v1.id)
+        #expect(next?.id == v1.id)
     }
+
+    @Test
 
     func test_nextView_twoViews_wrapsAround() throws {
         // Arrange
@@ -31,9 +37,11 @@ final class SplitTreeNavigationTests: XCTestCase {
         let next2 = tree.nextView(after: v2.id)
 
         // Assert
-        XCTAssertEqual(next1?.id, v2.id)
-        XCTAssertEqual(next2?.id, v1.id)  // wraps
+        #expect(next1?.id == v2.id)
+        #expect(next2?.id == v1.id)  // wraps
     }
+
+    @Test
 
     func test_previousView_twoViews_wrapsAround() throws {
         // Arrange
@@ -47,9 +55,11 @@ final class SplitTreeNavigationTests: XCTestCase {
         let prev2 = tree.previousView(before: v2.id)
 
         // Assert
-        XCTAssertEqual(prev1?.id, v2.id)  // wraps
-        XCTAssertEqual(prev2?.id, v1.id)
+        #expect(prev1?.id == v2.id)  // wraps
+        #expect(prev2?.id == v1.id)
     }
+
+    @Test
 
     func test_nextView_threeViews_cyclesCorrectly() throws {
         // Arrange
@@ -61,10 +71,12 @@ final class SplitTreeNavigationTests: XCTestCase {
         tree = try tree.inserting(view: v3, at: v2, direction: .right)
 
         // Act & Assert
-        XCTAssertEqual(tree.nextView(after: v1.id)?.id, v2.id)
-        XCTAssertEqual(tree.nextView(after: v2.id)?.id, v3.id)
-        XCTAssertEqual(tree.nextView(after: v3.id)?.id, v1.id)
+        #expect(tree.nextView(after: v1.id)?.id == v2.id)
+        #expect(tree.nextView(after: v2.id)?.id == v3.id)
+        #expect(tree.nextView(after: v3.id)?.id == v1.id)
     }
+
+    @Test
 
     func test_nextView_emptyTree_returnsNil() {
         // Arrange
@@ -74,8 +86,10 @@ final class SplitTreeNavigationTests: XCTestCase {
         let next = tree.nextView(after: UUID())
 
         // Assert
-        XCTAssertNil(next)
+        #expect((next) == nil)
     }
+
+    @Test
 
     func test_nextView_unknownId_returnsNil() {
         // Arrange
@@ -86,10 +100,12 @@ final class SplitTreeNavigationTests: XCTestCase {
         let next = tree.nextView(after: UUID())
 
         // Assert
-        XCTAssertNil(next)
+        #expect((next) == nil)
     }
 
     // MARK: - Directional Navigation: Horizontal
+
+    @Test
 
     func test_neighbor_horizontalSplit_leftRight() throws {
         // Arrange: A | B (horizontal split)
@@ -99,13 +115,15 @@ final class SplitTreeNavigationTests: XCTestCase {
         tree = try tree.inserting(view: v2, at: v1, direction: .right)
 
         // Act & Assert
-        XCTAssertEqual(tree.neighbor(of: v1.id, direction: .right)?.id, v2.id)
-        XCTAssertEqual(tree.neighbor(of: v2.id, direction: .left)?.id, v1.id)
-        XCTAssertNil(tree.neighbor(of: v1.id, direction: .left))
-        XCTAssertNil(tree.neighbor(of: v2.id, direction: .right))
+        #expect(tree.neighbor(of: v1.id, direction: .right)?.id == v2.id)
+        #expect(tree.neighbor(of: v2.id, direction: .left)?.id == v1.id)
+        #expect((tree.neighbor(of: v1.id, direction: .left)) == nil)
+        #expect((tree.neighbor(of: v2.id, direction: .right)) == nil)
     }
 
     // MARK: - Directional Navigation: Vertical
+
+    @Test
 
     func test_neighbor_verticalSplit_upDown() throws {
         // Arrange: A / B (vertical split, A on top)
@@ -115,13 +133,15 @@ final class SplitTreeNavigationTests: XCTestCase {
         tree = try tree.inserting(view: v2, at: v1, direction: .down)
 
         // Act & Assert
-        XCTAssertEqual(tree.neighbor(of: v1.id, direction: .down)?.id, v2.id)
-        XCTAssertEqual(tree.neighbor(of: v2.id, direction: .up)?.id, v1.id)
-        XCTAssertNil(tree.neighbor(of: v1.id, direction: .up))
-        XCTAssertNil(tree.neighbor(of: v2.id, direction: .down))
+        #expect(tree.neighbor(of: v1.id, direction: .down)?.id == v2.id)
+        #expect(tree.neighbor(of: v2.id, direction: .up)?.id == v1.id)
+        #expect((tree.neighbor(of: v1.id, direction: .up)) == nil)
+        #expect((tree.neighbor(of: v2.id, direction: .down)) == nil)
     }
 
     // MARK: - Directional Navigation: Cross-axis
+
+    @Test
 
     func test_neighbor_horizontalSplit_upDown_returnsNil() throws {
         // Arrange: A | B (horizontal split)
@@ -131,13 +151,15 @@ final class SplitTreeNavigationTests: XCTestCase {
         tree = try tree.inserting(view: v2, at: v1, direction: .right)
 
         // Act & Assert — no up/down neighbors in horizontal split
-        XCTAssertNil(tree.neighbor(of: v1.id, direction: .up))
-        XCTAssertNil(tree.neighbor(of: v1.id, direction: .down))
-        XCTAssertNil(tree.neighbor(of: v2.id, direction: .up))
-        XCTAssertNil(tree.neighbor(of: v2.id, direction: .down))
+        #expect((tree.neighbor(of: v1.id, direction: .up)) == nil)
+        #expect((tree.neighbor(of: v1.id, direction: .down)) == nil)
+        #expect((tree.neighbor(of: v2.id, direction: .up)) == nil)
+        #expect((tree.neighbor(of: v2.id, direction: .down)) == nil)
     }
 
     // MARK: - Directional Navigation: Nested Splits
+
+    @Test
 
     func test_neighbor_nestedSplit_findsAcrossLevels() throws {
         // Arrange: (A | B) / C — A and B side by side on top, C on bottom
@@ -150,14 +172,16 @@ final class SplitTreeNavigationTests: XCTestCase {
         tree = try tree.inserting(view: v3, at: v1, direction: .down)
 
         // A is above C in the nested structure
-        XCTAssertEqual(tree.neighbor(of: v1.id, direction: .down)?.id, v3.id)
-        XCTAssertEqual(tree.neighbor(of: v3.id, direction: .up)?.id, v1.id)
+        #expect(tree.neighbor(of: v1.id, direction: .down)?.id == v3.id)
+        #expect(tree.neighbor(of: v3.id, direction: .up)?.id == v1.id)
 
         // A and B are still horizontal neighbors
-        XCTAssertEqual(tree.neighbor(of: v1.id, direction: .right)?.id, v2.id)
+        #expect(tree.neighbor(of: v1.id, direction: .right)?.id == v2.id)
     }
 
     // MARK: - Edge Cases
+
+    @Test
 
     func test_neighbor_singleView_returnsNil() {
         // Arrange
@@ -165,19 +189,23 @@ final class SplitTreeNavigationTests: XCTestCase {
         let tree = TestSplitTree(view: v1)
 
         // Assert
-        XCTAssertNil(tree.neighbor(of: v1.id, direction: .left))
-        XCTAssertNil(tree.neighbor(of: v1.id, direction: .right))
-        XCTAssertNil(tree.neighbor(of: v1.id, direction: .up))
-        XCTAssertNil(tree.neighbor(of: v1.id, direction: .down))
+        #expect((tree.neighbor(of: v1.id, direction: .left)) == nil)
+        #expect((tree.neighbor(of: v1.id, direction: .right)) == nil)
+        #expect((tree.neighbor(of: v1.id, direction: .up)) == nil)
+        #expect((tree.neighbor(of: v1.id, direction: .down)) == nil)
     }
+
+    @Test
 
     func test_neighbor_emptyTree_returnsNil() {
         // Arrange
         let tree = TestSplitTree()
 
         // Assert
-        XCTAssertNil(tree.neighbor(of: UUID(), direction: .right))
+        #expect((tree.neighbor(of: UUID(), direction: .right)) == nil)
     }
+
+    @Test
 
     func test_neighbor_unknownId_returnsNil() throws {
         // Arrange
@@ -187,6 +215,6 @@ final class SplitTreeNavigationTests: XCTestCase {
         tree = try tree.inserting(view: v2, at: v1, direction: .right)
 
         // Assert
-        XCTAssertNil(tree.neighbor(of: UUID(), direction: .right))
+        #expect((tree.neighbor(of: UUID(), direction: .right)) == nil)
     }
 }

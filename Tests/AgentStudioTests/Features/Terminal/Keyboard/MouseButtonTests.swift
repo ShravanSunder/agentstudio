@@ -1,32 +1,40 @@
 import GhosttyKit
-import XCTest
+import Testing
+import Foundation
 
 @testable import AgentStudio
 
-final class MouseButtonTests: XCTestCase {
+@Suite(.serialized)
 
+final class MouseButtonTests {
+
+    @Test
     func test_ghosttyMouseButton_leftClick_returnsLeft() {
-        XCTAssertEqual(ghosttyMouseButton(from: 0), GHOSTTY_MOUSE_LEFT)
+        #expect(ghosttyMouseButton(from: 0) == GHOSTTY_MOUSE_LEFT)
     }
 
+    @Test
     func test_ghosttyMouseButton_rightClick_returnsRight() {
-        XCTAssertEqual(ghosttyMouseButton(from: 1), GHOSTTY_MOUSE_RIGHT)
+        #expect(ghosttyMouseButton(from: 1) == GHOSTTY_MOUSE_RIGHT)
     }
 
+    @Test
     func test_ghosttyMouseButton_middleClick_returnsMiddle() {
-        XCTAssertEqual(ghosttyMouseButton(from: 2), GHOSTTY_MOUSE_MIDDLE)
+        #expect(ghosttyMouseButton(from: 2) == GHOSTTY_MOUSE_MIDDLE)
     }
 
+    @Test
     func test_ghosttyMouseButton_buttons3to7_returnCorrectButtons() {
-        XCTAssertEqual(ghosttyMouseButton(from: 3), GHOSTTY_MOUSE_FOUR)
-        XCTAssertEqual(ghosttyMouseButton(from: 4), GHOSTTY_MOUSE_FIVE)
-        XCTAssertEqual(ghosttyMouseButton(from: 5), GHOSTTY_MOUSE_SIX)
-        XCTAssertEqual(ghosttyMouseButton(from: 6), GHOSTTY_MOUSE_SEVEN)
-        XCTAssertEqual(ghosttyMouseButton(from: 7), GHOSTTY_MOUSE_EIGHT)
+        #expect(ghosttyMouseButton(from: 3) == GHOSTTY_MOUSE_FOUR)
+        #expect(ghosttyMouseButton(from: 4) == GHOSTTY_MOUSE_FIVE)
+        #expect(ghosttyMouseButton(from: 5) == GHOSTTY_MOUSE_SIX)
+        #expect(ghosttyMouseButton(from: 6) == GHOSTTY_MOUSE_SEVEN)
+        #expect(ghosttyMouseButton(from: 7) == GHOSTTY_MOUSE_EIGHT)
     }
 
+    @Test
     func test_ghosttyMouseButton_outOfRange_defaultsToLeft() {
-        XCTAssertEqual(ghosttyMouseButton(from: 99), GHOSTTY_MOUSE_LEFT)
-        XCTAssertEqual(ghosttyMouseButton(from: -1), GHOSTTY_MOUSE_LEFT)
+        #expect(ghosttyMouseButton(from: 99) == GHOSTTY_MOUSE_LEFT)
+        #expect(ghosttyMouseButton(from: -1) == GHOSTTY_MOUSE_LEFT)
     }
 }

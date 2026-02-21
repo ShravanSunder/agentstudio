@@ -1,75 +1,101 @@
-import XCTest
+import Testing
+import Foundation
 
 @testable import AgentStudio
 
-final class WorktreeModelTests: XCTestCase {
+@Suite(.serialized)
+final class WorktreeModelTests {
 
     // MARK: - WorktreeStatus displayName
 
+    @Test
+
     func test_worktreeStatus_displayName_idle() {
         // Assert
-        XCTAssertEqual(WorktreeStatus.idle.displayName, "Idle")
+        #expect(WorktreeStatus.idle.displayName == "Idle")
     }
+
+    @Test
 
     func test_worktreeStatus_displayName_running() {
         // Assert
-        XCTAssertEqual(WorktreeStatus.running.displayName, "Running")
+        #expect(WorktreeStatus.running.displayName == "Running")
     }
+
+    @Test
 
     func test_worktreeStatus_displayName_pendingReview() {
         // Assert
-        XCTAssertEqual(WorktreeStatus.pendingReview.displayName, "Pending Review")
+        #expect(WorktreeStatus.pendingReview.displayName == "Pending Review")
     }
+
+    @Test
 
     func test_worktreeStatus_displayName_error() {
         // Assert
-        XCTAssertEqual(WorktreeStatus.error.displayName, "Error")
+        #expect(WorktreeStatus.error.displayName == "Error")
     }
+
+    @Test
 
     func test_worktreeStatus_caseIterable_hasFourCases() {
         // Assert
-        XCTAssertEqual(WorktreeStatus.allCases.count, 4)
+        #expect(WorktreeStatus.allCases.count == 4)
     }
 
     // MARK: - AgentType Properties
 
+    @Test
+
     func test_agentType_displayName_claude() {
         // Assert
-        XCTAssertEqual(AgentType.claude.displayName, "Claude Code")
+        #expect(AgentType.claude.displayName == "Claude Code")
     }
+
+    @Test
 
     func test_agentType_displayName_allCasesNonEmpty() {
         // Assert
         for agent in AgentType.allCases {
-            XCTAssertFalse(agent.displayName.isEmpty, "\(agent) displayName should not be empty")
+            #expect(!(agent.displayName.isEmpty))
         }
     }
+
+    @Test
 
     func test_agentType_shortName_allCasesNonEmpty() {
         // Assert
         for agent in AgentType.allCases {
-            XCTAssertFalse(agent.shortName.isEmpty, "\(agent) shortName should not be empty")
+            #expect(!(agent.shortName.isEmpty))
         }
     }
 
+    @Test
+
     func test_agentType_command_customIsEmpty() {
         // Assert
-        XCTAssertEqual(AgentType.custom.command, "")
+        #expect(AgentType.custom.command == "")
     }
+
+    @Test
 
     func test_agentType_command_nonCustomAreNonEmpty() {
         // Assert
         for agent in AgentType.allCases where agent != .custom {
-            XCTAssertFalse(agent.command.isEmpty, "\(agent) command should not be empty")
+            #expect(!(agent.command.isEmpty))
         }
     }
 
+    @Test
+
     func test_agentType_caseIterable_hasFiveCases() {
         // Assert
-        XCTAssertEqual(AgentType.allCases.count, 5)
+        #expect(AgentType.allCases.count == 5)
     }
 
     // MARK: - Worktree Codable
+
+    @Test
 
     func test_worktree_codable_roundTrip() throws {
         // Arrange
@@ -85,12 +111,14 @@ final class WorktreeModelTests: XCTestCase {
         let decoded = try JSONDecoder().decode(Worktree.self, from: data)
 
         // Assert
-        XCTAssertEqual(decoded.id, original.id)
-        XCTAssertEqual(decoded.name, original.name)
-        XCTAssertEqual(decoded.branch, original.branch)
-        XCTAssertEqual(decoded.agent, .claude)
-        XCTAssertEqual(decoded.status, .running)
+        #expect(decoded.id == original.id)
+        #expect(decoded.name == original.name)
+        #expect(decoded.branch == original.branch)
+        #expect(decoded.agent == .claude)
+        #expect(decoded.status == .running)
     }
+
+    @Test
 
     func test_worktree_codable_nilOptionals_roundTrip() throws {
         // Arrange
@@ -101,10 +129,12 @@ final class WorktreeModelTests: XCTestCase {
         let decoded = try JSONDecoder().decode(Worktree.self, from: data)
 
         // Assert
-        XCTAssertNil(decoded.agent)
+        #expect((decoded.agent) == nil)
     }
 
     // MARK: - Worktree Hashable
+
+    @Test
 
     func test_worktree_hashable_differentFieldsNotEqual() {
         // Arrange
@@ -113,17 +143,19 @@ final class WorktreeModelTests: XCTestCase {
         let wt2 = makeWorktree(id: id, name: "b")
 
         // Assert
-        XCTAssertNotEqual(wt1, wt2)
+        #expect(wt1 != wt2)
     }
 
     // MARK: - Worktree Init Defaults
+
+    @Test
 
     func test_worktree_init_defaults() {
         // Act
         let wt = Worktree(name: "test", path: URL(fileURLWithPath: "/tmp/test"), branch: "main")
 
         // Assert
-        XCTAssertNil(wt.agent)
-        XCTAssertEqual(wt.status, .idle)
+        #expect((wt.agent) == nil)
+        #expect(wt.status == .idle)
     }
 }

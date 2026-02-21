@@ -1,22 +1,28 @@
-import AppKit
-import XCTest
+ import AppKit
+import Testing
+import Foundation
 
 @testable import AgentStudio
 
-final class SplitTreeTests: XCTestCase {
+@Suite(.serialized)
+final class SplitTreeTests {
 
     // MARK: - Initialization
+
+    @Test
 
     func test_emptyTree_isEmpty() {
         // Arrange
         let tree = TestSplitTree()
 
         // Assert
-        XCTAssertTrue(tree.isEmpty)
-        XCTAssertFalse(tree.isSplit)
-        XCTAssertTrue(tree.allViews.isEmpty)
-        XCTAssertNil(tree.root)
+        #expect(tree.isEmpty)
+        #expect(!(tree.isSplit))
+        #expect(tree.allViews.isEmpty)
+        #expect((tree.root) == nil)
     }
+
+    @Test
 
     func test_singleView_properties() {
         // Arrange
@@ -24,13 +30,15 @@ final class SplitTreeTests: XCTestCase {
         let tree = TestSplitTree(view: view)
 
         // Assert
-        XCTAssertFalse(tree.isEmpty)
-        XCTAssertFalse(tree.isSplit)
-        XCTAssertEqual(tree.allViews.count, 1)
-        XCTAssertTrue(tree.allViews[0] === view)
+        #expect(!(tree.isEmpty))
+        #expect(!(tree.isSplit))
+        #expect(tree.allViews.count == 1)
+        #expect(tree.allViews[0] === view)
     }
 
     // MARK: - Find
+
+    @Test
 
     func test_find_existingId_returnsView() {
         // Arrange
@@ -41,8 +49,10 @@ final class SplitTreeTests: XCTestCase {
         let found = tree.find(id: view.id)
 
         // Assert
-        XCTAssertTrue(found === view)
+        #expect(found === view)
     }
+
+    @Test
 
     func test_find_nonExistentId_returnsNil() {
         // Arrange
@@ -53,8 +63,10 @@ final class SplitTreeTests: XCTestCase {
         let found = tree.find(id: UUID())
 
         // Assert
-        XCTAssertNil(found)
+        #expect((found) == nil)
     }
+
+    @Test
 
     func test_find_inEmptyTree_returnsNil() {
         // Arrange
@@ -64,10 +76,12 @@ final class SplitTreeTests: XCTestCase {
         let found = tree.find(id: UUID())
 
         // Assert
-        XCTAssertNil(found)
+        #expect((found) == nil)
     }
 
     // MARK: - Insert
+
+    @Test
 
     func test_insert_right_createsSplit() throws {
         // Arrange
@@ -79,19 +93,21 @@ final class SplitTreeTests: XCTestCase {
         let result = try tree.inserting(view: newView, at: existing, direction: .right)
 
         // Assert
-        XCTAssertTrue(result.isSplit)
-        XCTAssertEqual(result.allViews.count, 2)
+        #expect(result.isSplit)
+        #expect(result.allViews.count == 2)
         // Existing should be on left, new on right
-        XCTAssertTrue(result.allViews[0] === existing)
-        XCTAssertTrue(result.allViews[1] === newView)
+        #expect(result.allViews[0] === existing)
+        #expect(result.allViews[1] === newView)
 
         guard case .split(let split) = result.root else {
-            XCTFail("Expected split node")
+            Issue.record("Expected split node")
             return
         }
-        XCTAssertEqual(split.direction, .horizontal)
-        XCTAssertEqual(split.ratio, 0.5)
+        #expect(split.direction == .horizontal)
+        #expect(split.ratio == 0.5)
     }
+
+    @Test
 
     func test_insert_left_createsSplit() throws {
         // Arrange
@@ -103,17 +119,19 @@ final class SplitTreeTests: XCTestCase {
         let result = try tree.inserting(view: newView, at: existing, direction: .left)
 
         // Assert
-        XCTAssertEqual(result.allViews.count, 2)
+        #expect(result.allViews.count == 2)
         // New should be on left, existing on right
-        XCTAssertTrue(result.allViews[0] === newView)
-        XCTAssertTrue(result.allViews[1] === existing)
+        #expect(result.allViews[0] === newView)
+        #expect(result.allViews[1] === existing)
 
         guard case .split(let split) = result.root else {
-            XCTFail("Expected split node")
+            Issue.record("Expected split node")
             return
         }
-        XCTAssertEqual(split.direction, .horizontal)
+        #expect(split.direction == .horizontal)
     }
+
+    @Test
 
     func test_insert_up_createsVerticalSplit() throws {
         // Arrange
@@ -126,14 +144,16 @@ final class SplitTreeTests: XCTestCase {
 
         // Assert
         guard case .split(let split) = result.root else {
-            XCTFail("Expected split node")
+            Issue.record("Expected split node")
             return
         }
-        XCTAssertEqual(split.direction, .vertical)
+        #expect(split.direction == .vertical)
         // New on top (left), existing on bottom (right)
-        XCTAssertTrue(result.allViews[0] === newView)
-        XCTAssertTrue(result.allViews[1] === existing)
+        #expect(result.allViews[0] === newView)
+        #expect(result.allViews[1] === existing)
     }
+
+    @Test
 
     func test_insert_down_createsVerticalSplit() throws {
         // Arrange
@@ -146,14 +166,16 @@ final class SplitTreeTests: XCTestCase {
 
         // Assert
         guard case .split(let split) = result.root else {
-            XCTFail("Expected split node")
+            Issue.record("Expected split node")
             return
         }
-        XCTAssertEqual(split.direction, .vertical)
+        #expect(split.direction == .vertical)
         // Existing on top (left), new on bottom (right)
-        XCTAssertTrue(result.allViews[0] === existing)
-        XCTAssertTrue(result.allViews[1] === newView)
+        #expect(result.allViews[0] === existing)
+        #expect(result.allViews[1] === newView)
     }
+
+    @Test
 
     func test_insert_intoEmptyTree_throws() {
         // Arrange
@@ -162,8 +184,10 @@ final class SplitTreeTests: XCTestCase {
         let newView = MockTerminalView(name: "new")
 
         // Act & Assert
-        XCTAssertThrowsError(try tree.inserting(view: newView, at: target, direction: .right))
+        #expect(throws: any Error.self) { try tree.inserting(view: newView, at: target, direction: .right) }
     }
+
+    @Test
 
     func test_insert_targetNotFound_throws() {
         // Arrange
@@ -173,8 +197,10 @@ final class SplitTreeTests: XCTestCase {
         let tree = TestSplitTree(view: existing)
 
         // Act & Assert
-        XCTAssertThrowsError(try tree.inserting(view: newView, at: wrongTarget, direction: .right))
+        #expect(throws: any Error.self) { try tree.inserting(view: newView, at: wrongTarget, direction: .right) }
     }
+
+    @Test
 
     func test_insert_nested_createsDeepTree() throws {
         // Arrange - start with A | B
@@ -188,27 +214,29 @@ final class SplitTreeTests: XCTestCase {
         let result = try tree.inserting(view: viewC, at: viewB, direction: .down)
 
         // Assert - should have 3 views: A, B, C
-        XCTAssertEqual(result.allViews.count, 3)
-        XCTAssertTrue(result.allViews[0] === viewA)
-        XCTAssertTrue(result.allViews[1] === viewB)
-        XCTAssertTrue(result.allViews[2] === viewC)
+        #expect(result.allViews.count == 3)
+        #expect(result.allViews[0] === viewA)
+        #expect(result.allViews[1] === viewB)
+        #expect(result.allViews[2] === viewC)
 
         // Root should still be horizontal split
         guard case .split(let rootSplit) = result.root else {
-            XCTFail("Expected split root")
+            Issue.record("Expected split root")
             return
         }
-        XCTAssertEqual(rootSplit.direction, .horizontal)
+        #expect(rootSplit.direction == .horizontal)
 
         // Right child should be a vertical split (B above C)
         guard case .split(let rightSplit) = rootSplit.right else {
-            XCTFail("Expected nested split")
+            Issue.record("Expected nested split")
             return
         }
-        XCTAssertEqual(rightSplit.direction, .vertical)
+        #expect(rightSplit.direction == .vertical)
     }
 
     // MARK: - Remove
+
+    @Test
 
     func test_remove_singleView_returnsNil() {
         // Arrange
@@ -219,8 +247,10 @@ final class SplitTreeTests: XCTestCase {
         let result = tree.removing(view: view)
 
         // Assert
-        XCTAssertNil(result)
+        #expect((result) == nil)
     }
+
+    @Test
 
     func test_remove_fromSplit_collapsesToLeaf() throws {
         // Arrange - A | B
@@ -233,11 +263,13 @@ final class SplitTreeTests: XCTestCase {
         let result = tree.removing(view: viewA)
 
         // Assert - should collapse to just B
-        XCTAssertNotNil(result)
-        XCTAssertFalse(result!.isSplit)
-        XCTAssertEqual(result!.allViews.count, 1)
-        XCTAssertTrue(result!.allViews[0] === viewB)
+        #expect((result) != nil)
+        #expect(!(result!.isSplit))
+        #expect(result!.allViews.count == 1)
+        #expect(result!.allViews[0] === viewB)
     }
+
+    @Test
 
     func test_remove_nonExistent_returnsUnchanged() {
         // Arrange
@@ -249,10 +281,12 @@ final class SplitTreeTests: XCTestCase {
         let result = tree.removing(view: stranger)
 
         // Assert - tree should still have the original view
-        XCTAssertNotNil(result)
-        XCTAssertEqual(result!.allViews.count, 1)
-        XCTAssertTrue(result!.allViews[0] === view)
+        #expect((result) != nil)
+        #expect(result!.allViews.count == 1)
+        #expect(result!.allViews[0] === view)
     }
+
+    @Test
 
     func test_remove_fromDeepTree_preservesOtherBranches() throws {
         // Arrange - A | (B / C)
@@ -267,12 +301,14 @@ final class SplitTreeTests: XCTestCase {
         let result = tree.removing(view: viewC)
 
         // Assert - should have A | B (still split)
-        XCTAssertNotNil(result)
-        XCTAssertTrue(result!.isSplit)
-        XCTAssertEqual(result!.allViews.count, 2)
-        XCTAssertTrue(result!.allViews[0] === viewA)
-        XCTAssertTrue(result!.allViews[1] === viewB)
+        #expect((result) != nil)
+        #expect(result!.isSplit)
+        #expect(result!.allViews.count == 2)
+        #expect(result!.allViews[0] === viewA)
+        #expect(result!.allViews[1] === viewB)
     }
+
+    @Test
 
     func test_remove_fromEmptyTree_returnsNil() {
         // Arrange
@@ -283,10 +319,12 @@ final class SplitTreeTests: XCTestCase {
         let result = tree.removing(view: view)
 
         // Assert
-        XCTAssertNil(result)
+        #expect((result) == nil)
     }
 
     // MARK: - Resize
+
+    @Test
 
     func test_resize_clampsRatio() throws {
         // Arrange
@@ -301,17 +339,19 @@ final class SplitTreeTests: XCTestCase {
 
         // Assert - should be clamped to 0.1 and 0.9
         guard case .split(let smallSplit) = tooSmall.root else {
-            XCTFail("Expected split")
+            Issue.record("Expected split")
             return
         }
-        XCTAssertEqual(smallSplit.ratio, 0.1, accuracy: 0.001)
+        #expect(smallSplit.ratio == 0.1, accuracy: 0.001)
 
         guard case .split(let largeSplit) = tooLarge.root else {
-            XCTFail("Expected split")
+            Issue.record("Expected split")
             return
         }
-        XCTAssertEqual(largeSplit.ratio, 0.9, accuracy: 0.001)
+        #expect(largeSplit.ratio == 0.9, accuracy: 0.001)
     }
+
+    @Test
 
     func test_resize_updatesCorrectSplit() throws {
         // Arrange - A | (B / C) with root ratio 0.5 and nested ratio 0.5
@@ -327,19 +367,21 @@ final class SplitTreeTests: XCTestCase {
 
         // Assert - root ratio should still be 0.5, nested should be 0.3
         guard case .split(let rootSplit) = result.root else {
-            XCTFail("Expected root split")
+            Issue.record("Expected root split")
             return
         }
-        XCTAssertEqual(rootSplit.ratio, 0.5, accuracy: 0.001, "Root ratio should be unchanged")
+        #expect(rootSplit.ratio == 0.5, accuracy: 0.001, "Root ratio should be unchanged")
 
         guard case .split(let nestedSplit) = rootSplit.right else {
-            XCTFail("Expected nested split")
+            Issue.record("Expected nested split")
             return
         }
-        XCTAssertEqual(nestedSplit.ratio, 0.3, accuracy: 0.001, "Nested ratio should be 0.3")
+        #expect(nestedSplit.ratio == 0.3, accuracy: 0.001, "Nested ratio should be 0.3")
     }
 
     // MARK: - Equalize
+
+    @Test
 
     func test_equalize_setsAllRatiosToHalf() throws {
         // Arrange - create tree with non-0.5 ratios
@@ -357,19 +399,21 @@ final class SplitTreeTests: XCTestCase {
 
         // Assert - all ratios should be 0.5
         guard case .split(let rootSplit) = equalized.root else {
-            XCTFail("Expected root split")
+            Issue.record("Expected root split")
             return
         }
-        XCTAssertEqual(rootSplit.ratio, 0.5, accuracy: 0.001)
+        #expect(rootSplit.ratio == 0.5, accuracy: 0.001)
 
         guard case .split(let nestedSplit) = rootSplit.right else {
-            XCTFail("Expected nested split")
+            Issue.record("Expected nested split")
             return
         }
-        XCTAssertEqual(nestedSplit.ratio, 0.5, accuracy: 0.001)
+        #expect(nestedSplit.ratio == 0.5, accuracy: 0.001)
     }
 
     // MARK: - allViews Ordering
+
+    @Test
 
     func test_allViews_orderedLeftToRight() throws {
         // Arrange - (A | B) with A on left, B on right
@@ -379,10 +423,12 @@ final class SplitTreeTests: XCTestCase {
             .inserting(view: viewB, at: viewA, direction: .right)
 
         // Assert
-        XCTAssertEqual(tree.allViews.count, 2)
-        XCTAssertTrue(tree.allViews[0] === viewA, "First should be left (A)")
-        XCTAssertTrue(tree.allViews[1] === viewB, "Second should be right (B)")
+        #expect(tree.allViews.count == 2)
+        #expect(tree.allViews[0] === viewA)
+        #expect(tree.allViews[1] === viewB)
     }
+
+    @Test
 
     func test_allViews_deepTree_orderedCorrectly() throws {
         // Arrange - (A | (B / C))
@@ -394,13 +440,15 @@ final class SplitTreeTests: XCTestCase {
             .inserting(view: viewC, at: viewB, direction: .down)
 
         // Assert - order: A (left), B (right-left), C (right-right)
-        XCTAssertEqual(tree.allViews.count, 3)
-        XCTAssertTrue(tree.allViews[0] === viewA)
-        XCTAssertTrue(tree.allViews[1] === viewB)
-        XCTAssertTrue(tree.allViews[2] === viewC)
+        #expect(tree.allViews.count == 3)
+        #expect(tree.allViews[0] === viewA)
+        #expect(tree.allViews[1] === viewB)
+        #expect(tree.allViews[2] === viewC)
     }
 
     // MARK: - Contains
+
+    @Test
 
     func test_contains_findsNestedViews() throws {
         // Arrange
@@ -412,13 +460,15 @@ final class SplitTreeTests: XCTestCase {
             .inserting(view: viewC, at: viewB, direction: .down)
 
         // Assert
-        XCTAssertNotNil(tree.find(id: viewA.id))
-        XCTAssertNotNil(tree.find(id: viewB.id))
-        XCTAssertNotNil(tree.find(id: viewC.id))
-        XCTAssertNil(tree.find(id: UUID()))
+        #expect((tree.find(id: viewA.id)) != nil)
+        #expect((tree.find(id: viewB.id)) != nil)
+        #expect((tree.find(id: viewC.id)) != nil)
+        #expect((tree.find(id: UUID())) == nil)
     }
 
     // MARK: - Sequence
+
+    @Test
 
     func test_sequence_iteratesAllViews() throws {
         // Arrange
@@ -431,8 +481,8 @@ final class SplitTreeTests: XCTestCase {
         let views = Array(tree)
 
         // Assert
-        XCTAssertEqual(views.count, 2)
-        XCTAssertTrue(views[0] === viewA)
-        XCTAssertTrue(views[1] === viewB)
+        #expect(views.count == 2)
+        #expect(views[0] === viewA)
+        #expect(views[1] === viewB)
     }
 }

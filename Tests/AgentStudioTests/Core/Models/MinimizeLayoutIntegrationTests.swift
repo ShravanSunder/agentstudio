@@ -1,14 +1,16 @@
-import XCTest
+import Testing
+import Foundation
 
 @testable import AgentStudio
 
 @MainActor
-final class MinimizeLayoutIntegrationTests: XCTestCase {
+@Suite(.serialized)
+final class MinimizeLayoutIntegrationTests {
 
     private var store: WorkspaceStore!
 
-    override func setUp() {
-        super.setUp()
+    @BeforeEach
+    func setUp() {
         store = WorkspaceStore(
             persistor: WorkspacePersistor(
                 workspacesDir: FileManager.default.temporaryDirectory.appending(path: UUID().uuidString)
@@ -37,6 +39,8 @@ final class MinimizeLayoutIntegrationTests: XCTestCase {
 
     // MARK: - Close Last Pane
 
+    @Test
+
     func test_closeLastPane_tabSignalsEmpty() {
         // Arrange
         let (tab, paneIds) = createTabWithPanes(1)
@@ -45,10 +49,12 @@ final class MinimizeLayoutIntegrationTests: XCTestCase {
         let isEmpty = store.removePaneFromLayout(paneIds[0], inTab: tab.id)
 
         // Assert
-        XCTAssertTrue(isEmpty, "Removing the last pane should signal tab empty")
+        #expect(isEmpty)
     }
 
     // MARK: - Minimize All Tab Panes
+
+    @Test
 
     func test_minimizeAllTabPanes_allInMinimizedSet() {
         // Arrange
@@ -57,23 +63,25 @@ final class MinimizeLayoutIntegrationTests: XCTestCase {
         // Act
         for id in paneIds {
             let result = store.minimizePane(id, inTab: tab.id)
-            XCTAssertTrue(result, "Minimizing pane \(id) should succeed")
+            #expect(result)
         }
 
         // Assert
         let updated = store.tab(tab.id)!
-        XCTAssertEqual(updated.minimizedPaneIds, Set(paneIds))
-        XCTAssertNil(updated.activePaneId, "No active pane when all minimized")
+        #expect(updated.minimizedPaneIds == Set(paneIds))
+        #expect((updated.activePaneId) == nil)
 
         let renderInfo = SplitRenderInfo.compute(
             layout: updated.layout,
             minimizedPaneIds: updated.minimizedPaneIds
         )
-        XCTAssertTrue(renderInfo.allMinimized)
-        XCTAssertEqual(renderInfo.allMinimizedPaneIds.count, 3)
+        #expect(renderInfo.allMinimized)
+        #expect(renderInfo.allMinimizedPaneIds.count == 3)
     }
 
     // MARK: - Minimize All Drawer Panes
+
+    @Test
 
     func test_minimizeAllDrawerPanes_allInMinimizedSet() {
         // Arrange
@@ -90,19 +98,21 @@ final class MinimizeLayoutIntegrationTests: XCTestCase {
         let r2 = store.minimizeDrawerPane(d2.id, in: pane.id)
 
         // Assert
-        XCTAssertTrue(r1)
-        XCTAssertTrue(r2)
+        #expect(r1)
+        #expect(r2)
         let drawer = store.pane(pane.id)!.drawer!
-        XCTAssertEqual(drawer.minimizedPaneIds, Set([d1.id, d2.id]))
+        #expect(drawer.minimizedPaneIds == Set([d1.id, d2.id]))
 
         let renderInfo = SplitRenderInfo.compute(
             layout: drawer.layout,
             minimizedPaneIds: drawer.minimizedPaneIds
         )
-        XCTAssertTrue(renderInfo.allMinimized)
+        #expect(renderInfo.allMinimized)
     }
 
     // MARK: - Expand From All-Minimized
+
+    @Test
 
     func test_expandFromAllMinimized_restoresPane() {
         // Arrange
@@ -112,25 +122,27 @@ final class MinimizeLayoutIntegrationTests: XCTestCase {
 
         // Verify all minimized
         let beforeExpand = store.tab(tab.id)!
-        XCTAssertNil(beforeExpand.activePaneId)
+        #expect((beforeExpand.activePaneId) == nil)
 
         // Act
         store.expandPane(paneIds[0], inTab: tab.id)
 
         // Assert
         let updated = store.tab(tab.id)!
-        XCTAssertFalse(updated.minimizedPaneIds.contains(paneIds[0]))
-        XCTAssertTrue(updated.minimizedPaneIds.contains(paneIds[1]))
-        XCTAssertEqual(updated.activePaneId, paneIds[0])
+        #expect(!(updated.minimizedPaneIds.contains(paneIds[0])))
+        #expect(updated.minimizedPaneIds.contains(paneIds[1]))
+        #expect(updated.activePaneId == paneIds[0])
 
         let renderInfo = SplitRenderInfo.compute(
             layout: updated.layout,
             minimizedPaneIds: updated.minimizedPaneIds
         )
-        XCTAssertFalse(renderInfo.allMinimized)
+        #expect(!(renderInfo.allMinimized))
     }
 
     // MARK: - Close Pane Preserves Minimized State (No Auto-Expand)
+
+    @Test
 
     func test_closePaneWithAllOthersMinimized_preservesMinimizedState() {
         // Arrange: 3 panes, minimize B and C, then close A
@@ -143,20 +155,22 @@ final class MinimizeLayoutIntegrationTests: XCTestCase {
 
         // Verify A is active, B and C minimized
         let before = store.tab(tab.id)!
-        XCTAssertEqual(before.activePaneId, a)
+        #expect(before.activePaneId == a)
 
         // Act: close A — remaining panes (B, C) are both minimized
         let isEmpty = store.removePaneFromLayout(a, inTab: tab.id)
 
         // Assert: tab NOT empty, B and C remain minimized (no auto-expand)
-        XCTAssertFalse(isEmpty)
+        #expect(!(isEmpty))
         let updated = store.tab(tab.id)!
-        XCTAssertTrue(updated.minimizedPaneIds.contains(b))
-        XCTAssertTrue(updated.minimizedPaneIds.contains(c))
-        XCTAssertNil(updated.activePaneId, "No auto-expand when all remaining panes are minimized")
+        #expect(updated.minimizedPaneIds.contains(b))
+        #expect(updated.minimizedPaneIds.contains(c))
+        #expect((updated.activePaneId) == nil)
     }
 
     // MARK: - SplitRenderInfo Nested Proportional Ratios
+
+    @Test
 
     func test_splitRenderInfo_nestedMinimize_proportionalRatios() {
         // Arrange: 3 panes — A | (B | C), minimize B
@@ -173,21 +187,17 @@ final class MinimizeLayoutIntegrationTests: XCTestCase {
         )
 
         // Assert: not all minimized, has split info entries
-        XCTAssertFalse(renderInfo.allMinimized)
-        XCTAssertFalse(
-            renderInfo.splitInfo.isEmpty,
-            "Should have render info for splits with minimized panes")
+        #expect(!(renderInfo.allMinimized))
+        #expect(!(renderInfo.splitInfo.isEmpty))
 
         // Find the inner split (B|C) — one side should be fully minimized
         let innerSplitInfo = renderInfo.splitInfo.values.first {
             $0.leftFullyMinimized || $0.rightFullyMinimized
         }
-        XCTAssertNotNil(innerSplitInfo, "Inner split should have one fully-minimized side")
+        #expect((innerSplitInfo) != nil)
         let minimizedCount =
             (innerSplitInfo?.leftMinimizedPaneIds.count ?? 0)
             + (innerSplitInfo?.rightMinimizedPaneIds.count ?? 0)
-        XCTAssertEqual(
-            minimizedCount, 1,
-            "Exactly one pane should be in the minimized IDs")
+        #expect(minimizedCount == 1, "Exactly one pane should be in the minimized IDs")
     }
 }

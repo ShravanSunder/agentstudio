@@ -1,67 +1,75 @@
-import XCTest
+import Testing
+import Foundation
 
 @testable import AgentStudio
 
-final class CommandBarStateTests: XCTestCase {
+@Suite(.serialized)
+final class CommandBarStateTests {
+
 
     private var state: CommandBarState!
 
     private static let recentsKey = "CommandBarRecentItemIds"
 
-    override func setUp() {
-        super.setUp()
+    @BeforeEach
+    private func setUp() {
         // Isolate UserDefaults — clear recents key before each test
         UserDefaults.standard.removeObject(forKey: Self.recentsKey)
         state = CommandBarState()
     }
 
-    override func tearDown() {
+    @AfterEach
+    private func tearDown() {
         // Clean up UserDefaults after each test
         UserDefaults.standard.removeObject(forKey: Self.recentsKey)
         state = nil
-        super.tearDown()
     }
 
     // MARK: - Initialization
 
+    @Test
     func test_init_defaults() {
         // Assert
-        XCTAssertFalse(state.isVisible)
-        XCTAssertEqual(state.rawInput, "")
-        XCTAssertTrue(state.navigationStack.isEmpty)
-        XCTAssertEqual(state.selectedIndex, 0)
-        XCTAssertTrue(state.recentItemIds.isEmpty)
+        #expect(!(state.isVisible))
+        #expect(state.rawInput == "")
+        #expect(state.navigationStack.isEmpty)
+        #expect(state.selectedIndex == 0)
+        #expect(state.recentItemIds.isEmpty)
     }
 
     // MARK: - Show / Dismiss
 
+    @Test
     func test_show_noPrefix_setsVisibleAndEmptyInput() {
         // Act
         state.show()
 
         // Assert
-        XCTAssertTrue(state.isVisible)
-        XCTAssertEqual(state.rawInput, "")
+        #expect(state.isVisible)
+        #expect(state.rawInput == "")
     }
 
+    @Test
     func test_show_withPrefix_setsVisibleAndPrefix() {
         // Act
         state.show(prefix: ">")
 
         // Assert
-        XCTAssertTrue(state.isVisible)
-        XCTAssertEqual(state.rawInput, "> ")
+        #expect(state.isVisible)
+        #expect(state.rawInput == "> ")
     }
 
+    @Test
     func test_show_withAtPrefix_setsVisibleAndAtPrefix() {
         // Act
         state.show(prefix: "@")
 
         // Assert
-        XCTAssertTrue(state.isVisible)
-        XCTAssertEqual(state.rawInput, "@ ")
+        #expect(state.isVisible)
+        #expect(state.rawInput == "@ ")
     }
 
+    @Test
     func test_dismiss_resetsAllState() {
         // Arrange
         state.show(prefix: ">")
@@ -74,46 +82,51 @@ final class CommandBarStateTests: XCTestCase {
         state.dismiss()
 
         // Assert
-        XCTAssertFalse(state.isVisible)
-        XCTAssertEqual(state.rawInput, "")
-        XCTAssertTrue(state.navigationStack.isEmpty)
-        XCTAssertEqual(state.selectedIndex, 0)
+        #expect(!(state.isVisible))
+        #expect(state.rawInput == "")
+        #expect(state.navigationStack.isEmpty)
+        #expect(state.selectedIndex == 0)
     }
 
     // MARK: - Prefix Parsing
 
+    @Test
     func test_activePrefix_greaterThan_returnsCommandPrefix() {
         // Arrange
         state.rawInput = ">close"
 
         // Assert
-        XCTAssertEqual(state.activePrefix, ">")
+        #expect(state.activePrefix == ">")
     }
 
+    @Test
     func test_activePrefix_at_returnsPanePrefix() {
         // Arrange
         state.rawInput = "@main"
 
         // Assert
-        XCTAssertEqual(state.activePrefix, "@")
+        #expect(state.activePrefix == "@")
     }
 
+    @Test
     func test_activePrefix_noPrefix_returnsNil() {
         // Arrange
         state.rawInput = "hello"
 
         // Assert
-        XCTAssertNil(state.activePrefix)
+        #expect(state.activePrefix == nil)
     }
 
+    @Test
     func test_activePrefix_emptyInput_returnsNil() {
         // Arrange
         state.rawInput = ""
 
         // Assert
-        XCTAssertNil(state.activePrefix)
+        #expect(state.activePrefix == nil)
     }
 
+    @Test
     func test_activePrefix_whenNested_returnsNil() {
         // Arrange — nesting overrides prefix parsing
         let level = makeCommandBarLevel()
@@ -121,87 +134,97 @@ final class CommandBarStateTests: XCTestCase {
         state.rawInput = ">"
 
         // Assert
-        XCTAssertNil(state.activePrefix)
+        #expect(state.activePrefix == nil)
     }
 
+    @Test
     func test_activePrefix_unknownPrefix_returnsNil() {
         // Arrange
         state.rawInput = "#search"
 
         // Assert
-        XCTAssertNil(state.activePrefix)
+        #expect(state.activePrefix == nil)
     }
 
     // MARK: - Search Query
 
+    @Test
     func test_searchQuery_withPrefix_stripsPrefix() {
         // Arrange
         state.rawInput = ">close"
 
         // Assert
-        XCTAssertEqual(state.searchQuery, "close")
+        #expect(state.searchQuery == "close")
     }
 
+    @Test
     func test_searchQuery_noPrefix_returnsFullInput() {
         // Arrange
         state.rawInput = "hello"
 
         // Assert
-        XCTAssertEqual(state.searchQuery, "hello")
+        #expect(state.searchQuery == "hello")
     }
 
+    @Test
     func test_searchQuery_prefixOnly_returnsEmpty() {
         // Arrange
         state.rawInput = ">"
 
         // Assert
-        XCTAssertEqual(state.searchQuery, "")
+        #expect(state.searchQuery == "")
     }
 
+    @Test
     func test_searchQuery_emptyInput_returnsEmpty() {
         // Arrange
         state.rawInput = ""
 
         // Assert
-        XCTAssertEqual(state.searchQuery, "")
+        #expect(state.searchQuery == "")
     }
 
     // MARK: - Active Scope
 
+    @Test
     func test_activeScope_noPrefix_returnsEverything() {
         // Arrange
         state.rawInput = ""
 
         // Assert
-        XCTAssertEqual(state.activeScope, .everything)
+        #expect(state.activeScope == .everything)
     }
 
+    @Test
     func test_activeScope_greaterThan_returnsCommands() {
         // Arrange
         state.rawInput = ">"
 
         // Assert
-        XCTAssertEqual(state.activeScope, .commands)
+        #expect(state.activeScope == .commands)
     }
 
+    @Test
     func test_activeScope_at_returnsPanes() {
         // Arrange
         state.rawInput = "@"
 
         // Assert
-        XCTAssertEqual(state.activeScope, .panes)
+        #expect(state.activeScope == .panes)
     }
 
+    @Test
     func test_activeScope_plainText_returnsEverything() {
         // Arrange
         state.rawInput = "search term"
 
         // Assert
-        XCTAssertEqual(state.activeScope, .everything)
+        #expect(state.activeScope == .everything)
     }
 
     // MARK: - Switch Prefix
 
+    @Test
     func test_switchPrefix_replacesInputAndResetsStack() {
         // Arrange
         state.show()
@@ -212,11 +235,12 @@ final class CommandBarStateTests: XCTestCase {
         state.switchPrefix(">")
 
         // Assert
-        XCTAssertEqual(state.rawInput, "> ")
-        XCTAssertTrue(state.navigationStack.isEmpty)
-        XCTAssertEqual(state.selectedIndex, 0)
+        #expect(state.rawInput == "> ")
+        #expect(state.navigationStack.isEmpty)
+        #expect(state.selectedIndex == 0)
     }
 
+    @Test
     func test_switchPrefix_clearsNavigationStack() {
         // Arrange
         state.pushLevel(makeCommandBarLevel())
@@ -225,12 +249,13 @@ final class CommandBarStateTests: XCTestCase {
         state.switchPrefix("@")
 
         // Assert
-        XCTAssertTrue(state.navigationStack.isEmpty)
-        XCTAssertEqual(state.rawInput, "@ ")
+        #expect(state.navigationStack.isEmpty)
+        #expect(state.rawInput == "@ ")
     }
 
     // MARK: - Navigation
 
+    @Test
     func test_pushLevel_addsToStackAndClearsInput() {
         // Arrange
         state.rawInput = "search"
@@ -241,12 +266,13 @@ final class CommandBarStateTests: XCTestCase {
         state.pushLevel(level)
 
         // Assert
-        XCTAssertEqual(state.navigationStack.count, 1)
-        XCTAssertEqual(state.navigationStack.last?.id, "sub-1")
-        XCTAssertEqual(state.rawInput, "")
-        XCTAssertEqual(state.selectedIndex, 0)
+        #expect(state.navigationStack.count == 1)
+        #expect(state.navigationStack.last?.id == "sub-1")
+        #expect(state.rawInput == "")
+        #expect(state.selectedIndex == 0)
     }
 
+    @Test
     func test_popToRoot_clearsStackAndInput() {
         // Arrange
         state.pushLevel(makeCommandBarLevel(id: "level-1"))
@@ -256,24 +282,27 @@ final class CommandBarStateTests: XCTestCase {
         state.popToRoot()
 
         // Assert
-        XCTAssertTrue(state.navigationStack.isEmpty)
-        XCTAssertEqual(state.rawInput, "")
-        XCTAssertEqual(state.selectedIndex, 0)
+        #expect(state.navigationStack.isEmpty)
+        #expect(state.rawInput == "")
+        #expect(state.selectedIndex == 0)
     }
 
+    @Test
     func test_isNested_afterPush_returnsTrue() {
         // Act
         state.pushLevel(makeCommandBarLevel())
 
         // Assert
-        XCTAssertTrue(state.isNested)
+        #expect(state.isNested)
     }
 
+    @Test
     func test_isNested_atRoot_returnsFalse() {
         // Assert
-        XCTAssertFalse(state.isNested)
+        #expect(!(state.isNested))
     }
 
+    @Test
     func test_currentLevel_returnsLastPushed() {
         // Arrange
         let level = makeCommandBarLevel(id: "my-level", title: "My Level")
@@ -282,15 +311,17 @@ final class CommandBarStateTests: XCTestCase {
         state.pushLevel(level)
 
         // Assert
-        XCTAssertEqual(state.currentLevel?.id, "my-level")
-        XCTAssertEqual(state.currentLevel?.title, "My Level")
+        #expect(state.currentLevel?.id == "my-level")
+        #expect(state.currentLevel?.title == "My Level")
     }
 
+    @Test
     func test_currentLevel_atRoot_returnsNil() {
         // Assert
-        XCTAssertNil(state.currentLevel)
+        #expect(state.currentLevel == nil)
     }
 
+    @Test
     func test_scopePillParent_returnsParentLabel() {
         // Arrange
         let level = makeCommandBarLevel(parentLabel: "Tab")
@@ -299,9 +330,10 @@ final class CommandBarStateTests: XCTestCase {
         state.pushLevel(level)
 
         // Assert
-        XCTAssertEqual(state.scopePillParent, "Tab")
+        #expect(state.scopePillParent == "Tab")
     }
 
+    @Test
     func test_scopePillChild_returnsLevelTitle() {
         // Arrange
         let level = makeCommandBarLevel(title: "Close Tab")
@@ -310,11 +342,12 @@ final class CommandBarStateTests: XCTestCase {
         state.pushLevel(level)
 
         // Assert
-        XCTAssertEqual(state.scopePillChild, "Close Tab")
+        #expect(state.scopePillChild == "Close Tab")
     }
 
     // MARK: - Selection
 
+    @Test
     func test_rawInput_didSet_resetsSelectedIndex() {
         // Arrange
         state.selectedIndex = 5
@@ -323,9 +356,10 @@ final class CommandBarStateTests: XCTestCase {
         state.rawInput = "new text"
 
         // Assert
-        XCTAssertEqual(state.selectedIndex, 0)
+        #expect(state.selectedIndex == 0)
     }
 
+    @Test
     func test_moveSelectionDown_incrementsIndex() {
         // Arrange
         state.selectedIndex = 0
@@ -334,9 +368,10 @@ final class CommandBarStateTests: XCTestCase {
         state.moveSelectionDown(totalItems: 5)
 
         // Assert
-        XCTAssertEqual(state.selectedIndex, 1)
+        #expect(state.selectedIndex == 1)
     }
 
+    @Test
     func test_moveSelectionDown_wrapsToZero() {
         // Arrange
         state.selectedIndex = 2
@@ -345,9 +380,10 @@ final class CommandBarStateTests: XCTestCase {
         state.moveSelectionDown(totalItems: 3)
 
         // Assert
-        XCTAssertEqual(state.selectedIndex, 0)
+        #expect(state.selectedIndex == 0)
     }
 
+    @Test
     func test_moveSelectionUp_decrementsIndex() {
         // Arrange
         state.selectedIndex = 2
@@ -356,9 +392,10 @@ final class CommandBarStateTests: XCTestCase {
         state.moveSelectionUp(totalItems: 5)
 
         // Assert
-        XCTAssertEqual(state.selectedIndex, 1)
+        #expect(state.selectedIndex == 1)
     }
 
+    @Test
     func test_moveSelectionUp_wrapsToEnd() {
         // Arrange
         state.selectedIndex = 0
@@ -367,9 +404,10 @@ final class CommandBarStateTests: XCTestCase {
         state.moveSelectionUp(totalItems: 3)
 
         // Assert
-        XCTAssertEqual(state.selectedIndex, 2)
+        #expect(state.selectedIndex == 2)
     }
 
+    @Test
     func test_moveSelectionDown_zeroItems_noChange() {
         // Arrange
         state.selectedIndex = 0
@@ -378,9 +416,10 @@ final class CommandBarStateTests: XCTestCase {
         state.moveSelectionDown(totalItems: 0)
 
         // Assert
-        XCTAssertEqual(state.selectedIndex, 0)
+        #expect(state.selectedIndex == 0)
     }
 
+    @Test
     func test_moveSelectionUp_zeroItems_noChange() {
         // Arrange
         state.selectedIndex = 0
@@ -389,20 +428,22 @@ final class CommandBarStateTests: XCTestCase {
         state.moveSelectionUp(totalItems: 0)
 
         // Assert
-        XCTAssertEqual(state.selectedIndex, 0)
+        #expect(state.selectedIndex == 0)
     }
 
     // MARK: - Recents
 
+    @Test
     func test_recordRecent_addsToFront() {
         // Act
         state.recordRecent(itemId: "A")
         state.recordRecent(itemId: "B")
 
         // Assert
-        XCTAssertEqual(state.recentItemIds, ["B", "A"])
+        #expect(state.recentItemIds == ["B", "A"])
     }
 
+    @Test
     func test_recordRecent_deduplicates() {
         // Act
         state.recordRecent(itemId: "A")
@@ -410,9 +451,10 @@ final class CommandBarStateTests: XCTestCase {
         state.recordRecent(itemId: "A")
 
         // Assert — "A" moves to front, no duplicate
-        XCTAssertEqual(state.recentItemIds, ["A", "B"])
+        #expect(state.recentItemIds == ["A", "B"])
     }
 
+    @Test
     func test_recordRecent_capsAt8() {
         // Act
         for i in 1...10 {
@@ -420,93 +462,104 @@ final class CommandBarStateTests: XCTestCase {
         }
 
         // Assert
-        XCTAssertEqual(state.recentItemIds.count, 8)
-        XCTAssertEqual(state.recentItemIds.first, "item-10")
-        XCTAssertEqual(state.recentItemIds.last, "item-3")
+        #expect(state.recentItemIds.count == 8)
+        #expect(state.recentItemIds.first == "item-10")
+        #expect(state.recentItemIds.last == "item-3")
     }
 
     // MARK: - Placeholder
 
+    @Test
     func test_placeholder_everything_returnsSearchOrJump() {
         // Arrange
         state.rawInput = ""
 
         // Assert
-        XCTAssertEqual(state.placeholder, "Search or jump to...")
+        #expect(state.placeholder == "Search or jump to...")
     }
 
+    @Test
     func test_placeholder_commands_returnsRunACommand() {
         // Arrange
         state.rawInput = ">"
 
         // Assert
-        XCTAssertEqual(state.placeholder, "Run a command...")
+        #expect(state.placeholder == "Run a command...")
     }
 
+    @Test
     func test_placeholder_panes_returnsSwitchToPane() {
         // Arrange
         state.rawInput = "@"
 
         // Assert
-        XCTAssertEqual(state.placeholder, "Switch to pane...")
+        #expect(state.placeholder == "Switch to pane...")
     }
 
+    @Test
     func test_placeholder_nested_returnsFilter() {
         // Arrange
         state.pushLevel(makeCommandBarLevel())
 
         // Assert
-        XCTAssertEqual(state.placeholder, "Filter...")
+        #expect(state.placeholder == "Filter...")
     }
 
     // MARK: - Scope Icon
 
+    @Test
     func test_scopeIcon_everything_returnsMagnifyingGlass() {
         // Arrange
         state.rawInput = ""
 
         // Assert
-        XCTAssertEqual(state.scopeIcon, "magnifyingglass")
+        #expect(state.scopeIcon == "magnifyingglass")
     }
 
+    @Test
     func test_scopeIcon_commands_returnsChevron() {
         // Arrange
         state.rawInput = ">"
 
         // Assert
-        XCTAssertEqual(state.scopeIcon, "chevron.right.2")
+        #expect(state.scopeIcon == "chevron.right.2")
     }
 
+    @Test
     func test_scopeIcon_panes_returnsAt() {
         // Arrange
         state.rawInput = "@"
 
         // Assert
-        XCTAssertEqual(state.scopeIcon, "at")
+        #expect(state.scopeIcon == "at")
     }
 
+    @Test
     func test_scopeIcon_nested_returnsMagnifyingGlass() {
         // Arrange
         state.pushLevel(makeCommandBarLevel())
 
         // Assert
-        XCTAssertEqual(state.scopeIcon, "magnifyingglass")
+        #expect(state.scopeIcon == "magnifyingglass")
     }
 
     // MARK: - Scope Pill at Root (nil behavior)
 
+    @Test
     func test_scopePillParent_atRoot_returnsNil() {
         // Assert — no nested level, should be nil
-        XCTAssertNil(state.scopePillParent)
+        #expect(state.scopePillParent == nil)
     }
 
+    @Test
     func test_scopePillChild_atRoot_returnsNil() {
         // Assert
-        XCTAssertNil(state.scopePillChild)
+        #expect(state.scopePillChild == nil)
     }
 
     // MARK: - Selection Edge Cases (out-of-bounds initial state)
 
+    @Test
     func test_moveSelectionDown_staleIndexBeyondTotal_wrapsToZero() {
         // Arrange — simulate filter shrinking results while index is high
         state.selectedIndex = 10
@@ -515,9 +568,10 @@ final class CommandBarStateTests: XCTestCase {
         state.moveSelectionDown(totalItems: 3)
 
         // Assert — wraps since 10 >= 3-1
-        XCTAssertEqual(state.selectedIndex, 0)
+        #expect(state.selectedIndex == 0)
     }
 
+    @Test
     func test_moveSelectionUp_staleIndexBeyondTotal_wrapsToEnd() {
         // Arrange — stale index beyond total
         state.selectedIndex = 10
@@ -527,9 +581,10 @@ final class CommandBarStateTests: XCTestCase {
 
         // Assert — 10 > 0 so decrements to 9 (still stale, but moveUp's contract is index-1)
         // This reveals the current behavior: it just decrements
-        XCTAssertEqual(state.selectedIndex, 9)
+        #expect(state.selectedIndex == 9)
     }
 
+    @Test
     func test_moveSelectionDown_singleItem_staysAtZero() {
         // Arrange
         state.selectedIndex = 0
@@ -538,32 +593,35 @@ final class CommandBarStateTests: XCTestCase {
         state.moveSelectionDown(totalItems: 1)
 
         // Assert — wraps back to 0
-        XCTAssertEqual(state.selectedIndex, 0)
+        #expect(state.selectedIndex == 0)
     }
 
     // MARK: - Prefix Edge Cases
 
+    @Test
     func test_show_emptyPrefix_treatedAsNoPrefix() {
         // Act
         state.show(prefix: "")
 
         // Assert
-        XCTAssertTrue(state.isVisible)
-        XCTAssertEqual(state.rawInput, "")
-        XCTAssertEqual(state.activeScope, .everything)
+        #expect(state.isVisible)
+        #expect(state.rawInput == "")
+        #expect(state.activeScope == .everything)
     }
 
+    @Test
     func test_show_unknownPrefix_treatedAsPlainText() {
         // Act
         state.show(prefix: "#")
 
         // Assert — "#" is stored as rawInput but not a recognized prefix
-        XCTAssertTrue(state.isVisible)
-        XCTAssertEqual(state.rawInput, "#")
-        XCTAssertNil(state.activePrefix)
-        XCTAssertEqual(state.activeScope, .everything)
+        #expect(state.isVisible)
+        #expect(state.rawInput == "#")
+        #expect(state.activePrefix == nil)
+        #expect(state.activeScope == .everything)
     }
 
+    @Test
     func test_switchPrefix_emptyString_clearsToEverything() {
         // Arrange
         state.show(prefix: ">")
@@ -572,12 +630,13 @@ final class CommandBarStateTests: XCTestCase {
         state.switchPrefix("")
 
         // Assert
-        XCTAssertEqual(state.rawInput, "")
-        XCTAssertEqual(state.activeScope, .everything)
+        #expect(state.rawInput == "")
+        #expect(state.activeScope == .everything)
     }
 
     // MARK: - Persistence — loadRecents
 
+    @Test
     func test_loadRecents_emptyDefaults_setsEmptyArray() {
         // Arrange — UserDefaults is already cleared in setUp
 
@@ -585,9 +644,10 @@ final class CommandBarStateTests: XCTestCase {
         state.loadRecents()
 
         // Assert
-        XCTAssertTrue(state.recentItemIds.isEmpty)
+        #expect(state.recentItemIds.isEmpty)
     }
 
+    @Test
     func test_loadRecents_populatedDefaults_restoresArray() {
         // Arrange
         let expected = ["item-1", "item-2", "item-3"]
@@ -597,9 +657,10 @@ final class CommandBarStateTests: XCTestCase {
         state.loadRecents()
 
         // Assert
-        XCTAssertEqual(state.recentItemIds, expected)
+        #expect(state.recentItemIds == expected)
     }
 
+    @Test
     func test_recordRecent_thenLoadRecents_roundTrips() {
         // Arrange
         state.recordRecent(itemId: "alpha")
@@ -610,6 +671,6 @@ final class CommandBarStateTests: XCTestCase {
         freshState.loadRecents()
 
         // Assert
-        XCTAssertEqual(freshState.recentItemIds, ["beta", "alpha"])
+        #expect(freshState.recentItemIds == ["beta", "alpha"])
     }
 }

@@ -1,5 +1,6 @@
 import Observation
-import XCTest
+import Testing
+import Foundation
 
 @testable import AgentStudio
 
@@ -7,12 +8,14 @@ import XCTest
 /// Validates the full push path: mutate @Observable -> PushPlan -> transport.
 /// Design doc section 13 Phase 2 tests (line 2643-2656).
 @MainActor
-final class PushPipelineIntegrationTests: XCTestCase {
+@Suite(.serialized)
+final class PushPipelineIntegrationTests {
 
     // MARK: - Mutate @Observable -> PushPlan -> MockTransport
 
     /// Verifies that mutating an @Observable property triggers the full push pipeline:
     /// observation fires -> Slice captures snapshot -> transport receives pushJSON call.
+    @Test
     func test_observable_mutation_triggers_push_via_plan() async throws {
         // Arrange
         let diffState = DiffState()
@@ -36,7 +39,7 @@ final class PushPipelineIntegrationTests: XCTestCase {
             atLeast: 1,
             timeout: .seconds(2)
         )
-        XCTAssertTrue(didReceiveInitialPush, "Plan should emit initial snapshot")
+        #expect(didReceiveInitialPush, "Plan should emit initial snapshot")
 
         // Initial observation fires (nil -> initial snapshot), record baseline
         let baselineCount = transport.pushCount
@@ -47,16 +50,12 @@ final class PushPipelineIntegrationTests: XCTestCase {
             atLeast: baselineCount + 1,
             timeout: .seconds(2)
         )
-        XCTAssertTrue(
-            didReceiveMutationPush,
-            "State mutation should emit push through plan")
+        #expect(didReceiveMutationPush, "State mutation should emit push through plan")
 
         // Assert — mutation triggered push through the full pipeline
-        XCTAssertGreaterThan(
-            transport.pushCount, baselineCount,
-            "Observable mutation should trigger push via PushPlan")
-        XCTAssertEqual(transport.lastStore, .diff)
-        XCTAssertEqual(transport.lastLevel, .hot)
+        #expect(transport.pushCount > baselineCount, "Observable mutation should trigger push via PushPlan")
+        #expect(transport.lastStore == .diff)
+        #expect(transport.lastLevel == .hot)
 
         plan.stop()
     }
@@ -65,6 +64,7 @@ final class PushPipelineIntegrationTests: XCTestCase {
 
     /// Verifies that cold-level slices debounce rapid mutations, coalescing
     /// multiple state changes into fewer pushes.
+    @Test
     func test_cold_slice_coalesces_rapid_mutations() async throws {
         // Arrange
         let diffState = DiffState()
@@ -88,7 +88,7 @@ final class PushPipelineIntegrationTests: XCTestCase {
             atLeast: 1,
             timeout: .seconds(2)
         )
-        XCTAssertTrue(didReceiveInitialPush, "Plan should emit initial snapshot")
+        #expect(didReceiveInitialPush, "Plan should emit initial snapshot")
 
         // Record baseline after initial observation emission
         let baselineCount = transport.pushCount
@@ -101,18 +101,12 @@ final class PushPipelineIntegrationTests: XCTestCase {
             atLeast: baselineCount + 1,
             timeout: .seconds(2)
         )
-        XCTAssertTrue(
-            didReceiveCoalescedPush,
-            "Rapid cold-level mutations should coalesce into a push")
+        #expect(didReceiveCoalescedPush, "Rapid cold-level mutations should coalesce into a push")
 
         // Assert — debounce coalesced rapid mutations into fewer pushes than mutations
         let pushesAfterMutations = transport.pushCount - baselineCount
-        XCTAssertLessThan(
-            pushesAfterMutations, 5,
-            "Cold debounce should coalesce rapid mutations into fewer pushes (got \(pushesAfterMutations))")
-        XCTAssertGreaterThanOrEqual(
-            pushesAfterMutations, 1,
-            "At least one push should have fired after the mutations settled")
+        #expect(pushesAfterMutations < 5, "Cold debounce should coalesce rapid mutations into fewer pushes (got \(pushesAfterMutations))")
+        #expect(pushesAfterMutations >= 1, "At least one push should have fired after the mutations settled")
 
         plan.stop()
     }
@@ -121,6 +115,7 @@ final class PushPipelineIntegrationTests: XCTestCase {
 
     /// Verifies that hot-level slices push immediately on each mutation
     /// without coalescing via debounce.
+    @Test
     func test_hot_slice_pushes_on_mutation() async throws {
         // Arrange
         let paneState = PaneDomainState()
@@ -147,7 +142,7 @@ final class PushPipelineIntegrationTests: XCTestCase {
             atLeast: 1,
             timeout: .seconds(2)
         )
-        XCTAssertTrue(didReceiveInitialPush, "Plan should emit initial snapshot")
+        #expect(didReceiveInitialPush, "Plan should emit initial snapshot")
 
         // Record baseline after initial observation emission
         let baselineCount = transport.pushCount
@@ -158,14 +153,12 @@ final class PushPipelineIntegrationTests: XCTestCase {
             atLeast: baselineCount + 1,
             timeout: .seconds(2)
         )
-        XCTAssertTrue(didReceiveMutationPush, "Hot mutation should emit immediately")
+        #expect(didReceiveMutationPush, "Hot mutation should emit immediately")
 
         // Assert — hot slice pushed immediately
-        XCTAssertEqual(
-            transport.pushCount, baselineCount + 1,
-            "Hot slice should push immediately on mutation")
-        XCTAssertEqual(transport.lastStore, .connection)
-        XCTAssertEqual(transport.lastLevel, .hot)
+        #expect(transport.pushCount == baselineCount + 1, "Hot slice should push immediately on mutation")
+        #expect(transport.lastStore == .connection)
+        #expect(transport.lastLevel == .hot)
 
         plan.stop()
     }
@@ -174,6 +167,7 @@ final class PushPipelineIntegrationTests: XCTestCase {
 
     /// Verifies that pushes through the plan are stamped with monotonically
     /// increasing revision numbers from the shared RevisionClock.
+    @Test
     func test_plan_stamps_monotonic_revisions() async throws {
         // Arrange
         let diffState = DiffState()
@@ -197,12 +191,10 @@ final class PushPipelineIntegrationTests: XCTestCase {
             atLeast: 1,
             timeout: .seconds(2)
         )
-        XCTAssertTrue(didReceiveInitialPush, "Plan should emit initial revision")
+        #expect(didReceiveInitialPush, "Plan should emit initial revision")
 
         // Initial emission should stamp revision 1
-        XCTAssertEqual(
-            transport.lastRevision, 1,
-            "Initial observation should stamp revision 1")
+        #expect(transport.lastRevision == 1, "Initial observation should stamp revision 1")
 
         // Act — two sequential mutations
         diffState.status = .loading
@@ -210,9 +202,7 @@ final class PushPipelineIntegrationTests: XCTestCase {
             atLeast: 2,
             timeout: .seconds(2)
         )
-        XCTAssertTrue(
-            didReceiveFirstMutation,
-            "Mutation to loading should emit revision 2")
+        #expect(didReceiveFirstMutation, "Mutation to loading should emit revision 2")
         let revisionAfterFirstMutation = transport.lastRevision
 
         diffState.status = .ready
@@ -220,14 +210,12 @@ final class PushPipelineIntegrationTests: XCTestCase {
             atLeast: 3,
             timeout: .seconds(2)
         )
-        XCTAssertTrue(
-            didReceiveSecondMutation,
-            "Mutation to ready should emit revision 3")
+        #expect(didReceiveSecondMutation, "Mutation to ready should emit revision 3")
         let revisionAfterSecondMutation = transport.lastRevision
 
         // Assert — revisions increase monotonically
-        XCTAssertEqual(revisionAfterFirstMutation, 2)
-        XCTAssertEqual(revisionAfterSecondMutation, 3)
+        #expect(revisionAfterFirstMutation == 2)
+        #expect(revisionAfterSecondMutation == 3)
 
         plan.stop()
     }
@@ -236,6 +224,7 @@ final class PushPipelineIntegrationTests: XCTestCase {
 
     /// Verifies that the epoch value from the EpochProvider is correctly
     /// propagated through pushJSON calls.
+    @Test
     func test_plan_propagates_epoch_from_provider() async throws {
         // Arrange
         let diffState = DiffState()
@@ -259,12 +248,10 @@ final class PushPipelineIntegrationTests: XCTestCase {
             atLeast: 1,
             timeout: .seconds(2)
         )
-        XCTAssertTrue(didReceiveInitialPush, "Plan should emit initial epoch")
+        #expect(didReceiveInitialPush, "Plan should emit initial epoch")
 
         // Initial emission with epoch 0
-        XCTAssertEqual(
-            transport.lastEpoch, 0,
-            "Initial push should carry epoch 0")
+        #expect(transport.lastEpoch == 0, "Initial push should carry epoch 0")
 
         // Act — update epoch and trigger mutation
         diffState.epoch = 42
@@ -273,12 +260,10 @@ final class PushPipelineIntegrationTests: XCTestCase {
             atLeast: 2,
             timeout: .seconds(2)
         )
-        XCTAssertTrue(didReceiveMutationPush, "Mutation should emit updated epoch")
+        #expect(didReceiveMutationPush, "Mutation should emit updated epoch")
 
         // Assert — epoch propagated
-        XCTAssertEqual(
-            transport.lastEpoch, 42,
-            "Push should carry the epoch value from the provider at push time")
+        #expect(transport.lastEpoch == 42, "Push should carry the epoch value from the provider at push time")
 
         plan.stop()
     }

@@ -1,10 +1,14 @@
-import XCTest
+import Testing
+import Foundation
 
 @testable import AgentStudio
 
-final class SplitRenderInfoTests: XCTestCase {
+@Suite(.serialized)
+final class SplitRenderInfoTests {
 
     // MARK: - No minimized panes
+
+    @Test
 
     func test_noMinimized_emptyDictionary() {
         let a = UUID()
@@ -18,11 +22,13 @@ final class SplitRenderInfoTests: XCTestCase {
 
         let info = SplitRenderInfo.compute(layout: layout, minimizedPaneIds: [])
 
-        XCTAssertTrue(info.splitInfo.isEmpty)
-        XCTAssertFalse(info.allMinimized)
+        #expect(info.splitInfo.isEmpty)
+        #expect(!(info.allMinimized))
     }
 
     // MARK: - One side fully minimized
+
+    @Test
 
     func test_rightFullyMinimized_adjustedRatio() {
         let a = UUID()
@@ -37,12 +43,14 @@ final class SplitRenderInfoTests: XCTestCase {
 
         let info = SplitRenderInfo.compute(layout: layout, minimizedPaneIds: [b])
 
-        XCTAssertFalse(info.allMinimized)
+        #expect(!(info.allMinimized))
         let splitInfo = info.splitInfo[splitId]!
-        XCTAssertFalse(splitInfo.leftFullyMinimized)
-        XCTAssertTrue(splitInfo.rightFullyMinimized)
-        XCTAssertEqual(splitInfo.rightMinimizedPaneIds, [b])
+        #expect(!(splitInfo.leftFullyMinimized))
+        #expect(splitInfo.rightFullyMinimized)
+        #expect(splitInfo.rightMinimizedPaneIds == [b])
     }
+
+    @Test
 
     func test_leftFullyMinimized_adjustedRatio() {
         let a = UUID()
@@ -58,12 +66,14 @@ final class SplitRenderInfoTests: XCTestCase {
         let info = SplitRenderInfo.compute(layout: layout, minimizedPaneIds: [a])
 
         let splitInfo = info.splitInfo[splitId]!
-        XCTAssertTrue(splitInfo.leftFullyMinimized)
-        XCTAssertFalse(splitInfo.rightFullyMinimized)
-        XCTAssertEqual(splitInfo.leftMinimizedPaneIds, [a])
+        #expect(splitInfo.leftFullyMinimized)
+        #expect(!(splitInfo.rightFullyMinimized))
+        #expect(splitInfo.leftMinimizedPaneIds == [a])
     }
 
     // MARK: - Both sides visible, adjusted ratio
+
+    @Test
 
     func test_partialMinimize_adjustedRatio() {
         // Split(0.33, A, Split(0.5, B_min, C))
@@ -90,18 +100,20 @@ final class SplitRenderInfoTests: XCTestCase {
         // A weight = 0.33, C weight = 0.67 * 0.5 = 0.335
         // Adjusted ratio = 0.33 / (0.33 + 0.335) ≈ 0.496
         let outerInfo = info.splitInfo[outerSplitId]!
-        XCTAssertFalse(outerInfo.leftFullyMinimized)
-        XCTAssertFalse(outerInfo.rightFullyMinimized)
-        XCTAssertEqual(outerInfo.adjustedRatio, 0.496, accuracy: 0.01)
+        #expect(!(outerInfo.leftFullyMinimized))
+        #expect(!(outerInfo.rightFullyMinimized))
+        #expect(outerInfo.adjustedRatio == 0.496, accuracy: 0.01)
 
         // Inner split: left (B) is fully minimized, right (C) is visible
         let innerInfo = info.splitInfo[innerSplitId]!
-        XCTAssertTrue(innerInfo.leftFullyMinimized)
-        XCTAssertFalse(innerInfo.rightFullyMinimized)
-        XCTAssertEqual(innerInfo.leftMinimizedPaneIds, [b])
+        #expect(innerInfo.leftFullyMinimized)
+        #expect(!(innerInfo.rightFullyMinimized))
+        #expect(innerInfo.leftMinimizedPaneIds == [b])
     }
 
     // MARK: - All minimized
+
+    @Test
 
     func test_allMinimized_flagSet() {
         let a = UUID()
@@ -115,11 +127,13 @@ final class SplitRenderInfoTests: XCTestCase {
 
         let info = SplitRenderInfo.compute(layout: layout, minimizedPaneIds: [a, b])
 
-        XCTAssertTrue(info.allMinimized)
-        XCTAssertEqual(info.allMinimizedPaneIds, [a, b])
+        #expect(info.allMinimized)
+        #expect(info.allMinimizedPaneIds == [a, b])
     }
 
     // MARK: - Nested fully minimized subtree
+
+    @Test
 
     func test_nestedFullyMinimized_collapsesCorrectly() {
         // Split(0.5, A, Split(0.5, B_min, C_min))
@@ -142,38 +156,46 @@ final class SplitRenderInfoTests: XCTestCase {
         let info = SplitRenderInfo.compute(layout: layout, minimizedPaneIds: [b, c])
 
         let outerInfo = info.splitInfo[outerSplitId]!
-        XCTAssertFalse(outerInfo.leftFullyMinimized)
-        XCTAssertTrue(outerInfo.rightFullyMinimized)
-        XCTAssertEqual(outerInfo.rightMinimizedPaneIds, [b, c])
+        #expect(!(outerInfo.leftFullyMinimized))
+        #expect(outerInfo.rightFullyMinimized)
+        #expect(outerInfo.rightMinimizedPaneIds == [b, c])
     }
 
     // MARK: - Empty layout
 
+    @Test
+
     func test_emptyLayout_noInfo() {
         let layout = Layout()
         let info = SplitRenderInfo.compute(layout: layout, minimizedPaneIds: [])
-        XCTAssertTrue(info.splitInfo.isEmpty)
-        XCTAssertFalse(info.allMinimized)
+        #expect(info.splitInfo.isEmpty)
+        #expect(!(info.allMinimized))
     }
 
     // MARK: - Single pane (no split)
+
+    @Test
 
     func test_singlePane_minimized_allMinimized() {
         let a = UUID()
         let layout = Layout(paneId: a)
         let info = SplitRenderInfo.compute(layout: layout, minimizedPaneIds: [a])
-        XCTAssertTrue(info.allMinimized)
-        XCTAssertEqual(info.allMinimizedPaneIds, [a])
+        #expect(info.allMinimized)
+        #expect(info.allMinimizedPaneIds == [a])
     }
+
+    @Test
 
     func test_singlePane_visible_notAllMinimized() {
         let a = UUID()
         let layout = Layout(paneId: a)
         let info = SplitRenderInfo.compute(layout: layout, minimizedPaneIds: [])
-        XCTAssertFalse(info.allMinimized)
+        #expect(!(info.allMinimized))
     }
 
     // MARK: - Visible weights stored
+
+    @Test
 
     func test_partialMinimize_visibleWeightsStored() {
         // Split(0.33, A, Split(0.5, B_min, C))
@@ -197,12 +219,14 @@ final class SplitRenderInfoTests: XCTestCase {
         let outerInfo = info.splitInfo[outerSplitId]!
 
         // Left is a single visible leaf → weight 1.0
-        XCTAssertEqual(outerInfo.leftVisibleWeight, 1.0)
+        #expect(outerInfo.leftVisibleWeight == 1.0)
         // Right is Split(0.5, B_min, C) → 0*0.5 + 1*0.5 = 0.5
-        XCTAssertEqual(outerInfo.rightVisibleWeight, 0.5)
+        #expect(outerInfo.rightVisibleWeight == 0.5)
     }
 
     // MARK: - Model ratio reverse conversion
+
+    @Test
 
     func test_modelRatio_roundTrip() {
         // Split(0.5, A, Split(0.5, B_min, C))
@@ -227,12 +251,14 @@ final class SplitRenderInfoTests: XCTestCase {
         let outerInfo = info.splitInfo[outerSplitId]!
 
         // adjustedRatio should be 0.667 (left gets more space)
-        XCTAssertEqual(outerInfo.adjustedRatio, 0.667, accuracy: 0.01)
+        #expect(outerInfo.adjustedRatio == 0.667, accuracy: 0.01)
 
         // Round-trip: converting adjustedRatio back should give original model ratio
         let recovered = outerInfo.modelRatio(fromRenderRatio: outerInfo.adjustedRatio)
-        XCTAssertEqual(recovered, 0.5, accuracy: 0.001)
+        #expect(recovered == 0.5, accuracy: 0.001)
     }
+
+    @Test
 
     func test_modelRatio_equalWeights_identity() {
         // When both sides have equal visible weight, adjustedRatio == modelRatio.
@@ -246,9 +272,11 @@ final class SplitRenderInfoTests: XCTestCase {
             rightVisibleWeight: 1.0
         )
 
-        XCTAssertEqual(splitInfo.modelRatio(fromRenderRatio: 0.3), 0.3, accuracy: 0.001)
-        XCTAssertEqual(splitInfo.modelRatio(fromRenderRatio: 0.7), 0.7, accuracy: 0.001)
+        #expect(splitInfo.modelRatio(fromRenderRatio: 0.3) == 0.3, accuracy: 0.001)
+        #expect(splitInfo.modelRatio(fromRenderRatio: 0.7) == 0.7, accuracy: 0.001)
     }
+
+    @Test
 
     func test_modelRatio_zeroWeight_fallback() {
         // When one weight is zero, reverse conversion falls back to render ratio.
@@ -262,8 +290,10 @@ final class SplitRenderInfoTests: XCTestCase {
             rightVisibleWeight: 1.0
         )
 
-        XCTAssertEqual(splitInfo.modelRatio(fromRenderRatio: 0.6), 0.6)
+        #expect(splitInfo.modelRatio(fromRenderRatio: 0.6) == 0.6)
     }
+
+    @Test
 
     func test_modelRatio_asymmetricWeights_invertsCorrectly() {
         // Left weight 1.0, right weight 0.25
@@ -280,6 +310,6 @@ final class SplitRenderInfoTests: XCTestCase {
         )
 
         let recovered = splitInfo.modelRatio(fromRenderRatio: 0.727)
-        XCTAssertEqual(recovered, 0.4, accuracy: 0.01)
+        #expect(recovered == 0.4, accuracy: 0.01)
     }
 }

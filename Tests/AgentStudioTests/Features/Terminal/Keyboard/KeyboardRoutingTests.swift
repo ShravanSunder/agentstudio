@@ -1,12 +1,16 @@
 import AppKit
-import XCTest
+import Testing
+import Foundation
 
 @testable import AgentStudio
 
-final class KeyboardRoutingTests: XCTestCase {
+@Suite(.serialized)
+
+final class KeyboardRoutingTests {
 
     // MARK: - Event Type Tests
 
+    @Test
     func test_determineKeyRouting_keyUpEvent_passesToSystem() {
         // Arrange
         let eventType = NSEvent.EventType.keyUp
@@ -20,11 +24,12 @@ final class KeyboardRoutingTests: XCTestCase {
         )
 
         // Assert
-        XCTAssertEqual(result, .passToSystem)
+        #expect(result == .passToSystem)
     }
 
     // MARK: - Focus Tests
 
+    @Test
     func test_determineKeyRouting_notFocused_passesToSystem() {
         // Arrange
         let focused = false
@@ -38,11 +43,12 @@ final class KeyboardRoutingTests: XCTestCase {
         )
 
         // Assert
-        XCTAssertEqual(result, .passToSystem)
+        #expect(result == .passToSystem)
     }
 
     // MARK: - Command Key Tests
 
+    @Test
     func test_determineKeyRouting_commandC_passesToSystem() {
         // Arrange - Cmd+C should go to macOS for copy
 
@@ -55,9 +61,10 @@ final class KeyboardRoutingTests: XCTestCase {
         )
 
         // Assert
-        XCTAssertEqual(result, .passToSystem)
+        #expect(result == .passToSystem)
     }
 
+    @Test
     func test_determineKeyRouting_commandShiftV_passesToSystem() {
         // Arrange - Cmd+Shift+V should go to macOS
 
@@ -70,9 +77,10 @@ final class KeyboardRoutingTests: XCTestCase {
         )
 
         // Assert
-        XCTAssertEqual(result, .passToSystem)
+        #expect(result == .passToSystem)
     }
 
+    @Test
     func test_determineKeyRouting_commandControlArrow_passesToSystem() {
         // Arrange - Cmd+Ctrl+Arrow for window managers (Rectangle)
 
@@ -85,11 +93,12 @@ final class KeyboardRoutingTests: XCTestCase {
         )
 
         // Assert
-        XCTAssertEqual(result, .passToSystem)
+        #expect(result == .passToSystem)
     }
 
     // MARK: - Control Key Tests
 
+    @Test
     func test_determineKeyRouting_controlC_handlesInTerminal() {
         // Arrange - Ctrl+C should go to terminal
 
@@ -102,9 +111,10 @@ final class KeyboardRoutingTests: XCTestCase {
         )
 
         // Assert
-        XCTAssertEqual(result, .handleInTerminal)
+        #expect(result == .handleInTerminal)
     }
 
+    @Test
     func test_determineKeyRouting_controlSlash_modifiesAndHandles() {
         // Arrange - Ctrl+/ converts to Ctrl+_
 
@@ -117,9 +127,10 @@ final class KeyboardRoutingTests: XCTestCase {
         )
 
         // Assert
-        XCTAssertEqual(result, .modifyAndHandle("_"))
+        #expect(result == .modifyAndHandle("_"))
     }
 
+    @Test
     func test_determineKeyRouting_controlReturn_handlesInTerminal() {
         // Arrange - Ctrl+Return should go to terminal
 
@@ -132,11 +143,12 @@ final class KeyboardRoutingTests: XCTestCase {
         )
 
         // Assert
-        XCTAssertEqual(result, .handleInTerminal)
+        #expect(result == .handleInTerminal)
     }
 
     // MARK: - Other Modifier Tests
 
+    @Test
     func test_determineKeyRouting_shiftReturn_passesToSystem() {
         // Arrange - Shift+Return flows through keyDown naturally
 
@@ -149,9 +161,10 @@ final class KeyboardRoutingTests: XCTestCase {
         )
 
         // Assert
-        XCTAssertEqual(result, .passToSystem)
+        #expect(result == .passToSystem)
     }
 
+    @Test
     func test_determineKeyRouting_optionArrow_passesToSystem() {
         // Arrange - Option+Arrow for word navigation
 
@@ -164,9 +177,10 @@ final class KeyboardRoutingTests: XCTestCase {
         )
 
         // Assert
-        XCTAssertEqual(result, .passToSystem)
+        #expect(result == .passToSystem)
     }
 
+    @Test
     func test_determineKeyRouting_plainKey_passesToSystem() {
         // Arrange - Plain keys flow through keyDown naturally
 
@@ -179,6 +193,6 @@ final class KeyboardRoutingTests: XCTestCase {
         )
 
         // Assert
-        XCTAssertEqual(result, .passToSystem)
+        #expect(result == .passToSystem)
     }
 }

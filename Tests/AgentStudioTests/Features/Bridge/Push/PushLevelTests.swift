@@ -1,29 +1,37 @@
-import XCTest
+import Testing
+import Foundation
 
 @testable import AgentStudio
 
-final class PushLevelTests: XCTestCase {
+@Suite(.serialized)
+
+final class PushLevelTests {
+    @Test
     func test_hot_debounce_is_zero() {
-        XCTAssertEqual(PushLevel.hot.debounce, .zero)
+        #expect(PushLevel.hot.debounce == .zero)
     }
 
+    @Test
     func test_warm_debounce_is_12ms() {
-        XCTAssertEqual(PushLevel.warm.debounce, .milliseconds(12))
+        #expect(PushLevel.warm.debounce == .milliseconds(12))
     }
 
+    @Test
     func test_cold_debounce_is_32ms() {
-        XCTAssertEqual(PushLevel.cold.debounce, .milliseconds(32))
+        #expect(PushLevel.cold.debounce == .milliseconds(32))
     }
 
+    @Test
     func test_pushOp_rawValues() {
-        XCTAssertEqual(PushOp.merge.rawValue, "merge")
-        XCTAssertEqual(PushOp.replace.rawValue, "replace")
+        #expect(PushOp.merge.rawValue == "merge")
+        #expect(PushOp.replace.rawValue == "replace")
     }
 
+    @Test
     func test_storeKey_rawValues() {
-        XCTAssertEqual(StoreKey.diff.rawValue, "diff")
-        XCTAssertEqual(StoreKey.review.rawValue, "review")
-        XCTAssertEqual(StoreKey.agent.rawValue, "agent")
-        XCTAssertEqual(StoreKey.connection.rawValue, "connection")
+        #expect(StoreKey.diff.rawValue == "diff")
+        #expect(StoreKey.review.rawValue == "review")
+        #expect(StoreKey.agent.rawValue == "agent")
+        #expect(StoreKey.connection.rawValue == "connection")
     }
 }

@@ -1,18 +1,22 @@
-import XCTest
+import Testing
+import Foundation
 
 @testable import AgentStudio
 
-final class ZmxBackendTests: XCTestCase {
+@Suite(.serialized)
+final class ZmxBackendTests {
     private var executor: MockProcessExecutor!
     private var backend: ZmxBackend!
 
-    override func setUp() {
-        super.setUp()
+    @BeforeEach
+    func setUp() {
         executor = MockProcessExecutor()
         backend = ZmxBackend(executor: executor, zmxPath: "/usr/local/bin/zmx", zmxDir: "/tmp/zmx-test")
     }
 
     // MARK: - isAvailable
+
+    @Test
 
     func test_isAvailable_whenBinaryExists() async {
         // Arrange — use a path that exists (/usr/bin/env)
@@ -22,9 +26,11 @@ final class ZmxBackendTests: XCTestCase {
         let available = await backendWithRealPath.isAvailable
 
         // Assert — checks FileManager.isExecutableFile, no CLI call
-        XCTAssertTrue(available)
-        XCTAssertTrue(executor.calls.isEmpty, "isAvailable should not make any CLI calls")
+        #expect(available)
+        #expect(executor.calls.isEmpty)
     }
+
+    @Test
 
     func test_isAvailable_whenBinaryMissing() async {
         // Arrange — path that doesn't exist
@@ -34,11 +40,13 @@ final class ZmxBackendTests: XCTestCase {
         let available = await backendWithBadPath.isAvailable
 
         // Assert
-        XCTAssertFalse(available)
-        XCTAssertTrue(executor.calls.isEmpty, "isAvailable should not make any CLI calls")
+        #expect(!(available))
+        #expect(executor.calls.isEmpty)
     }
 
     // MARK: - Session ID Generation
+
+    @Test
 
     func test_sessionId_format_uses16HexSegments() {
         // Arrange — stable keys are 16 hex chars from SHA-256
@@ -50,10 +58,12 @@ final class ZmxBackendTests: XCTestCase {
         let id = ZmxBackend.sessionId(repoStableKey: repoKey, worktreeStableKey: wtKey, paneId: paneId)
 
         // Assert — format: agentstudio--<repo16>--<wt16>--<pane16>
-        XCTAssertTrue(id.hasPrefix("agentstudio--"))
-        XCTAssertEqual(id, "agentstudio--a1b2c3d4e5f6a7b8--00112233aabbccdd--aabbccdd11223344")
-        XCTAssertEqual(id.count, 65)
+        #expect(id.hasPrefix("agentstudio--"))
+        #expect(id == "agentstudio--a1b2c3d4e5f6a7b8--00112233aabbccdd--aabbccdd11223344")
+        #expect(id.count == 65)
     }
+
+    @Test
 
     func test_sessionId_isDeterministic() {
         // Arrange
@@ -66,8 +76,10 @@ final class ZmxBackendTests: XCTestCase {
         let id2 = ZmxBackend.sessionId(repoStableKey: repoKey, worktreeStableKey: wtKey, paneId: paneId)
 
         // Assert
-        XCTAssertEqual(id1, id2)
+        #expect(id1 == id2)
     }
+
+    @Test
 
     func test_sessionId_allSegmentsAreLowercaseHex() {
         // Arrange
@@ -81,15 +93,17 @@ final class ZmxBackendTests: XCTestCase {
         // Assert — all segments should be 16 lowercase hex chars
         let suffix = String(id.dropFirst(13))
         let segments = suffix.components(separatedBy: "--")
-        XCTAssertEqual(segments.count, 3)
+        #expect(segments.count == 3)
         let hexChars = CharacterSet(charactersIn: "0123456789abcdef")
         for segment in segments {
-            XCTAssertEqual(segment.count, 16)
-            XCTAssertTrue(segment.unicodeScalars.allSatisfy { hexChars.contains($0) })
+            #expect(segment.count == 16)
+            #expect(segment.unicodeScalars.allSatisfy { hexChars.contains($0) })
         }
     }
 
     // MARK: - Drawer Session ID Generation
+
+    @Test
 
     func test_drawerSessionId_format() {
         // Arrange
@@ -100,9 +114,11 @@ final class ZmxBackendTests: XCTestCase {
         let id = ZmxBackend.drawerSessionId(parentPaneId: parentPaneId, drawerPaneId: drawerPaneId)
 
         // Assert — format: agentstudio-d--<parent16>--<drawer16>
-        XCTAssertTrue(id.hasPrefix("agentstudio-d--"))
-        XCTAssertEqual(id, "agentstudio-d--aabbccdd11223344--1122334455667788")
+        #expect(id.hasPrefix("agentstudio-d--"))
+        #expect(id == "agentstudio-d--aabbccdd11223344--1122334455667788")
     }
+
+    @Test
 
     func test_drawerSessionId_isDeterministic() {
         // Arrange
@@ -114,8 +130,10 @@ final class ZmxBackendTests: XCTestCase {
         let id2 = ZmxBackend.drawerSessionId(parentPaneId: parentPaneId, drawerPaneId: drawerPaneId)
 
         // Assert
-        XCTAssertEqual(id1, id2)
+        #expect(id1 == id2)
     }
+
+    @Test
 
     func test_drawerSessionId_allSegmentsAreLowercaseHex() {
         // Arrange
@@ -128,15 +146,17 @@ final class ZmxBackendTests: XCTestCase {
         // Assert — prefix is "agentstudio-d--", then two 16-char hex segments
         let suffix = String(id.dropFirst("agentstudio-d--".count))
         let segments = suffix.components(separatedBy: "--")
-        XCTAssertEqual(segments.count, 2)
+        #expect(segments.count == 2)
         let hexChars = CharacterSet(charactersIn: "0123456789abcdef")
         for segment in segments {
-            XCTAssertEqual(segment.count, 16)
-            XCTAssertTrue(segment.unicodeScalars.allSatisfy { hexChars.contains($0) })
+            #expect(segment.count == 16)
+            #expect(segment.unicodeScalars.allSatisfy { hexChars.contains($0) })
         }
     }
 
     // MARK: - PaneSessionHandle Validation
+
+    @Test
 
     func test_paneSessionHandle_hasValidId_validFormat() {
         // Arrange
@@ -145,34 +165,42 @@ final class ZmxBackendTests: XCTestCase {
         )
 
         // Assert
-        XCTAssertTrue(handle.hasValidId)
+        #expect(handle.hasValidId)
     }
+
+    @Test
 
     func test_paneSessionHandle_hasValidId_invalidPrefix() {
         // Arrange
         let handle = makePaneSessionHandle(id: "wrong--a1b2c3d4e5f6a7b8--00112233aabbccdd--aabbccdd11223344")
 
         // Assert
-        XCTAssertFalse(handle.hasValidId)
+        #expect(!(handle.hasValidId))
     }
+
+    @Test
 
     func test_paneSessionHandle_hasValidId_wrongSegmentCount() {
         // Arrange
         let handle = makePaneSessionHandle(id: "agentstudio--a1b2c3d4e5f6a7b8--00112233aabbccdd")
 
         // Assert
-        XCTAssertFalse(handle.hasValidId)
+        #expect(!(handle.hasValidId))
     }
+
+    @Test
 
     func test_paneSessionHandle_hasValidId_nonHexChars() {
         // Arrange
         let handle = makePaneSessionHandle(id: "agentstudio--gggggggggggggggg--00112233aabbccdd--aabbccdd11223344")
 
         // Assert
-        XCTAssertFalse(handle.hasValidId)
+        #expect(!(handle.hasValidId))
     }
 
     // MARK: - createPaneSession
+
+    @Test
 
     func test_createPaneSession_returnsHandleWithoutCLICall() async throws {
         // Arrange
@@ -191,22 +219,24 @@ final class ZmxBackendTests: XCTestCase {
         let handle = try await tempBackend.createPaneSession(repo: repo, worktree: worktree, paneId: UUID())
 
         // Assert — no CLI calls (zmx auto-creates on attach)
-        XCTAssertTrue(executor.calls.isEmpty, "createPaneSession should make zero CLI calls")
-        XCTAssertTrue(handle.id.hasPrefix("agentstudio--"))
-        XCTAssertEqual(handle.id.count, 65)
-        XCTAssertEqual(handle.projectId, repo.id)
-        XCTAssertEqual(handle.worktreeId, worktree.id)
-        XCTAssertEqual(handle.displayName, "feature-x")
-        XCTAssertEqual(handle.repoPath, repo.repoPath)
-        XCTAssertEqual(handle.worktreePath, worktree.path)
+        #expect(executor.calls.isEmpty)
+        #expect(handle.id.hasPrefix("agentstudio--"))
+        #expect(handle.id.count == 65)
+        #expect(handle.projectId == repo.id)
+        #expect(handle.worktreeId == worktree.id)
+        #expect(handle.displayName == "feature-x")
+        #expect(handle.repoPath == repo.repoPath)
+        #expect(handle.worktreePath == worktree.path)
         // Verify zmxDir was created
-        XCTAssertTrue(FileManager.default.fileExists(atPath: tempZmxDir))
+        #expect(FileManager.default.fileExists(atPath: tempZmxDir))
 
         // Cleanup
         try? FileManager.default.removeItem(atPath: tempZmxDir)
     }
 
     // MARK: - attachCommand
+
+    @Test
 
     func test_attachCommand_format() {
         // Arrange
@@ -218,16 +248,18 @@ final class ZmxBackendTests: XCTestCase {
         let cmd = backend.attachCommand(for: handle)
 
         // Assert
-        XCTAssertFalse(cmd.contains("ZMX_DIR="))
-        XCTAssertTrue(cmd.hasPrefix("\"/usr/local/bin/zmx\""))
-        XCTAssertTrue(cmd.contains("attach"))
-        XCTAssertTrue(cmd.contains("\"agentstudio--a1b2c3d4e5f6a7b8--00112233aabbccdd--aabbccdd11223344\""))
-        XCTAssertTrue(cmd.contains("-i -l"))
+        #expect(!(cmd.contains("ZMX_DIR=")))
+        #expect(cmd.hasPrefix("\"/usr/local/bin/zmx\""))
+        #expect(cmd.contains("attach"))
+        #expect(cmd.contains("\"agentstudio--a1b2c3d4e5f6a7b8--00112233aabbccdd--aabbccdd11223344\""))
+        #expect(cmd.contains("-i -l"))
         // No ghost.conf, no mouse-off, no unbind-key
-        XCTAssertFalse(cmd.contains("ghost.conf"))
-        XCTAssertFalse(cmd.contains("mouse"))
-        XCTAssertFalse(cmd.contains("unbind"))
+        #expect(!(cmd.contains("ghost.conf")))
+        #expect(!(cmd.contains("mouse")))
+        #expect(!(cmd.contains("unbind")))
     }
+
+    @Test
 
     func test_attachCommand_escapesPathsWithSpaces() {
         // Arrange
@@ -244,9 +276,11 @@ final class ZmxBackendTests: XCTestCase {
         let cmd = spacedBackend.attachCommand(for: handle)
 
         // Assert
-        XCTAssertFalse(cmd.contains("/Users/test user/.agentstudio/zmx"))
-        XCTAssertTrue(cmd.contains("\"/Users/test user/bin/zmx\""))
+        #expect(!(cmd.contains("/Users/test user/.agentstudio/zmx")))
+        #expect(cmd.contains("\"/Users/test user/bin/zmx\""))
     }
+
+    @Test
 
     func test_buildAttachCommand_staticMethod() {
         // Act
@@ -257,47 +291,62 @@ final class ZmxBackendTests: XCTestCase {
         )
 
         // Assert
-        XCTAssertEqual(
-            cmd,
-            "\"/opt/homebrew/bin/zmx\" attach \"agentstudio--abc--def--ghi\" \"/bin/zsh\" -i -l"
-        )
+        #expect(cmd == "\"/opt/homebrew/bin/zmx\" attach \"agentstudio--abc--def--ghi\" \"/bin/zsh\" -i -l")
     }
 
     // MARK: - Shell Escape
 
+    @Test
+
     func test_shellEscape_simplePath() {
-        XCTAssertEqual(ZmxBackend.shellEscape("/usr/bin/zmx"), "\"/usr/bin/zmx\"")
+        #expect(ZmxBackend.shellEscape("/usr/bin/zmx") == "\"/usr/bin/zmx\"")
     }
+
+    @Test
 
     func test_shellEscape_pathWithSpaces() {
-        XCTAssertEqual(ZmxBackend.shellEscape("/Users/test user/bin/zmx"), "\"/Users/test user/bin/zmx\"")
+        #expect(ZmxBackend.shellEscape("/Users/test user/bin/zmx") == "\"/Users/test user/bin/zmx\"")
     }
+
+    @Test
 
     func test_shellEscape_pathWithSingleQuote() {
-        XCTAssertEqual(ZmxBackend.shellEscape("/tmp/it's"), "\"/tmp/it's\"")
+        #expect(ZmxBackend.shellEscape("/tmp/it's") == "\"/tmp/it's\"")
     }
+
+    @Test
 
     func test_shellEscape_escapesDollar() {
-        XCTAssertEqual(ZmxBackend.shellEscape("/tmp/$HOME"), "\"/tmp/\\$HOME\"")
+        #expect(ZmxBackend.shellEscape("/tmp/$HOME") == "\"/tmp/\\$HOME\"")
     }
+
+    @Test
 
     func test_shellEscape_escapesBacktick() {
-        XCTAssertEqual(ZmxBackend.shellEscape("/tmp/`pwd`"), "\"/tmp/\\`pwd\\`\"")
+        #expect(ZmxBackend.shellEscape("/tmp/`pwd`") == "\"/tmp/\\`pwd\\`\"")
     }
+
+    @Test
 
     func test_shellEscape_escapesDoubleQuote() {
-        XCTAssertEqual(ZmxBackend.shellEscape("/tmp/\"quoted\""), "\"/tmp/\\\"quoted\\\"\"")
+        #expect(ZmxBackend.shellEscape("/tmp/\"quoted\"") == "\"/tmp/\\\"quoted\\\"\"")
     }
+
+    @Test
 
     func test_shellEscape_escapesBackslash() {
-        XCTAssertEqual(ZmxBackend.shellEscape("/tmp/foo\\bar"), "\"/tmp/foo\\\\bar\"")
+        #expect(ZmxBackend.shellEscape("/tmp/foo\\bar") == "\"/tmp/foo\\\\bar\"")
     }
 
+    @Test
+
     func test_shellEscape_escapesHistoryBang() {
-        XCTAssertEqual(ZmxBackend.shellEscape("/tmp/bang!"), "\"/tmp/bang\\!\"")
+        #expect(ZmxBackend.shellEscape("/tmp/bang!") == "\"/tmp/bang\\!\"")
     }
 
     // MARK: - healthCheck
+
+    @Test
 
     func test_healthCheck_returnsTrue_whenSessionInList() async {
         // Arrange
@@ -308,11 +357,13 @@ final class ZmxBackendTests: XCTestCase {
         let alive = await backend.healthCheck(handle)
 
         // Assert
-        XCTAssertTrue(alive)
+        #expect(alive)
         let call = executor.calls.first!
-        XCTAssertEqual(call.command, "/usr/local/bin/zmx")
-        XCTAssertEqual(call.args, ["list"])
+        #expect(call.command == "/usr/local/bin/zmx")
+        #expect(call.args == ["list"])
     }
+
+    @Test
 
     func test_healthCheck_returnsFalse_whenSessionNotInList() async {
         // Arrange
@@ -323,8 +374,10 @@ final class ZmxBackendTests: XCTestCase {
         let alive = await backend.healthCheck(handle)
 
         // Assert
-        XCTAssertFalse(alive)
+        #expect(!(alive))
     }
+
+    @Test
 
     func test_healthCheck_returnsFalse_onCommandFailure() async {
         // Arrange
@@ -335,8 +388,10 @@ final class ZmxBackendTests: XCTestCase {
         let alive = await backend.healthCheck(handle)
 
         // Assert
-        XCTAssertFalse(alive)
+        #expect(!(alive))
     }
+
+    @Test
 
     func test_healthCheck_returnsFalse_onEmptyOutput() async {
         // Arrange
@@ -347,10 +402,12 @@ final class ZmxBackendTests: XCTestCase {
         let alive = await backend.healthCheck(handle)
 
         // Assert
-        XCTAssertFalse(alive)
+        #expect(!(alive))
     }
 
     // MARK: - destroyPaneSession
+
+    @Test
 
     func test_destroyPaneSession_sendsKillCommand() async throws {
         // Arrange
@@ -362,9 +419,11 @@ final class ZmxBackendTests: XCTestCase {
 
         // Assert
         let call = executor.calls.first!
-        XCTAssertEqual(call.command, "/usr/local/bin/zmx")
-        XCTAssertEqual(call.args, ["kill", handle.id])
+        #expect(call.command == "/usr/local/bin/zmx")
+        #expect(call.args == ["kill", handle.id])
     }
+
+    @Test
 
     func test_destroyPaneSession_throwsOnFailure() async {
         // Arrange
@@ -374,13 +433,15 @@ final class ZmxBackendTests: XCTestCase {
         // Act & Assert
         do {
             try await backend.destroyPaneSession(handle)
-            XCTFail("Expected error")
+            Issue.record("Expected error")
         } catch {
-            XCTAssertTrue(error is SessionBackendError)
+            #expect(error is SessionBackendError)
         }
     }
 
     // MARK: - discoverOrphanSessions
+
+    @Test
 
     func test_discoverOrphanSessions_filtersCorrectly() async {
         // Arrange
@@ -396,11 +457,13 @@ final class ZmxBackendTests: XCTestCase {
         let orphans = await backend.discoverOrphanSessions(excluding: ["agentstudio--abc--111--222"])
 
         // Assert
-        XCTAssertEqual(orphans.count, 2)
-        XCTAssertTrue(orphans.contains("agentstudio--def--333--444"))
-        XCTAssertTrue(orphans.contains("agentstudio--ghi--555--666"))
-        XCTAssertFalse(orphans.contains("user-session"))
+        #expect(orphans.count == 2)
+        #expect(orphans.contains("agentstudio--def--333--444"))
+        #expect(orphans.contains("agentstudio--ghi--555--666"))
+        #expect(!(orphans.contains("user-session")))
     }
+
+    @Test
 
     func test_discoverOrphanSessions_passesZmxDirEnv() async {
         // Arrange
@@ -411,9 +474,11 @@ final class ZmxBackendTests: XCTestCase {
 
         // Assert
         let call = executor.calls.first!
-        XCTAssertEqual(call.command, "/usr/local/bin/zmx")
-        XCTAssertEqual(call.args, ["list"])
+        #expect(call.command == "/usr/local/bin/zmx")
+        #expect(call.args == ["list"])
     }
+
+    @Test
 
     func test_discoverOrphanSessions_returnsEmpty_onFailure() async {
         // Arrange
@@ -423,8 +488,10 @@ final class ZmxBackendTests: XCTestCase {
         let orphans = await backend.discoverOrphanSessions(excluding: [])
 
         // Assert
-        XCTAssertTrue(orphans.isEmpty)
+        #expect(orphans.isEmpty)
     }
+
+    @Test
 
     func test_discoverOrphanSessions_includesDrawerSessions() async {
         // Arrange — mix of main and drawer sessions
@@ -440,12 +507,14 @@ final class ZmxBackendTests: XCTestCase {
         let orphans = await backend.discoverOrphanSessions(excluding: ["agentstudio--abc--111--222"])
 
         // Assert
-        XCTAssertEqual(orphans.count, 1)
-        XCTAssertTrue(orphans.contains("agentstudio-d--aabb--ccdd"))
-        XCTAssertFalse(orphans.contains("user-session"))
+        #expect(orphans.count == 1)
+        #expect(orphans.contains("agentstudio-d--aabb--ccdd"))
+        #expect(!(orphans.contains("user-session")))
     }
 
     // MARK: - destroySessionById
+
+    @Test
 
     func test_destroySessionById_sendsKillCommand() async throws {
         // Arrange
@@ -456,9 +525,11 @@ final class ZmxBackendTests: XCTestCase {
 
         // Assert
         let call = executor.calls.first!
-        XCTAssertEqual(call.command, "/usr/local/bin/zmx")
-        XCTAssertEqual(call.args, ["kill", "agentstudio--abc--def--ghi"])
+        #expect(call.command == "/usr/local/bin/zmx")
+        #expect(call.args == ["kill", "agentstudio--abc--def--ghi"])
     }
+
+    @Test
 
     func test_destroySessionById_throwsOnFailure() async {
         // Arrange
@@ -467,13 +538,15 @@ final class ZmxBackendTests: XCTestCase {
         // Act & Assert
         do {
             try await backend.destroySessionById("agentstudio--abc--def--ghi")
-            XCTFail("Expected error")
+            Issue.record("Expected error")
         } catch {
-            XCTAssertTrue(error is SessionBackendError)
+            #expect(error is SessionBackendError)
         }
     }
 
     // MARK: - socketExists
+
+    @Test
 
     func test_socketExists_returnsTrueWhenDirExists() {
         // Arrange — use a backend pointed at an existing temp dir
@@ -481,18 +554,22 @@ final class ZmxBackendTests: XCTestCase {
         let tempBackend = ZmxBackend(executor: executor, zmxPath: "/usr/local/bin/zmx", zmxDir: tempDir)
 
         // Assert
-        XCTAssertTrue(tempBackend.socketExists())
+        #expect(tempBackend.socketExists())
     }
+
+    @Test
 
     func test_socketExists_returnsFalseWhenDirMissing() {
         // Arrange
         let badBackend = ZmxBackend(executor: executor, zmxPath: "/usr/local/bin/zmx", zmxDir: "/nonexistent/\(UUID())")
 
         // Assert
-        XCTAssertFalse(badBackend.socketExists())
+        #expect(!(badBackend.socketExists()))
     }
 
     // MARK: - ZMX_DIR Environment Propagation
+
+    @Test
 
     func test_healthCheck_passesZmxDirEnv() async {
         // Arrange
@@ -504,8 +581,10 @@ final class ZmxBackendTests: XCTestCase {
 
         // Assert
         let call = executor.calls.first!
-        XCTAssertEqual(call.environment?["ZMX_DIR"], "/tmp/zmx-test")
+        #expect(call.environment?["ZMX_DIR"] == "/tmp/zmx-test")
     }
+
+    @Test
 
     func test_destroyPaneSession_passesZmxDirEnv() async throws {
         // Arrange
@@ -517,8 +596,10 @@ final class ZmxBackendTests: XCTestCase {
 
         // Assert
         let call = executor.calls.first!
-        XCTAssertEqual(call.environment?["ZMX_DIR"], "/tmp/zmx-test")
+        #expect(call.environment?["ZMX_DIR"] == "/tmp/zmx-test")
     }
+
+    @Test
 
     func test_destroySessionById_passesZmxDirEnv() async throws {
         // Arrange
@@ -529,6 +610,6 @@ final class ZmxBackendTests: XCTestCase {
 
         // Assert
         let call = executor.calls.first!
-        XCTAssertEqual(call.environment?["ZMX_DIR"], "/tmp/zmx-test")
+        #expect(call.environment?["ZMX_DIR"] == "/tmp/zmx-test")
     }
 }

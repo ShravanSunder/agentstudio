@@ -1,20 +1,24 @@
-import XCTest
+import Testing
+import Foundation
 
 @testable import AgentStudio
 
+@Suite(.serialized)
 @MainActor
-final class StateMachineTests: XCTestCase {
+struct StateMachineTests {
 
     // MARK: - Basic Transitions
 
+    @Test
     func test_machine_initialState() {
         // Arrange & Act
         let machine = Machine<SessionStatus>(initialState: .unknown)
 
         // Assert
-        XCTAssertEqual(machine.state, .unknown)
+        #expect(machine.state == .unknown)
     }
 
+    @Test
     func test_machine_transitionsState() async {
         // Arrange
         let machine = Machine<SessionStatus>(initialState: .unknown)
@@ -23,9 +27,10 @@ final class StateMachineTests: XCTestCase {
         await machine.send(.verify)
 
         // Assert
-        XCTAssertEqual(machine.state, .verifying)
+        #expect(machine.state == .verifying)
     }
 
+    @Test
     func test_machine_executesEffects() async {
         // Arrange
         let machine = Machine<SessionStatus>(initialState: .unknown)
@@ -38,14 +43,15 @@ final class StateMachineTests: XCTestCase {
         await machine.send(.verify)
 
         // Assert
-        XCTAssertEqual(machine.state, .verifying)
-        XCTAssertEqual(executedEffects.count, 1)
+        #expect(machine.state == .verifying)
+        #expect(executedEffects.count == 1)
         if case .checkSocket = executedEffects.first {
         } else {
-            XCTFail("Expected .checkSocket effect")
+            Issue.record("Expected .checkSocket effect")
         }
     }
 
+    @Test
     func test_machine_unhandledEventStaysInState() async {
         // Arrange
         let machine = Machine<SessionStatus>(initialState: .unknown)
@@ -54,11 +60,12 @@ final class StateMachineTests: XCTestCase {
         await machine.send(.healthCheckPassed)
 
         // Assert
-        XCTAssertEqual(machine.state, .unknown)
+        #expect(machine.state == .unknown)
     }
 
     // MARK: - Event Queue (Reentrancy Safety)
 
+    @Test
     func test_machine_queuesEventsFromEffectHandler() async {
         // Arrange
         let machine = Machine<SessionStatus>(initialState: .alive)
@@ -78,9 +85,10 @@ final class StateMachineTests: XCTestCase {
         // .alive -> .dead -> (effects: cancelHealthCheck, notifyDead)
         // During cancelHealthCheck effect, .create is queued
         // After all effects, .create is processed: .dead -> .verifying
-        XCTAssertEqual(machine.state, .verifying)
+        #expect(machine.state == .verifying)
     }
 
+    @Test
     func test_machine_sendAlwaysReturnsTrue() async {
         // Arrange
         let machine = Machine<SessionStatus>(initialState: .unknown)
@@ -89,11 +97,12 @@ final class StateMachineTests: XCTestCase {
         let result = await machine.send(.verify)
 
         // Assert — events are never dropped
-        XCTAssertTrue(result)
+        #expect(result)
     }
 
     // MARK: - Queue Depth Guard
 
+    @Test
     func test_machine_capsQueueDepthOnRunaway() async {
         // Arrange — use a handler that always re-sends an event, creating a cycle
         let machine = Machine<SessionStatus>(initialState: .alive)
@@ -114,15 +123,17 @@ final class StateMachineTests: XCTestCase {
         // Assert — machine should have capped at maxQueueDepth instead of looping forever.
         // Each healthCheckPassed → scheduleHealthCheck → handler sends healthCheckPassed,
         // so effectCount tracks how many cycles occurred.
-        XCTAssertLessThanOrEqual(
-            effectCount, Machine<SessionStatus>.maxQueueDepth + 1,
-            "Queue depth guard should cap runaway cycles")
+        #expect(
+            effectCount <= Machine<SessionStatus>.maxQueueDepth + 1,
+            "Queue depth guard should cap runaway cycles"
+        )
         // Machine should still be in a valid state (alive, since healthCheckPassed→alive)
-        XCTAssertEqual(machine.state, .alive)
+        #expect(machine.state == .alive)
     }
 
     // MARK: - Force State
 
+    @Test
     func test_machine_forceState_overridesCurrentState() {
         // Arrange
         let machine = Machine<SessionStatus>(initialState: .unknown)
@@ -131,56 +142,60 @@ final class StateMachineTests: XCTestCase {
         machine.forceState(.alive)
 
         // Assert
-        XCTAssertEqual(machine.state, .alive)
+        #expect(machine.state == .alive)
     }
 
     // MARK: - SessionStatus Transitions
 
+    @Test
     func test_sessionStatus_fullVerificationPath() async {
         // Arrange
         let machine = Machine<SessionStatus>(initialState: .unknown)
 
         // Act — simulate full verification: unknown -> verifying -> alive
         await machine.send(.verify)
-        XCTAssertEqual(machine.state, .verifying)
+        #expect(machine.state == .verifying)
 
         await machine.send(.socketFound)
-        XCTAssertEqual(machine.state, .verifying)
+        #expect(machine.state == .verifying)
 
         await machine.send(.sessionDetected)
 
         // Assert
-        XCTAssertEqual(machine.state, .alive)
+        #expect(machine.state == .alive)
     }
 
+    @Test
     func test_sessionStatus_healthCheckCycle() async {
         // Arrange
         let machine = Machine<SessionStatus>(initialState: .alive)
 
         // Act
         await machine.send(.healthCheckPassed)
-        XCTAssertEqual(machine.state, .alive)
+        #expect(machine.state == .alive)
 
         await machine.send(.healthCheckFailed)
 
         // Assert
-        XCTAssertEqual(machine.state, .dead)
+        #expect(machine.state == .dead)
     }
 
+    @Test
     func test_sessionStatus_recoveryPath() async {
         // Arrange
         let machine = Machine<SessionStatus>(initialState: .dead)
 
         // Act
         await machine.send(.attemptRecovery)
-        XCTAssertEqual(machine.state, .recovering)
+        #expect(machine.state == .recovering)
 
         await machine.send(.recoverySucceeded)
 
         // Assert
-        XCTAssertEqual(machine.state, .alive)
+        #expect(machine.state == .alive)
     }
 
+    @Test
     func test_sessionStatus_recoveryFailure() async {
         // Arrange
         let machine = Machine<SessionStatus>(initialState: .dead)
@@ -190,7 +205,7 @@ final class StateMachineTests: XCTestCase {
         await machine.send(.recoveryFailed(reason: "gone"))
 
         // Assert
-        XCTAssertEqual(machine.state, .failed(reason: "gone"))
+        #expect(machine.state == .failed(reason: "gone"))
     }
 
 }

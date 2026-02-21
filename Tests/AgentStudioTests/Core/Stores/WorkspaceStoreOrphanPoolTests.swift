@@ -1,14 +1,16 @@
-import XCTest
+import Testing
+import Foundation
 
 @testable import AgentStudio
 
 @MainActor
-final class WorkspaceStoreOrphanPoolTests: XCTestCase {
+@Suite(.serialized)
+final class WorkspaceStoreOrphanPoolTests {
 
     private var store: WorkspaceStore!
 
-    override func setUp() {
-        super.setUp()
+    @BeforeEach
+    func setUp() {
         store = WorkspaceStore(
             persistor: WorkspacePersistor(
                 workspacesDir: FileManager.default.temporaryDirectory.appending(path: UUID().uuidString)))
@@ -25,11 +27,15 @@ final class WorkspaceStoreOrphanPoolTests: XCTestCase {
 
     // MARK: - orphanedPanes query
 
+    @Test
+
     func test_orphanedPanes_emptyByDefault() {
         _ = createTabWithPane()
 
-        XCTAssertTrue(store.orphanedPanes.isEmpty)
+        #expect(store.orphanedPanes.isEmpty)
     }
+
+    @Test
 
     func test_orphanedPanes_returnsBackgroundedPanes() {
         let (_, pane1) = createTabWithPane()
@@ -37,14 +43,16 @@ final class WorkspaceStoreOrphanPoolTests: XCTestCase {
 
         store.backgroundPane(pane1.id)
 
-        XCTAssertEqual(store.orphanedPanes.count, 1)
-        XCTAssertEqual(store.orphanedPanes[0].id, pane1.id)
+        #expect(store.orphanedPanes.count == 1)
+        #expect(store.orphanedPanes[0].id == pane1.id)
 
         // pane2 is still active
-        XCTAssertFalse(store.orphanedPanes.contains { $0.id == pane2.id })
+        #expect(!(store.orphanedPanes.contains { $0.id == pane2.id }))
     }
 
     // MARK: - backgroundPane
+
+    @Test
 
     func test_backgroundPane_removesFromLayout() {
         let pane1 = store.createPane(source: .floating(workingDirectory: nil, title: nil))
@@ -59,23 +67,27 @@ final class WorkspaceStoreOrphanPoolTests: XCTestCase {
 
         // Pane1 should be gone from layout
         let updatedTab = store.tab(tab.id)!
-        XCTAssertFalse(updatedTab.panes.contains(pane1.id))
-        XCTAssertTrue(updatedTab.panes.contains(pane2.id))
+        #expect(!(updatedTab.panes.contains(pane1.id)))
+        #expect(updatedTab.panes.contains(pane2.id))
 
         // But still in the store dict
-        XCTAssertNotNil(store.pane(pane1.id))
-        XCTAssertEqual(store.pane(pane1.id)!.residency, .backgrounded)
+        #expect((store.pane(pane1.id)) != nil)
+        #expect(store.pane(pane1.id)!.residency == .backgrounded)
     }
+
+    @Test
 
     func test_backgroundPane_lastPaneRemovesTab() {
         let (tab, pane) = createTabWithPane()
 
         store.backgroundPane(pane.id)
 
-        XCTAssertNil(store.tab(tab.id))
-        XCTAssertNotNil(store.pane(pane.id))
-        XCTAssertEqual(store.pane(pane.id)!.residency, .backgrounded)
+        #expect((store.tab(tab.id)) == nil)
+        #expect((store.pane(pane.id)) != nil)
+        #expect(store.pane(pane.id)!.residency == .backgrounded)
     }
+
+    @Test
 
     func test_backgroundPane_updatesActivePaneId() {
         let pane1 = store.createPane(source: .floating(workingDirectory: nil, title: nil))
@@ -90,8 +102,10 @@ final class WorkspaceStoreOrphanPoolTests: XCTestCase {
         store.backgroundPane(pane1.id)
 
         // Active pane should update to remaining pane
-        XCTAssertEqual(store.tab(tab.id)!.activePaneId, pane2.id)
+        #expect(store.tab(tab.id)!.activePaneId == pane2.id)
     }
+
+    @Test
 
     func test_backgroundPane_clearsZoomIfZoomed() {
         let pane1 = store.createPane(source: .floating(workingDirectory: nil, title: nil))
@@ -105,8 +119,10 @@ final class WorkspaceStoreOrphanPoolTests: XCTestCase {
 
         store.backgroundPane(pane1.id)
 
-        XCTAssertNil(store.tab(tab.id)!.zoomedPaneId)
+        #expect((store.tab(tab.id)!.zoomedPaneId) == nil)
     }
+
+    @Test
 
     func test_backgroundPane_marksDirty() {
         let (_, pane) = createTabWithPane()
@@ -114,17 +130,19 @@ final class WorkspaceStoreOrphanPoolTests: XCTestCase {
 
         store.backgroundPane(pane.id)
 
-        XCTAssertTrue(store.isDirty)
+        #expect(store.isDirty)
     }
 
     // MARK: - reactivatePane
+
+    @Test
 
     func test_reactivatePane_insertsIntoLayout() {
         let (tab1, pane1) = createTabWithPane()
         let (_, pane2) = createTabWithPane()
 
         store.backgroundPane(pane2.id)
-        XCTAssertEqual(store.orphanedPanes.count, 1)
+        #expect(store.orphanedPanes.count == 1)
 
         store.reactivatePane(
             pane2.id, inTab: tab1.id, at: pane1.id,
@@ -133,10 +151,12 @@ final class WorkspaceStoreOrphanPoolTests: XCTestCase {
 
         // Should now be in tab1's layout
         let updatedTab = store.tab(tab1.id)!
-        XCTAssertTrue(updatedTab.panes.contains(pane2.id))
-        XCTAssertEqual(store.pane(pane2.id)!.residency, .active)
-        XCTAssertTrue(store.orphanedPanes.isEmpty)
+        #expect(updatedTab.panes.contains(pane2.id))
+        #expect(store.pane(pane2.id)!.residency == .active)
+        #expect(store.orphanedPanes.isEmpty)
     }
+
+    @Test
 
     func test_reactivatePane_nonBackgrounded_noOp() {
         let (tab, pane1) = createTabWithPane()
@@ -152,21 +172,25 @@ final class WorkspaceStoreOrphanPoolTests: XCTestCase {
         )
 
         // Should remain as-is (no duplicate insertion)
-        XCTAssertEqual(store.pane(pane2.id)!.residency, .active)
+        #expect(store.pane(pane2.id)!.residency == .active)
     }
 
     // MARK: - purgeOrphanedPane
 
+    @Test
+
     func test_purgeOrphanedPane_removesFromStore() {
         let (_, pane) = createTabWithPane()
         store.backgroundPane(pane.id)
-        XCTAssertNotNil(store.pane(pane.id))
+        #expect((store.pane(pane.id)) != nil)
 
         store.purgeOrphanedPane(pane.id)
 
-        XCTAssertNil(store.pane(pane.id))
-        XCTAssertTrue(store.orphanedPanes.isEmpty)
+        #expect((store.pane(pane.id)) == nil)
+        #expect(store.orphanedPanes.isEmpty)
     }
+
+    @Test
 
     func test_purgeOrphanedPane_activePane_noOp() {
         let (_, pane) = createTabWithPane()
@@ -174,10 +198,12 @@ final class WorkspaceStoreOrphanPoolTests: XCTestCase {
         store.purgeOrphanedPane(pane.id)
 
         // Should NOT remove an active pane
-        XCTAssertNotNil(store.pane(pane.id))
+        #expect((store.pane(pane.id)) != nil)
     }
 
     // MARK: - Full lifecycle
+
+    @Test
 
     func test_fullLifecycle_background_reactivate() {
         let pane1 = store.createPane(source: .floating(workingDirectory: nil, title: nil))
@@ -190,26 +216,28 @@ final class WorkspaceStoreOrphanPoolTests: XCTestCase {
 
         // Background pane2
         store.backgroundPane(pane2.id)
-        XCTAssertEqual(store.orphanedPanes.count, 1)
-        XCTAssertEqual(store.tab(tab.id)!.panes, [pane1.id])
+        #expect(store.orphanedPanes.count == 1)
+        #expect(store.tab(tab.id)!.panes == [pane1.id])
 
         // Reactivate pane2 back into the same tab
         store.reactivatePane(
             pane2.id, inTab: tab.id, at: pane1.id,
             direction: .horizontal, position: .after
         )
-        XCTAssertTrue(store.orphanedPanes.isEmpty)
-        XCTAssertTrue(store.tab(tab.id)!.panes.contains(pane2.id))
-        XCTAssertEqual(store.pane(pane2.id)!.residency, .active)
+        #expect(store.orphanedPanes.isEmpty)
+        #expect(store.tab(tab.id)!.panes.contains(pane2.id))
+        #expect(store.pane(pane2.id)!.residency == .active)
     }
+
+    @Test
 
     func test_fullLifecycle_background_purge() {
         let (_, pane) = createTabWithPane()
 
         store.backgroundPane(pane.id)
-        XCTAssertNotNil(store.pane(pane.id))
+        #expect((store.pane(pane.id)) != nil)
 
         store.purgeOrphanedPane(pane.id)
-        XCTAssertNil(store.pane(pane.id))
+        #expect((store.pane(pane.id)) == nil)
     }
 }

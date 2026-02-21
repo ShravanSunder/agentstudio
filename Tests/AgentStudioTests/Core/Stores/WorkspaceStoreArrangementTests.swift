@@ -1,14 +1,16 @@
-import XCTest
+import Testing
+import Foundation
 
 @testable import AgentStudio
 
 @MainActor
-final class WorkspaceStoreArrangementTests: XCTestCase {
+@Suite(.serialized)
+final class WorkspaceStoreArrangementTests {
 
     private var store: WorkspaceStore!
 
-    override func setUp() {
-        super.setUp()
+    @BeforeEach
+    func setUp() {
         store = WorkspaceStore(
             persistor: WorkspacePersistor(
                 workspacesDir: FileManager.default.temporaryDirectory.appending(path: UUID().uuidString)))
@@ -36,6 +38,8 @@ final class WorkspaceStoreArrangementTests: XCTestCase {
 
     // MARK: - createArrangement
 
+    @Test
+
     func test_createArrangement_subsetOfPanes() {
         // Arrange
         let (tab, paneIds) = createTabWithPanes(3)
@@ -48,16 +52,18 @@ final class WorkspaceStoreArrangementTests: XCTestCase {
         )
 
         // Assert
-        XCTAssertNotNil(arrId)
+        #expect((arrId) != nil)
         let updatedTab = store.tab(tab.id)!
-        XCTAssertEqual(updatedTab.arrangements.count, 2)
+        #expect(updatedTab.arrangements.count == 2)
 
         let custom = updatedTab.arrangements.first { $0.id == arrId }!
-        XCTAssertEqual(custom.name, "Focus")
-        XCTAssertFalse(custom.isDefault)
-        XCTAssertEqual(Set(custom.layout.paneIds), Set([paneIds[0], paneIds[1]]))
-        XCTAssertEqual(custom.visiblePaneIds, Set([paneIds[0], paneIds[1]]))
+        #expect(custom.name == "Focus")
+        #expect(!(custom.isDefault))
+        #expect(Set(custom.layout.paneIds) == Set([paneIds[0], paneIds[1]]))
+        #expect(custom.visiblePaneIds == Set([paneIds[0], paneIds[1]]))
     }
+
+    @Test
 
     func test_createArrangement_singlePane() {
         let (tab, paneIds) = createTabWithPanes(3)
@@ -68,10 +74,12 @@ final class WorkspaceStoreArrangementTests: XCTestCase {
             inTab: tab.id
         )
 
-        XCTAssertNotNil(arrId)
+        #expect((arrId) != nil)
         let custom = store.tab(tab.id)!.arrangements.first { $0.id == arrId }!
-        XCTAssertEqual(custom.layout.paneIds, [paneIds[2]])
+        #expect(custom.layout.paneIds == [paneIds[2]])
     }
+
+    @Test
 
     func test_createArrangement_allPanes_effectiveDuplicate() {
         let (tab, paneIds) = createTabWithPanes(2)
@@ -82,10 +90,12 @@ final class WorkspaceStoreArrangementTests: XCTestCase {
             inTab: tab.id
         )
 
-        XCTAssertNotNil(arrId)
+        #expect((arrId) != nil)
         let custom = store.tab(tab.id)!.arrangements.first { $0.id == arrId }!
-        XCTAssertEqual(Set(custom.layout.paneIds), Set(paneIds))
+        #expect(Set(custom.layout.paneIds) == Set(paneIds))
     }
+
+    @Test
 
     func test_createArrangement_emptyPanes_returnsNil() {
         let (tab, _) = createTabWithPanes(2)
@@ -96,9 +106,11 @@ final class WorkspaceStoreArrangementTests: XCTestCase {
             inTab: tab.id
         )
 
-        XCTAssertNil(arrId)
-        XCTAssertEqual(store.tab(tab.id)!.arrangements.count, 1)  // only default
+        #expect((arrId) == nil)
+        #expect(store.tab(tab.id)!.arrangements.count == 1)  // only default
     }
+
+    @Test
 
     func test_createArrangement_invalidPaneId_returnsNil() {
         let (tab, _) = createTabWithPanes(2)
@@ -109,8 +121,10 @@ final class WorkspaceStoreArrangementTests: XCTestCase {
             inTab: tab.id
         )
 
-        XCTAssertNil(arrId)
+        #expect((arrId) == nil)
     }
+
+    @Test
 
     func test_createArrangement_marksDirty() {
         let (tab, paneIds) = createTabWithPanes(2)
@@ -122,10 +136,12 @@ final class WorkspaceStoreArrangementTests: XCTestCase {
             inTab: tab.id
         )
 
-        XCTAssertTrue(store.isDirty)
+        #expect(store.isDirty)
     }
 
     // MARK: - switchArrangement
+
+    @Test
 
     func test_switchArrangement_changesActiveArrangement() {
         let (tab, paneIds) = createTabWithPanes(3)
@@ -140,9 +156,11 @@ final class WorkspaceStoreArrangementTests: XCTestCase {
 
         // Assert
         let updatedTab = store.tab(tab.id)!
-        XCTAssertEqual(updatedTab.activeArrangementId, arrId)
-        XCTAssertEqual(Set(updatedTab.paneIds), Set([paneIds[0], paneIds[1]]))
+        #expect(updatedTab.activeArrangementId == arrId)
+        #expect(Set(updatedTab.paneIds) == Set([paneIds[0], paneIds[1]]))
     }
+
+    @Test
 
     func test_switchArrangement_clearsZoom() {
         let (tab, paneIds) = createTabWithPanes(3)
@@ -155,8 +173,10 @@ final class WorkspaceStoreArrangementTests: XCTestCase {
 
         store.switchArrangement(to: arrId, inTab: tab.id)
 
-        XCTAssertNil(store.tab(tab.id)!.zoomedPaneId)
+        #expect((store.tab(tab.id)!.zoomedPaneId) == nil)
     }
+
+    @Test
 
     func test_switchArrangement_updatesActivePaneIdIfNotInNewArrangement() {
         let (tab, paneIds) = createTabWithPanes(3)
@@ -175,9 +195,11 @@ final class WorkspaceStoreArrangementTests: XCTestCase {
 
         // Assert: active pane should be reset to one in the arrangement
         let activePaneId = store.tab(tab.id)!.activePaneId
-        XCTAssertNotNil(activePaneId)
-        XCTAssertTrue([paneIds[0], paneIds[1]].contains(activePaneId!))
+        #expect((activePaneId) != nil)
+        #expect([paneIds[0], paneIds[1]].contains(activePaneId!))
     }
+
+    @Test
 
     func test_switchArrangement_keepActivePaneIfInNewArrangement() {
         let (tab, paneIds) = createTabWithPanes(3)
@@ -192,8 +214,10 @@ final class WorkspaceStoreArrangementTests: XCTestCase {
 
         store.switchArrangement(to: arrId, inTab: tab.id)
 
-        XCTAssertEqual(store.tab(tab.id)!.activePaneId, paneIds[1])
+        #expect(store.tab(tab.id)!.activePaneId == paneIds[1])
     }
+
+    @Test
 
     func test_switchArrangement_sameArrangement_noOp() {
         let (tab, _) = createTabWithPanes(2)
@@ -203,8 +227,10 @@ final class WorkspaceStoreArrangementTests: XCTestCase {
         store.switchArrangement(to: defaultArrId, inTab: tab.id)
 
         // No change, so isDirty should NOT have been set by the switch
-        XCTAssertFalse(store.isDirty)
+        #expect(!(store.isDirty))
     }
+
+    @Test
 
     func test_switchArrangement_invalidArrangementId_noOp() {
         let (tab, _) = createTabWithPanes(2)
@@ -212,10 +238,12 @@ final class WorkspaceStoreArrangementTests: XCTestCase {
 
         store.switchArrangement(to: UUID(), inTab: tab.id)
 
-        XCTAssertEqual(store.tab(tab.id)!.activeArrangementId, originalArrId)
+        #expect(store.tab(tab.id)!.activeArrangementId == originalArrId)
     }
 
     // MARK: - removeArrangement
+
+    @Test
 
     func test_removeArrangement_removesCustom() {
         let (tab, paneIds) = createTabWithPanes(2)
@@ -227,8 +255,10 @@ final class WorkspaceStoreArrangementTests: XCTestCase {
 
         store.removeArrangement(arrId, inTab: tab.id)
 
-        XCTAssertEqual(store.tab(tab.id)!.arrangements.count, 1)  // only default remains
+        #expect(store.tab(tab.id)!.arrangements.count == 1)  // only default remains
     }
+
+    @Test
 
     func test_removeArrangement_cannotRemoveDefault() {
         let (tab, _) = createTabWithPanes(2)
@@ -237,8 +267,10 @@ final class WorkspaceStoreArrangementTests: XCTestCase {
         store.removeArrangement(defaultArrId, inTab: tab.id)
 
         // Should still have the default
-        XCTAssertEqual(store.tab(tab.id)!.arrangements.count, 1)
+        #expect(store.tab(tab.id)!.arrangements.count == 1)
     }
+
+    @Test
 
     func test_removeArrangement_activeArrangement_switchesToDefault() {
         let (tab, paneIds) = createTabWithPanes(3)
@@ -248,14 +280,16 @@ final class WorkspaceStoreArrangementTests: XCTestCase {
             inTab: tab.id
         )!
         store.switchArrangement(to: arrId, inTab: tab.id)
-        XCTAssertEqual(store.tab(tab.id)!.activeArrangementId, arrId)
+        #expect(store.tab(tab.id)!.activeArrangementId == arrId)
 
         store.removeArrangement(arrId, inTab: tab.id)
 
         let updatedTab = store.tab(tab.id)!
-        XCTAssertEqual(updatedTab.activeArrangementId, updatedTab.defaultArrangement.id)
-        XCTAssertEqual(updatedTab.arrangements.count, 1)
+        #expect(updatedTab.activeArrangementId == updatedTab.defaultArrangement.id)
+        #expect(updatedTab.arrangements.count == 1)
     }
+
+    @Test
 
     func test_removeArrangement_inactiveArrangement_doesNotChangeActive() {
         let (tab, paneIds) = createTabWithPanes(3)
@@ -267,11 +301,13 @@ final class WorkspaceStoreArrangementTests: XCTestCase {
         let bId = store.tab(tab.id)!.arrangements.last!.id
         store.removeArrangement(bId, inTab: tab.id)
 
-        XCTAssertEqual(store.tab(tab.id)!.activeArrangementId, arr1)
-        XCTAssertEqual(store.tab(tab.id)!.arrangements.count, 2)  // default + A
+        #expect(store.tab(tab.id)!.activeArrangementId == arr1)
+        #expect(store.tab(tab.id)!.arrangements.count == 2)  // default + A
     }
 
     // MARK: - renameArrangement
+
+    @Test
 
     func test_renameArrangement_changesName() {
         let (tab, paneIds) = createTabWithPanes(2)
@@ -284,8 +320,10 @@ final class WorkspaceStoreArrangementTests: XCTestCase {
         store.renameArrangement(arrId, name: "New Name", inTab: tab.id)
 
         let arr = store.tab(tab.id)!.arrangements.first { $0.id == arrId }!
-        XCTAssertEqual(arr.name, "New Name")
+        #expect(arr.name == "New Name")
     }
+
+    @Test
 
     func test_renameArrangement_invalidId_noOp() {
         let (tab, _) = createTabWithPanes(2)
@@ -295,6 +333,8 @@ final class WorkspaceStoreArrangementTests: XCTestCase {
     }
 
     // MARK: - Arrangement + Layout Mutations Interaction
+
+    @Test
 
     func test_insertPane_inCustomArrangement_alsoAddsToDefault() {
         let (tab, paneIds) = createTabWithPanes(2)
@@ -314,12 +354,14 @@ final class WorkspaceStoreArrangementTests: XCTestCase {
 
         // Should be in custom arrangement (active)
         let customArr = store.tab(tab.id)!.arrangements.first { $0.id == arrId }!
-        XCTAssertTrue(customArr.layout.contains(newPane.id))
+        #expect(customArr.layout.contains(newPane.id))
 
         // Should also be in default arrangement (since pane[0] is there)
         let defaultArr = store.tab(tab.id)!.defaultArrangement
-        XCTAssertTrue(defaultArr.layout.contains(newPane.id))
+        #expect(defaultArr.layout.contains(newPane.id))
     }
+
+    @Test
 
     func test_removePaneFromLayout_inCustomArrangement_alsoRemovesFromDefault() {
         let (tab, paneIds) = createTabWithPanes(3)
@@ -335,14 +377,16 @@ final class WorkspaceStoreArrangementTests: XCTestCase {
 
         // Should be removed from custom
         let customArr = store.tab(tab.id)!.arrangements.first { $0.id == arrId }!
-        XCTAssertFalse(customArr.layout.contains(paneIds[1]))
+        #expect(!(customArr.layout.contains(paneIds[1])))
 
         // Should also be removed from default
         let defaultArr = store.tab(tab.id)!.defaultArrangement
-        XCTAssertFalse(defaultArr.layout.contains(paneIds[1]))
+        #expect(!(defaultArr.layout.contains(paneIds[1])))
     }
 
     // MARK: - Persistence Round-Trip
+
+    @Test
 
     func test_arrangement_persistsAndRestores() throws {
         let tempDir = FileManager.default.temporaryDirectory
@@ -372,12 +416,12 @@ final class WorkspaceStoreArrangementTests: XCTestCase {
         store2.restore()
 
         let restoredTab = store2.tabs.first!
-        XCTAssertEqual(restoredTab.arrangements.count, 2)
+        #expect(restoredTab.arrangements.count == 2)
 
         let restoredCustom = restoredTab.arrangements.first { !$0.isDefault }!
-        XCTAssertEqual(restoredCustom.name, "Focus")
-        XCTAssertEqual(restoredCustom.layout.paneIds, [pane1.id])
-        XCTAssertEqual(restoredTab.activeArrangementId, arrId)
+        #expect(restoredCustom.name == "Focus")
+        #expect(restoredCustom.layout.paneIds == [pane1.id])
+        #expect(restoredTab.activeArrangementId == arrId)
 
         try? FileManager.default.removeItem(at: tempDir)
     }

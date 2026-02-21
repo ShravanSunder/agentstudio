@@ -1,59 +1,73 @@
-import XCTest
+import Testing
+import Foundation
 
 @testable import AgentStudio
 
 @MainActor
-final class SessionRuntimeTests: XCTestCase {
+@Suite(.serialized)
+final class SessionRuntimeTests {
 
     private var runtime: SessionRuntime!
 
-    override func setUp() {
-        super.setUp()
+    @BeforeEach
+    func setUp() {
         runtime = SessionRuntime(healthCheckInterval: 1)
     }
 
-    override func tearDown() {
+    @AfterEach
+    func tearDown() {
         runtime.stopHealthChecks()
         runtime = nil
-        super.tearDown()
     }
 
     // MARK: - Status Queries
 
+    @Test
+
     func test_status_unknownPane_returnsInitializing() {
-        XCTAssertEqual(runtime.status(for: UUID()), .initializing)
+        #expect(runtime.status(for: UUID()) == .initializing)
     }
+
+    @Test
 
     func test_status_afterInitialize_returnsInitializing() {
         let id = UUID()
         runtime.initializeSession(id)
-        XCTAssertEqual(runtime.status(for: id), .initializing)
+        #expect(runtime.status(for: id) == .initializing)
     }
+
+    @Test
 
     func test_status_afterMarkRunning_returnsRunning() {
         let id = UUID()
         runtime.initializeSession(id)
         runtime.markRunning(id)
-        XCTAssertEqual(runtime.status(for: id), .running)
+        #expect(runtime.status(for: id) == .running)
     }
+
+    @Test
 
     func test_status_afterMarkExited_returnsExited() {
         let id = UUID()
         runtime.markRunning(id)
         runtime.markExited(id)
-        XCTAssertEqual(runtime.status(for: id), .exited)
+        #expect(runtime.status(for: id) == .exited)
     }
+
+    @Test
 
     func test_removeSession_clearsStatus() {
         let id = UUID()
         runtime.markRunning(id)
         runtime.removeSession(id)
         // Should return default (initializing) since entry is gone
-        XCTAssertEqual(runtime.status(for: id), .initializing)
-        XCTAssertFalse(runtime.statuses.keys.contains(id))
+        #expect(runtime.status(for: id) == .initializing)
+        #expect(!(runtime.statuses.keys.contains(id)))
     }
 
     // MARK: - Aggregate Queries
+
+    @Test
 
     func test_runningCount_reflectsState() {
         let ids = (0..<5).map { _ in UUID() }
@@ -61,8 +75,10 @@ final class SessionRuntimeTests: XCTestCase {
         runtime.markExited(ids[0])
         runtime.markExited(ids[1])
 
-        XCTAssertEqual(runtime.runningCount, 3)
+        #expect(runtime.runningCount == 3)
     }
+
+    @Test
 
     func test_panesWithStatus_filtersCorrectly() {
         let runningId = UUID()
@@ -74,16 +90,18 @@ final class SessionRuntimeTests: XCTestCase {
         runtime.initializeSession(initId)
 
         let running = runtime.panes(withStatus: .running)
-        XCTAssertEqual(running, [runningId])
+        #expect(running == [runningId])
 
         let exited = runtime.panes(withStatus: .exited)
-        XCTAssertEqual(exited, [exitedId])
+        #expect(exited == [exitedId])
 
         let initializing = runtime.panes(withStatus: .initializing)
-        XCTAssertEqual(initializing, [initId])
+        #expect(initializing == [initId])
     }
 
     // MARK: - Sync With Store
+
+    @Test
 
     func test_syncWithStore_addsNewPanes() {
         let tempDir = FileManager.default.temporaryDirectory
@@ -99,11 +117,13 @@ final class SessionRuntimeTests: XCTestCase {
 
         runtime.syncWithStore()
 
-        XCTAssertEqual(runtime.status(for: pane.id), .initializing)
-        XCTAssertTrue(runtime.statuses.keys.contains(pane.id))
+        #expect(runtime.status(for: pane.id) == .initializing)
+        #expect(runtime.statuses.keys.contains(pane.id))
 
         try? FileManager.default.removeItem(at: tempDir)
     }
+
+    @Test
 
     func test_syncWithStore_removesStalePanes() {
         let tempDir = FileManager.default.temporaryDirectory
@@ -118,22 +138,26 @@ final class SessionRuntimeTests: XCTestCase {
 
         runtime.syncWithStore()
 
-        XCTAssertFalse(runtime.statuses.keys.contains(staleId))
+        #expect(!(runtime.statuses.keys.contains(staleId)))
 
         try? FileManager.default.removeItem(at: tempDir)
     }
 
     // MARK: - Backend Registration
 
+    @Test
+
     func test_registerBackend_storesCorrectly() {
         let backend = MockSessionRuntimeBackend(provider: .zmx)
         runtime.registerBackend(backend)
         // No direct way to query backends, but startSession should use it
         // Tested via integration in startSession tests
-        XCTAssertTrue(true)  // Backend registered without error
+        #expect(true)  // Backend registered without error
     }
 
     // MARK: - Backend Operations
+
+    @Test
 
     func test_startSession_withoutBackend_marksRunning() async throws {
         let pane = makePane(
@@ -143,9 +167,11 @@ final class SessionRuntimeTests: XCTestCase {
 
         let handle = try await runtime.startSession(pane)
 
-        XCTAssertNil(handle)
-        XCTAssertEqual(runtime.status(for: pane.id), .running)
+        #expect((handle) == nil)
+        #expect(runtime.status(for: pane.id) == .running)
     }
+
+    @Test
 
     func test_startSession_withBackend_callsStart() async throws {
         let backend = MockSessionRuntimeBackend(provider: .zmx)
@@ -158,10 +184,12 @@ final class SessionRuntimeTests: XCTestCase {
 
         let handle = try await runtime.startSession(pane)
 
-        XCTAssertEqual(handle, "mock-handle-\(pane.id)")
-        XCTAssertEqual(runtime.status(for: pane.id), .running)
-        XCTAssertEqual(backend.startCount, 1)
+        #expect(handle == "mock-handle-\(pane.id)")
+        #expect(runtime.status(for: pane.id) == .running)
+        #expect(backend.startCount == 1)
     }
+
+    @Test
 
     func test_restoreSession_withoutBackend_marksRunning() async {
         let pane = makePane(
@@ -171,9 +199,11 @@ final class SessionRuntimeTests: XCTestCase {
 
         let restored = await runtime.restoreSession(pane)
 
-        XCTAssertTrue(restored)
-        XCTAssertEqual(runtime.status(for: pane.id), .running)
+        #expect(restored)
+        #expect(runtime.status(for: pane.id) == .running)
     }
+
+    @Test
 
     func test_restoreSession_withBackend_success() async {
         let backend = MockSessionRuntimeBackend(provider: .zmx)
@@ -187,9 +217,11 @@ final class SessionRuntimeTests: XCTestCase {
 
         let restored = await runtime.restoreSession(pane)
 
-        XCTAssertTrue(restored)
-        XCTAssertEqual(runtime.status(for: pane.id), .running)
+        #expect(restored)
+        #expect(runtime.status(for: pane.id) == .running)
     }
+
+    @Test
 
     func test_restoreSession_withBackend_failure() async {
         let backend = MockSessionRuntimeBackend(provider: .zmx)
@@ -203,9 +235,11 @@ final class SessionRuntimeTests: XCTestCase {
 
         let restored = await runtime.restoreSession(pane)
 
-        XCTAssertFalse(restored)
-        XCTAssertEqual(runtime.status(for: pane.id), .exited)
+        #expect(!(restored))
+        #expect(runtime.status(for: pane.id) == .exited)
     }
+
+    @Test
 
     func test_terminateSession_withBackend_marksExited() async {
         let backend = MockSessionRuntimeBackend(provider: .zmx)
@@ -219,9 +253,11 @@ final class SessionRuntimeTests: XCTestCase {
 
         await runtime.terminateSession(pane)
 
-        XCTAssertEqual(runtime.status(for: pane.id), .exited)
-        XCTAssertEqual(backend.terminateCount, 1)
+        #expect(runtime.status(for: pane.id) == .exited)
+        #expect(backend.terminateCount == 1)
     }
+
+    @Test
 
     func test_terminateSession_withoutBackend_marksExited() async {
         let pane = makePane(
@@ -232,7 +268,7 @@ final class SessionRuntimeTests: XCTestCase {
 
         await runtime.terminateSession(pane)
 
-        XCTAssertEqual(runtime.status(for: pane.id), .exited)
+        #expect(runtime.status(for: pane.id) == .exited)
     }
 }
 

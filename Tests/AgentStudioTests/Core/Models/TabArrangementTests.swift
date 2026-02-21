@@ -1,21 +1,27 @@
-import XCTest
+import Testing
+import Foundation
 
 @testable import AgentStudio
 
-final class TabArrangementTests: XCTestCase {
+@Suite(.serialized)
+final class TabArrangementTests {
 
     // MARK: - Default Arrangement Invariants
+
+    @Test
 
     func test_init_singlePane_createsDefaultArrangement() {
         let paneId = UUID()
         let tab = Tab(paneId: paneId)
 
-        XCTAssertEqual(tab.arrangements.count, 1)
-        XCTAssertTrue(tab.arrangements[0].isDefault)
-        XCTAssertEqual(tab.arrangements[0].name, "Default")
-        XCTAssertEqual(tab.arrangements[0].layout.paneIds, [paneId])
-        XCTAssertEqual(tab.arrangements[0].visiblePaneIds, [paneId])
+        #expect(tab.arrangements.count == 1)
+        #expect(tab.arrangements[0].isDefault)
+        #expect(tab.arrangements[0].name == "Default")
+        #expect(tab.arrangements[0].layout.paneIds == [paneId])
+        #expect(tab.arrangements[0].visiblePaneIds == [paneId])
     }
+
+    @Test
 
     func test_defaultArrangement_returnsIsDefaultTrue() {
         let paneA = UUID()
@@ -35,9 +41,11 @@ final class TabArrangementTests: XCTestCase {
         )
 
         // defaultArrangement should find the isDefault=true one regardless of position
-        XCTAssertEqual(tab.defaultArrangement.id, defaultArr.id)
-        XCTAssertTrue(tab.defaultArrangement.isDefault)
+        #expect(tab.defaultArrangement.id == defaultArr.id)
+        #expect(tab.defaultArrangement.isDefault)
     }
+
+    @Test
 
     func test_activeArrangement_returnsSelectedArrangement() {
         let paneA = UUID()
@@ -55,9 +63,11 @@ final class TabArrangementTests: XCTestCase {
             activePaneId: paneA
         )
 
-        XCTAssertEqual(tab.activeArrangement.id, customArr.id)
-        XCTAssertEqual(tab.activeArrangement.name, "Solo")
+        #expect(tab.activeArrangement.id == customArr.id)
+        #expect(tab.activeArrangement.name == "Solo")
     }
+
+    @Test
 
     func test_activeArrangement_fallsBackToDefault_whenIdStale() {
         let paneId = UUID()
@@ -71,10 +81,12 @@ final class TabArrangementTests: XCTestCase {
         )
 
         // Should fall back to default
-        XCTAssertEqual(tab.activeArrangement.id, defaultArr.id)
+        #expect(tab.activeArrangement.id == defaultArr.id)
     }
 
     // MARK: - Derived Properties Delegate to Active Arrangement
+
+    @Test
 
     func test_paneIds_comesFromActiveArrangement() {
         let paneA = UUID()
@@ -95,9 +107,11 @@ final class TabArrangementTests: XCTestCase {
             activePaneId: paneA
         )
 
-        XCTAssertEqual(tab.paneIds, [paneA])  // from focus arrangement
-        XCTAssertFalse(tab.isSplit)
+        #expect(tab.paneIds == [paneA])  // from focus arrangement
+        #expect(!(tab.isSplit))
     }
+
+    @Test
 
     func test_isSplit_reflectsActiveArrangementLayout() {
         let paneA = UUID()
@@ -113,17 +127,21 @@ final class TabArrangementTests: XCTestCase {
             activePaneId: paneA
         )
 
-        XCTAssertTrue(tab.isSplit)
+        #expect(tab.isSplit)
     }
+
+    @Test
 
     func test_layout_returnsActiveArrangementLayout() {
         let paneId = UUID()
         let tab = Tab(paneId: paneId)
 
-        XCTAssertEqual(tab.layout.paneIds, [paneId])
+        #expect(tab.layout.paneIds == [paneId])
     }
 
     // MARK: - Arrangement Index Helpers
+
+    @Test
 
     func test_defaultArrangementIndex_findsCorrectIndex() {
         let paneA = UUID()
@@ -138,8 +156,10 @@ final class TabArrangementTests: XCTestCase {
             activePaneId: paneA
         )
 
-        XCTAssertEqual(tab.defaultArrangementIndex, 1)
+        #expect(tab.defaultArrangementIndex == 1)
     }
+
+    @Test
 
     func test_activeArrangementIndex_findsCorrectIndex() {
         let paneA = UUID()
@@ -154,8 +174,10 @@ final class TabArrangementTests: XCTestCase {
             activePaneId: paneA
         )
 
-        XCTAssertEqual(tab.activeArrangementIndex, 1)
+        #expect(tab.activeArrangementIndex == 1)
     }
+
+    @Test
 
     func test_activeArrangementIndex_fallsBackToDefault_whenStale() {
         let paneA = UUID()
@@ -168,10 +190,12 @@ final class TabArrangementTests: XCTestCase {
             activePaneId: paneA
         )
 
-        XCTAssertEqual(tab.activeArrangementIndex, 0)  // falls back to default
+        #expect(tab.activeArrangementIndex == 0)  // falls back to default
     }
 
     // MARK: - Codable with Arrangements
+
+    @Test
 
     func test_codable_roundTrip_multipleArrangements() throws {
         let paneA = UUID()
@@ -192,12 +216,14 @@ final class TabArrangementTests: XCTestCase {
         let data = try JSONEncoder().encode(tab)
         let decoded = try JSONDecoder().decode(Tab.self, from: data)
 
-        XCTAssertEqual(decoded.arrangements.count, 2)
-        XCTAssertEqual(decoded.activeArrangementId, customArr.id)
-        XCTAssertEqual(decoded.paneIds, [paneA])  // active arrangement is focus
-        XCTAssertTrue(decoded.arrangements.contains { $0.isDefault })
-        XCTAssertEqual(decoded.arrangements.first { !$0.isDefault }?.name, "Focus")
+        #expect(decoded.arrangements.count == 2)
+        #expect(decoded.activeArrangementId == customArr.id)
+        #expect(decoded.paneIds == [paneA])  // active arrangement is focus
+        #expect(decoded.arrangements.contains { $0.isDefault })
+        #expect(decoded.arrangements.first { !$0.isDefault }?.name == "Focus")
     }
+
+    @Test
 
     func test_codable_zoomedPaneId_isTransient() throws {
         let paneId = UUID()
@@ -209,10 +235,12 @@ final class TabArrangementTests: XCTestCase {
         let decoded = try JSONDecoder().decode(Tab.self, from: data)
 
         // zoomedPaneId is excluded from CodingKeys, should be nil after decode
-        XCTAssertNil(decoded.zoomedPaneId)
+        #expect((decoded.zoomedPaneId) == nil)
     }
 
     // MARK: - PaneArrangement Model
+
+    @Test
 
     func test_paneArrangement_visiblePaneIds_defaultsToLayoutPanes() {
         let paneA = UUID()
@@ -222,8 +250,10 @@ final class TabArrangementTests: XCTestCase {
 
         let arr = PaneArrangement(name: "Test", isDefault: false, layout: layout)
 
-        XCTAssertEqual(arr.visiblePaneIds, Set(layout.paneIds))
+        #expect(arr.visiblePaneIds == Set(layout.paneIds))
     }
+
+    @Test
 
     func test_paneArrangement_visiblePaneIds_canBeSubset() {
         let paneA = UUID()
@@ -238,8 +268,10 @@ final class TabArrangementTests: XCTestCase {
             visiblePaneIds: [paneA]
         )
 
-        XCTAssertEqual(arr.visiblePaneIds, [paneA])
+        #expect(arr.visiblePaneIds == [paneA])
     }
+
+    @Test
 
     func test_paneArrangement_codable_roundTrip() throws {
         let paneA = UUID()
@@ -253,10 +285,10 @@ final class TabArrangementTests: XCTestCase {
         let data = try JSONEncoder().encode(arr)
         let decoded = try JSONDecoder().decode(PaneArrangement.self, from: data)
 
-        XCTAssertEqual(decoded.id, arr.id)
-        XCTAssertEqual(decoded.name, "Focus")
-        XCTAssertFalse(decoded.isDefault)
-        XCTAssertEqual(decoded.visiblePaneIds, [paneA])
-        XCTAssertEqual(decoded.layout.paneIds, [paneA])
+        #expect(decoded.id == arr.id)
+        #expect(decoded.name == "Focus")
+        #expect(!(decoded.isDefault))
+        #expect(decoded.visiblePaneIds == [paneA])
+        #expect(decoded.layout.paneIds == [paneA])
     }
 }

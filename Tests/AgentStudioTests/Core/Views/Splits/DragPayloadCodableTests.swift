@@ -1,10 +1,14 @@
-import XCTest
+import Testing
+import Foundation
 
 @testable import AgentStudio
 
-final class DragPayloadCodableTests: XCTestCase {
+@Suite(.serialized)
+final class DragPayloadCodableTests {
 
     // MARK: - TabDragPayload
+
+    @Test
 
     func test_tabDragPayload_roundTrip() throws {
         // Arrange
@@ -16,10 +20,12 @@ final class DragPayloadCodableTests: XCTestCase {
         let decoded = try JSONDecoder().decode(TabDragPayload.self, from: data)
 
         // Assert
-        XCTAssertEqual(decoded.tabId, tabId)
+        #expect(decoded.tabId == tabId)
     }
 
     // MARK: - PaneDragPayload
+
+    @Test
 
     func test_paneDragPayload_roundTrip() throws {
         // Arrange
@@ -32,11 +38,13 @@ final class DragPayloadCodableTests: XCTestCase {
         let decoded = try JSONDecoder().decode(PaneDragPayload.self, from: data)
 
         // Assert
-        XCTAssertEqual(decoded.paneId, paneId)
-        XCTAssertEqual(decoded.tabId, tabId)
+        #expect(decoded.paneId == paneId)
+        #expect(decoded.tabId == tabId)
     }
 
     // MARK: - SplitDropPayload
+
+    @Test
 
     func test_splitDropPayload_existingTab_roundTrip() throws {
         // Arrange
@@ -48,8 +56,10 @@ final class DragPayloadCodableTests: XCTestCase {
         let decoded = try JSONDecoder().decode(SplitDropPayload.self, from: data)
 
         // Assert
-        XCTAssertEqual(decoded.kind, .existingTab(tabId: tabId))
+        #expect(decoded.kind == .existingTab(tabId: tabId))
     }
+
+    @Test
 
     func test_splitDropPayload_existingPane_roundTrip() throws {
         // Arrange
@@ -62,8 +72,10 @@ final class DragPayloadCodableTests: XCTestCase {
         let decoded = try JSONDecoder().decode(SplitDropPayload.self, from: data)
 
         // Assert
-        XCTAssertEqual(decoded.kind, .existingPane(paneId: paneId, sourceTabId: sourceTabId))
+        #expect(decoded.kind == .existingPane(paneId: paneId, sourceTabId: sourceTabId))
     }
+
+    @Test
 
     func test_splitDropPayload_newTerminal_roundTrip() throws {
         // Arrange
@@ -74,6 +86,6 @@ final class DragPayloadCodableTests: XCTestCase {
         let decoded = try JSONDecoder().decode(SplitDropPayload.self, from: data)
 
         // Assert
-        XCTAssertEqual(decoded.kind, .newTerminal)
+        #expect(decoded.kind == .newTerminal)
     }
 }

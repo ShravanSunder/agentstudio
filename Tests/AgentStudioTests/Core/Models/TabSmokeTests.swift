@@ -1,15 +1,19 @@
-import AppKit
+ import AppKit
 import CoreGraphics
-import XCTest
+import Testing
+import Foundation
 
 @testable import AgentStudio
 
 /// Temporary smoke tests for tab/split orchestration types.
 /// These test the data flow types, NOT the AppKit view controllers.
 /// TODO: Remove when proper integration tests are added.
-final class TabSmokeTests: XCTestCase {
+@Suite(.serialized)
+final class TabSmokeTests {
 
     // MARK: - SplitDropPayload Equatable
+
+    @Test
 
     func test_splitDropPayload_existingTab_equatable() {
         // Arrange
@@ -18,8 +22,10 @@ final class TabSmokeTests: XCTestCase {
         let p2 = SplitDropPayload(kind: .existingTab(tabId: tabId))
 
         // Assert
-        XCTAssertEqual(p1, p2)
+        #expect(p1 == p2)
     }
+
+    @Test
 
     func test_splitDropPayload_differentTabIds_notEqual() {
         // Arrange
@@ -27,8 +33,10 @@ final class TabSmokeTests: XCTestCase {
         let p2 = SplitDropPayload(kind: .existingTab(tabId: UUID()))
 
         // Assert
-        XCTAssertNotEqual(p1, p2)
+        #expect(p1 != p2)
     }
+
+    @Test
 
     func test_splitDropPayload_newTerminal_equatable() {
         // Arrange
@@ -36,10 +44,12 @@ final class TabSmokeTests: XCTestCase {
         let p2 = SplitDropPayload(kind: .newTerminal)
 
         // Assert
-        XCTAssertEqual(p1, p2)
+        #expect(p1 == p2)
     }
 
     // MARK: - SplitDropPayload Codable
+
+    @Test
 
     func test_splitDropPayload_codable_roundTrip() throws {
         // Arrange
@@ -50,7 +60,7 @@ final class TabSmokeTests: XCTestCase {
         let decoded = try JSONDecoder().decode(SplitDropPayload.self, from: data)
 
         // Assert
-        XCTAssertEqual(decoded, original)
+        #expect(decoded == original)
     }
 
     // MARK: - DropZone → SplitTree Integration
@@ -63,6 +73,8 @@ final class TabSmokeTests: XCTestCase {
         }
     }
 
+    @Test
+
     func test_dropZone_left_integratesWithSplitTree() throws {
         // Arrange
         let existing = MockTerminalView(name: "existing")
@@ -73,9 +85,11 @@ final class TabSmokeTests: XCTestCase {
         let result = try tree.inserting(view: newView, at: existing, direction: testDirection(for: .left))
 
         // Assert — new view should be on the left
-        XCTAssertTrue(result.allViews[0] === newView)
-        XCTAssertTrue(result.allViews[1] === existing)
+        #expect(result.allViews[0] === newView)
+        #expect(result.allViews[1] === existing)
     }
+
+    @Test
 
     func test_dropZone_allCases_produceSplitTreeInsertions() throws {
         // Assert — each zone produces a valid 2-pane split
@@ -89,7 +103,7 @@ final class TabSmokeTests: XCTestCase {
             let result = try tree.inserting(view: newView, at: existing, direction: testDirection(for: zone))
 
             // Assert
-            XCTAssertEqual(result.allViews.count, 2, "DropZone.\(zone) should produce a 2-pane split")
+            #expect(result.allViews.count == 2, "DropZone.\(zone) should produce a 2-pane split")
         }
     }
 

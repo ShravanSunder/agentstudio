@@ -1,5 +1,6 @@
 import WebKit
-import XCTest
+import Testing
+import Foundation
 
 @testable import AgentStudio
 
@@ -15,12 +16,14 @@ import XCTest
 /// Unlike the spike tests which exercise raw WebKit APIs, these tests exercise
 /// the fully-assembled BridgePaneController and its real dependencies.
 @MainActor
-final class BridgeTransportIntegrationTests: XCTestCase {
+@Suite(.serialized)
+final class BridgeTransportIntegrationTests {
 
     // MARK: - Test 1: Bridge.ready handshake gating
 
     /// Verify that `isBridgeReady` starts false, becomes true after `handleBridgeReady()`,
     /// and remains true on repeated calls (idempotent gating per §4.5 line 246).
+    @Test
     func test_bridgeReady_gatesAndIsIdempotent() {
         // Arrange — create a controller with default bridge pane state
         let paneId = UUID()
@@ -28,46 +31,39 @@ final class BridgeTransportIntegrationTests: XCTestCase {
         let controller = BridgePaneController(paneId: paneId, state: state)
 
         // Assert — before handshake, bridge is not ready
-        XCTAssertFalse(
-            controller.isBridgeReady,
-            "isBridgeReady should be false before bridge.ready handshake")
+        #expect(!(controller.isBridgeReady), "isBridgeReady should be false before bridge.ready handshake")
 
         // Act — first handshake call
         controller.handleBridgeReady()
 
         // Assert — after first call, bridge is ready
-        XCTAssertTrue(
-            controller.isBridgeReady,
-            "isBridgeReady should be true after handleBridgeReady()")
+        #expect(controller.isBridgeReady, "isBridgeReady should be true after handleBridgeReady()")
 
         // Act — second handshake call (idempotent, should be a no-op)
         controller.handleBridgeReady()
 
         // Assert — still true, no crash, no state change
-        XCTAssertTrue(
-            controller.isBridgeReady,
-            "isBridgeReady should remain true after repeated handleBridgeReady() calls (idempotent)")
+        #expect(controller.isBridgeReady, "isBridgeReady should remain true after repeated handleBridgeReady() calls (idempotent)")
 
         // Cleanup
         controller.teardown()
     }
 
     /// Verify that `teardown()` resets `isBridgeReady` to false.
+    @Test
     func test_teardown_resetsBridgeReady() {
         // Arrange — create controller and trigger handshake
         let paneId = UUID()
         let state = BridgePaneState(panelKind: .diffViewer, source: nil)
         let controller = BridgePaneController(paneId: paneId, state: state)
         controller.handleBridgeReady()
-        XCTAssertTrue(controller.isBridgeReady)
+        #expect(controller.isBridgeReady)
 
         // Act
         controller.teardown()
 
         // Assert — bridge state is reset
-        XCTAssertFalse(
-            controller.isBridgeReady,
-            "teardown() should reset isBridgeReady to false")
+        #expect(!(controller.isBridgeReady), "teardown() should reset isBridgeReady to false")
     }
 
     // MARK: - Test 2: Scheme handler serves app HTML
@@ -75,6 +71,7 @@ final class BridgeTransportIntegrationTests: XCTestCase {
     /// Verify that `loadApp()` triggers the BridgeSchemeHandler to serve content
     /// from `agentstudio://app/index.html`, producing a loaded page with the expected
     /// URL and title.
+    @Test
     func test_schemeHandler_servesAppHtml() async throws {
         // Arrange — create controller and load the app
         let paneId = UUID()
@@ -86,17 +83,11 @@ final class BridgeTransportIntegrationTests: XCTestCase {
         try await waitForPageLoad(controller.page)
 
         // Assert — page loaded from custom scheme with expected URL
-        XCTAssertEqual(
-            controller.page.url?.absoluteString, "agentstudio://app/index.html",
-            "loadApp() should navigate to agentstudio://app/index.html")
-        XCTAssertFalse(
-            controller.page.isLoading,
-            "Page should finish loading after loadApp()")
+        #expect(controller.page.url?.absoluteString == "agentstudio://app/index.html", "loadApp() should navigate to agentstudio://app/index.html")
+        #expect(!(controller.page.isLoading), "Page should finish loading after loadApp()")
 
         // Assert — BridgeSchemeHandler serves the page (Phase 1 stub returns "Bridge" title)
-        XCTAssertEqual(
-            controller.page.title, "Bridge",
-            "BridgeSchemeHandler should serve HTML with <title>Bridge</title> for app routes")
+        #expect(controller.page.title == "Bridge", "BridgeSchemeHandler should serve HTML with <title>Bridge</title> for app routes")
 
         // Cleanup
         controller.teardown()
@@ -117,6 +108,7 @@ final class BridgeTransportIntegrationTests: XCTestCase {
     ///
     /// The test verifies the same isolation property: after the bootstrap script injects
     /// `__bridgeInternal` in the bridge world, page-world JS cannot see it.
+    @Test
     func test_pageWorld_cannotAccessBridgeInternal() async throws {
         // Arrange — build the same configuration as BridgePaneController, plus a page-world probe
         let paneId = UUID()
@@ -169,12 +161,8 @@ final class BridgeTransportIntegrationTests: XCTestCase {
         try await Task.sleep(for: .milliseconds(500))
 
         // Assert — page world should see __bridgeInternal as undefined
-        XCTAssertEqual(
-            pageProbe.receivedMessages.count, 1,
-            "Page world probe should receive exactly one message")
-        XCTAssertEqual(
-            pageProbe.receivedMessages.first as? String, "undefined",
-            "window.__bridgeInternal should be 'undefined' in page world (content world isolation)")
+        #expect(pageProbe.receivedMessages.count == 1, "Page world probe should receive exactly one message")
+        #expect(pageProbe.receivedMessages.first as? String == "undefined", "window.__bridgeInternal should be 'undefined' in page world (content world isolation)")
     }
 
     // MARK: - Helpers
@@ -188,7 +176,7 @@ final class BridgeTransportIntegrationTests: XCTestCase {
             try await Task.sleep(for: .milliseconds(100))
         }
         guard !page.isLoading else {
-            XCTFail("Page did not finish loading within \(timeout)")
+            #expect(false, "Page did not finish loading within \(timeout)")
             return
         }
         // Settle time for WebKit internals after isLoading flips

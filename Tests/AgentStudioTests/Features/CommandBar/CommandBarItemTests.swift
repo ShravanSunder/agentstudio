@@ -1,11 +1,14 @@
-import XCTest
+import Testing
+import Foundation
 
 @testable import AgentStudio
 
-final class CommandBarItemTests: XCTestCase {
+@Suite(.serialized)
+struct CommandBarItemTests {
 
     // MARK: - ShortcutKey from KeyBinding
 
+    @Test
     func test_shortcutKey_fromKeyBinding_commandW() {
         // Arrange
         let binding = KeyBinding(key: "w", modifiers: [.command])
@@ -14,11 +17,12 @@ final class CommandBarItemTests: XCTestCase {
         let keys = ShortcutKey.from(keyBinding: binding)
 
         // Assert
-        XCTAssertEqual(keys.count, 2)
-        XCTAssertEqual(keys[0].symbol, "⌘")
-        XCTAssertEqual(keys[1].symbol, "W")
+        #expect(keys.count == 2)
+        #expect(keys[0].symbol == "⌘")
+        #expect(keys[1].symbol == "W")
     }
 
+    @Test
     func test_shortcutKey_fromKeyBinding_commandShiftO() {
         // Arrange
         let binding = KeyBinding(key: "O", modifiers: [.command, .shift])
@@ -27,12 +31,13 @@ final class CommandBarItemTests: XCTestCase {
         let keys = ShortcutKey.from(keyBinding: binding)
 
         // Assert
-        XCTAssertEqual(keys.count, 3)
-        XCTAssertEqual(keys[0].symbol, "⌘")
-        XCTAssertEqual(keys[1].symbol, "⇧")
-        XCTAssertEqual(keys[2].symbol, "O")
+        #expect(keys.count == 3)
+        #expect(keys[0].symbol == "⌘")
+        #expect(keys[1].symbol == "⇧")
+        #expect(keys[2].symbol == "O")
     }
 
+    @Test
     func test_shortcutKey_fromKeyBinding_allModifiers() {
         // Arrange
         let binding = KeyBinding(key: "k", modifiers: [.command, .shift, .option, .control])
@@ -41,14 +46,15 @@ final class CommandBarItemTests: XCTestCase {
         let keys = ShortcutKey.from(keyBinding: binding)
 
         // Assert — order: command, shift, option, control, then key
-        XCTAssertEqual(keys.count, 5)
-        XCTAssertEqual(keys[0].symbol, "⌘")
-        XCTAssertEqual(keys[1].symbol, "⇧")
-        XCTAssertEqual(keys[2].symbol, "⌥")
-        XCTAssertEqual(keys[3].symbol, "⌃")
-        XCTAssertEqual(keys[4].symbol, "K")
+        #expect(keys.count == 5)
+        #expect(keys[0].symbol == "⌘")
+        #expect(keys[1].symbol == "⇧")
+        #expect(keys[2].symbol == "⌥")
+        #expect(keys[3].symbol == "⌃")
+        #expect(keys[4].symbol == "K")
     }
 
+    @Test
     func test_shortcutKey_fromKeyBinding_noModifiers() {
         // Arrange
         let binding = KeyBinding(key: "p", modifiers: [])
@@ -57,38 +63,41 @@ final class CommandBarItemTests: XCTestCase {
         let keys = ShortcutKey.from(keyBinding: binding)
 
         // Assert
-        XCTAssertEqual(keys.count, 1)
-        XCTAssertEqual(keys[0].symbol, "P")
+        #expect(keys.count == 1)
+        #expect(keys[0].symbol == "P")
     }
 
+    @Test
     func test_shortcutKey_hashable_sameSymbolNotEqual() {
         // Arrange — two ShortcutKeys with same symbol get different UUIDs
         let key1 = ShortcutKey(symbol: "⌘")
         let key2 = ShortcutKey(symbol: "⌘")
 
         // Assert — they are not equal because id (UUID) differs
-        XCTAssertNotEqual(key1, key2)
+        #expect(key1 != key2)
     }
 
     // MARK: - CommandBarItem Init
 
+    @Test
     func test_item_init_defaults() {
         // Arrange & Act
         let item = makeCommandBarItem()
 
         // Assert
-        XCTAssertEqual(item.id, "test-item")
-        XCTAssertEqual(item.title, "Test Item")
-        XCTAssertNil(item.subtitle)
-        XCTAssertEqual(item.icon, "terminal")
-        XCTAssertNil(item.iconColor)
-        XCTAssertNil(item.shortcutKeys)
-        XCTAssertEqual(item.group, "Commands")
-        XCTAssertEqual(item.groupPriority, 3)
-        XCTAssertTrue(item.keywords.isEmpty)
-        XCTAssertFalse(item.hasChildren)
+        #expect(item.id == "test-item")
+        #expect(item.title == "Test Item")
+        #expect(item.subtitle == nil)
+        #expect(item.icon == "terminal")
+        #expect(item.iconColor == nil)
+        #expect(item.shortcutKeys == nil)
+        #expect(item.group == "Commands")
+        #expect(item.groupPriority == 3)
+        #expect(item.keywords.isEmpty)
+        #expect(!item.hasChildren)
     }
 
+    @Test
     func test_item_init_allProperties() {
         // Arrange
         let keys = [ShortcutKey(symbol: "⌘"), ShortcutKey(symbol: "W")]
@@ -109,20 +118,21 @@ final class CommandBarItemTests: XCTestCase {
         )
 
         // Assert
-        XCTAssertEqual(item.id, "close-tab")
-        XCTAssertEqual(item.title, "Close Tab")
-        XCTAssertEqual(item.subtitle, "Tab 1")
-        XCTAssertEqual(item.icon, "xmark")
-        XCTAssertEqual(item.iconColor, .red)
-        XCTAssertEqual(item.shortcutKeys?.count, 2)
-        XCTAssertEqual(item.group, "Tab")
-        XCTAssertEqual(item.groupPriority, 1)
-        XCTAssertEqual(item.keywords, ["close", "remove"])
-        XCTAssertTrue(item.hasChildren)
+        #expect(item.id == "close-tab")
+        #expect(item.title == "Close Tab")
+        #expect(item.subtitle == "Tab 1")
+        #expect(item.icon == "xmark")
+        #expect(item.iconColor == .red)
+        #expect(item.shortcutKeys?.count == 2)
+        #expect(item.group == "Tab")
+        #expect(item.groupPriority == 1)
+        #expect(item.keywords == ["close", "remove"])
+        #expect(item.hasChildren)
     }
 
     // MARK: - CommandBarLevel Init
 
+    @Test
     func test_level_init_withParentLabel() {
         // Arrange & Act
         let level = makeCommandBarLevel(
@@ -132,34 +142,37 @@ final class CommandBarItemTests: XCTestCase {
         )
 
         // Assert
-        XCTAssertEqual(level.id, "tab-close")
-        XCTAssertEqual(level.title, "Close Tab")
-        XCTAssertEqual(level.parentLabel, "Tab")
-        XCTAssertTrue(level.items.isEmpty)
+        #expect(level.id == "tab-close")
+        #expect(level.title == "Close Tab")
+        #expect(level.parentLabel == "Tab")
+        #expect(level.items.isEmpty)
     }
 
+    @Test
     func test_level_init_withoutParentLabel() {
         // Arrange & Act
         let level = CommandBarLevel(id: "root", title: "Root", items: [])
 
         // Assert
-        XCTAssertNil(level.parentLabel)
+        #expect(level.parentLabel == nil)
     }
 
     // MARK: - CommandBarAction Variants
 
+    @Test
     func test_item_action_dispatch_storesCommand() {
         // Arrange & Act
         let item = makeCommandBarItem(action: .dispatch(.toggleSidebar))
 
         // Assert
         if case .dispatch(let command) = item.action {
-            XCTAssertEqual(command, .toggleSidebar)
+            #expect(command == .toggleSidebar)
         } else {
-            XCTFail("Expected .dispatch action")
+            Issue.record("Expected .dispatch action")
         }
     }
 
+    @Test
     func test_item_action_dispatchTargeted_storesTargetAndType() {
         // Arrange
         let targetId = UUID()
@@ -169,14 +182,15 @@ final class CommandBarItemTests: XCTestCase {
 
         // Assert
         if case .dispatchTargeted(let command, let target, let targetType) = item.action {
-            XCTAssertEqual(command, .closeTab)
-            XCTAssertEqual(target, targetId)
-            XCTAssertEqual(targetType, .tab)
+            #expect(command == .closeTab)
+            #expect(target == targetId)
+            #expect(targetType == .tab)
         } else {
-            XCTFail("Expected .dispatchTargeted action")
+            Issue.record("Expected .dispatchTargeted action")
         }
     }
 
+    @Test
     func test_item_action_navigate_storesLevel() {
         // Arrange
         let level = makeCommandBarLevel(id: "nav-level", title: "Nav Level")
@@ -186,15 +200,16 @@ final class CommandBarItemTests: XCTestCase {
 
         // Assert
         if case .navigate(let navigatedLevel) = item.action {
-            XCTAssertEqual(navigatedLevel.id, "nav-level")
-            XCTAssertEqual(navigatedLevel.title, "Nav Level")
+            #expect(navigatedLevel.id == "nav-level")
+            #expect(navigatedLevel.title == "Nav Level")
         } else {
-            XCTFail("Expected .navigate action")
+            Issue.record("Expected .navigate action")
         }
     }
 
     // MARK: - CommandBarItemGroup
 
+    @Test
     func test_group_storesProperties() {
         // Arrange
         let items = [makeCommandBarItem(id: "a"), makeCommandBarItem(id: "b")]
@@ -203,14 +218,15 @@ final class CommandBarItemTests: XCTestCase {
         let group = CommandBarItemGroup(id: "pane", name: "Pane", priority: 2, items: items)
 
         // Assert
-        XCTAssertEqual(group.id, "pane")
-        XCTAssertEqual(group.name, "Pane")
-        XCTAssertEqual(group.priority, 2)
-        XCTAssertEqual(group.items.count, 2)
+        #expect(group.id == "pane")
+        #expect(group.name == "Pane")
+        #expect(group.priority == 2)
+        #expect(group.items.count == 2)
     }
 
     // MARK: - ShortcutKey Edge Cases
 
+    @Test
     func test_shortcutKey_fromKeyBinding_emptyKey_producesEmpty() {
         // Arrange
         let binding = KeyBinding(key: "", modifiers: [.command])
@@ -219,8 +235,8 @@ final class CommandBarItemTests: XCTestCase {
         let keys = ShortcutKey.from(keyBinding: binding)
 
         // Assert — modifier + empty key uppercased
-        XCTAssertEqual(keys.count, 2)
-        XCTAssertEqual(keys[0].symbol, "⌘")
-        XCTAssertEqual(keys[1].symbol, "")
+        #expect(keys.count == 2)
+        #expect(keys[0].symbol == "⌘")
+        #expect(keys[1].symbol == "")
     }
 }

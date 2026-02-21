@@ -1,12 +1,22 @@
-import XCTest
+import Testing
+import Foundation
 
 @testable import AgentStudio
 
 @MainActor
-final class WebviewPaneControllerTests: XCTestCase {
+@Suite(.serialized)
+struct WebviewPaneControllerTests {
+
+    private func makeController() -> WebviewPaneController {
+        WebviewPaneController(
+            paneId: UUID(),
+            state: WebviewState(url: URL(string: "https://example.com")!)
+        )
+    }
 
     // MARK: - Init
 
+    @Test
     func test_init_createsPage_fromState() {
         // Arrange
         let state = WebviewState(url: URL(string: "https://github.com")!, title: "GitHub")
@@ -15,10 +25,11 @@ final class WebviewPaneControllerTests: XCTestCase {
         let controller = WebviewPaneController(paneId: UUID(), state: state)
 
         // Assert
-        XCTAssertTrue(controller.showNavigation)
-        XCTAssertNotNil(controller.page)
+        #expect(controller.showNavigation)
+        #expect(controller.page != nil)
     }
 
+    @Test
     func test_init_aboutBlank_doesNotLoad() {
         // Arrange
         let state = WebviewState(url: URL(string: "about:blank")!)
@@ -27,9 +38,10 @@ final class WebviewPaneControllerTests: XCTestCase {
         let controller = WebviewPaneController(paneId: UUID(), state: state)
 
         // Assert — page exists but url is nil (nothing loaded)
-        XCTAssertNil(controller.url)
+        #expect(controller.url == nil)
     }
 
+    @Test
     func test_init_respectsShowNavigation() {
         // Arrange
         let state = WebviewState(url: URL(string: "https://example.com")!, showNavigation: false)
@@ -38,11 +50,12 @@ final class WebviewPaneControllerTests: XCTestCase {
         let controller = WebviewPaneController(paneId: UUID(), state: state)
 
         // Assert
-        XCTAssertFalse(controller.showNavigation)
+        #expect(!controller.showNavigation)
     }
 
     // MARK: - Snapshot
 
+    @Test
     func test_snapshot_capturesState() {
         // Arrange
         let controller = makeController()
@@ -51,10 +64,11 @@ final class WebviewPaneControllerTests: XCTestCase {
         let snapshot = controller.snapshot()
 
         // Assert
-        XCTAssertTrue(snapshot.showNavigation)
-        XCTAssertNotNil(snapshot.url)
+        #expect(snapshot.showNavigation)
+        #expect(snapshot.url != nil)
     }
 
+    @Test
     func test_snapshot_aboutBlank_fallback() {
         // Arrange — controller with about:blank (nothing loaded → url is nil)
         let controller = WebviewPaneController(
@@ -66,59 +80,51 @@ final class WebviewPaneControllerTests: XCTestCase {
         let snapshot = controller.snapshot()
 
         // Assert — nil url falls back to about:blank
-        XCTAssertEqual(snapshot.url.absoluteString, "about:blank")
+        #expect(snapshot.url.absoluteString == "about:blank")
     }
 
     // MARK: - URL Normalization
 
+    @Test
     func test_normalizeURLString_addsHttps() {
-        XCTAssertEqual(
-            WebviewPaneController.normalizeURLString("example.com"),
-            "https://example.com"
+        #expect(
+            WebviewPaneController.normalizeURLString("example.com") == "https://example.com"
         )
     }
 
+    @Test
     func test_normalizeURLString_preservesExistingScheme() {
-        XCTAssertEqual(
-            WebviewPaneController.normalizeURLString("http://example.com"),
-            "http://example.com"
+        #expect(
+            WebviewPaneController.normalizeURLString("http://example.com") == "http://example.com"
         )
     }
 
+    @Test
     func test_normalizeURLString_preservesAbout() {
-        XCTAssertEqual(
-            WebviewPaneController.normalizeURLString("about:blank"),
-            "about:blank"
+        #expect(
+            WebviewPaneController.normalizeURLString("about:blank") == "about:blank"
         )
     }
 
+    @Test
     func test_normalizeURLString_emptyInput() {
-        XCTAssertEqual(
-            WebviewPaneController.normalizeURLString(""),
-            "about:blank"
+        #expect(
+            WebviewPaneController.normalizeURLString("") == "about:blank"
         )
     }
 
+    @Test
     func test_normalizeURLString_trimsWhitespace() {
-        XCTAssertEqual(
-            WebviewPaneController.normalizeURLString("  github.com  "),
-            "https://github.com"
+        #expect(
+            WebviewPaneController.normalizeURLString("  github.com  ") == "https://github.com"
         )
     }
 
+    @Test
     func test_normalizeURLString_preservesData() {
-        XCTAssertEqual(
-            WebviewPaneController.normalizeURLString("data:text/html,<h1>Hi</h1>"),
-            "data:text/html,<h1>Hi</h1>"
-        )
-    }
-
-    // MARK: - Helpers
-
-    private func makeController() -> WebviewPaneController {
-        WebviewPaneController(
-            paneId: UUID(),
-            state: WebviewState(url: URL(string: "https://example.com")!)
+        #expect(
+            WebviewPaneController.normalizeURLString("data:text/html,<h1>Hi</h1>")
+                == "data:text/html,<h1>Hi</h1>"
         )
     }
 }

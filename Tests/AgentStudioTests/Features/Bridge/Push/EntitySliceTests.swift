@@ -1,10 +1,12 @@
 import Observation
-import XCTest
+import Testing
+import Foundation
 
 @testable import AgentStudio
 
 @MainActor
-final class EntitySliceTests: XCTestCase {
+@Suite(.serialized)
+final class EntitySliceTests {
 
     // MARK: - Test Types
 
@@ -20,32 +22,37 @@ final class EntitySliceTests: XCTestCase {
 
     // MARK: - EntityDelta Tests
 
+    @Test
     func test_entityDelta_isEmpty_when_both_fields_nil() {
         let empty = EntityDelta<TestEntity>(changed: nil, removed: nil)
-        XCTAssertTrue(empty.isEmpty)
+        #expect(empty.isEmpty)
     }
 
+    @Test
     func test_entityDelta_isEmpty_when_both_fields_empty() {
         let emptyCollections = EntityDelta<TestEntity>(changed: [:], removed: [])
-        XCTAssertTrue(emptyCollections.isEmpty)
+        #expect(emptyCollections.isEmpty)
     }
 
+    @Test
     func test_entityDelta_not_empty_with_changed() {
         let withChanged = EntityDelta<TestEntity>(
             changed: ["k": TestEntity(name: "x", version: 1)],
             removed: nil
         )
-        XCTAssertFalse(withChanged.isEmpty)
+        #expect(!(withChanged.isEmpty))
     }
 
+    @Test
     func test_entityDelta_not_empty_with_removed() {
         let withRemoved = EntityDelta<TestEntity>(
             changed: nil,
             removed: ["k"]
         )
-        XCTAssertFalse(withRemoved.isEmpty)
+        #expect(!(withRemoved.isEmpty))
     }
 
+    @Test
     func test_entityDelta_keys_are_strings_in_wire_format() {
         let delta = EntityDelta<TestEntity>(
             changed: ["key1": TestEntity(name: "test", version: 1)],
@@ -54,11 +61,10 @@ final class EntitySliceTests: XCTestCase {
         let data = try! JSONEncoder().encode(delta)
         let json = try! JSONSerialization.jsonObject(with: data) as! [String: Any]
         let changed = json["changed"] as? [String: Any]
-        XCTAssertNotNil(
-            changed?["key1"],
-            "EntityDelta keys must be String in wire format")
+        #expect(changed?["key1"] != nil, "EntityDelta keys must be String in wire format")
     }
 
+    @Test
     func test_entityDelta_omits_nil_fields() {
         // changed only — removed should be absent from JSON
         let changedOnly = EntityDelta<TestEntity>(
@@ -67,14 +73,13 @@ final class EntitySliceTests: XCTestCase {
         )
         let data = try! JSONEncoder().encode(changedOnly)
         let json = try! JSONSerialization.jsonObject(with: data) as! [String: Any]
-        XCTAssertNotNil(json["changed"])
-        XCTAssertNil(
-            json["removed"],
-            "nil removed field should be omitted from JSON")
+        #expect(json["changed"] != nil)
+        #expect(json["removed"] == nil, "nil removed field should be omitted from JSON")
     }
 
     // MARK: - EntitySlice Push Tests
 
+    @Test
     func test_entitySlice_only_pushes_changed_entities() async throws {
         let state = TestState()
         let transport = MockPushTransport()
@@ -103,18 +108,12 @@ final class EntitySliceTests: XCTestCase {
         state.items[id1] = TestEntity(name: "first-updated", version: 2)
         try await Task.sleep(for: .milliseconds(100))
 
-        XCTAssertGreaterThan(
-            transport.pushCount, initialCount,
-            "Transport should receive a push after entity mutation")
+        #expect(transport.pushCount > initialCount, "Transport should receive a push after entity mutation")
 
         if let json = transport.lastJSON {
             let delta = try JSONDecoder().decode(EntityDeltaTestShape.self, from: json)
-            XCTAssertNotNil(
-                delta.changed?[id1.uuidString],
-                "Changed entity should be in delta")
-            XCTAssertNil(
-                delta.changed?[id2.uuidString],
-                "Unchanged entity should NOT be in delta")
+            #expect(delta.changed?[id1.uuidString] != nil, "Changed entity should be in delta")
+            #expect(delta.changed?[id2.uuidString] == nil, "Unchanged entity should NOT be in delta")
         }
 
         task.cancel()
@@ -125,6 +124,7 @@ final class EntitySliceTests: XCTestCase {
     /// Documents that EntitySlice relies on `version` for change detection.
     /// If a field mutates but version doesn't increment, the change is NOT pushed.
     /// This is by design — callers are responsible for bumping version.
+    @Test
     func test_entitySlice_skips_entity_when_version_unchanged() async throws {
         // Arrange
         let state = TestState()
@@ -152,9 +152,7 @@ final class EntitySliceTests: XCTestCase {
 
         // Assert — EntitySlice should NOT push because version is unchanged
         // This documents the version contract: callers must bump version for changes to propagate
-        XCTAssertEqual(
-            transport.pushCount, countAfterInitial,
-            "EntitySlice should skip push when version is unchanged despite field mutation")
+        #expect(transport.pushCount == countAfterInitial, "EntitySlice should skip push when version is unchanged despite field mutation")
 
         task.cancel()
     }
@@ -163,6 +161,7 @@ final class EntitySliceTests: XCTestCase {
 
     /// Verifies that JSONEncoder produces deterministic output for identical values.
     /// The transport content guard relies on byte-equality of encoded JSON.
+    @Test
     func test_jsonEncoder_determinism_for_content_guard() throws {
         let encoder = JSONEncoder()
         // Use sorted keys to ensure determinism (JSONEncoder's default key ordering is implementation-defined)
@@ -183,7 +182,7 @@ final class EntitySliceTests: XCTestCase {
         let data1 = try encoder.encode(manifest)
         let data2 = try encoder.encode(manifest)
 
-        XCTAssertEqual(data1, data2, "JSONEncoder must produce identical bytes for identical values")
+        #expect(data1 == data2, "JSONEncoder must produce identical bytes for identical values")
     }
 }
 

@@ -1,5 +1,6 @@
 import WebKit
-import XCTest
+import Testing
+import Foundation
 
 @testable import AgentStudio
 
@@ -69,34 +70,33 @@ private struct BlankPageSchemeHandler: URLSchemeHandler {
 /// This does NOT affect production use, where WebPages are always hosted in a
 /// `WebView` inside a window.
 @MainActor
-final class BridgeWebKitSpikeTests: XCTestCase {
+@Suite(.serialized)
+final class BridgeWebKitSpikeTests {
 
     // MARK: - Item 1: WKContentWorld creation and identity
 
     /// Verify `WKContentWorld.world(name:)` returns a non-nil world,
     /// and calling it twice with the same name returns the same instance.
+    @Test
     func test_contentWorld_sameNameReturnsSameWorld() {
         // Arrange
         let worldA = WKContentWorld.world(name: "agentStudioBridge")
         let worldB = WKContentWorld.world(name: "agentStudioBridge")
 
         // Assert -- same name should return the same (identical) world object
-        XCTAssertNotNil(worldA)
-        XCTAssertTrue(
-            worldA === worldB,
-            "WKContentWorld.world(name:) with the same name should return the identical object")
+        #expect(worldA != nil)
+        #expect(worldA === worldB, "WKContentWorld.world(name:) with the same name should return the identical object")
     }
 
     /// Verify different names produce different worlds.
+    @Test
     func test_contentWorld_differentNamesProduceDifferentWorlds() {
         // Arrange
         let worldA = WKContentWorld.world(name: "agentStudioBridge")
         let worldC = WKContentWorld.world(name: "differentWorld")
 
         // Assert
-        XCTAssertFalse(
-            worldA === worldC,
-            "Different content world names should produce different world objects")
+        #expect(!(worldA === worldC), "Different content world names should produce different world objects")
     }
 
     // MARK: - Item 2: callJavaScript with content world targeting
@@ -108,6 +108,7 @@ final class BridgeWebKitSpikeTests: XCTestCase {
     /// via a message handler: the JS code posts the argument value back to Swift.
     ///
     /// Design doc section 4.1 line 137: "Arguments become JS local variables."
+    @Test
     func test_callJavaScript_withArgumentsAndContentWorld_executesInWorld() async throws {
         // Arrange -- message handler in bridge world acts as verification probe
         let world = WKContentWorld.world(name: "testBridgeCallJS")
@@ -136,12 +137,8 @@ final class BridgeWebKitSpikeTests: XCTestCase {
         try await Task.sleep(for: .milliseconds(300))
 
         // Assert -- message should contain the argument value
-        XCTAssertEqual(
-            handler.receivedMessages.count, 1,
-            "callJavaScript with contentWorld should execute and postMessage should work")
-        XCTAssertEqual(
-            handler.receivedMessages.first as? String, "42",
-            "Arguments passed to callJavaScript should be available as JS local variables")
+        #expect(handler.receivedMessages.count == 1, "callJavaScript with contentWorld should execute and postMessage should work")
+        #expect(handler.receivedMessages.first as? String == "42", "Arguments passed to callJavaScript should be available as JS local variables")
     }
 
     /// Verify that callJavaScript in one content world cannot see globals
@@ -149,6 +146,7 @@ final class BridgeWebKitSpikeTests: XCTestCase {
     ///
     /// Strategy: Set a global in bridge world, then try to read it from page world
     /// via postMessage. If isolation works, page world won't see the variable.
+    @Test
     func test_callJavaScript_contentWorldIsolation_globalsDoNotLeak() async throws {
         // Arrange -- handlers in both worlds
         let bridgeWorld = WKContentWorld.world(name: "testBridgeIsolation")
@@ -194,15 +192,11 @@ final class BridgeWebKitSpikeTests: XCTestCase {
         try await Task.sleep(for: .milliseconds(200))
 
         // Assert
-        XCTAssertEqual(bridgeHandler.receivedMessages.count, 1)
-        XCTAssertEqual(
-            bridgeHandler.receivedMessages.first as? String, "bridge-only",
-            "Bridge world should see its own global variable")
+        #expect(bridgeHandler.receivedMessages.count == 1)
+        #expect(bridgeHandler.receivedMessages.first as? String == "bridge-only", "Bridge world should see its own global variable")
 
-        XCTAssertEqual(pageHandler.receivedMessages.count, 1)
-        XCTAssertEqual(
-            pageHandler.receivedMessages.first as? String, "NOT_FOUND",
-            "Page world should NOT see bridge world's global variable (isolation)")
+        #expect(pageHandler.receivedMessages.count == 1)
+        #expect(pageHandler.receivedMessages.first as? String == "NOT_FOUND", "Page world should NOT see bridge world's global variable (isolation)")
     }
 
     // MARK: - Item 3: WKUserScript with content world injection
@@ -216,6 +210,7 @@ final class BridgeWebKitSpikeTests: XCTestCase {
     ///
     /// Design doc section 11.2: WKUserScript takes content world in its initializer
     /// via the `in:` parameter label.
+    @Test
     func test_userScript_contentWorldInjection_isolatedFromPageWorld() async throws {
         // Arrange
         let world = WKContentWorld.world(name: "testBridgeUserScript")
@@ -264,16 +259,12 @@ final class BridgeWebKitSpikeTests: XCTestCase {
         try await Task.sleep(for: .milliseconds(300))
 
         // Assert -- bridge world should see the flag
-        XCTAssertEqual(bridgeHandler.receivedMessages.count, 1)
-        XCTAssertEqual(
-            bridgeHandler.receivedMessages.first as? String, "true",
-            "WKUserScript injected with `in: world` should set __testFlag in bridge world")
+        #expect(bridgeHandler.receivedMessages.count == 1)
+        #expect(bridgeHandler.receivedMessages.first as? String == "true", "WKUserScript injected with `in: world` should set __testFlag in bridge world")
 
         // Assert -- page world should NOT see the flag
-        XCTAssertEqual(pageHandler.receivedMessages.count, 1)
-        XCTAssertEqual(
-            pageHandler.receivedMessages.first as? String, "undefined",
-            "Page world should NOT see __testFlag set by bridge-world WKUserScript (isolation)")
+        #expect(pageHandler.receivedMessages.count == 1)
+        #expect(pageHandler.receivedMessages.first as? String == "undefined", "Page world should NOT see __testFlag set by bridge-world WKUserScript (isolation)")
     }
 
     // MARK: - Item 4: Message handler scoped to content world
@@ -283,6 +274,7 @@ final class BridgeWebKitSpikeTests: XCTestCase {
     ///
     /// Design doc section 11.1 layer 2: "Only bridge-world scripts can post
     /// to the rpc handler."
+    @Test
     func test_messageHandler_bridgeWorldCanPost() async throws {
         // Arrange
         let world = WKContentWorld.world(name: "testBridgeMsgHandler")
@@ -309,12 +301,8 @@ final class BridgeWebKitSpikeTests: XCTestCase {
         try await Task.sleep(for: .milliseconds(300))
 
         // Assert -- handler received the message
-        XCTAssertEqual(
-            handler.receivedMessages.count, 1,
-            "Message posted from bridge world should reach the handler")
-        XCTAssertEqual(
-            handler.receivedMessages.first as? String, "hello",
-            "Message body should be the posted value")
+        #expect(handler.receivedMessages.count == 1, "Message posted from bridge world should reach the handler")
+        #expect(handler.receivedMessages.first as? String == "hello", "Message body should be the posted value")
     }
 
     /// Verify that the page world cannot post to a message handler registered
@@ -322,6 +310,7 @@ final class BridgeWebKitSpikeTests: XCTestCase {
     ///
     /// The handler `rpc` is only registered in the bridge world. Page world
     /// should not be able to access `window.webkit.messageHandlers.rpc`.
+    @Test
     func test_messageHandler_pageWorldCannotAccessBridgeHandler() async throws {
         // Arrange
         let world = WKContentWorld.world(name: "testBridgeMsgHandlerIsolation")
@@ -349,13 +338,12 @@ final class BridgeWebKitSpikeTests: XCTestCase {
         try await Task.sleep(for: .milliseconds(300))
 
         // Assert -- handler should NOT have received a message from page world
-        XCTAssertEqual(
-            handler.receivedMessages.count, 0,
-            "Page world should NOT be able to post to a bridge-world-scoped message handler")
+        #expect(handler.receivedMessages.count == 0, "Page world should NOT be able to post to a bridge-world-scoped message handler")
     }
 
     /// Verify that message handler receives structured JSON data (not just strings).
     /// This validates the pattern used by RPCMessageHandler in the bridge design.
+    @Test
     func test_messageHandler_receivesJSONStringPayload() async throws {
         // Arrange
         let world = WKContentWorld.world(name: "testBridgeJSONMsg")
@@ -386,14 +374,12 @@ final class BridgeWebKitSpikeTests: XCTestCase {
         try await Task.sleep(for: .milliseconds(300))
 
         // Assert -- handler should receive the JSON string
-        XCTAssertEqual(handler.receivedMessages.count, 1)
+        #expect(handler.receivedMessages.count == 1)
         let body = handler.receivedMessages.first as? String
-        XCTAssertNotNil(body, "postMessage with JSON.stringify should deliver a String body")
+        #expect(body != nil, "postMessage with JSON.stringify should deliver a String body")
         if let body {
             let parsed = try? JSONSerialization.jsonObject(with: Data(body.utf8)) as? [String: Any]
-            XCTAssertEqual(
-                parsed?["method"] as? String, "test.ping",
-                "JSON string payload should be parseable and contain the method")
+            #expect(parsed?["method"] as? String == "test.ping", "JSON string payload should be parseable and contain the method")
         }
     }
 
@@ -422,7 +408,7 @@ final class BridgeWebKitSpikeTests: XCTestCase {
             try await Task.sleep(for: .milliseconds(100))
         }
         guard !page.isLoading else {
-            XCTFail("Page did not finish loading within \(timeout)")
+            #expect(false, "Page did not finish loading within \(timeout)")
             return
         }
         // Settle time for WebKit internals after isLoading flips

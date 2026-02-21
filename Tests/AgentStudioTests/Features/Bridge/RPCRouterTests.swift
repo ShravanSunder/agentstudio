@@ -1,4 +1,5 @@
-import XCTest
+import Testing
+import Foundation
 
 @testable import AgentStudio
 
@@ -10,10 +11,12 @@ import XCTest
 /// deduplicates by __commandId (sliding window of 100), and rejects batch requests.
 /// Error codes follow JSON-RPC 2.0 standard (§5.3).
 @MainActor
-final class RPCRouterTests: XCTestCase {
+@Suite(.serialized)
+final class RPCRouterTests {
 
     // MARK: - Dispatch
 
+    @Test
     func test_dispatches_to_registered_handler() async throws {
         // Arrange
         let router = RPCRouter()
@@ -28,11 +31,12 @@ final class RPCRouterTests: XCTestCase {
         try await router.dispatch(json: fixture)
 
         // Assert
-        XCTAssertEqual(receivedFileId, "abc123")
+        #expect(receivedFileId == "abc123")
     }
 
     // MARK: - Unknown method
 
+    @Test
     func test_unknown_method_reports_32601() async throws {
         // Arrange
         let router = RPCRouter()
@@ -47,11 +51,12 @@ final class RPCRouterTests: XCTestCase {
                 """)
 
         // Assert
-        XCTAssertEqual(errorCode, -32_601)
+        #expect(errorCode == -32_601)
     }
 
     // MARK: - Missing method field
 
+    @Test
     func test_missing_method_reports_32600() async throws {
         // Arrange
         let router = RPCRouter()
@@ -64,11 +69,12 @@ final class RPCRouterTests: XCTestCase {
         try await router.dispatch(json: fixture)
 
         // Assert
-        XCTAssertEqual(errorCode, -32_600)
+        #expect(errorCode == -32_600)
     }
 
     // MARK: - Batch rejection (§5.5)
 
+    @Test
     func test_batch_array_reports_32600() async throws {
         // Arrange
         let router = RPCRouter()
@@ -81,11 +87,12 @@ final class RPCRouterTests: XCTestCase {
         try await router.dispatch(json: fixture)
 
         // Assert
-        XCTAssertEqual(errorCode, -32_600)
+        #expect(errorCode == -32_600)
     }
 
     // MARK: - Malformed JSON parse error
 
+    @Test
     func test_malformed_json_reports_32700() async throws {
         // Arrange
         let router = RPCRouter()
@@ -96,11 +103,12 @@ final class RPCRouterTests: XCTestCase {
         try await router.dispatch(json: "{ not valid json !!!")
 
         // Assert
-        XCTAssertEqual(errorCode, -32_700, "Malformed JSON should report parse error -32700, not -32600")
+        #expect(errorCode == -32_700, "Malformed JSON should report parse error -32700, not -32600")
     }
 
     // MARK: - Duplicate commandId idempotency
 
+    @Test
     func test_duplicate_commandId_is_idempotent() async throws {
         // Arrange
         let router = RPCRouter()
@@ -114,7 +122,7 @@ final class RPCRouterTests: XCTestCase {
         try await router.dispatch(json: fixture)
 
         // Assert
-        XCTAssertEqual(callCount, 1, "Duplicate commandId should not execute twice")
+        #expect(callCount == 1, "Duplicate commandId should not execute twice")
     }
 
     // MARK: - Helpers

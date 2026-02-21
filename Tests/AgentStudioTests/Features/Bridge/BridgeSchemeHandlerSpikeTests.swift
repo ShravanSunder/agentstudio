@@ -1,5 +1,6 @@
 import WebKit
-import XCTest
+import Testing
+import Foundation
 
 @testable import AgentStudio
 
@@ -41,13 +42,15 @@ private struct SpikeSchemeHandler: URLSchemeHandler {
 // MARK: - Tests
 
 @MainActor
-final class BridgeSchemeHandlerSpikeTests: XCTestCase {
+@Suite(.serialized)
+final class BridgeSchemeHandlerSpikeTests {
 
     // MARK: - Scheme Handler Serves HTML
 
     /// Verify that a custom `agentstudio://` scheme handler registered on
     /// WebPage.Configuration can serve an HTML page. The page URL, title,
     /// and loading state are checked after load completes.
+    @Test
     func test_customSchemeHandler_servesHTMLPage_andTitleIsReadable() async throws {
         // Arrange — build configuration with custom scheme handler
         let page = try makePageWithSpikeHandler()
@@ -58,15 +61,9 @@ final class BridgeSchemeHandlerSpikeTests: XCTestCase {
         try await waitForPageLoad(page)
 
         // Assert — scheme handler served the page
-        XCTAssertEqual(
-            page.url?.absoluteString, "agentstudio://app/test.html",
-            "Page URL should reflect the custom scheme URL")
-        XCTAssertFalse(
-            page.isLoading,
-            "Page should finish loading")
-        XCTAssertEqual(
-            page.title, "Spike Test",
-            "page.title should reflect <title> from scheme handler HTML")
+        #expect(page.url?.absoluteString == "agentstudio://app/test.html", "Page URL should reflect the custom scheme URL")
+        #expect(!(page.isLoading), "Page should finish loading")
+        #expect(page.title == "Spike Test", "page.title should reflect <title> from scheme handler HTML")
     }
 
     // MARK: - JavaScript Evaluation
@@ -76,6 +73,7 @@ final class BridgeSchemeHandlerSpikeTests: XCTestCase {
     /// This test documents that behavior so downstream code knows to use
     /// `page.title` for title access in tests, and `callJavaScript` for
     /// runtime use where a window is present.
+    @Test
     func test_callJavaScript_returnsNil_inHeadlessContext() async throws {
         // Arrange
         let page = try makePageWithSpikeHandler()
@@ -87,13 +85,9 @@ final class BridgeSchemeHandlerSpikeTests: XCTestCase {
         let jsResult = try await page.callJavaScript("document.title")
 
         // Assert — nil in headless context (spike finding)
-        XCTAssertNil(
-            jsResult,
-            "Spike finding: callJavaScript returns nil without a window/view host")
+        #expect(jsResult == nil, "Spike finding: callJavaScript returns nil without a window/view host")
         // But page.title works
-        XCTAssertEqual(
-            page.title, "Spike Test",
-            "page.title works even without a window")
+        #expect(page.title == "Spike Test", "page.title works even without a window")
     }
 
     // MARK: - Helpers

@@ -1,17 +1,19 @@
-import XCTest
+import Testing
+import Foundation
 
 @testable import AgentStudio
 
-final class ProcessExecutorTests: XCTestCase {
+@Suite(.serialized)
+final class ProcessExecutorTests {
     private var executor: DefaultProcessExecutor!
 
-    override func setUp() {
-        super.setUp()
+    init() {
         executor = DefaultProcessExecutor()
     }
 
     // MARK: - Basic Execution
 
+    @Test
     func test_execute_capturesStdout() async throws {
         // Act
         let result = try await executor.execute(
@@ -22,10 +24,11 @@ final class ProcessExecutorTests: XCTestCase {
         )
 
         // Assert
-        XCTAssertEqual(result.stdout, "hello")
-        XCTAssertTrue(result.succeeded)
+        #expect(result.stdout == "hello")
+        #expect(result.succeeded)
     }
 
+    @Test
     func test_execute_capturesExitCode() async throws {
         // Act
         let result = try await executor.execute(
@@ -36,10 +39,11 @@ final class ProcessExecutorTests: XCTestCase {
         )
 
         // Assert
-        XCTAssertEqual(result.exitCode, 1)
-        XCTAssertFalse(result.succeeded)
+        #expect(result.exitCode == 1)
+        #expect(!result.succeeded)
     }
 
+    @Test
     func test_execute_respectsCwd() async throws {
         // Act
         let result = try await executor.execute(
@@ -50,7 +54,7 @@ final class ProcessExecutorTests: XCTestCase {
         )
 
         // Assert — macOS may resolve /tmp to /private/tmp
-        XCTAssertTrue(
+        #expect(
             result.stdout.contains("/tmp"),
             "Expected stdout to contain /tmp, got: \(result.stdout)"
         )
@@ -58,6 +62,7 @@ final class ProcessExecutorTests: XCTestCase {
 
     // MARK: - Environment
 
+    @Test
     func test_execute_mergesEnvironmentOverrides() async throws {
         // Arrange
         let customEnv = ["AGENTSTUDIO_TEST_VAR": "test_value_12345"]
@@ -71,12 +76,13 @@ final class ProcessExecutorTests: XCTestCase {
         )
 
         // Assert
-        XCTAssertTrue(
+        #expect(
             result.stdout.contains("AGENTSTUDIO_TEST_VAR=test_value_12345"),
             "Expected env to contain custom var"
         )
     }
 
+    @Test
     func test_execute_preservesPathPrefix() async throws {
         // Act
         let result = try await executor.execute(
@@ -91,9 +97,9 @@ final class ProcessExecutorTests: XCTestCase {
             .components(separatedBy: "\n")
             .first { $0.hasPrefix("PATH=") }
 
-        XCTAssertNotNil(pathLine, "Expected PATH in environment output")
+        #expect(pathLine != nil, "Expected PATH in environment output")
         if let pathLine {
-            XCTAssertTrue(
+            #expect(
                 pathLine.contains("/opt/homebrew/bin") || pathLine.contains("/usr/local/bin"),
                 "Expected PATH to include homebrew or local bin paths"
             )
@@ -102,6 +108,7 @@ final class ProcessExecutorTests: XCTestCase {
 
     // MARK: - Timeout
 
+    @Test
     func test_execute_timeoutTerminatesHangingProcess() async throws {
         // Arrange — executor with a 2-second timeout
         let shortTimeoutExecutor = DefaultProcessExecutor(timeout: 2)
@@ -114,18 +121,21 @@ final class ProcessExecutorTests: XCTestCase {
                 cwd: nil,
                 environment: nil
             )
-            XCTFail("Expected ProcessError.timedOut to be thrown")
+            Issue.record("Expected ProcessError.timedOut to be thrown")
         } catch let error as ProcessError {
             // Assert
             if case .timedOut(let cmd, let seconds) = error {
-                XCTAssertEqual(cmd, "sleep")
-                XCTAssertEqual(seconds, 2)
+                #expect(cmd == "sleep")
+                #expect(seconds == 2)
             } else {
-                XCTFail("Expected .timedOut, got: \(error)")
+                Issue.record("Expected .timedOut, got: \(error)")
             }
+        } catch {
+            Issue.record("Expected .timedOut, got: \(error)")
         }
     }
 
+    @Test
     func test_execute_normalCommandDoesNotTimeout() async throws {
         // Arrange — short timeout but the command finishes quickly
         let shortTimeoutExecutor = DefaultProcessExecutor(timeout: 5)
@@ -139,12 +149,13 @@ final class ProcessExecutorTests: XCTestCase {
         )
 
         // Assert — should succeed normally, no timeout
-        XCTAssertEqual(result.stdout, "fast")
-        XCTAssertTrue(result.succeeded)
+        #expect(result.stdout == "fast")
+        #expect(result.succeeded)
     }
 
     // MARK: - Regression: Fast Exit (Group 8)
 
+    @Test
     func test_execute_fastExitDoesNotHang() async throws {
         // Regression test for the Group 8 fix: fast-exiting processes like
         // `true` (~0ms) must complete without hanging. The old code set
@@ -159,7 +170,7 @@ final class ProcessExecutorTests: XCTestCase {
         )
 
         // Assert
-        XCTAssertEqual(result.exitCode, 0)
-        XCTAssertTrue(result.succeeded)
+        #expect(result.exitCode == 0)
+        #expect(result.succeeded)
     }
 }

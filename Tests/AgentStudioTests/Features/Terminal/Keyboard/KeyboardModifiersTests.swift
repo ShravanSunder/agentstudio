@@ -1,13 +1,17 @@
 import AppKit
 import GhosttyKit
-import XCTest
+import Testing
+import Foundation
 
 @testable import AgentStudio
 
-final class KeyboardModifiersTests: XCTestCase {
+@Suite(.serialized)
+
+final class KeyboardModifiersTests {
 
     // MARK: - ghosttyMods Tests
 
+    @Test
     func test_ghosttyMods_emptyFlags_returnsNone() {
         // Arrange
         let flags: NSEvent.ModifierFlags = []
@@ -16,9 +20,10 @@ final class KeyboardModifiersTests: XCTestCase {
         let result = ghosttyMods(from: flags)
 
         // Assert
-        XCTAssertEqual(result.rawValue, GHOSTTY_MODS_NONE.rawValue)
+        #expect(result.rawValue == GHOSTTY_MODS_NONE.rawValue)
     }
 
+    @Test
     func test_ghosttyMods_shiftOnly_returnsShift() {
         // Arrange
         let flags: NSEvent.ModifierFlags = .shift
@@ -27,10 +32,11 @@ final class KeyboardModifiersTests: XCTestCase {
         let result = ghosttyMods(from: flags)
 
         // Assert
-        XCTAssertNotEqual(result.rawValue & GHOSTTY_MODS_SHIFT.rawValue, 0)
-        XCTAssertEqual(result.rawValue & GHOSTTY_MODS_CTRL.rawValue, 0)
+        #expect(result.rawValue & GHOSTTY_MODS_SHIFT.rawValue != 0)
+        #expect(result.rawValue & GHOSTTY_MODS_CTRL.rawValue == 0)
     }
 
+    @Test
     func test_ghosttyMods_controlOnly_returnsCtrl() {
         // Arrange
         let flags: NSEvent.ModifierFlags = .control
@@ -39,9 +45,10 @@ final class KeyboardModifiersTests: XCTestCase {
         let result = ghosttyMods(from: flags)
 
         // Assert
-        XCTAssertNotEqual(result.rawValue & GHOSTTY_MODS_CTRL.rawValue, 0)
+        #expect(result.rawValue & GHOSTTY_MODS_CTRL.rawValue != 0)
     }
 
+    @Test
     func test_ghosttyMods_optionOnly_returnsAlt() {
         // Arrange
         let flags: NSEvent.ModifierFlags = .option
@@ -50,9 +57,10 @@ final class KeyboardModifiersTests: XCTestCase {
         let result = ghosttyMods(from: flags)
 
         // Assert
-        XCTAssertNotEqual(result.rawValue & GHOSTTY_MODS_ALT.rawValue, 0)
+        #expect(result.rawValue & GHOSTTY_MODS_ALT.rawValue != 0)
     }
 
+    @Test
     func test_ghosttyMods_commandOnly_returnsSuper() {
         // Arrange
         let flags: NSEvent.ModifierFlags = .command
@@ -61,9 +69,10 @@ final class KeyboardModifiersTests: XCTestCase {
         let result = ghosttyMods(from: flags)
 
         // Assert
-        XCTAssertNotEqual(result.rawValue & GHOSTTY_MODS_SUPER.rawValue, 0)
+        #expect(result.rawValue & GHOSTTY_MODS_SUPER.rawValue != 0)
     }
 
+    @Test
     func test_ghosttyMods_capsLock_returnsCaps() {
         // Arrange
         let flags: NSEvent.ModifierFlags = .capsLock
@@ -72,9 +81,10 @@ final class KeyboardModifiersTests: XCTestCase {
         let result = ghosttyMods(from: flags)
 
         // Assert
-        XCTAssertNotEqual(result.rawValue & GHOSTTY_MODS_CAPS.rawValue, 0)
+        #expect(result.rawValue & GHOSTTY_MODS_CAPS.rawValue != 0)
     }
 
+    @Test
     func test_ghosttyMods_multipleModifiers_returnsCombined() {
         // Arrange
         let flags: NSEvent.ModifierFlags = [.shift, .control, .option]
@@ -83,9 +93,9 @@ final class KeyboardModifiersTests: XCTestCase {
         let result = ghosttyMods(from: flags)
 
         // Assert
-        XCTAssertNotEqual(result.rawValue & GHOSTTY_MODS_SHIFT.rawValue, 0)
-        XCTAssertNotEqual(result.rawValue & GHOSTTY_MODS_CTRL.rawValue, 0)
-        XCTAssertNotEqual(result.rawValue & GHOSTTY_MODS_ALT.rawValue, 0)
-        XCTAssertEqual(result.rawValue & GHOSTTY_MODS_SUPER.rawValue, 0)
+        #expect(result.rawValue & GHOSTTY_MODS_SHIFT.rawValue != 0)
+        #expect(result.rawValue & GHOSTTY_MODS_CTRL.rawValue != 0)
+        #expect(result.rawValue & GHOSTTY_MODS_ALT.rawValue != 0)
+        #expect(result.rawValue & GHOSTTY_MODS_SUPER.rawValue == 0)
     }
 }

@@ -1,21 +1,27 @@
-import XCTest
+import Testing
+import Foundation
 
 @testable import AgentStudio
 
-final class LayoutTests: XCTestCase {
+@Suite(.serialized)
+final class LayoutTests {
 
     // MARK: - Initialization
+
+    @Test
 
     func test_emptyLayout_isEmpty() {
         // Arrange
         let layout = Layout()
 
         // Assert
-        XCTAssertTrue(layout.isEmpty)
-        XCTAssertFalse(layout.isSplit)
-        XCTAssertTrue(layout.paneIds.isEmpty)
-        XCTAssertNil(layout.root)
+        #expect(layout.isEmpty)
+        #expect(!(layout.isSplit))
+        #expect(layout.paneIds.isEmpty)
+        #expect((layout.root) == nil)
     }
+
+    @Test
 
     func test_singlePane_properties() {
         // Arrange
@@ -23,12 +29,14 @@ final class LayoutTests: XCTestCase {
         let layout = Layout(paneId: paneId)
 
         // Assert
-        XCTAssertFalse(layout.isEmpty)
-        XCTAssertFalse(layout.isSplit)
-        XCTAssertEqual(layout.paneIds, [paneId])
+        #expect(!(layout.isEmpty))
+        #expect(!(layout.isSplit))
+        #expect(layout.paneIds == [paneId])
     }
 
     // MARK: - Contains
+
+    @Test
 
     func test_contains_existingPane_returnsTrue() {
         // Arrange
@@ -36,26 +44,32 @@ final class LayoutTests: XCTestCase {
         let layout = Layout(paneId: paneId)
 
         // Assert
-        XCTAssertTrue(layout.contains(paneId))
+        #expect(layout.contains(paneId))
     }
+
+    @Test
 
     func test_contains_nonExistent_returnsFalse() {
         // Arrange
         let layout = Layout(paneId: UUID())
 
         // Assert
-        XCTAssertFalse(layout.contains(UUID()))
+        #expect(!(layout.contains(UUID())))
     }
+
+    @Test
 
     func test_contains_emptyLayout_returnsFalse() {
         // Arrange
         let layout = Layout()
 
         // Assert
-        XCTAssertFalse(layout.contains(UUID()))
+        #expect(!(layout.contains(UUID())))
     }
 
     // MARK: - Insert
+
+    @Test
 
     func test_insert_after_createsSplit() {
         // Arrange
@@ -70,18 +84,20 @@ final class LayoutTests: XCTestCase {
         )
 
         // Assert
-        XCTAssertTrue(result.isSplit)
-        XCTAssertEqual(result.paneIds.count, 2)
-        XCTAssertEqual(result.paneIds[0], paneA)
-        XCTAssertEqual(result.paneIds[1], paneB)
+        #expect(result.isSplit)
+        #expect(result.paneIds.count == 2)
+        #expect(result.paneIds[0] == paneA)
+        #expect(result.paneIds[1] == paneB)
 
         guard case .split(let split) = result.root else {
-            XCTFail("Expected split node")
+            Issue.record("Expected split node")
             return
         }
-        XCTAssertEqual(split.direction, .horizontal)
-        XCTAssertEqual(split.ratio, 0.5, accuracy: 0.001)
+        #expect(split.direction == .horizontal)
+        #expect(split.ratio == 0.5, accuracy: 0.001)
     }
+
+    @Test
 
     func test_insert_before_createsSplit() {
         // Arrange
@@ -96,10 +112,12 @@ final class LayoutTests: XCTestCase {
         )
 
         // Assert
-        XCTAssertEqual(result.paneIds.count, 2)
-        XCTAssertEqual(result.paneIds[0], paneB)
-        XCTAssertEqual(result.paneIds[1], paneA)
+        #expect(result.paneIds.count == 2)
+        #expect(result.paneIds[0] == paneB)
+        #expect(result.paneIds[1] == paneA)
     }
+
+    @Test
 
     func test_insert_vertical_after() {
         // Arrange
@@ -115,13 +133,15 @@ final class LayoutTests: XCTestCase {
 
         // Assert
         guard case .split(let split) = result.root else {
-            XCTFail("Expected split node")
+            Issue.record("Expected split node")
             return
         }
-        XCTAssertEqual(split.direction, .vertical)
-        XCTAssertEqual(result.paneIds[0], paneA)
-        XCTAssertEqual(result.paneIds[1], paneB)
+        #expect(split.direction == .vertical)
+        #expect(result.paneIds[0] == paneA)
+        #expect(result.paneIds[1] == paneB)
     }
+
+    @Test
 
     func test_insert_vertical_before() {
         // Arrange
@@ -136,9 +156,11 @@ final class LayoutTests: XCTestCase {
         )
 
         // Assert
-        XCTAssertEqual(result.paneIds[0], paneB)
-        XCTAssertEqual(result.paneIds[1], paneA)
+        #expect(result.paneIds[0] == paneB)
+        #expect(result.paneIds[1] == paneA)
     }
+
+    @Test
 
     func test_insert_targetNotFound_returnsUnchanged() {
         // Arrange
@@ -152,8 +174,10 @@ final class LayoutTests: XCTestCase {
         )
 
         // Assert
-        XCTAssertEqual(result.paneIds, [paneA])
+        #expect(result.paneIds == [paneA])
     }
+
+    @Test
 
     func test_insert_nested_createsDeepTree() {
         // Arrange — A | B
@@ -170,20 +194,22 @@ final class LayoutTests: XCTestCase {
         )
 
         // Assert — should have 3 panes: A, B, C
-        XCTAssertEqual(result.paneIds, [paneA, paneB, paneC])
+        #expect(result.paneIds == [paneA, paneB, paneC])
 
         guard case .split(let rootSplit) = result.root else {
-            XCTFail("Expected split root")
+            Issue.record("Expected split root")
             return
         }
-        XCTAssertEqual(rootSplit.direction, .horizontal)
+        #expect(rootSplit.direction == .horizontal)
 
         guard case .split(let rightSplit) = rootSplit.right else {
-            XCTFail("Expected nested split")
+            Issue.record("Expected nested split")
             return
         }
-        XCTAssertEqual(rightSplit.direction, .vertical)
+        #expect(rightSplit.direction == .vertical)
     }
+
+    @Test
 
     func test_insert_intoEmptyLayout_returnsUnchanged() {
         // Arrange
@@ -196,10 +222,12 @@ final class LayoutTests: XCTestCase {
         )
 
         // Assert
-        XCTAssertTrue(result.isEmpty)
+        #expect(result.isEmpty)
     }
 
     // MARK: - Remove
+
+    @Test
 
     func test_remove_singlePane_returnsNil() {
         // Arrange
@@ -210,8 +238,10 @@ final class LayoutTests: XCTestCase {
         let result = layout.removing(paneId: paneId)
 
         // Assert
-        XCTAssertNil(result)
+        #expect((result) == nil)
     }
+
+    @Test
 
     func test_remove_fromSplit_collapsesToLeaf() {
         // Arrange — A | B
@@ -224,10 +254,12 @@ final class LayoutTests: XCTestCase {
         let result = layout.removing(paneId: paneA)
 
         // Assert — should collapse to just B
-        XCTAssertNotNil(result)
-        XCTAssertFalse(result!.isSplit)
-        XCTAssertEqual(result!.paneIds, [paneB])
+        #expect((result) != nil)
+        #expect(!(result!.isSplit))
+        #expect(result!.paneIds == [paneB])
     }
+
+    @Test
 
     func test_remove_nonExistent_returnsUnchanged() {
         // Arrange
@@ -238,9 +270,11 @@ final class LayoutTests: XCTestCase {
         let result = layout.removing(paneId: UUID())
 
         // Assert
-        XCTAssertNotNil(result)
-        XCTAssertEqual(result!.paneIds, [paneA])
+        #expect((result) != nil)
+        #expect(result!.paneIds == [paneA])
     }
+
+    @Test
 
     func test_remove_fromDeepTree_preservesOtherBranches() {
         // Arrange — A | (B / C)
@@ -255,10 +289,12 @@ final class LayoutTests: XCTestCase {
         let result = layout.removing(paneId: paneC)
 
         // Assert — should have A | B
-        XCTAssertNotNil(result)
-        XCTAssertTrue(result!.isSplit)
-        XCTAssertEqual(result!.paneIds, [paneA, paneB])
+        #expect((result) != nil)
+        #expect(result!.isSplit)
+        #expect(result!.paneIds == [paneA, paneB])
     }
+
+    @Test
 
     func test_remove_fromEmptyLayout_returnsNil() {
         // Arrange
@@ -268,10 +304,12 @@ final class LayoutTests: XCTestCase {
         let result = layout.removing(paneId: UUID())
 
         // Assert
-        XCTAssertNil(result)
+        #expect((result) == nil)
     }
 
     // MARK: - Resize
+
+    @Test
 
     func test_resize_clampsRatio() {
         // Arrange
@@ -281,7 +319,7 @@ final class LayoutTests: XCTestCase {
             .inserting(paneId: paneB, at: paneA, direction: .horizontal, position: .after)
 
         guard case .split(let originalSplit) = layout.root else {
-            XCTFail("Expected split")
+            Issue.record("Expected split")
             return
         }
 
@@ -291,17 +329,19 @@ final class LayoutTests: XCTestCase {
 
         // Assert
         guard case .split(let smallSplit) = tooSmall.root else {
-            XCTFail("Expected split")
+            Issue.record("Expected split")
             return
         }
-        XCTAssertEqual(smallSplit.ratio, 0.1, accuracy: 0.001)
+        #expect(smallSplit.ratio == 0.1, accuracy: 0.001)
 
         guard case .split(let largeSplit) = tooLarge.root else {
-            XCTFail("Expected split")
+            Issue.record("Expected split")
             return
         }
-        XCTAssertEqual(largeSplit.ratio, 0.9, accuracy: 0.001)
+        #expect(largeSplit.ratio == 0.9, accuracy: 0.001)
     }
+
+    @Test
 
     func test_resize_updatesCorrectSplit() {
         // Arrange — A | (B / C)
@@ -315,7 +355,7 @@ final class LayoutTests: XCTestCase {
         guard case .split(let rootSplit) = layout.root,
             case .split(let nestedSplit) = rootSplit.right
         else {
-            XCTFail("Expected nested split structure")
+            Issue.record("Expected nested split structure")
             return
         }
 
@@ -324,17 +364,19 @@ final class LayoutTests: XCTestCase {
 
         // Assert
         guard case .split(let newRoot) = result.root else {
-            XCTFail("Expected split root")
+            Issue.record("Expected split root")
             return
         }
-        XCTAssertEqual(newRoot.ratio, 0.5, accuracy: 0.001, "Root ratio should be unchanged")
+        #expect(newRoot.ratio == 0.5, accuracy: 0.001, "Root ratio should be unchanged")
 
         guard case .split(let newNested) = newRoot.right else {
-            XCTFail("Expected nested split")
+            Issue.record("Expected nested split")
             return
         }
-        XCTAssertEqual(newNested.ratio, 0.3, accuracy: 0.001)
+        #expect(newNested.ratio == 0.3, accuracy: 0.001)
     }
+
+    @Test
 
     func test_resize_nonExistentSplitId_returnsUnchanged() {
         // Arrange
@@ -348,13 +390,15 @@ final class LayoutTests: XCTestCase {
 
         // Assert
         guard case .split(let split) = result.root else {
-            XCTFail("Expected split")
+            Issue.record("Expected split")
             return
         }
-        XCTAssertEqual(split.ratio, 0.5, accuracy: 0.001, "Ratio should be unchanged")
+        #expect(split.ratio == 0.5, accuracy: 0.001, "Ratio should be unchanged")
     }
 
     // MARK: - Equalize
+
+    @Test
 
     func test_equalize_setsAllRatiosToHalf() {
         // Arrange — A | (B / C) with non-0.5 ratios
@@ -368,7 +412,7 @@ final class LayoutTests: XCTestCase {
         guard case .split(let rootSplit) = layout.root,
             case .split(let nestedSplit) = rootSplit.right
         else {
-            XCTFail("Expected structure")
+            Issue.record("Expected structure")
             return
         }
 
@@ -382,19 +426,21 @@ final class LayoutTests: XCTestCase {
 
         // Assert
         guard case .split(let eqRoot) = equalized.root else {
-            XCTFail("Expected root split")
+            Issue.record("Expected root split")
             return
         }
-        XCTAssertEqual(eqRoot.ratio, 0.5, accuracy: 0.001)
+        #expect(eqRoot.ratio == 0.5, accuracy: 0.001)
 
         guard case .split(let eqNested) = eqRoot.right else {
-            XCTFail("Expected nested split")
+            Issue.record("Expected nested split")
             return
         }
-        XCTAssertEqual(eqNested.ratio, 0.5, accuracy: 0.001)
+        #expect(eqNested.ratio == 0.5, accuracy: 0.001)
     }
 
     // MARK: - Pane IDs Ordering
+
+    @Test
 
     func test_paneIds_orderedLeftToRight() {
         // Arrange — A | B
@@ -404,8 +450,10 @@ final class LayoutTests: XCTestCase {
             .inserting(paneId: paneB, at: paneA, direction: .horizontal, position: .after)
 
         // Assert
-        XCTAssertEqual(layout.paneIds, [paneA, paneB])
+        #expect(layout.paneIds == [paneA, paneB])
     }
+
+    @Test
 
     func test_paneIds_deepTree_orderedCorrectly() {
         // Arrange — A | (B / C)
@@ -417,10 +465,12 @@ final class LayoutTests: XCTestCase {
             .inserting(paneId: paneC, at: paneB, direction: .vertical, position: .after)
 
         // Assert — A, B, C
-        XCTAssertEqual(layout.paneIds, [paneA, paneB, paneC])
+        #expect(layout.paneIds == [paneA, paneB, paneC])
     }
 
     // MARK: - Navigation: neighbor
+
+    @Test
 
     func test_neighbor_horizontalSplit_right() {
         // Arrange — A | B
@@ -433,8 +483,10 @@ final class LayoutTests: XCTestCase {
         let neighbor = layout.neighbor(of: paneA, direction: .right)
 
         // Assert
-        XCTAssertEqual(neighbor, paneB)
+        #expect(neighbor == paneB)
     }
+
+    @Test
 
     func test_neighbor_horizontalSplit_left() {
         // Arrange — A | B
@@ -447,8 +499,10 @@ final class LayoutTests: XCTestCase {
         let neighbor = layout.neighbor(of: paneB, direction: .left)
 
         // Assert
-        XCTAssertEqual(neighbor, paneA)
+        #expect(neighbor == paneA)
     }
+
+    @Test
 
     func test_neighbor_verticalSplit_down() {
         // Arrange — A / B (vertical)
@@ -461,8 +515,10 @@ final class LayoutTests: XCTestCase {
         let neighbor = layout.neighbor(of: paneA, direction: .down)
 
         // Assert
-        XCTAssertEqual(neighbor, paneB)
+        #expect(neighbor == paneB)
     }
+
+    @Test
 
     func test_neighbor_verticalSplit_up() {
         // Arrange — A / B (vertical)
@@ -475,8 +531,10 @@ final class LayoutTests: XCTestCase {
         let neighbor = layout.neighbor(of: paneB, direction: .up)
 
         // Assert
-        XCTAssertEqual(neighbor, paneA)
+        #expect(neighbor == paneA)
     }
+
+    @Test
 
     func test_neighbor_noNeighborInDirection_returnsNil() {
         // Arrange — A | B (horizontal only)
@@ -486,11 +544,13 @@ final class LayoutTests: XCTestCase {
             .inserting(paneId: paneB, at: paneA, direction: .horizontal, position: .after)
 
         // Act — look up/down in a horizontal split
-        XCTAssertNil(layout.neighbor(of: paneA, direction: .up))
-        XCTAssertNil(layout.neighbor(of: paneA, direction: .down))
-        XCTAssertNil(layout.neighbor(of: paneA, direction: .left))
-        XCTAssertNil(layout.neighbor(of: paneB, direction: .right))
+        #expect((layout.neighbor(of: paneA, direction: .up)) == nil)
+        #expect((layout.neighbor(of: paneA, direction: .down)) == nil)
+        #expect((layout.neighbor(of: paneA, direction: .left)) == nil)
+        #expect((layout.neighbor(of: paneB, direction: .right)) == nil)
     }
+
+    @Test
 
     func test_neighbor_singlePane_returnsNil() {
         // Arrange
@@ -498,21 +558,25 @@ final class LayoutTests: XCTestCase {
         let layout = Layout(paneId: paneA)
 
         // Assert
-        XCTAssertNil(layout.neighbor(of: paneA, direction: .right))
-        XCTAssertNil(layout.neighbor(of: paneA, direction: .left))
-        XCTAssertNil(layout.neighbor(of: paneA, direction: .up))
-        XCTAssertNil(layout.neighbor(of: paneA, direction: .down))
+        #expect((layout.neighbor(of: paneA, direction: .right)) == nil)
+        #expect((layout.neighbor(of: paneA, direction: .left)) == nil)
+        #expect((layout.neighbor(of: paneA, direction: .up)) == nil)
+        #expect((layout.neighbor(of: paneA, direction: .down)) == nil)
     }
+
+    @Test
 
     func test_neighbor_emptyLayout_returnsNil() {
         // Arrange
         let layout = Layout()
 
         // Assert
-        XCTAssertNil(layout.neighbor(of: UUID(), direction: .right))
+        #expect((layout.neighbor(of: UUID(), direction: .right)) == nil)
     }
 
     // MARK: - Navigation: next/previous
+
+    @Test
 
     func test_next_wrapsAround() {
         // Arrange — A | B
@@ -522,9 +586,11 @@ final class LayoutTests: XCTestCase {
             .inserting(paneId: paneB, at: paneA, direction: .horizontal, position: .after)
 
         // Assert
-        XCTAssertEqual(layout.next(after: paneA), paneB)
-        XCTAssertEqual(layout.next(after: paneB), paneA)
+        #expect(layout.next(after: paneA) == paneB)
+        #expect(layout.next(after: paneB) == paneA)
     }
+
+    @Test
 
     func test_previous_wrapsAround() {
         // Arrange — A | B
@@ -534,9 +600,11 @@ final class LayoutTests: XCTestCase {
             .inserting(paneId: paneB, at: paneA, direction: .horizontal, position: .after)
 
         // Assert
-        XCTAssertEqual(layout.previous(before: paneB), paneA)
-        XCTAssertEqual(layout.previous(before: paneA), paneB)
+        #expect(layout.previous(before: paneB) == paneA)
+        #expect(layout.previous(before: paneA) == paneB)
     }
+
+    @Test
 
     func test_next_singlePane_returnsSelf() {
         // Arrange
@@ -544,16 +612,20 @@ final class LayoutTests: XCTestCase {
         let layout = Layout(paneId: paneA)
 
         // Assert
-        XCTAssertEqual(layout.next(after: paneA), paneA)
+        #expect(layout.next(after: paneA) == paneA)
     }
+
+    @Test
 
     func test_next_nonExistent_returnsNil() {
         // Arrange
         let layout = Layout(paneId: UUID())
 
         // Assert
-        XCTAssertNil(layout.next(after: UUID()))
+        #expect((layout.next(after: UUID())) == nil)
     }
+
+    @Test
 
     func test_next_threePane_wrapsCorrectly() {
         // Arrange — A | (B / C)
@@ -565,12 +637,14 @@ final class LayoutTests: XCTestCase {
             .inserting(paneId: paneC, at: paneB, direction: .vertical, position: .after)
 
         // Assert
-        XCTAssertEqual(layout.next(after: paneA), paneB)
-        XCTAssertEqual(layout.next(after: paneB), paneC)
-        XCTAssertEqual(layout.next(after: paneC), paneA)
+        #expect(layout.next(after: paneA) == paneB)
+        #expect(layout.next(after: paneB) == paneC)
+        #expect(layout.next(after: paneC) == paneA)
     }
 
     // MARK: - Codable Round-Trip
+
+    @Test
 
     func test_codable_emptyLayout_roundTrips() throws {
         // Arrange
@@ -581,9 +655,11 @@ final class LayoutTests: XCTestCase {
         let decoded = try JSONDecoder().decode(Layout.self, from: data)
 
         // Assert
-        XCTAssertTrue(decoded.isEmpty)
-        XCTAssertNil(decoded.root)
+        #expect(decoded.isEmpty)
+        #expect((decoded.root) == nil)
     }
+
+    @Test
 
     func test_codable_singlePane_roundTrips() throws {
         // Arrange
@@ -595,10 +671,12 @@ final class LayoutTests: XCTestCase {
         let decoded = try JSONDecoder().decode(Layout.self, from: data)
 
         // Assert
-        XCTAssertFalse(decoded.isEmpty)
-        XCTAssertFalse(decoded.isSplit)
-        XCTAssertEqual(decoded.paneIds, [paneId])
+        #expect(!(decoded.isEmpty))
+        #expect(!(decoded.isSplit))
+        #expect(decoded.paneIds == [paneId])
     }
+
+    @Test
 
     func test_codable_splitLayout_roundTrips() throws {
         // Arrange
@@ -608,7 +686,7 @@ final class LayoutTests: XCTestCase {
             .inserting(paneId: paneB, at: paneA, direction: .horizontal, position: .after)
 
         guard case .split(let originalSplit) = layout.root else {
-            XCTFail("Expected split")
+            Issue.record("Expected split")
             return
         }
         let resized = layout.resizing(splitId: originalSplit.id, ratio: 0.3)
@@ -618,17 +696,19 @@ final class LayoutTests: XCTestCase {
         let decoded = try JSONDecoder().decode(Layout.self, from: data)
 
         // Assert
-        XCTAssertTrue(decoded.isSplit)
-        XCTAssertEqual(decoded.paneIds, [paneA, paneB])
+        #expect(decoded.isSplit)
+        #expect(decoded.paneIds == [paneA, paneB])
 
         guard case .split(let decodedSplit) = decoded.root else {
-            XCTFail("Expected split")
+            Issue.record("Expected split")
             return
         }
-        XCTAssertEqual(decodedSplit.direction, .horizontal)
-        XCTAssertEqual(decodedSplit.ratio, 0.3, accuracy: 0.001)
-        XCTAssertEqual(decodedSplit.id, originalSplit.id)
+        #expect(decodedSplit.direction == .horizontal)
+        #expect(decodedSplit.ratio == 0.3, accuracy: 0.001)
+        #expect(decodedSplit.id == originalSplit.id)
     }
+
+    @Test
 
     func test_codable_deepLayout_roundTrips() throws {
         // Arrange — A | (B / C) with mixed ratios
@@ -640,7 +720,7 @@ final class LayoutTests: XCTestCase {
             .inserting(paneId: paneC, at: paneB, direction: .vertical, position: .after)
 
         guard case .split(let rootSplit) = layout.root else {
-            XCTFail("Expected root split")
+            Issue.record("Expected root split")
             return
         }
         let resized = layout.resizing(splitId: rootSplit.id, ratio: 0.4)
@@ -650,24 +730,26 @@ final class LayoutTests: XCTestCase {
         let decoded = try JSONDecoder().decode(Layout.self, from: data)
 
         // Assert
-        XCTAssertEqual(decoded.paneIds, [paneA, paneB, paneC])
+        #expect(decoded.paneIds == [paneA, paneB, paneC])
 
         guard case .split(let decodedRoot) = decoded.root else {
-            XCTFail("Expected root split")
+            Issue.record("Expected root split")
             return
         }
-        XCTAssertEqual(decodedRoot.direction, .horizontal)
-        XCTAssertEqual(decodedRoot.ratio, 0.4, accuracy: 0.001)
+        #expect(decodedRoot.direction == .horizontal)
+        #expect(decodedRoot.ratio == 0.4, accuracy: 0.001)
 
         guard case .split(let decodedNested) = decodedRoot.right else {
-            XCTFail("Expected nested split")
+            Issue.record("Expected nested split")
             return
         }
-        XCTAssertEqual(decodedNested.direction, .vertical)
-        XCTAssertEqual(decodedNested.ratio, 0.5, accuracy: 0.001)
+        #expect(decodedNested.direction == .vertical)
+        #expect(decodedNested.ratio == 0.5, accuracy: 0.001)
     }
 
     // MARK: - Hashable
+
+    @Test
 
     func test_hashable_sameStructure_areEqual() {
         // Arrange
@@ -676,8 +758,10 @@ final class LayoutTests: XCTestCase {
         let layout2 = Layout(paneId: paneId)
 
         // Assert
-        XCTAssertEqual(layout1, layout2)
+        #expect(layout1 == layout2)
     }
+
+    @Test
 
     func test_hashable_differentStructure_areNotEqual() {
         // Arrange
@@ -685,10 +769,12 @@ final class LayoutTests: XCTestCase {
         let layout2 = Layout(paneId: UUID())
 
         // Assert
-        XCTAssertNotEqual(layout1, layout2)
+        #expect(layout1 != layout2)
     }
 
     // MARK: - Split Ratio Clamping on Init
+
+    @Test
 
     func test_splitInit_clampsRatioMin() {
         // Arrange & Act
@@ -700,8 +786,10 @@ final class LayoutTests: XCTestCase {
         )
 
         // Assert
-        XCTAssertEqual(split.ratio, 0.1, accuracy: 0.001)
+        #expect(split.ratio == 0.1, accuracy: 0.001)
     }
+
+    @Test
 
     func test_splitInit_clampsRatioMax() {
         // Arrange & Act
@@ -713,8 +801,10 @@ final class LayoutTests: XCTestCase {
         )
 
         // Assert
-        XCTAssertEqual(split.ratio, 0.9, accuracy: 0.001)
+        #expect(split.ratio == 0.9, accuracy: 0.001)
     }
+
+    @Test
 
     func test_splitInit_normalRatioUnchanged() {
         // Arrange & Act
@@ -726,7 +816,7 @@ final class LayoutTests: XCTestCase {
         )
 
         // Assert
-        XCTAssertEqual(split.ratio, 0.7, accuracy: 0.001)
+        #expect(split.ratio == 0.7, accuracy: 0.001)
     }
 
 }

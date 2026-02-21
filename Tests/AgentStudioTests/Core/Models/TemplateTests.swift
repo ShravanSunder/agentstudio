@@ -1,18 +1,24 @@
-import XCTest
+import Testing
+import Foundation
 
 @testable import AgentStudio
 
-final class TemplateTests: XCTestCase {
+@Suite(.serialized)
+final class TemplateTests {
 
     // MARK: - TerminalTemplate
 
+    @Test
+
     func test_terminalTemplate_defaults() {
         let template = TerminalTemplate()
-        XCTAssertEqual(template.title, "Terminal")
-        XCTAssertNil(template.agent)
-        XCTAssertEqual(template.provider, .zmx)
-        XCTAssertNil(template.relativeWorkingDir)
+        #expect(template.title == "Terminal")
+        #expect((template.agent) == nil)
+        #expect(template.provider == .zmx)
+        #expect((template.relativeWorkingDir) == nil)
     }
+
+    @Test
 
     func test_terminalTemplate_instantiate() {
         let worktreeId = UUID()
@@ -25,12 +31,14 @@ final class TemplateTests: XCTestCase {
 
         let pane = template.instantiate(worktreeId: worktreeId, repoId: repoId)
 
-        XCTAssertEqual(pane.title, "Claude Agent")
-        XCTAssertEqual(pane.agent, .claude)
-        XCTAssertEqual(pane.provider, .zmx)
-        XCTAssertEqual(pane.worktreeId, worktreeId)
-        XCTAssertEqual(pane.repoId, repoId)
+        #expect(pane.title == "Claude Agent")
+        #expect(pane.agent == .claude)
+        #expect(pane.provider == .zmx)
+        #expect(pane.worktreeId == worktreeId)
+        #expect(pane.repoId == repoId)
     }
+
+    @Test
 
     func test_terminalTemplate_codable_roundTrip() throws {
         let template = TerminalTemplate(
@@ -43,21 +51,25 @@ final class TemplateTests: XCTestCase {
         let data = try JSONEncoder().encode(template)
         let decoded = try JSONDecoder().decode(TerminalTemplate.self, from: data)
 
-        XCTAssertEqual(decoded.id, template.id)
-        XCTAssertEqual(decoded.title, "Dev")
-        XCTAssertEqual(decoded.agent, .claude)
-        XCTAssertEqual(decoded.relativeWorkingDir, "src")
+        #expect(decoded.id == template.id)
+        #expect(decoded.title == "Dev")
+        #expect(decoded.agent == .claude)
+        #expect(decoded.relativeWorkingDir == "src")
     }
 
     // MARK: - WorktreeTemplate
 
+    @Test
+
     func test_worktreeTemplate_defaults() {
         let template = WorktreeTemplate()
-        XCTAssertEqual(template.name, "Default")
-        XCTAssertEqual(template.terminals.count, 1)
-        XCTAssertEqual(template.createPolicy, .manual)
-        XCTAssertEqual(template.splitDirection, .horizontal)
+        #expect(template.name == "Default")
+        #expect(template.terminals.count == 1)
+        #expect(template.createPolicy == .manual)
+        #expect(template.splitDirection == .horizontal)
     }
+
+    @Test
 
     func test_worktreeTemplate_instantiate_single() {
         let worktreeId = UUID()
@@ -69,12 +81,14 @@ final class TemplateTests: XCTestCase {
 
         let (panes, tab) = template.instantiate(worktreeId: worktreeId, repoId: repoId)
 
-        XCTAssertEqual(panes.count, 1)
-        XCTAssertEqual(panes[0].title, "Shell")
-        XCTAssertEqual(tab.paneIds.count, 1)
-        XCTAssertEqual(tab.paneIds[0], panes[0].id)
-        XCTAssertFalse(tab.isSplit)
+        #expect(panes.count == 1)
+        #expect(panes[0].title == "Shell")
+        #expect(tab.paneIds.count == 1)
+        #expect(tab.paneIds[0] == panes[0].id)
+        #expect(!(tab.isSplit))
     }
+
+    @Test
 
     func test_worktreeTemplate_instantiate_multi_horizontal() {
         let worktreeId = UUID()
@@ -91,15 +105,17 @@ final class TemplateTests: XCTestCase {
 
         let (panes, tab) = template.instantiate(worktreeId: worktreeId, repoId: repoId)
 
-        XCTAssertEqual(panes.count, 3)
-        XCTAssertEqual(tab.paneIds.count, 3)
-        XCTAssertTrue(tab.isSplit)
-        XCTAssertEqual(tab.activePaneId, panes[0].id)
+        #expect(panes.count == 3)
+        #expect(tab.paneIds.count == 3)
+        #expect(tab.isSplit)
+        #expect(tab.activePaneId == panes[0].id)
         // All pane IDs should be present in the layout
         for pane in panes {
-            XCTAssertTrue(tab.paneIds.contains(pane.id))
+            #expect(tab.paneIds.contains(pane.id))
         }
     }
+
+    @Test
 
     func test_worktreeTemplate_codable_roundTrip() throws {
         let template = WorktreeTemplate(
@@ -115,14 +131,16 @@ final class TemplateTests: XCTestCase {
         let data = try JSONEncoder().encode(template)
         let decoded = try JSONDecoder().decode(WorktreeTemplate.self, from: data)
 
-        XCTAssertEqual(decoded.id, template.id)
-        XCTAssertEqual(decoded.name, "Full Stack")
-        XCTAssertEqual(decoded.terminals.count, 2)
-        XCTAssertEqual(decoded.createPolicy, .onCreate)
-        XCTAssertEqual(decoded.splitDirection, .vertical)
+        #expect(decoded.id == template.id)
+        #expect(decoded.name == "Full Stack")
+        #expect(decoded.terminals.count == 2)
+        #expect(decoded.createPolicy == .onCreate)
+        #expect(decoded.splitDirection == .vertical)
     }
 
     // MARK: - CreatePolicy
+
+    @Test
 
     func test_createPolicy_codable() throws {
         let policies: [CreatePolicy] = [.onCreate, .onActivate, .manual]
@@ -130,11 +148,13 @@ final class TemplateTests: XCTestCase {
         for policy in policies {
             let data = try JSONEncoder().encode(policy)
             let decoded = try JSONDecoder().decode(CreatePolicy.self, from: data)
-            XCTAssertEqual(decoded, policy)
+            #expect(decoded == policy)
         }
     }
 
     // MARK: - Provider/Lifetime Coherence
+
+    @Test
 
     func test_persistent_pane_requires_zmx_provider() {
         // Invariant: persistent lifetime implies zmx provider.
@@ -142,9 +162,11 @@ final class TemplateTests: XCTestCase {
         let template = TerminalTemplate()
         let pane = template.instantiate(worktreeId: UUID(), repoId: UUID())
 
-        XCTAssertEqual(pane.provider, .zmx, "Persistent panes must use zmx provider")
-        XCTAssertEqual(pane.lifetime, .persistent)
+        #expect(pane.provider == .zmx, "Persistent panes must use zmx provider")
+        #expect(pane.lifetime == .persistent)
     }
+
+    @Test
 
     func test_worktreeTemplate_instantiate_produces_zmx_persistent() {
         let template = WorktreeTemplate(
@@ -154,24 +176,28 @@ final class TemplateTests: XCTestCase {
         let (panes, _) = template.instantiate(worktreeId: UUID(), repoId: UUID())
 
         for pane in panes {
-            XCTAssertEqual(pane.provider, .zmx, "All template-instantiated panes must use zmx")
-            XCTAssertEqual(pane.lifetime, .persistent)
+            #expect(pane.provider == .zmx, "All template-instantiated panes must use zmx")
+            #expect(pane.lifetime == .persistent)
         }
     }
 
     // MARK: - Hashable
 
+    @Test
+
     func test_terminalTemplate_hashable() {
         let t1 = TerminalTemplate(title: "A")
         let t2 = TerminalTemplate(title: "B")
         let set: Set<TerminalTemplate> = [t1, t2, t1]
-        XCTAssertEqual(set.count, 2)
+        #expect(set.count == 2)
     }
+
+    @Test
 
     func test_worktreeTemplate_hashable() {
         let wt1 = WorktreeTemplate(name: "A")
         let wt2 = WorktreeTemplate(name: "B")
         let set: Set<WorktreeTemplate> = [wt1, wt2, wt1]
-        XCTAssertEqual(set.count, 2)
+        #expect(set.count == 2)
     }
 }

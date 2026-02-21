@@ -1,13 +1,16 @@
-import XCTest
+import Testing
+import Foundation
 
 @testable import AgentStudio
 
 /// Tests for SidebarFilter — the extracted filter algorithm
 /// used by SidebarContentView for sidebar search.
-final class SidebarFilterTests: XCTestCase {
+@Suite(.serialized)
+struct SidebarFilterTests {
 
     // MARK: - Empty Query
 
+    @Test
     func test_filter_emptyQuery_returnsAllRepos() {
         // Arrange
         let repos = [
@@ -19,11 +22,12 @@ final class SidebarFilterTests: XCTestCase {
         let result = SidebarFilter.filter(repos: repos, query: "")
 
         // Assert
-        XCTAssertEqual(result.count, 2)
+        #expect(result.count == 2)
     }
 
     // MARK: - Repo Name Match
 
+    @Test
     func test_filter_repoNameMatch_returnsAllWorktrees() {
         // Arrange
         let repos = [
@@ -45,11 +49,12 @@ final class SidebarFilterTests: XCTestCase {
         let result = SidebarFilter.filter(repos: repos, query: "my-project")
 
         // Assert
-        XCTAssertEqual(result.count, 1)
-        XCTAssertEqual(result[0].name, "my-project")
-        XCTAssertEqual(result[0].worktrees.count, 3, "All worktrees should be included when repo name matches")
+        #expect(result.count == 1)
+        #expect(result[0].name == "my-project")
+        #expect(result[0].worktrees.count == 3)
     }
 
+    @Test
     func test_filter_repoNameMatch_caseInsensitive() {
         // Arrange
         let repos = [
@@ -60,12 +65,13 @@ final class SidebarFilterTests: XCTestCase {
         let result = SidebarFilter.filter(repos: repos, query: "agentstudio")
 
         // Assert
-        XCTAssertEqual(result.count, 1)
-        XCTAssertEqual(result[0].name, "AgentStudio")
+        #expect(result.count == 1)
+        #expect(result[0].name == "AgentStudio")
     }
 
     // MARK: - Worktree Name Match
 
+    @Test
     func test_filter_worktreeNameMatch_returnsOnlyMatchingWorktrees() {
         // Arrange
         let repos = [
@@ -82,11 +88,12 @@ final class SidebarFilterTests: XCTestCase {
         let result = SidebarFilter.filter(repos: repos, query: "auth")
 
         // Assert
-        XCTAssertEqual(result.count, 1)
-        XCTAssertEqual(result[0].worktrees.count, 1, "Only matching worktrees should appear")
-        XCTAssertEqual(result[0].worktrees[0].name, "feature-auth")
+        #expect(result.count == 1)
+        #expect(result[0].worktrees.count == 1)
+        #expect(result[0].worktrees[0].name == "feature-auth")
     }
 
+    @Test
     func test_filter_worktreeNameMatch_caseInsensitive() {
         // Arrange
         let repos = [
@@ -101,10 +108,11 @@ final class SidebarFilterTests: XCTestCase {
         let result = SidebarFilter.filter(repos: repos, query: "feature-auth")
 
         // Assert
-        XCTAssertEqual(result.count, 1)
-        XCTAssertEqual(result[0].worktrees[0].name, "Feature-Auth")
+        #expect(result.count == 1)
+        #expect(result[0].worktrees[0].name == "Feature-Auth")
     }
 
+    @Test
     func test_filter_multipleWorktreesMatch_returnsAllMatching() {
         // Arrange
         let repos = [
@@ -121,12 +129,13 @@ final class SidebarFilterTests: XCTestCase {
         let result = SidebarFilter.filter(repos: repos, query: "feature")
 
         // Assert
-        XCTAssertEqual(result.count, 1)
-        XCTAssertEqual(result[0].worktrees.count, 2)
+        #expect(result.count == 1)
+        #expect(result[0].worktrees.count == 2)
     }
 
     // MARK: - No Match
 
+    @Test
     func test_filter_noMatch_returnsEmpty() {
         // Arrange
         let repos = [
@@ -138,11 +147,12 @@ final class SidebarFilterTests: XCTestCase {
         let result = SidebarFilter.filter(repos: repos, query: "zzz-nonexistent")
 
         // Assert
-        XCTAssertTrue(result.isEmpty)
+        #expect(result.isEmpty)
     }
 
     // MARK: - Mixed Matches Across Repos
 
+    @Test
     func test_filter_mixedMatches_repoAndWorktree() {
         // Arrange
         let repos = [
@@ -169,22 +179,23 @@ final class SidebarFilterTests: XCTestCase {
         let result = SidebarFilter.filter(repos: repos, query: "auth")
 
         // Assert
-        XCTAssertEqual(result.count, 2)
+        #expect(result.count == 2)
 
         // auth-service: repo name matches → all worktrees
         let authService = result.first { $0.name == "auth-service" }
-        XCTAssertNotNil(authService)
-        XCTAssertEqual(authService?.worktrees.count, 2)
+        #expect(authService != nil)
+        #expect(authService?.worktrees.count == 2)
 
         // payment-service: worktree matches → only matching
         let paymentService = result.first { $0.name == "payment-service" }
-        XCTAssertNotNil(paymentService)
-        XCTAssertEqual(paymentService?.worktrees.count, 1)
-        XCTAssertEqual(paymentService?.worktrees[0].name, "auth-migration")
+        #expect(paymentService != nil)
+        #expect(paymentService?.worktrees.count == 1)
+        #expect(paymentService?.worktrees[0].name == "auth-migration")
     }
 
     // MARK: - Substring Match
 
+    @Test
     func test_filter_substringMatch_works() {
         // Arrange
         let repos = [
@@ -195,19 +206,21 @@ final class SidebarFilterTests: XCTestCase {
         let result = SidebarFilter.filter(repos: repos, query: "cool")
 
         // Assert
-        XCTAssertEqual(result.count, 1)
+        #expect(result.count == 1)
     }
 
     // MARK: - Empty Repos
 
+    @Test
     func test_filter_emptyRepoList_returnsEmpty() {
         // Act
         let result = SidebarFilter.filter(repos: [], query: "anything")
 
         // Assert
-        XCTAssertTrue(result.isEmpty)
+        #expect(result.isEmpty)
     }
 
+    @Test
     func test_filter_repoWithNoWorktrees_noMatch() {
         // Arrange
         let repos = [
@@ -218,9 +231,10 @@ final class SidebarFilterTests: XCTestCase {
         let result = SidebarFilter.filter(repos: repos, query: "feature")
 
         // Assert
-        XCTAssertTrue(result.isEmpty, "Repo with no worktrees should not match on worktree query")
+        #expect(result.isEmpty)
     }
 
+    @Test
     func test_filter_repoWithNoWorktrees_repoNameMatch() {
         // Arrange
         let repos = [
@@ -231,6 +245,6 @@ final class SidebarFilterTests: XCTestCase {
         let result = SidebarFilter.filter(repos: repos, query: "empty")
 
         // Assert
-        XCTAssertEqual(result.count, 1, "Repo should match on name even with no worktrees")
+        #expect(result.count == 1)
     }
 }

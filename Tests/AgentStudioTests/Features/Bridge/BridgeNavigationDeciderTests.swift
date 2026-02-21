@@ -1,4 +1,5 @@
-import XCTest
+import Testing
+import Foundation
 
 @testable import AgentStudio
 
@@ -12,52 +13,62 @@ import XCTest
 /// `BridgeNavigationDecider.allowedSchemes` set. Full NavigationDeciding
 /// integration (with real WebPage.NavigationAction) requires a running WebKit
 /// instance and is covered by visual verification.
-final class BridgeNavigationDeciderTests: XCTestCase {
+@Suite(.serialized)
+final class BridgeNavigationDeciderTests {
 
     // MARK: - Allowed
 
+    @Test
     func test_allowedSchemes_agentstudio() {
-        XCTAssertTrue(BridgeNavigationDecider.allowedSchemes.contains("agentstudio"))
+        #expect(BridgeNavigationDecider.allowedSchemes.contains("agentstudio"))
     }
 
+    @Test
     func test_allowedSchemes_about() {
-        XCTAssertTrue(BridgeNavigationDecider.allowedSchemes.contains("about"))
+        #expect(BridgeNavigationDecider.allowedSchemes.contains("about"))
     }
 
+    @Test
     func test_allowedSchemes_exactCount() {
-        XCTAssertEqual(BridgeNavigationDecider.allowedSchemes.count, 2)
+        #expect(BridgeNavigationDecider.allowedSchemes.count == 2)
     }
 
     // MARK: - External (opened in default browser, not loaded in pane)
 
+    @Test
     func test_externalSchemes_https() {
-        XCTAssertTrue(BridgeNavigationDecider.externalSchemes.contains("https"))
-        XCTAssertFalse(BridgeNavigationDecider.allowedSchemes.contains("https"))
+        #expect(BridgeNavigationDecider.externalSchemes.contains("https"))
+        #expect(!(BridgeNavigationDecider.allowedSchemes.contains("https")))
     }
 
+    @Test
     func test_externalSchemes_http() {
-        XCTAssertTrue(BridgeNavigationDecider.externalSchemes.contains("http"))
-        XCTAssertFalse(BridgeNavigationDecider.allowedSchemes.contains("http"))
+        #expect(BridgeNavigationDecider.externalSchemes.contains("http"))
+        #expect(!(BridgeNavigationDecider.allowedSchemes.contains("http")))
     }
 
+    @Test
     func test_externalSchemes_exactCount() {
-        XCTAssertEqual(BridgeNavigationDecider.externalSchemes.count, 2)
+        #expect(BridgeNavigationDecider.externalSchemes.count == 2)
     }
 
     // MARK: - Blocked (silently dropped, not opened anywhere)
 
+    @Test
     func test_blockedSchemes_file() {
-        XCTAssertFalse(BridgeNavigationDecider.allowedSchemes.contains("file"))
-        XCTAssertFalse(BridgeNavigationDecider.externalSchemes.contains("file"))
+        #expect(!(BridgeNavigationDecider.allowedSchemes.contains("file")))
+        #expect(!(BridgeNavigationDecider.externalSchemes.contains("file")))
     }
 
+    @Test
     func test_blockedSchemes_javascript() {
-        XCTAssertFalse(BridgeNavigationDecider.allowedSchemes.contains("javascript"))
-        XCTAssertFalse(BridgeNavigationDecider.externalSchemes.contains("javascript"))
+        #expect(!(BridgeNavigationDecider.allowedSchemes.contains("javascript")))
+        #expect(!(BridgeNavigationDecider.externalSchemes.contains("javascript")))
     }
 
+    @Test
     func test_blockedSchemes_data() {
-        XCTAssertFalse(BridgeNavigationDecider.allowedSchemes.contains("data"))
-        XCTAssertFalse(BridgeNavigationDecider.externalSchemes.contains("data"))
+        #expect(!(BridgeNavigationDecider.allowedSchemes.contains("data")))
+        #expect(!(BridgeNavigationDecider.externalSchemes.contains("data")))
     }
 }

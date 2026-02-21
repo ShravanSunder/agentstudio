@@ -1,8 +1,10 @@
-import XCTest
+import Testing
+import Foundation
 
 @testable import AgentStudio
 
-final class PaneTests: XCTestCase {
+@Suite(.serialized)
+final class PaneTests {
 
     private let encoder: JSONEncoder = {
         let e = JSONEncoder()
@@ -13,13 +15,17 @@ final class PaneTests: XCTestCase {
 
     // MARK: - Convenience Accessors
 
+    @Test
+
     func test_terminalState_returnsState_forTerminalContent() {
         let pane = makePane(provider: .zmx, lifetime: .persistent)
 
-        XCTAssertNotNil(pane.terminalState)
-        XCTAssertEqual(pane.terminalState?.provider, .zmx)
-        XCTAssertEqual(pane.terminalState?.lifetime, .persistent)
+        #expect((pane.terminalState) != nil)
+        #expect(pane.terminalState?.provider == .zmx)
+        #expect(pane.terminalState?.lifetime == .persistent)
     }
+
+    @Test
 
     func test_terminalState_returnsNil_forNonTerminalContent() {
         let pane = Pane(
@@ -27,67 +33,87 @@ final class PaneTests: XCTestCase {
             metadata: PaneMetadata(source: .floating(workingDirectory: nil, title: nil), title: "Web")
         )
 
-        XCTAssertNil(pane.terminalState)
-        XCTAssertNil(pane.provider)
-        XCTAssertNil(pane.lifetime)
+        #expect((pane.terminalState) == nil)
+        #expect((pane.provider) == nil)
+        #expect((pane.lifetime) == nil)
     }
+
+    @Test
 
     func test_provider_returnsSessionProvider_forTerminal() {
         let pane = makePane(provider: .ghostty)
-        XCTAssertEqual(pane.provider, .ghostty)
+        #expect(pane.provider == .ghostty)
     }
+
+    @Test
 
     func test_lifetime_returnsSessionLifetime_forTerminal() {
         let pane = makePane(lifetime: .temporary)
-        XCTAssertEqual(pane.lifetime, .temporary)
+        #expect(pane.lifetime == .temporary)
     }
+
+    @Test
 
     func test_title_readsFromMetadata() {
         let pane = makePane(title: "My Terminal")
-        XCTAssertEqual(pane.title, "My Terminal")
+        #expect(pane.title == "My Terminal")
     }
+
+    @Test
 
     func test_title_writesToMetadata() {
         var pane = makePane(title: "Old")
         pane.title = "New"
-        XCTAssertEqual(pane.title, "New")
-        XCTAssertEqual(pane.metadata.title, "New")
+        #expect(pane.title == "New")
+        #expect(pane.metadata.title == "New")
     }
+
+    @Test
 
     func test_agent_readsFromMetadata() {
         let pane = makePane(agent: .claude)
-        XCTAssertEqual(pane.agent, .claude)
+        #expect(pane.agent == .claude)
     }
+
+    @Test
 
     func test_agent_writesToMetadata() {
         var pane = makePane()
-        XCTAssertNil(pane.agent)
+        #expect((pane.agent) == nil)
         pane.agent = .claude
-        XCTAssertEqual(pane.agent, .claude)
-        XCTAssertEqual(pane.metadata.agentType, .claude)
+        #expect(pane.agent == .claude)
+        #expect(pane.metadata.agentType == .claude)
     }
+
+    @Test
 
     func test_source_delegatesToMetadata() {
         let source = TerminalSource.floating(workingDirectory: URL(fileURLWithPath: "/tmp"), title: "Float")
         let pane = makePane(source: source)
-        XCTAssertEqual(pane.source, source)
+        #expect(pane.source == source)
     }
+
+    @Test
 
     func test_worktreeId_returnsId_forWorktreeSource() {
         let wtId = UUID()
         let repoId = UUID()
         let pane = makePane(source: .worktree(worktreeId: wtId, repoId: repoId))
-        XCTAssertEqual(pane.worktreeId, wtId)
-        XCTAssertEqual(pane.repoId, repoId)
+        #expect(pane.worktreeId == wtId)
+        #expect(pane.repoId == repoId)
     }
+
+    @Test
 
     func test_worktreeId_returnsNil_forFloatingSource() {
         let pane = makePane(source: .floating(workingDirectory: nil, title: nil))
-        XCTAssertNil(pane.worktreeId)
-        XCTAssertNil(pane.repoId)
+        #expect((pane.worktreeId) == nil)
+        #expect((pane.repoId) == nil)
     }
 
     // MARK: - Codable Round-Trip
+
+    @Test
 
     func test_codable_roundTrip_terminalPane() throws {
         let pane = makePane(
@@ -102,15 +128,17 @@ final class PaneTests: XCTestCase {
         let data = try encoder.encode(pane)
         let decoded = try decoder.decode(Pane.self, from: data)
 
-        XCTAssertEqual(decoded.id, pane.id)
-        XCTAssertEqual(decoded.content, pane.content)
-        XCTAssertEqual(decoded.metadata.title, "My Term")
-        XCTAssertEqual(decoded.metadata.agentType, .claude)
-        XCTAssertEqual(decoded.residency, SessionResidency.active)
+        #expect(decoded.id == pane.id)
+        #expect(decoded.content == pane.content)
+        #expect(decoded.metadata.title == "My Term")
+        #expect(decoded.metadata.agentType == .claude)
+        #expect(decoded.residency == SessionResidency.active)
         // Layout panes always have a drawer (empty by default)
-        XCTAssertNotNil(decoded.drawer)
-        XCTAssertTrue(decoded.drawer!.paneIds.isEmpty)
+        #expect((decoded.drawer) != nil)
+        #expect(decoded.drawer!.paneIds.isEmpty)
     }
+
+    @Test
 
     func test_codable_roundTrip_webviewPane() throws {
         let pane = Pane(
@@ -121,14 +149,16 @@ final class PaneTests: XCTestCase {
         let data = try encoder.encode(pane)
         let decoded = try decoder.decode(Pane.self, from: data)
 
-        XCTAssertEqual(decoded.id, pane.id)
+        #expect(decoded.id == pane.id)
         if case .webview(let state) = decoded.content {
-            XCTAssertEqual(state.url.absoluteString, "https://docs.swift.org")
-            XCTAssertFalse(state.showNavigation)
+            #expect(state.url.absoluteString == "https://docs.swift.org")
+            #expect(!(state.showNavigation))
         } else {
-            XCTFail("Expected .webview content")
+            Issue.record("Expected .webview content")
         }
     }
+
+    @Test
 
     func test_codable_roundTrip_paneWithDrawer() throws {
         let drawerPaneId = UUID()
@@ -147,12 +177,14 @@ final class PaneTests: XCTestCase {
         let data = try encoder.encode(pane)
         let decoded = try decoder.decode(Pane.self, from: data)
 
-        XCTAssertNotNil(decoded.drawer)
-        XCTAssertEqual(decoded.drawer!.paneIds.count, 1)
-        XCTAssertEqual(decoded.drawer!.paneIds[0], drawerPaneId)
-        XCTAssertEqual(decoded.drawer!.activePaneId, drawerPaneId)
-        XCTAssertFalse(decoded.drawer!.isExpanded)
+        #expect((decoded.drawer) != nil)
+        #expect(decoded.drawer!.paneIds.count == 1)
+        #expect(decoded.drawer!.paneIds[0] == drawerPaneId)
+        #expect(decoded.drawer!.activePaneId == drawerPaneId)
+        #expect(!(decoded.drawer!.isExpanded))
     }
+
+    @Test
 
     func test_codable_roundTrip_worktreeSource() throws {
         let wtId = UUID()
@@ -162,9 +194,11 @@ final class PaneTests: XCTestCase {
         let data = try encoder.encode(pane)
         let decoded = try decoder.decode(Pane.self, from: data)
 
-        XCTAssertEqual(decoded.worktreeId, wtId)
-        XCTAssertEqual(decoded.repoId, repoId)
+        #expect(decoded.worktreeId == wtId)
+        #expect(decoded.repoId == repoId)
     }
+
+    @Test
 
     func test_codable_roundTrip_pendingUndoResidency() throws {
         let expiry = Date(timeIntervalSince1970: 2_000_000)
@@ -174,11 +208,13 @@ final class PaneTests: XCTestCase {
         let decoded = try decoder.decode(Pane.self, from: data)
 
         if case .pendingUndo(let decodedExpiry) = decoded.residency {
-            XCTAssertEqual(decodedExpiry.timeIntervalSince1970, expiry.timeIntervalSince1970, accuracy: 0.001)
+            #expect(decodedExpiry.timeIntervalSince1970 == expiry.timeIntervalSince1970, accuracy: 0.001)
         } else {
-            XCTFail("Expected .pendingUndo residency")
+            Issue.record("Expected .pendingUndo residency")
         }
     }
+
+    @Test
 
     func test_codable_roundTrip_backgroundedResidency() throws {
         let pane = makePane(residency: .backgrounded)
@@ -186,10 +222,12 @@ final class PaneTests: XCTestCase {
         let data = try encoder.encode(pane)
         let decoded = try decoder.decode(Pane.self, from: data)
 
-        XCTAssertEqual(decoded.residency, .backgrounded)
+        #expect(decoded.residency == .backgrounded)
     }
 
     // MARK: - Legacy Decoding
+
+    @Test
 
     func test_legacyDecode_withoutKind_usesTopLevelDrawer() throws {
         let drawerPaneId = UUID()
@@ -206,7 +244,7 @@ final class PaneTests: XCTestCase {
         )
 
         let currentData = try encoder.encode(pane)
-        var legacyObject = try XCTUnwrap(
+        var legacyObject = try #require(
             JSONSerialization.jsonObject(with: currentData) as? [String: Any]
         )
         legacyObject.removeValue(forKey: "kind")
@@ -215,12 +253,14 @@ final class PaneTests: XCTestCase {
         let legacyData = try JSONSerialization.data(withJSONObject: legacyObject)
         let decoded = try decoder.decode(Pane.self, from: legacyData)
 
-        XCTAssertEqual(decoded.id, pane.id)
-        XCTAssertNotNil(decoded.drawer)
-        XCTAssertEqual(decoded.drawer?.paneIds, [drawerPaneId])
-        XCTAssertEqual(decoded.drawer?.activePaneId, drawerPaneId)
-        XCTAssertTrue(decoded.drawer?.isExpanded ?? false)
+        #expect(decoded.id == pane.id)
+        #expect((decoded.drawer) != nil)
+        #expect(decoded.drawer?.paneIds == [drawerPaneId])
+        #expect(decoded.drawer?.activePaneId == drawerPaneId)
+        #expect(decoded.drawer?.isExpanded ?? false)
     }
+
+    @Test
 
     func test_legacyDecode_withoutKindAndDrawer_defaultsEmptyDrawer() throws {
         let pane = makePane(
@@ -230,7 +270,7 @@ final class PaneTests: XCTestCase {
         )
 
         let currentData = try encoder.encode(pane)
-        var legacyObject = try XCTUnwrap(
+        var legacyObject = try #require(
             JSONSerialization.jsonObject(with: currentData) as? [String: Any]
         )
         legacyObject.removeValue(forKey: "kind")
@@ -239,38 +279,46 @@ final class PaneTests: XCTestCase {
         let legacyData = try JSONSerialization.data(withJSONObject: legacyObject)
         let decoded = try decoder.decode(Pane.self, from: legacyData)
 
-        XCTAssertEqual(decoded.id, pane.id)
-        XCTAssertNotNil(decoded.drawer)
-        XCTAssertTrue(decoded.drawer?.paneIds.isEmpty ?? false)
-        XCTAssertNil(decoded.drawer?.activePaneId)
+        #expect(decoded.id == pane.id)
+        #expect((decoded.drawer) != nil)
+        #expect(decoded.drawer?.paneIds.isEmpty ?? false)
+        #expect((decoded.drawer?.activePaneId) == nil)
     }
 
     // MARK: - PaneMetadata
+
+    @Test
 
     func test_metadata_worktreeId_extractsFromWorktreeSource() {
         let wtId = UUID()
         let repoId = UUID()
         let metadata = PaneMetadata(source: .worktree(worktreeId: wtId, repoId: repoId))
 
-        XCTAssertEqual(metadata.worktreeId, wtId)
-        XCTAssertEqual(metadata.repoId, repoId)
+        #expect(metadata.worktreeId == wtId)
+        #expect(metadata.repoId == repoId)
     }
+
+    @Test
 
     func test_metadata_worktreeId_returnsNil_forFloatingSource() {
         let metadata = PaneMetadata(source: .floating(workingDirectory: nil, title: nil))
 
-        XCTAssertNil(metadata.worktreeId)
-        XCTAssertNil(metadata.repoId)
+        #expect((metadata.worktreeId) == nil)
+        #expect((metadata.repoId) == nil)
     }
+
+    @Test
 
     func test_metadata_defaultValues() {
         let metadata = PaneMetadata(source: .floating(workingDirectory: nil, title: nil))
 
-        XCTAssertEqual(metadata.title, "Terminal")
-        XCTAssertNil(metadata.cwd)
-        XCTAssertNil(metadata.agentType)
-        XCTAssertEqual(metadata.tags, [])
+        #expect(metadata.title == "Terminal")
+        #expect((metadata.cwd) == nil)
+        #expect((metadata.agentType) == nil)
+        #expect(metadata.tags == [])
     }
+
+    @Test
 
     func test_metadata_codable_roundTrip_withTags() throws {
         let metadata = PaneMetadata(
@@ -285,13 +333,15 @@ final class PaneTests: XCTestCase {
         let data = try encoder.encode(metadata)
         let decoded = try JSONDecoder().decode(PaneMetadata.self, from: data)
 
-        XCTAssertEqual(decoded.title, "Tagged")
-        XCTAssertEqual(decoded.tags, ["focus", "dev"])
-        XCTAssertEqual(decoded.agentType, .claude)
-        XCTAssertEqual(decoded.cwd, URL(fileURLWithPath: "/home/user"))
+        #expect(decoded.title == "Tagged")
+        #expect(decoded.tags == ["focus", "dev"])
+        #expect(decoded.agentType == .claude)
+        #expect(decoded.cwd == URL(fileURLWithPath: "/home/user"))
     }
 
     // MARK: - DrawerChild Pane
+
+    @Test
 
     func test_drawerChild_codable_roundTrip() throws {
         let parentId = UUID()
@@ -304,19 +354,21 @@ final class PaneTests: XCTestCase {
         let data = try encoder.encode(pane)
         let decoded = try decoder.decode(Pane.self, from: data)
 
-        XCTAssertEqual(decoded.id, pane.id)
-        XCTAssertEqual(decoded.metadata.title, "Web Drawer")
-        XCTAssertTrue(decoded.isDrawerChild)
-        XCTAssertEqual(decoded.parentPaneId, parentId)
-        XCTAssertNil(decoded.drawer)
+        #expect(decoded.id == pane.id)
+        #expect(decoded.metadata.title == "Web Drawer")
+        #expect(decoded.isDrawerChild)
+        #expect(decoded.parentPaneId == parentId)
+        #expect((decoded.drawer) == nil)
         if case .webview(let state) = decoded.content {
-            XCTAssertEqual(state.url.absoluteString, "https://test.com")
+            #expect(state.url.absoluteString == "https://test.com")
         } else {
-            XCTFail("Expected .webview content")
+            Issue.record("Expected .webview content")
         }
     }
 
     // MARK: - Drawer
+
+    @Test
 
     func test_drawer_codable_roundTrip() throws {
         let id1 = UUID()
@@ -327,32 +379,38 @@ final class PaneTests: XCTestCase {
         let data = try encoder.encode(drawer)
         let decoded = try decoder.decode(Drawer.self, from: data)
 
-        XCTAssertEqual(decoded.paneIds.count, 2)
-        XCTAssertEqual(decoded.activePaneId, id2)
-        XCTAssertFalse(decoded.isExpanded)
-        XCTAssertEqual(decoded.paneIds[0], id1)
-        XCTAssertEqual(decoded.paneIds[1], id2)
+        #expect(decoded.paneIds.count == 2)
+        #expect(decoded.activePaneId == id2)
+        #expect(!(decoded.isExpanded))
+        #expect(decoded.paneIds[0] == id1)
+        #expect(decoded.paneIds[1] == id2)
         // minimizedPaneIds is transient — always empty after decode
-        XCTAssertTrue(decoded.minimizedPaneIds.isEmpty)
+        #expect(decoded.minimizedPaneIds.isEmpty)
     }
+
+    @Test
 
     func test_drawer_defaultValues() {
         let drawer = Drawer()
 
-        XCTAssertTrue(drawer.paneIds.isEmpty)
-        XCTAssertNil(drawer.activePaneId)
-        XCTAssertFalse(drawer.isExpanded)
-        XCTAssertTrue(drawer.minimizedPaneIds.isEmpty)
+        #expect(drawer.paneIds.isEmpty)
+        #expect((drawer.activePaneId) == nil)
+        #expect(!(drawer.isExpanded))
+        #expect(drawer.minimizedPaneIds.isEmpty)
     }
 
     // MARK: - PaneKind
 
+    @Test
+
     func test_paneKind_layout_hasDrawer() {
         let pane = makePane()
-        XCTAssertNotNil(pane.drawer)
-        XCTAssertFalse(pane.isDrawerChild)
-        XCTAssertNil(pane.parentPaneId)
+        #expect((pane.drawer) != nil)
+        #expect(!(pane.isDrawerChild))
+        #expect((pane.parentPaneId) == nil)
     }
+
+    @Test
 
     func test_paneKind_drawerChild_hasNoDrawer() {
         let parentId = UUID()
@@ -361,10 +419,12 @@ final class PaneTests: XCTestCase {
             metadata: PaneMetadata(source: .floating(workingDirectory: nil, title: nil)),
             kind: .drawerChild(parentPaneId: parentId)
         )
-        XCTAssertNil(pane.drawer)
-        XCTAssertTrue(pane.isDrawerChild)
-        XCTAssertEqual(pane.parentPaneId, parentId)
+        #expect((pane.drawer) == nil)
+        #expect(pane.isDrawerChild)
+        #expect(pane.parentPaneId == parentId)
     }
+
+    @Test
 
     func test_withDrawer_mutatesDrawer() {
         var pane = makePane()
@@ -373,9 +433,11 @@ final class PaneTests: XCTestCase {
             drawer.paneIds.append(childId)
             drawer.activePaneId = childId
         }
-        XCTAssertEqual(pane.drawer?.paneIds, [childId])
-        XCTAssertEqual(pane.drawer?.activePaneId, childId)
+        #expect(pane.drawer?.paneIds == [childId])
+        #expect(pane.drawer?.activePaneId == childId)
     }
+
+    @Test
 
     func test_withDrawer_noOpForDrawerChild() {
         let parentId = UUID()
@@ -387,17 +449,21 @@ final class PaneTests: XCTestCase {
         pane.withDrawer { drawer in
             drawer.paneIds.append(UUID())  // should be no-op
         }
-        XCTAssertNil(pane.drawer)
+        #expect((pane.drawer) == nil)
     }
 
     // MARK: - Drawer Default State
 
+    @Test
+
     func test_drawer_defaultInit_isCollapsed() {
         // Assert — Drawer() defaults to isExpanded: false
         let drawer = Drawer()
-        XCTAssertFalse(drawer.isExpanded)
-        XCTAssertTrue(drawer.paneIds.isEmpty)
+        #expect(!(drawer.isExpanded))
+        #expect(drawer.paneIds.isEmpty)
     }
+
+    @Test
 
     func test_pane_defaultKind_hasCollapsedDrawer() {
         // Arrange — default Pane init uses .layout(drawer: Drawer())
@@ -407,8 +473,8 @@ final class PaneTests: XCTestCase {
         )
 
         // Assert
-        XCTAssertNotNil(pane.drawer)
-        XCTAssertFalse(pane.drawer!.isExpanded)
-        XCTAssertTrue(pane.drawer!.paneIds.isEmpty)
+        #expect((pane.drawer) != nil)
+        #expect(!(pane.drawer!.isExpanded))
+        #expect(pane.drawer!.paneIds.isEmpty)
     }
 }

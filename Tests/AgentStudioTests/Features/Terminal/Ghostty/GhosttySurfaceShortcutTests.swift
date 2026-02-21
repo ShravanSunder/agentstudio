@@ -1,20 +1,22 @@
 import AppKit
-import XCTest
+import Testing
+import Foundation
 
 @testable import AgentStudio
 
-final class GhosttySurfaceShortcutTests: XCTestCase {
+@Suite(.serialized)
+
+final class GhosttySurfaceShortcutTests {
 
     // MARK: - App-Owned Shortcut List
 
+    @Test
     func test_appOwnedShortcuts_containsAtLeast3() {
         // Assert — at minimum the 3 command bar shortcuts are registered
-        XCTAssertGreaterThanOrEqual(
-            Ghostty.SurfaceView.appOwnedShortcuts.count, 3,
-            "Expected at least 3 app-owned shortcuts (⌘P, ⌘⇧P, ⌘⌥P)"
-        )
+        #expect(Ghostty.SurfaceView.appOwnedShortcuts.count >= 3, "Expected at least 3 app-owned shortcuts (⌘P, ⌘⇧P, ⌘⌥P)")
     }
 
+    @Test
     func test_appOwnedShortcuts_containsCmdP() {
         // Act
         let match = Ghostty.SurfaceView.appOwnedShortcuts.contains { shortcut in
@@ -22,9 +24,10 @@ final class GhosttySurfaceShortcutTests: XCTestCase {
         }
 
         // Assert
-        XCTAssertTrue(match, "Expected ⌘P in appOwnedShortcuts")
+        #expect(match, "Expected ⌘P in appOwnedShortcuts")
     }
 
+    @Test
     func test_appOwnedShortcuts_containsCmdShiftP() {
         // Act
         let match = Ghostty.SurfaceView.appOwnedShortcuts.contains { shortcut in
@@ -32,9 +35,10 @@ final class GhosttySurfaceShortcutTests: XCTestCase {
         }
 
         // Assert
-        XCTAssertTrue(match, "Expected ⌘⇧P in appOwnedShortcuts")
+        #expect(match, "Expected ⌘⇧P in appOwnedShortcuts")
     }
 
+    @Test
     func test_appOwnedShortcuts_containsCmdOptionP() {
         // Act
         let match = Ghostty.SurfaceView.appOwnedShortcuts.contains { shortcut in
@@ -42,6 +46,6 @@ final class GhosttySurfaceShortcutTests: XCTestCase {
         }
 
         // Assert
-        XCTAssertTrue(match, "Expected ⌘⌥P in appOwnedShortcuts")
+        #expect(match, "Expected ⌘⌥P in appOwnedShortcuts")
     }
 }

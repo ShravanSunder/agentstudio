@@ -1,8 +1,10 @@
-import XCTest
+import Testing
+import Foundation
 
 @testable import AgentStudio
 
-final class ActionValidatorTests: XCTestCase {
+@Suite(.serialized)
+final class ActionValidatorTests {
 
     // MARK: - Test Helpers
 
@@ -31,6 +33,8 @@ final class ActionValidatorTests: XCTestCase {
 
     // MARK: - selectTab
 
+    @Test
+
     func test_selectTab_existingTab_succeeds() {
         // Arrange
         let tabId = UUID()
@@ -40,8 +44,10 @@ final class ActionValidatorTests: XCTestCase {
         let result = ActionValidator.validate(.selectTab(tabId: tabId), state: snapshot)
 
         // Assert
-        XCTAssertNotNil(try? result.get())
+        #expect((try? result.get()) != nil)
     }
+
+    @Test
 
     func test_selectTab_missingTab_fails() {
         // Arrange
@@ -54,10 +60,12 @@ final class ActionValidatorTests: XCTestCase {
         if case .failure(let error) = result {
             if case .tabNotFound = error { return }
         }
-        XCTFail("Expected tabNotFound error")
+        Issue.record("Expected tabNotFound error")
     }
 
     // MARK: - closeTab
+
+    @Test
 
     func test_closeTab_existingTab_succeeds() {
         // Arrange
@@ -68,8 +76,10 @@ final class ActionValidatorTests: XCTestCase {
         let result = ActionValidator.validate(.closeTab(tabId: tabId), state: snapshot)
 
         // Assert
-        XCTAssertNotNil(try? result.get())
+        #expect((try? result.get()) != nil)
     }
+
+    @Test
 
     func test_closeTab_missingTab_fails() {
         // Arrange
@@ -80,10 +90,12 @@ final class ActionValidatorTests: XCTestCase {
 
         // Assert
         if case .failure(.tabNotFound) = result { return }
-        XCTFail("Expected tabNotFound error")
+        Issue.record("Expected tabNotFound error")
     }
 
     // MARK: - breakUpTab
+
+    @Test
 
     func test_breakUpTab_splitTab_succeeds() {
         // Arrange
@@ -94,8 +106,10 @@ final class ActionValidatorTests: XCTestCase {
         let result = ActionValidator.validate(.breakUpTab(tabId: tabId), state: snapshot)
 
         // Assert
-        XCTAssertNotNil(try? result.get())
+        #expect((try? result.get()) != nil)
     }
+
+    @Test
 
     func test_breakUpTab_singlePaneTab_fails() {
         // Arrange
@@ -107,8 +121,10 @@ final class ActionValidatorTests: XCTestCase {
 
         // Assert
         if case .failure(.tabNotSplit) = result { return }
-        XCTFail("Expected tabNotSplit error")
+        Issue.record("Expected tabNotSplit error")
     }
+
+    @Test
 
     func test_breakUpTab_missingTab_fails() {
         // Arrange
@@ -119,10 +135,12 @@ final class ActionValidatorTests: XCTestCase {
 
         // Assert
         if case .failure(.tabNotFound) = result { return }
-        XCTFail("Expected tabNotFound error")
+        Issue.record("Expected tabNotFound error")
     }
 
     // MARK: - closePane
+
+    @Test
 
     func test_closePane_multiPaneTab_succeeds() {
         // Arrange
@@ -136,8 +154,10 @@ final class ActionValidatorTests: XCTestCase {
         )
 
         // Assert
-        XCTAssertNotNil(try? result.get())
+        #expect((try? result.get()) != nil)
     }
+
+    @Test
 
     func test_closePane_singlePaneTab_succeeds_escalatesToCloseTab() {
         // Arrange — single-pane close is valid; executor escalates to closeTab with undo
@@ -151,8 +171,10 @@ final class ActionValidatorTests: XCTestCase {
         )
 
         // Assert
-        XCTAssertNotNil(try? result.get())
+        #expect((try? result.get()) != nil)
     }
+
+    @Test
 
     func test_closePane_paneNotInTab_fails() {
         // Arrange
@@ -167,8 +189,10 @@ final class ActionValidatorTests: XCTestCase {
 
         // Assert
         if case .failure(.paneNotFound) = result { return }
-        XCTFail("Expected paneNotFound error")
+        Issue.record("Expected paneNotFound error")
     }
+
+    @Test
 
     func test_closePane_missingTab_fails() {
         // Arrange
@@ -182,10 +206,12 @@ final class ActionValidatorTests: XCTestCase {
 
         // Assert
         if case .failure(.tabNotFound) = result { return }
-        XCTFail("Expected tabNotFound error")
+        Issue.record("Expected tabNotFound error")
     }
 
     // MARK: - extractPaneToTab
+
+    @Test
 
     func test_extractPaneToTab_multiPaneTab_succeeds() {
         // Arrange
@@ -199,8 +225,10 @@ final class ActionValidatorTests: XCTestCase {
         )
 
         // Assert
-        XCTAssertNotNil(try? result.get())
+        #expect((try? result.get()) != nil)
     }
+
+    @Test
 
     func test_extractPaneToTab_singlePaneTab_fails() {
         // Arrange
@@ -215,10 +243,12 @@ final class ActionValidatorTests: XCTestCase {
 
         // Assert
         if case .failure(.singlePaneTab) = result { return }
-        XCTFail("Expected singlePaneTab error")
+        Issue.record("Expected singlePaneTab error")
     }
 
     // MARK: - focusPane
+
+    @Test
 
     func test_focusPane_validPane_succeeds() {
         // Arrange
@@ -234,8 +264,10 @@ final class ActionValidatorTests: XCTestCase {
         )
 
         // Assert
-        XCTAssertNotNil(try? result.get())
+        #expect((try? result.get()) != nil)
     }
+
+    @Test
 
     func test_focusPane_paneNotInTab_fails() {
         // Arrange
@@ -250,10 +282,12 @@ final class ActionValidatorTests: XCTestCase {
 
         // Assert
         if case .failure(.paneNotFound) = result { return }
-        XCTFail("Expected paneNotFound error")
+        Issue.record("Expected paneNotFound error")
     }
 
     // MARK: - insertPane (self-insertion bug fix)
+
+    @Test
 
     func test_insertPane_selfInsertion_fails() {
         // Arrange — THE BUG: dragging a pane onto itself
@@ -273,11 +307,13 @@ final class ActionValidatorTests: XCTestCase {
 
         // Assert
         if case .failure(.selfPaneInsertion(let id)) = result {
-            XCTAssertEqual(id, paneId)
+            #expect(id == paneId)
             return
         }
-        XCTFail("Expected selfPaneInsertion error")
+        Issue.record("Expected selfPaneInsertion error")
     }
+
+    @Test
 
     func test_insertPane_existingPane_differentTarget_succeeds() {
         // Arrange
@@ -299,8 +335,10 @@ final class ActionValidatorTests: XCTestCase {
         let result = ActionValidator.validate(action, state: snapshot)
 
         // Assert
-        XCTAssertNotNil(try? result.get())
+        #expect((try? result.get()) != nil)
     }
+
+    @Test
 
     func test_insertPane_newTerminal_succeeds() {
         // Arrange
@@ -317,8 +355,10 @@ final class ActionValidatorTests: XCTestCase {
         let result = ActionValidator.validate(action, state: snapshot)
 
         // Assert
-        XCTAssertNotNil(try? result.get())
+        #expect((try? result.get()) != nil)
     }
+
+    @Test
 
     func test_insertPane_targetTabMissing_fails() {
         // Arrange
@@ -335,8 +375,10 @@ final class ActionValidatorTests: XCTestCase {
 
         // Assert
         if case .failure(.tabNotFound) = result { return }
-        XCTFail("Expected tabNotFound error")
+        Issue.record("Expected tabNotFound error")
     }
+
+    @Test
 
     func test_insertPane_targetPaneMissing_fails() {
         // Arrange
@@ -354,8 +396,10 @@ final class ActionValidatorTests: XCTestCase {
 
         // Assert
         if case .failure(.paneNotFound) = result { return }
-        XCTFail("Expected paneNotFound error")
+        Issue.record("Expected paneNotFound error")
     }
+
+    @Test
 
     func test_insertPane_sourcePaneMissing_fails() {
         // Arrange
@@ -373,10 +417,12 @@ final class ActionValidatorTests: XCTestCase {
 
         // Assert
         if case .failure(.sourcePaneNotFound) = result { return }
-        XCTFail("Expected sourcePaneNotFound error")
+        Issue.record("Expected sourcePaneNotFound error")
     }
 
     // MARK: - resizePane
+
+    @Test
 
     func test_resizePane_validRatio_succeeds() {
         // Arrange
@@ -391,8 +437,10 @@ final class ActionValidatorTests: XCTestCase {
         )
 
         // Assert
-        XCTAssertNotNil(try? result.get())
+        #expect((try? result.get()) != nil)
     }
+
+    @Test
 
     func test_resizePane_ratioTooLow_fails() {
         // Arrange
@@ -408,8 +456,10 @@ final class ActionValidatorTests: XCTestCase {
 
         // Assert
         if case .failure(.invalidRatio) = result { return }
-        XCTFail("Expected invalidRatio error")
+        Issue.record("Expected invalidRatio error")
     }
+
+    @Test
 
     func test_resizePane_ratioTooHigh_fails() {
         // Arrange
@@ -425,8 +475,10 @@ final class ActionValidatorTests: XCTestCase {
 
         // Assert
         if case .failure(.invalidRatio) = result { return }
-        XCTFail("Expected invalidRatio error")
+        Issue.record("Expected invalidRatio error")
     }
+
+    @Test
 
     func test_resizePane_singlePaneTab_fails() {
         // Arrange
@@ -442,10 +494,12 @@ final class ActionValidatorTests: XCTestCase {
 
         // Assert
         if case .failure(.tabNotSplit) = result { return }
-        XCTFail("Expected tabNotSplit error")
+        Issue.record("Expected tabNotSplit error")
     }
 
     // MARK: - equalizePanes
+
+    @Test
 
     func test_equalizePanes_splitTab_succeeds() {
         // Arrange
@@ -456,8 +510,10 @@ final class ActionValidatorTests: XCTestCase {
         let result = ActionValidator.validate(.equalizePanes(tabId: tabId), state: snapshot)
 
         // Assert
-        XCTAssertNotNil(try? result.get())
+        #expect((try? result.get()) != nil)
     }
+
+    @Test
 
     func test_equalizePanes_singlePaneTab_fails() {
         // Arrange
@@ -469,10 +525,12 @@ final class ActionValidatorTests: XCTestCase {
 
         // Assert
         if case .failure(.tabNotSplit) = result { return }
-        XCTFail("Expected tabNotSplit error")
+        Issue.record("Expected tabNotSplit error")
     }
 
     // MARK: - mergeTab
+
+    @Test
 
     func test_mergeTab_validTabs_succeeds() {
         // Arrange
@@ -490,8 +548,10 @@ final class ActionValidatorTests: XCTestCase {
         let result = ActionValidator.validate(action, state: snapshot)
 
         // Assert
-        XCTAssertNotNil(try? result.get())
+        #expect((try? result.get()) != nil)
     }
+
+    @Test
 
     func test_mergeTab_sourceTabMissing_fails() {
         // Arrange
@@ -509,8 +569,10 @@ final class ActionValidatorTests: XCTestCase {
 
         // Assert
         if case .failure(.tabNotFound) = result { return }
-        XCTFail("Expected tabNotFound error")
+        Issue.record("Expected tabNotFound error")
     }
+
+    @Test
 
     func test_mergeTab_targetTabMissing_fails() {
         // Arrange
@@ -528,8 +590,10 @@ final class ActionValidatorTests: XCTestCase {
 
         // Assert
         if case .failure(.tabNotFound) = result { return }
-        XCTFail("Expected tabNotFound error")
+        Issue.record("Expected tabNotFound error")
     }
+
+    @Test
 
     func test_mergeTab_targetPaneMissing_fails() {
         // Arrange
@@ -548,8 +612,10 @@ final class ActionValidatorTests: XCTestCase {
 
         // Assert
         if case .failure(.paneNotFound) = result { return }
-        XCTFail("Expected paneNotFound error")
+        Issue.record("Expected paneNotFound error")
     }
+
+    @Test
 
     func test_mergeTab_selfMerge_fails() {
         // Arrange
@@ -567,10 +633,12 @@ final class ActionValidatorTests: XCTestCase {
 
         // Assert
         if case .failure(.selfTabMerge) = result { return }
-        XCTFail("Expected selfTabMerge error")
+        Issue.record("Expected selfTabMerge error")
     }
 
     // MARK: - System Actions (trusted, skip validation)
+
+    @Test
 
     func test_expireUndoEntry_alwaysSucceeds() {
         // Arrange — empty state, no tabs at all
@@ -581,8 +649,10 @@ final class ActionValidatorTests: XCTestCase {
         let result = ActionValidator.validate(action, state: snapshot)
 
         // Assert
-        XCTAssertNotNil(try? result.get())
+        #expect((try? result.get()) != nil)
     }
+
+    @Test
 
     func test_repair_alwaysSucceeds() {
         // Arrange
@@ -593,10 +663,12 @@ final class ActionValidatorTests: XCTestCase {
         let result = ActionValidator.validate(action, state: snapshot)
 
         // Assert
-        XCTAssertNotNil(try? result.get())
+        #expect((try? result.get()) != nil)
     }
 
     // MARK: - Pane Cardinality
+
+    @Test
 
     func test_paneCardinality_newPane_succeeds() {
         // Arrange
@@ -611,8 +683,10 @@ final class ActionValidatorTests: XCTestCase {
         )
 
         // Assert
-        XCTAssertNotNil(try? result.get())
+        #expect((try? result.get()) != nil)
     }
+
+    @Test
 
     func test_paneCardinality_duplicatePane_fails() {
         // Arrange
@@ -627,11 +701,13 @@ final class ActionValidatorTests: XCTestCase {
 
         // Assert
         if case .failure(.paneAlreadyInLayout(let id)) = result {
-            XCTAssertEqual(id, paneId)
+            #expect(id == paneId)
             return
         }
-        XCTFail("Expected paneAlreadyInLayout error")
+        Issue.record("Expected paneAlreadyInLayout error")
     }
+
+    @Test
 
     func test_paneCardinality_emptyState_succeeds() {
         // Arrange
@@ -643,10 +719,12 @@ final class ActionValidatorTests: XCTestCase {
         )
 
         // Assert
-        XCTAssertNotNil(try? result.get())
+        #expect((try? result.get()) != nil)
     }
 
     // MARK: - ValidatedAction preserves action
+
+    @Test
 
     func test_validatedAction_preservesOriginalAction() {
         // Arrange
@@ -659,9 +737,9 @@ final class ActionValidatorTests: XCTestCase {
 
         // Assert
         if case .success(let validated) = result {
-            XCTAssertEqual(validated.action, action)
+            #expect(validated.action == action)
         } else {
-            XCTFail("Expected success")
+            Issue.record("Expected success")
         }
     }
 }

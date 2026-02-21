@@ -1,9 +1,11 @@
-import XCTest
+import Testing
+import Foundation
 
 @testable import AgentStudio
 
 @MainActor
-final class DrawerCommandIntegrationTests: XCTestCase {
+@Suite(.serialized)
+final class DrawerCommandIntegrationTests {
 
     private var store: WorkspaceStore!
     private var viewRegistry: ViewRegistry!
@@ -12,8 +14,8 @@ final class DrawerCommandIntegrationTests: XCTestCase {
     private var executor: ActionExecutor!
     private var tempDir: URL!
 
-    override func setUp() {
-        super.setUp()
+    @BeforeEach
+    func setUp() {
         tempDir = FileManager.default.temporaryDirectory
             .appending(path: "drawer-cmd-tests-\(UUID().uuidString)")
         let persistor = WorkspacePersistor(workspacesDir: tempDir)
@@ -25,14 +27,14 @@ final class DrawerCommandIntegrationTests: XCTestCase {
         executor = ActionExecutor(store: store, viewRegistry: viewRegistry, coordinator: coordinator)
     }
 
-    override func tearDown() {
+    @AfterEach
+    func tearDown() {
         try? FileManager.default.removeItem(at: tempDir)
         executor = nil
         coordinator = nil
         runtime = nil
         viewRegistry = nil
         store = nil
-        super.tearDown()
     }
 
     // MARK: - Helpers
@@ -48,6 +50,8 @@ final class DrawerCommandIntegrationTests: XCTestCase {
 
     // MARK: - test_addDrawerPane_createsDrawerWithTerminalContent
 
+    @Test
+
     func test_addDrawerPane_createsDrawerWithTerminalContent() {
         // Arrange
         let (parentPaneId, _) = createParentPaneInTab()
@@ -57,29 +61,31 @@ final class DrawerCommandIntegrationTests: XCTestCase {
 
         // Assert
         let parentPane = store.pane(parentPaneId)
-        XCTAssertNotNil(parentPane?.drawer, "Drawer should exist on the parent pane")
+        #expect((parentPane?.drawer) != nil)
 
         let drawer = parentPane!.drawer!
-        XCTAssertEqual(drawer.paneIds.count, 1, "Drawer should contain exactly 1 pane")
-        XCTAssertTrue(drawer.isExpanded, "Drawer should be expanded by default")
+        #expect(drawer.paneIds.count == 1, "Drawer should contain exactly 1 pane")
+        #expect(drawer.isExpanded)
 
         let drawerPaneId = drawer.paneIds[0]
         let drawerPane = store.pane(drawerPaneId)
-        XCTAssertNotNil(drawerPane, "Drawer pane should exist in store")
-        XCTAssertEqual(drawerPane?.metadata.title, "Drawer", "Drawer pane title should be 'Drawer'")
-        XCTAssertEqual(drawer.activePaneId, drawerPaneId, "The new drawer pane should be active")
-        XCTAssertTrue(drawerPane?.isDrawerChild ?? false, "Drawer pane should be a drawer child")
+        #expect((drawerPane) != nil)
+        #expect(drawerPane?.metadata.title == "Drawer", "Drawer pane title should be 'Drawer'")
+        #expect(drawer.activePaneId == drawerPaneId, "The new drawer pane should be active")
+        #expect(drawerPane?.isDrawerChild ?? false)
 
         // Verify centralized defaults: zmx provider, persistent lifetime
         if case .terminal(let state) = drawerPane?.content {
-            XCTAssertEqual(state.provider, .zmx, "Drawer panes should use zmx provider")
-            XCTAssertEqual(state.lifetime, .persistent, "Drawer panes should be persistent")
+            #expect(state.provider == .zmx, "Drawer panes should use zmx provider")
+            #expect(state.lifetime == .persistent, "Drawer panes should be persistent")
         } else {
-            XCTFail("Drawer pane content should be terminal")
+            Issue.record("Drawer pane content should be terminal")
         }
     }
 
     // MARK: - test_closeDrawerPane_removesActiveDrawerPane
+
+    @Test
 
     func test_closeDrawerPane_removesActiveDrawerPane() {
         // Arrange — add 2 drawer panes
@@ -87,23 +93,23 @@ final class DrawerCommandIntegrationTests: XCTestCase {
 
         let dp1 = store.addDrawerPane(to: parentPaneId)!
         let dp2 = store.addDrawerPane(to: parentPaneId)!
-        XCTAssertEqual(store.pane(parentPaneId)!.drawer!.paneIds.count, 2)
-        XCTAssertEqual(
-            store.pane(parentPaneId)!.drawer!.activePaneId, dp2.id,
-            "Last added drawer pane should be active initially")
+        #expect(store.pane(parentPaneId)!.drawer!.paneIds.count == 2)
+        #expect(store.pane(parentPaneId)!.drawer!.activePaneId == dp2.id, "Last added drawer pane should be active initially")
 
         // Act — close the active drawer pane (dp2)
         executor.execute(.removeDrawerPane(parentPaneId: parentPaneId, drawerPaneId: dp2.id))
 
         // Assert
         let drawer = store.pane(parentPaneId)!.drawer
-        XCTAssertNotNil(drawer, "Drawer should still exist with remaining pane")
-        XCTAssertEqual(drawer!.paneIds.count, 1, "Only 1 drawer pane should remain")
-        XCTAssertEqual(drawer!.paneIds[0], dp1.id, "The remaining pane should be dp1")
-        XCTAssertEqual(drawer!.activePaneId, dp1.id, "dp1 should become the active drawer pane")
+        #expect((drawer) != nil)
+        #expect(drawer!.paneIds.count == 1, "Only 1 drawer pane should remain")
+        #expect(drawer!.paneIds[0] == dp1.id, "The remaining pane should be dp1")
+        #expect(drawer!.activePaneId == dp1.id, "dp1 should become the active drawer pane")
     }
 
     // MARK: - Toggle Drawer
+
+    @Test
 
     func test_toggleDrawer_expandsCollapsedDrawer() {
         // Arrange
@@ -111,45 +117,51 @@ final class DrawerCommandIntegrationTests: XCTestCase {
         store.addDrawerPane(to: parentPaneId)
         // Drawer auto-expands on add; collapse it first
         store.toggleDrawer(for: parentPaneId)
-        XCTAssertFalse(store.pane(parentPaneId)!.drawer!.isExpanded)
+        #expect(!(store.pane(parentPaneId)!.drawer!.isExpanded))
 
         // Act
         executor.execute(.toggleDrawer(paneId: parentPaneId))
 
         // Assert
-        XCTAssertTrue(store.pane(parentPaneId)!.drawer!.isExpanded)
+        #expect(store.pane(parentPaneId)!.drawer!.isExpanded)
     }
+
+    @Test
 
     func test_toggleDrawer_collapsesExpandedDrawer() {
         // Arrange
         let (parentPaneId, _) = createParentPaneInTab()
         store.addDrawerPane(to: parentPaneId)
-        XCTAssertTrue(store.pane(parentPaneId)!.drawer!.isExpanded)
+        #expect(store.pane(parentPaneId)!.drawer!.isExpanded)
 
         // Act
         executor.execute(.toggleDrawer(paneId: parentPaneId))
 
         // Assert
-        XCTAssertFalse(store.pane(parentPaneId)!.drawer!.isExpanded)
+        #expect(!(store.pane(parentPaneId)!.drawer!.isExpanded))
     }
 
     // MARK: - Set Active Drawer Pane
+
+    @Test
 
     func test_setActiveDrawerPane_switchesActivePaneId() {
         // Arrange
         let (parentPaneId, _) = createParentPaneInTab()
         let dp1 = store.addDrawerPane(to: parentPaneId)!
         let dp2 = store.addDrawerPane(to: parentPaneId)!
-        XCTAssertEqual(store.pane(parentPaneId)!.drawer!.activePaneId, dp2.id)
+        #expect(store.pane(parentPaneId)!.drawer!.activePaneId == dp2.id)
 
         // Act
         executor.execute(.setActiveDrawerPane(parentPaneId: parentPaneId, drawerPaneId: dp1.id))
 
         // Assert
-        XCTAssertEqual(store.pane(parentPaneId)!.drawer!.activePaneId, dp1.id)
+        #expect(store.pane(parentPaneId)!.drawer!.activePaneId == dp1.id)
     }
 
     // MARK: - Minimize / Expand Drawer Pane
+
+    @Test
 
     func test_minimizeDrawerPane_hidesPane() {
         // Arrange
@@ -162,8 +174,10 @@ final class DrawerCommandIntegrationTests: XCTestCase {
 
         // Assert
         let drawer = store.pane(parentPaneId)!.drawer!
-        XCTAssertTrue(drawer.minimizedPaneIds.contains(dp1.id))
+        #expect(drawer.minimizedPaneIds.contains(dp1.id))
     }
+
+    @Test
 
     func test_expandDrawerPane_restoresMinimizedPane() {
         // Arrange
@@ -171,17 +185,19 @@ final class DrawerCommandIntegrationTests: XCTestCase {
         let dp1 = store.addDrawerPane(to: parentPaneId)!
         store.addDrawerPane(to: parentPaneId)
         store.minimizeDrawerPane(dp1.id, in: parentPaneId)
-        XCTAssertTrue(store.pane(parentPaneId)!.drawer!.minimizedPaneIds.contains(dp1.id))
+        #expect(store.pane(parentPaneId)!.drawer!.minimizedPaneIds.contains(dp1.id))
 
         // Act
         executor.execute(.expandDrawerPane(parentPaneId: parentPaneId, drawerPaneId: dp1.id))
 
         // Assert
         let drawer = store.pane(parentPaneId)!.drawer!
-        XCTAssertFalse(drawer.minimizedPaneIds.contains(dp1.id))
+        #expect(!(drawer.minimizedPaneIds.contains(dp1.id)))
     }
 
     // MARK: - Resize / Equalize Drawer Panes
+
+    @Test
 
     func test_resizeDrawerPane_updatesLayout() {
         // Arrange — create 2-pane drawer to get a split
@@ -192,7 +208,7 @@ final class DrawerCommandIntegrationTests: XCTestCase {
         let drawer = store.pane(parentPaneId)!.drawer!
         // Find the split node ID in the drawer layout
         guard case .split(let split) = drawer.layout.root else {
-            XCTFail("Expected a split node in 2-pane drawer layout")
+            Issue.record("Expected a split node in 2-pane drawer layout")
             return
         }
         let splitId = split.id
@@ -203,11 +219,13 @@ final class DrawerCommandIntegrationTests: XCTestCase {
         // Assert
         let updated = store.pane(parentPaneId)!.drawer!
         guard case .split(let updatedSplit) = updated.layout.root else {
-            XCTFail("Expected split node after resize")
+            Issue.record("Expected split node after resize")
             return
         }
-        XCTAssertEqual(updatedSplit.ratio, 0.7, accuracy: 0.001)
+        #expect(updatedSplit.ratio == 0.7, accuracy: 0.001)
     }
+
+    @Test
 
     func test_equalizeDrawerPanes_resetsRatios() {
         // Arrange — create 2-pane drawer and skew the ratio
@@ -217,7 +235,7 @@ final class DrawerCommandIntegrationTests: XCTestCase {
 
         let drawer = store.pane(parentPaneId)!.drawer!
         guard case .split(let split) = drawer.layout.root else {
-            XCTFail("Expected split")
+            Issue.record("Expected split")
             return
         }
         store.resizeDrawerPane(parentPaneId: parentPaneId, splitId: split.id, ratio: 0.8)
@@ -228,13 +246,15 @@ final class DrawerCommandIntegrationTests: XCTestCase {
         // Assert
         let updated = store.pane(parentPaneId)!.drawer!
         guard case .split(let eqSplit) = updated.layout.root else {
-            XCTFail("Expected split after equalize")
+            Issue.record("Expected split after equalize")
             return
         }
-        XCTAssertEqual(eqSplit.ratio, 0.5, accuracy: 0.001)
+        #expect(eqSplit.ratio == 0.5, accuracy: 0.001)
     }
 
     // MARK: - Multi-Pane Drawer Lifecycle
+
+    @Test
 
     func test_addMultipleDrawerPanes_buildsLayoutTree() {
         // Arrange
@@ -247,9 +267,11 @@ final class DrawerCommandIntegrationTests: XCTestCase {
 
         // Assert
         let drawer = store.pane(parentPaneId)!.drawer!
-        XCTAssertEqual(drawer.paneIds.count, 3)
-        XCTAssertTrue(drawer.paneIds.contains(dp1.id))
+        #expect(drawer.paneIds.count == 3)
+        #expect(drawer.paneIds.contains(dp1.id))
     }
+
+    @Test
 
     func test_removeLastDrawerPane_leavesEmptyDrawer() {
         // Arrange
@@ -261,13 +283,15 @@ final class DrawerCommandIntegrationTests: XCTestCase {
 
         // Assert
         let drawer = store.pane(parentPaneId)!.drawer!
-        XCTAssertTrue(drawer.paneIds.isEmpty)
-        XCTAssertNil(drawer.activePaneId)
+        #expect(drawer.paneIds.isEmpty)
+        #expect((drawer.activePaneId) == nil)
         // Pane should be removed from store
-        XCTAssertNil(store.pane(dp.id))
+        #expect((store.pane(dp.id)) == nil)
     }
 
     // MARK: - Close Parent Pane Cascades Drawer Children
+
+    @Test
 
     func test_closeParentPane_removesDrawerChildren() {
         // Arrange — parent with 2 drawer children in a 2-pane tab
@@ -280,16 +304,16 @@ final class DrawerCommandIntegrationTests: XCTestCase {
         let dp1 = store.addDrawerPane(to: p1.id)!
         let dp2 = store.addDrawerPane(to: p1.id)!
 
-        XCTAssertNotNil(store.pane(dp1.id))
-        XCTAssertNotNil(store.pane(dp2.id))
+        #expect((store.pane(dp1.id)) != nil)
+        #expect((store.pane(dp2.id)) != nil)
 
         // Act — close the parent pane
         executor.execute(.closePane(tabId: tab.id, paneId: p1.id))
 
         // Assert — drawer children should be cascade-deleted
-        XCTAssertNil(store.pane(p1.id))
-        XCTAssertNil(store.pane(dp1.id), "Drawer child dp1 should be cascade-deleted")
-        XCTAssertNil(store.pane(dp2.id), "Drawer child dp2 should be cascade-deleted")
+        #expect((store.pane(p1.id)) == nil)
+        #expect((store.pane(dp1.id)) == nil)
+        #expect((store.pane(dp2.id)) == nil)
     }
 
 }

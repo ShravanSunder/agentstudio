@@ -101,7 +101,27 @@ swift build -c release > /tmp/build-output.txt 2>&1 && echo "BUILD OK" || { echo
 description = "Run all tests"
 depends = ["copy-xcframework", "setup-dev-resources"]
 run = """
-swift test > /tmp/test-output.txt 2>&1 && echo "PASS" || { echo "FAIL"; tail -20 /tmp/test-output.txt; exit 1; }
+SWIFT_TEST_TIMEOUT_SECONDS=${SWIFT_TEST_TIMEOUT_SECONDS:-600} \
+SWIFT_BUILD_DIR=".build-agent-0" \
+scripts/test-agent-timeout.sh
+"""
+
+[tasks.test-agent-timeout]
+description = "Run tests with timeout and isolated agent build directory"
+depends = ["copy-xcframework", "setup-dev-resources"]
+run = """
+SWIFT_TEST_TIMEOUT_SECONDS=600 \
+SWIFT_BUILD_DIR=".build-agent-0" \
+scripts/test-agent-timeout.sh
+"""
+
+[tasks.test-ci]
+description = "Run full Swift test suite for CI with timeout and shared .build cache directory"
+depends = ["copy-xcframework", "setup-dev-resources"]
+run = """
+SWIFT_TEST_TIMEOUT_SECONDS=600 \
+SWIFT_BUILD_DIR=".build" \
+scripts/test-agent-timeout.sh
 """
 
 [tasks.clean]

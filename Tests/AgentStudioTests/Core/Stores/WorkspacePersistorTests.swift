@@ -1,26 +1,30 @@
-import XCTest
+import Testing
+import Foundation
 
 @testable import AgentStudio
 
-final class WorkspacePersistorTests: XCTestCase {
+@Suite(.serialized)
+final class WorkspacePersistorTests {
 
     private var tempDir: URL!
     private var persistor: WorkspacePersistor!
 
-    override func setUp() {
-        super.setUp()
+    @BeforeEach
+    func setUp() {
         tempDir = FileManager.default.temporaryDirectory
             .appending(path: "persistor-tests-\(UUID().uuidString)")
         persistor = WorkspacePersistor(workspacesDir: tempDir)
         persistor.ensureDirectory()
     }
 
-    override func tearDown() {
+    @AfterEach
+    func tearDown() {
         try? FileManager.default.removeItem(at: tempDir)
-        super.tearDown()
     }
 
     // MARK: - Save & Load
+
+    @Test
 
     func test_saveAndLoad_emptyState() throws {
         // Arrange
@@ -31,10 +35,12 @@ final class WorkspacePersistorTests: XCTestCase {
         let loaded = persistor.load()
 
         // Assert
-        XCTAssertNotNil(loaded)
-        XCTAssertEqual(loaded?.id, state.id)
-        XCTAssertTrue(loaded?.panes.isEmpty ?? false)
+        #expect((loaded) != nil)
+        #expect(loaded?.id == state.id)
+        #expect(loaded?.panes.isEmpty ?? false)
     }
+
+    @Test
 
     func test_saveAndLoad_withPanes() throws {
         // Arrange
@@ -54,14 +60,16 @@ final class WorkspacePersistorTests: XCTestCase {
         let loaded = persistor.load()
 
         // Assert
-        XCTAssertEqual(loaded?.panes.count, 1)
-        XCTAssertEqual(loaded?.panes[0].id, pane.id)
-        XCTAssertEqual(loaded?.panes[0].title, "Feature")
-        XCTAssertEqual(loaded?.panes[0].agent, .claude)
-        XCTAssertEqual(loaded?.panes[0].provider, .zmx)
-        XCTAssertEqual(loaded?.panes[0].lifetime, .persistent)
-        XCTAssertEqual(loaded?.panes[0].residency, .active)
+        #expect(loaded?.panes.count == 1)
+        #expect(loaded?.panes[0].id == pane.id)
+        #expect(loaded?.panes[0].title == "Feature")
+        #expect(loaded?.panes[0].agent == .claude)
+        #expect(loaded?.panes[0].provider == .zmx)
+        #expect(loaded?.panes[0].lifetime == .persistent)
+        #expect(loaded?.panes[0].residency == .active)
     }
+
+    @Test
 
     func test_saveAndLoad_withTabs() throws {
         // Arrange
@@ -76,10 +84,12 @@ final class WorkspacePersistorTests: XCTestCase {
         let loaded = persistor.load()
 
         // Assert
-        XCTAssertEqual(loaded?.tabs.count, 1)
-        XCTAssertEqual(loaded?.tabs[0].paneIds, [paneId])
-        XCTAssertEqual(loaded?.activeTabId, tab.id)
+        #expect(loaded?.tabs.count == 1)
+        #expect(loaded?.tabs[0].paneIds == [paneId])
+        #expect(loaded?.activeTabId == tab.id)
     }
+
+    @Test
 
     func test_saveAndLoad_withSplitLayout() throws {
         // Arrange
@@ -95,9 +105,11 @@ final class WorkspacePersistorTests: XCTestCase {
         let loaded = persistor.load()
 
         // Assert
-        XCTAssertEqual(loaded?.tabs[0].paneIds, [s1, s2, s3])
-        XCTAssertTrue(loaded?.tabs[0].isSplit ?? false)
+        #expect(loaded?.tabs[0].paneIds == [s1, s2, s3])
+        #expect(loaded?.tabs[0].isSplit ?? false)
     }
+
+    @Test
 
     func test_saveAndLoad_preservesAllFields() throws {
         // Arrange
@@ -124,19 +136,23 @@ final class WorkspacePersistorTests: XCTestCase {
         let loaded = persistor.load()
 
         // Assert
-        XCTAssertEqual(loaded?.name, "My Workspace")
-        XCTAssertEqual(loaded?.sidebarWidth, 300)
-        XCTAssertEqual(loaded?.windowFrame, CGRect(x: 10, y: 20, width: 1000, height: 800))
-        XCTAssertEqual(loaded?.repos.count, 1)
-        XCTAssertEqual(loaded?.repos[0].name, "test-repo")
-        XCTAssertEqual(loaded?.repos[0].worktrees.count, 1)
+        #expect(loaded?.name == "My Workspace")
+        #expect(loaded?.sidebarWidth == 300)
+        #expect(loaded?.windowFrame == CGRect(x: 10, y: 20, width: 1000, height: 800))
+        #expect(loaded?.repos.count == 1)
+        #expect(loaded?.repos[0].name == "test-repo")
+        #expect(loaded?.repos[0].worktrees.count == 1)
     }
+
+    @Test
 
     func test_load_noFiles_returnsNil() {
         // The temp dir is empty
         let loaded = persistor.load()
-        XCTAssertNil(loaded)
+        #expect((loaded) == nil)
     }
+
+    @Test
 
     func test_load_nonExistentDir_returnsNil() {
         // Arrange
@@ -148,25 +164,29 @@ final class WorkspacePersistorTests: XCTestCase {
         let loaded = badPersistor.load()
 
         // Assert
-        XCTAssertNil(loaded)
+        #expect((loaded) == nil)
     }
 
     // MARK: - Delete
+
+    @Test
 
     func test_delete_removesFile() throws {
         // Arrange
         let state = WorkspacePersistor.PersistableState()
         try persistor.save(state)
-        XCTAssertNotNil(persistor.load())
+        #expect((persistor.load()) != nil)
 
         // Act
         persistor.delete(id: state.id)
 
         // Assert
-        XCTAssertNil(persistor.load())
+        #expect((persistor.load()) == nil)
     }
 
     // MARK: - Multiple Saves
+
+    @Test
 
     func test_save_overwritesPrevious() throws {
         // Arrange
@@ -181,15 +201,19 @@ final class WorkspacePersistorTests: XCTestCase {
         let loaded = persistor.load()
 
         // Assert
-        XCTAssertEqual(loaded?.name, "Second Save")
+        #expect(loaded?.name == "Second Save")
     }
 
     // MARK: - hasWorkspaceFiles
 
+    @Test
+
     func test_hasWorkspaceFiles_emptyDir_returnsFalse() {
         // Assert — freshly created temp dir has no workspace files
-        XCTAssertFalse(persistor.hasWorkspaceFiles())
+        #expect(!(persistor.hasWorkspaceFiles()))
     }
+
+    @Test
 
     func test_hasWorkspaceFiles_afterSave_returnsTrue() throws {
         // Arrange
@@ -197,8 +221,10 @@ final class WorkspacePersistorTests: XCTestCase {
         try persistor.save(state)
 
         // Assert
-        XCTAssertTrue(persistor.hasWorkspaceFiles())
+        #expect(persistor.hasWorkspaceFiles())
     }
+
+    @Test
 
     func test_hasWorkspaceFiles_nonExistentDir_returnsFalse() {
         // Arrange
@@ -207,10 +233,12 @@ final class WorkspacePersistorTests: XCTestCase {
         )
 
         // Assert
-        XCTAssertFalse(badPersistor.hasWorkspaceFiles())
+        #expect(!(badPersistor.hasWorkspaceFiles()))
     }
 
     // MARK: - Save Failure
+
+    @Test
 
     func test_save_toNonWritablePath_throws() {
         // Arrange
@@ -220,6 +248,6 @@ final class WorkspacePersistorTests: XCTestCase {
         let state = WorkspacePersistor.PersistableState()
 
         // Act & Assert
-        XCTAssertThrowsError(try readOnlyPersistor.save(state))
+        #expect(throws: any Error.self) { try readOnlyPersistor.save(state) }
     }
 }

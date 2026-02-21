@@ -1,12 +1,16 @@
 import AppKit
-import XCTest
+import Testing
+import Foundation
 
 @testable import AgentStudio
 
-final class KeyboardCharacterFilteringTests: XCTestCase {
+@Suite(.serialized)
+
+final class KeyboardCharacterFilteringTests {
 
     // MARK: - shouldSendKeyEventText Tests
 
+    @Test
     func test_shouldSendKeyEventText_nilText_returnsFalse() {
         // Arrange
         let text: String? = nil
@@ -15,9 +19,10 @@ final class KeyboardCharacterFilteringTests: XCTestCase {
         let result = shouldSendKeyEventText(text)
 
         // Assert
-        XCTAssertFalse(result)
+        #expect(!(result))
     }
 
+    @Test
     func test_shouldSendKeyEventText_emptyText_returnsFalse() {
         // Arrange
         let text = ""
@@ -26,9 +31,10 @@ final class KeyboardCharacterFilteringTests: XCTestCase {
         let result = shouldSendKeyEventText(text)
 
         // Assert
-        XCTAssertFalse(result)
+        #expect(!(result))
     }
 
+    @Test
     func test_shouldSendKeyEventText_controlCharacter_returnsFalse() {
         // Arrange - Ctrl+C produces 0x03
         let text = "\u{03}"
@@ -37,9 +43,10 @@ final class KeyboardCharacterFilteringTests: XCTestCase {
         let result = shouldSendKeyEventText(text)
 
         // Assert
-        XCTAssertFalse(result, "Control characters < 0x20 should not be sent")
+        #expect(!(result), "Control characters < 0x20 should not be sent")
     }
 
+    @Test
     func test_shouldSendKeyEventText_normalCharacter_returnsTrue() {
         // Arrange
         let text = "c"
@@ -48,9 +55,10 @@ final class KeyboardCharacterFilteringTests: XCTestCase {
         let result = shouldSendKeyEventText(text)
 
         // Assert
-        XCTAssertTrue(result)
+        #expect(result)
     }
 
+    @Test
     func test_shouldSendKeyEventText_space_returnsTrue() {
         // Arrange - Space is 0x20, the boundary
         let text = " "
@@ -59,9 +67,10 @@ final class KeyboardCharacterFilteringTests: XCTestCase {
         let result = shouldSendKeyEventText(text)
 
         // Assert
-        XCTAssertTrue(result, "Space (0x20) should be sent")
+        #expect(result, "Space (0x20) should be sent")
     }
 
+    @Test
     func test_shouldSendKeyEventText_tab_returnsFalse() {
         // Arrange - Tab is 0x09
         let text = "\t"
@@ -70,11 +79,12 @@ final class KeyboardCharacterFilteringTests: XCTestCase {
         let result = shouldSendKeyEventText(text)
 
         // Assert
-        XCTAssertFalse(result, "Tab (0x09) is < 0x20, should not be sent")
+        #expect(!(result), "Tab (0x09) is < 0x20, should not be sent")
     }
 
     // MARK: - filterGhosttyCharacters Tests
 
+    @Test
     func test_filterGhosttyCharacters_nilInput_returnsNil() {
         // Arrange
         let characters: String? = nil
@@ -87,9 +97,10 @@ final class KeyboardCharacterFilteringTests: XCTestCase {
         )
 
         // Assert
-        XCTAssertNil(result)
+        #expect(result == nil)
     }
 
+    @Test
     func test_filterGhosttyCharacters_normalChar_returnsUnchanged() {
         // Arrange
         let characters = "a"
@@ -102,9 +113,10 @@ final class KeyboardCharacterFilteringTests: XCTestCase {
         )
 
         // Assert
-        XCTAssertEqual(result, "a")
+        #expect(result == "a")
     }
 
+    @Test
     func test_filterGhosttyCharacters_controlChar_stripsControlModifier() {
         // Arrange - 0x03 is Ctrl+C
         let characters = "\u{03}"
@@ -121,11 +133,12 @@ final class KeyboardCharacterFilteringTests: XCTestCase {
         )
 
         // Assert
-        XCTAssertEqual(result, "c")
-        XCTAssertNotNil(appliedFlags)
-        XCTAssertFalse(appliedFlags!.contains(.control), "Control should be stripped")
+        #expect(result == "c")
+        #expect(appliedFlags != nil)
+        #expect(!(appliedFlags!.contains(.control)), "Control should be stripped")
     }
 
+    @Test
     func test_filterGhosttyCharacters_functionKey_returnsNil() {
         // Arrange - F1 key in PUA range
         let characters = "\u{F704}"  // NSF1FunctionKey
@@ -138,6 +151,6 @@ final class KeyboardCharacterFilteringTests: XCTestCase {
         )
 
         // Assert
-        XCTAssertNil(result, "Function keys should not be sent as text")
+        #expect(result == nil, "Function keys should not be sent as text")
     }
 }

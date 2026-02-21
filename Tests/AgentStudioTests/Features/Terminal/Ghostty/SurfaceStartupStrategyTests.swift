@@ -1,27 +1,33 @@
-import XCTest
+import Testing
+import Foundation
 
 @testable import AgentStudio
 
-final class SurfaceStartupStrategyTests: XCTestCase {
+@Suite(.serialized)
 
+final class SurfaceStartupStrategyTests {
+
+    @Test
     func test_surfaceCommandStrategy_setsStartupCommandAndNoDeferredCommand() {
         // Arrange
         let strategy = Ghostty.SurfaceStartupStrategy.surfaceCommand("/bin/zsh -i -l")
 
         // Assert
-        XCTAssertEqual(strategy.startupCommandForSurface, "/bin/zsh -i -l")
-        XCTAssertNil(strategy.deferredStartupCommand)
+        #expect(strategy.startupCommandForSurface == "/bin/zsh -i -l")
+        #expect(strategy.deferredStartupCommand == nil)
     }
 
+    @Test
     func test_deferredStrategy_setsDeferredCommandAndNoStartupCommand() {
         // Arrange
         let strategy = Ghostty.SurfaceStartupStrategy.deferredInShell(command: "zmx attach my-session")
 
         // Assert
-        XCTAssertNil(strategy.startupCommandForSurface)
-        XCTAssertEqual(strategy.deferredStartupCommand, "zmx attach my-session")
+        #expect(strategy.startupCommandForSurface == nil)
+        #expect(strategy.deferredStartupCommand == "zmx attach my-session")
     }
 
+    @Test
     func test_surfaceConfiguration_capturesStartupStrategy() {
         // Arrange
         let strategy = Ghostty.SurfaceStartupStrategy.deferredInShell(command: "zmx attach abc")
@@ -33,6 +39,6 @@ final class SurfaceStartupStrategyTests: XCTestCase {
         )
 
         // Assert
-        XCTAssertEqual(config.startupStrategy, strategy)
+        #expect(config.startupStrategy == strategy)
     }
 }

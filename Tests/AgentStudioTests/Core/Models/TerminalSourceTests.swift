@@ -1,10 +1,14 @@
-import XCTest
+import Testing
+import Foundation
 
 @testable import AgentStudio
 
-final class TerminalSourceTests: XCTestCase {
+@Suite(.serialized)
+final class TerminalSourceTests {
 
     // MARK: - Equatable
+
+    @Test
 
     func test_worktreeSource_sameIds_equal() {
         // Arrange
@@ -14,8 +18,10 @@ final class TerminalSourceTests: XCTestCase {
         let s2 = TerminalSource.worktree(worktreeId: wtId, repoId: repoId)
 
         // Assert
-        XCTAssertEqual(s1, s2)
+        #expect(s1 == s2)
     }
+
+    @Test
 
     func test_worktreeSource_differentIds_notEqual() {
         // Arrange
@@ -23,8 +29,10 @@ final class TerminalSourceTests: XCTestCase {
         let s2 = TerminalSource.worktree(worktreeId: UUID(), repoId: UUID())
 
         // Assert
-        XCTAssertNotEqual(s1, s2)
+        #expect(s1 != s2)
     }
+
+    @Test
 
     func test_floatingSource_sameValues_equal() {
         // Arrange
@@ -33,8 +41,10 @@ final class TerminalSourceTests: XCTestCase {
         let s2 = TerminalSource.floating(workingDirectory: dir, title: "My Terminal")
 
         // Assert
-        XCTAssertEqual(s1, s2)
+        #expect(s1 == s2)
     }
+
+    @Test
 
     func test_floatingSource_differentTitles_notEqual() {
         // Arrange
@@ -42,8 +52,10 @@ final class TerminalSourceTests: XCTestCase {
         let s2 = TerminalSource.floating(workingDirectory: nil, title: "B")
 
         // Assert
-        XCTAssertNotEqual(s1, s2)
+        #expect(s1 != s2)
     }
+
+    @Test
 
     func test_worktreeAndFloating_notEqual() {
         // Arrange
@@ -51,10 +63,12 @@ final class TerminalSourceTests: XCTestCase {
         let s2 = TerminalSource.floating(workingDirectory: nil, title: nil)
 
         // Assert
-        XCTAssertNotEqual(s1, s2)
+        #expect(s1 != s2)
     }
 
     // MARK: - Hashable
+
+    @Test
 
     func test_worktreeSource_hashable_sameIds_sameHash() {
         // Arrange
@@ -64,8 +78,10 @@ final class TerminalSourceTests: XCTestCase {
         let s2 = TerminalSource.worktree(worktreeId: wtId, repoId: repoId)
 
         // Assert
-        XCTAssertEqual(s1.hashValue, s2.hashValue)
+        #expect(s1.hashValue == s2.hashValue)
     }
+
+    @Test
 
     func test_source_usableInSet() {
         // Arrange
@@ -79,10 +95,12 @@ final class TerminalSourceTests: XCTestCase {
         set.insert(source)  // duplicate
 
         // Assert
-        XCTAssertEqual(set.count, 1)
+        #expect(set.count == 1)
     }
 
     // MARK: - Codable
+
+    @Test
 
     func test_worktreeSource_codable_roundTrip() throws {
         // Arrange
@@ -95,8 +113,10 @@ final class TerminalSourceTests: XCTestCase {
         let decoded = try JSONDecoder().decode(TerminalSource.self, from: data)
 
         // Assert
-        XCTAssertEqual(decoded, original)
+        #expect(decoded == original)
     }
+
+    @Test
 
     func test_floatingSource_codable_roundTrip() throws {
         // Arrange
@@ -108,8 +128,10 @@ final class TerminalSourceTests: XCTestCase {
         let decoded = try JSONDecoder().decode(TerminalSource.self, from: data)
 
         // Assert
-        XCTAssertEqual(decoded, original)
+        #expect(decoded == original)
     }
+
+    @Test
 
     func test_floatingSource_codable_nilValues_roundTrip() throws {
         // Arrange
@@ -120,6 +142,6 @@ final class TerminalSourceTests: XCTestCase {
         let decoded = try JSONDecoder().decode(TerminalSource.self, from: data)
 
         // Assert
-        XCTAssertEqual(decoded, original)
+        #expect(decoded == original)
     }
 }

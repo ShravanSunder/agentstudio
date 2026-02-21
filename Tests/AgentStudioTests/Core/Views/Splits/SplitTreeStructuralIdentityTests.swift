@@ -1,11 +1,15 @@
-import AppKit
-import XCTest
+ import AppKit
+import Testing
+import Foundation
 
 @testable import AgentStudio
 
-final class SplitTreeStructuralIdentityTests: XCTestCase {
+@Suite(.serialized)
+final class SplitTreeStructuralIdentityTests {
 
     // MARK: - Structural Equality
+
+    @Test
 
     func test_sameStructure_sameViews_equal() throws {
         // Arrange - two trees built from the same views
@@ -22,8 +26,10 @@ final class SplitTreeStructuralIdentityTests: XCTestCase {
         let id2 = tree2.root!.structuralIdentity
 
         // Assert
-        XCTAssertEqual(id1, id2)
+        #expect(id1 == id2)
     }
+
+    @Test
 
     func test_differentViews_notEqual() throws {
         // Arrange - same structure but different view instances
@@ -42,8 +48,10 @@ final class SplitTreeStructuralIdentityTests: XCTestCase {
         let id2 = tree2.root!.structuralIdentity
 
         // Assert - different NSView instances → different identity
-        XCTAssertNotEqual(id1, id2)
+        #expect(id1 != id2)
     }
+
+    @Test
 
     func test_ratioChange_stillEqual() throws {
         // Arrange - same views, different ratios
@@ -59,8 +67,10 @@ final class SplitTreeStructuralIdentityTests: XCTestCase {
         let id2 = tree2.root!.structuralIdentity
 
         // Assert - ratio is excluded from structural identity
-        XCTAssertEqual(id1, id2, "Ratio changes should NOT affect structural identity")
+        #expect(id1 == id2, "Ratio changes should NOT affect structural identity")
     }
+
+    @Test
 
     func test_directionChange_notEqual() throws {
         // Arrange - same views but different split directions
@@ -77,10 +87,12 @@ final class SplitTreeStructuralIdentityTests: XCTestCase {
         let id2 = verticalTree.root!.structuralIdentity
 
         // Assert
-        XCTAssertNotEqual(id1, id2, "Different directions should have different structural identity")
+        #expect(id1 != id2, "Different directions should have different structural identity")
     }
 
     // MARK: - Hash Consistency
+
+    @Test
 
     func test_hashConsistency() throws {
         // Arrange
@@ -96,8 +108,10 @@ final class SplitTreeStructuralIdentityTests: XCTestCase {
         let id2 = tree2.root!.structuralIdentity
 
         // Assert - equal identities must have equal hashes
-        XCTAssertEqual(id1.hashValue, id2.hashValue, "Equal structural identities must have equal hashes")
+        #expect(id1.hashValue == id2.hashValue, "Equal structural identities must have equal hashes")
     }
+
+    @Test
 
     func test_hashConsistency_withRatioChange() throws {
         // Arrange - same structure, different ratio
@@ -112,10 +126,12 @@ final class SplitTreeStructuralIdentityTests: XCTestCase {
         let id2 = tree2.root!.structuralIdentity
 
         // Assert - ratio excluded, so hashes should match
-        XCTAssertEqual(id1.hashValue, id2.hashValue, "Ratio-only changes should produce same hash")
+        #expect(id1.hashValue == id2.hashValue, "Ratio-only changes should produce same hash")
     }
 
     // MARK: - Leaf Identity
+
+    @Test
 
     func test_leafNode_structuralIdentity_usesObjectIdentifier() {
         // Arrange
@@ -123,7 +139,7 @@ final class SplitTreeStructuralIdentityTests: XCTestCase {
         let tree = TestSplitTree(view: view)
 
         guard case .leaf = tree.root else {
-            XCTFail("Expected leaf node")
+            Issue.record("Expected leaf node")
             return
         }
 
@@ -131,8 +147,10 @@ final class SplitTreeStructuralIdentityTests: XCTestCase {
         let id2 = tree.root!.structuralIdentity
 
         // Assert - same view instance, same identity
-        XCTAssertEqual(id1, id2)
+        #expect(id1 == id2)
     }
+
+    @Test
 
     func test_leafNode_differentInstances_notEqual() {
         // Arrange - two different NSView instances with the same UUID
@@ -144,10 +162,6 @@ final class SplitTreeStructuralIdentityTests: XCTestCase {
         let tree2 = TestSplitTree(view: view2)
 
         // Assert - structural identity uses object identity (===), not UUID
-        XCTAssertNotEqual(
-            tree1.root!.structuralIdentity,
-            tree2.root!.structuralIdentity,
-            "Structural identity should use object identity, not value equality"
-        )
+        #expect(tree1.root!.structuralIdentity != tree2.root!.structuralIdentity, "Structural identity should use object identity, not value equality")
     }
 }

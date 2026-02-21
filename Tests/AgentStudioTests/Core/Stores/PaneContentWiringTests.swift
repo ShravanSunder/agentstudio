@@ -1,14 +1,16 @@
-import XCTest
+import Testing
+import Foundation
 
 @testable import AgentStudio
 
 @MainActor
-final class PaneContentWiringTests: XCTestCase {
+@Suite(.serialized)
+final class PaneContentWiringTests {
 
     private var store: WorkspaceStore!
 
-    override func setUp() {
-        super.setUp()
+    @BeforeEach
+    func setUp() {
         store = WorkspaceStore(
             persistor: WorkspacePersistor(
                 workspacesDir: FileManager.default.temporaryDirectory.appending(path: UUID().uuidString)))
@@ -16,21 +18,25 @@ final class PaneContentWiringTests: XCTestCase {
 
     // MARK: - WorkspaceStore.createPane(content:)
 
+    @Test
+
     func test_createPane_webviewContent() {
         let pane = store.createPane(
             content: .webview(WebviewState(url: URL(string: "https://example.com")!, showNavigation: true)),
             metadata: PaneMetadata(source: .floating(workingDirectory: nil, title: nil), title: "Web")
         )
 
-        XCTAssertEqual(pane.title, "Web")
+        #expect(pane.title == "Web")
         if case .webview(let state) = pane.content {
-            XCTAssertEqual(state.url.absoluteString, "https://example.com")
-            XCTAssertTrue(state.showNavigation)
+            #expect(state.url.absoluteString == "https://example.com")
+            #expect(state.showNavigation)
         } else {
-            XCTFail("Expected .webview content")
+            Issue.record("Expected .webview content")
         }
-        XCTAssertNotNil(store.pane(pane.id))
+        #expect((store.pane(pane.id)) != nil)
     }
+
+    @Test
 
     func test_createPane_codeViewerContent() {
         let filePath = URL(fileURLWithPath: "/tmp/test.swift")
@@ -39,14 +45,16 @@ final class PaneContentWiringTests: XCTestCase {
             metadata: PaneMetadata(source: .floating(workingDirectory: nil, title: nil), title: "Code")
         )
 
-        XCTAssertEqual(pane.title, "Code")
+        #expect(pane.title == "Code")
         if case .codeViewer(let state) = pane.content {
-            XCTAssertEqual(state.filePath, filePath)
-            XCTAssertEqual(state.scrollToLine, 42)
+            #expect(state.filePath == filePath)
+            #expect(state.scrollToLine == 42)
         } else {
-            XCTFail("Expected .codeViewer content")
+            Issue.record("Expected .codeViewer content")
         }
     }
+
+    @Test
 
     func test_createPane_terminalContent_viaGenericOverload() {
         let pane = store.createPane(
@@ -54,9 +62,11 @@ final class PaneContentWiringTests: XCTestCase {
             metadata: PaneMetadata(source: .floating(workingDirectory: nil, title: nil), title: "Term")
         )
 
-        XCTAssertEqual(pane.provider, .ghostty)
-        XCTAssertEqual(pane.title, "Term")
+        #expect(pane.provider == .ghostty)
+        #expect(pane.title == "Term")
     }
+
+    @Test
 
     func test_createPane_marksDirty() {
         store.flush()
@@ -64,10 +74,12 @@ final class PaneContentWiringTests: XCTestCase {
             content: .webview(WebviewState(url: URL(string: "https://test.com")!, showNavigation: false)),
             metadata: PaneMetadata(source: .floating(workingDirectory: nil, title: nil), title: "Web")
         )
-        XCTAssertTrue(store.isDirty)
+        #expect(store.isDirty)
     }
 
     // MARK: - Mixed content types in a tab
+
+    @Test
 
     func test_mixedContentTab_layoutContainsAllPanes() {
         let terminalPane = store.createPane(
@@ -87,12 +99,14 @@ final class PaneContentWiringTests: XCTestCase {
             direction: .horizontal, position: .after)
 
         let updatedTab = store.tab(tab.id)!
-        XCTAssertTrue(updatedTab.panes.contains(terminalPane.id))
-        XCTAssertTrue(updatedTab.panes.contains(webPane.id))
-        XCTAssertEqual(updatedTab.panes.count, 2)
+        #expect(updatedTab.panes.contains(terminalPane.id))
+        #expect(updatedTab.panes.contains(webPane.id))
+        #expect(updatedTab.panes.count == 2)
     }
 
     // MARK: - Persistence round-trip
+
+    @Test
 
     func test_webviewPane_persistsAndRestores() {
         let persistDir = FileManager.default.temporaryDirectory.appending(path: UUID().uuidString)
@@ -112,15 +126,17 @@ final class PaneContentWiringTests: XCTestCase {
         store2.restore()
 
         let restored = store2.pane(pane.id)
-        XCTAssertNotNil(restored)
-        XCTAssertEqual(restored?.title, "Persist Web")
+        #expect((restored) != nil)
+        #expect(restored?.title == "Persist Web")
         if case .webview(let state) = restored?.content {
-            XCTAssertEqual(state.url.absoluteString, "https://round-trip.com")
-            XCTAssertFalse(state.showNavigation)
+            #expect(state.url.absoluteString == "https://round-trip.com")
+            #expect(!(state.showNavigation))
         } else {
-            XCTFail("Expected .webview content after restore, got \(String(describing: restored?.content))")
+            Issue.record("Expected .webview content after restore, got \(String(describing: restored?.content))")
         }
     }
+
+    @Test
 
     func test_codeViewerPane_persistsAndRestores() {
         let persistDir = FileManager.default.temporaryDirectory.appending(path: UUID().uuidString)
@@ -140,16 +156,18 @@ final class PaneContentWiringTests: XCTestCase {
         store2.restore()
 
         let restored = store2.pane(pane.id)
-        XCTAssertNotNil(restored)
+        #expect((restored) != nil)
         if case .codeViewer(let state) = restored?.content {
-            XCTAssertEqual(state.filePath, filePath)
-            XCTAssertEqual(state.scrollToLine, 99)
+            #expect(state.filePath == filePath)
+            #expect(state.scrollToLine == 99)
         } else {
-            XCTFail("Expected .codeViewer content after restore")
+            Issue.record("Expected .codeViewer content after restore")
         }
     }
 
     // MARK: - ViewRegistry generalization
+
+    @Test
 
     func test_viewRegistry_registersPaneView() {
         let registry = ViewRegistry()
@@ -157,9 +175,11 @@ final class PaneContentWiringTests: XCTestCase {
 
         registry.register(view, for: view.paneId)
 
-        XCTAssertNotNil(registry.view(for: view.paneId))
-        XCTAssertTrue(registry.registeredPaneIds.contains(view.paneId))
+        #expect((registry.view(for: view.paneId)) != nil)
+        #expect(registry.registeredPaneIds.contains(view.paneId))
     }
+
+    @Test
 
     func test_viewRegistry_terminalViewDowncast() {
         let registry = ViewRegistry()
@@ -169,29 +189,35 @@ final class PaneContentWiringTests: XCTestCase {
         let webView = PaneView(paneId: paneId)
         registry.register(webView, for: paneId)
 
-        XCTAssertNotNil(registry.view(for: paneId))
-        XCTAssertNil(registry.terminalView(for: paneId))
+        #expect((registry.view(for: paneId)) != nil)
+        #expect((registry.terminalView(for: paneId)) == nil)
     }
 
     // MARK: - PaneView base class
+
+    @Test
 
     func test_paneView_identifiable() {
         let id = UUID()
         let view = PaneView(paneId: id)
 
-        XCTAssertEqual(view.id, id)
-        XCTAssertEqual(view.paneId, id)
+        #expect(view.id == id)
+        #expect(view.paneId == id)
     }
+
+    @Test
 
     func test_paneView_swiftUIContainer() {
         let view = PaneView(paneId: UUID())
         let container = view.swiftUIContainer
 
         // Container wraps the view
-        XCTAssertTrue(container.subviews.contains(view))
+        #expect(container.subviews.contains(view))
     }
 
     // MARK: - updatePaneWebviewState
+
+    @Test
 
     func test_updatePaneWebviewState_updatesContent() {
         // Arrange
@@ -211,13 +237,15 @@ final class PaneContentWiringTests: XCTestCase {
         // Assert
         let updated = store.pane(pane.id)
         if case .webview(let state) = updated?.content {
-            XCTAssertEqual(state.url.absoluteString, "https://new.com")
-            XCTAssertEqual(state.title, "New")
-            XCTAssertFalse(state.showNavigation)
+            #expect(state.url.absoluteString == "https://new.com")
+            #expect(state.title == "New")
+            #expect(!(state.showNavigation))
         } else {
-            XCTFail("Expected .webview content after update")
+            Issue.record("Expected .webview content after update")
         }
     }
+
+    @Test
 
     func test_updatePaneWebviewState_marksDirty() {
         // Arrange
@@ -226,24 +254,28 @@ final class PaneContentWiringTests: XCTestCase {
             metadata: PaneMetadata(source: .floating(workingDirectory: nil, title: nil), title: "Web")
         )
         store.flush()
-        XCTAssertFalse(store.isDirty)
+        #expect(!(store.isDirty))
 
         // Act
         store.updatePaneWebviewState(pane.id, state: WebviewState(url: URL(string: "https://updated.com")!))
 
         // Assert
-        XCTAssertTrue(store.isDirty)
+        #expect(store.isDirty)
     }
+
+    @Test
 
     func test_updatePaneWebviewState_missingPane_doesNotCrash() {
         // Act — should log warning but not crash
         store.updatePaneWebviewState(UUID(), state: WebviewState(url: URL(string: "https://ghost.com")!))
 
         // Assert — store still functional
-        XCTAssertTrue(store.panes.isEmpty)
+        #expect(store.panes.isEmpty)
     }
 
     // MARK: - ViewRegistry webview accessors
+
+    @Test
 
     func test_viewRegistry_webviewView_returnsNilForNonWebview() {
         let registry = ViewRegistry()
@@ -251,8 +283,10 @@ final class PaneContentWiringTests: XCTestCase {
         let view = PaneView(paneId: paneId)
         registry.register(view, for: paneId)
 
-        XCTAssertNil(registry.webviewView(for: paneId))
+        #expect((registry.webviewView(for: paneId)) == nil)
     }
+
+    @Test
 
     func test_viewRegistry_allWebviewViews_filtersCorrectly() {
         let registry = ViewRegistry()
@@ -265,6 +299,6 @@ final class PaneContentWiringTests: XCTestCase {
         registry.register(PaneView(paneId: paneId2), for: paneId2)
 
         // allWebviewViews should be empty since neither is a WebviewPaneView
-        XCTAssertTrue(registry.allWebviewViews.isEmpty)
+        #expect(registry.allWebviewViews.isEmpty)
     }
 }

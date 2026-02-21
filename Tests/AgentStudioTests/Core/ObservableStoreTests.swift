@@ -1,5 +1,6 @@
-import Observation
-import XCTest
+ import Observation
+import Testing
+import Foundation
 
 @testable import AgentStudio
 
@@ -16,12 +17,13 @@ private final class ObservationFlag: @unchecked Sendable {
 /// This is the core contract the migration depends on — ActiveTabContent,
 /// TabBarAdapter, and TTVC's observeForAppKitState() all rely on this.
 @MainActor
-final class ObservableStoreTests: XCTestCase {
+@Suite(.serialized)
+final class ObservableStoreTests {
 
     private var store: WorkspaceStore!
 
-    override func setUp() {
-        super.setUp()
+    @BeforeEach
+    func setUp() {
         let persistor = WorkspacePersistor(
             workspacesDir: FileManager.default.temporaryDirectory
                 .appending(path: "obs-tests-\(UUID().uuidString)")
@@ -30,12 +32,14 @@ final class ObservableStoreTests: XCTestCase {
         store.restore()
     }
 
-    override func tearDown() {
+    @AfterEach
+    func tearDown() {
         store = nil
-        super.tearDown()
     }
 
     // MARK: - withObservationTracking Fires on Store Mutations
+
+    @Test
 
     func test_observationTracking_firesOnTabsChange() {
         // Arrange
@@ -51,8 +55,10 @@ final class ObservableStoreTests: XCTestCase {
         store.appendTab(Tab(paneId: pane.id))
 
         // Assert — onChange fires synchronously during willSet
-        XCTAssertTrue(flag.fired, "withObservationTracking must fire when store.tabs mutates")
+        #expect(flag.fired)
     }
+
+    @Test
 
     func test_observationTracking_firesOnActiveTabIdChange() {
         // Arrange
@@ -74,8 +80,10 @@ final class ObservableStoreTests: XCTestCase {
         store.setActiveTab(tab1.id)
 
         // Assert
-        XCTAssertTrue(flag.fired, "withObservationTracking must fire when activeTabId changes")
+        #expect(flag.fired)
     }
+
+    @Test
 
     func test_observationTracking_firesOnPanesMutation() {
         // Arrange
@@ -90,7 +98,7 @@ final class ObservableStoreTests: XCTestCase {
         _ = store.createPane(source: .floating(workingDirectory: nil, title: nil))
 
         // Assert
-        XCTAssertTrue(flag.fired, "withObservationTracking must fire when panes dictionary mutates")
+        #expect(flag.fired)
     }
 
     // MARK: - Drawer Mutation Observability (The Original Bug)
@@ -100,11 +108,12 @@ final class ObservableStoreTests: XCTestCase {
     /// did NOT propagate through ObservableObject because panes was @Published
     /// as a dictionary — struct-in-dictionary mutations don't trigger objectWillChange.
     /// With @Observable, mutating panes[id]?.drawer fires observation correctly.
+    @Test
     func test_observationTracking_firesOnDrawerMutation() {
         // Arrange — create a pane with a drawer
         let parentPane = store.createPane(source: .floating(workingDirectory: nil, title: nil))
         _ = store.addDrawerPane(to: parentPane.id)
-        XCTAssertTrue(store.pane(parentPane.id)!.drawer!.isExpanded, "Precondition: drawer starts expanded")
+        #expect(store.pane(parentPane.id)!.drawer!.isExpanded)
 
         let flag = ObservationFlag()
         withObservationTracking {
@@ -117,9 +126,11 @@ final class ObservableStoreTests: XCTestCase {
         store.toggleDrawer(for: parentPane.id)
 
         // Assert — this FAILED with ObservableObject, PASSES with @Observable
-        XCTAssertTrue(flag.fired, "Drawer toggle must trigger observation (was broken before migration)")
-        XCTAssertFalse(store.pane(parentPane.id)!.drawer!.isExpanded)
+        #expect(flag.fired)
+        #expect(!(store.pane(parentPane.id)!.drawer!.isExpanded))
     }
+
+    @Test
 
     func test_observationTracking_firesOnDrawerPaneAdded() {
         // Arrange
@@ -136,7 +147,7 @@ final class ObservableStoreTests: XCTestCase {
         _ = store.addDrawerPane(to: parentPane.id)
 
         // Assert
-        XCTAssertTrue(flag.fired, "Adding drawer pane must trigger observation")
+        #expect(flag.fired)
     }
 
     // MARK: - Observation Re-registration Pattern
@@ -144,6 +155,7 @@ final class ObservableStoreTests: XCTestCase {
     /// Verifies that re-registering withObservationTracking after onChange
     /// correctly detects subsequent mutations. This is the pattern used by
     /// TabBarAdapter.observeStore() and TTVC.observeForAppKitState().
+    @Test
     func test_observationTracking_reregistration_detectsSubsequentChanges() {
         // Arrange — track only repos (single property, one fire per mutation)
         let flag = ObservationFlag()
@@ -163,16 +175,18 @@ final class ObservableStoreTests: XCTestCase {
 
         // Assert — fires at least once (may fire multiple times due to internal mutations)
         let countAfterFirst = flag.count
-        XCTAssertGreaterThan(countAfterFirst, 0, "First mutation must trigger observation")
+        #expect(countAfterFirst > 0, "First mutation must trigger observation")
 
         // Act — second mutation (after re-registration)
         _ = store.addRepo(at: URL(fileURLWithPath: "/tmp/re-reg-test-2"))
 
         // Assert — re-registration worked: count increased beyond first mutation
-        XCTAssertGreaterThan(flag.count, countAfterFirst, "Re-registration must detect subsequent mutations")
+        #expect(flag.count > countAfterFirst, "Re-registration must detect subsequent mutations")
     }
 
     // MARK: - Observation Doesn't Fire for Untracked Properties
+
+    @Test
 
     func test_observationTracking_doesNotFireForUntrackedProperties() {
         // Arrange — only track activeTabId
@@ -187,17 +201,18 @@ final class ObservableStoreTests: XCTestCase {
         _ = store.addRepo(at: URL(fileURLWithPath: "/tmp/untracked-repo"))
 
         // Assert — should NOT fire
-        XCTAssertFalse(flag.fired, "Observation should not fire for untracked property mutations")
+        #expect(!(flag.fired))
     }
 
     // MARK: - TabBarAdapter Bridge Verification
 
     /// Verifies TabBarAdapter's withObservationTracking bridge automatically
     /// refreshes when the store changes, without manual objectWillChange.send().
+    @Test
     func test_tabBarAdapter_bridgeAutoRefreshes_onStoreTabChange() {
         // Arrange
         let adapter = TabBarAdapter(store: store)
-        XCTAssertTrue(adapter.tabs.isEmpty)
+        #expect(adapter.tabs.isEmpty)
 
         let pane = store.createPane(
             source: .floating(workingDirectory: nil, title: "AutoRefresh"),
@@ -209,17 +224,15 @@ final class ObservableStoreTests: XCTestCase {
         store.appendTab(tab)
 
         // Wait for async bridge (Task { @MainActor } fires next runloop)
-        let expectation = XCTestExpectation(description: "Adapter auto-refreshes from bridge")
-        DispatchQueue.main.asyncAfter(deadline: .now() + 0.15) {
-            expectation.fulfill()
-        }
-        wait(for: [expectation], timeout: 1.0)
+        Thread.sleep(forTimeInterval: 0.15)
 
         // Assert — adapter derived state updated
-        XCTAssertEqual(adapter.tabs.count, 1, "TabBarAdapter must auto-refresh via observation bridge")
-        XCTAssertEqual(adapter.tabs[0].title, "AutoRefresh")
-        XCTAssertEqual(adapter.activeTabId, tab.id)
+        #expect(adapter.tabs.count == 1, "TabBarAdapter must auto-refresh via observation bridge")
+        #expect(adapter.tabs[0].title == "AutoRefresh")
+        #expect(adapter.activeTabId == tab.id)
     }
+
+    @Test
 
     func test_tabBarAdapter_bridgeAutoRefreshes_onDrawerChange() {
         // Arrange
@@ -232,27 +245,24 @@ final class ObservableStoreTests: XCTestCase {
         store.appendTab(tab)
 
         // Wait for initial sync
-        let e1 = XCTestExpectation(description: "Initial sync")
-        DispatchQueue.main.asyncAfter(deadline: .now() + 0.15) { e1.fulfill() }
-        wait(for: [e1], timeout: 1.0)
-        XCTAssertEqual(adapter.tabs.count, 1)
+        Thread.sleep(forTimeInterval: 0.15)
+        #expect(adapter.tabs.count == 1)
 
         // Act — add drawer (struct-in-dictionary mutation)
         _ = store.addDrawerPane(to: pane.id)
 
         // Wait for bridge
-        let e2 = XCTestExpectation(description: "Drawer change triggers bridge")
-        DispatchQueue.main.asyncAfter(deadline: .now() + 0.15) { e2.fulfill() }
-        wait(for: [e2], timeout: 1.0)
+        Thread.sleep(forTimeInterval: 0.15)
 
         // Assert — panes mutation triggered re-derive
-        XCTAssertEqual(adapter.tabs.count, 1, "Adapter should still have 1 tab after drawer change")
+        #expect(adapter.tabs.count == 1, "Adapter should still have 1 tab after drawer change")
     }
 
     // MARK: - ActiveTabContent Data Derivation
 
     /// Tests the exact data path ActiveTabContent.body uses:
     /// store.activeTabId → store.tab(id) → tab properties.
+    @Test
     func test_activeTabContent_dataPath_resolvesCorrectly() {
         // Arrange
         let p1 = store.createPane(source: .floating(workingDirectory: nil, title: "Pane1"))
@@ -268,12 +278,14 @@ final class ObservableStoreTests: XCTestCase {
         let tab = activeTabId.flatMap { store.tab($0) }
 
         // Assert
-        XCTAssertEqual(activeTabId, tab1.id)
-        XCTAssertNotNil(tab)
-        XCTAssertEqual(tab?.activePaneId, p1.id)
-        XCTAssertNil(tab?.zoomedPaneId)
-        XCTAssertTrue(tab?.minimizedPaneIds.isEmpty ?? false)
+        #expect(activeTabId == tab1.id)
+        #expect((tab) != nil)
+        #expect(tab?.activePaneId == p1.id)
+        #expect((tab?.zoomedPaneId) == nil)
+        #expect(tab?.minimizedPaneIds.isEmpty ?? false)
     }
+
+    @Test
 
     func test_activeTabContent_dataPath_nilWhenNoTabs() {
         // Act — follow ActiveTabContent's body path with empty store
@@ -281,9 +293,11 @@ final class ObservableStoreTests: XCTestCase {
         let tab = activeTabId.flatMap { store.tab($0) }
 
         // Assert — ActiveTabContent renders nothing (empty state handled by AppKit)
-        XCTAssertNil(activeTabId)
-        XCTAssertNil(tab)
+        #expect((activeTabId) == nil)
+        #expect((tab) == nil)
     }
+
+    @Test
 
     func test_activeTabContent_dataPath_updatesOnTabSwitch() {
         // Arrange
@@ -300,11 +314,13 @@ final class ObservableStoreTests: XCTestCase {
 
         // Assert — same path ActiveTabContent uses
         let resolvedTab = store.activeTabId.flatMap { store.tab($0) }
-        XCTAssertEqual(resolvedTab?.id, tab2.id)
-        XCTAssertEqual(resolvedTab?.activePaneId, p2.id)
+        #expect(resolvedTab?.id == tab2.id)
+        #expect(resolvedTab?.activePaneId == p2.id)
     }
 
     // MARK: - Observation Granularity: Pane Property Changes
+
+    @Test
 
     func test_observationTracking_firesOnPaneTitleUpdate() {
         // Arrange
@@ -324,9 +340,11 @@ final class ObservableStoreTests: XCTestCase {
         store.updatePaneTitle(pane.id, title: "Updated")
 
         // Assert
-        XCTAssertTrue(flag.fired, "Pane title update must trigger observation")
-        XCTAssertEqual(store.pane(pane.id)?.title, "Updated")
+        #expect(flag.fired)
+        #expect(store.pane(pane.id)?.title == "Updated")
     }
+
+    @Test
 
     func test_observationTracking_firesOnActivePaneChange() {
         // Arrange
@@ -346,8 +364,10 @@ final class ObservableStoreTests: XCTestCase {
         store.setActivePane(p2.id, inTab: tab.id)
 
         // Assert
-        XCTAssertTrue(flag.fired, "Active pane change must trigger observation on tabs")
+        #expect(flag.fired)
     }
+
+    @Test
 
     func test_observationTracking_firesOnZoomToggle() {
         // Arrange
@@ -367,7 +387,7 @@ final class ObservableStoreTests: XCTestCase {
         store.toggleZoom(paneId: p1.id, inTab: tab.id)
 
         // Assert
-        XCTAssertTrue(flag.fired, "Zoom toggle must trigger observation on tabs")
-        XCTAssertEqual(store.tab(tab.id)?.zoomedPaneId, p1.id)
+        #expect(flag.fired)
+        #expect(store.tab(tab.id)?.zoomedPaneId == p1.id)
     }
 }

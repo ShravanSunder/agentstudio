@@ -1,4 +1,5 @@
-import XCTest
+import Testing
+import Foundation
 
 @testable import AgentStudio
 
@@ -7,17 +8,20 @@ import XCTest
 /// BridgePaneState is the persistence model for bridge-backed panels (diff viewer,
 /// code review, etc.). These tests verify that all BridgePaneSource variants
 /// survive JSON encode/decode and that equality/hashing work correctly.
-final class BridgePaneStateTests: XCTestCase {
+@Suite(.serialized)
+final class BridgePaneStateTests {
 
     // MARK: - Codable Round-Trip
 
+    @Test
     func test_codable_roundTrip_diffViewer() throws {
         let state = BridgePaneState(panelKind: .diffViewer, source: nil)
         let data = try JSONEncoder().encode(state)
         let decoded = try JSONDecoder().decode(BridgePaneState.self, from: data)
-        XCTAssertEqual(decoded, state)
+        #expect(decoded == state)
     }
 
+    @Test
     func test_codable_roundTrip_with_commitSource() throws {
         let state = BridgePaneState(
             panelKind: .diffViewer,
@@ -25,9 +29,10 @@ final class BridgePaneStateTests: XCTestCase {
         )
         let data = try JSONEncoder().encode(state)
         let decoded = try JSONDecoder().decode(BridgePaneState.self, from: data)
-        XCTAssertEqual(decoded, state)
+        #expect(decoded == state)
     }
 
+    @Test
     func test_codable_roundTrip_with_branchDiffSource() throws {
         let state = BridgePaneState(
             panelKind: .diffViewer,
@@ -35,9 +40,10 @@ final class BridgePaneStateTests: XCTestCase {
         )
         let data = try JSONEncoder().encode(state)
         let decoded = try JSONDecoder().decode(BridgePaneState.self, from: data)
-        XCTAssertEqual(decoded, state)
+        #expect(decoded == state)
     }
 
+    @Test
     func test_codable_roundTrip_with_workspaceSource() throws {
         let state = BridgePaneState(
             panelKind: .diffViewer,
@@ -45,9 +51,10 @@ final class BridgePaneStateTests: XCTestCase {
         )
         let data = try JSONEncoder().encode(state)
         let decoded = try JSONDecoder().decode(BridgePaneState.self, from: data)
-        XCTAssertEqual(decoded, state)
+        #expect(decoded == state)
     }
 
+    @Test
     func test_codable_roundTrip_with_agentSnapshotSource() throws {
         let id = UUID()
         let date = Date(timeIntervalSince1970: 1_000_000)
@@ -57,26 +64,29 @@ final class BridgePaneStateTests: XCTestCase {
         )
         let data = try JSONEncoder().encode(state)
         let decoded = try JSONDecoder().decode(BridgePaneState.self, from: data)
-        XCTAssertEqual(decoded, state)
+        #expect(decoded == state)
     }
 
     // MARK: - Hashable
 
+    @Test
     func test_hashable() {
         let a = BridgePaneState(panelKind: .diffViewer, source: nil)
         let b = BridgePaneState(panelKind: .diffViewer, source: nil)
-        XCTAssertEqual(a, b)
-        XCTAssertEqual(a.hashValue, b.hashValue)
+        #expect(a == b)
+        #expect(a.hashValue == b.hashValue)
     }
 
+    @Test
     func test_different_sources_not_equal() {
         let a = BridgePaneState(panelKind: .diffViewer, source: .commit(sha: "abc"))
         let b = BridgePaneState(panelKind: .diffViewer, source: .commit(sha: "def"))
-        XCTAssertNotEqual(a, b)
+        #expect(a != b)
     }
 
     // MARK: - PaneContent.bridgePanel Codable Round-Trip
 
+    @Test
     func test_paneContent_bridgePanel_codable_roundTrip() throws {
         let bridgeState = BridgePaneState(
             panelKind: .diffViewer,
@@ -87,12 +97,13 @@ final class BridgePaneStateTests: XCTestCase {
         let decoded = try JSONDecoder().decode(PaneContent.self, from: data)
 
         if case .bridgePanel(let decodedState) = decoded {
-            XCTAssertEqual(decodedState, bridgeState)
+            #expect(decodedState == bridgeState)
         } else {
-            XCTFail("Expected .bridgePanel, got \(decoded)")
+            #expect(false, "Expected .bridgePanel, got \(decoded)")
         }
     }
 
+    @Test
     func test_paneContent_bridgePanel_unknownVersion_decodesAsUnsupported() throws {
         // Simulate a future version that adds unknown fields by manually crafting JSON
         // with an unrecognized state shape that will fail BridgePaneState decoding
@@ -103,10 +114,10 @@ final class BridgePaneStateTests: XCTestCase {
         let decoded = try JSONDecoder().decode(PaneContent.self, from: data)
 
         if case .unsupported(let content) = decoded {
-            XCTAssertEqual(content.type, "bridgePanel")
-            XCTAssertEqual(content.version, 99)
+            #expect(content.type == "bridgePanel")
+            #expect(content.version == 99)
         } else {
-            XCTFail("Expected .unsupported for malformed bridgePanel state, got \(decoded)")
+            #expect(false, "Expected .unsupported for malformed bridgePanel state, got \(decoded)")
         }
     }
 }

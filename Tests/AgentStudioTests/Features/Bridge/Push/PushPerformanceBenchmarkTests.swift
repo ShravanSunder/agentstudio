@@ -1,10 +1,12 @@
 import Observation
-import XCTest
+import Testing
+import Foundation
 
 @testable import AgentStudio
 
 @MainActor
-final class PushPerformanceBenchmarkTests: XCTestCase {
+@Suite(.serialized)
+final class PushPerformanceBenchmarkTests {
 
     // MARK: - Timestamp-recording transport for latency measurement
 
@@ -71,6 +73,7 @@ final class PushPerformanceBenchmarkTests: XCTestCase {
 
     // MARK: - 100-file initial push (baseline)
 
+    @Test
     func test_100file_manifest_push_under_32ms() async throws {
         let diffState = DiffState()
         let transport = TimestampingTransport()
@@ -86,24 +89,23 @@ final class PushPerformanceBenchmarkTests: XCTestCase {
         diffState.files = files
         try await Task.sleep(for: .milliseconds(200))
 
-        XCTAssertGreaterThan(transport.pushCount, baselinePushCount)
+        #expect(transport.pushCount > baselinePushCount)
         guard let pushInstant = transport.lastPushInstant else {
-            XCTFail("Transport should have recorded a push timestamp")
+            #expect(false, "Transport should have recorded a push timestamp")
             plan.stop()
             return
         }
 
         let latency = pushInstant - mutationInstant
         print("[PushBenchmark] 100-file initial push latency: \(latency)")
-        XCTAssertLessThan(
-            latency, .milliseconds(32),
-            "100-file initial push should complete within 32ms. Measured: \(latency)")
+        #expect(latency < .milliseconds(32), "100-file initial push should complete within 32ms. Measured: \(latency)")
 
         plan.stop()
     }
 
     // MARK: - 500-file stress test (large monorepo PR)
 
+    @Test
     func test_500file_manifest_push_under_32ms() async throws {
         let diffState = DiffState()
         let transport = TimestampingTransport()
@@ -119,9 +121,9 @@ final class PushPerformanceBenchmarkTests: XCTestCase {
         diffState.files = files
         try await Task.sleep(for: .milliseconds(300))
 
-        XCTAssertGreaterThan(transport.pushCount, baselinePushCount)
+        #expect(transport.pushCount > baselinePushCount)
         guard let pushInstant = transport.lastPushInstant else {
-            XCTFail("Transport should have recorded a push timestamp")
+            #expect(false, "Transport should have recorded a push timestamp")
             plan.stop()
             return
         }
@@ -129,9 +131,7 @@ final class PushPerformanceBenchmarkTests: XCTestCase {
         let latency = pushInstant - mutationInstant
         print("[PushBenchmark] 500-file initial push latency: \(latency)")
         print("[PushBenchmark] 500-file payload size: \(transport.lastPayloadBytes) bytes")
-        XCTAssertLessThan(
-            latency, .milliseconds(32),
-            "500-file initial push should complete within 32ms. Measured: \(latency)")
+        #expect(latency < .milliseconds(32), "500-file initial push should complete within 32ms. Measured: \(latency)")
 
         plan.stop()
     }
@@ -141,6 +141,7 @@ final class PushPerformanceBenchmarkTests: XCTestCase {
     /// Measures the actual use case EntitySlice optimizes for:
     /// 100 files already loaded, agent updates 1 file's metadata.
     /// Delta should contain only that 1 file, not all 100.
+    @Test
     func test_singleFile_incremental_change_under_2ms() async throws {
         let diffState = DiffState()
         let transport = TimestampingTransport()
@@ -162,11 +163,9 @@ final class PushPerformanceBenchmarkTests: XCTestCase {
         diffState.files["file-42"]?.version += 1
         try await Task.sleep(for: .milliseconds(200))
 
-        XCTAssertGreaterThan(
-            transport.pushCount, baselinePushCount,
-            "Single-file version bump should trigger a push")
+        #expect(transport.pushCount > baselinePushCount, "Single-file version bump should trigger a push")
         guard let pushInstant = transport.lastPushInstant else {
-            XCTFail("Transport should have recorded a push timestamp")
+            #expect(false, "Transport should have recorded a push timestamp")
             plan.stop()
             return
         }
@@ -178,14 +177,10 @@ final class PushPerformanceBenchmarkTests: XCTestCase {
         print("[PushBenchmark] delta payload: \(deltaPayloadBytes) bytes vs initial: \(initialPayloadBytes) bytes")
 
         // Delta payload should be much smaller than full 100-file payload
-        XCTAssertLessThan(
-            deltaPayloadBytes, initialPayloadBytes / 5,
-            "Single-file delta (\(deltaPayloadBytes)B) should be <20% of full payload (\(initialPayloadBytes)B)")
+        #expect(deltaPayloadBytes < initialPayloadBytes / 5, "Single-file delta (\(deltaPayloadBytes)B) should be <20% of full payload (\(initialPayloadBytes)B)")
 
         // Latency should be sub-2ms for a single entity encode
-        XCTAssertLessThan(
-            latency, .milliseconds(2),
-            "Single-file incremental push should complete within 2ms. Measured: \(latency)")
+        #expect(latency < .milliseconds(2), "Single-file incremental push should complete within 2ms. Measured: \(latency)")
 
         plan.stop()
     }
@@ -195,6 +190,7 @@ final class PushPerformanceBenchmarkTests: XCTestCase {
     /// Simulates an agent streaming file results: files arrive one at a time
     /// in rapid succession. With .cold debounce (32ms), multiple mutations
     /// should coalesce into fewer pushes.
+    @Test
     func test_rapid_mutations_coalesce_with_cold_debounce() async throws {
         let diffState = DiffState()
         let transport = TimestampingTransport()
@@ -233,15 +229,11 @@ final class PushPerformanceBenchmarkTests: XCTestCase {
 
         // With 20 mutations at 5ms intervals (100ms total) and 32ms debounce,
         // expect roughly 2-5 coalesced pushes, not 20 individual pushes.
-        XCTAssertLessThan(
-            pushCount, 10,
-            "20 rapid mutations should coalesce to fewer than 10 pushes with cold debounce. Got: \(pushCount)")
-        XCTAssertGreaterThan(
-            pushCount, 0,
-            "At least one push should have fired after debounce")
+        #expect(pushCount < 10, "20 rapid mutations should coalesce to fewer than 10 pushes with cold debounce. Got: \(pushCount)")
+        #expect(pushCount > 0, "At least one push should have fired after debounce")
 
         // Verify all 20 files arrived (final state is complete regardless of coalescing)
-        XCTAssertEqual(diffState.files.count, 20)
+        #expect(diffState.files.count == 20)
 
         plan.stop()
     }
@@ -251,6 +243,7 @@ final class PushPerformanceBenchmarkTests: XCTestCase {
     /// Simulates the worst-case scenario: a new PR is loaded (epoch reset),
     /// wiping all files and loading 200 new ones. Measures the full
     /// reset-and-reload cycle latency.
+    @Test
     func test_epoch_reset_and_reload_under_32ms() async throws {
         let diffState = DiffState()
         let transport = TimestampingTransport()
@@ -271,9 +264,9 @@ final class PushPerformanceBenchmarkTests: XCTestCase {
         diffState.files = generateFiles(count: 200, version: 1)
         try await Task.sleep(for: .milliseconds(300))
 
-        XCTAssertGreaterThan(transport.pushCount, baselinePushCount)
+        #expect(transport.pushCount > baselinePushCount)
         guard let pushInstant = transport.lastPushInstant else {
-            XCTFail("Transport should have recorded a push timestamp")
+            #expect(false, "Transport should have recorded a push timestamp")
             plan.stop()
             return
         }
@@ -283,9 +276,7 @@ final class PushPerformanceBenchmarkTests: XCTestCase {
         print("[PushBenchmark] epoch reset payload: \(transport.lastPayloadBytes) bytes")
 
         // This is the worst case: EntitySlice sees 100 removed + 200 new = full re-encode
-        XCTAssertLessThan(
-            latency, .milliseconds(32),
-            "Epoch reset + 200-file reload should complete within 32ms. Measured: \(latency)")
+        #expect(latency < .milliseconds(32), "Epoch reset + 200-file reload should complete within 32ms. Measured: \(latency)")
 
         plan.stop()
     }

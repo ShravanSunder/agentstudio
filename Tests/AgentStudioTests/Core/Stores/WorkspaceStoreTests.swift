@@ -1,16 +1,18 @@
-// swiftlint:disable file_length type_body_length
-import XCTest
+ // swiftlint:disable file_length type_body_length
+import Testing
+import Foundation
 
 @testable import AgentStudio
 
 @MainActor
-final class WorkspaceStoreTests: XCTestCase {
+@Suite(.serialized)
+final class WorkspaceStoreTests {
 
     private var store: WorkspaceStore!
     private var tempDir: URL!
 
-    override func setUp() {
-        super.setUp()
+    @BeforeEach
+    func setUp() {
         // Use a temp directory to avoid polluting real workspace data
         tempDir = FileManager.default.temporaryDirectory
             .appending(path: "workspace-store-tests-\(UUID().uuidString)")
@@ -19,23 +21,27 @@ final class WorkspaceStoreTests: XCTestCase {
         store.restore()
     }
 
-    override func tearDown() {
+    @AfterEach
+    func tearDown() {
         try? FileManager.default.removeItem(at: tempDir)
         store = nil
-        super.tearDown()
     }
 
     // MARK: - Init & Restore
 
+    @Test
+
     func test_restore_emptyState() {
         // Assert
-        XCTAssertTrue(store.panes.isEmpty)
-        XCTAssertTrue(store.repos.isEmpty)
-        XCTAssertTrue(store.tabs.isEmpty)
-        XCTAssertNil(store.activeTabId)
+        #expect(store.panes.isEmpty)
+        #expect(store.repos.isEmpty)
+        #expect(store.tabs.isEmpty)
+        #expect((store.activeTabId) == nil)
     }
 
     // MARK: - Pane CRUD
+
+    @Test
 
     func test_createPane_addsToPanes() {
         // Act
@@ -44,10 +50,12 @@ final class WorkspaceStoreTests: XCTestCase {
         )
 
         // Assert
-        XCTAssertEqual(store.panes.count, 1)
-        XCTAssertNotNil(store.pane(pane.id))
-        XCTAssertEqual(store.pane(pane.id)?.provider, .zmx)
+        #expect(store.panes.count == 1)
+        #expect((store.pane(pane.id)) != nil)
+        #expect(store.pane(pane.id)?.provider == .zmx)
     }
+
+    @Test
 
     func test_createPane_worktreeSource() {
         // Arrange
@@ -61,10 +69,12 @@ final class WorkspaceStoreTests: XCTestCase {
         )
 
         // Assert
-        XCTAssertEqual(pane.worktreeId, worktreeId)
-        XCTAssertEqual(pane.repoId, repoId)
-        XCTAssertEqual(pane.title, "Feature")
+        #expect(pane.worktreeId == worktreeId)
+        #expect(pane.repoId == repoId)
+        #expect(pane.title == "Feature")
     }
+
+    @Test
 
     func test_removePane_removesFromPanes() {
         // Arrange
@@ -76,8 +86,10 @@ final class WorkspaceStoreTests: XCTestCase {
         store.removePane(pane.id)
 
         // Assert
-        XCTAssertTrue(store.panes.isEmpty)
+        #expect(store.panes.isEmpty)
     }
+
+    @Test
 
     func test_removePane_removesFromLayouts() {
         // Arrange
@@ -94,10 +106,12 @@ final class WorkspaceStoreTests: XCTestCase {
         store.removePane(p1.id)
 
         // Assert — removePane cascades to layouts and removes empty tabs
-        XCTAssertEqual(store.tabs.count, 1)
-        XCTAssertEqual(store.tabs[0].paneIds, [p2.id])
-        XCTAssertEqual(store.tabs[0].activePaneId, p2.id)
+        #expect(store.tabs.count == 1)
+        #expect(store.tabs[0].paneIds == [p2.id])
+        #expect(store.tabs[0].activePaneId == p2.id)
     }
+
+    @Test
 
     func test_removePane_lastInTab_closesTab() {
         // Arrange
@@ -106,14 +120,16 @@ final class WorkspaceStoreTests: XCTestCase {
         )
         let tab = Tab(paneId: pane.id)
         store.appendTab(tab)
-        XCTAssertEqual(store.tabs.count, 1)
+        #expect(store.tabs.count == 1)
 
         // Act
         store.removePane(pane.id)
 
         // Assert
-        XCTAssertTrue(store.tabs.isEmpty)
+        #expect(store.tabs.isEmpty)
     }
+
+    @Test
 
     func test_updatePaneTitle() {
         // Arrange
@@ -125,8 +141,10 @@ final class WorkspaceStoreTests: XCTestCase {
         store.updatePaneTitle(pane.id, title: "New Title")
 
         // Assert
-        XCTAssertEqual(store.pane(pane.id)?.title, "New Title")
+        #expect(store.pane(pane.id)?.title == "New Title")
     }
+
+    @Test
 
     func test_updatePaneCWD_updatesValue() {
         // Arrange
@@ -139,8 +157,10 @@ final class WorkspaceStoreTests: XCTestCase {
         store.updatePaneCWD(pane.id, cwd: cwd)
 
         // Assert
-        XCTAssertEqual(store.pane(pane.id)?.metadata.cwd, cwd)
+        #expect(store.pane(pane.id)?.metadata.cwd == cwd)
     }
+
+    @Test
 
     func test_updatePaneCWD_nilClearsValue() {
         // Arrange
@@ -153,8 +173,10 @@ final class WorkspaceStoreTests: XCTestCase {
         store.updatePaneCWD(pane.id, cwd: nil)
 
         // Assert
-        XCTAssertNil(store.pane(pane.id)?.metadata.cwd)
+        #expect((store.pane(pane.id)?.metadata.cwd) == nil)
     }
+
+    @Test
 
     func test_updatePaneCWD_sameCWD_noOpDoesNotMarkDirty() {
         // Arrange
@@ -169,16 +191,20 @@ final class WorkspaceStoreTests: XCTestCase {
         store.updatePaneCWD(pane.id, cwd: cwd)
 
         // Assert — should not be dirty (dedup guard)
-        XCTAssertFalse(store.isDirty)
+        #expect(!(store.isDirty))
     }
+
+    @Test
 
     func test_updatePaneCWD_unknownPane_doesNotCrash() {
         // Act — should just log warning, not crash
         store.updatePaneCWD(UUID(), cwd: URL(fileURLWithPath: "/tmp"))
 
         // Assert — no crash, panes unchanged
-        XCTAssertTrue(store.panes.isEmpty)
+        #expect(store.panes.isEmpty)
     }
+
+    @Test
 
     func test_updatePaneAgent() {
         // Arrange
@@ -190,23 +216,27 @@ final class WorkspaceStoreTests: XCTestCase {
         store.updatePaneAgent(pane.id, agent: .claude)
 
         // Assert
-        XCTAssertEqual(store.pane(pane.id)?.agent, .claude)
+        #expect(store.pane(pane.id)?.agent == .claude)
     }
+
+    @Test
 
     func test_setResidency() {
         // Arrange
         let pane = store.createPane(
             source: .floating(workingDirectory: nil, title: nil)
         )
-        XCTAssertEqual(pane.residency, .active)
+        #expect(pane.residency == .active)
 
         // Act
         let expiresAt = Date(timeIntervalSinceNow: 300)
         store.setResidency(.pendingUndo(expiresAt: expiresAt), for: pane.id)
 
         // Assert
-        XCTAssertEqual(store.pane(pane.id)?.residency, .pendingUndo(expiresAt: expiresAt))
+        #expect(store.pane(pane.id)?.residency == .pendingUndo(expiresAt: expiresAt))
     }
+
+    @Test
 
     func test_setResidency_backgrounded() {
         // Arrange
@@ -218,8 +248,10 @@ final class WorkspaceStoreTests: XCTestCase {
         store.setResidency(.backgrounded, for: pane.id)
 
         // Assert
-        XCTAssertEqual(store.pane(pane.id)?.residency, .backgrounded)
+        #expect(store.pane(pane.id)?.residency == .backgrounded)
     }
+
+    @Test
 
     func test_createPane_withLifetimeAndResidency() {
         // Act
@@ -230,15 +262,19 @@ final class WorkspaceStoreTests: XCTestCase {
         )
 
         // Assert
-        XCTAssertEqual(pane.lifetime, .temporary)
-        XCTAssertEqual(pane.residency, .backgrounded)
+        #expect(pane.lifetime == .temporary)
+        #expect(pane.residency == .backgrounded)
     }
 
     // MARK: - Derived State
 
+    @Test
+
     func test_isWorktreeActive_noPanes_returnsFalse() {
-        XCTAssertFalse(store.isWorktreeActive(UUID()))
+        #expect(!(store.isWorktreeActive(UUID())))
     }
+
+    @Test
 
     func test_isWorktreeActive_withPane_returnsTrue() {
         // Arrange
@@ -248,8 +284,10 @@ final class WorkspaceStoreTests: XCTestCase {
         )
 
         // Assert
-        XCTAssertTrue(store.isWorktreeActive(worktreeId))
+        #expect(store.isWorktreeActive(worktreeId))
     }
+
+    @Test
 
     func test_paneCount_forWorktree() {
         // Arrange
@@ -260,10 +298,12 @@ final class WorkspaceStoreTests: XCTestCase {
         store.createPane(source: .worktree(worktreeId: UUID(), repoId: UUID()))
 
         // Assert
-        XCTAssertEqual(store.paneCount(for: worktreeId), 2)
+        #expect(store.paneCount(for: worktreeId) == 2)
     }
 
     // MARK: - Tab Mutations
+
+    @Test
 
     func test_appendTab_addsToTabs() {
         // Arrange
@@ -276,9 +316,11 @@ final class WorkspaceStoreTests: XCTestCase {
         store.appendTab(tab)
 
         // Assert
-        XCTAssertEqual(store.tabs.count, 1)
-        XCTAssertEqual(store.activeTabId, tab.id)
+        #expect(store.tabs.count == 1)
+        #expect(store.activeTabId == tab.id)
     }
+
+    @Test
 
     func test_removeTab_removesAndUpdatesActiveTabId() {
         // Arrange
@@ -294,9 +336,11 @@ final class WorkspaceStoreTests: XCTestCase {
         store.removeTab(tab1.id)
 
         // Assert
-        XCTAssertEqual(store.tabs.count, 1)
-        XCTAssertEqual(store.activeTabId, tab2.id)
+        #expect(store.tabs.count == 1)
+        #expect(store.activeTabId == tab2.id)
     }
+
+    @Test
 
     func test_insertTab_atIndex() {
         // Arrange
@@ -313,9 +357,11 @@ final class WorkspaceStoreTests: XCTestCase {
         store.insertTab(tab3, at: 1)
 
         // Assert
-        XCTAssertEqual(store.tabs.count, 3)
-        XCTAssertEqual(store.tabs[1].id, tab3.id)
+        #expect(store.tabs.count == 3)
+        #expect(store.tabs[1].id == tab3.id)
     }
+
+    @Test
 
     func test_moveTab() {
         // Arrange
@@ -333,12 +379,14 @@ final class WorkspaceStoreTests: XCTestCase {
         store.moveTab(fromId: tab3.id, toIndex: 0)
 
         // Assert
-        XCTAssertEqual(store.tabs[0].id, tab3.id)
-        XCTAssertEqual(store.tabs[1].id, tab1.id)
-        XCTAssertEqual(store.tabs[2].id, tab2.id)
+        #expect(store.tabs[0].id == tab3.id)
+        #expect(store.tabs[1].id == tab1.id)
+        #expect(store.tabs[2].id == tab2.id)
     }
 
     // MARK: - Layout Mutations
+
+    @Test
 
     func test_insertPane_splitsLayout() {
         // Arrange
@@ -355,9 +403,11 @@ final class WorkspaceStoreTests: XCTestCase {
 
         // Assert
         let updatedTab = store.tabs[0]
-        XCTAssertTrue(updatedTab.isSplit)
-        XCTAssertEqual(updatedTab.paneIds, [s1.id, s2.id])
+        #expect(updatedTab.isSplit)
+        #expect(updatedTab.paneIds == [s1.id, s2.id])
     }
+
+    @Test
 
     func test_removePaneFromLayout_collapsesToSingle() {
         // Arrange
@@ -370,12 +420,14 @@ final class WorkspaceStoreTests: XCTestCase {
         let tabEmpty = store.removePaneFromLayout(s1.id, inTab: tab.id)
 
         // Assert
-        XCTAssertFalse(tabEmpty)
+        #expect(!(tabEmpty))
         let updatedTab = store.tabs[0]
-        XCTAssertFalse(updatedTab.isSplit)
-        XCTAssertEqual(updatedTab.paneIds, [s2.id])
-        XCTAssertEqual(updatedTab.activePaneId, s2.id)
+        #expect(!(updatedTab.isSplit))
+        #expect(updatedTab.paneIds == [s2.id])
+        #expect(updatedTab.activePaneId == s2.id)
     }
+
+    @Test
 
     func test_removePaneFromLayout_lastPane_returnsTrue() {
         // Arrange
@@ -387,8 +439,10 @@ final class WorkspaceStoreTests: XCTestCase {
         let tabEmpty = store.removePaneFromLayout(s1.id, inTab: tab.id)
 
         // Assert — returns true, but tab is NOT auto-removed (caller handles that)
-        XCTAssertTrue(tabEmpty)
+        #expect(tabEmpty)
     }
+
+    @Test
 
     func test_equalizePanes() {
         // Arrange
@@ -400,7 +454,7 @@ final class WorkspaceStoreTests: XCTestCase {
 
         // Get split ID and resize
         guard case .split(let split) = store.tabs[0].layout.root else {
-            XCTFail("Expected split")
+            Issue.record("Expected split")
             return
         }
         store.resizePane(tabId: tab.id, splitId: split.id, ratio: 0.3)
@@ -410,13 +464,15 @@ final class WorkspaceStoreTests: XCTestCase {
 
         // Assert
         guard case .split(let eqSplit) = store.tabs[0].layout.root else {
-            XCTFail("Expected split")
+            Issue.record("Expected split")
             return
         }
-        XCTAssertEqual(eqSplit.ratio, 0.5, accuracy: 0.001)
+        #expect(eqSplit.ratio == 0.5, accuracy: 0.001)
     }
 
     // MARK: - Compound Operations
+
+    @Test
 
     func test_breakUpTab_splitIntoIndividual() {
         // Arrange
@@ -430,12 +486,14 @@ final class WorkspaceStoreTests: XCTestCase {
         let newTabs = store.breakUpTab(tab.id)
 
         // Assert
-        XCTAssertEqual(newTabs.count, 3)
-        XCTAssertEqual(store.tabs.count, 3)
-        XCTAssertEqual(store.tabs[0].paneIds, [s1.id])
-        XCTAssertEqual(store.tabs[1].paneIds, [s2.id])
-        XCTAssertEqual(store.tabs[2].paneIds, [s3.id])
+        #expect(newTabs.count == 3)
+        #expect(store.tabs.count == 3)
+        #expect(store.tabs[0].paneIds == [s1.id])
+        #expect(store.tabs[1].paneIds == [s2.id])
+        #expect(store.tabs[2].paneIds == [s3.id])
     }
+
+    @Test
 
     func test_breakUpTab_singlePane_noOp() {
         // Arrange
@@ -447,9 +505,11 @@ final class WorkspaceStoreTests: XCTestCase {
         let newTabs = store.breakUpTab(tab.id)
 
         // Assert
-        XCTAssertTrue(newTabs.isEmpty)
-        XCTAssertEqual(store.tabs.count, 1)
+        #expect(newTabs.isEmpty)
+        #expect(store.tabs.count == 1)
     }
+
+    @Test
 
     func test_extractPane() {
         // Arrange
@@ -462,12 +522,14 @@ final class WorkspaceStoreTests: XCTestCase {
         let newTab = store.extractPane(s2.id, fromTab: tab.id)
 
         // Assert
-        XCTAssertNotNil(newTab)
-        XCTAssertEqual(store.tabs.count, 2)
-        XCTAssertEqual(store.tabs[0].paneIds, [s1.id])
-        XCTAssertEqual(store.tabs[1].paneIds, [s2.id])
-        XCTAssertEqual(store.activeTabId, newTab?.id)
+        #expect((newTab) != nil)
+        #expect(store.tabs.count == 2)
+        #expect(store.tabs[0].paneIds == [s1.id])
+        #expect(store.tabs[1].paneIds == [s2.id])
+        #expect(store.activeTabId == newTab?.id)
     }
+
+    @Test
 
     func test_extractPane_singlePane_noOp() {
         // Arrange
@@ -479,9 +541,11 @@ final class WorkspaceStoreTests: XCTestCase {
         let result = store.extractPane(s1.id, fromTab: tab.id)
 
         // Assert
-        XCTAssertNil(result)
-        XCTAssertEqual(store.tabs.count, 1)
+        #expect((result) == nil)
+        #expect(store.tabs.count == 1)
     }
+
+    @Test
 
     func test_mergeTab() {
         // Arrange
@@ -499,22 +563,26 @@ final class WorkspaceStoreTests: XCTestCase {
         )
 
         // Assert
-        XCTAssertEqual(store.tabs.count, 1)
-        XCTAssertEqual(store.tabs[0].paneIds.count, 2)
-        XCTAssertTrue(store.tabs[0].paneIds.contains(s1.id))
-        XCTAssertTrue(store.tabs[0].paneIds.contains(s2.id))
+        #expect(store.tabs.count == 1)
+        #expect(store.tabs[0].paneIds.count == 2)
+        #expect(store.tabs[0].paneIds.contains(s1.id))
+        #expect(store.tabs[0].paneIds.contains(s2.id))
     }
 
     // MARK: - Queries
+
+    @Test
 
     func test_pane_byId() {
         // Arrange
         let pane = store.createPane(source: .floating(workingDirectory: nil, title: nil))
 
         // Assert
-        XCTAssertEqual(store.pane(pane.id)?.id, pane.id)
-        XCTAssertNil(store.pane(UUID()))
+        #expect(store.pane(pane.id)?.id == pane.id)
+        #expect((store.pane(UUID())) == nil)
     }
+
+    @Test
 
     func test_tabContaining_paneId() {
         // Arrange
@@ -523,9 +591,11 @@ final class WorkspaceStoreTests: XCTestCase {
         store.appendTab(tab)
 
         // Assert
-        XCTAssertEqual(store.tabContaining(paneId: pane.id)?.id, tab.id)
-        XCTAssertNil(store.tabContaining(paneId: UUID()))
+        #expect(store.tabContaining(paneId: pane.id)?.id == tab.id)
+        #expect((store.tabContaining(paneId: UUID())) == nil)
     }
+
+    @Test
 
     func test_panes_forWorktree() {
         // Arrange
@@ -536,10 +606,12 @@ final class WorkspaceStoreTests: XCTestCase {
         store.createPane(source: .worktree(worktreeId: UUID(), repoId: UUID()))
 
         // Assert
-        XCTAssertEqual(store.panes(for: worktreeId).count, 2)
+        #expect(store.panes(for: worktreeId).count == 2)
     }
 
     // MARK: - Persistence Round-Trip
+
+    @Test
 
     func test_persistence_saveAndRestore() {
         // Arrange
@@ -557,12 +629,14 @@ final class WorkspaceStoreTests: XCTestCase {
         store2.restore()
 
         // Assert
-        XCTAssertEqual(store2.panes.count, 1)
+        #expect(store2.panes.count == 1)
         // Find the pane by the known ID
-        XCTAssertEqual(store2.pane(pane.id)?.title, "Persistent")
-        XCTAssertEqual(store2.tabs.count, 1)
-        XCTAssertEqual(store2.tabs[0].paneIds.count, 1)
+        #expect(store2.pane(pane.id)?.title == "Persistent")
+        #expect(store2.tabs.count == 1)
+        #expect(store2.tabs[0].paneIds.count == 1)
     }
+
+    @Test
 
     func test_persistence_temporaryPanesExcluded() {
         // Arrange
@@ -586,12 +660,14 @@ final class WorkspaceStoreTests: XCTestCase {
         store2.restore()
 
         // Assert — only persistent pane restored
-        XCTAssertEqual(store2.panes.count, 1)
-        XCTAssertEqual(store2.pane(persistent.id)?.title, "Persistent")
-        XCTAssertEqual(store2.pane(persistent.id)?.lifetime, .persistent)
+        #expect(store2.panes.count == 1)
+        #expect(store2.pane(persistent.id)?.title == "Persistent")
+        #expect(store2.pane(persistent.id)?.lifetime == .persistent)
     }
 
     // MARK: - Persistence Pruning
+
+    @Test
 
     func test_persistence_temporaryPanesPrunedFromLayouts() {
         // Arrange — create a tab with both persistent and temporary panes in a split layout
@@ -615,12 +691,14 @@ final class WorkspaceStoreTests: XCTestCase {
         store2.restore()
 
         // Assert — only persistent pane remains, no dangling temporary IDs in layouts
-        XCTAssertEqual(store2.panes.count, 1)
-        XCTAssertNotNil(store2.pane(persistent.id))
-        XCTAssertEqual(store2.tabs.count, 1)
-        XCTAssertEqual(store2.tabs[0].paneIds, [persistent.id])
-        XCTAssertFalse(store2.tabs[0].isSplit)
+        #expect(store2.panes.count == 1)
+        #expect((store2.pane(persistent.id)) != nil)
+        #expect(store2.tabs.count == 1)
+        #expect(store2.tabs[0].paneIds == [persistent.id])
+        #expect(!(store2.tabs[0].isSplit))
     }
+
+    @Test
 
     func test_persistence_allTemporary_tabPruned() {
         // Arrange — tab with only temporary panes
@@ -638,9 +716,11 @@ final class WorkspaceStoreTests: XCTestCase {
         store2.restore()
 
         // Assert — tab fully pruned since all panes were temporary
-        XCTAssertTrue(store2.panes.isEmpty)
-        XCTAssertTrue(store2.tabs.isEmpty)
+        #expect(store2.panes.isEmpty)
+        #expect(store2.tabs.isEmpty)
     }
+
+    @Test
 
     func test_persistence_activeTabIdFixupAfterPrune() {
         // Arrange — two tabs: one all-temporary (active), one persistent
@@ -657,7 +737,7 @@ final class WorkspaceStoreTests: XCTestCase {
         store.appendTab(tab1)
         store.appendTab(tab2)
         // tab2 is active (appendTab sets activeTabId)
-        XCTAssertEqual(store.activeTabId, tab2.id)
+        #expect(store.activeTabId == tab2.id)
         store.flush()
 
         // Act — restore
@@ -666,12 +746,14 @@ final class WorkspaceStoreTests: XCTestCase {
         store2.restore()
 
         // Assert — temporary tab pruned, activeTabId points to surviving tab
-        XCTAssertEqual(store2.tabs.count, 1)
-        XCTAssertEqual(store2.tabs[0].id, tab1.id)
-        XCTAssertEqual(store2.activeTabId, tab1.id)
+        #expect(store2.tabs.count == 1)
+        #expect(store2.tabs[0].id == tab1.id)
+        #expect(store2.activeTabId == tab1.id)
     }
 
     // MARK: - Orphaned Pane Pruning
+
+    @Test
 
     func test_restore_prunesPanesWithMissingWorktree() {
         // Arrange — add a repo with a worktree, then create a worktree-bound pane
@@ -706,39 +788,45 @@ final class WorkspaceStoreTests: XCTestCase {
 
         // Assert — the orphaned pane (with non-existent worktreeId) is pruned;
         // the valid pane (with existing worktreeId) survives
-        XCTAssertEqual(store2.panes.count, 1, "Only the valid pane should survive")
-        XCTAssertNotNil(store2.pane(pane.id))
-        XCTAssertEqual(store2.tabs.count, 1, "Only the tab with valid pane should survive")
+        #expect(store2.panes.count == 1, "Only the valid pane should survive")
+        #expect((store2.pane(pane.id)) != nil)
+        #expect(store2.tabs.count == 1, "Only the tab with valid pane should survive")
     }
 
     // MARK: - Dirty Flag
 
+    @Test
+
     func test_isDirty_setOnMutation_clearedOnFlush() {
         // Arrange
-        XCTAssertFalse(store.isDirty)
+        #expect(!(store.isDirty))
 
         // Act — mutation marks dirty
         _ = store.createPane(source: .floating(workingDirectory: nil, title: nil))
-        XCTAssertTrue(store.isDirty)
+        #expect(store.isDirty)
 
         // Act — flush clears dirty
         store.flush()
-        XCTAssertFalse(store.isDirty)
+        #expect(!(store.isDirty))
     }
+
+    @Test
 
     func test_isDirty_clearedAfterDebouncedSave() async throws {
         // Arrange — mutation marks dirty
         _ = store.createPane(source: .floating(workingDirectory: nil, title: nil))
-        XCTAssertTrue(store.isDirty)
+        #expect(store.isDirty)
 
         // Act — wait for debounce (500ms) + margin
         try await Task.sleep(for: .milliseconds(700))
 
         // Assert — debounced persistNow cleared the flag
-        XCTAssertFalse(store.isDirty)
+        #expect(!(store.isDirty))
     }
 
     // MARK: - Undo
+
+    @Test
 
     func test_snapshotForClose_capturesState() {
         // Arrange
@@ -750,11 +838,13 @@ final class WorkspaceStoreTests: XCTestCase {
         let snapshot = store.snapshotForClose(tabId: tab.id)
 
         // Assert
-        XCTAssertNotNil(snapshot)
-        XCTAssertEqual(snapshot?.tab.id, tab.id)
-        XCTAssertEqual(snapshot?.panes.count, 1)
-        XCTAssertEqual(snapshot?.tabIndex, 0)
+        #expect((snapshot) != nil)
+        #expect(snapshot?.tab.id == tab.id)
+        #expect(snapshot?.panes.count == 1)
+        #expect(snapshot?.tabIndex == 0)
     }
+
+    @Test
 
     func test_restoreFromSnapshot_reinsertTab() {
         // Arrange
@@ -766,19 +856,21 @@ final class WorkspaceStoreTests: XCTestCase {
         // Act — remove tab and pane, then restore
         store.removeTab(tab.id)
         store.removePane(pane.id)
-        XCTAssertTrue(store.tabs.isEmpty)
-        XCTAssertTrue(store.panes.isEmpty)
+        #expect(store.tabs.isEmpty)
+        #expect(store.panes.isEmpty)
 
         store.restoreFromSnapshot(snapshot)
 
         // Assert
-        XCTAssertEqual(store.tabs.count, 1)
-        XCTAssertEqual(store.tabs[0].id, tab.id)
-        XCTAssertEqual(store.panes.count, 1)
-        XCTAssertEqual(store.activeTabId, tab.id)
+        #expect(store.tabs.count == 1)
+        #expect(store.tabs[0].id == tab.id)
+        #expect(store.panes.count == 1)
+        #expect(store.activeTabId == tab.id)
     }
 
     // MARK: - Worktree ID Stability
+
+    @Test
 
     func test_updateRepoWorktrees_preservesExistingIds() {
         // Arrange — add repo then seed initial worktrees
@@ -796,22 +888,24 @@ final class WorkspaceStoreTests: XCTestCase {
         // Act — simulate refresh with fresh Worktree instances (new UUIDs, same paths)
         let freshWt1 = makeWorktree(name: "main-updated", path: "/tmp/wt-test-repo/main", branch: "main")
         let freshWt2 = makeWorktree(name: "feat-updated", path: "/tmp/wt-test-repo/feat", branch: "feat")
-        XCTAssertNotEqual(freshWt1.id, storedWt1Id, "precondition: fresh worktree has different UUID")
+        #expect(freshWt1.id != storedWt1Id, "precondition: fresh worktree has different UUID")
 
         store.updateRepoWorktrees(repo.id, worktrees: [freshWt1, freshWt2])
 
         // Assert — IDs preserved, names updated
         let updated = store.repos.first(where: { $0.id == repo.id })!
-        XCTAssertEqual(updated.worktrees.count, 2)
-        XCTAssertEqual(updated.worktrees[0].id, storedWt1Id, "existing worktree ID preserved")
-        XCTAssertEqual(updated.worktrees[1].id, storedWt2Id, "existing worktree ID preserved")
-        XCTAssertEqual(updated.worktrees[0].name, "main-updated", "name updated from discovery")
-        XCTAssertEqual(updated.worktrees[1].name, "feat-updated", "name updated from discovery")
+        #expect(updated.worktrees.count == 2)
+        #expect(updated.worktrees[0].id == storedWt1Id, "existing worktree ID preserved")
+        #expect(updated.worktrees[1].id == storedWt2Id, "existing worktree ID preserved")
+        #expect(updated.worktrees[0].name == "main-updated", "name updated from discovery")
+        #expect(updated.worktrees[1].name == "feat-updated", "name updated from discovery")
 
         // Pane still resolves
-        XCTAssertEqual(pane.worktreeId, storedWt1Id)
-        XCTAssertNotNil(store.worktree(storedWt1Id))
+        #expect(pane.worktreeId == storedWt1Id)
+        #expect((store.worktree(storedWt1Id)) != nil)
     }
+
+    @Test
 
     func test_updateRepoWorktrees_addsNewWorktrees() {
         // Arrange
@@ -827,10 +921,12 @@ final class WorkspaceStoreTests: XCTestCase {
 
         // Assert
         let updated = store.repos.first(where: { $0.id == repo.id })!
-        XCTAssertEqual(updated.worktrees.count, 2)
-        XCTAssertEqual(updated.worktrees[0].id, storedWt1Id, "existing ID preserved")
-        XCTAssertEqual(updated.worktrees[1].id, newWt.id, "new worktree gets its own ID")
+        #expect(updated.worktrees.count == 2)
+        #expect(updated.worktrees[0].id == storedWt1Id, "existing ID preserved")
+        #expect(updated.worktrees[1].id == newWt.id, "new worktree gets its own ID")
     }
+
+    @Test
 
     func test_updateRepoWorktrees_removesDeletedWorktrees() {
         // Arrange
@@ -846,11 +942,13 @@ final class WorkspaceStoreTests: XCTestCase {
 
         // Assert — only wt1 remains
         let updated = store.repos.first(where: { $0.id == repo.id })!
-        XCTAssertEqual(updated.worktrees.count, 1)
-        XCTAssertEqual(updated.worktrees[0].id, storedWt1Id)
+        #expect(updated.worktrees.count == 1)
+        #expect(updated.worktrees[0].id == storedWt1Id)
     }
 
     // MARK: - Restore Validation
+
+    @Test
 
     func test_restore_repairsStaleActiveArrangementId() throws {
         // Arrange — persist a tab with an activeArrangementId that doesn't match any arrangement
@@ -876,9 +974,11 @@ final class WorkspaceStoreTests: XCTestCase {
         store2.restore()
 
         // Assert — activeArrangementId repaired to the default arrangement
-        XCTAssertEqual(store2.tabs.count, 1)
-        XCTAssertEqual(store2.tabs[0].activeArrangementId, arrangement.id)
+        #expect(store2.tabs.count == 1)
+        #expect(store2.tabs[0].activeArrangementId == arrangement.id)
     }
+
+    @Test
 
     func test_restore_repairsStaleActivePaneId() throws {
         // Arrange — persist a tab whose activePaneId doesn't exist in the layout
@@ -904,8 +1004,10 @@ final class WorkspaceStoreTests: XCTestCase {
         store2.restore()
 
         // Assert — activePaneId repaired to the first pane in layout
-        XCTAssertEqual(store2.tabs[0].activePaneId, pane.id)
+        #expect(store2.tabs[0].activePaneId == pane.id)
     }
+
+    @Test
 
     func test_restore_repairsMissingDefaultArrangement() throws {
         // Arrange — construct a valid tab, then corrupt it before persisting
@@ -926,9 +1028,11 @@ final class WorkspaceStoreTests: XCTestCase {
         store2.restore()
 
         // Assert — first arrangement promoted to default
-        XCTAssertEqual(store2.tabs.count, 1)
-        XCTAssertTrue(store2.tabs[0].arrangements[0].isDefault)
+        #expect(store2.tabs.count == 1)
+        #expect(store2.tabs[0].arrangements[0].isDefault)
     }
+
+    @Test
 
     func test_restore_syncsPanesListWithLayoutPaneIds() throws {
         // Arrange — persist a tab whose panes list drifted from layout
@@ -956,8 +1060,10 @@ final class WorkspaceStoreTests: XCTestCase {
         store2.restore()
 
         // Assert — panes list synced with layout
-        XCTAssertEqual(Set(store2.tabs[0].panes), Set([p1.id, p2.id]))
+        #expect(Set(store2.tabs[0].panes) == Set([p1.id, p2.id]))
     }
+
+    @Test
 
     func test_restore_repairsCrossTabDuplicatePanes() throws {
         // Arrange — persist two tabs sharing the same pane (corruption)
@@ -989,8 +1095,10 @@ final class WorkspaceStoreTests: XCTestCase {
         // Assert — p2 should only appear in ONE tab (first wins)
         let allPanes = store2.tabs.flatMap(\.panes)
         let p2Count = allPanes.filter { $0 == p2.id }.count
-        XCTAssertEqual(p2Count, 1, "Duplicate pane should be repaired to appear in only one tab")
+        #expect(p2Count == 1, "Duplicate pane should be repaired to appear in only one tab")
     }
+
+    @Test
 
     func test_restore_repairsActivePaneIdAfterDuplicateRemoval() throws {
         // Arrange — tab2's active pane is a duplicate that will be removed
@@ -1023,12 +1131,12 @@ final class WorkspaceStoreTests: XCTestCase {
         // Tab2 may be empty and removed, which is also a valid repair outcome
         for tab in store2.tabs {
             if let apId = tab.activePaneId {
-                XCTAssertTrue(
-                    tab.activeArrangement.layout.paneIds.contains(apId),
-                    "activePaneId \(apId) should be in the active arrangement layout")
+                #expect(tab.activeArrangement.layout.paneIds.contains(apId))
             }
         }
     }
+
+    @Test
 
     func test_persistence_activeTabIdNotMutatedDuringSave() {
         // Arrange — create tabs: tab1 has temporary pane (pruned on save), tab2 is persistent
@@ -1047,12 +1155,12 @@ final class WorkspaceStoreTests: XCTestCase {
         _ = store.flush()
 
         // Assert — live activeTabId still points to tab1
-        XCTAssertEqual(
-            store.activeTabId, tab1.id,
-            "flush/persistNow should not mutate live activeTabId")
+        #expect(store.activeTabId == tab1.id, "flush/persistNow should not mutate live activeTabId")
     }
 
     // MARK: - moveTabByDelta
+
+    @Test
 
     func test_moveTabByDelta_movesForward() {
         // Arrange
@@ -1070,10 +1178,12 @@ final class WorkspaceStoreTests: XCTestCase {
         store.moveTabByDelta(tabId: tab1.id, delta: 2)
 
         // Assert — tab1 is now at index 2
-        XCTAssertEqual(store.tabs[0].id, tab2.id)
-        XCTAssertEqual(store.tabs[1].id, tab3.id)
-        XCTAssertEqual(store.tabs[2].id, tab1.id)
+        #expect(store.tabs[0].id == tab2.id)
+        #expect(store.tabs[1].id == tab3.id)
+        #expect(store.tabs[2].id == tab1.id)
     }
+
+    @Test
 
     func test_moveTabByDelta_movesBackward() {
         // Arrange
@@ -1091,10 +1201,12 @@ final class WorkspaceStoreTests: XCTestCase {
         store.moveTabByDelta(tabId: tab3.id, delta: -1)
 
         // Assert — tab3 is now at index 1
-        XCTAssertEqual(store.tabs[0].id, tab1.id)
-        XCTAssertEqual(store.tabs[1].id, tab3.id)
-        XCTAssertEqual(store.tabs[2].id, tab2.id)
+        #expect(store.tabs[0].id == tab1.id)
+        #expect(store.tabs[1].id == tab3.id)
+        #expect(store.tabs[2].id == tab2.id)
     }
+
+    @Test
 
     func test_moveTabByDelta_clampsAtEnd() {
         // Arrange
@@ -1109,9 +1221,11 @@ final class WorkspaceStoreTests: XCTestCase {
         store.moveTabByDelta(tabId: tab1.id, delta: 100)
 
         // Assert — tab1 clamped to last position
-        XCTAssertEqual(store.tabs[0].id, tab2.id)
-        XCTAssertEqual(store.tabs[1].id, tab1.id)
+        #expect(store.tabs[0].id == tab2.id)
+        #expect(store.tabs[1].id == tab1.id)
     }
+
+    @Test
 
     func test_moveTabByDelta_clampsAtStart() {
         // Arrange
@@ -1126,9 +1240,11 @@ final class WorkspaceStoreTests: XCTestCase {
         store.moveTabByDelta(tabId: tab2.id, delta: -100)
 
         // Assert — tab2 clamped to first position
-        XCTAssertEqual(store.tabs[0].id, tab2.id)
-        XCTAssertEqual(store.tabs[1].id, tab1.id)
+        #expect(store.tabs[0].id == tab2.id)
+        #expect(store.tabs[1].id == tab1.id)
     }
+
+    @Test
 
     func test_moveTabByDelta_singleTab_noOp() {
         // Arrange
@@ -1140,11 +1256,13 @@ final class WorkspaceStoreTests: XCTestCase {
         store.moveTabByDelta(tabId: tab1.id, delta: 1)
 
         // Assert — unchanged
-        XCTAssertEqual(store.tabs.count, 1)
-        XCTAssertEqual(store.tabs[0].id, tab1.id)
+        #expect(store.tabs.count == 1)
+        #expect(store.tabs[0].id == tab1.id)
     }
 
     // MARK: - setActiveTab
+
+    @Test
 
     func test_setActiveTab_setsTabId() {
         // Arrange
@@ -1159,8 +1277,10 @@ final class WorkspaceStoreTests: XCTestCase {
         store.setActiveTab(tab2.id)
 
         // Assert
-        XCTAssertEqual(store.activeTabId, tab2.id)
+        #expect(store.activeTabId == tab2.id)
     }
+
+    @Test
 
     func test_setActiveTab_nil_clearsActiveTab() {
         // Arrange
@@ -1173,10 +1293,12 @@ final class WorkspaceStoreTests: XCTestCase {
         store.setActiveTab(nil)
 
         // Assert
-        XCTAssertNil(store.activeTabId)
+        #expect((store.activeTabId) == nil)
     }
 
     // MARK: - setActivePane
+
+    @Test
 
     func test_setActivePane_validPane() {
         // Arrange
@@ -1189,8 +1311,10 @@ final class WorkspaceStoreTests: XCTestCase {
         store.setActivePane(p2.id, inTab: tab.id)
 
         // Assert
-        XCTAssertEqual(store.tabs[0].activePaneId, p2.id)
+        #expect(store.tabs[0].activePaneId == p2.id)
     }
+
+    @Test
 
     func test_setActivePane_invalidPane_rejected() {
         // Arrange
@@ -1203,8 +1327,10 @@ final class WorkspaceStoreTests: XCTestCase {
         store.setActivePane(bogus, inTab: tab.id)
 
         // Assert — unchanged
-        XCTAssertEqual(store.tabs[0].activePaneId, p1.id)
+        #expect(store.tabs[0].activePaneId == p1.id)
     }
+
+    @Test
 
     func test_setActivePane_nil_clearsActivePane() {
         // Arrange
@@ -1216,10 +1342,12 @@ final class WorkspaceStoreTests: XCTestCase {
         store.setActivePane(nil, inTab: tab.id)
 
         // Assert
-        XCTAssertNil(store.tabs[0].activePaneId)
+        #expect((store.tabs[0].activePaneId) == nil)
     }
 
     // MARK: - toggleZoom
+
+    @Test
 
     func test_toggleZoom_setsZoomedPaneId() {
         // Arrange
@@ -1232,8 +1360,10 @@ final class WorkspaceStoreTests: XCTestCase {
         store.toggleZoom(paneId: p1.id, inTab: tab.id)
 
         // Assert
-        XCTAssertEqual(store.tabs[0].zoomedPaneId, p1.id)
+        #expect(store.tabs[0].zoomedPaneId == p1.id)
     }
+
+    @Test
 
     func test_toggleZoom_togglesOff() {
         // Arrange
@@ -1247,8 +1377,10 @@ final class WorkspaceStoreTests: XCTestCase {
         store.toggleZoom(paneId: p1.id, inTab: tab.id)
 
         // Assert
-        XCTAssertNil(store.tabs[0].zoomedPaneId)
+        #expect((store.tabs[0].zoomedPaneId) == nil)
     }
+
+    @Test
 
     func test_toggleZoom_invalidPane_noOp() {
         // Arrange
@@ -1261,10 +1393,12 @@ final class WorkspaceStoreTests: XCTestCase {
         store.toggleZoom(paneId: bogus, inTab: tab.id)
 
         // Assert — no zoom set
-        XCTAssertNil(store.tabs[0].zoomedPaneId)
+        #expect((store.tabs[0].zoomedPaneId) == nil)
     }
 
     // MARK: - insertPane clears zoom
+
+    @Test
 
     func test_insertPane_clearsZoom() {
         // Arrange
@@ -1273,16 +1407,18 @@ final class WorkspaceStoreTests: XCTestCase {
         let tab = Tab(paneId: p1.id)
         store.appendTab(tab)
         store.toggleZoom(paneId: p1.id, inTab: tab.id)
-        XCTAssertNotNil(store.tabs[0].zoomedPaneId)
+        #expect((store.tabs[0].zoomedPaneId) != nil)
 
         // Act — insert a new pane
         store.insertPane(p2.id, inTab: tab.id, at: p1.id, direction: .horizontal, position: .after)
 
         // Assert — zoom cleared
-        XCTAssertNil(store.tabs[0].zoomedPaneId)
+        #expect((store.tabs[0].zoomedPaneId) == nil)
     }
 
     // MARK: - removePaneFromLayout clears zoom
+
+    @Test
 
     func test_removePaneFromLayout_clearsZoomOnRemovedPane() {
         // Arrange
@@ -1291,16 +1427,18 @@ final class WorkspaceStoreTests: XCTestCase {
         let tab = makeTab(paneIds: [p1.id, p2.id])
         store.appendTab(tab)
         store.toggleZoom(paneId: p1.id, inTab: tab.id)
-        XCTAssertEqual(store.tabs[0].zoomedPaneId, p1.id)
+        #expect(store.tabs[0].zoomedPaneId == p1.id)
 
         // Act — remove the zoomed pane
         store.removePaneFromLayout(p1.id, inTab: tab.id)
 
         // Assert — zoom cleared
-        XCTAssertNil(store.tabs[0].zoomedPaneId)
+        #expect((store.tabs[0].zoomedPaneId) == nil)
     }
 
     // MARK: - resizePane
+
+    @Test
 
     func test_resizePane_changesRatio() {
         // Arrange
@@ -1309,7 +1447,7 @@ final class WorkspaceStoreTests: XCTestCase {
         let tab = makeTab(paneIds: [p1.id, p2.id])
         store.appendTab(tab)
         guard case .split(let splitData) = store.tabs[0].layout.root else {
-            XCTFail("Expected split layout")
+            Issue.record("Expected split layout")
             return
         }
 
@@ -1318,13 +1456,15 @@ final class WorkspaceStoreTests: XCTestCase {
 
         // Assert
         guard case .split(let updated) = store.tabs[0].layout.root else {
-            XCTFail("Expected split layout after resize")
+            Issue.record("Expected split layout after resize")
             return
         }
-        XCTAssertEqual(updated.ratio, 0.7, accuracy: 0.001)
+        #expect(updated.ratio == 0.7, accuracy: 0.001)
     }
 
     // MARK: - resizePaneByDelta
+
+    @Test
 
     func test_resizePaneByDelta_adjustsRatio() {
         // Arrange
@@ -1333,7 +1473,7 @@ final class WorkspaceStoreTests: XCTestCase {
         let tab = makeTab(paneIds: [p1.id, p2.id])
         store.appendTab(tab)
         guard case .split(let before) = store.tabs[0].layout.root else {
-            XCTFail("Expected split layout")
+            Issue.record("Expected split layout")
             return
         }
         let ratioBefore = before.ratio
@@ -1343,11 +1483,13 @@ final class WorkspaceStoreTests: XCTestCase {
 
         // Assert — ratio changed
         guard case .split(let after) = store.tabs[0].layout.root else {
-            XCTFail("Expected split layout after resize")
+            Issue.record("Expected split layout after resize")
             return
         }
-        XCTAssertNotEqual(after.ratio, ratioBefore)
+        #expect(after.ratio != ratioBefore)
     }
+
+    @Test
 
     func test_resizePaneByDelta_whileZoomed_noOp() {
         // Arrange
@@ -1357,7 +1499,7 @@ final class WorkspaceStoreTests: XCTestCase {
         store.appendTab(tab)
         store.toggleZoom(paneId: p1.id, inTab: tab.id)
         guard case .split(let before) = store.tabs[0].layout.root else {
-            XCTFail("Expected split layout")
+            Issue.record("Expected split layout")
             return
         }
         let ratioBefore = before.ratio
@@ -1367,23 +1509,27 @@ final class WorkspaceStoreTests: XCTestCase {
 
         // Assert — ratio unchanged
         guard case .split(let after) = store.tabs[0].layout.root else {
-            XCTFail("Expected split layout")
+            Issue.record("Expected split layout")
             return
         }
-        XCTAssertEqual(after.ratio, ratioBefore)
+        #expect(after.ratio == ratioBefore)
     }
 
     // MARK: - addRepo / removeRepo
+
+    @Test
 
     func test_addRepo_addsToRepos() {
         // Act
         let repo = store.addRepo(at: URL(fileURLWithPath: "/tmp/new-repo"))
 
         // Assert
-        XCTAssertEqual(store.repos.count, 1)
-        XCTAssertEqual(store.repos[0].id, repo.id)
-        XCTAssertEqual(store.repos[0].name, "new-repo")
+        #expect(store.repos.count == 1)
+        #expect(store.repos[0].id == repo.id)
+        #expect(store.repos[0].name == "new-repo")
     }
+
+    @Test
 
     func test_addRepo_duplicate_returnsExisting() {
         // Arrange
@@ -1394,31 +1540,37 @@ final class WorkspaceStoreTests: XCTestCase {
         let second = store.addRepo(at: path)
 
         // Assert — same repo returned, not duplicated
-        XCTAssertEqual(store.repos.count, 1)
-        XCTAssertEqual(first.id, second.id)
+        #expect(store.repos.count == 1)
+        #expect(first.id == second.id)
     }
+
+    @Test
 
     func test_removeRepo_removesFromRepos() {
         // Arrange
         let repo = store.addRepo(at: URL(fileURLWithPath: "/tmp/del-repo"))
-        XCTAssertEqual(store.repos.count, 1)
+        #expect(store.repos.count == 1)
 
         // Act
         store.removeRepo(repo.id)
 
         // Assert
-        XCTAssertTrue(store.repos.isEmpty)
+        #expect(store.repos.isEmpty)
     }
 
     // MARK: - setSidebarWidth / setWindowFrame
+
+    @Test
 
     func test_setSidebarWidth_updatesValue() {
         // Act
         store.setSidebarWidth(300)
 
         // Assert
-        XCTAssertEqual(store.sidebarWidth, 300)
+        #expect(store.sidebarWidth == 300)
     }
+
+    @Test
 
     func test_setWindowFrame_updatesValue() {
         // Arrange
@@ -1428,8 +1580,10 @@ final class WorkspaceStoreTests: XCTestCase {
         store.setWindowFrame(frame)
 
         // Assert
-        XCTAssertEqual(store.windowFrame, frame)
+        #expect(store.windowFrame == frame)
     }
+
+    @Test
 
     func test_setWindowFrame_nil_clearsValue() {
         // Arrange
@@ -1439,10 +1593,12 @@ final class WorkspaceStoreTests: XCTestCase {
         store.setWindowFrame(nil)
 
         // Assert
-        XCTAssertNil(store.windowFrame)
+        #expect((store.windowFrame) == nil)
     }
 
     // MARK: - extractPane clears zoom
+
+    @Test
 
     func test_extractPane_clearsZoomOnExtractedPane() {
         // Arrange
@@ -1451,17 +1607,19 @@ final class WorkspaceStoreTests: XCTestCase {
         let tab = makeTab(paneIds: [p1.id, p2.id])
         store.appendTab(tab)
         store.toggleZoom(paneId: p1.id, inTab: tab.id)
-        XCTAssertEqual(store.tabs[0].zoomedPaneId, p1.id)
+        #expect(store.tabs[0].zoomedPaneId == p1.id)
 
         // Act — extract the zoomed pane
         let newTab = store.extractPane(p1.id, fromTab: tab.id)
 
         // Assert — old tab's zoom cleared
-        XCTAssertNotNil(newTab)
-        XCTAssertNil(store.tabs[0].zoomedPaneId)
+        #expect((newTab) != nil)
+        #expect((store.tabs[0].zoomedPaneId) == nil)
     }
 
     // MARK: - removePaneFromLayout updates activePaneId
+
+    @Test
 
     func test_removePaneFromLayout_updatesActivePaneIdWhenActiveRemoved() {
         // Arrange
@@ -1469,12 +1627,12 @@ final class WorkspaceStoreTests: XCTestCase {
         let p2 = store.createPane(source: .floating(workingDirectory: nil, title: nil))
         let tab = makeTab(paneIds: [p1.id, p2.id], activePaneId: p1.id)
         store.appendTab(tab)
-        XCTAssertEqual(store.tabs[0].activePaneId, p1.id)
+        #expect(store.tabs[0].activePaneId == p1.id)
 
         // Act — remove the active pane
         store.removePaneFromLayout(p1.id, inTab: tab.id)
 
         // Assert — activePaneId updated to remaining pane
-        XCTAssertEqual(store.tabs[0].activePaneId, p2.id)
+        #expect(store.tabs[0].activePaneId == p2.id)
     }
 }

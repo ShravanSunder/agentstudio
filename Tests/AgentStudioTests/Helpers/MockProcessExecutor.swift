@@ -1,5 +1,5 @@
 import Foundation
-import XCTest
+import Testing
 
 @testable import AgentStudio
 
@@ -43,7 +43,9 @@ final class MockProcessExecutor: ProcessExecutor, @unchecked Sendable {
         calls.append(Call(command: command, args: args, environment: environment))
 
         guard responseIndex < responses.count else {
-            XCTFail("MockProcessExecutor: no response queued for call #\(responseIndex + 1): \(command) \(args)")
+            Issue.record(
+                "MockProcessExecutor: no response queued for call #\(responseIndex + 1): \(command) \(args)"
+            )
             throw MockExecutorError.noResponseQueued
         }
 

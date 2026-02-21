@@ -1,8 +1,10 @@
-import XCTest
+import Testing
+import Foundation
 
 @testable import AgentStudio
 
-final class ActionResolverTests: XCTestCase {
+@Suite(.serialized)
+final class ActionResolverTests {
 
     // MARK: - Test Helpers
 
@@ -28,6 +30,8 @@ final class ActionResolverTests: XCTestCase {
 
     // MARK: - resolveDrop: Multi-pane tab → mergeTab
 
+    @Test
+
     func test_resolveDrop_multiPaneTab_returnsMergeTab() {
         // Arrange
         let sourceTabId = UUID()
@@ -51,9 +55,7 @@ final class ActionResolverTests: XCTestCase {
         )
 
         // Assert
-        XCTAssertEqual(
-            result,
-            .mergeTab(
+        #expect(result == .mergeTab(
                 sourceTabId: sourceTabId,
                 targetTabId: targetTabId,
                 targetPaneId: targetPaneId,
@@ -62,6 +64,8 @@ final class ActionResolverTests: XCTestCase {
     }
 
     // MARK: - resolveDrop: Single-pane tab → insertPane
+
+    @Test
 
     func test_resolveDrop_singlePaneTab_returnsInsertPane() {
         // Arrange
@@ -87,9 +91,7 @@ final class ActionResolverTests: XCTestCase {
         )
 
         // Assert
-        XCTAssertEqual(
-            result,
-            .insertPane(
+        #expect(result == .insertPane(
                 source: .existingPane(paneId: sourcePaneId, sourceTabId: sourceTabId),
                 targetTabId: targetTabId,
                 targetPaneId: targetPaneId,
@@ -98,6 +100,8 @@ final class ActionResolverTests: XCTestCase {
     }
 
     // MARK: - resolveDrop: New terminal → insertPane
+
+    @Test
 
     func test_resolveDrop_newTerminal_returnsInsertPane() {
         // Arrange
@@ -117,9 +121,7 @@ final class ActionResolverTests: XCTestCase {
         )
 
         // Assert
-        XCTAssertEqual(
-            result,
-            .insertPane(
+        #expect(result == .insertPane(
                 source: .newTerminal,
                 targetTabId: targetTabId,
                 targetPaneId: targetPaneId,
@@ -128,6 +130,8 @@ final class ActionResolverTests: XCTestCase {
     }
 
     // MARK: - resolveDrop: Source tab not found → nil
+
+    @Test
 
     func test_resolveDrop_sourceTabNotFound_returnsNil() {
         // Arrange
@@ -150,10 +154,12 @@ final class ActionResolverTests: XCTestCase {
         )
 
         // Assert
-        XCTAssertNil(result)
+        #expect((result) == nil)
     }
 
     // MARK: - resolveDrop: Self-drop produces mergeTab (validator rejects)
+
+    @Test
 
     func test_resolveDrop_selfDrop_multiPane_producesMergeTab() {
         // Arrange — dropping a multi-pane tab onto its own pane
@@ -176,9 +182,7 @@ final class ActionResolverTests: XCTestCase {
         )
 
         // Assert — resolver produces the action, validator will reject it
-        XCTAssertEqual(
-            result,
-            .mergeTab(
+        #expect(result == .mergeTab(
                 sourceTabId: tabId,
                 targetTabId: tabId,
                 targetPaneId: paneIds[0],
@@ -188,10 +192,12 @@ final class ActionResolverTests: XCTestCase {
         // Verify validator rejects self-merge
         let validation = ActionValidator.validate(result!, state: snapshot)
         if case .failure(.selfTabMerge) = validation { return }
-        XCTFail("Expected selfTabMerge error from validator")
+        Issue.record("Expected selfTabMerge error from validator")
     }
 
     // MARK: - resolve(command:) — Tab Lifecycle
+
+    @Test
 
     func test_resolve_closeTab_returnsCloseTabWithActiveId() {
         // Arrange
@@ -203,8 +209,10 @@ final class ActionResolverTests: XCTestCase {
         let result = ActionResolver.resolve(command: .closeTab, tabs: [tab], activeTabId: tabId)
 
         // Assert
-        XCTAssertEqual(result, .closeTab(tabId: tabId))
+        #expect(result == .closeTab(tabId: tabId))
     }
+
+    @Test
 
     func test_resolve_breakUpTab_returnsBreakUpTabWithActiveId() {
         // Arrange
@@ -216,8 +224,10 @@ final class ActionResolverTests: XCTestCase {
         let result = ActionResolver.resolve(command: .breakUpTab, tabs: [tab], activeTabId: tabId)
 
         // Assert
-        XCTAssertEqual(result, .breakUpTab(tabId: tabId))
+        #expect(result == .breakUpTab(tabId: tabId))
     }
+
+    @Test
 
     func test_resolve_nextTab_wrapsAround() {
         // Arrange
@@ -232,8 +242,10 @@ final class ActionResolverTests: XCTestCase {
         )
 
         // Assert
-        XCTAssertEqual(result, .selectTab(tabId: tab1Id))
+        #expect(result == .selectTab(tabId: tab1Id))
     }
+
+    @Test
 
     func test_resolve_prevTab_wrapsAround() {
         // Arrange
@@ -248,8 +260,10 @@ final class ActionResolverTests: XCTestCase {
         )
 
         // Assert
-        XCTAssertEqual(result, .selectTab(tabId: tab2Id))
+        #expect(result == .selectTab(tabId: tab2Id))
     }
+
+    @Test
 
     func test_resolve_selectTabByIndex_returnsCorrectTab() {
         // Arrange
@@ -262,21 +276,15 @@ final class ActionResolverTests: XCTestCase {
         let tabs = [tab1, tab2, tab3]
 
         // Act & Assert
-        XCTAssertEqual(
-            ActionResolver.resolve(command: .selectTab1, tabs: tabs, activeTabId: nil),
-            .selectTab(tabId: tab1Id)
-        )
-        XCTAssertEqual(
-            ActionResolver.resolve(command: .selectTab3, tabs: tabs, activeTabId: nil),
-            .selectTab(tabId: tab3Id)
-        )
+        #expect(ActionResolver.resolve(command: .selectTab1, tabs: tabs, activeTabId: nil) == .selectTab(tabId: tab1Id))
+        #expect(ActionResolver.resolve(command: .selectTab3, tabs: tabs, activeTabId: nil) == .selectTab(tabId: tab3Id))
         // Out of range
-        XCTAssertNil(
-            ActionResolver.resolve(command: .selectTab4, tabs: tabs, activeTabId: nil)
-        )
+        #expect((ActionResolver.resolve(command: .selectTab4, tabs: tabs, activeTabId: nil)) == nil)
     }
 
     // MARK: - resolve(command:) — Pane Lifecycle
+
+    @Test
 
     func test_resolve_closePane_returnsClosePaneWithActivePane() {
         // Arrange
@@ -288,8 +296,10 @@ final class ActionResolverTests: XCTestCase {
         let result = ActionResolver.resolve(command: .closePane, tabs: [tab], activeTabId: tabId)
 
         // Assert
-        XCTAssertEqual(result, .closePane(tabId: tabId, paneId: paneId))
+        #expect(result == .closePane(tabId: tabId, paneId: paneId))
     }
+
+    @Test
 
     func test_resolve_extractPaneToTab_returnsExtractWithActivePane() {
         // Arrange
@@ -303,8 +313,10 @@ final class ActionResolverTests: XCTestCase {
         )
 
         // Assert
-        XCTAssertEqual(result, .extractPaneToTab(tabId: tabId, paneId: paneId))
+        #expect(result == .extractPaneToTab(tabId: tabId, paneId: paneId))
     }
+
+    @Test
 
     func test_resolve_equalizePanes_returnsEqualizeWithActiveTab() {
         // Arrange
@@ -317,10 +329,12 @@ final class ActionResolverTests: XCTestCase {
         )
 
         // Assert
-        XCTAssertEqual(result, .equalizePanes(tabId: tabId))
+        #expect(result == .equalizePanes(tabId: tabId))
     }
 
     // MARK: - resolve(command:) — Pane Focus
+
+    @Test
 
     func test_resolve_focusPaneLeft_findsNeighbor() {
         // Arrange
@@ -336,8 +350,10 @@ final class ActionResolverTests: XCTestCase {
         )
 
         // Assert
-        XCTAssertEqual(result, .focusPane(tabId: tabId, paneId: paneB))
+        #expect(result == .focusPane(tabId: tabId, paneId: paneB))
     }
+
+    @Test
 
     func test_resolve_focusPaneRight_noNeighbor_returnsNil() {
         // Arrange
@@ -352,8 +368,10 @@ final class ActionResolverTests: XCTestCase {
         )
 
         // Assert
-        XCTAssertNil(result)
+        #expect((result) == nil)
     }
+
+    @Test
 
     func test_resolve_focusNextPane_usesNextPaneId() {
         // Arrange
@@ -369,8 +387,10 @@ final class ActionResolverTests: XCTestCase {
         )
 
         // Assert
-        XCTAssertEqual(result, .focusPane(tabId: tabId, paneId: paneB))
+        #expect(result == .focusPane(tabId: tabId, paneId: paneB))
     }
+
+    @Test
 
     func test_resolve_focusPrevPane_usesPreviousPaneId() {
         // Arrange
@@ -386,10 +406,12 @@ final class ActionResolverTests: XCTestCase {
         )
 
         // Assert
-        XCTAssertEqual(result, .focusPane(tabId: tabId, paneId: paneA))
+        #expect(result == .focusPane(tabId: tabId, paneId: paneA))
     }
 
     // MARK: - resolve(command:) — Split
+
+    @Test
 
     func test_resolve_splitRight_returnsInsertPane() {
         // Arrange
@@ -403,15 +425,15 @@ final class ActionResolverTests: XCTestCase {
         )
 
         // Assert
-        XCTAssertEqual(
-            result,
-            .insertPane(
+        #expect(result == .insertPane(
                 source: .newTerminal,
                 targetTabId: tabId,
                 targetPaneId: paneId,
                 direction: .right
             ))
     }
+
+    @Test
 
     func test_resolve_splitBelow_returnsNil() {
         // Vertical splits disabled (drawers own bottom space)
@@ -426,21 +448,25 @@ final class ActionResolverTests: XCTestCase {
         )
 
         // Assert
-        XCTAssertNil(result)
+        #expect((result) == nil)
     }
 
     // MARK: - resolve(command:) — Edge Cases
+
+    @Test
 
     func test_resolve_noActiveTab_returnsNil() {
         // Arrange
         let tab = MockTab(id: UUID(), activePaneId: UUID(), allPaneIds: [UUID()])
 
         // Act & Assert — all commands requiring activeTabId return nil
-        XCTAssertNil(ActionResolver.resolve(command: .closeTab, tabs: [tab], activeTabId: nil))
-        XCTAssertNil(ActionResolver.resolve(command: .closePane, tabs: [tab], activeTabId: nil))
-        XCTAssertNil(ActionResolver.resolve(command: .splitRight, tabs: [tab], activeTabId: nil))
-        XCTAssertNil(ActionResolver.resolve(command: .focusPaneLeft, tabs: [tab], activeTabId: nil))
+        #expect((ActionResolver.resolve(command: .closeTab, tabs: [tab], activeTabId: nil)) == nil)
+        #expect((ActionResolver.resolve(command: .closePane, tabs: [tab], activeTabId: nil)) == nil)
+        #expect((ActionResolver.resolve(command: .splitRight, tabs: [tab], activeTabId: nil)) == nil)
+        #expect((ActionResolver.resolve(command: .focusPaneLeft, tabs: [tab], activeTabId: nil)) == nil)
     }
+
+    @Test
 
     func test_resolve_nonPaneCommand_returnsNil() {
         // Arrange
@@ -448,37 +474,32 @@ final class ActionResolverTests: XCTestCase {
         let tab = MockTab(id: tabId, activePaneId: UUID(), allPaneIds: [UUID()])
 
         // Act & Assert — non-structural commands return nil
-        XCTAssertNil(ActionResolver.resolve(command: .addRepo, tabs: [tab], activeTabId: tabId))
-        XCTAssertNil(
-            ActionResolver.resolve(
+        #expect((ActionResolver.resolve(command: .addRepo, tabs: [tab], activeTabId: tabId)) == nil)
+        #expect((ActionResolver.resolve(
                 command: .toggleSidebar, tabs: [tab], activeTabId: tabId
-            ))
-        XCTAssertNil(
-            ActionResolver.resolve(
+            )) == nil)
+        #expect((ActionResolver.resolve(
                 command: .newFloatingTerminal, tabs: [tab], activeTabId: tabId
-            ))
-        XCTAssertNil(
-            ActionResolver.resolve(
+            )) == nil)
+        #expect((ActionResolver.resolve(
                 command: .filterSidebar, tabs: [tab], activeTabId: tabId
-            ))
-        XCTAssertNil(
-            ActionResolver.resolve(
+            )) == nil)
+        #expect((ActionResolver.resolve(
                 command: .openNewTerminalInTab, tabs: [tab], activeTabId: tabId
-            ))
+            )) == nil)
         // Webview/OAuth commands are non-pane commands
-        XCTAssertNil(
-            ActionResolver.resolve(
+        #expect((ActionResolver.resolve(
                 command: .openWebview, tabs: [tab], activeTabId: tabId
-            ))
-        XCTAssertNil(
-            ActionResolver.resolve(
+            )) == nil)
+        #expect((ActionResolver.resolve(
                 command: .signInGitHub, tabs: [tab], activeTabId: tabId
-            ))
-        XCTAssertNil(
-            ActionResolver.resolve(
+            )) == nil)
+        #expect((ActionResolver.resolve(
                 command: .signInGoogle, tabs: [tab], activeTabId: tabId
-            ))
+            )) == nil)
     }
+
+    @Test
 
     func test_resolve_noActivePaneId_returnsNil() {
         // Arrange — tab exists but has no activePaneId
@@ -486,11 +507,13 @@ final class ActionResolverTests: XCTestCase {
         let tab = MockTab(id: tabId, activePaneId: nil, allPaneIds: [UUID()])
 
         // Act & Assert — commands needing active pane return nil
-        XCTAssertNil(ActionResolver.resolve(command: .closePane, tabs: [tab], activeTabId: tabId))
-        XCTAssertNil(ActionResolver.resolve(command: .splitRight, tabs: [tab], activeTabId: tabId))
+        #expect((ActionResolver.resolve(command: .closePane, tabs: [tab], activeTabId: tabId)) == nil)
+        #expect((ActionResolver.resolve(command: .splitRight, tabs: [tab], activeTabId: tabId)) == nil)
     }
 
     // MARK: - snapshot(from:) with MockTab
+
+    @Test
 
     func test_snapshot_fromMockTabs_capturesCorrectState() {
         // Arrange
@@ -508,16 +531,18 @@ final class ActionResolverTests: XCTestCase {
         )
 
         // Assert
-        XCTAssertEqual(snapshot.tabCount, 2)
-        XCTAssertEqual(snapshot.activeTabId, tab1Id)
-        XCTAssertEqual(snapshot.tab(tab1Id)?.paneIds, [pane1])
-        XCTAssertEqual(snapshot.tab(tab2Id)?.paneIds, [pane2a, pane2b])
-        XCTAssertEqual(snapshot.tab(tab2Id)?.activePaneId, pane2a)
-        XCTAssertTrue(snapshot.tab(tab2Id)?.isSplit == true)
-        XCTAssertFalse(snapshot.tab(tab1Id)?.isSplit == true)
+        #expect(snapshot.tabCount == 2)
+        #expect(snapshot.activeTabId == tab1Id)
+        #expect(snapshot.tab(tab1Id)?.paneIds == [pane1])
+        #expect(snapshot.tab(tab2Id)?.paneIds == [pane2a, pane2b])
+        #expect(snapshot.tab(tab2Id)?.activePaneId == pane2a)
+        #expect(snapshot.tab(tab2Id)?.isSplit == true)
+        #expect(!(snapshot.tab(tab1Id)?.isSplit == true))
     }
 
     // MARK: - resolveDrop: Zone → direction mapping
+
+    @Test
 
     func test_resolveDrop_zoneMapping() {
         // Arrange
@@ -543,9 +568,7 @@ final class ActionResolverTests: XCTestCase {
             )
 
             // Assert
-            XCTAssertEqual(
-                result,
-                .insertPane(
+            #expect(result == .insertPane(
                     source: .newTerminal,
                     targetTabId: tabId,
                     targetPaneId: paneId,

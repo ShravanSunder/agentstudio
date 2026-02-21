@@ -1,10 +1,14 @@
-import XCTest
+import Testing
+import Foundation
 
 @testable import AgentStudio
 
-final class TabTests: XCTestCase {
+@Suite(.serialized)
+final class TabTests {
 
     // MARK: - Init
+
+    @Test
 
     func test_init_singlePane() {
         // Arrange
@@ -14,10 +18,12 @@ final class TabTests: XCTestCase {
         let tab = Tab(paneId: paneId)
 
         // Assert
-        XCTAssertEqual(tab.paneIds, [paneId])
-        XCTAssertEqual(tab.activePaneId, paneId)
-        XCTAssertFalse(tab.isSplit)
+        #expect(tab.paneIds == [paneId])
+        #expect(tab.activePaneId == paneId)
+        #expect(!(tab.isSplit))
     }
+
+    @Test
 
     func test_init_customId() {
         // Arrange
@@ -28,8 +34,10 @@ final class TabTests: XCTestCase {
         let tab = Tab(id: tabId, paneId: paneId)
 
         // Assert
-        XCTAssertEqual(tab.id, tabId)
+        #expect(tab.id == tabId)
     }
+
+    @Test
 
     func test_init_withLayout() {
         // Arrange
@@ -46,12 +54,14 @@ final class TabTests: XCTestCase {
         )
 
         // Assert
-        XCTAssertEqual(tab.paneIds, [paneA, paneB])
-        XCTAssertEqual(tab.activePaneId, paneA)
-        XCTAssertTrue(tab.isSplit)
+        #expect(tab.paneIds == [paneA, paneB])
+        #expect(tab.activePaneId == paneA)
+        #expect(tab.isSplit)
     }
 
     // MARK: - Derived Properties
+
+    @Test
 
     func test_paneIds_matchesLayout() {
         // Arrange
@@ -70,16 +80,20 @@ final class TabTests: XCTestCase {
         )
 
         // Assert
-        XCTAssertEqual(tab.paneIds, [paneA, paneB, paneC])
+        #expect(tab.paneIds == [paneA, paneB, paneC])
     }
+
+    @Test
 
     func test_isSplit_singlePane_false() {
         // Arrange
         let tab = Tab(paneId: UUID())
 
         // Assert
-        XCTAssertFalse(tab.isSplit)
+        #expect(!(tab.isSplit))
     }
+
+    @Test
 
     func test_isSplit_multiplePanes_true() {
         // Arrange
@@ -96,10 +110,12 @@ final class TabTests: XCTestCase {
         )
 
         // Assert
-        XCTAssertTrue(tab.isSplit)
+        #expect(tab.isSplit)
     }
 
     // MARK: - Codable Round-Trip
+
+    @Test
 
     func test_codable_singlePane_roundTrips() throws {
         // Arrange
@@ -111,10 +127,12 @@ final class TabTests: XCTestCase {
         let decoded = try JSONDecoder().decode(Tab.self, from: data)
 
         // Assert
-        XCTAssertEqual(decoded.id, tab.id)
-        XCTAssertEqual(decoded.paneIds, [paneId])
-        XCTAssertEqual(decoded.activePaneId, paneId)
+        #expect(decoded.id == tab.id)
+        #expect(decoded.paneIds == [paneId])
+        #expect(decoded.activePaneId == paneId)
     }
+
+    @Test
 
     func test_codable_splitLayout_roundTrips() throws {
         // Arrange
@@ -133,11 +151,13 @@ final class TabTests: XCTestCase {
         let decoded = try JSONDecoder().decode(Tab.self, from: data)
 
         // Assert
-        XCTAssertEqual(decoded.id, tab.id)
-        XCTAssertEqual(decoded.paneIds, [paneA, paneB])
-        XCTAssertEqual(decoded.activePaneId, paneB)
-        XCTAssertTrue(decoded.isSplit)
+        #expect(decoded.id == tab.id)
+        #expect(decoded.paneIds == [paneA, paneB])
+        #expect(decoded.activePaneId == paneB)
+        #expect(decoded.isSplit)
     }
+
+    @Test
 
     func test_codable_nilActivePane_roundTrips() throws {
         // Arrange
@@ -150,10 +170,12 @@ final class TabTests: XCTestCase {
         let decoded = try JSONDecoder().decode(Tab.self, from: data)
 
         // Assert
-        XCTAssertNil(decoded.activePaneId)
+        #expect((decoded.activePaneId) == nil)
     }
 
     // MARK: - Hashable
+
+    @Test
 
     func test_hashable_sameId_sameHash() {
         // Arrange — two tabs with same id but independent arrangements
@@ -163,16 +185,18 @@ final class TabTests: XCTestCase {
         let tab2 = Tab(id: tabId, paneId: paneId)
 
         // Assert — hash is identity-based, equality is memberwise
-        XCTAssertEqual(tab1.hashValue, tab2.hashValue)
+        #expect(tab1.hashValue == tab2.hashValue)
         // Different arrangement UUIDs means they are NOT equal under memberwise equality
-        XCTAssertNotEqual(tab1, tab2)
+        #expect(tab1 != tab2)
     }
+
+    @Test
 
     func test_equality_sameInstance_isEqual() {
         // Arrange — exact same tab instance
         let tab = Tab(id: UUID(), paneId: UUID())
 
         // Assert
-        XCTAssertEqual(tab, tab)
+        #expect(tab == tab)
     }
 }

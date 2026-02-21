@@ -1,113 +1,104 @@
 import CoreGraphics
-import XCTest
+import Testing
+import Foundation
 
 @testable import AgentStudio
 
-final class DeferredStartupReadinessTests: XCTestCase {
+@Suite(.serialized)
+
+final class DeferredStartupReadinessTests {
+    @Test
     func test_canSchedule_true_whenReady() {
-        XCTAssertTrue(
-            DeferredStartupReadiness.canSchedule(
+        #expect(DeferredStartupReadiness.canSchedule(
                 hasSent: false,
                 deferredStartupCommand: "zmx attach test",
                 hasWindow: true,
                 contentSize: CGSize(width: 1200, height: 700)
-            )
-        )
+            ))
     }
 
+    @Test
     func test_canSchedule_false_whenAlreadySent() {
-        XCTAssertFalse(
-            DeferredStartupReadiness.canSchedule(
+        #expect(!(DeferredStartupReadiness.canSchedule(
                 hasSent: true,
                 deferredStartupCommand: "zmx attach test",
                 hasWindow: true,
                 contentSize: CGSize(width: 1200, height: 700)
-            )
-        )
+            )))
     }
 
+    @Test
     func test_canSchedule_false_whenCommandMissingOrEmpty() {
-        XCTAssertFalse(
-            DeferredStartupReadiness.canSchedule(
+        #expect(!(DeferredStartupReadiness.canSchedule(
                 hasSent: false,
                 deferredStartupCommand: nil,
                 hasWindow: true,
                 contentSize: CGSize(width: 1200, height: 700)
-            )
-        )
-        XCTAssertFalse(
-            DeferredStartupReadiness.canSchedule(
+            )))
+        #expect(!(DeferredStartupReadiness.canSchedule(
                 hasSent: false,
                 deferredStartupCommand: "",
                 hasWindow: true,
                 contentSize: CGSize(width: 1200, height: 700)
-            )
-        )
+            )))
     }
 
+    @Test
     func test_canSchedule_false_whenWindowMissing() {
-        XCTAssertFalse(
-            DeferredStartupReadiness.canSchedule(
+        #expect(!(DeferredStartupReadiness.canSchedule(
                 hasSent: false,
                 deferredStartupCommand: "zmx attach test",
                 hasWindow: false,
                 contentSize: CGSize(width: 1200, height: 700)
-            )
-        )
+            )))
     }
 
+    @Test
     func test_canSchedule_false_whenSizeInvalid() {
-        XCTAssertFalse(
-            DeferredStartupReadiness.canSchedule(
+        #expect(!(DeferredStartupReadiness.canSchedule(
                 hasSent: false,
                 deferredStartupCommand: "zmx attach test",
                 hasWindow: true,
                 contentSize: .zero
-            )
-        )
-        XCTAssertFalse(
-            DeferredStartupReadiness.canSchedule(
+            )))
+        #expect(!(DeferredStartupReadiness.canSchedule(
                 hasSent: false,
                 deferredStartupCommand: "zmx attach test",
                 hasWindow: true,
                 contentSize: CGSize(width: 1200, height: 0)
-            )
-        )
+            )))
     }
 
+    @Test
     func test_canExecute_false_whenProcessExited() {
-        XCTAssertFalse(
-            DeferredStartupReadiness.canExecute(
+        #expect(!(DeferredStartupReadiness.canExecute(
                 hasSent: false,
                 deferredStartupCommand: "zmx attach test",
                 hasWindow: true,
                 contentSize: CGSize(width: 1200, height: 700),
                 processExited: true
-            )
-        )
+            )))
     }
 
+    @Test
     func test_canExecute_false_whenScheduleConditionsFail() {
-        XCTAssertFalse(
-            DeferredStartupReadiness.canExecute(
+        #expect(!(DeferredStartupReadiness.canExecute(
                 hasSent: false,
                 deferredStartupCommand: "zmx attach test",
                 hasWindow: false,
                 contentSize: CGSize(width: 1200, height: 700),
                 processExited: false
-            )
-        )
+            )))
     }
 
+    @Test
     func test_canExecute_true_whenReadyAndProcessAlive() {
-        XCTAssertTrue(
-            DeferredStartupReadiness.canExecute(
+        #expect(DeferredStartupReadiness.canExecute(
                 hasSent: false,
                 deferredStartupCommand: "zmx attach test",
                 hasWindow: true,
                 contentSize: CGSize(width: 1200, height: 700),
                 processExited: false
-            )
-        )
+            ))
     }
 }

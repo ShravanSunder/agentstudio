@@ -1,17 +1,20 @@
 import Foundation
-import XCTest
+import Testing
 
 @testable import AgentStudio
 
-final class TestPathResolverTests: XCTestCase {
+@Suite(.serialized)
+struct TestPathResolverTests {
 
+    @Test
     func test_projectRoot_fromTestsFilePath_findsPackageSwift() {
         let projectRoot = TestPathResolver.projectRoot(from: #filePath)
         let packagePath = URL(fileURLWithPath: projectRoot).appendingPathComponent("Package.swift").path
 
-        XCTAssertTrue(FileManager.default.fileExists(atPath: packagePath))
+        #expect(FileManager.default.fileExists(atPath: packagePath))
     }
 
+    @Test
     func test_projectRoot_findsNearestAncestorContainingPackage() throws {
         let root = FileManager.default.temporaryDirectory
             .appendingPathComponent("agentstudio-pathresolver-tests-\(UUID().uuidString)")
@@ -33,6 +36,6 @@ final class TestPathResolverTests: XCTestCase {
 
         let resolvedRoot = TestPathResolver.projectRoot(from: markerPath.path)
 
-        XCTAssertEqual(resolvedRoot, root.path)
+        #expect(resolvedRoot == root.path)
     }
 }

@@ -1,4 +1,5 @@
-import XCTest
+import Testing
+import Foundation
 
 @testable import AgentStudio
 
@@ -16,24 +17,25 @@ final class MockURLHistoryStorage: URLHistoryStorage, @unchecked Sendable {
 }
 
 @MainActor
-final class URLHistoryServiceTests: XCTestCase {
+@Suite(.serialized)
+struct URLHistoryServiceTests {
 
     private func makeService(storage: MockURLHistoryStorage = MockURLHistoryStorage()) -> URLHistoryService {
         URLHistoryService(storage: storage)
     }
 
-    // MARK: - Favorites: Default Seeding
-
+    @Test
     func test_firstRun_seedsDefaultFavorites() {
         // Arrange & Act
         let service = makeService()
 
         // Assert — defaults seeded
-        XCTAssertEqual(service.favorites.count, 2)
-        XCTAssertTrue(service.isFavorite(url: URL(string: "https://github.com")!))
-        XCTAssertTrue(service.isFavorite(url: URL(string: "https://google.com")!))
+        #expect(service.favorites.count == 2)
+        #expect(service.isFavorite(url: URL(string: "https://github.com")!))
+        #expect(service.isFavorite(url: URL(string: "https://google.com")!))
     }
 
+    @Test
     func test_secondRun_loadsPersistedFavorites() {
         // Arrange — first run seeds defaults
         let storage = MockURLHistoryStorage()
@@ -44,12 +46,13 @@ final class URLHistoryServiceTests: XCTestCase {
         let second = URLHistoryService(storage: storage)
 
         // Assert — has 3 favorites (2 defaults + 1 custom)
-        XCTAssertEqual(second.favorites.count, 3)
-        XCTAssertTrue(second.isFavorite(url: URL(string: "https://custom.com")!))
+        #expect(second.favorites.count == 3)
+        #expect(second.isFavorite(url: URL(string: "https://custom.com")!))
     }
 
     // MARK: - Favorites: Add / Remove / Deduplicate
 
+    @Test
     func test_addFavorite_appendsEntry() {
         // Arrange
         let service = makeService()
@@ -59,10 +62,11 @@ final class URLHistoryServiceTests: XCTestCase {
         service.addFavorite(url: URL(string: "https://linear.app")!, title: "Linear")
 
         // Assert
-        XCTAssertEqual(service.favorites.count, initialCount + 1)
-        XCTAssertTrue(service.isFavorite(url: URL(string: "https://linear.app")!))
+        #expect(service.favorites.count == initialCount + 1)
+        #expect(service.isFavorite(url: URL(string: "https://linear.app")!))
     }
 
+    @Test
     func test_addFavorite_deduplicates() {
         // Arrange
         let service = makeService()
@@ -73,21 +77,23 @@ final class URLHistoryServiceTests: XCTestCase {
 
         // Assert — only added once
         let count = service.favorites.filter { $0.url.absoluteString == "https://linear.app" }.count
-        XCTAssertEqual(count, 1)
+        #expect(count == 1)
     }
 
+    @Test
     func test_removeFavorite_removesEntry() {
         // Arrange
         let service = makeService()
-        XCTAssertTrue(service.isFavorite(url: URL(string: "https://github.com")!))
+        #expect(service.isFavorite(url: URL(string: "https://github.com")!))
 
         // Act
         service.removeFavorite(url: URL(string: "https://github.com")!)
 
         // Assert
-        XCTAssertFalse(service.isFavorite(url: URL(string: "https://github.com")!))
+        #expect(!service.isFavorite(url: URL(string: "https://github.com")!))
     }
 
+    @Test
     func test_removeFavorite_persists() {
         // Arrange
         let storage = MockURLHistoryStorage()
@@ -98,40 +104,43 @@ final class URLHistoryServiceTests: XCTestCase {
         let second = URLHistoryService(storage: storage)
 
         // Assert — still removed
-        XCTAssertFalse(second.isFavorite(url: URL(string: "https://github.com")!))
+        #expect(!second.isFavorite(url: URL(string: "https://github.com")!))
     }
 
     // MARK: - History: Record & Dedup
 
+    @Test
     func test_record_addsEntry() {
         // Arrange
         let service = makeService()
-        XCTAssertEqual(service.entries.count, 0)
+        #expect(service.entries.count == 0)
 
         // Act
         service.record(url: URL(string: "https://example.com/page")!, title: "Page")
 
         // Assert
-        XCTAssertEqual(service.entries.count, 1)
-        XCTAssertEqual(service.entries[0].title, "Page")
+        #expect(service.entries.count == 1)
+        #expect(service.entries[0].title == "Page")
     }
 
+    @Test
     func test_record_deduplicates_movesToFront() {
         // Arrange
         let service = makeService()
         service.record(url: URL(string: "https://a.com")!, title: "A")
         service.record(url: URL(string: "https://b.com")!, title: "B")
-        XCTAssertEqual(service.entries[0].url.absoluteString, "https://b.com")
+        #expect(service.entries[0].url.absoluteString == "https://b.com")
 
         // Act — re-record A
         service.record(url: URL(string: "https://a.com")!, title: "A Updated")
 
         // Assert — A is now first, count unchanged
-        XCTAssertEqual(service.entries.count, 2)
-        XCTAssertEqual(service.entries[0].url.absoluteString, "https://a.com")
-        XCTAssertEqual(service.entries[0].title, "A Updated")
+        #expect(service.entries.count == 2)
+        #expect(service.entries[0].url.absoluteString == "https://a.com")
+        #expect(service.entries[0].title == "A Updated")
     }
 
+    @Test
     func test_record_skipsNonHTTP() {
         // Arrange
         let service = makeService()
@@ -141,9 +150,10 @@ final class URLHistoryServiceTests: XCTestCase {
         service.record(url: URL(string: "file:///tmp/test")!, title: "File")
 
         // Assert — neither recorded
-        XCTAssertEqual(service.entries.count, 0)
+        #expect(service.entries.count == 0)
     }
 
+    @Test
     func test_record_usesHostAsFallbackTitle() {
         // Arrange
         let service = makeService()
@@ -152,9 +162,10 @@ final class URLHistoryServiceTests: XCTestCase {
         service.record(url: URL(string: "https://example.com/path")!, title: "")
 
         // Assert
-        XCTAssertEqual(service.entries[0].title, "example.com")
+        #expect(service.entries[0].title == "example.com")
     }
 
+    @Test
     func test_record_persists() {
         // Arrange
         let storage = MockURLHistoryStorage()
@@ -165,12 +176,13 @@ final class URLHistoryServiceTests: XCTestCase {
         let second = URLHistoryService(storage: storage)
 
         // Assert
-        XCTAssertEqual(second.entries.count, 1)
-        XCTAssertEqual(second.entries[0].title, "Ex")
+        #expect(second.entries.count == 1)
+        #expect(second.entries[0].title == "Ex")
     }
 
     // MARK: - History: 2-Week Pruning
 
+    @Test
     func test_record_prunesExpiredEntries() {
         // Arrange
         let service = makeService()
@@ -197,9 +209,10 @@ final class URLHistoryServiceTests: XCTestCase {
         let svc = URLHistoryService(storage: storage)
 
         // Assert — old entry pruned on load
-        XCTAssertEqual(svc.entries.count, 0, "Entries older than 2 weeks should be pruned on load")
+        #expect(svc.entries.count == 0)
     }
 
+    @Test
     func test_recentEntry_notPruned() {
         // Arrange
         let storage = MockURLHistoryStorage()
@@ -215,27 +228,29 @@ final class URLHistoryServiceTests: XCTestCase {
         let service = URLHistoryService(storage: storage)
 
         // Assert — recent entry preserved
-        XCTAssertEqual(service.entries.count, 1)
+        #expect(service.entries.count == 1)
     }
 
     // MARK: - Clear History
 
+    @Test
     func test_clearHistory_removesAllEntries() {
         // Arrange
         let service = makeService()
         service.record(url: URL(string: "https://a.com")!, title: "A")
         service.record(url: URL(string: "https://b.com")!, title: "B")
-        XCTAssertEqual(service.entries.count, 2)
+        #expect(service.entries.count == 2)
 
         // Act
         service.clearHistory()
 
         // Assert
-        XCTAssertEqual(service.entries.count, 0)
+        #expect(service.entries.isEmpty)
     }
 
     // MARK: - Query: recentSites excludes favorites
 
+    @Test
     func test_recentSites_excludesFavorites() {
         // Arrange
         let service = makeService()
@@ -248,10 +263,11 @@ final class URLHistoryServiceTests: XCTestCase {
         let recent = service.recentSites()
 
         // Assert — github.com excluded (it's a favorite), SO included
-        XCTAssertTrue(recent.contains { $0.url.absoluteString == "https://stackoverflow.com" })
-        XCTAssertFalse(recent.contains { $0.url.absoluteString == "https://github.com" })
+        #expect(recent.contains { $0.url.absoluteString == "https://stackoverflow.com" })
+        #expect(!recent.contains { $0.url.absoluteString == "https://github.com" })
     }
 
+    @Test
     func test_recentSites_respectsLimit() {
         // Arrange
         let service = makeService()
@@ -263,11 +279,12 @@ final class URLHistoryServiceTests: XCTestCase {
         let recent = service.recentSites(limit: 5)
 
         // Assert
-        XCTAssertEqual(recent.count, 5)
+        #expect(recent.count == 5)
     }
 
     // MARK: - Query: allSearchable combines favorites + history
 
+    @Test
     func test_allSearchable_favoritesThenHistory() {
         // Arrange
         let service = makeService()
@@ -277,10 +294,11 @@ final class URLHistoryServiceTests: XCTestCase {
         let all = service.allSearchable()
 
         // Assert — favorites come first (GitHub, Google), then history
-        XCTAssertEqual(all.first?.url.absoluteString, "https://github.com")
-        XCTAssertTrue(all.contains { $0.url.absoluteString == "https://stackoverflow.com" })
+        #expect(all.first?.url.absoluteString == "https://github.com")
+        #expect(all.contains { $0.url.absoluteString == "https://stackoverflow.com" })
     }
 
+    @Test
     func test_allSearchable_dedupesFavoritesFromHistory() {
         // Arrange
         let service = makeService()
@@ -291,11 +309,12 @@ final class URLHistoryServiceTests: XCTestCase {
 
         // Assert — github.com appears once (as favorite), not duplicated from history
         let githubCount = all.filter { $0.url.absoluteString == "https://github.com" }.count
-        XCTAssertEqual(githubCount, 1)
+        #expect(githubCount == 1)
     }
 
     // MARK: - Query: suggestions
 
+    @Test
     func test_suggestions_emptyQuery_returnsFavoritesAndHistory() {
         // Arrange
         let service = makeService()
@@ -305,10 +324,11 @@ final class URLHistoryServiceTests: XCTestCase {
         let suggestions = service.suggestions(for: "")
 
         // Assert — favorites first, then history, capped at 8
-        XCTAssertTrue(suggestions.count <= 8)
-        XCTAssertEqual(suggestions[0].url.absoluteString, "https://github.com")
+        #expect(suggestions.count <= 8)
+        #expect(suggestions[0].url.absoluteString == "https://github.com")
     }
 
+    @Test
     func test_record_capsAtMaxEntries() {
         // Arrange
         let service = makeService()
@@ -319,11 +339,12 @@ final class URLHistoryServiceTests: XCTestCase {
         }
 
         // Assert — capped at 100
-        XCTAssertEqual(service.entries.count, 100)
+        #expect(service.entries.count == 100)
         // Most recent entry should be first
-        XCTAssertEqual(service.entries[0].url.absoluteString, "https://site104.com")
+        #expect(service.entries[0].url.absoluteString == "https://site104.com")
     }
 
+    @Test
     func test_suggestions_filtersByQuery() {
         // Arrange
         let service = makeService()
@@ -333,7 +354,7 @@ final class URLHistoryServiceTests: XCTestCase {
         let suggestions = service.suggestions(for: "stack")
 
         // Assert — only Stack Overflow matches
-        XCTAssertTrue(suggestions.contains { $0.title == "Stack Overflow" })
-        XCTAssertFalse(suggestions.contains { $0.url.absoluteString == "https://google.com" })
+        #expect(suggestions.contains { $0.title == "Stack Overflow" })
+        #expect(!suggestions.contains { $0.url.absoluteString == "https://google.com" })
     }
 }

@@ -1,11 +1,12 @@
 import Observation
 import Foundation
-import XCTest
+import Testing
 
 @testable import AgentStudio
 
 @MainActor
-final class SliceTests: XCTestCase {
+@Suite(.serialized)
+final class SliceTests {
 
     @Observable
     class TestState {
@@ -13,6 +14,7 @@ final class SliceTests: XCTestCase {
         var count: Int = 0
     }
 
+    @Test
     func test_slice_filters_noOp_mutations() async throws {
         // Arrange
         let state = TestState()
@@ -31,31 +33,26 @@ final class SliceTests: XCTestCase {
         // Observations emits the initial value ("idle"), which triggers the first push
         // since prev starts as nil. Record baseline after initial emission settles.
         let baselineCount = transport.pushCount
-        XCTAssertEqual(
-            baselineCount, 1,
-            "Initial observation should trigger one push (initial snapshot differs from nil)")
+        #expect(baselineCount == 1, "Initial observation should trigger one push (initial snapshot differs from nil)")
 
         // Act — set to the same value (no-op mutation)
         state.status = "idle"
         try await Task.sleep(for: .milliseconds(100))
 
         // Assert — no additional push because value did not change (Equatable skip)
-        XCTAssertEqual(
-            transport.pushCount, baselineCount,
-            "Setting same value should not trigger push (Equatable skip)")
+        #expect(transport.pushCount == baselineCount, "Setting same value should not trigger push (Equatable skip)")
 
         // Act — set to a different value
         state.status = "loading"
         try await Task.sleep(for: .milliseconds(100))
 
         // Assert — push triggered for actual change
-        XCTAssertEqual(
-            transport.pushCount, baselineCount + 1,
-            "Setting different value should trigger one additional push")
+        #expect(transport.pushCount == baselineCount + 1, "Setting different value should trigger one additional push")
 
         task.cancel()
     }
 
+    @Test
     func test_hot_slice_pushes_immediately() async throws {
         // Arrange
         let state = TestState()
@@ -79,14 +76,15 @@ final class SliceTests: XCTestCase {
         try await Task.sleep(for: .milliseconds(50))
 
         // Assert — one additional push for the mutation
-        XCTAssertEqual(transport.pushCount, baselineCount + 1)
-        XCTAssertEqual(transport.lastStore, .diff)
-        XCTAssertEqual(transport.lastLevel, .hot)
-        XCTAssertEqual(transport.lastOp, .replace)
+        #expect(transport.pushCount == baselineCount + 1)
+        #expect(transport.lastStore == .diff)
+        #expect(transport.lastLevel == .hot)
+        #expect(transport.lastOp == .replace)
 
         task.cancel()
     }
 
+    @Test
     func test_slice_stamps_revision() async throws {
         // Arrange
         let state = TestState()
@@ -101,23 +99,21 @@ final class SliceTests: XCTestCase {
         try await Task.sleep(for: .milliseconds(50))
 
         // Initial emission gets revision 1
-        XCTAssertEqual(
-            transport.lastRevision, 1,
-            "Initial observation emission should stamp revision 1")
+        #expect(transport.lastRevision == 1, "Initial observation emission should stamp revision 1")
 
         // Act — first mutation
         state.status = "loading"
         try await Task.sleep(for: .milliseconds(100))
 
         // Assert — second revision (initial was 1, this mutation is 2)
-        XCTAssertEqual(transport.lastRevision, 2)
+        #expect(transport.lastRevision == 2)
 
         // Act — second mutation
         state.status = "ready"
         try await Task.sleep(for: .milliseconds(100))
 
         // Assert — third revision
-        XCTAssertEqual(transport.lastRevision, 3)
+        #expect(transport.lastRevision == 3)
 
         task.cancel()
     }
@@ -164,8 +160,7 @@ final class MockPushTransport: PushTransport {
         }
 
         if pushCount < expectedCount {
-            XCTFail(
-                """
+            #expect(false, """
                 Timed out waiting for push count (expected at least \(expectedCount), got \
                 \(pushCount)) after \(timeout)
                 """)

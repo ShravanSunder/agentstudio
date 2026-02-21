@@ -1,4 +1,5 @@
-import XCTest
+import Testing
+import Foundation
 
 @testable import AgentStudio
 
@@ -12,10 +13,12 @@ import XCTest
 /// 1. Body is a String (not number, object, etc.)
 /// 2. String is non-empty
 /// 3. String is valid JSON (parseable by JSONSerialization)
-final class RPCMessageHandlerTests: XCTestCase {
+@Suite(.serialized)
+final class RPCMessageHandlerTests {
 
     // MARK: - Valid JSON parsing
 
+    @Test
     func test_parses_valid_json_string_body() {
         // Arrange
         let json = #"{"jsonrpc":"2.0","method":"system.ping","params":{}}"#
@@ -24,9 +27,10 @@ final class RPCMessageHandlerTests: XCTestCase {
         let result = RPCMessageHandler.extractJSON(from: json)
 
         // Assert
-        XCTAssertNotNil(result)
+        #expect(result != nil)
     }
 
+    @Test
     func test_extracts_method_from_valid_json() {
         // Arrange
         let json = #"{"jsonrpc":"2.0","method":"diff.requestFileContents","params":{"fileId":"abc"}}"#
@@ -35,11 +39,12 @@ final class RPCMessageHandlerTests: XCTestCase {
         let result = RPCMessageHandler.extractJSON(from: json)
 
         // Assert
-        XCTAssertEqual(result, json)
+        #expect(result == json)
     }
 
     // MARK: - Rejection cases
 
+    @Test
     func test_rejects_non_string_body() {
         // Arrange — postMessage can send non-string values; handler should reject
         let nonStringBody: Any = 42
@@ -48,9 +53,10 @@ final class RPCMessageHandlerTests: XCTestCase {
         let result = RPCMessageHandler.extractJSON(from: nonStringBody)
 
         // Assert
-        XCTAssertNil(result)
+        #expect(result == nil)
     }
 
+    @Test
     func test_rejects_empty_string() {
         // Arrange
         let emptyString = ""
@@ -59,9 +65,10 @@ final class RPCMessageHandlerTests: XCTestCase {
         let result = RPCMessageHandler.extractJSON(from: emptyString)
 
         // Assert
-        XCTAssertNil(result)
+        #expect(result == nil)
     }
 
+    @Test
     func test_rejects_invalid_json() {
         // Arrange
         let invalidJSON = "not json {{{"
@@ -70,9 +77,10 @@ final class RPCMessageHandlerTests: XCTestCase {
         let result = RPCMessageHandler.extractJSON(from: invalidJSON)
 
         // Assert
-        XCTAssertNil(result)
+        #expect(result == nil)
     }
 
+    @Test
     func test_rejects_dictionary_body() {
         // Arrange — JS object arrives as NSDictionary, not string
         let dictBody: Any = ["method": "test"]
@@ -81,9 +89,10 @@ final class RPCMessageHandlerTests: XCTestCase {
         let result = RPCMessageHandler.extractJSON(from: dictBody)
 
         // Assert
-        XCTAssertNil(result)
+        #expect(result == nil)
     }
 
+    @Test
     func test_rejects_array_body() {
         // Arrange — JS array arrives as NSArray, not string
         let arrayBody: Any = [1, 2, 3]
@@ -92,9 +101,10 @@ final class RPCMessageHandlerTests: XCTestCase {
         let result = RPCMessageHandler.extractJSON(from: arrayBody)
 
         // Assert
-        XCTAssertNil(result)
+        #expect(result == nil)
     }
 
+    @Test
     func test_rejects_bool_body() {
         // Arrange
         let boolBody: Any = true
@@ -103,6 +113,6 @@ final class RPCMessageHandlerTests: XCTestCase {
         let result = RPCMessageHandler.extractJSON(from: boolBody)
 
         // Assert
-        XCTAssertNil(result)
+        #expect(result == nil)
     }
 }

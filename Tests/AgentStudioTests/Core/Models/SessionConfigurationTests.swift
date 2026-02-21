@@ -1,10 +1,14 @@
-import XCTest
+import Testing
+import Foundation
 
 @testable import AgentStudio
 
-final class SessionConfigurationTests: XCTestCase {
+@Suite(.serialized)
+final class SessionConfigurationTests {
 
     // MARK: - isEnabled Parsing
+
+    @Test
 
     func test_isEnabled_defaultsToTrue() {
         // Arrange — no AGENTSTUDIO_SESSION_RESTORE in env
@@ -14,8 +18,10 @@ final class SessionConfigurationTests: XCTestCase {
         let config = SessionConfiguration.detect(environment: env)
 
         // Assert
-        XCTAssertTrue(config.isEnabled)
+        #expect(config.isEnabled)
     }
+
+    @Test
 
     func test_isEnabled_parsesTrue() {
         // Arrange
@@ -25,8 +31,10 @@ final class SessionConfigurationTests: XCTestCase {
         let config = SessionConfiguration.detect(environment: env)
 
         // Assert
-        XCTAssertTrue(config.isEnabled)
+        #expect(config.isEnabled)
     }
+
+    @Test
 
     func test_isEnabled_parses1() {
         // Arrange
@@ -36,8 +44,10 @@ final class SessionConfigurationTests: XCTestCase {
         let config = SessionConfiguration.detect(environment: env)
 
         // Assert
-        XCTAssertTrue(config.isEnabled)
+        #expect(config.isEnabled)
     }
+
+    @Test
 
     func test_isEnabled_parsesFalse() {
         // Arrange
@@ -47,10 +57,12 @@ final class SessionConfigurationTests: XCTestCase {
         let config = SessionConfiguration.detect(environment: env)
 
         // Assert
-        XCTAssertFalse(config.isEnabled)
+        #expect(!(config.isEnabled))
     }
 
     // MARK: - isOperational
+
+    @Test
 
     func test_isOperational_requiresEnabledAndZmx() {
         // enabled + zmx → operational
@@ -61,7 +73,7 @@ final class SessionConfigurationTests: XCTestCase {
             healthCheckInterval: 30,
             maxCheckpointAge: 604_800
         )
-        XCTAssertTrue(withZmx.isOperational)
+        #expect(withZmx.isOperational)
 
         // enabled + no zmx → not operational
         let noZmx = SessionConfiguration(
@@ -71,7 +83,7 @@ final class SessionConfigurationTests: XCTestCase {
             healthCheckInterval: 30,
             maxCheckpointAge: 604_800
         )
-        XCTAssertFalse(noZmx.isOperational)
+        #expect(!(noZmx.isOperational))
 
         // disabled + zmx → not operational
         let disabled = SessionConfiguration(
@@ -81,7 +93,7 @@ final class SessionConfigurationTests: XCTestCase {
             healthCheckInterval: 30,
             maxCheckpointAge: 604_800
         )
-        XCTAssertFalse(disabled.isOperational)
+        #expect(!(disabled.isOperational))
 
         // disabled + no zmx → not operational
         let both = SessionConfiguration(
@@ -91,10 +103,12 @@ final class SessionConfigurationTests: XCTestCase {
             healthCheckInterval: 30,
             maxCheckpointAge: 604_800
         )
-        XCTAssertFalse(both.isOperational)
+        #expect(!(both.isOperational))
     }
 
     // MARK: - Health Check Interval
+
+    @Test
 
     func test_healthCheckInterval_parsesFromEnv() {
         // Arrange
@@ -104,8 +118,10 @@ final class SessionConfigurationTests: XCTestCase {
         let config = SessionConfiguration.detect(environment: env)
 
         // Assert
-        XCTAssertEqual(config.healthCheckInterval, 60.0)
+        #expect(config.healthCheckInterval == 60.0)
     }
+
+    @Test
 
     func test_healthCheckInterval_defaultsTo30() {
         // Arrange — no AGENTSTUDIO_HEALTH_INTERVAL in env
@@ -115,10 +131,12 @@ final class SessionConfigurationTests: XCTestCase {
         let config = SessionConfiguration.detect(environment: env)
 
         // Assert
-        XCTAssertEqual(config.healthCheckInterval, 30.0)
+        #expect(config.healthCheckInterval == 30.0)
     }
 
     // MARK: - zmxDir
+
+    @Test
 
     func test_zmxDir_pointsToAgentStudioSubdir() {
         // Act
@@ -126,13 +144,12 @@ final class SessionConfigurationTests: XCTestCase {
 
         // Assert — should be under ~/.agentstudio/zmx/
         let homeDir = FileManager.default.homeDirectoryForCurrentUser.path
-        XCTAssertTrue(
-            config.zmxDir.hasPrefix(homeDir + "/.agentstudio/zmx"),
-            "zmxDir should be under ~/.agentstudio/zmx/, got: \(config.zmxDir)"
-        )
+        #expect(config.zmxDir.hasPrefix(homeDir + "/.agentstudio/zmx"))
     }
 
     // MARK: - Terminfo Discovery (Ghostty's own terminfo, independent of zmx)
+
+    @Test
 
     func test_resolveTerminfoDir_findsXtermGhostty() {
         // resolveTerminfoDir() must find the terminfo directory
@@ -142,14 +159,13 @@ final class SessionConfigurationTests: XCTestCase {
         let terminfoDir = SessionConfiguration.resolveTerminfoDir()
 
         // Assert
-        XCTAssertNotNil(terminfoDir, "resolveTerminfoDir() must find the terminfo directory")
+        #expect((terminfoDir) != nil)
         if let dir = terminfoDir {
-            XCTAssertTrue(
-                FileManager.default.fileExists(atPath: dir + "/78/xterm-ghostty"),
-                "terminfoDir must contain 78/xterm-ghostty: \(dir)"
-            )
+            #expect(FileManager.default.fileExists(atPath: dir + "/78/xterm-ghostty"))
         }
     }
+
+    @Test
 
     func test_customTerminfo_xterm256color_existsInBundle() {
         // Our custom xterm-256color terminfo must be bundled alongside
@@ -162,19 +178,13 @@ final class SessionConfigurationTests: XCTestCase {
                 includingPropertiesForKeys: nil
             )
         else {
-            XCTFail("terminfo/78/ directory not found in bundle")
+            Issue.record("terminfo/78/ directory not found in bundle")
             return
         }
 
         // Assert — both xterm-ghostty and xterm-256color must be present
         let filenames = contents.map { $0.lastPathComponent }
-        XCTAssertTrue(
-            filenames.contains("xterm-ghostty"),
-            "terminfo/78/ must contain xterm-ghostty (from Ghostty build)"
-        )
-        XCTAssertTrue(
-            filenames.contains("xterm-256color"),
-            "terminfo/78/ must contain custom xterm-256color"
-        )
+        #expect(filenames.contains("xterm-ghostty"))
+        #expect(filenames.contains("xterm-256color"))
     }
 }

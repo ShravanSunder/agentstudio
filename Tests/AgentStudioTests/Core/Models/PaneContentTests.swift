@@ -1,8 +1,10 @@
-import XCTest
+import Testing
+import Foundation
 
 @testable import AgentStudio
 
-final class PaneContentTests: XCTestCase {
+@Suite(.serialized)
+final class PaneContentTests {
 
     private let encoder: JSONEncoder = {
         let e = JSONEncoder()
@@ -13,6 +15,8 @@ final class PaneContentTests: XCTestCase {
 
     // MARK: - Round-Trip: Terminal
 
+    @Test
+
     func test_roundTrip_terminal() throws {
         // Arrange
         let content = PaneContent.terminal(TerminalState(provider: .zmx, lifetime: .persistent))
@@ -22,8 +26,10 @@ final class PaneContentTests: XCTestCase {
         let decoded = try decoder.decode(PaneContent.self, from: data)
 
         // Assert
-        XCTAssertEqual(decoded, content)
+        #expect(decoded == content)
     }
+
+    @Test
 
     func test_roundTrip_terminal_ghostty() throws {
         let content = PaneContent.terminal(TerminalState(provider: .ghostty, lifetime: .temporary))
@@ -31,10 +37,12 @@ final class PaneContentTests: XCTestCase {
         let data = try encoder.encode(content)
         let decoded = try decoder.decode(PaneContent.self, from: data)
 
-        XCTAssertEqual(decoded, content)
+        #expect(decoded == content)
     }
 
     // MARK: - Round-Trip: Webview
+
+    @Test
 
     func test_roundTrip_webview() throws {
         let content = PaneContent.webview(
@@ -46,8 +54,10 @@ final class PaneContentTests: XCTestCase {
         let data = try encoder.encode(content)
         let decoded = try decoder.decode(PaneContent.self, from: data)
 
-        XCTAssertEqual(decoded, content)
+        #expect(decoded == content)
     }
+
+    @Test
 
     func test_roundTrip_webview_withTitle() throws {
         // Arrange
@@ -63,17 +73,19 @@ final class PaneContentTests: XCTestCase {
         let decoded = try decoder.decode(PaneContent.self, from: data)
 
         // Assert
-        XCTAssertEqual(decoded, content)
+        #expect(decoded == content)
         if case .webview(let state) = decoded {
-            XCTAssertEqual(state.url.absoluteString, "https://github.com")
-            XCTAssertEqual(state.title, "GitHub")
-            XCTAssertFalse(state.showNavigation)
+            #expect(state.url.absoluteString == "https://github.com")
+            #expect(state.title == "GitHub")
+            #expect(!(state.showNavigation))
         } else {
-            XCTFail("Expected .webview")
+            Issue.record("Expected .webview")
         }
     }
 
     // MARK: - Round-Trip: CodeViewer
+
+    @Test
 
     func test_roundTrip_codeViewer() throws {
         let content = PaneContent.codeViewer(
@@ -85,8 +97,10 @@ final class PaneContentTests: XCTestCase {
         let data = try encoder.encode(content)
         let decoded = try decoder.decode(PaneContent.self, from: data)
 
-        XCTAssertEqual(decoded, content)
+        #expect(decoded == content)
     }
+
+    @Test
 
     func test_roundTrip_codeViewer_noScrollLine() throws {
         let content = PaneContent.codeViewer(
@@ -98,10 +112,12 @@ final class PaneContentTests: XCTestCase {
         let data = try encoder.encode(content)
         let decoded = try decoder.decode(PaneContent.self, from: data)
 
-        XCTAssertEqual(decoded, content)
+        #expect(decoded == content)
     }
 
     // MARK: - Encoded Format
+
+    @Test
 
     func test_encode_containsTypeAndVersion() throws {
         let content = PaneContent.terminal(TerminalState(provider: .zmx, lifetime: .persistent))
@@ -109,10 +125,12 @@ final class PaneContentTests: XCTestCase {
         let data = try encoder.encode(content)
         let json = try JSONSerialization.jsonObject(with: data) as! [String: Any]
 
-        XCTAssertEqual(json["type"] as? String, "terminal")
-        XCTAssertEqual(json["version"] as? Int, PaneContent.currentVersion)
-        XCTAssertNotNil(json["state"])
+        #expect(json["type"] as? String == "terminal")
+        #expect(json["version"] as? Int == PaneContent.currentVersion)
+        #expect((json["state"]) != nil)
     }
+
+    @Test
 
     func test_encode_webview_typeField() throws {
         let content = PaneContent.webview(
@@ -124,8 +142,10 @@ final class PaneContentTests: XCTestCase {
         let data = try encoder.encode(content)
         let json = try JSONSerialization.jsonObject(with: data) as! [String: Any]
 
-        XCTAssertEqual(json["type"] as? String, "webview")
+        #expect(json["type"] as? String == "webview")
     }
+
+    @Test
 
     func test_encode_webview_encodesURLAndTitle() throws {
         // Arrange
@@ -142,11 +162,13 @@ final class PaneContentTests: XCTestCase {
         let stateJson = json["state"] as? [String: Any]
 
         // Assert — encodes flat url/title/showNavigation (not tabs array)
-        XCTAssertEqual(stateJson?["url"] as? String, "https://example.com")
-        XCTAssertEqual(stateJson?["title"] as? String, "Example")
-        XCTAssertEqual(stateJson?["showNavigation"] as? Bool, true)
-        XCTAssertNil(stateJson?["tabs"], "Should not encode legacy tabs array")
+        #expect(stateJson?["url"] as? String == "https://example.com")
+        #expect(stateJson?["title"] as? String == "Example")
+        #expect(stateJson?["showNavigation"] as? Bool == true)
+        #expect((stateJson?["tabs"]) == nil)
     }
+
+    @Test
 
     func test_encode_codeViewer_typeField() throws {
         let content = PaneContent.codeViewer(
@@ -158,10 +180,12 @@ final class PaneContentTests: XCTestCase {
         let data = try encoder.encode(content)
         let json = try JSONSerialization.jsonObject(with: data) as! [String: Any]
 
-        XCTAssertEqual(json["type"] as? String, "codeViewer")
+        #expect(json["type"] as? String == "codeViewer")
     }
 
     // MARK: - Unknown Type → .unsupported
+
+    @Test
 
     func test_decode_unknownType_decodesAsUnsupported() throws {
         let json: [String: Any] = [
@@ -174,13 +198,15 @@ final class PaneContentTests: XCTestCase {
         let decoded = try decoder.decode(PaneContent.self, from: data)
 
         if case .unsupported(let content) = decoded {
-            XCTAssertEqual(content.type, "aiAssistant")
-            XCTAssertEqual(content.version, 2)
-            XCTAssertNotNil(content.rawState)
+            #expect(content.type == "aiAssistant")
+            #expect(content.version == 2)
+            #expect((content.rawState) != nil)
         } else {
-            XCTFail("Expected .unsupported, got \(decoded)")
+            Issue.record("Expected .unsupported, got \(decoded)")
         }
     }
+
+    @Test
 
     func test_decode_unknownType_noState_decodesAsUnsupported() throws {
         let json: [String: Any] = [
@@ -192,13 +218,15 @@ final class PaneContentTests: XCTestCase {
         let decoded = try decoder.decode(PaneContent.self, from: data)
 
         if case .unsupported(let content) = decoded {
-            XCTAssertEqual(content.type, "futureType")
-            XCTAssertEqual(content.version, 5)
-            XCTAssertNil(content.rawState)
+            #expect(content.type == "futureType")
+            #expect(content.version == 5)
+            #expect((content.rawState) == nil)
         } else {
-            XCTFail("Expected .unsupported, got \(decoded)")
+            Issue.record("Expected .unsupported, got \(decoded)")
         }
     }
+
+    @Test
 
     func test_decode_missingType_decodesAsUnsupported() throws {
         let json: [String: Any] = [
@@ -210,13 +238,15 @@ final class PaneContentTests: XCTestCase {
         let decoded = try decoder.decode(PaneContent.self, from: data)
 
         if case .unsupported(let content) = decoded {
-            XCTAssertEqual(content.type, "unknown")
+            #expect(content.type == "unknown")
         } else {
-            XCTFail("Expected .unsupported, got \(decoded)")
+            Issue.record("Expected .unsupported, got \(decoded)")
         }
     }
 
     // MARK: - Unsupported Round-Trip Preservation
+
+    @Test
 
     func test_unsupported_roundTrip_preservesState() throws {
         let json: [String: Any] = [
@@ -233,13 +263,15 @@ final class PaneContentTests: XCTestCase {
         let reencoded = try encoder.encode(decoded)
         let redecodedJson = try JSONSerialization.jsonObject(with: reencoded) as! [String: Any]
 
-        XCTAssertEqual(redecodedJson["type"] as? String, "aiAssistant")
-        XCTAssertEqual(redecodedJson["version"] as? Int, 3)
+        #expect(redecodedJson["type"] as? String == "aiAssistant")
+        #expect(redecodedJson["version"] as? Int == 3)
         let state = redecodedJson["state"] as? [String: Any]
-        XCTAssertEqual(state?["model"] as? String, "claude-4")
+        #expect(state?["model"] as? String == "claude-4")
     }
 
     // MARK: - Version Default
+
+    @Test
 
     func test_decode_missingVersion_defaultsTo1() throws {
         let json: [String: Any] = [
@@ -251,14 +283,16 @@ final class PaneContentTests: XCTestCase {
         let decoded = try decoder.decode(PaneContent.self, from: data)
 
         if case .terminal(let state) = decoded {
-            XCTAssertEqual(state.provider, .zmx)
-            XCTAssertEqual(state.lifetime, .persistent)
+            #expect(state.provider == .zmx)
+            #expect(state.lifetime == .persistent)
         } else {
-            XCTFail("Expected .terminal, got \(decoded)")
+            Issue.record("Expected .terminal, got \(decoded)")
         }
     }
 
     // MARK: - AnyCodableValue Round-Trip
+
+    @Test
 
     func test_anyCodableValue_roundTrip_allTypes() throws {
         let value = AnyCodableValue.object([
@@ -274,10 +308,12 @@ final class PaneContentTests: XCTestCase {
         let data = try encoder.encode(value)
         let decoded = try decoder.decode(AnyCodableValue.self, from: data)
 
-        XCTAssertEqual(decoded, value)
+        #expect(decoded == value)
     }
 
     // MARK: - Pane with PaneContent Round-Trip
+
+    @Test
 
     func test_pane_roundTrip_terminalContent() throws {
         let pane = makePane(provider: .zmx, lifetime: .persistent)
@@ -285,45 +321,55 @@ final class PaneContentTests: XCTestCase {
         let data = try encoder.encode(pane)
         let decoded = try decoder.decode(Pane.self, from: data)
 
-        XCTAssertEqual(decoded.id, pane.id)
-        XCTAssertEqual(decoded.content, pane.content)
-        XCTAssertEqual(decoded.provider, .zmx)
-        XCTAssertEqual(decoded.lifetime, .persistent)
+        #expect(decoded.id == pane.id)
+        #expect(decoded.content == pane.content)
+        #expect(decoded.provider == .zmx)
+        #expect(decoded.lifetime == .persistent)
     }
 
     // MARK: - WebviewState
+
+    @Test
 
     func test_webviewState_init_defaults() {
         // Arrange & Act
         let state = WebviewState(url: URL(string: "https://example.com")!)
 
         // Assert
-        XCTAssertEqual(state.url.absoluteString, "https://example.com")
-        XCTAssertEqual(state.title, "")
-        XCTAssertTrue(state.showNavigation)
+        #expect(state.url.absoluteString == "https://example.com")
+        #expect(state.title == "")
+        #expect(state.showNavigation)
     }
+
+    @Test
 
     func test_webviewState_init_noNavigation() {
         let state = WebviewState(url: URL(string: "https://example.com")!, showNavigation: false)
-        XCTAssertFalse(state.showNavigation)
+        #expect(!(state.showNavigation))
     }
+
+    @Test
 
     func test_webviewState_hashable_sameContent_sameHash() {
         let url = URL(string: "https://example.com")!
         let s1 = WebviewState(url: url, title: "Test", showNavigation: true)
         let s2 = WebviewState(url: url, title: "Test", showNavigation: true)
-        XCTAssertEqual(s1, s2)
-        XCTAssertEqual(s1.hashValue, s2.hashValue)
+        #expect(s1 == s2)
+        #expect(s1.hashValue == s2.hashValue)
     }
+
+    @Test
 
     func test_webviewState_differentTitle_notEqual() {
         let url = URL(string: "https://example.com")!
         let s1 = WebviewState(url: url, title: "A")
         let s2 = WebviewState(url: url, title: "B")
-        XCTAssertNotEqual(s1, s2)
+        #expect(s1 != s2)
     }
 
     // MARK: - Backward-Compatible Decoding
+
+    @Test
 
     func test_decode_legacyV1_singleURL() throws {
         // Arrange — v1 shape: {url, showNavigation} (no title)
@@ -337,10 +383,12 @@ final class PaneContentTests: XCTestCase {
         let state = try decoder.decode(WebviewState.self, from: data)
 
         // Assert
-        XCTAssertEqual(state.url.absoluteString, "https://example.com")
-        XCTAssertEqual(state.title, "")
-        XCTAssertTrue(state.showNavigation)
+        #expect(state.url.absoluteString == "https://example.com")
+        #expect(state.title == "")
+        #expect(state.showNavigation)
     }
+
+    @Test
 
     func test_decode_legacyV1_noNavigation() throws {
         let json: [String: Any] = [
@@ -351,8 +399,10 @@ final class PaneContentTests: XCTestCase {
 
         let state = try decoder.decode(WebviewState.self, from: data)
 
-        XCTAssertFalse(state.showNavigation)
+        #expect(!(state.showNavigation))
     }
+
+    @Test
 
     func test_decode_legacyV2_tabsArray_extractsActiveTab() throws {
         // Arrange — v2 multi-tab shape: {tabs: [{url, title}], activeTabIndex}
@@ -370,9 +420,11 @@ final class PaneContentTests: XCTestCase {
         let state = try decoder.decode(WebviewState.self, from: data)
 
         // Assert — extracts the active tab (index 1 = docs.swift.org)
-        XCTAssertEqual(state.url.absoluteString, "https://docs.swift.org")
-        XCTAssertTrue(state.showNavigation)
+        #expect(state.url.absoluteString == "https://docs.swift.org")
+        #expect(state.showNavigation)
     }
+
+    @Test
 
     func test_decode_legacyV2_tabsArray_fallsBackToFirstTab() throws {
         // Arrange — tabs shape with out-of-range activeTabIndex
@@ -389,8 +441,10 @@ final class PaneContentTests: XCTestCase {
         let state = try decoder.decode(WebviewState.self, from: data)
 
         // Assert — falls back to first tab
-        XCTAssertEqual(state.url.absoluteString, "https://github.com")
+        #expect(state.url.absoluteString == "https://github.com")
     }
+
+    @Test
 
     func test_decode_legacyV2_viaFullPaneContent() throws {
         // Arrange — PaneContent envelope with v2 tabs shape
@@ -412,11 +466,13 @@ final class PaneContentTests: XCTestCase {
 
         // Assert
         if case .webview(let state) = content {
-            XCTAssertEqual(state.url.absoluteString, "https://github.com")
+            #expect(state.url.absoluteString == "https://github.com")
         } else {
-            XCTFail("Expected .webview, got \(content)")
+            Issue.record("Expected .webview, got \(content)")
         }
     }
+
+    @Test
 
     func test_decode_legacyV1_viaFullPaneContent() throws {
         // Arrange — PaneContent envelope with v1 single-URL shape
@@ -435,11 +491,13 @@ final class PaneContentTests: XCTestCase {
 
         // Assert
         if case .webview(let state) = content {
-            XCTAssertEqual(state.url.absoluteString, "https://github.com")
+            #expect(state.url.absoluteString == "https://github.com")
         } else {
-            XCTFail("Expected .webview, got \(content)")
+            Issue.record("Expected .webview, got \(content)")
         }
     }
+
+    @Test
 
     func test_decode_currentShape_roundTrips() throws {
         // Arrange
@@ -454,6 +512,6 @@ final class PaneContentTests: XCTestCase {
         let decoded = try decoder.decode(WebviewState.self, from: data)
 
         // Assert
-        XCTAssertEqual(decoded, state)
+        #expect(decoded == state)
     }
 }

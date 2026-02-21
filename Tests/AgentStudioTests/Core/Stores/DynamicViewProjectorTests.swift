@@ -1,8 +1,10 @@
-import XCTest
+import Testing
+import Foundation
 
 @testable import AgentStudio
 
-final class DynamicViewProjectorTests: XCTestCase {
+@Suite(.serialized)
+final class DynamicViewProjectorTests {
 
     // MARK: - Helpers
 
@@ -74,6 +76,8 @@ final class DynamicViewProjectorTests: XCTestCase {
 
     // MARK: - By Repo
 
+    @Test
+
     func test_byRepo_groupsByRepository() {
         let (panes, repos, tabs) = makeTestPanes()
         let paneList = Array(panes.values)
@@ -84,25 +88,27 @@ final class DynamicViewProjectorTests: XCTestCase {
             viewType: .byRepo, panes: panes, tabs: tabs, repos: repos
         )
 
-        XCTAssertEqual(result.viewType, .byRepo)
+        #expect(result.viewType == .byRepo)
         // 3 groups: agent-studio, askluna, floating
-        XCTAssertEqual(result.groups.count, 3)
+        #expect(result.groups.count == 3)
 
         let repoNames = Set(result.groups.map(\.name))
-        XCTAssertTrue(repoNames.contains("agent-studio"))
-        XCTAssertTrue(repoNames.contains("askluna"))
-        XCTAssertTrue(repoNames.contains("Floating"))
+        #expect(repoNames.contains("agent-studio"))
+        #expect(repoNames.contains("askluna"))
+        #expect(repoNames.contains("Floating"))
 
         // agent-studio has 2 panes
         let agentStudioGroup = result.groups.first { $0.name == "agent-studio" }!
-        XCTAssertEqual(agentStudioGroup.paneIds.count, 2)
-        XCTAssertEqual(Set(agentStudioGroup.paneIds), Set(agentStudioPanes.map(\.id)))
+        #expect(agentStudioGroup.paneIds.count == 2)
+        #expect(Set(agentStudioGroup.paneIds) == Set(agentStudioPanes.map(\.id)))
 
         // askluna has 1 pane
         let asklunaGroup = result.groups.first { $0.name == "askluna" }!
-        XCTAssertEqual(asklunaGroup.paneIds.count, 1)
-        XCTAssertEqual(Set(asklunaGroup.paneIds), Set(asklunaPanes.map(\.id)))
+        #expect(asklunaGroup.paneIds.count == 1)
+        #expect(Set(asklunaGroup.paneIds) == Set(asklunaPanes.map(\.id)))
     }
+
+    @Test
 
     func test_byRepo_sortedAlphabetically() {
         let (panes, repos, tabs) = makeTestPanes()
@@ -112,10 +118,12 @@ final class DynamicViewProjectorTests: XCTestCase {
         )
 
         let names = result.groups.map(\.name)
-        XCTAssertEqual(names, names.sorted { $0.localizedCaseInsensitiveCompare($1) == .orderedAscending })
+        #expect(names == names.sorted { $0.localizedCaseInsensitiveCompare($1) == .orderedAscending })
     }
 
     // MARK: - By Worktree
+
+    @Test
 
     func test_byWorktree_groupsByWorktree() {
         let (panes, repos, tabs) = makeTestPanes()
@@ -125,15 +133,17 @@ final class DynamicViewProjectorTests: XCTestCase {
         )
 
         // 3 worktrees + 1 floating
-        XCTAssertEqual(result.groups.count, 4)
+        #expect(result.groups.count == 4)
 
         let groupNames = Set(result.groups.map(\.name))
-        XCTAssertTrue(groupNames.contains("main"))  // wtA1 and wtB1 both named "main" — they're different IDs
-        XCTAssertTrue(groupNames.contains("feature-x"))
-        XCTAssertTrue(groupNames.contains("Floating"))
+        #expect(groupNames.contains("main"))  // wtA1 and wtB1 both named "main" — they're different IDs
+        #expect(groupNames.contains("feature-x"))
+        #expect(groupNames.contains("Floating"))
     }
 
     // MARK: - By CWD
+
+    @Test
 
     func test_byCWD_groupsByCWD() {
         let (panes, repos, tabs) = makeTestPanes()
@@ -143,14 +153,16 @@ final class DynamicViewProjectorTests: XCTestCase {
         )
 
         // 3 distinct CWDs + 1 with no CWD
-        XCTAssertGreaterThanOrEqual(result.groups.count, 3)
+        #expect(result.groups.count >= 3)
 
         // Pane4 (docs webview) has no CWD — should be in "No CWD"
         let noCWDGroup = result.groups.first { $0.name == "No CWD" }
-        XCTAssertNotNil(noCWDGroup)
+        #expect((noCWDGroup) != nil)
     }
 
     // MARK: - By Agent Type
+
+    @Test
 
     func test_byAgentType_groupsByAgent() {
         let (panes, repos, tabs) = makeTestPanes()
@@ -160,15 +172,17 @@ final class DynamicViewProjectorTests: XCTestCase {
         )
 
         let groupNames = Set(result.groups.map(\.name))
-        XCTAssertTrue(groupNames.contains("Claude Code"))  // pane1 + pane3
-        XCTAssertTrue(groupNames.contains("Codex"))  // pane2
-        XCTAssertTrue(groupNames.contains("No Agent"))  // pane4
+        #expect(groupNames.contains("Claude Code"))  // pane1 + pane3
+        #expect(groupNames.contains("Codex"))  // pane2
+        #expect(groupNames.contains("No Agent"))  // pane4
 
         let claudeGroup = result.groups.first { $0.name == "Claude Code" }!
-        XCTAssertEqual(claudeGroup.paneIds.count, 2)
+        #expect(claudeGroup.paneIds.count == 2)
     }
 
     // MARK: - By Parent Folder
+
+    @Test
 
     func test_byParentFolder_groupsByRepoParent() {
         let (panes, repos, tabs) = makeTestPanes()
@@ -180,24 +194,28 @@ final class DynamicViewProjectorTests: XCTestCase {
         // Both repos are under /Users/dev/projects/
         // So all worktree panes share one parent folder group
         let projectsGroup = result.groups.first { $0.name == "projects" }
-        XCTAssertNotNil(projectsGroup, "Expected group for 'projects' parent folder")
+        #expect((projectsGroup) != nil)
         if let pg = projectsGroup {
-            XCTAssertEqual(pg.paneIds.count, 3)  // 3 worktree panes
+            #expect(pg.paneIds.count == 3)  // 3 worktree panes
         }
 
         // Floating pane should be in "Floating" group
-        XCTAssertTrue(result.groups.contains { $0.name == "Floating" })
+        #expect(result.groups.contains { $0.name == "Floating" })
     }
 
     // MARK: - Edge Cases
+
+    @Test
 
     func test_emptyPanes_producesEmptyGroups() {
         let result = DynamicViewProjector.project(
             viewType: .byRepo, panes: [:], tabs: [], repos: []
         )
 
-        XCTAssertTrue(result.groups.isEmpty)
+        #expect(result.groups.isEmpty)
     }
+
+    @Test
 
     func test_backgroundedPanes_excluded() {
         var (panes, repos, tabs) = makeTestPanes()
@@ -214,8 +232,10 @@ final class DynamicViewProjectorTests: XCTestCase {
 
         // The backgrounded pane should not appear in any group
         let allPaneIds = result.groups.flatMap(\.paneIds)
-        XCTAssertFalse(allPaneIds.contains(backgroundedId))
+        #expect(!(allPaneIds.contains(backgroundedId)))
     }
+
+    @Test
 
     func test_panesNotInTabs_excluded() {
         var (panes, repos, tabs) = makeTestPanes()
@@ -231,8 +251,10 @@ final class DynamicViewProjectorTests: XCTestCase {
         )
 
         let allPaneIds = result.groups.flatMap(\.paneIds)
-        XCTAssertFalse(allPaneIds.contains(orphan.id))
+        #expect(!(allPaneIds.contains(orphan.id)))
     }
+
+    @Test
 
     func test_autoTiledLayouts_containAllPanes() {
         let (panes, repos, tabs) = makeTestPanes()
@@ -242,23 +264,25 @@ final class DynamicViewProjectorTests: XCTestCase {
         )
 
         for group in result.groups {
-            XCTAssertEqual(
-                Set(group.layout.paneIds), Set(group.paneIds),
-                "Layout pane IDs should match group pane IDs for \(group.name)")
+            #expect(Set(group.layout.paneIds) == Set(group.paneIds), "Layout pane IDs should match group pane IDs for \(group.name)")
         }
     }
 
     // MARK: - DynamicViewType
 
+    @Test
+
     func test_dynamicViewType_displayNames() {
-        XCTAssertEqual(DynamicViewType.byRepo.displayName, "By Repo")
-        XCTAssertEqual(DynamicViewType.byWorktree.displayName, "By Worktree")
-        XCTAssertEqual(DynamicViewType.byCWD.displayName, "By CWD")
-        XCTAssertEqual(DynamicViewType.byAgentType.displayName, "By Agent Type")
-        XCTAssertEqual(DynamicViewType.byParentFolder.displayName, "By Parent Folder")
+        #expect(DynamicViewType.byRepo.displayName == "By Repo")
+        #expect(DynamicViewType.byWorktree.displayName == "By Worktree")
+        #expect(DynamicViewType.byCWD.displayName == "By CWD")
+        #expect(DynamicViewType.byAgentType.displayName == "By Agent Type")
+        #expect(DynamicViewType.byParentFolder.displayName == "By Parent Folder")
     }
 
+    @Test
+
     func test_dynamicViewType_allCases() {
-        XCTAssertEqual(DynamicViewType.allCases.count, 5)
+        #expect(DynamicViewType.allCases.count == 5)
     }
 }

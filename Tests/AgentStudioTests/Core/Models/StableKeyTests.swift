@@ -1,10 +1,14 @@
-import XCTest
+import Testing
+import Foundation
 
 @testable import AgentStudio
 
-final class StableKeyTests: XCTestCase {
+@Suite(.serialized)
+final class StableKeyTests {
 
     // MARK: - Determinism
+
+    @Test
 
     func test_fromPath_samePathProducesSameKey() {
         // Arrange
@@ -15,10 +19,12 @@ final class StableKeyTests: XCTestCase {
         let key2 = StableKey.fromPath(url)
 
         // Assert
-        XCTAssertEqual(key1, key2)
+        #expect(key1 == key2)
     }
 
     // MARK: - Uniqueness
+
+    @Test
 
     func test_fromPath_differentPathsProduceDifferentKeys() {
         // Arrange
@@ -30,10 +36,12 @@ final class StableKeyTests: XCTestCase {
         let key2 = StableKey.fromPath(url2)
 
         // Assert
-        XCTAssertNotEqual(key1, key2)
+        #expect(key1 != key2)
     }
 
     // MARK: - Format
+
+    @Test
 
     func test_fromPath_produces16HexChars() {
         // Arrange
@@ -43,10 +51,12 @@ final class StableKeyTests: XCTestCase {
         let key = StableKey.fromPath(url)
 
         // Assert
-        XCTAssertEqual(key.count, 16)
+        #expect(key.count == 16)
         let hexChars = CharacterSet(charactersIn: "0123456789abcdef")
-        XCTAssertTrue(key.unicodeScalars.allSatisfy { hexChars.contains($0) })
+        #expect(key.unicodeScalars.allSatisfy { hexChars.contains($0) })
     }
+
+    @Test
 
     func test_fromPath_producesLowercaseHex() {
         // Arrange
@@ -56,10 +66,12 @@ final class StableKeyTests: XCTestCase {
         let key = StableKey.fromPath(url)
 
         // Assert
-        XCTAssertEqual(key, key.lowercased())
+        #expect(key == key.lowercased())
     }
 
     // MARK: - Symlink Resolution
+
+    @Test
 
     func test_fromPath_resolvesSymlinks() throws {
         // Arrange — create a temp directory and a symlink to it
@@ -78,10 +90,12 @@ final class StableKeyTests: XCTestCase {
         let keyFromSymlink = StableKey.fromPath(symlinkDir)
 
         // Assert — both should resolve to the same key
-        XCTAssertEqual(keyFromReal, keyFromSymlink)
+        #expect(keyFromReal == keyFromSymlink)
     }
 
     // MARK: - Repo/Worktree Integration
+
+    @Test
 
     func test_repo_stableKey_matchesStableKeyFromPath() {
         // Arrange
@@ -92,8 +106,10 @@ final class StableKeyTests: XCTestCase {
         let fromPath = StableKey.fromPath(repo.repoPath)
 
         // Assert
-        XCTAssertEqual(stableKey, fromPath)
+        #expect(stableKey == fromPath)
     }
+
+    @Test
 
     func test_worktree_stableKey_matchesStableKeyFromPath() {
         // Arrange
@@ -104,6 +120,6 @@ final class StableKeyTests: XCTestCase {
         let fromPath = StableKey.fromPath(worktree.path)
 
         // Assert
-        XCTAssertEqual(stableKey, fromPath)
+        #expect(stableKey == fromPath)
     }
 }

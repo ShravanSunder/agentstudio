@@ -1,118 +1,130 @@
-import XCTest
+import Testing
+import Foundation
 
 @testable import AgentStudio
 
-final class CommandBarSearchTests: XCTestCase {
+@Suite(.serialized)
+struct CommandBarSearchTests {
 
-    // MARK: - Fuzzy Match — Basic Matching
-
+    @Test
     func test_fuzzyMatch_exactMatch_returnsLowScore() {
         // Act
         let result = CommandBarSearch.fuzzyMatch(pattern: "Close Tab", in: "Close Tab")
 
         // Assert
-        XCTAssertNotNil(result)
-        XCTAssertLessThan(result!.score, 0.3)
+        #expect(result != nil)
+        #expect(#require(result).score < 0.3)
     }
 
+    @Test
     func test_fuzzyMatch_prefixMatch_returnsLowScore() {
         // Act
         let result = CommandBarSearch.fuzzyMatch(pattern: "clo", in: "Close Tab")
 
         // Assert
-        XCTAssertNotNil(result)
-        XCTAssertLessThan(result!.score, 0.5)
+        #expect(result != nil)
+        #expect(#require(result).score < 0.5)
     }
 
+    @Test
     func test_fuzzyMatch_caseInsensitive_matches() {
         // Act
         let result = CommandBarSearch.fuzzyMatch(pattern: "close", in: "Close Tab")
 
         // Assert
-        XCTAssertNotNil(result)
+        #expect(result != nil)
     }
 
+    @Test
     func test_fuzzyMatch_noMatch_returnsNil() {
         // Act
         let result = CommandBarSearch.fuzzyMatch(pattern: "xyz", in: "Close Tab")
 
         // Assert
-        XCTAssertNil(result)
+        #expect(result == nil)
     }
 
+    @Test
     func test_fuzzyMatch_emptyPattern_returnsZeroScore() {
         // Act
         let result = CommandBarSearch.fuzzyMatch(pattern: "", in: "Close Tab")
 
         // Assert
-        XCTAssertNotNil(result)
-        XCTAssertEqual(result!.score, 0.0)
-        XCTAssertTrue(result!.matchedRanges.isEmpty)
+        #expect(result != nil)
+        #expect(#require(result).score == 0.0)
+        #expect(#require(result).matchedRanges.isEmpty)
     }
 
+    @Test
     func test_fuzzyMatch_emptyText_returnsNil() {
         // Act
         let result = CommandBarSearch.fuzzyMatch(pattern: "a", in: "")
 
         // Assert
-        XCTAssertNil(result)
+        #expect(result == nil)
     }
 
     // MARK: - Fuzzy Match — Scoring Quality
 
+    @Test
     func test_fuzzyMatch_consecutiveChars_scoreBetterThanScattered() {
         // Act
         let consecutive = CommandBarSearch.fuzzyMatch(pattern: "sp", in: "Split Right")
         let scattered = CommandBarSearch.fuzzyMatch(pattern: "st", in: "Split Right")
 
         // Assert — both match, but consecutive should score better (lower)
-        XCTAssertNotNil(consecutive)
-        XCTAssertNotNil(scattered)
-        XCTAssertLessThan(consecutive!.score, scattered!.score)
+        #expect(consecutive != nil)
+        #expect(scattered != nil)
+        #expect(#require(consecutive).score < #require(scattered).score)
     }
 
+    @Test
     func test_fuzzyMatch_wordStartMatch_scoresBetter() {
         // Act
         let wordStart = CommandBarSearch.fuzzyMatch(pattern: "sr", in: "Split Right")
         let midWord = CommandBarSearch.fuzzyMatch(pattern: "pi", in: "Split Right")
 
         // Assert — word start (S + R) should score better
-        XCTAssertNotNil(wordStart)
-        XCTAssertNotNil(midWord)
-        XCTAssertLessThan(wordStart!.score, midWord!.score)
+        #expect(wordStart != nil)
+        #expect(midWord != nil)
+        #expect(#require(wordStart).score < #require(midWord).score)
     }
 
     // MARK: - Fuzzy Match — Ranges
 
+    @Test
     func test_fuzzyMatch_returnsMatchedRanges() {
         // Act
         let result = CommandBarSearch.fuzzyMatch(pattern: "ct", in: "Close Tab")
 
         // Assert
-        XCTAssertNotNil(result)
-        XCTAssertFalse(result!.matchedRanges.isEmpty)
+        #expect(result != nil)
+        #expect(#require(result).matchedRanges.isEmpty == false)
     }
 
+    @Test
     func test_fuzzyMatch_consecutiveChars_coalesceIntoSingleRange() {
         // Act
         let result = CommandBarSearch.fuzzyMatch(pattern: "Clo", in: "Close Tab")
 
         // Assert — "Clo" should produce 1 contiguous range
-        XCTAssertNotNil(result)
-        XCTAssertEqual(result!.matchedRanges.count, 1)
+        #expect(result != nil)
+        #expect(#require(result).matchedRanges.count == 1)
     }
 
+    @Test
     func test_fuzzyMatch_scatteredChars_produceMultipleRanges() {
         // Act
         let result = CommandBarSearch.fuzzyMatch(pattern: "ct", in: "Close Tab")
 
         // Assert — "C" and "T" are non-contiguous → 2 ranges
-        XCTAssertNotNil(result)
-        XCTAssertEqual(result!.matchedRanges.count, 2)
+        #expect(result != nil)
+        #expect(#require(result).matchedRanges.count == 2)
     }
 
     // MARK: - Score Item
 
+    @Test
     func test_scoreItem_emptyQuery_returnsZero() {
         // Arrange
         let item = makeCommandBarItem(title: "Close Tab")
@@ -121,9 +133,10 @@ final class CommandBarSearchTests: XCTestCase {
         let score = CommandBarSearch.scoreItem(item, query: "")
 
         // Assert — empty query matches everything with best score
-        XCTAssertEqual(score, 0.0)
+        #expect(score == 0.0)
     }
 
+    @Test
     func test_scoreItem_matchingTitle_returnsScore() {
         // Arrange
         let item = makeCommandBarItem(title: "Close Tab")
@@ -132,10 +145,11 @@ final class CommandBarSearchTests: XCTestCase {
         let score = CommandBarSearch.scoreItem(item, query: "close")
 
         // Assert
-        XCTAssertNotNil(score)
-        XCTAssertLessThan(score!, 0.7)
+        #expect(score != nil)
+        #expect(#require(score) < 0.7)
     }
 
+    @Test
     func test_scoreItem_noMatch_returnsNil() {
         // Arrange
         let item = makeCommandBarItem(title: "Close Tab")
@@ -144,9 +158,10 @@ final class CommandBarSearchTests: XCTestCase {
         let score = CommandBarSearch.scoreItem(item, query: "xyzzy")
 
         // Assert
-        XCTAssertNil(score)
+        #expect(score == nil)
     }
 
+    @Test
     func test_scoreItem_matchingKeyword_returnsScore() {
         // Arrange
         let item = makeCommandBarItem(title: "Close Tab", keywords: ["shutdown", "remove"])
@@ -155,9 +170,10 @@ final class CommandBarSearchTests: XCTestCase {
         let score = CommandBarSearch.scoreItem(item, query: "shut")
 
         // Assert
-        XCTAssertNotNil(score)
+        #expect(score != nil)
     }
 
+    @Test
     func test_scoreItem_matchingSubtitle_returnsScore() {
         // Arrange
         let item = makeCommandBarItem(title: "Terminal", subtitle: "main-feature")
@@ -166,9 +182,10 @@ final class CommandBarSearchTests: XCTestCase {
         let score = CommandBarSearch.scoreItem(item, query: "main")
 
         // Assert
-        XCTAssertNotNil(score)
+        #expect(score != nil)
     }
 
+    @Test
     func test_scoreItem_recentBoost_improvedScore() {
         // Arrange
         let item = makeCommandBarItem(id: "recent-item", title: "Close Tab")
@@ -178,13 +195,14 @@ final class CommandBarSearchTests: XCTestCase {
         let scoreWithRecent = CommandBarSearch.scoreItem(item, query: "close", recentIds: ["recent-item"])
 
         // Assert — recent item should score better (lower)
-        XCTAssertNotNil(scoreWithoutRecent)
-        XCTAssertNotNil(scoreWithRecent)
-        XCTAssertLessThan(scoreWithRecent!, scoreWithoutRecent!)
+        #expect(scoreWithoutRecent != nil)
+        #expect(scoreWithRecent != nil)
+        #expect(#require(scoreWithRecent) < #require(scoreWithoutRecent))
     }
 
     // MARK: - Filter
 
+    @Test
     func test_filter_emptyQuery_returnsAllItems() {
         // Arrange
         let items = [
@@ -196,9 +214,10 @@ final class CommandBarSearchTests: XCTestCase {
         let filtered = CommandBarSearch.filter(items: items, query: "")
 
         // Assert
-        XCTAssertEqual(filtered.count, 2)
+        #expect(filtered.count == 2)
     }
 
+    @Test
     func test_filter_matchingQuery_returnsMatchedItemsSorted() {
         // Arrange
         let items = [
@@ -211,10 +230,11 @@ final class CommandBarSearchTests: XCTestCase {
         let filtered = CommandBarSearch.filter(items: items, query: "close")
 
         // Assert — only "Close Tab" and "Close Pane" match
-        XCTAssertEqual(filtered.count, 2)
-        XCTAssertTrue(filtered.allSatisfy { $0.title.lowercased().contains("close") })
+        #expect(filtered.count == 2)
+        #expect(filtered.allSatisfy { $0.title.lowercased().contains("close") })
     }
 
+    @Test
     func test_filter_noMatches_returnsEmpty() {
         // Arrange
         let items = [
@@ -225,6 +245,6 @@ final class CommandBarSearchTests: XCTestCase {
         let filtered = CommandBarSearch.filter(items: items, query: "xyzzy")
 
         // Assert
-        XCTAssertTrue(filtered.isEmpty)
+        #expect(filtered.isEmpty)
     }
 }

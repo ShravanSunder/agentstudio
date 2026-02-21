@@ -1,6 +1,7 @@
 import AsyncAlgorithms
 import Observation
-import XCTest
+import Testing
+import Foundation
 
 // MARK: - Test Support Types
 
@@ -44,17 +45,18 @@ struct SpikeContainer<T> {
 /// These tests validate that the Swift 6.2 / macOS 26 primitives required
 /// by the push pipeline (Slice, PushPlanBuilder) work as documented.
 @MainActor
-final class ObservationSpikeTests: XCTestCase {
+@Suite(.serialized)
+final class ObservationSpikeTests {
 
     // MARK: - 1. Observations Basic Iteration
 
     /// Verify that `Observations { state.propertyA }` yields values
     /// when propertyA changes, starting with the initial value.
+    @Test
     func test_observations_basicIteration_yieldsOnPropertyChange() async throws {
         // Arrange
         let state = SpikeTestState()
         var collectedValues: [Int] = []
-        let expectation = XCTestExpectation(description: "Collected at least 3 values")
 
         let observationTask = Task { @MainActor in
             let stream = Observations { state.propertyA }
@@ -62,7 +64,6 @@ final class ObservationSpikeTests: XCTestCase {
                 collectedValues.append(value)
                 // Initial value (0) + two mutations = 3 values
                 if collectedValues.count >= 3 {
-                    expectation.fulfill()
                     break
                 }
             }
@@ -78,39 +79,33 @@ final class ObservationSpikeTests: XCTestCase {
         try await Task.sleep(for: .milliseconds(50))
 
         // Assert
-        await fulfillment(of: [expectation], timeout: 2.0)
+        let didCollectValues = try await waitForCondition {
+            collectedValues.count >= 3
+        }
+        #expect(didCollectValues)
         observationTask.cancel()
 
-        XCTAssertGreaterThanOrEqual(
-            collectedValues.count, 3,
-            "Expected initial value + 2 mutations = at least 3 values")
-        XCTAssertEqual(
-            collectedValues.first, 0,
-            "First emitted value should be the initial value (0)")
-        XCTAssertTrue(collectedValues.contains(10), "Should contain mutation value 10")
-        XCTAssertTrue(collectedValues.contains(20), "Should contain mutation value 20")
+        #expect(collectedValues.count >= 3, "Expected initial value + 2 mutations = at least 3 values")
+        #expect(collectedValues.first == 0, "First emitted value should be the initial value (0)")
+        #expect(collectedValues.contains(10), "Should contain mutation value 10")
+        #expect(collectedValues.contains(20), "Should contain mutation value 20")
     }
 
     // MARK: - 2. Observations Debounce
 
     /// Verify that `.debounce(for:)` from AsyncAlgorithms coalesces rapid
     /// mutations into fewer emitted values.
+    @Test
     func test_observations_debounce_coalescesRapidMutations() async throws {
         // Arrange
         let state = SpikeTestState()
         var collectedValues: [Int] = []
-        let expectation = XCTestExpectation(description: "Received debounced values")
 
         let observationTask = Task { @MainActor in
             let stream = Observations { state.propertyA }
                 .debounce(for: .milliseconds(100))
             for await value in stream {
                 collectedValues.append(value)
-                // We expect the debounced stream to eventually yield
-                // a value after the rapid mutations settle
-                if collectedValues.count >= 1 {
-                    expectation.fulfill()
-                }
                 // Stop after enough time for all values to settle
                 if collectedValues.count >= 3 {
                     break
@@ -132,20 +127,19 @@ final class ObservationSpikeTests: XCTestCase {
         try await Task.sleep(for: .milliseconds(300))
 
         // Assert
-        await fulfillment(of: [expectation], timeout: 2.0)
+        let didReceiveDebouncedValue = try await waitForCondition {
+            collectedValues.count >= 1
+        }
+        #expect(didReceiveDebouncedValue)
         observationTask.cancel()
 
         // The debounced stream should have fewer values than the 4 events
         // (initial 0, then 1, 2, 3). The rapid 1/2/3 mutations should
         // coalesce so we get fewer than 4 distinct emissions.
-        XCTAssertLessThan(
-            collectedValues.count, 4,
-            "Debounce should coalesce rapid mutations: got \(collectedValues) (\(collectedValues.count) values)")
+        #expect(collectedValues.count < 4, "Debounce should coalesce rapid mutations: got \(collectedValues) (\(collectedValues.count) values)")
 
         // The last emitted value should be 3 (the final settled value)
-        XCTAssertEqual(
-            collectedValues.last, 3,
-            "Last debounced value should be the final mutation (3), got \(collectedValues)")
+        #expect(collectedValues.last == 3, "Last debounced value should be the final mutation (3), got \(collectedValues)")
     }
 
     // MARK: - 3. Property-Group Isolation (CRITICAL)
@@ -155,12 +149,12 @@ final class ObservationSpikeTests: XCTestCase {
     ///
     /// If this test fails, the entire Slice design from section 6.5 is broken
     /// because each Slice capture closure would fire on unrelated property changes.
+    @Test
     func test_observations_propertyGroupIsolation_onlyFiresForTrackedProperties() async throws {
         // Arrange
         let state = SpikeTestState()
         var propertyAValues: [Int] = []
         var propertyBValues: [String] = []
-        let propertyBExpectation = XCTestExpectation(description: "propertyB observer fires")
 
         // Observer for propertyA
         let propertyATask = Task { @MainActor in
@@ -178,7 +172,6 @@ final class ObservationSpikeTests: XCTestCase {
                 propertyBValues.append(value)
                 // Initial value + 1 mutation = 2 values
                 if propertyBValues.count >= 2 {
-                    propertyBExpectation.fulfill()
                     break
                 }
             }
@@ -197,20 +190,19 @@ final class ObservationSpikeTests: XCTestCase {
         try await Task.sleep(for: .milliseconds(200))
 
         // Assert
-        await fulfillment(of: [propertyBExpectation], timeout: 2.0)
+        let didReceivePropertyBUpdate = try await waitForCondition {
+            propertyBValues.count >= 2
+        }
+        #expect(didReceivePropertyBUpdate)
         propertyATask.cancel()
         propertyBTask.cancel()
 
         // propertyB observer MUST have fired
-        XCTAssertTrue(
-            propertyBValues.contains("changed"),
-            "propertyB observer must fire when propertyB changes. Got: \(propertyBValues)")
+        #expect(propertyBValues.contains("changed"), "propertyB observer must fire when propertyB changes. Got: \(propertyBValues)")
 
         // CRITICAL: propertyA observer must NOT have received new values
         // after the initial emission
-        XCTAssertEqual(
-            propertyAValues.count, propertyACountBeforeMutation,
-            """
+        #expect(propertyAValues.count == propertyACountBeforeMutation, """
             CRITICAL FAILURE: Property-group isolation is broken!
             propertyA observer fired when only propertyB changed.
             propertyA values before mutation: \(propertyACountBeforeMutation)
@@ -224,6 +216,7 @@ final class ObservationSpikeTests: XCTestCase {
     // MARK: - 4. @resultBuilder with Generic Type Parameter
 
     /// Verify that a generic @resultBuilder compiles and produces correct output.
+    @Test
     func test_resultBuilder_genericTypeParameter_compilesAndProducesCorrectOutput() {
         // Arrange & Act — Int container
         let intContainer = SpikeContainer<Int> {
@@ -233,9 +226,7 @@ final class ObservationSpikeTests: XCTestCase {
         }
 
         // Assert
-        XCTAssertEqual(
-            intContainer.elements, [1, 2, 3],
-            "SpikeBuilder<Int> should collect integer expressions into an array")
+        #expect(intContainer.elements == [1, 2, 3], "SpikeBuilder<Int> should collect integer expressions into an array")
 
         // Arrange & Act — String container
         let stringContainer = SpikeContainer<String> {
@@ -244,8 +235,25 @@ final class ObservationSpikeTests: XCTestCase {
         }
 
         // Assert
-        XCTAssertEqual(
-            stringContainer.elements, ["hello", "world"],
-            "SpikeBuilder<String> should collect string expressions into an array")
+        #expect(stringContainer.elements == ["hello", "world"], "SpikeBuilder<String> should collect string expressions into an array")
+    }
+
+    private func waitForCondition(
+        timeout: Duration = .seconds(2),
+        pollInterval: Duration = .milliseconds(10),
+        condition: @Sendable () -> Bool
+    ) async throws -> Bool {
+        let clock = ContinuousClock()
+        let deadline = clock.now.advanced(by: timeout)
+
+        while clock.now < deadline {
+            if condition() {
+                return true
+            }
+
+            try await clock.sleep(for: pollInterval)
+        }
+
+        return condition()
     }
 }
