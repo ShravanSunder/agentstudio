@@ -545,53 +545,77 @@ extension PaneRuntimeEvent {
     }
 }
 
+/// Event scoping rules — routing identity on envelope, domain data on event:
+///
+///   PANE-SCOPED: envelope.source = .pane(id)
+///     Lifecycle (surface/attach/close), drawer toggle, active pane change.
+///     No paneId in event payload — it's on the envelope.
+///
+///   WORKSPACE-SCOPED: envelope.source = .system(.coordinator)
+///     Tab switch. The activeTabId IS domain data (which tab), not routing.
+///
+///   WORKTREE-SCOPED: envelope.source = .worktree(id)
+///     Filesystem changes, security events. No worktreeId in event payload.
+///
+///   AGENT-SCOPED: envelope.source = .pane(agentPaneId)
+///     Artifact events. The producing agent is routing identity.
+///     worktreeId in payload = WHERE the artifact belongs (domain data).
 enum PaneLifecycleEvent: Sendable {
-    case surfaceCreated(paneId: UUID)
-    case sizeObserved(paneId: UUID, cols: Int, rows: Int)
-    case sizeStabilized(paneId: UUID)
-    case attachStarted(paneId: UUID)
-    case attachSucceeded(paneId: UUID)
-    case attachFailed(paneId: UUID, error: AttachError)
-    case paneClosed(paneId: UUID)
-    case tabSwitched(activeTabId: UUID)
-    case activePaneChanged(paneId: UUID)
-    case drawerExpanded(parentPaneId: UUID)
-    case drawerCollapsed(parentPaneId: UUID)
+    // ── Pane-scoped: envelope.source = .pane(id) ────────
+    case surfaceCreated
+    case sizeObserved(cols: Int, rows: Int)
+    case sizeStabilized
+    case attachStarted
+    case attachSucceeded
+    case attachFailed(error: AttachError)
+    case paneClosed
+    case activePaneChanged
+    case drawerExpanded               // envelope.source = .pane(parentPaneId)
+    case drawerCollapsed              // envelope.source = .pane(parentPaneId)
+
+    // ── Workspace-scoped: envelope.source = .system(.coordinator) ──
+    case tabSwitched(activeTabId: UUID)   // tabId IS domain data, not routing
 }
 
+/// Filesystem events. envelope.source = .worktree(id) — routing identity.
+/// No worktreeId in event payloads (it's on the envelope).
 enum FilesystemEvent: Sendable {
-    case filesChanged(worktreeId: UUID, changeset: FileChangeset)
-    case gitStatusChanged(worktreeId: UUID, summary: GitStatusSummary)
-    case diffAvailable(worktreeId: UUID, diffId: UUID)
-    case branchChanged(worktreeId: UUID, from: String, to: String)
+    case filesChanged(changeset: FileChangeset)
+    case gitStatusChanged(summary: GitStatusSummary)
+    case diffAvailable(diffId: UUID)
+    case branchChanged(from: String, to: String)
 }
 
+/// Artifact events. envelope.source = .pane(producerPaneId) — who produced it.
+/// worktreeId in payload = which worktree the artifact covers (domain data,
+/// not routing — an artifact can be for a different worktree than the producer).
 enum ArtifactEvent: Sendable {
-    case diffProduced(agentPaneId: UUID, worktreeId: UUID, artifact: DiffArtifact)
-    case prCreated(agentPaneId: UUID, prUrl: String)
-    case approvalRequested(paneId: UUID, request: ApprovalRequest)
-    case approvalDecided(paneId: UUID, decision: ApprovalDecision)
+    case diffProduced(worktreeId: UUID, artifact: DiffArtifact)
+    case prCreated(prUrl: String)
+    case approvalRequested(request: ApprovalRequest)
+    case approvalDecided(decision: ApprovalDecision)
 }
 
 /// Security events from execution backends (Gondolin, Docker, etc.).
-/// Scoped to worktreeId — one sandbox may back multiple panes.
+/// envelope.source = .worktree(id) — one sandbox may back multiple panes.
+/// No worktreeId in event payloads (it's on the envelope).
 /// All cases are critical priority (user must know immediately).
 enum SecurityEvent: Sendable {
     // Policy enforcement
-    case networkEgressBlocked(worktreeId: UUID, destination: String, rule: String)
-    case networkEgressAllowed(worktreeId: UUID, destination: String)
-    case filesystemAccessDenied(worktreeId: UUID, path: String, operation: String)
-    case secretAccessed(worktreeId: UUID, secretId: String, consumerId: String)
-    case processSpawnBlocked(worktreeId: UUID, command: String, rule: String)
+    case networkEgressBlocked(destination: String, rule: String)
+    case networkEgressAllowed(destination: String)
+    case filesystemAccessDenied(path: String, operation: String)
+    case secretAccessed(secretId: String, consumerId: String)
+    case processSpawnBlocked(command: String, rule: String)
 
     // Sandbox lifecycle
-    case sandboxStarted(worktreeId: UUID, backend: ExecutionBackend, policy: String)
-    case sandboxStopped(worktreeId: UUID, reason: String)
-    case sandboxHealthChanged(worktreeId: UUID, healthy: Bool)
+    case sandboxStarted(backend: ExecutionBackend, policy: String)
+    case sandboxStopped(reason: String)
+    case sandboxHealthChanged(healthy: Bool)
 
     // Violations (always critical, always surfaced to user)
-    case policyViolation(worktreeId: UUID, description: String, severity: ViolationSeverity)
-    case credentialExfiltrationAttempt(worktreeId: UUID, targetHost: String)
+    case policyViolation(description: String, severity: ViolationSeverity)
+    case credentialExfiltrationAttempt(targetHost: String)
 }
 
 enum ViolationSeverity: String, Sendable {
@@ -717,8 +741,11 @@ enum PaneRuntimeLifecycle: Sendable {
 ///   6. Git status recompute: only after batch flush, not per-file
 ///   7. Identity: every batch carries worktreeId for routing
 
+/// Standalone data structure — may be serialized/stored independently.
+/// worktreeId denormalized here for self-documenting data. Canonical
+/// source is envelope.source = .worktree(id).
 struct FileChangeset: Sendable {
-    let worktreeId: UUID
+    let worktreeId: WorktreeId       // denormalized from envelope.source
     let paths: Set<String>           // deduped relative paths
     let timestamp: ContinuousClock.Instant
     let batchSeq: UInt64             // monotonic per worktree
