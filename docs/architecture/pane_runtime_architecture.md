@@ -63,9 +63,9 @@ RUNTIMES (per-pane, registered in RuntimeRegistry):
 
 **User problem:** When agent A finishes a task and a diff appears, the user needs to know which agent produced it, what repo it's in, and the diff content — all consistently, with no missing context (JTBD 6, P6).
 
-**Decision:** One `PaneRuntimeEvent` enum carried on one `AsyncStream` per runtime, with total ordering via per-pane sequence numbers. Events cover lifecycle, terminal, browser, filesystem, artifact, and error cases.
+**Decision:** One `PaneRuntimeEvent` enum carried on one `AsyncStream` per runtime, with per-source sequence numbers (`seq` is monotonic within a single source — pane, worktree watcher, or system). Cross-source ordering is best-effort via `timestamp`. Events cover lifecycle, terminal, browser, filesystem, artifact, and error cases.
 
-**Why not three planes (control/state/data):** Two independent reviewers identified an ordering hazard: if control events ("diff generated") and state events ("diff pane loaded") travel on separate streams, a late-joining consumer can observe inconsistent state — seeing a loaded diff without knowing which terminal produced it. Single stream with total ordering eliminates this.
+**Why not three planes (control/state/data):** Two independent reviewers identified an ordering hazard: if control events ("diff generated") and state events ("diff pane loaded") travel on separate streams, a late-joining consumer can observe inconsistent state — seeing a loaded diff without knowing which terminal produced it. Single stream with per-source ordering eliminates this within a pane. Cross-source ordering relies on timestamps — sufficient for UI rendering and workflow matching, not for strict causal ordering.
 
 **Clarification:** `@Observable` state for UI binding remains separate from the event stream. Terminal views bind directly to `runtime.searchState` or `runtime.scrollbarState` via `@Observable`. The event stream carries coordination events only — things the workspace or other panes need to react to.
 
@@ -282,6 +282,10 @@ Priority tiers control scheduling order:
 /// One instance per pane. All instances share @MainActor.
 /// Adapters (GhosttyAdapter, WebKitAdapter) are shared singletons
 /// that route events to the correct runtime instance.
+///
+/// Runtime produces envelopes (not raw events) — routing identity
+/// (EventSource) and sequencing (seq) are set by the runtime itself.
+/// Coordinator consumes envelopes directly; no wrapping step needed.
 @MainActor
 protocol PaneRuntime: AnyObject {
     var paneId: PaneId { get }
@@ -295,19 +299,20 @@ protocol PaneRuntime: AnyObject {
     /// Current state snapshot for late-joining consumers.
     func snapshot() -> RuntimeSnapshot
 
-    /// Bounded replay for catch-up. Returns events + next seq.
-    func eventsSince(seq: UInt64) async -> ([PaneRuntimeEvent], UInt64)
+    /// Bounded replay for catch-up. Returns envelopes since requested seq.
+    /// Gap detection: if requested seq was evicted, caller should use snapshot.
+    func eventsSince(seq: UInt64) async -> EventReplayBuffer.ReplayResult
 
-    /// Subscribe to live coordination events.
-    /// Raw events — the coordinator wraps these in PaneEventEnvelope
-    /// and feeds them to the NotificationReducer for priority routing.
-    func subscribe() -> AsyncStream<PaneRuntimeEvent>
+    /// Subscribe to live coordination events as envelopes.
+    /// Envelope carries source identity, sequencing, and event payload.
+    func subscribe() -> AsyncStream<PaneEventEnvelope>
 
     /// Graceful shutdown. Returns unfinished command IDs.
     func shutdown(timeout: Duration) async -> [UUID]
 }
 
 typealias PaneId = UUID
+typealias WorktreeId = UUID
 ```
 
 #### Supporting Types
@@ -394,10 +399,20 @@ struct RuntimeSnapshot: Sendable {
     let timestamp: ContinuousClock.Instant
 
     /// Key-value observable state. Shape varies by runtime kind.
-    /// Terminal: ["title": "zsh", "cwd": "/Users/foo", "searchActive": false, ...]
-    /// Browser:  ["url": "https://...", "loading": true, "title": "PR #42", ...]
-    /// Diff:     ["filePath": "src/main.rs", "approvedHunks": 3, "totalHunks": 7, ...]
-    let observableState: [String: String]
+    /// Terminal: ["title": .string("zsh"), "cwd": .url(...), "searchActive": .bool(false)]
+    /// Browser:  ["url": .url(...), "loading": .bool(true), "title": .string("PR #42")]
+    /// Diff:     ["filePath": .string("src/main.rs"), "approvedHunks": .int(3)]
+    let observableState: [String: SnapshotValue]
+}
+
+/// Typed snapshot values — preserves numbers, bools, URLs without string
+/// round-tripping. Plugin runtimes use the same value types.
+enum SnapshotValue: Sendable {
+    case string(String)
+    case int(Int)
+    case double(Double)
+    case bool(Bool)
+    case url(URL)
 }
 
 /// Result of dispatching a command to a runtime.
@@ -427,7 +442,7 @@ enum ActionError: Error, Sendable {
 /// Two roles:
 ///   1. Self-classifying priority — each event knows its own ActionPolicy.
 ///      NotificationReducer reads this directly instead of centralized classify().
-///   2. Workflow matching — eventName provides a stable string identity for
+///   2. Workflow matching — eventName provides a stable typed identity for
 ///      WorkflowTracker step predicates.
 protocol PaneKindEvent: Sendable {
     /// Priority classification for this event.
@@ -435,9 +450,43 @@ protocol PaneKindEvent: Sendable {
     /// Lossy = batched on frame boundary, deduped by consolidation key.
     var actionPolicy: ActionPolicy { get }
 
-    /// Stable string name for workflow matching.
-    /// e.g., "commandFinished", "navigationCompleted", "hunkApproved"
-    var eventName: String { get }
+    /// Stable typed identity for workflow matching and logging.
+    /// Built-in events use static constants. Plugins register their own.
+    var eventName: EventIdentifier { get }
+}
+
+/// Typed event identity — replaces bare String for type safety.
+/// Built-in identifiers as static constants. Plugins create their own.
+struct EventIdentifier: Hashable, Sendable, CustomStringConvertible {
+    let rawValue: String
+    init(_ rawValue: String) { self.rawValue = rawValue }
+    var description: String { rawValue }
+
+    // Terminal
+    static let commandFinished       = EventIdentifier("commandFinished")
+    static let cwdChanged            = EventIdentifier("cwdChanged")
+    static let titleChanged          = EventIdentifier("titleChanged")
+    static let bellRang              = EventIdentifier("bellRang")
+    static let progressReport        = EventIdentifier("progressReport")
+    static let scrollbarChanged      = EventIdentifier("scrollbarChanged")
+
+    // Browser
+    static let navigationCompleted   = EventIdentifier("navigationCompleted")
+    static let pageLoaded            = EventIdentifier("pageLoaded")
+    static let consoleMessage        = EventIdentifier("consoleMessage")
+
+    // Diff
+    static let hunkApproved          = EventIdentifier("hunkApproved")
+    static let diffLoaded            = EventIdentifier("diffLoaded")
+    static let allApproved           = EventIdentifier("allApproved")
+
+    // Editor
+    static let contentSaved          = EventIdentifier("contentSaved")
+    static let fileOpened            = EventIdentifier("fileOpened")
+    static let diagnosticsUpdated    = EventIdentifier("diagnosticsUpdated")
+
+    // ... exhaustive list per enum — compiler catches missing cases
+    // Plugins: EventIdentifier("logViewer.lineAppended"), etc.
 }
 
 /// Single typed event stream. Discriminated union with plugin escape hatch.
@@ -446,25 +495,30 @@ protocol PaneKindEvent: Sendable {
 /// compiler-enforced handling). Plugin pane kinds use `.plugin` (protocol-
 /// based, extensible, downcast for specific handling).
 ///
+/// IMPORTANT: Event payloads carry DOMAIN SEMANTICS ONLY.
+/// Routing identity (source pane/worktree/system) lives on the envelope.
+/// No paneId in event cases — prevents identity drift between event and envelope.
+///
 /// Two axes:
-///   PANE-SCOPED (carry paneId): terminal, browser, diff, editor, plugin
-///   CROSS-CUTTING (carry worktreeId or broader): lifecycle, filesystem,
-///     artifact, security, error
+///   PANE-SCOPED: terminal, browser, diff, editor, plugin
+///     (envelope.source = .pane(id))
+///   CROSS-CUTTING: lifecycle, filesystem, artifact, security, error
+///     (envelope.source = .worktree(id) or .system(...))
 enum PaneRuntimeEvent: Sendable {
     // ── Lifecycle — all pane types ──────────────────────
     case lifecycle(PaneLifecycleEvent)
 
     // ── First-class pane kinds: exhaustive, pattern-matchable ──
-    case terminal(paneId: UUID, event: GhosttyEvent)
-    case browser(paneId: UUID, event: BrowserEvent)
-    case diff(paneId: UUID, event: DiffEvent)
-    case editor(paneId: UUID, event: EditorEvent)
+    case terminal(GhosttyEvent)
+    case browser(BrowserEvent)
+    case diff(DiffEvent)
+    case editor(EditorEvent)
 
     // ── Plugin escape hatch: protocol-based, extensible ──
     // Plugin pane types (log viewer, metrics dashboard, etc.) use this.
     // Events conform to PaneKindEvent. Downcast for specific handling.
     // To promote a plugin to first-class: add a dedicated case above.
-    case plugin(paneId: UUID, kind: PaneContentType, event: any PaneKindEvent)
+    case plugin(kind: PaneContentType, event: any PaneKindEvent)
 
     // ── Cross-cutting events ───────────────────────────
     case filesystem(FilesystemEvent)
@@ -472,7 +526,7 @@ enum PaneRuntimeEvent: Sendable {
     case security(SecurityEvent)
 
     // ── Runtime errors ─────────────────────────────────
-    case error(paneId: UUID?, error: RuntimeError)
+    case error(RuntimeErrorEvent)
 }
 
 /// Computed priority from self-classifying events.
@@ -480,11 +534,11 @@ enum PaneRuntimeEvent: Sendable {
 extension PaneRuntimeEvent {
     var actionPolicy: ActionPolicy {
         switch self {
-        case .terminal(_, let e):       return e.actionPolicy
-        case .browser(_, let e):        return e.actionPolicy
-        case .diff(_, let e):           return e.actionPolicy
-        case .editor(_, let e):         return e.actionPolicy
-        case .plugin(_, _, let e):      return e.actionPolicy
+        case .terminal(let e):      return e.actionPolicy
+        case .browser(let e):       return e.actionPolicy
+        case .diff(let e):          return e.actionPolicy
+        case .editor(let e):        return e.actionPolicy
+        case .plugin(_, let e):     return e.actionPolicy
         case .lifecycle, .filesystem, .artifact, .security, .error:
             return .critical
         }
@@ -545,10 +599,13 @@ enum ViolationSeverity: String, Sendable {
     case critical   // process killed, user alerted
 }
 
-enum RuntimeError: Error, Sendable {
+/// Runtime error events. All payloads are Sendable — no bare `Error`
+/// across async boundaries. Underlying errors serialized to String
+/// descriptions at the point of capture.
+enum RuntimeErrorEvent: Error, Sendable {
     case surfaceCrashed(reason: String)
     case commandTimeout(commandId: UUID, after: Duration)
-    case actionDispatchFailed(action: String, underlyingError: Error)
+    case actionDispatchFailed(action: String, underlyingDescription: String)
     case adapterError(String)
     case resourceExhausted(resource: String)
     case internalStateCorrupted
@@ -559,58 +616,65 @@ enum RuntimeError: Error, Sendable {
 
 ```swift
 /// Metadata wrapper on every event for routing, ordering, and idempotency.
+///
+/// ROUTING IDENTITY LIVES HERE — not in event payloads.
+/// Pane-scoped events: source = .pane(id), paneKind = .terminal/.browser/etc.
+/// Cross-cutting events: source = .worktree(id) or .system(...), paneKind = nil.
+///
+/// Priority is NOT cached on the envelope. The event self-classifies via
+/// event.actionPolicy (PaneKindEvent protocol). NotificationReducer reads
+/// this directly. One classification authority, no drift.
 struct PaneEventEnvelope: Sendable {
-    let paneId: UUID
-    let runtimeKind: PaneRuntimeKind        // .terminal, .browser, .diff, .editor
-    let seq: UInt64                          // monotonic per pane, ordering guarantee
-    let commandId: UUID                      // idempotency for commands
+    let source: EventSource                  // who produced this event
+    let paneKind: PaneContentType?           // nil for cross-cutting (filesystem, security)
+    let seq: UInt64                          // monotonic per source, ordering guarantee
+    let commandId: UUID?                     // idempotency for command-triggered events; nil for spontaneous
     let correlationId: UUID?                 // links workflow steps (agent finish → diff → approval)
     let timestamp: ContinuousClock.Instant
-    let priority: EventPriority
     let epoch: UInt64                        // reserved, 0 until runtime restart/reconnect
     let event: PaneRuntimeEvent
 }
 
-enum EventPriority: Sendable {
-    case critical   // never coalesced, immediate delivery
-    case lossy      // batched on frame boundary, deduped by consolidation key
+/// Who produced an event. Replaces required paneId on envelope.
+/// Pane-scoped events carry .pane(id). Cross-cutting events carry
+/// .worktree(id) or .system (filesystem watcher, security backend).
+enum EventSource: Sendable {
+    case pane(PaneId)
+    case worktree(WorktreeId)
+    case system(SystemSource)
 }
 
-/// Extensible runtime kind. Matches PaneContentType for pane-scoped events.
-/// Also includes non-pane event sources (filesystem, security).
-struct PaneRuntimeKind: Hashable, Sendable {
-    let rawValue: String
-    init(_ rawValue: String) { self.rawValue = rawValue }
-
-    static let terminal   = PaneRuntimeKind("terminal")
-    static let browser    = PaneRuntimeKind("browser")
-    static let diff       = PaneRuntimeKind("diff")
-    static let editor     = PaneRuntimeKind("editor")
-    static let filesystem = PaneRuntimeKind("filesystem")  // watcher, not a pane
-    static let security   = PaneRuntimeKind("security")    // sandbox, not a pane
-    // Plugins add their own kinds
+enum SystemSource: Sendable {
+    case filesystemWatcher
+    case securityBackend
+    case coordinator
 }
 ```
 
-### Contract 4: NotificationReducer Policy
+### Contract 4: ActionPolicy (self-classifying priority)
 
 ```swift
-/// Determines how each event kind is processed.
+/// Determines how each event is processed.
 /// Critical events bypass coalescing. Lossy events batch on frame boundary.
+///
+/// SELF-CLASSIFYING: Each per-kind event enum implements actionPolicy
+/// via PaneKindEvent conformance. The NotificationReducer reads
+/// envelope.event.actionPolicy — no centralized classify() method.
+/// This means plugin events self-classify without core code changes.
 enum ActionPolicy: Sendable {
     case critical                             // immediate delivery, never dropped
     case lossy(consolidationKey: String)      // dedup + coalesce within frame window
 }
 
-/// Classification table for Ghostty actions.
-/// Each action has exactly one policy. No ambiguity.
+/// Classification rules (implemented by each PaneKindEvent conformer):
 ///
-/// Lifecycle actions: always critical
+/// Lifecycle / cross-cutting: always critical
 /// Control actions (command finish, bell, notification): always critical
+/// Metadata changes (title, CWD, URL): always critical
 /// Viewport/telemetry (scroll, cursor, selection): lossy
 /// Rendering (color, font): lossy, consolidate adjacent
 ///
-/// Implementation: NotificationReducer maintains two queues:
+/// NotificationReducer maintains two queues:
 ///   criticalQueue — emits immediately, wakes main loop
 ///   lossyQueue    — batches until next frame (16.67ms at 60fps)
 ///                   deduped by consolidation key
@@ -1132,15 +1196,21 @@ final class RuntimeRegistry {
 /// self-classify without any core code changes.
 ///
 /// Event flow:
-///   Runtime.subscribe() → PaneRuntimeEvent
-///     → Coordinator wraps in PaneEventEnvelope (adds seq, etc.)
+///   Runtime.subscribe() → PaneEventEnvelope (runtime produces envelopes)
 ///     → NotificationReducer.submit(envelope)
-///       → reads envelope.event.actionPolicy
+///       → reads envelope.event.actionPolicy (self-classifying)
 ///       → critical path: immediate yield to consumers
 ///       → lossy path: buffer until next frame, dedup by consolidation key
 ///     → Coordinator consumes from reducer's output streams
 @MainActor
 final class NotificationReducer {
+
+    private let clock: any Clock<Duration>
+
+    init(clock: any Clock<Duration> = ContinuousClock()) {
+        self.clock = clock
+        // ... stream initialization
+    }
 
     // ── Critical path ───────────────────────────────────
     // Immediate delivery. Never coalesced. Never dropped.
@@ -1150,7 +1220,7 @@ final class NotificationReducer {
 
     // ── Lossy path ──────────────────────────────────────
     // Batched on frame boundary (16.67ms at 60fps).
-    // Deduped by composite key: "{paneId}:{consolidationKey}"
+    // Deduped by composite key: "{source}:{consolidationKey}"
     // Latest event for each key wins (overwrites previous in window).
     // Max buffer depth: 1000 entries. Drops oldest on overflow.
     private var lossyBuffer: [String: PaneEventEnvelope] = [:]
@@ -1167,7 +1237,7 @@ final class NotificationReducer {
             criticalContinuation.yield(envelope)
 
         case .lossy(let consolidationKey):
-            let key = "\(envelope.paneId):\(consolidationKey)"
+            let key = "\(envelope.source):\(consolidationKey)"
             lossyBuffer[key] = envelope     // latest wins
             if lossyBuffer.count > 1000 {
                 if let oldest = lossyBuffer.min(by: {
@@ -1184,11 +1254,12 @@ final class NotificationReducer {
     // Flushes lossy buffer every 16.67ms (one frame at 60fps).
     // One timer shared across all panes. Timer starts on first
     // lossy event, stops when buffer is empty.
+    // Uses injectable clock for testability — no hardwired Task.sleep.
     private func ensureFrameTimer() {
         guard frameTimer == nil else { return }
         frameTimer = Task { [weak self] in
             while let self, !self.lossyBuffer.isEmpty {
-                try? await Task.sleep(for: .milliseconds(16))
+                try? await self.clock.sleep(for: .milliseconds(16))
                 self.flushLossyBuffer()
             }
             self?.frameTimer = nil
@@ -1244,15 +1315,15 @@ struct LogViewerEvent: PaneKindEvent {
     // ...
 }
 
-// PaneRuntimeEvent delegates to the event:
+// PaneRuntimeEvent delegates to the event (no paneId in cases — lives on envelope):
 extension PaneRuntimeEvent {
     var actionPolicy: ActionPolicy {
         switch self {
-        case .terminal(_, let e):       return e.actionPolicy
-        case .browser(_, let e):        return e.actionPolicy
-        case .diff(_, let e):           return e.actionPolicy
-        case .editor(_, let e):         return e.actionPolicy
-        case .plugin(_, _, let e):      return e.actionPolicy  // plugins just work
+        case .terminal(let e):      return e.actionPolicy
+        case .browser(let e):       return e.actionPolicy
+        case .diff(let e):          return e.actionPolicy
+        case .editor(let e):        return e.actionPolicy
+        case .plugin(_, let e):     return e.actionPolicy  // plugins just work
         case .lifecycle, .filesystem, .artifact, .security, .error:
             return .critical
         }
@@ -1266,10 +1337,12 @@ extension PaneRuntimeEvent {
 ┌──────────────────────────────────────────────────────────┐
 │ PaneCoordinator event consumption loop                    │
 │                                                          │
-│  for await runtime in registry.readyRuntimes {           │
+│  for runtime in registry.readyRuntimes {                 │
 │    Task {                                                │
-│      for await event in runtime.subscribe() {            │
-│        let envelope = wrap(event, runtime, nextSeq())    │
+│      for await envelope in runtime.subscribe() {         │
+│        // Runtime produces envelopes directly — no       │
+│        // wrapping step. source/seq/paneKind set by      │
+│        // the runtime.                                   │
 │        reducer.submit(envelope)  // self-classifying     │
 │        replayBuffer[runtime.paneId].append(envelope)     │
 │      }                                                   │
@@ -1334,14 +1407,17 @@ final class EventReplayBuffer {
         if count >= config.maxEvents {
             evictOldest()
         }
-        // Evict if bytes exceeded (rough estimate: 128 bytes per envelope)
-        while estimatedBytes > config.maxBytes, count > 0 {
+        // Evict if bytes exceeded. Per-envelope size estimated by the
+        // runtime at creation — not a fixed constant. Artifact/security
+        // events carry larger payloads than viewport telemetry.
+        let envelopeSize = Self.estimateSize(envelope)
+        while estimatedBytes + envelopeSize > config.maxBytes, count > 0 {
             evictOldest()
         }
         ring[head] = envelope
         head = (head + 1) % ring.count
         count += 1
-        estimatedBytes += 128
+        estimatedBytes += envelopeSize
     }
 
     /// Replay events since a given sequence number.
@@ -1399,16 +1475,16 @@ Dynamic view opens (e.g., "group by worktree")
        ├─► For each pane in target worktree:
        │     runtime = registry.runtime(for: paneId)
        │     snapshot = runtime.snapshot()                 ← current state
-       │     replay = replayBuffer[paneId].eventsSince(0) ← recent history
+       │     result = runtime.eventsSince(seq: 0)         ← returns ReplayResult
        │
-       │     if replay.gapDetected:
+       │     if result.gapDetected:
        │       // too old, just use snapshot (no replay)
        │       render from snapshot only
        │     else:
-       │       // apply snapshot + replay events
-       │       render snapshot, then apply replay.events
+       │       // apply snapshot + replay envelopes
+       │       render snapshot, then apply result.events   ← envelopes, not raw events
        │
-       └─► Subscribe to live events going forward
+       └─► runtime.subscribe() → live envelopes going forward
 ```
 
 ---
@@ -1438,7 +1514,7 @@ Dynamic view opens (e.g., "group by worktree")
 | **Cross** | **Filesystem** | filesChanged, gitStatusChanged, diffAvailable, branchChanged | `critical` | pre-batched by watcher |
 | **Cross** | **Artifacts** | diffProduced, prCreated, approvalRequested, approvalDecided | `critical` | never |
 | **Cross** | **Security** | all SecurityEvent cases | `critical` | never |
-| **Cross** | **Errors** | all RuntimeError cases | `critical` | never |
+| **Cross** | **Errors** | all RuntimeErrorEvent cases | `critical` | never |
 
 ---
 
@@ -1448,7 +1524,7 @@ Dynamic view opens (e.g., "group by worktree")
 
 **Risk:** One AsyncStream for all events can become a bottleneck with 10+ active terminals.
 
-**Mitigation:** Ordering is per-paneId (`seq` field), not one total global sequence. The stream is a merge of per-runtime streams. No global sequence number means no global serialization. Per-pane ordering is the guarantee; cross-pane ordering uses `timestamp` for best-effort.
+**Mitigation:** Ordering is per-source (`seq` field on envelope, monotonic within each `EventSource`), not one total global sequence. The stream is a merge of per-runtime streams. No global sequence number means no global serialization. Per-source ordering is the guarantee; cross-source ordering uses `timestamp` for best-effort. This is sufficient for UI rendering and workflow matching but not for strict causal ordering across panes.
 
 ### 2. Priority inversion in batching
 
@@ -1500,6 +1576,26 @@ Dynamic view opens (e.g., "group by worktree")
 
 ---
 
+## Swift 6 Type and Concurrency Invariants
+
+Hard rules for all types in this architecture. Violations are compile errors, not style preferences.
+
+1. **All cross-boundary payloads are `Sendable`.** Every struct, enum, and protocol in the event/action/envelope pipeline conforms to `Sendable`. No bare `Error` — use `any Error & Sendable` or serialize to typed payloads (see `RuntimeErrorEvent.underlyingDescription`).
+
+2. **No stringly-typed event identity in core contracts.** `EventIdentifier` struct replaces bare `String` for event names. `PaneContentType` struct replaces string-keyed content types. `SnapshotValue` enum replaces `[String: String]` for observable state values. Plugins use the same typed wrappers — they construct `EventIdentifier("custom.event")`, not arbitrary strings.
+
+3. **No `DispatchQueue.main.async` / `NotificationCenter` in new plumbing.** C API callbacks use `MainActor.assumeIsolated` for synchronous hops or `Task { @MainActor in }` for async work. Event transport uses `AsyncStream` + `swift-async-algorithms`. Existing Combine/NotificationCenter migrated incrementally.
+
+4. **Callback handoff is explicitly actor-safe.** Static `@Sendable` trampolines at FFI boundary. No closures capturing mutable state across isolation boundaries. Adapters are `@MainActor` — the trampoline is the only non-isolated code.
+
+5. **Clock/timer behavior is injectable and testable.** `NotificationReducer`, `EventReplayBuffer`, and any time-dependent component accept `any Clock<Duration>` as a constructor parameter. No hardwired `Task.sleep` or `ContinuousClock()` calls in production paths.
+
+6. **Existentials (`any`) are explicit and minimized.** `any PaneRuntime` at registry lookup boundaries. `any PaneKindEvent` at the plugin escape hatch. `any Clock<Duration>` for testable time. No implicit existential boxing — every `any` is a conscious decision at a boundary.
+
+7. **`@MainActor` is the isolation domain for all runtime state.** All stores, runtimes, coordinators, and registries are `@MainActor`. Thread safety enforced at compile time. The protocol is `async` to preserve the actor-per-pane upgrade path (D1), but current implementation is all-main-actor.
+
+---
+
 ## Tradeoff Summary
 
 ### Compared to coordinator-only routing (status quo)
@@ -1516,7 +1612,7 @@ You **accept** the risk that `@MainActor` becomes a bottleneck for high-frequenc
 
 ### Compared to three separate planes
 
-You **reduce** ordering hazards (single stream, total per-pane ordering) and operational complexity (one stream to debug, not three).
+You **reduce** ordering hazards (single stream, per-source ordering with cross-source best-effort) and operational complexity (one stream to debug, not three).
 
 You **accept** the discipline of classifying every event kind (critical vs lossy) and maintaining the priority table. The event enum makes this explicit — you can't add an event without deciding its priority.
 

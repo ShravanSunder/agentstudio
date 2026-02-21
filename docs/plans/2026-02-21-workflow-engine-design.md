@@ -49,8 +49,8 @@ final class WorkflowTracker {
     enum StepPredicate: Sendable {
         /// Any event with this commandId
         case commandCompleted(UUID)
-        /// A specific event kind on a specific pane
-        case eventMatch(paneId: UUID, eventKind: String)
+        /// A specific event kind on a specific pane (typed identity)
+        case eventMatch(paneId: UUID, eventName: EventIdentifier)
         /// Approval decision on a specific pane
         case approvalDecided(paneId: UUID)
     }
