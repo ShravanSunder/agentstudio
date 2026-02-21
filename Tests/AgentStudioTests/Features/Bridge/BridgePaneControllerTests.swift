@@ -15,6 +15,22 @@ struct BridgePaneControllerTests {
         static let method = "diff.requestFileContents"
     }
 
+    private struct AgentDedupProbeMethod: RPCMethod {
+        struct Params: Decodable, Sendable {
+            let token: String
+        }
+
+        typealias Result = RPCNoResponse
+        static let method = "agent.dedupProbe"
+    }
+
+    private struct AgentFailureProbeMethod: RPCMethod {
+        struct Params: Decodable, Sendable {}
+
+        typealias Result = RPCNoResponse
+        static let method = "agent.failureProbe"
+    }
+
     private actor SendableBox<Value> {
         private var value: Value
 
@@ -28,6 +44,10 @@ struct BridgePaneControllerTests {
 
         func get() -> Value {
             value
+        }
+
+        func update(_ transform: @Sendable (Value) -> Value) {
+            value = transform(value)
         }
     }
 
@@ -231,5 +251,91 @@ struct BridgePaneControllerTests {
         #expect(observedAck?.commandId == "cmd-001")
         #expect(observedAck?.status == .ok)
         #expect(observedAck?.method == "review.markFileViewed")
+    }
+
+    @Test("first unique __commandId records one ack in agent state")
+    func first_unique_commandId_records_one_ack_in_agent_state() async {
+        let controller = BridgePaneController(
+            paneId: UUID(),
+            state: BridgePaneState(panelKind: .diffViewer, source: nil)
+        )
+
+        await controller.handleIncomingRPC(
+            #"{"jsonrpc":"2.0","method":"bridge.ready","params":{}}"#
+        )
+
+        await controller.handleIncomingRPC(
+            #"{"jsonrpc":"2.0","method":"review.markFileViewed","params":{"fileId":"abc"},"__commandId":"cmd-unique-001"}"#
+        )
+
+        let ack = controller.paneState.commandAcks["cmd-unique-001"]
+        #expect(controller.paneState.commandAcks.count == 1)
+        #expect(ack?.status == .ok)
+        #expect(ack?.method == "review.markFileViewed")
+        #expect(ack?.reason == nil)
+    }
+
+    @Test("duplicate __commandId does not execute twice or emit duplicate ack")
+    func duplicate_commandId_does_not_reexecute_or_duplicate_ack() async {
+        let controller = BridgePaneController(
+            paneId: UUID(),
+            state: BridgePaneState(panelKind: .diffViewer, source: nil)
+        )
+        let executionCount = SendableBox(0)
+        var ackCount = 0
+
+        let originalCommandAckHandler = controller.router.onCommandAck
+        controller.router.onCommandAck = { ack in
+            originalCommandAckHandler(ack)
+            if ack.commandId == "cmd-dedup-001" {
+                ackCount += 1
+            }
+        }
+        controller.router.register(method: AgentDedupProbeMethod.self) { _ in
+            await executionCount.update { $0 + 1 }
+            return nil
+        }
+
+        await controller.handleIncomingRPC(
+            #"{"jsonrpc":"2.0","method":"bridge.ready","params":{}}"#
+        )
+
+        let duplicatePayload =
+            #"{"jsonrpc":"2.0","method":"agent.dedupProbe","params":{"token":"abc"},"__commandId":"cmd-dedup-001"}"#
+        await controller.handleIncomingRPC(duplicatePayload)
+        await controller.handleIncomingRPC(duplicatePayload)
+
+        #expect(await executionCount.get() == 1)
+        #expect(ackCount == 1)
+        #expect(controller.paneState.commandAcks.count == 1)
+        #expect(controller.paneState.commandAcks["cmd-dedup-001"]?.status == .ok)
+    }
+
+    @Test("handler failure emits rejected ack with reason")
+    func handler_failure_emits_rejected_ack_with_reason() async {
+        let controller = BridgePaneController(
+            paneId: UUID(),
+            state: BridgePaneState(panelKind: .diffViewer, source: nil)
+        )
+
+        controller.router.register(method: AgentFailureProbeMethod.self) { _ in
+            throw NSError(
+                domain: "BridgePaneControllerTests",
+                code: 901,
+                userInfo: [NSLocalizedDescriptionKey: "simulated handler failure"]
+            )
+        }
+
+        await controller.handleIncomingRPC(
+            #"{"jsonrpc":"2.0","method":"bridge.ready","params":{}}"#
+        )
+        await controller.handleIncomingRPC(
+            #"{"jsonrpc":"2.0","method":"agent.failureProbe","params":{},"__commandId":"cmd-failure-001"}"#
+        )
+
+        let ack = controller.paneState.commandAcks["cmd-failure-001"]
+        #expect(ack?.status == .rejected)
+        #expect(ack?.method == "agent.failureProbe")
+        #expect(ack?.reason?.contains("simulated handler failure") == true)
     }
 }

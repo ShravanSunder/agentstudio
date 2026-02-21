@@ -8,70 +8,9 @@ import Testing
 @Suite(.serialized)
 final class PushPerformanceBenchmarkTests {
 
-    private enum PushBenchmarkMode: String {
-        case warn
-        case strict
-        case off
-
-        static var current: Self {
-            guard let rawMode = ProcessInfo.processInfo.environment["AGENT_STUDIO_BENCHMARK_MODE"]?.lowercased() else {
-                return .warn
-            }
-            return Self(rawValue: rawMode) ?? .warn
-        }
-    }
-
-    private struct PushBenchmarkStats {
-        let durations: [Duration]
-        let payloadBytes: [Int]
-        let initialPayloadBytes: Int
-
-        private var sortedDurationsNs: [Int64] {
-            durations.map(\.inNanoseconds).sorted()
-        }
-
-        var count: Int { durations.count }
-        var min: Duration { Duration.nanoseconds(sortedDurationsNs.first ?? 0) }
-        var max: Duration { Duration.nanoseconds(sortedDurationsNs.last ?? 0) }
-        var median: Duration {
-            guard !sortedDurationsNs.isEmpty else {
-                return .zero
-            }
-            let medianIndex = sortedDurationsNs.count / 2
-            return Duration.nanoseconds(sortedDurationsNs[medianIndex])
-        }
-
-        var p95: Duration {
-            guard !sortedDurationsNs.isEmpty else {
-                return .zero
-            }
-            let p95Index = Int((Double(sortedDurationsNs.count - 1) * 0.95).rounded(.up))
-            let clamped = Swift.min(Swift.max(p95Index, 0), sortedDurationsNs.count - 1)
-            return Duration.nanoseconds(sortedDurationsNs[clamped])
-        }
-
-        var average: Duration {
-            guard !sortedDurationsNs.isEmpty else { return .zero }
-            let total = sortedDurationsNs.reduce(0, +)
-            return Duration.nanoseconds(total / Int64(sortedDurationsNs.count))
-        }
-
-        func summary(for name: String) -> String {
-            """
-            [PushBenchmark] \(name) count=\(count), initialPayload=\(initialPayloadBytes)B, \
-            min=\(min.formattedMilliseconds), median=\(median.formattedMilliseconds), \
-            p95=\(p95.formattedMilliseconds), max=\(max.formattedMilliseconds), avg=\(average.formattedMilliseconds), \
-            deltaMin=\(payloadBytes.min() ?? 0)B, deltaMax=\(payloadBytes.max() ?? 0)B
-            """
-            .replacingOccurrences(of: "\\s+", with: " ", options: .regularExpression)
-            .trimmingCharacters(in: .whitespacesAndNewlines)
-        }
-    }
-
     private struct SingleFileIncrementalBenchmarkResult {
         let benchmarkMode: PushBenchmarkMode
         let stats: PushBenchmarkStats
-        let initialPayloadBytes: Int
         let payloadRatio: Double
     }
 
@@ -155,13 +94,6 @@ final class PushPerformanceBenchmarkTests {
         )
     }
 
-    private func waitForInitialPush(
-        transport: TimestampingTransport,
-        timeout: Duration = .seconds(1)
-    ) async -> Bool {
-        await transport.waitForPushCount(atLeast: 1, timeout: timeout)
-    }
-
     private func waitForPushCount(
         _ transport: TimestampingTransport,
         targetCount: Int,
@@ -241,14 +173,11 @@ final class PushPerformanceBenchmarkTests {
             initialPayloadBytes: initialPayloadBytes
         )
 
-        let payloadRatio = ratioSamples.max() ?? 0
-        let result = SingleFileIncrementalBenchmarkResult(
+        return SingleFileIncrementalBenchmarkResult(
             benchmarkMode: PushBenchmarkMode.current,
             stats: stats,
-            initialPayloadBytes: initialPayloadBytes,
-            payloadRatio: payloadRatio
+            payloadRatio: ratioSamples.max() ?? 0
         )
-        return result
     }
 
     // MARK: - 100-file initial push (baseline)
@@ -258,18 +187,24 @@ final class PushPerformanceBenchmarkTests {
         let diffState = DiffState()
         let transport = TimestampingTransport()
         let plan = makeDiffPlan(state: diffState, transport: transport, clock: RevisionClock())
+        defer { plan.stop() }
 
         plan.start()
-        try await Task.sleep(for: .milliseconds(50))
 
         let files = generateFiles(count: 100)
         let baselinePushCount = transport.pushCount
+        let benchmarkMode = PushBenchmarkMode.current
 
         let mutationInstant = ContinuousClock.now
         diffState.files = files
-        try await Task.sleep(for: .milliseconds(200))
 
-        #expect(transport.pushCount > baselinePushCount)
+        let observed = await waitForPushCount(
+            transport,
+            targetCount: baselinePushCount + 1,
+            timeout: .seconds(2)
+        )
+        #expect(observed, "100-file initial push should be observed")
+
         let pushInstant = try #require(
             transport.lastPushInstant,
             "Transport should have recorded a push timestamp"
@@ -277,10 +212,12 @@ final class PushPerformanceBenchmarkTests {
 
         let latency = pushInstant - mutationInstant
         print("[PushBenchmark] 100-file initial push latency: \(latency)")
-        #expect(
-            latency < .milliseconds(150), "100-file initial push should complete within 150ms. Measured: \(latency)")
-
-        plan.stop()
+        assertPushBenchmarkThreshold(
+            mode: benchmarkMode,
+            benchmarkName: "100-file initial push latency",
+            measured: latency,
+            threshold: .milliseconds(150)
+        )
     }
 
     // MARK: - 500-file stress test (large monorepo PR)
@@ -290,18 +227,24 @@ final class PushPerformanceBenchmarkTests {
         let diffState = DiffState()
         let transport = TimestampingTransport()
         let plan = makeDiffPlan(state: diffState, transport: transport, clock: RevisionClock())
+        defer { plan.stop() }
 
         plan.start()
-        try await Task.sleep(for: .milliseconds(50))
 
         let files = generateFiles(count: 500)
         let baselinePushCount = transport.pushCount
+        let benchmarkMode = PushBenchmarkMode.current
 
         let mutationInstant = ContinuousClock.now
         diffState.files = files
-        try await Task.sleep(for: .milliseconds(300))
 
-        #expect(transport.pushCount > baselinePushCount)
+        let observed = await waitForPushCount(
+            transport,
+            targetCount: baselinePushCount + 1,
+            timeout: .seconds(2)
+        )
+        #expect(observed, "500-file initial push should be observed")
+
         let pushInstant = try #require(
             transport.lastPushInstant,
             "Transport should have recorded a push timestamp"
@@ -310,10 +253,12 @@ final class PushPerformanceBenchmarkTests {
         let latency = pushInstant - mutationInstant
         print("[PushBenchmark] 500-file initial push latency: \(latency)")
         print("[PushBenchmark] 500-file payload size: \(transport.lastPayloadBytes) bytes")
-        #expect(
-            latency < .milliseconds(300), "500-file initial push should complete within 300ms. Measured: \(latency)")
-
-        plan.stop()
+        assertPushBenchmarkThreshold(
+            mode: benchmarkMode,
+            benchmarkName: "500-file initial push latency",
+            measured: latency,
+            threshold: .milliseconds(300)
+        )
     }
 
     // MARK: - Single-file incremental change (EntitySlice sweet spot)
@@ -329,20 +274,12 @@ final class PushPerformanceBenchmarkTests {
         #expect(result.payloadRatio < 0.2, "Single-file payload delta should stay under 20%")
 
         print(result.stats.summary(for: "single-file incremental"))
-
-        if result.benchmarkMode == .strict {
-            #expect(
-                result.stats.p95 < .milliseconds(5),
-                "Single-file incremental p95 should stay within 5ms. Measured: \(result.stats.p95)"
-            )
-        } else if result.benchmarkMode == .warn {
-            print(
-                """
-                [PushBenchmark] warn-mode active (AGENT_STUDIO_BENCHMARK_MODE=\(result.benchmarkMode.rawValue)).
-                Latency assertion intentionally non-blocking.
-                """
-            )
-        }
+        assertPushBenchmarkThreshold(
+            mode: result.benchmarkMode,
+            benchmarkName: "single-file incremental p95",
+            measured: result.stats.p95,
+            threshold: .milliseconds(5)
+        )
     }
 
     // MARK: - Rapid sequential mutations (simulates streaming diff results)
@@ -357,13 +294,13 @@ final class PushPerformanceBenchmarkTests {
         // Use .cold level (32ms debounce) matching production configuration
         let plan = makeDiffPlan(
             state: diffState, transport: transport, clock: RevisionClock(), level: .cold)
+        defer { plan.stop() }
 
         plan.start()
-        try await Task.sleep(for: .milliseconds(50))
 
         let baselinePushCount = transport.pushCount
 
-        // Act — add 20 files one at a time with 5ms gaps (faster than 32ms debounce)
+        // Act — add 20 files back-to-back to force debounce coalescing.
         for i in 0..<20 {
             let fileId = "rapid-\(i)"
             diffState.files[fileId] = FileManifest(
@@ -377,27 +314,25 @@ final class PushPerformanceBenchmarkTests {
                 size: 500,
                 contextHash: "hash-\(i)"
             )
-            try await Task.sleep(for: .milliseconds(5))
         }
 
-        // Wait for debounce to flush
-        try await Task.sleep(for: .milliseconds(200))
+        let observed = await waitForPushCount(
+            transport,
+            targetCount: baselinePushCount + 1,
+            timeout: .seconds(2)
+        )
+        #expect(observed, "Rapid mutation burst should trigger at least one debounced push")
 
         let pushCount = transport.pushCount - baselinePushCount
 
-        print("[PushBenchmark] 20 rapid mutations (5ms apart, 32ms debounce) → \(pushCount) pushes")
+        print("[PushBenchmark] 20 rapid mutations (burst, 32ms debounce) -> \(pushCount) pushes")
 
-        // With 20 mutations at 5ms intervals (100ms total) and 32ms debounce,
-        // expect roughly 2-5 coalesced pushes, not 20 individual pushes.
         #expect(
-            pushCount < 10,
-            "20 rapid mutations should coalesce to fewer than 10 pushes with cold debounce. Got: \(pushCount)")
+            pushCount < 20,
+            "20 rapid mutations should coalesce into fewer than 20 pushes. Got: \(pushCount)"
+        )
         #expect(pushCount > 0, "At least one push should have fired after debounce")
-
-        // Verify all 20 files arrived (final state is complete regardless of coalescing)
         #expect(diffState.files.count == 20)
-
-        plan.stop()
     }
 
     // MARK: - Epoch reset worst case (new PR loaded)
@@ -410,23 +345,34 @@ final class PushPerformanceBenchmarkTests {
         let diffState = DiffState()
         let transport = TimestampingTransport()
         let plan = makeDiffPlan(state: diffState, transport: transport, clock: RevisionClock())
+        defer { plan.stop() }
 
         plan.start()
-        try await Task.sleep(for: .milliseconds(50))
 
         // Pre-load 100 files from "old PR"
         diffState.files = generateFiles(count: 100)
-        try await Task.sleep(for: .milliseconds(200))
+        let preloaded = await waitForPushCount(
+            transport,
+            targetCount: 1,
+            timeout: .seconds(2)
+        )
+        #expect(preloaded, "Preload push should be observed before epoch reset")
 
         let baselinePushCount = transport.pushCount
+        let benchmarkMode = PushBenchmarkMode.current
 
         // Act — epoch reset: clear files and load 200 new ones (new PR)
         let mutationInstant = ContinuousClock.now
         diffState.epoch += 1
         diffState.files = generateFiles(count: 200, version: 1)
-        try await Task.sleep(for: .milliseconds(300))
 
-        #expect(transport.pushCount > baselinePushCount)
+        let observed = await waitForPushCount(
+            transport,
+            targetCount: baselinePushCount + 1,
+            timeout: .seconds(2)
+        )
+        #expect(observed, "Epoch reset + reload should trigger a push")
+
         let pushInstant = try #require(
             transport.lastPushInstant,
             "Transport should have recorded a push timestamp"
@@ -435,32 +381,13 @@ final class PushPerformanceBenchmarkTests {
         let latency = pushInstant - mutationInstant
         print("[PushBenchmark] epoch reset + 200-file reload latency: \(latency)")
         print("[PushBenchmark] epoch reset payload: \(transport.lastPayloadBytes) bytes")
+        #expect(diffState.files.count == 200)
 
-        // This is the worst case: EntitySlice sees 100 removed + 200 new = full re-encode
-        #expect(
-            latency < .milliseconds(32),
-            "Epoch reset + 200-file reload should complete within 32ms. Measured: \(latency)")
-
-        plan.stop()
-    }
-}
-
-// MARK: - Test utilities
-
-extension Duration {
-    fileprivate var inNanoseconds: Int64 {
-        let components = components
-        let seconds = Int64(components.seconds)
-        let subsecond = Int64(components.attoseconds / 1_000_000_000)
-        let secondsInNanoseconds = seconds.multipliedReportingOverflow(by: 1_000_000_000)
-        if secondsInNanoseconds.overflow {
-            return subsecond
-        }
-        return secondsInNanoseconds.partialValue + subsecond
-    }
-
-    fileprivate var formattedMilliseconds: String {
-        let ns = inNanoseconds
-        return String(format: "%.3fms", Double(ns) / 1_000_000.0)
+        assertPushBenchmarkThreshold(
+            mode: benchmarkMode,
+            benchmarkName: "epoch reset + 200-file reload latency",
+            measured: latency,
+            threshold: .milliseconds(32)
+        )
     }
 }

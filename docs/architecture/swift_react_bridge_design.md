@@ -3,9 +3,9 @@
 > **Target**: macOS 26 (Tahoe) · Swift 6.2 · WebKit for SwiftUI
 > **Pattern**: Three-stream architecture with push-dominant state sync
 > **First use case**: Diff viewer and code review with Pierre (@pierre/diffs, @pierre/file-tree)
-> **Status**: Phase 1 (bridge infrastructure) and Phase 2 (push pipeline) are implemented in code. Phase 3 (typed JSON-RPC command channel) is in active LUNA-336 implementation.
+> **Status**: Phase 1 (bridge infrastructure) and Phase 2 (push pipeline) are implemented in code. Phase 3 (typed JSON-RPC command channel) is complete and closed in LUNA-336.
 
-> **Current implementation delta**: command dispatch, envelope validation, command gating, and ack behavior are defined by Phase 3 in this document and implemented in this branch for LUNA-336.
+> **LUNA-336 closure scope**: sender parity, command ack semantics, and direct-response request handling are implemented and documented here as the closed Phase 3 baseline.
 
 ---
 
@@ -2233,7 +2233,7 @@ The codebase has two navigation deciders for different pane kinds:
 | Decider | File | Pane Kind | Allowed Schemes | Behavior for Other Schemes |
 |---|---|---|---|---|
 | `WebviewNavigationDecider` | `Features/Webview/WebviewNavigationDecider.swift` | Browser panes | `https`, `http`, `about`, `file`, `agentstudio` | Block silently |
-| `BridgeNavigationDecider` | `Features/Bridge/BridgeNavigationDecider.swift` (new) | Bridge panes | `agentstudio`, `about` | Block; `http`/`https` open in default browser |
+| `BridgeNavigationDecider` | `Sources/AgentStudio/Features/Bridge/BridgeNavigationDecider.swift` | Bridge panes | `agentstudio`, `about` | Block; `http`/`https` open in default browser |
 
 The bridge decider is **strictly locked down** — bridge panels load only our bundled React app via `agentstudio://` and never navigate to external URLs:
 
@@ -2539,11 +2539,11 @@ Testing prioritizes correctness under protocol failure modes, not snapshot volum
 
 **Goal**: React can send typed commands to Swift with idempotent command IDs.
 
-**LUNA-336 focus:** move from method-string/dictionary handlers to typed method contracts with explicit `Params` decoding and invalid-param rejection (`-32602`), then enforce handshake/readiness for command execution.
+**LUNA-336 closure:** moved from method-string/dictionary handlers to typed method contracts with explicit `Params` decoding and invalid-param rejection (`-32602`), enforced handshake/readiness for command execution, and closed sender + ack + response paths.
 
 **Deliverables**:
 - `RPCRouter` with typed method registration
-- Method definitions for `diff.*`, `review.*`, and `agent.*` namespaces
+- Method definitions for `diff.*`, `review.*`, `agent.*`, and `system.*` namespaces
 - Command sender on JS side (`commands.diff.requestFileContents(...)`) with `__commandId` (UUID)
 - Swift deduplicates commands by `commandId`, pushes `commandAck` via state stream
 - Error handling (method not found, invalid params, internal error)
@@ -2690,13 +2690,15 @@ Each phase requires explicit acceptance criteria before proceeding to the next. 
 - [ ] Push 100-file `DiffManifest` (metadata only): end-to-end < 32ms on target hardware
 - [ ] Content world isolation verified: page world listener cannot forge `__bridge_push` events that bypass bridge world
 
-#### Phase 3 Exit Criteria
-- [ ] All registered methods dispatch correctly (positive tests)
-- [ ] **Negative protocol tests**: parse error (-32700), invalid request (-32600), method not found (-32601), invalid params (-32602), internal error (-32603)
-- [ ] Notification with no `id` produces NO response (verify with mock)
-- [ ] Notification with no `params` field decodes correctly (EmptyParams path)
-- [ ] Batch request `[...]` is rejected with -32600
-- [ ] Direct-response path: request with `id` → response arrives via `__bridge_response` CustomEvent
+#### Phase 3 Exit Criteria (Closed in LUNA-336)
+- [x] All registered methods dispatch correctly (positive tests)
+- [x] **Negative protocol tests**: parse error (-32700), invalid request (-32600), method not found (-32601), invalid params (-32602), internal error (-32603)
+- [x] Notification with no `id` produces NO response (verify with mock)
+- [x] Notification with no `params` field decodes correctly (EmptyParams path)
+- [x] Batch request `[...]` is rejected with -32600
+- [x] Direct-response path: request with `id` → response arrives via `__bridge_response` CustomEvent
+- [x] Sender parity: bridge relay preserves `method`, `params`, and `__commandId` into typed router dispatch
+- [x] Command ack semantics: unique `__commandId` emits one ack; duplicates are idempotent; failures emit rejected ack with reason
 
 #### Phase 4 Exit Criteria
 - [ ] `DiffManifest` push → FileTree renders file list within 100ms (100 files)
@@ -2740,47 +2742,43 @@ Each phase requires explicit acceptance criteria before proceeding to the next. 
 ## 14. File Structure
 
 ```
-Sources/AgentStudio/
-├── Bridge/
-│   ├── BridgePaneController.swift        # Per-pane controller: WebPage setup, PushPlan lifecycle, PushTransport conformance
-│   ├── BridgePaneState.swift             # BridgePaneState, BridgePanelKind, BridgePaneSource
-│   ├── BridgePaneView.swift              # AppKit PaneView hosting BridgePaneContentView
-│   ├── BridgePaneContentView.swift       # SwiftUI view: WebView(controller.page), no nav bar
-│   ├── RPCRouter.swift                   # Method registry + dispatch
-│   ├── RPCMethod.swift                   # Protocol + type-erased handler
-│   ├── RPCMessageHandler.swift           # WKScriptMessageHandler for postMessage
-│   ├── BridgeSchemeHandler.swift         # agentstudio:// URL scheme (app + resource)
-│   ├── BridgeNavigationDecider.swift     # Strict navigation: agentstudio + about only
-│   ├── BridgeBootstrap.swift             # JS bootstrap script for bridge world
-│   ├── Push/                             # Declarative push infrastructure (§6)
-│   │   ├── PushPlan.swift                # PushPlan, PushPlanBuilder (result builder)
-│   │   ├── Slice.swift                   # Slice (value-level observation)
-│   │   ├── EntitySlice.swift             # EntitySlice (keyed collection, per-entity diff)
-│   │   ├── PushTransport.swift           # PushTransport protocol, PushLevel, PushOp, StoreKey
-│   │   ├── RevisionClock.swift           # Monotonic per-store revision counter
-│   │   └── PushSnapshots.swift           # DiffStatusSlice, ConnectionSlice, EntityDelta (wire types)
-│   └── Methods/                          # One file per namespace
-│       ├── DiffMethods.swift             # diff.requestFileContents, diff.loadDiff
-│       ├── ReviewMethods.swift           # review.addComment, review.resolveThread
-│       ├── AgentMethods.swift            # agent.sendReview, agent.cancelTask
-│       └── SystemMethods.swift           # system.ping, system.getCapabilities
-├── Domain/                               # Bridge-specific domain models (separate from Models/)
-│   ├── BridgeDomainState.swift           # @Observable root: PaneDomainState, DiffState, ReviewState, ConnectionState
-│   ├── DiffManifest.swift                # DiffManifest, FileManifest, HunkSummary, DiffSource
-│   ├── ReviewState.swift                 # ReviewThread, ReviewComment, ReviewAction, CommentAnchor
-│   ├── AgentTask.swift                   # AgentTask, AgentTaskStatus
-│   ├── TimelineEvent.swift               # TimelineEvent, TimelineEventKind (in-memory v1)
-│   └── ConnectionState.swift             # Connection health
-│   # Note: BridgePaneState and BridgePanelKind live in Features/Bridge/ (co-located with controller)
-├── Features/                              # Existing features
-│   ├── Webview/                            # Existing browser pane feature
-│   │   ├── WebviewPaneController.swift     # Browser pane controller (shared config, browser navigation)
-│   │   ├── WebviewNavigationDecider.swift   # Browser navigation policy (http/https/file/about/agentstudio)
-│   │   ├── WebviewDialogHandler.swift       # JS dialog handler (reused by bridge panes)
-│   │   └── ...
-│   ├── ...                                 # Existing feature subfolders
-│   └── ...
-└── (rest of existing Sources structure unchanged)
+Sources/AgentStudio/Features/Bridge/
+├── BridgePaneController.swift             # Per-pane controller: WebPage setup, PushPlan lifecycle, PushTransport conformance
+├── BridgePaneState.swift                  # BridgePaneState, BridgePanelKind, BridgePaneSource
+├── BridgePaneView.swift                   # AppKit PaneView hosting BridgePaneContentView
+├── BridgePaneContentView.swift            # SwiftUI view: WebView(controller.page), no nav bar
+├── RPCRouter.swift                        # Method registry + dispatch
+├── RPCMethod.swift                        # Protocol + type-erased handler
+├── RPCMessageHandler.swift                # WKScriptMessageHandler for postMessage
+├── BridgeSchemeHandler.swift              # agentstudio:// URL scheme (app + resource)
+├── BridgeNavigationDecider.swift          # Strict navigation: agentstudio + about only
+├── BridgeBootstrap.swift                  # JS bootstrap script for bridge world
+├── Push/                                  # Declarative push infrastructure (§6)
+│   ├── PushPlan.swift                     # PushPlan, PushPlanBuilder (result builder)
+│   ├── Slice.swift                        # Slice (value-level observation)
+│   ├── EntitySlice.swift                  # EntitySlice (keyed collection, per-entity diff)
+│   ├── PushTransport.swift                # PushTransport protocol, PushLevel, PushOp, StoreKey
+│   ├── RevisionClock.swift                # Monotonic per-store revision counter
+│   └── PushSnapshots.swift                # DiffStatusSlice, ConnectionSlice, EntityDelta (wire types)
+├── Methods/                               # One file per namespace
+│   ├── DiffMethods.swift                  # diff.requestFileContents, diff.loadDiff
+│   ├── ReviewMethods.swift                # review.addComment, review.resolveThread
+│   ├── AgentMethods.swift                 # agent.sendReview, agent.cancelTask
+│   └── SystemMethods.swift                # system.ping, system.getCapabilities
+└── Domain/                                # Bridge-specific domain models
+    ├── BridgeDomainState.swift            # @Observable root: PaneDomainState, DiffState, ReviewState, ConnectionState
+    ├── DiffManifest.swift                 # DiffManifest, FileManifest, HunkSummary, DiffSource
+    ├── ReviewState.swift                  # ReviewThread, ReviewComment, ReviewAction, CommentAnchor
+    ├── AgentTask.swift                    # AgentTask, AgentTaskStatus
+    ├── TimelineEvent.swift                # TimelineEvent, TimelineEventKind (in-memory v1)
+    └── ConnectionState.swift              # Connection health
+
+Tests/AgentStudioTests/Features/Bridge/
+├── BridgePaneControllerTests.swift
+├── BridgeTransportIntegrationTests.swift
+├── RPCMessageHandlerTests.swift
+├── RPCRouterTests.swift
+└── Push/PushPerformanceBenchmarkTests.swift
 
 WebApp/                                    # React app (Vite + TypeScript)
 ├── src/

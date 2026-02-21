@@ -130,6 +130,9 @@ final class BridgePaneController {
                 self?.recordCommandAck(ack)
             }
         }
+        router.onResponse = { [weak self] responseJSON in
+            await self?.emitRPCResponse(responseJSON)
+        }
 
         // Wire message handler → router: validated JSON from postMessage is dispatched to handlers.
         messageHandler.onValidJSON = { [weak self] json in
@@ -322,6 +325,22 @@ final class BridgePaneController {
 
     private func recordCommandAck(_ ack: CommandAck) {
         paneState.recordAck(ack)
+    }
+
+    private func emitRPCResponse(_ responseJSON: String) async {
+        do {
+            try await page.callJavaScript(
+                """
+                const payload = JSON.parse(json);
+                window.__bridgeInternal.response(payload.id, payload.result, payload.error);
+                """,
+                arguments: ["json": responseJSON],
+                contentWorld: bridgeWorld
+            )
+        } catch {
+            bridgeControllerLogger.warning("[Bridge] JS response transport failed: \(error)")
+            paneState.connection.health = .error
+        }
     }
 }
 

@@ -39,6 +39,9 @@ final class RPCRouter {
             "RPC ack commandId=\(ack.commandId) method=\(ack.method) status=\(ack.status.rawValue)"
         )
     }
+    var onResponse: ((String) async -> Void) = { _ in
+        // Default no-op; wired by BridgePaneController when a JS bridge is active.
+    }
 
     // MARK: - Registration
 
@@ -54,10 +57,12 @@ final class RPCRouter {
     /// Parse and dispatch a raw JSON-RPC message string.
     ///
     /// Validates the envelope, rejects batch arrays (§5.5), deduplicates by
-    /// `__commandId`, and routes to the registered handler. Errors are reported
-    /// via `onError` rather than thrown, following fire-and-forget notification semantics.
+    /// `__commandId`, and routes to the registered handler.
+    ///
+    /// JSON-RPC requests with an `id` emit direct response envelopes via `onResponse`.
+    /// Notifications (no `id`) remain fire-and-forget and do not emit responses.
     func dispatch(json: String, isBridgeReady: Bool) async {
-        guard let request = parseRequestEnvelope(from: json) else {
+        guard let request = await parseRequestEnvelope(from: json) else {
             return
         }
 
@@ -71,28 +76,29 @@ final class RPCRouter {
         }
 
         guard let handler = handlers[request.method] else {
-            onError(-32_601, "Method not found: \(request.method)", request.requestId)
+            await reportError(-32_601, "Method not found: \(request.method)", id: request.requestId)
             return
         }
 
         do {
             let paramsData = try decodeParamsData(from: request.params)
-            _ = try await handler.run(id: request.requestId, paramsData: paramsData)
+            let result = try await handler.run(id: request.requestId, paramsData: paramsData)
             reportCommandAck(
                 commandId: request.commandId,
                 method: request.method,
                 status: CommandAck.Status.ok,
                 reason: nil
             )
+            await emitSuccessResponseIfNeeded(id: request.requestId, result: result)
         } catch {
-            let (rpcErrorCode, errorMessage) = classifyDispatchError(error)
+            let (rpcErrorCode, dispatchErrorMessage) = classifyDispatchError(error)
             reportCommandAck(
                 commandId: request.commandId,
                 method: request.method,
                 status: CommandAck.Status.rejected,
-                reason: error.localizedDescription
+                reason: errorMessage(from: error)
             )
-            onError(rpcErrorCode, errorMessage, request.requestId)
+            await reportError(rpcErrorCode, dispatchErrorMessage, id: request.requestId)
         }
     }
 
@@ -117,9 +123,9 @@ final class RPCRouter {
         let params: Any?
     }
 
-    private func parseRequestEnvelope(from json: String) -> ParsedRPCRequest? {
+    private func parseRequestEnvelope(from json: String) async -> ParsedRPCRequest? {
         guard let data = json.data(using: .utf8) else {
-            onError(-32_700, "Parse error", nil)
+            await reportError(-32_700, "Parse error", id: nil)
             return nil
         }
 
@@ -127,17 +133,17 @@ final class RPCRouter {
         do {
             raw = try JSONSerialization.jsonObject(with: data)
         } catch {
-            onError(-32_700, "Parse error: \(error.localizedDescription)", nil)
+            await reportError(-32_700, "Parse error: \(error.localizedDescription)", id: nil)
             return nil
         }
 
         if raw is [Any] {
-            onError(-32_600, "Batch requests not supported", nil)
+            await reportError(-32_600, "Batch requests not supported", id: nil)
             return nil
         }
 
         guard let dict = raw as? [String: Any] else {
-            onError(-32_600, "Invalid request", nil)
+            await reportError(-32_600, "Invalid request", id: nil)
             return nil
         }
 
@@ -145,7 +151,7 @@ final class RPCRouter {
         let requestId: RPCIdentifier?
         switch idValidation {
         case .invalid:
-            onError(-32_600, "Invalid request: invalid id", .null)
+            await reportError(-32_600, "Invalid request: invalid id", id: .null)
             return nil
         case .missing:
             requestId = nil
@@ -154,12 +160,12 @@ final class RPCRouter {
         }
 
         guard dict["jsonrpc"] as? String == "2.0" else {
-            onError(-32_600, "Invalid request: unsupported jsonrpc version", requestId)
+            await reportError(-32_600, "Invalid request: unsupported jsonrpc version", id: requestId)
             return nil
         }
 
         guard let method = dict["method"] as? String else {
-            onError(-32_600, "Invalid request: missing method", requestId)
+            await reportError(-32_600, "Invalid request: missing method", id: requestId)
             return nil
         }
 
@@ -249,6 +255,87 @@ final class RPCRouter {
         )
     }
 
+    private func reportError(_ code: Int, _ message: String, id: RPCIdentifier?) async {
+        onError(code, message, id)
+        await emitErrorResponseIfNeeded(id: id, code: code, message: message)
+    }
+
+    private func emitSuccessResponseIfNeeded(id: RPCIdentifier?, result: Encodable?) async {
+        guard let id else {
+            return
+        }
+        do {
+            let responseJSON = try makeSuccessResponseJSON(id: id, result: result)
+            await onResponse(responseJSON)
+        } catch {
+            let message = "Internal error: failed to encode response: \(errorMessage(from: error))"
+            onError(-32_603, message, id)
+            if let fallback = try? makeErrorResponseJSON(id: id, code: -32_603, message: message) {
+                await onResponse(fallback)
+            }
+        }
+    }
+
+    private func emitErrorResponseIfNeeded(id: RPCIdentifier?, code: Int, message: String) async {
+        guard let id else {
+            return
+        }
+        guard let responseJSON = try? makeErrorResponseJSON(id: id, code: code, message: message) else {
+            return
+        }
+        await onResponse(responseJSON)
+    }
+
+    private func makeSuccessResponseJSON(id: RPCIdentifier, result: Encodable?) throws -> String {
+        var envelope: [String: Any] = [
+            "jsonrpc": "2.0",
+            "id": responseJSONValue(for: id),
+        ]
+        envelope["result"] = try responseJSONValue(for: result)
+        return try makeJSONString(from: envelope)
+    }
+
+    private func makeErrorResponseJSON(id: RPCIdentifier, code: Int, message: String) throws -> String {
+        let envelope: [String: Any] = [
+            "jsonrpc": "2.0",
+            "id": responseJSONValue(for: id),
+            "error": [
+                "code": code,
+                "message": message,
+            ],
+        ]
+        return try makeJSONString(from: envelope)
+    }
+
+    private func makeJSONString(from object: [String: Any]) throws -> String {
+        let data = try JSONSerialization.data(withJSONObject: object, options: [.sortedKeys])
+        guard let encoded = String(data: data, encoding: .utf8) else {
+            throw RPCRouterResponseEncodingError.invalidUTF8
+        }
+        return encoded
+    }
+
+    private func responseJSONValue(for id: RPCIdentifier) -> Any {
+        switch id {
+        case .string(let value):
+            return value
+        case .integer(let value):
+            return NSNumber(value: value)
+        case .double(let value):
+            return NSNumber(value: value)
+        case .null:
+            return NSNull()
+        }
+    }
+
+    private func responseJSONValue(for result: Encodable?) throws -> Any {
+        guard let result else {
+            return NSNull()
+        }
+        let data = try JSONEncoder().encode(AnyEncodable(result))
+        return try JSONSerialization.jsonObject(with: data, options: [.fragmentsAllowed])
+    }
+
     private func parseRequestID(_ raw: Any?) -> RPCRequestIDState {
         guard let raw else {
             return .missing
@@ -295,6 +382,20 @@ final class RPCRouter {
     }
 }
 
+private struct AnyEncodable: Encodable {
+    private let encodeClosure: (Encoder) throws -> Void
+
+    init(_ value: Encodable) {
+        encodeClosure = { encoder in
+            try value.encode(to: encoder)
+        }
+    }
+
+    func encode(to encoder: Encoder) throws {
+        try encodeClosure(encoder)
+    }
+}
+
 private enum RPCRouterParamsError: Error, LocalizedError {
     case invalid(String)
 
@@ -304,4 +405,8 @@ private enum RPCRouterParamsError: Error, LocalizedError {
             return message
         }
     }
+}
+
+private enum RPCRouterResponseEncodingError: Error {
+    case invalidUTF8
 }

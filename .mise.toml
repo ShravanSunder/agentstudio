@@ -107,23 +107,29 @@ scripts/test-agent-timeout.sh
 """
 
 [tasks.test-bench-push]
-description = "Run benchmark-style push performance tests in warn mode"
+description = "Run push benchmark tests in warn mode (telemetry logs, non-failing)"
 depends = ["copy-xcframework", "setup-dev-resources"]
 run = """
-SWIFT_TEST_TIMEOUT_SECONDS=${SWIFT_TEST_TIMEOUT_SECONDS:-60} \
-SWIFT_BUILD_DIR="${SWIFT_BUILD_DIR:-.build-agent-$(uuidgen | tr -dc 'a-z0-9' | head -c 8)}" \
-AGENT_STUDIO_BENCHMARK_MODE=warn \
-scripts/test-agent-timeout.sh "PushPerformanceBenchmarkTests.test_singleFile_incremental_change_under_2ms"
+#!/usr/bin/env bash
+set -euo pipefail
+export SWIFT_BUILD_DIR="${SWIFT_BUILD_DIR:-.build-agent-$(uuidgen | tr -dc 'a-z0-9' | head -c 8)}"
+export AGENT_STUDIO_BENCHMARK_MODE=warn
+
+swift test --build-path "$SWIFT_BUILD_DIR" --filter "PushBenchmarkSupportTests"
+swift test --build-path "$SWIFT_BUILD_DIR" --filter "PushPerformanceBenchmarkTests"
 """
 
 [tasks.test-bench-push-strict]
-description = "Run benchmark-style push performance tests in strict mode"
+description = "Run push benchmark tests in strict mode (telemetry thresholds fail tests)"
 depends = ["copy-xcframework", "setup-dev-resources"]
 run = """
-SWIFT_TEST_TIMEOUT_SECONDS=${SWIFT_TEST_TIMEOUT_SECONDS:-60} \
-SWIFT_BUILD_DIR="${SWIFT_BUILD_DIR:-.build-agent-$(uuidgen | tr -dc 'a-z0-9' | head -c 8)}" \
-AGENT_STUDIO_BENCHMARK_MODE=strict \
-scripts/test-agent-timeout.sh "PushPerformanceBenchmarkTests.test_singleFile_incremental_change_under_2ms"
+#!/usr/bin/env bash
+set -euo pipefail
+export SWIFT_BUILD_DIR="${SWIFT_BUILD_DIR:-.build-agent-$(uuidgen | tr -dc 'a-z0-9' | head -c 8)}"
+export AGENT_STUDIO_BENCHMARK_MODE=strict
+
+swift test --build-path "$SWIFT_BUILD_DIR" --filter "PushBenchmarkSupportTests"
+swift test --build-path "$SWIFT_BUILD_DIR" --filter "PushPerformanceBenchmarkTests"
 """
 
 [tasks.test-agent-timeout]

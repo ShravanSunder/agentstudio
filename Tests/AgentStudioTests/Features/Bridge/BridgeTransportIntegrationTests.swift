@@ -145,6 +145,106 @@ final class BridgeTransportIntegrationTests {
         controller.teardown()
     }
 
+    /// Verify request responses are emitted through the bridge-world JS response path
+    /// (`window.__bridgeInternal.response(...)`), resulting in a `__bridge_response`
+    /// event that can be observed by bridge world listeners.
+    @Test
+    func test_requestWithId_emitsBridgeResponseEvent() async throws {
+        struct EchoMethod: RPCMethod {
+            struct Params: Decodable, Sendable {
+                let text: String
+            }
+
+            struct ResultPayload: Codable, Sendable {
+                let echoed: String
+            }
+
+            typealias Result = ResultPayload
+            static let method = "agent.responseEcho"
+        }
+
+        struct CaptureResponseMethod: RPCMethod {
+            struct Params: Decodable, Sendable {
+                struct ResultPayload: Decodable, Sendable {
+                    let echoed: String
+                }
+
+                struct ErrorPayload: Decodable, Sendable {
+                    let code: Int
+                    let message: String
+                }
+
+                let id: Int64
+                let result: ResultPayload?
+                let error: ErrorPayload?
+                let nonce: String?
+            }
+
+            typealias Result = RPCNoResponse
+            static let method = "agent.captureBridgeResponse"
+        }
+
+        actor ResponseCaptureBox {
+            private var payload: CaptureResponseMethod.Params?
+
+            func set(_ value: CaptureResponseMethod.Params) {
+                payload = value
+            }
+
+            func get() -> CaptureResponseMethod.Params? {
+                payload
+            }
+        }
+
+        let paneId = UUID()
+        let state = BridgePaneState(panelKind: .diffViewer, source: nil)
+        let controller = BridgePaneController(paneId: paneId, state: state)
+        let capturedResponse = ResponseCaptureBox()
+
+        controller.router.register(method: EchoMethod.self) { params in
+            .init(echoed: params.text)
+        }
+        controller.router.register(method: CaptureResponseMethod.self) { params in
+            await capturedResponse.set(params)
+            return nil
+        }
+
+        controller.loadApp()
+        try await waitForPageLoad(controller.page)
+        controller.handleBridgeReady()
+
+        let bridgeWorld = WKContentWorld.world(name: "agentStudioBridge")
+        let installProbeScript = """
+            document.addEventListener('__bridge_response', function(event) {
+                window.webkit.messageHandlers.rpc.postMessage(JSON.stringify({
+                    jsonrpc: '2.0',
+                    method: 'agent.captureBridgeResponse',
+                    params: event.detail
+                }));
+            });
+            """
+        _ = try await controller.page.callJavaScript(installProbeScript, contentWorld: bridgeWorld)
+
+        await controller.handleIncomingRPC(
+            #"{"jsonrpc":"2.0","id":42,"method":"agent.responseEcho","params":{"text":"hello"}}"#
+        )
+
+        let deadline = ContinuousClock.now + .seconds(2)
+        while ContinuousClock.now < deadline {
+            if await capturedResponse.get() != nil {
+                break
+            }
+            try await Task.sleep(for: .milliseconds(25))
+        }
+
+        let response = try #require(await capturedResponse.get())
+        #expect(response.id == 42)
+        #expect(response.result?.echoed == "hello")
+        #expect(response.error == nil)
+
+        controller.teardown()
+    }
+
     // MARK: - Test 2: Scheme handler serves app HTML
 
     /// Verify that `loadApp()` triggers the BridgeSchemeHandler to serve content
