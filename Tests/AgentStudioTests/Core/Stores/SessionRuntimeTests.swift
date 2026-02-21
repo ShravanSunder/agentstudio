@@ -194,7 +194,7 @@ final class SessionRuntimeTests {
 
     @Test
 
-    func test_startSession_withoutBackend_marksRunning() async throws {
+    func test_startSession_withoutBackend_marksExited() async throws {
         let runtime = makeRuntime()
         let pane = makePane(
             source: .floating(workingDirectory: nil, title: nil),
@@ -205,7 +205,7 @@ final class SessionRuntimeTests {
 
         #expect((handle) == nil)
         let status = runtime.status(for: pane.id)
-        #expect(status == .running)
+        #expect(status == .exited)
     }
 
     @Test
@@ -230,7 +230,7 @@ final class SessionRuntimeTests {
 
     @Test
 
-    func test_restoreSession_withoutBackend_marksRunning() async {
+    func test_restoreSession_withoutBackend_marksExited() async {
         let runtime = makeRuntime()
         let pane = makePane(
             source: .floating(workingDirectory: nil, title: nil),
@@ -239,9 +239,9 @@ final class SessionRuntimeTests {
 
         let restored = await runtime.restoreSession(pane)
 
-        #expect(restored)
+        #expect(!(restored))
         let status = runtime.status(for: pane.id)
-        #expect(status == .running)
+        #expect(status == .exited)
     }
 
     @Test

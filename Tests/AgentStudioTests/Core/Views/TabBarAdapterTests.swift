@@ -430,9 +430,9 @@ final class TabBarAdapterTests {
         #expect(!(adapter.isOverflowing))
     }
     private func waitForAdapterRefresh() async {
-        await Task.yield()
-        try? await Task.sleep(for: .milliseconds(30))
-        await Task.yield()
+        for _ in 0..<8 {
+            await Task.yield()
+        }
     }
 }
 
