@@ -20,6 +20,9 @@ final class PaneCoordinator {
     private var cwdObserver: NSObjectProtocol?
 
     /// Unified undo stack — holds both tab and pane close entries, chronologically ordered.
+    /// NOTE: Undo stack owned here (not in a store) because undo is fundamentally
+    /// orchestration logic: it coordinates across WorkspaceStore, ViewRegistry, and
+    /// SessionRuntime. Future: extract to UndoEngine when undo requirements grow.
     private(set) var undoStack: [WorkspaceStore.CloseEntry] = []
 
     /// Maximum undo stack entries before oldest are garbage-collected.
@@ -211,13 +214,19 @@ final class PaneCoordinator {
                     let worktree = store.worktree(worktreeId),
                     let repo = store.repo(repoId)
                 {
-                    restoreView(for: pane, worktree: worktree, repo: repo)
+                    if restoreView(for: pane, worktree: worktree, repo: repo) == nil {
+                        paneCoordinatorLogger.error("Failed to restore terminal pane \(pane.id)")
+                    }
                 } else {
-                    createViewForContent(pane: pane)
+                    if createViewForContent(pane: pane) == nil {
+                        paneCoordinatorLogger.error("Failed to recreate terminal pane \(pane.id)")
+                    }
                 }
 
             case .webview, .codeViewer, .bridgePanel:
-                createViewForContent(pane: pane)
+                if createViewForContent(pane: pane) == nil {
+                    paneCoordinatorLogger.error("Failed to recreate pane \(pane.id)")
+                }
 
             case .unsupported:
                 paneCoordinatorLogger.warning("Cannot restore unsupported pane \(pane.id)")
@@ -242,13 +251,19 @@ final class PaneCoordinator {
                     let worktree = store.worktree(worktreeId),
                     let repo = store.repo(repoId)
                 {
-                    restoreView(for: pane, worktree: worktree, repo: repo)
+                    if restoreView(for: pane, worktree: worktree, repo: repo) == nil {
+                        paneCoordinatorLogger.error("Failed to restore terminal pane \(pane.id)")
+                    }
                 } else {
-                    createViewForContent(pane: pane)
+                    if createViewForContent(pane: pane) == nil {
+                        paneCoordinatorLogger.error("Failed to recreate terminal pane \(pane.id)")
+                    }
                 }
 
             case .webview, .codeViewer, .bridgePanel:
-                createViewForContent(pane: pane)
+                if createViewForContent(pane: pane) == nil {
+                    paneCoordinatorLogger.error("Failed to recreate pane \(pane.id)")
+                }
 
             case .unsupported:
                 paneCoordinatorLogger.warning("Cannot restore unsupported pane \(pane.id)")
@@ -336,28 +351,29 @@ final class PaneCoordinator {
             store.removeArrangement(arrangementId, inTab: tabId)
 
         case .switchArrangement(let tabId, let arrangementId):
+            guard let tab = store.tab(tabId) else {
+                paneCoordinatorLogger.warning("Cannot switch arrangement: tab \(tabId) not found")
+                break
+            }
+            guard let arrangement = tab.arrangements.first(where: { $0.id == arrangementId }) else {
+                paneCoordinatorLogger.warning(
+                    "Cannot switch arrangement: arrangement \(arrangementId) not found in tab \(tabId)"
+                )
+                break
+            }
+
             // Capture visible panes and minimized set BEFORE switching.
             // Minimized panes are detached but still in visiblePaneIds,
             // so we must track them separately for reattachment.
             let previousVisiblePaneIds: Set<UUID>
             let previouslyMinimizedPaneIds: Set<UUID>
-            if let tab = store.tab(tabId) {
-                previousVisiblePaneIds = tab.activeArrangement.visiblePaneIds
-                previouslyMinimizedPaneIds = tab.minimizedPaneIds
-            } else {
-                previousVisiblePaneIds = []
-                previouslyMinimizedPaneIds = []
-            }
+            previousVisiblePaneIds = tab.activeArrangement.visiblePaneIds
+            previouslyMinimizedPaneIds = tab.minimizedPaneIds
 
             // Switch arrangement in store (clears minimizedPaneIds)
             store.switchArrangement(to: arrangementId, inTab: tabId)
 
             // Get newly visible panes AFTER switching
-            guard let tab = store.tab(tabId),
-                let arrangement = tab.arrangements.first(where: { $0.id == arrangementId })
-            else {
-                break
-            }
             let newVisiblePaneIds = arrangement.visiblePaneIds
 
             let transitions = Self.computeSwitchArrangementTransitions(
@@ -410,8 +426,7 @@ final class PaneCoordinator {
             if let drawerPane = store.addDrawerPane(to: parentPaneId) {
                 if createViewForContent(pane: drawerPane) == nil {
                     paneCoordinatorLogger.warning(
-                        "addDrawerPane: view creation failed for "
-                            + "\(drawerPane.id) — panel will show placeholder")
+                        "addDrawerPane: view creation failed for \(drawerPane.id) — panel will show placeholder")
                 }
             }
 
@@ -467,15 +482,9 @@ final class PaneCoordinator {
     private func executeCloseTab(_ tabId: UUID) {
         // Sync live webview state back to the pane model before snapshotting,
         // so undo-close restores the actual page, not stale initial state.
-        // Use tab.panes (all owned panes) not tab.paneIds (active arrangement only)
-        // to match the snapshot path which captures all panes.
-        if let tab = store.tab(tabId) {
-            for paneId in tab.panes {
-                if let webviewView = viewRegistry.webviewView(for: paneId) {
-                    store.syncPaneWebviewState(paneId, state: webviewView.currentState())
-                }
-            }
-        }
+        // Use the same sync path as persistence by delegating to the pre-persist hook
+        // helper. This handles all registered webview views consistently.
+        syncWebviewStates()
 
         // Snapshot for undo before closing
         if let snapshot = store.snapshotForClose(tabId: tabId) {
@@ -609,8 +618,7 @@ final class PaneCoordinator {
                 let repo = store.repo(repoId)
             else {
                 paneCoordinatorLogger.warning(
-                    "Cannot insert new terminal pane — target pane has "
-                        + "no worktree/repo context")
+                    "Cannot insert new terminal pane — target pane has no worktree/repo context")
                 return
             }
 
@@ -1025,8 +1033,7 @@ final class PaneCoordinator {
             }
         }
         paneCoordinatorLogger.info(
-            "Restored \(restored)/\(paneIds.count) pane views, "
-                + "\(drawerRestored) drawer pane views")
+            "Restored \(restored)/\(paneIds.count) pane views, \(drawerRestored) drawer pane views")
 
         if let activeTab = store.activeTab,
             let activePaneId = activeTab.activePaneId,

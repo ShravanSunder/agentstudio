@@ -101,7 +101,10 @@ final class SurfaceManager {
     }
 
     deinit {
-        healthCheckTimer?.invalidate()
+        MainActor.assumeIsolated {
+            healthCheckTimer?.invalidate()
+            healthCheckTimer = nil
+        }
     }
 
     // MARK: - Surface Creation

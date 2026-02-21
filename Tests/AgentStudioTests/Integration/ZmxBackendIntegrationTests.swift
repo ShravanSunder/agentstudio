@@ -20,7 +20,7 @@ struct ZmxBackendIntegrationTests {
             harness.createBackend(),
             "ZmxTestHarness failed to resolve zmx path for integration test"
         )
-        #require(await backend.isAvailable, "zmx should be available for integration test")
+        try #require(await backend.isAvailable, "zmx should be available for integration test")
         do {
             try await test(harness, backend)
             await harness.cleanup()

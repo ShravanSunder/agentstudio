@@ -85,12 +85,12 @@ User closes tab
        ▼
 ┌──────────────────────────────────────────────────────────────┐
 │ PaneCoordinator.executeCloseTab(tabId)                        │
-│   ├─► store.snapshotForClose() → CloseSnapshot               │
+│   ├─► store.snapshotForClose() → TabCloseSnapshot            │
 │   ├─► Push to undo stack (max 10 entries)                    │
 │   │                                                          │
-│   ├─► For each sessionId in tab:                             │
-│   │     coordinator.teardownView(sessionId)                  │
-│   │       ├─► ViewRegistry.unregister(sessionId)             │
+│   ├─► For each paneId in tab:                               │
+│   │     coordinator.teardownView(paneId)                    │
+│   │       ├─► ViewRegistry.unregister(paneId)             │
 │   │       └─► SurfaceManager.detach(surfaceId, reason: .close)│
 │   │             ├─► Remove from activeSurfaces               │
 │   │             ├─► ghostty_surface_set_occlusion(false)     │
@@ -106,23 +106,23 @@ User presses Cmd+Shift+T
        ▼
 ┌──────────────────────────────────────────────────────────────┐
 │ PaneCoordinator.undoCloseTab()                                │
-│   ├─► Pop CloseSnapshot from undo stack                      │
+│   ├─► Pop CloseEntry from undo stack                        │
 │   ├─► store.restoreFromSnapshot() → re-insert tab            │
 │   │                                                          │
 │   └─► For each session (reversed, matching LIFO order):      │
-│         coordinator.restoreView(session, worktree, repo)     │
+│         coordinator.restoreView(pane, worktree, repo)         │
 │           ├─► SurfaceManager.undoClose()                     │
 │           │     ├─► Pop from undoStack                       │
 │           │     ├─► Cancel expiration Task                   │
-│           │     ├─► Verify metadata.sessionId matches        │
+│           │     ├─► Verify metadata.paneId matches          │
 │           │     └─► Move to hiddenSurfaces                   │
 │           │                                                  │
-│           ├─► SurfaceManager.attach(surfaceId, sessionId)    │
+│           ├─► SurfaceManager.attach(surfaceId, paneId)       │
 │           │     ├─► Move to activeSurfaces                   │
 │           │     ├─► ghostty_surface_set_occlusion(true)      │
 │           │     └─► Return surfaceView                       │
 │           │                                                  │
-│           └─► ViewRegistry.register(view, sessionId)         │
+│           └─► ViewRegistry.register(view, paneId)            │
 └──────────────────────────────────────────────────────────────┘
 ```
 
@@ -152,8 +152,8 @@ Terminal shell (cd /foo)
     │ post .surfaceCWDChanged (surfaceId + URL)
     ▼
 ④ PaneCoordinator                          [PaneCoordinator.swift]
-    │ surfaceId → sessionId (via metadata.sessionId)
-    │ store.updateSessionCWD(sessionId, url)
+    │ surfaceId → paneId (via metadata.paneId)
+    │ store.updatePaneCWD(paneId, url)
     ▼
 ⑤ WorkspaceStore                            [WorkspaceStore.swift]
     │ session.lastKnownCWD = url (dedup + markDirty)

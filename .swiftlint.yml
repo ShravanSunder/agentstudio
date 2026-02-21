@@ -86,6 +86,8 @@ custom_rules:
   no_combine_import:
     name: "No Combine imports"
     regex: "^\\s*import\\s+Combine\\b"
+    excluded:
+      - Sources/AgentStudio/Legacy
     message: "Avoid Combine; use AsyncStream/event-stream primitives for new or migrated code."
     severity: error
   no_observable_object_protocol:

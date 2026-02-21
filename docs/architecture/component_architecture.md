@@ -279,7 +279,7 @@ Owns all workspace structure state. `@Observable`, `@MainActor`. All properties 
 | Session | `createSession()`, `removeSession()`, `updateSessionTitle()`, `updateSessionAgent()`, `setResidency()` |
 | View | `switchView()`, `createView()`, `deleteView()`, `saveCurrentViewAs()` |
 | Tab | `appendTab()`, `removeTab()`, `insertTab()`, `moveTab()`, `setActiveTab()` |
-| Layout | `insertSession()`, `removeSessionFromLayout()`, `resizePane()`, `equalizePanes()`, `setActiveSession()` |
+| Layout | `insertPane()`, `removePaneFromLayout()`, `resizePane()`, `equalizePanes()`, `setActivePane()` |
 | Compound | `breakUpTab()`, `extractSession()`, `mergeTab()` |
 | Repo | `addRepo()`, `removeRepo()`, `updateRepoWorktrees()` |
 
@@ -343,17 +343,17 @@ The `PaneCoordinator` is the canonical orchestration boundary for action executi
 - `openTerminal(for:in:)` — Create session + surface + tab. Rolls back session if surface creation fails.
 - `openWebview(url:)` — Open webview terminal pane and append to the active arrangement
 - `openDiffViewer()` — Open bridge-backed diff viewer pane (where available)
-- `undoCloseTab()` — Pop `CloseSnapshot` from undo stack, restore to store, reattach surfaces in reverse order
+- `undoCloseTab()` — pop `WorkspaceStore.CloseEntry` from undo stack, restore to store, reattach surfaces in reverse order
 - `createView(for:worktree:repo:)` — Create surface → attach → create `AgentStudioTerminalView` → register in `ViewRegistry`
-- `teardownView(for: sessionId)` — Unregister → detach surface (with undo support)
+- `teardownView(for: paneId)` — Unregister → detach surface (with undo support)
 - `restoreView(for:worktree:repo:)` — Pop surface from `SurfaceManager.undoClose()` LIFO stack → reattach
-- `restoreAllViews()` — App launch: create views for all sessions in all views
+- `restoreAllViews()` — App launch: create views for all panes in active tabs
 - `handleViewSwitch(from:to:)` — detach/reattach surfaces as layout and view changes are applied
-- `markForeground(sessionId:)` — coordinate runtime focus and rendering transitions
+- `markForeground(paneId:)` — coordinate runtime focus and rendering transitions
 
 **Undo stack:**
-- `undoStack: [WorkspaceStore.CloseSnapshot]` — in-memory LIFO, max 10 entries
-- `CloseSnapshot` captures: `tab`, `sessions`, `viewId`, `tabIndex`
+- `undoStack: [WorkspaceStore.CloseEntry]` — in-memory LIFO, max 10 entries
+- `TabCloseSnapshot` captures: `tab`, `panes`, `tabIndex`
 - Oldest entries GC'd when stack exceeds limit; orphaned sessions cleaned up
 
 > **File:** `App/PaneCoordinator.swift`
@@ -506,16 +506,16 @@ When switching from View A to View B:
 ### 4.4 Undo Close Flow
 
 1. **Close**: `PaneCoordinator.executeCloseTab(tabId)`
-   - `store.snapshotForClose()` → `CloseSnapshot` (tab + sessions + viewId + tabIndex)
+   - `store.snapshotForClose()` → `TabCloseSnapshot` (tab + panes + tabIndex)
    - Push snapshot to `undoStack` (max 10)
-   - `coordinator.teardownView()` for each session → `SurfaceManager.detach(.close)` (surfaces enter undo stack with TTL)
+   - `coordinator.teardownView()` for each pane → `SurfaceManager.detach(.close)` (surfaces enter undo stack with TTL)
    - `store.removeTab(tabId)` — sessions stay in `store.sessions`
    - GC oldest undo entries if stack > 10
 
 2. **Undo** (`Cmd+Shift+T`): `PaneCoordinator.undoCloseTab()`
-   - Pop `CloseSnapshot` from undo stack
+   - Pop `WorkspaceStore.CloseEntry` from undo stack
    - `store.restoreFromSnapshot()` → re-insert tab at original position
-   - `coordinator.restoreView()` for each session (reversed order, matching SurfaceManager LIFO)
+   - `coordinator.restoreView()` for each pane (reversed order, matching SurfaceManager LIFO)
    - `SurfaceManager.undoClose()` pops surface → reattach (no recreation)
 
 ### 4.5 Command Bar Execution Flow

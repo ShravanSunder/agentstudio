@@ -71,9 +71,8 @@ final class SessionRuntime {
     }
 
     deinit {
-        MainActor.assumeIsolated {
-            healthCheckTask?.cancel()
-        }
+        let task = MainActor.assumeIsolated { healthCheckTask }
+        task?.cancel()
     }
 
     // MARK: - Backend Registration

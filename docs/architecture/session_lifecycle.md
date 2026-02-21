@@ -2,7 +2,7 @@
 
 ## TL;DR
 
-A terminal session's identity (`UUID`) is stable across its entire lifecycle — creation, layout changes, view switches, close/undo, persistence, and restore. `WorkspaceStore` owns session records. `SessionRuntime` tracks runtime health. `PaneCoordinator` bridges sessions to surfaces. Sessions survive layout removal (they persist in `store.sessions`) and can be undone via a `CloseSnapshot` stack. The zmx backend provides persistence across app restarts.
+A pane's identity (`UUID`) is stable across its entire lifecycle — creation, layout changes, view switches, close/undo, persistence, and restore. `WorkspaceStore` owns pane records. `SessionRuntime` tracks runtime health. `PaneCoordinator` bridges panes to surfaces. Panes can be undone via a `CloseEntry` stack. The zmx backend provides persistence across app restarts.
 
 ---
 
@@ -10,12 +10,12 @@ A terminal session's identity (`UUID`) is stable across its entire lifecycle —
 
 A single `sessionId: UUID` is the identity used across **all** layers:
 
-| Layer | Uses sessionId for |
+| Layer | Uses paneId for |
 |-------|--------------------|
-| `WorkspaceStore` | Session record ownership |
+| `WorkspaceStore` | Pane record ownership |
 | `Layout` / `Tab` / `ViewDefinition` | Leaf references in split trees |
-| `ViewRegistry` | sessionId → live NSView mapping |
-| `SurfaceManager` | `SurfaceMetadata.sessionId` — join key to session |
+| `ViewRegistry` | paneId → live NSView mapping |
+| `SurfaceManager` | `SurfaceMetadata.paneId` — join key to pane |
 | `SessionRuntime` | Runtime status tracking |
 | `ZmxBackend` | Part of deterministic zmx session name |
 
@@ -120,31 +120,31 @@ sequenceDiagram
 ### Close Tab
 
 1. `PaneCoordinator.executeCloseTab(tabId)`:
-   - `store.snapshotForClose(tabId)` → `CloseSnapshot` (tab, sessions, viewId, tabIndex)
+   - `store.snapshotForClose(tabId)` → `TabCloseSnapshot` (tab, panes, tabIndex)
    - Push to `undoStack` (LIFO, max 10 entries)
-   - For each session in the tab: `coordinator.teardownView(sessionId)`
-     - `ViewRegistry.unregister(sessionId)`
+   - For each pane in the tab: `coordinator.teardownView(paneId)`
+     - `ViewRegistry.unregister(paneId)`
      - `SurfaceManager.detach(surfaceId, reason: .close)` → surface enters SurfaceManager undo stack with TTL (5 min)
-   - `store.removeTab(tabId)` — sessions remain in `store.sessions` (not deleted)
+   - `store.removeTab(tabId)` — panes remain in `store.panes` (not deleted)
    - `expireOldUndoEntries()` — GC entries beyond max, remove orphaned sessions
 
 ### Undo Close Tab (`Cmd+Shift+T`)
 
 2. `PaneCoordinator.undoCloseTab()`:
-   - Pop `CloseSnapshot` from undo stack
+   - Pop `WorkspaceStore.CloseEntry` from undo stack
    - `store.restoreFromSnapshot(snapshot)` — re-insert tab at original position
-   - For each session in **reversed** order (matching SurfaceManager LIFO):
+   - For each pane in **reversed** order (matching SurfaceManager LIFO):
      - `coordinator.restoreView(session, worktree, repo)`
      - `SurfaceManager.undoClose()` → pop surface from undo stack
-     - Verify `metadata.sessionId` matches (multi-pane safety)
+     - Verify `metadata.paneId` matches (multi-pane safety)
      - Reattach surface (no recreation)
 
 ### Close Pane (No Undo)
 
-`executeClosePane(tabId, sessionId)`:
-- `coordinator.teardownView(sessionId)` — surface destroyed (not undo-able)
-- `store.removeSessionFromLayout(sessionId, inTab: tabId)` — if last session, removes the tab
-- If session is no longer in any layout across all views, `store.removeSession(sessionId)`
+`executeClosePane(tabId, paneId)`:
+- `coordinator.teardownView(paneId)` — surface destroyed (not undo-able)
+- `store.removePaneFromLayout(paneId, inTab: tabId)` — if last pane, removes the tab
+- If pane is no longer in any layout across all views, `store.removePane(paneId)`
 
 ---
 
