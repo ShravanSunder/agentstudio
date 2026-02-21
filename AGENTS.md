@@ -139,9 +139,9 @@ Requires `brew install swift-format swiftlint`. A PostToolUse hook (`.claude/hoo
 SwiftPM's interactive progress output (carriage returns, ANSI escapes) breaks in agent bash contexts. Always redirect to a file and check the exit code.
 
 ```bash
-SWIFT_BUILD_DIR=".build-agent-0" SWIFT_TEST_TIMEOUT_SECONDS=600 scripts/test-agent-timeout.sh > /tmp/test-output.txt 2>&1 && echo "PASS" || echo "FAIL: $(tail -20 /tmp/test-output.txt)"
+swift test --build-path .build-agent-$RANDOM > /tmp/test-output.txt 2>&1 && echo "PASS" || echo "FAIL: $(tail -20 /tmp/test-output.txt)"
 swift build > /tmp/build-output.txt 2>&1 && echo "BUILD OK" || echo "BUILD FAIL: $(tail -20 /tmp/build-output.txt)"
-SWIFT_BUILD_DIR=".build-agent-0" SWIFT_TEST_TIMEOUT_SECONDS=600 scripts/test-agent-timeout.sh "CommandBarState" > /tmp/test-output.txt 2>&1 && echo "PASS" || echo "FAIL: $(tail -20 /tmp/test-output.txt)"
+swift test --build-path .build-agent-$RANDOM --filter "CommandBarState" > /tmp/test-output.txt 2>&1 && echo "PASS" || echo "FAIL: $(tail -20 /tmp/test-output.txt)"
 ```
 
 **No parallel Swift commands. No background Swift commands.** SwiftPM holds an exclusive lock on `.build/`. Two concurrent swift processes — even `swift test --filter A` and `swift test --filter B`, or a foreground + background task — will deadlock waiting for the lock (up to 256s then fail). This means:
@@ -153,30 +153,18 @@ SWIFT_BUILD_DIR=".build-agent-0" SWIFT_TEST_TIMEOUT_SECONDS=600 scripts/test-age
 **Test/build contention across agents.** Use a unique `.build-agent-<suffix>` folder per agent session so SwiftPM lock files do not collide across concurrent sessions.
 
 ```bash
-SWIFT_BUILD_DIR=".build-agent-$(uuidgen | tr -dc 'a-z0-9' | head -c 8)" SWIFT_TEST_TIMEOUT_SECONDS=600 \
-scripts/test-agent-timeout.sh "ZmxE2ETests"
+SWIFT_BUILD_DIR=".build-agent-$(uuidgen | tr -dc 'a-z0-9' | head -c 8)"
+swift test --build-path "$SWIFT_BUILD_DIR" --filter "ZmxE2ETests"
 swift build --build-path "$SWIFT_BUILD_DIR"
-SWIFT_BUILD_DIR="$SWIFT_BUILD_DIR" SWIFT_TEST_TIMEOUT_SECONDS=600 \
-scripts/test-agent-timeout.sh
+swift test --build-path "$SWIFT_BUILD_DIR"
 ```
 
 Keep this `BUILD_DIR` constant for your entire session to avoid mixing artifacts.
 
-If you want a single command that enforces both an isolated build path and a hard timeout, use the agent helper:
+Run via `mise` (defaults to `.build-agent-$RANDOM`):
 
 ```bash
-# default timeout: 600s, default build dir: .build-agent-$RANDOM
-SWIFT_TEST_TIMEOUT_SECONDS=600 scripts/test-agent-timeout.sh
-
-# filter a single test suite (also uses random .build-agent-* path)
-SWIFT_TEST_TIMEOUT_SECONDS=600 scripts/test-agent-timeout.sh "CommandBarState"
-```
-
-Run via `mise` (defaults to `.build-agent-0`, with the same env override semantics):
-
-```bash
-SWIFT_TEST_TIMEOUT_SECONDS=600 SWIFT_BUILD_DIR=".build-agent-0" mise run test
-mise run test-agent-timeout
+mise run test
 ```
 
 **Lock contention recovery.** If you see "Another instance of SwiftPM is already running using '.build', waiting..." — do NOT launch more swift commands. Kill the stuck process (`pkill -f "swift-build"`) and retry.

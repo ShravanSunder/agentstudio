@@ -126,7 +126,4 @@ jobs:
         run: swift build -c release
 
       - name: Test
-        run: |
-          SWIFT_TEST_TIMEOUT_SECONDS=600 \
-          SWIFT_BUILD_DIR=".build" \
-          scripts/test-agent-timeout.sh
+        run: swift test
