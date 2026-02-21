@@ -1370,7 +1370,8 @@ extension PaneRuntimeEvent {
 
 ### Contract 13: Workflow Engine (deferred)
 
-> Full spec extracted to [Workflow Engine Design](../plans/2026-02-21-workflow-engine-design.md).
+> Deferred workflow planning now lives in
+> [Pane Runtime Ticket Mapping (Minimal)](../plans/2026-02-21-pane-runtime-luna-295-luna-325-mapping.md#deferred-workflow-engine).
 >
 > Tracks temporal workflows spanning multiple panes and events ("agent finishes → create diff → user approves → signal next agent"). Owned by PaneCoordinator. Implementation deferred until multi-agent orchestration (JTBD 6) moves to automated cross-agent handoffs.
 >
