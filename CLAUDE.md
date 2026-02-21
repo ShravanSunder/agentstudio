@@ -14,21 +14,33 @@ agent-studio/
 │   │   ├── AppDelegate.swift
 │   │   ├── MainWindowController.swift
 │   │   ├── MainSplitViewController.swift
-│   │   └── PaneCoordinator.swift     # Cross-feature sequencing
+│   │   ├── ActionExecutor.swift
+│   │   └── TerminalViewCoordinator.swift  # Future: PaneCoordinator
 │   ├── Core/                         # Shared domain — models, stores, pane system
-│   │   ├── Models/                   # TerminalSession, Layout, Tab, ViewDefinition
-│   │   ├── Stores/                   # WorkspaceStore, SessionRuntime
+│   │   ├── Models/                   # Layout, Tab, Pane, PaneView, SessionStatus
+│   │   ├── Stores/                   # WorkspaceStore, SessionRuntime, WorkspacePersistor
 │   │   ├── Actions/                  # PaneAction, ActionResolver, ActionValidator
+│   │   ├── Views/                    # Tab bar, splits, drawer, arrangement
+│   │   │   ├── Splits/              # SplitTree, SplitView, TerminalPaneLeaf
+│   │   │   └── Drawer/             # DrawerLayout, DrawerPanel, DrawerIconBar
 │   │   ├── ViewRegistry.swift
-│   │   └── PaneTabViewController.swift
+│   │   ├── PaneTabViewController.swift
+│   │   └── NotificationNames.swift
 │   ├── Features/
 │   │   ├── Terminal/                 # Everything Ghostty-specific
 │   │   │   ├── Ghostty/              # C API bridge, SurfaceManager, SurfaceTypes
 │   │   │   └── Views/               # AgentStudioTerminalView, SurfaceErrorOverlay
-│   │   ├── Bridge/                   # React/WebView pane system (future)
+│   │   ├── Bridge/                   # React/WebView pane system
+│   │   │   ├── Push/               # Push pipeline, EntitySlice, PushPlan
+│   │   │   └── Views/              # BridgePaneView, BridgePaneContentView
+│   │   ├── Webview/                  # Browser pane (navigation, history, dialog)
+│   │   │   └── Views/              # WebviewPaneView, WebviewNavigationBar
 │   │   ├── CommandBar/               # ⌘P command palette
-│   │   └── Sidebar/                  # Repo list, worktree tree
+│   │   │   └── Views/              # CommandBarView, search field, results
+│   │   └── Sidebar/                  # Sidebar filter (future: repo list, worktree tree)
 │   └── Infrastructure/               # Domain-agnostic utilities
+│       ├── StateMachine/            # Generic state machine
+│       └── Diagnostics/             # RestoreTrace
 ├── Frameworks/                       # Generated: GhosttyKit.xcframework (not in git)
 ├── vendor/ghostty/                   # Git submodule: Ghostty source
 ├── scripts/                          # Icon generation
@@ -37,8 +49,6 @@ agent-studio/
 ```
 
 **Import rule:** `App/ → Core/, Features/, Infrastructure/` | `Features/ → Core/, Infrastructure/` | `Core/ → Infrastructure/` | Never `Core/ → Features/`
-
-> **Note:** The codebase currently uses flat layer-based directories (`Models/`, `Services/`, `Views/`, `Ghostty/`). LUNA-334 tracks the restructure to the layout above. Swift imports are by module, not file path — the move changes zero import statements.
 
 ## Key Files
 - `Package.swift` - SPM manifest, links GhosttyKit as binary target

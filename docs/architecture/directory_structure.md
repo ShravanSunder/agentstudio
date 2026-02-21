@@ -169,9 +169,9 @@ Stores views by pane ID. Doesn't care what type the view is — terminal, bridge
 
 **Deletion test:** passes for any single feature. **Change driver:** only changes if the pane registration mechanism itself changes, not when new pane types arrive.
 
-### PaneTabViewController (currently TerminalTabViewController) → `Core/`
+### PaneTabViewController → `Core/`
 
-Manages `NSTabViewItems` containing pane views. Handles focus, layout, tab switching. The container doesn't care what's inside — rename during restructure to reflect this.
+Manages `NSTabViewItems` containing pane views. Handles focus, layout, tab switching. The container doesn't care what's inside — renamed from `TerminalTabViewController` during LUNA-334 restructure.
 
 **Deletion test:** passes for any single feature. **Change driver:** tab management behavior changes, not new pane types.
 
@@ -190,7 +190,7 @@ Since Swift imports are module-level (not path-based), the restructure is a pure
 1. Create the target directory structure
 2. Move files — `git mv` preserves history
 3. No import changes needed (same SPM module)
-4. Rename `TerminalTabViewController` → `PaneTabViewController`
+4. ~~Rename `TerminalTabViewController` → `PaneTabViewController`~~ (done in LUNA-334)
 5. Update `CLAUDE.md` structure section
 6. Verify build compiles
 

@@ -2,7 +2,7 @@ import SwiftUI
 
 /// SwiftUI root for the main terminal content area.
 ///
-/// Hosted by TerminalTabViewController's `splitHostingView` (NSHostingView).
+/// Hosted by PaneTabViewController's `splitHostingView` (NSHostingView).
 /// Reads the active tab from WorkspaceStore via @Observable property tracking
 /// and renders `TerminalSplitContainer` for that tab. Re-renders automatically
 /// when any accessed store property changes — no manual invalidation needed.

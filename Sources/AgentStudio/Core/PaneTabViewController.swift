@@ -6,10 +6,10 @@ import SwiftUI
 
 /// Tab-based terminal controller with custom Ghostty-style tab bar.
 ///
-/// TTVC is a dispatch-only controller — it reads from WorkspaceStore
+/// PaneTabViewController is a dispatch-only controller — it reads from WorkspaceStore
 /// and dispatches actions through ActionExecutor. It never mutates
 /// store or runtime state directly.
-class TerminalTabViewController: NSViewController, CommandHandler {
+class PaneTabViewController: NSViewController, CommandHandler {
     // MARK: - Dependencies (injected)
 
     private let store: WorkspaceStore
@@ -317,19 +317,19 @@ class TerminalTabViewController: NSViewController, CommandHandler {
         else { return }
 
         RestoreTrace.log(
-            "TerminalTabVC.focusActivePane tab=\(activeTabId) pane=\(activePaneId) paneClass=\(String(describing: type(of: paneView))) windowReady=\(paneView.window != nil)"
+            "\(Self.self).focusActivePane tab=\(activeTabId) pane=\(activePaneId) paneClass=\(String(describing: type(of: paneView))) windowReady=\(paneView.window != nil)"
         )
         DispatchQueue.main.async { [weak paneView] in
             guard let paneView, paneView.window != nil else { return }
             paneView.window?.makeFirstResponder(paneView)
             RestoreTrace.log(
-                "TerminalTabVC.focusActivePane async firstResponder paneClass=\(String(describing: type(of: paneView)))"
+                "\(Self.self).focusActivePane async firstResponder paneClass=\(String(describing: type(of: paneView)))"
             )
 
             if let terminal = paneView as? AgentStudioTerminalView {
                 SurfaceManager.shared.syncFocus(activeSurfaceId: terminal.surfaceId)
                 RestoreTrace.log(
-                    "TerminalTabVC.focusActivePane syncFocus activeSurface=\(terminal.surfaceId?.uuidString ?? "nil")")
+                    "\(Self.self).focusActivePane syncFocus activeSurface=\(terminal.surfaceId?.uuidString ?? "nil")")
             }
         }
     }
@@ -702,16 +702,16 @@ class TerminalTabViewController: NSViewController, CommandHandler {
             let activePaneId = tab.activePaneId,
             let paneView = viewRegistry.view(for: activePaneId)
         else { return }
-        RestoreTrace.log("TerminalTabVC.handleRefocusTerminal tab=\(activeTabId) pane=\(activePaneId)")
+        RestoreTrace.log("\(Self.self).handleRefocusTerminal tab=\(activeTabId) pane=\(activePaneId)")
         DispatchQueue.main.async { [weak paneView] in
             guard let paneView, paneView.window != nil else { return }
             paneView.window?.makeFirstResponder(paneView)
-            RestoreTrace.log("TerminalTabVC.handleRefocusTerminal async firstResponder set")
+            RestoreTrace.log("\(Self.self).handleRefocusTerminal async firstResponder set")
 
             if let terminal = paneView as? AgentStudioTerminalView {
                 SurfaceManager.shared.syncFocus(activeSurfaceId: terminal.surfaceId)
                 RestoreTrace.log(
-                    "TerminalTabVC.handleRefocusTerminal syncFocus activeSurface=\(terminal.surfaceId?.uuidString ?? "nil")"
+                    "\(Self.self).handleRefocusTerminal syncFocus activeSurface=\(terminal.surfaceId?.uuidString ?? "nil")"
                 )
             }
         }
@@ -721,15 +721,15 @@ class TerminalTabViewController: NSViewController, CommandHandler {
 
     private func resolveGhosttyTarget(_ surfaceView: Ghostty.SurfaceView) -> (tabId: UUID, paneId: UUID)? {
         guard let surfaceId = SurfaceManager.shared.surfaceId(forView: surfaceView) else {
-            ghosttyLogger.warning("[TTVC] resolveGhosttyTarget: surfaceView not found in SurfaceManager")
+            ghosttyLogger.warning("[\(Self.self)] resolveGhosttyTarget: surfaceView not found in SurfaceManager")
             return nil
         }
         guard let paneId = SurfaceManager.shared.paneId(for: surfaceId) else {
-            ghosttyLogger.warning("[TTVC] resolveGhosttyTarget: no pane for surfaceId \(surfaceId)")
+            ghosttyLogger.warning("[\(Self.self)] resolveGhosttyTarget: no pane for surfaceId \(surfaceId)")
             return nil
         }
         guard let tab = store.tabs.first(where: { $0.paneIds.contains(paneId) }) else {
-            ghosttyLogger.warning("[TTVC] resolveGhosttyTarget: no tab contains pane \(paneId)")
+            ghosttyLogger.warning("[\(Self.self)] resolveGhosttyTarget: no tab contains pane \(paneId)")
             return nil
         }
         return (tab.id, paneId)
@@ -808,7 +808,7 @@ class TerminalTabViewController: NSViewController, CommandHandler {
                 dispatchAction(.closeTab(tabId: tab.id))
             }
         default:
-            ghosttyLogger.warning("[TTVC] Unknown close_tab mode: \(modeValue)")
+            ghosttyLogger.warning("[\(Self.self)] Unknown close_tab mode: \(modeValue)")
         }
     }
 
@@ -836,7 +836,7 @@ class TerminalTabViewController: NSViewController, CommandHandler {
             // Ghostty uses 1-indexed tab numbers for positive values.
             // Out-of-range snaps to the last tab (matches Ghostty's TerminalController).
             guard targetValue >= 1 else {
-                ghosttyLogger.warning("[TTVC] goto_tab index \(targetValue) out of range")
+                ghosttyLogger.warning("[\(Self.self)] goto_tab index \(targetValue) out of range")
                 action = nil
                 break
             }
@@ -864,7 +864,7 @@ class TerminalTabViewController: NSViewController, CommandHandler {
         case GHOSTTY_SPLIT_DIRECTION_LEFT.rawValue: return .left
         case GHOSTTY_SPLIT_DIRECTION_UP.rawValue: return .up
         default:
-            ghosttyLogger.warning("[TTVC] Unknown split direction: \(raw)")
+            ghosttyLogger.warning("[\(Self.self)] Unknown split direction: \(raw)")
             return nil
         }
     }
@@ -878,7 +878,7 @@ class TerminalTabViewController: NSViewController, CommandHandler {
         case GHOSTTY_GOTO_SPLIT_LEFT.rawValue: return .focusPaneLeft
         case GHOSTTY_GOTO_SPLIT_RIGHT.rawValue: return .focusPaneRight
         default:
-            ghosttyLogger.warning("[TTVC] Unknown goto_split value: \(raw)")
+            ghosttyLogger.warning("[\(Self.self)] Unknown goto_split value: \(raw)")
             return nil
         }
     }
@@ -890,7 +890,7 @@ class TerminalTabViewController: NSViewController, CommandHandler {
         case GHOSTTY_RESIZE_SPLIT_LEFT.rawValue: return .left
         case GHOSTTY_RESIZE_SPLIT_RIGHT.rawValue: return .right
         default:
-            ghosttyLogger.warning("[TTVC] Unknown resize direction: \(raw)")
+            ghosttyLogger.warning("[\(Self.self)] Unknown resize direction: \(raw)")
             return nil
         }
     }

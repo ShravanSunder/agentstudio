@@ -68,7 +68,7 @@ The full data model, service layer, and mutation pipeline are documented in [Com
 
 Each AppKit controller that hosts SwiftUI creates NSHostingView(s) **once** at setup time. @Observable drives all re-renders — no manual rootView replacement.
 
-**TerminalTabViewController** hosting regions:
+**PaneTabViewController** hosting regions:
 | NSHostingView | SwiftUI Root | Purpose |
 |---|---|---|
 | `tabBarHostingView` | `CustomTabBar` | Tab bar (top strip) |
@@ -101,7 +101,7 @@ AppDelegate
 ├── CommandBarPanelController ← command bar lifecycle (⌘P/⌘⇧P/⌘⌥P)
 └── MainWindowController
     └── MainSplitViewController
-        └── TerminalTabViewController
+        └── PaneTabViewController
 ```
 
 See [Component Architecture — Service Layer](component_architecture.md#3-service-layer) for detailed descriptions of each service.
@@ -177,7 +177,7 @@ The command bar uses an `NSPanel` (child window) rather than a SwiftUI overlay. 
 MainWindow
 ├── MainSplitViewController (all existing content)
 │   ├── Sidebar
-│   └── TerminalTabViewController
+│   └── PaneTabViewController
 │
 ├── CommandBarBackdropView (NSView overlay, click to dismiss)
 │

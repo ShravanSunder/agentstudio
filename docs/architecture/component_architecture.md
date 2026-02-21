@@ -108,7 +108,7 @@ erDiagram
 | `status` | `WorktreeStatus` | Agent status (idle, running, pendingReview, error) |
 | `stableKey` | `String` | SHA-256 of path (16 hex chars) |
 
-> **File:** `Models/Repo.swift`, `Models/Worktree.swift`
+> **File:** `Core/Models/Repo.swift`, `Core/Models/Worktree.swift`
 
 ### 2.3 TerminalSession
 
@@ -141,7 +141,7 @@ The **primary entity**. Stable identity for a terminal, independent of layout po
 - `.pendingUndo(expiresAt: Date)` — Closed but in the undo window. Not an orphan.
 - `.backgrounded` — Alive but not visible in the current view. Not an orphan.
 
-> **Files:** `Models/TerminalSession.swift`, `Models/TerminalSource.swift`, `Models/SessionLifetime.swift`, `Models/SessionResidency.swift`
+> **Files:** `Core/Models/TerminalSource.swift`, `Core/Models/SessionLifetime.swift`, `Core/Models/SessionResidency.swift`
 
 ### 2.4 ViewDefinition & ViewKind
 
@@ -167,7 +167,7 @@ A **named arrangement** of sessions into tabs. Multiple views can reference the 
 - `.byAgent(AgentType)` — All sessions running a specific agent
 - `.custom(name: String)` — Future: user-defined filter
 
-> **File:** `Models/ViewDefinition.swift`
+> **File:** `Core/Models/DynamicView.swift`
 
 ### 2.5 Tab
 
@@ -181,7 +181,7 @@ A tab within a view. Contains a layout and tracks which session is focused. Orde
 | `sessionIds` | `[UUID]` | Derived: all leaf session IDs (left-to-right) |
 | `isSplit` | `Bool` | Derived: true if layout root is a split |
 
-> **File:** `Models/Tab.swift`
+> **File:** `Core/Models/Tab.swift`
 
 ### 2.6 Layout (Pure Value Type)
 
@@ -216,7 +216,7 @@ Layout
 | `next(after:)` | Next session in left-to-right order (wraps) |
 | `previous(before:)` | Previous session in left-to-right order (wraps) |
 
-> **File:** `Models/Layout.swift`
+> **File:** `Core/Models/Layout.swift`
 
 ### 2.7 Templates
 
@@ -235,7 +235,7 @@ Templates define the initial session layout when opening a worktree. Not yet wir
 - `.onActivate` — When the worktree view is activated
 - `.manual` — Only on explicit user action
 
-> **File:** `Models/Templates.swift`
+> **File:** `Core/Models/Templates.swift`
 
 ---
 
@@ -254,7 +254,7 @@ AppDelegate (creates all services in dependency order)
 ├── CommandBarPanelController ← command bar lifecycle (⌘P)
 └── MainWindowController
     └── MainSplitViewController
-        └── TerminalTabViewController
+        └── PaneTabViewController
             ├── DraggableTabBarHostingView (SwiftUI)
             └── terminalContainer (dynamic split hierarchy)
 
@@ -288,7 +288,7 @@ Owns all workspace structure state. `@Observable`, `@MainActor`. All properties 
 - `activeView`, `activeTabs`, `activeTabId`, `activeSessionIds`
 - `isWorktreeActive()`, `sessionCount(for:)`, `sessions(for:)`
 
-> **File:** `Services/WorkspaceStore.swift`
+> **File:** `Core/Stores/WorkspaceStore.swift`
 
 ### 3.3 SessionRuntime
 
@@ -308,7 +308,7 @@ Manages live session state. Does **not** own sessions — reads the session list
 >
 > `ZmxBackend` conforms to a separate `SessionBackend` protocol (defined in `ZmxBackend.swift`) with its own method signatures. A future phase will wire `SessionRuntime` → `ZmxBackend` and consolidate the two protocols.
 
-> **File:** `Services/SessionRuntime.swift`
+> **File:** `Core/Stores/SessionRuntime.swift`
 
 ### 3.4 ViewRegistry
 
@@ -318,7 +318,7 @@ Maps session IDs to live `AgentStudioTerminalView` instances. Runtime-only (not 
 - `view(for: sessionId)` — Lookup
 - `renderTree(for: Layout) -> TerminalSplitTree?` — Traverse a `Layout` tree, resolve each leaf to a registered view, return a renderable split tree. Gracefully promotes single-child splits when one side's view is missing.
 
-> **File:** `Services/ViewRegistry.swift`
+> **File:** `Core/ViewRegistry.swift`
 
 ### 3.5 ViewResolver
 
@@ -328,7 +328,7 @@ Resolves dynamic and worktree views at runtime. Pure static methods. `@MainActor
 - `resolveDynamic()` — Dispatch to rule-specific resolvers
 - `resolveByRepo()`, `resolveByAgent()`, `resolveCustom()` — Rule implementations
 
-> **File:** `Services/ViewResolver.swift`
+> **File:** `Core/ViewRegistry.swift`
 
 ### 3.6 TerminalViewCoordinator
 
@@ -365,7 +365,7 @@ Action dispatch hub. Coordinates `WorkspaceStore`, `ViewRegistry`, and `Terminal
 
 Derived state bridge between `WorkspaceStore` and the tab bar SwiftUI view. Bridges `@Observable` store state via `withObservationTracking` and transforms it into tab bar display items.
 
-> **File:** `Views/TabBarAdapter.swift`
+> **File:** `Core/Views/TabBarAdapter.swift`
 
 ### 3.9 WorkspacePersistor
 
@@ -375,7 +375,7 @@ Owned by `WorkspaceStore` as a `private let` member. Pure persistence I/O. No bu
 - `save(state)` / `load()` — JSON serialization to `~/.agentstudio/workspaces/`
 - `ensureDirectory()`, `hasWorkspaceFiles()`, `delete()`
 
-> **File:** `Services/WorkspacePersistor.swift`
+> **File:** `Core/Stores/WorkspacePersistor.swift`
 
 ### 3.10 SurfaceManager
 
@@ -386,7 +386,7 @@ Key points relevant here:
 - Three collections: `activeSurfaces`, `hiddenSurfaces`, `undoStack`
 - `attach()` / `detach(reason:)` / `undoClose()` / `destroy()`
 
-> **File:** `Ghostty/SurfaceManager.swift`
+> **File:** `Features/Terminal/Ghostty/SurfaceManager.swift`
 
 ### 3.11 WorktrunkService
 
@@ -395,7 +395,7 @@ Git worktree management via the `wt` CLI tool. Singleton.
 - `discoverWorktrees(at:)` — Parse `git worktree list` output
 - `createWorktree()` / `removeWorktree()` — Lifecycle
 
-> **File:** `Services/WorktrunkService.swift`
+> **File:** `Infrastructure/WorktrunkService.swift`
 
 ### 3.12 Command Bar System
 
@@ -426,7 +426,7 @@ Also builds `CommandBarLevel` targets for drill-in commands (e.g., "Close Tab...
 - Actions route through `CommandDispatcher` → full validation pipeline — the command bar never mutates `WorkspaceStore` directly
 - Tab/pane navigation uses `selectTabById` notification — avoids accidental destructive command dispatch
 
-> **Files:** `CommandBar/CommandBarPanelController.swift`, `CommandBar/CommandBarState.swift`, `CommandBar/CommandBarDataSource.swift`, `CommandBar/CommandBarSearch.swift`, `CommandBar/CommandBarPanel.swift`, `CommandBar/CommandBarItem.swift`, `CommandBar/Views/*.swift`
+> **Files:** `Features/CommandBar/CommandBarPanelController.swift`, `Features/CommandBar/CommandBarState.swift`, `Features/CommandBar/CommandBarDataSource.swift`, `Features/CommandBar/CommandBarSearch.swift`, `Features/CommandBar/CommandBarPanel.swift`, `Features/CommandBar/CommandBarItem.swift`, `Features/CommandBar/Views/*.swift`
 
 ---
 
@@ -441,7 +441,7 @@ Every state change follows this path:
 ```mermaid
 sequenceDiagram
     participant User
-    participant TTVC as TerminalTabViewController
+    participant TTVC as PaneTabViewController
     participant PC as PaneCoordinator
     participant Store as WorkspaceStore
     participant SM as SurfaceManager
@@ -610,51 +610,50 @@ These rules are enforced by `WorkspaceStore` and model types at all times:
 
 | File | Purpose |
 |------|---------|
-| **Models** | |
-| `Models/TerminalSession.swift` | `TerminalSession`, `SessionProvider` |
-| `Models/TerminalSource.swift` | `TerminalSource` enum |
-| `Models/SessionLifetime.swift` | `.persistent` / `.temporary` |
-| `Models/SessionResidency.swift` | `.active` / `.pendingUndo` / `.backgrounded` |
-| `Models/Layout.swift` | Pure value-type split tree, `FocusDirection` |
-| `Models/Tab.swift` | Tab with layout and active session |
-| `Models/ViewDefinition.swift` | `ViewDefinition`, `ViewKind`, `DynamicViewRule` |
-| `Models/Repo.swift` | `Repo` entity |
-| `Models/Worktree.swift` | `Worktree`, `WorktreeStatus`, `AgentType` |
-| `Models/Templates.swift` | `WorktreeTemplate`, `TerminalTemplate`, `CreatePolicy` |
-| `Models/StableKey.swift` | SHA-256 path hashing for deterministic IDs |
-| `Models/StateMachine/StateMachine.swift` | Generic state machine with effect handling |
-| `Models/StateMachine/SessionStatus.swift` | 7-state session lifecycle machine (future zmx health) |
-| **Services** | |
-| `Services/WorkspaceStore.swift` | Atomic store for workspace structure (tabs, layouts, views) |
-| `Services/WorkspacePersistor.swift` | JSON persistence I/O |
-| `Services/SessionRuntime.swift` | Runtime status tracking and health checks |
-| `Services/ViewRegistry.swift` | Session ID → NSView mapping |
-| `Services/ViewResolver.swift` | Dynamic/worktree view resolution |
-| `Services/WorktrunkService.swift` | Git worktree CLI wrapper |
-| `Services/ProcessExecutor.swift` | Protocol + default impl for CLI execution |
-| `Services/Backends/ZmxBackend.swift` | zmx CLI wrapper — session create/destroy/health |
+| **Core/Models** | |
+| `Core/Models/TerminalSource.swift` | `TerminalSource` enum |
+| `Core/Models/SessionLifetime.swift` | `.persistent` / `.temporary` |
+| `Core/Models/SessionResidency.swift` | `.active` / `.pendingUndo` / `.backgrounded` |
+| `Core/Models/Layout.swift` | Pure value-type split tree, `FocusDirection` |
+| `Core/Models/Tab.swift` | Tab with layout and active session |
+| `Core/Models/DynamicView.swift` | `DynamicView`, `ViewKind`, `DynamicViewRule` |
+| `Core/Models/Repo.swift` | `Repo` entity |
+| `Core/Models/Worktree.swift` | `Worktree`, `WorktreeStatus`, `AgentType` |
+| `Core/Models/Templates.swift` | `WorktreeTemplate`, `TerminalTemplate`, `CreatePolicy` |
+| `Core/Models/StableKey.swift` | SHA-256 path hashing for deterministic IDs |
+| `Infrastructure/StateMachine/StateMachine.swift` | Generic state machine with effect handling |
+| `Core/Models/SessionStatus.swift` | 7-state session lifecycle machine (future zmx health) |
+| **Core/Stores** | |
+| `Core/Stores/WorkspaceStore.swift` | Atomic store for workspace structure (tabs, layouts, views) |
+| `Core/Stores/WorkspacePersistor.swift` | JSON persistence I/O |
+| `Core/Stores/SessionRuntime.swift` | Runtime status tracking and health checks |
+| `Core/ViewRegistry.swift` | Session ID → NSView mapping |
+| `Core/Stores/ZmxBackend.swift` | zmx CLI wrapper — session create/destroy/health |
+| **Infrastructure** | |
+| `Infrastructure/WorktrunkService.swift` | Git worktree CLI wrapper |
+| `Infrastructure/ProcessExecutor.swift` | Protocol + default impl for CLI execution |
 | **App** | |
 | `App/ActionExecutor.swift` | Action dispatch hub, undo stack |
 | `App/TerminalViewCoordinator.swift` | Sole model↔view↔surface bridge |
 | `App/MainWindowController.swift` | Primary window management |
 | `App/MainSplitViewController.swift` | Split view: sidebar + terminal panes |
-| `App/TerminalTabViewController.swift` | Tab controller, observes store via @Observable |
-| **Actions** | |
-| `Actions/PaneAction.swift` | Action enum for all pane operations |
-| `Actions/ActionResolver.swift` | Resolves user input → PaneAction |
-| `Actions/ActionValidator.swift` | Validates actions before execution |
-| `Actions/ActionStateSnapshot.swift` | Captures state for validation |
-| **Command Bar** | |
-| `CommandBar/CommandBarPanelController.swift` | Panel lifecycle: show/dismiss/toggle, backdrop, animation |
-| `CommandBar/CommandBarState.swift` | Observable state: prefix parsing, navigation, selection, recents |
-| `CommandBar/CommandBarDataSource.swift` | Builds items from `WorkspaceStore` + `CommandDispatcher`, scope-filtered |
-| `CommandBar/CommandBarSearch.swift` | Custom fuzzy matching with score + character match ranges |
-| `CommandBar/CommandBarPanel.swift` | `NSPanel` subclass with `NSVisualEffectView` + `NSHostingView` |
-| `CommandBar/CommandBarItem.swift` | Data models: `CommandBarItem`, `CommandBarLevel`, `CommandBarAction`, `ShortcutKey` |
-| `CommandBar/Views/CommandBarView.swift` | Root SwiftUI view — composes search, results, scope pill, footer |
-| `CommandBar/Views/CommandBarTextField.swift` | `NSViewRepresentable` wrapping `NSTextField` for keyboard interception |
-| `CommandBar/Views/CommandBarResultsList.swift` | Grouped scrollable list with flattened index tracking |
-| `CommandBar/Views/CommandBarResultRow.swift` | Result row with fuzzy match highlighting and dimming |
+| `Core/PaneTabViewController.swift` | Tab controller, observes store via @Observable |
+| **Core/Actions** | |
+| `Core/Actions/PaneAction.swift` | Action enum for all pane operations |
+| `Core/Actions/ActionResolver.swift` | Resolves user input → PaneAction |
+| `Core/Actions/ActionValidator.swift` | Validates actions before execution |
+| `Core/Actions/ActionStateSnapshot.swift` | Captures state for validation |
+| **Features/CommandBar** | |
+| `Features/CommandBar/CommandBarPanelController.swift` | Panel lifecycle: show/dismiss/toggle, backdrop, animation |
+| `Features/CommandBar/CommandBarState.swift` | Observable state: prefix parsing, navigation, selection, recents |
+| `Features/CommandBar/CommandBarDataSource.swift` | Builds items from `WorkspaceStore` + `CommandDispatcher`, scope-filtered |
+| `Features/CommandBar/CommandBarSearch.swift` | Custom fuzzy matching with score + character match ranges |
+| `Features/CommandBar/CommandBarPanel.swift` | `NSPanel` subclass with `NSVisualEffectView` + `NSHostingView` |
+| `Features/CommandBar/CommandBarItem.swift` | Data models: `CommandBarItem`, `CommandBarLevel`, `CommandBarAction`, `ShortcutKey` |
+| `Features/CommandBar/Views/CommandBarView.swift` | Root SwiftUI view — composes search, results, scope pill, footer |
+| `Features/CommandBar/Views/CommandBarTextField.swift` | `NSViewRepresentable` wrapping `NSTextField` for keyboard interception |
+| `Features/CommandBar/Views/CommandBarResultsList.swift` | Grouped scrollable list with flattened index tracking |
+| `Features/CommandBar/Views/CommandBarResultRow.swift` | Result row with fuzzy match highlighting and dimming |
 
 ---
 
