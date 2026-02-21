@@ -80,7 +80,9 @@ final class RepairActionTests {
 
     func test_equatable_sameAction_areEqual() {
         let id = UUID()
-        #expect(RepairAction.reattachZmx(paneId: id) == RepairAction.reattachZmx(paneId: id))
+        let lhs = RepairAction.reattachZmx(paneId: id)
+        let rhs = RepairAction.reattachZmx(paneId: id)
+        #expect(lhs == rhs)
     }
 
     @Test
@@ -93,7 +95,9 @@ final class RepairActionTests {
     @Test
 
     func test_equatable_differentPaneIds_areNotEqual() {
-        #expect(RepairAction.reattachZmx(paneId: UUID()) != RepairAction.reattachZmx(paneId: UUID()))
+        let firstPaneId = UUID()
+        let secondPaneId = UUID()
+        #expect(RepairAction.reattachZmx(paneId: firstPaneId) != RepairAction.reattachZmx(paneId: secondPaneId))
     }
 
     // MARK: - Hashable

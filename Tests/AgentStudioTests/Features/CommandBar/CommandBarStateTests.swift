@@ -28,7 +28,7 @@ final class CommandBarStateTests {
     func test_init_defaults() {
         // Assert
         #expect(!(state.isVisible))
-        #expect(state.rawInput == "")
+        #expect(state.rawInput.isEmpty)
         #expect(state.navigationStack.isEmpty)
         #expect(state.selectedIndex == 0)
         #expect(state.recentItemIds.isEmpty)
@@ -43,7 +43,7 @@ final class CommandBarStateTests {
 
         // Assert
         #expect(state.isVisible)
-        #expect(state.rawInput == "")
+        #expect(state.rawInput.isEmpty)
     }
 
     @Test
@@ -80,7 +80,7 @@ final class CommandBarStateTests {
 
         // Assert
         #expect(!(state.isVisible))
-        #expect(state.rawInput == "")
+        #expect(state.rawInput.isEmpty)
         #expect(state.navigationStack.isEmpty)
         #expect(state.selectedIndex == 0)
     }
@@ -169,7 +169,7 @@ final class CommandBarStateTests {
         state.rawInput = ">"
 
         // Assert
-        #expect(state.searchQuery == "")
+        #expect(state.searchQuery.isEmpty)
     }
 
     @Test
@@ -178,7 +178,7 @@ final class CommandBarStateTests {
         state.rawInput = ""
 
         // Assert
-        #expect(state.searchQuery == "")
+        #expect(state.searchQuery.isEmpty)
     }
 
     // MARK: - Active Scope
@@ -265,7 +265,7 @@ final class CommandBarStateTests {
         // Assert
         #expect(state.navigationStack.count == 1)
         #expect(state.navigationStack.last?.id == "sub-1")
-        #expect(state.rawInput == "")
+        #expect(state.rawInput.isEmpty)
         #expect(state.selectedIndex == 0)
     }
 
@@ -280,7 +280,7 @@ final class CommandBarStateTests {
 
         // Assert
         #expect(state.navigationStack.isEmpty)
-        #expect(state.rawInput == "")
+        #expect(state.rawInput.isEmpty)
         #expect(state.selectedIndex == 0)
     }
 
@@ -602,7 +602,7 @@ final class CommandBarStateTests {
 
         // Assert
         #expect(state.isVisible)
-        #expect(state.rawInput == "")
+        #expect(state.rawInput.isEmpty)
         #expect(state.activeScope == .everything)
     }
 
@@ -627,7 +627,7 @@ final class CommandBarStateTests {
         state.switchPrefix("")
 
         // Assert
-        #expect(state.rawInput == "")
+        #expect(state.rawInput.isEmpty)
         #expect(state.activeScope == .everything)
     }
 

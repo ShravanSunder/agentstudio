@@ -337,7 +337,7 @@ final class PaneContentTests {
 
         // Assert
         #expect(state.url.absoluteString == "https://example.com")
-        #expect(state.title == "")
+        #expect(state.title.isEmpty)
         #expect(state.showNavigation)
     }
 
@@ -384,7 +384,7 @@ final class PaneContentTests {
 
         // Assert
         #expect(state.url.absoluteString == "https://example.com")
-        #expect(state.title == "")
+        #expect(state.title.isEmpty)
         #expect(state.showNavigation)
     }
 

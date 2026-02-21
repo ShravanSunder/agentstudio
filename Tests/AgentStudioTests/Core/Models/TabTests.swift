@@ -197,6 +197,7 @@ final class TabTests {
         let tab = Tab(id: UUID(), paneId: UUID())
 
         // Assert
-        #expect(tab == tab)
+        let copied = tab
+        #expect(copied == tab)
     }
 }

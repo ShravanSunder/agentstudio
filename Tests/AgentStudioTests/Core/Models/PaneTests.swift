@@ -317,7 +317,7 @@ final class PaneTests {
         #expect(metadata.title == "Terminal")
         #expect((metadata.cwd) == nil)
         #expect((metadata.agentType) == nil)
-        #expect(metadata.tags == [])
+        #expect(metadata.tags.isEmpty)
     }
 
     @Test

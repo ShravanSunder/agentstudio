@@ -11,7 +11,7 @@ final class LayoutAutoTileTests {
     func test_autoTiled_empty_producesEmptyLayout() {
         let layout = Layout.autoTiled([])
         #expect(layout.isEmpty)
-        #expect(layout.paneIds == [])
+        #expect(layout.paneIds.isEmpty)
     }
 
     @Test

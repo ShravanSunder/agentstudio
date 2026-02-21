@@ -291,7 +291,8 @@ final class ZmxTestHarness {
     }
 
     private func logError(_ message: String) {
-        if let data = "[ZmxTestHarness] \(message)\n".data(using: .utf8) {
+        let data = Data("[ZmxTestHarness] \(message)\n".utf8)
+        if !data.isEmpty {
             FileHandle.standardError.write(data)
         }
     }

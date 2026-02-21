@@ -64,8 +64,9 @@ final class SurfaceTypesTests {
     @Test
     func test_surfaceHealth_equatable_sameReason() {
         // Assert
-        #expect(
-            SurfaceHealth.unhealthy(reason: .rendererUnhealthy) == SurfaceHealth.unhealthy(reason: .rendererUnhealthy))
+        let first = SurfaceHealth.unhealthy(reason: .rendererUnhealthy)
+        let second = SurfaceHealth.unhealthy(reason: .rendererUnhealthy)
+        #expect(first == second)
     }
 
     @Test
@@ -102,13 +103,17 @@ final class SurfaceTypesTests {
         let id = UUID()
 
         // Assert
-        #expect(SurfaceState.active(paneId: id) == SurfaceState.active(paneId: id))
+        let first = SurfaceState.active(paneId: id)
+        let second = SurfaceState.active(paneId: id)
+        #expect(first == second)
     }
 
     @Test
     func test_surfaceState_equatable_differentPaneAttachmentId() {
         // Assert
-        #expect(SurfaceState.active(paneId: UUID()) != SurfaceState.active(paneId: UUID()))
+        let firstPaneId = UUID()
+        let secondPaneId = UUID()
+        #expect(SurfaceState.active(paneId: firstPaneId) != SurfaceState.active(paneId: secondPaneId))
     }
 
     // MARK: - SurfaceMetadata Codable

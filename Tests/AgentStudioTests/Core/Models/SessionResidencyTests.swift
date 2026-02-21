@@ -51,20 +51,26 @@ final class SessionResidencyTests {
     @Test
 
     func test_equatable_sameActive_areEqual() {
-        #expect(SessionResidency.active == SessionResidency.active)
+        let expected = SessionResidency.active
+        let actual = SessionResidency.active
+        #expect(actual == expected)
     }
 
     @Test
 
     func test_equatable_sameBackgrounded_areEqual() {
-        #expect(SessionResidency.backgrounded == SessionResidency.backgrounded)
+        let expected = SessionResidency.backgrounded
+        let actual = SessionResidency.backgrounded
+        #expect(actual == expected)
     }
 
     @Test
 
     func test_equatable_samePendingUndo_areEqual() {
         let date = Date(timeIntervalSince1970: 1_000_000)
-        #expect(SessionResidency.pendingUndo(expiresAt: date) == SessionResidency.pendingUndo(expiresAt: date))
+        let expected = SessionResidency.pendingUndo(expiresAt: date)
+        let actual = SessionResidency.pendingUndo(expiresAt: date)
+        #expect(actual == expected)
     }
 
     @Test

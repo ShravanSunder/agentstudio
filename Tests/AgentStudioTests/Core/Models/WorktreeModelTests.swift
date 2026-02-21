@@ -74,7 +74,7 @@ final class WorktreeModelTests {
 
     func test_agentType_command_customIsEmpty() {
         // Assert
-        #expect(AgentType.custom.command == "")
+        #expect(AgentType.custom.command.isEmpty)
     }
 
     @Test

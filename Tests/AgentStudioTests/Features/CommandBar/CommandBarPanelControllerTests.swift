@@ -26,7 +26,7 @@ struct CommandBarPanelControllerTests {
 
         // Assert
         #expect(!controller.state.isVisible)
-        #expect(controller.state.rawInput == "")
+        #expect(controller.state.rawInput.isEmpty)
         #expect(controller.state.navigationStack.isEmpty)
     }
 
@@ -41,7 +41,7 @@ struct CommandBarPanelControllerTests {
 
         // Assert
         #expect(controller.state.isVisible)
-        #expect(controller.state.rawInput == "")
+        #expect(controller.state.rawInput.isEmpty)
         #expect(controller.state.activeScope == .everything)
     }
 
@@ -87,7 +87,7 @@ struct CommandBarPanelControllerTests {
 
         // Assert
         #expect(!controller.state.isVisible)
-        #expect(controller.state.rawInput == "")
+        #expect(controller.state.rawInput.isEmpty)
     }
 
     @Test
@@ -197,7 +197,7 @@ struct CommandBarPanelControllerTests {
         // Assert — everything reset
         #expect(!controller.state.isVisible)
         #expect(!controller.state.isNested)
-        #expect(controller.state.rawInput == "")
+        #expect(controller.state.rawInput.isEmpty)
         #expect(controller.state.selectedIndex == 0)
     }
 }

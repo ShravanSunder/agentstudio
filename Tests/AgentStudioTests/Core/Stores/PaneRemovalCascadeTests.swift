@@ -104,7 +104,7 @@ final class PaneRemovalCascadeTests {
         store.removePane(paneIds[0])
 
         // Tab should be removed when its default arrangement becomes empty
-        #expect((store.tabs.first { $0.id == tab.id }) == nil)
+        #expect(!store.tabs.contains(where: { $0.id == tab.id }))
     }
 
     @Test

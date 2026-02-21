@@ -237,6 +237,6 @@ struct CommandBarItemTests {
         // Assert — modifier + empty key uppercased
         #expect(keys.count == 2)
         #expect(keys[0].symbol == "⌘")
-        #expect(keys[1].symbol == "")
+        #expect(keys[1].symbol.isEmpty)
     }
 }
