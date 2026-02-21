@@ -137,7 +137,7 @@ Build orchestration uses [mise](https://mise.jdx.dev/). Install with `brew insta
 mise install                  # Install pinned tool versions (zig 0.15.2)
 mise run build                # Full debug build (ghostty + zmx + dev resources + swift)
 mise run build-release        # Full release build
-mise run test                 # Run tests
+mise run test                 # Run tests (Swift 6 `Testing`)
 mise run create-app-bundle    # Create signed AgentStudio.app
 mise run clean                # Remove all build artifacts
 ```

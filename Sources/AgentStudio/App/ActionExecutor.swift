@@ -179,6 +179,8 @@ final class ActionExecutor {
                 executorLogger.warning("Cannot restore unsupported pane \(pane.id)")
             }
         }
+
+        store.setActiveTab(snapshot.tab.id)
     }
 
     private func undoPaneClose(_ snapshot: WorkspaceStore.PaneCloseSnapshot) {
@@ -417,13 +419,7 @@ final class ActionExecutor {
         // so undo-close restores the actual page, not stale initial state.
         // Use tab.panes (all owned panes) not tab.paneIds (active arrangement only)
         // to match the snapshot path which captures all panes.
-        if let tab = store.tab(tabId) {
-            for paneId in tab.panes {
-                if let webviewView = viewRegistry.webviewView(for: paneId) {
-                    store.syncPaneWebviewState(paneId, state: webviewView.currentState())
-                }
-            }
-        }
+        coordinator.syncWebviewStates()
 
         // Snapshot for undo before closing
         if let snapshot = store.snapshotForClose(tabId: tabId) {

@@ -64,7 +64,7 @@ final class TerminalViewCoordinator {
     /// Sync runtime webview tab state back to persisted pane model.
     /// Uses syncPaneWebviewState (not updatePaneWebviewState) to avoid
     /// marking dirty during an in-flight persist, which would cause a save-loop.
-    private func syncWebviewStates() {
+    func syncWebviewStates() {
         for (paneId, webviewView) in viewRegistry.allWebviewViews {
             store.syncPaneWebviewState(paneId, state: webviewView.currentState())
         }

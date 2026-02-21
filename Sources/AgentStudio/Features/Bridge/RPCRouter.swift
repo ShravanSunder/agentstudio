@@ -52,8 +52,13 @@ final class RPCRouter {
     /// Validates the envelope, rejects batch arrays (§5.5), deduplicates by
     /// `__commandId`, and routes to the registered handler. Errors are reported
     /// via `onError` rather than thrown, following fire-and-forget notification semantics.
-    func dispatch(json: String) async {
+    func dispatch(json: String, isBridgeReady: Bool = true) async {
         guard let request = parseRequestEnvelope(from: json) else {
+            return
+        }
+
+        guard isBridgeReady || request.method == Self.bridgeReadyMethod else {
+            rpcRouterLogger.debug("[RPCRouter] dropped pre-ready command: \(request.method)")
             return
         }
 
@@ -72,7 +77,7 @@ final class RPCRouter {
             reportCommandAck(
                 commandId: request.commandId,
                 method: request.method,
-                status: .ok,
+                status: CommandAck.Status.ok,
                 reason: nil
             )
         } catch {
@@ -80,7 +85,7 @@ final class RPCRouter {
             reportCommandAck(
                 commandId: request.commandId,
                 method: request.method,
-                status: .rejected,
+                status: CommandAck.Status.rejected,
                 reason: error.localizedDescription
             )
             onError(rpcErrorCode, errorMessage, request.requestId)
@@ -107,6 +112,8 @@ final class RPCRouter {
         let commandId: String?
         let params: Any?
     }
+
+    private static let bridgeReadyMethod = "bridge.ready"
 
     private func parseRequestEnvelope(from json: String) -> ParsedRPCRequest? {
         guard let data = json.data(using: .utf8) else {
@@ -206,7 +213,7 @@ final class RPCRouter {
     private func reportCommandAck(
         commandId: String?,
         method: String,
-        status: CommandStatus,
+        status: CommandAck.Status,
         reason: String?
     ) {
         guard let commandId else {

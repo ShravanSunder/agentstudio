@@ -23,20 +23,6 @@ final class RPCMessageHandler: NSObject, WKScriptMessageHandler {
     /// is nonisolated, but this property is set once during setup and read from the main thread only.
     nonisolated(unsafe) var onValidJSON: (@MainActor (String) async -> Void)?
 
-    /// Extract and validate the `method` field from a JSON-RPC envelope.
-    /// Returns `nil` when the payload is not a JSON object or does not contain
-    /// a string `method`.
-    static func extractRPCMethod(from json: String) -> String? {
-        guard let data = json.data(using: .utf8),
-            let raw = try? JSONSerialization.jsonObject(with: data),
-            let payload = raw as? [String: Any]
-        else {
-            return nil
-        }
-
-        return payload["method"] as? String
-    }
-
     // MARK: - JSON Extraction
 
     /// Extract and validate a JSON string from a WKScriptMessage body.

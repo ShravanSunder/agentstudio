@@ -9,7 +9,7 @@ import Foundation
 /// - `.hot`: immediate (no debounce) — cursor position, selection changes
 /// - `.warm`: 12ms — diff status, staged file counts
 /// - `.cold`: 32ms — review metadata, connection state
-enum PushLevel: Sendable {
+enum PushLevel: String, Sendable {
     case hot
     case warm
     case cold

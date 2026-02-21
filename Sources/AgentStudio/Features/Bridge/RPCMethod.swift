@@ -68,7 +68,7 @@ private struct TypedRPCMethodHandler<Method: RPCMethod>: AnyRPCMethodHandler {
         }
     }
 
-    func run(_ id: RPCIdentifier?, paramsData: Data?) async throws -> Encodable? {
+    func run(id: RPCIdentifier?, paramsData: Data?) async throws -> Encodable? {
         let params = try runWithDecode(paramsData)
         do {
             return try await handler(params)

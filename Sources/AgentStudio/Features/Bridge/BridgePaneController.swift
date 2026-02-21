@@ -137,11 +137,9 @@ final class BridgePaneController {
         }
 
         // Register bridge.ready handler — the ONLY trigger for starting push plans (§4.5 step 6).
-        // The closure is @Sendable and runs through an async dispatch path.
+        // The closure is @Sendable and main-actor bound by RPCRouter.
         router.register(method: BridgeReadyMethod.self) { [weak self] _ in
-            await MainActor.run {
-                self?.handleBridgeReady()
-            }
+            self?.handleBridgeReady()
             return nil
         }
 
@@ -216,19 +214,21 @@ final class BridgePaneController {
     ///
     /// `internal` (not `private`) for testability — allows integration tests to
     /// invoke the handshake directly without routing through WebKit message handlers.
-    func handleBridgeReady() {
-        guard !isBridgeReady else { return }
-        isBridgeReady = true
+    nonisolated func handleBridgeReady() {
+        MainActor.assumeIsolated {
+            guard !isBridgeReady else { return }
+            isBridgeReady = true
 
-        diffPushPlan = makeDiffPushPlan()
-        reviewPushPlan = makeReviewPushPlan()
-        connectionPushPlan = makeConnectionPushPlan()
-        agentPushPlan = makeAgentPushPlan()
+            diffPushPlan = makeDiffPushPlan()
+            reviewPushPlan = makeReviewPushPlan()
+            connectionPushPlan = makeConnectionPushPlan()
+            agentPushPlan = makeAgentPushPlan()
 
-        diffPushPlan?.start()
-        reviewPushPlan?.start()
-        connectionPushPlan?.start()
-        agentPushPlan?.start()
+            diffPushPlan?.start()
+            reviewPushPlan?.start()
+            connectionPushPlan?.start()
+            agentPushPlan?.start()
+        }
     }
 
     // MARK: - Test/entrypoint utility
@@ -237,16 +237,7 @@ final class BridgePaneController {
     ///
     /// Separated for tests and command-handler reuse.
     func handleIncomingRPC(_ json: String) async {
-        guard let method = RPCMessageHandler.extractRPCMethod(from: json) else {
-            bridgeControllerLogger.debug("[BridgePaneController] dropped command with malformed JSON")
-            return
-        }
-        guard isBridgeReady || method == BridgeReadyMethod.method else {
-            bridgeControllerLogger.debug("[BridgePaneController] dropped pre-ready command: \(method)")
-            return
-        }
-
-        await router.dispatch(json: json)
+        await router.dispatch(json: json, isBridgeReady: isBridgeReady)
     }
 
     // MARK: - Push Plan Factories
@@ -390,8 +381,7 @@ extension BridgePaneController: PushTransport {
             )
         } catch {
             bridgeControllerLogger.warning(
-                "[Bridge] push failed store=\(store.rawValue) rev=\(revision) "
-                    + "epoch=\(epoch) level=\(String(describing: level)): \(error)"
+                "[Bridge] push failed store=\(store.rawValue) rev=\(revision) epoch=\(epoch) level=\(String(describing: level)) error=\(String(describing: error))"
             )
             paneState.connection.health = .error
         }
