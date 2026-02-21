@@ -318,7 +318,7 @@ Maps session IDs to live `AgentStudioTerminalView` instances. Runtime-only (not 
 - `view(for: sessionId)` — Lookup
 - `renderTree(for: Layout) -> TerminalSplitTree?` — Traverse a `Layout` tree, resolve each leaf to a registered view, return a renderable split tree. Gracefully promotes single-child splits when one side's view is missing.
 
-> **File:** `Core/ViewRegistry.swift`
+> **File:** `App/Panes/ViewRegistry.swift`
 
 ### 3.5 ViewResolver
 
@@ -328,7 +328,7 @@ Resolves dynamic and worktree views at runtime. Pure static methods. `@MainActor
 - `resolveDynamic()` — Dispatch to rule-specific resolvers
 - `resolveByRepo()`, `resolveByAgent()`, `resolveCustom()` — Rule implementations
 
-> **File:** `Core/ViewRegistry.swift`
+> **File:** `App/Panes/ViewRegistry.swift`
 
 ### 3.6 TerminalViewCoordinator
 
@@ -627,7 +627,7 @@ These rules are enforced by `WorkspaceStore` and model types at all times:
 | `Core/Stores/WorkspaceStore.swift` | Atomic store for workspace structure (tabs, layouts, views) |
 | `Core/Stores/WorkspacePersistor.swift` | JSON persistence I/O |
 | `Core/Stores/SessionRuntime.swift` | Runtime status tracking and health checks |
-| `Core/ViewRegistry.swift` | Session ID → NSView mapping |
+| `App/Panes/ViewRegistry.swift` | Session ID → NSView mapping |
 | `Core/Stores/ZmxBackend.swift` | zmx CLI wrapper — session create/destroy/health |
 | **Infrastructure** | |
 | `Infrastructure/WorktrunkService.swift` | Git worktree CLI wrapper |
@@ -637,7 +637,7 @@ These rules are enforced by `WorkspaceStore` and model types at all times:
 | `App/TerminalViewCoordinator.swift` | Sole model↔view↔surface bridge |
 | `App/MainWindowController.swift` | Primary window management |
 | `App/MainSplitViewController.swift` | Split view: sidebar + terminal panes |
-| `Core/PaneTabViewController.swift` | Tab controller, observes store via @Observable |
+| `App/Panes/PaneTabViewController.swift` | Tab controller, observes store via @Observable |
 | **Core/Actions** | |
 | `Core/Actions/PaneAction.swift` | Action enum for all pane operations |
 | `Core/Actions/ActionResolver.swift` | Resolves user input → PaneAction |

@@ -120,11 +120,8 @@ final class RPCRouterTests: XCTestCase {
     // MARK: - Helpers
 
     private func loadFixture(_ name: String) throws -> String {
-        let root = URL(fileURLWithPath: #filePath)
-            .deletingLastPathComponent()  // Bridge/
-            .deletingLastPathComponent()  // AgentStudioTests/
-            .deletingLastPathComponent()  // Tests/
-        let fixtureURL = root.appendingPathComponent("BridgeContractFixtures/\(name)")
+        let root = URL(fileURLWithPath: TestPathResolver.projectRoot(from: #filePath))
+        let fixtureURL = root.appendingPathComponent("Tests/BridgeContractFixtures/\(name)")
         return try String(contentsOf: fixtureURL, encoding: .utf8)
     }
 }

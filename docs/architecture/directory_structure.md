@@ -22,14 +22,15 @@ Sources/AgentStudio/
 │   ├── AppDelegate.swift             # App lifecycle, restore, zmx cleanup
 │   ├── MainWindowController.swift    # Window management
 │   ├── MainSplitViewController.swift # Top-level split (sidebar/content)
+│   ├── Panes/
+│   │   ├── PaneTabViewController.swift # Tab container (manages any pane type)
+│   │   └── ViewRegistry.swift        # PaneId → NSView mapping (type-agnostic)
 │   └── PaneCoordinator.swift         # Cross-feature sequencing (imports from all)
 │
 ├── Core/                             # Shared domain — pane system, models, stores
 │   ├── Models/                       # TerminalSession, Layout, Tab, ViewDefinition, PaneView
 │   ├── Stores/                       # WorkspaceStore, SessionRuntime
 │   ├── Actions/                      # PaneAction, ActionResolver, ActionValidator
-│   ├── ViewRegistry.swift            # PaneId → NSView mapping (type-agnostic)
-│   └── PaneTabViewController.swift   # Tab container (manages any pane type)
 │
 ├── Features/
 │   ├── Terminal/                     # Everything Ghostty-specific

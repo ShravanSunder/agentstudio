@@ -1,14 +1,21 @@
+import Darwin
 import Foundation
-import XCTest
 
 @testable import AgentStudio
 
 /// Isolated zmx environment for integration tests.
 /// Each test run uses a unique ZMX_DIR (temp directory) to prevent cross-test interference.
 final class ZmxTestHarness {
+    private struct SpawnedProcess {
+        let process: Process
+        let processGroupID: pid_t
+        let processID: pid_t
+    }
+
     let zmxDir: String
     let zmxPath: String?
     private let executor: DefaultProcessExecutor
+    private var spawnedProcesses: [SpawnedProcess] = []
 
     init() {
         let shortId = UUID().uuidString.prefix(8).lowercased()
@@ -98,8 +105,40 @@ final class ZmxTestHarness {
             // zmx not found or other error — nothing to clean up
         }
 
+        terminateSpawnedProcesses()
+
         // Remove the temp directory
         try? FileManager.default.removeItem(atPath: zmxDir)
+    }
+
+    /// Spawn a zmx attach command against a real zmx daemon using `/bin/sh`.
+    ///
+    /// The returned process must be awaited by callers through `cleanup()`.
+    func spawnZmxSession(
+        zmxPath: String,
+        sessionId: String,
+        commandArgs: [String]
+    ) throws -> Process {
+        let process = Process()
+        process.executableURL = URL(fileURLWithPath: "/bin/sh")
+        process.arguments = [
+            "-c",
+            "ZMX_DIR=\(ZmxBackend.shellEscape(zmxDir)) \(ZmxBackend.shellEscape(zmxPath)) attach \(ZmxBackend.shellEscape(sessionId)) \(commandArgs.map(ZmxBackend.shellEscape).joined(separator: " "))",
+        ]
+        process.standardOutput = FileHandle.nullDevice
+        process.standardError = FileHandle.nullDevice
+        process.standardInput = Pipe()
+        try process.run()
+
+        let processID = process.processIdentifier
+        let processGroupID = processGroupID(for: processID)
+        spawnedProcesses.append(SpawnedProcess(
+            process: process,
+            processGroupID: processGroupID,
+            processID: processID
+        ))
+
+        return process
     }
 
     /// Walk up from the test binary to find vendor/zmx/zig-out/bin/zmx.
@@ -126,5 +165,40 @@ final class ZmxTestHarness {
         // Fallback for short output: first token is the raw session id.
         guard let first = tokens.first, !first.contains("=") else { return nil }
         return String(first)
+    }
+
+    private func terminateSpawnedProcesses() {
+        for entry in spawnedProcesses {
+            if entry.processID <= 0 {
+                continue
+            }
+
+            let groupID = entry.processGroupID
+            let currentGroup = getpgrp()
+            let targetGroup = groupID > 0 ? groupID : entry.processID
+            if targetGroup != currentGroup {
+                let result = Darwin.kill(-targetGroup, SIGKILL)
+                if result == -1 {
+                    // Ignore common teardown races (already gone).
+                    _ = errno
+                }
+            } else {
+                Darwin.kill(entry.processID, SIGKILL)
+            }
+
+            if entry.process.isRunning {
+                entry.process.terminate()
+            }
+        }
+
+        spawnedProcesses.removeAll()
+    }
+
+    private func processGroupID(for processIdentifier: pid_t) -> pid_t {
+        let processGroupID = getpgid(processIdentifier)
+        if processGroupID == -1 {
+            return processIdentifier
+        }
+        return processGroupID
     }
 }

@@ -15,11 +15,9 @@ final class GhosttyResourcesTests: XCTestCase {
 
     /// Project root derived from compile-time source path.
     private var projectRoot: String {
-        // #file → .../Tests/AgentStudioTests/Session/GhosttyResourcesTests.swift
-        // Walk up 4 levels to reach the project root.
-        var url = URL(fileURLWithPath: #file)
-        for _ in 0..<4 { url = url.deletingLastPathComponent() }
-        return url.path
+        // #file → /Tests/AgentStudioTests/Features/Terminal/Ghostty/GhosttyResourcesTests.swift
+        // Walk up to the enclosing repo containing Package.swift, regardless of layout.
+        TestPathResolver.projectRoot(from: #filePath)
     }
 
     /// Path to the Resources directory in the source tree.

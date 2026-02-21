@@ -93,12 +93,6 @@ struct Pane: Codable, Identifiable, Hashable {
         return nil
     }
 
-    /// The bridge pane state, if this pane holds bridge panel content.
-    var bridgePaneState: BridgePaneState? {
-        if case .bridgePanel(let state) = content { return state }
-        return nil
-    }
-
     /// Source from metadata.
     var source: TerminalSource { metadata.source }
 

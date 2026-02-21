@@ -14,6 +14,9 @@ agent-studio/
 │   │   ├── AppDelegate.swift
 │   │   ├── MainWindowController.swift
 │   │   ├── MainSplitViewController.swift
+│   │   ├── Panes/                    # Pane tab management and NSView registry
+│   │   │   ├── PaneTabViewController.swift
+│   │   │   └── ViewRegistry.swift
 │   │   ├── ActionExecutor.swift
 │   │   └── TerminalViewCoordinator.swift  # Future: PaneCoordinator
 │   ├── Core/                         # Shared domain — models, stores, pane system
@@ -23,8 +26,6 @@ agent-studio/
 │   │   ├── Views/                    # Tab bar, splits, drawer, arrangement
 │   │   │   ├── Splits/              # SplitTree, SplitView, TerminalPaneLeaf
 │   │   │   └── Drawer/             # DrawerLayout, DrawerPanel, DrawerIconBar
-│   │   ├── ViewRegistry.swift
-│   │   ├── PaneTabViewController.swift
 │   │   └── NotificationNames.swift
 │   ├── Features/
 │   │   ├── Terminal/                 # Everything Ghostty-specific
@@ -65,8 +66,8 @@ Where each key component lives and why — use this to decide where new files go
 | `SessionRuntime` | `Core/Stores/` | Session status, health checks, zmx backend | Session backends |
 | `WorkspacePersistor` | `Core/Stores/` | Disk persistence for workspace state | Persistence format |
 | `DynamicViewProjector` | `Core/Stores/` | Projects dynamic views into workspace | View projection |
-| `PaneTabViewController` | `Core/` | NSTabView container for any pane type | Tab management |
-| `ViewRegistry` | `Core/` | PaneId → NSView mapping (type-agnostic) | Pane registration |
+| `PaneTabViewController` | `App/` | NSTabView container for any pane type | Tab management |
+| `ViewRegistry` | `App/` | PaneId → NSView mapping (type-agnostic) | Pane registration |
 | `ActionResolver` | `Core/Actions/` | Resolves PaneAction to concrete mutations | Action resolution |
 | `Layout`, `Tab`, `Pane` | `Core/Models/` | Core domain models | Domain rules |
 | `SplitTree`, `SplitView` | `Core/Views/Splits/` | Split pane rendering | Split layout |
