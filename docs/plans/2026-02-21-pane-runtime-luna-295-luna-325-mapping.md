@@ -15,24 +15,25 @@
 7. [D6: Priority-aware event processing](../architecture/pane_runtime_architecture.md#d6-priority-aware-event-processing)
 8. [D7: Filesystem observation](../architecture/pane_runtime_architecture.md#d7-filesystem-observation-with-batched-artifact-production)
 9. [D8: Execution backend config](../architecture/pane_runtime_architecture.md#d8-execution-backend-as-pane-configuration-not-pane-type-jtbd-7-jtbd-8)
-10. [Contract 1: PaneRuntime Protocol](../architecture/pane_runtime_architecture.md#contract-1-paneruntime-protocol)
-11. [Contract 2: PaneKindEvent + PaneRuntimeEvent](../architecture/pane_runtime_architecture.md#contract-2-panekindevent-protocol--paneruntimeevent-enum)
-12. [Contract 3: PaneEventEnvelope](../architecture/pane_runtime_architecture.md#contract-3-paneeventenvelope)
-13. [Contract 5: PaneLifecycleStateMachine](../architecture/pane_runtime_architecture.md#contract-5-panelifecyclestatemachine)
-14. [Contract 5a: Attach Readiness Policy (LUNA-295)](../architecture/pane_runtime_architecture.md#contract-5a-attach-readiness-policy-luna-295)
-15. [Contract 5b: Restart Reconcile Policy (LUNA-324)](../architecture/pane_runtime_architecture.md#contract-5b-restart-reconcile-policy-luna-324)
-16. [Contract 7a: Ghostty Action Coverage Policy (LUNA-325)](../architecture/pane_runtime_architecture.md#contract-7a-ghostty-action-coverage-policy-luna-325)
-17. [Contract 10: Inbound Action Dispatch](../architecture/pane_runtime_architecture.md#contract-10-inbound-action-dispatch)
-18. [Contract 11: Runtime Registry](../architecture/pane_runtime_architecture.md#contract-11-runtime-registry)
-19. [Contract 12: NotificationReducer](../architecture/pane_runtime_architecture.md#contract-12-notificationreducer)
-20. [Contract 12a: Visibility-Tier Scheduling (LUNA-295)](../architecture/pane_runtime_architecture.md#contract-12a-visibility-tier-scheduling-luna-295)
-21. [Contract 13: Workflow Engine (deferred)](../architecture/pane_runtime_architecture.md#contract-13-workflow-engine-deferred)
-22. [Contract 14: Replay Buffer](../architecture/pane_runtime_architecture.md#contract-14-replay-buffer)
-23. [Contract 15: Terminal Process RPC (deferred)](../architecture/pane_runtime_architecture.md#contract-15-terminal-process-requestresponse-channel-deferred)
-24. [Contract 16: Pane Filesystem Context (deferred)](../architecture/pane_runtime_architecture.md#contract-16-pane-filesystem-context-stream-deferred)
-25. [Migration: NotificationCenter → AsyncStream](../architecture/pane_runtime_architecture.md#migration-notificationcenterdispatchqueue--asyncstreamevent-bus)
-26. [Architectural Invariants (A1-A15)](../architecture/pane_runtime_architecture.md#architectural-invariants)
-27. [Swift 6 Type and Concurrency Invariants](../architecture/pane_runtime_architecture.md#swift-6-type-and-concurrency-invariants)
+10. [Contract Vocabulary](../architecture/pane_runtime_architecture.md#contract-vocabulary)
+11. [Contract 1: PaneRuntime Protocol](../architecture/pane_runtime_architecture.md#contract-1-paneruntime-protocol)
+12. [Contract 2: PaneKindEvent + PaneRuntimeEvent](../architecture/pane_runtime_architecture.md#contract-2-panekindevent-protocol--paneruntimeevent-enum)
+13. [Contract 3: PaneEventEnvelope](../architecture/pane_runtime_architecture.md#contract-3-paneeventenvelope)
+14. [Contract 5: PaneLifecycleStateMachine](../architecture/pane_runtime_architecture.md#contract-5-panelifecyclestatemachine)
+15. [Contract 5a: Attach Readiness Policy (LUNA-295)](../architecture/pane_runtime_architecture.md#contract-5a-attach-readiness-policy-luna-295)
+16. [Contract 5b: Restart Reconcile Policy (LUNA-324)](../architecture/pane_runtime_architecture.md#contract-5b-restart-reconcile-policy-luna-324)
+17. [Contract 7a: Ghostty Action Coverage Policy (LUNA-325)](../architecture/pane_runtime_architecture.md#contract-7a-ghostty-action-coverage-policy-luna-325)
+18. [Contract 10: Inbound Action Dispatch](../architecture/pane_runtime_architecture.md#contract-10-inbound-action-dispatch)
+19. [Contract 11: Runtime Registry](../architecture/pane_runtime_architecture.md#contract-11-runtime-registry)
+20. [Contract 12: NotificationReducer](../architecture/pane_runtime_architecture.md#contract-12-notificationreducer)
+21. [Contract 12a: Visibility-Tier Scheduling (LUNA-295)](../architecture/pane_runtime_architecture.md#contract-12a-visibility-tier-scheduling-luna-295)
+22. [Contract 13: Workflow Engine (deferred)](../architecture/pane_runtime_architecture.md#contract-13-workflow-engine-deferred)
+23. [Contract 14: Replay Buffer](../architecture/pane_runtime_architecture.md#contract-14-replay-buffer)
+24. [Contract 15: Terminal Process RPC (deferred)](../architecture/pane_runtime_architecture.md#contract-15-terminal-process-requestresponse-channel-deferred)
+25. [Contract 16: Pane Filesystem Context (deferred)](../architecture/pane_runtime_architecture.md#contract-16-pane-filesystem-context-stream-deferred)
+26. [Migration: NotificationCenter → AsyncStream](../architecture/pane_runtime_architecture.md#migration-notificationcenterdispatchqueue--asyncstreamevent-bus)
+27. [Architectural Invariants (A1-A15)](../architecture/pane_runtime_architecture.md#architectural-invariants)
+28. [Swift 6 Type and Concurrency Invariants](../architecture/pane_runtime_architecture.md#swift-6-type-and-concurrency-invariants)
 
 ## Ticket Links
 
@@ -73,8 +74,9 @@
 | **Metadata & dynamic views** | Contract 1 (PaneMetadata) | Optional fields, dynamic view contract | LUNA-325 | Design frozen |
 | **Metadata invariant** | Arch Invariant A13 | All live fields optional, nil = excluded from grouping | LUNA-342 (freeze) | Design frozen |
 | **Workflow engine** | Contract 13 (deferred) | WorkflowTracker, StepPredicate, correlationId | LUNA-325 (future) | Deferred |
-| **Terminal process RPC** | Contract 15 (deferred) | Request/response channel, processSessionId ordering, idempotent requestId | LUNA-325 (future) | Deferred |
-| **Agent harness architecture** | Contract 15 (design intent) | MCP + CLI adapters, command gateway, event gateway | LUNA-325 (future) | Deferred |
+| **Terminal process RPC** | Contract 15 (deferred) | Request/response channel, processSessionId ordering, idempotent requestId, ProcessOrigin | LUNA-325 (future) | Deferred |
+| **Agent harness architecture** | Contract 15 (design intent) | MCP + CLI adapters, plugin-as-adapter model, command gateway, event gateway | LUNA-325 (future) | Deferred |
+| **Contract vocabulary** | Contract Vocabulary section | Source/sink/projection role keywords, extensibility notes on Contracts 3/6/15/16 | LUNA-342 (freeze) | Design frozen |
 | **Pane filesystem context** | Contract 16 (deferred) | Derived per-pane stream, CWD-scoped filter, shared worktree watcher | LUNA-325 (future) | Deferred |
 | **Swift 6 invariants** | Swift 6 section (9 rules) | Sendable, no DispatchQueue, injectable clock, @MainActor | LUNA-342 (freeze) | Design frozen |
 | **Architectural invariants** | Arch Invariants (A1-A15) | Structural guarantees across all contracts | LUNA-342 (freeze) | Design frozen |

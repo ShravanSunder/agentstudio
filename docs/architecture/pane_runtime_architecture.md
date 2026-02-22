@@ -289,7 +289,7 @@ Every contract has a **role** keyword that describes its relationship to the eve
 
 | Role | Produces events? | Derives from upstream? | Exposes subscription? | Example |
 |---|---|---|---|---|
-| **Source** | Yes (original) | No — produces from external signals (OS, C API, agent hooks) | Yes | Contract 6 (worktree watcher), Contract 7 (GhosttyAdapter) |
+| **Source** | Yes (original) | No — produces from external signals (OS, C API, agent hooks) | Yes | Contract 6 (worktree watcher), Contract 7 (GhosttyAdapter), Contract 15 (agent RPC) |
 | **Projection** | Yes (derived) | Yes — filters/transforms a source's output | Yes | Contract 16 (per-pane CWD filter of Contract 6) |
 | **Sink** | No | N/A | No — terminal consumer | Contract 12 (NotificationReducer), Contract 14 (Replay Buffer) |
 
@@ -1674,6 +1674,18 @@ final class RuntimeRegistry {
 }
 ```
 
+#### Cross-Pane Subscription (future extensibility)
+
+The `RuntimeRegistry` + `PaneRuntime.subscribe()` infrastructure makes cross-pane event subscription cheap to add. A future contract could expose:
+
+```swift
+/// Subscribe to events from multiple panes matching a predicate.
+/// Built on existing RuntimeRegistry lookup + per-runtime subscribe().
+func subscribe(matching: @Sendable (PaneMetadata) -> Bool) -> AsyncStream<PaneEventEnvelope>
+```
+
+This enables use cases like "show all events from panes in worktree X" or "aggregate agent completion signals across repos." No existing contracts need to change — the subscription merges existing per-runtime streams. Deferred until dynamic view or multi-agent orchestration features require it.
+
 ### Contract 12: NotificationReducer
 
 > **Role:** Sink. Consumes `PaneEventEnvelope` from the coordination stream, classifies by priority, and delivers to the coordinator's event loop. Terminal consumer — does not produce events back onto the stream.
@@ -1848,7 +1860,10 @@ extension PaneRuntimeEvent {
 │  }                                                       │
 │                                                          │
 │  // Critical consumer — handles immediately              │
-│  Task {                                                  │
+│  // .userInitiated ensures critical events are resumed   │
+│  // before lossy batches when both have pending work on  │
+│  // the MainActor scheduler.                             │
+│  Task(priority: .userInitiated) {                        │
 │    for await envelope in reducer.criticalEvents {        │
 │      routeToConsumers(envelope)                          │
 │      workflowTracker.processEvent(envelope)              │
@@ -1856,7 +1871,9 @@ extension PaneRuntimeEvent {
 │  }                                                       │
 │                                                          │
 │  // Lossy consumer — handles batched per frame           │
-│  Task {                                                  │
+│  // .utility ensures lossy batches yield to critical     │
+│  // events under MainActor contention.                   │
+│  Task(priority: .utility) {                              │
 │    for await batch in reducer.batchedEvents {            │
 │      for envelope in batch {                             │
 │        routeToConsumers(envelope)                        │
@@ -1973,6 +1990,8 @@ func submit(_ envelope: PaneEventEnvelope) {
 > Key types: `WorkflowTracker`, `WorkflowStep`, `StepPredicate`, `WorkflowAdvance`. Integration points: `PaneEventEnvelope.correlationId`, `PaneKindEvent.eventName` for step matching, `EventReplayBuffer` for restart recovery.
 
 ### Contract 14: Replay Buffer
+
+> **Role:** Sink. Consumes `PaneEventEnvelope` from the coordination stream and stores them in a bounded ring buffer for late-joining consumers. Terminal consumer — does not produce events back onto the stream.
 
 ```swift
 /// Bounded event ring buffer per EventSource for late-joining consumers.
@@ -2098,6 +2117,10 @@ Dynamic view opens (e.g., "group by worktree")
 
 ### Contract 15: Terminal Process Request/Response Channel (deferred)
 
+> **Role:** Source. Produces `TerminalProcessEvent` on the coordination stream with `source = .pane(id)`. Milestone events only — actual request/response payloads travel on dedicated envelopes, not the coordination stream.
+
+> **Extensibility:** This contract is the ingress point for agent-originated structured commands. Agent-specific protocols (Claude Code hooks, Codex CLI hooks, aider callbacks) are translated into typed `TerminalProcessRequestEnvelope` by **plugin adapters** — one adapter per agent protocol. Core Agent Studio never imports agent-specific formats. The plugin does the translation; this contract provides the typed pipe. Adding a new agent protocol means writing a new plugin adapter, not changing core contracts. See the Agent Harness Communication Model below for the adapter architecture.
+
 > **Status:** Design intent only. Implementation deferred until agent coordination features (JTBD 3, JTBD 6) move beyond basic terminal usage.
 
 This is NOT PTY/raw output. It is a typed request/response channel for agent↔harness coordination — structured commands sent by agents (via MCP or CLI) to Agent Studio, with structured responses back.
@@ -2138,9 +2161,27 @@ struct TerminalProcessRequestEnvelope: Sendable {
     let processSessionId: UUID
     let requestId: UUID               // idempotency key
     let correlationId: UUID?
+    let origin: ProcessOrigin         // which agent/tool produced this request
     let operation: ProcessOperation
     let cwd: URL?
     let timestamp: ContinuousClock.Instant
+}
+
+/// Identifies the agent or tool that produced a request.
+/// String-based, not an enum — new agent protocols are additive.
+/// The core never switches on provider values; plugins set them,
+/// and the value flows through for logging, UI display, and
+/// workflow correlation.
+///
+/// Convention: "claude-code", "codex", "aider", "cursor-cli",
+/// or plugin-defined values like "custom-agent-v2".
+struct ProcessOrigin: Hashable, Sendable {
+    let provider: String              // agent protocol identifier
+    let version: String?              // optional agent version
+    init(provider: String, version: String? = nil) {
+        self.provider = provider
+        self.version = version
+    }
 }
 
 /// Outbound: Agent Studio → agent. Typed response envelope.
@@ -2191,9 +2232,15 @@ PaneRuntimeEvent stream → Harness Event Gateway → adapters → agent
 - **MCP adapter** — tool-friendly for LLM agents. Exposes Agent Studio operations as MCP tools.
 - Both map to the same internal command/event contracts.
 
+**Plugin-as-adapter model:** Each agent protocol (Claude Code hooks, Codex CLI notifications, aider callbacks) gets a **plugin adapter** that translates agent-specific formats into typed `TerminalProcessRequestEnvelope` with a `ProcessOrigin` identifying the agent. Core Agent Studio is agent-agnostic — it never imports agent-specific hook formats. Plugins do the translation. This means supporting a new agent is a plugin change, not a core change.
+
 **Use cases:** Work tracker with dependencies and sub-projects, agent status queries, cross-agent coordination, project state management. Agents interact with Agent Studio as a structured workspace, not just a terminal host.
 
 ### Contract 16: Pane Filesystem Context Stream (deferred)
+
+> **Role:** Projection of Contract 6 (Filesystem Batching). Derives per-pane filesystem events by filtering the worktree watcher's output to the pane's current CWD subtree. Depends on Contract 6 as its upstream source — cannot exist without it.
+
+> **Extensibility:** New per-pane derived streams (e.g., "pane git blame context", "pane dependency graph") follow the same projection pattern: filter an upstream source by pane-scoped criteria, expose a typed subscription. Adding a new projection does not change the upstream source or existing projections.
 
 > **Status:** Design intent only. Implementation deferred until per-pane filesystem awareness features are built.
 
@@ -2410,9 +2457,9 @@ Structural guarantees that hold across all contracts. Each invariant is enforced
 
 *Enforced by:* `PaneKindEvent` protocol requirement. Compile error if `actionPolicy` is missing.
 
-**A8. Critical and lossy paths never interact.** Critical events bypass coalescing entirely (immediate delivery, wake main loop). Lossy events batch on frame boundary (16.67ms). The `NotificationReducer` maintains two separate queues. No priority inversion is possible between these paths.
+**A8. Critical and lossy paths never interact.** Critical events bypass coalescing entirely (immediate delivery, wake main loop). Lossy events batch on frame boundary (16.67ms). The `NotificationReducer` maintains two separate queues. No priority inversion is possible between these paths. The coordinator's critical consumer Task runs at `.userInitiated` priority; the lossy consumer runs at `.utility`. This ensures the MainActor scheduler resumes critical event processing before lossy batch processing when both have pending work.
 
-*Enforced by:* `submit()` branches on `actionPolicy` at the top level. No shared buffer between paths.
+*Enforced by:* `submit()` branches on `actionPolicy` at the top level. No shared buffer between paths. Task priority annotations on coordinator event loop consumers.
 
 ### Replay & Recovery
 

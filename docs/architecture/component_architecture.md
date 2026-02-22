@@ -338,6 +338,8 @@ The `PaneCoordinator` is the canonical orchestration boundary for action executi
 - Applies action intent through command validation and mutation APIs.
 - Manages undo sequencing with deterministic restore/reattach behavior.
 
+> **Expansion (LUNA-325):** The coordinator gains event consumption responsibilities: it will own the `RuntimeRegistry`, subscribe to `PaneRuntimeEvent` streams from all runtimes, feed the `NotificationReducer` (priority-aware delivery), and maintain per-source replay buffers. The coordinator event loop processes critical events at `.userInitiated` priority and lossy batches at `.utility`. See [Pane Runtime Architecture — Coordinator Event Loop](pane_runtime_architecture.md#coordinator-event-loop-how-it-connects) for the target design.
+
 **Key operations:**
 - `execute(_ action: PaneAction)` — dispatch all pane actions (selectTab, closeTab, closePane, insertPane, extractPaneToTab, resizePane, equalizePanes, mergeTab, breakUpTab, focusPane, repair)
 - `openTerminal(for:in:)` — Create session + surface + tab. Rolls back session if surface creation fails.

@@ -68,3 +68,4 @@ Frameworks/GhosttyKit.xcframework
 .build-zmxe2e
 .build-*
 test-inventory-*.md
+.lock

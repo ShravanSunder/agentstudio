@@ -147,7 +147,9 @@ User presses Cmd+Shift+T
 
 ## CWD Propagation Architecture
 
-When a user `cd`s in a terminal, the shell's OSC 7 integration reports the new working directory. Ghostty's core parses this and emits `GHOSTTY_ACTION_PWD`. Agent Studio captures this and propagates it through a 5-stage notification pipeline:
+When a user `cd`s in a terminal, the shell's OSC 7 integration reports the new working directory. Ghostty's core parses this and emits `GHOSTTY_ACTION_PWD`. Agent Studio captures this and propagates it through a 5-stage notification pipeline.
+
+> **Migration target (LUNA-325):** This pipeline will be replaced by `GhosttyAdapter` → `GhosttyEvent.cwdChanged` → `TerminalRuntime` → `PaneEventEnvelope` on the typed coordination stream. `DispatchQueue.main.async` becomes `MainActor.assumeIsolated`, and `NotificationCenter` posts become typed event emission. See [Pane Runtime Architecture — Migration](pane_runtime_architecture.md#migration-notificationcenterdispatchqueue--asyncstreamevent-bus) for the full migration path. The diagram below documents the **current** implementation.
 
 ```
 Terminal shell (cd /foo)
