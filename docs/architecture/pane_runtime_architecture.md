@@ -318,7 +318,7 @@ protocol PaneRuntime: AnyObject {
     var capabilities: Set<PaneCapability> { get }
 
     /// Dispatch a command. Fails if lifecycle != .ready.
-    func handleAction(_ envelope: PaneActionEnvelope) async -> ActionResult
+    func handleCommand(_ envelope: RuntimeCommandEnvelope) async -> ActionResult
 
     /// Current state snapshot for late-joining consumers.
     func snapshot() -> RuntimeSnapshot
@@ -800,7 +800,7 @@ enum PaneRuntimeLifecycle: Sendable {
 ///   1. created → ready (only transition forward)
 ///   2. ready → draining (on close request)
 ///   3. draining → terminated (after timeout or all commands complete)
-///   4. handleAction() returns .failure(.runtimeNotReady) if lifecycle != .ready
+///   4. handleCommand() returns .failure(.runtimeNotReady) if lifecycle != .ready
 ///   5. shutdown(timeout:) is idempotent — safe to call multiple times
 ///   6. After terminated, no events emitted, no commands accepted
 ///   7. Unfinished command IDs returned from shutdown() for logging/recovery
@@ -1462,41 +1462,46 @@ enum RemoteAuthMethod: Sendable {
 enum TunnelType: String, Sendable { case ssh, zmx }
 ```
 
-### Contract 10: Inbound Action Dispatch
+### Contract 10: Inbound Runtime Command Dispatch
 
 ```swift
 /// Command envelope dispatched TO a runtime (inbound).
 /// Mirror of PaneEventEnvelope (outbound from runtime → coordinator).
-struct PaneActionEnvelope: Sendable {
+///
+/// NOTE: "RuntimeCommand" is the runtime-level command vocabulary —
+/// distinct from the workspace-level `PaneAction` in `Core/Actions/`
+/// which handles tab/layout/arrangement mutations. RuntimeCommand tells
+/// a runtime what to DO; PaneAction tells the workspace what to CHANGE.
+struct RuntimeCommandEnvelope: Sendable {
     let commandId: UUID                     // idempotency
     let correlationId: UUID?                // links workflow steps
     let targetPaneId: UUID                  // sole routing field on the envelope
-    let action: PaneAction
+    let command: RuntimeCommand
     let timestamp: ContinuousClock.Instant
 }
 
-/// ROUTING vs DOMAIN DATA in actions (mirrors outbound envelope rule A1):
-///   targetPaneId on PaneActionEnvelope is the SOLE routing identity.
-///   Domain data inside action payloads (e.g., DiffArtifact.worktreeId)
+/// ROUTING vs DOMAIN DATA in commands (mirrors outbound envelope rule A1):
+///   targetPaneId on RuntimeCommandEnvelope is the SOLE routing identity.
+///   Domain data inside command payloads (e.g., DiffArtifact.worktreeId)
 ///   is NOT routing — it's "which worktree this diff covers."
 ///
-/// COORDINATOR VALIDATION: Before dispatching DiffAction.loadDiff(artifact),
+/// COORDINATOR VALIDATION: Before dispatching DiffCommand.loadDiff(artifact),
 ///   the coordinator MUST validate:
 ///     artifact.worktreeId == targetRuntime.metadata.worktreeId
 ///   Mismatch is a contract violation — log and reject, don't silently
 ///   dispatch a diff to the wrong worktree context.
 
-/// Protocol for per-kind actions. Same pattern as PaneKindEvent:
-/// built-in action enums conform AND have dedicated cases.
-/// Plugin actions conform and use the `.plugin` escape hatch.
-protocol PaneKindAction: Sendable {
-    var actionName: String { get }
+/// Protocol for per-kind commands. Same pattern as PaneKindEvent:
+/// built-in command enums conform AND have dedicated cases.
+/// Plugin commands conform and use the `.plugin` escape hatch.
+protocol RuntimeKindCommand: Sendable {
+    var commandName: String { get }
 }
 
 /// What the coordinator can tell any runtime to do.
 /// Discriminated union with plugin escape hatch — same pattern as
 /// PaneRuntimeEvent.
-enum PaneAction: Sendable {
+enum RuntimeCommand: Sendable {
     // Generic lifecycle — all runtimes handle these
     case activate                           // pane became visible/focused
     case deactivate                         // pane hidden/backgrounded
@@ -1505,17 +1510,17 @@ enum PaneAction: Sendable {
     // State queries
     case requestSnapshot                    // coordinator wants current state
 
-    // ── First-class per-kind actions ───────────────────
-    case terminal(TerminalAction)
-    case browser(BrowserAction)
-    case diff(DiffAction)
-    case editor(EditorAction)
+    // ── First-class per-kind commands ──────────────────
+    case terminal(TerminalCommand)
+    case browser(BrowserCommand)
+    case diff(DiffCommand)
+    case editor(EditorCommand)
 
     // ── Plugin escape hatch ────────────────────────────
-    case plugin(any PaneKindAction)
+    case plugin(any RuntimeKindCommand)
 }
 
-enum TerminalAction: Sendable {
+enum TerminalCommand: Sendable {
     case sendInput(String)
     case sendKeySequence(KeySequence)
     case resize(cols: Int, rows: Int)
@@ -1545,7 +1550,7 @@ enum ScrollTarget: Sendable {
     case toMark(String)
 }
 
-enum BrowserAction: Sendable {
+enum BrowserCommand: Sendable {
     case navigate(url: URL)
     case goBack
     case goForward
@@ -1555,7 +1560,7 @@ enum BrowserAction: Sendable {
     case setZoom(Double)
 }
 
-enum DiffAction: Sendable {
+enum DiffCommand: Sendable {
     case loadDiff(DiffArtifact)
     case navigateToFile(path: String)
     case navigateToHunk(hunkId: String)
@@ -1574,7 +1579,7 @@ struct DiffArtifact: Sendable {
     let patchData: Data                     // unified diff format
 }
 
-enum EditorAction: Sendable {
+enum EditorCommand: Sendable {
     case openFile(path: String, line: Int?, column: Int?)
     case goToLine(Int)
     case find(query: String, regex: Bool, caseSensitive: Bool)
@@ -1598,10 +1603,10 @@ USER ACTION (command bar, keyboard, menu)
        ├─► check runtime.capabilities ⊇ required
        │
        ▼
-  PaneActionEnvelope(commandId, correlationId, targetPaneId, action)
+  RuntimeCommandEnvelope(commandId, correlationId, targetPaneId, command)
        │
        ▼
-  runtime.handleAction(envelope) async → ActionResult
+  runtime.handleCommand(envelope) async → ActionResult
        │
        ├─► .success(commandId)    → coordinator logs, advances workflow
        ├─► .queued(commandId, n)  → runtime will process in order
@@ -2473,7 +2478,7 @@ Structural guarantees that hold across all contracts. Each invariant is enforced
 
 ### Lifecycle
 
-**A11. Lifecycle transitions are forward-only.** `created → ready → draining → terminated`. No backward transitions. No skipping states. `handleAction()` rejects commands if `lifecycle != .ready`. After `terminated`, no events emitted, no commands accepted, runtime is unregistered from `RuntimeRegistry`.
+**A11. Lifecycle transitions are forward-only.** `created → ready → draining → terminated`. No backward transitions. No skipping states. `handleCommand()` rejects commands if `lifecycle != .ready`. After `terminated`, no events emitted, no commands accepted, runtime is unregistered from `RuntimeRegistry`.
 
 *Enforced by:* `PaneRuntimeLifecycle` state machine with compile-time transition validation. Violation = `.failure(.runtimeNotReady)`.
 
@@ -2572,6 +2577,41 @@ This architecture was reviewed by four independent analyses:
 | **LUNA-326** (Native Scrollbar) | Consumes the terminal runtime contract. Scrollbar behavior binds to `TerminalRuntime.scrollbarState` via @Observable. Does not invent new transport. | None (consumer only) |
 | **LUNA-327** (State Ownership + Observable Migration) | The current branch. Establishes @Observable store pattern, PaneCoordinator consolidation, `private(set)` unidirectional flow, and `DispatchQueue.main.async` → `MainActor` migration. | D1, D5, Swift 6 invariants, Migration section |
 | **LUNA-342** (Contract Freeze) | Freeze gate — all design decisions, contracts, and invariants locked. No implementation. | All invariants (A1-A15), Swift 6 invariants (1-9), envelope/source shape |
+
+---
+
+## Directory Placement
+
+Contract types are shared pane-system domain infrastructure — used by all features, not owned by any single feature. They live in `Core/PaneRuntime/`. Feature-specific implementations (adapters, concrete runtimes) live in each `Features/X/` directory. The coordinator stays in `App/` as the composition root.
+
+See [Directory Structure](directory_structure.md) for the full decision process and import rules.
+
+| Type | Directory | Rationale |
+|------|-----------|-----------|
+| **Contracts** (PaneRuntime protocol, PaneRuntimeEvent, PaneEventEnvelope, RuntimeCommand, RuntimeCommandEnvelope, PaneLifecycle, PaneMetadata, ActionPolicy, PaneCapability, per-kind event/command enums) | `Core/PaneRuntime/Contracts/` | Imported by all features and App; change driver is pane system contract, not any specific feature |
+| **RuntimeRegistry** | `Core/PaneRuntime/Registry/` | Feature-agnostic lookup; consumed by PaneCoordinator in App/ |
+| **NotificationReducer**, VisibilityTier types | `Core/PaneRuntime/Reduction/` | Feature-agnostic event processing; consumed by PaneCoordinator |
+| **EventReplayBuffer** | `Core/PaneRuntime/Replay/` | Feature-agnostic buffering; consumed by PaneCoordinator |
+| **GhosttyAdapter** | `Features/Terminal/Ghostty/` | FFI-specific; translates C callbacks into Core event types |
+| **TerminalRuntime** | `Features/Terminal/Runtime/` | Terminal-specific `PaneRuntime` conformance |
+| **BrowserRuntime** (future) | `Features/Webview/Runtime/` | Webview-specific `PaneRuntime` conformance |
+| **PaneCoordinator** | `App/` | Imports from multiple features; composition root |
+
+### Why per-kind event enums live in Core
+
+`GhosttyEvent`, `BrowserEvent`, `DiffEvent`, `EditorEvent` are cases in the `PaneRuntimeEvent` discriminated union (Contract 2). Since `PaneRuntimeEvent` is in `Core/PaneRuntime/Contracts/` and Core cannot import Features, all per-kind event enums must also be in Core. These enums define the **domain event vocabulary** — what the system says about terminal/browser/diff/editor events. The adapters that *produce* these events from platform APIs live in Features.
+
+### Naming: RuntimeCommand vs PaneAction
+
+Two distinct action layers exist with different scopes:
+
+| Layer | Type | Location | Purpose |
+|-------|------|----------|---------|
+| **Workspace** | `PaneAction` | `Core/Actions/` | Workspace structure mutations — selectTab, closePane, insertPane, toggleDrawer |
+| **Runtime** | `RuntimeCommand` | `Core/PaneRuntime/Contracts/` | Commands to individual runtimes — sendInput, navigate, approveHunk |
+
+`PaneAction` flows: User → ActionResolver → ActionValidator → PaneCoordinator → WorkspaceStore.
+`RuntimeCommand` flows: PaneCoordinator → RuntimeRegistry → `runtime.handleCommand(envelope)`.
 
 ---
 
