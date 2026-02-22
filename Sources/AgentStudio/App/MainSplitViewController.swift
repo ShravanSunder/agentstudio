@@ -474,14 +474,30 @@ struct SidebarContentView: View {
         panel.canChooseFiles = false
         panel.canChooseDirectories = true
         panel.allowsMultipleSelection = false
-        panel.message = "Select a git repository"
-        panel.prompt = "Add Repo"
+        panel.message = "Select a folder containing git repositories"
+        panel.prompt = "Add Repos"
 
         if panel.runModal() == .OK, let url = panel.url {
-            let repo = store.addRepo(at: url)
-            // Immediately discover worktrees so the sidebar isn't empty
-            let worktrees = WorktrunkService.shared.discoverWorktrees(for: repo.repoPath)
-            store.updateRepoWorktrees(repo.id, worktrees: worktrees)
+            let scanner = RepoScanner()
+            let repoPaths = scanner.scanForGitRepos(in: url, maxDepth: 3)
+
+            if repoPaths.isEmpty {
+                // Fallback: treat the selected folder itself as a repo
+                let repo = store.addRepo(at: url)
+                let worktrees = WorktrunkService.shared.discoverWorktrees(for: repo.repoPath)
+                store.updateRepoWorktrees(repo.id, worktrees: worktrees)
+            } else {
+                for repoPath in repoPaths {
+                    // Skip if repo already exists (by path)
+                    guard !store.repos.contains(where: { $0.repoPath == repoPath }) else {
+                        continue
+                    }
+                    let repo = store.addRepo(at: repoPath)
+                    let worktrees = WorktrunkService.shared.discoverWorktrees(
+                        for: repo.repoPath)
+                    store.updateRepoWorktrees(repo.id, worktrees: worktrees)
+                }
+            }
         }
     }
 
