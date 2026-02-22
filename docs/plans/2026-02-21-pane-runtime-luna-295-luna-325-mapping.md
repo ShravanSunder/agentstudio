@@ -23,7 +23,7 @@
 15. [Contract 5a: Attach Readiness Policy (LUNA-295)](../architecture/pane_runtime_architecture.md#contract-5a-attach-readiness-policy-luna-295)
 16. [Contract 5b: Restart Reconcile Policy (LUNA-324)](../architecture/pane_runtime_architecture.md#contract-5b-restart-reconcile-policy-luna-324)
 17. [Contract 7a: Ghostty Action Coverage Policy (LUNA-325)](../architecture/pane_runtime_architecture.md#contract-7a-ghostty-action-coverage-policy-luna-325)
-18. [Contract 10: Inbound Action Dispatch](../architecture/pane_runtime_architecture.md#contract-10-inbound-action-dispatch)
+18. [Contract 10: Inbound Runtime Command Dispatch](../architecture/pane_runtime_architecture.md#contract-10-inbound-runtime-command-dispatch)
 19. [Contract 11: Runtime Registry](../architecture/pane_runtime_architecture.md#contract-11-runtime-registry)
 20. [Contract 12: NotificationReducer](../architecture/pane_runtime_architecture.md#contract-12-notificationreducer)
 21. [Contract 12a: Visibility-Tier Scheduling (LUNA-295)](../architecture/pane_runtime_architecture.md#contract-12a-visibility-tier-scheduling-luna-295)
@@ -67,7 +67,7 @@
 | **NotificationReducer** | Contract 12 | Critical/lossy queues, injectable clock, frame timer | LUNA-325 | Design frozen |
 | **Replay buffer** | Contract 14 (EventReplayBuffer) | Per-source ring buffer, bounded, gap detection | LUNA-325 | Design frozen |
 | **Replay invariants** | Arch Invariants A9, A10 | v1 no restart-safe replay, bounded per source | LUNA-342 (freeze) | Design frozen |
-| **Inbound action dispatch** | Contract 10 | `PaneActionEnvelope`, capability check, lifecycle guard | LUNA-325 | Design frozen |
+| **Inbound command dispatch** | Contract 10 | `RuntimeCommandEnvelope`, capability check, lifecycle guard | LUNA-325 | Design frozen |
 | **Filesystem batching** | Contract 6 | 500ms debounce, 2s max latency, per-worktree | LUNA-325 | Design frozen |
 | **Execution backend** | D8, Contract 9 | Per-pane config, immutable, security events | LUNA-325 | Design frozen |
 | **Execution backend invariant** | Arch Invariant A14 | Immutable after creation, no live migration in v1 | LUNA-342 (freeze) | Design frozen |
@@ -113,6 +113,29 @@ All design decisions (`D1`–`D8`), all contracts (`1`–`16`, `5a`, `5b`, `7a`,
 1. Contract shapes frozen in `pane_runtime_architecture.md`.
 2. Swift 6 typing/concurrency invariants explicitly satisfied in design.
 3. Envelope/replay/workflow semantics aligned in design references above.
+
+## Directory Placement
+
+Contract types live in `Core/PaneRuntime/` (shared pane-system domain). Feature-specific implementations live in each `Features/X/` directory. See [Directory Structure](../architecture/directory_structure.md) for the full decision process.
+
+```
+Core/PaneRuntime/
+├── Contracts/       # PaneRuntime protocol, events, envelopes, RuntimeCommand, policies
+├── Registry/        # RuntimeRegistry
+├── Reduction/       # NotificationReducer, VisibilityTier
+└── Replay/          # EventReplayBuffer
+
+Features/Terminal/
+├── Ghostty/         # GhosttyAdapter (C FFI boundary)
+└── Runtime/         # TerminalRuntime (PaneRuntime conformance)
+```
+
+### Naming: PaneAction vs RuntimeCommand
+
+Contract 10's inbound command type is `RuntimeCommand` (not `PaneAction`). Two distinct action layers:
+
+- `PaneAction` (`Core/Actions/`) — workspace structure mutations (selectTab, closePane, etc.)
+- `RuntimeCommand` (`Core/PaneRuntime/Contracts/`) — commands to individual runtimes (sendInput, navigate, etc.)
 
 ## Notes
 
