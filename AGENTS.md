@@ -144,6 +144,8 @@ mise run format               # Auto-format all Swift sources with swift-format
 mise run lint                  # Lint all Swift sources (swift-format + swiftlint)
 ```
 
+Before committing, run both `mise run format` and `mise run lint`.
+
 Requires `brew install swift-format swiftlint`. A PostToolUse hook (`.claude/hooks/check.sh`) runs swift-format and swiftlint automatically after every Edit/Write on `.swift` files.
 
 ### ⚠️ Running Swift Commands — Use Mise
