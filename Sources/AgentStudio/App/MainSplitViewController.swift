@@ -373,12 +373,25 @@ struct SidebarContentView: View {
                                     },
                                     onOpenNew: {
                                         openNewTerminal(worktree, in: repo)
+                                    },
+                                    onOpenInPane: {
+                                        openWorktreeInPane(worktree, in: repo)
                                     }
                                 )
                                 .listRowInsets(EdgeInsets(top: 0, leading: 2, bottom: 0, trailing: 0))
                             }
                         } label: {
-                            RepoRowView(repo: repo)
+                            RepoRowView(
+                                repo: repo,
+                                onRefresh: {
+                                    let worktrees = WorktrunkService.shared.discoverWorktrees(
+                                        for: repo.repoPath)
+                                    store.updateRepoWorktrees(repo.id, worktrees: worktrees)
+                                },
+                                onRemove: {
+                                    store.removeRepo(repo.id)
+                                }
+                            )
                         }
                         .listRowInsets(EdgeInsets(top: 0, leading: 2, bottom: 0, trailing: 0))
                     }
@@ -469,6 +482,14 @@ struct SidebarContentView: View {
         )
     }
 
+    private func openWorktreeInPane(_ worktree: Worktree, in repo: Repo) {
+        NotificationCenter.default.post(
+            name: .openWorktreeInPaneRequested,
+            object: nil,
+            userInfo: ["worktree": worktree, "repo": repo]
+        )
+    }
+
     private func addRepo() {
         let panel = NSOpenPanel()
         panel.canChooseFiles = false
@@ -514,29 +535,66 @@ struct SidebarContentView: View {
 
 struct RepoRowView: View {
     let repo: Repo
+    let onRefresh: () -> Void
+    let onRemove: () -> Void
+    @State private var isHovered: Bool = false
 
     var body: some View {
-        HStack(spacing: 8) {
+        HStack(spacing: AppStyle.spacingStandard) {
             Image(systemName: "folder.fill")
                 .font(.system(size: 14))
                 .foregroundStyle(.orange)
 
             Text(repo.name)
-                .font(.system(size: 13, weight: .medium))
+                .font(.system(size: AppStyle.fontPrimary, weight: .medium))
                 .lineLimit(1)
 
             Spacer()
 
-            // Worktree count badge
-            Text("\(repo.worktrees.count)")
-                .font(.system(size: 10, weight: .medium))
-                .foregroundStyle(.secondary)
-                .padding(.horizontal, 6)
-                .padding(.vertical, 2)
-                .background(Color.secondary.opacity(0.15))
-                .clipShape(Capsule())
+            if isHovered {
+                HStack(spacing: 2) {
+                    Menu {
+                        Button("Refresh Worktrees") { onRefresh() }
+                        Divider()
+                        Button {
+                            NSWorkspace.shared.selectFile(
+                                nil, inFileViewerRootedAtPath: repo.repoPath.path)
+                        } label: {
+                            Label("Reveal in Finder", systemImage: "folder")
+                        }
+                        Button {
+                            NSPasteboard.general.clearContents()
+                            NSPasteboard.general.setString(repo.repoPath.path, forType: .string)
+                        } label: {
+                            Label("Copy Path", systemImage: "doc.on.clipboard")
+                        }
+                        Divider()
+                        Button("Remove Repo", role: .destructive) { onRemove() }
+                    } label: {
+                        Image(systemName: "ellipsis")
+                            .font(.system(size: AppStyle.fontSmall))
+                            .foregroundStyle(.secondary)
+                            .frame(width: 20, height: 20)
+                    }
+                    .menuStyle(.borderlessButton)
+                    .menuIndicator(.hidden)
+                    .fixedSize()
+                }
+                .transition(.opacity)
+            } else {
+                // Worktree count badge
+                Text("\(repo.worktrees.count)")
+                    .font(.system(size: AppStyle.fontSmall, weight: .medium))
+                    .foregroundStyle(.secondary)
+                    .padding(.horizontal, 6)
+                    .padding(.vertical, 2)
+                    .background(Color.secondary.opacity(0.15))
+                    .clipShape(Capsule())
+            }
         }
         .padding(.vertical, 2)
+        .contentShape(Rectangle())
+        .onHover { isHovered = $0 }
     }
 }
 
@@ -546,29 +604,33 @@ struct WorktreeRowView: View {
     let worktree: Worktree
     let onOpen: () -> Void
     let onOpenNew: () -> Void
+    let onOpenInPane: () -> Void
     @State private var isHovering = false
 
     var body: some View {
-        HStack(spacing: 6) {
-            // Branch icon
-            Image(systemName: "arrow.triangle.branch")
-                .font(.system(size: 11))
-                .foregroundStyle(.secondary)
+        HStack(spacing: AppStyle.spacingStandard) {
+            // Main worktree gets star, others get branch icon
+            if worktree.isMainWorktree {
+                Image(systemName: "star.fill")
+                    .font(.system(size: 10))
+                    .foregroundStyle(.yellow)
+            } else {
+                Image(systemName: "arrow.triangle.branch")
+                    .font(.system(size: 11))
+                    .foregroundStyle(.secondary)
+            }
 
-            // Worktree name
             Text(worktree.name)
-                .font(.system(size: 12))
+                .font(.system(size: AppStyle.fontBody))
                 .lineLimit(1)
                 .foregroundStyle(.primary)
 
             Spacer()
 
-            // Status badge
             if worktree.status != .idle {
                 StatusBadgeView(status: worktree.status)
             }
 
-            // Agent badge
             if let agent = worktree.agent {
                 AgentBadgeView(agent: agent)
             }
@@ -576,13 +638,11 @@ struct WorktreeRowView: View {
         .padding(.vertical, 3)
         .padding(.horizontal, 4)
         .background(
-            RoundedRectangle(cornerRadius: 6)
+            RoundedRectangle(cornerRadius: AppStyle.barCornerRadius)
                 .fill(isHovering ? Color.accentColor.opacity(0.1) : Color.clear)
         )
         .contentShape(Rectangle())
-        .onHover { hovering in
-            isHovering = hovering
-        }
+        .onHover { isHovering = $0 }
         .onTapGesture(count: 2) {
             onOpen()
         }
@@ -590,8 +650,16 @@ struct WorktreeRowView: View {
             Button {
                 onOpenNew()
             } label: {
-                Label("Open New Terminal in Tab", systemImage: "terminal.fill")
+                Label("Open in New Tab", systemImage: "plus.rectangle")
             }
+
+            Button {
+                onOpenInPane()
+            } label: {
+                Label("Open in Pane (Split)", systemImage: "rectangle.split.2x1")
+            }
+
+            Divider()
 
             Button {
                 onOpen()
@@ -608,7 +676,8 @@ struct WorktreeRowView: View {
             Divider()
 
             Button {
-                NSWorkspace.shared.selectFile(nil, inFileViewerRootedAtPath: worktree.path.path)
+                NSWorkspace.shared.selectFile(
+                    nil, inFileViewerRootedAtPath: worktree.path.path)
             } label: {
                 Label("Reveal in Finder", systemImage: "folder")
             }
@@ -624,7 +693,8 @@ struct WorktreeRowView: View {
     private func openInCursor() {
         let cursorURL = URL(fileURLWithPath: "/Applications/Cursor.app")
         let config = NSWorkspace.OpenConfiguration()
-        NSWorkspace.shared.open([worktree.path], withApplicationAt: cursorURL, configuration: config)
+        NSWorkspace.shared.open(
+            [worktree.path], withApplicationAt: cursorURL, configuration: config)
     }
 
     private func copyPath() {
