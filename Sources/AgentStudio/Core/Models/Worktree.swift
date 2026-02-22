@@ -9,6 +9,7 @@ struct Worktree: Codable, Identifiable, Hashable {
     var branch: String
     var agent: AgentType?
     var status: WorktreeStatus
+    var isMainWorktree: Bool
 
     /// Deterministic identity derived from filesystem path via SHA-256.
     /// Used for zmx session ID segment. Survives reinstall/data loss, breaks on directory move.
@@ -20,7 +21,8 @@ struct Worktree: Codable, Identifiable, Hashable {
         path: URL,
         branch: String,
         agent: AgentType? = nil,
-        status: WorktreeStatus = .idle
+        status: WorktreeStatus = .idle,
+        isMainWorktree: Bool = false
     ) {
         self.id = id
         self.name = name
@@ -28,6 +30,18 @@ struct Worktree: Codable, Identifiable, Hashable {
         self.branch = branch
         self.agent = agent
         self.status = status
+        self.isMainWorktree = isMainWorktree
+    }
+
+    init(from decoder: Decoder) throws {
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+        self.id = try container.decode(UUID.self, forKey: .id)
+        self.name = try container.decode(String.self, forKey: .name)
+        self.path = try container.decode(URL.self, forKey: .path)
+        self.branch = try container.decode(String.self, forKey: .branch)
+        self.agent = try container.decodeIfPresent(AgentType.self, forKey: .agent)
+        self.status = try container.decodeIfPresent(WorktreeStatus.self, forKey: .status) ?? .idle
+        self.isMainWorktree = try container.decodeIfPresent(Bool.self, forKey: .isMainWorktree) ?? false
     }
 }
 

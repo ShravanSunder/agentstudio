@@ -59,7 +59,7 @@ final class WorktrunkService: Sendable {
             entry.path.contains(projectName)
         }
 
-        return filtered.map { entry in
+        return filtered.enumerated().map { index, entry in
             let pathURL = URL(fileURLWithPath: entry.path)
             let name =
                 entry.branch.replacingOccurrences(of: "refs/heads/", with: "")
@@ -68,7 +68,8 @@ final class WorktrunkService: Sendable {
             return Worktree(
                 name: name,
                 path: pathURL,
-                branch: entry.branch
+                branch: entry.branch,
+                isMainWorktree: index == 0
             )
         }
     }
@@ -102,7 +103,8 @@ final class WorktrunkService: Sendable {
                         Worktree(
                             name: name,
                             path: pathURL,
-                            branch: branch
+                            branch: branch,
+                            isMainWorktree: worktrees.isEmpty
                         ))
                 }
 
@@ -124,7 +126,8 @@ final class WorktrunkService: Sendable {
                 Worktree(
                     name: name,
                     path: pathURL,
-                    branch: branch
+                    branch: branch,
+                    isMainWorktree: worktrees.isEmpty
                 ))
         }
 
