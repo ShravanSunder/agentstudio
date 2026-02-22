@@ -103,8 +103,10 @@ swift build -c release > /tmp/build-output.txt 2>&1 && echo "BUILD OK" || { echo
 description = "Run all tests"
 depends = ["copy-xcframework", "setup-dev-resources"]
 run = """
+SWIFT_TEST_WORKERS="${SWIFT_TEST_WORKERS:-$(( $(sysctl -n hw.ncpu) / 2 ))}"
+if [ "$SWIFT_TEST_WORKERS" -lt 2 ]; then SWIFT_TEST_WORKERS=2; fi
 AGENT_STUDIO_BENCHMARK_MODE=off \
-swift test --build-path "${SWIFT_BUILD_DIR:-.build-agent-$RANDOM}"
+swift test --parallel --num-workers "$SWIFT_TEST_WORKERS" --build-path "${SWIFT_BUILD_DIR:-.build-agent-$RANDOM}"
 """
 
 [tasks.test-benchmark]
@@ -124,8 +126,9 @@ swift test --build-path "$SWIFT_BUILD_DIR" --filter "PushPerformanceBenchmarkTes
 description = "Run full Swift test suite for CI with shared .build cache directory"
 depends = ["copy-xcframework", "setup-dev-resources"]
 run = """
+SWIFT_TEST_WORKERS="${SWIFT_TEST_WORKERS:-8}"
 AGENT_STUDIO_BENCHMARK_MODE=off \
-swift test --build-path .build
+swift test --parallel --num-workers "$SWIFT_TEST_WORKERS" --build-path .build
 """
 
 [tasks.clean]
