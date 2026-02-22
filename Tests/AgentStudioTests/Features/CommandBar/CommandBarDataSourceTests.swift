@@ -225,6 +225,59 @@ struct CommandBarDataSourceTests {
         #expect((saveItem?.hasChildren ?? true) == false)
     }
 
+    // MARK: - Repos Scope
+
+    @Test
+    func test_reposScope_emptyStore_returnsEmpty() {
+        let store = makeStore()
+
+        // Act
+        let items = CommandBarDataSource.items(scope: .repos, store: store, dispatcher: dispatcher)
+
+        // Assert
+        #expect(items.isEmpty)
+    }
+
+    @Test
+    func test_reposScope_returnsWorktreesGroupedByRepo() {
+        // Arrange
+        let store = makeStore()
+        let repo = store.addRepo(at: URL(filePath: "/tmp/test-repo"))
+        store.updateRepoWorktrees(
+            repo.id,
+            worktrees: [
+                Worktree(
+                    name: "main",
+                    path: URL(filePath: "/tmp/test-repo"),
+                    branch: "main",
+                    isMainWorktree: true
+                ),
+                Worktree(
+                    name: "feat-branch",
+                    path: URL(filePath: "/tmp/test-repo-feat"),
+                    branch: "feat/branch",
+                    isMainWorktree: false
+                ),
+            ])
+
+        // Act
+        let items = CommandBarDataSource.items(scope: .repos, store: store, dispatcher: dispatcher)
+
+        // Assert
+        #expect(items.count == 2)
+        #expect(items.allSatisfy { $0.id.hasPrefix("repo-wt-") })
+        #expect(items.allSatisfy { $0.group == repo.name })
+
+        // Main worktree should have star prefix and star icon
+        let mainItem = items.first { $0.title.contains("main") }
+        #expect(mainItem?.title.hasPrefix("★") == true)
+        #expect(mainItem?.icon == "star.fill")
+
+        // Feature branch should have branch icon
+        let featItem = items.first { $0.title.contains("feat-branch") }
+        #expect(featItem?.icon == "arrow.triangle.branch")
+    }
+
     // MARK: - Drawer Commands
 
     @Test

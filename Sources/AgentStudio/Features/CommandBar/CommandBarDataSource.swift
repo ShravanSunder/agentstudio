@@ -50,6 +50,8 @@ enum CommandBarDataSource {
             return commandItems(dispatcher: dispatcher, store: store)
         case .panes:
             return paneAndTabItems(store: store)
+        case .repos:
+            return repoScopeItems(store: store)
         }
     }
 
@@ -432,6 +434,36 @@ enum CommandBarDataSource {
             parentLabel: "Commands",
             items: items
         )
+    }
+
+    // MARK: - Repos Scope (grouped by repo)
+
+    private static func repoScopeItems(store: WorkspaceStore) -> [CommandBarItem] {
+        var items: [CommandBarItem] = []
+        for (repoIndex, repo) in store.repos.enumerated() {
+            for worktree in repo.worktrees {
+                let worktreeId = worktree.id
+                let prefix = worktree.isMainWorktree ? "★ " : ""
+                items.append(
+                    CommandBarItem(
+                        id: "repo-wt-\(worktree.id.uuidString)",
+                        title: "\(prefix)\(worktree.name)",
+                        subtitle: worktree.branch,
+                        icon: worktree.isMainWorktree ? "star.fill" : "arrow.triangle.branch",
+                        group: repo.name,
+                        groupPriority: repoIndex,
+                        keywords: ["repo", "worktree", "branch", worktree.branch, repo.name, worktree.name],
+                        action: .custom {
+                            NotificationCenter.default.post(
+                                name: .openWorktreeRequested,
+                                object: nil,
+                                userInfo: ["worktreeId": worktreeId]
+                            )
+                        }
+                    ))
+            }
+        }
+        return items
     }
 
     // MARK: - Worktree Items

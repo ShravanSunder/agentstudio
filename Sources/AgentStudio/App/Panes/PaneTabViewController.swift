@@ -109,6 +109,9 @@ class PaneTabViewController: NSViewController, CommandHandler {
                     let paneId = tab.activePaneId
                 else { return }
                 self.dispatchAction(.duplicatePane(tabId: tabId, paneId: PaneId(uuid: paneId), direction: .right))
+            },
+            onOpenRepoInTab: {
+                NotificationCenter.default.post(name: .showCommandBarRepos, object: nil)
             }
         )
         tabBarHostingView = DraggableTabBarHostingView(rootView: tabBar)

@@ -34,4 +34,7 @@ extension Notification.Name {
 
     // Focus management
     static let refocusTerminalRequested = Notification.Name("refocusTerminalRequested")
+
+    // Command bar
+    static let showCommandBarRepos = Notification.Name("showCommandBarRepos")
 }

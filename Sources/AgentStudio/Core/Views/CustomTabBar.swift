@@ -66,6 +66,7 @@ struct CustomTabBar: View {
     var onSaveArrangement: ((UUID) -> Void)?
     var onDuplicateTab: (() -> Void)?
     var onDuplicatePane: (() -> Void)?
+    var onOpenRepoInTab: (() -> Void)?
 
     @State private var scrollOffset: CGFloat = 0
     @State private var scrollProxy: ScrollViewProxy?
@@ -293,7 +294,7 @@ struct CustomTabBar: View {
 
                     // New tab button (always visible)
                     if let onAdd {
-                        NewTabButton(onAdd: onAdd)
+                        NewTabButton(onAdd: onAdd, onOpenRepoInTab: onOpenRepoInTab)
                     }
                 }
                 .padding(.horizontal, AppStyle.spacingTight)
@@ -451,12 +452,22 @@ private struct TabBarDuplicateButton: View {
 }
 
 /// Circular "+" button for creating a new tab.
+/// Click = empty terminal (existing behavior). Right-click = menu with options.
 private struct NewTabButton: View {
     let onAdd: () -> Void
+    let onOpenRepoInTab: (() -> Void)?
     @State private var isHovered = false
 
     var body: some View {
-        Button(action: onAdd) {
+        Menu {
+            Button("Empty Terminal") { onAdd() }
+            Divider()
+            if let onOpenRepoInTab {
+                Button("Open Repo/Worktree...") {
+                    onOpenRepoInTab()
+                }
+            }
+        } label: {
             Image(systemName: "plus")
                 .font(.system(size: AppStyle.compactIconSize, weight: .medium))
                 .foregroundStyle(isHovered ? .primary : .secondary)
@@ -466,9 +477,13 @@ private struct NewTabButton: View {
                         .fill(Color.white.opacity(isHovered ? AppStyle.fillPressed : AppStyle.fillMuted))
                 )
                 .contentShape(Circle())
+        } primaryAction: {
+            onAdd()
         }
-        .buttonStyle(.plain)
-        .onHover { hovering in isHovered = hovering }
+        .menuStyle(.borderlessButton)
+        .menuIndicator(.hidden)
+        .fixedSize()
+        .onHover { isHovered = $0 }
         .help("New Tab")
     }
 }

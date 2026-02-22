@@ -144,6 +144,17 @@ class AppDelegate: NSObject, NSApplicationDelegate {
                 "mainWindow forceMaximize screenVisible=\(NSStringFromRect(screen.visibleFrame)) finalFrame=\(NSStringFromRect(window.frame))"
             )
         }
+        // Listen for command bar repos scope requests
+        NotificationCenter.default.addObserver(
+            forName: .showCommandBarRepos,
+            object: nil,
+            queue: .main
+        ) { [weak self] _ in
+            Task { @MainActor [weak self] in
+                self?.showCommandBarRepos()
+            }
+        }
+
         // Listen for OAuth sign-in requests
         signInObserver = NotificationCenter.default.addObserver(
             forName: .signInRequested,
@@ -575,5 +586,14 @@ class AppDelegate: NSObject, NSApplicationDelegate {
             return
         }
         commandBarController.show(prefix: "@", parentWindow: window)
+    }
+
+    @objc private func showCommandBarRepos() {
+        appLogger.info("showCommandBarRepos triggered")
+        guard let window = NSApp.keyWindow ?? mainWindowController?.window else {
+            appLogger.warning("No window available for command bar (repos)")
+            return
+        }
+        commandBarController.show(prefix: "#", parentWindow: window)
     }
 }
