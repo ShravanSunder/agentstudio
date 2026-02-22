@@ -127,3 +127,10 @@ jobs:
 
       - name: Test
         run: swift test
+
+      - name: Benchmark tests
+        env:
+          AGENT_STUDIO_BENCHMARK_MODE: benchmark
+        run: |
+          swift test --build-path .build --filter PushBenchmarkSupportTests
+          swift test --build-path .build --filter PushPerformanceBenchmarkTests

@@ -62,7 +62,7 @@ struct PushBenchmarkSupportTests {
             initialPayloadBytes: 0
         )
 
-        #expect(stats.count == 0)
+        #expect(stats.durations.isEmpty)
         #expect(stats.min == .zero)
         #expect(stats.median == .zero)
         #expect(stats.p95 == .zero)
