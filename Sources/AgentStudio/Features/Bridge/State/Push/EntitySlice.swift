@@ -89,11 +89,13 @@ struct EntitySlice<
                         if level == .cold {
                             // Offload JSON encoding for cold slices (e.g. diffFiles) to
                             // avoid blocking the main actor on large payloads.
+                            // swiftlint:disable no_task_detached
                             data = try await Task.detached(priority: .utility) {
                                 let coldEncoder = JSONEncoder()
                                 coldEncoder.outputFormatting = .sortedKeys
                                 return try coldEncoder.encode(deltaComputation.delta)
                             }.value
+                            // swiftlint:enable no_task_detached
                         } else {
                             data = try encoder.encode(deltaComputation.delta)
                         }
