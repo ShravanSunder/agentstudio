@@ -38,10 +38,28 @@
 
 ## Ticket Links
 
-1. `LUNA-295`: https://linear.app/askluna/issue/LUNA-295/pane-attach-orchestration-priority-scheduling-anti-flicker
-2. `LUNA-325`: https://linear.app/askluna/issue/LUNA-325/bridge-pattern-surface-state-runtime-refactor
-3. `LUNA-327`: https://linear.app/askluna/issue/LUNA-327/state-ownership-boundaries-observable-migration-coordinator-pattern
-4. `LUNA-342`: https://linear.app/askluna/issue/LUNA-342/pane-runtime-contract-freeze-minimal-system-before-luna-325
+1. `LUNA-324`: https://linear.app/askluna/issue/LUNA-324/reconcile-session-state-on-startup-after-runtime-refactor
+2. `LUNA-295`: https://linear.app/askluna/issue/LUNA-295/pane-attach-orchestration-priority-scheduling-anti-flicker
+3. `LUNA-325`: https://linear.app/askluna/issue/LUNA-325/bridge-pattern-surface-state-runtime-refactor
+4. `LUNA-327`: https://linear.app/askluna/issue/LUNA-327/state-ownership-boundaries-observable-migration-coordinator-pattern
+5. `LUNA-342`: https://linear.app/askluna/issue/LUNA-342/pane-runtime-contract-freeze-minimal-system-before-luna-325
+6. `LUNA-343`: https://linear.app/askluna/issue/LUNA-343/post-freeze-contract-consistency-pass-panecoordinator-hardening
+7. `LUNA-344`: https://linear.app/askluna/issue/LUNA-344/deferred-pane-runtime-contracts-implementation-contract-13-15-16
+8. `LUNA-345`: https://linear.app/askluna/issue/LUNA-345/pane-runtime-architecture-completion-gate-post-freeze-full-contract
+
+## Execution Tracker (LUNA-343 Branch)
+
+Current implementation commit baseline: `9e76b1c`.
+
+- [x] Extract `PaneCoordinator` into focused extensions (`ActionExecution`, `Undo`, `ViewLifecycle`) and keep runtime dispatch wiring intact.
+- [x] Add hardening coverage for coordinator rollback/teardown paths (`PaneCoordinatorHardeningTests`).
+- [x] Introduce `PaneId` value type and `UUIDv7` utility; migrate runtime contracts and resolver/tests to typed pane identity.
+- [x] Ensure newly created panes mint UUIDv7 IDs (`Pane` default `id`) and keep `Pane.metadata.paneId` synchronized.
+- [x] Add/adjust identity coverage (`PaneIdTests`, `UUIDv7Tests`, `PaneTests`, shared model factories).
+- [x] Align architecture/plan docs on canonical identity source and migration ownership (`LUNA-324` restart reconcile mapping).
+- [x] Verification batch: `swift build`, `swift test --skip "PushPerformanceBenchmarkTests"` (gating), `mise run lint`, and `mise run test` (full-suite acceptance command).
+- [x] Optional benchmark batch: run `PushPerformanceBenchmarkTests` separately; treat as performance signal, not release gate.
+- [x] Linear sync: update `LUNA-343` checklist/progress with shipped items and remaining follow-ups.
 
 ## Requirement → Contract → Owner → Status Matrix
 
@@ -74,11 +92,11 @@
 | **Execution backend invariant** | Arch Invariant A14 | Immutable after creation, no live migration in v1 | LUNA-342 (freeze) | Design frozen |
 | **Metadata & dynamic views** | Contract 1 (PaneMetadata) | Optional fields, dynamic view contract | LUNA-325 | Design frozen |
 | **Metadata invariant** | Arch Invariant A13 | All live fields optional, nil = excluded from grouping | LUNA-342 (freeze) | Design frozen |
-| **Workflow engine** | Contract 13 (deferred) | WorkflowTracker, StepPredicate, correlationId | LUNA-325 (future) | Deferred |
-| **Terminal process RPC** | Contract 15 (deferred) | Request/response channel, processSessionId ordering, idempotent requestId, ProcessOrigin | LUNA-325 (future) | Deferred |
-| **Agent harness architecture** | Contract 15 (design intent) | MCP + CLI adapters, plugin-as-adapter model, command gateway, event gateway | LUNA-325 (future) | Deferred |
+| **Workflow engine** | Contract 13 (deferred) | WorkflowTracker, StepPredicate, correlationId | LUNA-344 | Deferred |
+| **Terminal process RPC** | Contract 15 (deferred) | Request/response channel, processSessionId ordering, idempotent requestId, ProcessOrigin | LUNA-344 | Deferred |
+| **Agent harness architecture** | Contract 15 (design intent) | MCP + CLI adapters, plugin-as-adapter model, command gateway, event gateway | LUNA-344 | Deferred |
 | **Contract vocabulary** | Contract Vocabulary section | Source/sink/projection role keywords, extensibility notes on Contracts 3/6/15/16 | LUNA-342 (freeze) | Design frozen |
-| **Pane filesystem context** | Contract 16 (deferred) | Derived per-pane stream, CWD-scoped filter, shared worktree watcher | LUNA-325 (future) | Deferred |
+| **Pane filesystem context** | Contract 16 (deferred) | Derived per-pane stream, CWD-scoped filter, shared worktree watcher | LUNA-344 | Deferred |
 | **Swift 6 invariants** | Swift 6 section (9 rules) | Sendable, no DispatchQueue, injectable clock, @MainActor | LUNA-342 (freeze) | Partially implemented |
 | **Architectural invariants** | Arch Invariants (A1-A15) | Structural guarantees across all contracts | LUNA-342 (freeze) | Design frozen |
 | **Migration path** | Migration section | NotificationCenter/DispatchQueue → AsyncStream/event bus, per-action atomic | LUNA-325/327 | Partially implemented |
@@ -98,12 +116,35 @@
 `D1`, `D5`, `Contract 1`, `Contract 11`, `Swift 6 invariants`, `Migration section` (partial — `DispatchQueue` → `MainActor`).
 2. `LUNA-342` → contract freeze gate:
 All design decisions (`D1`–`D8`), all contracts (`1`–`16`, `5a`, `5b`, `7a`, `12a`), all invariants (`A1`–`A15`, Swift 6 `1`–`9`).
-3. `LUNA-325` → terminal adapter/runtime implementation:
-`D4`, `D5`, `Contract 2`, `Contract 7`, `Contract 7a`, `Contract 10`, `Contract 12`, `Migration section` (primary — `NotificationCenter` → event bus).
+3. `LUNA-325` → terminal adapter/runtime implementation (architecture-owned set):
+`Contract 1`, `Contract 2`, `Contract 3`, `Contract 4`, `Contract 7`, `Contract 7a`, `Contract 8`, `Contract 10`, `Contract 11`, `Contract 12`, `Contract 14`, and `Migration section` (primary — `NotificationCenter` → event bus).
+`Contract 5` base lifecycle behavior (`created → ready → draining → terminated`) is implemented through runtime lifecycle semantics in this ticket's runtime path. `Contract 5a` remains `LUNA-295`; `Contract 5b` remains `LUNA-324`.
 4. `LUNA-295` → attach orchestration/scheduling:
 `Contract 5a` (attach readiness), `Contract 12a` (visibility tiers), attach lifecycle diagram.
 5. `LUNA-324` → restart reconcile:
 `Contract 5b` (reconcile policy, orphan TTL, health monitoring).
+6. `LUNA-344` → deferred runtime architecture implementation:
+`Contract 13`, `Contract 15`, `Contract 16`.
+7. `LUNA-345` → full architecture completion gate:
+Integration checkpoint for `LUNA-325` + `LUNA-295` + `LUNA-324` + `LUNA-344`.
+
+## LUNA-325 Non-Deferred Scope Checklist (Must Be Complete Before 325 Close)
+
+- [ ] Contract 1 implemented (PaneRuntime protocol conformance in terminal runtime path).
+- [ ] Contract 5 base lifecycle semantics implemented in runtime flow (`created → ready → draining → terminated`).
+  `Contract 5a` attach readiness remains `LUNA-295`; `Contract 5b` restart reconcile remains `LUNA-324`.
+- [ ] Contract 2 implemented (typed event taxonomy and runtime event usage).
+- [ ] Contract 3 implemented (envelope routing fields: source/seq/epoch/commandId semantics).
+- [ ] Contract 4 implemented (self-classifying `ActionPolicy` behavior).
+- [ ] Contract 7 implemented (Ghostty FFI action mapping to `GhosttyEvent`).
+- [ ] Contract 7a implemented (exhaustive action coverage policy).
+- [ ] Contract 8 implemented (per-kind event enums integrated in runtime transport).
+- [ ] Contract 10 implemented (inbound runtime command dispatch/capability/lifecycle guards).
+- [ ] Contract 11 implemented (runtime registry uniqueness + unregister discipline).
+- [ ] Contract 12 implemented (priority reducer with critical/lossy behavior).
+- [ ] Contract 14 implemented (bounded replay behavior and catch-up semantics).
+- [ ] Migration invariant satisfied: no dual-path event dispatch for migrated actions.
+- [ ] Verification complete: `swift build`, `swift test`, `mise run lint` all pass.
 
 ## Deferred: Workflow Engine
 
