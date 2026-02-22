@@ -109,7 +109,7 @@ BUILD_PATH="${SWIFT_BUILD_DIR:-.build-agent-$RANDOM}"
 if [ "${SWIFT_TEST_PARALLEL:-1}" = "1" ]; then
   SWIFT_TEST_WORKERS="${SWIFT_TEST_WORKERS:-$(( $(sysctl -n hw.ncpu) / 2 ))}"
   if [ "$SWIFT_TEST_WORKERS" -lt 2 ]; then SWIFT_TEST_WORKERS=2; fi
-  if [ "$SWIFT_TEST_WORKERS" -gt 8 ]; then SWIFT_TEST_WORKERS=8; fi
+  if [ "$SWIFT_TEST_WORKERS" -gt 4 ]; then SWIFT_TEST_WORKERS=4; fi
   AGENT_STUDIO_BENCHMARK_MODE=off swift test --parallel --num-workers "$SWIFT_TEST_WORKERS" --build-path "$BUILD_PATH"
 else
   AGENT_STUDIO_BENCHMARK_MODE=off swift test --build-path "$BUILD_PATH"
@@ -136,7 +136,9 @@ run = """
 #!/usr/bin/env bash
 set -euo pipefail
 if [ "${SWIFT_TEST_PARALLEL:-1}" = "1" ]; then
-  SWIFT_TEST_WORKERS="${SWIFT_TEST_WORKERS:-8}"
+  SWIFT_TEST_WORKERS="${SWIFT_TEST_WORKERS:-4}"
+  if [ "$SWIFT_TEST_WORKERS" -lt 2 ]; then SWIFT_TEST_WORKERS=2; fi
+  if [ "$SWIFT_TEST_WORKERS" -gt 4 ]; then SWIFT_TEST_WORKERS=4; fi
   AGENT_STUDIO_BENCHMARK_MODE=off swift test --parallel --num-workers "$SWIFT_TEST_WORKERS" --build-path .build
 else
   AGENT_STUDIO_BENCHMARK_MODE=off swift test --build-path .build

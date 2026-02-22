@@ -46,67 +46,67 @@ extension WebKitSerializedTests {
     @Suite(.serialized)
     final class BridgeSchemeHandlerSpikeTests {
 
-    // MARK: - Scheme Handler Serves HTML
+        // MARK: - Scheme Handler Serves HTML
 
-    /// Verify that a custom `agentstudio://` scheme handler registered on
-    /// WebPage.Configuration can serve an HTML page. The page URL, title,
-    /// and loading state are checked after load completes.
-    @Test
-    func test_customSchemeHandler_servesHTMLPage_andTitleIsReadable() async throws {
-        // Arrange — build configuration with custom scheme handler
-        let page = try makePageWithSpikeHandler()
+        /// Verify that a custom `agentstudio://` scheme handler registered on
+        /// WebPage.Configuration can serve an HTML page. The page URL, title,
+        /// and loading state are checked after load completes.
+        @Test
+        func test_customSchemeHandler_servesHTMLPage_andTitleIsReadable() async throws {
+            // Arrange — build configuration with custom scheme handler
+            let page = try makePageWithSpikeHandler()
 
-        // Act — load a page on the custom scheme
-        let testURL = URL(string: "agentstudio://app/test.html")!
-        _ = page.load(testURL)
-        try await waitForPageLoad(page)
-        let didResolveTitle = await waitForTitle(page, equals: "Spike Test")
+            // Act — load a page on the custom scheme
+            let testURL = URL(string: "agentstudio://app/test.html")!
+            _ = page.load(testURL)
+            try await waitForPageLoad(page)
+            let didResolveTitle = await waitForTitle(page, equals: "Spike Test")
 
-        // Assert — scheme handler served the page
-        #expect(
-            page.url?.absoluteString == "agentstudio://app/test.html",
-            "Page URL should reflect the custom scheme URL")
-        #expect(!(page.isLoading), "Page should finish loading")
-        #expect(didResolveTitle, "page.title should resolve after the custom-scheme page load")
-        #expect(page.title == "Spike Test", "page.title should reflect <title> from scheme handler HTML")
-    }
-
-    // MARK: - Helpers
-
-    private func makePageWithSpikeHandler() throws -> WebPage {
-        var config = WebPage.Configuration()
-        config.websiteDataStore = .nonPersistent()
-        config.urlSchemeHandlers[URLScheme("agentstudio")!] = SpikeSchemeHandler()
-
-        return WebPage(
-            configuration: config,
-            navigationDecider: WebviewNavigationDecider(),
-            dialogPresenter: WebviewDialogHandler()
-        )
-    }
-
-    private func waitForPageLoad(_ page: WebPage) async throws {
-        let deadline = ContinuousClock.now + .seconds(5)
-        while ContinuousClock.now < deadline {
-            if !page.isLoading { break }
-            await Task.yield()
+            // Assert — scheme handler served the page
+            #expect(
+                page.url?.absoluteString == "agentstudio://app/test.html",
+                "Page URL should reflect the custom scheme URL")
+            #expect(!(page.isLoading), "Page should finish loading")
+            #expect(didResolveTitle, "page.title should resolve after the custom-scheme page load")
+            #expect(page.title == "Spike Test", "page.title should reflect <title> from scheme handler HTML")
         }
-        try #require(!page.isLoading, "Page did not finish loading within timeout")
-    }
 
-    private func waitForTitle(
-        _ page: WebPage,
-        equals expectedTitle: String,
-        timeout: Duration = .seconds(2)
-    ) async -> Bool {
-        let deadline = ContinuousClock.now + timeout
-        while ContinuousClock.now < deadline {
-            if page.title == expectedTitle {
-                return true
+        // MARK: - Helpers
+
+        private func makePageWithSpikeHandler() throws -> WebPage {
+            var config = WebPage.Configuration()
+            config.websiteDataStore = .nonPersistent()
+            config.urlSchemeHandlers[URLScheme("agentstudio")!] = SpikeSchemeHandler()
+
+            return WebPage(
+                configuration: config,
+                navigationDecider: WebviewNavigationDecider(),
+                dialogPresenter: WebviewDialogHandler()
+            )
+        }
+
+        private func waitForPageLoad(_ page: WebPage) async throws {
+            let deadline = ContinuousClock.now + .seconds(5)
+            while ContinuousClock.now < deadline {
+                if !page.isLoading { break }
+                await Task.yield()
             }
-            await Task.yield()
+            try #require(!page.isLoading, "Page did not finish loading within timeout")
         }
-        return page.title == expectedTitle
-    }
+
+        private func waitForTitle(
+            _ page: WebPage,
+            equals expectedTitle: String,
+            timeout: Duration = .seconds(2)
+        ) async -> Bool {
+            let deadline = ContinuousClock.now + timeout
+            while ContinuousClock.now < deadline {
+                if page.title == expectedTitle {
+                    return true
+                }
+                await Task.yield()
+            }
+            return page.title == expectedTitle
+        }
     }
 }
