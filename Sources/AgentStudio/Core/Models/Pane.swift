@@ -30,9 +30,13 @@ struct Pane: Codable, Identifiable, Hashable {
         residency: SessionResidency = .active,
         kind: PaneKind = .layout(drawer: Drawer())
     ) {
+        var normalizedMetadata = metadata
+        normalizedMetadata.paneId = id
+        normalizedMetadata.contentType = Self.contentType(for: content)
+
         self.id = id
         self.content = content
-        self.metadata = metadata
+        self.metadata = normalizedMetadata
         self.residency = residency
         self.kind = kind
     }
@@ -48,7 +52,10 @@ struct Pane: Codable, Identifiable, Hashable {
         let container = try decoder.container(keyedBy: CodingKeys.self)
         self.id = try container.decode(UUID.self, forKey: .id)
         self.content = try container.decode(PaneContent.self, forKey: .content)
-        self.metadata = try container.decode(PaneMetadata.self, forKey: .metadata)
+        var decodedMetadata = try container.decode(PaneMetadata.self, forKey: .metadata)
+        decodedMetadata.paneId = id
+        decodedMetadata.contentType = Self.contentType(for: content)
+        self.metadata = decodedMetadata
         self.residency = try container.decode(SessionResidency.self, forKey: .residency)
 
         if let kind = try container.decodeIfPresent(PaneKind.self, forKey: .kind) {
@@ -94,7 +101,7 @@ struct Pane: Codable, Identifiable, Hashable {
     }
 
     /// Source from metadata.
-    var source: TerminalSource { metadata.source }
+    var source: TerminalSource { metadata.terminalSource }
 
     /// Title from metadata.
     var title: String {
@@ -142,5 +149,20 @@ struct Pane: Codable, Identifiable, Hashable {
     var parentPaneId: UUID? {
         if case .drawerChild(let parentId) = kind { return parentId }
         return nil
+    }
+
+    private static func contentType(for content: PaneContent) -> PaneContentType {
+        switch content {
+        case .terminal:
+            return .terminal
+        case .webview:
+            return .browser
+        case .bridgePanel:
+            return .plugin("bridgePanel")
+        case .codeViewer:
+            return .editor
+        case .unsupported(let unsupported):
+            return .plugin(unsupported.type)
+        }
     }
 }

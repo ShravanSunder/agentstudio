@@ -105,6 +105,109 @@ AppDelegate
 
 See [Component Architecture — Service Layer](component_architecture.md#3-service-layer) for detailed descriptions of each service.
 
+## Swift 6 Concurrency
+
+Swift 6.2 toolchain, `.swiftLanguageMode(.v6)`, macOS 26. Data-race safety is enforced — Sendable violations are compilation errors. Research via DeepWiki (`swiftlang/swift-evolution`) before guessing at concurrency patterns.
+
+### Rules
+
+**Do:**
+
+- **`Task { }` inherits actor isolation** (SE-0304, SE-0420, SE-0431). Inside a `@MainActor` method, the Task body runs on MainActor. Access stored properties directly — no `await` needed.
+- **`isolated deinit` for `@MainActor` classes** (SE-0371, Swift 6.2). Access stored properties, cancel Tasks, finish continuations directly.
+- **`AsyncStream.makeStream(of:)` for new code** (SE-0388, Swift 5.9+). Returns `(stream, continuation)` tuple.
+- **`@preconcurrency import`** for frameworks that haven't fully adopted Sendable.
+
+**Don't:**
+
+- **No `Task.detached { }`** unless you specifically need the global executor. It does not inherit actor isolation.
+- **No `MainActor.assumeIsolated { }` in deinit** — use `isolated deinit` instead (SE-0414 makes `assumeIsolated` problematic with non-Sendable types). Note: `assumeIsolated` is valid in synchronous C callback trampolines where you can prove you're on MainActor but the compiler can't see it — this restriction is specifically about deinit.
+- **No plain `deinit` accessing non-Sendable `@MainActor` stored properties** — compilation error. Use `isolated deinit`.
+- **Prefer `isolated deinit` over `@MainActor deinit`** — both are valid (SE-0371 allows global actor annotations on deinit), but `isolated deinit` is more generic and works for any actor type.
+- **No `nonisolated(unsafe)`** without a comment explaining why it's necessary and safe.
+
+### Correct Patterns
+
+**Task isolation — safe, do not flag in reviews:**
+
+```swift
+@MainActor
+final class Foo {
+    private var buffer: [Int] = []
+
+    func start() {
+        // Task inherits @MainActor from enclosing context (SE-0304).
+        // buffer access is on MainActor — no await needed.
+        Task { [weak self] in
+            while let self, !self.buffer.isEmpty {
+                try? await Task.sleep(for: .milliseconds(16))
+                self.flush()
+            }
+        }
+    }
+}
+```
+
+**`isolated deinit` — required for `@MainActor` classes accessing non-Sendable stored properties:**
+
+```swift
+@MainActor
+final class StreamOwner {
+    private var timer: Task<Void, Never>?
+    private let continuation: AsyncStream<Int>.Continuation
+
+    // Runs on MainActor. Safe to access all stored properties.
+    // Both `isolated deinit` and `@MainActor deinit` are valid (SE-0371),
+    // but `isolated deinit` is preferred — it's more generic across actor types.
+    isolated deinit {
+        timer?.cancel()
+        continuation.finish()
+    }
+}
+```
+
+**Note:** Nonisolated `deinit` can still access stored properties that have `Sendable` types (both `let` and `var`). The compilation error only occurs for non-Sendable stored properties. `Task<Void, Never>` and `AsyncStream.Continuation` are Sendable, but `isolated deinit` is still preferred for clarity and forward safety.
+
+**AsyncStream creation — both patterns are safe:**
+
+```swift
+// Synchronous closure pattern (existing code, safe).
+// The build closure executes synchronously — cont is always set before the unwrap.
+var cont: AsyncStream<T>.Continuation?
+let stream = AsyncStream<T> { cont = $0 }
+let continuation = cont!
+
+// makeStream factory (preferred for new code).
+let (stream, continuation) = AsyncStream.makeStream(of: T.self)
+```
+
+`AsyncStream.Continuation` is `Sendable` — `yield()` and `finish()` are safe from any isolation context, including `isolated deinit`.
+
+### Common False Positives
+
+Agents reviewing Swift concurrency code must not flag these as bugs:
+
+| Pattern | Why it's safe |
+|---------|--------------|
+| `Task { [weak self] in self?.prop }` in `@MainActor` method | Task inherits MainActor isolation (SE-0304) |
+| `cont!` after `AsyncStream<T> { cont = $0 }` | Build closure is synchronous — cont is always set |
+| `continuation.finish()` in `isolated deinit` | Continuation is Sendable, deinit runs on actor |
+| Events emitted during `.draining` lifecycle | `.draining` is the lifecycle state where a runtime flushes remaining events before transitioning to `.terminated`. Events during draining are intentional — see [Contract 5](pane_runtime_architecture.md#contract-5-panelifecyclestatemachine). |
+| `[weak self]` + `while let self` loop in Task | Strong ref held per iteration, released between iterations — no retain cycle |
+| `DispatchQueue.main.async` in NSView subclasses | These classes are already `@MainActor`. The dispatch is redundant but compiles. Tracked as SwiftLint warnings for LUNA-325 migration — not a correctness bug. |
+
+### SE Proposal Quick Reference
+
+| Proposal | What it governs | Key rule |
+|----------|----------------|----------|
+| SE-0304 | Task isolation inheritance | `Task { }` inherits actor; `Task.detached { }` does not |
+| SE-0371 | `isolated deinit` | Runs deinit on owning actor's executor (Swift 6.2) |
+| SE-0388 | `AsyncStream.makeStream` | Factory returning `(stream, continuation)` tuple (Swift 5.9) |
+| SE-0420 | Isolation inheritance refinement | Clarified `@_inheritActorContext` semantics for Task/TaskGroup |
+| SE-0431 | `@isolated(any)` function types | Task.init uses `@isolated(any)` for correct executor enqueue |
+
+---
+
 ## AppKit Event Handling in Hybrid Views
 
 When adding drag-to-reorder to SwiftUI views hosted in AppKit, use gesture recognizers rather than overriding `hitTest`. This lets SwiftUI handle all normal interactions while AppKit intercepts only drag gestures.

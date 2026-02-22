@@ -120,7 +120,9 @@ jobs:
             swift-${{ runner.os }}-
 
       - name: Build AgentStudio
-        run: swift build -c release
+        run: |
+          set -o pipefail
+          swift build -c release 2>&1 | scripts/filter-known-linker-warnings.sh
 
       - name: Create App Bundle
         run: |

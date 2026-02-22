@@ -48,6 +48,7 @@ enum ZmxOrphanCleanupPlanner {
     }
 }
 
+@MainActor
 class AppDelegate: NSObject, NSApplicationDelegate {
     var mainWindowController: MainWindowController?
 
@@ -149,8 +150,13 @@ class AppDelegate: NSObject, NSApplicationDelegate {
             object: nil,
             queue: .main
         ) { [weak self] notification in
-            MainActor.assumeIsolated {
-                self?.handleSignInRequested(notification)
+            guard let providerName = notification.userInfo?["provider"] as? String
+            else {
+                return
+            }
+            Task { @MainActor [weak self] in
+                guard let provider = OAuthProvider(rawValue: providerName) else { return }
+                self?.handleSignInRequested(provider: provider)
             }
         }
         RestoreTrace.log("appDidFinishLaunching: end")
@@ -330,10 +336,8 @@ class AppDelegate: NSObject, NSApplicationDelegate {
     /// Called from setupMainMenu() which runs on the main thread during app launch.
     private func menuItem(_ title: String, command: AppCommand, action: Selector) -> NSMenuItem {
         let item = NSMenuItem(title: title, action: action, keyEquivalent: "")
-        MainActor.assumeIsolated {
-            if let binding = CommandDispatcher.shared.definitions[command]?.keyBinding {
-                binding.apply(to: item)
-            }
+        if let binding = CommandDispatcher.shared.definitions[command]?.keyBinding {
+            binding.apply(to: item)
         }
         return item
     }
@@ -524,12 +528,7 @@ class AppDelegate: NSObject, NSApplicationDelegate {
         NotificationCenter.default.post(name: .openWebviewRequested, object: nil)
     }
 
-    private func handleSignInRequested(_ notification: Notification) {
-        guard let providerName = notification.userInfo?["provider"] as? String,
-            let provider = OAuthProvider(rawValue: providerName)
-        else {
-            return
-        }
+    private func handleSignInRequested(provider: OAuthProvider) {
         guard let window = NSApp.keyWindow ?? mainWindowController?.window else {
             appLogger.warning("No window available for OAuth")
             return

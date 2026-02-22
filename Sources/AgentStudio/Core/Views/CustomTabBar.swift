@@ -5,14 +5,14 @@ import UniformTypeIdentifiers
 // MARK: - Scroll Offset Preference Key
 
 private struct ScrollOffsetKey: PreferenceKey {
-    static var defaultValue: CGFloat = 0
+    static let defaultValue: CGFloat = 0
     static func reduce(value: inout CGFloat, nextValue: () -> CGFloat) {
         value = nextValue()
     }
 }
 
 private struct ContentWidthKey: PreferenceKey {
-    static var defaultValue: CGFloat = 0
+    static let defaultValue: CGFloat = 0
     static func reduce(value: inout CGFloat, nextValue: () -> CGFloat) {
         value = nextValue()
     }
@@ -348,13 +348,13 @@ struct CustomTabBar: View {
                 .onAppear {
                     let frame = geo.frame(in: .named("tabBar"))
                     // Update TabBarAdapter directly - more reliable than callback which may have timing issues
-                    DispatchQueue.main.async {
+                    Task { @MainActor in
                         self.adapter.tabFrames[tabId] = frame
                     }
                     onTabFramesChanged?([tabId: frame])
                 }
                 .onChange(of: geo.frame(in: .named("tabBar"))) { _, frame in
-                    DispatchQueue.main.async {
+                    Task { @MainActor in
                         self.adapter.tabFrames[tabId] = frame
                     }
                     onTabFramesChanged?([tabId: frame])

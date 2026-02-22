@@ -244,7 +244,7 @@ struct ZmxE2ETests {
 
     /// Run backend setup and guaranteed cleanup for each zmx E2E case.
     private func withRealBackend(
-        _ test: @escaping (ZmxTestHarness, ZmxBackend) async throws -> Void
+        _ test: @escaping @Sendable (ZmxTestHarness, ZmxBackend) async throws -> Void
     ) async throws {
         let harness = ZmxTestHarness()
         let backend = try #require(
@@ -274,9 +274,9 @@ struct ZmxE2ETests {
         case exceeded
     }
 
-    private func withTimeout<T>(
+    private func withTimeout<T: Sendable>(
         seconds: UInt64,
-        operation: @escaping () async throws -> T
+        operation: @escaping @Sendable () async throws -> T
     ) async throws -> T {
         try await withThrowingTaskGroup(of: T.self) { group in
             group.addTask {

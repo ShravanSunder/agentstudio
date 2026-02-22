@@ -5,7 +5,7 @@ import Foundation
 
 /// Isolated zmx environment for integration tests.
 /// Each test run uses a unique ZMX_DIR (temp directory) to prevent cross-test interference.
-final class ZmxTestHarness {
+final class ZmxTestHarness: @unchecked Sendable {
     private struct SpawnedProcess {
         let process: Process
         let processID: pid_t

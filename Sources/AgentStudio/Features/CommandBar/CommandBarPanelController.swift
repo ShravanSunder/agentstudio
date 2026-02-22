@@ -9,6 +9,7 @@ private let controllerLogger = Logger(subsystem: "com.agentstudio", category: "C
 /// Manages the command bar panel lifecycle: show, dismiss, animate, backdrop.
 /// Owns the CommandBarState and wires it to the panel.
 /// All methods must be called on the main thread (enforced by AppKit caller context).
+@MainActor
 final class CommandBarPanelController {
 
     // MARK: - State
@@ -131,9 +132,11 @@ final class CommandBarPanelController {
                 panelToRemove.animator().alphaValue = 0
             },
             completionHandler: {
-                panelToRemove.parent?.removeChildWindow(panelToRemove)
-                panelToRemove.orderOut(nil)
-                controllerLogger.debug("Command bar panel dismissed")
+                Task { @MainActor in
+                    panelToRemove.parent?.removeChildWindow(panelToRemove)
+                    panelToRemove.orderOut(nil)
+                    controllerLogger.debug("Command bar panel dismissed")
+                }
             })
 
         // Remove backdrop
@@ -179,7 +182,9 @@ final class CommandBarPanelController {
                 backdrop.animator().alphaValue = 0
             },
             completionHandler: {
-                backdrop.removeFromSuperview()
+                Task { @MainActor in
+                    backdrop.removeFromSuperview()
+                }
             })
         backdropView = nil
     }
@@ -188,6 +193,7 @@ final class CommandBarPanelController {
 // MARK: - CommandBarBackdropView
 
 /// Semi-transparent overlay behind the command bar panel. Click to dismiss.
+@MainActor
 final class CommandBarBackdropView: NSView {
     private let onDismiss: () -> Void
 

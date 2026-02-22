@@ -151,6 +151,7 @@ struct CommandDefinition {
 // MARK: - CommandHandler
 
 /// Protocol for objects that can execute commands.
+@MainActor
 protocol CommandHandler: AnyObject {
     /// Execute a contextual command (operates on the active/focused element)
     func execute(_ command: AppCommand)

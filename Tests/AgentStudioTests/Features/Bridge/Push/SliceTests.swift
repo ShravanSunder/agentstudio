@@ -124,12 +124,6 @@ final class SliceTests {
 /// Test double for PushTransport — shared across push pipeline tests.
 @MainActor
 final class MockPushTransport: PushTransport {
-    private struct PushWaiter {
-        let id: UUID
-        let expectedCount: Int
-        let continuation: CheckedContinuation<Bool, Never>
-    }
-
     var pushCount = 0
     var lastStore: StoreKey?
     var lastOp: PushOp?
@@ -137,7 +131,6 @@ final class MockPushTransport: PushTransport {
     var lastRevision: Int?
     var lastEpoch: Int?
     var lastJSON: Data?
-    private var waiters: [PushWaiter] = []
 
     func pushJSON(
         store: StoreKey, op: PushOp, level: PushLevel,
@@ -150,12 +143,6 @@ final class MockPushTransport: PushTransport {
         lastRevision = revision
         lastEpoch = epoch
         lastJSON = json
-
-        let ready = waiters.filter { pushCount >= $0.expectedCount }
-        waiters.removeAll { pushCount >= $0.expectedCount }
-        for waiter in ready {
-            waiter.continuation.resume(returning: true)
-        }
     }
 
     func waitForPushCount(
@@ -168,44 +155,20 @@ final class MockPushTransport: PushTransport {
         atLeast expectedCount: Int,
         timeout: Duration
     ) async -> Bool {
-        if pushCount >= expectedCount { return true }
-        let waiterId = UUID()
-
-        return await withTaskGroup(of: Bool.self) { group in
-            group.addTask { @MainActor [weak self] in
-                await withCheckedContinuation { (continuation: CheckedContinuation<Bool, Never>) in
-                    guard let self else {
-                        continuation.resume(returning: false)
-                        return
-                    }
-                    if self.pushCount >= expectedCount {
-                        continuation.resume(returning: true)
-                        return
-                    }
-                    self.waiters.append(
-                        PushWaiter(
-                            id: waiterId,
-                            expectedCount: expectedCount,
-                            continuation: continuation
-                        )
-                    )
-                }
-            }
-
-            group.addTask { @MainActor [weak self] in
-                try? await Task.sleep(for: timeout)
-                guard let self else { return false }
-                if let index = self.waiters.firstIndex(where: { $0.id == waiterId }) {
-                    let waiter = self.waiters.remove(at: index)
-                    waiter.continuation.resume(returning: false)
-                }
-                return false
-            }
-
-            let first = await group.next() ?? false
-            group.cancelAll()
-            return first
+        if pushCount >= expectedCount {
+            return true
         }
+
+        let clock = ContinuousClock()
+        let deadline = clock.now + timeout
+        while clock.now < deadline {
+            if pushCount >= expectedCount {
+                return true
+            }
+            try? await Task.sleep(for: .milliseconds(10))
+        }
+
+        return pushCount >= expectedCount
     }
 
     /// Timer-agnostic wait helper used by tests that advance a mock clock.
