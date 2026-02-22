@@ -16,12 +16,9 @@ private let messageHandlerLogger = Logger(subsystem: "com.agentstudio", category
 /// Design doc §4.2, §9.3.
 final class RPCMessageHandler: NSObject, WKScriptMessageHandler {
 
-    /// Called on the main thread when a valid JSON string is extracted from a postMessage body.
-    /// Set by the owning controller to wire into `RPCRouter.dispatch(json:)`.
-    ///
-    /// MainActor-isolated callback set by BridgePaneController during setup.
-    /// Access always happens from a `Task { @MainActor in ... }` hop in `didReceive`.
-    @MainActor var onValidJSON: ((String) async -> Void)?
+    /// Callback invoked on the MainActor when `didReceive` extracts a valid JSON envelope.
+    /// Set once by `BridgePaneController` during setup; routes to `RPCRouter.dispatch(json:)`.
+    @MainActor var onValidJSON: (@MainActor (String) async -> Void)?
 
     // MARK: - JSON Extraction
 

@@ -9,6 +9,7 @@ class MainSplitViewController: NSSplitViewController {
     private var sidebarHostingController: NSHostingController<AnyView>?
     private var paneTabViewController: PaneTabViewController?
     private var notificationTasks: [Task<Void, Never>] = []
+    private var willTerminateObserver: NSObjectProtocol?
 
     // MARK: - Dependencies (injected)
 
@@ -72,7 +73,6 @@ class MainSplitViewController: NSSplitViewController {
             sidebarItem.isCollapsed = true
         }
 
-        // Set up notification observers
         setupNotificationObservers()
     }
 
@@ -84,59 +84,69 @@ class MainSplitViewController: NSSplitViewController {
     // MARK: - Notification Observers
 
     private func setupNotificationObservers() {
-        notificationTasks.append(Task { [weak self] in
-            for await notification in NotificationCenter.default.notifications(named: .openWorktreeRequested) {
-                guard let self, !Task.isCancelled else { break }
-                self.handleOpenWorktree(notification)
-            }
-        })
+        notificationTasks.append(
+            Task { [weak self] in
+                for await notification in NotificationCenter.default.notifications(named: .openWorktreeRequested) {
+                    guard let self, !Task.isCancelled else { break }
+                    self.handleOpenWorktree(notification)
+                }
+            })
 
-        notificationTasks.append(Task { [weak self] in
-            for await notification in NotificationCenter.default.notifications(named: .closeTabRequested) {
-                guard let self, !Task.isCancelled else { break }
-                self.handleCloseTab(notification)
-            }
-        })
+        notificationTasks.append(
+            Task { [weak self] in
+                for await notification in NotificationCenter.default.notifications(named: .closeTabRequested) {
+                    guard let self, !Task.isCancelled else { break }
+                    self.handleCloseTab(notification)
+                }
+            })
 
-        notificationTasks.append(Task { [weak self] in
-            for await notification in NotificationCenter.default.notifications(named: .selectTabAtIndex) {
-                guard let self, !Task.isCancelled else { break }
-                self.handleSelectTab(notification)
-            }
-        })
+        notificationTasks.append(
+            Task { [weak self] in
+                for await notification in NotificationCenter.default.notifications(named: .selectTabAtIndex) {
+                    guard let self, !Task.isCancelled else { break }
+                    self.handleSelectTab(notification)
+                }
+            })
 
-        notificationTasks.append(Task { [weak self] in
-            for await notification in NotificationCenter.default.notifications(named: .toggleSidebarRequested) {
-                guard let self, !Task.isCancelled else { break }
-                self.handleToggleSidebar(notification)
-            }
-        })
+        notificationTasks.append(
+            Task { [weak self] in
+                for await notification in NotificationCenter.default.notifications(named: .toggleSidebarRequested) {
+                    guard let self, !Task.isCancelled else { break }
+                    self.handleToggleSidebar(notification)
+                }
+            })
 
-        notificationTasks.append(Task { [weak self] in
-            for await notification in NotificationCenter.default.notifications(named: .openNewTerminalRequested) {
-                guard let self, !Task.isCancelled else { break }
-                self.handleOpenNewTerminal(notification)
-            }
-        })
+        notificationTasks.append(
+            Task { [weak self] in
+                for await notification in NotificationCenter.default.notifications(named: .openNewTerminalRequested) {
+                    guard let self, !Task.isCancelled else { break }
+                    self.handleOpenNewTerminal(notification)
+                }
+            })
 
-        notificationTasks.append(Task { [weak self] in
-            for await notification in NotificationCenter.default.notifications(named: .filterSidebarRequested) {
-                guard let self, !Task.isCancelled else { break }
-                self.handleFilterSidebar(notification)
-            }
-        })
+        notificationTasks.append(
+            Task { [weak self] in
+                for await notification in NotificationCenter.default.notifications(named: .filterSidebarRequested) {
+                    guard let self, !Task.isCancelled else { break }
+                    self.handleFilterSidebar(notification)
+                }
+            })
 
-        notificationTasks.append(Task { [weak self] in
-            for await _ in NotificationCenter.default.notifications(named: NSApplication.willTerminateNotification) {
-                guard let self, !Task.isCancelled else { break }
-                self.saveSidebarState()
-            }
-        })
+        // willTerminateNotification is posted synchronously during app termination.
+        // An async stream Task may not resume before the process exits, so use a
+        // closure-based observer with queue: nil for synchronous inline execution.
+        willTerminateObserver = NotificationCenter.default.addObserver(
+            forName: NSApplication.willTerminateNotification,
+            object: nil,
+            queue: nil
+        ) { [weak self] _ in
+            self?.saveSidebarState()
+        }
     }
 
     private func handleToggleSidebar(_ notification: Notification) {
         toggleSidebar(nil)
-        // Save collapsed state after toggle completes
+        // Yield to the next MainActor turn so the sidebar item's collapsed state is updated.
         Task { @MainActor [weak self] in
             self?.saveSidebarState()
         }
@@ -216,6 +226,9 @@ class MainSplitViewController: NSSplitViewController {
             task.cancel()
         }
         notificationTasks.removeAll()
+        if let observer = willTerminateObserver {
+            NotificationCenter.default.removeObserver(observer)
+        }
     }
 }
 

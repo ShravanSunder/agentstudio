@@ -26,7 +26,7 @@ enum Ghostty {
         sharedApp != nil
     }
 
-    /// Initialize the shared Ghostty app (must be called on main thread)
+    /// Initialize the shared Ghostty app. @MainActor-isolated.
     @MainActor
     @discardableResult
     static func initialize() -> Bool {
@@ -149,20 +149,19 @@ extension Ghostty {
             // Start unfocused; activation notifications synchronize real app focus state.
             ghostty_app_set_focus(app, false)
 
-            // Register for app activation notifications
             didBecomeActiveObserver = NotificationCenter.default.addObserver(
                 forName: NSApplication.didBecomeActiveNotification,
                 object: nil,
-                queue: nil
-            ) { [weak self] notification in
-                self?.applicationDidBecomeActive(notification as NSNotification)
+                queue: .main
+            ) { [weak self] _ in
+                self?.applicationDidBecomeActive()
             }
             didResignActiveObserver = NotificationCenter.default.addObserver(
                 forName: NSApplication.didResignActiveNotification,
                 object: nil,
-                queue: nil
-            ) { [weak self] notification in
-                self?.applicationDidResignActive(notification as NSNotification)
+                queue: .main
+            ) { [weak self] _ in
+                self?.applicationDidResignActive()
             }
 
             ghosttyLogger.info("Ghostty app initialized successfully")
@@ -189,13 +188,13 @@ extension Ghostty {
             ghostty_app_tick(app)
         }
 
-        @objc private func applicationDidBecomeActive(_ notification: NSNotification) {
+        private func applicationDidBecomeActive() {
             guard let app else { return }
             ghostty_app_set_focus(app, true)
             RestoreTrace.log("Ghostty.App applicationDidBecomeActive -> ghostty_app_set_focus(true)")
         }
 
-        @objc private func applicationDidResignActive(_ notification: NSNotification) {
+        private func applicationDidResignActive() {
             guard let app else { return }
             ghostty_app_set_focus(app, false)
             RestoreTrace.log("Ghostty.App applicationDidResignActive -> ghostty_app_set_focus(false)")
@@ -297,7 +296,7 @@ extension Ghostty {
         }
 
         /// Post a notification targeting a surface. Extracts the SurfaceView from the target
-        /// and dispatches the notification on the main queue. Returns false if target is invalid.
+        /// and posts the notification on the MainActor. Returns false if target is invalid.
         private static func postSurfaceNotification(
             _ target: ghostty_target_s,
             name: Foundation.Notification.Name,

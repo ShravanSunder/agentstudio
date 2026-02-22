@@ -12,6 +12,7 @@ import SwiftUI
 /// concerns (focus, observers, empty-state visibility, tab bar coordination) stay
 /// local. It also handles direct tab-order updates (`store.moveTab`) from drag
 /// interactions as a UI-only mutation.
+@MainActor
 class PaneTabViewController: NSViewController, CommandHandler {
     // MARK: - Dependencies (injected)
 
@@ -180,112 +181,127 @@ class PaneTabViewController: NSViewController, CommandHandler {
     }
 
     private func setupAppNotificationObservers() {
-        notificationTasks.append(Task { [weak self] in
-            for await notification in NotificationCenter.default.notifications(named: .terminalProcessTerminated) {
-                guard let self, !Task.isCancelled else { break }
-                self.handleProcessTerminated(notification)
-            }
-        })
+        notificationTasks.append(
+            Task { [weak self] in
+                for await notification in NotificationCenter.default.notifications(named: .terminalProcessTerminated) {
+                    guard let self, !Task.isCancelled else { break }
+                    self.handleProcessTerminated(notification)
+                }
+            })
 
-        notificationTasks.append(Task { [weak self] in
-            for await notification in NotificationCenter.default.notifications(named: .selectTabById) {
-                guard let self, !Task.isCancelled else { break }
-                self.handleSelectTabById(notification)
-            }
-        })
+        notificationTasks.append(
+            Task { [weak self] in
+                for await notification in NotificationCenter.default.notifications(named: .selectTabById) {
+                    guard let self, !Task.isCancelled else { break }
+                    self.handleSelectTabById(notification)
+                }
+            })
 
-        notificationTasks.append(Task { [weak self] in
-            for await _ in NotificationCenter.default.notifications(named: .undoCloseTabRequested) {
-                guard let self, !Task.isCancelled else { break }
-                self.handleUndoCloseTab()
-            }
-        })
+        notificationTasks.append(
+            Task { [weak self] in
+                for await _ in NotificationCenter.default.notifications(named: .undoCloseTabRequested) {
+                    guard let self, !Task.isCancelled else { break }
+                    self.handleUndoCloseTab()
+                }
+            })
 
-        notificationTasks.append(Task { [weak self] in
-            for await notification in NotificationCenter.default.notifications(named: .extractPaneRequested) {
-                guard let self, !Task.isCancelled else { break }
-                self.handleExtractPaneRequested(notification)
-            }
-        })
+        notificationTasks.append(
+            Task { [weak self] in
+                for await notification in NotificationCenter.default.notifications(named: .extractPaneRequested) {
+                    guard let self, !Task.isCancelled else { break }
+                    self.handleExtractPaneRequested(notification)
+                }
+            })
 
-        notificationTasks.append(Task { [weak self] in
-            for await notification in NotificationCenter.default.notifications(named: .repairSurfaceRequested) {
-                guard let self, !Task.isCancelled else { break }
-                self.handleRepairSurfaceRequested(notification)
-            }
-        })
+        notificationTasks.append(
+            Task { [weak self] in
+                for await notification in NotificationCenter.default.notifications(named: .repairSurfaceRequested) {
+                    guard let self, !Task.isCancelled else { break }
+                    self.handleRepairSurfaceRequested(notification)
+                }
+            })
 
-        notificationTasks.append(Task { [weak self] in
-            for await _ in NotificationCenter.default.notifications(named: .refocusTerminalRequested) {
-                guard let self, !Task.isCancelled else { break }
-                self.handleRefocusTerminal()
-            }
-        })
+        notificationTasks.append(
+            Task { [weak self] in
+                for await _ in NotificationCenter.default.notifications(named: .refocusTerminalRequested) {
+                    guard let self, !Task.isCancelled else { break }
+                    self.handleRefocusTerminal()
+                }
+            })
 
-        notificationTasks.append(Task { [weak self] in
-            for await _ in NotificationCenter.default.notifications(named: .openWebviewRequested) {
-                guard let self, !Task.isCancelled else { break }
-                self.handleOpenWebviewRequested()
-            }
-        })
+        notificationTasks.append(
+            Task { [weak self] in
+                for await _ in NotificationCenter.default.notifications(named: .openWebviewRequested) {
+                    guard let self, !Task.isCancelled else { break }
+                    self.handleOpenWebviewRequested()
+                }
+            })
     }
 
     private func setupGhosttyNotificationObservers() {
-        notificationTasks.append(Task { [weak self] in
-            for await notification in NotificationCenter.default.notifications(named: .ghosttyNewSplit) {
-                guard let self, !Task.isCancelled else { break }
-                self.handleGhosttyNewSplit(notification)
-            }
-        })
+        notificationTasks.append(
+            Task { [weak self] in
+                for await notification in NotificationCenter.default.notifications(named: .ghosttyNewSplit) {
+                    guard let self, !Task.isCancelled else { break }
+                    self.handleGhosttyNewSplit(notification)
+                }
+            })
 
-        notificationTasks.append(Task { [weak self] in
-            for await notification in NotificationCenter.default.notifications(named: .ghosttyGotoSplit) {
-                guard let self, !Task.isCancelled else { break }
-                self.handleGhosttyGotoSplit(notification)
-            }
-        })
+        notificationTasks.append(
+            Task { [weak self] in
+                for await notification in NotificationCenter.default.notifications(named: .ghosttyGotoSplit) {
+                    guard let self, !Task.isCancelled else { break }
+                    self.handleGhosttyGotoSplit(notification)
+                }
+            })
 
-        notificationTasks.append(Task { [weak self] in
-            for await notification in NotificationCenter.default.notifications(named: .ghosttyResizeSplit) {
-                guard let self, !Task.isCancelled else { break }
-                self.handleGhosttyResizeSplit(notification)
-            }
-        })
+        notificationTasks.append(
+            Task { [weak self] in
+                for await notification in NotificationCenter.default.notifications(named: .ghosttyResizeSplit) {
+                    guard let self, !Task.isCancelled else { break }
+                    self.handleGhosttyResizeSplit(notification)
+                }
+            })
 
-        notificationTasks.append(Task { [weak self] in
-            for await notification in NotificationCenter.default.notifications(named: .ghosttyEqualizeSplits) {
-                guard let self, !Task.isCancelled else { break }
-                self.handleGhosttyEqualizeSplits(notification)
-            }
-        })
+        notificationTasks.append(
+            Task { [weak self] in
+                for await notification in NotificationCenter.default.notifications(named: .ghosttyEqualizeSplits) {
+                    guard let self, !Task.isCancelled else { break }
+                    self.handleGhosttyEqualizeSplits(notification)
+                }
+            })
 
-        notificationTasks.append(Task { [weak self] in
-            for await notification in NotificationCenter.default.notifications(named: .ghosttyToggleSplitZoom) {
-                guard let self, !Task.isCancelled else { break }
-                self.handleGhosttyToggleSplitZoom(notification)
-            }
-        })
+        notificationTasks.append(
+            Task { [weak self] in
+                for await notification in NotificationCenter.default.notifications(named: .ghosttyToggleSplitZoom) {
+                    guard let self, !Task.isCancelled else { break }
+                    self.handleGhosttyToggleSplitZoom(notification)
+                }
+            })
 
-        notificationTasks.append(Task { [weak self] in
-            for await notification in NotificationCenter.default.notifications(named: .ghosttyCloseTab) {
-                guard let self, !Task.isCancelled else { break }
-                self.handleGhosttyCloseTab(notification)
-            }
-        })
+        notificationTasks.append(
+            Task { [weak self] in
+                for await notification in NotificationCenter.default.notifications(named: .ghosttyCloseTab) {
+                    guard let self, !Task.isCancelled else { break }
+                    self.handleGhosttyCloseTab(notification)
+                }
+            })
 
-        notificationTasks.append(Task { [weak self] in
-            for await notification in NotificationCenter.default.notifications(named: .ghosttyGotoTab) {
-                guard let self, !Task.isCancelled else { break }
-                self.handleGhosttyGotoTab(notification)
-            }
-        })
+        notificationTasks.append(
+            Task { [weak self] in
+                for await notification in NotificationCenter.default.notifications(named: .ghosttyGotoTab) {
+                    guard let self, !Task.isCancelled else { break }
+                    self.handleGhosttyGotoTab(notification)
+                }
+            })
 
-        notificationTasks.append(Task { [weak self] in
-            for await notification in NotificationCenter.default.notifications(named: .ghosttyMoveTab) {
-                guard let self, !Task.isCancelled else { break }
-                self.handleGhosttyMoveTab(notification)
-            }
-        })
+        notificationTasks.append(
+            Task { [weak self] in
+                for await notification in NotificationCenter.default.notifications(named: .ghosttyMoveTab) {
+                    guard let self, !Task.isCancelled else { break }
+                    self.handleGhosttyMoveTab(notification)
+                }
+            })
     }
 
     private func handleOpenWebviewRequested() {

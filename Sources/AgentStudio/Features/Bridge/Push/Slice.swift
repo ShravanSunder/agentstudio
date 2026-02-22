@@ -75,8 +75,10 @@ struct Slice<State: Observable & AnyObject, Snapshot: Encodable & Equatable & Se
                     let data: Data
                     do {
                         if level == .cold {
-                            // Off-main cold snapshot encoding prevents large payload serialization from blocking MainActor.
                             // swiftlint:disable no_task_detached
+                            // Off-main cold snapshot encoding prevents large payload serialization
+                            // from blocking MainActor. Detached task is intentional: we need the
+                            // global executor. See CLAUDE.md "No Task.detached" rule.
                             data = try await Task.detached(priority: .utility) {
                                 try encoder.encode(snapshot)
                             }.value
