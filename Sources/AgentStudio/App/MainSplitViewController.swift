@@ -226,6 +226,8 @@ class MainSplitViewController: NSSplitViewController {
             task.cancel()
         }
         notificationTasks.removeAll()
+        // Safe even if willTerminate fires after dealloc — the closure captures [weak self],
+        // so the callback becomes a no-op once this instance is released.
         if let observer = willTerminateObserver {
             NotificationCenter.default.removeObserver(observer)
         }

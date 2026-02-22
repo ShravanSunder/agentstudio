@@ -155,7 +155,8 @@ struct PaneMetadata: Codable, Hashable, Sendable {
         self.paneId = try container.decodeIfPresent(PaneId.self, forKey: .paneId)
         self.contentType = try container.decodeIfPresent(PaneContentType.self, forKey: .contentType) ?? .terminal
         self.source = source
-        self.executionBackend = try container.decodeIfPresent(ExecutionBackend.self, forKey: .executionBackend) ?? .local
+        self.executionBackend =
+            try container.decodeIfPresent(ExecutionBackend.self, forKey: .executionBackend) ?? .local
         self.createdAt = try container.decodeIfPresent(Date.self, forKey: .createdAt) ?? Date()
         self.title = try container.decodeIfPresent(String.self, forKey: .title) ?? titleFromSource
         self.cwd = try container.decodeIfPresent(URL.self, forKey: .cwd) ?? source.workingDirectory

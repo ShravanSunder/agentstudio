@@ -593,7 +593,10 @@ extension SurfaceManager {
 
         let surfaceView = activeSurfaces[surfaceId]?.surface ?? hiddenSurfaces[surfaceId]?.surface
         guard let isHealthy = isHealthyOverride ?? surfaceView?.healthy else {
-            logger.debug("onRendererHealthChanged: no health value for surface \(surfaceId)")
+            let isActive = activeSurfaces[surfaceId] != nil
+            logger.debug(
+                "onRendererHealthChanged: no health value for surface \(surfaceId) active=\(isActive) viewNil=\(surfaceView == nil)"
+            )
             return
         }
 

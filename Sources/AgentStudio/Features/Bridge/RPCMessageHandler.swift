@@ -18,6 +18,10 @@ final class RPCMessageHandler: NSObject, WKScriptMessageHandler {
 
     /// Callback invoked on the MainActor when `didReceive` extracts a valid JSON envelope.
     /// Set once by `BridgePaneController` during setup; routes to `RPCRouter.dispatch(json:)`.
+    ///
+    /// Both `@MainActor` annotations are required in Swift 6 strict mode:
+    /// the property annotation isolates access, the closure type annotation isolates invocation.
+    /// Closure parameters do not inherit isolation from the containing property.
     @MainActor var onValidJSON: (@MainActor (String) async -> Void)?
 
     // MARK: - JSON Extraction

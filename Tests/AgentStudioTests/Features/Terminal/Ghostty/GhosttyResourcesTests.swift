@@ -41,7 +41,8 @@ final class GhosttyResourcesTests {
         }
 
         if let entries = try? fileManager.contentsOfDirectory(atPath: projectRoot) {
-            let localBuildRoots = entries
+            let localBuildRoots =
+                entries
                 .filter { $0.hasPrefix(".build") }
                 .map { projectRoot + "/" + $0 }
             candidateRoots.append(contentsOf: localBuildRoots)
