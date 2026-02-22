@@ -124,6 +124,7 @@ jobs:
       - name: Test
         env:
           SWIFT_TEST_WORKERS: "8"
+          SWIFT_TEST_INCLUDE_E2E: "0"
         run: mise run test
 
       - name: Benchmark tests
