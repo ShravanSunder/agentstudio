@@ -120,6 +120,32 @@ final class RPCRouterTests {
     }
 
     @Test
+    func test_success_response_round_trips_double_id() async throws {
+        // Arrange
+        let router = RPCRouter()
+        let responseJSON = SendableBox<String?>(nil)
+        router.register(method: ResponseMethod.self) { params in
+            .init(echoed: params.value)
+        }
+        router.onResponse = { json in
+            await responseJSON.set(json)
+        }
+
+        // Act
+        await router.dispatch(
+            json: #"{ "jsonrpc": "2.0", "id": 12.5, "method":"agent.response", "params": { "value": "hello" } }"#,
+            isBridgeReady: true
+        )
+
+        // Assert
+        let envelope = try parseJSONObject(try #require(await responseJSON.get()))
+        #expect((envelope["id"] as? NSNumber)?.doubleValue == 12.5)
+        let result = envelope["result"] as? [String: Any]
+        #expect(result?["echoed"] as? String == "hello")
+        #expect(envelope["error"] == nil)
+    }
+
+    @Test
     func test_nil_handler_result_emits_result_null() async throws {
         // Arrange
         let router = RPCRouter()
