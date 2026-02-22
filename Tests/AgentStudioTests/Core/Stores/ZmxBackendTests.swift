@@ -100,6 +100,36 @@ final class ZmxBackendTests {
         }
     }
 
+    @Test
+
+    func test_sessionId_usesTrailingEntropySegment_forUUIDv7PaneIds() {
+        // Arrange — UUIDv7 carries timestamp in the prefix; entropy lives in tail bits.
+        let repoKey = "abcdef0123456789"
+        let wtKey = "fedcba9876543210"
+        let paneId = UUID(uuidString: "018f05af-f4a8-7d3d-bc21-9f0a5b7c8d9e")!
+
+        // Act
+        let id = ZmxBackend.sessionId(repoStableKey: repoKey, worktreeStableKey: wtKey, paneId: paneId)
+
+        // Assert — pane segment should come from trailing 16 hex chars for v7.
+        #expect(id == "agentstudio--abcdef0123456789--fedcba9876543210--bc219f0a5b7c8d9e")
+    }
+
+    @Test
+
+    func test_sessionId_preservesPrefixBehavior_forLegacyUUIDs() {
+        // Arrange — non-v7 UUIDs keep legacy prefix behavior for compatibility.
+        let repoKey = "abcdef0123456789"
+        let wtKey = "fedcba9876543210"
+        let paneId = UUID(uuidString: "AABBCCDD-1122-3344-5566-778899001122")!
+
+        // Act
+        let id = ZmxBackend.sessionId(repoStableKey: repoKey, worktreeStableKey: wtKey, paneId: paneId)
+
+        // Assert
+        #expect(id == "agentstudio--abcdef0123456789--fedcba9876543210--aabbccdd11223344")
+    }
+
     // MARK: - Drawer Session ID Generation
 
     @Test
@@ -151,6 +181,20 @@ final class ZmxBackendTests {
             #expect(segment.count == 16)
             #expect(segment.unicodeScalars.allSatisfy { hexChars.contains($0) })
         }
+    }
+
+    @Test
+
+    func test_drawerSessionId_usesTrailingEntropySegments_forUUIDv7PaneIds() {
+        // Arrange — both parent and drawer ids are UUIDv7.
+        let parentPaneId = UUID(uuidString: "018f05af-f4a8-7d3d-bc21-9f0a5b7c8d9e")!
+        let drawerPaneId = UUID(uuidString: "018f05af-f4a8-7d3d-a123-4f00b16e1aa2")!
+
+        // Act
+        let id = ZmxBackend.drawerSessionId(parentPaneId: parentPaneId, drawerPaneId: drawerPaneId)
+
+        // Assert
+        #expect(id == "agentstudio-d--bc219f0a5b7c8d9e--a1234f00b16e1aa2")
     }
 
     // MARK: - PaneSessionHandle Validation

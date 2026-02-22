@@ -24,10 +24,12 @@ derivation.
 
 ### Session Name Calculation Rules
 
-1. `pane16 = first16hex(lowercase(removeHyphens(paneId.uuidString)))`
-2. `mainSessionId = "agentstudio--" + repoStableKey + "--" + worktreeStableKey + "--" + pane16`
-3. `drawerSessionId = "agentstudio-d--" + parentPane16 + "--" + drawerPane16`
-4. `repoStableKey` and `worktreeStableKey` are deterministic SHA-256 path keys (16 hex chars each)
+1. `paneHex = lowercase(removeHyphens(paneId.uuidString))`
+2. `pane16 = (uuidVersion(paneId) == 7) ? last16hex(paneHex) : first16hex(paneHex)`
+3. UUIDv7 puts timestamp bits at the front; using trailing bits preserves per-pane entropy.
+4. `mainSessionId = "agentstudio--" + repoStableKey + "--" + worktreeStableKey + "--" + pane16`
+5. `drawerSessionId = "agentstudio-d--" + parentPane16 + "--" + drawerPane16`
+6. `repoStableKey` and `worktreeStableKey` are deterministic SHA-256 path keys (16 hex chars each)
 
 ### PaneId Lifecycle (ASCII)
 

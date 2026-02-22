@@ -56,6 +56,7 @@ Current implementation commit baseline: `9e76b1c`.
 - [x] Introduce `PaneId` value type and `UUIDv7` utility; migrate runtime contracts and resolver/tests to typed pane identity.
 - [x] Ensure newly created panes mint UUIDv7 IDs (`Pane` default `id`) and keep `Pane.metadata.paneId` synchronized.
 - [x] Add/adjust identity coverage (`PaneIdTests`, `UUIDv7Tests`, `PaneTests`, shared model factories).
+- [x] Harden zmx session-id pane segment derivation for UUIDv7 entropy (`pane16` tail for v7, legacy prefix for non-v7) with regression tests.
 - [x] Align architecture/plan docs on canonical identity source and migration ownership (`LUNA-324` restart reconcile mapping).
 - [x] Verification batch: `swift build`, `swift test --skip "PushPerformanceBenchmarkTests"` (gating), `mise run lint`, and `mise run test` (full-suite acceptance command).
 - [x] Optional benchmark batch: run `PushPerformanceBenchmarkTests` separately; treat as performance signal, not release gate.

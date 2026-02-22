@@ -101,20 +101,37 @@ final class ZmxBackend: SessionBackend {
 
     /// Generate a deterministic session ID from stable keys + pane UUID.
     /// Format: `agentstudio--<repoKey16>--<wtKey16>--<pane16>` (65 chars)
+    ///
+    /// `pane16` is derived from the pane UUID with UUID-version awareness:
+    /// - UUIDv7: use the trailing 16 hex chars (high-entropy random tail)
+    /// - Legacy UUIDs: use the leading 16 hex chars (backward-compatible behavior)
     static func sessionId(repoStableKey: String, worktreeStableKey: String, paneId: UUID) -> String {
-        let panePrefix = String(paneId.uuidString.replacingOccurrences(of: "-", with: "").prefix(16)).lowercased()
-        return "\(sessionPrefix)\(repoStableKey)--\(worktreeStableKey)--\(panePrefix)"
+        let paneSegment = paneSessionSegment(paneId)
+        return "\(sessionPrefix)\(repoStableKey)--\(worktreeStableKey)--\(paneSegment)"
     }
 
     /// Drawer session ID: `agentstudio-d--<parentPaneId16>--<drawerPaneId16>`
     /// Uses pane UUIDs (not worktree stable keys) since drawer identity
     /// flows through the parent pane relationship, not worktree association.
     static func drawerSessionId(parentPaneId: UUID, drawerPaneId: UUID) -> String {
-        let parentPrefix = String(parentPaneId.uuidString.replacingOccurrences(of: "-", with: "").prefix(16))
-            .lowercased()
-        let drawerPrefix = String(drawerPaneId.uuidString.replacingOccurrences(of: "-", with: "").prefix(16))
-            .lowercased()
-        return "agentstudio-d--\(parentPrefix)--\(drawerPrefix)"
+        let parentSegment = paneSessionSegment(parentPaneId)
+        let drawerSegment = paneSessionSegment(drawerPaneId)
+        return "agentstudio-d--\(parentSegment)--\(drawerSegment)"
+    }
+
+    private static func paneSessionSegment(_ paneId: UUID) -> String {
+        let hex = paneId.uuidString.replacingOccurrences(of: "-", with: "").lowercased()
+        if uuidVersion(paneId) == 7 {
+            return String(hex.suffix(16))
+        }
+        return String(hex.prefix(16))
+    }
+
+    private static func uuidVersion(_ uuid: UUID) -> UInt8 {
+        var raw = uuid.uuid
+        return withUnsafeBytes(of: &raw) { bytes in
+            (bytes[6] & 0xF0) >> 4
+        }
     }
 
     // MARK: - Availability

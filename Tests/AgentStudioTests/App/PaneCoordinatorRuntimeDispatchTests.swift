@@ -86,7 +86,8 @@ struct PaneCoordinatorRuntimeDispatchTests {
 
         let pane = store.createPane(
             content: .webview(WebviewState(url: URL(string: "https://example.com/runtime-close")!)),
-            metadata: PaneMetadata(source: .floating(workingDirectory: nil, title: "RuntimeClose"), title: "RuntimeClose")
+            metadata: PaneMetadata(
+                source: .floating(workingDirectory: nil, title: "RuntimeClose"), title: "RuntimeClose")
         )
         let tab = Tab(paneId: pane.id)
         store.appendTab(tab)

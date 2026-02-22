@@ -206,7 +206,7 @@ extension PaneCoordinator {
     }
 
     /// Teardown a view — detach surface (if terminal), unregister.
-    func teardownView(for paneId: UUID, unregisterRuntime: Bool = true) {
+    func teardownView(for paneId: UUID, shouldUnregisterRuntime: Bool = true) {
         if let terminal = viewRegistry.terminalView(for: paneId),
             let surfaceId = terminal.surfaceId
         {
@@ -218,7 +218,7 @@ extension PaneCoordinator {
         }
 
         viewRegistry.unregister(paneId)
-        if unregisterRuntime {
+        if shouldUnregisterRuntime {
             _ = unregisterRuntime(PaneId(uuid: paneId))
             runtime.removeSession(paneId)
         }

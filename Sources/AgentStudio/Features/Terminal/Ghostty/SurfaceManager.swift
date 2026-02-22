@@ -383,7 +383,9 @@ final class SurfaceManager {
     /// Re-queue a surface onto the undo stack after it was popped by `undoClose()`.
     /// Used when an undo attempt targets the wrong pane and the surface must remain restorable.
     func requeueUndo(_ surfaceId: UUID) {
-        guard var managed = activeSurfaces.removeValue(forKey: surfaceId) ?? hiddenSurfaces.removeValue(forKey: surfaceId) else {
+        guard
+            var managed = activeSurfaces.removeValue(forKey: surfaceId) ?? hiddenSurfaces.removeValue(forKey: surfaceId)
+        else {
             logger.warning("Cannot requeue surface \(surfaceId) for undo — surface not found")
             return
         }
