@@ -392,6 +392,47 @@ final class SurfaceManager {
         return managed
     }
 
+    /// Re-queue a surface onto the undo stack after it was popped by `undoClose()`.
+    /// Used when an undo attempt targets the wrong pane and the surface must remain restorable.
+    /// Re-queued entries are inserted at the oldest position so they don't immediately
+    /// re-poison the next undo pop with the same mismatch.
+    func requeueUndo(_ surfaceId: UUID) {
+        guard
+            var managed = activeSurfaces.removeValue(forKey: surfaceId) ?? hiddenSurfaces.removeValue(forKey: surfaceId)
+        else {
+            logger.warning("Cannot requeue surface \(surfaceId) for undo — surface not found")
+            return
+        }
+
+        let previousPaneAttachmentId: UUID?
+        if case .active(let paneId) = managed.state {
+            previousPaneAttachmentId = paneId
+            setOcclusion(surfaceId, visible: false)
+        } else {
+            previousPaneAttachmentId = nil
+        }
+
+        let expiresAt = Date().addingTimeInterval(undoTTL)
+        managed.state = .pendingUndo(expiresAt: expiresAt)
+
+        if let existingEntryIndex = undoStack.firstIndex(where: { $0.surface.id == surfaceId }) {
+            let existingEntry = undoStack.remove(at: existingEntryIndex)
+            existingEntry.expirationTask?.cancel()
+        }
+
+        var entry = SurfaceUndoEntry(
+            surface: managed,
+            previousPaneAttachmentId: previousPaneAttachmentId,
+            closedAt: Date(),
+            expiresAt: expiresAt
+        )
+        entry.expirationTask = scheduleUndoExpiration(surfaceId, at: expiresAt)
+        undoStack.insert(entry, at: 0)
+
+        updateCounts()
+        logger.info("Surface requeued for undo: \(surfaceId)")
+    }
+
     /// Check if there are surfaces that can be restored
     var canUndo: Bool {
         !undoStack.isEmpty

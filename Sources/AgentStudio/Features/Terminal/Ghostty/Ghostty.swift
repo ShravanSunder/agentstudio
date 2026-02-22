@@ -86,8 +86,8 @@ extension Ghostty {
 
         /// The ghostty configuration
         private var config: ghostty_config_t?
-        private var didBecomeActiveObserver: NSObjectProtocol?
-        private var didResignActiveObserver: NSObjectProtocol?
+        private let focusAppHandleBits = OSAllocatedUnfairLock<UInt?>(initialState: nil)
+        private var activeStateTasks: [Task<Void, Never>] = []
 
         init() {
             // Load default configuration
@@ -139,7 +139,7 @@ extension Ghostty {
             // Create the ghostty app
             self.app = ghostty_app_new(&runtimeConfig, config)
 
-            if self.app == nil {
+            guard let app = self.app else {
                 ghosttyLogger.error("Failed to create ghostty app")
                 ghostty_config_free(config)
                 self.config = nil
@@ -148,40 +148,46 @@ extension Ghostty {
 
             // Start unfocused; activation notifications synchronize real app focus state.
             ghostty_app_set_focus(app, false)
-            let appSelfBits = UInt(bitPattern: Unmanaged.passUnretained(self).toOpaque())
+            let appHandleBits = UInt(bitPattern: app)
+            focusAppHandleBits.withLock { $0 = appHandleBits }
+            let focusAppHandleBits = self.focusAppHandleBits
 
-            didBecomeActiveObserver = NotificationCenter.default.addObserver(
-                forName: NSApplication.didBecomeActiveNotification,
-                object: nil,
-                queue: .main
-            ) { _ in
-                guard let raw = UnsafeMutableRawPointer(bitPattern: appSelfBits) else { return }
-                MainActor.assumeIsolated {
-                    let owner = Unmanaged<App>.fromOpaque(raw).takeUnretainedValue()
-                    owner.applicationDidBecomeActive()
-                }
-            }
-            didResignActiveObserver = NotificationCenter.default.addObserver(
-                forName: NSApplication.didResignActiveNotification,
-                object: nil,
-                queue: .main
-            ) { _ in
-                guard let raw = UnsafeMutableRawPointer(bitPattern: appSelfBits) else { return }
-                MainActor.assumeIsolated {
-                    let owner = Unmanaged<App>.fromOpaque(raw).takeUnretainedValue()
-                    owner.applicationDidResignActive()
-                }
-            }
+            activeStateTasks.append(
+                Task { @MainActor in
+                    for await _ in NotificationCenter.default.notifications(
+                        named: NSApplication.didBecomeActiveNotification)
+                    {
+                        if Task.isCancelled { break }
+                        guard
+                            let appHandleBits = focusAppHandleBits.withLock({ $0 }),
+                            let app = UnsafeMutableRawPointer(bitPattern: appHandleBits)
+                        else { continue }
+                        ghostty_app_set_focus(app, true)
+                        RestoreTrace.log("Ghostty.App applicationDidBecomeActive -> ghostty_app_set_focus(true)")
+                    }
+                })
+            activeStateTasks.append(
+                Task { @MainActor in
+                    for await _ in NotificationCenter.default.notifications(
+                        named: NSApplication.didResignActiveNotification)
+                    {
+                        if Task.isCancelled { break }
+                        guard
+                            let appHandleBits = focusAppHandleBits.withLock({ $0 }),
+                            let app = UnsafeMutableRawPointer(bitPattern: appHandleBits)
+                        else { continue }
+                        ghostty_app_set_focus(app, false)
+                        RestoreTrace.log("Ghostty.App applicationDidResignActive -> ghostty_app_set_focus(false)")
+                    }
+                })
 
             ghosttyLogger.info("Ghostty app initialized successfully")
         }
 
         deinit {
-            if let observer = didBecomeActiveObserver {
-                NotificationCenter.default.removeObserver(observer)
-            }
-            if let observer = didResignActiveObserver {
-                NotificationCenter.default.removeObserver(observer)
+            focusAppHandleBits.withLock { $0 = nil }
+            for task in activeStateTasks {
+                task.cancel()
             }
             if let app {
                 ghostty_app_free(app)
@@ -195,18 +201,6 @@ extension Ghostty {
         func tick() {
             guard let app else { return }
             ghostty_app_tick(app)
-        }
-
-        private func applicationDidBecomeActive() {
-            guard let app else { return }
-            ghostty_app_set_focus(app, true)
-            RestoreTrace.log("Ghostty.App applicationDidBecomeActive -> ghostty_app_set_focus(true)")
-        }
-
-        private func applicationDidResignActive() {
-            guard let app else { return }
-            ghostty_app_set_focus(app, false)
-            RestoreTrace.log("Ghostty.App applicationDidResignActive -> ghostty_app_set_focus(false)")
         }
 
         // MARK: - Static Callbacks

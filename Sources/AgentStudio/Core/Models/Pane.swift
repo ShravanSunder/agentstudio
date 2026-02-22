@@ -24,14 +24,14 @@ struct Pane: Codable, Identifiable, Hashable {
     var kind: PaneKind
 
     init(
-        id: UUID = UUID(),
+        id: UUID = UUIDv7.generate(),
         content: PaneContent,
         metadata: PaneMetadata,
         residency: SessionResidency = .active,
         kind: PaneKind = .layout(drawer: Drawer())
     ) {
         var normalizedMetadata = metadata
-        normalizedMetadata.paneId = id
+        normalizedMetadata.paneId = PaneId(uuid: id)
         normalizedMetadata.contentType = Self.contentType(for: content)
 
         self.id = id
@@ -53,7 +53,7 @@ struct Pane: Codable, Identifiable, Hashable {
         self.id = try container.decode(UUID.self, forKey: .id)
         self.content = try container.decode(PaneContent.self, forKey: .content)
         var decodedMetadata = try container.decode(PaneMetadata.self, forKey: .metadata)
-        decodedMetadata.paneId = id
+        decodedMetadata.paneId = PaneId(uuid: id)
         decodedMetadata.contentType = Self.contentType(for: content)
         self.metadata = decodedMetadata
         self.residency = try container.decode(SessionResidency.self, forKey: .residency)

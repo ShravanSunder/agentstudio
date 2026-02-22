@@ -45,7 +45,7 @@ func makeRepo(
 // MARK: - Pane Factory
 
 func makePane(
-    id: UUID = UUID(),
+    id: UUID = UUIDv7.generate(),
     source: TerminalSource = .floating(workingDirectory: nil, title: nil),
     title: String = "Terminal",
     agent: AgentType? = nil,

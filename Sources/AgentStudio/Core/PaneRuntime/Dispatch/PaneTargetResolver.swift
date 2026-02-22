@@ -7,11 +7,13 @@ struct PaneTargetResolver {
     func resolve(_ target: PaneCommandTarget) -> PaneId? {
         switch target {
         case .pane(let paneId):
-            return workspaceStore.pane(paneId) == nil ? nil : paneId
+            return workspaceStore.pane(paneId.uuid) == nil ? nil : paneId
         case .activePane:
-            return workspaceStore.activeTab?.activePaneId
+            guard let uuid = workspaceStore.activeTab?.activePaneId else { return nil }
+            return PaneId(uuid: uuid)
         case .activePaneInTab(let tabId):
-            return workspaceStore.tab(tabId)?.activePaneId
+            guard let uuid = workspaceStore.tab(tabId)?.activePaneId else { return nil }
+            return PaneId(uuid: uuid)
         }
     }
 }

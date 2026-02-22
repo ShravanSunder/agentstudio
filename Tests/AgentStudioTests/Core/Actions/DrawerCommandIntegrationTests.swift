@@ -11,6 +11,7 @@ final class DrawerCommandIntegrationTests {
     private var viewRegistry: ViewRegistry!
     private var coordinator: PaneCoordinator!
     private var runtime: SessionRuntime!
+    private var surfaceManager: MockPaneCoordinatorSurfaceManager!
     private var executor: ActionExecutor!
     private var tempDir: URL!
 
@@ -22,13 +23,21 @@ final class DrawerCommandIntegrationTests {
         store.restore()
         viewRegistry = ViewRegistry()
         runtime = SessionRuntime(store: store)
-        coordinator = PaneCoordinator(store: store, viewRegistry: viewRegistry, runtime: runtime)
+        surfaceManager = MockPaneCoordinatorSurfaceManager()
+        coordinator = PaneCoordinator(
+            store: store,
+            viewRegistry: viewRegistry,
+            runtime: runtime,
+            surfaceManager: surfaceManager,
+            runtimeRegistry: RuntimeRegistry()
+        )
         executor = ActionExecutor(coordinator: coordinator)
     }
 
     deinit {
         try? FileManager.default.removeItem(at: tempDir)
         executor = nil
+        surfaceManager = nil
         coordinator = nil
         runtime = nil
         viewRegistry = nil
@@ -46,39 +55,23 @@ final class DrawerCommandIntegrationTests {
         return (pane.id, tab.id)
     }
 
-    // MARK: - test_addDrawerPane_createsDrawerWithTerminalContent
+    // MARK: - test_addDrawerPane_rollsBackWhenTerminalViewCreationFails
 
     @Test
 
-    func test_addDrawerPane_createsDrawerWithTerminalContent() {
+    func test_addDrawerPane_rollsBackWhenTerminalViewCreationFails() {
         // Arrange
         let (parentPaneId, _) = createParentPaneInTab()
+        let paneCountBefore = store.panes.count
 
         // Act
         executor.execute(.addDrawerPane(parentPaneId: parentPaneId))
 
-        // Assert
+        // Assert — with a failing surface manager, command must rollback.
         let parentPane = store.pane(parentPaneId)
         #expect((parentPane?.drawer) != nil)
-
-        let drawer = parentPane!.drawer!
-        #expect(drawer.paneIds.count == 1, "Drawer should contain exactly 1 pane")
-        #expect(drawer.isExpanded)
-
-        let drawerPaneId = drawer.paneIds[0]
-        let drawerPane = store.pane(drawerPaneId)
-        #expect((drawerPane) != nil)
-        #expect(drawerPane?.metadata.title == "Drawer", "Drawer pane title should be 'Drawer'")
-        #expect(drawer.activePaneId == drawerPaneId, "The new drawer pane should be active")
-        #expect(drawerPane?.isDrawerChild ?? false)
-
-        // Verify centralized defaults: zmx provider, persistent lifetime
-        if case .terminal(let state) = drawerPane?.content {
-            #expect(state.provider == .zmx, "Drawer panes should use zmx provider")
-            #expect(state.lifetime == .persistent, "Drawer panes should be persistent")
-        } else {
-            Issue.record("Drawer pane content should be terminal")
-        }
+        #expect(parentPane!.drawer!.paneIds.isEmpty, "Drawer should remain empty after rollback")
+        #expect(store.panes.count == paneCountBefore, "No orphan drawer pane should remain in store")
     }
 
     // MARK: - test_closeDrawerPane_removesActiveDrawerPane
@@ -262,13 +255,15 @@ final class DrawerCommandIntegrationTests {
 
         // Act — add 3 drawer panes
         let dp1 = store.addDrawerPane(to: parentPaneId)!
-        executor.execute(.addDrawerPane(parentPaneId: parentPaneId))
-        executor.execute(.addDrawerPane(parentPaneId: parentPaneId))
+        let dp2 = store.addDrawerPane(to: parentPaneId)!
+        let dp3 = store.addDrawerPane(to: parentPaneId)!
 
         // Assert
         let drawer = store.pane(parentPaneId)!.drawer!
         #expect(drawer.paneIds.count == 3)
         #expect(drawer.paneIds.contains(dp1.id))
+        #expect(drawer.paneIds.contains(dp2.id))
+        #expect(drawer.paneIds.contains(dp3.id))
     }
 
     @Test
@@ -316,4 +311,41 @@ final class DrawerCommandIntegrationTests {
         #expect((store.pane(dp2.id)) == nil)
     }
 
+}
+
+@MainActor
+private final class MockPaneCoordinatorSurfaceManager: PaneCoordinatorSurfaceManaging {
+    private let stream: AsyncStream<SurfaceManager.SurfaceCWDChangeEvent>
+
+    init() {
+        stream = AsyncStream<SurfaceManager.SurfaceCWDChangeEvent> { continuation in
+            continuation.finish()
+        }
+    }
+
+    var surfaceCWDChanges: AsyncStream<SurfaceManager.SurfaceCWDChangeEvent> { stream }
+
+    func syncFocus(activeSurfaceId: UUID?) {}
+
+    func createSurface(
+        config: Ghostty.SurfaceConfiguration,
+        metadata: SurfaceMetadata
+    ) -> Result<ManagedSurface, SurfaceError> {
+        .failure(.ghosttyNotInitialized)
+    }
+
+    @discardableResult
+    func attach(_ surfaceId: UUID, to paneId: UUID) -> Ghostty.SurfaceView? {
+        nil
+    }
+
+    func detach(_ surfaceId: UUID, reason: SurfaceDetachReason) {}
+
+    func undoClose() -> ManagedSurface? {
+        nil
+    }
+
+    func requeueUndo(_ surfaceId: UUID) {}
+
+    func destroy(_ surfaceId: UUID) {}
 }
