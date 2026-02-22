@@ -165,7 +165,7 @@ final class MockPushTransport: PushTransport {
             if pushCount >= expectedCount {
                 return true
             }
-            try? await Task.sleep(for: .milliseconds(10))
+            await Task.yield()
         }
 
         return pushCount >= expectedCount

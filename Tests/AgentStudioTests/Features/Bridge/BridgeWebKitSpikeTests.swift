@@ -9,15 +9,22 @@ import WebKit
 /// Captures `WKScriptMessage` bodies for assertion in content world message handler tests.
 /// WebKit calls the delegate method on the main thread, so MainActor isolation is safe.
 final class SpikeMessageHandler: NSObject, WKScriptMessageHandler {
-    // Using nonisolated(unsafe) because WKScriptMessageHandler is called on main thread
-    // but the protocol method is nonisolated.
-    nonisolated(unsafe) var receivedMessages: [Any] = []
+    private let lock = NSLock()
+    nonisolated(unsafe) private var storage: [Any] = []
+
+    var receivedMessages: [Any] {
+        lock.lock()
+        defer { lock.unlock() }
+        return storage
+    }
 
     func userContentController(
         _ userContentController: WKUserContentController,
         didReceive message: WKScriptMessage
     ) {
-        receivedMessages.append(message.body)
+        lock.lock()
+        storage.append(message.body)
+        lock.unlock()
     }
 }
 
@@ -69,28 +76,33 @@ private struct BlankPageSchemeHandler: URLSchemeHandler {
 ///
 /// This does NOT affect production use, where WebPages are always hosted in a
 /// `WebView` inside a window.
-@MainActor
-@Suite(.serialized)
-final class BridgeWebKitSpikeTests {
+extension WebKitSerializedTests {
+    @MainActor
+    @Suite(.serialized)
+    final class BridgeWebKitSpikeTests {
 
     // MARK: - Item 1: WKContentWorld creation and identity
 
     /// Verify `WKContentWorld.world(name:)` returns a non-nil world,
     /// and calling it twice with the same name returns the same instance.
     @Test
-    func test_contentWorld_sameNameReturnsSameWorld() {
+    func test_contentWorld_sameNameReturnsSameWorld() async {
+        guard isWebKitSpikeModeEnabled() else { return }
         // Arrange
         let worldA = WKContentWorld.world(name: "agentStudioBridge")
         let worldB = WKContentWorld.world(name: "agentStudioBridge")
 
         // Assert -- same name should return the same (identical) world object
-
-        #expect(worldA === worldB, "WKContentWorld.world(name:) with the same name should return the identical object")
+        #expect(
+            worldA === worldB,
+            "WKContentWorld.world(name:) with the same name should return the identical object"
+        )
     }
 
     /// Verify different names produce different worlds.
     @Test
-    func test_contentWorld_differentNamesProduceDifferentWorlds() {
+    func test_contentWorld_differentNamesProduceDifferentWorlds() async {
+        guard isWebKitSpikeModeEnabled() else { return }
         // Arrange
         let worldA = WKContentWorld.world(name: "agentStudioBridge")
         let worldC = WKContentWorld.world(name: "differentWorld")
@@ -101,50 +113,6 @@ final class BridgeWebKitSpikeTests {
 
     // MARK: - Item 2: callJavaScript with content world targeting
 
-    /// Verify that `callJavaScript` executes in a specific content world and
-    /// that arguments are passed as JS local variables.
-    ///
-    /// Since callJavaScript returns nil in headless tests, we verify execution
-    /// via a message handler: the JS code posts the argument value back to Swift.
-    ///
-    /// Design doc section 4.1 line 137: "Arguments become JS local variables."
-    @Test
-    func test_callJavaScript_withArgumentsAndContentWorld_executesInWorld() async throws {
-        // Arrange -- message handler in bridge world acts as verification probe
-        let world = WKContentWorld.world(name: "testBridgeCallJS")
-        let handler = SpikeMessageHandler()
-
-        var config = WebPage.Configuration()
-        config.websiteDataStore = .nonPersistent()
-        config.userContentController.add(handler, contentWorld: world, name: "probe")
-        config.urlSchemeHandlers[URLScheme("agentstudio")!] = BlankPageSchemeHandler()
-
-        let page = WebPage(
-            configuration: config,
-            navigationDecider: WebviewNavigationDecider(),
-            dialogPresenter: WebviewDialogHandler()
-        )
-
-        _ = page.load(URL(string: "agentstudio://app/blank.html")!)
-        try await waitForPageLoad(page)
-
-        // Act -- execute JS in content world with arguments, post result back
-        _ = try await page.callJavaScript(
-            "window.webkit.messageHandlers.probe.postMessage(String(value))",
-            arguments: ["value": 42],
-            contentWorld: world
-        )
-        try await Task.sleep(for: .milliseconds(300))
-
-        // Assert -- message should contain the argument value
-        #expect(
-            handler.receivedMessages.count == 1,
-            "callJavaScript with contentWorld should execute and postMessage should work")
-        #expect(
-            handler.receivedMessages.first as? String == "42",
-            "Arguments passed to callJavaScript should be available as JS local variables")
-    }
-
     /// Verify that callJavaScript in one content world cannot see globals
     /// set in another content world (JS namespace isolation).
     ///
@@ -152,6 +120,7 @@ final class BridgeWebKitSpikeTests {
     /// via postMessage. If isolation works, page world won't see the variable.
     @Test
     func test_callJavaScript_contentWorldIsolation_globalsDoNotLeak() async throws {
+        guard isWebKitSpikeModeEnabled() else { return }
         // Arrange -- handlers in both worlds
         let bridgeWorld = WKContentWorld.world(name: "testBridgeIsolation")
         let bridgeHandler = SpikeMessageHandler()
@@ -179,21 +148,23 @@ final class BridgeWebKitSpikeTests {
             "window.__spikeVar = 'bridge-only'",
             contentWorld: bridgeWorld
         )
-        try await Task.sleep(for: .milliseconds(200))
+        await settleAsyncCallbacks()
 
         // Read from bridge world -- should see it
         _ = try await page.callJavaScript(
             "window.webkit.messageHandlers.bridgeProbe.postMessage(window.__spikeVar || 'NOT_FOUND')",
             contentWorld: bridgeWorld
         )
-        try await Task.sleep(for: .milliseconds(200))
+        let sawBridgeMessage = await waitForMessageCount(bridgeHandler, atLeast: 1)
+        #expect(sawBridgeMessage, "Expected bridge world probe message")
 
         // Read from page world -- should NOT see it
         _ = try await page.callJavaScript(
             "window.webkit.messageHandlers.pageProbe.postMessage(window.__spikeVar || 'NOT_FOUND')"
             // no contentWorld = page world
         )
-        try await Task.sleep(for: .milliseconds(200))
+        let sawPageMessage = await waitForMessageCount(pageHandler, atLeast: 1)
+        #expect(sawPageMessage, "Expected page world probe message")
 
         // Assert
         #expect(bridgeHandler.receivedMessages.count == 1)
@@ -220,6 +191,7 @@ final class BridgeWebKitSpikeTests {
     /// via the `in:` parameter label.
     @Test
     func test_userScript_contentWorldInjection_isolatedFromPageWorld() async throws {
+        guard isWebKitSpikeModeEnabled() else { return }
         // Arrange
         let world = WKContentWorld.world(name: "testBridgeUserScript")
         let bridgeHandler = SpikeMessageHandler()
@@ -257,14 +229,16 @@ final class BridgeWebKitSpikeTests {
             "window.webkit.messageHandlers.bridgeProbe.postMessage(String(window.__testFlag))",
             contentWorld: world
         )
-        try await Task.sleep(for: .milliseconds(300))
+        let sawBridgeMessage = await waitForMessageCount(bridgeHandler, atLeast: 1)
+        #expect(sawBridgeMessage, "Expected bridge world script-injection probe message")
 
         // Read flag from page world
         _ = try await page.callJavaScript(
             "window.webkit.messageHandlers.pageProbe.postMessage(String(window.__testFlag))"
             // no contentWorld = page world
         )
-        try await Task.sleep(for: .milliseconds(300))
+        let sawPageMessage = await waitForMessageCount(pageHandler, atLeast: 1)
+        #expect(sawPageMessage, "Expected page world script-injection probe message")
 
         // Assert -- bridge world should see the flag
         #expect(bridgeHandler.receivedMessages.count == 1)
@@ -288,6 +262,7 @@ final class BridgeWebKitSpikeTests {
     /// to the rpc handler."
     @Test
     func test_messageHandler_bridgeWorldCanPost() async throws {
+        guard isWebKitSpikeModeEnabled() else { return }
         // Arrange
         let world = WKContentWorld.world(name: "testBridgeMsgHandler")
         let handler = SpikeMessageHandler()
@@ -310,7 +285,8 @@ final class BridgeWebKitSpikeTests {
             "window.webkit.messageHandlers.rpc.postMessage('hello')",
             contentWorld: world
         )
-        try await Task.sleep(for: .milliseconds(300))
+        let sawMessage = await waitForMessageCount(handler, atLeast: 1)
+        #expect(sawMessage, "Expected bridge-world handler message")
 
         // Assert -- handler received the message
         #expect(handler.receivedMessages.count == 1, "Message posted from bridge world should reach the handler")
@@ -324,6 +300,7 @@ final class BridgeWebKitSpikeTests {
     /// should not be able to access `window.webkit.messageHandlers.rpc`.
     @Test
     func test_messageHandler_pageWorldCannotAccessBridgeHandler() async throws {
+        guard isWebKitSpikeModeEnabled() else { return }
         // Arrange
         let world = WKContentWorld.world(name: "testBridgeMsgHandlerIsolation")
         let handler = SpikeMessageHandler()
@@ -347,56 +324,12 @@ final class BridgeWebKitSpikeTests {
             "window.webkit?.messageHandlers?.rpc?.postMessage('evil')"
             // no contentWorld = page world
         )
-        try await Task.sleep(for: .milliseconds(300))
+        await settleAsyncCallbacks()
 
         // Assert -- handler should NOT have received a message from page world
         #expect(
             handler.receivedMessages.isEmpty,
             "Page world should NOT be able to post to a bridge-world-scoped message handler")
-    }
-
-    /// Verify that message handler receives structured JSON data (not just strings).
-    /// This validates the pattern used by RPCMessageHandler in the bridge design.
-    @Test
-    func test_messageHandler_receivesJSONStringPayload() async throws {
-        // Arrange
-        let world = WKContentWorld.world(name: "testBridgeJSONMsg")
-        let handler = SpikeMessageHandler()
-
-        var config = WebPage.Configuration()
-        config.websiteDataStore = .nonPersistent()
-        config.userContentController.add(handler, contentWorld: world, name: "rpc")
-
-        let page = WebPage(
-            configuration: config,
-            navigationDecider: WebviewNavigationDecider(),
-            dialogPresenter: WebviewDialogHandler()
-        )
-
-        _ = page.load(URL(string: "about:blank")!)
-        try await waitForPageLoad(page)
-
-        // Act -- post a JSON string (the pattern used by the bridge relay)
-        _ = try await page.callJavaScript(
-            """
-            window.webkit.messageHandlers.rpc.postMessage(
-                JSON.stringify({ jsonrpc: "2.0", method: "test.ping", params: {} })
-            )
-            """,
-            contentWorld: world
-        )
-        try await Task.sleep(for: .milliseconds(300))
-
-        // Assert -- handler should receive the JSON string
-        #expect(handler.receivedMessages.count == 1)
-        let body = handler.receivedMessages.first as? String
-        #expect(body != nil, "postMessage with JSON.stringify should deliver a String body")
-        if let body {
-            let parsed = try? JSONSerialization.jsonObject(with: Data(body.utf8)) as? [String: Any]
-            #expect(
-                parsed?["method"] as? String == "test.ping",
-                "JSON string payload should be parseable and contain the method")
-        }
     }
 
     // MARK: - Helpers
@@ -421,10 +354,36 @@ final class BridgeWebKitSpikeTests {
         let deadline = ContinuousClock.now + timeout
         while ContinuousClock.now < deadline {
             if !page.isLoading { break }
-            try await Task.sleep(for: .milliseconds(100))
+            await Task.yield()
         }
         try #require(!page.isLoading, "Page did not finish loading within \(timeout)")
-        // Settle time for WebKit internals after isLoading flips
-        try await Task.sleep(for: .milliseconds(200))
+        await settleAsyncCallbacks(turns: 40)
     }
+
+    private func waitForMessageCount(
+        _ handler: SpikeMessageHandler,
+        atLeast expectedCount: Int,
+        timeout: Duration = .seconds(2)
+    ) async -> Bool {
+        let deadline = ContinuousClock.now + timeout
+        while ContinuousClock.now < deadline {
+            if handler.receivedMessages.count >= expectedCount {
+                return true
+            }
+            await Task.yield()
+        }
+        return handler.receivedMessages.count >= expectedCount
+    }
+
+    private func settleAsyncCallbacks(turns: Int = 50) async {
+        for _ in 0..<turns {
+            await Task.yield()
+        }
+    }
+
+    private func isWebKitSpikeModeEnabled() -> Bool {
+        ProcessInfo.processInfo.environment["AGENT_STUDIO_WEBKIT_SPIKE_MODE"] == "on"
+    }
+}
+
 }

@@ -3,9 +3,10 @@ import Testing
 
 @testable import AgentStudio
 
-@MainActor
-@Suite(.serialized)
-struct BridgePaneControllerTests {
+extension WebKitSerializedTests {
+    @MainActor
+    @Suite(.serialized)
+    struct BridgePaneControllerTests {
     private struct DiffRequestFileContentsMethod: RPCMethod {
         struct Params: Decodable {
             let fileId: String
@@ -462,5 +463,6 @@ struct BridgePaneControllerTests {
         await controller.router.onResponse("not-json")
 
         #expect(controller.paneState.connection.health == .error)
+    }
     }
 }

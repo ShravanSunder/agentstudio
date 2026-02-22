@@ -70,6 +70,7 @@ final class PushPipelineIntegrationTests {
         let diffState = DiffState()
         let transport = MockPushTransport()
         let clock = RevisionClock()
+        let debounceClock = TestPushClock()
 
         let plan = PushPlan(
             state: diffState,
@@ -80,13 +81,15 @@ final class PushPipelineIntegrationTests {
                 Slice("diffEpoch", store: .diff, level: .cold, op: .replace) { state in
                     state.epoch
                 }
+                .erased(debounceClock: debounceClock)
             }
         )
 
         plan.start()
         let didReceiveInitialPush = await transport.waitForPushCount(
             atLeast: 1,
-            timeout: .seconds(2)
+            maxTicks: 40,
+            advanceClock: { debounceClock.advance(by: .milliseconds(5)) }
         )
         #expect(didReceiveInitialPush, "Plan should emit initial snapshot")
 
@@ -99,7 +102,8 @@ final class PushPipelineIntegrationTests {
         }
         let didReceiveCoalescedPush = await transport.waitForPushCount(
             atLeast: baselineCount + 1,
-            timeout: .seconds(2)
+            maxTicks: 40,
+            advanceClock: { debounceClock.advance(by: .milliseconds(5)) }
         )
         #expect(didReceiveCoalescedPush, "Rapid cold-level mutations should coalesce into a push")
 
