@@ -38,7 +38,7 @@ The key architectural decision is **separation of ownership from display**:
 │                    AgentStudioTerminalView                          │
 │                  (DISPLAYS, does not own)                           │
 │                                                                     │
-│   sessionId: UUID    ←─ single identity across all layers           │
+│   paneId: UUID       ←─ single identity across all layers           │
 │   surfaceId: UUID?   ←─ which surface is displayed here             │
 │                                                                     │
 │   displaySurface(surfaceView)  ←─ called by coordinator             │
@@ -46,7 +46,7 @@ The key architectural decision is **separation of ownership from display**:
 └─────────────────────────────────────────────────────────────────────┘
 ```
 
-**Session-to-surface join key:** `SurfaceMetadata.sessionId` links a surface to its `TerminalSession`. This is used during undo restore to verify the correct surface is reattached to the correct session (multi-pane safety).
+**Pane-to-surface join key:** `SurfaceMetadata.paneId` links a surface to its `Pane`. This is used during undo restore to verify the correct surface is reattached to the correct pane (multi-pane safety).
 
 ---
 
@@ -126,7 +126,7 @@ User presses Cmd+Shift+T
 │   ├─► Pop CloseEntry from undo stack                        │
 │   ├─► store.restoreFromSnapshot() → re-insert tab            │
 │   │                                                          │
-│   └─► For each session (reversed, matching LIFO order):      │
+│   └─► For each pane (reversed, matching LIFO order):         │
 │         coordinator.restoreView(pane, worktree, repo)         │
 │           ├─► SurfaceManager.undoClose()                     │
 │           │     ├─► Pop from undoStack                       │
@@ -149,7 +149,9 @@ User presses Cmd+Shift+T
 
 When a user `cd`s in a terminal, the shell's OSC 7 integration reports the new working directory. Ghostty's core parses this and emits `GHOSTTY_ACTION_PWD`. Agent Studio captures this and propagates it through a 5-stage notification pipeline.
 
-> **Migration target (LUNA-325):** This pipeline will be replaced by `GhosttyAdapter` → `GhosttyEvent.cwdChanged` → `TerminalRuntime` → `PaneEventEnvelope` on the typed coordination stream. `DispatchQueue.main.async` becomes `MainActor.assumeIsolated`, and `NotificationCenter` posts become typed event emission. See [Pane Runtime Architecture — Migration](pane_runtime_architecture.md#migration-notificationcenterdispatchqueue--asyncstreamevent-bus) for the full migration path. The diagram below documents the **current** implementation.
+> **Migration target (LUNA-325):** This pipeline will be replaced by `GhosttyAdapter` → `GhosttyEvent.cwdChanged` → `TerminalRuntime` → `PaneEventEnvelope` on the typed coordination stream. `DispatchQueue.main.async` becomes `MainActor.assumeIsolated`, and `NotificationCenter` posts become typed event emission.
+>
+> **Deprecation status:** The NotificationCenter CWD path below is legacy documentation only and is deprecated for new paths. Migration follows the no-dual-path invariant in `pane_runtime_architecture.md`.
 
 ```
 Terminal shell (cd /foo)
@@ -175,7 +177,7 @@ Terminal shell (cd /foo)
     │ store.updatePaneCWD(paneId, url)
     ▼
 ⑤ WorkspaceStore                            [WorkspaceStore.swift]
-    │ session.lastKnownCWD = url (dedup + markDirty)
+    │ pane.metadata.cwd = url (dedup + markDirty)
     │ @Observable → SwiftUI
     ▼
 UI consumers (search by CWD, breadcrumbs, grouping)
@@ -183,12 +185,12 @@ UI consumers (search by CWD, breadcrumbs, grouping)
 
 ### Key Design Points
 
-- **1 session = 1 surface = 1 CWD**. Layout splits create separate sessions, so each pane tracks its own CWD independently.
+- **1 pane = 1 surface = 1 CWD**. Layout splits create separate panes, so each pane tracks its own CWD independently.
 - **`CWDNormalizer`** (`Ghostty/CWDNormalizer.swift`): Pure function — `nil → nil`, `"" → nil`, non-absolute → nil, valid path → `URL.standardizedFileURL`. Defense-in-depth on top of Ghostty's own OSC 7 URI validation.
-- **Dual storage**: `SurfaceMetadata.workingDirectory` (surface-level truth) + `TerminalSession.lastKnownCWD` (model-level, persisted). Both update synchronously on main thread.
+- **Dual storage**: `SurfaceMetadata.workingDirectory` (surface-level truth) + `PaneMetadata.cwd` (model-level, persisted). Both update synchronously on main thread.
 - **Thread safety**: The C callback may fire off-main; the handler wraps in `DispatchQueue.main.async` (matches `SET_TITLE` pattern).
-- **Dedup**: Both `SurfaceView.pwd` (didSet guard) and `WorkspaceStore.updateSessionCWD` (equality check) skip redundant updates.
-- **Persistence**: `lastKnownCWD: URL?` is Codable. Old persisted sessions missing this field decode as `nil` (Swift optional auto-default).
+- **Dedup**: Both `SurfaceView.pwd` (didSet guard) and `WorkspaceStore.updatePaneCWD` (equality check) skip redundant updates.
+- **Persistence**: `PaneMetadata.cwd: URL?` is Codable. Old persisted panes missing this field decode as `nil` (Swift optional auto-default).
 
 ### Public Read API
 
