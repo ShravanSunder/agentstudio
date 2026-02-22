@@ -1,4 +1,5 @@
 import Foundation
+import Observation
 import os.log
 
 private let runtimeLogger = Logger(subsystem: "com.agentstudio", category: "SessionRuntime")
@@ -42,11 +43,12 @@ protocol SessionBackendProtocol: Sendable {
 
 /// Manages live session state. Reads pane list from WorkspaceStore (doesn't own it).
 /// Tracks runtime status per pane, schedules health checks, coordinates backends.
+@Observable
 @MainActor
-final class SessionRuntime: ObservableObject {
+final class SessionRuntime {
 
     /// Runtime status for each pane.
-    @Published private(set) var statuses: [UUID: SessionRuntimeStatus] = [:]
+    private(set) var statuses: [UUID: SessionRuntimeStatus] = [:]
 
     /// Registered backends by provider type.
     private var backends: [SessionProvider: any SessionBackendProtocol] = [:]
@@ -68,8 +70,9 @@ final class SessionRuntime: ObservableObject {
         self.healthCheckInterval = healthCheckInterval
     }
 
+    @MainActor
     deinit {
-        healthCheckTask?.cancel()
+        stopHealthChecks()
     }
 
     // MARK: - Backend Registration
@@ -190,7 +193,7 @@ final class SessionRuntime: ObservableObject {
             let backend = backends[provider]
         else {
             runtimeLogger.warning("No backend registered for pane \(pane.id)")
-            markRunning(pane.id)  // Ghostty panes are "running" immediately
+            markExited(pane.id)
             return nil
         }
 
@@ -205,8 +208,8 @@ final class SessionRuntime: ObservableObject {
         guard let provider = pane.provider,
             let backend = backends[provider]
         else {
-            markRunning(pane.id)
-            return true
+            markExited(pane.id)
+            return false
         }
 
         let restored = await backend.restore(pane: pane)

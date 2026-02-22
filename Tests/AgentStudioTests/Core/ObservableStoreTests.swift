@@ -392,8 +392,8 @@ final class ObservableStoreTests {
     }
 
     func awaitTaskBoundary() async {
-        await Task.yield()
-        try? await Task.sleep(for: .milliseconds(10))
-        await Task.yield()
+        for _ in 0..<6 {
+            await Task.yield()
+        }
     }
 }

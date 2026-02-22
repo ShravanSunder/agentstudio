@@ -5,16 +5,16 @@ import Testing
 
 @MainActor
 @Suite(.serialized)
-struct TerminalViewCoordinatorTests {
-    private struct TerminalViewCoordinatorHarness {
+struct PaneCoordinatorViewFactoryTests {
+    private struct PaneCoordinatorHarness {
         let store: WorkspaceStore
         let viewRegistry: ViewRegistry
         let runtime: SessionRuntime
-        let coordinator: TerminalViewCoordinator
+        let coordinator: PaneCoordinator
         let tempDir: URL
     }
 
-    private func makeHarness() -> TerminalViewCoordinatorHarness {
+    private func makeHarness() -> PaneCoordinatorHarness {
         let tempDir = FileManager.default.temporaryDirectory
             .appending(path: "agentstudio-coordinator-tests-\(UUID().uuidString)")
         let persistor = WorkspacePersistor(workspacesDir: tempDir)
@@ -22,12 +22,12 @@ struct TerminalViewCoordinatorTests {
         store.restore()
         let viewRegistry = ViewRegistry()
         let runtime = SessionRuntime(store: store)
-        let coordinator = TerminalViewCoordinator(
+        let coordinator = PaneCoordinator(
             store: store,
             viewRegistry: viewRegistry,
             runtime: runtime
         )
-        return TerminalViewCoordinatorHarness(
+        return PaneCoordinatorHarness(
             store: store,
             viewRegistry: viewRegistry,
             runtime: runtime,

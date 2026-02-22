@@ -1,6 +1,7 @@
 import AppKit
 import Foundation
 import GhosttyKit
+import Observation
 import os
 
 private let logger = Logger(subsystem: "com.agentstudio", category: "SurfaceManager")
@@ -8,16 +9,23 @@ private let logger = Logger(subsystem: "com.agentstudio", category: "SurfaceMana
 /// Manages Ghostty surface lifecycle independent of UI containers
 /// Provides crash isolation, health monitoring, and undo support
 @MainActor
-final class SurfaceManager: ObservableObject {
+@Observable
+final class SurfaceManager {
     static let shared = SurfaceManager()
+
+    struct SurfaceCWDChangeEvent: Sendable {
+        let surfaceId: UUID
+        let paneId: UUID?
+        let cwd: URL?
+    }
 
     // MARK: - Published State
 
     /// Count of active surfaces (for observation)
-    @Published private(set) var activeSurfaceCount: Int = 0
+    private(set) var activeSurfaceCount: Int = 0
 
     /// Count of hidden surfaces
-    @Published private(set) var hiddenSurfaceCount: Int = 0
+    private(set) var hiddenSurfaceCount: Int = 0
 
     // MARK: - Delegates
 
@@ -78,6 +86,10 @@ final class SurfaceManager: ObservableObject {
     /// Map from SurfaceView to UUID for notification handling
     private var surfaceViewToId: [ObjectIdentifier: UUID] = [:]
 
+    /// Async stream of live CWD updates from managed surfaces.
+    private let cwdChangeContinuation: AsyncStream<SurfaceCWDChangeEvent>.Continuation
+    private let cwdChangeStream: AsyncStream<SurfaceCWDChangeEvent>
+
     /// Health check timer
     private var healthCheckTimer: Timer?
 
@@ -87,6 +99,8 @@ final class SurfaceManager: ObservableObject {
     // MARK: - Initialization
 
     private init() {
+        (cwdChangeStream, cwdChangeContinuation) = AsyncStream.makeStream()
+
         let appSupport = FileManager.default.homeDirectoryForCurrentUser
             .appending(path: ".agentstudio")
         try? FileManager.default.createDirectory(at: appSupport, withIntermediateDirectories: true)
@@ -99,7 +113,15 @@ final class SurfaceManager: ObservableObject {
     }
 
     deinit {
-        healthCheckTimer?.invalidate()
+        MainActor.assumeIsolated {
+            healthCheckTimer?.invalidate()
+            healthCheckTimer = nil
+            cwdChangeContinuation.finish()
+        }
+    }
+
+    var surfaceCWDChanges: AsyncStream<SurfaceCWDChangeEvent> {
+        cwdChangeStream
     }
 
     // MARK: - Surface Creation
@@ -590,15 +612,13 @@ extension SurfaceManager {
             hiddenSurfaces[surfaceId] = current
         }
 
-        // Post higher-level notification for upstream consumers
-        var userInfo: [String: Any] = ["surfaceId": surfaceId]
-        if let url {
-            userInfo["url"] = url
-        }
-        NotificationCenter.default.post(
-            name: Ghostty.Notification.surfaceCWDChanged,
-            object: self,
-            userInfo: userInfo
+        // Emit higher-level event for upstream consumers.
+        cwdChangeContinuation.yield(
+            SurfaceCWDChangeEvent(
+                surfaceId: surfaceId,
+                paneId: current.metadata.paneId,
+                cwd: url
+            )
         )
 
         logger.info("Surface \(surfaceId) CWD changed: \(url?.path ?? "nil")")

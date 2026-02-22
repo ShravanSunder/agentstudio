@@ -19,9 +19,9 @@ enum PushBenchmarkMode: String, Sendable {
             return .off
         }
         switch normalizedMode {
-        case "benchmark", "bench", "on", "true", "1", "warn", "strict":
+        case "benchmark":
             return .benchmark
-        case "off", "false", "0":
+        case "off":
             return .off
         default:
             return .off

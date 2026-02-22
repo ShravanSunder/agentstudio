@@ -2,7 +2,7 @@
 
 ## TL;DR
 
-Agent Studio uses a **hybrid** directory structure: infrastructure stays layer-based (`App/`, `Core/`, `Infrastructure/`) while user-facing capabilities live in feature directories (`Features/Terminal/`, `Features/Bridge/`, `Features/Webview/`, etc.). Swift imports are by module, not file path — moving files between directories has **zero impact on import statements** and causes no merge conflicts. The structure is enforced by a one-way import rule: `Core` never imports `Features`.
+Agent Studio uses a **hybrid** directory structure: infrastructure stays layer-based (`App/`, `Ghostty/`, `Core/`, `Infrastructure/`) while user-facing capabilities live in feature directories (`Features/Terminal/`, `Features/Bridge/`, etc.). Swift imports are by module, not file path — moving files between directories has **zero impact on import statements** and causes no merge conflicts. The structure is enforced by a one-way import rule: `Core` never imports `Features`.
 
 ---
 
@@ -16,49 +16,53 @@ The hybrid approach (inspired by Ghostty's own codebase structure) keeps infrast
 
 ## Target Structure
 
-> **This is the target layout, not a snapshot of the current filesystem.** Some directories and files listed here are aspirational — they show where new code should go. Use this to make placement decisions. See `CLAUDE.md` for the current state of the codebase.
-
 ```
 Sources/AgentStudio/
 ├── App/                              # Composition root — wires everything together
 │   ├── AppDelegate.swift             # App lifecycle, restore, zmx cleanup
 │   ├── MainWindowController.swift    # Window management
 │   ├── MainSplitViewController.swift # Top-level split (sidebar/content)
-│   ├── Panes/                        # Pane tab management and NSView registry
+│   ├── Panes/
+│   │   ├── PaneTabViewController.swift # Tab container (manages any pane type)
+│   │   └── ViewRegistry.swift        # PaneId → NSView mapping (type-agnostic)
 │   └── PaneCoordinator.swift         # Cross-feature sequencing (imports from all)
 │
 ├── Core/                             # Shared domain — pane system, models, stores
-│   ├── Models/                       # Layout, Tab, Pane, PaneView, SessionStatus
+│   ├── Models/                       # Pane, Layout, Tab, ViewDefinition, PaneView
 │   ├── Stores/                       # WorkspaceStore, SessionRuntime
 │   ├── Actions/                      # PaneAction, ActionResolver, ActionValidator
-│   └── Views/                        # Tab bar, splits, drawer, arrangement
-│       ├── Splits/                   # SplitTree, SplitView
-│       └── Drawer/                   # DrawerLayout, DrawerPanel
 │
 ├── Features/
 │   ├── Terminal/                     # Everything Ghostty-specific
 │   │   ├── Ghostty/                  # C API bridge, SurfaceManager, SurfaceTypes
-│   │   └── Views/                    # AgentStudioTerminalView, SurfaceErrorOverlay
+│   │   ├── Views/                    # AgentStudioTerminalView, SurfaceErrorOverlay
+│   │   └── GhosttyBridge.swift       # PaneBridge conformance for terminal surfaces
 │   │
-│   ├── Bridge/                       # React/WebView pane system
-│   │   ├── Transport/                # JSON-RPC routing and message handling
-│   │   ├── Push/                     # State push pipeline, slices
-│   │   └── Views/                    # BridgePaneView, BridgePaneContentView
-│   │
-│   ├── Webview/                      # Browser pane (navigation, history, dialog)
-│   │   └── Views/                    # WebviewPaneView, WebviewNavigationBar
+│   ├── Bridge/                       # React/WebView pane system (future)
+│   │   ├── Transport/                # JSON-RPC, WebSocket
+│   │   ├── State/                    # Push pipeline, slices
+│   │   └── WebViewBridge.swift       # PaneBridge conformance for web views
 │   │
 │   ├── CommandBar/                   # ⌘P command palette
-│   │   ├── Commands/                 # Individual command handlers
-│   │   └── Views/                    # CommandBarView, search field, results
+│   │   ├── CommandBarState.swift
+│   │   ├── CommandBarPanel.swift
+│   │   ├── CommandDispatcher.swift
+│   │   └── Commands/                 # Individual command handlers
 │   │
 │   └── Sidebar/                      # Sidebar content (repo list, worktree tree)
+│       ├── SidebarViewController.swift
+│       └── SidebarViews/
 │
 ├── Infrastructure/                   # Utilities used by anyone, domain-agnostic
+│   ├── ProcessExecutor.swift         # CLI execution protocol
+│   ├── CWDNormalizer.swift           # Path normalization
 │   ├── StateMachine/                 # Generic state machine + effects
 │   └── Extensions/                   # Foundation/AppKit extensions
 │
-└── Resources/                        # Assets, icons, terminfo, shell-integration
+├── Resources/                        # Assets, xib, storyboard
+├── AppDelegate.swift → App/
+├── main.swift
+└── Package.swift
 ```
 
 ---
@@ -91,7 +95,7 @@ To keep ownership decisions consistent, use these terms:
   - A user-facing slice that traverses multiple layers and orchestrates behavior for a flow.
   - Usually belongs in `App/` (composition root) or a specific `Features/X/` directory.
   - Includes controller/stateful orchestration, platform event wiring, and cross-service flow.
-  - Examples: `MainSplitViewController`, `PaneTabViewController`, `TerminalViewCoordinator`.
+  - Examples: `MainSplitViewController`, `PaneTabViewController`, `PaneCoordinator`.
 
 Practical rule:
 - If a component imports two or more feature services, it is a vertical slice in `App/` (or should be split).
@@ -173,7 +177,7 @@ These are the resolved placements for components that could reasonably go multip
 
 ### PaneCoordinator → `App/`
 
-Today's `ActionExecutor` + `TerminalViewCoordinator` merges into `PaneCoordinator`. It sequences operations across `SurfaceManager` (Terminal feature), `WorkspaceStore` (Core), `SessionRuntime` (Core), and eventually `BridgePaneController` (Bridge feature).
+Today's cross-feature coordinator is `PaneCoordinator`. It sequences operations across `SurfaceManager` (Terminal feature), `WorkspaceStore` (Core), `SessionRuntime` (Core), and `BridgePaneController` (Bridge feature).
 
 **Import test:** imports from multiple features → can't be `Core/`. Lives in `App/` as the composition root — this is where Ghostty puts its coordination too (`AppDelegate` delegates to feature controllers).
 
@@ -201,14 +205,16 @@ Manages the top-level split between sidebar and content area. Feature-agnostic b
 
 ## Migration Strategy
 
-The initial directory restructure (LUNA-334) is complete — files were moved via `git mv` with zero import changes (Swift imports are module-level, not path-based). The target structure is partially realized.
+Since Swift imports are module-level (not path-based), the restructure is a pure file-move operation:
 
-**Remaining migrations:**
-- `ActionExecutor` + `TerminalViewCoordinator` → `PaneCoordinator` (LUNA-327)
-- Bridge RPC files at `Bridge/` root → `Bridge/Transport/` subdirectory (when Bridge stabilizes)
-- Create `Infrastructure/Extensions/` and consolidate Foundation/AppKit extensions
+1. Create the target directory structure
+2. Move files — `git mv` preserves history
+3. No import changes needed (same SPM module)
+4. ~~Rename `TerminalTabViewController` → `PaneTabViewController`~~ (done in LUNA-334)
+5. Update `CLAUDE.md` structure section
+6. Verify build compiles
 
-File moves within the same SPM module remain zero-cost — no import changes, no merge conflicts.
+The restructure should be done on its own branch and merged into `main` and all active branches before other work continues — it's a pure organizational change with no behavioral impact.
 
 ---
 

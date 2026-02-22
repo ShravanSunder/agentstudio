@@ -95,8 +95,7 @@ AppDelegate
 ├── WorkspaceStore      ← @Observable, restore from disk
 ├── SessionRuntime      ← runtime health tracking
 ├── ViewRegistry        ← paneId → NSView mapping (not @Observable)
-├── TerminalViewCoordinator ← sole model↔view↔surface bridge
-├── ActionExecutor      ← action dispatch hub
+├── PaneCoordinator     ← action dispatch + model↔view↔surface orchestration
 ├── TabBarAdapter       ← bridges @Observable store via withObservationTracking
 ├── CommandBarPanelController ← command bar lifecycle (⌘P/⌘⇧P/⌘⌥P)
 └── MainWindowController
@@ -255,7 +254,7 @@ For the Ghostty surface lifecycle, ownership model, state machine, and health mo
 
 ## Session Restore
 
-Terminal session state is managed by `WorkspaceStore` (persistence) and `SessionRuntime` (health/lifecycle). `TerminalViewCoordinator` is the sole intermediary for surface and runtime lifecycle — views never call `SurfaceManager` or `SessionRuntime` directly. The zmx backend (`ZmxBackend`) provides session persistence across app restarts via raw byte passthrough daemons.
+Terminal session state is managed by `WorkspaceStore` (persistence) and `SessionRuntime` (health/lifecycle). `PaneCoordinator` is the active intermediary for surface and runtime orchestration — views never call `SurfaceManager` or `SessionRuntime` directly. The zmx backend (`ZmxBackend`) provides session persistence across app restarts via raw byte passthrough daemons.
 
 For the full session lifecycle, restore flow, and zmx configuration, see: **[Session Lifecycle](session_lifecycle.md)**
 

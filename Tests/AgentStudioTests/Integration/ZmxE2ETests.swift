@@ -12,6 +12,9 @@ import Testing
 /// Requires zmx to be installed on PATH. Tests are skipped when zmx is unavailable.
 @Suite(.serialized)
 struct ZmxE2ETests {
+    private let pollIntervalNanoseconds: UInt64 = 100_000_000
+    private let pollsPerSecond = 10
+
     @Test("full lifecycle create healthCheck kill verify")
     func test_fullLifecycle_create_healthCheck_kill_verify() async throws {
         try await withRealBackend { harness, backend in
@@ -248,6 +251,7 @@ struct ZmxE2ETests {
             harness.createBackend(),
             "ZmxTestHarness failed to resolve zmx path; integration test requires zmx"
         )
+        try #require(await backend.isAvailable, "zmx is unavailable in this environment")
 
         try FileManager.default.createDirectory(
             atPath: harness.zmxDir,
@@ -256,7 +260,6 @@ struct ZmxE2ETests {
         )
 
         do {
-            try #require(await backend.isAvailable, "zmx is unavailable in this environment")
             try await withTimeout(seconds: 30) {
                 try await test(harness, backend)
             }
@@ -300,12 +303,12 @@ struct ZmxE2ETests {
         sessionId: String,
         timeout: Int
     ) async -> Bool {
-        for _ in 0..<(timeout * 4) {
+        for _ in 0..<(timeout * pollsPerSecond) {
             let alive = await backend.healthCheck(
                 makePaneSessionHandle(id: sessionId)
             )
             if alive { return true }
-            try? await Task.sleep(nanoseconds: 250_000_000)  // 250ms
+            try? await Task.sleep(nanoseconds: pollIntervalNanoseconds)
         }
         return false
     }
@@ -316,12 +319,12 @@ struct ZmxE2ETests {
         sessionId: String,
         timeout: Int
     ) async -> Bool {
-        for _ in 0..<(timeout * 4) {
+        for _ in 0..<(timeout * pollsPerSecond) {
             let alive = await backend.healthCheck(
                 makePaneSessionHandle(id: sessionId)
             )
             if !alive { return true }
-            try? await Task.sleep(nanoseconds: 250_000_000)  // 250ms
+            try? await Task.sleep(nanoseconds: pollIntervalNanoseconds)
         }
         return false
     }

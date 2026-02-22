@@ -135,7 +135,7 @@ enum PaneAction: Equatable, Hashable {
 }
 
 /// System-generated repair actions from the Reconciler.
-/// Flow through ActionExecutor like user actions — one-way data flow never bypassed.
+/// Flow through PaneCoordinator.execute like user actions — one-way data flow never bypassed.
 enum RepairAction: Equatable, Hashable {
     /// zmx died — create new zmx session, send reattach command to existing surface.
     case reattachZmx(paneId: UUID)

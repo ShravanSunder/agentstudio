@@ -11,33 +11,41 @@ See [Directory Structure](docs/architecture/directory_structure.md) for the full
 agent-studio/
 ├── Sources/AgentStudio/
 │   ├── App/                          # Composition root — wires everything, imports all
-│   │   ├── Panes/                    # PaneTabViewController, ViewRegistry
-│   │   └── ActionExecutor, TerminalViewCoordinator  # Future: PaneCoordinator
+│   │   ├── AppDelegate.swift
+│   │   ├── MainWindowController.swift
+│   │   ├── MainSplitViewController.swift
+│   │   ├── Panes/                    # Pane tab management and NSView registry
+│   │   │   ├── PaneTabViewController.swift
+│   │   │   └── ViewRegistry.swift
+│   │   └── PaneCoordinator.swift         # Cross-feature sequencing and orchestration
 │   ├── Core/                         # Shared domain — models, stores, pane system
 │   │   ├── Models/                   # Layout, Tab, Pane, PaneView, SessionStatus
 │   │   ├── Stores/                   # WorkspaceStore, SessionRuntime, WorkspacePersistor
 │   │   ├── Actions/                  # PaneAction, ActionResolver, ActionValidator
-│   │   └── Views/                    # Tab bar, splits, drawer, arrangement
-│   │       ├── Splits/
-│   │       └── Drawer/
+│   │   ├── Views/                    # Tab bar, splits, drawer, arrangement
+│   │   │   ├── Splits/              # SplitTree, SplitView, TerminalPaneLeaf
+│   │   │   └── Drawer/             # DrawerLayout, DrawerPanel, DrawerIconBar
 │   ├── Features/
-│   │   ├── Terminal/                 # Ghostty C API bridge, SurfaceManager, views
-│   │   │   ├── Ghostty/
-│   │   │   └── Views/
-│   │   ├── Bridge/                   # React/WebView pane system (JSON-RPC + state push)
-│   │   │   ├── Push/                 # State push pipeline, slices
-│   │   │   └── Views/
+│   │   ├── Terminal/                 # Everything Ghostty-specific
+│   │   │   ├── Ghostty/              # C API bridge, SurfaceManager, SurfaceTypes
+│   │   │   └── Views/               # AgentStudioTerminalView, SurfaceErrorOverlay
+│   │   ├── Bridge/                   # React/WebView pane system
+│   │   │   ├── Push/               # Push pipeline, EntitySlice, PushPlan
+│   │   │   └── Views/              # BridgePaneView, BridgePaneContentView
 │   │   ├── Webview/                  # Browser pane (navigation, history, dialog)
-│   │   │   └── Views/
+│   │   │   └── Views/              # WebviewPaneView, WebviewNavigationBar
 │   │   ├── CommandBar/               # ⌘P command palette
-│   │   │   └── Views/
-│   │   └── Sidebar/                  # Sidebar filter
-│   └── Infrastructure/               # StateMachine, ProcessExecutor, Diagnostics
+│   │   │   └── Views/              # CommandBarView, search field, results
+│   │   └── Sidebar/                  # Sidebar filter (future: repo list, worktree tree)
+│   └── Infrastructure/               # Domain-agnostic utilities
+│       ├── StateMachine/            # Generic state machine
+│       ├── Diagnostics/             # RestoreTrace
+│       └── Extensions/              # Foundation/AppKit/UTType helper extensions
 ├── Frameworks/                       # Generated: GhosttyKit.xcframework (not in git)
 ├── vendor/ghostty/                   # Git submodule: Ghostty source
-├── vendor/zmx/                       # Git submodule: zmx session multiplexer
-├── scripts/                          # test-agent-timeout.sh
-└── docs/                             # Architecture docs, plans, guides
+├── scripts/                          # Icon generation
+├── docs/                             # Detailed documentation
+└── tmp/                              # Temporary docs and status files
 ```
 
 **Import rule:** `App/ → Core/, Features/, Infrastructure/` | `Features/ → Core/, Infrastructure/` | `Core/ → Infrastructure/` | Never `Core/ → Features/`
@@ -58,41 +66,27 @@ Where each key component lives and why — use this to decide where new files go
 | `AppDelegate` | `App/` | App lifecycle, restore, zmx cleanup | App lifecycle |
 | `MainSplitViewController` | `App/` | Top-level sidebar/content split | App layout |
 | `MainWindowController` | `App/` | Window creation, toolbar, state restore | Window management |
-| `ActionExecutor` | `App/` | Dispatches PaneActions to stores (future: `PaneCoordinator`) | Cross-store sequencing |
-| `TerminalViewCoordinator` | `App/` | Manages Ghostty surface lifecycle (future: `PaneCoordinator`) | Cross-feature sequencing |
-| `ManagementModeMonitor` | `App/` | Monitors management mode state | App mode |
-| `PaneTabViewController` | `App/Panes/` | NSTabView container for any pane type | Tab management |
-| `ViewRegistry` | `App/Panes/` | PaneId → NSView mapping (type-agnostic) | Pane registration |
+| `PaneCoordinator` | `App/` | Dispatches PaneActions to stores and manages model↔view↔surface orchestration | Cross-store sequencing |
 | `WorkspaceStore` | `Core/Stores/` | Tabs, layouts, views, pane metadata | Workspace structure |
 | `SessionRuntime` | `Core/Stores/` | Session status, health checks, zmx backend | Session backends |
 | `WorkspacePersistor` | `Core/Stores/` | Disk persistence for workspace state | Persistence format |
 | `DynamicViewProjector` | `Core/Stores/` | Projects dynamic views into workspace | View projection |
-| `ZmxBackend` | `Core/Stores/` | Zmx session multiplexer backend | Session backends |
+| `PaneTabViewController` | `App/` | NSTabView container for any pane type | Tab management |
+| `ViewRegistry` | `App/` | PaneId → NSView mapping (type-agnostic) | Pane registration |
 | `ActionResolver` | `Core/Actions/` | Resolves PaneAction to concrete mutations | Action resolution |
 | `Layout`, `Tab`, `Pane` | `Core/Models/` | Core domain models | Domain rules |
-| `TabBarAdapter` | `Core/Views/` | Derives tab bar state from workspace | Tab bar rendering |
 | `SplitTree`, `SplitView` | `Core/Views/Splits/` | Split pane rendering | Split layout |
 | `DrawerLayout`, `DrawerPanel` | `Core/Views/Drawer/` | Drawer overlay system | Drawer UX |
-| `SurfaceManager` | `Features/Terminal/Ghostty/` | Ghostty surface lifecycle, health, undo | Terminal behavior |
-| `GhosttySurfaceView` | `Features/Terminal/Ghostty/` | NSView wrapping Ghostty surface | Terminal rendering |
+| `SurfaceManager` | `Features/Terminal/` | Ghostty surface lifecycle, health, undo | Terminal behavior |
+| `GhosttySurfaceView` | `Features/Terminal/` | NSView wrapping Ghostty surface | Terminal rendering |
 | `BridgePaneController` | `Features/Bridge/` | WKWebView lifecycle for React panes | Bridge integration |
-| `BridgePaneState` | `Features/Bridge/` | Observable state for a bridge pane | Bridge state |
-| `BridgeDomainState` | `Features/Bridge/` | Domain-level state pushed to React | Bridge state |
 | `RPCRouter` | `Features/Bridge/` | JSON-RPC dispatch for bridge messages | RPC protocol |
-| `RPCMessageHandler` | `Features/Bridge/` | Handles incoming RPC messages from WKWebView | RPC protocol |
-| `RPCMethod` | `Features/Bridge/` | RPC method definitions | RPC protocol |
-| `BridgeBootstrap` | `Features/Bridge/` | Bridge initialization and content world setup | Bridge lifecycle |
 | `PushTransport` | `Features/Bridge/Push/` | State push pipeline to React | Push protocol |
 | `WebviewPaneController` | `Features/Webview/` | Browser pane lifecycle (independent of Bridge) | Browser UX |
-| `WebviewNavigationDecider` | `Features/Webview/` | URL navigation policy | Browser UX |
-| `URLHistoryService` | `Features/Webview/` | Browser history tracking | Browser UX |
 | `CommandBarState` | `Features/CommandBar/` | Command palette state machine | Command palette |
-| `CommandBarPanelController` | `Features/CommandBar/` | Panel presentation and keyboard handling | Command palette |
 | `SidebarFilter` | `Features/Sidebar/` | Sidebar filtering logic | Sidebar behavior |
 | `ProcessExecutor` | `Infrastructure/` | CLI execution protocol | Utility |
 | `StateMachine` | `Infrastructure/` | Generic state machine + effects | Utility |
-| `WorktrunkService` | `Infrastructure/` | Git worktree management via worktrunk CLI | Utility |
-| `OAuthService` | `Infrastructure/` | OAuth authentication flow | Utility |
 
 **Decision process for new files:** Apply the 4 tests from [directory_structure.md](docs/architecture/directory_structure.md): (1) Import test — what does it import? (2) Deletion test — could you delete a feature and it still compiles? (3) Change driver — what causes it to change? (4) Multiplicity — how many features use it?
 
@@ -102,32 +96,6 @@ Where each key component lives and why — use this to decide where new files go
 - `.swift-format` - swift-format configuration (4-space indent, 120-char lines)
 - `.swiftlint.yml` - SwiftLint configuration (strict mode, Swift 6 rules)
 - `.gitignore` - Excludes build artifacts (.zig-cache, macos/build, *.xcframework)
-
-## ⚠️ New Worktree / Fresh Clone Bootstrap (MANDATORY)
-
-A fresh worktree or clone is **not buildable** out of the box. Git submodules, build tools, and generated artifacts are missing. **You must run these steps before any `swift build`, `swift test`, or `mise run build` will succeed.**
-
-```bash
-# 1. Initialize git submodules (vendor/ghostty and vendor/zmx will be empty without this)
-git submodule update --init --recursive
-
-# 2. Install pinned tool versions (zig 0.15.2)
-mise install
-
-# 3. Full build — builds ghostty xcframework, zmx, dev resources, then swift
-mise run build
-```
-
-**Why each step matters:**
-- **Submodules**: `vendor/ghostty/` and `vendor/zmx/` are git submodules. In a fresh worktree they are empty directories. Without `git submodule update --init --recursive`, the zig build steps will fail with missing source errors.
-- **`mise install`**: Installs zig 0.15.2 (pinned in `.mise.toml`). Without it, `mise run build-ghostty` fails because zig is not on PATH.
-- **`mise run build`**: Chains `build-ghostty` → `copy-xcframework` → `setup-dev-resources` → `build-zmx` → `swift build`. The xcframework and dev resources (`Frameworks/GhosttyKit.xcframework`, `Sources/AgentStudio/Resources/ghostty/`) are gitignored — they only exist after building. Running `swift build` directly without these will fail with missing framework errors.
-
-**If you only need to run tests** (xcframework already built in a prior session):
-```bash
-git submodule update --init --recursive   # still required in fresh worktrees
-mise run test
-```
 
 ## Build Flow
 
@@ -148,6 +116,15 @@ Individual steps:
 - `mise run setup-dev-resources` — Copy shell-integration + terminfo for SPM
 - `mise run copy-xcframework` — Copy xcframework to Frameworks/
 
+## Testing Standard
+
+This worktree is SwiftPM-first and Swift 6 `Testing` only:
+
+- Use `import Testing` with `@Suite`, `@Test`, and `#expect`.
+- Do not adopt legacy XCTest-style APIs (`XCTestCase`, `XCTAssert*`, `setUp`/`tearDown`).
+- Do not use legacy XCTest-style or Xcode UI test scaffolding.
+- Prefer `mise run test` (Swift 6 `Testing`) and SwiftPM-native test execution.
+
 ### Formatting & Linting
 
 ```bash
@@ -162,9 +139,9 @@ Requires `brew install swift-format swiftlint`. A PostToolUse hook (`.claude/hoo
 SwiftPM's interactive progress output (carriage returns, ANSI escapes) breaks in agent bash contexts. Always redirect to a file and check the exit code.
 
 ```bash
-SWIFT_BUILD_DIR=".build-agent-$(uuidgen | tr -dc 'a-z0-9' | head -c 8)" SWIFT_TEST_TIMEOUT_SECONDS=60 scripts/test-agent-timeout.sh > /tmp/test-output.txt 2>&1 && echo "PASS" || echo "FAIL: $(tail -20 /tmp/test-output.txt)"
+swift test --build-path .build-agent-$RANDOM > /tmp/test-output.txt 2>&1 && echo "PASS" || echo "FAIL: $(tail -20 /tmp/test-output.txt)"
 swift build > /tmp/build-output.txt 2>&1 && echo "BUILD OK" || echo "BUILD FAIL: $(tail -20 /tmp/build-output.txt)"
-SWIFT_BUILD_DIR=".build-agent-$(uuidgen | tr -dc 'a-z0-9' | head -c 8)" SWIFT_TEST_TIMEOUT_SECONDS=60 scripts/test-agent-timeout.sh "CommandBarState" > /tmp/test-output.txt 2>&1 && echo "PASS" || echo "FAIL: $(tail -20 /tmp/test-output.txt)"
+swift test --build-path .build-agent-$RANDOM --filter "CommandBarState" > /tmp/test-output.txt 2>&1 && echo "PASS" || echo "FAIL: $(tail -20 /tmp/test-output.txt)"
 ```
 
 **No parallel Swift commands. No background Swift commands.** SwiftPM holds an exclusive lock on `.build/`. Two concurrent swift processes — even `swift test --filter A` and `swift test --filter B`, or a foreground + background task — will deadlock waiting for the lock (up to 256s then fail). This means:
@@ -176,30 +153,18 @@ SWIFT_BUILD_DIR=".build-agent-$(uuidgen | tr -dc 'a-z0-9' | head -c 8)" SWIFT_TE
 **Test/build contention across agents.** Use a unique `.build-agent-<suffix>` folder per agent session so SwiftPM lock files do not collide across concurrent sessions.
 
 ```bash
-SWIFT_BUILD_DIR=".build-agent-$(uuidgen | tr -dc 'a-z0-9' | head -c 8)" SWIFT_TEST_TIMEOUT_SECONDS=60 \
-scripts/test-agent-timeout.sh "ZmxE2ETests"
+SWIFT_BUILD_DIR=".build-agent-$(uuidgen | tr -dc 'a-z0-9' | head -c 8)"
+swift test --build-path "$SWIFT_BUILD_DIR" --filter "ZmxE2ETests"
 swift build --build-path "$SWIFT_BUILD_DIR"
-SWIFT_BUILD_DIR="$SWIFT_BUILD_DIR" SWIFT_TEST_TIMEOUT_SECONDS=60 \
-scripts/test-agent-timeout.sh
+swift test --build-path "$SWIFT_BUILD_DIR"
 ```
 
 Keep this `BUILD_DIR` constant for your entire session to avoid mixing artifacts.
 
-If you want a single command that enforces both an isolated build path and a hard timeout, use the agent helper:
+Run via `mise` (defaults to `.build-agent-$RANDOM`):
 
 ```bash
-# default timeout: 60s, default build dir: .build-agent-$RANDOM
-SWIFT_TEST_TIMEOUT_SECONDS=60 scripts/test-agent-timeout.sh
-
-# filter a single test suite (also uses random .build-agent-* path)
-SWIFT_TEST_TIMEOUT_SECONDS=60 scripts/test-agent-timeout.sh "CommandBarState"
-```
-
-Run via `mise` (defaults to randomized `.build-agent-*`, with the same env override semantics):
-
-```bash
-SWIFT_TEST_TIMEOUT_SECONDS=60 SWIFT_BUILD_DIR=".build-agent-$(uuidgen | tr -dc 'a-z0-9' | head -c 8)" mise run test
-mise run test-agent-timeout
+mise run test
 ```
 
 **Lock contention recovery.** If you see "Another instance of SwiftPM is already running using '.build', waiting..." — do NOT launch more swift commands. Kill the stuck process (`pkill -f "swift-build"`) and retry.
@@ -276,7 +241,7 @@ A ticket has: a title, a rough scope description, links to the architecture doc 
 
 Agent Studio's state architecture draws from two JavaScript patterns adapted for Swift's type system and concurrency model. These are the governing principles for **all new code** and the target for incremental refactoring of existing code.
 
-> **Implementation status:** These patterns are the TARGET architecture being implemented via LUNA-325 (bridge + surface state + runtime refactor), LUNA-326 (native scrollbar), and LUNA-327 (state ownership + @Observable migration + coordinator). The current codebase still uses `ActionExecutor` + `TerminalViewCoordinator` (two separate classes) which will be refactored into `PaneCoordinator`. Existing `ObservableObject`/`@Published` will migrate to `@Observable`/`private(set)`. Existing Combine/NotificationCenter will migrate to AsyncStream. **For new code, follow these patterns. For existing code, refactor incrementally when touching those files.**
+> **Implementation status:** These patterns are the TARGET architecture in this worktree: `PaneCoordinator` is the canonical cross-feature coordinator (consolidated action dispatch + surface orchestration), and domain state is owned by `@Observable` stores with `private(set)` where state is mutable.
 
 ### Valtio-style: `private(set)` for Unidirectional Flow
 
@@ -349,7 +314,7 @@ This extends to future pane types: `GhosttyBridge`, `WebViewBridge`, `CodeViewer
 
 ### Event Transport: AsyncStream
 
-All new event plumbing uses `AsyncStream` + `swift-async-algorithms`. No new Combine subscriptions. No new NotificationCenter observers. Existing Combine/NotificationCenter usage is migrated incrementally.
+All new event plumbing uses `AsyncStream` + `swift-async-algorithms`. No new Combine subscriptions. No new NotificationCenter observers. Keep new code on AsyncStream/event-stream primitives and avoid adding new Combine/NotificationCenter usage.
 
 ```swift
 @MainActor
@@ -422,9 +387,6 @@ system design, data model, and document index. Target: macOS 26 only.
 - **Session Lifecycle**: [Session Lifecycle](docs/architecture/session_lifecycle.md) — creation, close, undo, restore, zmx backend
 - **Surface Architecture**: [Surface Management](docs/architecture/ghostty_surface_architecture.md) — ownership, state machine, health, crash isolation
 - **App Architecture**: [App Architecture](docs/architecture/appkit_swiftui_architecture.md) — AppKit+SwiftUI hybrid, controllers, events
-- **Swift-React Bridge**: [Bridge Design](docs/architecture/swift_react_bridge_design.md) — three-stream bridge, push pipeline, JSON-RPC command channel
-- **Window System**: [Window System Design](docs/architecture/window_system_design.md) — dynamic views, pane arrangements, drawers
-- **JTBD & Requirements**: [Requirements](docs/architecture/jtbd_and_requirements.md) — jobs to be done, pain points for window system
 - **Directory Structure**: [Directory Structure](docs/architecture/directory_structure.md) — module boundaries, Core vs Features decision process, import rule
 - **Style Guide**: [macOS Design & Style](docs/guides/style_guide.md)
 

@@ -10,7 +10,7 @@ struct ActionExecutorTestsQuick {
         let store: WorkspaceStore
         let viewRegistry: ViewRegistry
         let runtime: SessionRuntime
-        let coordinator: TerminalViewCoordinator
+        let coordinator: PaneCoordinator
         let executor: ActionExecutor
         let tempDir: URL
     }
@@ -23,16 +23,12 @@ struct ActionExecutorTestsQuick {
         store.restore()
         let viewRegistry = ViewRegistry()
         let runtime = SessionRuntime(store: store)
-        let coordinator = TerminalViewCoordinator(
+        let coordinator = PaneCoordinator(
             store: store,
             viewRegistry: viewRegistry,
             runtime: runtime
         )
-        let executor = ActionExecutor(
-            store: store,
-            viewRegistry: viewRegistry,
-            coordinator: coordinator
-        )
+        let executor = ActionExecutor(coordinator: coordinator)
         return ActionExecutorHarness(
             store: store,
             viewRegistry: viewRegistry,

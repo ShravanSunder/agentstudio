@@ -811,15 +811,23 @@ final class WorkspaceStoreTests {
     @Test
 
     func test_isDirty_clearedAfterDebouncedSave() async throws {
-        // Arrange — mutation marks dirty
-        _ = store.createPane(source: .floating(workingDirectory: nil, title: nil))
-        #expect(store.isDirty)
+        // Arrange — use zero debounce to avoid wall-clock waits in tests
+        let fastPersistor = WorkspacePersistor(workspacesDir: tempDir)
+        let fastStore = WorkspaceStore(
+            persistor: fastPersistor,
+            persistDebounceDuration: .zero
+        )
+        fastStore.restore()
+        _ = fastStore.createPane(source: .floating(workingDirectory: nil, title: nil))
+        #expect(fastStore.isDirty)
 
-        // Act — wait for debounce (500ms) + margin
-        try await Task.sleep(for: .milliseconds(700))
+        // Act — allow scheduled debounce task to run
+        for _ in 0..<80 where fastStore.isDirty {
+            await Task.yield()
+        }
 
         // Assert — debounced persistNow cleared the flag
-        #expect(!(store.isDirty))
+        #expect(!(fastStore.isDirty))
     }
 
     // MARK: - Undo

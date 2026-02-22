@@ -10,7 +10,7 @@ class MainWindowController: NSWindowController, NSWindowDelegate {
     private static let estimatedTitlebarHeight: CGFloat = 40
 
     convenience init(
-        store: WorkspaceStore, executor: ActionExecutor,
+        store: WorkspaceStore, actionExecutor: ActionExecutor,
         tabBarAdapter: TabBarAdapter, viewRegistry: ViewRegistry
     ) {
         let window = NSWindow(
@@ -37,7 +37,7 @@ class MainWindowController: NSWindowController, NSWindowDelegate {
         // Create and set content view controller
         let splitVC = MainSplitViewController(
             store: store,
-            executor: executor,
+            actionExecutor: actionExecutor,
             tabBarAdapter: tabBarAdapter,
             viewRegistry: viewRegistry
         )
@@ -210,8 +210,3 @@ extension MainWindowController: NSToolbarDelegate {
 }
 
 // MARK: - Toolbar Item Identifiers
-
-extension NSToolbarItem.Identifier {
-    static let editMode = NSToolbarItem.Identifier("editMode")
-    static let addRepo = NSToolbarItem.Identifier("addRepo")
-}

@@ -258,12 +258,12 @@ final class PushPlanTests {
         // Arrange
         let state = TestState()
         let transport = MockPushTransport()
+        let clock = RevisionClock()
         let debounceClock = TestPushClock()
-        let revisionClock = RevisionClock()
         let plan = PushPlan(
             state: state,
             transport: transport,
-            revisions: revisionClock,
+            revisions: clock,
             epoch: { 1 },
             slices: {
                 Slice(
@@ -271,26 +271,29 @@ final class PushPlanTests {
                     store: .diff,
                     level: .warm,
                     capture: { (s: TestState) in s.status }
-                ).erased(debounceClock: debounceClock)
+                )
+                .erased(debounceClock: debounceClock)
             }
         )
 
         plan.start()
+        let didReceiveInitialPush = await advanceClock(
+            debounceClock,
+            until: { transport.pushCount >= 1 }
+        )
+        #expect(didReceiveInitialPush)
         let baselineCount = transport.pushCount
 
         // Act — 5 synchronous mutations within one run-loop turn
         for i in 0..<5 {
             state.status = "state-\(i)"
         }
-
-        let didWaitForWarmPush = await transport.waitForPushCount(
-            atLeast: baselineCount + 1,
-            maxTicks: 40,
-            advanceClock: {
-                debounceClock.advance(by: PushLevel.warm.debounce)
-            }
+        let didReceiveDebouncedPush = await advanceClock(
+            debounceClock,
+            until: { transport.pushCount >= baselineCount + 1 }
         )
-        #expect(didWaitForWarmPush)
+
+        #expect(didReceiveDebouncedPush)
 
         let pushCount = transport.pushCount - baselineCount
 
@@ -313,12 +316,12 @@ final class PushPlanTests {
         // Arrange
         let state = TestState()
         let transport = MockPushTransport()
+        let clock = RevisionClock()
         let debounceClock = TestPushClock()
-        let revisionClock = RevisionClock()
         let plan = PushPlan(
             state: state,
             transport: transport,
-            revisions: revisionClock,
+            revisions: clock,
             epoch: { 1 },
             slices: {
                 EntitySlice(
@@ -326,26 +329,26 @@ final class PushPlanTests {
                     capture: { (s: TestState) in s.items },
                     version: { (_ entity: String) in 1 },
                     keyToString: { (key: UUID) in key.uuidString }
-                ).erased(debounceClock: debounceClock)
+                )
+                .erased(debounceClock: debounceClock)
             }
         )
 
         plan.start()
+        // EntitySlice emits no initial push for an empty dictionary (empty delta).
+        await Task.yield()
         let baselineCount = transport.pushCount
 
         // Act — 10 synchronous entity additions within one run-loop turn
         for i in 0..<10 {
             state.items[UUID()] = "item-\(i)"
         }
-
-        let didWaitForColdPush = await transport.waitForPushCount(
-            atLeast: baselineCount + 1,
-            maxTicks: 64,
-            advanceClock: {
-                debounceClock.advance(by: PushLevel.cold.debounce)
-            }
+        let didReceiveDebouncedPush = await advanceClock(
+            debounceClock,
+            until: { transport.pushCount >= baselineCount + 1 }
         )
-        #expect(didWaitForColdPush)
+
+        #expect(didReceiveDebouncedPush)
 
         let pushCount = transport.pushCount - baselineCount
 
@@ -361,4 +364,17 @@ final class PushPlanTests {
         plan.stop()
     }
 
+    private func advanceClock(
+        _ clock: TestPushClock,
+        until condition: @escaping @MainActor () -> Bool,
+        maxSteps: Int = 40,
+        step: Duration = .milliseconds(5)
+    ) async -> Bool {
+        for _ in 0..<maxSteps {
+            if condition() { return true }
+            clock.advance(by: step)
+            await Task.yield()
+        }
+        return condition()
+    }
 }

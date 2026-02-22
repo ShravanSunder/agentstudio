@@ -79,6 +79,8 @@ echo "--- swift-format lint ---"
 swift-format lint --recursive Sources/ Tests/ 2>&1 && echo "swift-format: OK" || { echo "swift-format: FAIL"; exit 1; }
 echo "--- swiftlint ---"
 swiftlint lint --strict 2>&1 && echo "swiftlint: OK" || { echo "swiftlint: FAIL"; exit 1; }
+echo "--- architecture boundary checks ---"
+bash scripts/check-core-boundary-imports.sh
 """
 
 # --- Composite build tasks ---
@@ -102,42 +104,28 @@ description = "Run all tests"
 depends = ["copy-xcframework", "setup-dev-resources"]
 run = """
 AGENT_STUDIO_BENCHMARK_MODE=off \
-SWIFT_TEST_TIMEOUT_SECONDS=${SWIFT_TEST_TIMEOUT_SECONDS:-60} \
-SWIFT_BUILD_DIR="${SWIFT_BUILD_DIR:-.build-agent-$(uuidgen | tr -dc 'a-z0-9' | head -c 8)}" \
-scripts/test-agent-timeout.sh
+swift test --build-path "${SWIFT_BUILD_DIR:-.build-agent-$RANDOM}"
 """
 
-[tasks.test-bench-push]
-description = "Run push benchmark tests (separate from normal test suite)"
+[tasks.test-benchmark]
+description = "Run benchmark-only bridge push tests"
 depends = ["copy-xcframework", "setup-dev-resources"]
 run = """
 #!/usr/bin/env bash
 set -euo pipefail
-export SWIFT_BUILD_DIR="${SWIFT_BUILD_DIR:-.build-agent-$(uuidgen | tr -dc 'a-z0-9' | head -c 8)}"
+export SWIFT_BUILD_DIR="${SWIFT_BUILD_DIR:-.build-agent-$RANDOM}"
 export AGENT_STUDIO_BENCHMARK_MODE=benchmark
 
 swift test --build-path "$SWIFT_BUILD_DIR" --filter "PushBenchmarkSupportTests"
 swift test --build-path "$SWIFT_BUILD_DIR" --filter "PushPerformanceBenchmarkTests"
 """
 
-[tasks.test-agent-timeout]
-description = "Run tests with timeout and isolated agent build directory"
-depends = ["copy-xcframework", "setup-dev-resources"]
-run = """
-AGENT_STUDIO_BENCHMARK_MODE=off \
-SWIFT_TEST_TIMEOUT_SECONDS=${SWIFT_TEST_TIMEOUT_SECONDS:-60} \
-SWIFT_BUILD_DIR="${SWIFT_BUILD_DIR:-.build-agent-$(uuidgen | tr -dc 'a-z0-9' | head -c 8)}" \
-scripts/test-agent-timeout.sh
-"""
-
 [tasks.test-ci]
-description = "Run full Swift test suite for CI with timeout and shared .build cache directory"
+description = "Run full Swift test suite for CI with shared .build cache directory"
 depends = ["copy-xcframework", "setup-dev-resources"]
 run = """
 AGENT_STUDIO_BENCHMARK_MODE=off \
-SWIFT_TEST_TIMEOUT_SECONDS=60 \
-SWIFT_BUILD_DIR=".build" \
-scripts/test-agent-timeout.sh
+swift test --build-path .build
 """
 
 [tasks.clean]
