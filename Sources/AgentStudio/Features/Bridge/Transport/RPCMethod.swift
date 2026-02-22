@@ -26,7 +26,7 @@ protocol RPCMethod {
 }
 
 protocol AnyRPCMethodHandler: Sendable {
-    func run(id: RPCIdentifier?, paramsData: Data?) async throws -> Encodable?
+    func run(id: RPCIdentifier?, paramsData: Data?) async throws -> Data?
 }
 
 enum RPCMethodDispatchError: Error, Sendable {
@@ -67,10 +67,15 @@ private struct TypedRPCMethodHandler<Method: RPCMethod>: AnyRPCMethodHandler {
         }
     }
 
-    func run(id: RPCIdentifier?, paramsData: Data?) async throws -> Encodable? {
+    func run(id: RPCIdentifier?, paramsData: Data?) async throws -> Data? {
         let params = try runWithDecode(paramsData)
         do {
-            return try await handler(params)
+            let result = try await handler(params)
+            guard let result else {
+                return nil
+            }
+            let encoder = JSONEncoder()
+            return try encoder.encode(result)
         } catch {
             throw RPCMethodDispatchError.handlerFailure(message(from: error))
         }

@@ -106,14 +106,14 @@ final class RPCRouter {
 
         do {
             let paramsData = try decodeParamsData(from: request.params)
-            let result = try await handler.run(id: request.requestId, paramsData: paramsData)
+            let resultData = try await handler.run(id: request.requestId, paramsData: paramsData)
             reportCommandAck(
                 commandId: request.commandId,
                 method: request.method,
                 status: CommandAck.Status.ok,
                 reason: nil
             )
-            await emitSuccessResponseIfNeeded(id: request.requestId, result: result)
+            await emitSuccessResponseIfNeeded(id: request.requestId, resultData: resultData)
         } catch {
             let (rpcErrorCode, dispatchErrorMessage) = classifyDispatchError(error)
             reportCommandAck(
@@ -144,7 +144,7 @@ final class RPCRouter {
         let requestId: RPCIdentifier?
         let method: String
         let commandId: String?
-        let params: Any?
+        let params: JSONRPCValue?
     }
 
     private func parseRequestEnvelope(from json: String) async -> ParsedRPCRequest? {
@@ -153,20 +153,20 @@ final class RPCRouter {
             return nil
         }
 
-        let raw: Any
+        let raw: JSONRPCValue
         do {
-            raw = try JSONSerialization.jsonObject(with: data)
+            raw = try JSONDecoder().decode(JSONRPCValue.self, from: data)
         } catch {
             await reportError(.parseError, "Parse error: \(error.localizedDescription)", id: nil)
             return nil
         }
 
-        if raw is [Any] {
+        if case .array = raw {
             await reportError(.invalidRequest, "Batch requests not supported", id: nil)
             return nil
         }
 
-        guard let dict = raw as? [String: Any] else {
+        guard case .object(let dict) = raw else {
             await reportError(.invalidRequest, "Invalid request", id: nil)
             return nil
         }
@@ -183,20 +183,27 @@ final class RPCRouter {
             requestId = parsedID
         }
 
-        guard dict["jsonrpc"] as? String == "2.0" else {
+        guard case .string("2.0")? = dict["jsonrpc"] else {
             await reportError(.invalidRequest, "Invalid request: unsupported jsonrpc version", id: requestId)
             return nil
         }
 
-        guard let method = dict["method"] as? String else {
+        guard case .string(let method)? = dict["method"] else {
             await reportError(.invalidRequest, "Invalid request: missing method", id: requestId)
             return nil
+        }
+
+        let commandId: String?
+        if case .string(let rawCommandId)? = dict["__commandId"] {
+            commandId = rawCommandId
+        } else {
+            commandId = nil
         }
 
         return ParsedRPCRequest(
             requestId: requestId,
             method: method,
-            commandId: dict["__commandId"] as? String,
+            commandId: commandId,
             params: dict["params"]
         )
     }
@@ -292,12 +299,12 @@ final class RPCRouter {
         await emitErrorResponseIfNeeded(id: id, code: code.rawValue, message: message)
     }
 
-    private func emitSuccessResponseIfNeeded(id: RPCIdentifier?, result: Encodable?) async {
+    private func emitSuccessResponseIfNeeded(id: RPCIdentifier?, resultData: Data?) async {
         guard let id else {
             return
         }
         do {
-            let responseJSON = try makeSuccessResponseJSON(id: id, result: result)
+            let responseJSON = try makeSuccessResponseJSON(id: id, resultData: resultData)
             await onResponse(responseJSON)
         } catch {
             let message = "Internal error: failed to encode response: \(self.errorMessage(from: error))"
@@ -333,113 +340,158 @@ final class RPCRouter {
         }
     }
 
-    private func makeSuccessResponseJSON(id: RPCIdentifier, result: Encodable?) throws -> String {
-        var envelope: [String: Any] = [
-            "jsonrpc": "2.0",
+    private func makeSuccessResponseJSON(id: RPCIdentifier, resultData: Data?) throws -> String {
+        var envelope: [String: JSONRPCValue] = [
+            "jsonrpc": .string("2.0"),
             "id": responseJSONValue(for: id),
         ]
-        envelope["result"] = try responseJSONValue(for: result)
+        envelope["result"] = try responseJSONValue(for: resultData)
         return try makeJSONString(from: envelope)
     }
 
     private func makeErrorResponseJSON(id: RPCIdentifier, code: Int, message: String) throws -> String {
-        let envelope: [String: Any] = [
-            "jsonrpc": "2.0",
+        let envelope: [String: JSONRPCValue] = [
+            "jsonrpc": .string("2.0"),
             "id": responseJSONValue(for: id),
-            "error": [
-                "code": code,
-                "message": message,
-            ],
+            "error": .object([
+                "code": .integer(Int64(code)),
+                "message": .string(message),
+            ]),
         ]
         return try makeJSONString(from: envelope)
     }
 
-    private func makeJSONString(from object: [String: Any]) throws -> String {
-        let data = try JSONSerialization.data(withJSONObject: object, options: [.sortedKeys])
+    private func makeJSONString(from object: [String: JSONRPCValue]) throws -> String {
+        let encoder = JSONEncoder()
+        encoder.outputFormatting = [.sortedKeys]
+        let data = try encoder.encode(JSONRPCValue.object(object))
         guard let encoded = String(data: data, encoding: .utf8) else {
             throw RPCRouterResponseEncodingError.invalidUTF8
         }
         return encoded
     }
 
-    private func responseJSONValue(for id: RPCIdentifier) -> Any {
+    private func responseJSONValue(for id: RPCIdentifier) -> JSONRPCValue {
         switch id {
         case .string(let value):
-            return value
+            return .string(value)
         case .integer(let value):
-            return NSNumber(value: value)
+            return .integer(value)
         case .double(let value):
-            return NSNumber(value: value)
+            return .double(value)
         case .null:
-            return NSNull()
+            return .null
         }
     }
 
-    private func responseJSONValue(for result: Encodable?) throws -> Any {
-        guard let result else {
-            return NSNull()
+    private func responseJSONValue(for resultData: Data?) throws -> JSONRPCValue {
+        guard let resultData else {
+            return .null
         }
-        let data = try JSONEncoder().encode(AnyEncodable(result))
-        return try JSONSerialization.jsonObject(with: data, options: [.fragmentsAllowed])
+        return try JSONDecoder().decode(JSONRPCValue.self, from: resultData)
     }
 
-    private func parseRequestID(_ raw: Any?) -> RPCRequestIDState {
+    private func parseRequestID(_ raw: JSONRPCValue?) -> RPCRequestIDState {
         guard let raw else {
             return .missing
         }
 
-        if let value = raw as? String {
+        switch raw {
+        case .string(let value):
             return .valid(.string(value))
-        }
-        if let value = raw as? NSNumber {
-            if CFGetTypeID(value) == CFBooleanGetTypeID() {
-                return .invalid
+        case .integer(let value):
+            return .valid(.integer(value))
+        case .double(let value):
+            if value.isFinite,
+                value.rounded(.towardZero) == value,
+                value >= Double(Int64.min),
+                value <= Double(Int64.max)
+            {
+                return .valid(.integer(Int64(value)))
             }
-            let integer = value.doubleValue
-            if integer == trunc(integer) && integer >= Double(Int64.min) && integer <= Double(Int64.max) {
-                return .valid(.integer(Int64(integer)))
-            }
-            return .valid(.double(integer))
-        }
-        if raw is NSNull {
+            return .valid(.double(value))
+        case .null:
             return .valid(.null)
+        case .object, .array, .bool:
+            return .invalid
         }
-
-        return .invalid
     }
 
     /// Return serialized `params` payload bytes for typed decoding.
     /// Returns `nil` when no params were provided so method defaulting can decide.
-    private func decodeParamsData(from rawParams: Any?) throws -> Data? {
+    private func decodeParamsData(from rawParams: JSONRPCValue?) throws -> Data? {
         guard let rawParams else {
             return nil
         }
 
-        if rawParams is NSNull {
+        if case .null = rawParams {
             throw RPCRouterParamsError.invalid("params is null")
         }
 
-        guard JSONSerialization.isValidJSONObject(rawParams) else {
-            throw RPCRouterParamsError.invalid("params is not valid JSON")
-        }
-
-        let data = try JSONSerialization.data(withJSONObject: rawParams)
-
-        return data
+        return try JSONEncoder().encode(rawParams)
     }
 }
 
-private struct AnyEncodable: Encodable {
-    private let encodeClosure: (Encoder) throws -> Void
+private enum JSONRPCValue: Codable, Sendable {
+    case object([String: Self])
+    case array([Self])
+    case string(String)
+    case integer(Int64)
+    case double(Double)
+    case bool(Bool)
+    case null
 
-    init(_ value: Encodable) {
-        encodeClosure = { encoder in
-            try value.encode(to: encoder)
+    init(from decoder: Decoder) throws {
+        let container = try decoder.singleValueContainer()
+        if container.decodeNil() {
+            self = .null
+            return
         }
+        if let object = try? container.decode([String: Self].self) {
+            self = .object(object)
+            return
+        }
+        if let array = try? container.decode([Self].self) {
+            self = .array(array)
+            return
+        }
+        if let string = try? container.decode(String.self) {
+            self = .string(string)
+            return
+        }
+        if let integer = try? container.decode(Int64.self) {
+            self = .integer(integer)
+            return
+        }
+        if let double = try? container.decode(Double.self) {
+            self = .double(double)
+            return
+        }
+        if let bool = try? container.decode(Bool.self) {
+            self = .bool(bool)
+            return
+        }
+        throw DecodingError.dataCorruptedError(in: container, debugDescription: "Unsupported JSON value")
     }
 
     func encode(to encoder: Encoder) throws {
-        try encodeClosure(encoder)
+        var container = encoder.singleValueContainer()
+        switch self {
+        case .object(let value):
+            try container.encode(value)
+        case .array(let value):
+            try container.encode(value)
+        case .string(let value):
+            try container.encode(value)
+        case .integer(let value):
+            try container.encode(value)
+        case .double(let value):
+            try container.encode(value)
+        case .bool(let value):
+            try container.encode(value)
+        case .null:
+            try container.encodeNil()
+        }
     }
 }
 
