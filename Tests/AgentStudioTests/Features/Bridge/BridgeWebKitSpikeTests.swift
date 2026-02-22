@@ -126,56 +126,57 @@ extension WebKitSerializedTests {
             let bridgeHandler = SpikeMessageHandler()
             let pageHandler = SpikeMessageHandler()
 
-            var config = WebPage.Configuration()
-            config.websiteDataStore = .nonPersistent()
+            var config = WebPageTestHarness.makeConfiguration()
             // Register handler in bridge world
             config.userContentController.add(bridgeHandler, contentWorld: bridgeWorld, name: "bridgeProbe")
             // Register handler in page world
             config.userContentController.add(pageHandler, contentWorld: .page, name: "pageProbe")
             config.urlSchemeHandlers[URLScheme("agentstudio")!] = BlankPageSchemeHandler()
 
-            let page = WebPage(
+            try await WebPageTestHarness.withManagedPage(
+                WebPage(
                 configuration: config,
                 navigationDecider: WebviewNavigationDecider(),
                 dialogPresenter: WebviewDialogHandler()
-            )
+                )
+            ) { page in
+                _ = page.load(URL(string: "agentstudio://app/blank.html")!)
+                try await waitForPageLoad(page)
 
-            _ = page.load(URL(string: "agentstudio://app/blank.html")!)
-            try await waitForPageLoad(page)
+                // Act -- set a global in bridge world
+                _ = try await page.callJavaScript(
+                    "window.__spikeVar = 'bridge-only'",
+                    contentWorld: bridgeWorld
+                )
+                await settleAsyncCallbacks()
 
-            // Act -- set a global in bridge world
-            _ = try await page.callJavaScript(
-                "window.__spikeVar = 'bridge-only'",
-                contentWorld: bridgeWorld
-            )
-            await settleAsyncCallbacks()
+                // Read from bridge world -- should see it
+                _ = try await page.callJavaScript(
+                    "window.webkit.messageHandlers.bridgeProbe.postMessage(window.__spikeVar || 'NOT_FOUND')",
+                    contentWorld: bridgeWorld
+                )
+                let sawBridgeMessage = await waitForMessageCount(bridgeHandler, atLeast: 1)
+                #expect(sawBridgeMessage, "Expected bridge world probe message")
 
-            // Read from bridge world -- should see it
-            _ = try await page.callJavaScript(
-                "window.webkit.messageHandlers.bridgeProbe.postMessage(window.__spikeVar || 'NOT_FOUND')",
-                contentWorld: bridgeWorld
-            )
-            let sawBridgeMessage = await waitForMessageCount(bridgeHandler, atLeast: 1)
-            #expect(sawBridgeMessage, "Expected bridge world probe message")
+                // Read from page world -- should NOT see it
+                _ = try await page.callJavaScript(
+                    "window.webkit.messageHandlers.pageProbe.postMessage(window.__spikeVar || 'NOT_FOUND')"
+                    // no contentWorld = page world
+                )
+                let sawPageMessage = await waitForMessageCount(pageHandler, atLeast: 1)
+                #expect(sawPageMessage, "Expected page world probe message")
 
-            // Read from page world -- should NOT see it
-            _ = try await page.callJavaScript(
-                "window.webkit.messageHandlers.pageProbe.postMessage(window.__spikeVar || 'NOT_FOUND')"
-                // no contentWorld = page world
-            )
-            let sawPageMessage = await waitForMessageCount(pageHandler, atLeast: 1)
-            #expect(sawPageMessage, "Expected page world probe message")
+                // Assert
+                #expect(bridgeHandler.receivedMessages.count == 1)
+                #expect(
+                    bridgeHandler.receivedMessages.first as? String == "bridge-only",
+                    "Bridge world should see its own global variable")
 
-            // Assert
-            #expect(bridgeHandler.receivedMessages.count == 1)
-            #expect(
-                bridgeHandler.receivedMessages.first as? String == "bridge-only",
-                "Bridge world should see its own global variable")
-
-            #expect(pageHandler.receivedMessages.count == 1)
-            #expect(
-                pageHandler.receivedMessages.first as? String == "NOT_FOUND",
-                "Page world should NOT see bridge world's global variable (isolation)")
+                #expect(pageHandler.receivedMessages.count == 1)
+                #expect(
+                    pageHandler.receivedMessages.first as? String == "NOT_FOUND",
+                    "Page world should NOT see bridge world's global variable (isolation)")
+            }
         }
 
         // MARK: - Item 3: WKUserScript with content world injection
@@ -197,8 +198,7 @@ extension WebKitSerializedTests {
             let bridgeHandler = SpikeMessageHandler()
             let pageHandler = SpikeMessageHandler()
 
-            var config = WebPage.Configuration()
-            config.websiteDataStore = .nonPersistent()
+            var config = WebPageTestHarness.makeConfiguration()
 
             // Inject user script in bridge world that sets a flag
             let script = WKUserScript(
@@ -214,43 +214,45 @@ extension WebKitSerializedTests {
             config.userContentController.add(pageHandler, contentWorld: .page, name: "pageProbe")
             config.urlSchemeHandlers[URLScheme("agentstudio")!] = BlankPageSchemeHandler()
 
-            let page = WebPage(
+            try await WebPageTestHarness.withManagedPage(
+                WebPage(
                 configuration: config,
                 navigationDecider: WebviewNavigationDecider(),
                 dialogPresenter: WebviewDialogHandler()
-            )
+                )
+            ) { page in
+                // Act -- load page to trigger user script injection
+                _ = page.load(URL(string: "agentstudio://app/blank.html")!)
+                try await waitForPageLoad(page)
 
-            // Act -- load page to trigger user script injection
-            _ = page.load(URL(string: "agentstudio://app/blank.html")!)
-            try await waitForPageLoad(page)
+                // Read flag from bridge world
+                _ = try await page.callJavaScript(
+                    "window.webkit.messageHandlers.bridgeProbe.postMessage(String(window.__testFlag))",
+                    contentWorld: world
+                )
+                let sawBridgeMessage = await waitForMessageCount(bridgeHandler, atLeast: 1)
+                #expect(sawBridgeMessage, "Expected bridge world script-injection probe message")
 
-            // Read flag from bridge world
-            _ = try await page.callJavaScript(
-                "window.webkit.messageHandlers.bridgeProbe.postMessage(String(window.__testFlag))",
-                contentWorld: world
-            )
-            let sawBridgeMessage = await waitForMessageCount(bridgeHandler, atLeast: 1)
-            #expect(sawBridgeMessage, "Expected bridge world script-injection probe message")
+                // Read flag from page world
+                _ = try await page.callJavaScript(
+                    "window.webkit.messageHandlers.pageProbe.postMessage(String(window.__testFlag))"
+                    // no contentWorld = page world
+                )
+                let sawPageMessage = await waitForMessageCount(pageHandler, atLeast: 1)
+                #expect(sawPageMessage, "Expected page world script-injection probe message")
 
-            // Read flag from page world
-            _ = try await page.callJavaScript(
-                "window.webkit.messageHandlers.pageProbe.postMessage(String(window.__testFlag))"
-                // no contentWorld = page world
-            )
-            let sawPageMessage = await waitForMessageCount(pageHandler, atLeast: 1)
-            #expect(sawPageMessage, "Expected page world script-injection probe message")
+                // Assert -- bridge world should see the flag
+                #expect(bridgeHandler.receivedMessages.count == 1)
+                #expect(
+                    bridgeHandler.receivedMessages.first as? String == "true",
+                    "WKUserScript injected with `in: world` should set __testFlag in bridge world")
 
-            // Assert -- bridge world should see the flag
-            #expect(bridgeHandler.receivedMessages.count == 1)
-            #expect(
-                bridgeHandler.receivedMessages.first as? String == "true",
-                "WKUserScript injected with `in: world` should set __testFlag in bridge world")
-
-            // Assert -- page world should NOT see the flag
-            #expect(pageHandler.receivedMessages.count == 1)
-            #expect(
-                pageHandler.receivedMessages.first as? String == "undefined",
-                "Page world should NOT see __testFlag set by bridge-world WKUserScript (isolation)")
+                // Assert -- page world should NOT see the flag
+                #expect(pageHandler.receivedMessages.count == 1)
+                #expect(
+                    pageHandler.receivedMessages.first as? String == "undefined",
+                    "Page world should NOT see __testFlag set by bridge-world WKUserScript (isolation)")
+            }
         }
 
         // MARK: - Item 4: Message handler scoped to content world
@@ -267,30 +269,31 @@ extension WebKitSerializedTests {
             let world = WKContentWorld.world(name: "testBridgeMsgHandler")
             let handler = SpikeMessageHandler()
 
-            var config = WebPage.Configuration()
-            config.websiteDataStore = .nonPersistent()
+            let config = WebPageTestHarness.makeConfiguration()
             config.userContentController.add(handler, contentWorld: world, name: "rpc")
 
-            let page = WebPage(
+            try await WebPageTestHarness.withManagedPage(
+                WebPage(
                 configuration: config,
                 navigationDecider: WebviewNavigationDecider(),
                 dialogPresenter: WebviewDialogHandler()
-            )
+                )
+            ) { page in
+                _ = page.load(URL(string: "about:blank")!)
+                try await waitForPageLoad(page)
 
-            _ = page.load(URL(string: "about:blank")!)
-            try await waitForPageLoad(page)
+                // Act -- post message FROM the bridge world
+                _ = try await page.callJavaScript(
+                    "window.webkit.messageHandlers.rpc.postMessage('hello')",
+                    contentWorld: world
+                )
+                let sawMessage = await waitForMessageCount(handler, atLeast: 1)
+                #expect(sawMessage, "Expected bridge-world handler message")
 
-            // Act -- post message FROM the bridge world
-            _ = try await page.callJavaScript(
-                "window.webkit.messageHandlers.rpc.postMessage('hello')",
-                contentWorld: world
-            )
-            let sawMessage = await waitForMessageCount(handler, atLeast: 1)
-            #expect(sawMessage, "Expected bridge-world handler message")
-
-            // Assert -- handler received the message
-            #expect(handler.receivedMessages.count == 1, "Message posted from bridge world should reach the handler")
-            #expect(handler.receivedMessages.first as? String == "hello", "Message body should be the posted value")
+                // Assert -- handler received the message
+                #expect(handler.receivedMessages.count == 1, "Message posted from bridge world should reach the handler")
+                #expect(handler.receivedMessages.first as? String == "hello", "Message body should be the posted value")
+            }
         }
 
         /// Verify that the page world cannot post to a message handler registered
@@ -305,31 +308,32 @@ extension WebKitSerializedTests {
             let world = WKContentWorld.world(name: "testBridgeMsgHandlerIsolation")
             let handler = SpikeMessageHandler()
 
-            var config = WebPage.Configuration()
-            config.websiteDataStore = .nonPersistent()
+            let config = WebPageTestHarness.makeConfiguration()
             config.userContentController.add(handler, contentWorld: world, name: "rpc")
 
-            let page = WebPage(
+            try await WebPageTestHarness.withManagedPage(
+                WebPage(
                 configuration: config,
                 navigationDecider: WebviewNavigationDecider(),
                 dialogPresenter: WebviewDialogHandler()
-            )
+                )
+            ) { page in
+                _ = page.load(URL(string: "about:blank")!)
+                try await waitForPageLoad(page)
 
-            _ = page.load(URL(string: "about:blank")!)
-            try await waitForPageLoad(page)
+                // Act -- attempt to access the handler from page world using optional chaining
+                // to avoid throwing if the handler doesn't exist
+                _ = try? await page.callJavaScript(
+                    "window.webkit?.messageHandlers?.rpc?.postMessage('evil')"
+                    // no contentWorld = page world
+                )
+                await settleAsyncCallbacks()
 
-            // Act -- attempt to access the handler from page world using optional chaining
-            // to avoid throwing if the handler doesn't exist
-            _ = try? await page.callJavaScript(
-                "window.webkit?.messageHandlers?.rpc?.postMessage('evil')"
-                // no contentWorld = page world
-            )
-            await settleAsyncCallbacks()
-
-            // Assert -- handler should NOT have received a message from page world
-            #expect(
-                handler.receivedMessages.isEmpty,
-                "Page world should NOT be able to post to a bridge-world-scoped message handler")
+                // Assert -- handler should NOT have received a message from page world
+                #expect(
+                    handler.receivedMessages.isEmpty,
+                    "Page world should NOT be able to post to a bridge-world-scoped message handler")
+            }
         }
 
         // MARK: - Helpers
@@ -337,8 +341,7 @@ extension WebKitSerializedTests {
         /// Create a WebPage with a scheme handler for tests that need a real
         /// HTML document.
         private func makeSchemeServedPage() -> WebPage {
-            var config = WebPage.Configuration()
-            config.websiteDataStore = .nonPersistent()
+            var config = WebPageTestHarness.makeConfiguration()
             config.urlSchemeHandlers[URLScheme("agentstudio")!] = BlankPageSchemeHandler()
             return WebPage(
                 configuration: config,

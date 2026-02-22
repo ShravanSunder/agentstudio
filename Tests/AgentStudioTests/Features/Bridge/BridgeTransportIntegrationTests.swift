@@ -218,8 +218,7 @@ extension WebKitSerializedTests {
             let bridgeWorld = WKContentWorld.world(name: "agentStudioBridge")
             let pageProbe = IntegrationTestMessageHandler()
 
-            var config = WebPage.Configuration()
-            config.websiteDataStore = .nonPersistent()
+            var config = WebPageTestHarness.makeConfiguration()
 
             // Same message handler setup as BridgePaneController
             let messageHandler = RPCMessageHandler()
@@ -246,29 +245,31 @@ extension WebKitSerializedTests {
             // Additional: page-world probe handler for test verification
             config.userContentController.add(pageProbe, contentWorld: .page, name: "pageProbe")
 
-            let page = WebPage(
-                configuration: config,
-                navigationDecider: BridgeNavigationDecider(),
-                dialogPresenter: WebviewDialogHandler()
-            )
+            try await WebPageTestHarness.withManagedPage(
+                WebPage(
+                    configuration: config,
+                    navigationDecider: BridgeNavigationDecider(),
+                    dialogPresenter: WebviewDialogHandler()
+                )
+            ) { page in
+                // Act — load the app (triggers bootstrap script injection in bridge world)
+                _ = page.load(URL(string: "agentstudio://app/index.html")!)
+                try await waitForPageLoad(page)
 
-            // Act — load the app (triggers bootstrap script injection in bridge world)
-            _ = page.load(URL(string: "agentstudio://app/index.html")!)
-            try await waitForPageLoad(page)
+                // Execute JS in page world (no contentWorld = page world) to check isolation
+                _ = try await page.callJavaScript(
+                    "window.webkit.messageHandlers.pageProbe.postMessage(typeof window.__bridgeInternal)"
+                    // no contentWorld parameter → runs in page world
+                )
+                let sawProbeMessage = await waitForMessageCount(pageProbe, atLeast: 1)
+                #expect(sawProbeMessage, "Expected page-world probe callback")
 
-            // Execute JS in page world (no contentWorld = page world) to check isolation
-            _ = try await page.callJavaScript(
-                "window.webkit.messageHandlers.pageProbe.postMessage(typeof window.__bridgeInternal)"
-                // no contentWorld parameter → runs in page world
-            )
-            let sawProbeMessage = await waitForMessageCount(pageProbe, atLeast: 1)
-            #expect(sawProbeMessage, "Expected page-world probe callback")
-
-            // Assert — page world should see __bridgeInternal as undefined
-            #expect(pageProbe.receivedMessages.count == 1, "Page world probe should receive exactly one message")
-            #expect(
-                pageProbe.receivedMessages.first as? String == "undefined",
-                "window.__bridgeInternal should be 'undefined' in page world (content world isolation)")
+                // Assert — page world should see __bridgeInternal as undefined
+                #expect(pageProbe.receivedMessages.count == 1, "Page world probe should receive exactly one message")
+                #expect(
+                    pageProbe.receivedMessages.first as? String == "undefined",
+                    "window.__bridgeInternal should be 'undefined' in page world (content world isolation)")
+            }
         }
 
         // MARK: - Helpers

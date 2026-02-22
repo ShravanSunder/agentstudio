@@ -52,12 +52,17 @@ extension WebKitSerializedTests {
             }
         }
 
-        @Test("handleBridgeReady sets bridge readiness and teardown resets it")
-        func handleBridgeReady_setsReadyAndTeardownResets() {
-            let controller = BridgePaneController(
+        private func makeController() -> BridgePaneController {
+            BridgePaneController(
                 paneId: UUID(),
                 state: BridgePaneState(panelKind: .diffViewer, source: nil)
             )
+        }
+
+        @Test("handleBridgeReady sets bridge readiness and teardown resets it")
+        func handleBridgeReady_setsReadyAndTeardownResets() {
+            let controller = makeController()
+            defer { controller.teardown() }
 
             #expect(controller.isBridgeReady == false)
 
@@ -70,10 +75,8 @@ extension WebKitSerializedTests {
 
         @Test("handleBridgeReady is idempotent while ready")
         func handleBridgeReady_isIdempotent() {
-            let controller = BridgePaneController(
-                paneId: UUID(),
-                state: BridgePaneState(panelKind: .diffViewer, source: nil)
-            )
+            let controller = makeController()
+            defer { controller.teardown() }
 
             controller.handleBridgeReady()
             #expect(controller.isBridgeReady == true)
@@ -84,10 +87,8 @@ extension WebKitSerializedTests {
 
         @Test("teardown allows bridge ready cycle to restart")
         func teardown_allowsReadyToRestartAfterReset() {
-            let controller = BridgePaneController(
-                paneId: UUID(),
-                state: BridgePaneState(panelKind: .diffViewer, source: nil)
-            )
+            let controller = makeController()
+            defer { controller.teardown() }
 
             controller.handleBridgeReady()
             #expect(controller.isBridgeReady == true)
@@ -102,10 +103,8 @@ extension WebKitSerializedTests {
         @Test("non-ready command does not execute handler")
         func nonReady_command_does_not_execute_handler() async {
             // Arrange
-            let controller = BridgePaneController(
-                paneId: UUID(),
-                state: BridgePaneState(panelKind: .diffViewer, source: nil)
-            )
+            let controller = makeController()
+            defer { controller.teardown() }
             let executedFileId = SendableBox<String?>(nil)
 
             controller.router.register(method: DiffRequestFileContentsMethod.self) { params in
@@ -126,10 +125,8 @@ extension WebKitSerializedTests {
         @Test("ready command executes handler")
         func ready_command_executes_handler() async {
             // Arrange
-            let controller = BridgePaneController(
-                paneId: UUID(),
-                state: BridgePaneState(panelKind: .diffViewer, source: nil)
-            )
+            let controller = makeController()
+            defer { controller.teardown() }
             let executedFileId = SendableBox<String?>(nil)
 
             controller.router.register(method: DiffRequestFileContentsMethod.self) { params in
@@ -155,10 +152,8 @@ extension WebKitSerializedTests {
         @Test("non-ready command requests with id return bridge-not-ready error")
         func nonReady_command_requests_with_id_return_bridge_not_ready_error() async {
             // Arrange
-            let controller = BridgePaneController(
-                paneId: UUID(),
-                state: BridgePaneState(panelKind: .diffViewer, source: nil)
-            )
+            let controller = makeController()
+            defer { controller.teardown() }
             var errorCode: Int?
             controller.router.onError = { code, _, _ in errorCode = code }
             controller.router.onResponse = { _ in }
@@ -176,10 +171,8 @@ extension WebKitSerializedTests {
         @Test("implemented review handlers succeed and stub handlers reject")
         func implemented_review_handlers_succeed_and_stub_handlers_reject() async {
             // Arrange
-            let controller = BridgePaneController(
-                paneId: UUID(),
-                state: BridgePaneState(panelKind: .diffViewer, source: nil)
-            )
+            let controller = makeController()
+            defer { controller.teardown() }
             var errorCode: Int?
             controller.router.onError = { code, _, _ in errorCode = code }
 
@@ -227,10 +220,8 @@ extension WebKitSerializedTests {
         @Test("unknown method still returns 32601")
         func unknown_method_returns_32601() async {
             // Arrange
-            let controller = BridgePaneController(
-                paneId: UUID(),
-                state: BridgePaneState(panelKind: .diffViewer, source: nil)
-            )
+            let controller = makeController()
+            defer { controller.teardown() }
             var errorCode: Int?
             controller.router.onError = { code, _, _ in errorCode = code }
 
@@ -251,10 +242,8 @@ extension WebKitSerializedTests {
         @Test("command success is emitted as agent ack")
         func command_success_emits_command_ack() async {
             // Arrange
-            let controller = BridgePaneController(
-                paneId: UUID(),
-                state: BridgePaneState(panelKind: .diffViewer, source: nil)
-            )
+            let controller = makeController()
+            defer { controller.teardown() }
             var observedAck: CommandAck?
             controller.router.onCommandAck = { observedAck = $0 }
 
@@ -274,10 +263,8 @@ extension WebKitSerializedTests {
 
         @Test("first unique __commandId records one ack in agent state")
         func first_unique_commandId_records_one_ack_in_agent_state() async {
-            let controller = BridgePaneController(
-                paneId: UUID(),
-                state: BridgePaneState(panelKind: .diffViewer, source: nil)
-            )
+            let controller = makeController()
+            defer { controller.teardown() }
 
             await controller.handleIncomingRPC(
                 #"{"jsonrpc":"2.0","method":"bridge.ready","params":{}}"#
@@ -296,10 +283,8 @@ extension WebKitSerializedTests {
 
         @Test("duplicate __commandId does not execute twice or emit duplicate ack")
         func duplicate_commandId_does_not_reexecute_or_duplicate_ack() async {
-            let controller = BridgePaneController(
-                paneId: UUID(),
-                state: BridgePaneState(panelKind: .diffViewer, source: nil)
-            )
+            let controller = makeController()
+            defer { controller.teardown() }
             let executionCount = SendableBox(0)
             var ackCount = 0
 
@@ -332,10 +317,8 @@ extension WebKitSerializedTests {
 
         @Test("handler failure emits rejected ack with reason")
         func handler_failure_emits_rejected_ack_with_reason() async {
-            let controller = BridgePaneController(
-                paneId: UUID(),
-                state: BridgePaneState(panelKind: .diffViewer, source: nil)
-            )
+            let controller = makeController()
+            defer { controller.teardown() }
 
             controller.router.register(method: AgentFailureProbeMethod.self) { _ in
                 throw NSError(
@@ -360,10 +343,8 @@ extension WebKitSerializedTests {
 
         @Test("teardown clears command acks")
         func teardown_clears_command_acks() async {
-            let controller = BridgePaneController(
-                paneId: UUID(),
-                state: BridgePaneState(panelKind: .diffViewer, source: nil)
-            )
+            let controller = makeController()
+            defer { controller.teardown() }
 
             await controller.handleIncomingRPC(
                 #"{"jsonrpc":"2.0","method":"bridge.ready","params":{}}"#
@@ -380,10 +361,8 @@ extension WebKitSerializedTests {
 
         @Test("pushJSON encoding failure does not degrade connection health")
         func pushJSON_encoding_failure_does_not_mark_connection_error() async {
-            let controller = BridgePaneController(
-                paneId: UUID(),
-                state: BridgePaneState(panelKind: .diffViewer, source: nil)
-            )
+            let controller = makeController()
+            defer { controller.teardown() }
             controller.paneState.connection.setHealth(.connected)
 
             await controller.pushJSON(
@@ -400,10 +379,8 @@ extension WebKitSerializedTests {
 
         @Test("pushJSON transport failure marks connection health as error")
         func pushJSON_transport_failure_marks_connection_error() async throws {
-            let controller = BridgePaneController(
-                paneId: UUID(),
-                state: BridgePaneState(panelKind: .diffViewer, source: nil)
-            )
+            let controller = makeController()
+            defer { controller.teardown() }
             controller.paneState.connection.setHealth(.connected)
 
             let validPayload = try JSONEncoder().encode(["ok": true])
@@ -421,10 +398,8 @@ extension WebKitSerializedTests {
 
         @Test("failed transport does not poison content dedup cache")
         func pushJSON_failed_transport_does_not_poison_dedup_cache() async throws {
-            let controller = BridgePaneController(
-                paneId: UUID(),
-                state: BridgePaneState(panelKind: .diffViewer, source: nil)
-            )
+            let controller = makeController()
+            defer { controller.teardown() }
             let validPayload = try JSONEncoder().encode(["ok": true])
 
             controller.paneState.connection.setHealth(.connected)
@@ -454,10 +429,8 @@ extension WebKitSerializedTests {
 
         @Test("invalid router response payload marks connection health as error")
         func invalid_router_response_payload_marks_connection_error() async {
-            let controller = BridgePaneController(
-                paneId: UUID(),
-                state: BridgePaneState(panelKind: .diffViewer, source: nil)
-            )
+            let controller = makeController()
+            defer { controller.teardown() }
             controller.paneState.connection.setHealth(.connected)
 
             await controller.router.onResponse("not-json")

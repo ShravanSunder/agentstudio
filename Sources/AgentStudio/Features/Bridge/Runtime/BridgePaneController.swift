@@ -207,6 +207,7 @@ final class BridgePaneController {
     ///
     /// Called when the pane is being removed or the controller is being deallocated.
     func teardown() {
+        page.stopLoading()
         diffPushPlan?.stop()
         reviewPushPlan?.stop()
         connectionPushPlan?.stop()
