@@ -63,6 +63,19 @@ struct PaneCoordinatorHardeningTests {
         )
     }
 
+    private func makeWorktreePane(
+        _ store: WorkspaceStore,
+        repo: Repo,
+        worktree: Worktree,
+        title: String
+    ) -> Pane {
+        store.createPane(
+            source: .worktree(worktreeId: worktree.id, repoId: repo.id),
+            title: title,
+            provider: .zmx
+        )
+    }
+
     @Test("openTerminal rolls back pane and tab state when surface creation fails")
     func openTerminal_rollsBackOnSurfaceCreationFailure() {
         let harness = makeHarness()
@@ -181,6 +194,192 @@ struct PaneCoordinatorHardeningTests {
         #expect(harness.store.tab(tab.id)?.paneIds == [targetPane.id])
         #expect(harness.surfaceManager.createSurfaceCallCount == 1)
     }
+
+    @Test("reactivatePane re-backgrounds pane if view creation fails")
+    func reactivatePane_rollsBackWhenViewCreationFails() {
+        let harness = makeHarness()
+        defer { try? FileManager.default.removeItem(at: harness.tempDir) }
+
+        let (repo, worktree) = makeRepoAndWorktree(harness.store, root: harness.tempDir)
+        let targetPane = makeWebviewPane(harness.store, title: "Target")
+        let tab = Tab(paneId: targetPane.id)
+        harness.store.appendTab(tab)
+
+        let backgroundPane = makeWorktreePane(harness.store, repo: repo, worktree: worktree, title: "Background")
+        harness.store.setResidency(.backgrounded, for: backgroundPane.id)
+
+        harness.coordinator.execute(
+            .reactivatePane(
+                paneId: backgroundPane.id,
+                targetTabId: tab.id,
+                targetPaneId: targetPane.id,
+                direction: .right
+            )
+        )
+
+        #expect(harness.store.pane(backgroundPane.id)?.residency == .backgrounded)
+        #expect(!(harness.store.tab(tab.id)?.paneIds.contains(backgroundPane.id) ?? false))
+    }
+
+    @Test("addDrawerPane rolls back store changes when view creation fails")
+    func addDrawerPane_rollsBackOnViewCreationFailure() {
+        let harness = makeHarness()
+        defer { try? FileManager.default.removeItem(at: harness.tempDir) }
+
+        let (repo, worktree) = makeRepoAndWorktree(harness.store, root: harness.tempDir)
+        let parentPane = makeWorktreePane(harness.store, repo: repo, worktree: worktree, title: "Parent")
+        let tab = Tab(paneId: parentPane.id)
+        harness.store.appendTab(tab)
+
+        let paneIdsBefore = Set(harness.store.panes.keys)
+        harness.coordinator.execute(.addDrawerPane(parentPaneId: parentPane.id))
+
+        #expect(Set(harness.store.panes.keys) == paneIdsBefore)
+        #expect(harness.store.pane(parentPane.id)?.drawer?.paneIds.isEmpty == true)
+    }
+
+    @Test("insertDrawerPane rolls back store changes when view creation fails")
+    func insertDrawerPane_rollsBackOnViewCreationFailure() {
+        let harness = makeHarness()
+        defer { try? FileManager.default.removeItem(at: harness.tempDir) }
+
+        let (repo, worktree) = makeRepoAndWorktree(harness.store, root: harness.tempDir)
+        let parentPane = makeWorktreePane(harness.store, repo: repo, worktree: worktree, title: "Parent")
+        let tab = Tab(paneId: parentPane.id)
+        harness.store.appendTab(tab)
+        guard let existingDrawerPane = harness.store.addDrawerPane(to: parentPane.id) else {
+            Issue.record("Expected initial drawer pane creation")
+            return
+        }
+
+        let paneIdsBefore = Set(harness.store.panes.keys)
+        harness.coordinator.execute(
+            .insertDrawerPane(
+                parentPaneId: parentPane.id,
+                targetDrawerPaneId: existingDrawerPane.id,
+                direction: .right
+            )
+        )
+
+        #expect(Set(harness.store.panes.keys) == paneIdsBefore)
+        #expect(harness.store.pane(parentPane.id)?.drawer?.paneIds == [existingDrawerPane.id])
+    }
+
+    @Test("repair recreateSurface does not bump viewRevision when view recreation fails")
+    func repairRecreateSurface_doesNotBumpRevisionOnFailure() {
+        let harness = makeHarness()
+        defer { try? FileManager.default.removeItem(at: harness.tempDir) }
+
+        let (repo, worktree) = makeRepoAndWorktree(harness.store, root: harness.tempDir)
+        let pane = makeWorktreePane(harness.store, repo: repo, worktree: worktree, title: "Repair")
+        let tab = Tab(paneId: pane.id)
+        harness.store.appendTab(tab)
+        let revisionBefore = harness.store.viewRevision
+
+        harness.coordinator.execute(.repair(.recreateSurface(paneId: pane.id)))
+
+        #expect(harness.store.viewRevision == revisionBefore)
+    }
+
+    @Test("undoTabClose keeps tab only with successfully restored panes")
+    func undoTabClose_partialRestore_removesFailedPanes() {
+        let harness = makeHarness()
+        defer { try? FileManager.default.removeItem(at: harness.tempDir) }
+
+        let (repo, worktree) = makeRepoAndWorktree(harness.store, root: harness.tempDir)
+        let terminalPane = makeWorktreePane(harness.store, repo: repo, worktree: worktree, title: "Terminal")
+        let webviewPane = makeWebviewPane(harness.store, title: "Web")
+        let tab = Tab(paneId: terminalPane.id)
+        harness.store.appendTab(tab)
+        harness.store.insertPane(
+            webviewPane.id,
+            inTab: tab.id,
+            at: terminalPane.id,
+            direction: .horizontal,
+            position: .after
+        )
+
+        harness.coordinator.execute(.closeTab(tabId: tab.id))
+        harness.coordinator.undoCloseTab()
+
+        guard let restoredTab = harness.store.tab(tab.id) else {
+            Issue.record("Expected tab to remain after partial restore")
+            return
+        }
+        #expect(restoredTab.paneIds == [webviewPane.id])
+        #expect(harness.store.pane(terminalPane.id) == nil)
+        #expect(harness.viewRegistry.view(for: webviewPane.id) != nil)
+    }
+
+    @Test("undoTabClose removes empty tab when all pane restorations fail")
+    func undoTabClose_allRestoreFailures_removesTab() {
+        let harness = makeHarness()
+        defer { try? FileManager.default.removeItem(at: harness.tempDir) }
+
+        let (repo, worktree) = makeRepoAndWorktree(harness.store, root: harness.tempDir)
+        let terminalPane = makeWorktreePane(harness.store, repo: repo, worktree: worktree, title: "Terminal")
+        let tab = Tab(paneId: terminalPane.id)
+        harness.store.appendTab(tab)
+
+        harness.coordinator.execute(.closeTab(tabId: tab.id))
+        harness.coordinator.undoCloseTab()
+
+        #expect(harness.store.tab(tab.id) == nil)
+        #expect(harness.store.activeTabId == nil)
+        #expect(harness.store.pane(terminalPane.id) == nil)
+    }
+
+    @Test("undoCloseTab skips orphaned drawer-child pane snapshots safely")
+    func undoCloseTab_skipsOrphanedDrawerChildSnapshot() {
+        let harness = makeHarness()
+        defer { try? FileManager.default.removeItem(at: harness.tempDir) }
+
+        let tabPane = makeWebviewPane(harness.store, title: "Anchor")
+        let tab = Tab(paneId: tabPane.id)
+        harness.store.appendTab(tab)
+
+        let missingParentPaneId = UUID()
+        let drawerChildPane = Pane(
+            content: .webview(WebviewState(url: URL(string: "https://example.com/orphan")!, showNavigation: true)),
+            metadata: PaneMetadata(source: .floating(workingDirectory: nil, title: "Orphan"), title: "Orphan"),
+            kind: .drawerChild(parentPaneId: missingParentPaneId)
+        )
+        let snapshot = WorkspaceStore.PaneCloseSnapshot(
+            pane: drawerChildPane,
+            drawerChildPanes: [],
+            tabId: tab.id,
+            anchorPaneId: missingParentPaneId,
+            direction: .horizontal
+        )
+        harness.coordinator.undoStack.append(.pane(snapshot))
+
+        harness.coordinator.undoCloseTab()
+
+        #expect(harness.coordinator.undoStack.isEmpty)
+        #expect(harness.store.pane(drawerChildPane.id) == nil)
+    }
+
+    @Test("undo GC removes orphaned panes after stack overflows max entries")
+    func undoGc_removesExpiredPaneResources() {
+        let harness = makeHarness()
+        defer { try? FileManager.default.removeItem(at: harness.tempDir) }
+
+        var closedPaneIds: [UUID] = []
+        for index in 0...(harness.coordinator.maxUndoStackSize) {
+            let pane = makeWebviewPane(harness.store, title: "Pane \(index)")
+            let tab = Tab(paneId: pane.id)
+            harness.store.appendTab(tab)
+            harness.coordinator.execute(.closeTab(tabId: tab.id))
+            closedPaneIds.append(pane.id)
+        }
+
+        #expect(harness.coordinator.undoStack.count == harness.coordinator.maxUndoStackSize)
+        guard let oldestClosedPaneId = closedPaneIds.first else {
+            Issue.record("Expected at least one closed pane id")
+            return
+        }
+        #expect(harness.store.pane(oldestClosedPaneId) == nil)
+    }
 }
 
 @MainActor
@@ -219,6 +418,8 @@ private final class MockPaneCoordinatorSurfaceManager: PaneCoordinatorSurfaceMan
     func undoClose() -> ManagedSurface? {
         nil
     }
+
+    func requeueUndo(_ surfaceId: UUID) {}
 
     func destroy(_ surfaceId: UUID) {}
 }

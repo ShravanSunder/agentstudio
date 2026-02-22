@@ -65,6 +65,42 @@ struct PaneCoordinatorRuntimeDispatchTests {
 
         try? FileManager.default.removeItem(at: tempDir)
     }
+
+    @Test("closeTab teardown unregisters runtime from registry")
+    func closeTab_unregistersRuntime() {
+        let tempDir = FileManager.default.temporaryDirectory
+            .appending(path: "agentstudio-pane-coordinator-runtime-close-\(UUID().uuidString)")
+        let store = WorkspaceStore(persistor: WorkspacePersistor(workspacesDir: tempDir))
+        store.restore()
+        let viewRegistry = ViewRegistry()
+        let runtime = SessionRuntime(store: store)
+        let mockSurfaceManager = MockPaneCoordinatorSurfaceManager()
+        let runtimeRegistry = RuntimeRegistry()
+        let coordinator = PaneCoordinator(
+            store: store,
+            viewRegistry: viewRegistry,
+            runtime: runtime,
+            surfaceManager: mockSurfaceManager,
+            runtimeRegistry: runtimeRegistry
+        )
+
+        let pane = store.createPane(
+            content: .webview(WebviewState(url: URL(string: "https://example.com/runtime-close")!)),
+            metadata: PaneMetadata(source: .floating(workingDirectory: nil, title: "RuntimeClose"), title: "RuntimeClose")
+        )
+        let tab = Tab(paneId: pane.id)
+        store.appendTab(tab)
+
+        let fakeRuntime = FakePaneRuntime(paneId: PaneId(uuid: pane.id))
+        coordinator.registerRuntime(fakeRuntime)
+        #expect(coordinator.runtimeForPane(PaneId(uuid: pane.id)) != nil)
+
+        coordinator.execute(.closeTab(tabId: tab.id))
+
+        #expect(coordinator.runtimeForPane(PaneId(uuid: pane.id)) == nil)
+
+        try? FileManager.default.removeItem(at: tempDir)
+    }
 }
 
 @MainActor
@@ -147,6 +183,8 @@ private final class MockPaneCoordinatorSurfaceManager: PaneCoordinatorSurfaceMan
     func undoClose() -> ManagedSurface? {
         nil
     }
+
+    func requeueUndo(_ surfaceId: UUID) {}
 
     func destroy(_ surfaceId: UUID) {}
 }

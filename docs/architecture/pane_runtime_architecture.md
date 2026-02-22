@@ -334,7 +334,9 @@ protocol PaneRuntime: AnyObject {
     func shutdown(timeout: Duration) async -> [UUID]
 }
 
-typealias PaneId = UUID
+struct PaneId: Hashable, Codable, Sendable {
+    let uuid: UUID
+}
 typealias WorktreeId = UUID
 ```
 
@@ -342,9 +344,10 @@ typealias WorktreeId = UUID
 > are derived identities. See
 > [Session Lifecycle — Identity Contract (Canonical)](session_lifecycle.md#identity-contract-canonical).
 >
-> **Current Code Status (LUNA-342 branch):**
+> **Current Code Status (LUNA-343 branch):**
 > - `PaneRuntime` now includes replay wiring via `eventsSince(seq:)`.
 > - `PaneMetadata` now includes rich identity fields (`contentType`, `executionBackend`, `createdAt`, `repoId`, `worktreeId`, `parentFolder`, `checkoutRef`).
+> - `PaneId` is now a first-class value type (`struct`) with UUIDv7-backed generation for new panes and UUID compatibility decoding for persisted legacy workspaces.
 > - Compatibility is preserved through a legacy initializer accepting `TerminalSource` and a compatibility `terminalSource` computed property.
 
 #### Supporting Types

@@ -2,7 +2,7 @@
 
 ## TL;DR
 
-A pane's identity (`UUID`) is stable across its entire lifecycle — creation, layout changes, view switches, close/undo, persistence, and restore. `WorkspaceStore` owns pane records. `SessionRuntime` tracks runtime health. `PaneCoordinator` bridges panes to surfaces. Panes can be undone via a `CloseEntry` stack. The zmx backend provides persistence across app restarts.
+A pane's identity (`PaneId`) is stable across its entire lifecycle — creation, layout changes, view switches, close/undo, persistence, and restore. `WorkspaceStore` owns pane records. `SessionRuntime` tracks runtime health. `PaneCoordinator` bridges panes to surfaces. Panes can be undone via a `CloseEntry` stack. The zmx backend provides persistence across app restarts.
 
 ---
 
@@ -16,7 +16,7 @@ derivation.
 
 | Identifier | Type | Owner | Persisted | Generation | Used For |
 |------------|------|-------|-----------|------------|----------|
-| `PaneId` | `UUID` | `WorkspaceStore` | Yes | `Pane.init(id: UUID = UUID(), ...)` | Universal pane identity across store/layout/view/runtime/surface |
+| `PaneId` | `PaneId` (`struct` wrapping `UUID`) | `WorkspaceStore` | Yes | `Pane.init(id: UUID = UUIDv7.generate(), ...)` with `PaneMetadata.paneId = PaneId(uuid: id)` | Universal pane identity across store/layout/view/runtime/surface |
 | `RepoStableKey` | `String` (16 hex) | `Repo` | Derived | `StableKey.fromPath(repoPath)` | Deterministic zmx key segment |
 | `WorktreeStableKey` | `String` (16 hex) | `Worktree` | Derived | `StableKey.fromPath(worktree.path)` | Deterministic zmx key segment |
 | `MainZmxSessionId` | `String` (65 chars) | `ZmxBackend` | Derived | `agentstudio--<repo16>--<worktree16>--<pane16>` | zmx daemon/socket identity for layout panes |
@@ -39,7 +39,7 @@ PaneCoordinator.create/open*
     |
     v
 WorkspaceStore.createPane(...)
-    -> Pane(id = UUID())      <-- PaneId minted once
+    -> Pane(id = UUIDv7.generate())      <-- PaneId minted once
     -> panes[paneId] = Pane
     |
     v

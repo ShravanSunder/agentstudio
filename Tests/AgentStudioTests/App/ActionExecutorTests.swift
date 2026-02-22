@@ -698,7 +698,10 @@ final class ActionExecutorTests {
     @Test
     func test_executeRepair_recreateSurface_bumpsViewRevision() {
         // Arrange
-        let pane = store.createPane(source: .floating(workingDirectory: nil, title: nil))
+        let pane = store.createPane(
+            content: .webview(WebviewState(url: URL(string: "https://example.com/recreate")!)),
+            metadata: PaneMetadata(source: .floating(workingDirectory: nil, title: "Recreate"), title: "Recreate")
+        )
         let tab = Tab(paneId: pane.id)
         store.appendTab(tab)
         let stubView = PaneView(paneId: pane.id)
@@ -715,7 +718,10 @@ final class ActionExecutorTests {
     @Test
     func test_executeRepair_createMissingView_bumpsViewRevision() {
         // Arrange
-        let pane = store.createPane(source: .floating(workingDirectory: nil, title: nil))
+        let pane = store.createPane(
+            content: .webview(WebviewState(url: URL(string: "https://example.com/missing")!)),
+            metadata: PaneMetadata(source: .floating(workingDirectory: nil, title: "Missing"), title: "Missing")
+        )
         let tab = Tab(paneId: pane.id)
         store.appendTab(tab)
         #expect(store.viewRevision == 0)

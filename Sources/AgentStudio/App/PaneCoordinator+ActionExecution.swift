@@ -185,7 +185,13 @@ extension PaneCoordinator {
                 position: position
             )
             if viewRegistry.view(for: paneId) == nil, let pane = store.pane(paneId) {
-                createViewForContent(pane: pane)
+                guard createViewForContent(pane: pane) != nil else {
+                    paneCoordinatorLogger.error(
+                        "reactivatePane: view creation failed for \(paneId) — rolling pane back to background"
+                    )
+                    store.backgroundPane(paneId)
+                    break
+                }
             }
 
         case .purgeOrphanedPane(let paneId):
@@ -196,8 +202,10 @@ extension PaneCoordinator {
         case .addDrawerPane(let parentPaneId):
             if let drawerPane = store.addDrawerPane(to: parentPaneId) {
                 if createViewForContent(pane: drawerPane) == nil {
-                    paneCoordinatorLogger.warning(
-                        "addDrawerPane: view creation failed for \(drawerPane.id) — panel will show placeholder")
+                    paneCoordinatorLogger.error(
+                        "addDrawerPane: view creation failed for \(drawerPane.id) — rolling back drawer pane"
+                    )
+                    rollbackDrawerPaneCreation(drawerPane.id, from: parentPaneId)
                 }
             }
 
@@ -276,6 +284,8 @@ extension PaneCoordinator {
 
         if let snapshot = store.snapshotForClose(tabId: tabId) {
             undoStack.append(.tab(snapshot))
+        } else {
+            paneCoordinatorLogger.warning("closeTab: snapshot failed for tab \(tabId); undo will be unavailable")
         }
 
         if let tab = store.tab(tabId) {
@@ -294,16 +304,7 @@ extension PaneCoordinator {
         while undoStack.count > maxUndoStackSize {
             let expired = undoStack.removeFirst()
 
-            let allOwnedPaneIds = Set(
-                store.tabs.flatMap { tab in
-                    tab.panes.flatMap { paneId -> [UUID] in
-                        var ids = [paneId]
-                        if let drawer = store.pane(paneId)?.drawer {
-                            ids.append(contentsOf: drawer.paneIds)
-                        }
-                        return ids
-                    }
-                })
+            let allOwnedPaneIds = currentOwnedPaneIds()
 
             let expiredPanes: [Pane]
             switch expired {
@@ -319,6 +320,20 @@ extension PaneCoordinator {
         }
     }
 
+    private func currentOwnedPaneIds() -> Set<UUID> {
+        Set(
+            store.tabs.flatMap { tab in
+                tab.panes.flatMap { paneId -> [UUID] in
+                    var paneIds = [paneId]
+                    if let drawer = store.pane(paneId)?.drawer {
+                        paneIds.append(contentsOf: drawer.paneIds)
+                    }
+                    return paneIds
+                }
+            }
+        )
+    }
+
     private func executeBreakUpTab(_ tabId: UUID) {
         let newTabs = store.breakUpTab(tabId)
         if newTabs.isEmpty {
@@ -327,16 +342,34 @@ extension PaneCoordinator {
     }
 
     private func executeClosePane(tabId: UUID, paneId: UUID) {
-        if let tab = store.tab(tabId), tab.paneIds.count <= 1 {
+        guard let closingPane = store.pane(paneId) else {
+            paneCoordinatorLogger.warning("closePane: pane \(paneId) not found")
+            return
+        }
+
+        if !closingPane.isDrawerChild, let tab = store.tab(tabId), tab.paneIds.count <= 1 {
             executeCloseTab(tabId)
             return
         }
 
         if let snapshot = store.snapshotForPaneClose(paneId: paneId, inTab: tabId) {
             undoStack.append(.pane(snapshot))
+        } else {
+            paneCoordinatorLogger.warning("closePane: snapshot failed for pane \(paneId) in tab \(tabId)")
         }
 
-        let drawerChildIds = store.pane(paneId)?.drawer?.paneIds ?? []
+        if closingPane.isDrawerChild {
+            teardownView(for: paneId)
+            if let parentPaneId = closingPane.parentPaneId {
+                store.removeDrawerPane(paneId, from: parentPaneId)
+            } else {
+                store.removePane(paneId)
+            }
+            expireOldUndoEntries()
+            return
+        }
+
+        let drawerChildIds = closingPane.drawer?.paneIds ?? []
         teardownDrawerPanes(for: paneId)
         teardownView(for: paneId)
         let tabNowEmpty = store.removePaneFromLayout(paneId, inTab: tabId)
@@ -347,10 +380,10 @@ extension PaneCoordinator {
         }
 
         for drawerPaneId in drawerChildIds {
-            store.removePane(drawerPaneId)
+            store.removeDrawerPane(drawerPaneId, from: paneId)
         }
 
-        let allOwnedPaneIds = Set(store.tabs.flatMap(\.panes))
+        let allOwnedPaneIds = currentOwnedPaneIds()
         if !allOwnedPaneIds.contains(paneId) {
             store.removePane(paneId)
         }
@@ -426,7 +459,10 @@ extension PaneCoordinator {
         else { return }
 
         if createViewForContent(pane: drawerPane) == nil {
-            paneCoordinatorLogger.warning("insertDrawerPane: view creation failed for \(drawerPane.id)")
+            paneCoordinatorLogger.error(
+                "insertDrawerPane: view creation failed for \(drawerPane.id) — rolling back drawer pane"
+            )
+            rollbackDrawerPaneCreation(drawerPane.id, from: parentPaneId)
         }
     }
 
@@ -450,19 +486,43 @@ extension PaneCoordinator {
 
     private func executeRepair(_ repairAction: RepairAction) {
         switch repairAction {
-        case .recreateSurface(let paneId), .createMissingView(let paneId):
+        case .recreateSurface(let paneId):
             guard let pane = store.pane(paneId) else {
                 paneCoordinatorLogger.warning("repair \(String(describing: repairAction)): pane not in store")
                 return
             }
-            teardownView(for: paneId)
-            createViewForContent(pane: pane)
+            teardownView(for: paneId, unregisterRuntime: false)
+            guard createViewForContent(pane: pane) != nil else {
+                paneCoordinatorLogger.error("repair recreateSurface failed for pane \(paneId)")
+                return
+            }
             store.bumpViewRevision()
             paneCoordinatorLogger.info("Repaired view for pane \(paneId)")
+
+        case .createMissingView(let paneId):
+            guard let pane = store.pane(paneId) else {
+                paneCoordinatorLogger.warning("repair \(String(describing: repairAction)): pane not in store")
+                return
+            }
+            guard viewRegistry.view(for: paneId) == nil else {
+                paneCoordinatorLogger.info("repair createMissingView: pane \(paneId) already has a view")
+                return
+            }
+            guard createViewForContent(pane: pane) != nil else {
+                paneCoordinatorLogger.error("repair createMissingView failed for pane \(paneId)")
+                return
+            }
+            store.bumpViewRevision()
+            paneCoordinatorLogger.info("Created missing view for pane \(paneId)")
 
         case .reattachZmx, .markSessionFailed, .cleanupOrphan:
             paneCoordinatorLogger.warning("repair: \(String(describing: repairAction)) — not yet implemented")
         }
+    }
+
+    private func rollbackDrawerPaneCreation(_ drawerPaneId: UUID, from parentPaneId: UUID) {
+        teardownView(for: drawerPaneId)
+        store.removeDrawerPane(drawerPaneId, from: parentPaneId)
     }
 
     /// Teardown views for all drawer panes owned by a parent pane.

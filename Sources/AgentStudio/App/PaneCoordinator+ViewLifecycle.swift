@@ -6,7 +6,6 @@ import GhosttyKit
 extension PaneCoordinator {
     /// Create a view for any pane content type. Dispatches to the appropriate factory.
     /// Returns the created PaneView, or nil on failure.
-    @discardableResult
     func createViewForContent(pane: Pane) -> PaneView? {
         switch pane.content {
         case .terminal:
@@ -88,6 +87,9 @@ extension PaneCoordinator {
                 paneCoordinatorLogger.error(
                     "zmx not found; using ephemeral session for \(pane.id) (state will not persist)"
                 )
+                if !pane.metadata.title.localizedCaseInsensitiveContains("ephemeral") {
+                    store.updatePaneTitle(pane.id, title: "\(pane.metadata.title) [ephemeral]")
+                }
                 startupStrategy = .surfaceCommand(shellCommand)
             }
         case .ghostty:
@@ -204,7 +206,7 @@ extension PaneCoordinator {
     }
 
     /// Teardown a view — detach surface (if terminal), unregister.
-    func teardownView(for paneId: UUID) {
+    func teardownView(for paneId: UUID, unregisterRuntime: Bool = true) {
         if let terminal = viewRegistry.terminalView(for: paneId),
             let surfaceId = terminal.surfaceId
         {
@@ -216,6 +218,10 @@ extension PaneCoordinator {
         }
 
         viewRegistry.unregister(paneId)
+        if unregisterRuntime {
+            _ = unregisterRuntime(PaneId(uuid: paneId))
+            runtime.removeSession(paneId)
+        }
 
         paneCoordinatorLogger.debug("Tore down view for pane \(paneId)")
     }
@@ -267,7 +273,7 @@ extension PaneCoordinator {
                 paneCoordinatorLogger.warning(
                     "Undo surface metadata mismatch: expected pane \(pane.id), got \(undone.metadata.paneId?.uuidString ?? "nil") — creating fresh"
                 )
-                surfaceManager.destroy(undone.id)
+                surfaceManager.requeueUndo(undone.id)
             }
         }
 

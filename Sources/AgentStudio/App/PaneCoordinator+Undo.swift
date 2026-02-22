@@ -52,16 +52,22 @@ extension PaneCoordinator {
             paneCoordinatorLogger.warning(
                 "undoTabClose: removing broken pane \(paneId) from tab \(snapshot.tab.id)"
             )
-            teardownView(for: paneId)
+            removeFailedRestoredPane(paneId, fromTab: snapshot.tab.id)
         }
-
-        store.setActiveTab(snapshot.tab.id)
 
         if !failedPaneIds.isEmpty {
             paneCoordinatorLogger.warning(
                 "undoTabClose: tab \(snapshot.tab.id) restored with \(failedPaneIds.count) failed panes"
             )
         }
+
+        guard let restoredTab = store.tab(snapshot.tab.id), !restoredTab.paneIds.isEmpty else {
+            paneCoordinatorLogger.error("undoTabClose: all panes failed for tab \(snapshot.tab.id); removing empty tab")
+            store.removeTab(snapshot.tab.id)
+            return
+        }
+
+        store.setActiveTab(snapshot.tab.id)
     }
 
     private func undoPaneClose(_ snapshot: WorkspaceStore.PaneCloseSnapshot) {
@@ -91,7 +97,7 @@ extension PaneCoordinator {
             paneCoordinatorLogger.warning(
                 "undoPaneClose: removing broken pane \(paneId) in tab \(snapshot.tabId)"
             )
-            teardownView(for: paneId)
+            removeFailedRestoredPane(paneId, fromTab: snapshot.tabId)
         }
 
         store.setActiveTab(snapshot.tabId)
@@ -128,5 +134,23 @@ extension PaneCoordinator {
             paneCoordinatorLogger.warning("Cannot restore unsupported pane \(pane.id)")
             return true
         }
+    }
+
+    private func removeFailedRestoredPane(_ paneId: UUID, fromTab tabId: UUID) {
+        guard let pane = store.pane(paneId) else {
+            teardownView(for: paneId)
+            return
+        }
+
+        if pane.isDrawerChild, let parentPaneId = pane.parentPaneId {
+            teardownView(for: paneId)
+            store.removeDrawerPane(paneId, from: parentPaneId)
+            return
+        }
+
+        teardownDrawerPanes(for: paneId)
+        teardownView(for: paneId)
+        _ = store.removePaneFromLayout(paneId, inTab: tabId)
+        store.removePane(paneId)
     }
 }
