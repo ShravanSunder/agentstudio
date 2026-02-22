@@ -100,7 +100,7 @@ enum SecurityEvent: Sendable {
     case sandboxHealthChanged(healthy: Bool)
 }
 
-enum ExecutionBackend: Sendable, Equatable {
+enum ExecutionBackend: Sendable, Equatable, Hashable, Codable {
     case local
     case docker(image: String)
     case gondolin(policyId: String)
@@ -140,7 +140,7 @@ enum GhosttyEvent: PaneKindEvent, Sendable {
         case .commandFinished: return .commandFinished
         case .bellRang: return .bellRang
         case .scrollbarChanged: return .scrollbarChanged
-        case .unhandled: return EventIdentifier("unhandled")
+        case .unhandled: return .unhandled
         }
     }
 }
@@ -169,7 +169,7 @@ enum BrowserEvent: PaneKindEvent, Sendable {
         switch self {
         case .navigationCompleted: return .navigationCompleted
         case .pageLoaded: return .pageLoaded
-        case .consoleMessage: return EventIdentifier("consoleMessage")
+        case .consoleMessage: return .consoleMessage
         }
     }
 }
@@ -200,7 +200,7 @@ enum DiffEvent: PaneKindEvent, Sendable {
         switch self {
         case .diffLoaded: return .diffLoaded
         case .hunkApproved: return .hunkApproved
-        case .allApproved: return EventIdentifier("allApproved")
+        case .allApproved: return .allApproved
         }
     }
 }
@@ -229,7 +229,7 @@ enum EditorEvent: PaneKindEvent, Sendable {
         switch self {
         case .contentSaved: return .contentSaved
         case .fileOpened: return .fileOpened
-        case .diagnosticsUpdated: return EventIdentifier("diagnosticsUpdated")
+        case .diagnosticsUpdated: return .diagnosticsUpdated
         }
     }
 }

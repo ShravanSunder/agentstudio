@@ -34,6 +34,43 @@ struct TerminalRuntimeTests {
         }
     }
 
+    @Test("eventsSince replays emitted events")
+    func replaysEvents() async {
+        let runtime = TerminalRuntime(
+            paneId: UUID(),
+            metadata: PaneMetadata(source: .floating(workingDirectory: nil, title: "Runtime"), title: "Runtime")
+        )
+        runtime.transitionToReady()
+        runtime.handleGhosttyEvent(.bellRang)
+        runtime.handleGhosttyEvent(.titleChanged("Build"))
+
+        let replay = await runtime.eventsSince(seq: 0)
+
+        #expect(!replay.gapDetected)
+        #expect(replay.events.count == 2)
+        #expect(replay.nextSeq == 2)
+    }
+
+    @Test("eventsSince reports gap after replay eviction")
+    func replayGapAfterEviction() async {
+        let replayBuffer = EventReplayBuffer(config: .init(maxEvents: 2, maxBytes: 10_000, ttl: .seconds(300)))
+        let runtime = TerminalRuntime(
+            paneId: UUID(),
+            metadata: PaneMetadata(source: .floating(workingDirectory: nil, title: "Runtime"), title: "Runtime"),
+            replayBuffer: replayBuffer
+        )
+        runtime.transitionToReady()
+        runtime.handleGhosttyEvent(.bellRang)
+        runtime.handleGhosttyEvent(.bellRang)
+        runtime.handleGhosttyEvent(.bellRang)
+
+        let replay = await runtime.eventsSince(seq: 0)
+
+        #expect(replay.gapDetected)
+        #expect(replay.events.count == 2)
+        #expect(replay.events.first?.seq == 2)
+    }
+
     private func makeEnvelope(command: PaneCommand, paneId: UUID) -> PaneCommandEnvelope {
         let clock = ContinuousClock()
         return PaneCommandEnvelope(

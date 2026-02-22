@@ -10,6 +10,7 @@ final class TerminalRuntime: PaneRuntime {
     let capabilities: Set<PaneCapability>
 
     private let envelopeClock: ContinuousClock
+    private let replayBuffer: EventReplayBuffer
     private var sequence: UInt64 = 0
     private let eventStream: AsyncStream<PaneEventEnvelope>
     private let eventContinuation: AsyncStream<PaneEventEnvelope>.Continuation
@@ -17,13 +18,15 @@ final class TerminalRuntime: PaneRuntime {
     init(
         paneId: PaneId,
         metadata: PaneMetadata,
-        clock: ContinuousClock = ContinuousClock()
+        clock: ContinuousClock = ContinuousClock(),
+        replayBuffer: EventReplayBuffer? = nil
     ) {
         self.paneId = paneId
         self.metadata = metadata
         self.lifecycle = .created
         self.capabilities = [.input, .resize, .search]
         self.envelopeClock = clock
+        self.replayBuffer = replayBuffer ?? EventReplayBuffer()
 
         var continuation: AsyncStream<PaneEventEnvelope>.Continuation?
         self.eventStream = AsyncStream<PaneEventEnvelope> { streamContinuation in
@@ -64,7 +67,18 @@ final class TerminalRuntime: PaneRuntime {
     }
 
     func snapshot() -> PaneRuntimeSnapshot {
-        PaneRuntimeSnapshot(paneId: paneId, lifecycle: lifecycle)
+        PaneRuntimeSnapshot(
+            paneId: paneId,
+            metadata: metadata,
+            lifecycle: lifecycle,
+            capabilities: capabilities,
+            lastSeq: sequence,
+            timestamp: Date()
+        )
+    }
+
+    func eventsSince(seq: UInt64) async -> EventReplayBuffer.ReplayResult {
+        replayBuffer.eventsSince(seq: seq)
     }
 
     func shutdown(timeout: Duration) async -> [UUID] {
@@ -94,17 +108,17 @@ final class TerminalRuntime: PaneRuntime {
         }
 
         sequence += 1
-        eventContinuation.yield(
-            PaneEventEnvelope(
-                source: .pane(paneId),
-                paneKind: .terminal,
-                seq: sequence,
-                commandId: commandId,
-                correlationId: correlationId,
-                timestamp: envelopeClock.now,
-                epoch: 0,
-                event: .terminal(event)
-            )
+        let envelope = PaneEventEnvelope(
+            source: .pane(paneId),
+            paneKind: .terminal,
+            seq: sequence,
+            commandId: commandId,
+            correlationId: correlationId,
+            timestamp: envelopeClock.now,
+            epoch: 0,
+            event: .terminal(event)
         )
+        replayBuffer.append(envelope)
+        eventContinuation.yield(envelope)
     }
 }

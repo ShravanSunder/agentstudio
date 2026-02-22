@@ -49,5 +49,9 @@ enum ActionError: Error, Sendable, Equatable {
 
 struct PaneRuntimeSnapshot: Sendable, Equatable {
     let paneId: PaneId
+    let metadata: PaneMetadata
     let lifecycle: PaneRuntimeLifecycle
+    let capabilities: Set<PaneCapability>
+    let lastSeq: UInt64
+    let timestamp: Date
 }

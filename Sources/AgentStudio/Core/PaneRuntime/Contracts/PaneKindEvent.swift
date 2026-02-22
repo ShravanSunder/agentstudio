@@ -5,24 +5,44 @@ protocol PaneKindEvent: Sendable {
     var eventName: EventIdentifier { get }
 }
 
-struct EventIdentifier: Hashable, Sendable, CustomStringConvertible {
-    let rawValue: String
+enum EventIdentifier: Hashable, Sendable, CustomStringConvertible {
+    case commandFinished
+    case cwdChanged
+    case titleChanged
+    case bellRang
+    case scrollbarChanged
+    case navigationCompleted
+    case pageLoaded
+    case diffLoaded
+    case hunkApproved
+    case contentSaved
+    case fileOpened
+    case unhandled
+    case consoleMessage
+    case allApproved
+    case diagnosticsUpdated
+    case plugin(String)
 
-    init(_ rawValue: String) {
-        self.rawValue = rawValue
+    var rawValue: String {
+        switch self {
+        case .commandFinished: return "commandFinished"
+        case .cwdChanged: return "cwdChanged"
+        case .titleChanged: return "titleChanged"
+        case .bellRang: return "bellRang"
+        case .scrollbarChanged: return "scrollbarChanged"
+        case .navigationCompleted: return "navigationCompleted"
+        case .pageLoaded: return "pageLoaded"
+        case .diffLoaded: return "diffLoaded"
+        case .hunkApproved: return "hunkApproved"
+        case .contentSaved: return "contentSaved"
+        case .fileOpened: return "fileOpened"
+        case .unhandled: return "unhandled"
+        case .consoleMessage: return "consoleMessage"
+        case .allApproved: return "allApproved"
+        case .diagnosticsUpdated: return "diagnosticsUpdated"
+        case .plugin(let value): return value
+        }
     }
 
     var description: String { rawValue }
-
-    static let commandFinished = Self("commandFinished")
-    static let cwdChanged = Self("cwdChanged")
-    static let titleChanged = Self("titleChanged")
-    static let bellRang = Self("bellRang")
-    static let scrollbarChanged = Self("scrollbarChanged")
-    static let navigationCompleted = Self("navigationCompleted")
-    static let pageLoaded = Self("pageLoaded")
-    static let diffLoaded = Self("diffLoaded")
-    static let hunkApproved = Self("hunkApproved")
-    static let contentSaved = Self("contentSaved")
-    static let fileOpened = Self("fileOpened")
 }

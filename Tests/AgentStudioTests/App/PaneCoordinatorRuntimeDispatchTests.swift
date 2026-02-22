@@ -97,7 +97,18 @@ private final class FakePaneRuntime: PaneRuntime {
     }
 
     func snapshot() -> PaneRuntimeSnapshot {
-        PaneRuntimeSnapshot(paneId: paneId, lifecycle: lifecycle)
+        PaneRuntimeSnapshot(
+            paneId: paneId,
+            metadata: metadata,
+            lifecycle: lifecycle,
+            capabilities: capabilities,
+            lastSeq: 0,
+            timestamp: Date()
+        )
+    }
+
+    func eventsSince(seq: UInt64) async -> EventReplayBuffer.ReplayResult {
+        EventReplayBuffer.ReplayResult(events: [], nextSeq: seq, gapDetected: false)
     }
 
     func shutdown(timeout: Duration) async -> [UUID] {
