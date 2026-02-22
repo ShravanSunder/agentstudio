@@ -121,23 +121,53 @@ jobs:
             swift-${{ runner.os }}-
 
       - name: Build
-        run: swift build -c release
+        run: |
+          set -o pipefail
+          swift build -c release > build.log 2>&1 || {
+            echo "Build failed. Last 200 lines:";
+            tail -n 200 build.log;
+            exit 1;
+          }
+          echo "Build passed."
 
       - name: Test
-        run: swift test
+        run: |
+          set -o pipefail
+          swift test --quiet > test.log 2>&1 || {
+            echo "Tests failed. Last 300 lines:";
+            tail -n 300 test.log;
+            exit 1;
+          }
+          if grep -q "Test run with" test.log; then
+            grep "Test run with" test.log | tail -n 1
+          elif grep -q "Executed .* tests" test.log; then
+            grep "Executed .* tests" test.log | tail -n 1
+          else
+            echo "Tests passed."
+          fi
 
       - name: Benchmark tests
         env:
           AGENT_STUDIO_BENCHMARK_MODE: benchmark
         run: |
           set -o pipefail
-          : > benchmark.log
-          swift test --build-path .build --filter PushBenchmarkSupportTests 2>&1 | tee -a benchmark.log
-          swift test --build-path .build --filter PushPerformanceBenchmarkTests 2>&1 | tee -a benchmark.log
+          swift test --quiet --build-path .build --filter PushBenchmarkSupportTests > benchmark-support.log 2>&1 || {
+            echo "Benchmark support tests failed. Last 200 lines:";
+            tail -n 200 benchmark-support.log;
+            exit 1;
+          }
+          swift test --quiet --build-path .build --filter PushPerformanceBenchmarkTests > benchmark-performance.log 2>&1 || {
+            echo "Benchmark performance tests failed. Last 200 lines:";
+            tail -n 200 benchmark-performance.log;
+            exit 1;
+          }
+          cat benchmark-support.log benchmark-performance.log > benchmark.log
           grep -E "\[PushBenchmark\]" benchmark.log > benchmark-lines.txt || true
           if [ ! -s benchmark-lines.txt ]; then
             echo "[PushBenchmark] No benchmark threshold lines emitted in this run." > benchmark-lines.txt
           fi
+          echo "Benchmark summary:"
+          cat benchmark-lines.txt
 
       - name: Build benchmark PR comment body
         if: github.event_name == 'pull_request' && always()
