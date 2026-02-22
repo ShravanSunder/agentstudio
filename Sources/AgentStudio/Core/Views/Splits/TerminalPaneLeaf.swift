@@ -44,6 +44,7 @@ struct TerminalPaneLeaf: View {
             ZStack(alignment: .topTrailing) {
                 // Pane content view
                 PaneViewRepresentable(paneView: paneView)
+                    .allowsHitTesting(!managementMode.isActive)
 
                 // Ghostty-style dimming for unfocused panes
                 if !isActive {
@@ -73,15 +74,15 @@ struct TerminalPaneLeaf: View {
                         Color.clear
                             .allowsHitTesting(false)
                         ZStack {
-                            RoundedRectangle(cornerRadius: 12)
+                            RoundedRectangle(cornerRadius: 20)
                                 .fill(.ultraThinMaterial)
                                 .shadow(color: .black.opacity(AppStyle.strokeVisible), radius: 4, y: 2)
                             Image(systemName: "arrow.up.and.down.and.arrow.left.and.right")
                                 .font(.system(size: AppStyle.toolbarIconSize, weight: .medium))
                                 .foregroundStyle(.white.opacity(AppStyle.foregroundMuted))
                         }
-                        .frame(width: 20, height: 20 * 1.6)
-                        .contentShape(RoundedRectangle(cornerRadius: 12))
+                        .frame(width: 60, height: 100)
+                        .contentShape(RoundedRectangle(cornerRadius: 20))
                         .draggable(
                             PaneDragPayload(
                                 paneId: paneView.id,
@@ -91,13 +92,13 @@ struct TerminalPaneLeaf: View {
                             // Solid drag preview — .ultraThinMaterial renders as
                             // concentric circles when captured without a background.
                             ZStack {
-                                RoundedRectangle(cornerRadius: 12)
+                                RoundedRectangle(cornerRadius: 20)
                                     .fill(Color(.windowBackgroundColor).opacity(0.8))
                                 Image(systemName: "arrow.up.and.down.and.arrow.left.and.right")
                                     .font(.system(size: AppStyle.toolbarIconSize, weight: .medium))
                                     .foregroundStyle(.secondary)
                             }
-                            .frame(width: 20, height: 20 * 1.6)
+                            .frame(width: 60, height: 100)
                         }
                     }
                 }
@@ -116,9 +117,9 @@ struct TerminalPaneLeaf: View {
                                 action(.minimizePane(tabId: tabId, paneId: paneView.id))
                             } label: {
                                 Image(systemName: "minus.circle.fill")
-                                    .font(.system(size: AppStyle.toolbarIconSize))
+                                    .font(.system(size: AppStyle.paneControlIconSize))
                                     .foregroundStyle(.white.opacity(AppStyle.foregroundMuted))
-                                    .background(Circle().fill(.black.opacity(AppStyle.foregroundDim)))
+                                    .background(Circle().fill(Color.black.opacity(AppStyle.foregroundDim)))
                             }
                             .buttonStyle(.plain)
                             .help("Minimize pane")
@@ -127,9 +128,9 @@ struct TerminalPaneLeaf: View {
                                 action(.closePane(tabId: tabId, paneId: paneView.id))
                             } label: {
                                 Image(systemName: "xmark.circle.fill")
-                                    .font(.system(size: AppStyle.toolbarIconSize))
+                                    .font(.system(size: AppStyle.paneControlIconSize))
                                     .foregroundStyle(.white.opacity(AppStyle.foregroundMuted))
-                                    .background(Circle().fill(.black.opacity(AppStyle.foregroundDim)))
+                                    .background(Circle().fill(Color.black.opacity(AppStyle.foregroundDim)))
                             }
                             .buttonStyle(.plain)
                             .help("Close pane")
@@ -157,13 +158,16 @@ struct TerminalPaneLeaf: View {
                                     ))
                             } label: {
                                 Image(systemName: "plus")
-                                    .font(.system(size: AppStyle.fontSmall, weight: .bold))
+                                    .font(.system(size: AppStyle.paneControlIconSize, weight: .bold))
                                     .foregroundStyle(.white.opacity(AppStyle.foregroundMuted))
-                                    .frame(width: 20, height: 36)
+                                    .frame(
+                                        width: AppStyle.paneControlButtonSize,
+                                        height: AppStyle.paneControlButtonSize + 12
+                                    )
                                     .background(
                                         UnevenRoundedRectangle(
-                                            topLeadingRadius: 10,
-                                            bottomLeadingRadius: 10,
+                                            topLeadingRadius: AppStyle.panelCornerRadius + 4,
+                                            bottomLeadingRadius: AppStyle.panelCornerRadius + 4,
                                             bottomTrailingRadius: 0,
                                             topTrailingRadius: 0
                                         )
