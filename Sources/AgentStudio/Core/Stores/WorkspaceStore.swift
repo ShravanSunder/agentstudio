@@ -57,6 +57,7 @@ final class WorkspaceStore {
 
     private let persistor: WorkspacePersistor
     private let persistDebounceDuration: Duration
+    private let clock: any Clock<Duration>
     private var debouncedSaveTask: Task<Void, Never>?
     private(set) var isDirty: Bool = false
 
@@ -64,10 +65,12 @@ final class WorkspaceStore {
 
     init(
         persistor: WorkspacePersistor = WorkspacePersistor(),
-        persistDebounceDuration: Duration = .milliseconds(500)
+        persistDebounceDuration: Duration = .milliseconds(500),
+        clock: any Clock<Duration> = ContinuousClock()
     ) {
         self.persistor = persistor
         self.persistDebounceDuration = persistDebounceDuration
+        self.clock = clock
     }
 
     // MARK: - Derived State
@@ -1256,9 +1259,9 @@ final class WorkspaceStore {
         }
         debouncedSaveTask?.cancel()
         debouncedSaveTask = Task { @MainActor [weak self] in
-            // try? is intentional — Task.sleep only throws CancellationError
+            // try? is intentional — clock.sleep only throws CancellationError
             guard let self else { return }
-            try? await Task.sleep(for: self.persistDebounceDuration)
+            try? await self.clock.sleep(for: self.persistDebounceDuration)
             guard !Task.isCancelled else { return }
             self.persistNow()
         }

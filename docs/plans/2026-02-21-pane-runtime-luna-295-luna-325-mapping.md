@@ -146,8 +146,8 @@ Contract/ticket drift validation plus `PaneCoordinator` test coverage and file o
 - [x] Add docs note for transient UI binding exception (`draggingTabId`, `dropTargetIndex`, `tabFrames`, `isSplitResizing`) in `docs/architecture/component_architecture.md`.
 - [x] Add docs note for configuration injection pattern (constructor defaults + `private let`) in `docs/architecture/component_architecture.md`.
 - [x] Add docs migration note for remaining production `Task.sleep` call sites in `WorkspaceStore`, `SessionRuntime`, `SurfaceManager`, `MainSplitViewController`, and `AppDelegate`.
-- [ ] Convert `SurfaceManager` config properties (`undoTTL`, `maxCreationRetries`, `healthCheckInterval`) to constructor-injected immutable config.
-- [ ] Migrate store-level `Task.sleep` usage to injected clocks in `WorkspaceStore`, `SessionRuntime`, and `SurfaceManager`.
+- [x] Convert `SurfaceManager` config properties (`undoTTL`, `maxCreationRetries`, `healthCheckInterval`) to constructor-injected immutable config.
+- [x] Migrate store-level `Task.sleep` usage to injected clocks in `WorkspaceStore`, `SessionRuntime`, and `SurfaceManager`.
 - [ ] Move last-pane escalation domain rule from `PaneCoordinator.executeClosePane` into `WorkspaceStore` return signaling.
 - [ ] Land `Core/PaneRuntime/` contract directories (`Contracts/`, `Registry/`, `Reduction/`, `Replay/`) in LUNA-342.
 
