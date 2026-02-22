@@ -41,6 +41,8 @@
 2. `LUNA-325`: https://linear.app/askluna/issue/LUNA-325/bridge-pattern-surface-state-runtime-refactor
 3. `LUNA-327`: https://linear.app/askluna/issue/LUNA-327/state-ownership-boundaries-observable-migration-coordinator-pattern
 4. `LUNA-342`: https://linear.app/askluna/issue/LUNA-342/pane-runtime-contract-freeze-minimal-system-before-luna-325
+5. `LUNA-324`: https://linear.app/askluna/issue/LUNA-324/session-persistence-through-app-restarts-via-zmx-reattach
+6. `LUNA-343`: https://linear.app/askluna/issue/LUNA-343/post-freeze-contract-consistency-pass-panecoordinator-hardening
 
 ## Requirement → Contract → Owner → Status Matrix
 
@@ -81,6 +83,7 @@
 | **Swift 6 invariants** | Swift 6 section (9 rules) | Sendable, no DispatchQueue, injectable clock, @MainActor | LUNA-342 (freeze) | Design frozen |
 | **Architectural invariants** | Arch Invariants (A1-A15) | Structural guarantees across all contracts | LUNA-342 (freeze) | Design frozen |
 | **Migration path** | Migration section | NotificationCenter/DispatchQueue → AsyncStream/event bus, per-action atomic | LUNA-325/327 | Design frozen |
+| **Post-freeze consistency + coordinator hardening** | Review follow-up scope | Drift validation (ownership/TTL/ticket sequencing) + PaneCoordinator test/refactor pass | LUNA-343 | Planned |
 
 ### Status Legend
 
@@ -102,6 +105,8 @@ All design decisions (`D1`–`D8`), all contracts (`1`–`16`, `5a`, `5b`, `7a`,
 `Contract 5a` (attach readiness), `Contract 12a` (visibility tiers), attach lifecycle diagram.
 5. `LUNA-324` → restart reconcile:
 `Contract 5b` (reconcile policy, orphan TTL, health monitoring).
+6. `LUNA-343` → post-freeze consistency and hardening:
+Contract/ticket drift validation plus `PaneCoordinator` test coverage and file organization follow-up.
 
 ## Deferred: Workflow Engine
 
@@ -113,6 +118,18 @@ All design decisions (`D1`–`D8`), all contracts (`1`–`16`, `5a`, `5b`, `7a`,
 1. Contract shapes frozen in `pane_runtime_architecture.md`.
 2. Swift 6 typing/concurrency invariants explicitly satisfied in design.
 3. Envelope/replay/workflow semantics aligned in design references above.
+4. Post-freeze consistency validation (`LUNA-343`) completed before broad `LUNA-325` rollout.
+
+## Post-Freeze Validation Task (`LUNA-343`)
+
+1. Resolve ownership drift: restart reconcile is `LUNA-324` only.
+2. Resolve policy drift: orphan cleanup is TTL-based (never immediate kill).
+3. Keep `LUNA-325` scope aligned with singleton adapter + runtime registry design.
+4. Keep Linear dependency sequencing aligned with freeze gates.
+5. Keep ticket file pointers aligned with current repository paths.
+6. Implement Gemini review follow-up:
+   - expand `PaneCoordinator` test coverage for `execute(_:)`, lifecycle flows, undo behavior, rollback paths,
+   - split `PaneCoordinator.swift` into extensions by responsibility without API changes.
 
 ## Notes
 

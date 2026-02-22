@@ -4,6 +4,12 @@
 
 Keep session restore reliable while ensuring restored panes get correct terminal geometry (`cols`/`rows`) without requiring manual input.
 
+## Identity Source of Truth
+
+`PaneId` is the primary identity. zmx session names are deterministic derived keys.
+Canonical derivation and lookup ownership live in:
+[Session Lifecycle — Identity Contract (Canonical)](session_lifecycle.md#identity-contract-canonical).
+
 ## Lifecycle Facts (Ghostty + zmx)
 
 1. Ghostty surface creation, geometry, visibility, and focus are separate concerns.
@@ -58,6 +64,9 @@ On app launch, restore flow should reconcile persisted state against live zmx da
    - live + not persisted: orphan candidate (grace period before kill).
 4. Start periodic health monitoring after restore.
 
+`sessionId` in this document means the zmx daemon session name, not the primary
+pane identity.
+
 ## Orphan Cleanup TTL Policy
 
 1. Orphans are never killed immediately at discovery.
@@ -74,7 +83,7 @@ On app launch, restore flow should reconcile persisted state against live zmx da
    - protects sizing gate semantics (window + non-zero dimensions required).
 
 2. `ZmxBackendTests`
-   - validates session ID format, attach command shape, env handling, and kill/discover logic.
+   - validates zmx session name format, attach command shape, env handling, and kill/discover logic.
 
 ### Integration
 

@@ -82,7 +82,8 @@ PaneId + RepoStableKey + WorktreeStableKey
 AppDelegate.cleanupOrphanZmxSessions()
   - derive known IDs from persisted panes
   - compare with one zmx list snapshot
-  - kill runtime-only orphans (with policy)
+  - classify runtime-only sessions as orphan candidates
+  - apply grace TTL (60s), re-check liveness, then kill if still orphaned
 ```
 
 ### Lookup Ownership Table
@@ -348,8 +349,19 @@ See **Identity Contract (Canonical)** above for the complete source of truth.
 ### Orphan Cleanup
 
 On app launch, `AppDelegate.cleanupOrphanZmxSessions()` discovers zmx daemons
-with Agent Studio prefixes that are not tracked by persisted panes and kills
-them. This prevents stale daemons from accumulating across app restarts.
+with Agent Studio prefixes that are not tracked by persisted panes and marks
+them as orphan candidates.
+
+Policy is TTL-based and never immediate:
+
+1. Do not kill on discovery.
+2. Apply a grace TTL (default 60 seconds).
+3. Re-check `zmx list` at TTL expiration.
+4. Kill only if the session is still orphaned.
+
+This must stay aligned with:
+- [Zmx Restore and Sizing — Orphan Cleanup TTL Policy](zmx_restore_and_sizing.md#orphan-cleanup-ttl-policy)
+- [Pane Runtime Architecture — Contract 5b](pane_runtime_architecture.md#contract-5b-restart-reconcile-policy-luna-324)
 
 ---
 
