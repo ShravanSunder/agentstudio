@@ -93,20 +93,20 @@ final class EntitySliceTests {
         let slice = EntitySlice<TestState, UUID, TestEntity>(
             "testItems",
             store: .review,
-            level: .warm,
+            level: .hot,
             capture: { state in state.items },
             version: { entity in entity.version },
             keyToString: { $0.uuidString }
         )
 
         let task = slice.erased().makeTask(state, transport, clock) { 1 }
-        try await Task.sleep(for: .milliseconds(100))
+        #expect(await transport.waitForPushCount(atLeast: 1))
 
         let initialCount = transport.pushCount
 
         // Mutate only id1 — bump its version
         state.items[id1] = TestEntity(name: "first-updated", version: 2)
-        try await Task.sleep(for: .milliseconds(100))
+        #expect(await transport.waitForPushCount(atLeast: initialCount + 1))
 
         #expect(transport.pushCount > initialCount, "Transport should receive a push after entity mutation")
 
@@ -142,13 +142,13 @@ final class EntitySliceTests {
         )
 
         let task = slice.erased().makeTask(state, transport, clock) { 1 }
-        try await Task.sleep(for: .milliseconds(50))
+        #expect(await transport.waitForPushCount(atLeast: 1))
 
         let countAfterInitial = transport.pushCount
 
         // Act — mutate name but DON'T bump version
         state.items[id1] = TestEntity(name: "changed-name", version: 1)
-        try await Task.sleep(for: .milliseconds(100))
+        await Task.yield()
 
         // Assert — EntitySlice should NOT push because version is unchanged
         // This documents the version contract: callers must bump version for changes to propagate

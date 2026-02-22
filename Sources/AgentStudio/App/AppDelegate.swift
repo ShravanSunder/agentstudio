@@ -55,7 +55,7 @@ class AppDelegate: NSObject, NSApplicationDelegate {
 
     private var store: WorkspaceStore!
     private var viewRegistry: ViewRegistry!
-    private var coordinator: TerminalViewCoordinator!
+    private var paneCoordinator: PaneCoordinator!
     private var executor: ActionExecutor!
     private var tabBarAdapter: TabBarAdapter!
     private var runtime: SessionRuntime!
@@ -108,21 +108,21 @@ class AppDelegate: NSObject, NSApplicationDelegate {
         cleanupOrphanZmxSessions()
 
         viewRegistry = ViewRegistry()
-        coordinator = TerminalViewCoordinator(store: store, viewRegistry: viewRegistry, runtime: runtime)
-        executor = ActionExecutor(store: store, viewRegistry: viewRegistry, coordinator: coordinator)
+        paneCoordinator = PaneCoordinator(store: store, viewRegistry: viewRegistry, runtime: runtime)
+        executor = ActionExecutor(coordinator: paneCoordinator)
         tabBarAdapter = TabBarAdapter(store: store)
         commandBarController = CommandBarPanelController(store: store, dispatcher: .shared)
         oauthService = OAuthService()
 
         // Restore terminal views for persisted panes
         RestoreTrace.log("restoreAllViews: start")
-        coordinator.restoreAllViews()
+        paneCoordinator.restoreAllViews()
         RestoreTrace.log("restoreAllViews: end registeredViews=\(viewRegistry.registeredPaneIds.count)")
 
         // Create main window
         mainWindowController = MainWindowController(
             store: store,
-            executor: executor,
+            actionExecutor: executor,
             tabBarAdapter: tabBarAdapter,
             viewRegistry: viewRegistry
         )
@@ -302,7 +302,7 @@ class AppDelegate: NSObject, NSApplicationDelegate {
         } else {
             mainWindowController = MainWindowController(
                 store: store,
-                executor: executor,
+                actionExecutor: executor,
                 tabBarAdapter: tabBarAdapter,
                 viewRegistry: viewRegistry
             )

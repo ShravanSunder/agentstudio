@@ -2,7 +2,7 @@
 
 ## TL;DR
 
-State is distributed across independent `@Observable` stores (Jotai-style atomic stores) with `private(set)` for unidirectional flow (Valtio-style). `WorkspaceStore` owns workspace structure, `SurfaceManager` owns Ghostty surfaces, `SessionRuntime` owns backends. A coordinator sequences cross-store operations. `TerminalSession` is the primary identity — referenced by UUID across every layer. Layouts are immutable value-type trees where leaves point to session IDs. `@Observable` drives SwiftUI re-renders; persistence is debounced. Twelve invariants are enforced at all times.
+State is distributed across independent `@Observable` stores (Jotai-style atomic stores) with `private(set)` for unidirectional flow (Valtio-style). `WorkspaceStore` owns workspace structure, `SurfaceManager` owns Ghostty surfaces, `SessionRuntime` owns backends. A coordinator sequences cross-store operations. `Pane` is the primary identity — referenced by UUID across every layer. Layouts are immutable value-type trees where leaves point to pane IDs. `@Observable` drives SwiftUI re-renders; persistence is debounced. Twelve invariants are enforced at all times.
 
 ---
 
@@ -36,7 +36,7 @@ State is distributed across independent `@Observable` stores (Jotai-style atomic
 │  │ activeViewId │            │                       │               │
 │  └──────┬───────┘            │                       │               │
 │         │            ┌───────┴───────────────────────┴────────┐      │
-│         │            │      TerminalViewCoordinator            │      │
+│         │            │      PaneCoordinator            │      │
 │         │            │   (sole bridge: model ↔ view ↔ surface) │      │
 │         │            └───────────────────┬────────────────────┘      │
 │         │                                │                           │
@@ -248,8 +248,7 @@ AppDelegate (creates all services in dependency order)
 ├── WorkspaceStore           ← workspace structure (atomic store)
 ├── SessionRuntime           ← runtime status tracking
 ├── ViewRegistry             ← sessionId → NSView mapping
-├── TerminalViewCoordinator  ← sole model↔view↔surface bridge
-├── ActionExecutor           ← action dispatch hub
+├── PaneCoordinator          ← action dispatch + model↔view↔surface orchestration
 ├── TabBarAdapter            ← derived display state
 ├── CommandBarPanelController ← command bar lifecycle (⌘P)
 └── MainWindowController
@@ -280,7 +279,7 @@ Owns all workspace structure state. `@Observable`, `@MainActor`. All properties 
 | Session | `createSession()`, `removeSession()`, `updateSessionTitle()`, `updateSessionAgent()`, `setResidency()` |
 | View | `switchView()`, `createView()`, `deleteView()`, `saveCurrentViewAs()` |
 | Tab | `appendTab()`, `removeTab()`, `insertTab()`, `moveTab()`, `setActiveTab()` |
-| Layout | `insertSession()`, `removeSessionFromLayout()`, `resizePane()`, `equalizePanes()`, `setActiveSession()` |
+| Layout | `insertPane()`, `removePaneFromLayout()`, `resizePane()`, `equalizePanes()`, `setActivePane()` |
 | Compound | `breakUpTab()`, `extractSession()`, `mergeTab()` |
 | Repo | `addRepo()`, `removeRepo()`, `updateRepoWorktrees()` |
 
@@ -314,9 +313,9 @@ Manages live session state. Does **not** own sessions — reads the session list
 
 Maps session IDs to live `AgentStudioTerminalView` instances. Runtime-only (not persisted). `@MainActor`.
 
-- `register(view, sessionId)` / `unregister(sessionId)` — View lifecycle
-- `view(for: sessionId)` — Lookup
-- `renderTree(for: Layout) -> TerminalSplitTree?` — Traverse a `Layout` tree, resolve each leaf to a registered view, return a renderable split tree. Gracefully promotes single-child splits when one side's view is missing.
+- `register(view, paneId)` / `unregister(paneId)` — View lifecycle
+- `view(for: paneId)` — Lookup
+- `renderTree(for: Layout) -> TerminalSplitTree?` — Traverse a `Layout` tree, resolve each leaf to a registered pane view, return a renderable split tree. Gracefully promotes single-child splits when one side's view is missing.
 
 > **File:** `App/Panes/ViewRegistry.swift`
 
@@ -331,38 +330,35 @@ There is no standalone `ViewResolver` type in code; this behavior is owned by th
 
 > **File:** `App/Panes/ViewRegistry.swift`
 
-### 3.6 TerminalViewCoordinator
+### 3.6 PaneCoordinator
 
-> **Refactoring note:** `TerminalViewCoordinator` and `ActionExecutor` (§3.7) will be merged into `PaneCoordinator` as part of LUNA-325/327. The target coordinator pattern is described in [CLAUDE.md — State Management Mental Model](../../CLAUDE.md#state-management-mental-model).
+The `PaneCoordinator` is the canonical orchestration boundary for action execution and model↔view↔surface coordination. It owns no domain state and performs only sequencing.
 
-The **sole bridge** between model, view, and surface layers. Views never call `SurfaceManager` directly. `SurfaceManager` never knows about the model layer.
+- Coordinates `WorkspaceStore`, `SessionRuntime`, `SurfaceManager`, and `ViewRegistry`.
+- Applies action intent through command validation and mutation APIs.
+- Manages undo sequencing with deterministic restore/reattach behavior.
 
-- `createView(for:worktree:repo:)` — Create surface → attach → create `AgentStudioTerminalView` → register in `ViewRegistry`
-- `teardownView(for: sessionId)` — Unregister → detach surface (with undo support)
-- `restoreView(for:worktree:repo:)` — Pop surface from `SurfaceManager.undoClose()` LIFO stack → reattach
-- `restoreAllViews()` — App launch: create views for all sessions in all views
-
-> **File:** `App/TerminalViewCoordinator.swift`
-
-### 3.7 ActionExecutor
-
-> **Refactoring note:** Will be merged with `TerminalViewCoordinator` (§3.6) into `PaneCoordinator` as part of LUNA-325/327. The target coordinator pattern — no domain logic, no owned state, pure sequencing — is described in [CLAUDE.md — State Management Mental Model](../../CLAUDE.md#state-management-mental-model).
-
-Action dispatch hub. Coordinates `WorkspaceStore`, `ViewRegistry`, and `TerminalViewCoordinator`. Manages the undo stack.
+> **Expansion (LUNA-325):** The coordinator gains event consumption responsibilities: it will own the `RuntimeRegistry`, subscribe to `PaneRuntimeEvent` streams from all runtimes, feed the `NotificationReducer` (priority-aware delivery), and maintain per-source replay buffers. The coordinator event loop processes critical events at `.userInitiated` priority and lossy batches at `.utility`. See [Pane Runtime Architecture — Coordinator Event Loop](pane_runtime_architecture.md#coordinator-event-loop-how-it-connects) for the target design.
 
 **Key operations:**
+- `execute(_ action: PaneAction)` — dispatch all pane actions (selectTab, closeTab, closePane, insertPane, extractPaneToTab, resizePane, equalizePanes, mergeTab, breakUpTab, focusPane, repair)
 - `openTerminal(for:in:)` — Create session + surface + tab. Rolls back session if surface creation fails.
-- `execute(_ action: PaneAction)` — Dispatch switch for all pane actions (selectTab, closeTab, closePane, insertPane, extractPaneToTab, resizePane, equalizePanes, mergeTab, breakUpTab, focusPane, repair)
-- `undoCloseTab()` — Pop `CloseSnapshot` from undo stack, restore to store, reattach surfaces in reverse order
+- `openWebview(url:)` — Open a webview pane and append it as a new tab
+- `undoCloseTab()` — pop `WorkspaceStore.CloseEntry` from undo stack, restore to store, reattach surfaces in reverse order
+- `createView(for:worktree:repo:)` — Create surface → attach → create `AgentStudioTerminalView` → register in `ViewRegistry`
+- `createViewForContent(pane:)` — create/register non-terminal pane views (webview/code/bridge)
+- `teardownView(for: paneId)` — Unregister → detach surface (with undo support)
+- `restoreView(for:worktree:repo:)` — Pop surface from `SurfaceManager.undoClose()` LIFO stack → reattach
+- `restoreAllViews()` — App launch: create views for all panes in active tabs
 
 **Undo stack:**
-- `undoStack: [WorkspaceStore.CloseSnapshot]` — in-memory LIFO, max 10 entries
-- `CloseSnapshot` captures: `tab`, `sessions`, `viewId`, `tabIndex`
+- `undoStack: [WorkspaceStore.CloseEntry]` — in-memory LIFO, max 10 entries
+- `TabCloseSnapshot` captures: `tab`, `panes`, `tabIndex`
 - Oldest entries GC'd when stack exceeds limit; orphaned sessions cleaned up
 
-> **File:** `App/ActionExecutor.swift`
+> **File:** `App/PaneCoordinator.swift`
 
-### 3.8 TabBarAdapter
+### 3.7 TabBarAdapter
 
 Derived state bridge between `WorkspaceStore` and the tab bar SwiftUI view. Bridges `@Observable` store state via `withObservationTracking` and transforms it into tab bar display items.
 
@@ -435,7 +431,7 @@ Also builds `CommandBarLevel` targets for drill-in commands (e.g., "Close Tab...
 
 ### 4.1 Mutation Pipeline
 
-> **Note:** This diagram shows the TARGET flow with `PaneCoordinator`. The current codebase uses `ActionExecutor` → `TerminalViewCoordinator` (see §3.6–3.7). The refactoring is tracked in LUNA-325/327.
+> **Note:** This diagram shows the target `PaneCoordinator` flow.
 
 Every state change follows this path:
 
@@ -476,7 +472,7 @@ sequenceDiagram
     participant AD as AppDelegate
     participant Store as WorkspaceStore
     participant P as WorkspacePersistor
-    participant Coord as TerminalViewCoordinator
+    participant Coord as PaneCoordinator
     participant RT as SessionRuntime
     participant SM as SurfaceManager
     participant VR as ViewRegistry
@@ -502,24 +498,24 @@ sequenceDiagram
 When switching from View A to View B:
 
 1. `WorkspaceStore.switchView(viewB.id)` sets `activeViewId`
-2. `TerminalViewCoordinator.handleViewSwitch(from: A, to: B)`:
+2. `PaneCoordinator.handleViewSwitch(from: A, to: B)`:
    - **Sessions only in A**: `SurfaceManager.detach(.hide)`, `ViewRegistry.unregister()`
    - **Sessions in both A and B**: No change (surface stays attached)
-   - **Sessions only in B**: `TerminalViewCoordinator.createView()`, `ViewRegistry.register()`, `SurfaceManager.attach()`
+   - **Sessions only in B**: `PaneCoordinator.createView()`, `ViewRegistry.register()`, `SurfaceManager.attach()`
 
 ### 4.4 Undo Close Flow
 
-1. **Close**: `ActionExecutor.executeCloseTab(tabId)`
-   - `store.snapshotForClose()` → `CloseSnapshot` (tab + sessions + viewId + tabIndex)
+1. **Close**: `PaneCoordinator.executeCloseTab(tabId)`
+   - `store.snapshotForClose()` → `TabCloseSnapshot` (tab + panes + tabIndex)
    - Push snapshot to `undoStack` (max 10)
-   - `coordinator.teardownView()` for each session → `SurfaceManager.detach(.close)` (surfaces enter undo stack with TTL)
+   - `coordinator.teardownView()` for each pane → `SurfaceManager.detach(.close)` (surfaces enter undo stack with TTL)
    - `store.removeTab(tabId)` — sessions stay in `store.sessions`
    - GC oldest undo entries if stack > 10
 
-2. **Undo** (`Cmd+Shift+T`): `ActionExecutor.undoCloseTab()`
-   - Pop `CloseSnapshot` from undo stack
+2. **Undo** (`Cmd+Shift+T`): `PaneCoordinator.undoCloseTab()`
+   - Pop `WorkspaceStore.CloseEntry` from undo stack
    - `store.restoreFromSnapshot()` → re-insert tab at original position
-   - `coordinator.restoreView()` for each session (reversed order, matching SurfaceManager LIFO)
+   - `coordinator.restoreView()` for each pane (reversed order, matching SurfaceManager LIFO)
    - `SurfaceManager.undoClose()` pops surface → reattach (no recreation)
 
 ### 4.5 Command Bar Execution Flow
@@ -534,12 +530,12 @@ CommandBarView.executeItem(item)
 ├─ .dispatch(command)
 │   └─ onDismiss() → CommandDispatcher.dispatch(command)
 │       → CommandHandler.execute(command)
-│         → ActionResolver → ActionValidator → ActionExecutor → WorkspaceStore
+│         → ActionResolver → ActionValidator → PaneCoordinator → WorkspaceStore
 │
 ├─ .dispatchTargeted(command, target: UUID, targetType)
 │   └─ onDismiss() → CommandDispatcher.dispatch(command, target, targetType)
 │       → CommandHandler.execute(command, target, targetType)
-│         → ActionResolver (with explicit target) → ActionValidator → ActionExecutor
+│         → ActionResolver (with explicit target) → ActionValidator → PaneCoordinator
 │
 ├─ .navigate(level)
 │   └─ state.pushLevel(level) — drill into nested target picker
@@ -634,8 +630,7 @@ These rules are enforced by `WorkspaceStore` and model types at all times:
 | `Infrastructure/WorktrunkService.swift` | Git worktree CLI wrapper |
 | `Infrastructure/ProcessExecutor.swift` | Protocol + default impl for CLI execution |
 | **App** | |
-| `App/ActionExecutor.swift` | Action dispatch hub, undo stack |
-| `App/TerminalViewCoordinator.swift` | Sole model↔view↔surface bridge |
+| `App/PaneCoordinator.swift` | Action dispatch, orchestration, and undo sequencing |
 | `App/MainWindowController.swift` | Primary window management |
 | `App/MainSplitViewController.swift` | Split view: sidebar + terminal panes |
 | `App/Panes/PaneTabViewController.swift` | Tab controller, observes store via @Observable |

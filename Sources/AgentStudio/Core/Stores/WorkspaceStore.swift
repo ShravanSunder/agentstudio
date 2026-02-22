@@ -56,13 +56,18 @@ final class WorkspaceStore {
     // MARK: - Collaborators
 
     private let persistor: WorkspacePersistor
+    private let persistDebounceDuration: Duration
     private var debouncedSaveTask: Task<Void, Never>?
     private(set) var isDirty: Bool = false
 
     // MARK: - Init
 
-    init(persistor: WorkspacePersistor = WorkspacePersistor()) {
+    init(
+        persistor: WorkspacePersistor = WorkspacePersistor(),
+        persistDebounceDuration: Duration = .milliseconds(500)
+    ) {
         self.persistor = persistor
+        self.persistDebounceDuration = persistDebounceDuration
     }
 
     // MARK: - Derived State
@@ -491,7 +496,7 @@ final class WorkspaceStore {
             }
         } else {
             // Last pane removed — signal to caller that tab is now empty.
-            // Do NOT call removeTab here: let ActionExecutor handle it with undo support.
+            // Do NOT call removeTab here: let PaneCoordinator handle it with undo support.
             return true
         }
 
@@ -1242,7 +1247,7 @@ final class WorkspaceStore {
     }
 
     /// Schedule a debounced save. All mutations call this instead of saving inline.
-    /// Coalesces writes within a 500ms window. Disables sudden termination while dirty
+    /// Coalesces writes within a configurable debounce window. Disables sudden termination while dirty
     /// so macOS won't kill the process before the write lands.
     func markDirty() {
         if !isDirty {
@@ -1252,9 +1257,10 @@ final class WorkspaceStore {
         debouncedSaveTask?.cancel()
         debouncedSaveTask = Task { @MainActor [weak self] in
             // try? is intentional — Task.sleep only throws CancellationError
-            try? await Task.sleep(for: .milliseconds(500))
+            guard let self else { return }
+            try? await Task.sleep(for: self.persistDebounceDuration)
             guard !Task.isCancelled else { return }
-            self?.persistNow()
+            self.persistNow()
         }
     }
 

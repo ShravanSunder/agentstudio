@@ -1,6 +1,7 @@
 // swiftlint:disable function_body_length
 import AppKit
 import Foundation
+import Observation
 
 // MARK: - AppCommand
 
@@ -166,8 +167,9 @@ protocol CommandHandler: AnyObject {
 /// Single execution point for all commands in the application.
 /// Routes keyboard shortcuts, menu items, search result actions,
 /// and management mode clicks through the same command system.
+@Observable
 @MainActor
-final class CommandDispatcher: ObservableObject {
+final class CommandDispatcher {
     static let shared = CommandDispatcher()
 
     /// Registry of all command definitions

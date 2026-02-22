@@ -2948,7 +2948,7 @@ Tests/
 
 ## 15. Integration with Existing Pane System
 
-### 15.1 Current State (Post Window System 7)
+### 15.1 Current State
 
 The pane system is fully operational. Webview panes already work as general-purpose browser panes:
 
@@ -2961,8 +2961,8 @@ The pane system is fully operational. Webview panes already work as general-purp
 | `WebviewPaneContentView` | `Views/Webview/WebviewPaneContentView.swift` | SwiftUI view: nav bar + `WebView(controller.page)` |
 | `WebviewNavigationDecider` | `Services/WebviewNavigationDecider.swift` | Browser-oriented allowlist: `https`, `http`, `about`, `file`, `agentstudio` |
 | `WebviewDialogHandler` | `Services/WebviewDialogHandler.swift` | JS dialog handler (default implementations) |
-| `TerminalViewCoordinator.createViewForContent` | `App/TerminalViewCoordinator.swift` | Routes `PaneContent` → view creation; webview case at line 101 |
-| `ActionExecutor.openWebview(url:)` | `App/ActionExecutor.swift` | Creates browser pane with `WebviewState` + tab |
+| `PaneCoordinator.createViewForContent` | `App/PaneCoordinator.swift` | Routes `PaneContent` → view creation; webview case at line 101 |
+| `PaneCoordinator.openWebview(url:)` | `App/PaneCoordinator.swift` | Creates browser pane with `WebviewState` + tab |
 
 All webview panes currently share a single static `WebPage.Configuration` (`WebviewPaneController.sharedConfiguration`) with default `websiteDataStore`. The `ViewRegistry` tracks all webview views and supports lookup by pane ID.
 
@@ -3015,7 +3015,7 @@ enum BridgePaneSource: Codable, Hashable {
 
 ### 15.3 Routing and View Creation
 
-`TerminalViewCoordinator.createViewForContent` gains a new case:
+`PaneCoordinator.createViewForContent` gains a new case:
 
 ```swift
 case .bridgePanel(let state):
@@ -3025,7 +3025,7 @@ case .bridgePanel(let state):
     return view
 ```
 
-`ActionExecutor` gains a new method:
+`PaneCoordinator` gains a new method:
 
 ```swift
 func openDiffViewer(source: BridgePaneSource? = nil) -> Pane? {
@@ -3084,7 +3084,7 @@ init(paneId: UUID, state: BridgePaneState) {
 
 ### 15.5 Pane Lifecycle
 
-- **Creation**: `ActionExecutor.openDiffViewer()` → `TerminalViewCoordinator.createViewForContent(.bridgePanel)` → `BridgePaneController` + `BridgePaneView` → `ViewRegistry.register`
+- **Creation**: `PaneCoordinator.openDiffViewer()` → `PaneCoordinator.createViewForContent(.bridgePanel)` → `BridgePaneController` + `BridgePaneView` → `ViewRegistry.register`
 - **Active**: `BridgePaneController` owns observation loops (started on `bridge.ready`), pushes state to Zustand
 - **Teardown**: `BridgePaneController.teardown()` cancels observation tasks, releases `WebPage`. Triggered by pane removal via `WorkspaceStore.removePane` → `ViewRegistry.deregister`
 - **Persistence**: `BridgePaneState` is `Codable` — round-trips through workspace save/restore. On restore, the panel reloads from source (re-computes manifest from git)
@@ -3111,7 +3111,7 @@ The existing `ViewRegistry`, `Layout`, drag/drop, and split system work unchange
 - ~~**"Swift is too slow for interaction UX" concern**~~ → **Authority matrix**: interaction state is local in React; Swift owns durable domain truth. See §3.3.
 - ~~**Periodic workspace updates vs efficiency**~~ → **Event-first refresh with safety poll and incremental invalidation**. See §10.5.
 
-### Resolved by Existing Codebase (Post Window System 7 Merge)
+### Resolved by Existing Codebase
 
 These were previously open questions or verification spike items, now proven by working production code:
 
@@ -3119,7 +3119,7 @@ These were previously open questions or verification spike items, now proven by 
 - ~~**`WebPage.NavigationDeciding` protocol**~~ → `WebviewNavigationDecider` implements the protocol with `decidePolicy(for:preferences:)`. Proven pattern. See `Services/WebviewNavigationDecider.swift:10`.
 - ~~**`WebPage.DialogPresenting` protocol**~~ → `WebviewDialogHandler` conforms with default implementations. See `Services/WebviewDialogHandler.swift:9`.
 - ~~**SwiftUI `WebView` rendering**~~ → `WebView(controller.page)` renders in `WebviewPaneContentView`. See `Views/Webview/WebviewPaneContentView.swift:25`.
-- ~~**Pane system integration**~~ → Full create/teardown/persist/restore lifecycle working. `PaneContent.webview`, `WebviewState`, `TerminalViewCoordinator.createViewForContent`, `ActionExecutor.openWebview`, `ViewRegistry` — all operational.
+- ~~**Pane system integration**~~ → Full create/teardown/persist/restore lifecycle working. `PaneContent.webview`, `WebviewState`, `PaneCoordinator.createViewForContent`, `PaneCoordinator.openWebview`, `ViewRegistry` — all operational.
 - ~~**`AnyCodableValue` availability**~~ → Exists in `Models/PaneContent.swift:112`. Reusable for RPC envelope params.
 - ~~**Pane kind split (browser vs bridge)**~~ → Architecture decided: new `PaneContent.bridgePanel(BridgePaneState)` case with dedicated `BridgePaneController`. See §15.2.
 

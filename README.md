@@ -95,7 +95,7 @@ Built-in sandboxing with network isolation (egress firewalls, domain allowlistin
 
 ## Architecture
 
-AppKit-main with SwiftUI views. Single `WorkspaceStore` owns all state. Immutable layout trees. Sessions exist independently of views or surfaces.
+AppKit-main with SwiftUI views. State distributed across independent `@Observable` stores (`WorkspaceStore`, `SessionRuntime`, `SurfaceManager`) with `private(set)` for unidirectional flow. A coordinator (`PaneCoordinator`) sequences cross-store operations. Immutable layout trees. Sessions exist independently of views or surfaces.
 
 Built with Swift 6.2, Swift Package Manager, Ghostty (via C API), and Zig build system. Targets macOS 26.
 

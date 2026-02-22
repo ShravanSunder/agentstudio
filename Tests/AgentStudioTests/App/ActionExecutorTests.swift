@@ -9,7 +9,7 @@ final class ActionExecutorTests {
 
     private var store: WorkspaceStore!
     private var viewRegistry: ViewRegistry!
-    private var coordinator: TerminalViewCoordinator!
+    private var coordinator: PaneCoordinator!
     private var runtime: SessionRuntime!
     private var executor: ActionExecutor!
     private var tempDir: URL!
@@ -22,8 +22,8 @@ final class ActionExecutorTests {
         store.restore()
         viewRegistry = ViewRegistry()
         runtime = SessionRuntime(store: store)
-        coordinator = TerminalViewCoordinator(store: store, viewRegistry: viewRegistry, runtime: runtime)
-        executor = ActionExecutor(store: store, viewRegistry: viewRegistry, coordinator: coordinator)
+        coordinator = PaneCoordinator(store: store, viewRegistry: viewRegistry, runtime: runtime)
+        executor = ActionExecutor(coordinator: coordinator)
     }
 
     deinit {

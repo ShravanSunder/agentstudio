@@ -12,12 +12,7 @@ final class TabBarAdapterTests {
     private var tempDir: URL!
 
     init() {
-        tempDir = FileManager.default.temporaryDirectory
-            .appending(path: "adapter-tests-\(UUID().uuidString)")
-        let persistor = WorkspacePersistor(workspacesDir: tempDir)
-        store = WorkspaceStore(persistor: persistor)
-        store.restore()
-        adapter = TabBarAdapter(store: store)
+        resetFixture()
     }
 
     deinit {
@@ -26,11 +21,24 @@ final class TabBarAdapterTests {
         store = nil
     }
 
+    private func resetFixture() {
+        if let tempDir {
+            try? FileManager.default.removeItem(at: tempDir)
+        }
+        tempDir = FileManager.default.temporaryDirectory
+            .appending(path: "adapter-tests-\(UUID().uuidString)")
+        let persistor = WorkspacePersistor(workspacesDir: tempDir)
+        store = WorkspaceStore(persistor: persistor)
+        store.restore()
+        adapter = TabBarAdapter(store: store)
+    }
+
     // MARK: - Initial State
 
     @Test
 
     func test_initialState_empty() {
+        resetFixture()
         // Assert
         #expect(adapter.tabs.isEmpty)
         #expect((adapter.activeTabId) == nil)
@@ -41,6 +49,8 @@ final class TabBarAdapterTests {
     @Test
 
     func test_singleTab_derivesTabBarItem() async throws {
+        resetFixture()
+
         // Arrange
         let pane = store.createPane(
             source: .floating(workingDirectory: nil, title: "MyTerminal"),
@@ -65,6 +75,8 @@ final class TabBarAdapterTests {
     @Test
 
     func test_splitTab_showsJoinedTitle() async throws {
+        resetFixture()
+
         // Arrange
         let s1 = store.createPane(
             source: .floating(workingDirectory: nil, title: "Left"),
@@ -91,6 +103,8 @@ final class TabBarAdapterTests {
     @Test
 
     func test_multipleTabs_derivesAll() async throws {
+        resetFixture()
+
         // Arrange
         let s1 = store.createPane(
             source: .floating(workingDirectory: nil, title: "Tab1"),
@@ -119,6 +133,8 @@ final class TabBarAdapterTests {
     @Test
 
     func test_activeTabId_tracksStore() async {
+        resetFixture()
+
         // Arrange
         let s1 = store.createPane(source: .floating(workingDirectory: nil, title: nil))
         let s2 = store.createPane(source: .floating(workingDirectory: nil, title: nil))
@@ -138,6 +154,8 @@ final class TabBarAdapterTests {
     @Test
 
     func test_tabRemoved_adapterUpdates() async throws {
+        resetFixture()
+
         // Arrange
         let s1 = store.createPane(source: .floating(workingDirectory: nil, title: nil))
         let s2 = store.createPane(source: .floating(workingDirectory: nil, title: nil))
@@ -165,6 +183,8 @@ final class TabBarAdapterTests {
     @Test
 
     func test_paneWithNoTitle_defaultsToTerminal() async throws {
+        resetFixture()
+
         // Arrange
         let pane = store.createPane(
             source: .floating(workingDirectory: nil, title: nil)
@@ -185,6 +205,7 @@ final class TabBarAdapterTests {
     @Test
 
     func test_transientState_draggingTabId() {
+        resetFixture()
         // Act
         adapter.draggingTabId = UUID()
 
@@ -195,6 +216,7 @@ final class TabBarAdapterTests {
     @Test
 
     func test_transientState_dropTargetIndex() {
+        resetFixture()
         // Act
         adapter.dropTargetIndex = 2
 
@@ -205,6 +227,7 @@ final class TabBarAdapterTests {
     @Test
 
     func test_transientState_tabFrames() {
+        resetFixture()
         // Arrange
         let tabId = UUID()
         let frame = CGRect(x: 10, y: 20, width: 100, height: 30)
@@ -221,6 +244,7 @@ final class TabBarAdapterTests {
     @Test
 
     func test_noTabs_notOverflowing() {
+        resetFixture()
         // Arrange
         adapter.availableWidth = 600
 
@@ -231,6 +255,8 @@ final class TabBarAdapterTests {
     @Test
 
     func test_fewTabs_withinSpace_notOverflowing() async {
+        resetFixture()
+
         // Arrange — 2 tabs: 2×220 + 1×4 + 16 = 460px < 600px
         for _ in 0..<2 {
             let pane = store.createPane(source: .floating(workingDirectory: nil, title: nil))
@@ -252,6 +278,8 @@ final class TabBarAdapterTests {
     @Test
 
     func test_manyTabs_exceedingSpace_overflowing() async {
+        resetFixture()
+
         // Arrange — 8 tabs: 8×220 + 7×4 + 16 = 1804px > 600px
         for _ in 0..<8 {
             let pane = store.createPane(source: .floating(workingDirectory: nil, title: nil))
@@ -273,6 +301,8 @@ final class TabBarAdapterTests {
     @Test
 
     func test_zeroAvailableWidth_notOverflowing() async {
+        resetFixture()
+
         // Arrange — layout not ready (width = 0)
         let pane = store.createPane(source: .floating(workingDirectory: nil, title: nil))
         store.appendTab(Tab(paneId: pane.id))
@@ -286,6 +316,8 @@ final class TabBarAdapterTests {
     @Test
 
     func test_viewportWidth_prefersOverAvailableWidth() async {
+        resetFixture()
+
         // Arrange — 1 tab, set both availableWidth and viewportWidth
         let pane = store.createPane(source: .floating(workingDirectory: nil, title: nil))
         store.appendTab(Tab(paneId: pane.id))
@@ -302,6 +334,8 @@ final class TabBarAdapterTests {
     @Test
 
     func test_contentWidthOverflow_triggersWhenContentExceedsAvailable() async {
+        resetFixture()
+
         // Arrange — 1 tab so tabs.count > 0
         let pane = store.createPane(source: .floating(workingDirectory: nil, title: nil))
         store.appendTab(Tab(paneId: pane.id))
@@ -322,6 +356,8 @@ final class TabBarAdapterTests {
     @Test
 
     func test_contentWidthOverflow_hysteresisPreventsOscillation() async {
+        resetFixture()
+
         // Arrange — trigger overflow via content width
         let pane = store.createPane(source: .floating(workingDirectory: nil, title: nil))
         store.appendTab(Tab(paneId: pane.id))
@@ -344,6 +380,8 @@ final class TabBarAdapterTests {
     @Test
 
     func test_contentWidthOverflow_turnsOffWhenWellUnderThreshold() async {
+        resetFixture()
+
         // Arrange — trigger overflow via content width
         let pane = store.createPane(source: .floating(workingDirectory: nil, title: nil))
         store.appendTab(Tab(paneId: pane.id))
@@ -365,6 +403,8 @@ final class TabBarAdapterTests {
     @Test
 
     func test_overflowUpdates_whenTabsAddedOrRemoved() async {
+        resetFixture()
+
         // Arrange — start with 4 tabs in 600px: 4×220 + 3×4 + 16 = 908px > 600px → overflow
         var panes: [Pane] = []
         for _ in 0..<4 {
@@ -379,20 +419,20 @@ final class TabBarAdapterTests {
 
         // Act — remove tabs until not overflowing: 2 tabs: 2×220 + 1×4 + 16 = 460px < 600px
         let tabsToRemove = store.tabs.prefix(2)
-        for tab in tabsToRemove {
+        for (index, tab) in tabsToRemove.enumerated() {
             store.removeTab(tab.id)
+            await waitForAdapterRefresh()
+            #expect(adapter.tabs.count == 3 - index, "Expected adapter to reflect removal \(index + 1)")
         }
 
-        await waitForAdapterRefresh()
-
         // Assert
-        #expect(adapter.tabs.count == 2)
+        #expect(store.tabs.count == 2)
         #expect(!(adapter.isOverflowing))
     }
     private func waitForAdapterRefresh() async {
-        await Task.yield()
-        try? await Task.sleep(for: .milliseconds(10))
-        await Task.yield()
+        for _ in 0..<8 {
+            await Task.yield()
+        }
     }
 }
 

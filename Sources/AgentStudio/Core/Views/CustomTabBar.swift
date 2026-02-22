@@ -56,7 +56,7 @@ private struct ScrollOverflowDetector: ViewModifier {
 
 /// Custom Ghostty-style tab bar with pill-shaped tabs
 struct CustomTabBar: View {
-    @ObservedObject var adapter: TabBarAdapter
+    @Bindable var adapter: TabBarAdapter
     var onSelect: (UUID) -> Void
     var onClose: (UUID) -> Void
     var onCommand: ((AppCommand, UUID) -> Void)?
@@ -366,7 +366,7 @@ struct CustomTabBar: View {
 /// Arrangement button in the tab bar's fixed controls zone.
 /// Opens the active tab's arrangement panel popover.
 private struct TabBarArrangementButton: View {
-    @ObservedObject var adapter: TabBarAdapter
+    @Bindable var adapter: TabBarAdapter
     let onPaneAction: ((PaneAction) -> Void)?
     let onSaveArrangement: ((UUID) -> Void)?
 

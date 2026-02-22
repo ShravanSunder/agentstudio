@@ -1,16 +1,17 @@
 import AppKit
-import Combine
+import Observation
 
 /// Manages edit mode — a toggle that reveals close buttons, drag handles,
 /// arrangement bar, and management borders on panes.
 /// Toggled via Cmd+E (command pipeline) or the toolbar button.
 /// Escape key deactivates when active.
 @MainActor
-final class ManagementModeMonitor: ObservableObject {
+@Observable
+final class ManagementModeMonitor {
     static let shared = ManagementModeMonitor()
 
     /// Whether edit mode is currently active
-    @Published private(set) var isActive: Bool = false
+    private(set) var isActive: Bool = false
 
     private var escapeMonitor: Any?
 

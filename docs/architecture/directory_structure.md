@@ -95,7 +95,7 @@ To keep ownership decisions consistent, use these terms:
   - A user-facing slice that traverses multiple layers and orchestrates behavior for a flow.
   - Usually belongs in `App/` (composition root) or a specific `Features/X/` directory.
   - Includes controller/stateful orchestration, platform event wiring, and cross-service flow.
-  - Examples: `MainSplitViewController`, `PaneTabViewController`, `TerminalViewCoordinator`.
+  - Examples: `MainSplitViewController`, `PaneTabViewController`, `PaneCoordinator`.
 
 Practical rule:
 - If a component imports two or more feature services, it is a vertical slice in `App/` (or should be split).
@@ -177,7 +177,7 @@ These are the resolved placements for components that could reasonably go multip
 
 ### PaneCoordinator → `App/`
 
-Today's `ActionExecutor` + `TerminalViewCoordinator` merges into `PaneCoordinator`. It sequences operations across `SurfaceManager` (Terminal feature), `WorkspaceStore` (Core), `SessionRuntime` (Core), and eventually `BridgePaneController` (Bridge feature).
+Today's cross-feature coordinator is `PaneCoordinator`. It sequences operations across `SurfaceManager` (Terminal feature), `WorkspaceStore` (Core), `SessionRuntime` (Core), and `BridgePaneController` (Bridge feature).
 
 **Import test:** imports from multiple features → can't be `Core/`. Lives in `App/` as the composition root — this is where Ghostty puts its coordination too (`AppDelegate` delegates to feature controllers).
 

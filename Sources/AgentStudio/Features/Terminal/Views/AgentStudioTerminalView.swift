@@ -2,7 +2,7 @@ import AppKit
 import GhosttyKit
 
 /// Terminal view wrapping Ghostty's SurfaceView via SurfaceManager.
-/// This is a host-only view — TerminalViewCoordinator creates surfaces and
+/// This is a host-only view — PaneCoordinator creates surfaces and
 /// passes them here via displaySurface(). The view never creates its own surfaces.
 final class AgentStudioTerminalView: PaneView, SurfaceHealthDelegate {
     let worktree: Worktree?
@@ -24,7 +24,7 @@ final class AgentStudioTerminalView: PaneView, SurfaceHealthDelegate {
 
     // MARK: - Initialization
 
-    /// Primary initializer — used by TerminalViewCoordinator for worktree-bound panes.
+    /// Primary initializer — used by PaneCoordinator for worktree-bound panes.
     /// Does NOT create a surface; caller must attach one via displaySurface().
     init(worktree: Worktree, repo: Repo, restoredSurfaceId: UUID, paneId: UUID) {
         self.worktree = worktree

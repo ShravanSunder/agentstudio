@@ -2,7 +2,7 @@
 
 ## TL;DR
 
-Agent Studio embeds Ghostty terminal surfaces via libghostty. `SurfaceManager` (singleton) **owns** all surfaces. `AgentStudioTerminalView` only **displays** them. `TerminalViewCoordinator` is the sole intermediary — views and the model layer never call `SurfaceManager` directly. Surfaces live in exactly one of three collections (active, hidden, undoStack), with dual-layer health monitoring and crash isolation per terminal.
+Agent Studio embeds Ghostty terminal surfaces via libghostty. `SurfaceManager` (singleton) **owns** all surfaces. `AgentStudioTerminalView` only **displays** them. `PaneCoordinator` is the sole intermediary — views and the model layer never call `SurfaceManager` directly. Surfaces live in exactly one of three collections (active, hidden, undoStack), with dual-layer health monitoring and crash isolation per terminal.
 
 ---
 
@@ -11,7 +11,7 @@ Agent Studio embeds Ghostty terminal surfaces via libghostty. `SurfaceManager` (
 The key architectural decision is **separation of ownership from display**:
 - `SurfaceManager` **owns** all surfaces (creation, lifecycle, destruction)
 - `AgentStudioTerminalView` containers only **display** surfaces
-- `TerminalViewCoordinator` is the sole intermediary for surface/runtime lifecycle
+- `PaneCoordinator` is the sole intermediary for surface/runtime lifecycle
 
 ```
 ┌─────────────────────────────────────────────────────────────────────┐
@@ -31,7 +31,7 @@ The key architectural decision is **separation of ownership from display**:
                               │
                     attach() / detach()
                               │
-                    (via TerminalViewCoordinator)
+                    (via PaneCoordinator)
                               │
                               ▼
 ┌─────────────────────────────────────────────────────────────────────┐
@@ -47,6 +47,23 @@ The key architectural decision is **separation of ownership from display**:
 ```
 
 **Session-to-surface join key:** `SurfaceMetadata.sessionId` links a surface to its `TerminalSession`. This is used during undo restore to verify the correct surface is reattached to the correct session (multi-pane safety).
+
+---
+
+## Ghostty Runtime Lifecycle Facts
+
+The embedding contract depends on four independent axes:
+
+1. Surface existence: create/free (`ghostty_surface_new`/`ghostty_surface_free`)
+2. Geometry: resize (`ghostty_surface_set_size`)
+3. Visibility: occlusion (`ghostty_surface_set_occlusion`)
+4. Focus: input focus (`ghostty_surface_set_focus`)
+
+Design implication:
+
+- Geometry updates must not be modeled as visibility-dependent.
+- Background panes can be pre-sized and kept occluded.
+- Attach orchestration should treat size readiness and visibility readiness as separate signals.
 
 ---
 
@@ -77,20 +94,20 @@ stateDiagram-v2
 
 ## Tab Close → Undo Flow
 
-The close/undo flow is coordinated through `ActionExecutor` → `TerminalViewCoordinator` → `SurfaceManager`. Views never call `SurfaceManager` directly.
+The close/undo flow is coordinated through `PaneCoordinator` → `SurfaceManager`. Views never call `SurfaceManager` directly.
 
 ```
 User closes tab
        │
        ▼
 ┌──────────────────────────────────────────────────────────────┐
-│ ActionExecutor.executeCloseTab(tabId)                        │
-│   ├─► store.snapshotForClose() → CloseSnapshot               │
+│ PaneCoordinator.executeCloseTab(tabId)                        │
+│   ├─► store.snapshotForClose() → TabCloseSnapshot            │
 │   ├─► Push to undo stack (max 10 entries)                    │
 │   │                                                          │
-│   ├─► For each sessionId in tab:                             │
-│   │     coordinator.teardownView(sessionId)                  │
-│   │       ├─► ViewRegistry.unregister(sessionId)             │
+│   ├─► For each paneId in tab:                               │
+│   │     coordinator.teardownView(paneId)                    │
+│   │       ├─► ViewRegistry.unregister(paneId)             │
 │   │       └─► SurfaceManager.detach(surfaceId, reason: .close)│
 │   │             ├─► Remove from activeSurfaces               │
 │   │             ├─► ghostty_surface_set_occlusion(false)     │
@@ -105,24 +122,24 @@ User presses Cmd+Shift+T
        │
        ▼
 ┌──────────────────────────────────────────────────────────────┐
-│ ActionExecutor.undoCloseTab()                                │
-│   ├─► Pop CloseSnapshot from undo stack                      │
+│ PaneCoordinator.undoCloseTab()                                │
+│   ├─► Pop CloseEntry from undo stack                        │
 │   ├─► store.restoreFromSnapshot() → re-insert tab            │
 │   │                                                          │
 │   └─► For each session (reversed, matching LIFO order):      │
-│         coordinator.restoreView(session, worktree, repo)     │
+│         coordinator.restoreView(pane, worktree, repo)         │
 │           ├─► SurfaceManager.undoClose()                     │
 │           │     ├─► Pop from undoStack                       │
 │           │     ├─► Cancel expiration Task                   │
-│           │     ├─► Verify metadata.sessionId matches        │
+│           │     ├─► Verify metadata.paneId matches          │
 │           │     └─► Move to hiddenSurfaces                   │
 │           │                                                  │
-│           ├─► SurfaceManager.attach(surfaceId, sessionId)    │
+│           ├─► SurfaceManager.attach(surfaceId, paneId)       │
 │           │     ├─► Move to activeSurfaces                   │
 │           │     ├─► ghostty_surface_set_occlusion(true)      │
 │           │     └─► Return surfaceView                       │
 │           │                                                  │
-│           └─► ViewRegistry.register(view, sessionId)         │
+│           └─► ViewRegistry.register(view, paneId)            │
 └──────────────────────────────────────────────────────────────┘
 ```
 
@@ -130,7 +147,9 @@ User presses Cmd+Shift+T
 
 ## CWD Propagation Architecture
 
-When a user `cd`s in a terminal, the shell's OSC 7 integration reports the new working directory. Ghostty's core parses this and emits `GHOSTTY_ACTION_PWD`. Agent Studio captures this and propagates it through a 5-stage notification pipeline:
+When a user `cd`s in a terminal, the shell's OSC 7 integration reports the new working directory. Ghostty's core parses this and emits `GHOSTTY_ACTION_PWD`. Agent Studio captures this and propagates it through a 5-stage notification pipeline.
+
+> **Migration target (LUNA-325):** This pipeline will be replaced by `GhosttyAdapter` → `GhosttyEvent.cwdChanged` → `TerminalRuntime` → `PaneEventEnvelope` on the typed coordination stream. `DispatchQueue.main.async` becomes `MainActor.assumeIsolated`, and `NotificationCenter` posts become typed event emission. See [Pane Runtime Architecture — Migration](pane_runtime_architecture.md#migration-notificationcenterdispatchqueue--asyncstreamevent-bus) for the full migration path. The diagram below documents the **current** implementation.
 
 ```
 Terminal shell (cd /foo)
@@ -151,9 +170,9 @@ Terminal shell (cd /foo)
     │ SurfaceMetadata.workingDirectory = url
     │ post .surfaceCWDChanged (surfaceId + URL)
     ▼
-④ TerminalViewCoordinator                   [TerminalViewCoordinator.swift]
-    │ surfaceId → sessionId (via metadata.sessionId)
-    │ store.updateSessionCWD(sessionId, url)
+④ PaneCoordinator                          [PaneCoordinator.swift]
+    │ surfaceId → paneId (via metadata.paneId)
+    │ store.updatePaneCWD(paneId, url)
     ▼
 ⑤ WorkspaceStore                            [WorkspaceStore.swift]
     │ session.lastKnownCWD = url (dedup + markDirty)
@@ -227,6 +246,19 @@ SurfaceManager.shared.workingDirectory(for: surfaceId) -> URL?
 
 ---
 
+## Attach Orchestration Notes (LUNA-295)
+
+1. Surface creation and geometry warmup can occur before a pane becomes visible.
+2. Occlusion should be used to suppress render cost, not as a proxy for geometry validity.
+3. For anti-flicker behavior:
+   - prioritize active pane attach on stable size,
+   - allow background prewarm/pre-size,
+   - reconcile final size on reveal.
+
+This document defines surface lifecycle primitives. Scheduling policy belongs to pane runtime orchestration contracts.
+
+---
+
 ## Detach Reasons
 
 | Reason | Target | Expires | Rendering | Use Case |
@@ -297,3 +329,10 @@ view.displaySurface(restoredSurface)  // No orphan, view has no surface yet
 - **[Component Architecture](component_architecture.md)** — Data model, service layer, ownership hierarchy
 - **[Session Lifecycle](session_lifecycle.md)** — Session creation, close, undo, restore, zmx backend
 - **[App Architecture](appkit_swiftui_architecture.md)** — AppKit + SwiftUI hybrid, lifecycle management
+- **[Zmx Restore and Sizing](zmx_restore_and_sizing.md)** — attach/readiness and restart reconcile policy
+
+## Ticket Mapping
+
+- `LUNA-295`: `Ghostty Runtime Lifecycle Facts`, `Attach Orchestration Notes (LUNA-295)`
+- `LUNA-325`: `Ghostty Runtime Lifecycle Facts` (adapter/runtime boundary assumptions)
+- `LUNA-342`: `Ghostty Runtime Lifecycle Facts` (contract freeze grounding)

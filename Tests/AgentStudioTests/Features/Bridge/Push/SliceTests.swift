@@ -28,7 +28,7 @@ final class SliceTests {
         }
 
         let task = slice.erased().makeTask(state, transport, clock) { 1 }
-        try await Task.sleep(for: .milliseconds(50))
+        #expect(await transport.waitForPushCount(atLeast: 1))
 
         // Observations emits the initial value ("idle"), which triggers the first push
         // since prev starts as nil. Record baseline after initial emission settles.
@@ -37,14 +37,14 @@ final class SliceTests {
 
         // Act — set to the same value (no-op mutation)
         state.status = "idle"
-        try await Task.sleep(for: .milliseconds(100))
+        await Task.yield()
 
         // Assert — no additional push because value did not change (Equatable skip)
         #expect(transport.pushCount == baselineCount, "Setting same value should not trigger push (Equatable skip)")
 
         // Act — set to a different value
         state.status = "loading"
-        try await Task.sleep(for: .milliseconds(100))
+        #expect(await transport.waitForPushCount(atLeast: baselineCount + 1))
 
         // Assert — push triggered for actual change
         #expect(transport.pushCount == baselineCount + 1, "Setting different value should trigger one additional push")
@@ -66,14 +66,14 @@ final class SliceTests {
         }
 
         let task = slice.erased().makeTask(state, transport, clock) { 1 }
-        try await Task.sleep(for: .milliseconds(50))
+        #expect(await transport.waitForPushCount(atLeast: 1))
 
         // Observations emits initial value first; record baseline
         let baselineCount = transport.pushCount
 
         // Act
         state.status = "loading"
-        try await Task.sleep(for: .milliseconds(50))
+        #expect(await transport.waitForPushCount(atLeast: baselineCount + 1))
 
         // Assert — one additional push for the mutation
         #expect(transport.pushCount == baselineCount + 1)
@@ -96,21 +96,21 @@ final class SliceTests {
         ) { state in state.status }
         .erased().makeTask(state, transport, clock) { 1 }
 
-        try await Task.sleep(for: .milliseconds(50))
+        #expect(await transport.waitForPushCount(atLeast: 1))
 
         // Initial emission gets revision 1
         #expect(transport.lastRevision == 1, "Initial observation emission should stamp revision 1")
 
         // Act — first mutation
         state.status = "loading"
-        try await Task.sleep(for: .milliseconds(100))
+        #expect(await transport.waitForPushCount(atLeast: 2))
 
         // Assert — second revision (initial was 1, this mutation is 2)
         #expect(transport.lastRevision == 2)
 
         // Act — second mutation
         state.status = "ready"
-        try await Task.sleep(for: .milliseconds(100))
+        #expect(await transport.waitForPushCount(atLeast: 3))
 
         // Assert — third revision
         #expect(transport.lastRevision == 3)
@@ -124,6 +124,12 @@ final class SliceTests {
 /// Test double for PushTransport — shared across push pipeline tests.
 @MainActor
 final class MockPushTransport: PushTransport {
+    private struct PushWaiter {
+        let id: UUID
+        let expectedCount: Int
+        let continuation: CheckedContinuation<Bool, Never>
+    }
+
     var pushCount = 0
     var lastStore: StoreKey?
     var lastOp: PushOp?
@@ -131,6 +137,7 @@ final class MockPushTransport: PushTransport {
     var lastRevision: Int?
     var lastEpoch: Int?
     var lastJSON: Data?
+    private var waiters: [PushWaiter] = []
 
     func pushJSON(
         store: StoreKey, op: PushOp, level: PushLevel,
@@ -143,19 +150,61 @@ final class MockPushTransport: PushTransport {
         lastRevision = revision
         lastEpoch = epoch
         lastJSON = json
+
+        let ready = waiters.filter { pushCount >= $0.expectedCount }
+        waiters.removeAll { pushCount >= $0.expectedCount }
+        for waiter in ready {
+            waiter.continuation.resume(returning: true)
+        }
+    }
+
+    func waitForPushCount(
+        atLeast expectedCount: Int
+    ) async -> Bool {
+        await waitForPushCount(atLeast: expectedCount, timeout: .seconds(2))
     }
 
     func waitForPushCount(
         atLeast expectedCount: Int,
-        timeout: Duration = .seconds(5)
+        timeout: Duration
     ) async -> Bool {
         if pushCount >= expectedCount { return true }
+        let waiterId = UUID()
 
-        let deadline = ContinuousClock().now.advanced(by: timeout)
-        while pushCount < expectedCount && ContinuousClock().now < deadline {
-            try? await Task.sleep(for: .milliseconds(10))
+        return await withTaskGroup(of: Bool.self) { group in
+            group.addTask { @MainActor [weak self] in
+                await withCheckedContinuation { (continuation: CheckedContinuation<Bool, Never>) in
+                    guard let self else {
+                        continuation.resume(returning: false)
+                        return
+                    }
+                    if self.pushCount >= expectedCount {
+                        continuation.resume(returning: true)
+                        return
+                    }
+                    self.waiters.append(
+                        PushWaiter(
+                            id: waiterId,
+                            expectedCount: expectedCount,
+                            continuation: continuation
+                        )
+                    )
+                }
+            }
+
+            group.addTask { @MainActor [weak self] in
+                try? await Task.sleep(for: timeout)
+                guard let self else { return false }
+                if let index = self.waiters.firstIndex(where: { $0.id == waiterId }) {
+                    let waiter = self.waiters.remove(at: index)
+                    waiter.continuation.resume(returning: false)
+                }
+                return false
+            }
+
+            let first = await group.next() ?? false
+            group.cancelAll()
+            return first
         }
-
-        return pushCount >= expectedCount
     }
 }

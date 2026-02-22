@@ -12,16 +12,16 @@ class MainSplitViewController: NSSplitViewController {
     // MARK: - Dependencies (injected)
 
     private let store: WorkspaceStore
-    private let executor: ActionExecutor
+    private let actionExecutor: ActionExecutor
     private let tabBarAdapter: TabBarAdapter
     private let viewRegistry: ViewRegistry
 
     init(
-        store: WorkspaceStore, executor: ActionExecutor,
+        store: WorkspaceStore, actionExecutor: ActionExecutor,
         tabBarAdapter: TabBarAdapter, viewRegistry: ViewRegistry
     ) {
         self.store = store
-        self.executor = executor
+        self.actionExecutor = actionExecutor
         self.tabBarAdapter = tabBarAdapter
         self.viewRegistry = viewRegistry
         super.init(nibName: nil, bundle: nil)
@@ -56,7 +56,7 @@ class MainSplitViewController: NSSplitViewController {
         // Create pane tab area (pure AppKit)
         let paneTabVC = PaneTabViewController(
             store: store,
-            executor: executor,
+            executor: actionExecutor,
             tabBarAdapter: tabBarAdapter,
             viewRegistry: viewRegistry
         )

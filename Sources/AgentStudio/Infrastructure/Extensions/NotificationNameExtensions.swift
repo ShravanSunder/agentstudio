@@ -1,7 +1,5 @@
 import Foundation
 
-// MARK: - Notification Names
-
 extension Notification.Name {
     // Tab management
     static let newTabRequested = Notification.Name("newTabRequested")
