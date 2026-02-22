@@ -32,7 +32,8 @@ struct CommandBarTextField: NSViewRepresentable {
         field.cell?.lineBreakMode = .byClipping
 
         // Become first responder on next run loop
-        DispatchQueue.main.async {
+        Task { @MainActor [weak field] in
+            guard let field else { return }
             field.window?.makeFirstResponder(field)
         }
 
@@ -106,7 +107,7 @@ final class KeyInterceptingTextField: NSTextField {
         // After becoming first responder, deselect text and place cursor at end.
         // Use async to let the field editor finish setup.
         if result {
-            DispatchQueue.main.async { [weak self] in
+            Task { @MainActor [weak self] in
                 guard let self, let editor = self.currentEditor() as? NSTextView else { return }
                 let len = self.stringValue.count
                 editor.setSelectedRange(NSRange(location: len, length: 0))

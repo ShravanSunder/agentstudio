@@ -12,6 +12,7 @@ import SwiftUI
 /// concerns (focus, observers, empty-state visibility, tab bar coordination) stay
 /// local. It also handles direct tab-order updates (`store.moveTab`) from drag
 /// interactions as a UI-only mutation.
+@MainActor
 class PaneTabViewController: NSViewController, CommandHandler {
     // MARK: - Dependencies (injected)
 
@@ -31,6 +32,7 @@ class PaneTabViewController: NSViewController, CommandHandler {
 
     /// Local event monitor for arrangement bar keyboard shortcut
     private var arrangementBarEventMonitor: Any?
+    private var notificationTasks: [Task<Void, Never>] = []
 
     /// Focus tracking — only refocus when the active tab or pane actually changes
     private var lastFocusedTabId: UUID?
@@ -155,53 +157,7 @@ class PaneTabViewController: NSViewController, CommandHandler {
         updateEmptyState()
         observeForAppKitState()
 
-        // Listen for process termination
-        NotificationCenter.default.addObserver(
-            self,
-            selector: #selector(handleProcessTerminated(_:)),
-            name: .terminalProcessTerminated,
-            object: nil
-        )
-
-        // Listen for tab selection by ID (from drag view)
-        NotificationCenter.default.addObserver(
-            self,
-            selector: #selector(handleSelectTabById(_:)),
-            name: .selectTabById,
-            object: nil
-        )
-
-        // Listen for undo close tab
-        NotificationCenter.default.addObserver(
-            self,
-            selector: #selector(handleUndoCloseTab),
-            name: .undoCloseTabRequested,
-            object: nil
-        )
-
-        // Listen for pane extract (from tab bar pane drop)
-        NotificationCenter.default.addObserver(
-            self,
-            selector: #selector(handleExtractPaneRequested(_:)),
-            name: .extractPaneRequested,
-            object: nil
-        )
-
-        // Listen for surface repair requests (from error overlay)
-        NotificationCenter.default.addObserver(
-            self,
-            selector: #selector(handleRepairSurfaceRequested(_:)),
-            name: .repairSurfaceRequested,
-            object: nil
-        )
-
-        // Listen for refocus terminal requests (e.g. after sidebar filter dismiss)
-        NotificationCenter.default.addObserver(
-            self,
-            selector: #selector(handleRefocusTerminal),
-            name: .refocusTerminalRequested,
-            object: nil
-        )
+        setupNotificationObservers()
 
         // Cmd+E for edit mode — handled via command pipeline (key event monitor)
         arrangementBarEventMonitor = NSEvent.addLocalMonitorForEvents(matching: .keyDown) { [weak self] event in
@@ -217,35 +173,142 @@ class PaneTabViewController: NSViewController, CommandHandler {
             return event
         }
 
-        // Listen for open webview requests
-        NotificationCenter.default.addObserver(
-            self,
-            selector: #selector(handleOpenWebviewRequested),
-            name: .openWebviewRequested,
-            object: nil
-        )
-
-        // Ghostty split and tab action observers
-        let ghosttyObservers: [(Notification.Name, Selector)] = [
-            (.ghosttyNewSplit, #selector(handleGhosttyNewSplit(_:))),
-            (.ghosttyGotoSplit, #selector(handleGhosttyGotoSplit(_:))),
-            (.ghosttyResizeSplit, #selector(handleGhosttyResizeSplit(_:))),
-            (.ghosttyEqualizeSplits, #selector(handleGhosttyEqualizeSplits(_:))),
-            (.ghosttyToggleSplitZoom, #selector(handleGhosttyToggleSplitZoom(_:))),
-            (.ghosttyCloseTab, #selector(handleGhosttyCloseTab(_:))),
-            (.ghosttyGotoTab, #selector(handleGhosttyGotoTab(_:))),
-            (.ghosttyMoveTab, #selector(handleGhosttyMoveTab(_:))),
-        ]
-        for (name, selector) in ghosttyObservers {
-            NotificationCenter.default.addObserver(self, selector: selector, name: name, object: nil)
-        }
     }
 
-    @objc private func handleOpenWebviewRequested() {
+    private func setupNotificationObservers() {
+        setupAppNotificationObservers()
+        setupGhosttyNotificationObservers()
+    }
+
+    private func setupAppNotificationObservers() {
+        notificationTasks.append(
+            Task { [weak self] in
+                for await notification in NotificationCenter.default.notifications(named: .terminalProcessTerminated) {
+                    guard let self, !Task.isCancelled else { break }
+                    self.handleProcessTerminated(notification)
+                }
+            })
+
+        notificationTasks.append(
+            Task { [weak self] in
+                for await notification in NotificationCenter.default.notifications(named: .selectTabById) {
+                    guard let self, !Task.isCancelled else { break }
+                    self.handleSelectTabById(notification)
+                }
+            })
+
+        notificationTasks.append(
+            Task { [weak self] in
+                for await _ in NotificationCenter.default.notifications(named: .undoCloseTabRequested) {
+                    guard let self, !Task.isCancelled else { break }
+                    self.handleUndoCloseTab()
+                }
+            })
+
+        notificationTasks.append(
+            Task { [weak self] in
+                for await notification in NotificationCenter.default.notifications(named: .extractPaneRequested) {
+                    guard let self, !Task.isCancelled else { break }
+                    self.handleExtractPaneRequested(notification)
+                }
+            })
+
+        notificationTasks.append(
+            Task { [weak self] in
+                for await notification in NotificationCenter.default.notifications(named: .repairSurfaceRequested) {
+                    guard let self, !Task.isCancelled else { break }
+                    self.handleRepairSurfaceRequested(notification)
+                }
+            })
+
+        notificationTasks.append(
+            Task { [weak self] in
+                for await _ in NotificationCenter.default.notifications(named: .refocusTerminalRequested) {
+                    guard let self, !Task.isCancelled else { break }
+                    self.handleRefocusTerminal()
+                }
+            })
+
+        notificationTasks.append(
+            Task { [weak self] in
+                for await _ in NotificationCenter.default.notifications(named: .openWebviewRequested) {
+                    guard let self, !Task.isCancelled else { break }
+                    self.handleOpenWebviewRequested()
+                }
+            })
+    }
+
+    private func setupGhosttyNotificationObservers() {
+        notificationTasks.append(
+            Task { [weak self] in
+                for await notification in NotificationCenter.default.notifications(named: .ghosttyNewSplit) {
+                    guard let self, !Task.isCancelled else { break }
+                    self.handleGhosttyNewSplit(notification)
+                }
+            })
+
+        notificationTasks.append(
+            Task { [weak self] in
+                for await notification in NotificationCenter.default.notifications(named: .ghosttyGotoSplit) {
+                    guard let self, !Task.isCancelled else { break }
+                    self.handleGhosttyGotoSplit(notification)
+                }
+            })
+
+        notificationTasks.append(
+            Task { [weak self] in
+                for await notification in NotificationCenter.default.notifications(named: .ghosttyResizeSplit) {
+                    guard let self, !Task.isCancelled else { break }
+                    self.handleGhosttyResizeSplit(notification)
+                }
+            })
+
+        notificationTasks.append(
+            Task { [weak self] in
+                for await notification in NotificationCenter.default.notifications(named: .ghosttyEqualizeSplits) {
+                    guard let self, !Task.isCancelled else { break }
+                    self.handleGhosttyEqualizeSplits(notification)
+                }
+            })
+
+        notificationTasks.append(
+            Task { [weak self] in
+                for await notification in NotificationCenter.default.notifications(named: .ghosttyToggleSplitZoom) {
+                    guard let self, !Task.isCancelled else { break }
+                    self.handleGhosttyToggleSplitZoom(notification)
+                }
+            })
+
+        notificationTasks.append(
+            Task { [weak self] in
+                for await notification in NotificationCenter.default.notifications(named: .ghosttyCloseTab) {
+                    guard let self, !Task.isCancelled else { break }
+                    self.handleGhosttyCloseTab(notification)
+                }
+            })
+
+        notificationTasks.append(
+            Task { [weak self] in
+                for await notification in NotificationCenter.default.notifications(named: .ghosttyGotoTab) {
+                    guard let self, !Task.isCancelled else { break }
+                    self.handleGhosttyGotoTab(notification)
+                }
+            })
+
+        notificationTasks.append(
+            Task { [weak self] in
+                for await notification in NotificationCenter.default.notifications(named: .ghosttyMoveTab) {
+                    guard let self, !Task.isCancelled else { break }
+                    self.handleGhosttyMoveTab(notification)
+                }
+            })
+    }
+
+    private func handleOpenWebviewRequested() {
         executor.openWebview()
     }
 
-    @objc private func handleRepairSurfaceRequested(_ notification: Notification) {
+    private func handleRepairSurfaceRequested(_ notification: Notification) {
         guard let userInfo = notification.userInfo,
             let paneId = userInfo["paneId"] as? UUID
         else {
@@ -254,7 +317,7 @@ class PaneTabViewController: NSViewController, CommandHandler {
         dispatchAction(.repair(.recreateSurface(paneId: paneId)))
     }
 
-    @objc private func handleSelectTabById(_ notification: Notification) {
+    private func handleSelectTabById(_ notification: Notification) {
         guard let userInfo = notification.userInfo,
             let tabId = userInfo["tabId"] as? UUID
         else {
@@ -268,11 +331,14 @@ class PaneTabViewController: NSViewController, CommandHandler {
         }
     }
 
-    deinit {
+    isolated deinit {
         if let monitor = arrangementBarEventMonitor {
             NSEvent.removeMonitor(monitor)
         }
-        NotificationCenter.default.removeObserver(self)
+        for task in notificationTasks {
+            task.cancel()
+        }
+        notificationTasks.removeAll()
     }
 
     // MARK: - Store Observation (AppKit-Level Concerns)
@@ -322,7 +388,7 @@ class PaneTabViewController: NSViewController, CommandHandler {
         RestoreTrace.log(
             "\(Self.self).focusActivePane tab=\(activeTabId) pane=\(activePaneId) paneClass=\(String(describing: type(of: paneView))) windowReady=\(paneView.window != nil)"
         )
-        DispatchQueue.main.async { [weak paneView] in
+        Task { @MainActor [weak paneView] in
             guard let paneView, paneView.window != nil else { return }
             paneView.window?.makeFirstResponder(paneView)
             RestoreTrace.log(
@@ -672,7 +738,7 @@ class PaneTabViewController: NSViewController, CommandHandler {
 
     // MARK: - Process Termination
 
-    @objc private func handleProcessTerminated(_ notification: Notification) {
+    private func handleProcessTerminated(_ notification: Notification) {
         guard let userInfo = notification.userInfo,
             let worktreeId = userInfo["worktreeId"] as? UUID
         else {
@@ -681,7 +747,7 @@ class PaneTabViewController: NSViewController, CommandHandler {
         closeTerminal(for: worktreeId)
     }
 
-    @objc private func handleExtractPaneRequested(_ notification: Notification) {
+    private func handleExtractPaneRequested(_ notification: Notification) {
         guard let userInfo = notification.userInfo,
             let tabId = userInfo["tabId"] as? UUID,
             let paneId = userInfo["paneId"] as? UUID
@@ -693,20 +759,20 @@ class PaneTabViewController: NSViewController, CommandHandler {
 
     // MARK: - Undo Close Tab
 
-    @objc private func handleUndoCloseTab() {
+    private func handleUndoCloseTab() {
         executor.undoCloseTab()
     }
 
     // MARK: - Refocus Terminal
 
-    @objc private func handleRefocusTerminal() {
+    private func handleRefocusTerminal() {
         guard let activeTabId = store.activeTabId,
             let tab = store.tab(activeTabId),
             let activePaneId = tab.activePaneId,
             let paneView = viewRegistry.view(for: activePaneId)
         else { return }
         RestoreTrace.log("\(Self.self).handleRefocusTerminal tab=\(activeTabId) pane=\(activePaneId)")
-        DispatchQueue.main.async { [weak paneView] in
+        Task { @MainActor [weak paneView] in
             guard let paneView, paneView.window != nil else { return }
             paneView.window?.makeFirstResponder(paneView)
             RestoreTrace.log("\(Self.self).handleRefocusTerminal async firstResponder set")
@@ -740,7 +806,7 @@ class PaneTabViewController: NSViewController, CommandHandler {
 
     // MARK: - Ghostty Split Action Handlers
 
-    @objc private func handleGhosttyNewSplit(_ notification: Notification) {
+    private func handleGhosttyNewSplit(_ notification: Notification) {
         guard let surfaceView = notification.object as? Ghostty.SurfaceView,
             let dirValue = notification.userInfo?["direction"] as? UInt32,
             let direction = mapGhosttyNewSplitDirection(dirValue),
@@ -752,7 +818,7 @@ class PaneTabViewController: NSViewController, CommandHandler {
                 targetPaneId: paneId, direction: direction))
     }
 
-    @objc private func handleGhosttyGotoSplit(_ notification: Notification) {
+    private func handleGhosttyGotoSplit(_ notification: Notification) {
         guard let surfaceView = notification.object as? Ghostty.SurfaceView,
             let gotoValue = notification.userInfo?["goto"] as? UInt32,
             let command = mapGhosttyGotoSplit(gotoValue),
@@ -763,7 +829,7 @@ class PaneTabViewController: NSViewController, CommandHandler {
         }
     }
 
-    @objc private func handleGhosttyResizeSplit(_ notification: Notification) {
+    private func handleGhosttyResizeSplit(_ notification: Notification) {
         guard let surfaceView = notification.object as? Ghostty.SurfaceView,
             let amount = notification.userInfo?["amount"] as? UInt16,
             let dirValue = notification.userInfo?["direction"] as? UInt32,
@@ -776,14 +842,14 @@ class PaneTabViewController: NSViewController, CommandHandler {
                 direction: direction, amount: amount))
     }
 
-    @objc private func handleGhosttyEqualizeSplits(_ notification: Notification) {
+    private func handleGhosttyEqualizeSplits(_ notification: Notification) {
         guard let surfaceView = notification.object as? Ghostty.SurfaceView,
             let (tabId, _) = resolveGhosttyTarget(surfaceView)
         else { return }
         dispatchAction(.equalizePanes(tabId: tabId))
     }
 
-    @objc private func handleGhosttyToggleSplitZoom(_ notification: Notification) {
+    private func handleGhosttyToggleSplitZoom(_ notification: Notification) {
         guard let surfaceView = notification.object as? Ghostty.SurfaceView,
             let (tabId, paneId) = resolveGhosttyTarget(surfaceView)
         else { return }
@@ -792,7 +858,7 @@ class PaneTabViewController: NSViewController, CommandHandler {
 
     // MARK: - Ghostty Tab Action Handlers
 
-    @objc private func handleGhosttyCloseTab(_ notification: Notification) {
+    private func handleGhosttyCloseTab(_ notification: Notification) {
         guard let surfaceView = notification.object as? Ghostty.SurfaceView,
             let modeValue = notification.userInfo?["mode"] as? UInt32,
             let (tabId, _) = resolveGhosttyTarget(surfaceView)
@@ -815,7 +881,7 @@ class PaneTabViewController: NSViewController, CommandHandler {
         }
     }
 
-    @objc private func handleGhosttyGotoTab(_ notification: Notification) {
+    private func handleGhosttyGotoTab(_ notification: Notification) {
         guard let surfaceView = notification.object as? Ghostty.SurfaceView,
             let targetValue = notification.userInfo?["target"] as? Int32,
             let (tabId, _) = resolveGhosttyTarget(surfaceView)
@@ -850,7 +916,7 @@ class PaneTabViewController: NSViewController, CommandHandler {
         if let action { dispatchAction(action) }
     }
 
-    @objc private func handleGhosttyMoveTab(_ notification: Notification) {
+    private func handleGhosttyMoveTab(_ notification: Notification) {
         guard let surfaceView = notification.object as? Ghostty.SurfaceView,
             let amount = notification.userInfo?["amount"] as? Int,
             let (tabId, _) = resolveGhosttyTarget(surfaceView)

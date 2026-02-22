@@ -22,7 +22,8 @@ enum SessionRuntimeStatus: String, Codable, Hashable, Sendable {
 
 /// Abstraction for terminal session providers (Ghostty, zmx, etc.).
 /// Concrete implementations handle process lifecycle and health monitoring.
-protocol SessionBackendProtocol: Sendable {
+@MainActor
+protocol SessionBackendProtocol {
     /// Provider type this backend handles.
     var provider: SessionProvider { get }
 
@@ -70,8 +71,7 @@ final class SessionRuntime {
         self.healthCheckInterval = healthCheckInterval
     }
 
-    @MainActor
-    deinit {
+    isolated deinit {
         stopHealthChecks()
     }
 

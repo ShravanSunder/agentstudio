@@ -110,7 +110,7 @@ RUNTIMES (per-pane, registered in RuntimeRegistry):
 
 **Decision:** Events self-classify as `critical` (never coalesced, immediate delivery) or `lossy` (batched on frame boundary, deduped by consolidation key). This is the **event classification** axis.
 
-**Visibility tiers:** LUNA-295 defines a separate axis: `p0_activePane → p1_activeDrawer → p2_visibleActiveTab → p3_background`. This is a **delivery scheduling** concern — which pane's events get processed first when multiple events arrive in the same frame. The NotificationReducer resolves tier via an injected `VisibilityTierResolver` (coordinator-provided). Adding visibility tiers is additive — the event and envelope contracts are unchanged. See [Contract 12a: Visibility-Tier Scheduling](#contract-12a-visibility-tier-scheduling-luna-295) for the full specification.
+**Visibility tiers:** LUNA-295 defines a separate axis: `p0ActivePane → p1ActiveDrawer → p2VisibleActiveTab → p3Background`. This is a **delivery scheduling** concern — which pane's events get processed first when multiple events arrive in the same frame. The NotificationReducer resolves tier via an injected `VisibilityTierResolver` (coordinator-provided). Adding visibility tiers is additive — the event and envelope contracts are unchanged. See [Contract 12a: Visibility-Tier Scheduling](#contract-12a-visibility-tier-scheduling-luna-295) for the full specification.
 
 ### D7: Filesystem observation with batched artifact production
 
@@ -318,13 +318,12 @@ protocol PaneRuntime: AnyObject {
     var capabilities: Set<PaneCapability> { get }
 
     /// Dispatch a command. Fails if lifecycle != .ready.
-    func handleAction(_ envelope: PaneActionEnvelope) async -> ActionResult
+    func handleCommand(_ envelope: PaneCommandEnvelope) async -> ActionResult
 
     /// Current state snapshot for late-joining consumers.
-    func snapshot() -> RuntimeSnapshot
+    func snapshot() -> PaneRuntimeSnapshot
 
-    /// Bounded replay for catch-up. Returns envelopes since requested seq.
-    /// Gap detection: if requested seq was evicted, caller should use snapshot.
+    /// Bounded replay for catch-up.
     func eventsSince(seq: UInt64) async -> EventReplayBuffer.ReplayResult
 
     /// Subscribe to live coordination events as envelopes.
@@ -339,14 +338,20 @@ typealias PaneId = UUID
 typealias WorktreeId = UUID
 ```
 
+> **Current Code Status (LUNA-342 branch):**
+> - `PaneRuntime` now includes replay wiring via `eventsSince(seq:)`.
+> - `PaneMetadata` now includes rich identity fields (`contentType`, `executionBackend`, `createdAt`, `repoId`, `worktreeId`, `parentFolder`, `checkoutRef`).
+> - Compatibility is preserved through a legacy initializer accepting `TerminalSource` and a compatibility `terminalSource` computed property.
+
 #### Supporting Types
 
 ```swift
-/// Rich pane identity — maps to R1 (Rich Pane Metadata from JTBD doc).
+/// Rich pane identity used for routing, grouping, and projection.
 ///
-/// Two sections:
-///   FIXED (let): set at creation, immutable for pane lifetime.
-///   LIVE (var): updated from runtime events → coordinator → store.
+/// In current code, fixed identity fields are mutable for migration
+/// compatibility (`paneId`/`contentType` are normalized at pane creation).
+/// This remains compatible with the architectural target of immutable
+/// creation-time identity.
 ///
 /// DYNAMIC VIEW CONTRACT: Live fields are ALL OPTIONAL because not every
 /// pane has a repo, worktree, or agent. Dynamic views (R5) group panes
@@ -364,103 +369,59 @@ typealias WorktreeId = UUID
 /// Association fields can be nil independently. `tags` is always present as
 /// a set (possibly empty).
 struct PaneMetadata: Sendable {
-    // ── Fixed at creation (immutable) ─────────────────────
-    let paneId: PaneId
-    let contentType: PaneContentType        // .terminal, .browser, .diff, .editor
-    let source: PaneSource                  // .worktree(id), .floating
-    let executionBackend: ExecutionBackend  // .local, .docker, .gondolin, .remote
-    let createdAt: ContinuousClock.Instant
+    // ── Fixed-at-creation identity (currently mutable for migration) ──
+    var paneId: PaneId?
+    var contentType: PaneContentType
+    var source: PaneMetadataSource
+    var executionBackend: ExecutionBackend
+    var createdAt: Date
 
-    // ── Live-updated (from runtime events → coordinator → store) ──
-    // ALL OPTIONAL — not every pane has every dimension.
-    // Updated from: CWD events, title events, agent detection, user tags.
-    var title: String?                      // from titleChanged event
-    var cwd: URL?                           // from cwdChanged event
-    var repoId: UUID?                       // resolved from cwd → repo mapping
-    var worktreeId: UUID?                   // resolved from cwd → worktree mapping
-    var parentFolder: String?               // auto-detected from repo path on disk
-    var checkoutRef: String?                // branch / commit / tag ref, if known
-    var agentType: AgentType?               // detected from process name or PTY
-    var tags: Set<String>                   // user-defined + auto-detected labels (empty = none)
-
-    // ── Computed (not stored) ─────────────────────────────
-    // effectiveTags = repo.tags ∪ pane.tags
-    // (repo tags resolved at query time by WorkspaceStore, not stored here)
+    // ── Live-updated fields ───────────────────────────────
+    var title: String
+    var cwd: URL?
+    var repoId: UUID?
+    var worktreeId: UUID?
+    var parentFolder: String?
+    var checkoutRef: String?
+    var agentType: AgentType?
+    var tags: [String]
 }
 
-/// Extensible content type. Built-in kinds have static constants.
-/// Plugins register additional types at runtime.
-struct PaneContentType: Hashable, Sendable {
-    let rawValue: String
-    init(_ rawValue: String) { self.rawValue = rawValue }
-
-    static let terminal = PaneContentType("terminal")
-    static let browser  = PaneContentType("browser")
-    static let diff     = PaneContentType("diff")
-    static let editor   = PaneContentType("editor")
-    // Plugins add: PaneContentType("logViewer"), PaneContentType("metrics"), etc.
+/// Core pane kinds are a closed set for exhaustive switching.
+/// Plugins use the escape hatch.
+enum PaneContentType: Hashable, Sendable {
+    case terminal
+    case browser
+    case diff
+    case editor
+    case plugin(String)
 }
 
-enum PaneSource: Sendable {
-    case worktree(worktreeId: UUID)
-    case floating
+enum PaneMetadataSource: Sendable {
+    case worktree(worktreeId: UUID, repoId: UUID)
+    case floating(workingDirectory: URL?, title: String?)
 }
 
-/// What a runtime can do. Coordinator checks capabilities
-/// before dispatching actions — avoids sending search commands
-/// to a diff pane or approval actions to a terminal.
-struct PaneCapability: Hashable, Sendable {
-    let rawValue: String
-    init(_ rawValue: String) { self.rawValue = rawValue }
-
-    // Content interaction
-    static let textInput       = PaneCapability("textInput")
-    static let search          = PaneCapability("search")
-    static let scrollback      = PaneCapability("scrollback")
-    static let navigation      = PaneCapability("navigation")
-    static let codeEditing     = PaneCapability("codeEditing")
-
-    // Workflow
-    static let approval        = PaneCapability("approval")
-    static let commenting      = PaneCapability("commenting")
-
-    // Execution environment (from ExecutionBackend)
-    static let sandboxed       = PaneCapability("sandboxed")
-    static let networkIsolated = PaneCapability("networkIsolated")
-    static let secretInjection = PaneCapability("secretInjection")
-
-    // System
-    static let undo            = PaneCapability("undo")
-    static let replay          = PaneCapability("replay")
-    static let splitZoom       = PaneCapability("splitZoom")
+/// Capabilities are a closed built-in set with a plugin extension case.
+/// Coordinator gates command dispatch using this type.
+enum PaneCapability: Hashable, Sendable {
+    case input
+    case resize
+    case search
+    case navigation
+    case diffReview
+    case editorActions
+    case plugin(String)
 }
 
-/// Snapshot for late-joining consumers (dynamic view opens, drawer expands).
-/// Contains enough state to render the pane immediately without replaying
-/// the full event history.
-struct RuntimeSnapshot: Sendable {
+/// Snapshot for late-joining consumers.
+struct PaneRuntimeSnapshot: Sendable {
     let paneId: PaneId
     let metadata: PaneMetadata
     let lifecycle: PaneRuntimeLifecycle
     let capabilities: Set<PaneCapability>
-    let lastSeq: UInt64                     // sequence number of last emitted event
-    let timestamp: ContinuousClock.Instant
-
-    /// Key-value observable state. Shape varies by runtime kind.
-    /// Terminal: ["title": .string("zsh"), "cwd": .url(...), "searchActive": .bool(false)]
-    /// Browser:  ["url": .url(...), "loading": .bool(true), "title": .string("PR #42")]
-    /// Diff:     ["filePath": .string("src/main.rs"), "approvedHunks": .int(3)]
-    let observableState: [String: SnapshotValue]
-}
-
-/// Typed snapshot values — preserves numbers, bools, URLs without string
-/// round-tripping. Plugin runtimes use the same value types.
-enum SnapshotValue: Sendable {
-    case string(String)
-    case int(Int)
-    case double(Double)
-    case bool(Bool)
-    case url(URL)
+    let lastSeq: UInt64
+    let timestamp: Date
 }
 
 /// Result of dispatching a command to a runtime.
@@ -472,10 +433,10 @@ enum ActionResult: Sendable {
 
 enum ActionError: Error, Sendable {
     case runtimeNotReady(lifecycle: PaneRuntimeLifecycle)
-    case unsupportedAction(action: String, required: PaneCapability)
+    case unsupportedCommand(command: String, required: PaneCapability)
     case invalidPayload(description: String)
     case backendUnavailable(backend: String)
-    case timeout(commandId: UUID, after: Duration)
+    case timeout(commandId: UUID)
 }
 ```
 
@@ -498,43 +459,51 @@ protocol PaneKindEvent: Sendable {
     /// Lossy = batched on frame boundary, deduped by consolidation key.
     var actionPolicy: ActionPolicy { get }
 
-    /// Stable typed identity for workflow matching and logging.
-    /// Built-in events use static constants. Plugins register their own.
-    var eventName: EventIdentifier { get }
+/// Stable typed identity for workflow matching and logging.
+/// Built-in events use enum cases. Plugins use an escape hatch.
+var eventName: EventIdentifier { get }
 }
 
 /// Typed event identity — replaces bare String for type safety.
-/// Built-in identifiers as static constants. Plugins create their own.
-struct EventIdentifier: Hashable, Sendable, CustomStringConvertible {
-    let rawValue: String
-    init(_ rawValue: String) { self.rawValue = rawValue }
-    var description: String { rawValue }
+/// Core identifiers are exhaustive enum cases; plugins use `plugin(String)`.
+enum EventIdentifier: Hashable, Sendable, CustomStringConvertible {
+    case commandFinished
+    case cwdChanged
+    case titleChanged
+    case bellRang
+    case scrollbarChanged
+    case navigationCompleted
+    case pageLoaded
+    case diffLoaded
+    case hunkApproved
+    case contentSaved
+    case fileOpened
+    case unhandled
+    case consoleMessage
+    case allApproved
+    case diagnosticsUpdated
+    case plugin(String)
 
-    // Terminal
-    static let commandFinished       = EventIdentifier("commandFinished")
-    static let cwdChanged            = EventIdentifier("cwdChanged")
-    static let titleChanged          = EventIdentifier("titleChanged")
-    static let bellRang              = EventIdentifier("bellRang")
-    static let progressReport        = EventIdentifier("progressReport")
-    static let scrollbarChanged      = EventIdentifier("scrollbarChanged")
-
-    // Browser
-    static let navigationCompleted   = EventIdentifier("navigationCompleted")
-    static let pageLoaded            = EventIdentifier("pageLoaded")
-    static let consoleMessage        = EventIdentifier("consoleMessage")
-
-    // Diff
-    static let hunkApproved          = EventIdentifier("hunkApproved")
-    static let diffLoaded            = EventIdentifier("diffLoaded")
-    static let allApproved           = EventIdentifier("allApproved")
-
-    // Editor
-    static let contentSaved          = EventIdentifier("contentSaved")
-    static let fileOpened            = EventIdentifier("fileOpened")
-    static let diagnosticsUpdated    = EventIdentifier("diagnosticsUpdated")
-
-    // ... exhaustive list per enum — compiler catches missing cases
-    // Plugins: EventIdentifier("logViewer.lineAppended"), etc.
+    var description: String {
+        switch self {
+        case .commandFinished: return "commandFinished"
+        case .cwdChanged: return "cwdChanged"
+        case .titleChanged: return "titleChanged"
+        case .bellRang: return "bellRang"
+        case .scrollbarChanged: return "scrollbarChanged"
+        case .navigationCompleted: return "navigationCompleted"
+        case .pageLoaded: return "pageLoaded"
+        case .diffLoaded: return "diffLoaded"
+        case .hunkApproved: return "hunkApproved"
+        case .contentSaved: return "contentSaved"
+        case .fileOpened: return "fileOpened"
+        case .unhandled: return "unhandled"
+        case .consoleMessage: return "consoleMessage"
+        case .allApproved: return "allApproved"
+        case .diagnosticsUpdated: return "diagnosticsUpdated"
+        case .plugin(let value): return value
+        }
+    }
 }
 
 /// Single typed event stream. Discriminated union with plugin escape hatch.
@@ -800,7 +769,7 @@ enum PaneRuntimeLifecycle: Sendable {
 ///   1. created → ready (only transition forward)
 ///   2. ready → draining (on close request)
 ///   3. draining → terminated (after timeout or all commands complete)
-///   4. handleAction() returns .failure(.runtimeNotReady) if lifecycle != .ready
+///   4. handleCommand() returns .failure(.runtimeNotReady) if lifecycle != .ready
 ///   5. shutdown(timeout:) is idempotent — safe to call multiple times
 ///   6. After terminated, no events emitted, no commands accepted
 ///   7. Unfinished command IDs returned from shutdown() for logging/recovery
@@ -943,10 +912,6 @@ struct BackgroundPrewarmAttachPolicy: Sendable {
 ### Contract 5b: Restart Reconcile Policy (LUNA-324)
 
 On app launch, the restore flow reconciles persisted workspace state against live zmx daemons before creating any Ghostty surfaces. This prevents stale sessions from consuming resources and ensures orphaned zmx processes are cleaned up.
-
-`SessionId` in this contract means the zmx daemon session name (derived from
-`PaneId` + stable keys). `PaneId` remains the primary runtime identity. See
-[Session Lifecycle — Identity Contract (Canonical)](session_lifecycle.md#identity-contract-canonical).
 
 #### Reconcile Sequence
 
@@ -1466,41 +1431,46 @@ enum RemoteAuthMethod: Sendable {
 enum TunnelType: String, Sendable { case ssh, zmx }
 ```
 
-### Contract 10: Inbound Action Dispatch
+### Contract 10: Inbound Runtime Command Dispatch
 
 ```swift
 /// Command envelope dispatched TO a runtime (inbound).
 /// Mirror of PaneEventEnvelope (outbound from runtime → coordinator).
-struct PaneActionEnvelope: Sendable {
+///
+/// NOTE: "RuntimeCommand" is the runtime-level command vocabulary —
+/// distinct from the workspace-level `PaneAction` in `Core/Actions/`
+/// which handles tab/layout/arrangement mutations. RuntimeCommand tells
+/// a runtime what to DO; PaneAction tells the workspace what to CHANGE.
+struct RuntimeCommandEnvelope: Sendable {
     let commandId: UUID                     // idempotency
     let correlationId: UUID?                // links workflow steps
     let targetPaneId: UUID                  // sole routing field on the envelope
-    let action: PaneAction
+    let command: RuntimeCommand
     let timestamp: ContinuousClock.Instant
 }
 
-/// ROUTING vs DOMAIN DATA in actions (mirrors outbound envelope rule A1):
-///   targetPaneId on PaneActionEnvelope is the SOLE routing identity.
-///   Domain data inside action payloads (e.g., DiffArtifact.worktreeId)
+/// ROUTING vs DOMAIN DATA in commands (mirrors outbound envelope rule A1):
+///   targetPaneId on RuntimeCommandEnvelope is the SOLE routing identity.
+///   Domain data inside command payloads (e.g., DiffArtifact.worktreeId)
 ///   is NOT routing — it's "which worktree this diff covers."
 ///
-/// COORDINATOR VALIDATION: Before dispatching DiffAction.loadDiff(artifact),
+/// COORDINATOR VALIDATION: Before dispatching DiffCommand.loadDiff(artifact),
 ///   the coordinator MUST validate:
 ///     artifact.worktreeId == targetRuntime.metadata.worktreeId
 ///   Mismatch is a contract violation — log and reject, don't silently
 ///   dispatch a diff to the wrong worktree context.
 
-/// Protocol for per-kind actions. Same pattern as PaneKindEvent:
-/// built-in action enums conform AND have dedicated cases.
-/// Plugin actions conform and use the `.plugin` escape hatch.
-protocol PaneKindAction: Sendable {
-    var actionName: String { get }
+/// Protocol for per-kind commands. Same pattern as PaneKindEvent:
+/// built-in command enums conform AND have dedicated cases.
+/// Plugin commands conform and use the `.plugin` escape hatch.
+protocol RuntimeKindCommand: Sendable {
+    var commandName: String { get }
 }
 
 /// What the coordinator can tell any runtime to do.
 /// Discriminated union with plugin escape hatch — same pattern as
 /// PaneRuntimeEvent.
-enum PaneAction: Sendable {
+enum RuntimeCommand: Sendable {
     // Generic lifecycle — all runtimes handle these
     case activate                           // pane became visible/focused
     case deactivate                         // pane hidden/backgrounded
@@ -1509,17 +1479,17 @@ enum PaneAction: Sendable {
     // State queries
     case requestSnapshot                    // coordinator wants current state
 
-    // ── First-class per-kind actions ───────────────────
-    case terminal(TerminalAction)
-    case browser(BrowserAction)
-    case diff(DiffAction)
-    case editor(EditorAction)
+    // ── First-class per-kind commands ──────────────────
+    case terminal(TerminalCommand)
+    case browser(BrowserCommand)
+    case diff(DiffCommand)
+    case editor(EditorCommand)
 
     // ── Plugin escape hatch ────────────────────────────
-    case plugin(any PaneKindAction)
+    case plugin(any RuntimeKindCommand)
 }
 
-enum TerminalAction: Sendable {
+enum TerminalCommand: Sendable {
     case sendInput(String)
     case sendKeySequence(KeySequence)
     case resize(cols: Int, rows: Int)
@@ -1549,7 +1519,7 @@ enum ScrollTarget: Sendable {
     case toMark(String)
 }
 
-enum BrowserAction: Sendable {
+enum BrowserCommand: Sendable {
     case navigate(url: URL)
     case goBack
     case goForward
@@ -1559,7 +1529,7 @@ enum BrowserAction: Sendable {
     case setZoom(Double)
 }
 
-enum DiffAction: Sendable {
+enum DiffCommand: Sendable {
     case loadDiff(DiffArtifact)
     case navigateToFile(path: String)
     case navigateToHunk(hunkId: String)
@@ -1578,7 +1548,7 @@ struct DiffArtifact: Sendable {
     let patchData: Data                     // unified diff format
 }
 
-enum EditorAction: Sendable {
+enum EditorCommand: Sendable {
     case openFile(path: String, line: Int?, column: Int?)
     case goToLine(Int)
     case find(query: String, regex: Bool, caseSensitive: Bool)
@@ -1602,10 +1572,10 @@ USER ACTION (command bar, keyboard, menu)
        ├─► check runtime.capabilities ⊇ required
        │
        ▼
-  PaneActionEnvelope(commandId, correlationId, targetPaneId, action)
+  RuntimeCommandEnvelope(commandId, correlationId, targetPaneId, command)
        │
        ▼
-  runtime.handleAction(envelope) async → ActionResult
+  runtime.handleCommand(envelope) async → ActionResult
        │
        ├─► .success(commandId)    → coordinator logs, advances workflow
        ├─► .queued(commandId, n)  → runtime will process in order
@@ -1903,10 +1873,10 @@ Visibility-tier scheduling is the **delivery scheduling** axis — orthogonal to
 /// This means a pane that becomes visible between event creation and
 /// submission gets the correct (higher) tier.
 enum VisibilityTier: Int, Comparable, Sendable {
-    case p0_activePane = 0       // active pane in active tab → immediate
-    case p1_activeDrawer = 1     // active pane's drawer panes → next
-    case p2_visibleActiveTab = 2 // other visible panes in active tab → after p1
-    case p3_background = 3       // hidden/background panes → bounded concurrency
+    case p0ActivePane = 0       // active pane in active tab → immediate
+    case p1ActiveDrawer = 1     // active pane's drawer panes → next
+    case p2VisibleActiveTab = 2 // other visible panes in active tab → after p1
+    case p3Background = 3       // hidden/background panes → bounded concurrency
 
     static func < (lhs: Self, rhs: Self) -> Bool {
         lhs.rawValue < rhs.rawValue
@@ -1927,7 +1897,7 @@ enum VisibilityTier: Int, Comparable, Sendable {
 ///
 /// Contract:
 ///   1. Resolver MUST return a valid tier for any paneId. Unknown
-///      paneIds default to .p3_background (safe: delayed, never lost).
+///      paneIds default to .p3Background (safe: delayed, never lost).
 ///   2. Resolver reads workspace state at call time — tier can change
 ///      between events for the same pane (e.g., user switches tabs).
 ///   3. The resolver is injected into the NotificationReducer at
@@ -1941,10 +1911,10 @@ protocol VisibilityTierResolver: Sendable {
 
 | Tier | Critical Events | Lossy Events |
 |------|----------------|--------------|
-| `p0_activePane` | Immediate delivery, processed first | Batched at frame rate, flushed first |
-| `p1_activeDrawer` | Immediate delivery, processed after p0 | Batched at frame rate, flushed after p0 |
-| `p2_visibleActiveTab` | Immediate delivery, processed after p1 | Batched at frame rate, flushed after p1 |
-| `p3_background` | Immediate delivery, processed after p2 | Batched at frame rate, flushed last. Bounded concurrency: max N background panes processed per frame cycle |
+| `p0ActivePane` | Immediate delivery, processed first | Batched at frame rate, flushed first |
+| `p1ActiveDrawer` | Immediate delivery, processed after p0 | Batched at frame rate, flushed after p0 |
+| `p2VisibleActiveTab` | Immediate delivery, processed after p1 | Batched at frame rate, flushed after p1 |
+| `p3Background` | Immediate delivery, processed after p2 | Batched at frame rate, flushed last. Bounded concurrency: max N background panes processed per frame cycle |
 
 #### Integration with NotificationReducer
 
@@ -1961,7 +1931,7 @@ protocol VisibilityTierResolver: Sendable {
 /// parameter and sorts output by tier. No existing contracts change.
 func submit(_ envelope: PaneEventEnvelope) {
     let paneId = envelope.source.paneId  // nil for system events → p0
-    let tier = paneId.map { tierResolver.tier(for: $0) } ?? .p0_activePane
+    let tier = paneId.map { tierResolver.tier(for: $0) } ?? .p0ActivePane
 
     switch envelope.event.actionPolicy {
     case .critical:
@@ -1979,10 +1949,10 @@ func submit(_ envelope: PaneEventEnvelope) {
 #### Visibility-Tier Invariants
 
 1. **Tier assignment is ephemeral.** Tiers are not stored on the envelope. They are resolved at submission time and used for ordering within the reducer's internal queues. A pane's tier can change between events (user switches tabs).
-2. **System events are always p0.** Events with `source = .system(...)` have no paneId and default to `p0_activePane`. System events are never deprioritized.
+2. **System events are always p0.** Events with `source = .system(...)` have no paneId and default to `p0ActivePane`. System events are never deprioritized.
 3. **Tier ordering does not affect classification.** A p3 critical event is still processed immediately — it just goes after p0/p1/p2 critical events in the same cycle. Classification (critical/lossy) and scheduling (visibility tier) are independent axes.
-4. **Background bounded concurrency.** `p3_background` lossy events are rate-limited: at most N panes' worth of lossy events are flushed per frame cycle (N configurable, default 3). This prevents 20 background terminals from dominating frame budget.
-5. **Unknown paneId defaults to p3.** If the resolver cannot find a paneId (pane closing, race condition), it returns `.p3_background`. Events are delayed, never dropped.
+4. **Background bounded concurrency.** `p3Background` lossy events are rate-limited: at most N panes' worth of lossy events are flushed per frame cycle (N configurable, default 3). This prevents 20 background terminals from dominating frame budget.
+5. **Unknown paneId defaults to p3.** If the resolver cannot find a paneId (pane closing, race condition), it returns `.p3Background`. Events are delayed, never dropped.
 
 ### Contract 13: Workflow Engine (deferred)
 
@@ -1996,6 +1966,10 @@ func submit(_ envelope: PaneEventEnvelope) {
 ### Contract 14: Replay Buffer
 
 > **Role:** Sink. Consumes `PaneEventEnvelope` from the coordination stream and stores them in a bounded ring buffer for late-joining consumers. Terminal consumer — does not produce events back onto the stream.
+>
+> **Current Code Status (LUNA-342 branch):**
+> - `EventReplayBuffer` now includes `Config` (`maxEvents`, `maxBytes`, `ttl`), `ReplayResult`, stale eviction, and gap detection.
+> - `PaneRuntime.eventsSince(seq:)` is wired and used by runtime implementations.
 
 ```swift
 /// Bounded event ring buffer per EventSource for late-joining consumers.
@@ -2020,7 +1994,7 @@ final class EventReplayBuffer {
     private var count: Int = 0
     private var estimatedBytes: Int = 0
     private let config: Config
-    private let clock: any Clock<Duration>
+    private let clock: ContinuousClock
 
     /// Append event. Evicts oldest if capacity/bytes exceeded.
     func append(_ envelope: PaneEventEnvelope) {
@@ -2051,7 +2025,8 @@ final class EventReplayBuffer {
         guard let first = available.first else {
             return ReplayResult(events: [], nextSeq: seq, gapDetected: false)
         }
-        let gapDetected = seq < first.seq
+        let nextExpected = seq == .max ? .max : seq + 1
+        let gapDetected = nextExpected < first.seq
         let matching = available.filter { $0.seq > seq }
         let nextSeq = matching.last?.seq ?? seq
         return ReplayResult(events: matching, nextSeq: nextSeq, gapDetected: gapDetected)
@@ -2064,7 +2039,7 @@ final class EventReplayBuffer {
     }
 
     /// CONSUMER CATCH-UP PROTOCOL:
-    ///   1. Consumer calls snapshot() → gets RuntimeSnapshot with lastSeq
+    ///   1. Consumer calls snapshot() → gets PaneRuntimeSnapshot with lastSeq
     ///   2. Consumer calls eventsSince(snapshot.lastSeq)
     ///   3. If result.gapDetected == true:
     ///      → snapshot.lastSeq < buffer.oldestSeq → consumer missed events
@@ -2397,7 +2372,7 @@ The current codebase uses `NotificationCenter` and `DispatchQueue.main.async` fo
 | Current Mechanism | Replacement | Migrated By |
 |---|---|---|
 | `NotificationCenter.default.post(name: .ghosttyAction, ...)` | `GhosttyAdapter` → typed `GhosttyEvent` → `TerminalRuntime.handleEvent()` | LUNA-325 |
-| `DispatchQueue.main.async { ... }` in C callback trampolines | `MainActor.assumeIsolated { ... }` or `Task { @MainActor in ... }` | LUNA-327 (partially), LUNA-325 (remaining) |
+| `DispatchQueue.main.async { ... }` in C callback trampolines | `Task { @MainActor in ... }` or direct `@MainActor` calls | LUNA-342 (partial — wakeup_cb, initialize), LUNA-325 (remaining 23 instances) |
 | `@objc` notification observers in `PaneCoordinator` | `for await envelope in runtime.subscribe()` in coordinator event loop | LUNA-325 |
 | `userInfo` dictionaries on notifications | Typed `GhosttyEvent` enum cases with associated values | LUNA-325 |
 | String-keyed notification names (`.ghosttyTitleChanged`, etc.) | Exhaustive `GhosttyEvent` enum switch (compile-time coverage) | LUNA-325 |
@@ -2412,11 +2387,10 @@ The current codebase uses `NotificationCenter` and `DispatchQueue.main.async` fo
 
 ### Migration Order
 
-1. **LUNA-327 (this branch):** `@Observable` migration, `private(set)` stores, `PaneCoordinator` consolidation. Foundation for the event bus. `DispatchQueue.main.async` → `MainActor` primitives where touched.
-2. **LUNA-342 (contract freeze):** Lock contract shapes. No implementation, but every contract is testable against a mock.
-3. **LUNA-325 (implementation):** Build `GhosttyAdapter`, `TerminalRuntime`, `RuntimeRegistry`, `NotificationReducer`. Replace `NotificationCenter`-based dispatch with typed event stream. This is the primary migration ticket.
-4. **LUNA-295 (attach orchestration):** Build attach readiness policies and visibility-tier scheduling. Consumes the event stream infrastructure from LUNA-325.
-5. **LUNA-324 (restart reconcile):** Implement startup reconcile classification, orphan TTL cleanup, and post-restore health monitoring via Contract 5b.
+1. **LUNA-327 (done):** `@Observable` migration, `private(set)` stores, `PaneCoordinator` consolidation. Foundation for the event bus. `DispatchQueue.main.async` → `MainActor` primitives where touched.
+2. **LUNA-342 (done):** Contract freeze + Swift 6 language mode migration. `.swiftLanguageMode(.v6)` enforced, all `isolated deinit` migrations complete, `MainActor.assumeIsolated` removed from Sources, C callback trampolines partially migrated (`wakeup_cb` done), existential Sendable constraints added. SwiftLint concurrency rules added (44 violations marking LUNA-325 scope). See [migration spec](../plans/2026-02-22-swift6-language-mode-migration.md) and [mapping doc](../plans/2026-02-21-pane-runtime-luna-295-luna-325-mapping.md#luna-342-implementation-record) for details.
+3. **LUNA-325 (next):** Build `GhosttyAdapter`, `TerminalRuntime`, `RuntimeRegistry`, `NotificationReducer`. Replace `NotificationCenter`-based dispatch with typed event stream. Resolve remaining 44 SwiftLint concurrency violations (23 DispatchQueue, 20 NotificationCenter selector, 1 Task.detached). This is the primary migration ticket.
+4. **LUNA-295 (attach orchestration):** Build attach readiness policies, visibility-tier scheduling, restart reconcile. Consumes the event stream infrastructure from LUNA-325.
 
 ### Migration Invariant
 
@@ -2478,7 +2452,7 @@ Structural guarantees that hold across all contracts. Each invariant is enforced
 
 ### Lifecycle
 
-**A11. Lifecycle transitions are forward-only.** `created → ready → draining → terminated`. No backward transitions. No skipping states. `handleAction()` rejects commands if `lifecycle != .ready`. After `terminated`, no events emitted, no commands accepted, runtime is unregistered from `RuntimeRegistry`.
+**A11. Lifecycle transitions are forward-only.** `created → ready → draining → terminated`. No backward transitions. No skipping states. `handleCommand()` rejects commands if `lifecycle != .ready`. After `terminated`, no events emitted, no commands accepted, runtime is unregistered from `RuntimeRegistry`.
 
 *Enforced by:* `PaneRuntimeLifecycle` state machine with compile-time transition validation. Violation = `.failure(.runtimeNotReady)`.
 
@@ -2510,21 +2484,21 @@ Hard rules for all types in this architecture. Violations are compile errors, no
 
 1. **All cross-boundary payloads are `Sendable`.** Every struct, enum, and protocol in the event/action/envelope pipeline conforms to `Sendable`. No bare `Error` — use `any Error & Sendable` or serialize to typed payloads (see `RuntimeErrorEvent.underlyingDescription`).
 
-2. **No stringly-typed event identity in core contracts.** `EventIdentifier` struct replaces bare `String` for event names. `PaneContentType` struct replaces string-keyed content types. `SnapshotValue` enum replaces `[String: String]` for observable state values. Plugins use the same typed wrappers — they construct `EventIdentifier("custom.event")`, not arbitrary strings.
+2. **No stringly-typed event identity in core contracts.** `EventIdentifier`, `PaneContentType`, and `PaneCapability` are typed enums (with `.plugin(String)` escape hatches) instead of bare strings.
 
-3. **No `DispatchQueue.main.async` / `NotificationCenter` in new plumbing.** C API callbacks use `MainActor.assumeIsolated` for synchronous hops or `Task { @MainActor in }` for async work. Event transport uses `AsyncStream` + `swift-async-algorithms`. Existing Combine/NotificationCenter migrated incrementally.
+3. **No `DispatchQueue.main.async` / `NotificationCenter` selector patterns.** These are v5-era patterns incompatible with Swift 6 concurrency conventions. C API callbacks use `Task { @MainActor in }` for async work. Event transport uses `AsyncStream` + `swift-async-algorithms`. 23 `DispatchQueue.main.async` and 20 `NotificationCenter` selector instances remain as technical debt — tracked by SwiftLint concurrency rules (`no_dispatch_queue_main`, `no_notification_center_selector`) and migrated by LUNA-325.
 
 4. **Callback handoff is explicitly actor-safe.** Static `@Sendable` trampolines at FFI boundary. No closures capturing mutable state across isolation boundaries. Adapters are `@MainActor` — the trampoline is the only non-isolated code.
 
-5. **Clock/timer behavior is injectable and testable.** `NotificationReducer`, `EventReplayBuffer`, and any time-dependent component accept `any Clock<Duration>` as a constructor parameter. No hardwired `Task.sleep` in production paths. A production default clock may be provided at initializer boundaries only.
+5. **Clock/timer behavior is testable and migration-ready.** New time-dependent logic should use injectable clock boundaries; current replay implementation uses `ContinuousClock` with explicit constructor injection and store-level `Task.sleep` migration remains tracked.
 
-6. **Existentials (`any`) are explicit and minimized.** `any PaneRuntime` at registry lookup boundaries. `any PaneKindEvent` at the plugin escape hatch. `any Clock<Duration>` for testable time. No implicit existential boxing — every `any` is a conscious decision at a boundary.
+6. **Existentials (`any`) are explicit and minimized.** `any PaneRuntime` at registry lookup boundaries and `any PaneKindEvent` at the plugin escape hatch. No implicit existential boxing — every `any` is a conscious decision at a boundary.
 
 7. **`@MainActor` is the isolation domain for all runtime state.** All stores, runtimes, coordinators, and registries are `@MainActor`. Thread safety enforced at compile time. The protocol is `async` to reduce (not eliminate) actor-per-pane migration cost (D1). Sync protocol members would need conversion; see D1 for honest cost assessment.
 
 8. **Envelope validity is enforced.** `source` + `event` compatibility and monotonic `seq` per `EventSource` are contract-level invariants, not best-effort behavior.
 
-9. **macOS 26 primitives are mandatory for new plumbing.** Use Observation (`@Observable`) for UI-facing state, `AsyncStream` + `swift-async-algorithms` for transport, `Clock<Duration>` for timing, and actor-safe callback handoff (`MainActor.assumeIsolated` / `Task { @MainActor in }`) at C boundaries.
+9. **macOS 26 primitives are mandatory for new plumbing.** Use Observation (`@Observable`) for UI-facing state, `AsyncStream` + `swift-async-algorithms` for transport, `Clock<Duration>` for timing, and `Task { @MainActor in }` for actor-safe callback handoff at C boundaries. See [Swift 6 Concurrency](appkit_swiftui_architecture.md#swift-6-concurrency) for full rules and common false positives.
 
 ---
 
@@ -2577,7 +2551,41 @@ This architecture was reviewed by four independent analyses:
 | **LUNA-326** (Native Scrollbar) | Consumes the terminal runtime contract. Scrollbar behavior binds to `TerminalRuntime.scrollbarState` via @Observable. Does not invent new transport. | None (consumer only) |
 | **LUNA-327** (State Ownership + Observable Migration) | The current branch. Establishes @Observable store pattern, PaneCoordinator consolidation, `private(set)` unidirectional flow, and `DispatchQueue.main.async` → `MainActor` migration. | D1, D5, Swift 6 invariants, Migration section |
 | **LUNA-342** (Contract Freeze) | Freeze gate — all design decisions, contracts, and invariants locked. No implementation. | All invariants (A1-A15), Swift 6 invariants (1-9), envelope/source shape |
-| **LUNA-343** (Post-Freeze Consistency + PaneCoordinator Hardening) | Follow-up validation after freeze. Resolves ticket/doc drift, validates dependency sequencing, and hardens `PaneCoordinator` tests/organization before broad rollout. | No new contracts. Validates Contract 5b ownership/policy alignment and migration sequencing assumptions. |
+
+---
+
+## Directory Placement
+
+Contract types are shared pane-system domain infrastructure — used by all features, not owned by any single feature. They live in `Core/PaneRuntime/`. Feature-specific implementations (adapters, concrete runtimes) live in each `Features/X/` directory. The coordinator stays in `App/` as the composition root.
+
+See [Directory Structure](directory_structure.md) for the full decision process and import rules.
+
+| Type | Directory | Rationale |
+|------|-----------|-----------|
+| **Contracts** (PaneRuntime protocol, PaneRuntimeEvent, PaneEventEnvelope, RuntimeCommand, RuntimeCommandEnvelope, PaneLifecycle, PaneMetadata, ActionPolicy, PaneCapability, per-kind event/command enums) | `Core/PaneRuntime/Contracts/` | Imported by all features and App; change driver is pane system contract, not any specific feature |
+| **RuntimeRegistry** | `Core/PaneRuntime/Registry/` | Feature-agnostic lookup; consumed by PaneCoordinator in App/ |
+| **NotificationReducer**, VisibilityTier types | `Core/PaneRuntime/Reduction/` | Feature-agnostic event processing; consumed by PaneCoordinator |
+| **EventReplayBuffer** | `Core/PaneRuntime/Replay/` | Feature-agnostic buffering; consumed by PaneCoordinator |
+| **GhosttyAdapter** | `Features/Terminal/Ghostty/` | FFI-specific; translates C callbacks into Core event types |
+| **TerminalRuntime** | `Features/Terminal/Runtime/` | Terminal-specific `PaneRuntime` conformance |
+| **BrowserRuntime** (future) | `Features/Webview/Runtime/` | Webview-specific `PaneRuntime` conformance |
+| **PaneCoordinator** | `App/` | Imports from multiple features; composition root |
+
+### Why per-kind event enums live in Core
+
+`GhosttyEvent`, `BrowserEvent`, `DiffEvent`, `EditorEvent` are cases in the `PaneRuntimeEvent` discriminated union (Contract 2). Since `PaneRuntimeEvent` is in `Core/PaneRuntime/Contracts/` and Core cannot import Features, all per-kind event enums must also be in Core. These enums define the **domain event vocabulary** — what the system says about terminal/browser/diff/editor events. The adapters that *produce* these events from platform APIs live in Features.
+
+### Naming: RuntimeCommand vs PaneAction
+
+Two distinct action layers exist with different scopes:
+
+| Layer | Type | Location | Purpose |
+|-------|------|----------|---------|
+| **Workspace** | `PaneAction` | `Core/Actions/` | Workspace structure mutations — selectTab, closePane, insertPane, toggleDrawer |
+| **Runtime** | `RuntimeCommand` | `Core/PaneRuntime/Contracts/` | Commands to individual runtimes — sendInput, navigate, approveHunk |
+
+`PaneAction` flows: User → ActionResolver → ActionValidator → PaneCoordinator → WorkspaceStore.
+`RuntimeCommand` flows: PaneCoordinator → RuntimeRegistry → `runtime.handleCommand(envelope)`.
 
 ---
 

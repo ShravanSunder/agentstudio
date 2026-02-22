@@ -9,9 +9,10 @@ let ghosttyLogger = Logger(subsystem: "com.agentstudio", category: "Ghostty")
 /// Namespace for all Ghostty-related types
 enum Ghostty {
     /// The shared Ghostty app instance
-    private static var sharedApp: App?
+    @MainActor private static var sharedApp: App?
 
     /// Access the shared Ghostty app
+    @MainActor
     static var shared: App {
         guard let app = sharedApp else {
             fatalError("Ghostty not initialized. Call Ghostty.initialize() first.")
@@ -20,21 +21,15 @@ enum Ghostty {
     }
 
     /// Check if Ghostty has been initialized
+    @MainActor
     static var isInitialized: Bool {
         sharedApp != nil
     }
 
-    /// Initialize the shared Ghostty app (must be called on main thread)
+    /// Initialize the shared Ghostty app. @MainActor-isolated.
+    @MainActor
     @discardableResult
     static func initialize() -> Bool {
-        guard Thread.isMainThread else {
-            var result = false
-            DispatchQueue.main.sync {
-                result = initialize()
-            }
-            return result
-        }
-
         guard sharedApp == nil else { return true }
         sharedApp = App()
         return sharedApp?.app != nil
@@ -91,6 +86,8 @@ extension Ghostty {
 
         /// The ghostty configuration
         private var config: ghostty_config_t?
+        private var didBecomeActiveObserver: NSObjectProtocol?
+        private var didResignActiveObserver: NSObjectProtocol?
 
         init() {
             // Load default configuration
@@ -112,8 +109,10 @@ extension Ghostty {
                 supports_selection_clipboard: true,
                 wakeup_cb: { userdata in
                     guard let userdata else { return }
-                    let app = Unmanaged<App>.fromOpaque(userdata).takeUnretainedValue()
-                    DispatchQueue.main.async {
+                    let userdataBits = UInt(bitPattern: userdata)
+                    Task { @MainActor in
+                        guard let userdata = UnsafeMutableRawPointer(bitPattern: userdataBits) else { return }
+                        let app = Unmanaged<App>.fromOpaque(userdata).takeUnretainedValue()
                         app.tick()
                     }
                 },
@@ -147,32 +146,34 @@ extension Ghostty {
                 return
             }
 
-            // Set initial focus state (safe check for NSApp existence)
-            if let nsApp = NSApp {
-                ghostty_app_set_focus(app, nsApp.isActive)
-            } else {
-                ghostty_app_set_focus(app, false)
-            }
+            // Start unfocused; activation notifications synchronize real app focus state.
+            ghostty_app_set_focus(app, false)
 
-            // Register for app activation notifications
-            NotificationCenter.default.addObserver(
-                self,
-                selector: #selector(applicationDidBecomeActive),
-                name: NSApplication.didBecomeActiveNotification,
-                object: nil
-            )
-            NotificationCenter.default.addObserver(
-                self,
-                selector: #selector(applicationDidResignActive),
-                name: NSApplication.didResignActiveNotification,
-                object: nil
-            )
+            didBecomeActiveObserver = NotificationCenter.default.addObserver(
+                forName: NSApplication.didBecomeActiveNotification,
+                object: nil,
+                queue: .main
+            ) { [weak self] _ in
+                self?.applicationDidBecomeActive()
+            }
+            didResignActiveObserver = NotificationCenter.default.addObserver(
+                forName: NSApplication.didResignActiveNotification,
+                object: nil,
+                queue: .main
+            ) { [weak self] _ in
+                self?.applicationDidResignActive()
+            }
 
             ghosttyLogger.info("Ghostty app initialized successfully")
         }
 
         deinit {
-            NotificationCenter.default.removeObserver(self)
+            if let observer = didBecomeActiveObserver {
+                NotificationCenter.default.removeObserver(observer)
+            }
+            if let observer = didResignActiveObserver {
+                NotificationCenter.default.removeObserver(observer)
+            }
             if let app {
                 ghostty_app_free(app)
             }
@@ -187,13 +188,13 @@ extension Ghostty {
             ghostty_app_tick(app)
         }
 
-        @objc private func applicationDidBecomeActive(_ notification: NSNotification) {
+        private func applicationDidBecomeActive() {
             guard let app else { return }
             ghostty_app_set_focus(app, true)
             RestoreTrace.log("Ghostty.App applicationDidBecomeActive -> ghostty_app_set_focus(true)")
         }
 
-        @objc private func applicationDidResignActive(_ notification: NSNotification) {
+        private func applicationDidResignActive() {
             guard let app else { return }
             ghostty_app_set_focus(app, false)
             RestoreTrace.log("Ghostty.App applicationDidResignActive -> ghostty_app_set_focus(false)")
@@ -222,7 +223,8 @@ extension Ghostty {
                         let titlePtr = action.action.set_title.title
                     {
                         let title = String(cString: titlePtr)
-                        DispatchQueue.main.async {
+                        Task { @MainActor [weak surfaceView] in
+                            guard let surfaceView else { return }
                             surfaceView.titleDidChange(title)
                         }
                     }
@@ -233,7 +235,8 @@ extension Ghostty {
                 if target.tag == GHOSTTY_TARGET_SURFACE, let surface = target.target.surface {
                     if let surfaceView = surfaceView(from: surface) {
                         let pwd = action.action.pwd.pwd.map { String(cString: $0) }
-                        DispatchQueue.main.async {
+                        Task { @MainActor [weak surfaceView] in
+                            guard let surfaceView else { return }
                             surfaceView.pwdDidChange(pwd)
                         }
                     }
@@ -245,21 +248,21 @@ extension Ghostty {
                 let direction = action.action.new_split
                 return postSurfaceNotification(
                     target, name: .ghosttyNewSplit,
-                    userInfo: ["direction": direction.rawValue])
+                    userInfo: ["direction": Int(direction.rawValue)])
 
             case GHOSTTY_ACTION_GOTO_SPLIT:
                 let goto = action.action.goto_split
                 return postSurfaceNotification(
                     target, name: .ghosttyGotoSplit,
-                    userInfo: ["goto": goto.rawValue])
+                    userInfo: ["goto": Int(goto.rawValue)])
 
             case GHOSTTY_ACTION_RESIZE_SPLIT:
                 let resize = action.action.resize_split
                 return postSurfaceNotification(
                     target, name: .ghosttyResizeSplit,
                     userInfo: [
-                        "amount": resize.amount,
-                        "direction": resize.direction.rawValue,
+                        "amount": Int(resize.amount),
+                        "direction": Int(resize.direction.rawValue),
                     ])
 
             case GHOSTTY_ACTION_EQUALIZE_SPLITS:
@@ -273,19 +276,19 @@ extension Ghostty {
                 let mode = action.action.close_tab_mode
                 return postSurfaceNotification(
                     target, name: .ghosttyCloseTab,
-                    userInfo: ["mode": mode.rawValue])
+                    userInfo: ["mode": Int(mode.rawValue)])
 
             case GHOSTTY_ACTION_GOTO_TAB:
                 let gotoTab = action.action.goto_tab
                 return postSurfaceNotification(
                     target, name: .ghosttyGotoTab,
-                    userInfo: ["target": gotoTab.rawValue])
+                    userInfo: ["target": Int(gotoTab.rawValue)])
 
             case GHOSTTY_ACTION_MOVE_TAB:
                 let moveTab = action.action.move_tab
                 return postSurfaceNotification(
                     target, name: .ghosttyMoveTab,
-                    userInfo: ["amount": moveTab.amount])
+                    userInfo: ["amount": Int(moveTab.amount)])
 
             default:
                 return false
@@ -293,18 +296,23 @@ extension Ghostty {
         }
 
         /// Post a notification targeting a surface. Extracts the SurfaceView from the target
-        /// and dispatches the notification on the main queue. Returns false if target is invalid.
+        /// and posts the notification on the MainActor. Returns false if target is invalid.
         private static func postSurfaceNotification(
             _ target: ghostty_target_s,
             name: Foundation.Notification.Name,
-            userInfo: [String: Any]? = nil
+            userInfo: [String: Int]? = nil
         ) -> Bool {
             guard target.tag == GHOSTTY_TARGET_SURFACE,
                 let surface = target.target.surface,
                 let surfaceView = surfaceView(from: surface)
             else { return false }
-            DispatchQueue.main.async {
-                NotificationCenter.default.post(name: name, object: surfaceView, userInfo: userInfo)
+            Task { @MainActor [weak surfaceView] in
+                guard let surfaceView else { return }
+                NotificationCenter.default.post(
+                    name: name,
+                    object: surfaceView,
+                    userInfo: userInfo
+                )
             }
             return true
         }

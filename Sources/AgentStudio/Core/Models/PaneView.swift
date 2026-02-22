@@ -7,9 +7,10 @@ import AppKit
 /// - `AgentStudioTerminalView` — Ghostty/zmx terminal
 /// - `WebviewPaneView` — embedded web content (stub)
 /// - `CodeViewerPaneView` — source code viewer (stub)
+@MainActor
 class PaneView: NSView, Identifiable {
-    let paneId: UUID
-    var id: UUID { paneId }
+    nonisolated let paneId: UUID
+    nonisolated var id: UUID { paneId }
 
     init(paneId: UUID) {
         self.paneId = paneId

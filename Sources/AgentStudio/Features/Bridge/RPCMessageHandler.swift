@@ -16,12 +16,13 @@ private let messageHandlerLogger = Logger(subsystem: "com.agentstudio", category
 /// Design doc §4.2, §9.3.
 final class RPCMessageHandler: NSObject, WKScriptMessageHandler {
 
-    /// Called on the main thread when a valid JSON string is extracted from a postMessage body.
-    /// Set by the owning controller to wire into `RPCRouter.dispatch(json:)`.
+    /// Callback invoked on the MainActor when `didReceive` extracts a valid JSON envelope.
+    /// Set once by `BridgePaneController` during setup; routes to `RPCRouter.dispatch(json:)`.
     ///
-    /// Using `nonisolated(unsafe)` because `WKScriptMessageHandler.userContentController(_:didReceive:)`
-    /// is nonisolated, but this property is set once during setup and read from the main thread only.
-    nonisolated(unsafe) var onValidJSON: (@MainActor (String) async -> Void)?
+    /// Both `@MainActor` annotations are required in Swift 6 strict mode:
+    /// the property annotation isolates access, the closure type annotation isolates invocation.
+    /// Closure parameters do not inherit isolation from the containing property.
+    @MainActor var onValidJSON: (@MainActor (String) async -> Void)?
 
     // MARK: - JSON Extraction
 
@@ -32,7 +33,7 @@ final class RPCMessageHandler: NSObject, WKScriptMessageHandler {
     /// `postMessage` can deliver any JS value (string, number, object, array, null).
     /// The bridge relay sends `JSON.stringify`'d strings, so we require `String` type.
     /// Non-string bodies (NSDictionary, NSNumber, NSArray) are rejected.
-    static func extractJSON(from body: Any) -> String? {
+    nonisolated static func extractJSON(from body: Any) -> String? {
         guard let jsonString = body as? String,
             !jsonString.isEmpty
         else {

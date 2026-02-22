@@ -130,9 +130,7 @@ final class BridgePaneController {
         // Register bridge.ready handler — the ONLY trigger for starting push plans (§4.5 step 6).
         // The closure is @Sendable and runs through an async dispatch path.
         router.register("bridge.ready") { [weak self] _ in
-            await MainActor.run {
-                self?.handleBridgeReady()
-            }
+            self?.handleBridgeReady()
         }
     }
 

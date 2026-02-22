@@ -184,6 +184,7 @@ enum SurfaceDetachReason {
 // MARK: - Surface Lifecycle Delegate
 
 /// Delegate for surface lifecycle events
+@MainActor
 protocol SurfaceLifecycleDelegate: AnyObject {
     /// Called before a surface is created, allowing modification of config
     func surfaceWillCreate(config: inout Ghostty.SurfaceConfiguration, metadata: SurfaceMetadata)
@@ -201,6 +202,7 @@ protocol SurfaceLifecycleDelegate: AnyObject {
 // MARK: - Surface Health Delegate
 
 /// Delegate for surface health events
+@MainActor
 protocol SurfaceHealthDelegate: AnyObject {
     /// Called when a surface's health state changes
     func surface(_ surfaceId: UUID, healthChanged: SurfaceHealth)

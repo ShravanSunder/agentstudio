@@ -70,7 +70,7 @@ extension Ghostty {
         private(set) var title: String = ""
 
         /// The ghostty surface handle
-        private(set) var surface: ghostty_surface_t?
+        nonisolated(unsafe) private(set) var surface: ghostty_surface_t?
 
         /// The ghostty app reference
         private weak var ghosttyApp: App?
@@ -232,7 +232,7 @@ extension Ghostty {
             fatalError("init(coder:) has not been implemented")
         }
 
-        deinit {
+        isolated deinit {
             deferredStartupWorkItem?.cancel()
             if let surface {
                 ghostty_surface_free(surface)
@@ -293,7 +293,7 @@ extension Ghostty {
             // the placeholder grid size because setFrameSize may never fire if
             // the parent PaneView was also initialized at the same placeholder.
             if window != nil, surface != nil {
-                DispatchQueue.main.async { [weak self] in
+                Task { @MainActor [weak self] in
                     guard let self, self.window != nil else { return }
                     let size = self.frame.size
                     guard size.width > 0 && size.height > 0 else { return }
@@ -449,7 +449,12 @@ extension Ghostty {
                 RestoreTrace.log("Ghostty.SurfaceView.deferredStartup sent source=\(source)")
             }
             deferredStartupWorkItem = workItem
-            DispatchQueue.main.asyncAfter(deadline: .now() + deferredStartupDelaySeconds, execute: workItem)
+            let delayMilliseconds = Int(deferredStartupDelaySeconds * 1000)
+            Task { @MainActor in
+                try? await Task.sleep(for: .milliseconds(delayMilliseconds))
+                guard !workItem.isCancelled else { return }
+                workItem.perform()
+            }
         }
 
         // MARK: - Input Handling
@@ -851,7 +856,7 @@ extension Ghostty {
 
 // MARK: - NSTextInputClient Conformance
 
-extension Ghostty.SurfaceView: NSTextInputClient {
+extension Ghostty.SurfaceView: @preconcurrency NSTextInputClient {
     func insertText(_ string: Any, replacementRange: NSRange) {
         // Must have a current event
         guard NSApp.currentEvent != nil else { return }

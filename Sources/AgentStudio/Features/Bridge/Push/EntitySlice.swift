@@ -27,8 +27,8 @@ struct EntityDelta<Entity: Encodable>: Encodable {
 /// Design doc §6.6.
 struct EntitySlice<
     State: Observable & AnyObject,
-    Key: Hashable,
-    Entity: Encodable
+    Key: Hashable & Sendable,
+    Entity: Encodable & Sendable
 > {
     let name: String
     let store: StoreKey
@@ -86,15 +86,7 @@ struct EntitySlice<
 
                     let data: Data
                     do {
-                        if level == .cold {
-                            // Offload JSON encoding for cold slices (e.g. diffFiles) to
-                            // avoid blocking the main actor on large payloads.
-                            data = try await Task.detached(priority: .utility) {
-                                try encoder.encode(delta)
-                            }.value
-                        } else {
-                            data = try encoder.encode(delta)
-                        }
+                        data = try encoder.encode(delta)
                     } catch {
                         logger.error("[PushEngine] encode failed slice=\(name) store=\(store.rawValue): \(error)")
                         continue

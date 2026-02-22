@@ -51,7 +51,7 @@ final class DrawerDismissMonitor {
         }
     }
 
-    deinit {
+    isolated deinit {
         if let monitor {
             NSEvent.removeMonitor(monitor)
         }
@@ -63,7 +63,7 @@ final class DrawerDismissMonitor {
 /// Reports the icon bar's frame in the global coordinate space.
 /// DrawerPanelOverlay reads this to exclude the icon bar from dismiss hit testing.
 struct DrawerIconBarFrameKey: PreferenceKey {
-    static var defaultValue: CGRect = .zero
+    static let defaultValue: CGRect = .zero
     static func reduce(value: inout CGRect, nextValue: () -> CGRect) {
         let next = nextValue()
         if next != .zero { value = next }

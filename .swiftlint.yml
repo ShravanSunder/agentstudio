@@ -15,6 +15,8 @@ strict: true
 
 # Rules configuration
 opt_in_rules:
+  # Concurrency
+  - unhandled_throwing_task
   # Style
   - closure_spacing
   - collection_alignment
@@ -110,6 +112,22 @@ custom_rules:
     regex: "^\\s*@(ObservedObject|StateObject|EnvironmentObject)\\b"
     message: "Prefer @Bindable for @Observable-annotated dependencies."
     severity: error
+  # Swift 6 concurrency anti-patterns (LUNA-325 migration scope)
+  no_dispatch_queue_main:
+    name: "No DispatchQueue.main.async/sync"
+    regex: "DispatchQueue\\.main\\.(async|sync)"
+    message: "Use Task/@MainActor instead of DispatchQueue.main. LUNA-325 migrates remaining instances to typed event streams."
+    severity: warning
+  no_task_detached:
+    name: "No Task.detached"
+    regex: "Task\\.detached"
+    message: "Prefer Task {} (inherits actor isolation) over Task.detached. Disable with inline justification if detached is specifically needed."
+    severity: warning
+  no_notification_center_selector:
+    name: "No selector-based NotificationCenter observation"
+    regex: "addObserver\\([^)]*selector:"
+    message: "Use NotificationCenter.notifications(named:) async stream instead of selector-based observation."
+    severity: warning
 
 # Rule-specific configuration
 identifier_name:

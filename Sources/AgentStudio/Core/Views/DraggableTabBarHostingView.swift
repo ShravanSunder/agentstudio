@@ -38,7 +38,7 @@ class DraggableTabBarHostingView: NSView, NSDraggingSource {
 
     private var managementModeObservation: Task<Void, Never>?
 
-    deinit {
+    isolated deinit {
         managementModeObservation?.cancel()
     }
 
@@ -299,7 +299,7 @@ class DraggableTabBarHostingView: NSView, NSDraggingSource {
 
     func draggingSession(_ session: NSDraggingSession, endedAt screenPoint: NSPoint, operation: NSDragOperation) {
         // Cleanup
-        DispatchQueue.main.async { [weak self] in
+        Task { @MainActor [weak self] in
             self?.tabBarAdapter?.draggingTabId = nil
             self?.tabBarAdapter?.dropTargetIndex = nil
             self?.draggingTabId = nil
@@ -328,7 +328,7 @@ class DraggableTabBarHostingView: NSView, NSDraggingSource {
 
         // Reject internal tab drags when management mode exited mid-drag
         if types.contains(.agentStudioTabInternal) && !ManagementModeMonitor.shared.isActive {
-            DispatchQueue.main.async { [weak self] in
+            Task { @MainActor [weak self] in
                 self?.tabBarAdapter?.dropTargetIndex = nil
             }
             return []
@@ -339,7 +339,7 @@ class DraggableTabBarHostingView: NSView, NSDraggingSource {
     }
 
     override func draggingExited(_ sender: NSDraggingInfo?) {
-        DispatchQueue.main.async { [weak self] in
+        Task { @MainActor [weak self] in
             self?.tabBarAdapter?.dropTargetIndex = nil
         }
     }
@@ -378,7 +378,7 @@ class DraggableTabBarHostingView: NSView, NSDraggingSource {
     private func updateDropTarget(for sender: NSDraggingInfo) {
         let point = convert(sender.draggingLocation, from: nil)
 
-        DispatchQueue.main.async { [weak self] in
+        Task { @MainActor [weak self] in
             guard let self else { return }
 
             if let index = self.dropIndexAtPoint(point) {
