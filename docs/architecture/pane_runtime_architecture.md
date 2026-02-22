@@ -59,6 +59,8 @@ RUNTIMES (per-pane, registered in RuntimeRegistry):
 
 **Actor migration path (honest cost):** The protocol is `async` from day one, which minimizes caller-side changes if a runtime is later moved to its own actor. However, `@MainActor` on the protocol itself and sync property access (`paneId`, `metadata`, `lifecycle`, `capabilities`, `snapshot()`) lock current conformers to main-actor isolation. Migrating to actor-per-pane would require: (1) removing `@MainActor` from the protocol, (2) making sync properties `async` or using `nonisolated`, (3) updating all callsites. This is a real migration cost — the protocol reduces it but does not eliminate it. Profile before deciding (>1000 events/sec sustained).
 
+**MainActor processing budget:** Since `TerminalRuntime` is `@MainActor`, heavy processing of Ghostty output (regex searching, artifact extraction, log parsing) MUST happen on a detached background `Task` before yielding the result to the MainActor runtime. The runtime's event handler should be fast — classify the event, update `@Observable` state, emit the envelope. Anything that takes >1ms (string matching across scrollback, diff computation, file content hashing) must be offloaded to avoid UI stutters on the main thread.
+
 **Why not single coordinator handling all events:** Becomes a god object as pane types grow. Per-type runtimes have clear ownership, are testable in isolation, and scale with new pane types.
 
 **Reviewed by:** 4 independent opinions (Claude, Codex ×2, Gemini+Codex counsel). All converged on this choice.
@@ -108,7 +110,7 @@ RUNTIMES (per-pane, registered in RuntimeRegistry):
 
 **Decision:** Events self-classify as `critical` (never coalesced, immediate delivery) or `lossy` (batched on frame boundary, deduped by consolidation key). This is the **event classification** axis.
 
-**Visibility tiers (deferred):** LUNA-295 defines a separate axis: `p0_activePane → p1_activeDrawer → p2_visibleActiveTab → p3_background`. This is a **delivery scheduling** concern — which pane's events get processed first when multiple critical events arrive in the same frame. The current contracts encode classification (critical/lossy) only. Visibility-tier scheduling requires the NotificationReducer to know pane visibility state, which is a coordinator→reducer dependency not yet specified. Adding visibility tiers later is additive (new `VisibilityTier` parameter on `submit()`, ordering within the critical queue) and does not change the event or envelope contracts.
+**Visibility tiers:** LUNA-295 defines a separate axis: `p0_activePane → p1_activeDrawer → p2_visibleActiveTab → p3_background`. This is a **delivery scheduling** concern — which pane's events get processed first when multiple events arrive in the same frame. The NotificationReducer resolves tier via an injected `VisibilityTierResolver` (coordinator-provided). Adding visibility tiers is additive — the event and envelope contracts are unchanged. See [Contract 12a: Visibility-Tier Scheduling](#contract-12a-visibility-tier-scheduling-luna-295) for the full specification.
 
 ### D7: Filesystem observation with batched artifact production
 
@@ -280,6 +282,20 @@ Priority tiers control scheduling order:
 ---
 
 ## Locked Contracts
+
+### Contract Vocabulary
+
+Every contract has a **role** keyword that describes its relationship to the event system:
+
+| Role | Produces events? | Derives from upstream? | Exposes subscription? | Example |
+|---|---|---|---|---|
+| **Source** | Yes (original) | No — produces from external signals (OS, C API, agent hooks) | Yes | Contract 6 (worktree watcher), Contract 7 (GhosttyAdapter) |
+| **Projection** | Yes (derived) | Yes — filters/transforms a source's output | Yes | Contract 16 (per-pane CWD filter of Contract 6) |
+| **Sink** | No | N/A | No — terminal consumer | Contract 12 (NotificationReducer), Contract 14 (Replay Buffer) |
+
+A projection is a source that depends on another source. It cannot exist without its upstream. "Projection of [source]" names the dependency.
+
+Contracts without a role keyword are **structural** — they define types, protocols, or policies rather than event flow participants (e.g., Contract 1 defines the runtime protocol, Contract 4 defines the priority classification).
 
 ### Contract 1: PaneRuntime Protocol
 
@@ -686,6 +702,10 @@ enum RuntimeErrorEvent: Error, Sendable {
 
 ### Contract 3: PaneEventEnvelope
 
+> **Role:** Structural (envelope shape). Carried by all sources, projections, and sinks.
+
+> **Extensibility:** `EventSource` and `SystemSource` are enums designed to grow. Adding a new case is a one-line change plus exhaustive switch updates in consumers. Per-source isolation guarantees (A4: independent `seq`, A10: independent replay buffer) mean new sources cannot break ordering or replay for existing sources. No shared state to corrupt. Add new sources in the same commit as the code that produces events on them.
+
 ```swift
 /// Metadata wrapper on every event for routing, ordering, and idempotency.
 ///
@@ -786,7 +806,277 @@ enum PaneRuntimeLifecycle: Sendable {
 ///   7. Unfinished command IDs returned from shutdown() for logging/recovery
 ```
 
+### Contract 5a: Attach Readiness Policy (LUNA-295)
+
+Terminal panes require a readiness gate before zmx attach. This contract defines two normative policies based on pane visibility at attach time. Both policies implement the `sizePending → sizeReady → attaching → attached/failed` sub-states from the LUNA-295 attach lifecycle diagram above.
+
+#### Ghostty Embedding Facts (normative)
+
+These are verified behaviors of the Ghostty C API that the attach policy depends on:
+
+1. **Geometry is independent of visibility.** `ghostty_surface_set_size(cols, rows)` updates terminal geometry even when the surface is occluded. The terminal reflows content at the new size regardless of whether the surface is rendering.
+2. **Visibility is a separate occlusion signal.** `ghostty_surface_set_occlusion(true/false)` controls whether the surface renders. An occluded surface still accepts input and processes escape sequences — it just doesn't paint. Occlusion is not a proxy for geometry validity.
+3. **Focus is a separate input signal.** `ghostty_surface_set_focus(true/false)` controls keyboard input routing. Focus, visibility, and geometry are three independent axes.
+4. **zmx attach at placeholder size causes reflow.** If a surface is attached before stable geometry, the terminal reflows when the real size arrives. This produces visual flicker (content jumps, prompt redraws). For best UX, attach should use known-good geometry.
+
+#### Policy 1: Active-Visible Attach (default for visible panes)
+
+```swift
+/// Readiness gate for panes that are visible at attach time.
+/// This is the strict policy — requires real geometry from the view system.
+///
+/// Preconditions (ALL must be true):
+///   1. Surface has a containing window (hasWindow == true)
+///   2. Content size is non-zero (width > 0 && height > 0)
+///   3. Shell process is alive (process has not exited)
+///   4. Deferred attach has not already been sent
+///
+/// Sequence:
+///   1. Pane starts shell (zsh -i -l) → surface created
+///   2. Surface enters sizePending (DeferredStartupReadiness gate)
+///   3. View system delivers stable frame → sizeReady
+///   4. Runtime injects zmx attach text + sends Return key event
+///   5. Transition to attaching → attached (or failed with retry)
+///
+/// Anti-flicker guarantee: attach never occurs against placeholder
+/// geometry. The surface has real cols/rows from the view layout.
+struct ActiveVisibleAttachPolicy: Sendable {
+    /// All four conditions must be true simultaneously.
+    static func isReady(
+        hasWindow: Bool,
+        contentSize: CGSize,
+        processAlive: Bool,
+        attachSent: Bool
+    ) -> Bool {
+        hasWindow
+            && contentSize.width > 0
+            && contentSize.height > 0
+            && processAlive
+            && !attachSent
+    }
+}
+```
+
+#### Policy 2: Background Prewarm Attach (for non-visible restored panes)
+
+```swift
+/// Readiness gate for panes that are NOT visible at attach time.
+/// Used during session restore for background panes.
+///
+/// Background attach uses persisted geometry (cols/rows from the
+/// previous session) instead of requiring a visible window. This
+/// allows zmx attach to proceed immediately without waiting for
+/// the view system to deliver a frame.
+///
+/// Preconditions (ALL must be true):
+///   1. Persisted geometry is available (cols > 0 && rows > 0)
+///   2. Shell process is alive
+///   3. Deferred attach has not already been sent
+///   Note: hasWindow is NOT required — that's the whole point.
+///
+/// Sequence:
+///   1. App restore creates surface in background
+///   2. ghostty_surface_set_size(persistedCols, persistedRows)
+///   3. Surface enters sizeReady immediately (persisted geometry)
+///   4. Runtime injects zmx attach (surface is occluded, no render cost)
+///   5. On reveal: ghostty_surface_set_size(actualCols, actualRows)
+///      + ghostty_surface_set_occlusion(false)
+///   6. Terminal reflows to actual size (single reflow, not flicker)
+///
+/// Reconcile-on-reveal: when the pane becomes visible, the coordinator
+/// delivers the actual frame size. If it differs from persisted
+/// geometry, the terminal reflows once. This is a single, expected
+/// reflow — not the multi-reflow flicker that placeholder attach causes.
+///
+/// Persisted geometry source: `PersistedSessionState.lastCols` and
+/// `PersistedSessionState.lastRows`, saved by `WorkspacePersistor`
+/// on debounced persist (every 500ms of workspace changes).
+///
+/// Fallback: if no persisted geometry exists (first launch, corrupted
+/// state, or session created after last persist), fall back to
+/// ActiveVisibleAttachPolicy (shell warms in background, attach
+/// deferred until the pane becomes visible and passes the full gate).
+struct BackgroundPrewarmAttachPolicy: Sendable {
+    static func isReady(
+        persistedCols: UInt16,
+        persistedRows: UInt16,
+        processAlive: Bool,
+        attachSent: Bool
+    ) -> Bool {
+        persistedCols > 0
+            && persistedRows > 0
+            && processAlive
+            && !attachSent
+    }
+}
+```
+
+#### Attach Policy Selection (coordinator responsibility)
+
+```swift
+/// The coordinator selects the attach policy based on pane visibility
+/// at creation/restore time. This is a one-time decision — once a
+/// policy is selected, it governs the pane's attach sequence.
+///
+/// Decision matrix:
+///   - Pane created by user action (new tab, new split) → ActiveVisibleAttachPolicy
+///     (pane is always visible when user creates it)
+///   - Pane restored, currently active/visible → ActiveVisibleAttachPolicy
+///     (pane is visible, use real geometry)
+///   - Pane restored, background, has persisted geometry → BackgroundPrewarmAttachPolicy
+///     (attach immediately with persisted size, reconcile on reveal)
+///   - Pane restored, background, NO persisted geometry → ActiveVisibleAttachPolicy
+///     (fallback: defer attach until visible)
+///
+/// After attach succeeds, the policy is consumed. Subsequent size
+/// changes are normal resize events, not attach readiness gates.
+```
+
+#### Attach Readiness Invariants
+
+1. **Attach is a one-time gate.** Once a pane transitions from `sizePending → sizeReady → attaching → attached`, the readiness policy is consumed. Subsequent size changes are resize events, not re-attach triggers.
+2. **Geometry and visibility are independent signals.** `ghostty_surface_set_size` does not require `ghostty_surface_set_occlusion(false)`. A background pane can be sized without being visible.
+3. **Persisted geometry is a best-effort optimization.** If persisted cols/rows are wrong, the terminal reflows on reveal. This is a single reflow, acceptable UX. If no persisted geometry exists, the pane falls back to active-visible policy.
+4. **Shell starts before attach.** Both policies start the interactive shell (`zsh -i -l`) immediately. The attach command is deferred — the shell is warm and accepting input when attach arrives. This ensures no lost keystrokes during the attach injection sequence.
+5. **Attach injection is text + Return key event.** The runtime writes the zmx attach command as text into the PTY, then sends a real Return key event via Ghostty input injection. This is deliberate — it appears in scrollback as a visible command, making the attach auditable.
+
+### Contract 5b: Restart Reconcile Policy (LUNA-324)
+
+On app launch, the restore flow reconciles persisted workspace state against live zmx daemons before creating any Ghostty surfaces. This prevents stale sessions from consuming resources and ensures orphaned zmx processes are cleaned up.
+
+#### Reconcile Sequence
+
+```swift
+/// Executed once during AppDelegate.applicationDidFinishLaunching,
+/// BEFORE surface creation or pane restoration.
+///
+/// Input:
+///   - persisted: Set<SessionId> from WorkspacePersistor (last saved state)
+///   - live: Set<SessionId> from `zmx list` with ZMX_DIR environment
+///
+/// Dependencies (injected on the owning coordinator/service):
+///   - zmxBackend: ZmxBackend instance for session discovery
+///   - persistor: WorkspacePersistor for retrieving persisted state
+///   - clock: any Clock<Duration> for orphan discovery timestamps
+///
+/// The reconcile produces a classification for every known session.
+/// Surface creation and attach proceed only for runnable sessions.
+///
+/// This is a SYNCHRONOUS operation — no surfaces exist yet, no races.
+
+enum RestoreClassification: Sendable {
+    /// Persisted AND live in zmx → safe to restore.
+    /// Action: create surface, apply attach readiness policy.
+    case runnable
+
+    /// Persisted but NOT live in zmx → session died while app was closed.
+    /// Action: show restart placeholder in the pane slot. User can
+    /// restart manually or the pane can be auto-removed after confirmation.
+    case expired(reason: String)
+
+    /// Live in zmx but NOT persisted → orphan from a previous crash or
+    /// incomplete shutdown. Subject to grace TTL before cleanup.
+    case orphan(discoveredAt: ContinuousClock.Instant)
+}
+
+struct ReconcileResult: Sendable {
+    let runnable: [SessionId: PersistedSessionState]
+    let expired: [SessionId: String]  // sessionId → reason
+    let orphans: [SessionId: ContinuousClock.Instant]  // sessionId → discoveredAt
+}
+
+@MainActor
+func reconcileOnLaunch(
+    persisted: Set<SessionId>,
+    zmxDir: URL
+) async -> ReconcileResult {
+    // 1. Snapshot live sessions (single zmx list call)
+    let live = await zmxBackend.listSessions(zmxDir: zmxDir)
+    let liveSet = Set(live.map(\.sessionId))
+
+    // 2. Classify persisted sessions
+    var runnable: [SessionId: PersistedSessionState] = [:]
+    var expired: [SessionId: String] = [:]
+    for sessionId in persisted {
+        if liveSet.contains(sessionId) {
+            runnable[sessionId] = persistor.state(for: sessionId)
+        } else {
+            expired[sessionId] = "zmx session not found on launch"
+        }
+    }
+
+    // 3. Classify runtime-only sessions (orphans)
+    let orphanIds = liveSet.subtracting(persisted)
+    let now = clock.now
+    var orphans: [SessionId: ContinuousClock.Instant] = [:]
+    for sessionId in orphanIds {
+        orphans[sessionId] = now
+    }
+
+    return ReconcileResult(
+        runnable: runnable,
+        expired: expired,
+        orphans: orphans
+    )
+}
+```
+
+#### Orphan Cleanup TTL Policy
+
+```swift
+/// Orphans are NEVER killed immediately at discovery. A grace period
+/// prevents killing sessions that are legitimately running but not yet
+/// persisted (e.g., race condition on previous shutdown).
+///
+/// Rules:
+///   1. Grace TTL: 60 seconds from discovery time.
+///   2. Re-check liveness before kill: call `zmx list` again at TTL
+///      expiration. If the session is gone, no action needed.
+///   3. Log: discovery time, kill attempt time, kill outcome.
+///   4. One cleanup cycle per app launch. No continuous background reaping.
+///
+/// The TTL is injectable via Clock<Duration> for testability.
+
+struct OrphanCleanupPolicy: Sendable {
+    let graceTTL: Duration  // default: .seconds(60)
+    let clock: any Clock<Duration>
+
+    func shouldKill(
+        discoveredAt: ContinuousClock.Instant,
+        now: ContinuousClock.Instant
+    ) -> Bool {
+        now - discoveredAt >= graceTTL
+    }
+}
+```
+
+#### Health Monitoring (post-restore)
+
+```swift
+/// After reconcile completes and surfaces are created, periodic health
+/// monitoring begins for all runnable sessions.
+///
+/// Rules:
+///   1. Health check interval: 30 seconds (injectable).
+///   2. Health check method: `zmx list` filtered to known sessions.
+///   3. If a previously-runnable session disappears from zmx list:
+///      emit PaneRuntimeEvent.lifecycle(.sessionLost(paneId))
+///      → coordinator transitions pane to .draining → .terminated
+///      → show restart placeholder
+///   4. Health monitoring stops when the pane reaches .terminated.
+```
+
+#### Restart Reconcile Invariants
+
+1. **Reconcile before surface creation.** No Ghostty surface is created until reconcile classifies all persisted sessions. This prevents creating surfaces for dead sessions.
+2. **Single zmx list snapshot.** Reconcile calls `zmx list` exactly once at startup. Individual session health is checked during the health monitoring phase, not during reconcile.
+3. **Orphans get a grace period.** Never kill on first discovery. The 60-second TTL protects against race conditions where a session is legitimate but not yet persisted.
+4. **Expired sessions show UI.** An expired session is not silently removed — the user sees a restart placeholder in the pane slot. This is important because the user may have unsaved work context associated with that pane's position in the layout.
+5. **ZMX_DIR scoping.** All zmx operations during reconcile use the same `ZMX_DIR` as session creation. This ensures reconcile only discovers sessions owned by this Agent Studio instance, not sessions from other installations.
+
 ### Contract 6: Filesystem Batching
+
+> **Role:** Source. Produces `FilesystemEvent` on the coordination stream with `source = .worktree(id)`. One watcher instance per worktree — shared across all panes in that worktree. Contract 16 is a projection of this source.
 
 ```swift
 /// Worktree-scoped filesystem observation contract.
@@ -798,7 +1088,20 @@ enum PaneRuntimeLifecycle: Sendable {
 ///   4. Max batch size: 500 paths (split into multiple batches if larger)
 ///   5. Settle detection: no new events for debounce window → flush
 ///   6. Git status recompute: only after batch flush, not per-file
-///   7. Identity: every batch carries worktreeId for routing
+///   7. Git status recomputes are SEQUENTIAL per worktree. If two batches
+///      flush back-to-back for the same worktree, the second git status
+///      waits for the first to complete. This prevents race conditions
+///      where concurrent git status calls produce inconsistent diff state.
+///      Cross-worktree git status calls are independent (different repos).
+///   8. Identity: every batch carries worktreeId for routing
+///   9. gitignore-aware exclusion: paths matching the worktree's
+///      .gitignore rules are excluded BEFORE entering the batch.
+///      This includes nested .gitignore files. The watcher reads
+///      gitignore state from the same git context used for git status.
+///      Excluded paths never appear in FileChangeset.paths —
+///      downstream consumers (Contract 16, diff viewer) never see them.
+///      This prevents .build/, node_modules/, .git/objects/ noise
+///      from reaching the coordination stream.
 
 /// Standalone data structure — may be serialized/stored independently.
 /// worktreeId denormalized here for self-documenting data. Canonical
@@ -825,6 +1128,8 @@ struct FileChangeset: Sendable {
 ```
 
 ### Contract 7: GhosttyEvent FFI Enum
+
+> **Role:** Source. GhosttyAdapter produces `GhosttyEvent` from C API callbacks, routed to `TerminalRuntime` instances by surfaceId. Events enter the coordination stream with `source = .pane(id)`.
 
 ```swift
 /// Exhaustive mapping of ghostty_action_tag_e → Swift.
@@ -890,10 +1195,78 @@ enum GhosttyEvent: PaneKindEvent {
     case undo
     case redo
 
-    // Explicit unhandled — logged, never silent
+    // Explicit unhandled — logged with surface/pane context, never silent.
+    // Log MUST include: tag value, paneId (from adapter routing), and
+    // Ghostty surface pointer (for cross-referencing with C-level logs).
+    // This identifies which runtime is receiving unmapped actions during
+    // development and Ghostty version upgrades.
     case unhandled(tag: UInt32)
 }
 ```
+
+#### Contract 7a: Ghostty Action Coverage Policy (LUNA-325)
+
+Every `ghostty_action_tag_e` case has a defined handling policy. The adapter's switch is exhaustive — the compiler enforces that adding a new Ghostty action forces a handler decision. This table covers all cases in the `GhosttyEvent` enum (Contract 7). During LUNA-325 implementation, the adapter's exhaustive switch against `ghostty_action_tag_e` will verify completeness at compile time — any Ghostty version with new actions produces a compile error until handled.
+
+| GhosttyEvent Case | Handler | Routing | Priority | Notes |
+|---|---|---|---|---|
+| **Workspace-facing (coordinator consumes)** | | | | |
+| `titleChanged` | Runtime → Coordinator | Updates `PaneMetadata.title` | critical | Tab title |
+| `cwdChanged` | Runtime → Coordinator | Updates `PaneMetadata.cwd`, triggers repo/worktree resolution | critical | Dynamic view recomputation |
+| `commandFinished` | Runtime → Coordinator | Workflow trigger, notification badge | critical | Agent completion signal |
+| `bellRang` | Runtime → Coordinator | Notification toast/badge | critical | User attention request |
+| `desktopNotification` | Runtime → Coordinator | System notification | critical | From OSC 777 / iTerm2 escape |
+| `progressReport` | Runtime → Coordinator | Progress bar UI update | critical | From OSC 9;4 |
+| `childExited` | Runtime → Coordinator | Lifecycle transition to draining | critical | Shell/process exit |
+| `closeSurface` | Runtime → Coordinator | Pane close flow (with undo) | critical | User Cmd+W or process-initiated |
+| **Tab/split requests (coordinator routes)** | | | | |
+| `newTab` | Coordinator | Creates new tab via PaneAction | critical | Keyboard shortcut passthrough |
+| `closeTab` | Coordinator | Closes tab via PaneAction (with undo) | critical | Keyboard shortcut passthrough |
+| `gotoTab` | Coordinator | Tab navigation | critical | |
+| `moveTab` | Coordinator | Tab reorder | critical | |
+| `newSplit` | Coordinator | Creates split via PaneAction | critical | |
+| `gotoSplit` | Coordinator | Focus navigation between splits | critical | |
+| `resizeSplit` | Coordinator | Split resize | critical | |
+| `equalizeSplits` | Coordinator | Reset split ratios | critical | |
+| `toggleSplitZoom` | Coordinator | Zoom/unzoom split | critical | |
+| **Terminal-internal state (runtime @Observable)** | | | | |
+| `scrollbarChanged` | Runtime only | Updates `@Observable scrollbarState` | lossy("scroll") | 60fps UI binding |
+| `searchStarted/Ended` | Runtime only | Updates `@Observable searchState` | critical | Mode transition |
+| `searchTotal/Selected` | Runtime only | Updates `@Observable searchState` | lossy("search") | Result count |
+| `mouseShapeChanged` | Runtime only | Updates cursor shape | lossy("mouse") | NSCursor update |
+| `mouseVisibilityChanged` | Runtime only | Shows/hides cursor | lossy("mouse") | |
+| `linkHover` | Runtime only | Shows link preview | lossy("mouse") | URL tooltip |
+| `rendererHealth` | Runtime only | Updates `@Observable healthState` | critical | GPU/renderer status |
+| `cellSize` | Runtime only | Cell metrics for layout | lossy("cell") | |
+| `sizeLimits` | Runtime only | Min/max terminal size | critical | One-time on init |
+| `initialSize` | Runtime only | First size report | critical | Attach readiness signal |
+| `readOnly` | Runtime only | Read-only mode toggle | critical | |
+| **Config/system** | | | | |
+| `configReload` | Runtime → Coordinator | Re-apply terminal config | critical | Soft/hard reload |
+| `configChanged` | Runtime only | Config delta | critical | |
+| `colorChanged` | Runtime only | Terminal color change | lossy("color") | Theme update |
+| `secureInput` | Runtime only | Secure input mode | critical | Password entry |
+| `keySequence` | Runtime only | Key sequence mode | critical | Leader key |
+| `keyTable` | Runtime only | Key table action | critical | |
+| `openConfig` | Coordinator | Open config file/UI | critical | User action |
+| `presentTerminal` | Coordinator | Bring terminal to front | critical | |
+| **Application-level** | | | | |
+| `toggleFullscreen` | Coordinator → Window | Window mode change | critical | |
+| `toggleWindowDecorations` | Coordinator → Window | Chrome toggle | critical | |
+| `toggleCommandPalette` | Coordinator → CommandBar | Open/close ⌘P | critical | |
+| `toggleVisibility` | Coordinator → Window | Show/hide app | critical | |
+| `floatWindow` | Coordinator → Window | Float/unfloat | critical | |
+| `quitTimer` | Coordinator → App | Quit countdown | critical | |
+| `undo/redo` | Coordinator → Undo Manager | Edit undo/redo | critical | |
+| **Fallback** | | | | |
+| `unhandled(tag)` | Adapter | Logged at warning level, never silently dropped | — | Compile-time coverage gap detector |
+
+#### Coverage Invariants
+
+1. **Exhaustive switch.** The adapter's `handleAction(_ action: ghostty_action_s)` switch is exhaustive over `ghostty_action_tag_e`. Adding a new Ghostty version with new actions produces a compile error until a case is added.
+2. **No silent drops.** Every action either produces a typed `GhosttyEvent` case or maps to `.unhandled(tag)` which is logged. There is no `default:` branch. The current 12/40 coverage gap exists in the legacy code — this contract requires closing it.
+3. **Handler is normative.** The "Handler" column in the table above defines where each event terminates. Runtime-only events do not reach the coordinator. Coordinator events do not mutate runtime state directly — they call store methods.
+4. **Priority is per-case.** The "Priority" column matches the `actionPolicy` implementation in `GhosttyEvent.actionPolicy`. Changing priority requires updating both the table and the code.
 
 ### Contract 8: Per-Kind Event Enums
 
@@ -1097,10 +1470,21 @@ enum TunnelType: String, Sendable { case ssh, zmx }
 struct PaneActionEnvelope: Sendable {
     let commandId: UUID                     // idempotency
     let correlationId: UUID?                // links workflow steps
-    let targetPaneId: UUID
+    let targetPaneId: UUID                  // sole routing field on the envelope
     let action: PaneAction
     let timestamp: ContinuousClock.Instant
 }
+
+/// ROUTING vs DOMAIN DATA in actions (mirrors outbound envelope rule A1):
+///   targetPaneId on PaneActionEnvelope is the SOLE routing identity.
+///   Domain data inside action payloads (e.g., DiffArtifact.worktreeId)
+///   is NOT routing — it's "which worktree this diff covers."
+///
+/// COORDINATOR VALIDATION: Before dispatching DiffAction.loadDiff(artifact),
+///   the coordinator MUST validate:
+///     artifact.worktreeId == targetRuntime.metadata.worktreeId
+///   Mismatch is a contract violation — log and reject, don't silently
+///   dispatch a diff to the wrong worktree context.
 
 /// Protocol for per-kind actions. Same pattern as PaneKindEvent:
 /// built-in action enums conform AND have dedicated cases.
@@ -1292,6 +1676,8 @@ final class RuntimeRegistry {
 
 ### Contract 12: NotificationReducer
 
+> **Role:** Sink. Consumes `PaneEventEnvelope` from the coordination stream, classifies by priority, and delivers to the coordinator's event loop. Terminal consumer — does not produce events back onto the stream.
+
 ```swift
 /// Routes events through priority-aware processing.
 /// Two completely separate paths — critical and lossy never interact.
@@ -1480,6 +1866,103 @@ extension PaneRuntimeEvent {
 └──────────────────────────────────────────────────────────┘
 ```
 
+### Contract 12a: Visibility-Tier Scheduling (LUNA-295)
+
+Visibility-tier scheduling is the **delivery scheduling** axis — orthogonal to event classification (critical/lossy from D6). Classification determines *how* an event is processed (immediate vs batched). Visibility tiers determine *which pane's events are processed first* when multiple events arrive in the same processing window.
+
+#### Tier Definitions
+
+```swift
+/// Visibility tier determines delivery priority within the critical queue.
+/// When multiple critical events arrive in the same processing cycle,
+/// the coordinator processes them in tier order (p0 first, p3 last).
+///
+/// Tier assignment is based on pane visibility state at the time the
+/// event is submitted to the NotificationReducer, NOT at event creation.
+/// This means a pane that becomes visible between event creation and
+/// submission gets the correct (higher) tier.
+enum VisibilityTier: Int, Comparable, Sendable {
+    case p0_activePane = 0       // active pane in active tab → immediate
+    case p1_activeDrawer = 1     // active pane's drawer panes → next
+    case p2_visibleActiveTab = 2 // other visible panes in active tab → after p1
+    case p3_background = 3       // hidden/background panes → bounded concurrency
+
+    static func < (lhs: Self, rhs: Self) -> Bool {
+        lhs.rawValue < rhs.rawValue
+    }
+}
+```
+
+#### Tier Resolution
+
+```swift
+/// Tier assignment is a coordinator responsibility. The coordinator
+/// knows the active tab, the active pane within that tab, and which
+/// panes are in the active pane's drawer.
+///
+/// The reducer calls back to a tier resolver — it does not read
+/// workspace state directly. This keeps the reducer testable without
+/// a full workspace stack.
+///
+/// Contract:
+///   1. Resolver MUST return a valid tier for any paneId. Unknown
+///      paneIds default to .p3_background (safe: delayed, never lost).
+///   2. Resolver reads workspace state at call time — tier can change
+///      between events for the same pane (e.g., user switches tabs).
+///   3. The resolver is injected into the NotificationReducer at
+///      construction time.
+protocol VisibilityTierResolver: Sendable {
+    @MainActor func tier(for paneId: PaneId) -> VisibilityTier
+}
+```
+
+#### Scheduling Behavior
+
+| Tier | Critical Events | Lossy Events |
+|------|----------------|--------------|
+| `p0_activePane` | Immediate delivery, processed first | Batched at frame rate, flushed first |
+| `p1_activeDrawer` | Immediate delivery, processed after p0 | Batched at frame rate, flushed after p0 |
+| `p2_visibleActiveTab` | Immediate delivery, processed after p1 | Batched at frame rate, flushed after p1 |
+| `p3_background` | Immediate delivery, processed after p2 | Batched at frame rate, flushed last. Bounded concurrency: max N background panes processed per frame cycle |
+
+#### Integration with NotificationReducer
+
+```swift
+/// Extended submit() with visibility tier.
+/// Tier is resolved at submission time from the pane's current
+/// visibility state, not at event creation time.
+///
+/// Within each tier, ordering follows existing rules:
+///   - Critical: per-source seq order (A4)
+///   - Lossy: per-source seq within batch, cross-source by timestamp (A6)
+///
+/// This is ADDITIVE — the NotificationReducer gains a tierResolver
+/// parameter and sorts output by tier. No existing contracts change.
+func submit(_ envelope: PaneEventEnvelope) {
+    let paneId = envelope.source.paneId  // nil for system events → p0
+    let tier = paneId.map { tierResolver.tier(for: $0) } ?? .p0_activePane
+
+    switch envelope.event.actionPolicy {
+    case .critical:
+        criticalQueue.insert(envelope, at: tier)
+        // yield in tier order on next processing cycle
+
+    case .lossy(let consolidationKey):
+        let key = "\(tier.rawValue):\(envelope.source):\(consolidationKey)"
+        lossyBuffer[key] = (envelope, tier)
+        ensureFrameTimer()
+    }
+}
+```
+
+#### Visibility-Tier Invariants
+
+1. **Tier assignment is ephemeral.** Tiers are not stored on the envelope. They are resolved at submission time and used for ordering within the reducer's internal queues. A pane's tier can change between events (user switches tabs).
+2. **System events are always p0.** Events with `source = .system(...)` have no paneId and default to `p0_activePane`. System events are never deprioritized.
+3. **Tier ordering does not affect classification.** A p3 critical event is still processed immediately — it just goes after p0/p1/p2 critical events in the same cycle. Classification (critical/lossy) and scheduling (visibility tier) are independent axes.
+4. **Background bounded concurrency.** `p3_background` lossy events are rate-limited: at most N panes' worth of lossy events are flushed per frame cycle (N configurable, default 3). This prevents 20 background terminals from dominating frame budget.
+5. **Unknown paneId defaults to p3.** If the resolver cannot find a paneId (pane closing, race condition), it returns `.p3_background`. Events are delayed, never dropped.
+
 ### Contract 13: Workflow Engine (deferred)
 
 > Deferred workflow planning now lives in
@@ -1556,6 +2039,17 @@ final class EventReplayBuffer {
         let nextSeq: UInt64
         let gapDetected: Bool       // true = caller missed events, use snapshot instead
     }
+
+    /// CONSUMER CATCH-UP PROTOCOL:
+    ///   1. Consumer calls snapshot() → gets RuntimeSnapshot with lastSeq
+    ///   2. Consumer calls eventsSince(snapshot.lastSeq)
+    ///   3. If result.gapDetected == true:
+    ///      → snapshot.lastSeq < buffer.oldestSeq → consumer missed events
+    ///      → consumer MUST call snapshot() again for a fresh baseline
+    ///      → do NOT attempt replay from the gap — state may be inconsistent
+    ///   4. If result.gapDetected == false:
+    ///      → events array is the complete catch-up set
+    ///      → consumer uses result.nextSeq for subsequent calls
 
     /// Evict events older than TTL.
     func evictStale(now: ContinuousClock.Instant) { ... }
@@ -1843,6 +2337,41 @@ enum PaneFilesystemContextEvent: PaneKindEvent {
 
 ---
 
+## Migration: NotificationCenter/DispatchQueue → AsyncStream/Event Bus
+
+The current codebase uses `NotificationCenter` and `DispatchQueue.main.async` for Ghostty C callback dispatch. This architecture replaces those mechanisms. This section documents the migration path — what changes, what stays, and what order.
+
+### What Gets Replaced
+
+| Current Mechanism | Replacement | Migrated By |
+|---|---|---|
+| `NotificationCenter.default.post(name: .ghosttyAction, ...)` | `GhosttyAdapter` → typed `GhosttyEvent` → `TerminalRuntime.handleEvent()` | LUNA-325 |
+| `DispatchQueue.main.async { ... }` in C callback trampolines | `MainActor.assumeIsolated { ... }` or `Task { @MainActor in ... }` | LUNA-327 (partially), LUNA-325 (remaining) |
+| `@objc` notification observers in `PaneCoordinator` | `for await envelope in runtime.subscribe()` in coordinator event loop | LUNA-325 |
+| `userInfo` dictionaries on notifications | Typed `GhosttyEvent` enum cases with associated values | LUNA-325 |
+| String-keyed notification names (`.ghosttyTitleChanged`, etc.) | Exhaustive `GhosttyEvent` enum switch (compile-time coverage) | LUNA-325 |
+
+### What Stays (Not Migrated)
+
+| Mechanism | Why It Stays |
+|---|---|
+| `NSApplication.shared` notifications (`.willTerminate`, etc.) | AppKit lifecycle — not event bus material |
+| `NSWorkspace.shared.notificationCenter` (volume mount, screen changes) | System-level notifications — no benefit from typed events |
+| Any Combine usage in third-party dependencies | Out of our control |
+
+### Migration Order
+
+1. **LUNA-327 (this branch):** `@Observable` migration, `private(set)` stores, `PaneCoordinator` consolidation. Foundation for the event bus. `DispatchQueue.main.async` → `MainActor` primitives where touched.
+2. **LUNA-342 (contract freeze):** Lock contract shapes. No implementation, but every contract is testable against a mock.
+3. **LUNA-325 (implementation):** Build `GhosttyAdapter`, `TerminalRuntime`, `RuntimeRegistry`, `NotificationReducer`. Replace `NotificationCenter`-based dispatch with typed event stream. This is the primary migration ticket.
+4. **LUNA-295 (attach orchestration):** Build attach readiness policies, visibility-tier scheduling, restart reconcile. Consumes the event stream infrastructure from LUNA-325.
+
+### Migration Invariant
+
+**No dual-path period.** When a notification is migrated to the event bus, the `NotificationCenter.post()` call is deleted in the same commit. There is no compatibility shim where both paths fire. This means the migration is per-action (one `GhosttyEvent` case at a time), not big-bang. But each individual action migrates atomically — old path removed, new path added, in one commit.
+
+---
+
 ## Architectural Invariants
 
 Structural guarantees that hold across all contracts. Each invariant is enforced at a specific layer and has a defined violation response. These are the rules implementation MUST uphold — not aspirational guidelines.
@@ -1988,12 +2517,14 @@ This architecture was reviewed by four independent analyses:
 
 ## Relationship to Other Work
 
-| Ticket | Relationship |
-|--------|-------------|
-| **LUNA-295** (Pane Attach Orchestration) | Concrete instance of the lifecycle contract. Its `PaneAttachStateMachine` + priority tiers + event types are the first implementation of this architecture for the attach lifecycle. |
-| **LUNA-325** (Bridge Pattern + Surface State Refactor) | Implements the terminal runtime + Ghostty adapter + GhosttyEvent enum + surface registry. The primary LUNA ticket for this architecture. |
-| **LUNA-326** (Native Scrollbar) | Consumes the terminal runtime contract. Scrollbar behavior binds to `TerminalRuntime.scrollbarState` via @Observable. Does not invent new transport. |
-| **LUNA-327** (State Ownership + Observable Migration) | The current branch. Establishes the @Observable store pattern, PaneCoordinator consolidation, and private(set) unidirectional flow that this architecture builds on. |
+| Ticket | Relationship | Contracts Owned |
+|--------|-------------|-----------------|
+| **LUNA-295** (Pane Attach Orchestration) | Attach readiness policies, visibility-tier scheduling, anti-flicker. Consumes event stream from LUNA-325. | Contract 5a (Attach Readiness), Contract 12a (Visibility-Tier Scheduling), LUNA-295 attach lifecycle diagram |
+| **LUNA-324** (Restart Reconcile) | zmx session reconcile on app launch, orphan cleanup, health monitoring. | Contract 5b (Restart Reconcile Policy) |
+| **LUNA-325** (Bridge Pattern + Surface State Refactor) | Implements terminal runtime + Ghostty adapter + GhosttyEvent enum + surface registry. Primary implementation ticket. | Contract 1, 2, 3, 4, 7, 7a, 8, 10, 11, 12, 14 |
+| **LUNA-326** (Native Scrollbar) | Consumes the terminal runtime contract. Scrollbar behavior binds to `TerminalRuntime.scrollbarState` via @Observable. Does not invent new transport. | None (consumer only) |
+| **LUNA-327** (State Ownership + Observable Migration) | The current branch. Establishes @Observable store pattern, PaneCoordinator consolidation, `private(set)` unidirectional flow, and `DispatchQueue.main.async` → `MainActor` migration. | D1, D5, Swift 6 invariants, Migration section |
+| **LUNA-342** (Contract Freeze) | Freeze gate — all design decisions, contracts, and invariants locked. No implementation. | All invariants (A1-A15), Swift 6 invariants (1-9), envelope/source shape |
 
 ---
 

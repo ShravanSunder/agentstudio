@@ -803,6 +803,21 @@ Note on **DeletePane**: The invariant "tab must have ≥1 pane" is maintained by
 | New pane created | Added to default arrangement AND current active arrangement. |
 | Pane backgrounded (not in active arrangement) | Content keeps running. Surfaces detached for resource efficiency. |
 
+### Terminal Attach Priority and Prewarm Policy
+
+For terminal panes, visibility and attach timing are not identical concerns.
+
+1. Priority tiers for attach orchestration:
+   - `p0`: active pane
+   - `p1`: active pane drawers
+   - `p2`: other visible panes in active tab
+   - `p3`: background panes
+2. `p0/p1` preempt lower tiers.
+3. Background panes (`p3`) are eligible for prewarm and pre-size.
+4. Attach should prefer known geometry to minimize visible shell->attach transitions.
+
+This policy is consumed by pane runtime orchestration and session restore flows, not by layout ownership rules.
+
 ---
 
 ## Resolved Decisions

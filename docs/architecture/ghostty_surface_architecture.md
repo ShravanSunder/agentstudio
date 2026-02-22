@@ -50,6 +50,23 @@ The key architectural decision is **separation of ownership from display**:
 
 ---
 
+## Ghostty Runtime Lifecycle Facts
+
+The embedding contract depends on four independent axes:
+
+1. Surface existence: create/free (`ghostty_surface_new`/`ghostty_surface_free`)
+2. Geometry: resize (`ghostty_surface_set_size`)
+3. Visibility: occlusion (`ghostty_surface_set_occlusion`)
+4. Focus: input focus (`ghostty_surface_set_focus`)
+
+Design implication:
+
+- Geometry updates must not be modeled as visibility-dependent.
+- Background panes can be pre-sized and kept occluded.
+- Attach orchestration should treat size readiness and visibility readiness as separate signals.
+
+---
+
 ## Surface State Machine
 
 A surface exists in **exactly one** collection. The collection determines the state:
@@ -227,6 +244,19 @@ SurfaceManager.shared.workingDirectory(for: surfaceId) -> URL?
 
 ---
 
+## Attach Orchestration Notes (LUNA-295)
+
+1. Surface creation and geometry warmup can occur before a pane becomes visible.
+2. Occlusion should be used to suppress render cost, not as a proxy for geometry validity.
+3. For anti-flicker behavior:
+   - prioritize active pane attach on stable size,
+   - allow background prewarm/pre-size,
+   - reconcile final size on reveal.
+
+This document defines surface lifecycle primitives. Scheduling policy belongs to pane runtime orchestration contracts.
+
+---
+
 ## Detach Reasons
 
 | Reason | Target | Expires | Rendering | Use Case |
@@ -297,3 +327,10 @@ view.displaySurface(restoredSurface)  // No orphan, view has no surface yet
 - **[Component Architecture](component_architecture.md)** — Data model, service layer, ownership hierarchy
 - **[Session Lifecycle](session_lifecycle.md)** — Session creation, close, undo, restore, zmx backend
 - **[App Architecture](appkit_swiftui_architecture.md)** — AppKit + SwiftUI hybrid, lifecycle management
+- **[Zmx Restore and Sizing](zmx_restore_and_sizing.md)** — attach/readiness and restart reconcile policy
+
+## Ticket Mapping
+
+- `LUNA-295`: `Ghostty Runtime Lifecycle Facts`, `Attach Orchestration Notes (LUNA-295)`
+- `LUNA-325`: `Ghostty Runtime Lifecycle Facts` (adapter/runtime boundary assumptions)
+- `LUNA-342`: `Ghostty Runtime Lifecycle Facts` (contract freeze grounding)
