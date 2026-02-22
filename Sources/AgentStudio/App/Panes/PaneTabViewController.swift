@@ -97,6 +97,18 @@ class PaneTabViewController: NSViewController, CommandHandler {
                     .createArrangement(
                         tabId: tabId, name: name, paneIds: Set(tab.paneIds)
                     ))
+            },
+            onDuplicateTab: { [weak self] in
+                guard let self, let tabId = self.store.activeTabId else { return }
+                self.dispatchAction(.duplicateTab(tabId: tabId))
+            },
+            onDuplicatePane: { [weak self] in
+                guard let self,
+                    let tabId = self.store.activeTabId,
+                    let tab = self.store.tab(tabId),
+                    let paneId = tab.activePaneId
+                else { return }
+                self.dispatchAction(.duplicatePane(tabId: tabId, paneId: PaneId(uuid: paneId), direction: .right))
             }
         )
         tabBarHostingView = DraggableTabBarHostingView(rootView: tabBar)
