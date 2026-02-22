@@ -127,7 +127,8 @@ final class ActionExecutorTests {
     func test_undoCloseTab_restoresTab() {
         // Arrange
         let pane = store.createPane(
-            source: .floating(workingDirectory: nil, title: "Undoable")
+            content: .webview(WebviewState(url: URL(string: "https://undo.example")!)),
+            metadata: PaneMetadata(source: .floating(workingDirectory: nil, title: "Undoable"), title: "Undoable")
         )
         let tab = Tab(paneId: pane.id)
         store.appendTab(tab)

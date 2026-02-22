@@ -491,7 +491,7 @@ extension PaneCoordinator {
                 paneCoordinatorLogger.warning("repair \(String(describing: repairAction)): pane not in store")
                 return
             }
-            teardownView(for: paneId, unregisterRuntime: false)
+            teardownView(for: paneId, shouldUnregisterRuntime: false)
             guard createViewForContent(pane: pane) != nil else {
                 paneCoordinatorLogger.error("repair recreateSurface failed for pane \(paneId)")
                 return
@@ -526,7 +526,7 @@ extension PaneCoordinator {
     }
 
     /// Teardown views for all drawer panes owned by a parent pane.
-    private func teardownDrawerPanes(for parentPaneId: UUID) {
+    func teardownDrawerPanes(for parentPaneId: UUID) {
         guard let pane = store.pane(parentPaneId),
             let drawer = pane.drawer
         else { return }

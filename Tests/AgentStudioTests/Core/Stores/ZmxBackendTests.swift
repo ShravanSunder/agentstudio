@@ -143,8 +143,9 @@ final class ZmxBackendTests {
         let id = ZmxBackend.drawerSessionId(parentPaneId: parentPaneId, drawerPaneId: drawerPaneId)
 
         // Assert — format: agentstudio-d--<parent16>--<drawer16>
+        // Parent UUID is legacy (prefix path); drawer UUID is v7 (trailing entropy path).
         #expect(id.hasPrefix("agentstudio-d--"))
-        #expect(id == "agentstudio-d--aabbccdd11223344--1122334455667788")
+        #expect(id == "agentstudio-d--aabbccdd11223344--99aabbccddeeff00")
     }
 
     @Test
