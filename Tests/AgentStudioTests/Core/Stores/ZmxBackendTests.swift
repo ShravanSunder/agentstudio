@@ -10,7 +10,12 @@ final class ZmxBackendTests {
 
     init() {
         executor = MockProcessExecutor()
-        backend = ZmxBackend(executor: executor, zmxPath: "/usr/local/bin/zmx", zmxDir: "/tmp/zmx-test")
+        backend = ZmxBackend(
+            executor: executor,
+            zmxPath: "/usr/local/bin/zmx",
+            zmxDir: "/tmp/zmx-test",
+            retryPolicy: .singleAttempt
+        )
     }
 
     // MARK: - isAvailable
@@ -404,6 +409,29 @@ final class ZmxBackendTests {
         #expect(!(alive))
     }
 
+    @Test
+    func test_healthCheck_retriesThreeAttempts_thenSucceeds() async {
+        // Arrange
+        let localExecutor = MockProcessExecutor()
+        let retryBackend = ZmxBackend(
+            executor: localExecutor,
+            zmxPath: "/usr/local/bin/zmx",
+            zmxDir: "/tmp/zmx-test",
+            retryPolicy: .init(maxAttempts: 3, backoffs: [])
+        )
+        let handle = makePaneSessionHandle(id: "agentstudio--a1b2c3d4e5f6a7b8--00112233aabbccdd--aabbccdd11223344")
+        localExecutor.enqueueFailure("temporary zmx list failure")
+        localExecutor.enqueueFailure("temporary zmx list failure")
+        localExecutor.enqueueSuccess("agentstudio--a1b2c3d4e5f6a7b8--00112233aabbccdd--aabbccdd11223344\trunning\t123")
+
+        // Act
+        let alive = await retryBackend.healthCheck(handle)
+
+        // Assert
+        #expect(alive)
+        #expect(localExecutor.calls.count == 3)
+    }
+
     // MARK: - destroyPaneSession
 
     @Test
@@ -541,6 +569,27 @@ final class ZmxBackendTests {
         } catch {
             #expect(error is SessionBackendError)
         }
+    }
+
+    @Test
+    func test_destroySessionById_retriesThreeAttempts_thenSucceeds() async throws {
+        // Arrange
+        let localExecutor = MockProcessExecutor()
+        let retryBackend = ZmxBackend(
+            executor: localExecutor,
+            zmxPath: "/usr/local/bin/zmx",
+            zmxDir: "/tmp/zmx-test",
+            retryPolicy: .init(maxAttempts: 3, backoffs: [])
+        )
+        localExecutor.enqueueFailure("temporary kill failure")
+        localExecutor.enqueueFailure("temporary kill failure")
+        localExecutor.enqueueSuccess()
+
+        // Act
+        try await retryBackend.destroySessionById("agentstudio--abc--def--ghi")
+
+        // Assert
+        #expect(localExecutor.calls.count == 3)
     }
 
     // MARK: - socketExists

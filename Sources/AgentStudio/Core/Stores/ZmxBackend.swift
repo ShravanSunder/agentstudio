@@ -5,6 +5,32 @@ private let zmxLogger = Logger(subsystem: "com.agentstudio", category: "ZmxBacke
 
 // MARK: - Backend Types
 
+struct ZmxCommandRetryPolicy: Sendable {
+    let maxAttempts: Int
+    let backoffs: [Duration]
+
+    static let standard = ZmxCommandRetryPolicy(
+        maxAttempts: 3,
+        backoffs: [.milliseconds(100), .milliseconds(250)]
+    )
+    static let singleAttempt = ZmxCommandRetryPolicy(
+        maxAttempts: 1,
+        backoffs: []
+    )
+
+    init(maxAttempts: Int, backoffs: [Duration]) {
+        self.maxAttempts = max(1, maxAttempts)
+        self.backoffs = backoffs
+    }
+
+    func backoffBeforeAttempt(_ attempt: Int) -> Duration? {
+        guard attempt > 1 else { return nil }
+        let index = min(attempt - 2, max(backoffs.count - 1, 0))
+        guard index >= 0, index < backoffs.count else { return nil }
+        return backoffs[index]
+    }
+}
+
 /// Identifies a backend session that backs a single terminal pane.
 struct PaneSessionHandle: Equatable, Sendable, Codable, Hashable {
     let id: String
@@ -86,15 +112,22 @@ final class ZmxBackend: SessionBackend {
     private let executor: ProcessExecutor
     private let zmxPath: String
     private let zmxDir: String
+    private let retryPolicy: ZmxCommandRetryPolicy
+    private let retrySleep: @Sendable (Duration) async -> Void
 
     init(
-        executor: ProcessExecutor = DefaultProcessExecutor(),
+        executor: ProcessExecutor? = nil,
         zmxPath: String,
-        zmxDir: String = ZmxBackend.defaultZmxDir
+        zmxDir: String = ZmxBackend.defaultZmxDir,
+        commandTimeoutSeconds: TimeInterval = 1.5,
+        retryPolicy: ZmxCommandRetryPolicy = .standard,
+        retrySleep: @escaping @Sendable (Duration) async -> Void = ZmxBackend.defaultRetrySleep
     ) {
-        self.executor = executor
+        self.executor = executor ?? DefaultProcessExecutor(timeout: commandTimeoutSeconds)
         self.zmxPath = zmxPath
         self.zmxDir = zmxDir
+        self.retryPolicy = retryPolicy
+        self.retrySleep = retrySleep
     }
 
     // MARK: - Session ID Generation
@@ -196,11 +229,10 @@ final class ZmxBackend: SessionBackend {
     }
 
     func destroyPaneSession(_ handle: PaneSessionHandle) async throws {
-        let result = try await executor.execute(
+        let result = try await executeWithRetry(
             command: zmxPath,
             args: ["kill", handle.id],
-            cwd: nil,
-            environment: ["ZMX_DIR": zmxDir]
+            operation: "zmx kill \(handle.id)"
         )
 
         guard result.succeeded else {
@@ -215,11 +247,10 @@ final class ZmxBackend: SessionBackend {
     /// is not yet fully stabilized.
     func healthCheck(_ handle: PaneSessionHandle) async -> Bool {
         do {
-            let result = try await executor.execute(
+            let result = try await executeWithRetry(
                 command: zmxPath,
                 args: ["list"],
-                cwd: nil,
-                environment: ["ZMX_DIR": zmxDir]
+                operation: "zmx list for healthCheck"
             )
             guard result.succeeded else { return false }
             let lines = result.stdout.components(separatedBy: "\n")
@@ -248,11 +279,10 @@ final class ZmxBackend: SessionBackend {
     /// Filters by the `agentstudio--` prefix to only find our sessions.
     func discoverOrphanSessions(excluding knownIds: Set<String>) async -> [String] {
         do {
-            let result = try await executor.execute(
+            let result = try await executeWithRetry(
                 command: zmxPath,
                 args: ["list"],
-                cwd: nil,
-                environment: ["ZMX_DIR": zmxDir]
+                operation: "zmx list for orphan discovery"
             )
 
             guard result.succeeded else { return [] }
@@ -288,11 +318,10 @@ final class ZmxBackend: SessionBackend {
     }
 
     func destroySessionById(_ sessionId: String) async throws {
-        let result = try await executor.execute(
+        let result = try await executeWithRetry(
             command: zmxPath,
             args: ["kill", sessionId],
-            cwd: nil,
-            environment: ["ZMX_DIR": zmxDir]
+            operation: "zmx kill \(sessionId)"
         )
 
         guard result.succeeded else {
@@ -303,6 +332,57 @@ final class ZmxBackend: SessionBackend {
     }
 
     // MARK: - Helpers
+
+    private static func defaultRetrySleep(_ duration: Duration) async {
+        try? await Task.sleep(for: duration)
+    }
+
+    private func executeWithRetry(
+        command: String,
+        args: [String],
+        operation: String
+    ) async throws -> ProcessResult {
+        var lastError: Error?
+        for attempt in 1...retryPolicy.maxAttempts {
+            if let delay = retryPolicy.backoffBeforeAttempt(attempt) {
+                await retrySleep(delay)
+            }
+
+            do {
+                let result = try await executor.execute(
+                    command: command,
+                    args: args,
+                    cwd: nil,
+                    environment: ["ZMX_DIR": zmxDir]
+                )
+                guard result.succeeded else {
+                    let error = SessionBackendError.operationFailed(
+                        "\(operation) failed (attempt \(attempt)/\(retryPolicy.maxAttempts)): \(result.stderr)"
+                    )
+                    lastError = error
+                    if attempt < retryPolicy.maxAttempts {
+                        zmxLogger.debug(
+                            "\(operation) failed on attempt \(attempt)/\(self.retryPolicy.maxAttempts); retrying"
+                        )
+                        continue
+                    }
+                    throw error
+                }
+                return result
+            } catch {
+                lastError = error
+                if attempt < retryPolicy.maxAttempts {
+                    zmxLogger.debug(
+                        "\(operation) threw on attempt \(attempt)/\(self.retryPolicy.maxAttempts): \(error.localizedDescription)"
+                    )
+                    continue
+                }
+                throw error
+            }
+        }
+
+        throw lastError ?? SessionBackendError.timeout
+    }
 
     private static func getDefaultShell() -> String {
         SessionConfiguration.defaultShell()

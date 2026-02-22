@@ -22,7 +22,8 @@ final class ZmxTestHarness: @unchecked Sendable {
         // the 104-byte Unix domain socket limit. Session IDs are 65 chars, so
         // ZMX_DIR must be short: /tmp/zt-<8chars>/ = 16 chars + 65 = 81 < 104.
         self.zmxDir = "/tmp/zt-\(shortId)"
-        self.executor = DefaultProcessExecutor()
+        // Keep zmx subprocess calls short in tests; backend-level retry handles transient failures.
+        self.executor = DefaultProcessExecutor(timeout: 0.5)
 
         // Resolve zmx binary: check vendored build first, then system PATH
         // 1. Vendored binary (built by scripts/build-zmx.sh or zig build)
