@@ -21,7 +21,7 @@ struct TerminalPaneLeaf: View {
     @State private var dropZone: DropZone?
     @State private var isTargeted: Bool = false
     @State private var isHovered: Bool = false
-    @ObservedObject private var managementMode = ManagementModeMonitor.shared
+    @Bindable private var managementMode = ManagementModeMonitor.shared
 
     /// Whether this pane is a drawer child (no drag, no drop, no sub-drawer).
     private var isDrawerChild: Bool {
@@ -364,19 +364,6 @@ private struct SplitDropDelegate: DropDelegate {
 
         return false
     }
-}
-
-// MARK: - UTType Extensions
-
-extension UTType {
-    /// Type for dragging existing tabs
-    static let agentStudioTab = UTType(exportedAs: "com.agentstudio.tab")
-
-    /// Type for dragging new tab button
-    static let agentStudioNewTab = UTType(exportedAs: "com.agentstudio.newtab")
-
-    /// Type for dragging individual panes
-    static let agentStudioPane = UTType(exportedAs: "com.agentstudio.pane")
 }
 
 // MARK: - Drag Payloads

@@ -4,7 +4,7 @@ import SwiftUI
 /// Shows `rectangle.split.2x2` (outline) when inactive,
 /// `rectangle.split.2x2.fill` with accent tint when active.
 struct EditModeToolbarButton: View {
-    @ObservedObject private var managementMode = ManagementModeMonitor.shared
+    @Bindable private var managementMode = ManagementModeMonitor.shared
 
     var body: some View {
         Button {

@@ -69,23 +69,24 @@ final class ObservationSpikeTests {
             }
         }
 
-        // Give the observation loop time to start and receive initial value
-        try await Task.sleep(for: .milliseconds(50))
+        // Give the observation loop a turn to start
+        await Task.yield()
 
         // Act — mutate propertyA twice
         state.propertyA = 10
-        try await Task.sleep(for: .milliseconds(50))
+        let didObserveTen = await waitForCondition {
+            collectedValues.contains(10)
+        }
+        #expect(didObserveTen)
         state.propertyA = 20
-        try await Task.sleep(for: .milliseconds(50))
 
         // Assert
-        let didCollectValues = try await waitForCondition {
-            collectedValues.count >= 3
+        let didCollectValues = await waitForCondition {
+            collectedValues.contains(20)
         }
         #expect(didCollectValues)
         observationTask.cancel()
 
-        #expect(collectedValues.count >= 3, "Expected initial value + 2 mutations = at least 3 values")
         #expect(collectedValues.first == 0, "First emitted value should be the initial value (0)")
         #expect(collectedValues.contains(10), "Should contain mutation value 10")
         #expect(collectedValues.contains(20), "Should contain mutation value 20")
@@ -100,34 +101,34 @@ final class ObservationSpikeTests {
         // Arrange
         let state = SpikeTestState()
         var collectedValues: [Int] = []
+        let debounceClock = TestPushClock()
 
         let observationTask = Task { @MainActor in
             let stream = Observations { state.propertyA }
-                .debounce(for: .milliseconds(100))
+                .debounce(for: .milliseconds(100), clock: debounceClock)
             for await value in stream {
                 collectedValues.append(value)
-                // Stop after enough time for all values to settle
-                if collectedValues.count >= 3 {
-                    break
-                }
             }
         }
 
-        // Give the observation loop time to start
-        try await Task.sleep(for: .milliseconds(50))
+        await Task.yield()
 
         // Act — rapid mutations (all within 100ms debounce window)
         state.propertyA = 1
-        try await Task.sleep(for: .milliseconds(10))
         state.propertyA = 2
-        try await Task.sleep(for: .milliseconds(10))
         state.propertyA = 3
 
-        // Wait for debounce to settle (100ms debounce + generous buffer)
-        try await Task.sleep(for: .milliseconds(300))
+        // Advance the debounce clock in steps until at least one debounced value arrives
+        let didAdvanceToEmission = await advanceClock(
+            debounceClock,
+            until: { !collectedValues.isEmpty },
+            maxSteps: 40,
+            step: .milliseconds(5)
+        )
+        #expect(didAdvanceToEmission)
 
         // Assert
-        let didReceiveDebouncedValue = try await waitForCondition {
+        let didReceiveDebouncedValue = await waitForCondition {
             collectedValues.count >= 1
         }
         #expect(didReceiveDebouncedValue)
@@ -180,8 +181,11 @@ final class ObservationSpikeTests {
             }
         }
 
-        // Give both observation loops time to start and receive initial values
-        try await Task.sleep(for: .milliseconds(100))
+        // Give both observation loops turns to start and receive initial values
+        let didReceiveInitialValues = await waitForCondition {
+            propertyAValues.count >= 1 && propertyBValues.count >= 1
+        }
+        #expect(didReceiveInitialValues)
 
         // Record propertyA observation count BEFORE mutating propertyB
         let propertyACountBeforeMutation = propertyAValues.count
@@ -189,11 +193,12 @@ final class ObservationSpikeTests {
         // Act — change ONLY propertyB
         state.propertyB = "changed"
 
-        // Give time for any erroneous propertyA firing
-        try await Task.sleep(for: .milliseconds(200))
+        // Give observation loops a few turns to process
+        await Task.yield()
+        await Task.yield()
 
         // Assert
-        let didReceivePropertyBUpdate = try await waitForCondition {
+        let didReceivePropertyBUpdate = await waitForCondition {
             propertyBValues.count >= 2
         }
         #expect(didReceivePropertyBUpdate)
@@ -249,21 +254,29 @@ final class ObservationSpikeTests {
     }
 
     private func waitForCondition(
-        timeout: Duration = .seconds(2),
-        pollInterval: Duration = .milliseconds(10),
+        maxYields: Int = 200,
         condition: () -> Bool
-    ) async throws -> Bool {
-        let clock = ContinuousClock()
-        let deadline = clock.now.advanced(by: timeout)
-
-        while clock.now < deadline {
+    ) async -> Bool {
+        for _ in 0..<maxYields {
             if condition() {
                 return true
             }
-
-            try await clock.sleep(for: pollInterval)
+            await Task.yield()
         }
+        return condition()
+    }
 
+    private func advanceClock(
+        _ clock: TestPushClock,
+        until condition: @escaping @MainActor () -> Bool,
+        maxSteps: Int,
+        step: Duration
+    ) async -> Bool {
+        for _ in 0..<maxSteps {
+            if condition() { return true }
+            clock.advance(by: step)
+            await Task.yield()
+        }
         return condition()
     }
 }

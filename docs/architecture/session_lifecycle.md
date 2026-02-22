@@ -2,36 +2,122 @@
 
 ## TL;DR
 
-A terminal session's identity (`UUID`) is stable across its entire lifecycle — creation, layout changes, view switches, close/undo, persistence, and restore. `WorkspaceStore` owns session records. `SessionRuntime` tracks runtime health. `TerminalViewCoordinator` bridges sessions to surfaces. Sessions survive layout removal (they persist in `store.sessions`) and can be undone via a `CloseSnapshot` stack. The zmx backend provides persistence across app restarts.
+A pane's identity (`UUID`) is stable across its entire lifecycle — creation, layout changes, view switches, close/undo, persistence, and restore. `WorkspaceStore` owns pane records. `SessionRuntime` tracks runtime health. `PaneCoordinator` bridges panes to surfaces. Panes can be undone via a `CloseEntry` stack. The zmx backend provides persistence across app restarts.
 
 ---
 
-## Session Identity
+## Identity Contract (Canonical)
 
-A single `sessionId: UUID` is the identity used across **all** layers:
+`PaneId` is the only primary identity. Backend session names are derived keys.
+This section is the source of truth for identity, restore lookups, and zmx key
+derivation.
 
-| Layer | Uses sessionId for |
-|-------|--------------------|
-| `WorkspaceStore` | Session record ownership |
-| `Layout` / `Tab` / `ViewDefinition` | Leaf references in split trees |
-| `ViewRegistry` | sessionId → live NSView mapping |
-| `SurfaceManager` | `SurfaceMetadata.sessionId` — join key to session |
-| `SessionRuntime` | Runtime status tracking |
-| `ZmxBackend` | Part of deterministic zmx session name |
+### Identifier Types
+
+| Identifier | Type | Owner | Persisted | Generation | Used For |
+|------------|------|-------|-----------|------------|----------|
+| `PaneId` | `UUID` | `WorkspaceStore` | Yes | `Pane.init(id: UUID = UUID(), ...)` | Universal pane identity across store/layout/view/runtime/surface |
+| `RepoStableKey` | `String` (16 hex) | `Repo` | Derived | `StableKey.fromPath(repoPath)` | Deterministic zmx key segment |
+| `WorktreeStableKey` | `String` (16 hex) | `Worktree` | Derived | `StableKey.fromPath(worktree.path)` | Deterministic zmx key segment |
+| `MainZmxSessionId` | `String` (65 chars) | `ZmxBackend` | Derived | `agentstudio--<repo16>--<worktree16>--<pane16>` | zmx daemon/socket identity for layout panes |
+| `DrawerZmxSessionId` | `String` (49 chars) | `ZmxBackend` | Derived | `agentstudio-d--<parentPane16>--<drawerPane16>` | zmx daemon/socket identity for drawer panes |
+
+### Session Name Calculation Rules
+
+1. `pane16 = first16hex(lowercase(removeHyphens(paneId.uuidString)))`
+2. `mainSessionId = "agentstudio--" + repoStableKey + "--" + worktreeStableKey + "--" + pane16`
+3. `drawerSessionId = "agentstudio-d--" + parentPane16 + "--" + drawerPane16`
+4. `repoStableKey` and `worktreeStableKey` are deterministic SHA-256 path keys (16 hex chars each)
+
+### PaneId Lifecycle (ASCII)
+
+```text
+USER ACTION (open terminal / split / drawer)
+    |
+    v
+PaneCoordinator.create/open*
+    |
+    v
+WorkspaceStore.createPane(...)
+    -> Pane(id = UUID())      <-- PaneId minted once
+    -> panes[paneId] = Pane
+    |
+    v
+Tab/Layout references created
+    -> Tab.panes[] contains paneId
+    -> Layout.leaf(paneId)
+    |
+    v
+Persist (WorkspacePersistor JSON)
+    -> Pane.id stored
+    -> Tab/Layout paneId references stored
+    |
+    v   app relaunch
+Restore (WorkspaceStore.restore)
+    -> panes = Dictionary(state.panes by pane.id)
+    -> prune invalid paneId references
+    -> repair invariants (activePaneId, duplicate pane IDs, etc.)
+    |
+    v
+PaneCoordinator.restoreAllViews()
+    -> lookup Pane by paneId
+    -> create/reattach surface + register view by paneId
+```
+
+### zmx Interplay and Lookups (ASCII)
+
+```text
+PaneId + RepoStableKey + WorktreeStableKey
+                  |
+                  v
+      ZmxBackend.sessionId(...)
+                  |
+                  v
+  "agentstudio--repo16--wt16--pane16"
+                  |
+                  v
+      zmx attach/list/kill (scoped by ZMX_DIR)
+                  |
+                  v
+AppDelegate.cleanupOrphanZmxSessions()
+  - derive known IDs from persisted panes
+  - compare with one zmx list snapshot
+  - kill runtime-only orphans (with policy)
+```
+
+### Lookup Ownership Table
+
+| Lookup | Source of Truth | API/Path |
+|--------|------------------|----------|
+| `paneId -> Pane` | `WorkspaceStore.panes` | `store.pane(paneId)` / dictionary lookup |
+| `paneId -> View` | `ViewRegistry` | `viewRegistry.view(for: paneId)` |
+| `paneId -> RuntimeStatus` | `SessionRuntime.statuses` | `runtime.status(for: paneId)` |
+| `paneId -> Surface` | `SurfaceManager` metadata/state | `SurfaceMetadata.paneId`, attach/detach paths |
+| `paneId + repo/worktree -> zmx session name` | `ZmxBackend` deterministic function | `ZmxBackend.sessionId(...)` |
+| `zmx session name -> live daemon` | zmx process state in `ZMX_DIR` | `zmx list` parse |
+
+### Socket Path Budget (Darwin)
+
+`zmx` creates Unix socket paths as:
+`socketPath = zmxDir + "/" + sessionName`
+
+Darwin `sockaddr_un.sun_path` is 104 bytes, so practical max is:
+`socketPath.count <= 103`
+
+This makes session name length a hard runtime constraint, not just formatting.
+`ZmxTestHarness` uses short `/tmp/zt-<id>` paths specifically to stay under this limit.
 
 ## Session Properties
 
-Every session carries metadata that determines its behavior:
+Every pane carries metadata that determines its behavior:
 
 ```
-TerminalSession
+Pane
 ├── id: UUID                    ← immutable primary key
-├── source: TerminalSource      ← .worktree(wId, rId) or .floating(dir, title)
-├── title: String               ← updated from shell title changes
-├── agent: AgentType?           ← claude, codex, gemini, aider, custom
-├── provider: SessionProvider   ← .ghostty (direct) or .zmx (persistent)
-├── lifetime: SessionLifetime   ← .persistent (saved) or .temporary (ephemeral)
-└── residency: SessionResidency ← .active, .pendingUndo(expiresAt), .backgrounded
+├── content: PaneContent        ← .terminal/.webview/.codeViewer/.bridgePanel
+├── metadata: PaneMetadata      ← title/source/cwd/tags
+├── kind: PaneKind              ← .layout or .drawerChild
+└── residency: SessionResidency ← .active/.pendingUndo/.backgrounded
 ```
 
 ---
@@ -40,22 +126,22 @@ TerminalSession
 
 ### Residency (Persisted)
 
-`SessionResidency` tracks where a session lives in the application lifecycle. This prevents false-positive orphan detection — a session in `pendingUndo` is not an orphan.
+`SessionResidency` tracks where a pane lives in the application lifecycle. This prevents false-positive orphan detection — a pane in `pendingUndo` is not an orphan.
 
 ```mermaid
 stateDiagram-v2
-    [*] --> active: createSession()
+    [*] --> active: createPane()
     active --> pendingUndo: closeTab (enters undo window)
-    active --> backgrounded: view switch (session leaves active view)
+    active --> backgrounded: view switch (pane leaves active view)
     pendingUndo --> active: undoCloseTab()
     pendingUndo --> [*]: undo expires / GC
-    backgrounded --> active: view switch (session enters active view)
+    backgrounded --> active: view switch (pane enters active view)
     backgrounded --> [*]: explicit removal
 ```
 
 ### Runtime Status (Not Persisted)
 
-`SessionRuntimeStatus` tracks the live backend state. Created fresh on each app launch.
+`SessionRuntimeStatus` tracks live backend state per pane. Created fresh on each app launch.
 
 ```mermaid
 stateDiagram-v2
@@ -81,34 +167,31 @@ stateDiagram-v2
 ```mermaid
 sequenceDiagram
     participant User
-    participant AE as ActionExecutor
+    participant PC as PaneCoordinator
     participant Store as WorkspaceStore
-    participant Coord as TerminalViewCoordinator
     participant SM as SurfaceManager
     participant VR as ViewRegistry
     participant RT as SessionRuntime
 
-    User->>AE: openTerminal(worktree, repo)
-    AE->>AE: Check if worktree already has active session
+    User->>PC: openTerminal(worktree, repo)
+    PC->>PC: Check if worktree already has active pane
     alt Already open
-        AE->>Store: setActiveTab(existingTab.id)
+        PC->>Store: setActiveTab(existingTab.id)
     else New session needed
-        AE->>Store: createSession(source: .worktree, provider: .zmx)
-        Store-->>AE: TerminalSession (new UUID)
-        AE->>Coord: createView(session, worktree, repo)
-        Coord->>SM: createSurface(config, metadata)
-        SM-->>Coord: ManagedSurface
-        Coord->>SM: attach(surfaceId, sessionId)
-        Coord->>VR: register(view, sessionId)
-        Coord->>RT: markRunning(sessionId)
-        Coord-->>AE: AgentStudioTerminalView
+        PC->>Store: createPane(source: .worktree, content: .terminal(.zmx))
+        Store-->>PC: Pane (new UUID)
+        PC->>SM: createSurface(config, metadata)
+        SM-->>PC: ManagedSurface
+        PC->>SM: attach(surfaceId, paneId)
+        PC->>VR: register(view, paneId)
+        PC->>RT: markRunning(paneId)
 
         alt Surface creation failed
-            AE->>Store: removeSession(session.id)
-            Note over AE: Rollback — no orphan session
+            PC->>Store: removePane(pane.id)
+            Note over PC: Rollback — no orphan pane
         else Success
-            AE->>Store: appendTab(Tab(sessionId))
-            AE->>Store: setActiveTab(tab.id)
+            PC->>Store: appendTab(Tab(paneId))
+            PC->>Store: setActiveTab(tab.id)
         end
     end
 ```
@@ -119,32 +202,34 @@ sequenceDiagram
 
 ### Close Tab
 
-1. `ActionExecutor.executeCloseTab(tabId)`:
-   - `store.snapshotForClose(tabId)` → `CloseSnapshot` (tab, sessions, viewId, tabIndex)
+1. `PaneCoordinator.executeCloseTab(tabId)`:
+   - `store.snapshotForClose(tabId)` → `TabCloseSnapshot` (tab, panes, tabIndex)
    - Push to `undoStack` (LIFO, max 10 entries)
-   - For each session in the tab: `coordinator.teardownView(sessionId)`
-     - `ViewRegistry.unregister(sessionId)`
+   - For each pane in the tab: `coordinator.teardownView(paneId)`
+     - `ViewRegistry.unregister(paneId)`
      - `SurfaceManager.detach(surfaceId, reason: .close)` → surface enters SurfaceManager undo stack with TTL (5 min)
-   - `store.removeTab(tabId)` — sessions remain in `store.sessions` (not deleted)
+   - `store.removeTab(tabId)` — panes remain in `store.panes` (not deleted)
    - `expireOldUndoEntries()` — GC entries beyond max, remove orphaned sessions
 
 ### Undo Close Tab (`Cmd+Shift+T`)
 
-2. `ActionExecutor.undoCloseTab()`:
-   - Pop `CloseSnapshot` from undo stack
+2. `PaneCoordinator.undoCloseTab()`:
+   - Pop `WorkspaceStore.CloseEntry` from undo stack
    - `store.restoreFromSnapshot(snapshot)` — re-insert tab at original position
-   - For each session in **reversed** order (matching SurfaceManager LIFO):
-     - `coordinator.restoreView(session, worktree, repo)`
+   - For each pane in **reversed** order (matching SurfaceManager LIFO):
+     - `coordinator.restoreView(pane, worktree, repo)`
      - `SurfaceManager.undoClose()` → pop surface from undo stack
-     - Verify `metadata.sessionId` matches (multi-pane safety)
+     - Verify `metadata.paneId` matches (multi-pane safety)
      - Reattach surface (no recreation)
 
-### Close Pane (No Undo)
+### Close Pane (With Undo)
 
-`executeClosePane(tabId, sessionId)`:
-- `coordinator.teardownView(sessionId)` — surface destroyed (not undo-able)
-- `store.removeSessionFromLayout(sessionId, inTab: tabId)` — if last session, removes the tab
-- If session is no longer in any layout across all views, `store.removeSession(sessionId)`
+`executeClosePane(tabId, paneId)`:
+- `store.snapshotForPaneClose(paneId, inTab: tabId)` creates a pane-level undo snapshot
+- Push `.pane(PaneCloseSnapshot)` to `undoStack`
+- `coordinator.teardownView(paneId)` detaches/destroys runtime view state
+- `store.removePaneFromLayout(paneId, inTab: tabId)`; if last pane, close escalates to tab-close path
+- Undo via `undoCloseTab()` restores the pane snapshot when its tab/parent context is still valid
 
 ---
 
@@ -155,30 +240,29 @@ sequenceDiagram
     participant AD as AppDelegate
     participant Store as WorkspaceStore
     participant P as WorkspacePersistor
-    participant Coord as TerminalViewCoordinator
+    participant Coord as PaneCoordinator
 
     AD->>Store: restore()
     Store->>P: load()
     P-->>Store: PersistableState (JSON)
 
-    Note over Store: 1. Filter out .temporary sessions
-    Note over Store: 3. Remove sessions with deleted worktrees
-    Note over Store: 4. Prune dangling session IDs from layouts
-    Note over Store: 5. Remove empty tabs, fix activeTabId
-    Note over Store: 6. Ensure main view exists
+    Note over Store: Filter out temporary panes
+    Note over Store: Remove panes with deleted worktrees
+    Note over Store: Prune dangling pane IDs from layouts
+    Note over Store: Remove empty tabs, fix activeTabId
 
     AD->>Coord: restoreAllViews()
-    loop each session in active view tabs
-        Coord->>Coord: createView(session) → surface + attach + register
+    loop each pane in active tabs
+        Coord->>Coord: createViewForContent(pane) / restoreView(pane)
     end
 
     AD->>AD: Create MainWindowController
 ```
 
 **Restore filtering details:**
-- **Temporary filtering**: Sessions with `lifetime == .temporary` are removed
-- **Worktree validation**: Sessions referencing a `worktreeId` not in any repo's worktrees are removed (worktree was deleted between launches)
-- **Layout pruning**: Session IDs not in the valid session set are removed from all layout nodes; single-child splits collapse; empty tabs removed
+- **Temporary filtering**: Panes with `lifetime == .temporary` are removed
+- **Worktree validation**: Panes referencing a `worktreeId` not in any repo's worktrees are removed (worktree was deleted between launches)
+- **Layout pruning**: Pane IDs not in the valid pane set are removed from all layout nodes; single-child splits collapse; empty tabs removed
 - **Main view guarantee**: If no `.main` view exists, one is created
 
 ---
@@ -203,7 +287,7 @@ State is persisted via `WorkspacePersistor` as JSON. See [Component Architecture
 Key points:
 - All mutations debounced at 500ms via `markDirty()`
 - `flush()` on termination for immediate write
-- Temporary sessions never persisted
+- Temporary panes never persisted
 - Window frame saved only on quit
 
 ---
@@ -253,23 +337,19 @@ The zmx binary is resolved via a fallback chain:
 3. **`which zmx`** fallback
 4. If none found: fall back to ephemeral `.ghostty` provider (no persistence)
 
-### Session ID Format
+### Session Name Derivation
 
-```
-agentstudio--<repo16hex>--<worktree16hex>--<pane16hex>
-            |              |                |
-            |              |                +-- First 16 hex chars of pane UUID
-            |              +-- StableKey: SHA-256 of worktree path (16 hex)
-            +-- StableKey: SHA-256 of repo path (16 hex)
+See **Identity Contract (Canonical)** above for the complete source of truth.
 
-Length: 65 characters (fixed)
-```
-
-Generated by `ZmxBackend.sessionId(repoStableKey:worktreeStableKey:paneId:)`. Deterministic — same repo path + worktree path + pane UUID triple always produces the same session ID.
+- Main panes: `ZmxBackend.sessionId(repoStableKey:worktreeStableKey:paneId:)`
+- Drawer panes: `ZmxBackend.drawerSessionId(parentPaneId:drawerPaneId:)`
+- Both are deterministic for a given input tuple and depend on stable path keys.
 
 ### Orphan Cleanup
 
-On app launch, `AppDelegate.cleanupOrphanZmxSessions()` discovers zmx daemons with `agentstudio--` prefix that are not tracked by any persisted session, and kills them. This prevents stale daemons from accumulating across app restarts.
+On app launch, `AppDelegate.cleanupOrphanZmxSessions()` discovers zmx daemons
+with Agent Studio prefixes that are not tracked by persisted panes and kills
+them. This prevents stale daemons from accumulating across app restarts.
 
 ---
 
@@ -307,24 +387,22 @@ stateDiagram-v2
 
 | File | Role |
 |------|------|
-| `Services/WorkspaceStore.swift` | Atomic store — workspace structure (sessions, views, tabs, layouts, persistence) |
-| `Services/WorkspacePersistor.swift` | JSON serialization/deserialization |
-| `Services/SessionRuntime.swift` | Runtime health monitoring and status tracking |
-| `App/ActionExecutor.swift` | Dispatches actions (open, close, split, undo, etc.) |
-| `App/TerminalViewCoordinator.swift` | Creates/restores views, sole intermediary for surface lifecycle |
-| `Models/TerminalSession.swift` | Session identity with source, provider, lifetime, residency |
-| `Models/SessionLifetime.swift` | `.persistent` / `.temporary` enum |
-| `Models/SessionResidency.swift` | `.active` / `.pendingUndo` / `.backgrounded` enum |
-| `Models/Layout.swift` | Value-type split layout tree (Codable for persistence) |
-| `Models/Tab.swift` | Tab with layout and active session |
-| `Models/Templates.swift` | Worktree/terminal templates for session creation |
-| `Models/SessionConfiguration.swift` | Config detection from env vars |
-| `Models/StateMachine/SessionStatus.swift` | 7-state machine definition for future zmx health |
-| `Models/StateMachine/StateMachine.swift` | Generic state machine with effect handling |
-| `Services/ProcessExecutor.swift` | Protocol + `DefaultProcessExecutor` for CLI execution |
-| `Services/Backends/ZmxBackend.swift` | zmx CLI wrapper — session ID gen, create/destroy/healthCheck |
-| `Views/AgentStudioTerminalView.swift` | Terminal view (displays surfaces, does not own them) |
-| `AppDelegate.swift` | Launch flow — restore workspace, create window |
+| `Core/Stores/WorkspaceStore.swift` | Atomic store — workspace structure (panes, tabs, layouts, persistence) |
+| `Core/Stores/WorkspacePersistor.swift` | JSON serialization/deserialization |
+| `Core/Stores/SessionRuntime.swift` | Runtime health monitoring and status tracking |
+| `App/PaneCoordinator.swift` | Dispatches actions (open, close, split, undo, etc.) and is the sole intermediary for view/surface orchestration |
+| `Core/Models/Pane.swift` | Pane identity and content metadata |
+| `Core/Models/SessionLifetime.swift` | `.persistent` / `.temporary` enum |
+| `Core/Models/SessionResidency.swift` | `.active` / `.pendingUndo` / `.backgrounded` enum |
+| `Core/Models/Layout.swift` | Value-type split layout tree (Codable for persistence) |
+| `Core/Models/Tab.swift` | Tab with layout and active pane |
+| `Core/Models/SessionConfiguration.swift` | Config detection from env vars |
+| `Core/Models/StateMachine/SessionStatus.swift` | 7-state machine definition for future zmx health |
+| `Infrastructure/StateMachine/StateMachine.swift` | Generic state machine with effect handling |
+| `Infrastructure/ProcessExecutor.swift` | Protocol + `DefaultProcessExecutor` for CLI execution |
+| `Core/Stores/ZmxBackend.swift` | zmx CLI wrapper — session ID gen, create/destroy/healthCheck |
+| `Features/Terminal/Views/AgentStudioTerminalView.swift` | Terminal view (displays surfaces, does not own them) |
+| `App/AppDelegate.swift` | Launch flow — restore workspace, create window |
 
 ## Related Documentation
 

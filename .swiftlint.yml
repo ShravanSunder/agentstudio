@@ -82,6 +82,35 @@ disabled_rules:
   # Trailing commas handled by swift-format (multiline: yes, single-line: no)
   - trailing_comma
 
+custom_rules:
+  no_combine_import:
+    name: "No Combine imports"
+    regex: "^\\s*import\\s+Combine\\s*$"
+    excluded:
+      - Sources/AgentStudio/Legacy
+    message: "Avoid Combine; use AsyncStream/event-stream primitives for new or migrated code."
+    severity: error
+  no_observable_object_protocol:
+    name: "No ObservableObject inheritance"
+    regex: "^\\s*(?:final\\s+)?class\\b[^\\n]*:\\s*[^\\n]*ObservableObject\\b"
+    message: "Use @Observable instead of ObservableObject."
+    severity: error
+  no_published_wrapper:
+    name: "No @Published"
+    regex: "^\\s*@Published\\b"
+    message: "Replace @Published with @Observable-backed properties."
+    severity: error
+  no_anycancellable:
+    name: "No AnyCancellable"
+    regex: "^\\s*(?:private\\s+)?(?:var|let)\\s+.*:\\s*AnyCancellable\\b"
+    message: "Prefer Swift concurrency Task handles over Combine AnyCancellable."
+    severity: error
+  no_observed_property_wrappers:
+    name: "No legacy property wrappers for object views"
+    regex: "^\\s*@(ObservedObject|StateObject|EnvironmentObject)\\b"
+    message: "Prefer @Bindable for @Observable-annotated dependencies."
+    severity: error
+
 # Rule-specific configuration
 identifier_name:
   min_length:
@@ -164,4 +193,3 @@ large_tuple:
 
 number_separator:
   minimum_length: 5
-

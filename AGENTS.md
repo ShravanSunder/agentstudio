@@ -17,8 +17,7 @@ agent-studio/
 │   │   ├── Panes/                    # Pane tab management and NSView registry
 │   │   │   ├── PaneTabViewController.swift
 │   │   │   └── ViewRegistry.swift
-│   │   ├── ActionExecutor.swift
-│   │   └── TerminalViewCoordinator.swift  # Future: PaneCoordinator
+│   │   └── PaneCoordinator.swift         # Cross-feature sequencing and orchestration
 │   ├── Core/                         # Shared domain — models, stores, pane system
 │   │   ├── Models/                   # Layout, Tab, Pane, PaneView, SessionStatus
 │   │   ├── Stores/                   # WorkspaceStore, SessionRuntime, WorkspacePersistor
@@ -26,7 +25,6 @@ agent-studio/
 │   │   ├── Views/                    # Tab bar, splits, drawer, arrangement
 │   │   │   ├── Splits/              # SplitTree, SplitView, TerminalPaneLeaf
 │   │   │   └── Drawer/             # DrawerLayout, DrawerPanel, DrawerIconBar
-│   │   └── NotificationNames.swift
 │   ├── Features/
 │   │   ├── Terminal/                 # Everything Ghostty-specific
 │   │   │   ├── Ghostty/              # C API bridge, SurfaceManager, SurfaceTypes
@@ -41,7 +39,8 @@ agent-studio/
 │   │   └── Sidebar/                  # Sidebar filter (future: repo list, worktree tree)
 │   └── Infrastructure/               # Domain-agnostic utilities
 │       ├── StateMachine/            # Generic state machine
-│       └── Diagnostics/             # RestoreTrace
+│       ├── Diagnostics/             # RestoreTrace
+│       └── Extensions/              # Foundation/AppKit/UTType helper extensions
 ├── Frameworks/                       # Generated: GhosttyKit.xcframework (not in git)
 ├── vendor/ghostty/                   # Git submodule: Ghostty source
 ├── scripts/                          # Icon generation
@@ -67,8 +66,7 @@ Where each key component lives and why — use this to decide where new files go
 | `AppDelegate` | `App/` | App lifecycle, restore, zmx cleanup | App lifecycle |
 | `MainSplitViewController` | `App/` | Top-level sidebar/content split | App layout |
 | `MainWindowController` | `App/` | Window creation, toolbar, state restore | Window management |
-| `ActionExecutor` | `App/` | Dispatches PaneActions to stores | Cross-store sequencing |
-| `TerminalViewCoordinator` | `App/` | Manages Ghostty surface lifecycle (future: `PaneCoordinator`) | Cross-feature sequencing |
+| `PaneCoordinator` | `App/` | Dispatches PaneActions to stores and manages model↔view↔surface orchestration | Cross-store sequencing |
 | `WorkspaceStore` | `Core/Stores/` | Tabs, layouts, views, pane metadata | Workspace structure |
 | `SessionRuntime` | `Core/Stores/` | Session status, health checks, zmx backend | Session backends |
 | `WorkspacePersistor` | `Core/Stores/` | Disk persistence for workspace state | Persistence format |
@@ -107,7 +105,7 @@ Build orchestration uses [mise](https://mise.jdx.dev/). Install with `brew insta
 mise install                  # Install pinned tool versions (zig 0.15.2)
 mise run build                # Full debug build (ghostty + zmx + dev resources + swift)
 mise run build-release        # Full release build
-mise run test                 # Run tests
+mise run test                 # Run tests (Swift 6 `Testing`)
 mise run create-app-bundle    # Create signed AgentStudio.app
 mise run clean                # Remove all build artifacts
 ```
@@ -117,6 +115,15 @@ Individual steps:
 - `mise run build-zmx` — Build zmx binary only
 - `mise run setup-dev-resources` — Copy shell-integration + terminfo for SPM
 - `mise run copy-xcframework` — Copy xcframework to Frameworks/
+
+## Testing Standard
+
+This worktree is SwiftPM-first and Swift 6 `Testing` only:
+
+- Use `import Testing` with `@Suite`, `@Test`, and `#expect`.
+- Do not adopt legacy XCTest-style APIs (`XCTestCase`, `XCTAssert*`, `setUp`/`tearDown`).
+- Do not use legacy XCTest-style or Xcode UI test scaffolding.
+- Prefer `mise run test` (Swift 6 `Testing`) and SwiftPM-native test execution.
 
 ### Formatting & Linting
 
@@ -132,9 +139,9 @@ Requires `brew install swift-format swiftlint`. A PostToolUse hook (`.claude/hoo
 SwiftPM's interactive progress output (carriage returns, ANSI escapes) breaks in agent bash contexts. Always redirect to a file and check the exit code.
 
 ```bash
-SWIFT_BUILD_DIR=".build-agent-0" SWIFT_TEST_TIMEOUT_SECONDS=600 scripts/test-agent-timeout.sh > /tmp/test-output.txt 2>&1 && echo "PASS" || echo "FAIL: $(tail -20 /tmp/test-output.txt)"
+swift test --build-path .build-agent-$RANDOM > /tmp/test-output.txt 2>&1 && echo "PASS" || echo "FAIL: $(tail -20 /tmp/test-output.txt)"
 swift build > /tmp/build-output.txt 2>&1 && echo "BUILD OK" || echo "BUILD FAIL: $(tail -20 /tmp/build-output.txt)"
-SWIFT_BUILD_DIR=".build-agent-0" SWIFT_TEST_TIMEOUT_SECONDS=600 scripts/test-agent-timeout.sh "CommandBarState" > /tmp/test-output.txt 2>&1 && echo "PASS" || echo "FAIL: $(tail -20 /tmp/test-output.txt)"
+swift test --build-path .build-agent-$RANDOM --filter "CommandBarState" > /tmp/test-output.txt 2>&1 && echo "PASS" || echo "FAIL: $(tail -20 /tmp/test-output.txt)"
 ```
 
 **No parallel Swift commands. No background Swift commands.** SwiftPM holds an exclusive lock on `.build/`. Two concurrent swift processes — even `swift test --filter A` and `swift test --filter B`, or a foreground + background task — will deadlock waiting for the lock (up to 256s then fail). This means:
@@ -146,30 +153,18 @@ SWIFT_BUILD_DIR=".build-agent-0" SWIFT_TEST_TIMEOUT_SECONDS=600 scripts/test-age
 **Test/build contention across agents.** Use a unique `.build-agent-<suffix>` folder per agent session so SwiftPM lock files do not collide across concurrent sessions.
 
 ```bash
-SWIFT_BUILD_DIR=".build-agent-$(uuidgen | tr -dc 'a-z0-9' | head -c 8)" SWIFT_TEST_TIMEOUT_SECONDS=600 \
-scripts/test-agent-timeout.sh "ZmxE2ETests"
+SWIFT_BUILD_DIR=".build-agent-$(uuidgen | tr -dc 'a-z0-9' | head -c 8)"
+swift test --build-path "$SWIFT_BUILD_DIR" --filter "ZmxE2ETests"
 swift build --build-path "$SWIFT_BUILD_DIR"
-SWIFT_BUILD_DIR="$SWIFT_BUILD_DIR" SWIFT_TEST_TIMEOUT_SECONDS=600 \
-scripts/test-agent-timeout.sh
+swift test --build-path "$SWIFT_BUILD_DIR"
 ```
 
 Keep this `BUILD_DIR` constant for your entire session to avoid mixing artifacts.
 
-If you want a single command that enforces both an isolated build path and a hard timeout, use the agent helper:
+Run via `mise` (defaults to `.build-agent-$RANDOM`):
 
 ```bash
-# default timeout: 600s, default build dir: .build-agent-$RANDOM
-SWIFT_TEST_TIMEOUT_SECONDS=600 scripts/test-agent-timeout.sh
-
-# filter a single test suite (also uses random .build-agent-* path)
-SWIFT_TEST_TIMEOUT_SECONDS=600 scripts/test-agent-timeout.sh "CommandBarState"
-```
-
-Run via `mise` (defaults to `.build-agent-0`, with the same env override semantics):
-
-```bash
-SWIFT_TEST_TIMEOUT_SECONDS=600 SWIFT_BUILD_DIR=".build-agent-0" mise run test
-mise run test-agent-timeout
+mise run test
 ```
 
 **Lock contention recovery.** If you see "Another instance of SwiftPM is already running using '.build', waiting..." — do NOT launch more swift commands. Kill the stuck process (`pkill -f "swift-build"`) and retry.
@@ -246,7 +241,7 @@ A ticket has: a title, a rough scope description, links to the architecture doc 
 
 Agent Studio's state architecture draws from two JavaScript patterns adapted for Swift's type system and concurrency model. These are the governing principles for **all new code** and the target for incremental refactoring of existing code.
 
-> **Implementation status:** These patterns are the TARGET architecture being implemented via LUNA-325 (bridge + surface state + runtime refactor), LUNA-326 (native scrollbar), and LUNA-327 (state ownership + @Observable migration + coordinator). The current codebase still uses `ActionExecutor` + `TerminalViewCoordinator` (two separate classes) which will be refactored into `PaneCoordinator`. Existing `ObservableObject`/`@Published` will migrate to `@Observable`/`private(set)`. Existing Combine/NotificationCenter will migrate to AsyncStream. **For new code, follow these patterns. For existing code, refactor incrementally when touching those files.**
+> **Implementation status:** These patterns are the TARGET architecture in this worktree: `PaneCoordinator` is the canonical cross-feature coordinator (consolidated action dispatch + surface orchestration), and domain state is owned by `@Observable` stores with `private(set)` where state is mutable.
 
 ### Valtio-style: `private(set)` for Unidirectional Flow
 
@@ -319,7 +314,7 @@ This extends to future pane types: `GhosttyBridge`, `WebViewBridge`, `CodeViewer
 
 ### Event Transport: AsyncStream
 
-All new event plumbing uses `AsyncStream` + `swift-async-algorithms`. No new Combine subscriptions. No new NotificationCenter observers. Existing Combine/NotificationCenter usage is migrated incrementally.
+All new event plumbing uses `AsyncStream` + `swift-async-algorithms`. No new Combine subscriptions. No new NotificationCenter observers. Keep new code on AsyncStream/event-stream primitives and avoid adding new Combine/NotificationCenter usage.
 
 ```swift
 @MainActor

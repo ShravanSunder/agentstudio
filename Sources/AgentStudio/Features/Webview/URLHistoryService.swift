@@ -12,7 +12,6 @@ protocol URLHistoryStorage: Sendable {
     func set(_ data: Data?, forKey key: String)
 }
 
-/// UserDefaults-backed implementation for production.
 extension UserDefaults: URLHistoryStorage {
     func set(_ data: Data?, forKey key: String) {
         set(data as Any?, forKey: key)
