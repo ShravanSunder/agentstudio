@@ -375,29 +375,60 @@ struct PaneCoordinatorHardeningTests {
         let harness = makeHarness()
         defer { try? FileManager.default.removeItem(at: harness.tempDir) }
 
-        let tabPane = makeWebviewPane(harness.store, title: "Anchor")
-        let tab = Tab(paneId: tabPane.id)
+        let anchorPane = makeWebviewPane(harness.store, title: "Anchor")
+        let parentPane = makeWebviewPane(harness.store, title: "Parent")
+        let tab = Tab(paneId: anchorPane.id)
         harness.store.appendTab(tab)
+        harness.store.insertPane(
+            parentPane.id,
+            inTab: tab.id,
+            at: anchorPane.id,
+            direction: .horizontal,
+            position: .after
+        )
 
-        let missingParentPaneId = UUID()
-        let drawerChildPane = Pane(
-            content: .webview(WebviewState(url: URL(string: "https://example.com/orphan")!, showNavigation: true)),
-            metadata: PaneMetadata(source: .floating(workingDirectory: nil, title: "Orphan"), title: "Orphan"),
-            kind: .drawerChild(parentPaneId: missingParentPaneId)
-        )
-        let snapshot = WorkspaceStore.PaneCloseSnapshot(
-            pane: drawerChildPane,
-            drawerChildPanes: [],
-            tabId: tab.id,
-            anchorPaneId: missingParentPaneId,
-            direction: .horizontal
-        )
-        harness.coordinator.undoStack.append(.pane(snapshot))
+        guard let drawerPane = harness.store.addDrawerPane(to: parentPane.id) else {
+            Issue.record("Expected drawer pane creation")
+            return
+        }
+
+        harness.coordinator.execute(.closePane(tabId: tab.id, paneId: drawerPane.id))
+        #expect(harness.coordinator.undoStack.count == 1)
+
+        _ = harness.store.removePaneFromLayout(parentPane.id, inTab: tab.id)
+        harness.store.removePane(parentPane.id)
 
         harness.coordinator.undoCloseTab()
 
         #expect(harness.coordinator.undoStack.isEmpty)
-        #expect(harness.store.pane(drawerChildPane.id) == nil)
+        #expect(harness.store.pane(drawerPane.id) == nil)
+    }
+
+    @Test("undoTabClose removes tab when all arrangements become empty after restore failures")
+    func undoTabClose_allArrangementsEmptyAfterFailures_removesTab() {
+        let harness = makeHarness()
+        defer { try? FileManager.default.removeItem(at: harness.tempDir) }
+
+        let (repo, worktree) = makeRepoAndWorktree(harness.store, root: harness.tempDir)
+        let terminalPane = makeWorktreePane(harness.store, repo: repo, worktree: worktree, title: "Terminal")
+        let tab = Tab(paneId: terminalPane.id)
+        harness.store.appendTab(tab)
+        guard
+            let terminalOnlyArrangementId = harness.store.createArrangement(
+                name: "Terminal only",
+                paneIds: Set([terminalPane.id]),
+                inTab: tab.id
+            )
+        else {
+            Issue.record("Expected arrangement creation to succeed")
+            return
+        }
+        harness.store.switchArrangement(to: terminalOnlyArrangementId, inTab: tab.id)
+
+        harness.coordinator.execute(.closeTab(tabId: tab.id))
+        harness.coordinator.undoCloseTab()
+
+        #expect(harness.store.tab(tab.id) == nil)
     }
 
     @Test("undo GC removes orphaned panes after stack overflows max entries")

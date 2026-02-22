@@ -4,7 +4,7 @@ import Foundation
 extension PaneCoordinator {
     /// Undo the last close operation (tab or pane).
     func undoCloseTab() {
-        while let entry = undoStack.popLast() {
+        while let entry = popLastUndoEntry() {
             switch entry {
             case .tab(let snapshot):
                 undoTabClose(snapshot)
@@ -12,21 +12,21 @@ extension PaneCoordinator {
 
             case .pane(let snapshot):
                 guard store.tab(snapshot.tabId) != nil else {
-                    paneCoordinatorLogger.info("undoClose: tab \(snapshot.tabId) gone — skipping pane entry")
+                    Self.logger.info("undoClose: tab \(snapshot.tabId) gone — skipping pane entry")
                     continue
                 }
                 if snapshot.pane.isDrawerChild,
                     let parentId = snapshot.anchorPaneId,
                     store.pane(parentId) == nil
                 {
-                    paneCoordinatorLogger.info("undoClose: parent pane \(parentId) gone — skipping drawer child entry")
+                    Self.logger.info("undoClose: parent pane \(parentId) gone — skipping drawer child entry")
                     continue
                 }
                 undoPaneClose(snapshot)
                 return
             }
         }
-        paneCoordinatorLogger.info("No entries to restore from undo stack")
+        Self.logger.info("No entries to restore from undo stack")
     }
 
     private func undoTabClose(_ snapshot: WorkspaceStore.TabCloseSnapshot) {
@@ -49,14 +49,14 @@ extension PaneCoordinator {
         }
 
         for paneId in failedPaneIds {
-            paneCoordinatorLogger.warning(
+            Self.logger.warning(
                 "undoTabClose: removing broken pane \(paneId) from tab \(snapshot.tab.id)"
             )
             removeFailedRestoredPane(paneId, fromTab: snapshot.tab.id)
         }
 
         if !failedPaneIds.isEmpty {
-            paneCoordinatorLogger.warning(
+            Self.logger.warning(
                 "undoTabClose: tab \(snapshot.tab.id) restored with \(failedPaneIds.count) failed panes"
             )
         }
@@ -66,7 +66,7 @@ extension PaneCoordinator {
         recoverActiveArrangementIfNeeded(tabId: snapshot.tab.id)
 
         guard let restoredTab = store.tab(snapshot.tab.id), !restoredTab.panes.isEmpty else {
-            paneCoordinatorLogger.error("undoTabClose: all panes failed for tab \(snapshot.tab.id); removing empty tab")
+            Self.logger.error("undoTabClose: all panes failed for tab \(snapshot.tab.id); removing empty tab")
             store.removeTab(snapshot.tab.id)
             return
         }
@@ -98,12 +98,19 @@ extension PaneCoordinator {
         }
 
         for paneId in failedPaneIds {
-            paneCoordinatorLogger.warning(
+            Self.logger.warning(
                 "undoPaneClose: removing broken pane \(paneId) in tab \(snapshot.tabId)"
             )
             removeFailedRestoredPane(paneId, fromTab: snapshot.tabId)
         }
 
+        recoverActiveArrangementIfNeeded(tabId: snapshot.tabId)
+        guard let restoredTab = store.tab(snapshot.tabId), !restoredTab.panes.isEmpty else {
+            Self.logger.error(
+                "undoPaneClose: no panes remain in tab \(snapshot.tabId) after restore cleanup; removing empty tab")
+            store.removeTab(snapshot.tabId)
+            return
+        }
         store.setActiveTab(snapshot.tabId)
     }
 
@@ -119,11 +126,11 @@ extension PaneCoordinator {
                 if restoreView(for: pane, worktree: worktree, repo: repo) != nil {
                     return true
                 }
-                paneCoordinatorLogger.error("Failed to restore terminal pane \(pane.id)")
+                Self.logger.error("Failed to restore terminal pane \(pane.id)")
             } else if createViewForContent(pane: pane) != nil {
                 return true
             } else {
-                paneCoordinatorLogger.error("Failed to recreate terminal pane \(pane.id)")
+                Self.logger.error("Failed to recreate terminal pane \(pane.id)")
             }
             return false
 
@@ -131,19 +138,31 @@ extension PaneCoordinator {
             if createViewForContent(pane: pane) != nil {
                 return true
             }
-            paneCoordinatorLogger.error("Failed to recreate \(label.lowercased()) pane \(pane.id)")
+            Self.logger.error("Failed to recreate \(label.lowercased()) pane \(pane.id)")
             return false
 
         case .unsupported:
-            paneCoordinatorLogger.warning("Cannot restore unsupported pane \(pane.id)")
+            // Unsupported content has no renderer implementation in this build.
+            // Keep the pane model restored so user state is preserved, but log that no view can be recreated.
+            Self.logger.warning("Cannot restore unsupported pane \(pane.id)")
             return true
         }
     }
 
     private func recoverActiveArrangementIfNeeded(tabId: UUID) {
-        guard let tab = store.tab(tabId) else { return }
+        guard let tab = store.tab(tabId) else {
+            Self.logger.warning("recoverActiveArrangementIfNeeded: tab \(tabId) no longer exists")
+            return
+        }
         guard tab.activeArrangement.layout.paneIds.isEmpty else { return }
-        guard let fallbackArrangement = tab.arrangements.first(where: { !$0.layout.paneIds.isEmpty }) else { return }
+        guard let fallbackArrangement = tab.arrangements.first(where: { !$0.layout.paneIds.isEmpty }) else {
+            Self.logger.error(
+                "recoverActiveArrangementIfNeeded: tab \(tabId) has no non-empty arrangements after undo cleanup")
+            return
+        }
+        Self.logger.warning(
+            "recoverActiveArrangementIfNeeded: switched tab \(tabId) to non-empty arrangement \(fallbackArrangement.id)"
+        )
         store.switchArrangement(to: fallbackArrangement.id, inTab: tabId)
     }
 

@@ -50,7 +50,7 @@ enum UUIDv7 {
         // Byte 6: set version to 7 (0111 in high nibble, preserve low nibble)
         bytes[6] = (bytes[6] & 0x0F) | 0x70
 
-        // Byte 8: set variant to RFC 4122 (10 in high 2 bits, preserve low 6 bits)
+        // Byte 8: set variant to RFC 9562/4122 layout (10 in high 2 bits, preserve low 6 bits)
         bytes[8] = (bytes[8] & 0x3F) | 0x80
 
         return UUID(

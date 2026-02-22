@@ -3,8 +3,6 @@ import Foundation
 import GhosttyKit
 import os.log
 
-let paneCoordinatorLogger = Logger(subsystem: "com.agentstudio", category: "PaneCoordinator")
-
 @MainActor
 protocol PaneCoordinatorSurfaceManaging: AnyObject {
     var surfaceCWDChanges: AsyncStream<SurfaceManager.SurfaceCWDChangeEvent> { get }
@@ -28,6 +26,8 @@ extension SurfaceManager: PaneCoordinatorSurfaceManaging {}
 
 @MainActor
 final class PaneCoordinator {
+    nonisolated static let logger = Logger(subsystem: "com.agentstudio", category: "PaneCoordinator")
+
     struct SwitchArrangementTransitions: Equatable {
         let hiddenPaneIds: Set<UUID>
         let paneIdsToReattach: Set<UUID>
@@ -47,7 +47,7 @@ final class PaneCoordinator {
     /// NOTE: Undo stack owned here (not in a store) because undo is fundamentally
     /// orchestration logic: it coordinates across WorkspaceStore, ViewRegistry, and
     /// SessionRuntime. Future: extract to UndoEngine when undo requirements grow.
-    var undoStack: [WorkspaceStore.CloseEntry] = []
+    private(set) var undoStack: [WorkspaceStore.CloseEntry] = []
 
     /// Maximum undo stack entries before oldest are garbage-collected.
     let maxUndoStackSize = 10
@@ -88,6 +88,20 @@ final class PaneCoordinator {
 
     isolated deinit {
         cwdChangesTask?.cancel()
+    }
+
+    func appendUndoEntry(_ entry: WorkspaceStore.CloseEntry) {
+        undoStack.append(entry)
+    }
+
+    @discardableResult
+    func popLastUndoEntry() -> WorkspaceStore.CloseEntry? {
+        undoStack.popLast()
+    }
+
+    @discardableResult
+    func removeFirstUndoEntry() -> WorkspaceStore.CloseEntry {
+        undoStack.removeFirst()
     }
 
     // MARK: - CWD Propagation

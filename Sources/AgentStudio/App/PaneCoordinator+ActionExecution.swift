@@ -50,7 +50,7 @@ extension PaneCoordinator {
         )
 
         guard createViewForContent(pane: pane) != nil else {
-            paneCoordinatorLogger.error("Webview creation failed — rolling back pane \(pane.id)")
+            Self.logger.error("Webview creation failed — rolling back pane \(pane.id)")
             store.removePane(pane.id)
             return nil
         }
@@ -59,14 +59,14 @@ extension PaneCoordinator {
         store.appendTab(tab)
         store.setActiveTab(tab.id)
 
-        paneCoordinatorLogger.info("Opened webview pane \(pane.id)")
+        Self.logger.info("Opened webview pane \(pane.id)")
         return pane
     }
 
     // swiftlint:disable cyclomatic_complexity function_body_length
     /// Execute a resolved PaneAction.
     func execute(_ action: PaneAction) {
-        paneCoordinatorLogger.debug("Executing: \(String(describing: action))")
+        Self.logger.debug("Executing: \(String(describing: action))")
 
         switch action {
         case .selectTab(let tabId):
@@ -132,26 +132,32 @@ extension PaneCoordinator {
             )
 
         case .createArrangement(let tabId, let name, let paneIds):
-            _ = store.createArrangement(name: name, paneIds: paneIds, inTab: tabId)
+            if store.createArrangement(name: name, paneIds: paneIds, inTab: tabId) == nil {
+                Self.logger.warning(
+                    "createArrangement: failed to create arrangement '\(name)' in tab \(tabId)")
+            }
 
         case .removeArrangement(let tabId, let arrangementId):
             store.removeArrangement(arrangementId, inTab: tabId)
 
         case .switchArrangement(let tabId, let arrangementId):
             guard let tab = store.tab(tabId) else {
-                paneCoordinatorLogger.warning("Cannot switch arrangement: tab \(tabId) not found")
+                Self.logger.warning("Cannot switch arrangement: tab \(tabId) not found")
                 break
             }
             guard let arrangement = tab.arrangements.first(where: { $0.id == arrangementId }) else {
-                paneCoordinatorLogger.warning(
+                Self.logger.warning(
                     "Cannot switch arrangement: arrangement \(arrangementId) not found in tab \(tabId)"
                 )
                 break
             }
 
+            // Capture visibility/minimized state before mutating the active arrangement.
+            // Transition calculations depend on before/after sets.
             let previousVisiblePaneIds = tab.activeArrangement.visiblePaneIds
             let previouslyMinimizedPaneIds = tab.minimizedPaneIds
             store.switchArrangement(to: arrangementId, inTab: tabId)
+            // Use the resolved arrangement snapshot as the post-switch target state.
             let newVisiblePaneIds = arrangement.visiblePaneIds
 
             let transitions = Self.computeSwitchArrangementTransitions(
@@ -160,6 +166,8 @@ extension PaneCoordinator {
                 newVisiblePaneIds: newVisiblePaneIds
             )
 
+            // Detach hidden panes before reattaching newly visible panes to avoid
+            // transient duplicate attachments and focus churn.
             for paneId in transitions.hiddenPaneIds {
                 detachForViewSwitch(paneId: paneId)
             }
@@ -186,7 +194,7 @@ extension PaneCoordinator {
             )
             if viewRegistry.view(for: paneId) == nil, let pane = store.pane(paneId) {
                 guard createViewForContent(pane: pane) != nil else {
-                    paneCoordinatorLogger.error(
+                    Self.logger.error(
                         "reactivatePane: view creation failed for \(paneId) — rolling pane back to background"
                     )
                     store.backgroundPane(paneId)
@@ -202,7 +210,7 @@ extension PaneCoordinator {
         case .addDrawerPane(let parentPaneId):
             if let drawerPane = store.addDrawerPane(to: parentPaneId) {
                 if createViewForContent(pane: drawerPane) == nil {
-                    paneCoordinatorLogger.error(
+                    Self.logger.error(
                         "addDrawerPane: view creation failed for \(drawerPane.id) — rolling back drawer pane"
                     )
                     rollbackDrawerPaneCreation(drawerPane.id, from: parentPaneId)
@@ -245,8 +253,10 @@ extension PaneCoordinator {
                 direction: direction
             )
 
-        case .expireUndoEntry(let paneId):
-            paneCoordinatorLogger.warning("expireUndoEntry: \(paneId) — stub, full impl in Phase 3")
+        case .expireUndoEntry:
+            Self.logger.warning(
+                "expireUndoEntry: explicit per-pane expiry is currently unsupported; undo GC is handled by expireOldUndoEntries()"
+            )
 
         case .repair(let repairAction):
             executeRepair(repairAction)
@@ -265,7 +275,7 @@ extension PaneCoordinator {
         )
 
         guard createView(for: pane, worktree: worktree, repo: repo) != nil else {
-            paneCoordinatorLogger.error(
+            Self.logger.error(
                 "Surface creation failed for worktree '\(worktree.name)' — rolling back pane \(pane.id)")
             store.removePane(pane.id)
             return nil
@@ -275,7 +285,7 @@ extension PaneCoordinator {
         store.appendTab(tab)
         store.setActiveTab(tab.id)
 
-        paneCoordinatorLogger.info("Opened terminal for worktree: \(worktree.name)")
+        Self.logger.info("Opened terminal for worktree: \(worktree.name)")
         return pane
     }
 
@@ -283,9 +293,9 @@ extension PaneCoordinator {
         syncWebviewStates()
 
         if let snapshot = store.snapshotForClose(tabId: tabId) {
-            undoStack.append(.tab(snapshot))
+            appendUndoEntry(.tab(snapshot))
         } else {
-            paneCoordinatorLogger.warning("closeTab: snapshot failed for tab \(tabId); undo will be unavailable")
+            Self.logger.warning("closeTab: snapshot failed for tab \(tabId); undo will be unavailable")
         }
 
         if let tab = store.tab(tabId) {
@@ -302,7 +312,7 @@ extension PaneCoordinator {
     /// Remove oldest undo entries beyond the limit, cleaning up their orphaned panes.
     private func expireOldUndoEntries() {
         while undoStack.count > maxUndoStackSize {
-            let expired = undoStack.removeFirst()
+            let expired = removeFirstUndoEntry()
 
             let allOwnedPaneIds = currentOwnedPaneIds()
 
@@ -315,7 +325,7 @@ extension PaneCoordinator {
             for pane in expiredPanes where !allOwnedPaneIds.contains(pane.id) {
                 teardownView(for: pane.id)
                 store.removePane(pane.id)
-                paneCoordinatorLogger.debug("GC'd orphaned pane \(pane.id) from expired undo entry")
+                Self.logger.debug("GC'd orphaned pane \(pane.id) from expired undo entry")
             }
         }
     }
@@ -337,13 +347,13 @@ extension PaneCoordinator {
     private func executeBreakUpTab(_ tabId: UUID) {
         let newTabs = store.breakUpTab(tabId)
         if newTabs.isEmpty {
-            paneCoordinatorLogger.debug("breakUpTab: tab has single pane, no-op")
+            Self.logger.debug("breakUpTab: tab has single pane, no-op")
         }
     }
 
     private func executeClosePane(tabId: UUID, paneId: UUID) {
         guard let closingPane = store.pane(paneId) else {
-            paneCoordinatorLogger.warning("closePane: pane \(paneId) not found")
+            Self.logger.warning("closePane: pane \(paneId) not found")
             return
         }
 
@@ -353,9 +363,9 @@ extension PaneCoordinator {
         }
 
         if let snapshot = store.snapshotForPaneClose(paneId: paneId, inTab: tabId) {
-            undoStack.append(.pane(snapshot))
+            appendUndoEntry(.pane(snapshot))
         } else {
-            paneCoordinatorLogger.warning("closePane: snapshot failed for pane \(paneId) in tab \(tabId)")
+            Self.logger.warning("closePane: snapshot failed for pane \(paneId) in tab \(tabId)")
         }
 
         if closingPane.isDrawerChild {
@@ -402,6 +412,18 @@ extension PaneCoordinator {
 
         switch source {
         case .existingPane(let paneId, let sourceTabId):
+            guard store.pane(paneId) != nil else {
+                Self.logger.warning("insertPane existingPane: pane \(paneId) not found")
+                return
+            }
+            guard store.tab(sourceTabId) != nil else {
+                Self.logger.warning("insertPane existingPane: source tab \(sourceTabId) not found")
+                return
+            }
+            guard store.tab(targetTabId) != nil else {
+                Self.logger.warning("insertPane existingPane: target tab \(targetTabId) not found")
+                return
+            }
             let sourceTabEmpty = store.removePaneFromLayout(paneId, inTab: sourceTabId)
             store.insertPane(
                 paneId, inTab: targetTabId, at: targetPaneId,
@@ -418,7 +440,7 @@ extension PaneCoordinator {
                 let worktree = store.worktree(worktreeId),
                 let repo = store.repo(repoId)
             else {
-                paneCoordinatorLogger.warning(
+                Self.logger.warning(
                     "Cannot insert new terminal pane — target pane has no worktree/repo context")
                 return
             }
@@ -429,7 +451,7 @@ extension PaneCoordinator {
             )
 
             guard createView(for: pane, worktree: worktree, repo: repo) != nil else {
-                paneCoordinatorLogger.error("Surface creation failed for new pane — rolling back pane \(pane.id)")
+                Self.logger.error("Surface creation failed for new pane — rolling back pane \(pane.id)")
                 store.removePane(pane.id)
                 return
             }
@@ -456,10 +478,15 @@ extension PaneCoordinator {
                 direction: layoutDirection,
                 position: position
             )
-        else { return }
+        else {
+            Self.logger.warning(
+                "insertDrawerPane: failed to insert drawer pane under parent \(parentPaneId) at target \(targetDrawerPaneId)"
+            )
+            return
+        }
 
         if createViewForContent(pane: drawerPane) == nil {
-            paneCoordinatorLogger.error(
+            Self.logger.error(
                 "insertDrawerPane: view creation failed for \(drawerPane.id) — rolling back drawer pane"
             )
             rollbackDrawerPaneCreation(drawerPane.id, from: parentPaneId)
@@ -488,35 +515,35 @@ extension PaneCoordinator {
         switch repairAction {
         case .recreateSurface(let paneId):
             guard let pane = store.pane(paneId) else {
-                paneCoordinatorLogger.warning("repair \(String(describing: repairAction)): pane not in store")
+                Self.logger.warning("repair \(String(describing: repairAction)): pane not in store")
                 return
             }
             teardownView(for: paneId, shouldUnregisterRuntime: false)
             guard createViewForContent(pane: pane) != nil else {
-                paneCoordinatorLogger.error("repair recreateSurface failed for pane \(paneId)")
+                Self.logger.error("repair recreateSurface failed for pane \(paneId)")
                 return
             }
             store.bumpViewRevision()
-            paneCoordinatorLogger.info("Repaired view for pane \(paneId)")
+            Self.logger.info("Repaired view for pane \(paneId)")
 
         case .createMissingView(let paneId):
             guard let pane = store.pane(paneId) else {
-                paneCoordinatorLogger.warning("repair \(String(describing: repairAction)): pane not in store")
+                Self.logger.warning("repair \(String(describing: repairAction)): pane not in store")
                 return
             }
             guard viewRegistry.view(for: paneId) == nil else {
-                paneCoordinatorLogger.info("repair createMissingView: pane \(paneId) already has a view")
+                Self.logger.info("repair createMissingView: pane \(paneId) already has a view")
                 return
             }
             guard createViewForContent(pane: pane) != nil else {
-                paneCoordinatorLogger.error("repair createMissingView failed for pane \(paneId)")
+                Self.logger.error("repair createMissingView failed for pane \(paneId)")
                 return
             }
             store.bumpViewRevision()
-            paneCoordinatorLogger.info("Created missing view for pane \(paneId)")
+            Self.logger.info("Created missing view for pane \(paneId)")
 
         case .reattachZmx, .markSessionFailed, .cleanupOrphan:
-            paneCoordinatorLogger.warning("repair: \(String(describing: repairAction)) — not yet implemented")
+            Self.logger.warning("repair: \(String(describing: repairAction)) — not yet implemented")
         }
     }
 

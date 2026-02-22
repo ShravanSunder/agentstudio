@@ -36,13 +36,13 @@ extension PaneCoordinator {
                 self?.store.updatePaneTitle(paneId, title: title)
             }
             viewRegistry.register(view, for: pane.id)
-            paneCoordinatorLogger.info("Created webview pane \(pane.id)")
+            Self.logger.info("Created webview pane \(pane.id)")
             return view
 
         case .codeViewer(let state):
             let view = CodeViewerPaneView(paneId: pane.id, state: state)
             viewRegistry.register(view, for: pane.id)
-            paneCoordinatorLogger.info("Created code viewer stub for pane \(pane.id)")
+            Self.logger.info("Created code viewer stub for pane \(pane.id)")
             return view
 
         case .bridgePanel(let state):
@@ -50,11 +50,11 @@ extension PaneCoordinator {
             let view = BridgePaneView(paneId: pane.id, controller: controller)
             viewRegistry.register(view, for: pane.id)
             controller.loadApp()
-            paneCoordinatorLogger.info("Created bridge panel view for pane \(pane.id)")
+            Self.logger.info("Created bridge panel view for pane \(pane.id)")
             return view
 
         case .unsupported:
-            paneCoordinatorLogger.warning("Cannot create view for unsupported content type — pane \(pane.id)")
+            Self.logger.warning("Cannot create view for unsupported content type — pane \(pane.id)")
             return nil
         }
     }
@@ -84,7 +84,7 @@ extension PaneCoordinator {
                 startupStrategy = .deferredInShell(command: attachCommand)
                 environmentVariables["ZMX_DIR"] = sessionConfig.zmxDir
             } else {
-                paneCoordinatorLogger.error(
+                Self.logger.error(
                     "zmx not found; using ephemeral session for \(pane.id) (state will not persist)"
                 )
                 if !pane.metadata.title.localizedCaseInsensitiveContains("ephemeral") {
@@ -95,7 +95,7 @@ extension PaneCoordinator {
         case .ghostty:
             startupStrategy = .surfaceCommand(shellCommand)
         case .none:
-            paneCoordinatorLogger.error("Cannot create view for non-terminal pane \(pane.id)")
+            Self.logger.error("Cannot create view for non-terminal pane \(pane.id)")
             return nil
         }
 
@@ -137,14 +137,14 @@ extension PaneCoordinator {
                 "createView complete pane=\(pane.id) surface=\(managed.id) viewBounds=\(NSStringFromRect(view.bounds))"
             )
 
-            paneCoordinatorLogger.info("Created view for pane \(pane.id) worktree: \(worktree.name)")
+            Self.logger.info("Created view for pane \(pane.id) worktree: \(worktree.name)")
             return view
 
         case .failure(let error):
             RestoreTrace.log(
                 "createSurface failure pane=\(pane.id) error=\(error.localizedDescription)"
             )
-            paneCoordinatorLogger.error("Failed to create surface for pane \(pane.id): \(error.localizedDescription)")
+            Self.logger.error("Failed to create surface for pane \(pane.id): \(error.localizedDescription)")
             return nil
         }
     }
@@ -192,20 +192,20 @@ extension PaneCoordinator {
             runtime.markRunning(pane.id)
             RestoreTrace.log("createFloatingView complete pane=\(pane.id) surface=\(managed.id)")
 
-            paneCoordinatorLogger.info("Created floating terminal view for pane \(pane.id)")
+            Self.logger.info("Created floating terminal view for pane \(pane.id)")
             return view
 
         case .failure(let error):
             RestoreTrace.log(
                 "createFloatingSurface failure pane=\(pane.id) error=\(error.localizedDescription)"
             )
-            paneCoordinatorLogger.error(
+            Self.logger.error(
                 "Failed to create floating surface for pane \(pane.id): \(error.localizedDescription)")
             return nil
         }
     }
 
-    /// Teardown a view — detach surface (if terminal), unregister.
+    /// Teardown a view — detach terminal surface, teardown bridge controller, unregister view/runtime state.
     func teardownView(for paneId: UUID, shouldUnregisterRuntime: Bool = true) {
         if let terminal = viewRegistry.terminalView(for: paneId),
             let surfaceId = terminal.surfaceId
@@ -223,7 +223,7 @@ extension PaneCoordinator {
             runtime.removeSession(paneId)
         }
 
-        paneCoordinatorLogger.debug("Tore down view for pane \(paneId)")
+        Self.logger.debug("Tore down view for pane \(paneId)")
     }
 
     /// Detach a pane's surface for a view switch (hide, not destroy).
@@ -233,7 +233,7 @@ extension PaneCoordinator {
         {
             surfaceManager.detach(surfaceId, reason: .hide)
         }
-        paneCoordinatorLogger.debug("Detached pane \(paneId) for view switch")
+        Self.logger.debug("Detached pane \(paneId) for view switch")
     }
 
     /// Reattach a pane's surface after a view switch.
@@ -245,7 +245,7 @@ extension PaneCoordinator {
                 terminal.displaySurface(surfaceView)
             }
         }
-        paneCoordinatorLogger.debug("Reattached pane \(paneId) for view switch")
+        Self.logger.debug("Reattached pane \(paneId) for view switch")
     }
 
     /// Restore a view from an undo close. Tries to reuse the undone surface; creates fresh if expired.
@@ -267,17 +267,17 @@ extension PaneCoordinator {
                 view.displaySurface(undone.surface)
                 viewRegistry.register(view, for: pane.id)
                 runtime.markRunning(pane.id)
-                paneCoordinatorLogger.info("Restored view from undo for pane \(pane.id)")
+                Self.logger.info("Restored view from undo for pane \(pane.id)")
                 return view
             } else {
-                paneCoordinatorLogger.warning(
+                Self.logger.warning(
                     "Undo surface metadata mismatch: expected pane \(pane.id), got \(undone.metadata.paneId?.uuidString ?? "nil") — creating fresh"
                 )
                 surfaceManager.requeueUndo(undone.id)
             }
         }
 
-        paneCoordinatorLogger.info("Creating fresh view for pane \(pane.id)")
+        Self.logger.info("Creating fresh view for pane \(pane.id)")
         return createView(for: pane, worktree: worktree, repo: repo)
     }
 
@@ -289,36 +289,57 @@ extension PaneCoordinator {
             "restoreAllViews begin tabs=\(store.tabs.count) paneIds=\(paneIds.count) activeTab=\(store.activeTabId?.uuidString ?? "nil")"
         )
         guard !paneIds.isEmpty else {
-            paneCoordinatorLogger.info("No panes to restore views for")
+            Self.logger.info("No panes to restore views for")
             RestoreTrace.log("restoreAllViews no panes")
             return
         }
 
         var restored = 0
         var drawerRestored = 0
+        var failedPaneIds: [UUID] = []
+        var failedDrawerPaneIds: [UUID] = []
         for paneId in paneIds {
             guard let pane = store.pane(paneId) else {
-                paneCoordinatorLogger.warning("Skipping view restore for pane \(paneId) — not in store")
+                Self.logger.warning("Skipping view restore for pane \(paneId) — not in store")
                 RestoreTrace.log("restoreAllViews skip missing pane=\(paneId)")
                 continue
             }
             RestoreTrace.log("restoreAllViews restoring pane=\(paneId) content=\(String(describing: pane.content))")
             if createViewForContent(pane: pane) != nil {
                 restored += 1
+            } else {
+                failedPaneIds.append(paneId)
             }
 
             if let drawer = pane.drawer {
                 for drawerPaneId in drawer.paneIds {
-                    guard let drawerPane = store.pane(drawerPaneId) else { continue }
+                    guard let drawerPane = store.pane(drawerPaneId) else {
+                        Self.logger.warning(
+                            "restoreAllViews: drawer pane \(drawerPaneId) referenced by parent \(pane.id) is missing from store"
+                        )
+                        continue
+                    }
                     RestoreTrace.log("restoreAllViews restoring drawer pane=\(drawerPaneId) parent=\(pane.id)")
                     if createViewForContent(pane: drawerPane) != nil {
                         drawerRestored += 1
+                    } else {
+                        failedDrawerPaneIds.append(drawerPaneId)
                     }
                 }
             }
         }
-        paneCoordinatorLogger.info(
+        Self.logger.info(
             "Restored \(restored)/\(paneIds.count) pane views, \(drawerRestored) drawer pane views")
+        if !failedPaneIds.isEmpty || !failedDrawerPaneIds.isEmpty {
+            let failedPrimary = failedPaneIds.map(\.uuidString).joined(separator: ", ")
+            let failedDrawer = failedDrawerPaneIds.map(\.uuidString).joined(separator: ", ")
+            Self.logger.error(
+                """
+                restoreAllViews: failed view creation primary=[\(failedPrimary)] drawer=[\(failedDrawer)] \
+                (panes remain in store/layout and may appear as placeholders)
+                """
+            )
+        }
 
         if let activeTab = store.activeTab,
             let activePaneId = activeTab.activePaneId,

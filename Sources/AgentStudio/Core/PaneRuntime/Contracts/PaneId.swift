@@ -7,13 +7,18 @@ import Foundation
 /// All other identifiers (zmx session names, surface IDs, stable keys)
 /// are derived from or associated with a `PaneId`.
 ///
-/// See: `session_lifecycle.md#identity-contract-canonical`
+/// See: `session_lifecycle.md`, section "Identity Contract (Canonical)".
 ///
 /// UUID v7 gives time-ordering at millisecond granularity: new panes
 /// generally sort by creation time via standard string comparison.
 /// IDs generated within the same millisecond may not sort by exact
 /// creation order because low bits are random. The `hexPrefix` (first
 /// 16 hex chars) encodes the timestamp, making zmx session names debuggable.
+///
+/// Usage guidance:
+/// - Use `PaneId()` when minting a new pane identity in production code.
+/// - Use `PaneId(uuid:)` when wrapping an existing UUID from persisted state,
+///   migration boundaries, interop layers, or deterministic tests.
 ///
 /// Codable encodes as a bare UUID string for backward compatibility
 /// with workspaces persisted under the old `typealias PaneId = UUID`.
@@ -103,8 +108,9 @@ extension PaneId: Codable {
 
 extension PaneId: Comparable {
 
-    /// Lexicographic comparison of UUID strings. For UUID v7, this is
-    /// temporal ordering (earlier creation time sorts first).
+    /// Lexicographic comparison of UUID strings.
+    /// For UUID v7, this approximates temporal ordering at millisecond granularity.
+    /// IDs minted within the same millisecond may not preserve exact creation order.
     static func < (lhs: PaneId, rhs: PaneId) -> Bool {
         lhs.uuid.uuidString < rhs.uuid.uuidString
     }
