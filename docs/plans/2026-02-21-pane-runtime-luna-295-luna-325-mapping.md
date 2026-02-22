@@ -131,6 +131,26 @@ Contract/ticket drift validation plus `PaneCoordinator` test coverage and file o
    - expand `PaneCoordinator` test coverage for `execute(_:)`, lifecycle flows, undo behavior, rollback paths,
    - split `PaneCoordinator.swift` into extensions by responsibility without API changes.
 
+## LUNA-336 Structural Closure Checklist (Bridge transport/state/runtime)
+
+- [x] Move bridge transport files to `Features/Bridge/Transport/`: `RPCRouter`, `RPCMethod`, `RPCMessageHandler`, `BridgeBootstrap`, `BridgeSchemeHandler`.
+- [x] Move bridge method suites to `Features/Bridge/Transport/Methods/`: `AgentMethods`, `DiffMethods`, `ReviewMethods`, `SystemMethods`.
+- [x] Move bridge domain state files to `Features/Bridge/State/`: `BridgeDomainState`, `BridgePaneState`.
+- [x] Keep push pipeline under `Features/Bridge/State/Push/` to separate state transport from runtime orchestration.
+- [x] Move `BridgePaneController` to `Features/Bridge/Runtime/`.
+- [x] Move `PaneContent` to `Core/Models/` per the import/deletion/change-driver/multiplicity decision tests.
+- [x] Update `docs/architecture/directory_structure.md` and `CLAUDE.md` component map to reflect `Transport/`, `Runtime/`, `State/`, and `Transport/Methods/`.
+
+## LUNA-327 / LUNA-342 Follow-up Checklist (tracked here, implemented in owning tickets)
+
+- [x] Add docs note for transient UI binding exception (`draggingTabId`, `dropTargetIndex`, `tabFrames`, `isSplitResizing`) in `docs/architecture/component_architecture.md`.
+- [x] Add docs note for configuration injection pattern (constructor defaults + `private let`) in `docs/architecture/component_architecture.md`.
+- [x] Add docs migration note for remaining production `Task.sleep` call sites in `WorkspaceStore`, `SessionRuntime`, `SurfaceManager`, `MainSplitViewController`, and `AppDelegate`.
+- [ ] Convert `SurfaceManager` config properties (`undoTTL`, `maxCreationRetries`, `healthCheckInterval`) to constructor-injected immutable config.
+- [ ] Migrate store-level `Task.sleep` usage to injected clocks in `WorkspaceStore`, `SessionRuntime`, and `SurfaceManager`.
+- [ ] Move last-pane escalation domain rule from `PaneCoordinator.executeClosePane` into `WorkspaceStore` return signaling.
+- [ ] Land `Core/PaneRuntime/` contract directories (`Contracts/`, `Registry/`, `Reduction/`, `Replay/`) in LUNA-342.
+
 ## Notes
 
 This is the single plan file for pane-runtime ticket mapping.

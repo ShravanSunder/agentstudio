@@ -38,10 +38,21 @@ Sources/AgentStudio/
 │   │   ├── Views/                    # AgentStudioTerminalView, SurfaceErrorOverlay
 │   │   └── GhosttyBridge.swift       # PaneBridge conformance for terminal surfaces
 │   │
-│   ├── Bridge/                       # React/WebView pane system (future)
-│   │   ├── Transport/                # JSON-RPC, WebSocket
-│   │   ├── State/                    # Push pipeline, slices
-│   │   └── WebViewBridge.swift       # PaneBridge conformance for web views
+│   ├── Bridge/                       # React/WebView pane system
+│   │   ├── Transport/                # JSON-RPC transport and bootstrap wiring
+│   │   │   ├── RPCRouter.swift
+│   │   │   ├── RPCMethod.swift
+│   │   │   ├── RPCMessageHandler.swift
+│   │   │   ├── BridgeBootstrap.swift
+│   │   │   ├── BridgeSchemeHandler.swift
+│   │   │   └── Methods/              # AgentMethods, DiffMethods, ReviewMethods, SystemMethods
+│   │   ├── Runtime/                  # BridgePaneController runtime/lifecycle orchestration
+│   │   ├── State/                    # Domain state + push state transport
+│   │   │   ├── BridgeDomainState.swift
+│   │   │   ├── BridgePaneState.swift
+│   │   │   └── Push/                 # PushTransport, PushPlan, Slice, EntitySlice, RevisionClock
+│   │   ├── Views/                    # BridgePaneView, BridgePaneContentView
+│   │   └── BridgeNavigationDecider.swift
 │   │
 │   ├── CommandBar/                   # ⌘P command palette
 │   │   ├── CommandBarState.swift

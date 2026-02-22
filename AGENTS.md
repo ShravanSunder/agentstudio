@@ -30,8 +30,13 @@ agent-studio/
 │   │   │   ├── Ghostty/              # C API bridge, SurfaceManager, SurfaceTypes
 │   │   │   └── Views/               # AgentStudioTerminalView, SurfaceErrorOverlay
 │   │   ├── Bridge/                   # React/WebView pane system
-│   │   │   ├── Push/               # Push pipeline, EntitySlice, PushPlan
-│   │   │   └── Views/              # BridgePaneView, BridgePaneContentView
+│   │   │   ├── Transport/            # JSON-RPC transport, router, bootstrap, scheme handler
+│   │   │   │   └── Methods/          # AgentMethods, DiffMethods, ReviewMethods, SystemMethods
+│   │   │   ├── Runtime/              # BridgePaneController lifecycle/orchestration
+│   │   │   ├── State/                # BridgeDomainState, BridgePaneState, Push/
+│   │   │   │   └── Push/             # Push pipeline, EntitySlice, PushPlan
+│   │   │   ├── Views/                # BridgePaneView, BridgePaneContentView
+│   │   │   └── BridgeNavigationDecider.swift
 │   │   ├── Webview/                  # Browser pane (navigation, history, dialog)
 │   │   │   └── Views/              # WebviewPaneView, WebviewNavigationBar
 │   │   ├── CommandBar/               # ⌘P command palette
@@ -79,9 +84,16 @@ Where each key component lives and why — use this to decide where new files go
 | `DrawerLayout`, `DrawerPanel` | `Core/Views/Drawer/` | Drawer overlay system | Drawer UX |
 | `SurfaceManager` | `Features/Terminal/` | Ghostty surface lifecycle, health, undo | Terminal behavior |
 | `GhosttySurfaceView` | `Features/Terminal/` | NSView wrapping Ghostty surface | Terminal rendering |
-| `BridgePaneController` | `Features/Bridge/` | WKWebView lifecycle for React panes | Bridge integration |
-| `RPCRouter` | `Features/Bridge/` | JSON-RPC dispatch for bridge messages | RPC protocol |
-| `PushTransport` | `Features/Bridge/Push/` | State push pipeline to React | Push protocol |
+| `BridgePaneController` | `Features/Bridge/Runtime/` | WKWebView lifecycle for React panes | Bridge integration |
+| `RPCRouter` | `Features/Bridge/Transport/` | JSON-RPC dispatch for bridge messages | RPC protocol |
+| `RPCMethod` | `Features/Bridge/Transport/` | Typed JSON-RPC method contract and id semantics | RPC protocol |
+| `RPCMessageHandler` | `Features/Bridge/Transport/` | Ingress validation and message forwarding into the router | RPC protocol |
+| `BridgeBootstrap` | `Features/Bridge/Transport/` | Injects bridge runtime JS and bootstraps transport bindings | Bridge transport bootstrap |
+| `BridgeSchemeHandler` | `Features/Bridge/Transport/` | Serves bridge app assets over custom URL scheme | Bridge transport bootstrap |
+| `AgentMethods`, `DiffMethods`, `ReviewMethods`, `SystemMethods` | `Features/Bridge/Transport/Methods/` | Namespaced RPC method definitions and typed params/results | RPC API surface |
+| `BridgeDomainState` | `Features/Bridge/State/` | Observable domain-level bridge state containers | Bridge state ownership |
+| `BridgePaneState` | `Features/Bridge/State/` | Per-pane bridge state and ack tracking | Bridge state ownership |
+| `PushTransport` | `Features/Bridge/State/Push/` | State push pipeline to React | Push protocol |
 | `WebviewPaneController` | `Features/Webview/` | Browser pane lifecycle (independent of Bridge) | Browser UX |
 | `CommandBarState` | `Features/CommandBar/` | Command palette state machine | Command palette |
 | `SidebarFilter` | `Features/Sidebar/` | Sidebar filtering logic | Sidebar behavior |
