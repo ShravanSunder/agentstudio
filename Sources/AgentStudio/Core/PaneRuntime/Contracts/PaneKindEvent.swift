@@ -14,15 +14,15 @@ struct EventIdentifier: Hashable, Sendable, CustomStringConvertible {
 
     var description: String { rawValue }
 
-    static let commandFinished = EventIdentifier("commandFinished")
-    static let cwdChanged = EventIdentifier("cwdChanged")
-    static let titleChanged = EventIdentifier("titleChanged")
-    static let bellRang = EventIdentifier("bellRang")
-    static let scrollbarChanged = EventIdentifier("scrollbarChanged")
-    static let navigationCompleted = EventIdentifier("navigationCompleted")
-    static let pageLoaded = EventIdentifier("pageLoaded")
-    static let diffLoaded = EventIdentifier("diffLoaded")
-    static let hunkApproved = EventIdentifier("hunkApproved")
-    static let contentSaved = EventIdentifier("contentSaved")
-    static let fileOpened = EventIdentifier("fileOpened")
+    static let commandFinished = Self("commandFinished")
+    static let cwdChanged = Self("cwdChanged")
+    static let titleChanged = Self("titleChanged")
+    static let bellRang = Self("bellRang")
+    static let scrollbarChanged = Self("scrollbarChanged")
+    static let navigationCompleted = Self("navigationCompleted")
+    static let pageLoaded = Self("pageLoaded")
+    static let diffLoaded = Self("diffLoaded")
+    static let hunkApproved = Self("hunkApproved")
+    static let contentSaved = Self("contentSaved")
+    static let fileOpened = Self("fileOpened")
 }

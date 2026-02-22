@@ -92,7 +92,7 @@ final class NotificationReducer {
             let resolver = tierResolver,
             case .pane(let paneId) = envelope.source
         else {
-            return .p3_background
+            return .p3Background
         }
         return resolver.tier(for: paneId)
     }
