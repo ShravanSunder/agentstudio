@@ -21,6 +21,14 @@ State is distributed across independent `@Observable` stores (Jotai-style atomic
 9. **AsyncStream over Combine/NotificationCenter** — All new event plumbing uses `AsyncStream` + `swift-async-algorithms`. Existing Combine/NotificationCenter migrated incrementally.
 10. **Testability** — Core model and layout logic are pure value types. Injectable `Clock` for time-dependent logic. No real delays in tests.
 
+Clock migration note (target pattern, not fully complete yet): remaining production `Task.sleep` call sites are in
+`MainSplitViewController` and `AppDelegate`. Store-level time-dependent paths in `WorkspaceStore`, `SessionRuntime`,
+and `SurfaceManager` have been migrated to injected clocks in this branch. The target is
+constructor-injected clocks (`any Clock<Duration>`) for all store-level time-dependent behavior.
+
+Configuration injection pattern: prefer constructor injection with defaults over mutable configuration vars. Example:
+`init(clock: any Clock<Duration> = ContinuousClock(), ...)` and `private let` configuration fields.
+
 ### 1.2 High-Level System Diagram
 
 ```
@@ -297,6 +305,10 @@ Owns all workspace structure state. `@Observable`, `@MainActor`. All properties 
 **Observable state** (drives SwiftUI via `@Observable` property tracking):
 - `repos: [Repo]`, `sessions: [TerminalSession]`, `views: [ViewDefinition]`, `activeViewId: UUID?`
 - Transient UI: `draggingTabId`, `dropTargetIndex`, `tabFrames`
+
+Transient UI binding exception: `draggingTabId`, `dropTargetIndex`, `tabFrames`, and `isSplitResizing` are view-layer
+interaction state and are intentionally writable by UI bindings. They are not domain state and do not relax the
+`private(set)` boundary for domain-owned store data.
 
 **Mutation API categories:**
 

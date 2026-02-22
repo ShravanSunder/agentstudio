@@ -3,7 +3,9 @@
 > **Target**: macOS 26 (Tahoe) · Swift 6.2 · WebKit for SwiftUI
 > **Pattern**: Three-stream architecture with push-dominant state sync
 > **First use case**: Diff viewer and code review with Pierre (@pierre/diffs, @pierre/file-tree)
-> **Status**: Phase 1 (bridge infrastructure) and Phase 2 (push pipeline) implemented. Phase 3+ is design spec.
+> **Status**: Phase 1 (bridge infrastructure) and Phase 2 (push pipeline) are implemented in code. Phase 3 (typed JSON-RPC command channel) is complete and closed in LUNA-336.
+
+> **LUNA-336 closure scope**: sender parity, command ack semantics, and direct-response request handling are implemented and documented here as the closed Phase 3 baseline.
 
 ---
 
@@ -1674,7 +1676,7 @@ class ConnectionState: Codable {
 
 ### 8.8 Codable Conformance
 
-All domain types conform to `Codable` for JSON serialization across the bridge. `@Observable` classes use the macro's auto-generated `Codable` conformance. `AnyCodableValue` (existing in `PaneContent.swift`) is reused for flexible metadata fields.
+All domain types conform to `Codable` for JSON serialization across the bridge. `@Observable` classes use the macro's auto-generated `Codable` conformance. `AnyCodableValue` (existing in `App/Models/PaneContent.swift`) is reused for flexible metadata fields.
 
 ---
 
@@ -1684,7 +1686,7 @@ All domain types conform to `Codable` for JSON serialization across the bridge. 
 
 > **Naming**: The bridge coordinator is called `BridgePaneController` in the implementation (see §15.2). This follows the existing naming convention set by `WebviewPaneController` — each pane kind gets a `*PaneController`. The term "BridgeCoordinator" in this section refers to the same type; the implementation name takes precedence.
 
-> **Relationship to `WebviewPaneController`**: The existing `WebviewPaneController` (`Services/WebviewPaneController.swift`) is a general-purpose browser controller that uses a shared static `WebPage.Configuration`. `BridgePaneController` is a separate type that creates a **per-pane** configuration with content world isolation, message handlers, URL scheme handlers, and bootstrap scripts. They share the same `WebPage` + `WebView` rendering path but have different configuration, lifecycle, and navigation policies. See §15.4 for the configuration strategy.
+> **Relationship to `WebviewPaneController`**: The existing `WebviewPaneController` (`Features/Webview/WebviewPaneController.swift`) is a general-purpose browser controller that uses a shared static `WebPage.Configuration`. `BridgePaneController` is a separate type that creates a **per-pane** configuration with content world isolation, message handlers, URL scheme handlers, and bootstrap scripts. They share the same `WebPage` + `WebView` rendering path but have different configuration, lifecycle, and navigation policies. See §15.4 for the configuration strategy.
 
 One controller per WebPage (per pane). Owns its `PaneDomainState` (which includes `ConnectionState`). Uses `PushPlan` (§6.7) for all observation loops — no hand-written observation code.
 
@@ -1856,198 +1858,73 @@ class BridgePaneController {
 ### 9.2 RPC Router
 
 ```swift
-actor RPCRouter {
-    private var handlers: [String: AnyMethodHandler] = [:]
+final class RPCRouter {
+    private var handlers: [String: any AnyRPCMethodHandler] = [:]
+    private var seenCommandIds: [String] = []
+    private let maxCommandIdHistory = 100
 
-    func register<M: RPCMethod>(_ type: M.Type,
-                                handler: @escaping (M.Params) async throws -> Void) {
-        handlers[M.method] = AnyMethodHandler { paramsData in
-            let params: M.Params
-            if let paramsData {
-                params = try JSONDecoder().decode(M.Params.self, from: paramsData)
-            } else if M.Params.self == EmptyParams.self {
-                params = EmptyParams() as! M.Params
-            } else {
-                throw DecodingError.valueNotFound(M.Params.self,
-                    .init(codingPath: [], debugDescription: "Missing required params"))
-            }
-            try await handler(params)
-            return nil  // Notification handler — no direct response data
-        }
+    var onError: ((Int, String, RPCIdentifier?) -> Void)?
+
+    func register<M: RPCMethod>(
+        method: M.Type,
+        handler: @escaping (M.Params) async throws -> M.Result?
+    ) {
+        handlers[M.method] = M.makeHandler(handler)
     }
 
-    /// For methods that need a direct response (rare)
-    func registerWithResponse<M: RPCMethod>(_ type: M.Type,
-                                            handler: @escaping (M.Params) async throws -> M.Result) {
-        handlers[M.method] = AnyMethodHandler { paramsData in
-            let params: M.Params
-            if let paramsData {
-                params = try JSONDecoder().decode(M.Params.self, from: paramsData)
-            } else if M.Params.self == EmptyParams.self {
-                params = EmptyParams() as! M.Params
-            } else {
-                throw DecodingError.valueNotFound(M.Params.self,
-                    .init(codingPath: [], debugDescription: "Missing required params"))
-            }
-            let result = try await handler(params)
-            return try JSONEncoder().encode(result)
-        }
-    }
-
-    func dispatch(json: String, coordinator: BridgePaneController) async {
-        // Step 1: Try to extract `id` from raw JSON for error responses.
-        // We need the id BEFORE full envelope decode so parse errors can still
-        // produce a valid JSON-RPC error response (spec §5.1).
-        let rawId = extractId(from: json)
-
-        // Step 2: Parse JSON-RPC envelope
-        guard let data = json.data(using: .utf8),
-              let envelope = try? JSONDecoder().decode(RPCEnvelope.self, from: data) else {
-            // Parse error — send -32700 if request had an id
-            if let id = rawId {
-                await coordinator.sendError(id: id, code: -32700, message: "Parse error")
-            }
-            // No id (notification or completely broken) → drop silently per spec
-            return
-        }
-
-        // Step 3: Find handler
-        guard let handler = handlers[envelope.method] else {
-            // Method not found — send -32601 if request has id
-            if let id = envelope.id {
-                await coordinator.sendError(id: id, code: -32601, message: "Method not found: \(envelope.method)")
-            }
-            // No id → notification for unknown method, drop silently
-            return
-        }
-
-        // Step 4: Execute handler
-        do {
-            // Handle missing params — valid per JSON-RPC 2.0 (params is optional).
-            // When params is nil, pass nil to the handler. The AnyMethodHandler
-            // checks for nil and uses the method's default (EmptyParams for no-param
-            // methods, or throws DecodingError for methods requiring params).
-            let paramsData: Data?
-            if let params = envelope.params {
-                paramsData = try JSONEncoder().encode(params)
-            } else {
-                paramsData = nil  // Distinct from Data("{}".utf8) — lets handler decide
-            }
-            let responseData = try await handler.handle(paramsData)
-
-            // If request has id, send direct response
-            if let id = envelope.id, let responseData {
-                await coordinator.sendResponse(id: id, result: responseData)
-            }
-        } catch let error as DecodingError {
-            // Invalid params — send -32602 if request has id
-            if let id = envelope.id {
-                await coordinator.sendError(id: id, code: -32602, message: "Invalid params: \(error.localizedDescription)")
-            }
-        } catch {
-            // Internal error — send -32603 if request has id
-            if let id = envelope.id {
-                await coordinator.sendError(id: id, code: -32603, message: "Internal error")
-            }
-        }
-    }
-
-    /// Best-effort extraction of "id" from raw JSON string before full decode.
-    /// Handles both String and Int ids per JSON-RPC 2.0 spec.
-    /// Returns nil if the JSON doesn't contain a parseable "id" field.
-    private func extractId(from json: String) -> RPCId? {
-        guard let data = json.data(using: .utf8),
-              let obj = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
-              let id = obj["id"] else { return nil }
-        if let stringId = id as? String { return .string(stringId) }
-        if let intId = id as? Int { return .number(intId) }
-        return nil
+    /// Parse and dispatch one JSON-RPC command message.
+    /// Batch arrays are rejected, `jsonrpc` defaults are validated, and missing/invalid
+    /// params are surfaced as `-32602`.
+    func dispatch(json: String) async throws {
+        // parse envelope, enforce jsonrpc/id/method, dedup by __commandId,
+        // and invoke the typed handler.
     }
 }
-
-/// JSON-RPC 2.0 envelope. The `id` field accepts both string and integer
-/// per the spec ("An identifier established by the Client that MUST contain
-/// a String, Number, or NULL value"). Decoded to String for internal use.
-struct RPCEnvelope: Codable {
-    let jsonrpc: String
-    let id: RPCId?
-    let method: String
-    let params: AnyCodableValue?  // Reuses existing AnyCodableValue from PaneContent.swift
-}
-
-/// JSON-RPC id: accepts both String and Int, normalizes to String.
-enum RPCId: Codable, Equatable {
-    case string(String)
-    case number(Int)
-
-    var stringValue: String {
-        switch self {
-        case .string(let s): return s
-        case .number(let n): return String(n)
-        }
-    }
-
-    init(from decoder: Decoder) throws {
-        let container = try decoder.singleValueContainer()
-        if let s = try? container.decode(String.self) { self = .string(s) }
-        else if let n = try? container.decode(Int.self) { self = .number(n) }
-        else { throw DecodingError.dataCorruptedError(in: container, debugDescription: "id must be string or number") }
-    }
-
-    func encode(to encoder: Encoder) throws {
-        var container = encoder.singleValueContainer()
-        switch self {
-        case .string(let s): try container.encode(s)
-        case .number(let n): try container.encode(n)
-        }
-    }
-}
-
-// AnyCodableValue already exists in Models/PaneContent.swift — a Codable enum over
-// String/Int/Double/Bool/Array/Dict/null. Reuse it for the RPC envelope's params field.
-// No external dependency needed. If it needs to move to a shared location, extract to
-// a dedicated Models/AnyCodableValue.swift file.
 
 protocol RPCMethod {
-    associatedtype Params: Codable
-    associatedtype Result: Codable
+    associatedtype Params: Decodable
+    associatedtype Result: Encodable
     static var method: String { get }
+    static func decodeParams(from data: Data?) throws -> Params
+    static func makeHandler(_ handler: @escaping (Params) async throws -> Result?) -> any AnyRPCMethodHandler
+}
+    
+protocol AnyRPCMethodHandler: Sendable {
+    func run(id: RPCIdentifier?, paramsData: Data?) async throws -> Encodable?
 }
 
-/// Marker type for methods that accept no parameters.
-/// Decodes from both `{}` and nil (missing params field).
-struct EmptyParams: Codable {
-    init() {}
-    init(from decoder: Decoder) throws {
-        // Accept both {} and nil
-        _ = try? decoder.container(keyedBy: CodingKeys.self)
-    }
-    private enum CodingKeys: CodingKey {}
-}
-
-struct AnyMethodHandler {
-    /// Handler receives nil when JSON-RPC params field was omitted.
-    /// Methods using EmptyParams should handle nil → EmptyParams().
-    /// Methods requiring params should throw DecodingError on nil.
-    let handle: (Data?) async throws -> Data?
+struct RPCIdentifier: Codable, Equatable, Sendable {
+    case string(String)
+    case integer(Int64)
+    case double(Double)
+    case null
 }
 ```
 
 ### 9.3 Message Handler
 
 ```swift
-class RPCMessageHandler: NSObject, WKScriptMessageHandler {
+final class RPCMessageHandler: NSObject, WKScriptMessageHandler {
     private weak var coordinator: BridgePaneController?
 
-    init(coordinator: BridgePaneController) {
-        self.coordinator = coordinator
+    static func extractRPCMethod(from json: String) -> String? {
+        // parse json and return payload["method"] as? String
     }
 
-    func userContentController(_ controller: WKUserContentController,
-                               didReceive message: WKScriptMessage) {
-        guard let json = message.body as? String else { return }
+    @MainActor var shouldForwardJSON: (@MainActor (String) async -> Bool)?
+    nonisolated(unsafe) var onValidJSON: (@MainActor (String) async -> Void)?
+
+    func userContentController(
+        _ userContentController: WKUserContentController,
+        didReceive message: WKScriptMessage
+    ) {
+        guard let json = Self.extractJSON(from: message.body) else {
+            return
+        }
         Task { @MainActor in
-            await coordinator?.handleCommand(json: json)
+            let shouldForward = await self.shouldForwardJSON?(json) ?? true
+            guard shouldForward else { return }
+            await self.onValidJSON?(json)
         }
     }
 }
@@ -2355,8 +2232,8 @@ The codebase has two navigation deciders for different pane kinds:
 
 | Decider | File | Pane Kind | Allowed Schemes | Behavior for Other Schemes |
 |---|---|---|---|---|
-| `WebviewNavigationDecider` | `Services/WebviewNavigationDecider.swift` | Browser panes | `https`, `http`, `about`, `file`, `agentstudio` | Block silently |
-| `BridgeNavigationDecider` | `Bridge/BridgeNavigationDecider.swift` (new) | Bridge panes | `agentstudio`, `about` | Block; `http`/`https` open in default browser |
+| `WebviewNavigationDecider` | `Features/Webview/WebviewNavigationDecider.swift` | Browser panes | `https`, `http`, `about`, `file`, `agentstudio` | Block silently |
+| `BridgeNavigationDecider` | `Sources/AgentStudio/Features/Bridge/BridgeNavigationDecider.swift` | Bridge panes | `agentstudio`, `about` | Block; `http`/`https` open in default browser |
 
 The bridge decider is **strictly locked down** — bridge panels load only our bundled React app via `agentstudio://` and never navigate to external URLs:
 
@@ -2662,9 +2539,11 @@ Testing prioritizes correctness under protocol failure modes, not snapshot volum
 
 **Goal**: React can send typed commands to Swift with idempotent command IDs.
 
+**LUNA-336 closure:** moved from method-string/dictionary handlers to typed method contracts with explicit `Params` decoding and invalid-param rejection (`-32602`), enforced handshake/readiness for command execution, and closed sender + ack + response paths.
+
 **Deliverables**:
 - `RPCRouter` with typed method registration
-- Method definitions for `diff.*`, `review.*`, and `agent.*` namespaces
+- Method definitions for `diff.*`, `review.*`, `agent.*`, and `system.*` namespaces
 - Command sender on JS side (`commands.diff.requestFileContents(...)`) with `__commandId` (UUID)
 - Swift deduplicates commands by `commandId`, pushes `commandAck` via state stream
 - Error handling (method not found, invalid params, internal error)
@@ -2811,13 +2690,15 @@ Each phase requires explicit acceptance criteria before proceeding to the next. 
 - [ ] Push 100-file `DiffManifest` (metadata only): end-to-end < 32ms on target hardware
 - [ ] Content world isolation verified: page world listener cannot forge `__bridge_push` events that bypass bridge world
 
-#### Phase 3 Exit Criteria
-- [ ] All registered methods dispatch correctly (positive tests)
-- [ ] **Negative protocol tests**: parse error (-32700), invalid request (-32600), method not found (-32601), invalid params (-32602), internal error (-32603)
-- [ ] Notification with no `id` produces NO response (verify with mock)
-- [ ] Notification with no `params` field decodes correctly (EmptyParams path)
-- [ ] Batch request `[...]` is rejected with -32600
-- [ ] Direct-response path: request with `id` → response arrives via `__bridge_response` CustomEvent
+#### Phase 3 Exit Criteria (Closed in LUNA-336)
+- [x] All registered methods dispatch correctly (positive tests)
+- [x] **Negative protocol tests**: parse error (-32700), invalid request (-32600), method not found (-32601), invalid params (-32602), internal error (-32603)
+- [x] Notification with no `id` produces NO response (verify with mock)
+- [x] Notification with no `params` field decodes correctly (EmptyParams path)
+- [x] Batch request `[...]` is rejected with -32600
+- [x] Direct-response path: request with `id` → response arrives via `__bridge_response` CustomEvent
+- [x] Sender parity: bridge relay preserves `method`, `params`, and `__commandId` into typed router dispatch
+- [x] Command ack semantics: unique `__commandId` emits one ack; duplicates are idempotent; failures emit rejected ack with reason
 
 #### Phase 4 Exit Criteria
 - [ ] `DiffManifest` push → FileTree renders file list within 100ms (100 files)
@@ -2861,44 +2742,43 @@ Each phase requires explicit acceptance criteria before proceeding to the next. 
 ## 14. File Structure
 
 ```
-Sources/AgentStudio/
-├── Bridge/
-│   ├── BridgePaneController.swift        # Per-pane controller: WebPage setup, PushPlan lifecycle, PushTransport conformance
-│   ├── BridgePaneState.swift             # BridgePaneState, BridgePanelKind, BridgePaneSource
-│   ├── BridgePaneView.swift              # AppKit PaneView hosting BridgePaneContentView
-│   ├── BridgePaneContentView.swift       # SwiftUI view: WebView(controller.page), no nav bar
-│   ├── RPCRouter.swift                   # Method registry + dispatch
-│   ├── RPCMethod.swift                   # Protocol + type-erased handler
-│   ├── RPCMessageHandler.swift           # WKScriptMessageHandler for postMessage
-│   ├── BridgeSchemeHandler.swift         # agentstudio:// URL scheme (app + resource)
-│   ├── BridgeNavigationDecider.swift     # Strict navigation: agentstudio + about only
-│   ├── BridgeBootstrap.swift             # JS bootstrap script for bridge world
-│   ├── Push/                             # Declarative push infrastructure (§6)
-│   │   ├── PushPlan.swift                # PushPlan, PushPlanBuilder (result builder)
-│   │   ├── Slice.swift                   # Slice (value-level observation)
-│   │   ├── EntitySlice.swift             # EntitySlice (keyed collection, per-entity diff)
-│   │   ├── PushTransport.swift           # PushTransport protocol, PushLevel, PushOp, StoreKey
-│   │   ├── RevisionClock.swift           # Monotonic per-store revision counter
-│   │   └── PushSnapshots.swift           # DiffStatusSlice, ConnectionSlice, EntityDelta (wire types)
-│   └── Methods/                          # One file per namespace
-│       ├── DiffMethods.swift             # diff.requestFileContents, diff.loadDiff
-│       ├── ReviewMethods.swift           # review.addComment, review.resolveThread
-│       ├── AgentMethods.swift            # agent.sendReview, agent.cancelTask
-│       └── SystemMethods.swift           # system.ping, system.getCapabilities
-├── Domain/                               # Bridge-specific domain models (separate from Models/)
-│   ├── BridgeDomainState.swift           # @Observable root: PaneDomainState, DiffState, ReviewState, ConnectionState
-│   ├── DiffManifest.swift                # DiffManifest, FileManifest, HunkSummary, DiffSource
-│   ├── ReviewState.swift                 # ReviewThread, ReviewComment, ReviewAction, CommentAnchor
-│   ├── AgentTask.swift                   # AgentTask, AgentTaskStatus
-│   ├── TimelineEvent.swift               # TimelineEvent, TimelineEventKind (in-memory v1)
-│   └── ConnectionState.swift             # Connection health
-│   # Note: BridgePaneState and BridgePanelKind live in Bridge/ (co-located with controller)
-├── Services/                             # Existing services (unchanged)
-│   ├── WebviewPaneController.swift       # Browser pane controller (shared config, browser navigation)
-│   ├── WebviewNavigationDecider.swift    # Browser navigation policy (http/https/file/about/agentstudio)
-│   ├── WebviewDialogHandler.swift        # JS dialog handler (reused by bridge panes)
-│   └── ...
-└── (rest of existing Sources structure unchanged)
+Sources/AgentStudio/Features/Bridge/
+├── BridgePaneController.swift             # Per-pane controller: WebPage setup, PushPlan lifecycle, PushTransport conformance
+├── BridgePaneState.swift                  # BridgePaneState, BridgePanelKind, BridgePaneSource
+├── BridgePaneView.swift                   # AppKit PaneView hosting BridgePaneContentView
+├── BridgePaneContentView.swift            # SwiftUI view: WebView(controller.page), no nav bar
+├── RPCRouter.swift                        # Method registry + dispatch
+├── RPCMethod.swift                        # Protocol + type-erased handler
+├── RPCMessageHandler.swift                # WKScriptMessageHandler for postMessage
+├── BridgeSchemeHandler.swift              # agentstudio:// URL scheme (app + resource)
+├── BridgeNavigationDecider.swift          # Strict navigation: agentstudio + about only
+├── BridgeBootstrap.swift                  # JS bootstrap script for bridge world
+├── Push/                                  # Declarative push infrastructure (§6)
+│   ├── PushPlan.swift                     # PushPlan, PushPlanBuilder (result builder)
+│   ├── Slice.swift                        # Slice (value-level observation)
+│   ├── EntitySlice.swift                  # EntitySlice (keyed collection, per-entity diff)
+│   ├── PushTransport.swift                # PushTransport protocol, PushLevel, PushOp, StoreKey
+│   ├── RevisionClock.swift                # Monotonic per-store revision counter
+│   └── PushSnapshots.swift                # DiffStatusSlice, ConnectionSlice, EntityDelta (wire types)
+├── Methods/                               # One file per namespace
+│   ├── DiffMethods.swift                  # diff.requestFileContents, diff.loadDiff
+│   ├── ReviewMethods.swift                # review.addComment, review.resolveThread
+│   ├── AgentMethods.swift                 # agent.sendReview, agent.cancelTask
+│   └── SystemMethods.swift                # system.ping, system.getCapabilities
+└── Domain/                                # Bridge-specific domain models
+    ├── BridgeDomainState.swift            # @Observable root: PaneDomainState, DiffState, ReviewState, ConnectionState
+    ├── DiffManifest.swift                 # DiffManifest, FileManifest, HunkSummary, DiffSource
+    ├── ReviewState.swift                  # ReviewThread, ReviewComment, ReviewAction, CommentAnchor
+    ├── AgentTask.swift                    # AgentTask, AgentTaskStatus
+    ├── TimelineEvent.swift                # TimelineEvent, TimelineEventKind (in-memory v1)
+    └── ConnectionState.swift              # Connection health
+
+Tests/AgentStudioTests/Features/Bridge/
+├── BridgePaneControllerTests.swift
+├── BridgeTransportIntegrationTests.swift
+├── RPCMessageHandlerTests.swift
+├── RPCRouterTests.swift
+└── Push/PushPerformanceBenchmarkTests.swift
 
 WebApp/                                    # React app (Vite + TypeScript)
 ├── src/
@@ -2948,19 +2828,19 @@ Tests/
 
 ## 15. Integration with Existing Pane System
 
-### 15.1 Current State
+### 15.1 Current State (Post Window System 7)
 
 The pane system is fully operational. Webview panes already work as general-purpose browser panes:
 
 | Component | File | Role |
 |---|---|---|
-| `PaneContent.webview(WebviewState)` | `Models/PaneContent.swift` | Discriminated union case for webview panes |
-| `WebviewState` | `Models/PaneContent.swift` | Serializable state: `url`, `title`, `showNavigation` |
-| `WebviewPaneController` | `Services/WebviewPaneController.swift` | Per-pane `@Observable` controller owning a `WebPage` |
-| `WebviewPaneView` | `Views/WebviewPaneView.swift` | AppKit `PaneView` subclass hosting SwiftUI via `NSHostingView` |
-| `WebviewPaneContentView` | `Views/Webview/WebviewPaneContentView.swift` | SwiftUI view: nav bar + `WebView(controller.page)` |
-| `WebviewNavigationDecider` | `Services/WebviewNavigationDecider.swift` | Browser-oriented allowlist: `https`, `http`, `about`, `file`, `agentstudio` |
-| `WebviewDialogHandler` | `Services/WebviewDialogHandler.swift` | JS dialog handler (default implementations) |
+| `PaneContent.webview(WebviewState)` | `App/Models/PaneContent.swift` | Discriminated union case for webview panes |
+| `WebviewState` | `App/Models/PaneContent.swift` | Serializable state: `url`, `title`, `showNavigation` |
+| `WebviewPaneController` | `Features/Webview/WebviewPaneController.swift` | Per-pane `@Observable` controller owning a `WebPage` |
+| `WebviewPaneView` | `Features/Webview/Views/WebviewPaneView.swift` | AppKit `PaneView` subclass hosting SwiftUI via `NSHostingView` |
+| `WebviewPaneContentView` | `Features/Webview/Views/WebviewPaneContentView.swift` | SwiftUI view: nav bar + `WebView(controller.page)` |
+| `WebviewNavigationDecider` | `Features/Webview/WebviewNavigationDecider.swift` | Browser-oriented allowlist: `https`, `http`, `about`, `file`, `agentstudio` |
+| `WebviewDialogHandler` | `Features/Webview/WebviewDialogHandler.swift` | JS dialog handler (default implementations) |
 | `PaneCoordinator.createViewForContent` | `App/PaneCoordinator.swift` | Routes `PaneContent` → view creation; webview case at line 101 |
 | `PaneCoordinator.openWebview(url:)` | `App/PaneCoordinator.swift` | Creates browser pane with `WebviewState` + tab |
 
@@ -3025,7 +2905,7 @@ case .bridgePanel(let state):
     return view
 ```
 
-`PaneCoordinator` gains a new method:
+`ActionExecutor` gains a new method:
 
 ```swift
 func openDiffViewer(source: BridgePaneSource? = nil) -> Pane? {
@@ -3111,21 +2991,21 @@ The existing `ViewRegistry`, `Layout`, drag/drop, and split system work unchange
 - ~~**"Swift is too slow for interaction UX" concern**~~ → **Authority matrix**: interaction state is local in React; Swift owns durable domain truth. See §3.3.
 - ~~**Periodic workspace updates vs efficiency**~~ → **Event-first refresh with safety poll and incremental invalidation**. See §10.5.
 
-### Resolved by Existing Codebase
+### Resolved by Existing Codebase (Post Window System 7 Merge)
 
 These were previously open questions or verification spike items, now proven by working production code:
 
-- ~~**`WebPage` initialization with `Configuration`**~~ → `WebviewPaneController` creates `WebPage(configuration:navigationDecider:dialogPresenter:)` successfully. See `Services/WebviewPaneController.swift:52`.
-- ~~**`WebPage.NavigationDeciding` protocol**~~ → `WebviewNavigationDecider` implements the protocol with `decidePolicy(for:preferences:)`. Proven pattern. See `Services/WebviewNavigationDecider.swift:10`.
-- ~~**`WebPage.DialogPresenting` protocol**~~ → `WebviewDialogHandler` conforms with default implementations. See `Services/WebviewDialogHandler.swift:9`.
-- ~~**SwiftUI `WebView` rendering**~~ → `WebView(controller.page)` renders in `WebviewPaneContentView`. See `Views/Webview/WebviewPaneContentView.swift:25`.
+- ~~**`WebPage` initialization with `Configuration`**~~ → `WebviewPaneController` creates `WebPage(configuration:navigationDecider:dialogPresenter:)` successfully. See `Features/Webview/WebviewPaneController.swift:52`.
+- ~~**`WebPage.NavigationDeciding` protocol**~~ → `WebviewNavigationDecider` implements the protocol with `decidePolicy(for:preferences:)`. Proven pattern. See `Features/Webview/WebviewNavigationDecider.swift:10`.
+- ~~**`WebPage.DialogPresenting` protocol**~~ → `WebviewDialogHandler` conforms with default implementations. See `Features/Webview/WebviewDialogHandler.swift:9`.
+- ~~**SwiftUI `WebView` rendering**~~ → `WebView(controller.page)` renders in `WebviewPaneContentView`. See `Features/Webview/Views/WebviewPaneContentView.swift:25`.
 - ~~**Pane system integration**~~ → Full create/teardown/persist/restore lifecycle working. `PaneContent.webview`, `WebviewState`, `PaneCoordinator.createViewForContent`, `PaneCoordinator.openWebview`, `ViewRegistry` — all operational.
-- ~~**`AnyCodableValue` availability**~~ → Exists in `Models/PaneContent.swift:112`. Reusable for RPC envelope params.
+- ~~**`AnyCodableValue` availability**~~ → Exists in `App/Models/PaneContent.swift:112`. Reusable for RPC envelope params.
 - ~~**Pane kind split (browser vs bridge)**~~ → Architecture decided: new `PaneContent.bridgePanel(BridgePaneState)` case with dedicated `BridgePaneController`. See §15.2.
 
 ### Resolved by Verification Spike (Stage 0)
 
-All bridge-specific WebKit APIs verified. Spike tests in `Tests/AgentStudioTests/Bridge/`. Results:
+All bridge-specific WebKit APIs verified. Spike tests in `Tests/AgentStudioTests/Features/Bridge/`. Results:
 
 1. **`WKContentWorld.world(name:)`** — ✅ PASS. Same name returns identical object (`===`). Different names produce different worlds. See `BridgeWebKitSpikeTests.swift`.
 

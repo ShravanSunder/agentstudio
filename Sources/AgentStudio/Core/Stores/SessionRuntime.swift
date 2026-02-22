@@ -57,6 +57,9 @@ final class SessionRuntime {
     /// Health check timer interval in seconds.
     private let healthCheckInterval: TimeInterval
 
+    /// Clock for scheduling health checks without hard-coding Task.sleep.
+    private let clock: any Clock<Duration>
+
     /// Reference to the store (read-only for pane list).
     private weak var store: WorkspaceStore?
 
@@ -65,10 +68,12 @@ final class SessionRuntime {
 
     init(
         store: WorkspaceStore? = nil,
-        healthCheckInterval: TimeInterval = 30
+        healthCheckInterval: TimeInterval = 30,
+        clock: any Clock<Duration> = ContinuousClock()
     ) {
         self.store = store
         self.healthCheckInterval = healthCheckInterval
+        self.clock = clock
     }
 
     isolated deinit {
@@ -153,9 +158,10 @@ final class SessionRuntime {
         stopHealthChecks()
         healthCheckTask = Task { [weak self] in
             while !Task.isCancelled {
-                try? await Task.sleep(for: .seconds(self?.healthCheckInterval ?? 30))
+                guard let self else { break }
+                try? await self.clock.sleep(for: .seconds(self.healthCheckInterval))
                 guard !Task.isCancelled else { break }
-                await self?.runHealthCheck()
+                await self.runHealthCheck()
             }
         }
         runtimeLogger.info("Health checks started (interval: \(self.healthCheckInterval)s)")

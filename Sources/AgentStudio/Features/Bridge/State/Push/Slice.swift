@@ -13,7 +13,7 @@ typealias EpochProvider = @MainActor () -> Int
 struct AnyPushSlice<State: Observable & AnyObject> {
     let name: String
     let makeTask:
-        @MainActor (
+        @Sendable @MainActor (
             State, PushTransport, RevisionClock, @escaping EpochProvider
         ) -> Task<Void, Never>
 }
@@ -24,7 +24,7 @@ struct AnyPushSlice<State: Observable & AnyObject> {
 /// Hot slices push immediately. Warm/cold slices debounce by PushLevel duration.
 /// Cold payloads encode off-main-actor. Hot/warm encode on-main-actor.
 ///
-/// Design doc section 6.5.
+/// See bridge push architecture docs for slice semantics.
 struct Slice<State: Observable & AnyObject, Snapshot: Encodable & Equatable & Sendable> {
     let name: String
     let store: StoreKey
@@ -46,7 +46,7 @@ struct Slice<State: Observable & AnyObject, Snapshot: Encodable & Equatable & Se
         self.capture = capture
     }
 
-    func erased<C: Clock>(
+    func erased<C: Clock & Sendable>(
         debounceClock: C = ContinuousClock()
     ) -> AnyPushSlice<State> where C.Duration == Duration {
         let capture = self.capture
@@ -68,7 +68,6 @@ struct Slice<State: Observable & AnyObject, Snapshot: Encodable & Equatable & Se
 
                 for await snapshot in source {
                     guard snapshot != prev else { continue }
-                    prev = snapshot
                     let revision = revisions.next(for: store)
                     let epoch = epochProvider()
 
@@ -80,7 +79,9 @@ struct Slice<State: Observable & AnyObject, Snapshot: Encodable & Equatable & Se
                             // from blocking MainActor. Detached task is intentional: we need the
                             // global executor. See CLAUDE.md "No Task.detached" rule.
                             data = try await Task.detached(priority: .utility) {
-                                try encoder.encode(snapshot)
+                                let coldEncoder = JSONEncoder()
+                                coldEncoder.outputFormatting = .sortedKeys
+                                return try coldEncoder.encode(snapshot)
                             }.value
                             // swiftlint:enable no_task_detached
                         } else {
@@ -88,8 +89,12 @@ struct Slice<State: Observable & AnyObject, Snapshot: Encodable & Equatable & Se
                         }
                     } catch {
                         logger.error("[PushEngine] encode failed slice=\(name) store=\(store.rawValue): \(error)")
+                        // Advance local snapshot state even on encode failure so we do not
+                        // loop forever on an unencodable payload.
+                        prev = snapshot
                         continue
                     }
+                    prev = snapshot
 
                     await transport.pushJSON(
                         store: store, op: op, level: level,

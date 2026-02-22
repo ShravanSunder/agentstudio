@@ -9,7 +9,7 @@ private let logger = Logger(subsystem: "com.agentstudio", category: "PushEngine"
 
 /// Wire format for entity deltas. Keys are always String (normalized from Key type).
 /// Omits empty fields to minimize payload size.
-struct EntityDelta<Entity: Encodable>: Encodable {
+struct EntityDelta<Entity: Encodable & Sendable>: Encodable {
     let changed: [String: Entity]?
     let removed: [String]?
 
@@ -24,7 +24,7 @@ struct EntityDelta<Entity: Encodable>: Encodable {
 /// version comparisons, and pushes only changed entities. Keys are normalized
 /// to String for JSON wire format safety.
 ///
-/// Design doc §6.6.
+/// See bridge push architecture docs for entity-delta semantics.
 struct EntitySlice<
     State: Observable & AnyObject,
     Key: Hashable & Sendable,
@@ -76,21 +76,37 @@ struct EntitySlice<
                     level == .hot ? stream : stream.debounce(for: level.debounce, clock: debounceClock)
 
                 for await entities in source {
-                    let delta = Self.computeDelta(
+                    let deltaComputation = Self.computeDelta(
                         entities: entities,
-                        lastVersions: &lastVersions,
+                        lastVersions: lastVersions,
                         version: version,
                         keyToString: keyToString
                     )
-                    guard !delta.isEmpty else { continue }
+                    guard !deltaComputation.delta.isEmpty else { continue }
 
                     let data: Data
                     do {
-                        data = try encoder.encode(delta)
+                        if level == .cold {
+                            // Offload JSON encoding for cold slices (e.g. diffFiles) to
+                            // avoid blocking the main actor on large payloads.
+                            // swiftlint:disable no_task_detached
+                            data = try await Task.detached(priority: .utility) {
+                                let coldEncoder = JSONEncoder()
+                                coldEncoder.outputFormatting = .sortedKeys
+                                return try coldEncoder.encode(deltaComputation.delta)
+                            }.value
+                            // swiftlint:enable no_task_detached
+                        } else {
+                            data = try encoder.encode(deltaComputation.delta)
+                        }
                     } catch {
                         logger.error("[PushEngine] encode failed slice=\(name) store=\(store.rawValue): \(error)")
+                        // Advance local versions even on encode failure so we do not
+                        // spin indefinitely on the same unencodable delta.
+                        lastVersions = deltaComputation.nextVersions
                         continue
                     }
+                    lastVersions = deltaComputation.nextVersions
 
                     let revision = revisions.next(for: store)
                     let epoch = epochFn()
@@ -107,27 +123,31 @@ struct EntitySlice<
 
     private static func computeDelta(
         entities: [Key: Entity],
-        lastVersions: inout [Key: Int],
+        lastVersions: [Key: Int],
         version: (Entity) -> Int,
         keyToString: (Key) -> String
-    ) -> EntityDelta<Entity> {
+    ) -> (delta: EntityDelta<Entity>, nextVersions: [Key: Int]) {
+        var nextVersions = lastVersions
         var changed: [String: Entity] = [:]
         for (key, entity) in entities {
             let v = version(entity)
-            if lastVersions[key] != v {
+            if nextVersions[key] != v {
                 changed[keyToString(key)] = entity
-                lastVersions[key] = v
+                nextVersions[key] = v
             }
         }
-        let removed = lastVersions.keys
+        let removedKeys = nextVersions.keys
             .filter { entities[$0] == nil }
-            .map { keyToString($0) }
-        for key in lastVersions.keys where entities[key] == nil {
-            lastVersions.removeValue(forKey: key)
+        let removed = removedKeys.map { keyToString($0) }
+        for key in removedKeys {
+            nextVersions.removeValue(forKey: key)
         }
-        return EntityDelta(
-            changed: changed.isEmpty ? nil : changed,
-            removed: removed.isEmpty ? nil : removed
+        return (
+            delta: EntityDelta(
+                changed: changed.isEmpty ? nil : changed,
+                removed: removed.isEmpty ? nil : removed
+            ),
+            nextVersions: nextVersions
         )
     }
 }

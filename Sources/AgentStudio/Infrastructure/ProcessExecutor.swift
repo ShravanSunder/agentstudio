@@ -1,3 +1,4 @@
+import Darwin
 @preconcurrency import Dispatch
 import Foundation
 import os
@@ -90,11 +91,22 @@ struct DefaultProcessExecutor: ProcessExecutor {
 
         // Schedule a timeout that terminates the process if it hangs.
         let timeoutSeconds = timeout
+        let hardKillGraceSeconds: TimeInterval = 0.2
         let timeoutWork = DispatchWorkItem { [process] in
-            if process.isRunning {
-                processLogger.warning("Process '\(command)' exceeded \(Int(timeoutSeconds))s timeout — terminating")
-                timedOut.set()
-                process.terminate()
+            guard process.isRunning else { return }
+            processLogger.warning("Process '\(command)' exceeded \(Int(timeoutSeconds))s timeout — terminating")
+            timedOut.set()
+            process.terminate()
+
+            DispatchQueue.global().asyncAfter(deadline: .now() + hardKillGraceSeconds) {
+                guard process.isRunning else { return }
+                processLogger.warning(
+                    "Process '\(command)' ignored terminate() after \(hardKillGraceSeconds, privacy: .public)s — forcing SIGKILL"
+                )
+                let pid = process.processIdentifier
+                if pid > 0 {
+                    _ = kill(pid, SIGKILL)
+                }
             }
         }
         DispatchQueue.global().asyncAfter(

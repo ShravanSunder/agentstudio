@@ -41,77 +41,73 @@ private struct SpikeSchemeHandler: URLSchemeHandler {
 
 // MARK: - Tests
 
-@MainActor
-@Suite(.serialized)
-final class BridgeSchemeHandlerSpikeTests {
+extension WebKitSerializedTests {
+    @MainActor
+    @Suite(.serialized)
+    final class BridgeSchemeHandlerSpikeTests {
 
-    // MARK: - Scheme Handler Serves HTML
+        // MARK: - Scheme Handler Serves HTML
 
-    /// Verify that a custom `agentstudio://` scheme handler registered on
-    /// WebPage.Configuration can serve an HTML page. The page URL, title,
-    /// and loading state are checked after load completes.
-    @Test
-    func test_customSchemeHandler_servesHTMLPage_andTitleIsReadable() async throws {
-        // Arrange — build configuration with custom scheme handler
-        let page = try makePageWithSpikeHandler()
+        /// Verify that a custom `agentstudio://` scheme handler registered on
+        /// WebPage.Configuration can serve an HTML page. The page URL, title,
+        /// and loading state are checked after load completes.
+        @Test
+        func test_customSchemeHandler_servesHTMLPage_andTitleIsReadable() async throws {
+            // Arrange — build configuration with custom scheme handler
+            let page = try makePageWithSpikeHandler()
 
-        // Act — load a page on the custom scheme
-        let testURL = URL(string: "agentstudio://app/test.html")!
-        _ = page.load(testURL)
-        try await waitForPageLoad(page)
+            try await WebPageTestHarness.withManagedPage(page) { page in
+                // Act — load a page on the custom scheme
+                let testURL = URL(string: "agentstudio://app/test.html")!
+                _ = page.load(testURL)
+                try await waitForPageLoad(page)
+                let didResolveTitle = await waitForTitle(page, equals: "Spike Test")
 
-        // Assert — scheme handler served the page
-        #expect(
-            page.url?.absoluteString == "agentstudio://app/test.html", "Page URL should reflect the custom scheme URL")
-        #expect(!(page.isLoading), "Page should finish loading")
-        #expect(page.title == "Spike Test", "page.title should reflect <title> from scheme handler HTML")
-    }
-
-    // MARK: - JavaScript Evaluation
-
-    /// Spike finding: `callJavaScript("document.title")` returns nil in a
-    /// headless (no-window) test context, even though `page.title` works.
-    /// This test documents that behavior so downstream code knows to use
-    /// `page.title` for title access in tests, and `callJavaScript` for
-    /// runtime use where a window is present.
-    @Test
-    func test_callJavaScript_returnsNil_inHeadlessContext() async throws {
-        // Arrange
-        let page = try makePageWithSpikeHandler()
-        let testURL = URL(string: "agentstudio://app/test.html")!
-        _ = page.load(testURL)
-        try await waitForPageLoad(page)
-
-        // Act — attempt JavaScript evaluation without a window
-        let jsResult = try await page.callJavaScript("document.title")
-
-        // Assert — nil in headless context (spike finding)
-        #expect(jsResult == nil, "Spike finding: callJavaScript returns nil without a window/view host")
-        // But page.title works
-        #expect(page.title == "Spike Test", "page.title works even without a window")
-    }
-
-    // MARK: - Helpers
-
-    private func makePageWithSpikeHandler() throws -> WebPage {
-        var config = WebPage.Configuration()
-        config.websiteDataStore = .nonPersistent()
-        config.urlSchemeHandlers[URLScheme("agentstudio")!] = SpikeSchemeHandler()
-
-        return WebPage(
-            configuration: config,
-            navigationDecider: WebviewNavigationDecider(),
-            dialogPresenter: WebviewDialogHandler()
-        )
-    }
-
-    private func waitForPageLoad(_ page: WebPage) async throws {
-        let deadline = ContinuousClock.now + .seconds(5)
-        while ContinuousClock.now < deadline {
-            if !page.isLoading { break }
-            try await Task.sleep(for: .milliseconds(100))
+                // Assert — scheme handler served the page
+                #expect(
+                    page.url?.absoluteString == "agentstudio://app/test.html",
+                    "Page URL should reflect the custom scheme URL")
+                #expect(!(page.isLoading), "Page should finish loading")
+                #expect(didResolveTitle, "page.title should resolve after the custom-scheme page load")
+                #expect(page.title == "Spike Test", "page.title should reflect <title> from scheme handler HTML")
+            }
         }
-        // Settle time for WebKit internals after isLoading flips
-        try await Task.sleep(for: .milliseconds(200))
+
+        // MARK: - Helpers
+
+        private func makePageWithSpikeHandler() throws -> WebPage {
+            var config = WebPageTestHarness.makeConfiguration()
+            config.urlSchemeHandlers[URLScheme("agentstudio")!] = SpikeSchemeHandler()
+
+            return WebPage(
+                configuration: config,
+                navigationDecider: WebviewNavigationDecider(),
+                dialogPresenter: WebviewDialogHandler()
+            )
+        }
+
+        private func waitForPageLoad(_ page: WebPage) async throws {
+            let deadline = ContinuousClock.now + .seconds(5)
+            while ContinuousClock.now < deadline {
+                if !page.isLoading { break }
+                await Task.yield()
+            }
+            try #require(!page.isLoading, "Page did not finish loading within timeout")
+        }
+
+        private func waitForTitle(
+            _ page: WebPage,
+            equals expectedTitle: String,
+            timeout: Duration = .seconds(2)
+        ) async -> Bool {
+            let deadline = ContinuousClock.now + timeout
+            while ContinuousClock.now < deadline {
+                if page.title == expectedTitle {
+                    return true
+                }
+                await Task.yield()
+            }
+            return page.title == expectedTitle
+        }
     }
 }

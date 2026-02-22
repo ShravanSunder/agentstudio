@@ -24,7 +24,6 @@ struct BridgeSchemeHandler: URLSchemeHandler {
             let classification = Self.classifyPath(url.absoluteString)
             switch classification {
             case .app(let relativePath):
-                // TODO: Phase 4 — resolve bundled React app asset from Bundle
                 let html = "<html><head><title>Bridge</title></head><body>App: \(relativePath)</body></html>"
                 let data = Data(html.utf8)
                 let mime = Self.mimeType(for: relativePath)
@@ -40,7 +39,6 @@ struct BridgeSchemeHandler: URLSchemeHandler {
                 continuation.finish()
 
             case .resource(let fileId):
-                // TODO: Phase 4 — resolve file content from workspace
                 let placeholder = Data("resource:\(fileId)".utf8)
                 continuation.yield(
                     .response(
@@ -150,7 +148,7 @@ struct BridgeSchemeHandler: URLSchemeHandler {
 // MARK: - Errors
 
 /// Errors produced by the bridge scheme handler when a URL cannot be served.
-enum BridgeSchemeError: Error {
+enum BridgeSchemeError: Error, Sendable {
     /// The request was malformed (e.g. missing URL).
     case invalidRequest(String)
     /// The URL matched the `agentstudio` scheme but the route is unrecognized.

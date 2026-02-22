@@ -4,6 +4,12 @@ import WebKit
 import os.log
 
 private let bridgeControllerLogger = Logger(subsystem: "com.agentstudio", category: "BridgePaneController")
+enum BridgeReadyMethod: RPCMethod {
+    struct Params: Decodable {}
+    typealias Result = RPCNoResponse
+
+    static let method = "bridge.ready"
+}
 
 /// Per-pane controller for bridge-backed panels (diff viewer, code review, etc.).
 ///
@@ -14,14 +20,14 @@ private let bridgeControllerLogger = Logger(subsystem: "com.agentstudio", catego
 /// - `BridgeSchemeHandler` registered for the `agentstudio://` custom URL scheme
 ///
 /// The controller owns the `RPCRouter` that dispatches incoming JSON-RPC messages
-/// from the bridge world to registered handlers. Push plans (Stage 3) will be started
+/// from the bridge world to registered handlers. Push plans are started
 /// only after the `bridge.ready` handshake completes.
 ///
 /// Unlike `WebviewPaneController` which uses a shared static configuration,
 /// `BridgePaneController` creates a **per-pane** configuration because each pane
 /// needs its own `WKUserContentController` for message handlers and bootstrap scripts.
 ///
-/// Design doc §9.1, handshake gating §4.5.
+/// See bridge runtime architecture docs for handshake and lifecycle behavior.
 @Observable
 @MainActor
 final class BridgePaneController {
@@ -31,7 +37,7 @@ final class BridgePaneController {
     let paneId: UUID
     let page: WebPage
 
-    /// Whether the bridge handshake has completed (§4.5 step 6).
+    /// Whether the bridge handshake has completed.
     /// No state pushes or commands are allowed before this becomes `true`.
     /// Gated and idempotent — once set, subsequent `bridge.ready` messages are ignored.
     private(set) var isBridgeReady = false
@@ -46,10 +52,11 @@ final class BridgePaneController {
     private var diffPushPlan: PushPlan<DiffState>?
     private var reviewPushPlan: PushPlan<ReviewState>?
     private var connectionPushPlan: PushPlan<PaneDomainState>?
+    private var agentPushPlan: PushPlan<PaneDomainState>?
 
     // MARK: - Private State
 
-    private let router: RPCRouter
+    let router: RPCRouter
     private let bridgeWorld = WKContentWorld.world(name: "agentStudioBridge")
 
     /// Per store+op dedup cache. Bounded at O(StoreKey × PushOp) — currently 8 entries max.
@@ -110,27 +117,77 @@ final class BridgePaneController {
 
         self.router = RPCRouter()
 
-        // Log RPC-level errors (parse errors, unknown methods, batch rejection).
-        // Handler execution errors are caught separately in the onValidJSON callback below.
+        // Log all RPC errors (parse errors, unknown methods, batch rejection, handler failures).
+        // All error codes are reported through this single callback.
         router.onError = { code, message, id in
             bridgeControllerLogger.warning(
                 "[BridgePaneController] RPC error code=\(code) msg=\(message) id=\(String(describing: id))"
             )
         }
 
-        // Wire message handler → router: validated JSON from postMessage is dispatched to handlers.
-        messageHandler.onValidJSON = { [weak self] json in
-            do {
-                try await self?.router.dispatch(json: json)
-            } catch {
-                bridgeControllerLogger.error("[BridgePaneController] RPC dispatch error: \(error)")
-            }
+        router.onCommandAck = { [weak self] ack in
+            self?.recordCommandAck(ack)
+        }
+        router.onResponse = { [weak self] responseJSON in
+            await self?.emitRPCResponse(responseJSON)
         }
 
-        // Register bridge.ready handler — the ONLY trigger for starting push plans (§4.5 step 6).
-        // The closure is @Sendable and runs through an async dispatch path.
-        router.register("bridge.ready") { [weak self] _ in
+        // Wire message handler → router: validated JSON from postMessage is dispatched to handlers.
+        messageHandler.onValidJSON = { [weak self] json in
+            await self?.handleIncomingRPC(json)
+        }
+
+        // Register bridge.ready handler — the ONLY trigger for starting push plans.
+        // The closure is @Sendable and async — awaits the @MainActor-isolated handleBridgeReady.
+        router.register(method: BridgeReadyMethod.self) { [weak self] _ in
             self?.handleBridgeReady()
+            return nil
+        }
+
+        registerNamespaceHandlers()
+    }
+
+    /// Register stub handlers for command namespaces until behavior wiring is fully implemented.
+    ///
+    /// Keeps non-`bridge.ready` production command names discoverable and avoids `-32601`:
+    /// diff.*, review.*, agent.*, and system.*. Each stub logs at `.info` level so calls
+    /// are observable (prevents silent false-positive acks from hiding wiring gaps).
+    private func registerNamespaceHandlers() {
+        // diff namespace
+        registerStub(DiffMethods.RequestFileContentsMethod.self)
+        registerStub(DiffMethods.LoadDiffMethod.self)
+
+        // review namespace
+        registerStub(ReviewMethods.AddCommentMethod.self)
+        registerStub(ReviewMethods.ResolveThreadMethod.self)
+        registerStub(ReviewMethods.UnresolveThreadMethod.self)
+        registerStub(ReviewMethods.DeleteCommentMethod.self)
+        router.register(method: ReviewMethods.MarkFileViewedMethod.self) { @MainActor [weak self] params in
+            self?.paneState.review.markFileViewed(params.fileId)
+            return nil
+        }
+        router.register(method: ReviewMethods.UnmarkFileViewedMethod.self) { @MainActor [weak self] params in
+            self?.paneState.review.unmarkFileViewed(params.fileId)
+            return nil
+        }
+
+        // agent namespace
+        registerStub(AgentMethods.RequestRewriteMethod.self)
+        registerStub(AgentMethods.CancelTaskMethod.self)
+        registerStub(AgentMethods.InjectPromptMethod.self)
+
+        // system namespace
+        registerStub(SystemMethods.HealthMethod.self)
+        registerStub(SystemMethods.CapabilitiesMethod.self)
+        registerStub(SystemMethods.ResyncAgentEventsMethod.self)
+    }
+
+    /// Register a no-op stub handler that logs when called.
+    /// Prevents -32601 for known methods while behavior wiring is pending.
+    private func registerStub<M: RPCMethod>(_ method: M.Type) {
+        router.register(method: method) { _ in
+            bridgeControllerLogger.info("[BridgePaneController] stub: \(M.method) called (not yet wired)")
+            throw BridgeMethodUnimplementedError(method: M.method)
         }
     }
 
@@ -140,7 +197,7 @@ final class BridgePaneController {
     ///
     /// Push plans do NOT start here — they start when `bridge.ready` is received.
     /// `page.isLoading == false` does not guarantee React has mounted and listeners
-    /// are attached (§4.5).
+    /// are attached.
     func loadApp() {
         guard let appURL = URL(string: "agentstudio://app/index.html") else { return }
         _ = page.load(appURL)
@@ -149,14 +206,17 @@ final class BridgePaneController {
     /// Tear down all active push plans and reset bridge state.
     ///
     /// Called when the pane is being removed or the controller is being deallocated.
-    /// Push plan teardown will be added in Stage 3.
     func teardown() {
+        page.stopLoading()
         diffPushPlan?.stop()
         reviewPushPlan?.stop()
         connectionPushPlan?.stop()
+        agentPushPlan?.stop()
         diffPushPlan = nil
         reviewPushPlan = nil
         connectionPushPlan = nil
+        agentPushPlan = nil
+        paneState.clearAcks()
         lastPushed.removeAll()
         isBridgeReady = false
     }
@@ -165,8 +225,8 @@ final class BridgePaneController {
 
     /// Handle the `bridge.ready` message from the bridge world.
     ///
-    /// This is gated and idempotent (§4.5 line 246):
-    /// - First call sets `isBridgeReady = true` and will start push plans (Stage 3).
+    /// This is gated and idempotent:
+    /// - First call sets `isBridgeReady = true` and starts push plans.
     /// - Subsequent calls are silently ignored.
     ///
     /// `internal` (not `private`) for testability — allows integration tests to
@@ -178,10 +238,21 @@ final class BridgePaneController {
         diffPushPlan = makeDiffPushPlan()
         reviewPushPlan = makeReviewPushPlan()
         connectionPushPlan = makeConnectionPushPlan()
+        agentPushPlan = makeAgentPushPlan()
 
         diffPushPlan?.start()
         reviewPushPlan?.start()
         connectionPushPlan?.start()
+        agentPushPlan?.start()
+    }
+
+    // MARK: - Test/entrypoint utility
+
+    /// Entry point for valid command payloads.
+    ///
+    /// Separated for tests and command-handler reuse.
+    func handleIncomingRPC(_ json: String) async {
+        await router.dispatch(json: json, isBridgeReady: isBridgeReady)
     }
 
     // MARK: - Push Plan Factories
@@ -242,6 +313,40 @@ final class BridgePaneController {
             }
         )
     }
+
+    private func makeAgentPushPlan() -> PushPlan<PaneDomainState> {
+        PushPlan(
+            state: paneState,
+            transport: self,
+            revisions: revisionClock,
+            epoch: { 0 },
+            slices: {
+                Slice("commandAcks", store: .agent, level: .warm) { state in
+                    state.commandAcks
+                }
+            }
+        )
+    }
+
+    private func recordCommandAck(_ ack: CommandAck) {
+        paneState.recordAck(ack)
+    }
+
+    private func emitRPCResponse(_ responseJSON: String) async {
+        do {
+            try await page.callJavaScript(
+                """
+                const payload = JSON.parse(json);
+                window.__bridgeInternal.response(payload.id, payload.result, payload.error);
+                """,
+                arguments: ["json": responseJSON],
+                contentWorld: bridgeWorld
+            )
+        } catch {
+            bridgeControllerLogger.warning("[Bridge] JS response transport failed: \(error)")
+            paneState.connection.setHealth(.error)
+        }
+    }
 }
 
 // MARK: - DedupEntry
@@ -278,11 +383,67 @@ extension BridgePaneController: PushTransport {
         {
             return
         }
-        lastPushed[dedupKey] = DedupEntry(epoch: epoch, payload: json)
 
-        // Phase 2 stub: log the push. Full callJavaScript implementation in Phase 4.
-        bridgeControllerLogger.debug(
-            "[BridgePaneController] pushJSON store=\(store.rawValue) op=\(op.rawValue) level=\(String(describing: level)) rev=\(revision) epoch=\(epoch) bytes=\(json.count)"
-        )
+        // Phase 1: encode the push envelope (encoding bugs are NOT connection errors).
+        let envelopeString: String
+        do {
+            let payload = try JSONSerialization.jsonObject(with: json)
+            let envelope: [String: Any] = [
+                "__v": 1,
+                "__revision": revision,
+                "__epoch": epoch,
+                "__pushId": UUID().uuidString,
+                "store": store.rawValue,
+                "op": op.rawValue,
+                "level": level.rawValue,
+                "payload": payload,
+            ]
+            let envelopeJSON = try JSONSerialization.data(withJSONObject: envelope, options: [.sortedKeys])
+            guard let encoded = String(data: envelopeJSON, encoding: .utf8) else {
+                throw BridgeError.encoding("Unable to encode push envelope as UTF-8")
+            }
+            envelopeString = encoded
+        } catch {
+            bridgeControllerLogger.error(
+                "[Bridge] envelope encoding bug store=\(store.rawValue) rev=\(revision): \(error)"
+            )
+            return
+        }
+        // Phase 2: transport the envelope to React (transport failures ARE connection errors).
+        do {
+            try await page.callJavaScript(
+                "window.__bridgeInternal.applyEnvelope(JSON.parse(json))",
+                arguments: ["json": envelopeString],
+                contentWorld: bridgeWorld
+            )
+            lastPushed[dedupKey] = DedupEntry(epoch: epoch, payload: json)
+            bridgeControllerLogger.debug(
+                "[BridgePaneController] pushJSON store=\(store.rawValue) op=\(op.rawValue) level=\(String(describing: level)) rev=\(revision) epoch=\(epoch) bytes=\(json.count)"
+            )
+        } catch {
+            bridgeControllerLogger.warning(
+                "[Bridge] JS transport failed store=\(store.rawValue) rev=\(revision) epoch=\(epoch): \(error)"
+            )
+            paneState.connection.setHealth(.error)
+        }
+    }
+}
+
+private enum BridgeError: Error, LocalizedError, Sendable {
+    case encoding(String)
+
+    var errorDescription: String? {
+        switch self {
+        case .encoding(let message):
+            return message
+        }
+    }
+}
+
+struct BridgeMethodUnimplementedError: Error, LocalizedError, Sendable {
+    let method: String
+
+    var errorDescription: String? {
+        "Unimplemented bridge method: \(method)"
     }
 }

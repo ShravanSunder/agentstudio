@@ -13,6 +13,63 @@ import Testing
 @MainActor
 @Suite(.serialized)
 final class RPCRouterTests {
+    private struct NoResponse: Codable, Sendable {}
+
+    private struct DiffRequestFileContentsMethod: RPCMethod {
+        struct Params: Decodable {
+            let fileId: String
+        }
+
+        typealias Result = NoResponse
+        static let method = "diff.requestFileContents"
+    }
+
+    private struct FailingMethod: RPCMethod {
+        struct Params: Decodable {}
+
+        typealias Result = NoResponse
+        static let method = "agent.fail"
+    }
+
+    private struct NoParamsMethod: RPCMethod {
+        struct Params: Decodable {}
+
+        typealias Result = NoResponse
+        static let method = "agent.noParams"
+    }
+
+    private struct ResponseMethod: RPCMethod {
+        struct Params: Decodable, Sendable {
+            let value: String
+        }
+
+        struct ResultPayload: Codable, Sendable {
+            let echoed: String
+        }
+
+        typealias Result = ResultPayload
+        static let method = "agent.response"
+    }
+
+    private actor SendableBox<Value> {
+        private var value: Value
+
+        init(_ value: Value) {
+            self.value = value
+        }
+
+        func set(_ newValue: Value) {
+            value = newValue
+        }
+
+        func get() -> Value {
+            value
+        }
+
+        func update(_ transform: @Sendable (Value) -> Value) {
+            value = transform(value)
+        }
+    }
 
     // MARK: - Dispatch
 
@@ -20,18 +77,173 @@ final class RPCRouterTests {
     func test_dispatches_to_registered_handler() async throws {
         // Arrange
         let router = RPCRouter()
-        var receivedFileId: String?
+        let receivedFileId = SendableBox<String?>(nil)
 
-        router.register("diff.requestFileContents") { params in
-            receivedFileId = params["fileId"] as? String
+        router.register(method: DiffRequestFileContentsMethod.self) { params in
+            await receivedFileId.set(params.fileId)
+            return nil
         }
 
         // Act
         let fixture = try loadFixture("valid/rpc-command-notification.json")
-        try await router.dispatch(json: fixture)
+        await router.dispatch(json: fixture, isBridgeReady: true)
 
         // Assert
-        #expect(receivedFileId == "abc123")
+        #expect((await receivedFileId.get()) == "abc123")
+    }
+
+    @Test
+    func test_request_with_id_emits_success_response_envelope() async throws {
+        // Arrange
+        let router = RPCRouter()
+        let responseJSON = SendableBox<String?>(nil)
+        router.register(method: ResponseMethod.self) { params in
+            .init(echoed: params.value)
+        }
+        router.onResponse = { json in
+            await responseJSON.set(json)
+        }
+
+        // Act
+        await router.dispatch(
+            json: #"{ "jsonrpc": "2.0", "id": "req-1", "method":"agent.response", "params": { "value": "hello" } }"#,
+            isBridgeReady: true
+        )
+
+        // Assert
+        let envelope = try parseJSONObject(try #require(await responseJSON.get()))
+        #expect(envelope["jsonrpc"] as? String == "2.0")
+        #expect(envelope["id"] as? String == "req-1")
+        let result = envelope["result"] as? [String: Any]
+        #expect(result?["echoed"] as? String == "hello")
+        #expect(envelope["error"] == nil)
+    }
+
+    @Test
+    func test_success_response_round_trips_double_id() async throws {
+        // Arrange
+        let router = RPCRouter()
+        let responseJSON = SendableBox<String?>(nil)
+        router.register(method: ResponseMethod.self) { params in
+            .init(echoed: params.value)
+        }
+        router.onResponse = { json in
+            await responseJSON.set(json)
+        }
+
+        // Act
+        await router.dispatch(
+            json: #"{ "jsonrpc": "2.0", "id": 12.5, "method":"agent.response", "params": { "value": "hello" } }"#,
+            isBridgeReady: true
+        )
+
+        // Assert
+        let envelope = try parseJSONObject(try #require(await responseJSON.get()))
+        #expect((envelope["id"] as? NSNumber)?.doubleValue == 12.5)
+        let result = envelope["result"] as? [String: Any]
+        #expect(result?["echoed"] as? String == "hello")
+        #expect(envelope["error"] == nil)
+    }
+
+    @Test
+    func test_nil_handler_result_emits_result_null() async throws {
+        // Arrange
+        let router = RPCRouter()
+        let responseJSON = SendableBox<String?>(nil)
+        router.register(method: DiffRequestFileContentsMethod.self) { _ in
+            nil
+        }
+        router.onResponse = { json in
+            await responseJSON.set(json)
+        }
+
+        // Act
+        await router.dispatch(
+            json:
+                #"{ "jsonrpc": "2.0", "id": 7, "method":"diff.requestFileContents", "params": { "fileId": "abc123" } }"#,
+            isBridgeReady: true
+        )
+
+        // Assert
+        let envelope = try parseJSONObject(try #require(await responseJSON.get()))
+        #expect((envelope["id"] as? NSNumber)?.intValue == 7)
+        #expect(envelope["result"] is NSNull)
+        #expect(envelope["error"] == nil)
+    }
+
+    @Test
+    func test_request_with_null_id_echoes_null_in_response() async throws {
+        // Arrange
+        let router = RPCRouter()
+        let responseJSON = SendableBox<String?>(nil)
+        router.register(method: ResponseMethod.self) { params in
+            .init(echoed: params.value)
+        }
+        router.onResponse = { json in
+            await responseJSON.set(json)
+        }
+
+        // Act
+        await router.dispatch(
+            json: #"{ "jsonrpc": "2.0", "id": null, "method":"agent.response", "params": { "value": "hello" } }"#,
+            isBridgeReady: true
+        )
+
+        // Assert
+        let envelope = try parseJSONObject(try #require(await responseJSON.get()))
+        #expect(envelope["id"] is NSNull)
+        let result = envelope["result"] as? [String: Any]
+        #expect(result?["echoed"] as? String == "hello")
+    }
+
+    @Test
+    func test_notification_without_id_does_not_emit_response() async {
+        // Arrange
+        let router = RPCRouter()
+        let responseCount = SendableBox(0)
+        router.register(method: ResponseMethod.self) { params in
+            .init(echoed: params.value)
+        }
+        router.onResponse = { _ in
+            await responseCount.update { $0 + 1 }
+        }
+
+        // Act
+        await router.dispatch(
+            json: #"{ "jsonrpc": "2.0", "method":"agent.response", "params": { "value": "hello" } }"#,
+            isBridgeReady: true
+        )
+
+        // Assert
+        #expect(await responseCount.get() == 0)
+    }
+
+    @Test
+    func test_pre_ready_request_with_id_emits_bridge_not_ready_error_response() async throws {
+        // Arrange
+        let router = RPCRouter()
+        let responseJSON = SendableBox<String?>(nil)
+        var errorCode: Int?
+        router.register(method: ResponseMethod.self) { _ in
+            .init(echoed: "unexpected")
+        }
+        router.onError = { code, _, _ in errorCode = code }
+        router.onResponse = { json in
+            await responseJSON.set(json)
+        }
+
+        // Act
+        await router.dispatch(
+            json: #"{ "jsonrpc": "2.0", "id":"pre-ready", "method":"agent.response", "params": { "value": "hello" } }"#,
+            isBridgeReady: false
+        )
+
+        // Assert
+        #expect(errorCode == -32_004)
+        let envelope = try parseJSONObject(try #require(await responseJSON.get()))
+        #expect(envelope["id"] as? String == "pre-ready")
+        let error = envelope["error"] as? [String: Any]
+        #expect((error?["code"] as? NSNumber)?.intValue == -32_004)
     }
 
     // MARK: - Unknown method
@@ -45,10 +257,11 @@ final class RPCRouterTests {
         router.onError = { code, _, _ in errorCode = code }
 
         // Act
-        try await router.dispatch(
+        await router.dispatch(
             json: """
                     {"jsonrpc":"2.0","method":"nonexistent.method","params":{}}
-                """)
+                """,
+            isBridgeReady: true)
 
         // Assert
         #expect(errorCode == -32_601)
@@ -66,10 +279,258 @@ final class RPCRouterTests {
 
         // Act
         let fixture = try loadFixture("invalid/rpc-missing-method.json")
-        try await router.dispatch(json: fixture)
+        await router.dispatch(json: fixture, isBridgeReady: true)
 
         // Assert
         #expect(errorCode == -32_600)
+    }
+
+    @Test
+    func test_invalid_request_with_id_emits_32600_error_response() async throws {
+        // Arrange
+        let router = RPCRouter()
+        let responseJSON = SendableBox<String?>(nil)
+        var errorCode: Int?
+        router.onError = { code, _, _ in errorCode = code }
+        router.onResponse = { json in
+            await responseJSON.set(json)
+        }
+
+        // Act
+        await router.dispatch(
+            json: #"{ "jsonrpc": "2.0", "id":"bad-request" }"#,
+            isBridgeReady: true
+        )
+
+        // Assert
+        #expect(errorCode == -32_600)
+        let envelope = try parseJSONObject(try #require(await responseJSON.get()))
+        #expect(envelope["id"] as? String == "bad-request")
+        #expect((envelope["result"] as Any?) == nil)
+        let error = envelope["error"] as? [String: Any]
+        #expect((error?["code"] as? NSNumber)?.intValue == -32_600)
+    }
+
+    @Test
+    func test_invalid_jsonrpc_version_reports_32600() async throws {
+        // Arrange
+        let router = RPCRouter()
+        var errorCode: Int?
+        router.onError = { code, _, _ in errorCode = code }
+
+        // Act
+        await router.dispatch(
+            json: """
+                {"jsonrpc":"1.0","method":"diff.requestFileContents","params":{"fileId":"abc123"}}
+                """,
+            isBridgeReady: true
+        )
+
+        // Assert
+        #expect(errorCode == -32_600)
+    }
+
+    @Test
+    func test_invalid_id_reports_32600() async throws {
+        // Arrange
+        let router = RPCRouter()
+        var errorCode: Int?
+        router.onError = { code, _, _ in errorCode = code }
+
+        // Act
+        await router.dispatch(
+            json: """
+                {"jsonrpc":"2.0","id":true,"method":"diff.requestFileContents","params":{"fileId":"abc123"}}
+                """,
+            isBridgeReady: true
+        )
+
+        // Assert
+        #expect(errorCode == -32_600)
+    }
+
+    @Test
+    func test_id_false_is_rejected() async throws {
+        // Arrange
+        let router = RPCRouter()
+        var errorCode: Int?
+
+        router.onError = { code, _, _ in errorCode = code }
+
+        // Act
+        await router.dispatch(json: #"{"jsonrpc":"2.0","id":false,"method":"agent.fail"}"#, isBridgeReady: true)
+
+        // Assert
+        #expect(errorCode == -32_600)
+    }
+
+    // MARK: - Invalid params
+
+    @Test
+    func test_missing_params_reports_32602() async throws {
+        // Arrange
+        let router = RPCRouter()
+        var errorCode: Int?
+        let requestedFileId = SendableBox<String?>(nil)
+
+        router.register(method: DiffRequestFileContentsMethod.self) { params in
+            await requestedFileId.set(params.fileId)
+            return nil
+        }
+
+        router.onError = { code, _, _ in errorCode = code }
+
+        // Act
+        let fixture = #"{"jsonrpc":"2.0","method":"diff.requestFileContents"}"#
+        await router.dispatch(json: fixture, isBridgeReady: true)
+
+        // Assert
+        #expect(errorCode == -32_602)
+        #expect((await requestedFileId.get()) == nil)
+    }
+
+    @Test
+    func test_invalid_params_with_id_emits_32602_error_response() async throws {
+        // Arrange
+        let router = RPCRouter()
+        let responseJSON = SendableBox<String?>(nil)
+        var errorCode: Int?
+        router.register(method: DiffRequestFileContentsMethod.self) { _ in nil }
+        router.onError = { code, _, _ in errorCode = code }
+        router.onResponse = { json in
+            await responseJSON.set(json)
+        }
+
+        // Act
+        await router.dispatch(
+            json: #"{ "jsonrpc":"2.0", "id":"bad-params", "method":"diff.requestFileContents" }"#,
+            isBridgeReady: true
+        )
+
+        // Assert
+        #expect(errorCode == -32_602)
+        let envelope = try parseJSONObject(try #require(await responseJSON.get()))
+        #expect(envelope["id"] as? String == "bad-params")
+        let error = envelope["error"] as? [String: Any]
+        #expect((error?["code"] as? NSNumber)?.intValue == -32_602)
+    }
+
+    @Test
+    func test_null_params_is_rejected() async throws {
+        // Arrange
+        let router = RPCRouter()
+        var errorCode: Int?
+
+        router.register(method: DiffRequestFileContentsMethod.self) { _ in
+            nil
+        }
+
+        router.onError = { code, _, _ in errorCode = code }
+
+        // Act
+        await router.dispatch(
+            json: #"{"jsonrpc":"2.0","method":"diff.requestFileContents","params":null}"#,
+            isBridgeReady: true
+        )
+
+        // Assert
+        #expect(errorCode == -32_602)
+    }
+
+    @Test
+    func test_wrong_params_shape_reports_32602() async throws {
+        // Arrange
+        let router = RPCRouter()
+        var errorCode: Int?
+
+        router.register(method: DiffRequestFileContentsMethod.self) { _ in nil }
+
+        router.onError = { code, _, _ in errorCode = code }
+
+        // Act
+        await router.dispatch(
+            json: """
+                {"jsonrpc":"2.0","method":"diff.requestFileContents","params":"abc"}
+                """,
+            isBridgeReady: true
+        )
+
+        // Assert
+        #expect(errorCode == -32_602)
+    }
+
+    @Test
+    func test_array_params_reports_32602() async throws {
+        // Arrange
+        let router = RPCRouter()
+        var errorCode: Int?
+
+        router.register(method: DiffRequestFileContentsMethod.self) { _ in nil }
+        router.onError = { code, _, _ in errorCode = code }
+
+        // Act
+        await router.dispatch(
+            json: #"{ "jsonrpc": "2.0", "method":"diff.requestFileContents", "params":[1,2,3] }"#,
+            isBridgeReady: true
+        )
+
+        // Assert
+        #expect(errorCode == -32_602)
+    }
+
+    @Test
+    func test_handler_failure_reports_32603() async throws {
+        // Arrange
+        let router = RPCRouter()
+        var errorCode: Int?
+        var errorMessage: String?
+
+        router.register(method: FailingMethod.self) { _ in
+            throw NSError(domain: "agent-studio-tests", code: 9001, userInfo: [NSLocalizedDescriptionKey: "boom"])
+        }
+
+        router.onError = { code, message, _ in
+            errorCode = code
+            errorMessage = message
+        }
+
+        // Act
+        await router.dispatch(
+            json: #"{"jsonrpc":"2.0","method":"agent.fail","id":1}"#,
+            isBridgeReady: true
+        )
+
+        // Assert
+        #expect(errorCode == -32_603)
+        #expect(errorMessage?.contains("boom") == true)
+    }
+
+    @Test
+    func test_handler_failure_with_id_emits_32603_error_response() async throws {
+        // Arrange
+        let router = RPCRouter()
+        let responseJSON = SendableBox<String?>(nil)
+        var errorCode: Int?
+        router.register(method: FailingMethod.self) { _ in
+            throw NSError(domain: "agent-studio-tests", code: 9001, userInfo: [NSLocalizedDescriptionKey: "boom"])
+        }
+        router.onError = { code, _, _ in errorCode = code }
+        router.onResponse = { json in
+            await responseJSON.set(json)
+        }
+
+        // Act
+        await router.dispatch(
+            json: #"{"jsonrpc":"2.0","method":"agent.fail","id":123}"#,
+            isBridgeReady: true
+        )
+
+        // Assert
+        #expect(errorCode == -32_603)
+        let envelope = try parseJSONObject(try #require(await responseJSON.get()))
+        #expect((envelope["id"] as? NSNumber)?.int64Value == 123)
+        let error = envelope["error"] as? [String: Any]
+        #expect((error?["code"] as? NSNumber)?.intValue == -32_603)
     }
 
     // MARK: - Batch rejection (§5.5)
@@ -84,7 +545,7 @@ final class RPCRouterTests {
 
         // Act
         let fixture = try loadFixture("invalid/rpc-batch-array.json")
-        try await router.dispatch(json: fixture)
+        await router.dispatch(json: fixture, isBridgeReady: true)
 
         // Assert
         #expect(errorCode == -32_600)
@@ -97,13 +558,21 @@ final class RPCRouterTests {
         // Arrange
         let router = RPCRouter()
         var errorCode: Int?
+        let responseJSON = SendableBox<String?>(nil)
         router.onError = { code, _, _ in errorCode = code }
+        router.onResponse = { json in
+            await responseJSON.set(json)
+        }
 
         // Act
-        try await router.dispatch(json: "{ not valid json !!!")
+        await router.dispatch(json: "{ not valid json !!!", isBridgeReady: true)
 
         // Assert
         #expect(errorCode == -32_700, "Malformed JSON should report parse error -32700, not -32600")
+        let envelope = try parseJSONObject(try #require(await responseJSON.get()))
+        #expect(envelope["id"] is NSNull, "Parse errors must emit id: null per JSON-RPC 2.0")
+        let error = envelope["error"] as? [String: Any]
+        #expect((error?["code"] as? NSNumber)?.intValue == -32_700)
     }
 
     // MARK: - Duplicate commandId idempotency
@@ -112,17 +581,180 @@ final class RPCRouterTests {
     func test_duplicate_commandId_is_idempotent() async throws {
         // Arrange
         let router = RPCRouter()
-        var callCount = 0
+        let callCount = SendableBox(0)
 
-        router.register("diff.requestFileContents") { _ in callCount += 1 }
+        router.register(method: DiffRequestFileContentsMethod.self) { _ in
+            await callCount.update { $0 + 1 }
+            return nil
+        }
 
         // Act
         let fixture = try loadFixture("edge/rpc-duplicate-commandId.json")
-        try await router.dispatch(json: fixture)
-        try await router.dispatch(json: fixture)
+        await router.dispatch(json: fixture, isBridgeReady: true)
+        await router.dispatch(json: fixture, isBridgeReady: true)
 
         // Assert
-        #expect(callCount == 1, "Duplicate commandId should not execute twice")
+        #expect((await callCount.get()) == 1, "Duplicate commandId should not execute twice")
+    }
+
+    @Test
+    func test_dedup_history_eviction_allows_redispatch() async {
+        // Arrange
+        let router = RPCRouter(maxCommandIdHistory: 2)
+        let callCount = SendableBox(0)
+        router.register(method: DiffRequestFileContentsMethod.self) { _ in
+            await callCount.update { $0 + 1 }
+            return nil
+        }
+
+        // Act
+        await router.dispatch(
+            json:
+                #"{ "jsonrpc":"2.0", "method":"diff.requestFileContents", "params":{"fileId":"a"}, "__commandId":"cmd-1" }"#,
+            isBridgeReady: true
+        )
+        await router.dispatch(
+            json:
+                #"{ "jsonrpc":"2.0", "method":"diff.requestFileContents", "params":{"fileId":"b"}, "__commandId":"cmd-2" }"#,
+            isBridgeReady: true
+        )
+        await router.dispatch(
+            json:
+                #"{ "jsonrpc":"2.0", "method":"diff.requestFileContents", "params":{"fileId":"c"}, "__commandId":"cmd-3" }"#,
+            isBridgeReady: true
+        )
+        await router.dispatch(
+            json:
+                #"{ "jsonrpc":"2.0", "method":"diff.requestFileContents", "params":{"fileId":"a"}, "__commandId":"cmd-1" }"#,
+            isBridgeReady: true
+        )
+
+        // Assert
+        #expect(await callCount.get() == 4)
+    }
+
+    @Test
+    func test_parse_request_id_string_is_preserved() async throws {
+        // Arrange
+        let router = RPCRouter()
+        var requestID: RPCIdentifier?
+
+        router.register(method: FailingMethod.self) { _ in
+            nil
+        }
+        router.onError = { _, _, id in requestID = id }
+
+        // Act
+        await router.dispatch(
+            json: #"{ "jsonrpc": "2.0", "id": "abc123", "method":"nonexistent.method" }"#,
+            isBridgeReady: true
+        )
+
+        // Assert
+        #expect(requestID == .string("abc123"))
+    }
+
+    @Test
+    func test_parse_request_id_integer_is_preserved() async throws {
+        // Arrange
+        let router = RPCRouter()
+        var requestID: RPCIdentifier?
+
+        router.register(method: FailingMethod.self) { _ in
+            nil
+        }
+        router.onError = { _, _, id in requestID = id }
+
+        // Act
+        await router.dispatch(
+            json: #"{ "jsonrpc": "2.0", "id": 123, "method":"nonexistent.method" }"#,
+            isBridgeReady: true
+        )
+
+        // Assert
+        #expect(requestID == .integer(123))
+    }
+
+    @Test
+    func test_parse_request_id_double_is_preserved() async throws {
+        // Arrange
+        let router = RPCRouter()
+        var requestID: RPCIdentifier?
+
+        router.onError = { _, _, id in requestID = id }
+
+        // Act
+        await router.dispatch(
+            json: #"{ "jsonrpc": "2.0", "id": 12.5, "method":"nonexistent.method" }"#,
+            isBridgeReady: true
+        )
+
+        // Assert
+        #expect(requestID == .double(12.5))
+    }
+
+    @Test
+    func test_error_response_round_trips_double_id() async throws {
+        // Arrange
+        let router = RPCRouter()
+        let responseJSON = SendableBox<String?>(nil)
+        router.onResponse = { json in
+            await responseJSON.set(json)
+        }
+
+        // Act
+        await router.dispatch(
+            json: #"{ "jsonrpc":"2.0", "id": 12.5, "method":"nonexistent.method" }"#,
+            isBridgeReady: true
+        )
+
+        // Assert
+        let envelope = try parseJSONObject(try #require(await responseJSON.get()))
+        #expect((envelope["id"] as? NSNumber)?.doubleValue == 12.5)
+        let error = envelope["error"] as? [String: Any]
+        #expect((error?["code"] as? NSNumber)?.intValue == -32_601)
+    }
+
+    @Test
+    func test_parse_request_id_null_is_preserved() async throws {
+        // Arrange
+        let router = RPCRouter()
+        var requestID: RPCIdentifier?
+
+        router.register(method: FailingMethod.self) { _ in
+            nil
+        }
+        router.onError = { _, _, id in requestID = id }
+
+        // Act
+        await router.dispatch(
+            json: #"{ "jsonrpc": "2.0", "id": null, "method":"nonexistent.method" }"#,
+            isBridgeReady: true
+        )
+
+        // Assert
+        #expect(requestID == .null)
+    }
+
+    @Test
+    func test_empty_params_falls_back_to_empty_object() async throws {
+        // Arrange
+        let router = RPCRouter()
+        let called = SendableBox(false)
+
+        router.register(method: NoParamsMethod.self) { _ in
+            await called.set(true)
+            return nil
+        }
+
+        // Act
+        await router.dispatch(
+            json: #"{ "jsonrpc": "2.0", "method":"agent.noParams" }"#,
+            isBridgeReady: true
+        )
+
+        // Assert
+        #expect(await called.get())
     }
 
     // MARK: - Helpers
@@ -131,5 +763,11 @@ final class RPCRouterTests {
         let root = URL(fileURLWithPath: TestPathResolver.projectRoot(from: #filePath))
         let fixtureURL = root.appendingPathComponent("Tests/BridgeContractFixtures/\(name)")
         return try String(contentsOf: fixtureURL, encoding: .utf8)
+    }
+
+    private func parseJSONObject(_ json: String) throws -> [String: Any] {
+        let data = Data(json.utf8)
+        let object = try JSONSerialization.jsonObject(with: data)
+        return try #require(object as? [String: Any])
     }
 }

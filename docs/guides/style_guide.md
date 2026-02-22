@@ -34,7 +34,7 @@ Use these apps as benchmarks for quality and style:
 
 ### Community & Expert Guides
 - **Mario Guzman's Layout Guides**: [General Layout](https://marioaguzman.github.io/design/) and [Toolbars](https://marioaguzman.github.io/design/toolbars/).
-- **Design+Code macOS Guide**: [Designing for macOS Big Sur and later](https://designcode.io/ios-design-handbook-design-for-macos-big-sur/).
+- **Design+Code macOS Guide**: [Designing for macOS](https://designcode.io/ios-design-handbook-design-for-macos-big-sur/) (reference for general patterns; Agent Studio targets **macOS 26 only**).
 
 ## Implementation Best Practices
 

@@ -13,16 +13,14 @@ private let messageHandlerLogger = Logger(subsystem: "com.agentstudio", category
 /// The `onValidJSON` callback is set by `BridgePaneController` to forward to `RPCRouter.dispatch`.
 /// Using a closure instead of a direct RPCRouter reference keeps this handler decoupled and testable.
 ///
-/// Design doc §4.2, §9.3.
+/// See bridge architecture docs for message relay and isolation behavior.
 final class RPCMessageHandler: NSObject, WKScriptMessageHandler {
 
-    /// Callback invoked on the MainActor when `didReceive` extracts a valid JSON envelope.
-    /// Set once by `BridgePaneController` during setup; routes to `RPCRouter.dispatch(json:)`.
+    /// Called on the main thread when a valid JSON string is extracted from a postMessage body.
+    /// Set by the owning controller to wire into `RPCRouter.dispatch(json:)`.
     ///
-    /// Both `@MainActor` annotations are required in Swift 6 strict mode:
-    /// the property annotation isolates access, the closure type annotation isolates invocation.
-    /// Closure parameters do not inherit isolation from the containing property.
-    @MainActor var onValidJSON: (@MainActor (String) async -> Void)?
+    /// Set once during controller setup and invoked from main-actor forwarding.
+    var onValidJSON: (@MainActor @Sendable (String) async -> Void)?
 
     // MARK: - JSON Extraction
 
@@ -67,8 +65,13 @@ final class RPCMessageHandler: NSObject, WKScriptMessageHandler {
         // Forward to upstream handler on main actor.
         // Fire-and-forget: errors are handled by the router's onError callback,
         // not propagated back through the message handler.
+        guard let callback = onValidJSON else {
+            messageHandlerLogger.warning(
+                "[RPCMessageHandler] dropped JSON message because onValidJSON is not configured")
+            return
+        }
         Task { @MainActor in
-            await onValidJSON?(json)
+            await callback(json)
         }
     }
 }

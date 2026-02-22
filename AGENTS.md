@@ -5,19 +5,62 @@ macOS terminal application embedding Ghostty terminal emulator with project/work
 
 ## Structure
 
-Agent Studio uses a hybrid directory layout under `Sources/AgentStudio/`. Infrastructure stays layer-based, user-facing capabilities live in feature directories.
+See [Directory Structure](docs/architecture/directory_structure.md) for the full module boundary spec, Core vs Features decision process, and component placement rationale.
 
-| Layer | Path | Role |
-|-------|------|------|
-| **Composition root** | `App/` | Wires everything together. Controllers, PaneCoordinator, ViewRegistry. Imports all layers. |
-| **Shared domain** | `Core/` | Feature-agnostic models, stores, actions. One reason to change per component. |
-| **Pane runtime** | `Core/PaneRuntime/` | Contracts (protocols, events, envelopes, RuntimeCommand), registry, event reduction, replay. Shared by all pane types. |
-| **Features** | `Features/X/` | Per-capability code: Terminal/ (Ghostty FFI + runtime), Bridge/ (React/WebView), Webview/ (browser pane), CommandBar/, Sidebar/. |
-| **Utilities** | `Infrastructure/` | Domain-agnostic: state machine, extensions, process executor. Imports nothing internal. |
+```
+agent-studio/
+├── Sources/AgentStudio/
+│   ├── App/                          # Composition root — wires everything, imports all
+│   │   ├── AppDelegate.swift
+│   │   ├── MainWindowController.swift
+│   │   ├── MainSplitViewController.swift
+│   │   ├── Panes/                    # Pane tab management and NSView registry
+│   │   │   ├── PaneTabViewController.swift
+│   │   │   └── ViewRegistry.swift
+│   │   └── PaneCoordinator.swift         # Cross-feature sequencing and orchestration
+│   ├── Core/                         # Shared domain — models, stores, pane system
+│   │   ├── Models/                   # Layout, Tab, Pane, PaneView, SessionStatus
+│   │   ├── Stores/                   # WorkspaceStore, SessionRuntime, WorkspacePersistor
+│   │   ├── Actions/                  # PaneAction, ActionResolver, ActionValidator
+│   │   ├── Views/                    # Tab bar, splits, drawer, arrangement
+│   │   │   ├── Splits/              # SplitTree, SplitView, TerminalPaneLeaf
+│   │   │   └── Drawer/             # DrawerLayout, DrawerPanel, DrawerIconBar
+│   ├── Features/
+│   │   ├── Terminal/                 # Everything Ghostty-specific
+│   │   │   ├── Ghostty/              # C API bridge, SurfaceManager, SurfaceTypes
+│   │   │   └── Views/               # AgentStudioTerminalView, SurfaceErrorOverlay
+│   │   ├── Bridge/                   # React/WebView pane system
+│   │   │   ├── Transport/            # JSON-RPC transport, router, bootstrap, scheme handler
+│   │   │   │   └── Methods/          # AgentMethods, DiffMethods, ReviewMethods, SystemMethods
+│   │   │   ├── Runtime/              # BridgePaneController lifecycle/orchestration
+│   │   │   ├── State/                # BridgeDomainState, BridgePaneState, Push/
+│   │   │   │   └── Push/             # Push pipeline, EntitySlice, PushPlan
+│   │   │   ├── Views/                # BridgePaneView, BridgePaneContentView
+│   │   │   └── BridgeNavigationDecider.swift
+│   │   ├── Webview/                  # Browser pane (navigation, history, dialog)
+│   │   │   └── Views/              # WebviewPaneView, WebviewNavigationBar
+│   │   ├── CommandBar/               # ⌘P command palette
+│   │   │   └── Views/              # CommandBarView, search field, results
+│   │   └── Sidebar/                  # Sidebar filter (future: repo list, worktree tree)
+│   └── Infrastructure/               # Domain-agnostic utilities
+│       ├── StateMachine/            # Generic state machine
+│       ├── Diagnostics/             # RestoreTrace
+│       └── Extensions/              # Foundation/AppKit/UTType helper extensions
+├── Frameworks/                       # Generated: GhosttyKit.xcframework (not in git)
+├── vendor/ghostty/                   # Git submodule: Ghostty source
+├── scripts/                          # Icon generation
+├── docs/                             # Detailed documentation
+└── tmp/                              # Temporary docs and status files
+```
 
-**Import rule:** `App/ → Core/, Features/, Infrastructure/` | `Features/ → Core/, Infrastructure/` | `Core/ → Infrastructure/` | Never `Core/ → Features/`, never `Features/X → Features/Y`
+**Import rule:** `App/ → Core/, Features/, Infrastructure/` | `Features/ → Core/, Infrastructure/` | `Core/ → Infrastructure/` | Never `Core/ → Features/`
 
-For file placement decisions (4-test framework, component rationale, per-kind event enum placement, slice vocabulary), read [Directory Structure](docs/architecture/directory_structure.md).
+### Slice Vocabulary
+
+- **Core slice**: shared, feature-agnostic domain/data logic.
+- **Vertical slice**: user-flow orchestration across layers (controllers, coordinators, feature entry points).
+
+If a file imports from multiple features, it is usually a vertical slice and belongs in `App/` unless it can be decomposed into smaller feature-specific coordinators.
 
 ### Component → Slice Map
 
@@ -28,29 +71,29 @@ Where each key component lives and why — use this to decide where new files go
 | `AppDelegate` | `App/` | App lifecycle, restore, zmx cleanup | App lifecycle |
 | `MainSplitViewController` | `App/` | Top-level sidebar/content split | App layout |
 | `MainWindowController` | `App/` | Window creation, toolbar, state restore | Window management |
-| `PaneCoordinator` | `App/` | Dispatches PaneActions + RuntimeCommands, owns RuntimeRegistry, consumes event streams | Cross-store sequencing |
+| `PaneCoordinator` | `App/` | Dispatches PaneActions to stores and manages model↔view↔surface orchestration | Cross-store sequencing |
 | `WorkspaceStore` | `Core/Stores/` | Tabs, layouts, views, pane metadata | Workspace structure |
 | `SessionRuntime` | `Core/Stores/` | Session status, health checks, zmx backend | Session backends |
 | `WorkspacePersistor` | `Core/Stores/` | Disk persistence for workspace state | Persistence format |
 | `DynamicViewProjector` | `Core/Stores/` | Projects dynamic views into workspace | View projection |
 | `PaneTabViewController` | `App/` | NSTabView container for any pane type | Tab management |
 | `ViewRegistry` | `App/` | PaneId → NSView mapping (type-agnostic) | Pane registration |
-| `ActionResolver` | `Core/Actions/` | Resolves workspace PaneAction to concrete mutations | Action resolution |
-| `PaneRuntime` protocol | `Core/PaneRuntime/Contracts/` | Per-pane runtime contract (events, commands, lifecycle) | Pane system contract |
-| `RuntimeRegistry` | `Core/PaneRuntime/Registry/` | paneId → runtime lookup | Pane system contract |
-| `NotificationReducer` | `Core/PaneRuntime/Reduction/` | Priority-aware event delivery | Pane system contract |
-| `EventReplayBuffer` | `Core/PaneRuntime/Replay/` | Bounded replay for late-joining consumers | Pane system contract |
-| `RuntimeCommand` | `Core/PaneRuntime/Contracts/` | Commands to individual runtimes (distinct from workspace PaneAction) | Pane system contract |
-| `GhosttyAdapter` | `Features/Terminal/Ghostty/` | Singleton FFI boundary, routes C callbacks to TerminalRuntime | Ghostty C API |
-| `TerminalRuntime` | `Features/Terminal/Runtime/` | PaneRuntime conformance for terminals | Terminal behavior |
+| `ActionResolver` | `Core/Actions/` | Resolves PaneAction to concrete mutations | Action resolution |
 | `Layout`, `Tab`, `Pane` | `Core/Models/` | Core domain models | Domain rules |
 | `SplitTree`, `SplitView` | `Core/Views/Splits/` | Split pane rendering | Split layout |
 | `DrawerLayout`, `DrawerPanel` | `Core/Views/Drawer/` | Drawer overlay system | Drawer UX |
 | `SurfaceManager` | `Features/Terminal/` | Ghostty surface lifecycle, health, undo | Terminal behavior |
 | `GhosttySurfaceView` | `Features/Terminal/` | NSView wrapping Ghostty surface | Terminal rendering |
-| `BridgePaneController` | `Features/Bridge/` | WKWebView lifecycle for React panes | Bridge integration |
-| `RPCRouter` | `Features/Bridge/` | JSON-RPC dispatch for bridge messages | RPC protocol |
-| `PushTransport` | `Features/Bridge/Push/` | State push pipeline to React | Push protocol |
+| `BridgePaneController` | `Features/Bridge/Runtime/` | WKWebView lifecycle for React panes | Bridge integration |
+| `RPCRouter` | `Features/Bridge/Transport/` | JSON-RPC dispatch for bridge messages | RPC protocol |
+| `RPCMethod` | `Features/Bridge/Transport/` | Typed JSON-RPC method contract and id semantics | RPC protocol |
+| `RPCMessageHandler` | `Features/Bridge/Transport/` | Ingress validation and message forwarding into the router | RPC protocol |
+| `BridgeBootstrap` | `Features/Bridge/Transport/` | Injects bridge runtime JS and bootstraps transport bindings | Bridge transport bootstrap |
+| `BridgeSchemeHandler` | `Features/Bridge/Transport/` | Serves bridge app assets over custom URL scheme | Bridge transport bootstrap |
+| `AgentMethods`, `DiffMethods`, `ReviewMethods`, `SystemMethods` | `Features/Bridge/Transport/Methods/` | Namespaced RPC method definitions and typed params/results | RPC API surface |
+| `BridgeDomainState` | `Features/Bridge/State/` | Observable domain-level bridge state containers | Bridge state ownership |
+| `BridgePaneState` | `Features/Bridge/State/` | Per-pane bridge state and ack tracking | Bridge state ownership |
+| `PushTransport` | `Features/Bridge/State/Push/` | State push pipeline to React | Push protocol |
 | `WebviewPaneController` | `Features/Webview/` | Browser pane lifecycle (independent of Bridge) | Browser UX |
 | `CommandBarState` | `Features/CommandBar/` | Command palette state machine | Command palette |
 | `SidebarFilter` | `Features/Sidebar/` | Sidebar filtering logic | Sidebar behavior |
@@ -101,44 +144,57 @@ mise run format               # Auto-format all Swift sources with swift-format
 mise run lint                  # Lint all Swift sources (swift-format + swiftlint)
 ```
 
+Before committing, run both `mise run format` and `mise run lint`.
+
 Requires `brew install swift-format swiftlint`. A PostToolUse hook (`.claude/hooks/check.sh`) runs swift-format and swiftlint automatically after every Edit/Write on `.swift` files.
 
-### ⚠️ Running Swift Commands
+### ⚠️ Running Swift Commands — Use Mise
 
-SwiftPM's interactive progress output (carriage returns, ANSI escapes) breaks in agent bash contexts. Always redirect to a file and check the exit code.
+**Always use `mise run` for build and test.** Mise tasks are the single source of truth for build orchestration. They handle the WebKit serialized test split, benchmark mode, and build path isolation automatically.
 
 ```bash
-swift test --build-path .build-agent-$RANDOM > /tmp/test-output.txt 2>&1 && echo "PASS" || echo "FAIL: $(tail -20 /tmp/test-output.txt)"
-swift build > /tmp/build-output.txt 2>&1 && echo "BUILD OK" || echo "BUILD FAIL: $(tail -20 /tmp/build-output.txt)"
-swift test --build-path .build-agent-$RANDOM --filter "CommandBarState" > /tmp/test-output.txt 2>&1 && echo "PASS" || echo "FAIL: $(tail -20 /tmp/test-output.txt)"
+mise run build                # Full debug build
+mise run build-release        # Full release build
+mise run test                 # Run all tests (parallel + WebView serialized serial)
+mise run test-benchmark       # Benchmark-only tests
+mise run format               # Auto-format Swift sources
+mise run lint                 # Lint (swift-format + swiftlint + boundary checks)
 ```
 
+**For filtered test runs** (when you need a specific suite), use raw `swift test` with a unique build path:
+
+```bash
+SWIFT_BUILD_DIR=".build-agent-$(uuidgen | tr -dc 'a-z0-9' | head -c 8)"
+swift test --build-path "$SWIFT_BUILD_DIR" --filter "CommandBarState" > /tmp/test-output.txt 2>&1 && echo "PASS" || echo "FAIL: $(tail -20 /tmp/test-output.txt)"
+```
+
+**Environment variables** control mise task behavior:
+
+| Env Var | Default | Purpose |
+|---------|---------|---------|
+| `SWIFT_BUILD_DIR` | `.build-agent-$RANDOM` | Build path isolation between agent sessions |
+| `SWIFT_TEST_PARALLEL` | `1` (enabled) | Set to `0` to disable parallel test workers |
+| `SWIFT_TEST_WORKERS` | `hw.ncpu / 2` (max 4) | Number of parallel test worker processes |
+
 **No parallel Swift commands. No background Swift commands.** SwiftPM holds an exclusive lock on `.build/`. Two concurrent swift processes — even `swift test --filter A` and `swift test --filter B`, or a foreground + background task — will deadlock waiting for the lock (up to 256s then fail). This means:
-- NEVER use `run_in_background: true` for any `swift build`, `swift test`, or `swift package` command
+- NEVER use `run_in_background: true` for any `swift build`, `swift test`, `mise run test`, or `mise run build` command
 - NEVER issue two Bash tool calls that both invoke swift in the same message (parallel tool calls)
 - NEVER launch a swift subagent while a swift command is running in the main session
 - Run them strictly one at a time, sequentially. If you need multiple test filters, just run the full suite once.
 
-**Test/build contention across agents.** Use a unique `.build-agent-<suffix>` folder per agent session so SwiftPM lock files do not collide across concurrent sessions.
+**Test/build contention across agents.** Mise tasks default to `.build-agent-$RANDOM` for isolation. To use a fixed path across your session:
 
 ```bash
-SWIFT_BUILD_DIR=".build-agent-$(uuidgen | tr -dc 'a-z0-9' | head -c 8)"
-swift test --build-path "$SWIFT_BUILD_DIR" --filter "ZmxE2ETests"
-swift build --build-path "$SWIFT_BUILD_DIR"
-swift test --build-path "$SWIFT_BUILD_DIR"
+export SWIFT_BUILD_DIR=".build-agent-$(uuidgen | tr -dc 'a-z0-9' | head -c 8)"
+mise run test                 # Uses $SWIFT_BUILD_DIR
+mise run build                # Uses default .build (builds are separate)
 ```
 
-Keep this `BUILD_DIR` constant for your entire session to avoid mixing artifacts.
-
-Run via `mise` (defaults to `.build-agent-$RANDOM`):
-
-```bash
-mise run test
-```
+Keep `SWIFT_BUILD_DIR` constant for your entire session to avoid mixing artifacts.
 
 **Lock contention recovery.** If you see "Another instance of SwiftPM is already running using '.build', waiting..." — do NOT launch more swift commands. Kill the stuck process (`pkill -f "swift-build"`) and retry.
 
-**Timeouts are mandatory.** Always set the Bash tool's `timeout` parameter: `60000` (60s) for `swift test`, `30000` (30s) for `swift build`. Tests complete in ~15s, builds in ~5s. Anything longer means lock contention or a hung process. Without an explicit timeout the Bash tool uses its 2-minute default, which silently wastes time on a stuck process the user then has to manually kill.
+**Timeouts are mandatory.** Always set the Bash tool's `timeout` parameter: `60000` (60s) for `mise run test` or `swift test`, `30000` (30s) for `mise run build` or `swift build`. Tests complete in ~15s, builds in ~5s. Anything longer means lock contention or a hung process. Without an explicit timeout the Bash tool uses its 2-minute default, which silently wastes time on a stuck process the user then has to manually kill.
 
 
 ### Launching the App
@@ -206,45 +262,158 @@ A ticket has: a title, a rough scope description, links to the architecture doc 
 - **If two tasks always ship together, they're one task.** The test: can each task be delivered and verified independently? If not, merge them.
 - **Dependencies are first-class.** Cross-project and cross-milestone dependencies use Linear's `blockedBy`/`blocks` relations. This is how agents know what's unblocked and what to work on next.
 
-## State Management Guard Rails
+## State Management Mental Model
 
-State patterns, code examples, and rationale live in [Component Architecture](docs/architecture/component_architecture.md). Read that doc before any state management work. These are the anti-patterns to avoid in all new code:
+Agent Studio's state architecture draws from two JavaScript patterns adapted for Swift's type system and concurrency model. These are the governing principles for **all new code** and the target for incremental refactoring of existing code.
 
-- **No god-store** — no single object that owns everything. Each `@Observable` store owns one domain.
-- **No Combine** for new code — `AsyncStream` + `swift-async-algorithms` replaces publishers
+> **Implementation status:** These patterns are the TARGET architecture in this worktree: `PaneCoordinator` is the canonical cross-feature coordinator (consolidated action dispatch + surface orchestration), and domain state is owned by `@Observable` stores with `private(set)` where state is mutable.
+
+### Valtio-style: `private(set)` for Unidirectional Flow
+
+Every `@Observable` store exposes state as `private(set)` — the store alone decides how state changes. External code reads freely but mutates only through store methods. This gives unidirectional data flow without the ceremony of Redux/TCA action enums and reducers.
+
+```swift
+@Observable @MainActor
+final class WorkspaceStore {
+    private(set) var tabs: [Tab] = []
+    private(set) var activePaneId: UUID?
+
+    // Only the store mutates its own state
+    func closeTab(_ id: UUID) -> TabSnapshot? { ... }
+    func insertTab(_ tab: Tab, at index: Int) { ... }
+}
+```
+
+### Jotai-style: Independent Atomic Stores
+
+Each domain has its own `@Observable` store. No god-store. Stores are independent atoms — each owns one domain, has one reason to change, and can be tested in isolation.
+
+| Store | Domain | Owns |
+|-------|--------|------|
+| `WorkspaceStore` | Workspace structure | tabs, layouts, views, pane metadata |
+| `SurfaceManager` | Ghostty surfaces | surface lifecycle, health, undo stack |
+| `SessionRuntime` | Session backends | runtime status, health checks, zmx |
+
+Stores never call each other's mutation methods directly. Cross-store coordination flows through a coordinator.
+
+### Coordinator Pattern: Sequences, Doesn't Own
+
+A coordinator sequences operations across multiple stores for a single user action. It owns **no state** and contains **no domain logic** — it's pure orchestration.
+
+```swift
+@MainActor
+final class PaneCoordinator {
+    let workspace: WorkspaceStore
+    let surfaces: SurfaceManager
+    let runtime: SessionRuntime
+
+    func closeTab(_ tabId: UUID) {
+        // 1. workspace removes the tab (domain logic lives in the store)
+        guard let snapshot = workspace.removeTab(tabId) else { return }
+        // 2. surfaces move to undo (domain logic lives in the store)
+        surfaces.moveSurfacesToUndo(snapshot.paneIds, ttl: .seconds(300))
+        // 3. runtime marks sessions pending undo
+        runtime.markSessionsPendingUndo(snapshot.paneIds)
+        // 4. coordinator manages its own undo stack (sequencing state)
+        undoStack.append(.tab(snapshot))
+    }
+}
+```
+
+**The test:** If a coordinator method contains an `if` that decides *what* to do with domain data, that logic belongs in a store. The coordinator only decides *which stores to call and in what order*.
+
+### Bridge-per-Surface Pattern
+
+Each Ghostty surface gets a typed bridge object that replaces NotificationCenter dispatch for C API callbacks. The bridge owns the surface's observable state and provides a type-safe interface.
+
+```swift
+protocol PaneBridge: AnyObject, Sendable {
+    associatedtype PaneState: Observable
+    var state: PaneState { get }
+    func activate()
+    func deactivate()
+}
+```
+
+This extends to future pane types: `GhosttyBridge`, `WebViewBridge`, `CodeViewerBridge` — each conforming to `PaneBridge` with its own state type.
+
+### Event Transport: AsyncStream
+
+All new event plumbing uses `AsyncStream` + `swift-async-algorithms`. No new Combine subscriptions. No new NotificationCenter observers. Keep new code on AsyncStream/event-stream primitives and avoid adding new Combine/NotificationCenter usage.
+
+```swift
+@MainActor
+final class PaneEventBus {
+    private let continuation: AsyncStream<PaneLifecycleEvent>.Continuation
+    let events: AsyncStream<PaneLifecycleEvent>
+
+    nonisolated func emit(_ event: PaneLifecycleEvent) {
+        continuation.yield(event)
+    }
+}
+```
+
+**Why not Combine:** Apple's Xcode 26 guidance explicitly steers away from Combine. AsyncStream integrates naturally with Swift concurrency, has no publisher/subscriber ceremony, and composes via `swift-async-algorithms` (merge, debounce, throttle).
+
+### Swift 6 Concurrency from C Callbacks
+
+Ghostty C API callbacks arrive on arbitrary threads. The pattern is static `@Sendable` trampolines that hop to MainActor:
+
+```swift
+nonisolated static func handleAction(
+    _ surface: ghostty_surface_t,
+    _ action: ghostty_action_s
+) {
+    MainActor.assumeIsolated {
+        guard let bridge = SurfaceManager.shared
+            .terminalBridge(for: surface) else { return }
+        bridge.handleAction(action)
+    }
+}
+```
+
+**Never** use `DispatchQueue.main.async` from C callbacks — use `MainActor.assumeIsolated` for synchronous hops or `Task { @MainActor in }` for async work.
+
+### Testable Time: Injectable Clock
+
+All time-dependent logic accepts `any Clock<Duration>` as a constructor parameter instead of calling `Task.sleep` directly. This makes undo TTLs, health check intervals, and debounce timers testable without real delays.
+
+```swift
+@Observable @MainActor
+final class SurfaceManager {
+    private let clock: any Clock<Duration>
+
+    init(clock: any Clock<Duration> = ContinuousClock()) {
+        self.clock = clock
+    }
+
+    func scheduleUndoExpiration(for entry: UndoEntry) async {
+        try? await clock.sleep(for: .seconds(300))
+        expireIfStillPending(entry)
+    }
+}
+```
+
+### Summary: What We Don't Do
+
+- **No god-store** — no single object that owns everything
+- **No Combine** for new code — AsyncStream replaces publishers
 - **No NotificationCenter** for new event plumbing — typed streams replace string-keyed notifications
 - **No ObservableObject/@Published** — `@Observable` macro everywhere
-- **No DispatchQueue.main.async** from C callbacks — use `Task { @MainActor in }` (or `MainActor.assumeIsolated` only in nonisolated sync contexts where you can prove you're already on main thread, never in deinit)
-- **No domain logic in coordinators** — coordinators sequence stores, stores own domain decisions
+- **No DispatchQueue.main.async** from C callbacks — MainActor primitives only
 
-## Swift 6 Concurrency
+## Architectural Guidance
+Agent Studio follows an **AppKit-main** architecture. See the
+[Architecture Overview](docs/architecture/README.md) for the full
+system design, data model, and document index. Target: macOS 26 only.
 
-Swift 6.2 toolchain, Swift 6 language mode, macOS 26. Data-race safety is enforced at compile time.
-
-- **`Task { }` inherits actor isolation** — inside `@MainActor`, the Task body runs on MainActor
-- **`isolated deinit`** for any `@MainActor` class that touches non-Sendable stored properties in deinit (SE-0371)
-- **`AsyncStream.makeStream(of:)`** for new stream code (SE-0388)
-- **No `Task.detached`** unless you specifically need the global executor
-- **No `MainActor.assumeIsolated` in deinit** — use `isolated deinit` (SE-0414 makes `assumeIsolated` problematic with non-Sendable types)
-- **No `nonisolated(unsafe)`** without documenting why
-
-Full rules, safe patterns, and common false positives: [App Architecture — Swift 6 Concurrency](docs/architecture/appkit_swiftui_architecture.md#swift-6-concurrency)
-
-## Architecture Docs (read on demand)
-
-Agent Studio follows an **AppKit-main** architecture. Target: macOS 26 only. These docs are the source of truth for design — read the relevant one before working in that domain.
-
-| When you're... | Read |
-|---|---|
-| Deciding where a new file goes | [Directory Structure](docs/architecture/directory_structure.md) — 4-test framework, component placement, import rule |
-| Understanding data model or store ownership | [Component Architecture](docs/architecture/component_architecture.md) — stores, state patterns, persistence, invariants |
-| Working on pane runtime, events, commands | [Pane Runtime Architecture](docs/architecture/pane_runtime_architecture.md) — contracts 1-16, event taxonomy, priority system |
-| Working on session create/close/undo/restore | [Session Lifecycle](docs/architecture/session_lifecycle.md) — lifecycle flows, zmx backend |
-| Working on Ghostty surfaces | [Surface Architecture](docs/architecture/ghostty_surface_architecture.md) — ownership, state machine, health, crash isolation |
-| Working on window/tab/drawer structure | [Window System Design](docs/architecture/window_system_design.md) — data model, dynamic views, arrangements |
-| Working on AppKit/SwiftUI integration | [App Architecture](docs/architecture/appkit_swiftui_architecture.md) — hybrid shell, controllers, events |
-| Checking visual/UX conventions | [Style Guide](docs/guides/style_guide.md) — macOS design conventions |
-| Starting from the top | [Architecture Overview](docs/architecture/README.md) — system overview, principles, full document index |
+- **Architecture Overview**: [README](docs/architecture/README.md) — system overview, principles, document index
+- **Component Architecture**: [Component Architecture](docs/architecture/component_architecture.md) — data model, services, data flow, persistence, invariants
+- **Session Lifecycle**: [Session Lifecycle](docs/architecture/session_lifecycle.md) — creation, close, undo, restore, zmx backend
+- **Surface Architecture**: [Surface Management](docs/architecture/ghostty_surface_architecture.md) — ownership, state machine, health, crash isolation
+- **App Architecture**: [App Architecture](docs/architecture/appkit_swiftui_architecture.md) — AppKit+SwiftUI hybrid, controllers, events
+- **Directory Structure**: [Directory Structure](docs/architecture/directory_structure.md) — module boundaries, Core vs Features decision process, import rule
+- **Style Guide**: [macOS Design & Style](docs/guides/style_guide.md)
 
 ## Agent Resources
 Use DeepWiki and official documentation to gather grounded context on core dependencies.

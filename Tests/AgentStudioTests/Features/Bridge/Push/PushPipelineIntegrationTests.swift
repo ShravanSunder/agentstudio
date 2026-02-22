@@ -45,7 +45,7 @@ final class PushPipelineIntegrationTests {
         let baselineCount = transport.pushCount
 
         // Act — mutate observable
-        diffState.status = .loading
+        diffState.setStatus(.loading)
         let didReceiveMutationPush = await transport.waitForPushCount(
             atLeast: baselineCount + 1,
             timeout: .seconds(2)
@@ -70,6 +70,7 @@ final class PushPipelineIntegrationTests {
         let diffState = DiffState()
         let transport = MockPushTransport()
         let clock = RevisionClock()
+        let debounceClock = TestPushClock()
 
         let plan = PushPlan(
             state: diffState,
@@ -80,13 +81,15 @@ final class PushPipelineIntegrationTests {
                 Slice("diffEpoch", store: .diff, level: .cold, op: .replace) { state in
                     state.epoch
                 }
+                .erased(debounceClock: debounceClock)
             }
         )
 
         plan.start()
         let didReceiveInitialPush = await transport.waitForPushCount(
             atLeast: 1,
-            timeout: .seconds(2)
+            maxTicks: 40,
+            advanceClock: { debounceClock.advance(by: .milliseconds(5)) }
         )
         #expect(didReceiveInitialPush, "Plan should emit initial snapshot")
 
@@ -95,11 +98,12 @@ final class PushPipelineIntegrationTests {
 
         // Act — rapid mutations within debounce window (cold = 32ms)
         for epochValue in 1...5 {
-            diffState.epoch = epochValue
+            diffState.setEpoch(epochValue)
         }
         let didReceiveCoalescedPush = await transport.waitForPushCount(
             atLeast: baselineCount + 1,
-            timeout: .seconds(2)
+            maxTicks: 40,
+            advanceClock: { debounceClock.advance(by: .milliseconds(5)) }
         )
         #expect(didReceiveCoalescedPush, "Rapid cold-level mutations should coalesce into a push")
 
@@ -150,7 +154,7 @@ final class PushPipelineIntegrationTests {
         let baselineCount = transport.pushCount
 
         // Act — mutate connection health
-        paneState.connection.health = .error
+        paneState.connection.setHealth(.error)
         let didReceiveMutationPush = await transport.waitForPushCount(
             atLeast: baselineCount + 1,
             timeout: .seconds(2)
@@ -199,7 +203,7 @@ final class PushPipelineIntegrationTests {
         #expect(transport.lastRevision == 1, "Initial observation should stamp revision 1")
 
         // Act — two sequential mutations
-        diffState.status = .loading
+        diffState.setStatus(.loading)
         let didReceiveFirstMutation = await transport.waitForPushCount(
             atLeast: 2,
             timeout: .seconds(2)
@@ -207,7 +211,7 @@ final class PushPipelineIntegrationTests {
         #expect(didReceiveFirstMutation, "Mutation to loading should emit revision 2")
         let revisionAfterFirstMutation = transport.lastRevision
 
-        diffState.status = .ready
+        diffState.setStatus(.ready)
         let didReceiveSecondMutation = await transport.waitForPushCount(
             atLeast: 3,
             timeout: .seconds(2)
@@ -256,8 +260,8 @@ final class PushPipelineIntegrationTests {
         #expect(transport.lastEpoch == 0, "Initial push should carry epoch 0")
 
         // Act — update epoch and trigger mutation
-        diffState.epoch = 42
-        diffState.status = .loading
+        diffState.setEpoch(42)
+        diffState.setStatus(.loading)
         let didReceiveMutationPush = await transport.waitForPushCount(
             atLeast: 2,
             timeout: .seconds(2)

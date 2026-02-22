@@ -5,7 +5,6 @@ import os.log
 /// Result builder for declaring push slices in a PushPlan.
 /// Accepts both `Slice` and `EntitySlice` via type-erased `AnyPushSlice`.
 ///
-/// Design doc section 6.7.
 @resultBuilder
 struct PushPlanBuilder<State: Observable & AnyObject> {
     static func buildExpression(
@@ -35,7 +34,6 @@ struct PushPlanBuilder<State: Observable & AnyObject> {
 /// Creates one observation task per slice. All slices share
 /// the same RevisionClock and EpochProvider.
 ///
-/// Design doc section 6.7.
 @MainActor
 final class PushPlan<State: Observable & AnyObject> {
     private let state: State

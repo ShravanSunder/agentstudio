@@ -28,25 +28,31 @@ Sources/AgentStudio/
 │   └── PaneCoordinator.swift         # Cross-feature sequencing (imports from all)
 │
 ├── Core/                             # Shared domain — pane system, models, stores
-│   ├── Models/                       # Layout, Tab, Pane, ViewDefinition, PaneView
-│   ├── Stores/                       # WorkspaceStore, SessionRuntime, WorkspacePersistor
-│   ├── Actions/                      # PaneAction (workspace mutations), ActionResolver, ActionValidator
-│   ├── PaneRuntime/                  # Shared pane-runtime domain (contracts + infra)
-│   │   ├── Contracts/                # PaneRuntime protocol, events, envelopes, RuntimeCommand
-│   │   ├── Registry/                 # RuntimeRegistry (paneId → runtime lookup)
-│   │   ├── Reduction/                # NotificationReducer, VisibilityTier types
-│   │   └── Replay/                   # EventReplayBuffer
+│   ├── Models/                       # Pane, Layout, Tab, ViewDefinition, PaneView
+│   ├── Stores/                       # WorkspaceStore, SessionRuntime
+│   ├── Actions/                      # PaneAction, ActionResolver, ActionValidator
 │
 ├── Features/
 │   ├── Terminal/                     # Everything Ghostty-specific
-│   │   ├── Ghostty/                  # GhosttyAdapter (C FFI bridge), SurfaceManager, SurfaceTypes
-│   │   ├── Runtime/                  # TerminalRuntime (PaneRuntime conformance)
-│   │   └── Views/                    # AgentStudioTerminalView, SurfaceErrorOverlay
+│   │   ├── Ghostty/                  # C API bridge, SurfaceManager, SurfaceTypes
+│   │   ├── Views/                    # AgentStudioTerminalView, SurfaceErrorOverlay
+│   │   └── GhosttyBridge.swift       # PaneBridge conformance for terminal surfaces
 │   │
-│   ├── Bridge/                       # React/WebView pane system (future)
-│   │   ├── Transport/                # JSON-RPC, WebSocket
-│   │   ├── State/                    # Push pipeline, slices
-│   │   └── Runtime/                  # Bridge runtime (PaneRuntime conformance, future)
+│   ├── Bridge/                       # React/WebView pane system
+│   │   ├── Transport/                # JSON-RPC transport and bootstrap wiring
+│   │   │   ├── RPCRouter.swift
+│   │   │   ├── RPCMethod.swift
+│   │   │   ├── RPCMessageHandler.swift
+│   │   │   ├── BridgeBootstrap.swift
+│   │   │   ├── BridgeSchemeHandler.swift
+│   │   │   └── Methods/              # AgentMethods, DiffMethods, ReviewMethods, SystemMethods
+│   │   ├── Runtime/                  # BridgePaneController runtime/lifecycle orchestration
+│   │   ├── State/                    # Domain state + push state transport
+│   │   │   ├── BridgeDomainState.swift
+│   │   │   ├── BridgePaneState.swift
+│   │   │   └── Push/                 # PushTransport, PushPlan, Slice, EntitySlice, RevisionClock
+│   │   ├── Views/                    # BridgePaneView, BridgePaneContentView
+│   │   └── BridgeNavigationDecider.swift
 │   │
 │   ├── CommandBar/                   # ⌘P command palette
 │   │   ├── CommandBarState.swift
@@ -94,7 +100,7 @@ To keep ownership decisions consistent, use these terms:
 - **Core slice**
   - Reusable, feature-agnostic domain and infrastructure.
   - Usually belongs in `Core/` or `Infrastructure/`.
-  - Examples: `WorkspaceStore`, `Tab`, `Layout`, `ActionResolver`, `ActionValidator`, `PaneRuntime` protocol, `RuntimeRegistry`, `NotificationReducer`.
+  - Examples: `WorkspaceStore`, `Tab`, `Layout`, `ActionResolver`, `ActionValidator`.
 
 - **Vertical slice**
   - A user-facing slice that traverses multiple layers and orchestrates behavior for a flow.
@@ -180,28 +186,6 @@ Q4: Is it a domain model, store, or service
 
 These are the resolved placements for components that could reasonably go multiple places:
 
-### PaneRuntime Contracts → `Core/PaneRuntime/`
-
-The pane runtime contracts (`PaneRuntime` protocol, `PaneRuntimeEvent`, `PaneEventEnvelope`, `RuntimeCommand`, `RuntimeCommandEnvelope`, `PaneMetadata`, `ActionPolicy`, per-kind event/command enums) are shared pane-system domain infrastructure.
-
-**Import test:** Imported by `Features/Terminal/` (TerminalRuntime conforms), `Features/Webview/` (BrowserRuntime will conform), `Features/Bridge/` (future), and `App/PaneCoordinator`. No feature-specific imports needed → `Core/`.
-
-**Deletion test:** Delete any single Feature, these types still compile. They define the contract surface that all pane types implement.
-
-**Change driver:** Changes when the pane system contract changes (new lifecycle state, new envelope field, new event kind) — not when terminal or browser behavior changes.
-
-**Multiplicity:** Every pane-type Feature uses these. Terminal, Webview, Bridge, Diff, Editor — all conform to the same protocols.
-
-**Why not `Core/Contracts/`:** A generic `Contracts/` folder would become a junk drawer. `Core/PaneRuntime/` scopes by domain — these contracts are specifically about the pane runtime system. Other future domain contract groups (e.g., workspace persistence contracts) would get their own domain-scoped folders.
-
-**Sub-folders by responsibility:**
-- `Contracts/` — protocols, envelopes, events, commands, policies
-- `Registry/` — `RuntimeRegistry` (paneId → runtime lookup)
-- `Reduction/` — `NotificationReducer`, `VisibilityTier` types
-- `Replay/` — `EventReplayBuffer`
-
-**Per-kind event enums in Core:** `GhosttyEvent`, `BrowserEvent`, `DiffEvent`, `EditorEvent` are cases in the `PaneRuntimeEvent` discriminated union. Since Core cannot import Features, these enums must live in `Core/PaneRuntime/Contracts/`. They are the domain event vocabulary; the adapters that produce them from platform APIs live in Features.
-
 ### PaneCoordinator → `App/`
 
 Today's cross-feature coordinator is `PaneCoordinator`. It sequences operations across `SurfaceManager` (Terminal feature), `WorkspaceStore` (Core), `SessionRuntime` (Core), and `BridgePaneController` (Bridge feature).
@@ -222,40 +206,11 @@ Manages `NSTabViewItems` containing pane views. Handles focus, layout, tab switc
 
 **Deletion test:** passes for any single feature. **Change driver:** tab management behavior changes, not new pane types.
 
-### TerminalRuntime → `Features/Terminal/Runtime/`
-
-Concrete `PaneRuntime` conformance for Ghostty terminal panes. Owns terminal-specific `@Observable` state, handles `TerminalCommand` dispatch, and produces `GhosttyEvent`s on the coordination stream.
-
-**Import test:** imports `Core/PaneRuntime/` contracts + `Features/Terminal/Ghostty/` adapter. Feature-specific → `Features/Terminal/`.
-
-**Change driver:** terminal-specific behavior changes.
-
-### GhosttyAdapter → `Features/Terminal/Ghostty/`
-
-Singleton FFI boundary. Translates C `ghostty_action_tag_e` callbacks into typed `GhosttyEvent` values and routes them to the correct `TerminalRuntime` instance by surface ID. Pure translation — no domain logic.
-
-**Import test:** imports `Core/PaneRuntime/Contracts/` (for `GhosttyEvent` type) + Ghostty C types. Feature-specific → `Features/Terminal/`.
-
-**Change driver:** Ghostty C API changes, new action tags.
-
 ### MainSplitViewController → `App/`
 
 Manages the top-level split between sidebar and content area. Feature-agnostic but app-lifecycle-coupled.
 
 **Change driver:** app layout changes, not domain changes.
-
-### Naming: PaneAction vs RuntimeCommand
-
-Two distinct action layers exist at different scopes. Both live in `Core/` but serve different purposes:
-
-| Layer | Type | Location | Scope |
-|-------|------|----------|-------|
-| **Workspace** | `PaneAction` | `Core/Actions/` | Tab/layout/arrangement structure mutations |
-| **Runtime** | `RuntimeCommand` | `Core/PaneRuntime/Contracts/` | Commands to individual pane runtimes |
-
-`PaneAction` (workspace): selectTab, closePane, insertPane, toggleDrawer → flows through ActionResolver → ActionValidator → PaneCoordinator → WorkspaceStore.
-
-`RuntimeCommand` (runtime): sendInput, navigate, approveHunk → flows through PaneCoordinator → RuntimeRegistry → `runtime.handleCommand(envelope)`.
 
 ---
 

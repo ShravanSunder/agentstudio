@@ -20,8 +20,11 @@ dir = "vendor/zmx"
 description = "Copy GhosttyKit.xcframework to Frameworks/"
 depends = ["build-ghostty"]
 run = """
+if [ -d "Frameworks/GhosttyKit.xcframework" ]; then
+  echo "GhosttyKit.xcframework already exists, skipping copy (use mise run clean to force)"
+  exit 0
+fi
 mkdir -p Frameworks
-rm -rf Frameworks/GhosttyKit.xcframework
 cp -R vendor/ghostty/macos/GhosttyKit.xcframework Frameworks/
 """
 
@@ -45,15 +48,20 @@ else
   echo "ERROR: shell-integration not found" && exit 1
 fi
 
-mkdir -p "$(dirname "$SHELL_INTEGRATION_DEV")"
-rm -rf "$SHELL_INTEGRATION_DEV"
-cp -R "$SRC" "$SHELL_INTEGRATION_DEV"
-echo "shell-integration -> $SHELL_INTEGRATION_DEV"
+if [ -d "$SHELL_INTEGRATION_DEV" ]; then
+  echo "shell-integration already exists, skipping copy (use mise run clean to force)"
+else
+  mkdir -p "$(dirname "$SHELL_INTEGRATION_DEV")"
+  cp -R "$SRC" "$SHELL_INTEGRATION_DEV"
+  echo "shell-integration -> $SHELL_INTEGRATION_DEV"
+fi
 
 # --- Terminfo (Ghostty entries only, preserve custom xterm-256color) ---
 TERMINFO_SRC="vendor/ghostty/zig-out/share/terminfo"
 TERMINFO_DEV="Sources/AgentStudio/Resources/terminfo"
-if [ -d "$TERMINFO_SRC" ]; then
+if [ -d "$TERMINFO_DEV/78" ] && [ -d "$TERMINFO_DEV/67" ]; then
+  echo "terminfo already exists, skipping copy (use mise run clean to force)"
+elif [ -d "$TERMINFO_SRC" ]; then
   mkdir -p "$TERMINFO_DEV/78" "$TERMINFO_DEV/67"
   [ -f "$TERMINFO_SRC/78/xterm-ghostty" ] && cp "$TERMINFO_SRC/78/xterm-ghostty" "$TERMINFO_DEV/78/"
   [ -f "$TERMINFO_SRC/67/ghostty" ] && cp "$TERMINFO_SRC/67/ghostty" "$TERMINFO_DEV/67/"
@@ -83,34 +91,95 @@ echo "--- architecture boundary checks ---"
 bash scripts/check-core-boundary-imports.sh
 """
 
+# --- Setup (first-time / after clean) ---
+
+[tasks.setup]
+description = "First-time setup: build zig deps, copy frameworks and resources"
+depends = ["copy-xcframework", "setup-dev-resources", "build-zmx"]
+run = "echo 'Setup complete. Run mise run build or mise run test.'"
+
 # --- Composite build tasks ---
 
 [tasks.build]
-description = "Full debug build (ghostty + zmx + swift)"
-depends = ["copy-xcframework", "setup-dev-resources", "build-zmx"]
-run = """
-swift build > /tmp/build-output.txt 2>&1 && echo "BUILD OK" || { echo "BUILD FAIL"; tail -20 /tmp/build-output.txt; exit 1; }
-"""
+description = "Debug build (run mise run setup first time)"
+run = "swift build"
 
 [tasks.build-release]
-description = "Full release build (ghostty + zmx + swift)"
-depends = ["copy-xcframework", "setup-dev-resources", "build-zmx"]
-run = """
-swift build -c release > /tmp/build-output.txt 2>&1 && echo "BUILD OK" || { echo "BUILD FAIL"; tail -20 /tmp/build-output.txt; exit 1; }
-"""
+description = "Release build (run mise run setup first time)"
+run = "swift build -c release"
 
 [tasks.test]
 description = "Run all tests"
-depends = ["copy-xcframework", "setup-dev-resources"]
+depends = ["build"]
 run = """
-swift test --build-path "${SWIFT_BUILD_DIR:-.build-agent-$RANDOM}"
+#!/usr/bin/env bash
+set -euo pipefail
+BUILD_PATH="${SWIFT_BUILD_DIR:-.build}"
+if [ "${SWIFT_TEST_PARALLEL:-1}" = "1" ]; then
+  SWIFT_TEST_WORKERS="${SWIFT_TEST_WORKERS:-$(( $(sysctl -n hw.ncpu) / 2 ))}"
+  if [ "$SWIFT_TEST_WORKERS" -lt 2 ]; then SWIFT_TEST_WORKERS=2; fi
+  if [ "$SWIFT_TEST_WORKERS" -gt 4 ]; then SWIFT_TEST_WORKERS=4; fi
+  AGENT_STUDIO_BENCHMARK_MODE=off swift test --parallel --num-workers "$SWIFT_TEST_WORKERS" --skip WebKitSerializedTests --skip E2ESerializedTests --build-path "$BUILD_PATH"
+else
+  AGENT_STUDIO_BENCHMARK_MODE=off swift test --build-path "$BUILD_PATH"
+fi
+echo "--- WebView serialized tests (serial) ---"
+run_webkit_suite_with_retry() {
+  local filter="$1"
+  local attempt=1
+  local max_attempts=3
+  local backoff_seconds=1
+
+  while [ "$attempt" -le "$max_attempts" ]; do
+    echo "[webkit] running $filter (attempt $attempt/$max_attempts)"
+    set +e
+    local output
+    output=$(AGENT_STUDIO_BENCHMARK_MODE=off swift test --filter "$filter" --build-path "$BUILD_PATH" 2>&1)
+    local status=$?
+    set -e
+    echo "$output"
+
+    if [ "$status" -eq 0 ]; then
+      return 0
+    fi
+
+    if echo "$output" | rg -q "unexpected signal code 5"; then
+      if [ "$attempt" -lt "$max_attempts" ]; then
+        echo "[webkit] signal 5 in $filter; retrying after ${backoff_seconds}s"
+        sleep "$backoff_seconds"
+        backoff_seconds=$((backoff_seconds * 2))
+        attempt=$((attempt + 1))
+        continue
+      fi
+    fi
+
+    return "$status"
+  done
+}
+
+run_webkit_suite_with_retry "WebKitSerializedTests/BridgePaneControllerTests"
+run_webkit_suite_with_retry "WebKitSerializedTests/BridgeSchemeHandlerSpikeTests"
+run_webkit_suite_with_retry "WebKitSerializedTests/BridgeTransportIntegrationTests"
+run_webkit_suite_with_retry "WebKitSerializedTests/BridgeWebKitSpikeTests"
+echo "--- E2E serialized tests (serial) ---"
+if [ "${SWIFT_TEST_INCLUDE_E2E:-1}" = "1" ]; then
+  AGENT_STUDIO_BENCHMARK_MODE=off swift test --filter E2ESerializedTests --build-path "$BUILD_PATH"
+else
+  echo "[test] skipping E2ESerializedTests (SWIFT_TEST_INCLUDE_E2E=${SWIFT_TEST_INCLUDE_E2E:-0})"
+fi
 """
 
-[tasks.test-ci]
-description = "Run full Swift test suite for CI with shared .build cache directory"
-depends = ["copy-xcframework", "setup-dev-resources"]
+[tasks.test-benchmark]
+description = "Run benchmark-only bridge push tests"
+depends = ["build"]
 run = """
-swift test --build-path .build
+#!/usr/bin/env bash
+set -euo pipefail
+BUILD_PATH="${SWIFT_BUILD_DIR:-.build}"
+export AGENT_STUDIO_BENCHMARK_MODE=benchmark
+
+swift test --build-path "$BUILD_PATH" --filter "PushBenchmarkSupportTests"
+swift test --build-path "$BUILD_PATH" --filter "PushPerformanceBenchmarkTests"
 """
 
 [tasks.clean]

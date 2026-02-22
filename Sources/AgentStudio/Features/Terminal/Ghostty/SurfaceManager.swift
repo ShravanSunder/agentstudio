@@ -61,13 +61,16 @@ final class SurfaceManager {
     // MARK: - Configuration
 
     /// How long to keep surfaces in undo stack (default 5 minutes)
-    var undoTTL: TimeInterval = 300
+    private let undoTTL: TimeInterval
 
     /// Maximum retry count for surface creation
-    var maxCreationRetries: Int = 2
+    private let maxCreationRetries: Int
 
     /// Health check interval in seconds
-    var healthCheckInterval: TimeInterval = 2.0
+    private let healthCheckInterval: TimeInterval
+
+    /// Clock for scheduling time-dependent operations (e.g. undo expiration).
+    private let clock: any Clock<Duration>
 
     // MARK: - Private State
 
@@ -99,7 +102,16 @@ final class SurfaceManager {
 
     // MARK: - Initialization
 
-    private init() {
+    private init(
+        undoTTL: TimeInterval = 300,
+        maxCreationRetries: Int = 2,
+        healthCheckInterval: TimeInterval = 2.0,
+        clock: any Clock<Duration> = ContinuousClock()
+    ) {
+        self.undoTTL = undoTTL
+        self.maxCreationRetries = maxCreationRetries
+        self.healthCheckInterval = healthCheckInterval
+        self.clock = clock
         (cwdChangeStream, cwdChangeContinuation) = AsyncStream.makeStream()
 
         let appSupport = FileManager.default.homeDirectoryForCurrentUser
@@ -805,7 +817,7 @@ extension SurfaceManager {
         Task { @MainActor in
             let delay = date.timeIntervalSinceNow
             if delay > 0 {
-                try? await Task.sleep(nanoseconds: UInt64(delay * 1_000_000_000))
+                try? await clock.sleep(for: .seconds(delay))
             }
 
             guard !Task.isCancelled else { return }
