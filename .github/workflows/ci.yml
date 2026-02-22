@@ -87,8 +87,28 @@ jobs:
 
       # --- Setup resources + build + test (delegated to mise) ---
 
-      - name: Setup (copy xcframework + dev resources)
-        run: mise run setup
+      - name: Copy XCFramework
+        run: |
+          mkdir -p Frameworks
+          if [ ! -d "Frameworks/GhosttyKit.xcframework" ]; then
+            cp -R vendor/ghostty/macos/GhosttyKit.xcframework Frameworks/
+          fi
+
+      - name: Setup dev resources
+        run: |
+          SHELL_SRC="vendor/ghostty/zig-out/share/ghostty/shell-integration"
+          SHELL_DST="Sources/AgentStudio/Resources/ghostty/shell-integration"
+          if [ ! -d "$SHELL_DST" ]; then
+            mkdir -p "$(dirname "$SHELL_DST")"
+            cp -R "$SHELL_SRC" "$SHELL_DST"
+          fi
+          TERMINFO_SRC="vendor/ghostty/zig-out/share/terminfo"
+          TERMINFO_DST="Sources/AgentStudio/Resources/terminfo"
+          if [ ! -d "$TERMINFO_DST/78" ]; then
+            mkdir -p "$TERMINFO_DST/78" "$TERMINFO_DST/67"
+            [ -f "$TERMINFO_SRC/78/xterm-ghostty" ] && cp "$TERMINFO_SRC/78/xterm-ghostty" "$TERMINFO_DST/78/"
+            [ -f "$TERMINFO_SRC/67/ghostty" ] && cp "$TERMINFO_SRC/67/ghostty" "$TERMINFO_DST/67/"
+          fi
 
       - name: Cache Swift build
         uses: actions/cache@v4
