@@ -28,7 +28,7 @@ Sources/AgentStudio/
 │   └── PaneCoordinator.swift         # Cross-feature sequencing (imports from all)
 │
 ├── Core/                             # Shared domain — pane system, models, stores
-│   ├── Models/                       # TerminalSession, Layout, Tab, ViewDefinition, PaneView
+│   ├── Models/                       # Pane, Layout, Tab, ViewDefinition, PaneView
 │   ├── Stores/                       # WorkspaceStore, SessionRuntime
 │   ├── Actions/                      # PaneAction, ActionResolver, ActionValidator
 │

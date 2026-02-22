@@ -944,6 +944,10 @@ struct BackgroundPrewarmAttachPolicy: Sendable {
 
 On app launch, the restore flow reconciles persisted workspace state against live zmx daemons before creating any Ghostty surfaces. This prevents stale sessions from consuming resources and ensures orphaned zmx processes are cleaned up.
 
+`SessionId` in this contract means the zmx daemon session name (derived from
+`PaneId` + stable keys). `PaneId` remains the primary runtime identity. See
+[Session Lifecycle — Identity Contract (Canonical)](session_lifecycle.md#identity-contract-canonical).
+
 #### Reconcile Sequence
 
 ```swift
@@ -2411,7 +2415,8 @@ The current codebase uses `NotificationCenter` and `DispatchQueue.main.async` fo
 1. **LUNA-327 (this branch):** `@Observable` migration, `private(set)` stores, `PaneCoordinator` consolidation. Foundation for the event bus. `DispatchQueue.main.async` → `MainActor` primitives where touched.
 2. **LUNA-342 (contract freeze):** Lock contract shapes. No implementation, but every contract is testable against a mock.
 3. **LUNA-325 (implementation):** Build `GhosttyAdapter`, `TerminalRuntime`, `RuntimeRegistry`, `NotificationReducer`. Replace `NotificationCenter`-based dispatch with typed event stream. This is the primary migration ticket.
-4. **LUNA-295 (attach orchestration):** Build attach readiness policies, visibility-tier scheduling, restart reconcile. Consumes the event stream infrastructure from LUNA-325.
+4. **LUNA-295 (attach orchestration):** Build attach readiness policies and visibility-tier scheduling. Consumes the event stream infrastructure from LUNA-325.
+5. **LUNA-324 (restart reconcile):** Implement startup reconcile classification, orphan TTL cleanup, and post-restore health monitoring via Contract 5b.
 
 ### Migration Invariant
 
@@ -2572,6 +2577,7 @@ This architecture was reviewed by four independent analyses:
 | **LUNA-326** (Native Scrollbar) | Consumes the terminal runtime contract. Scrollbar behavior binds to `TerminalRuntime.scrollbarState` via @Observable. Does not invent new transport. | None (consumer only) |
 | **LUNA-327** (State Ownership + Observable Migration) | The current branch. Establishes @Observable store pattern, PaneCoordinator consolidation, `private(set)` unidirectional flow, and `DispatchQueue.main.async` → `MainActor` migration. | D1, D5, Swift 6 invariants, Migration section |
 | **LUNA-342** (Contract Freeze) | Freeze gate — all design decisions, contracts, and invariants locked. No implementation. | All invariants (A1-A15), Swift 6 invariants (1-9), envelope/source shape |
+| **LUNA-343** (Post-Freeze Consistency + PaneCoordinator Hardening) | Follow-up validation after freeze. Resolves ticket/doc drift, validates dependency sequencing, and hardens `PaneCoordinator` tests/organization before broad rollout. | No new contracts. Validates Contract 5b ownership/policy alignment and migration sequencing assumptions. |
 
 ---
 

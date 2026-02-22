@@ -10,12 +10,12 @@ State is distributed across independent `@Observable` stores (Jotai-style atomic
 
 ### 1.1 Architecture Principles
 
-1. **Session as primary entity** — A `TerminalSession` exists independently of layout, view, or surface. It can move between tabs, views, and layout positions while keeping the same identity.
+1. **Pane as primary entity** — A `Pane` exists independently of layout, view, or surface. It can move between tabs, views, and layout positions while keeping the same identity.
 2. **Atomic stores (Jotai-style)** — Each domain has its own `@Observable` store. `WorkspaceStore` owns workspace structure (tabs, layouts, views). `SurfaceManager` owns Ghostty surfaces. `SessionRuntime` owns backends. No god-store — each store has one domain, one reason to change, testable in isolation.
 3. **Unidirectional flow (Valtio-style)** — All store state is `private(set)`. External code reads freely, mutates only through store methods. No action enums, no reducers — the compiler enforces the boundary.
 4. **Coordinator for cross-store sequencing** — A coordinator sequences operations across multiple stores for a single user action. Owns no state, contains no domain logic. If a coordinator method contains an `if` that decides what to do with domain data, that logic belongs in a store.
-5. **Explicit layout model** — The split tree is a structured, queryable `Layout` value type. Leaves reference sessions by ID. No `NSView` references, no opaque blobs.
-6. **View model** — Multiple named `ViewDefinition`s organize sessions into tab arrangements. Switching views reattaches surfaces without recreation.
+5. **Explicit layout model** — The split tree is a structured, queryable `Layout` value type. Leaves reference panes by ID. No `NSView` references, no opaque blobs.
+6. **View model** — Multiple named `ViewDefinition`s organize panes into tab arrangements. Switching views reattaches surfaces without recreation.
 7. **Surface independence** — Ghostty surfaces are ephemeral runtime resources. The model layer never holds `NSView` references.
 8. **Provider abstraction** — zmx is a headless restore backend. The model carries provider metadata without coupling to zmx specifics.
 9. **AsyncStream over Combine/NotificationCenter** — All new event plumbing uses `AsyncStream` + `swift-async-algorithms`. Existing Combine/NotificationCenter migrated incrementally.
@@ -30,8 +30,8 @@ State is distributed across independent `@Observable` stores (Jotai-style atomic
 │   Persisted State            Runtime                   UI Bridge     │
 │  ┌──────────────┐    ┌───────────────┐    ┌──────────────────────┐   │
 │  │WorkspaceStore│    │SessionRuntime │    │    ViewRegistry       │   │
-│  │ repos        │    │ statuses      │    │ sessionId → NSView   │   │
-│  │ sessions     │◄───│ backends      │    │ renderTree()         │   │
+│  │ repos        │    │ statuses      │    │ paneId → NSView   │   │
+│  │ panes        │◄───│ backends      │    │ renderTree()         │   │
 │  │ views        │    └───────┬───────┘    └──────────┬───────────┘   │
 │  │ activeViewId │            │                       │               │
 │  └──────┬───────┘            │                       │               │
@@ -62,23 +62,23 @@ State is distributed across independent `@Observable` stores (Jotai-style atomic
 ```mermaid
 erDiagram
     WorkspaceStore ||--o{ Repo : "repos[]"
-    WorkspaceStore ||--o{ TerminalSession : "sessions[]"
+    WorkspaceStore ||--o{ Pane : "panes[]"
     WorkspaceStore ||--o{ ViewDefinition : "views[]"
     WorkspaceStore ||--o| ViewDefinition : "activeViewId"
 
     Repo ||--o{ Worktree : "worktrees[]"
 
-    TerminalSession }o--o| Worktree : "source.worktreeId"
-    TerminalSession }o--o| Repo : "source.repoId"
+    Pane }o--o| Worktree : "source.worktreeId"
+    Pane }o--o| Repo : "source.repoId"
 
     ViewDefinition ||--o{ Tab : "tabs[]"
     ViewDefinition ||--o| Tab : "activeTabId"
 
     Tab ||--|| Layout : "layout"
-    Tab ||--o| TerminalSession : "activeSessionId"
+    Tab ||--o| Pane : "activePaneId"
 
     Layout ||--o| LayoutNode : "root"
-    LayoutNode ||--o| TerminalSession : "leaf → sessionId"
+    LayoutNode ||--o| Pane : "leaf → paneId"
     LayoutNode ||--o{ LayoutNode : "split → left, right"
 ```
 
@@ -110,33 +110,31 @@ erDiagram
 
 > **File:** `Core/Models/Repo.swift`, `Core/Models/Worktree.swift`
 
-### 2.3 TerminalSession
+### 2.3 Pane
 
-The **primary entity**. Stable identity for a terminal, independent of layout position, view, or surface. The `id` (UUID) is used across every layer: `WorkspaceStore`, `Layout`, `ViewRegistry`, `SurfaceManager`, `SessionRuntime`.
+The **primary entity**. Stable identity for a pane, independent of layout position, view, or surface. The `id` (UUID) is used across every layer: `WorkspaceStore`, `Layout`, `ViewRegistry`, `SurfaceManager`, `SessionRuntime`.
 
 | Field | Type | Notes |
 |-------|------|-------|
 | `id` | `UUID` | Immutable primary key, never changes |
-| `source` | `TerminalSource` | What this terminal is for |
-| `title` | `String` | Display title (updated from shell) |
-| `agent` | `AgentType?` | AI agent running in this terminal |
-| `provider` | `SessionProvider` | Backend type |
-| `lifetime` | `SessionLifetime` | Persistence behavior |
+| `content` | `PaneContent` | Pane payload (`.terminal`, `.webview`, `.codeViewer`, `.bridgePanel`) |
+| `metadata` | `PaneMetadata` | Source/title/cwd/agent/tags context |
 | `residency` | `SessionResidency` | Lifecycle position |
+| `kind` | `PaneKind` | `.layout(drawer)` or `.drawerChild(parentPaneId)` |
 
-**`TerminalSource`** — What the terminal is for:
-- `.worktree(worktreeId: UUID, repoId: UUID)` — Terminal for a specific worktree. References are **metadata, not foreign keys**: the session survives worktree removal; UI shows fallback text.
-- `.floating(workingDirectory: URL?, title: String?)` — Standalone terminal not tied to a worktree.
+**`TerminalSource`** — What a pane is for:
+- `.worktree(worktreeId: UUID, repoId: UUID)` — Pane for a specific worktree. References are **metadata, not foreign keys**: the pane survives worktree removal; UI shows fallback text.
+- `.floating(workingDirectory: URL?, title: String?)` — Standalone pane not tied to a worktree.
 
 **`SessionProvider`** — Backend type:
 - `.ghostty` — Direct Ghostty surface, no session multiplexer
 - `.zmx` — Headless zmx backend for persistence/restore across app restarts
 
-**`SessionLifetime`** — Whether the session survives app restart:
-- `.persistent` — Saved to disk and restored on launch. Temporary sessions are filtered out during save and restore.
+**`SessionLifetime`** — Whether a terminal pane survives app restart:
+- `.persistent` — Saved to disk and restored on launch. Temporary panes are filtered out during save and restore.
 - `.temporary` — Ephemeral, never persisted.
 
-**`SessionResidency`** — Where the session currently lives in the app lifecycle. Prevents false-positive orphan detection:
+**`SessionResidency`** — Where the pane currently lives in the app lifecycle. Prevents false-positive orphan detection:
 - `.active` — In a layout, view exists, fully visible
 - `.pendingUndo(expiresAt: Date)` — Closed but in the undo window. Not an orphan.
 - `.backgrounded` — Alive but not visible in the current view. Not an orphan.
@@ -145,7 +143,7 @@ The **primary entity**. Stable identity for a terminal, independent of layout po
 
 ### 2.4 ViewDefinition & ViewKind
 
-A **named arrangement** of sessions into tabs. Multiple views can reference the same sessions.
+A **named arrangement** of panes into tabs. Multiple views can reference the same panes.
 
 | Field | Type | Notes |
 |-------|------|-------|
@@ -154,7 +152,7 @@ A **named arrangement** of sessions into tabs. Multiple views can reference the 
 | `kind` | `ViewKind` | Lifecycle/behavior type |
 | `tabs` | `[Tab]` | Ordered tab array (position = index) |
 | `activeTabId` | `UUID?` | Currently focused tab |
-| `allSessionIds` | `[UUID]` | Derived: all session IDs across all tabs |
+| `allPaneIds` | `[UUID]` | Derived: all pane IDs across all tabs |
 
 **`ViewKind`** — Determines lifecycle and behavior:
 - `.main` — Default view, always exists, cannot be deleted
@@ -163,34 +161,34 @@ A **named arrangement** of sessions into tabs. Multiple views can reference the 
 - `.dynamic(rule: DynamicViewRule)` — Rule-based, resolved at runtime
 
 **`DynamicViewRule`** — Rules for dynamic views:
-- `.byRepo(repoId: UUID)` — All sessions for a repo
-- `.byAgent(AgentType)` — All sessions running a specific agent
+- `.byRepo(repoId: UUID)` — All panes for a repo
+- `.byAgent(AgentType)` — All panes running a specific agent
 - `.custom(name: String)` — Future: user-defined filter
 
 > **File:** `Core/Models/DynamicView.swift`
 
 ### 2.5 Tab
 
-A tab within a view. Contains a layout and tracks which session is focused. Order is implicit — array position in the parent `ViewDefinition.tabs`.
+A tab within a view. Contains a layout and tracks which pane is focused. Order is implicit — array position in the parent `ViewDefinition.tabs`.
 
 | Field | Type | Notes |
 |-------|------|-------|
 | `id` | `UUID` | Primary key |
-| `layout` | `Layout` | Split tree of session references |
-| `activeSessionId` | `UUID?` | Focused session within this tab |
-| `sessionIds` | `[UUID]` | Derived: all leaf session IDs (left-to-right) |
+| `layout` | `Layout` | Split tree of pane references |
+| `activePaneId` | `UUID?` | Focused pane within this tab |
+| `paneIds` | `[UUID]` | Derived: all leaf pane IDs (left-to-right) |
 | `isSplit` | `Bool` | Derived: true if layout root is a split |
 
 > **File:** `Core/Models/Tab.swift`
 
 ### 2.6 Layout (Pure Value Type)
 
-An immutable binary split tree. Leaves reference sessions by ID. All operations return **new** `Layout` instances — no in-place mutation.
+An immutable binary split tree. Leaves reference panes by ID. All operations return **new** `Layout` instances — no in-place mutation.
 
 ```
 Layout
 └── root: Node?
-    ├── .leaf(sessionId: UUID)
+    ├── .leaf(paneId: UUID)
     └── .split(Split)
         ├── id: UUID
         ├── direction: .horizontal | .vertical
@@ -203,8 +201,8 @@ Layout
 
 | Operation | Description |
 |-----------|-------------|
-| `inserting(sessionId:at:direction:position:)` | Insert a session adjacent to a target |
-| `removing(sessionId:)` | Remove a session; collapses single-child splits. Returns `nil` if layout becomes empty |
+| `inserting(paneId:at:direction:position:)` | Insert a pane adjacent to a target |
+| `removing(paneId:)` | Remove a pane; collapses single-child splits. Returns `nil` if layout becomes empty |
 | `resizing(splitId:ratio:)` | Update a split's ratio |
 | `equalized()` | Set all split ratios to 0.5 |
 
@@ -212,25 +210,25 @@ Layout
 
 | Method | Description |
 |--------|-------------|
-| `neighbor(of:direction:)` | Find the session in the given direction (left/right/up/down) |
-| `next(after:)` | Next session in left-to-right order (wraps) |
-| `previous(before:)` | Previous session in left-to-right order (wraps) |
+| `neighbor(of:direction:)` | Find the pane in the given direction (left/right/up/down) |
+| `next(after:)` | Next pane in left-to-right order (wraps) |
+| `previous(before:)` | Previous pane in left-to-right order (wraps) |
 
 > **File:** `Core/Models/Layout.swift`
 
 ### 2.7 Templates
 
-Templates define the initial session layout when opening a worktree. Not yet wired into the main flow (Phase B6, future).
+Templates define the initial pane layout when opening a worktree. Not yet wired into the main flow (Phase B6, future).
 
-**`TerminalTemplate`** — Blueprint for a single session:
+**`TerminalTemplate`** — Blueprint for a single terminal pane:
 - `title`, `agent`, `provider`, `relativeWorkingDir`
-- `instantiate(worktreeId:repoId:)` → `TerminalSession`
+- `instantiate(worktreeId:repoId:)` → `Pane`
 
-**`WorktreeTemplate`** — Blueprint for a multi-session tab:
+**`WorktreeTemplate`** — Blueprint for a multi-pane tab:
 - `terminals: [TerminalTemplate]`, `createPolicy`, `splitDirection`
-- `instantiate(worktreeId:repoId:)` → `([TerminalSession], Tab)`
+- `instantiate(worktreeId:repoId:)` → `([Pane], Tab)`
 
-**`CreatePolicy`** — When templates auto-create sessions:
+**`CreatePolicy`** — When templates auto-create panes:
 - `.onCreate` — When the worktree is first opened
 - `.onActivate` — When the worktree view is activated
 - `.manual` — Only on explicit user action
@@ -247,7 +245,7 @@ Templates define the initial session layout when opening a worktree. Not yet wir
 AppDelegate (creates all services in dependency order)
 ├── WorkspaceStore           ← workspace structure (atomic store)
 ├── SessionRuntime           ← runtime status tracking
-├── ViewRegistry             ← sessionId → NSView mapping
+├── ViewRegistry             ← paneId → NSView mapping
 ├── PaneCoordinator          ← action dispatch + model↔view↔surface orchestration
 ├── TabBarAdapter            ← derived display state
 ├── CommandBarPanelController ← command bar lifecycle (⌘P)
@@ -269,29 +267,29 @@ Singletons:
 Owns all workspace structure state. `@Observable`, `@MainActor`. All properties are `private(set)` — external code mutates only through methods.
 
 **Observable state** (drives SwiftUI via `@Observable` property tracking):
-- `repos: [Repo]`, `sessions: [TerminalSession]`, `views: [ViewDefinition]`, `activeViewId: UUID?`
+- `repos: [Repo]`, `panes: [UUID: Pane]`, `tabs: [Tab]`, `activeTabId: UUID?`
 - Transient UI: `draggingTabId`, `dropTargetIndex`, `tabFrames`
 
 **Mutation API categories:**
 
 | Category | Methods |
 |----------|---------|
-| Session | `createSession()`, `removeSession()`, `updateSessionTitle()`, `updateSessionAgent()`, `setResidency()` |
+| Pane | `createPane()`, `removePane()`, `updatePaneTitle()`, `updatePaneAgent()`, `setResidency()` |
 | View | `switchView()`, `createView()`, `deleteView()`, `saveCurrentViewAs()` |
 | Tab | `appendTab()`, `removeTab()`, `insertTab()`, `moveTab()`, `setActiveTab()` |
 | Layout | `insertPane()`, `removePaneFromLayout()`, `resizePane()`, `equalizePanes()`, `setActivePane()` |
-| Compound | `breakUpTab()`, `extractSession()`, `mergeTab()` |
+| Compound | `breakUpTab()`, `mergeTab()` |
 | Repo | `addRepo()`, `removeRepo()`, `updateRepoWorktrees()` |
 
 **Derived state** (computed, not stored):
-- `activeView`, `activeTabs`, `activeTabId`, `activeSessionIds`
-- `isWorktreeActive()`, `sessionCount(for:)`, `sessions(for:)`
+- `activeView`, `activeTabs`, `activeTabId`, `activePaneIds`
+- `activeTab`, `activePaneIds`, `activePane`
 
 > **File:** `Core/Stores/WorkspaceStore.swift`
 
 ### 3.3 SessionRuntime
 
-Manages live session state. Does **not** own sessions — reads the session list from `WorkspaceStore`. Tracks runtime status per session, schedules health checks, coordinates backends. `@Observable`, `@MainActor`.
+Manages live runtime state. Does **not** own panes — reads pane records from `WorkspaceStore`. Tracks runtime status per pane, schedules health checks, and coordinates backends. `@Observable`, `@MainActor`.
 
 **Runtime status:** `SessionRuntimeStatus` — `.initializing`, `.running`, `.exited`, `.unhealthy`
 
@@ -299,9 +297,9 @@ Manages live session state. Does **not** own sessions — reads the session list
 
 **Key operations:**
 - `registerBackend()` — Register a backend (e.g., `ZmxBackend`) for a provider type
-- `syncWithStore()` — Align tracked sessions with store's session list
+- `syncWithStore()` — Align tracked pane statuses with store panes
 - `startHealthChecks()` / `runHealthCheck()` — Periodic backend liveness checks
-- `startSession()` / `restoreSession()` / `terminateSession()` — Backend lifecycle
+- `startSession(for:)` / `restoreSession(for:)` / `terminateSession(for:)` — Backend lifecycle for terminal panes
 
 > **Note:** A full `SessionStatus` state machine (7 states: unknown, verifying, alive, dead, missing, recovering, failed) exists in `Models/StateMachine/SessionStatus.swift` for future zmx health integration but is not yet wired into `SessionRuntime`. See [Session Lifecycle](session_lifecycle.md) for details.
 >
@@ -311,7 +309,7 @@ Manages live session state. Does **not** own sessions — reads the session list
 
 ### 3.4 ViewRegistry
 
-Maps session IDs to live `AgentStudioTerminalView` instances. Runtime-only (not persisted). `@MainActor`.
+Maps pane IDs to live `AgentStudioTerminalView` instances. Runtime-only (not persisted). `@MainActor`.
 
 - `register(view, paneId)` / `unregister(paneId)` — View lifecycle
 - `view(for: paneId)` — Lookup
@@ -326,7 +324,7 @@ There is no standalone `ViewResolver` type in code; this behavior is owned by th
 `App/Panes` layer.
 
 - `PaneTabViewController` observes app state and renders the active view arrangement.
-- `ViewRegistry` provides session-to-view mapping used by split rendering.
+- `ViewRegistry` provides pane-to-view mapping used by split rendering.
 
 > **File:** `App/Panes/ViewRegistry.swift`
 
@@ -342,7 +340,7 @@ The `PaneCoordinator` is the canonical orchestration boundary for action executi
 
 **Key operations:**
 - `execute(_ action: PaneAction)` — dispatch all pane actions (selectTab, closeTab, closePane, insertPane, extractPaneToTab, resizePane, equalizePanes, mergeTab, breakUpTab, focusPane, repair)
-- `openTerminal(for:in:)` — Create session + surface + tab. Rolls back session if surface creation fails.
+- `openTerminal(for:in:)` — Create pane + surface + tab. Rolls back pane if surface creation fails.
 - `openWebview(url:)` — Open a webview pane and append it as a new tab
 - `undoCloseTab()` — pop `WorkspaceStore.CloseEntry` from undo stack, restore to store, reattach surfaces in reverse order
 - `createView(for:worktree:repo:)` — Create surface → attach → create `AgentStudioTerminalView` → register in `ViewRegistry`
@@ -354,7 +352,7 @@ The `PaneCoordinator` is the canonical orchestration boundary for action executi
 **Undo stack:**
 - `undoStack: [WorkspaceStore.CloseEntry]` — in-memory LIFO, max 10 entries
 - `TabCloseSnapshot` captures: `tab`, `panes`, `tabIndex`
-- Oldest entries GC'd when stack exceeds limit; orphaned sessions cleaned up
+- Oldest entries GC'd when stack exceeds limit; orphaned panes cleaned up
 
 > **File:** `App/PaneCoordinator.swift`
 
@@ -379,7 +377,7 @@ Owned by `WorkspaceStore` as a `private let` member. Pure persistence I/O. No bu
 Singleton managing Ghostty surface lifecycle. Detailed in [Surface Architecture](ghostty_surface_architecture.md).
 
 Key points relevant here:
-- Surfaces are keyed by their own UUID, joined to sessions via `SurfaceMetadata.sessionId`
+- Surfaces are keyed by their own UUID, joined to panes via `SurfaceMetadata.paneId`
 - Three collections: `activeSurfaces`, `hiddenSurfaces`, `undoStack`
 - `attach()` / `detach(reason:)` / `undoClose()` / `destroy()`
 
@@ -456,11 +454,11 @@ sequenceDiagram
 
     alt Surface creation needed
         PC->>SM: createSurface() + attach()
-        PC->>VR: register(view, sessionId)
+        PC->>VR: register(view, paneId)
     end
 
     alt Surface teardown needed
-        PC->>VR: unregister(sessionId)
+        PC->>VR: unregister(paneId)
         PC->>SM: detach(surfaceId, reason)
     end
 ```
@@ -480,16 +478,16 @@ sequenceDiagram
     AD->>Store: restore()
     Store->>P: load()
     P-->>Store: PersistableState (JSON)
-    Store->>Store: filter temporary sessions
+    Store->>Store: filter temporary panes
     Store->>Store: prune dangling worktree refs
-    Store->>Store: prune invalid layout session IDs
+    Store->>Store: prune invalid layout pane IDs
     Store->>Store: ensureMainView()
 
     AD->>Coord: restoreAllViews()
-    loop each session in active view
+    loop each pane in active view
         Coord->>SM: createSurface() + attach()
-        Coord->>VR: register(view, sessionId)
-        Coord->>RT: markRunning(sessionId)
+        Coord->>VR: register(view, paneId)
+        Coord->>RT: markRunning(paneId)
     end
 ```
 
@@ -509,7 +507,7 @@ When switching from View A to View B:
    - `store.snapshotForClose()` → `TabCloseSnapshot` (tab + panes + tabIndex)
    - Push snapshot to `undoStack` (max 10)
    - `coordinator.teardownView()` for each pane → `SurfaceManager.detach(.close)` (surfaces enter undo stack with TTL)
-   - `store.removeTab(tabId)` — sessions stay in `store.sessions`
+   - `store.removeTab(tabId)` — panes remain in `store.panes` until explicit cleanup
    - GC oldest undo entries if stack > 10
 
 2. **Undo** (`Cmd+Shift+T`): `PaneCoordinator.undoCloseTab()`
@@ -566,9 +564,9 @@ All mutations call `markDirty()`, which:
 ### 5.2 Save Filtering
 
 Before writing to disk:
-- Temporary sessions (`lifetime == .temporary`) are **excluded** from the persisted copy
-- View layouts are pruned: any session ID not in the persisted session list is removed from layout nodes
-- Empty tabs (all sessions pruned) are removed
+- Temporary panes (`lifetime == .temporary`) are **excluded** from the persisted copy
+- View layouts are pruned: any pane ID not in the persisted pane set is removed from layout nodes
+- Empty tabs (all panes pruned) are removed
 - `activeTabId` pointers are fixed if they reference removed tabs
 - The in-memory `views` state is **not** mutated — only the serialized output is cleaned
 
@@ -576,9 +574,9 @@ Before writing to disk:
 
 On app launch:
 1. Load JSON from disk
-2. Filter out `.temporary` sessions
-3. Remove sessions whose worktree no longer exists on disk
-4. Prune dangling session IDs from all view layouts
+2. Filter out `.temporary` panes
+3. Remove panes whose worktree no longer exists on disk
+4. Prune dangling pane IDs from all view layouts
 5. Remove empty tabs, fix `activeTabId` pointers
 6. Ensure main view exists (create if missing)
 
@@ -588,16 +586,16 @@ On app launch:
 
 These rules are enforced by `WorkspaceStore` and model types at all times:
 
-1. **Session ID uniqueness** — Every `TerminalSession.id` is unique within the workspace
-2. **Tab minimum** — A `Tab` always has at least one session in its layout. Removing the last session closes the tab.
-3. **Active session validity** — `Tab.activeSessionId` references a session in that tab's layout, or is nil during construction
+1. **Pane ID uniqueness** — Every `Pane.id` is unique within the workspace
+2. **Tab minimum** — A `Tab` always has at least one pane in its layout. Removing the last pane closes the tab.
+3. **Active pane validity** — `Tab.activePaneId` references a pane in that tab's layout, or is nil during construction
 4. **Active tab validity** — `ViewDefinition.activeTabId` references a tab in that view, or is nil when no tabs exist
 5. **Active view validity** — `activeViewId` references a view in `views`, or is nil
 6. **Main view always exists** — `views` always contains exactly one view with `kind == .main`. It cannot be deleted.
-7. **Layout tree structure** — Every split has exactly two children. Leaves contain valid session IDs.
+7. **Layout tree structure** — Every split has exactly two children. Leaves contain valid pane IDs.
 8. **Split ratios clamped** — `0.1 <= ratio <= 0.9`
-9. **Source is metadata** — `TerminalSource.worktree(id, repoId)` may reference a worktree that no longer exists. The session survives; UI shows fallback text.
-10. **Session independence** — Removing a session from a layout does NOT remove it from `sessions[]`. Sessions are explicitly removed only on user close or GC.
+9. **Source is metadata** — `TerminalSource.worktree(id, repoId)` may reference a worktree that no longer exists. The pane survives; UI shows fallback text.
+10. **Pane independence** — Removing a pane from a layout does NOT remove it from `panes`. Panes are explicitly removed only on user close or GC.
 11. **No NSView in model** — No model type holds `NSView` references
 12. **Persistence safety** — `disableSuddenTermination()` while dirty; `flush()` on quit
 
@@ -612,7 +610,7 @@ These rules are enforced by `WorkspaceStore` and model types at all times:
 | `Core/Models/SessionLifetime.swift` | `.persistent` / `.temporary` |
 | `Core/Models/SessionResidency.swift` | `.active` / `.pendingUndo` / `.backgrounded` |
 | `Core/Models/Layout.swift` | Pure value-type split tree, `FocusDirection` |
-| `Core/Models/Tab.swift` | Tab with layout and active session |
+| `Core/Models/Tab.swift` | Tab with layout and active pane |
 | `Core/Models/DynamicView.swift` | `DynamicView`, `ViewKind`, `DynamicViewRule` |
 | `Core/Models/Repo.swift` | `Repo` entity |
 | `Core/Models/Worktree.swift` | `Worktree`, `WorktreeStatus`, `AgentType` |
@@ -624,7 +622,7 @@ These rules are enforced by `WorkspaceStore` and model types at all times:
 | `Core/Stores/WorkspaceStore.swift` | Atomic store for workspace structure (tabs, layouts, views) |
 | `Core/Stores/WorkspacePersistor.swift` | JSON persistence I/O |
 | `Core/Stores/SessionRuntime.swift` | Runtime status tracking and health checks |
-| `App/Panes/ViewRegistry.swift` | Session ID → NSView mapping |
+| `App/Panes/ViewRegistry.swift` | Pane ID → NSView mapping |
 | `Core/Stores/ZmxBackend.swift` | zmx CLI wrapper — session create/destroy/health |
 | **Infrastructure** | |
 | `Infrastructure/WorktrunkService.swift` | Git worktree CLI wrapper |
@@ -656,6 +654,6 @@ These rules are enforced by `WorkspaceStore` and model types at all times:
 ## 8. Cross-References
 
 - **[Architecture Overview](README.md)** — System overview and document index
-- **[Session Lifecycle](session_lifecycle.md)** — Session creation, close, undo, restore flows; runtime status; zmx backend
+- **[Session Lifecycle](session_lifecycle.md)** — Pane identity contract, creation, close, undo, restore flows; runtime status; zmx backend
 - **[Surface Architecture](ghostty_surface_architecture.md)** — Ghostty surface ownership, state machine, health monitoring, crash isolation
 - **[App Architecture](appkit_swiftui_architecture.md)** — AppKit+SwiftUI hybrid patterns, window/controller hierarchy
