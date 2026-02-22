@@ -135,9 +135,9 @@ extension WebKitSerializedTests {
 
             try await WebPageTestHarness.withManagedPage(
                 WebPage(
-                configuration: config,
-                navigationDecider: WebviewNavigationDecider(),
-                dialogPresenter: WebviewDialogHandler()
+                    configuration: config,
+                    navigationDecider: WebviewNavigationDecider(),
+                    dialogPresenter: WebviewDialogHandler()
                 )
             ) { page in
                 _ = page.load(URL(string: "agentstudio://app/blank.html")!)
@@ -216,9 +216,9 @@ extension WebKitSerializedTests {
 
             try await WebPageTestHarness.withManagedPage(
                 WebPage(
-                configuration: config,
-                navigationDecider: WebviewNavigationDecider(),
-                dialogPresenter: WebviewDialogHandler()
+                    configuration: config,
+                    navigationDecider: WebviewNavigationDecider(),
+                    dialogPresenter: WebviewDialogHandler()
                 )
             ) { page in
                 // Act -- load page to trigger user script injection
@@ -274,9 +274,9 @@ extension WebKitSerializedTests {
 
             try await WebPageTestHarness.withManagedPage(
                 WebPage(
-                configuration: config,
-                navigationDecider: WebviewNavigationDecider(),
-                dialogPresenter: WebviewDialogHandler()
+                    configuration: config,
+                    navigationDecider: WebviewNavigationDecider(),
+                    dialogPresenter: WebviewDialogHandler()
                 )
             ) { page in
                 _ = page.load(URL(string: "about:blank")!)
@@ -291,7 +291,8 @@ extension WebKitSerializedTests {
                 #expect(sawMessage, "Expected bridge-world handler message")
 
                 // Assert -- handler received the message
-                #expect(handler.receivedMessages.count == 1, "Message posted from bridge world should reach the handler")
+                #expect(
+                    handler.receivedMessages.count == 1, "Message posted from bridge world should reach the handler")
                 #expect(handler.receivedMessages.first as? String == "hello", "Message body should be the posted value")
             }
         }
@@ -313,9 +314,9 @@ extension WebKitSerializedTests {
 
             try await WebPageTestHarness.withManagedPage(
                 WebPage(
-                configuration: config,
-                navigationDecider: WebviewNavigationDecider(),
-                dialogPresenter: WebviewDialogHandler()
+                    configuration: config,
+                    navigationDecider: WebviewNavigationDecider(),
+                    dialogPresenter: WebviewDialogHandler()
                 )
             ) { page in
                 _ = page.load(URL(string: "about:blank")!)
