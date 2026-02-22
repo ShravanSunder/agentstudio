@@ -145,7 +145,7 @@ The **primary entity**. Stable identity for a terminal, independent of layout po
 
 #### Session → Pane Identity Reconciliation
 
-This document uses session-centric naming (`TerminalSession`, `sessionId`) because that reflects the current codebase. The [Pane Runtime Architecture](pane_runtime_architecture.md) introduces pane-centric naming (`PaneId`, `PaneMetadata`, `PaneRuntime`) as the generalized abstraction for any pane type (terminal, browser, diff viewer, editor).
+This document uses session-centric naming (`TerminalSession`, `sessionId`) because that reflects the current codebase. The [Pane Runtime Architecture](pane_runtime_architecture.md) introduces pane-centric naming (`PaneId`, `PaneMetadata`, `PaneRuntime`) as the generalized abstraction for any pane type (terminal, browser, diff viewer, editor). The canonical identity contract is in [Session Lifecycle — Identity Contract (Canonical)](session_lifecycle.md#identity-contract-canonical).
 
 The relationship is:
 

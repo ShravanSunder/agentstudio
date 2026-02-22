@@ -33,7 +33,7 @@ struct PaneCoordinatorRuntimeDispatchTests {
         store.appendTab(tab)
         store.setActiveTab(tab.id)
 
-        let fakeRuntime = FakePaneRuntime(paneId: pane.id)
+        let fakeRuntime = FakePaneRuntime(paneId: PaneId(uuid: pane.id))
         coordinator.registerRuntime(fakeRuntime)
 
         let result = await coordinator.dispatchRuntimeCommand(.activate, target: .activePane)

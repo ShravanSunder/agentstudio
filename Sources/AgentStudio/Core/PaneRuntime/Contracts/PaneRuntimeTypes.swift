@@ -1,6 +1,5 @@
 import Foundation
 
-typealias PaneId = UUID
 typealias WorktreeId = UUID
 
 enum PaneContentType: Hashable, Codable, Sendable {

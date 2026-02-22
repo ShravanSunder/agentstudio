@@ -3,6 +3,7 @@
 ## Canonical Design
 
 - [`docs/architecture/pane_runtime_architecture.md`](../architecture/pane_runtime_architecture.md)
+- [`docs/architecture/session_lifecycle.md#identity-contract-canonical`](../architecture/session_lifecycle.md#identity-contract-canonical)
 
 ## Design Heading Index (anchor links — no line numbers, they drift)
 

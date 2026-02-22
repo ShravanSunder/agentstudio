@@ -338,6 +338,10 @@ typealias PaneId = UUID
 typealias WorktreeId = UUID
 ```
 
+> Identity canonical: `PaneId` is the primary identity and backend session names
+> are derived identities. See
+> [Session Lifecycle — Identity Contract (Canonical)](session_lifecycle.md#identity-contract-canonical).
+>
 > **Current Code Status (LUNA-342 branch):**
 > - `PaneRuntime` now includes replay wiring via `eventsSince(seq:)`.
 > - `PaneMetadata` now includes rich identity fields (`contentType`, `executionBackend`, `createdAt`, `repoId`, `worktreeId`, `parentFolder`, `checkoutRef`).
@@ -2390,7 +2394,8 @@ The current codebase uses `NotificationCenter` and `DispatchQueue.main.async` fo
 1. **LUNA-327 (done):** `@Observable` migration, `private(set)` stores, `PaneCoordinator` consolidation. Foundation for the event bus. `DispatchQueue.main.async` → `MainActor` primitives where touched.
 2. **LUNA-342 (done):** Contract freeze + Swift 6 language mode migration. `.swiftLanguageMode(.v6)` enforced, all `isolated deinit` migrations complete, `MainActor.assumeIsolated` removed from Sources, C callback trampolines partially migrated (`wakeup_cb` done), existential Sendable constraints added. SwiftLint concurrency rules added (44 violations marking LUNA-325 scope). See [migration spec](../plans/2026-02-22-swift6-language-mode-migration.md) and [mapping doc](../plans/2026-02-21-pane-runtime-luna-295-luna-325-mapping.md#luna-342-implementation-record) for details.
 3. **LUNA-325 (next):** Build `GhosttyAdapter`, `TerminalRuntime`, `RuntimeRegistry`, `NotificationReducer`. Replace `NotificationCenter`-based dispatch with typed event stream. Resolve remaining 44 SwiftLint concurrency violations (23 DispatchQueue, 20 NotificationCenter selector, 1 Task.detached). This is the primary migration ticket.
-4. **LUNA-295 (attach orchestration):** Build attach readiness policies, visibility-tier scheduling, restart reconcile. Consumes the event stream infrastructure from LUNA-325.
+4. **LUNA-295 (attach orchestration):** Build attach readiness policies and visibility-tier scheduling. Consumes the event stream infrastructure from LUNA-325.
+5. **LUNA-324 (restart reconcile):** Build startup reconcile classification, orphan TTL cleanup, and post-restore health monitoring (Contract 5b).
 
 ### Migration Invariant
 

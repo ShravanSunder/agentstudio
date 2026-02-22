@@ -9,7 +9,7 @@ struct RuntimeRegistryTests {
     @Test("register and lookup by pane id")
     func registerAndLookup() {
         let registry = RuntimeRegistry()
-        let runtime = TestPaneRuntime(paneId: UUID())
+        let runtime = TestPaneRuntime(paneId: PaneId())
         registry.register(runtime)
         #expect(registry.runtime(for: runtime.paneId) != nil)
     }
@@ -17,7 +17,7 @@ struct RuntimeRegistryTests {
     @Test("unregister removes runtime")
     func unregisterRemoves() {
         let registry = RuntimeRegistry()
-        let runtime = TestPaneRuntime(paneId: UUID())
+        let runtime = TestPaneRuntime(paneId: PaneId())
         registry.register(runtime)
 
         let removed = registry.unregister(runtime.paneId)
@@ -29,7 +29,7 @@ struct RuntimeRegistryTests {
     @Test("duplicate registration replaces existing runtime without crashing")
     func duplicateRegistrationReplacesRuntime() {
         let registry = RuntimeRegistry()
-        let paneId = UUID()
+        let paneId = PaneId()
         let first = TestPaneRuntime(paneId: paneId, contentType: .terminal)
         let second = TestPaneRuntime(paneId: paneId, contentType: .browser)
 
@@ -39,7 +39,7 @@ struct RuntimeRegistryTests {
         #expect(firstResult == .inserted)
         #expect(secondResult == .replaced)
         #expect(registry.count == 1)
-        #expect(registry.runtime(for: paneId)?.metadata.contentType == .browser)
+        #expect(registry.runtime(for: paneId)?.metadata.contentType == .browser)  // paneId is now PaneId
         #expect(registry.runtimes(ofType: .terminal).isEmpty)
         #expect(registry.runtimes(ofType: .browser).count == 1)
     }
