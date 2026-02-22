@@ -86,6 +86,7 @@ extension Ghostty {
 
         /// The ghostty configuration
         private var config: ghostty_config_t?
+        private let focusAppHandleBits = OSAllocatedUnfairLock<UInt?>(initialState: nil)
         private var activeStateTasks: [Task<Void, Never>] = []
 
         init() {
@@ -147,25 +148,34 @@ extension Ghostty {
 
             // Start unfocused; activation notifications synchronize real app focus state.
             ghostty_app_set_focus(app, false)
+            let appHandleBits = UInt(bitPattern: app)
+            focusAppHandleBits.withLock { $0 = appHandleBits }
+            let focusAppHandleBits = self.focusAppHandleBits
 
             activeStateTasks.append(
-                Task { @MainActor [weak self] in
+                Task { @MainActor in
                     for await _ in NotificationCenter.default.notifications(
                         named: NSApplication.didBecomeActiveNotification)
                     {
-                        guard let self, !Task.isCancelled else { break }
-                        guard let app = self.app else { continue }
+                        if Task.isCancelled { break }
+                        guard
+                            let appHandleBits = focusAppHandleBits.withLock({ $0 }),
+                            let app = UnsafeMutableRawPointer(bitPattern: appHandleBits)
+                        else { continue }
                         ghostty_app_set_focus(app, true)
                         RestoreTrace.log("Ghostty.App applicationDidBecomeActive -> ghostty_app_set_focus(true)")
                     }
                 })
             activeStateTasks.append(
-                Task { @MainActor [weak self] in
+                Task { @MainActor in
                     for await _ in NotificationCenter.default.notifications(
                         named: NSApplication.didResignActiveNotification)
                     {
-                        guard let self, !Task.isCancelled else { break }
-                        guard let app = self.app else { continue }
+                        if Task.isCancelled { break }
+                        guard
+                            let appHandleBits = focusAppHandleBits.withLock({ $0 }),
+                            let app = UnsafeMutableRawPointer(bitPattern: appHandleBits)
+                        else { continue }
                         ghostty_app_set_focus(app, false)
                         RestoreTrace.log("Ghostty.App applicationDidResignActive -> ghostty_app_set_focus(false)")
                     }
@@ -175,6 +185,7 @@ extension Ghostty {
         }
 
         deinit {
+            focusAppHandleBits.withLock { $0 = nil }
             for task in activeStateTasks {
                 task.cancel()
             }

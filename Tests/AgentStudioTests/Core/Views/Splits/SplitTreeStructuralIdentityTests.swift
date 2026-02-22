@@ -5,6 +5,7 @@ import Testing
 @testable import AgentStudio
 
 @Suite(.serialized)
+@MainActor
 final class SplitTreeStructuralIdentityTests {
 
     // MARK: - Structural Equality
