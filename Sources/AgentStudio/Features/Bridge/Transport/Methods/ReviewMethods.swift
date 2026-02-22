@@ -2,7 +2,7 @@ import Foundation
 
 enum ReviewMethods {
     enum AddCommentMethod: RPCMethod {
-        struct Params: Decodable {
+        struct Params: Decodable, Sendable {
             enum Side: String, Decodable, Sendable {
                 case left
                 case right
@@ -19,7 +19,7 @@ enum ReviewMethods {
     }
 
     enum ResolveThreadMethod: RPCMethod {
-        struct Params: Decodable {
+        struct Params: Decodable, Sendable {
             let threadId: String
         }
 
@@ -28,7 +28,7 @@ enum ReviewMethods {
     }
 
     enum UnresolveThreadMethod: RPCMethod {
-        struct Params: Decodable {
+        struct Params: Decodable, Sendable {
             let threadId: String
         }
 
@@ -37,7 +37,7 @@ enum ReviewMethods {
     }
 
     enum DeleteCommentMethod: RPCMethod {
-        struct Params: Decodable {
+        struct Params: Decodable, Sendable {
             let commentId: String
         }
 
@@ -46,7 +46,7 @@ enum ReviewMethods {
     }
 
     enum MarkFileViewedMethod: RPCMethod {
-        struct Params: Decodable {
+        struct Params: Decodable, Sendable {
             let fileId: String
         }
 
@@ -55,7 +55,7 @@ enum ReviewMethods {
     }
 
     enum UnmarkFileViewedMethod: RPCMethod {
-        struct Params: Decodable {
+        struct Params: Decodable, Sendable {
             let fileId: String
         }
 

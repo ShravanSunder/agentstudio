@@ -25,8 +25,8 @@ enum AgentMethods {
     }
 
     enum RequestRewriteMethod: RPCMethod {
-        struct Params: Decodable {
-            struct Source: Decodable {
+        struct Params: Decodable, Sendable {
+            struct Source: Decodable, Sendable {
                 let type: RequestRewriteSourceType
                 let threadIds: [String]
             }
@@ -42,7 +42,7 @@ enum AgentMethods {
     }
 
     enum CancelTaskMethod: RPCMethod {
-        struct Params: Decodable {
+        struct Params: Decodable, Sendable {
             let taskId: String
         }
 
@@ -51,7 +51,7 @@ enum AgentMethods {
     }
 
     enum InjectPromptMethod: RPCMethod {
-        struct Params: Decodable {
+        struct Params: Decodable, Sendable {
             let text: String
         }
 

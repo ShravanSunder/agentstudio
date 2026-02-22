@@ -13,7 +13,7 @@ typealias EpochProvider = @MainActor () -> Int
 struct AnyPushSlice<State: Observable & AnyObject> {
     let name: String
     let makeTask:
-        @MainActor (
+        @Sendable @MainActor (
             State, PushTransport, RevisionClock, @escaping EpochProvider
         ) -> Task<Void, Never>
 }
@@ -46,7 +46,7 @@ struct Slice<State: Observable & AnyObject, Snapshot: Encodable & Equatable & Se
         self.capture = capture
     }
 
-    func erased<C: Clock>(
+    func erased<C: Clock & Sendable>(
         debounceClock: C = ContinuousClock()
     ) -> AnyPushSlice<State> where C.Duration == Duration {
         let capture = self.capture
@@ -75,7 +75,9 @@ struct Slice<State: Observable & AnyObject, Snapshot: Encodable & Equatable & Se
                     do {
                         if level == .cold {
                             data = try await Task.detached(priority: .utility) {
-                                try encoder.encode(snapshot)
+                                let coldEncoder = JSONEncoder()
+                                coldEncoder.outputFormatting = .sortedKeys
+                                return try coldEncoder.encode(snapshot)
                             }.value
                         } else {
                             data = try encoder.encode(snapshot)

@@ -148,7 +148,7 @@ struct BridgeSchemeHandler: URLSchemeHandler {
 // MARK: - Errors
 
 /// Errors produced by the bridge scheme handler when a URL cannot be served.
-enum BridgeSchemeError: Error {
+enum BridgeSchemeError: Error, Sendable {
     /// The request was malformed (e.g. missing URL).
     case invalidRequest(String)
     /// The URL matched the `agentstudio` scheme but the route is unrecognized.

@@ -119,12 +119,12 @@ final class BridgePaneController {
 
         // Log all RPC errors (parse errors, unknown methods, batch rejection, handler failures).
         // All error codes are reported through this single callback.
-        router.onError = { code, message, id in
+        router.onError = { [weak self] code, message, id in
             bridgeControllerLogger.warning(
                 "[BridgePaneController] RPC error code=\(code) msg=\(message) id=\(String(describing: id))"
             )
             if code == -32_603 {
-                self.paneState.connection.setHealth(.error)
+                self?.paneState.connection.setHealth(.error)
             }
         }
 

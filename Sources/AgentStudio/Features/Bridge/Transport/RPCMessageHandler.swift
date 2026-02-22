@@ -19,9 +19,8 @@ final class RPCMessageHandler: NSObject, WKScriptMessageHandler {
     /// Called on the main thread when a valid JSON string is extracted from a postMessage body.
     /// Set by the owning controller to wire into `RPCRouter.dispatch(json:)`.
     ///
-    /// Using `nonisolated(unsafe)` because `WKScriptMessageHandler.userContentController(_:didReceive:)`
-    /// is nonisolated, but this property is set once during setup and read from the main thread only.
-    nonisolated(unsafe) var onValidJSON: (@MainActor (String) async -> Void)?
+    /// Set once during controller setup and invoked from main-actor forwarding.
+    var onValidJSON: (@MainActor @Sendable (String) async -> Void)?
 
     // MARK: - JSON Extraction
 
@@ -66,8 +65,9 @@ final class RPCMessageHandler: NSObject, WKScriptMessageHandler {
         // Forward to upstream handler on main actor.
         // Fire-and-forget: errors are handled by the router's onError callback,
         // not propagated back through the message handler.
+        let callback = onValidJSON
         Task { @MainActor in
-            await onValidJSON?(json)
+            await callback?(json)
         }
     }
 }

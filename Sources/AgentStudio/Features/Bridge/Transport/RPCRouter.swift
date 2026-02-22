@@ -42,16 +42,16 @@ final class RPCRouter {
     /// - `-32603`: Internal error
     ///
     /// Command-ack callback uses Swift-native command IDs found in the `__commandId` payload.
-    var onError: (@MainActor (Int, String, RPCIdentifier?) -> Void) = { code, message, id in
+    var onError: (@MainActor @Sendable (Int, String, RPCIdentifier?) -> Void) = { code, message, id in
         let requestID = id.map { String(describing: $0) } ?? "nil"
         rpcRouterLogger.warning("RPC error code=\(code) message=\(message) id=\(requestID)")
     }
-    var onCommandAck: (@MainActor (CommandAck) -> Void) = { ack in
+    var onCommandAck: (@MainActor @Sendable (CommandAck) -> Void) = { ack in
         rpcRouterLogger.debug(
             "RPC ack commandId=\(ack.commandId) method=\(ack.method) status=\(ack.status.rawValue)"
         )
     }
-    var onResponse: (@MainActor (String) async -> Void) = { responseJSON in
+    var onResponse: (@MainActor @Sendable (String) async -> Void) = { responseJSON in
         rpcRouterLogger.warning("RPC response dropped because onResponse is not configured: \(responseJSON)")
     }
 
@@ -232,12 +232,8 @@ final class RPCRouter {
             switch dispatchError {
             case .invalidParams:
                 rpcErrorCode = .invalidParams
-            case .handlerFailure(let underlyingError):
-                if underlyingError is BridgeMethodUnimplementedError {
-                    rpcErrorCode = .internalError
-                } else {
-                    rpcErrorCode = .internalError
-                }
+            case .handlerFailure:
+                rpcErrorCode = .internalError
             }
         } else {
             rpcErrorCode = .internalError
@@ -262,9 +258,9 @@ final class RPCRouter {
 
         if let rpcMethodError = error as? RPCMethodDispatchError {
             switch rpcMethodError {
-            case .invalidParams(let underlyingError),
-                .handlerFailure(let underlyingError):
-                return underlyingError.localizedDescription
+            case .invalidParams(let message),
+                .handlerFailure(let message):
+                return message
             }
         }
 

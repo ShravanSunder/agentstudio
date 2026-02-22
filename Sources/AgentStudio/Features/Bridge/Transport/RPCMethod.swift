@@ -30,8 +30,8 @@ protocol AnyRPCMethodHandler: Sendable {
 }
 
 enum RPCMethodDispatchError: Error, Sendable {
-    case invalidParams(Error)
-    case handlerFailure(Error)
+    case invalidParams(String)
+    case handlerFailure(String)
 }
 
 extension RPCMethod {
@@ -63,7 +63,7 @@ private struct TypedRPCMethodHandler<Method: RPCMethod>: AnyRPCMethodHandler {
         do {
             return try Method.decodeParams(from: paramsData)
         } catch {
-            throw RPCMethodDispatchError.invalidParams(error)
+            throw RPCMethodDispatchError.invalidParams(message(from: error))
         }
     }
 
@@ -72,8 +72,15 @@ private struct TypedRPCMethodHandler<Method: RPCMethod>: AnyRPCMethodHandler {
         do {
             return try await handler(params)
         } catch {
-            throw RPCMethodDispatchError.handlerFailure(error)
+            throw RPCMethodDispatchError.handlerFailure(message(from: error))
         }
+    }
+
+    private func message(from error: any Error) -> String {
+        if let localized = (error as? LocalizedError)?.errorDescription {
+            return localized
+        }
+        return error.localizedDescription
     }
 }
 
