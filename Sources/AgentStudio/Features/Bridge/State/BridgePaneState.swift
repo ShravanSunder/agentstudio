@@ -9,8 +9,7 @@ import Foundation
 ///
 /// Codable for workspace save/restore. Hashable for identity checks.
 ///
-/// Design doc S15.2 line 3001-3006.
-struct BridgePaneState: Codable, Hashable {
+struct BridgePaneState: Codable, Hashable, Sendable {
     let panelKind: BridgePanelKind
     var source: BridgePaneSource?
 }
@@ -19,8 +18,7 @@ struct BridgePaneState: Codable, Hashable {
 
 /// The kind of bridge panel. Determines which React app/component is loaded.
 ///
-/// Design doc S15.2 line 3008-3011.
-enum BridgePanelKind: String, Codable, Hashable {
+enum BridgePanelKind: String, Codable, Hashable, Sendable {
     case diffViewer
     // Future: .agentDashboard, .prStatus, etc.
 }
@@ -32,8 +30,7 @@ enum BridgePanelKind: String, Codable, Hashable {
 /// Each case captures the minimal parameters needed to reconstruct the panel's
 /// data query on restore. The bridge panel uses this to fetch and render content.
 ///
-/// Design doc S15.2 line 3013-3019.
-enum BridgePaneSource: Codable, Hashable {
+enum BridgePaneSource: Codable, Hashable, Sendable {
     /// A single commit's diff.
     case commit(sha: String)
     /// Diff between two branches.
@@ -49,7 +46,7 @@ enum BridgePaneSource: Codable, Hashable {
 /// Baseline reference for workspace diffs.
 ///
 /// Determines what the working directory changes are compared against.
-enum WorkspaceBaseline: String, Codable, Hashable {
+enum WorkspaceBaseline: String, Codable, Hashable, Sendable {
     /// HEAD~1 (last commit).
     case headMinusOne
     /// Staged changes vs HEAD.

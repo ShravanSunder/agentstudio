@@ -24,7 +24,7 @@ struct EntityDelta<Entity: Encodable & Sendable>: Encodable {
 /// version comparisons, and pushes only changed entities. Keys are normalized
 /// to String for JSON wire format safety.
 ///
-/// Design doc §6.6.
+/// See bridge push architecture docs for entity-delta semantics.
 struct EntitySlice<
     State: Observable & AnyObject,
     Key: Hashable & Sendable,
@@ -101,6 +101,9 @@ struct EntitySlice<
                         }
                     } catch {
                         logger.error("[PushEngine] encode failed slice=\(name) store=\(store.rawValue): \(error)")
+                        // Advance local versions even on encode failure so we do not
+                        // spin indefinitely on the same unencodable delta.
+                        lastVersions = deltaComputation.nextVersions
                         continue
                     }
                     lastVersions = deltaComputation.nextVersions

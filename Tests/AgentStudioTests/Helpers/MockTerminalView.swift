@@ -4,6 +4,7 @@ import AppKit
 
 /// Minimal NSView mock satisfying SplitTree's generic constraints.
 /// Used in place of AgentStudioTerminalView for pure unit tests.
+@MainActor
 final class MockTerminalView: NSView, Identifiable {
     let id: UUID
     let name: String

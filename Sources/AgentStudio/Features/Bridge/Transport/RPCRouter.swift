@@ -6,7 +6,7 @@ import os.log
 /// Handles dedup via `__commandId` sliding window, batch rejection,
 /// and error reporting. This is the command channel entry point.
 ///
-/// Design doc §5.1 (command format), §5.5 (batch rejection), §9.2.
+/// See bridge architecture docs for command format, batch behavior, and runtime integration.
 private let rpcRouterLogger = Logger(subsystem: "com.agentstudio", category: "RPCRouter")
 
 private enum RPCErrorCode: Int, Sendable {
@@ -77,7 +77,7 @@ final class RPCRouter {
 
     /// Parse and dispatch a raw JSON-RPC message string.
     ///
-    /// Validates the envelope, rejects batch arrays (§5.5), deduplicates by
+    /// Validates the envelope, rejects batch arrays, deduplicates by
     /// `__commandId`, and routes to the registered handler.
     ///
     /// JSON-RPC requests with an `id` emit direct response envelopes via `onResponse`.
@@ -149,7 +149,7 @@ final class RPCRouter {
 
     private func parseRequestEnvelope(from json: String) async -> ParsedRPCRequest? {
         guard let data = json.data(using: .utf8) else {
-            await reportError(.parseError, "Parse error", id: nil)
+            await reportError(.parseError, "Parse error", id: .null)
             return nil
         }
 
@@ -157,7 +157,7 @@ final class RPCRouter {
         do {
             raw = try JSONDecoder().decode(JSONRPCValue.self, from: data)
         } catch {
-            await reportError(.parseError, "Parse error: \(error.localizedDescription)", id: nil)
+            await reportError(.parseError, "Parse error: \(error.localizedDescription)", id: .null)
             return nil
         }
 

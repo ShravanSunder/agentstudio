@@ -27,7 +27,7 @@ enum BridgeReadyMethod: RPCMethod {
 /// `BridgePaneController` creates a **per-pane** configuration because each pane
 /// needs its own `WKUserContentController` for message handlers and bootstrap scripts.
 ///
-/// Design doc §9.1, handshake gating §4.5.
+/// See bridge runtime architecture docs for handshake and lifecycle behavior.
 @Observable
 @MainActor
 final class BridgePaneController {
@@ -37,7 +37,7 @@ final class BridgePaneController {
     let paneId: UUID
     let page: WebPage
 
-    /// Whether the bridge handshake has completed (§4.5 step 6).
+    /// Whether the bridge handshake has completed.
     /// No state pushes or commands are allowed before this becomes `true`.
     /// Gated and idempotent — once set, subsequent `bridge.ready` messages are ignored.
     private(set) var isBridgeReady = false
@@ -119,13 +119,10 @@ final class BridgePaneController {
 
         // Log all RPC errors (parse errors, unknown methods, batch rejection, handler failures).
         // All error codes are reported through this single callback.
-        router.onError = { [weak self] code, message, id in
+        router.onError = { code, message, id in
             bridgeControllerLogger.warning(
                 "[BridgePaneController] RPC error code=\(code) msg=\(message) id=\(String(describing: id))"
             )
-            if code == -32_603 {
-                self?.paneState.connection.setHealth(.error)
-            }
         }
 
         router.onCommandAck = { [weak self] ack in
@@ -140,10 +137,10 @@ final class BridgePaneController {
             await self?.handleIncomingRPC(json)
         }
 
-        // Register bridge.ready handler — the ONLY trigger for starting push plans (§4.5 step 6).
+        // Register bridge.ready handler — the ONLY trigger for starting push plans.
         // The closure is @Sendable and async — awaits the @MainActor-isolated handleBridgeReady.
         router.register(method: BridgeReadyMethod.self) { [weak self] _ in
-            await self?.handleBridgeReady()
+            self?.handleBridgeReady()
             return nil
         }
 
@@ -200,7 +197,7 @@ final class BridgePaneController {
     ///
     /// Push plans do NOT start here — they start when `bridge.ready` is received.
     /// `page.isLoading == false` does not guarantee React has mounted and listeners
-    /// are attached (§4.5).
+    /// are attached.
     func loadApp() {
         guard let appURL = URL(string: "agentstudio://app/index.html") else { return }
         _ = page.load(appURL)
@@ -227,7 +224,7 @@ final class BridgePaneController {
 
     /// Handle the `bridge.ready` message from the bridge world.
     ///
-    /// This is gated and idempotent (§4.5 line 246):
+    /// This is gated and idempotent:
     /// - First call sets `isBridgeReady = true` and starts push plans.
     /// - Subsequent calls are silently ignored.
     ///
@@ -411,8 +408,6 @@ extension BridgePaneController: PushTransport {
             )
             return
         }
-        lastPushed[dedupKey] = DedupEntry(epoch: epoch, payload: json)
-
         // Phase 2: transport the envelope to React (transport failures ARE connection errors).
         do {
             try await page.callJavaScript(
@@ -420,6 +415,7 @@ extension BridgePaneController: PushTransport {
                 arguments: ["json": envelopeString],
                 contentWorld: bridgeWorld
             )
+            lastPushed[dedupKey] = DedupEntry(epoch: epoch, payload: json)
             bridgeControllerLogger.debug(
                 "[BridgePaneController] pushJSON store=\(store.rawValue) op=\(op.rawValue) level=\(String(describing: level)) rev=\(revision) epoch=\(epoch) bytes=\(json.count)"
             )

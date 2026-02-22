@@ -15,7 +15,7 @@ final class EntitySliceTests {
         var items: [UUID: TestEntity] = [:]
     }
 
-    struct TestEntity: Encodable {
+    struct TestEntity: Encodable, Sendable {
         let name: String
         let version: Int
     }
@@ -155,6 +155,41 @@ final class EntitySliceTests {
         #expect(
             transport.pushCount == countAfterInitial,
             "EntitySlice should skip push when version is unchanged despite field mutation")
+
+        task.cancel()
+    }
+
+    @Test
+    func test_entitySlice_emits_removed_ids_when_entity_deleted() async throws {
+        let state = TestState()
+        let transport = MockPushTransport()
+        let clock = RevisionClock()
+
+        let id1 = UUID()
+        let id2 = UUID()
+        state.items[id1] = TestEntity(name: "keep", version: 1)
+        state.items[id2] = TestEntity(name: "remove", version: 1)
+
+        let slice = EntitySlice<TestState, UUID, TestEntity>(
+            "testItems",
+            store: .review,
+            level: .hot,
+            capture: { testState in testState.items },
+            version: { entity in entity.version },
+            keyToString: { $0.uuidString }
+        )
+
+        let task = slice.erased().makeTask(state, transport, clock) { 1 }
+        #expect(await transport.waitForPushCount(atLeast: 1))
+
+        let baselineCount = transport.pushCount
+        state.items.removeValue(forKey: id2)
+        #expect(await transport.waitForPushCount(atLeast: baselineCount + 1))
+
+        let delta = try JSONDecoder().decode(EntityDeltaTestShape.self, from: try #require(transport.lastJSON))
+        #expect(delta.changed == nil)
+        #expect(delta.removed?.contains(id2.uuidString) == true)
+        #expect(delta.removed?.contains(id1.uuidString) == false)
 
         task.cancel()
     }

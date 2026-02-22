@@ -558,10 +558,10 @@ final class RPCRouterTests {
         // Arrange
         let router = RPCRouter()
         var errorCode: Int?
-        let responseCount = SendableBox(0)
+        let responseJSON = SendableBox<String?>(nil)
         router.onError = { code, _, _ in errorCode = code }
-        router.onResponse = { _ in
-            await responseCount.update { $0 + 1 }
+        router.onResponse = { json in
+            await responseJSON.set(json)
         }
 
         // Act
@@ -569,7 +569,10 @@ final class RPCRouterTests {
 
         // Assert
         #expect(errorCode == -32_700, "Malformed JSON should report parse error -32700, not -32600")
-        #expect(await responseCount.get() == 0, "Malformed JSON has no request id and must not emit response")
+        let envelope = try parseJSONObject(try #require(await responseJSON.get()))
+        #expect(envelope["id"] is NSNull, "Parse errors must emit id: null per JSON-RPC 2.0")
+        let error = envelope["error"] as? [String: Any]
+        #expect((error?["code"] as? NSNumber)?.intValue == -32_700)
     }
 
     // MARK: - Duplicate commandId idempotency

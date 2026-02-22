@@ -140,6 +140,7 @@ struct BridgePaneControllerTests {
             #"{"jsonrpc":"2.0","method":"bridge.ready","params":{}}"#
         )
         #expect(controller.isBridgeReady == true)
+        controller.paneState.connection.setHealth(.connected)
 
         // Act
         await controller.handleIncomingRPC(
@@ -159,6 +160,7 @@ struct BridgePaneControllerTests {
         )
         var errorCode: Int?
         controller.router.onError = { code, _, _ in errorCode = code }
+        controller.router.onResponse = { _ in }
 
         // Act
         await controller.handleIncomingRPC(
@@ -180,42 +182,43 @@ struct BridgePaneControllerTests {
         var errorCode: Int?
         controller.router.onError = { code, _, _ in errorCode = code }
 
-        await controller.handleIncomingRPC(
-            #"{"jsonrpc":"2.0","method":"bridge.ready","params":{}}"#
-        )
-        #expect(controller.isBridgeReady == true)
-
         // Act + Assert: implemented handlers succeed
         errorCode = nil
-        await controller.handleIncomingRPC(
-            #"{"jsonrpc":"2.0","method":"review.markFileViewed","params":{"fileId":"abc"},"id":1}"#
+        await controller.router.dispatch(
+            json: #"{"jsonrpc":"2.0","method":"review.markFileViewed","params":{"fileId":"abc"},"id":1}"#,
+            isBridgeReady: true
         )
         #expect(errorCode == nil)
         #expect(controller.paneState.review.viewedFiles.contains("abc"))
 
         errorCode = nil
-        await controller.handleIncomingRPC(
-            #"{"jsonrpc":"2.0","method":"review.unmarkFileViewed","params":{"fileId":"abc"},"id":2}"#
+        await controller.router.dispatch(
+            json: #"{"jsonrpc":"2.0","method":"review.unmarkFileViewed","params":{"fileId":"abc"},"id":2}"#,
+            isBridgeReady: true
         )
         #expect(errorCode == nil)
         #expect(controller.paneState.review.viewedFiles.contains("abc") == false)
 
         // Stubbed handlers reject with explicit error path
         errorCode = nil
-        await controller.handleIncomingRPC(
-            #"{"jsonrpc":"2.0","method":"review.addComment","params":{"fileId":"abc","lineNumber":12,"side":"left","text":"hello"},"id":1}"#
+        await controller.router.dispatch(
+            json:
+                #"{"jsonrpc":"2.0","method":"review.addComment","params":{"fileId":"abc","lineNumber":12,"side":"left","text":"hello"},"id":1}"#,
+            isBridgeReady: true
         )
         #expect(errorCode == -32_603)
 
         errorCode = nil
-        await controller.handleIncomingRPC(
-            #"{"jsonrpc":"2.0","method":"agent.cancelTask","params":{"taskId":"task-001"},"id":3}"#
+        await controller.router.dispatch(
+            json: #"{"jsonrpc":"2.0","method":"agent.cancelTask","params":{"taskId":"task-001"},"id":3}"#,
+            isBridgeReady: true
         )
         #expect(errorCode == -32_603)
 
         errorCode = nil
-        await controller.handleIncomingRPC(
-            #"{"jsonrpc":"2.0","method":"system.resyncAgentEvents","params":{"fromSeq":42},"id":4}"#
+        await controller.router.dispatch(
+            json: #"{"jsonrpc":"2.0","method":"system.resyncAgentEvents","params":{"fromSeq":42},"id":4}"#,
+            isBridgeReady: true
         )
         #expect(errorCode == -32_603)
     }
@@ -372,5 +375,92 @@ struct BridgePaneControllerTests {
         controller.teardown()
 
         #expect(controller.paneState.commandAcks.isEmpty)
+    }
+
+    @Test("pushJSON encoding failure does not degrade connection health")
+    func pushJSON_encoding_failure_does_not_mark_connection_error() async {
+        let controller = BridgePaneController(
+            paneId: UUID(),
+            state: BridgePaneState(panelKind: .diffViewer, source: nil)
+        )
+        controller.paneState.connection.setHealth(.connected)
+
+        await controller.pushJSON(
+            store: .diff,
+            op: .merge,
+            level: .hot,
+            revision: 1,
+            epoch: 1,
+            json: Data([0xFF])
+        )
+
+        #expect(controller.paneState.connection.health == .connected)
+    }
+
+    @Test("pushJSON transport failure marks connection health as error")
+    func pushJSON_transport_failure_marks_connection_error() async throws {
+        let controller = BridgePaneController(
+            paneId: UUID(),
+            state: BridgePaneState(panelKind: .diffViewer, source: nil)
+        )
+        controller.paneState.connection.setHealth(.connected)
+
+        let validPayload = try JSONEncoder().encode(["ok": true])
+        await controller.pushJSON(
+            store: .diff,
+            op: .merge,
+            level: .hot,
+            revision: 1,
+            epoch: 1,
+            json: validPayload
+        )
+
+        #expect(controller.paneState.connection.health == .error)
+    }
+
+    @Test("failed transport does not poison content dedup cache")
+    func pushJSON_failed_transport_does_not_poison_dedup_cache() async throws {
+        let controller = BridgePaneController(
+            paneId: UUID(),
+            state: BridgePaneState(panelKind: .diffViewer, source: nil)
+        )
+        let validPayload = try JSONEncoder().encode(["ok": true])
+
+        controller.paneState.connection.setHealth(.connected)
+        await controller.pushJSON(
+            store: .diff,
+            op: .merge,
+            level: .hot,
+            revision: 1,
+            epoch: 1,
+            json: validPayload
+        )
+        #expect(controller.paneState.connection.health == .error)
+
+        // Reset health and retry identical payload. If dedup was poisoned before successful
+        // transport, this call would be skipped and health would stay connected.
+        controller.paneState.connection.setHealth(.connected)
+        await controller.pushJSON(
+            store: .diff,
+            op: .merge,
+            level: .hot,
+            revision: 2,
+            epoch: 1,
+            json: validPayload
+        )
+        #expect(controller.paneState.connection.health == .error)
+    }
+
+    @Test("invalid router response payload marks connection health as error")
+    func invalid_router_response_payload_marks_connection_error() async {
+        let controller = BridgePaneController(
+            paneId: UUID(),
+            state: BridgePaneState(panelKind: .diffViewer, source: nil)
+        )
+        controller.paneState.connection.setHealth(.connected)
+
+        await controller.router.onResponse("not-json")
+
+        #expect(controller.paneState.connection.health == .error)
     }
 }

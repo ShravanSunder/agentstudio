@@ -113,11 +113,12 @@ final class ProcessExecutorTests {
         // Arrange — executor with a 2-second timeout
         let shortTimeoutExecutor = DefaultProcessExecutor(timeout: 2)
 
-        // Act — `sleep 60` would hang for 60s, but timeout should kill it in ~2s
+        // Act — `sleep 20` would hang for 20s, but timeout should kill it in ~2s.
+        // Keep the fallback sleep bounded so failure modes do not burn a full minute.
         do {
             _ = try await shortTimeoutExecutor.execute(
                 command: "sleep",
-                args: ["60"],
+                args: ["20"],
                 cwd: nil,
                 environment: nil
             )

@@ -24,7 +24,7 @@ struct AnyPushSlice<State: Observable & AnyObject> {
 /// Hot slices push immediately. Warm/cold slices debounce by PushLevel duration.
 /// Cold payloads encode off-main-actor. Hot/warm encode on-main-actor.
 ///
-/// Design doc section 6.5.
+/// See bridge push architecture docs for slice semantics.
 struct Slice<State: Observable & AnyObject, Snapshot: Encodable & Equatable & Sendable> {
     let name: String
     let store: StoreKey
@@ -89,6 +89,9 @@ struct Slice<State: Observable & AnyObject, Snapshot: Encodable & Equatable & Se
                         }
                     } catch {
                         logger.error("[PushEngine] encode failed slice=\(name) store=\(store.rawValue): \(error)")
+                        // Advance local snapshot state even on encode failure so we do not
+                        // loop forever on an unencodable payload.
+                        prev = snapshot
                         continue
                     }
                     prev = snapshot

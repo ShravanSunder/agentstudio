@@ -6,9 +6,9 @@ import Foundation
 ///
 /// Each level defines a debounce duration controlling how frequently
 /// the bridge pushes data to the React content world:
-/// - `.hot`: immediate (no debounce) — cursor position, selection changes
-/// - `.warm`: 12ms — diff status, staged file counts
-/// - `.cold`: 32ms — review metadata, connection state
+/// - `.hot`: immediate (no debounce) — connection health and diff status
+/// - `.warm`: 12ms — review threads/viewed-files and command ack streams
+/// - `.cold`: 32ms — high-volume entity snapshots (for example diff file maps)
 enum PushLevel: String, Sendable {
     case hot
     case warm

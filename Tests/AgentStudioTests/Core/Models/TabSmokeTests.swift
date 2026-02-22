@@ -9,6 +9,7 @@ import Testing
 /// These test the data flow types, NOT the AppKit view controllers.
 /// TODO: Remove when proper integration tests are added.
 @Suite(.serialized)
+@MainActor
 final class TabSmokeTests {
 
     // MARK: - SplitDropPayload Equatable

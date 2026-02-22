@@ -276,6 +276,9 @@ final class PushPerformanceBenchmarkTests {
     /// Delta should contain only that 1 file, not all 100.
     @Test
     func test_singleFile_incremental_payload_stays_small() async throws {
+        guard isBenchmarkRunEnabled() else {
+            return
+        }
         let result = try await runSingleFileIncrementalBenchmark(
             warmupIterations: 1,
             measuredIterations: 3

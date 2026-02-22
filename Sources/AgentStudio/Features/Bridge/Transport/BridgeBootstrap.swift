@@ -7,14 +7,14 @@ import Foundation
 /// listens for commands from page world with nonce validation, and handles the
 /// bridge.ready handshake.
 ///
-/// Design doc: handshake (§4.5), nonce security (§11.3), bootstrap injection (§9.1).
+/// Implements handshake, nonce validation, and bootstrap injection for bridge runtime.
 enum BridgeBootstrap {
 
     // swiftlint:disable function_body_length
     /// Generate the bootstrap JavaScript for a bridge pane.
     ///
     /// - Parameters:
-    ///   - bridgeNonce: Nonce for validating commands from page world (§11.3).
+    ///   - bridgeNonce: Nonce for validating commands from page world.
     ///     Page world must include this nonce in `__bridge_command` events.
     ///   - pushNonce: Nonce sent to page world in handshake for push event validation.
     ///     Page world uses this to verify incoming `__bridge_push` events.
@@ -75,7 +75,7 @@ enum BridgeBootstrap {
             };
 
             // Listen for commands from page world — validate nonce before forwarding to Swift.
-            // Design doc §4.2: page world sends { jsonrpc, method, params, __nonce }.
+            // Page world sends { jsonrpc, method, params, __nonce }.
             // Bridge world validates __nonce, strips it, and forwards the rest as stringified JSON.
             document.addEventListener('__bridge_command', function(event) {
                 const detail = event.detail;

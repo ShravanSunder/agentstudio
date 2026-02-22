@@ -140,7 +140,9 @@ class MainSplitViewController: NSSplitViewController {
             object: nil,
             queue: nil
         ) { [weak self] _ in
-            self?.saveSidebarState()
+            MainActor.assumeIsolated {
+                self?.saveSidebarState()
+            }
         }
     }
 

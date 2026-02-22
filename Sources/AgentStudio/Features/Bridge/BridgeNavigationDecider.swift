@@ -12,7 +12,6 @@ private let navigationLogger = Logger(subsystem: "com.agentstudio", category: "B
 /// (`http`/`https`) are opened in the default browser instead.
 /// All other schemes (file, ftp, etc.) are blocked silently.
 ///
-/// Design doc §11.4.
 final class BridgeNavigationDecider: WebPage.NavigationDeciding {
 
     // MARK: - Allowed Schemes

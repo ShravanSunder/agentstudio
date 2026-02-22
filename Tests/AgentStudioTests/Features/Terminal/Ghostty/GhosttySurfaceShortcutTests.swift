@@ -5,7 +5,7 @@ import Testing
 @testable import AgentStudio
 
 @Suite(.serialized)
-
+@MainActor
 final class GhosttySurfaceShortcutTests {
 
     // MARK: - App-Owned Shortcut List

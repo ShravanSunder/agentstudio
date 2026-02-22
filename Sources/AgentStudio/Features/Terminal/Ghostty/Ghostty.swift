@@ -148,20 +148,29 @@ extension Ghostty {
 
             // Start unfocused; activation notifications synchronize real app focus state.
             ghostty_app_set_focus(app, false)
+            let appSelfBits = UInt(bitPattern: Unmanaged.passUnretained(self).toOpaque())
 
             didBecomeActiveObserver = NotificationCenter.default.addObserver(
                 forName: NSApplication.didBecomeActiveNotification,
                 object: nil,
                 queue: .main
-            ) { [weak self] _ in
-                self?.applicationDidBecomeActive()
+            ) { _ in
+                guard let raw = UnsafeMutableRawPointer(bitPattern: appSelfBits) else { return }
+                MainActor.assumeIsolated {
+                    let owner = Unmanaged<App>.fromOpaque(raw).takeUnretainedValue()
+                    owner.applicationDidBecomeActive()
+                }
             }
             didResignActiveObserver = NotificationCenter.default.addObserver(
                 forName: NSApplication.didResignActiveNotification,
                 object: nil,
                 queue: .main
-            ) { [weak self] _ in
-                self?.applicationDidResignActive()
+            ) { _ in
+                guard let raw = UnsafeMutableRawPointer(bitPattern: appSelfBits) else { return }
+                MainActor.assumeIsolated {
+                    let owner = Unmanaged<App>.fromOpaque(raw).takeUnretainedValue()
+                    owner.applicationDidResignActive()
+                }
             }
 
             ghosttyLogger.info("Ghostty app initialized successfully")

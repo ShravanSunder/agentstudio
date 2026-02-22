@@ -39,6 +39,7 @@ final class DiffState {
     }
 
     func setEpoch(_ epoch: Int) {
+        guard epoch >= self.epoch else { return }
         self.epoch = epoch
     }
 

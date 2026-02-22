@@ -1,7 +1,7 @@
 import Foundation
 
 /// Monotonic revision counter per store. Shared across all push plans
-/// for a pane to ensure revision ordering per section 5.7.
+/// for a pane to ensure consistent revision ordering.
 ///
 /// Each `BridgePaneController` owns one `RevisionClock` instance.
 /// When a push plan fires, it calls `next(for:)` to stamp the payload
