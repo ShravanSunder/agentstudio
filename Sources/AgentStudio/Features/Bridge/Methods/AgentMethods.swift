@@ -1,10 +1,33 @@
 import Foundation
 
 enum AgentMethods {
+    enum RequestRewriteSourceType: Decodable, Equatable, Sendable {
+        case threadIds
+        case prompt
+        case selection
+        case unknown(String)
+
+        init(from decoder: Decoder) throws {
+            let container = try decoder.singleValueContainer()
+            let rawValue = try container.decode(String.self)
+
+            switch rawValue {
+            case "threadIds":
+                self = .threadIds
+            case "prompt":
+                self = .prompt
+            case "selection":
+                self = .selection
+            default:
+                self = .unknown(rawValue)
+            }
+        }
+    }
+
     enum RequestRewriteMethod: RPCMethod {
         struct Params: Decodable {
             struct Source: Decodable {
-                let type: String
+                let type: RequestRewriteSourceType
                 let threadIds: [String]
             }
 

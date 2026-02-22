@@ -27,4 +27,25 @@ struct CommandAck: Encodable, Equatable, Sendable {
     let reason: String?
     let method: String
     let canonicalId: String?
+
+    init(
+        commandId: String,
+        status: Status,
+        reason: String?,
+        method: String,
+        canonicalId: String?
+    ) {
+        self.commandId = commandId
+        self.status = status
+        self.method = method
+        self.canonicalId = canonicalId
+
+        switch status {
+        case .ok:
+            self.reason = nil
+        case .rejected:
+            let normalized = reason?.trimmingCharacters(in: .whitespacesAndNewlines)
+            self.reason = (normalized?.isEmpty == false) ? normalized : "Command rejected"
+        }
+    }
 }

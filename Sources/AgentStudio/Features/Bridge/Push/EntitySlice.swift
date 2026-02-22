@@ -76,13 +76,13 @@ struct EntitySlice<
                     level == .hot ? stream : stream.debounce(for: level.debounce, clock: debounceClock)
 
                 for await entities in source {
-                    let delta = Self.computeDelta(
+                    let deltaComputation = Self.computeDelta(
                         entities: entities,
-                        lastVersions: &lastVersions,
+                        lastVersions: lastVersions,
                         version: version,
                         keyToString: keyToString
                     )
-                    guard !delta.isEmpty else { continue }
+                    guard !deltaComputation.delta.isEmpty else { continue }
 
                     let data: Data
                     do {
@@ -92,15 +92,16 @@ struct EntitySlice<
                             data = try await Task.detached(priority: .utility) {
                                 let coldEncoder = JSONEncoder()
                                 coldEncoder.outputFormatting = .sortedKeys
-                                return try coldEncoder.encode(delta)
+                                return try coldEncoder.encode(deltaComputation.delta)
                             }.value
                         } else {
-                            data = try encoder.encode(delta)
+                            data = try encoder.encode(deltaComputation.delta)
                         }
                     } catch {
                         logger.error("[PushEngine] encode failed slice=\(name) store=\(store.rawValue): \(error)")
                         continue
                     }
+                    lastVersions = deltaComputation.nextVersions
 
                     let revision = revisions.next(for: store)
                     let epoch = epochFn()
@@ -117,27 +118,31 @@ struct EntitySlice<
 
     private static func computeDelta(
         entities: [Key: Entity],
-        lastVersions: inout [Key: Int],
+        lastVersions: [Key: Int],
         version: (Entity) -> Int,
         keyToString: (Key) -> String
-    ) -> EntityDelta<Entity> {
+    ) -> (delta: EntityDelta<Entity>, nextVersions: [Key: Int]) {
+        var nextVersions = lastVersions
         var changed: [String: Entity] = [:]
         for (key, entity) in entities {
             let v = version(entity)
-            if lastVersions[key] != v {
+            if nextVersions[key] != v {
                 changed[keyToString(key)] = entity
-                lastVersions[key] = v
+                nextVersions[key] = v
             }
         }
-        let removed = lastVersions.keys
+        let removedKeys = nextVersions.keys
             .filter { entities[$0] == nil }
-            .map { keyToString($0) }
-        for key in lastVersions.keys where entities[key] == nil {
-            lastVersions.removeValue(forKey: key)
+        let removed = removedKeys.map { keyToString($0) }
+        for key in removedKeys {
+            nextVersions.removeValue(forKey: key)
         }
-        return EntityDelta(
-            changed: changed.isEmpty ? nil : changed,
-            removed: removed.isEmpty ? nil : removed
+        return (
+            delta: EntityDelta(
+                changed: changed.isEmpty ? nil : changed,
+                removed: removed.isEmpty ? nil : removed
+            ),
+            nextVersions: nextVersions
         )
     }
 }

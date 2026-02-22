@@ -119,7 +119,7 @@ final class PushPerformanceBenchmarkTests {
 
         plan.start()
 
-        state.files = generateFiles(count: fileCount)
+        state.replaceFiles(generateFiles(count: fileCount))
         let loaded = await waitForPushCount(
             transport,
             targetCount: 1,
@@ -137,37 +137,35 @@ final class PushPerformanceBenchmarkTests {
         for _ in 0..<warmupIterations {
             let file = "file-42"
 
-            if var updatedFile = state.files[file] {
+            state.mutateFile(id: file) { updatedFile in
                 updatedFile.additions += 1
                 updatedFile.version += 1
-                state.files[file] = updatedFile
-
-                let observed = await waitForPushCount(
-                    transport, targetCount: transport.pushCount + 1, timeout: .seconds(1))
-                #expect(observed, "Warmup push should appear for single-file mutation")
             }
+
+            let observed = await waitForPushCount(
+                transport, targetCount: transport.pushCount + 1, timeout: .seconds(1))
+            #expect(observed, "Warmup push should appear for single-file mutation")
         }
 
         for _ in 0..<measuredIterations {
             let file = "file-42"
             let mutationStart = ContinuousClock.now
 
-            if var fileToMutate = state.files[file] {
+            state.mutateFile(id: file) { fileToMutate in
                 fileToMutate.additions += 1
                 fileToMutate.version += 1
-                state.files[file] = fileToMutate
+            }
 
-                let observed = await waitForPushCount(
-                    transport, targetCount: transport.pushCount + 1, timeout: .seconds(1))
-                #expect(observed, "Single-file mutation should trigger a push")
-                let pushTime = try #require(
-                    transport.lastPushInstant, "Transport should have recorded a push timestamp")
+            let observed = await waitForPushCount(
+                transport, targetCount: transport.pushCount + 1, timeout: .seconds(1))
+            #expect(observed, "Single-file mutation should trigger a push")
+            let pushTime = try #require(
+                transport.lastPushInstant, "Transport should have recorded a push timestamp")
 
-                durationSamples.append(pushTime - mutationStart)
-                payloadSamples.append(transport.lastPayloadBytes)
-                if initialPayloadBytes > 0 {
-                    ratioSamples.append(Double(transport.lastPayloadBytes) / Double(initialPayloadBytes))
-                }
+            durationSamples.append(pushTime - mutationStart)
+            payloadSamples.append(transport.lastPayloadBytes)
+            if initialPayloadBytes > 0 {
+                ratioSamples.append(Double(transport.lastPayloadBytes) / Double(initialPayloadBytes))
             }
         }
 
@@ -203,7 +201,7 @@ final class PushPerformanceBenchmarkTests {
         let benchmarkMode = PushBenchmarkMode.current
 
         let mutationInstant = ContinuousClock.now
-        diffState.files = files
+        diffState.replaceFiles(files)
 
         let observed = await waitForPushCount(
             transport,
@@ -246,7 +244,7 @@ final class PushPerformanceBenchmarkTests {
         let benchmarkMode = PushBenchmarkMode.current
 
         let mutationInstant = ContinuousClock.now
-        diffState.files = files
+        diffState.replaceFiles(files)
 
         let observed = await waitForPushCount(
             transport,
@@ -325,16 +323,18 @@ final class PushPerformanceBenchmarkTests {
         // Act — add 20 files back-to-back to force debounce coalescing.
         for i in 0..<20 {
             let fileId = "rapid-\(i)"
-            diffState.files[fileId] = FileManifest(
-                id: fileId,
-                version: 1,
-                path: "src/rapid/File\(i).tsx",
-                oldPath: nil,
-                changeType: .added,
-                additions: 10,
-                deletions: 0,
-                size: 500,
-                contextHash: "hash-\(i)"
+            diffState.setFile(
+                FileManifest(
+                    id: fileId,
+                    version: 1,
+                    path: "src/rapid/File\(i).tsx",
+                    oldPath: nil,
+                    changeType: .added,
+                    additions: 10,
+                    deletions: 0,
+                    size: 500,
+                    contextHash: "hash-\(i)"
+                )
             )
         }
 
@@ -375,7 +375,7 @@ final class PushPerformanceBenchmarkTests {
         plan.start()
 
         // Pre-load 100 files from "old PR"
-        diffState.files = generateFiles(count: 100)
+        diffState.replaceFiles(generateFiles(count: 100))
         let preloaded = await waitForPushCount(
             transport,
             targetCount: 1,
@@ -388,8 +388,8 @@ final class PushPerformanceBenchmarkTests {
 
         // Act — epoch reset: clear files and load 200 new ones (new PR)
         let mutationInstant = ContinuousClock.now
-        diffState.epoch += 1
-        diffState.files = generateFiles(count: 200, version: 1)
+        diffState.advanceEpoch()
+        diffState.replaceFiles(generateFiles(count: 200, version: 1))
 
         let observed = await waitForPushCount(
             transport,

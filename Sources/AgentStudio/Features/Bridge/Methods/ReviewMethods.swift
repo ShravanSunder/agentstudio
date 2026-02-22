@@ -3,9 +3,14 @@ import Foundation
 enum ReviewMethods {
     enum AddCommentMethod: RPCMethod {
         struct Params: Decodable {
+            enum Side: String, Decodable, Sendable {
+                case left
+                case right
+            }
+
             let fileId: String
             let lineNumber: Int?
-            let side: String?
+            let side: Side?
             let text: String
         }
 

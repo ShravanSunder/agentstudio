@@ -9,14 +9,26 @@ import os.log
 /// Design doc §5.1 (command format), §5.5 (batch rejection), §9.2.
 private let rpcRouterLogger = Logger(subsystem: "com.agentstudio", category: "RPCRouter")
 
+private enum RPCErrorCode: Int, Sendable {
+    case parseError = -32_700
+    case invalidRequest = -32_600
+    case methodNotFound = -32_601
+    case invalidParams = -32_602
+    case internalError = -32_603
+    case bridgeNotReady = -32_004
+}
+
 @MainActor
 final class RPCRouter {
 
     // MARK: - Private State
 
     private var handlers: [String: any AnyRPCMethodHandler] = [:]
-    private var seenCommandIds: [String] = []
-    private let maxCommandIdHistory = 100
+    private var seenCommandIdSet: Set<String> = []
+    private var seenCommandIdRing: [String?]
+    private var seenCommandIdWriteIndex = 0
+    private var seenCommandIdCount = 0
+    private let maxCommandIdHistory: Int
 
     // MARK: - Error Callback
 
@@ -30,17 +42,23 @@ final class RPCRouter {
     /// - `-32603`: Internal error
     ///
     /// Command-ack callback uses Swift-native command IDs found in the `__commandId` payload.
-    var onError: ((Int, String, RPCIdentifier?) -> Void) = { code, message, id in
+    var onError: (@MainActor (Int, String, RPCIdentifier?) -> Void) = { code, message, id in
         let requestID = id.map { String(describing: $0) } ?? "nil"
         rpcRouterLogger.warning("RPC error code=\(code) message=\(message) id=\(requestID)")
     }
-    var onCommandAck: ((CommandAck) -> Void) = { ack in
+    var onCommandAck: (@MainActor (CommandAck) -> Void) = { ack in
         rpcRouterLogger.debug(
             "RPC ack commandId=\(ack.commandId) method=\(ack.method) status=\(ack.status.rawValue)"
         )
     }
-    var onResponse: ((String) async -> Void) = { _ in
-        // Default no-op; wired by BridgePaneController when a JS bridge is active.
+    var onResponse: (@MainActor (String) async -> Void) = { responseJSON in
+        rpcRouterLogger.warning("RPC response dropped because onResponse is not configured: \(responseJSON)")
+    }
+
+    init(maxCommandIdHistory: Int = 100) {
+        let boundedHistory = max(1, maxCommandIdHistory)
+        self.maxCommandIdHistory = boundedHistory
+        self.seenCommandIdRing = Array(repeating: nil, count: boundedHistory)
     }
 
     // MARK: - Registration
@@ -68,6 +86,9 @@ final class RPCRouter {
 
         guard isBridgeReady || request.method == BridgeReadyMethod.method else {
             rpcRouterLogger.info("[RPCRouter] dropped pre-ready command: \(request.method)")
+            if request.requestId != nil {
+                await reportError(.bridgeNotReady, "Bridge not ready: \(request.method)", id: request.requestId)
+            }
             return
         }
 
@@ -76,7 +97,7 @@ final class RPCRouter {
         }
 
         guard let handler = handlers[request.method] else {
-            await reportError(-32_601, "Method not found: \(request.method)", id: request.requestId)
+            await reportError(.methodNotFound, "Method not found: \(request.method)", id: request.requestId)
             return
         }
 
@@ -125,7 +146,7 @@ final class RPCRouter {
 
     private func parseRequestEnvelope(from json: String) async -> ParsedRPCRequest? {
         guard let data = json.data(using: .utf8) else {
-            await reportError(-32_700, "Parse error", id: nil)
+            await reportError(.parseError, "Parse error", id: nil)
             return nil
         }
 
@@ -133,17 +154,17 @@ final class RPCRouter {
         do {
             raw = try JSONSerialization.jsonObject(with: data)
         } catch {
-            await reportError(-32_700, "Parse error: \(error.localizedDescription)", id: nil)
+            await reportError(.parseError, "Parse error: \(error.localizedDescription)", id: nil)
             return nil
         }
 
         if raw is [Any] {
-            await reportError(-32_600, "Batch requests not supported", id: nil)
+            await reportError(.invalidRequest, "Batch requests not supported", id: nil)
             return nil
         }
 
         guard let dict = raw as? [String: Any] else {
-            await reportError(-32_600, "Invalid request", id: nil)
+            await reportError(.invalidRequest, "Invalid request", id: nil)
             return nil
         }
 
@@ -151,7 +172,7 @@ final class RPCRouter {
         let requestId: RPCIdentifier?
         switch idValidation {
         case .invalid:
-            await reportError(-32_600, "Invalid request: invalid id", id: .null)
+            await reportError(.invalidRequest, "Invalid request: invalid id", id: .null)
             return nil
         case .missing:
             requestId = nil
@@ -160,12 +181,12 @@ final class RPCRouter {
         }
 
         guard dict["jsonrpc"] as? String == "2.0" else {
-            await reportError(-32_600, "Invalid request: unsupported jsonrpc version", id: requestId)
+            await reportError(.invalidRequest, "Invalid request: unsupported jsonrpc version", id: requestId)
             return nil
         }
 
         guard let method = dict["method"] as? String else {
-            await reportError(-32_600, "Invalid request: missing method", id: requestId)
+            await reportError(.invalidRequest, "Invalid request: missing method", id: requestId)
             return nil
         }
 
@@ -181,37 +202,49 @@ final class RPCRouter {
         guard let commandId else {
             return false
         }
-        guard !seenCommandIds.contains(commandId) else {
+        guard !seenCommandIdSet.contains(commandId) else {
             rpcRouterLogger.debug("[RPCRouter] dedup skip commandId=\(commandId)")
             return true
         }
-        seenCommandIds.append(commandId)
-        if seenCommandIds.count > maxCommandIdHistory {
-            seenCommandIds.removeFirst()
+
+        if seenCommandIdCount == maxCommandIdHistory {
+            if let evicted = seenCommandIdRing[seenCommandIdWriteIndex] {
+                seenCommandIdSet.remove(evicted)
+            }
+        } else {
+            seenCommandIdCount += 1
         }
+
+        seenCommandIdRing[seenCommandIdWriteIndex] = commandId
+        seenCommandIdWriteIndex = (seenCommandIdWriteIndex + 1) % maxCommandIdHistory
+        seenCommandIdSet.insert(commandId)
         return false
     }
 
-    private func classifyDispatchError(_ error: Error) -> (Int, String) {
-        let rpcErrorCode: Int
+    private func classifyDispatchError(_ error: Error) -> (RPCErrorCode, String) {
+        let rpcErrorCode: RPCErrorCode
         if error is RPCRouterParamsError {
-            rpcErrorCode = -32_602
+            rpcErrorCode = .invalidParams
         } else if let dispatchError = error as? RPCMethodDispatchError {
             switch dispatchError {
             case .invalidParams:
-                rpcErrorCode = -32_602
-            case .handlerFailure:
-                rpcErrorCode = -32_603
+                rpcErrorCode = .invalidParams
+            case .handlerFailure(let underlyingError):
+                if underlyingError is BridgeMethodUnimplementedError {
+                    rpcErrorCode = .internalError
+                } else {
+                    rpcErrorCode = .internalError
+                }
             }
         } else {
-            rpcErrorCode = -32_603
+            rpcErrorCode = .internalError
         }
 
         let message: String
         switch rpcErrorCode {
-        case -32_602:
+        case .invalidParams:
             message = "Invalid params: \(errorMessage(from: error))"
-        case -32_603:
+        case .internalError:
             message = "Internal error: \(errorMessage(from: error))"
         default:
             message = "\(errorMessage(from: error))"
@@ -255,9 +288,9 @@ final class RPCRouter {
         )
     }
 
-    private func reportError(_ code: Int, _ message: String, id: RPCIdentifier?) async {
-        onError(code, message, id)
-        await emitErrorResponseIfNeeded(id: id, code: code, message: message)
+    private func reportError(_ code: RPCErrorCode, _ message: String, id: RPCIdentifier?) async {
+        onError(code.rawValue, message, id)
+        await emitErrorResponseIfNeeded(id: id, code: code.rawValue, message: message)
     }
 
     private func emitSuccessResponseIfNeeded(id: RPCIdentifier?, result: Encodable?) async {
@@ -269,9 +302,18 @@ final class RPCRouter {
             await onResponse(responseJSON)
         } catch {
             let message = "Internal error: failed to encode response: \(errorMessage(from: error))"
-            onError(-32_603, message, id)
-            if let fallback = try? makeErrorResponseJSON(id: id, code: -32_603, message: message) {
+            onError(RPCErrorCode.internalError.rawValue, message, id)
+            do {
+                let fallback = try makeErrorResponseJSON(
+                    id: id,
+                    code: RPCErrorCode.internalError.rawValue,
+                    message: message
+                )
                 await onResponse(fallback)
+            } catch {
+                rpcRouterLogger.error(
+                    "RPC success response and fallback error encoding both failed id=\(String(describing: id)): \(errorMessage(from: error))"
+                )
             }
         }
     }
@@ -280,10 +322,16 @@ final class RPCRouter {
         guard let id else {
             return
         }
-        guard let responseJSON = try? makeErrorResponseJSON(id: id, code: code, message: message) else {
-            return
+        do {
+            let responseJSON = try makeErrorResponseJSON(id: id, code: code, message: message)
+            await onResponse(responseJSON)
+        } catch {
+            let fallbackMessage = "Internal error: failed to encode error response: \(errorMessage(from: error))"
+            rpcRouterLogger.error(
+                "RPC error response encoding failed id=\(String(describing: id)) code=\(code): \(errorMessage(from: error))"
+            )
+            onError(RPCErrorCode.internalError.rawValue, fallbackMessage, id)
         }
-        await onResponse(responseJSON)
     }
 
     private func makeSuccessResponseJSON(id: RPCIdentifier, result: Encodable?) throws -> String {

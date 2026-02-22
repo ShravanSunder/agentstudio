@@ -10,6 +10,7 @@ import Foundation
 /// Design doc: handshake (§4.5), nonce security (§11.3), bootstrap injection (§9.1).
 enum BridgeBootstrap {
 
+    // swiftlint:disable function_body_length
     /// Generate the bootstrap JavaScript for a bridge pane.
     ///
     /// - Parameters:
@@ -78,8 +79,17 @@ enum BridgeBootstrap {
             // Bridge world validates __nonce, strips it, and forwards the rest as stringified JSON.
             document.addEventListener('__bridge_command', function(event) {
                 const detail = event.detail;
-                if (!detail || detail.__nonce !== BRIDGE_NONCE) {
-                    return; // Reject commands without valid nonce
+                if (!detail) {
+                    console.warn('[BridgeBootstrap] Rejected __bridge_command: missing event detail');
+                    return;
+                }
+                if (!detail.__nonce) {
+                    console.warn('[BridgeBootstrap] Rejected __bridge_command: missing nonce');
+                    return;
+                }
+                if (detail.__nonce !== BRIDGE_NONCE) {
+                    console.warn('[BridgeBootstrap] Rejected __bridge_command: invalid nonce');
+                    return;
                 }
                 // Strip nonce before forwarding to Swift
                 const { __nonce, ...payload } = detail;
@@ -115,4 +125,5 @@ enum BridgeBootstrap {
         })();
         """
     }
+    // swiftlint:enable function_body_length
 }

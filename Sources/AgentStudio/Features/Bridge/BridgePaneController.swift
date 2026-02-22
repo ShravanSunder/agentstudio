@@ -123,12 +123,13 @@ final class BridgePaneController {
             bridgeControllerLogger.warning(
                 "[BridgePaneController] RPC error code=\(code) msg=\(message) id=\(String(describing: id))"
             )
+            if code == -32_603 {
+                self.paneState.connection.setHealth(.error)
+            }
         }
 
         router.onCommandAck = { [weak self] ack in
-            Task { @MainActor in
-                self?.recordCommandAck(ack)
-            }
+            self?.recordCommandAck(ack)
         }
         router.onResponse = { [weak self] responseJSON in
             await self?.emitRPCResponse(responseJSON)
@@ -164,8 +165,14 @@ final class BridgePaneController {
         registerStub(ReviewMethods.ResolveThreadMethod.self)
         registerStub(ReviewMethods.UnresolveThreadMethod.self)
         registerStub(ReviewMethods.DeleteCommentMethod.self)
-        registerStub(ReviewMethods.MarkFileViewedMethod.self)
-        registerStub(ReviewMethods.UnmarkFileViewedMethod.self)
+        router.register(method: ReviewMethods.MarkFileViewedMethod.self) { [weak self] params in
+            self?.paneState.review.markFileViewed(params.fileId)
+            return nil
+        }
+        router.register(method: ReviewMethods.UnmarkFileViewedMethod.self) { [weak self] params in
+            self?.paneState.review.unmarkFileViewed(params.fileId)
+            return nil
+        }
 
         // agent namespace
         registerStub(AgentMethods.RequestRewriteMethod.self)
@@ -183,7 +190,7 @@ final class BridgePaneController {
     private func registerStub<M: RPCMethod>(_ method: M.Type) {
         router.register(method: method) { _ in
             bridgeControllerLogger.info("[BridgePaneController] stub: \(M.method) called (not yet wired)")
-            return nil
+            throw BridgeMethodUnimplementedError(method: M.method)
         }
     }
 
@@ -339,7 +346,7 @@ final class BridgePaneController {
             )
         } catch {
             bridgeControllerLogger.warning("[Bridge] JS response transport failed: \(error)")
-            paneState.connection.health = .error
+            paneState.connection.setHealth(.error)
         }
     }
 }
@@ -378,7 +385,6 @@ extension BridgePaneController: PushTransport {
         {
             return
         }
-        lastPushed[dedupKey] = DedupEntry(epoch: epoch, payload: json)
 
         // Phase 1: encode the push envelope (encoding bugs are NOT connection errors).
         let envelopeString: String
@@ -405,6 +411,7 @@ extension BridgePaneController: PushTransport {
             )
             return
         }
+        lastPushed[dedupKey] = DedupEntry(epoch: epoch, payload: json)
 
         // Phase 2: transport the envelope to React (transport failures ARE connection errors).
         do {
@@ -420,7 +427,7 @@ extension BridgePaneController: PushTransport {
             bridgeControllerLogger.warning(
                 "[Bridge] JS transport failed store=\(store.rawValue) rev=\(revision) epoch=\(epoch): \(error)"
             )
-            paneState.connection.health = .error
+            paneState.connection.setHealth(.error)
         }
     }
 }
@@ -433,5 +440,13 @@ private enum BridgeError: Error, LocalizedError, Sendable {
         case .encoding(let message):
             return message
         }
+    }
+}
+
+struct BridgeMethodUnimplementedError: Error, LocalizedError, Sendable {
+    let method: String
+
+    var errorDescription: String? {
+        "Unimplemented bridge method: \(method)"
     }
 }

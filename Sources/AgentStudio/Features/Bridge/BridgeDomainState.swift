@@ -6,7 +6,7 @@ import Observation
 /// This is the minimal set needed for Phase 2 push pipeline testing.
 @Observable
 @MainActor
-class PaneDomainState {
+final class PaneDomainState {
     let diff = DiffState()
     let review = ReviewState()
     let connection = ConnectionState()
@@ -23,11 +23,42 @@ class PaneDomainState {
 
 @Observable
 @MainActor
-class DiffState {
-    var status: DiffStatus = .idle
-    var error: String?
-    var epoch: Int = 0
-    var files: [String: FileManifest] = [:]
+final class DiffState {
+    private(set) var status: DiffStatus = .idle
+    private(set) var error: String?
+    private(set) var epoch: Int = 0
+    private(set) var files: [String: FileManifest] = [:]
+
+    func setStatus(_ status: DiffStatus, error: String? = nil) {
+        self.status = status
+        self.error = error
+    }
+
+    func setError(_ error: String?) {
+        self.error = error
+    }
+
+    func setEpoch(_ epoch: Int) {
+        self.epoch = epoch
+    }
+
+    func advanceEpoch() {
+        epoch += 1
+    }
+
+    func replaceFiles(_ files: [String: FileManifest]) {
+        self.files = files
+    }
+
+    func setFile(_ file: FileManifest) {
+        files[file.id] = file
+    }
+
+    func mutateFile(id: String, _ transform: (inout FileManifest) -> Void) {
+        guard var file = files[id] else { return }
+        transform(&file)
+        files[id] = file
+    }
 }
 
 enum DiffStatus: String, Codable, Equatable, Sendable {
@@ -58,13 +89,33 @@ struct FileManifest: Encodable, Equatable, Sendable {
 
 @Observable
 @MainActor
-class ReviewState {
-    var threads: [UUID: ReviewThread] = [:]
-    var viewedFiles: Set<String> = []
+final class ReviewState {
+    private(set) var threads: [UUID: ReviewThread] = [:]
+    private(set) var viewedFiles: Set<String> = []
+
+    func setThreads(_ threads: [UUID: ReviewThread]) {
+        self.threads = threads
+    }
+
+    func upsertThread(_ thread: ReviewThread) {
+        threads[thread.id] = thread
+    }
+
+    func removeThread(id: UUID) {
+        threads.removeValue(forKey: id)
+    }
+
+    func markFileViewed(_ fileId: String) {
+        viewedFiles.insert(fileId)
+    }
+
+    func unmarkFileViewed(_ fileId: String) {
+        viewedFiles.remove(fileId)
+    }
 }
 
 /// Minimal review thread for push pipeline testing.
-struct ReviewThread: Encodable {
+struct ReviewThread: Encodable, Sendable {
     let id: UUID
     var version: Int
     var body: String
@@ -72,9 +123,22 @@ struct ReviewThread: Encodable {
 
 @Observable
 @MainActor
-class ConnectionState {
-    var health: ConnectionHealth = .connected
-    var latencyMs: Int = 0
+final class ConnectionState {
+    private(set) var health: ConnectionHealth = .connected
+    private(set) var latencyMs: Int = 0
+
+    func setHealth(_ health: ConnectionHealth) {
+        self.health = health
+    }
+
+    func setLatencyMs(_ latencyMs: Int) {
+        self.latencyMs = latencyMs
+    }
+
+    func setConnection(health: ConnectionHealth, latencyMs: Int) {
+        self.health = health
+        self.latencyMs = latencyMs
+    }
 
     enum ConnectionHealth: String, Codable, Equatable, Sendable {
         case connected, disconnected, error

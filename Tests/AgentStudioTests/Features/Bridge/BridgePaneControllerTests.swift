@@ -150,8 +150,8 @@ struct BridgePaneControllerTests {
         #expect((await executedFileId.get()) == "abc123")
     }
 
-    @Test("non-ready commands are dropped before bridge.ready")
-    func nonReady_commands_are_dropped_before_bridge_ready() async {
+    @Test("non-ready command requests with id return bridge-not-ready error")
+    func nonReady_command_requests_with_id_return_bridge_not_ready_error() async {
         // Arrange
         let controller = BridgePaneController(
             paneId: UUID(),
@@ -167,11 +167,11 @@ struct BridgePaneControllerTests {
 
         // Assert
         #expect(controller.isBridgeReady == false)
-        #expect(errorCode == nil)
+        #expect(errorCode == -32_004)
     }
 
-    @Test("known namespace commands are registered after bridge.ready")
-    func known_namespace_commands_are_registered_after_bridge_ready() async {
+    @Test("implemented review handlers succeed and stub handlers reject")
+    func implemented_review_handlers_succeed_and_stub_handlers_reject() async {
         // Arrange
         let controller = BridgePaneController(
             paneId: UUID(),
@@ -185,24 +185,39 @@ struct BridgePaneControllerTests {
         )
         #expect(controller.isBridgeReady == true)
 
-        // Act + Assert: registered production commands should not error with -32601
+        // Act + Assert: implemented handlers succeed
+        errorCode = nil
+        await controller.handleIncomingRPC(
+            #"{"jsonrpc":"2.0","method":"review.markFileViewed","params":{"fileId":"abc"},"id":1}"#
+        )
+        #expect(errorCode == nil)
+        #expect(controller.paneState.review.viewedFiles.contains("abc"))
+
+        errorCode = nil
+        await controller.handleIncomingRPC(
+            #"{"jsonrpc":"2.0","method":"review.unmarkFileViewed","params":{"fileId":"abc"},"id":2}"#
+        )
+        #expect(errorCode == nil)
+        #expect(controller.paneState.review.viewedFiles.contains("abc") == false)
+
+        // Stubbed handlers reject with explicit error path
         errorCode = nil
         await controller.handleIncomingRPC(
             #"{"jsonrpc":"2.0","method":"review.addComment","params":{"fileId":"abc","lineNumber":12,"side":"left","text":"hello"},"id":1}"#
         )
-        #expect(errorCode == nil)
+        #expect(errorCode == -32_603)
 
         errorCode = nil
         await controller.handleIncomingRPC(
-            #"{"jsonrpc":"2.0","method":"agent.cancelTask","params":{"taskId":"task-001"},"id":2}"#
+            #"{"jsonrpc":"2.0","method":"agent.cancelTask","params":{"taskId":"task-001"},"id":3}"#
         )
-        #expect(errorCode == nil)
+        #expect(errorCode == -32_603)
 
         errorCode = nil
         await controller.handleIncomingRPC(
-            #"{"jsonrpc":"2.0","method":"system.resyncAgentEvents","params":{"fromSeq":42},"id":3}"#
+            #"{"jsonrpc":"2.0","method":"system.resyncAgentEvents","params":{"fromSeq":42},"id":4}"#
         )
-        #expect(errorCode == nil)
+        #expect(errorCode == -32_603)
     }
 
     @Test("unknown method still returns 32601")
@@ -337,5 +352,25 @@ struct BridgePaneControllerTests {
         #expect(ack?.status == .rejected)
         #expect(ack?.method == "agent.failureProbe")
         #expect(ack?.reason?.contains("simulated handler failure") == true)
+    }
+
+    @Test("teardown clears command acks")
+    func teardown_clears_command_acks() async {
+        let controller = BridgePaneController(
+            paneId: UUID(),
+            state: BridgePaneState(panelKind: .diffViewer, source: nil)
+        )
+
+        await controller.handleIncomingRPC(
+            #"{"jsonrpc":"2.0","method":"bridge.ready","params":{}}"#
+        )
+        await controller.handleIncomingRPC(
+            #"{"jsonrpc":"2.0","method":"review.markFileViewed","params":{"fileId":"abc"},"__commandId":"cmd-clear-001"}"#
+        )
+        #expect(controller.paneState.commandAcks["cmd-clear-001"] != nil)
+
+        controller.teardown()
+
+        #expect(controller.paneState.commandAcks.isEmpty)
     }
 }

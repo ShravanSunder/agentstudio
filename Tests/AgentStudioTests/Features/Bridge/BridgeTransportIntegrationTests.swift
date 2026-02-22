@@ -129,7 +129,7 @@ final class BridgeTransportIntegrationTests {
         _ = try await controller.page.callJavaScript(installProbeScript, contentWorld: bridgeWorld)
 
         // Act — mutate diff state to force a non-batch state push
-        controller.paneState.diff.status = .loading
+        controller.paneState.diff.setStatus(.loading)
 
         // Assert — at least one bridge push should replay through the probe method
         let deadline = ContinuousClock.now + .seconds(2)

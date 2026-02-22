@@ -68,7 +68,6 @@ struct Slice<State: Observable & AnyObject, Snapshot: Encodable & Equatable & Se
 
                 for await snapshot in source {
                     guard snapshot != prev else { continue }
-                    prev = snapshot
                     let revision = revisions.next(for: store)
                     let epoch = epochProvider()
 
@@ -85,6 +84,7 @@ struct Slice<State: Observable & AnyObject, Snapshot: Encodable & Equatable & Se
                         logger.error("[PushEngine] encode failed slice=\(name) store=\(store.rawValue): \(error)")
                         continue
                     }
+                    prev = snapshot
 
                     await transport.pushJSON(
                         store: store, op: op, level: level,
