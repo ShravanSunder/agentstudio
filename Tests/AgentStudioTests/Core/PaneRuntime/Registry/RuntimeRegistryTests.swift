@@ -26,6 +26,38 @@ struct RuntimeRegistryTests {
         #expect(registry.runtime(for: runtime.paneId) == nil)
     }
 
+    @Test("findPaneWithWorktree returns paneId when worktree is registered")
+    func findPaneWithWorktreeFindsExisting() {
+        let registry = RuntimeRegistry()
+        let paneId = PaneId()
+        let worktreeId = UUID()
+        let runtime = TestPaneRuntime(
+            paneId: paneId,
+            source: .worktree(worktreeId: worktreeId, repoId: UUID())
+        )
+        registry.register(runtime)
+
+        let found = registry.findPaneWithWorktree(worktreeId: worktreeId)
+
+        #expect(found == paneId)
+    }
+
+    @Test("findPaneWithWorktree returns nil for unknown worktree")
+    func findPaneWithWorktreeReturnsNilForUnknown() {
+        let registry = RuntimeRegistry()
+
+        #expect(registry.findPaneWithWorktree(worktreeId: UUID()) == nil)
+    }
+
+    @Test("findPaneWithWorktree ignores floating panes")
+    func findPaneWithWorktreeIgnoresFloating() {
+        let registry = RuntimeRegistry()
+        let runtime = TestPaneRuntime(paneId: PaneId())
+        registry.register(runtime)
+
+        #expect(registry.findPaneWithWorktree(worktreeId: UUID()) == nil)
+    }
+
     @Test("duplicate registration replaces existing runtime without crashing")
     func duplicateRegistrationReplacesRuntime() {
         let registry = RuntimeRegistry()
@@ -56,13 +88,14 @@ private final class TestPaneRuntime: PaneRuntime {
 
     init(
         paneId: PaneId,
-        contentType: PaneContentType = .terminal
+        contentType: PaneContentType = .terminal,
+        source: PaneMetadata.PaneMetadataSource = .floating(workingDirectory: nil, title: "Test")
     ) {
         self.paneId = paneId
         self.metadata = PaneMetadata(
             paneId: paneId,
             contentType: contentType,
-            source: .floating(workingDirectory: nil, title: "Test"),
+            source: source,
             title: "Test"
         )
         self.lifecycle = .ready
