@@ -52,7 +52,7 @@ class MainSplitViewController: NSSplitViewController {
         sidebarItem.minimumThickness = 200
         sidebarItem.maximumThickness = 400
         sidebarItem.canCollapse = true
-        sidebarItem.collapseBehavior = .preferResizingSplitViewWithFixedSiblings
+        sidebarItem.collapseBehavior = .preferResizingSiblingsWithFixedSplitView
         addSplitViewItem(sidebarItem)
 
         // Create pane tab area (pure AppKit)
