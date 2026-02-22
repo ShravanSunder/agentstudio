@@ -12,7 +12,8 @@ enum PushBenchmarkMode: String, Sendable {
             return .off
         }
 
-        let normalizedMode = rawValue
+        let normalizedMode =
+            rawValue
             .trimmingCharacters(in: .whitespacesAndNewlines)
             .lowercased()
         guard !normalizedMode.isEmpty else {

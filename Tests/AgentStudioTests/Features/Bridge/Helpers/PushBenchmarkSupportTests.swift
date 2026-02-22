@@ -21,7 +21,7 @@ struct PushBenchmarkSupportTests {
                 .nanoseconds(9),
                 .nanoseconds(1),
                 .nanoseconds(5),
-                .nanoseconds(4)
+                .nanoseconds(4),
             ],
             payloadBytes: [20, 10, 40, 30],
             initialPayloadBytes: 100
@@ -41,7 +41,7 @@ struct PushBenchmarkSupportTests {
             durations: [
                 .milliseconds(3),
                 .milliseconds(1),
-                .milliseconds(2)
+                .milliseconds(2),
             ],
             payloadBytes: [110, 90, 105],
             initialPayloadBytes: 500
