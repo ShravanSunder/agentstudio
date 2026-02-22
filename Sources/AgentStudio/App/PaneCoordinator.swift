@@ -37,6 +37,9 @@ final class PaneCoordinator {
     private let viewRegistry: ViewRegistry
     private let runtime: SessionRuntime
     private let surfaceManager: PaneCoordinatorSurfaceManaging
+    let runtimeRegistry: RuntimeRegistry
+    let paneTargetResolver: PaneTargetResolver
+    let runtimeCommandClock: ContinuousClock
     private lazy var sessionConfig = SessionConfiguration.detect()
     private var cwdChangesTask: Task<Void, Never>?
 
@@ -58,7 +61,9 @@ final class PaneCoordinator {
             store: store,
             viewRegistry: viewRegistry,
             runtime: runtime,
-            surfaceManager: SurfaceManager.shared
+            surfaceManager: SurfaceManager.shared,
+            runtimeRegistry: RuntimeRegistry(),
+            runtimeCommandClock: ContinuousClock()
         )
     }
 
@@ -66,12 +71,17 @@ final class PaneCoordinator {
         store: WorkspaceStore,
         viewRegistry: ViewRegistry,
         runtime: SessionRuntime,
-        surfaceManager: PaneCoordinatorSurfaceManaging
+        surfaceManager: PaneCoordinatorSurfaceManaging,
+        runtimeRegistry: RuntimeRegistry,
+        runtimeCommandClock: ContinuousClock = ContinuousClock()
     ) {
         self.store = store
         self.viewRegistry = viewRegistry
         self.runtime = runtime
         self.surfaceManager = surfaceManager
+        self.runtimeRegistry = runtimeRegistry
+        self.paneTargetResolver = PaneTargetResolver(workspaceStore: store)
+        self.runtimeCommandClock = runtimeCommandClock
         subscribeToCWDChanges()
         setupPrePersistHook()
     }
@@ -112,6 +122,21 @@ final class PaneCoordinator {
         for (paneId, webviewView) in viewRegistry.allWebviewViews {
             store.syncPaneWebviewState(paneId, state: webviewView.currentState())
         }
+    }
+
+    // MARK: - Runtime Registry
+
+    func registerRuntime(_ runtime: any PaneRuntime) {
+        runtimeRegistry.register(runtime)
+    }
+
+    @discardableResult
+    func unregisterRuntime(_ paneId: PaneId) -> (any PaneRuntime)? {
+        runtimeRegistry.unregister(paneId)
+    }
+
+    func runtimeForPane(_ paneId: PaneId) -> (any PaneRuntime)? {
+        runtimeRegistry.runtime(for: paneId)
     }
 
     // MARK: - Switch Arrangement Helpers

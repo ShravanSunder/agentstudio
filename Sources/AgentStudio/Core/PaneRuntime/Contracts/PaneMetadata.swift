@@ -38,4 +38,8 @@ struct PaneMetadata: Codable, Hashable {
         if case .worktree(_, let id) = source { return id }
         return nil
     }
+
+    var contentType: PaneContentType {
+        .terminal
+    }
 }
