@@ -30,6 +30,8 @@ enum AppCommand: String, CaseIterable {
     case toggleSplitZoom
     case minimizePane
     case expandPane
+    case duplicateTab
+    case duplicatePane
 
     // Arrangement commands
     case switchArrangement
@@ -325,6 +327,18 @@ final class CommandDispatcher {
                 command: .expandPane,
                 label: "Expand Pane",
                 icon: "arrow.up.left.and.arrow.down.right",
+                appliesTo: [.pane]
+            ),
+            CommandDefinition(
+                command: .duplicateTab,
+                label: "Duplicate Tab",
+                icon: "plus.square.on.square",
+                appliesTo: [.tab]
+            ),
+            CommandDefinition(
+                command: .duplicatePane,
+                label: "Duplicate Pane",
+                icon: "rectangle.on.rectangle",
                 appliesTo: [.pane]
             ),
 

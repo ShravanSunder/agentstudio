@@ -142,6 +142,21 @@ enum ActionValidator {
             }
             return .success(ValidatedAction(action))
 
+        case .duplicateTab(let tabId):
+            guard state.tab(tabId) != nil else {
+                return .failure(.tabNotFound(tabId: tabId))
+            }
+            return .success(ValidatedAction(action))
+
+        case .duplicatePane(let tabId, let paneId, _):
+            guard let tab = state.tab(tabId) else {
+                return .failure(.tabNotFound(tabId: tabId))
+            }
+            guard tab.paneIds.contains(paneId.uuid) else {
+                return .failure(.paneNotFound(paneId: paneId.uuid, tabId: tabId))
+            }
+            return .success(ValidatedAction(action))
+
         case .toggleSplitZoom(let tabId, let paneId),
             .resizePaneByDelta(let tabId, let paneId, _, _),
             .minimizePane(let tabId, let paneId),
