@@ -21,7 +21,7 @@ protocol RPCMethod {
 
     /// Erased handler construction for registration in a method-name keyed router map.
     static func makeHandler(
-        _ handler: @escaping @Sendable (Params) async throws -> Result?
+        _ handler: @escaping @MainActor @Sendable (Params) async throws -> Result?
     ) -> any AnyRPCMethodHandler
 }
 
@@ -45,7 +45,7 @@ extension RPCMethod {
 
     /// Default typed handler adapter.
     static func makeHandler(
-        _ handler: @escaping @Sendable (Params) async throws -> Result?
+        _ handler: @escaping @MainActor @Sendable (Params) async throws -> Result?
     ) -> any AnyRPCMethodHandler {
         TypedRPCMethodHandler<Self>(handler)
     }
@@ -53,9 +53,9 @@ extension RPCMethod {
 
 /// Adapts a typed method handler to a non-generic registration surface.
 private struct TypedRPCMethodHandler<Method: RPCMethod>: AnyRPCMethodHandler {
-    private let handler: @Sendable (Method.Params) async throws -> Method.Result?
+    private let handler: @MainActor @Sendable (Method.Params) async throws -> Method.Result?
 
-    init(_ handler: @escaping @Sendable (Method.Params) async throws -> Method.Result?) {
+    init(_ handler: @escaping @MainActor @Sendable (Method.Params) async throws -> Method.Result?) {
         self.handler = handler
     }
 

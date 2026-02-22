@@ -165,11 +165,11 @@ final class BridgePaneController {
         registerStub(ReviewMethods.ResolveThreadMethod.self)
         registerStub(ReviewMethods.UnresolveThreadMethod.self)
         registerStub(ReviewMethods.DeleteCommentMethod.self)
-        router.register(method: ReviewMethods.MarkFileViewedMethod.self) { [weak self] params in
+        router.register(method: ReviewMethods.MarkFileViewedMethod.self) { @MainActor [weak self] params in
             self?.paneState.review.markFileViewed(params.fileId)
             return nil
         }
-        router.register(method: ReviewMethods.UnmarkFileViewedMethod.self) { [weak self] params in
+        router.register(method: ReviewMethods.UnmarkFileViewedMethod.self) { @MainActor [weak self] params in
             self?.paneState.review.unmarkFileViewed(params.fileId)
             return nil
         }

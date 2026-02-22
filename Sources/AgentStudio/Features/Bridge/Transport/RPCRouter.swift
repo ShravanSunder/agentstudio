@@ -66,7 +66,10 @@ final class RPCRouter {
     /// Register a handler for a typed JSON-RPC method.
     ///
     /// Only one handler per method name; later registrations replace earlier ones.
-    func register<M: RPCMethod>(method: M.Type, handler: @escaping @Sendable (M.Params) async throws -> M.Result?) {
+    func register<M: RPCMethod>(
+        method: M.Type,
+        handler: @escaping @MainActor @Sendable (M.Params) async throws -> M.Result?
+    ) {
         handlers[M.method] = M.makeHandler(handler)
     }
 
@@ -301,7 +304,7 @@ final class RPCRouter {
             let responseJSON = try makeSuccessResponseJSON(id: id, result: result)
             await onResponse(responseJSON)
         } catch {
-            let message = "Internal error: failed to encode response: \(errorMessage(from: error))"
+            let message = "Internal error: failed to encode response: \(self.errorMessage(from: error))"
             onError(RPCErrorCode.internalError.rawValue, message, id)
             do {
                 let fallback = try makeErrorResponseJSON(
@@ -312,7 +315,7 @@ final class RPCRouter {
                 await onResponse(fallback)
             } catch {
                 rpcRouterLogger.error(
-                    "RPC success response and fallback error encoding both failed id=\(String(describing: id)): \(errorMessage(from: error))"
+                    "RPC success response and fallback error encoding both failed id=\(String(describing: id)): \(self.errorMessage(from: error))"
                 )
             }
         }
@@ -326,9 +329,9 @@ final class RPCRouter {
             let responseJSON = try makeErrorResponseJSON(id: id, code: code, message: message)
             await onResponse(responseJSON)
         } catch {
-            let fallbackMessage = "Internal error: failed to encode error response: \(errorMessage(from: error))"
+            let fallbackMessage = "Internal error: failed to encode error response: \(self.errorMessage(from: error))"
             rpcRouterLogger.error(
-                "RPC error response encoding failed id=\(String(describing: id)) code=\(code): \(errorMessage(from: error))"
+                "RPC error response encoding failed id=\(String(describing: id)) code=\(code): \(self.errorMessage(from: error))"
             )
             onError(RPCErrorCode.internalError.rawValue, fallbackMessage, id)
         }

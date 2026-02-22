@@ -159,7 +159,11 @@ jobs:
             echo "### PushBenchmark lines"
             echo ""
             echo '```text'
-            cat benchmark-lines.txt
+            if [ -f benchmark-lines.txt ]; then
+              cat benchmark-lines.txt
+            else
+              echo "[PushBenchmark] benchmark-lines.txt missing (benchmark step did not run or failed early)."
+            fi
             echo '```'
           } > benchmark-comment.md
 
@@ -170,7 +174,9 @@ jobs:
           script: |
             const fs = require('fs');
             const marker = '<!-- benchmark-lane-report -->';
-            const body = fs.readFileSync('benchmark-comment.md', 'utf8');
+            const body = fs.existsSync('benchmark-comment.md')
+              ? fs.readFileSync('benchmark-comment.md', 'utf8')
+              : `${marker}\n## Benchmark lane (\`test-benchmark\`)\n\n- Workflow run: https://github.com/${context.repo.owner}/${context.repo.repo}/actions/runs/${context.runId}\n- Commit: \`${context.sha}\`\n- Result: \`${process.env.JOB_STATUS ?? 'unknown'}\`\n\n### PushBenchmark lines\n\n\`\`\`text\n[PushBenchmark] benchmark-comment.md missing (comment body step failed unexpectedly).\n\`\`\``;
             const issue_number = context.issue.number;
 
             const { data: comments } = await github.rest.issues.listComments({
