@@ -2372,7 +2372,7 @@ The current codebase uses `NotificationCenter` and `DispatchQueue.main.async` fo
 | Current Mechanism | Replacement | Migrated By |
 |---|---|---|
 | `NotificationCenter.default.post(name: .ghosttyAction, ...)` | `GhosttyAdapter` → typed `GhosttyEvent` → `TerminalRuntime.handleEvent()` | LUNA-325 |
-| `DispatchQueue.main.async { ... }` in C callback trampolines | `MainActor.assumeIsolated { ... }` or `Task { @MainActor in ... }` | LUNA-327 (partially), LUNA-325 (remaining) |
+| `DispatchQueue.main.async { ... }` in C callback trampolines | `Task { @MainActor in ... }` or direct `@MainActor` calls | LUNA-342 (partial — wakeup_cb, initialize), LUNA-325 (remaining 23 instances) |
 | `@objc` notification observers in `PaneCoordinator` | `for await envelope in runtime.subscribe()` in coordinator event loop | LUNA-325 |
 | `userInfo` dictionaries on notifications | Typed `GhosttyEvent` enum cases with associated values | LUNA-325 |
 | String-keyed notification names (`.ghosttyTitleChanged`, etc.) | Exhaustive `GhosttyEvent` enum switch (compile-time coverage) | LUNA-325 |
@@ -2387,9 +2387,9 @@ The current codebase uses `NotificationCenter` and `DispatchQueue.main.async` fo
 
 ### Migration Order
 
-1. **LUNA-327 (this branch):** `@Observable` migration, `private(set)` stores, `PaneCoordinator` consolidation. Foundation for the event bus. `DispatchQueue.main.async` → `MainActor` primitives where touched.
-2. **LUNA-342 (contract freeze):** Lock contract shapes. No implementation, but every contract is testable against a mock.
-3. **LUNA-325 (implementation):** Build `GhosttyAdapter`, `TerminalRuntime`, `RuntimeRegistry`, `NotificationReducer`. Replace `NotificationCenter`-based dispatch with typed event stream. This is the primary migration ticket.
+1. **LUNA-327 (done):** `@Observable` migration, `private(set)` stores, `PaneCoordinator` consolidation. Foundation for the event bus. `DispatchQueue.main.async` → `MainActor` primitives where touched.
+2. **LUNA-342 (done):** Contract freeze + Swift 6 language mode migration. `.swiftLanguageMode(.v6)` enforced, all `isolated deinit` migrations complete, `MainActor.assumeIsolated` removed from Sources, C callback trampolines partially migrated (`wakeup_cb` done), existential Sendable constraints added. SwiftLint concurrency rules added (44 violations marking LUNA-325 scope). See [migration spec](../plans/2026-02-22-swift6-language-mode-migration.md) and [mapping doc](../plans/2026-02-21-pane-runtime-luna-295-luna-325-mapping.md#luna-342-implementation-record) for details.
+3. **LUNA-325 (next):** Build `GhosttyAdapter`, `TerminalRuntime`, `RuntimeRegistry`, `NotificationReducer`. Replace `NotificationCenter`-based dispatch with typed event stream. Resolve remaining 44 SwiftLint concurrency violations (23 DispatchQueue, 20 NotificationCenter selector, 1 Task.detached). This is the primary migration ticket.
 4. **LUNA-295 (attach orchestration):** Build attach readiness policies, visibility-tier scheduling, restart reconcile. Consumes the event stream infrastructure from LUNA-325.
 
 ### Migration Invariant
@@ -2486,7 +2486,7 @@ Hard rules for all types in this architecture. Violations are compile errors, no
 
 2. **No stringly-typed event identity in core contracts.** `EventIdentifier`, `PaneContentType`, and `PaneCapability` are typed enums (with `.plugin(String)` escape hatches) instead of bare strings.
 
-3. **No `DispatchQueue.main.async` / `NotificationCenter` in new plumbing.** C API callbacks use `MainActor.assumeIsolated` for synchronous hops or `Task { @MainActor in }` for async work. Event transport uses `AsyncStream` + `swift-async-algorithms`. Existing Combine/NotificationCenter migrated incrementally.
+3. **No `DispatchQueue.main.async` / `NotificationCenter` selector patterns.** These are v5-era patterns incompatible with Swift 6 concurrency conventions. C API callbacks use `Task { @MainActor in }` for async work. Event transport uses `AsyncStream` + `swift-async-algorithms`. 23 `DispatchQueue.main.async` and 20 `NotificationCenter` selector instances remain as technical debt — tracked by SwiftLint concurrency rules (`no_dispatch_queue_main`, `no_notification_center_selector`) and migrated by LUNA-325.
 
 4. **Callback handoff is explicitly actor-safe.** Static `@Sendable` trampolines at FFI boundary. No closures capturing mutable state across isolation boundaries. Adapters are `@MainActor` — the trampoline is the only non-isolated code.
 
@@ -2498,7 +2498,7 @@ Hard rules for all types in this architecture. Violations are compile errors, no
 
 8. **Envelope validity is enforced.** `source` + `event` compatibility and monotonic `seq` per `EventSource` are contract-level invariants, not best-effort behavior.
 
-9. **macOS 26 primitives are mandatory for new plumbing.** Use Observation (`@Observable`) for UI-facing state, `AsyncStream` + `swift-async-algorithms` for transport, `Clock<Duration>` for timing, and actor-safe callback handoff (`MainActor.assumeIsolated` / `Task { @MainActor in }`) at C boundaries.
+9. **macOS 26 primitives are mandatory for new plumbing.** Use Observation (`@Observable`) for UI-facing state, `AsyncStream` + `swift-async-algorithms` for transport, `Clock<Duration>` for timing, and `Task { @MainActor in }` for actor-safe callback handoff at C boundaries. See [Swift 6 Concurrency](appkit_swiftui_architecture.md#swift-6-concurrency) for full rules and common false positives.
 
 ---
 

@@ -21,7 +21,7 @@ enum PaneCommand: Sendable {
     case browser(BrowserCommand)
     case diff(DiffCommand)
     case editor(EditorCommand)
-    case plugin(any PaneKindCommand)
+    case plugin(any PaneKindCommand & Sendable)
 }
 
 enum TerminalCommand: Sendable {

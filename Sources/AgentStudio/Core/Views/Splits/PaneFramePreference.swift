@@ -4,7 +4,7 @@ import SwiftUI
 /// Each pane leaf reports its frame; TerminalSplitContainer reads and aggregates them
 /// so the tab-level drawer overlay can position itself relative to the originating pane.
 struct PaneFramePreferenceKey: PreferenceKey {
-    static var defaultValue: [UUID: CGRect] = [:]
+    static let defaultValue: [UUID: CGRect] = [:]
     static func reduce(value: inout [UUID: CGRect], nextValue: () -> [UUID: CGRect]) {
         value.merge(nextValue(), uniquingKeysWith: { $1 })
     }

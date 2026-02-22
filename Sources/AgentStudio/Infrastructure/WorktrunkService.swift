@@ -1,7 +1,7 @@
 import Foundation
 
 /// Service for interacting with worktrunk (wt) CLI for worktree management
-final class WorktrunkService {
+final class WorktrunkService: Sendable {
     static let shared = WorktrunkService()
 
     private init() {}

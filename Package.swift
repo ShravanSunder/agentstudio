@@ -31,7 +31,7 @@ let package = Package(
                 .copy("Resources/ghostty"),
             ],
             swiftSettings: [
-                .swiftLanguageMode(.v5)
+                .swiftLanguageMode(.v6)
             ],
             linkerSettings: [
                 .linkedFramework("Metal"),
@@ -58,7 +58,7 @@ let package = Package(
             ],
             path: "Tests/AgentStudioTests",
             swiftSettings: [
-                .swiftLanguageMode(.v5)
+                .swiftLanguageMode(.v6)
             ]
         ),
         .binaryTarget(

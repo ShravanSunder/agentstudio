@@ -81,7 +81,7 @@ final class TerminalRuntime: PaneRuntime {
         replayBuffer.eventsSince(seq: seq)
     }
 
-    func shutdown(timeout: Duration) async -> [UUID] {
+    func shutdown(timeout _: Duration) async -> [UUID] {
         if lifecycle == .terminated {
             return []
         }

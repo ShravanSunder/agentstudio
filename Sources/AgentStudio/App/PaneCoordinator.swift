@@ -86,7 +86,7 @@ final class PaneCoordinator {
         setupPrePersistHook()
     }
 
-    deinit {
+    isolated deinit {
         cwdChangesTask?.cancel()
     }
 

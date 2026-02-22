@@ -6,7 +6,7 @@ enum PaneRuntimeEvent: Sendable {
     case browser(BrowserEvent)
     case diff(DiffEvent)
     case editor(EditorEvent)
-    case plugin(kind: PaneContentType, event: any PaneKindEvent)
+    case plugin(kind: PaneContentType, event: any PaneKindEvent & Sendable)
     case filesystem(FilesystemEvent)
     case artifact(ArtifactEvent)
     case security(SecurityEvent)

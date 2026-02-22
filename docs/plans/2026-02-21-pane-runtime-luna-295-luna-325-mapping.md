@@ -78,15 +78,16 @@
 | **Agent harness architecture** | Contract 15 (design intent) | MCP + CLI adapters, plugin-as-adapter model, command gateway, event gateway | LUNA-325 (future) | Deferred |
 | **Contract vocabulary** | Contract Vocabulary section | Source/sink/projection role keywords, extensibility notes on Contracts 3/6/15/16 | LUNA-342 (freeze) | Design frozen |
 | **Pane filesystem context** | Contract 16 (deferred) | Derived per-pane stream, CWD-scoped filter, shared worktree watcher | LUNA-325 (future) | Deferred |
-| **Swift 6 invariants** | Swift 6 section (9 rules) | Sendable, no DispatchQueue, injectable clock, @MainActor | LUNA-342 (freeze) | Design frozen |
+| **Swift 6 invariants** | Swift 6 section (9 rules) | Sendable, no DispatchQueue, injectable clock, @MainActor | LUNA-342 (freeze) | Partially implemented |
 | **Architectural invariants** | Arch Invariants (A1-A15) | Structural guarantees across all contracts | LUNA-342 (freeze) | Design frozen |
-| **Migration path** | Migration section | NotificationCenter/DispatchQueue → AsyncStream/event bus, per-action atomic | LUNA-325/327 | Design frozen |
+| **Migration path** | Migration section | NotificationCenter/DispatchQueue → AsyncStream/event bus, per-action atomic | LUNA-325/327 | Partially implemented |
 
 ### Status Legend
 
 | Status | Meaning |
 |--------|---------|
 | **Design frozen** | Contract shape locked in `pane_runtime_architecture.md`. Implementation not started. |
+| **Partially implemented** | Design frozen. Pre-work completed by LUNA-342 (see [Implementation Record](#luna-342-implementation-record)). Remaining work in LUNA-325. |
 | **Deferred** | Designed at concept level, implementation deferred to future ticket. |
 | **Deferred (additive)** | Can be added later without breaking existing contracts. |
 
@@ -136,6 +137,132 @@ Contract 10's inbound command type is `RuntimeCommand` (not `PaneAction`). Two d
 
 - `PaneAction` (`Core/Actions/`) — workspace structure mutations (selectTab, closePane, etc.)
 - `RuntimeCommand` (`Core/PaneRuntime/Contracts/`) — commands to individual runtimes (sendInput, navigate, etc.)
+
+## LUNA-342 Implementation Record
+
+LUNA-342 implemented the Swift 6 language mode migration alongside the contract freeze. This section documents what was completed so LUNA-325 agents know what's already done.
+
+### Completed: Swift 6 Language Mode
+
+- `.swiftLanguageMode(.v5)` → `.swiftLanguageMode(.v6)` on both SPM targets (`Package.swift:34`, `Package.swift:61`)
+- Build passes with zero Swift concurrency diagnostics
+- 1293 tests pass across 98 suites
+
+### Completed: `isolated deinit` Migration
+
+All `@MainActor` classes accessing non-Sendable stored properties in deinit now use `isolated deinit` (SE-0371):
+
+| File | Class | What changed |
+|------|-------|-------------|
+| `NotificationReducer.swift:37` | `NotificationReducer` | `deinit` → `isolated deinit` |
+| `PaneCoordinator.swift:89` | `PaneCoordinator` | `deinit` → `isolated deinit` |
+| `SurfaceManager.swift:115` | `SurfaceManager` | `deinit { MainActor.assumeIsolated { ... } }` → `isolated deinit` (wrapper removed) |
+| `SessionRuntime.swift:74` | `SessionRuntime` | `@MainActor deinit` → `isolated deinit` |
+| `DrawerPanelOverlay.swift:54` | `DrawerDismissMonitor` | `deinit` → `isolated deinit` |
+| `DraggableTabBarHostingView.swift:41` | `DraggableTabBarHostingView` | `deinit` → `isolated deinit` (NSView, implicitly @MainActor) |
+| `GhosttySurfaceView.swift:235` | `Ghostty.SurfaceView` | `deinit` → `isolated deinit` (NSView) |
+| `PaneTabViewController.swift:271` | `PaneTabViewController` | `deinit` → `isolated deinit` (NSTabViewController) |
+| `AgentStudioTerminalView.swift:58` | `AgentStudioTerminalView` | `deinit` → `isolated deinit` (NSView) |
+
+### Completed: `MainActor.assumeIsolated` Removal
+
+Zero instances remain in Sources. `SurfaceManager.swift` was the last one — replaced by `isolated deinit`.
+
+### Completed: C Callback Trampoline Migration
+
+| File | What changed |
+|------|-------------|
+| `Ghostty.swift:110` | `wakeup_cb`: `DispatchQueue.main.async` → `Task { @MainActor in }` with `UInt(bitPattern:)` for Sendable pointer transfer |
+| `Ghostty.swift:27` | `initialize()`: removed `DispatchQueue.main.sync` workaround, added `@MainActor` annotation |
+| `Ghostty.swift:10,14,19,24` | `@MainActor` on namespace statics (`sharedApp`, `shared`, `isInitialized`, `initialize`) |
+
+### Completed: Swift 6 Type Safety Fixes
+
+| File | What changed |
+|------|-------------|
+| `PaneRuntimeEvent.swift:9` | `any PaneKindEvent` → `any PaneKindEvent & Sendable` |
+| `PaneCommand.swift:24` | `any PaneKindCommand` → `any PaneKindCommand & Sendable` |
+| `GhosttySurfaceView.swift:73` | `surface: ghostty_surface_t?` → `nonisolated(unsafe)` (FFI pointer for isolated deinit) |
+| `GhosttySurfaceView.swift:854` | `NSTextInputClient` → `@preconcurrency NSTextInputClient` |
+| `SessionRuntime.swift:25` | `SessionBackendProtocol: Sendable` → `@MainActor protocol SessionBackendProtocol` |
+| `CommandBarPanelController.swift` | Added `@MainActor` annotation; animation completions → `Task { @MainActor in }` |
+| `Ghostty.swift:245-290` | `userInfo` values changed from `Any` to `Int` for Sendable compliance |
+
+### Completed: SwiftLint Concurrency Rules
+
+`.swiftlint.yml` now includes three concurrency anti-pattern rules (warning severity, strict mode):
+
+| Rule | Pattern | Violations |
+|------|---------|-----------|
+| `no_dispatch_queue_main` | `DispatchQueue.main.async/sync` | 23 |
+| `no_notification_center_selector` | `addObserver(_:selector:...)` | 20 |
+| `no_task_detached` | `Task.detached` | 1 |
+
+Plus `unhandled_throwing_task` opt-in rule (0 violations).
+
+These 44 violations are all LUNA-325 migration scope. `mise run lint` will fail until they are addressed.
+
+---
+
+## LUNA-325 Agent Implementation Guide
+
+This section is for the agent implementing LUNA-325 on the `luna-325-bridge-pattern-surface-state-runtime-refactor` branch.
+
+### What's already done (do not redo)
+
+All items in the [LUNA-342 Implementation Record](#luna-342-implementation-record) above. Specifically:
+- Swift 6 language mode is enforced — do not revert to `.v5`
+- All `isolated deinit` migrations are complete
+- `MainActor.assumeIsolated` is fully removed from Sources
+- C callback trampolines in `Ghostty.swift` partially migrated (wakeup_cb done, postSurfaceNotification still uses DispatchQueue)
+- Existential Sendable constraints on `PaneKindEvent`/`PaneKindCommand` are in place
+
+### What you must address
+
+**44 SwiftLint violations** across 10 files. These fire as warnings (promoted to errors by strict mode). Each violation marks a `DispatchQueue.main.async` or `NotificationCenter` selector pattern that must be replaced with the typed event stream architecture.
+
+**`DispatchQueue.main.async` — 23 violations in 8 files:**
+
+| File | Lines | Context |
+|------|-------|---------|
+| `Ghostty.swift` | 218, 229, 299 | `postSurfaceNotification` — C action dispatch to NotificationCenter. Replace with typed `GhosttyEvent` routing through `GhosttyAdapter`. |
+| `GhosttySurfaceView.swift` | 296, 452 | Surface lifecycle callbacks. Route through `TerminalRuntime`. |
+| `MainSplitViewController.swift` | 140, 197, 387 | Split view coordination. Evaluate if still needed with `@MainActor` isolation. |
+| `DraggableTabBarHostingView.swift` | 302, 331, 342, 381 | Drag/drop and tab management. Next-runloop-cycle dispatch for AppKit coordination. |
+| `PaneTabViewController.swift` | 326, 710 | Tab view updates. |
+| `AgentStudioTerminalView.swift` | 133, 141 | Terminal view focus management. |
+| `CustomTabBar.swift` | 351, 357 | Tab bar drag state. |
+| `TerminalPaneLeaf.swift` | 321, 345, 358 | Pane leaf view updates. |
+| `CommandBarTextField.swift` | 35, 109 | Text field focus. |
+
+**Migration pattern:** Do NOT blindly replace `DispatchQueue.main.async { ... }` with `Task { @MainActor in ... }`. These classes are already `@MainActor`. The real fix depends on context:
+- **C callback trampolines** (Ghostty.swift:299) → route through `GhosttyAdapter` → typed event → `TerminalRuntime`
+- **Next-runloop-cycle dispatch** (AppKit coordination) → evaluate if the timing hack is still needed; if so, `Task { }` (inherits MainActor) is the correct replacement
+- **NotificationCenter posting** (Ghostty.swift:218,229) → delete entirely when the NotificationCenter path is replaced by the event bus
+
+**NotificationCenter selector — 20 violations:**
+
+These are all `addObserver(_:selector:name:object:)` calls. Replace with `NotificationCenter.default.notifications(named:)` async stream, or delete if the notification is being replaced by the typed event bus.
+
+**Task.detached — 1 violation:**
+
+Verify if detached execution is intentionally needed (global executor, not MainActor). If so, add inline `// swiftlint:disable:next no_task_detached` with a comment explaining why.
+
+### Architecture references
+
+- [Migration: NotificationCenter/DispatchQueue → AsyncStream/Event Bus](../architecture/pane_runtime_architecture.md#migration-notificationcenterdispatchqueue--asyncstreamevent-bus)
+- [D5: Adapter → Runtime → Coordinator](../architecture/pane_runtime_architecture.md#d5-adapter--runtime--coordinator-layering)
+- [Swift 6 Concurrency](../architecture/appkit_swiftui_architecture.md#swift-6-concurrency)
+- [Contract 7a: Ghostty Action Coverage Policy](../architecture/pane_runtime_architecture.md#contract-7a-ghostty-action-coverage-policy-luna-325)
+
+### Verification
+
+After addressing all violations:
+1. `swift build` → zero errors, zero warnings
+2. `swift test` → all tests pass (skip `PushPerformanceBenchmarkTests`)
+3. `mise run lint` → zero violations (all 44 concurrency warnings resolved)
+
+---
 
 ## Notes
 

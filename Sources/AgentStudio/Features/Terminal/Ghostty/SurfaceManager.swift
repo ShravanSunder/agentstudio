@@ -112,12 +112,10 @@ final class SurfaceManager {
         logger.info("SurfaceManager initialized")
     }
 
-    deinit {
-        MainActor.assumeIsolated {
-            healthCheckTimer?.invalidate()
-            healthCheckTimer = nil
-            cwdChangeContinuation.finish()
-        }
+    isolated deinit {
+        healthCheckTimer?.invalidate()
+        healthCheckTimer = nil
+        cwdChangeContinuation.finish()
     }
 
     var surfaceCWDChanges: AsyncStream<SurfaceCWDChangeEvent> {

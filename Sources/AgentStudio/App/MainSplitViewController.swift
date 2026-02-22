@@ -137,7 +137,7 @@ class MainSplitViewController: NSSplitViewController {
     @objc private func handleToggleSidebar(_ notification: Notification) {
         toggleSidebar(nil)
         // Save collapsed state after toggle completes
-        DispatchQueue.main.async { [weak self] in
+        Task { @MainActor [weak self] in
             self?.saveSidebarState()
         }
     }
@@ -194,7 +194,7 @@ class MainSplitViewController: NSSplitViewController {
     func expandSidebar() {
         guard let sidebarItem = splitViewItems.first, sidebarItem.isCollapsed else { return }
         sidebarItem.animator().isCollapsed = false
-        DispatchQueue.main.async { [weak self] in
+        Task { @MainActor [weak self] in
             self?.saveSidebarState()
         }
     }
@@ -211,7 +211,7 @@ class MainSplitViewController: NSSplitViewController {
         return rect
     }
 
-    deinit {
+    isolated deinit {
         NotificationCenter.default.removeObserver(self)
     }
 }
@@ -384,7 +384,8 @@ struct SidebarContentView: View {
                 }
             }
             // Focus after animation starts
-            DispatchQueue.main.asyncAfter(deadline: .now() + 0.05) {
+            Task { @MainActor in
+                try? await Task.sleep(for: .milliseconds(50))
                 isFilterFocused = true
             }
         }

@@ -34,7 +34,7 @@ final class NotificationReducer {
         self.batchContinuation = batchCont!
     }
 
-    deinit {
+    isolated deinit {
         frameTimer?.cancel()
         criticalContinuation.finish()
         batchContinuation.finish()

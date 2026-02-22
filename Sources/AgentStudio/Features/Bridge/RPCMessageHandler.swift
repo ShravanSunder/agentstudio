@@ -32,7 +32,7 @@ final class RPCMessageHandler: NSObject, WKScriptMessageHandler {
     /// `postMessage` can deliver any JS value (string, number, object, array, null).
     /// The bridge relay sends `JSON.stringify`'d strings, so we require `String` type.
     /// Non-string bodies (NSDictionary, NSNumber, NSArray) are rejected.
-    static func extractJSON(from body: Any) -> String? {
+    nonisolated static func extractJSON(from body: Any) -> String? {
         guard let jsonString = body as? String,
             !jsonString.isEmpty
         else {

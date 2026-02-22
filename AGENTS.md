@@ -214,8 +214,21 @@ State patterns, code examples, and rationale live in [Component Architecture](do
 - **No Combine** for new code — `AsyncStream` + `swift-async-algorithms` replaces publishers
 - **No NotificationCenter** for new event plumbing — typed streams replace string-keyed notifications
 - **No ObservableObject/@Published** — `@Observable` macro everywhere
-- **No DispatchQueue.main.async** from C callbacks — `MainActor.assumeIsolated` or `Task { @MainActor in }`
+- **No DispatchQueue.main.async** from C callbacks — use `Task { @MainActor in }` (or `MainActor.assumeIsolated` only in nonisolated sync contexts where you can prove you're already on main thread, never in deinit)
 - **No domain logic in coordinators** — coordinators sequence stores, stores own domain decisions
+
+## Swift 6 Concurrency
+
+Swift 6.2 toolchain, Swift 6 language mode, macOS 26. Data-race safety is enforced at compile time.
+
+- **`Task { }` inherits actor isolation** — inside `@MainActor`, the Task body runs on MainActor
+- **`isolated deinit`** for any `@MainActor` class that touches non-Sendable stored properties in deinit (SE-0371)
+- **`AsyncStream.makeStream(of:)`** for new stream code (SE-0388)
+- **No `Task.detached`** unless you specifically need the global executor
+- **No `MainActor.assumeIsolated` in deinit** — use `isolated deinit` (SE-0414 makes `assumeIsolated` problematic with non-Sendable types)
+- **No `nonisolated(unsafe)`** without documenting why
+
+Full rules, safe patterns, and common false positives: [App Architecture — Swift 6 Concurrency](docs/architecture/appkit_swiftui_architecture.md#swift-6-concurrency)
 
 ## Architecture Docs (read on demand)
 

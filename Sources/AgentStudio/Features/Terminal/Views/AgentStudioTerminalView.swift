@@ -55,7 +55,7 @@ final class AgentStudioTerminalView: PaneView, SurfaceHealthDelegate {
         fatalError("init(coder:) not supported")
     }
 
-    deinit {
+    isolated deinit {
         // Safety net: coordinator.teardownView() should have detached before dealloc.
         // If surfaceId is still set, the normal teardown path was missed.
         if let surfaceId {
@@ -130,7 +130,7 @@ final class AgentStudioTerminalView: PaneView, SurfaceHealthDelegate {
     func surface(_ surfaceId: UUID, healthChanged health: SurfaceHealth) {
         guard surfaceId == self.surfaceId else { return }
 
-        DispatchQueue.main.async { [weak self] in
+        Task { @MainActor [weak self] in
             self?.updateHealthUI(health)
         }
     }
@@ -138,7 +138,7 @@ final class AgentStudioTerminalView: PaneView, SurfaceHealthDelegate {
     func surface(_ surfaceId: UUID, didEncounterError error: SurfaceError) {
         guard surfaceId == self.surfaceId else { return }
 
-        DispatchQueue.main.async { [weak self] in
+        Task { @MainActor [weak self] in
             self?.showErrorOverlay(health: .dead)
         }
     }

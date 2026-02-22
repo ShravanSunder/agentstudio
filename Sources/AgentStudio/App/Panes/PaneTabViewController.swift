@@ -12,6 +12,7 @@ import SwiftUI
 /// concerns (focus, observers, empty-state visibility, tab bar coordination) stay
 /// local. It also handles direct tab-order updates (`store.moveTab`) from drag
 /// interactions as a UI-only mutation.
+@MainActor
 class PaneTabViewController: NSViewController, CommandHandler {
     // MARK: - Dependencies (injected)
 
@@ -268,7 +269,7 @@ class PaneTabViewController: NSViewController, CommandHandler {
         }
     }
 
-    deinit {
+    isolated deinit {
         if let monitor = arrangementBarEventMonitor {
             NSEvent.removeMonitor(monitor)
         }
@@ -322,7 +323,7 @@ class PaneTabViewController: NSViewController, CommandHandler {
         RestoreTrace.log(
             "\(Self.self).focusActivePane tab=\(activeTabId) pane=\(activePaneId) paneClass=\(String(describing: type(of: paneView))) windowReady=\(paneView.window != nil)"
         )
-        DispatchQueue.main.async { [weak paneView] in
+        Task { @MainActor [weak paneView] in
             guard let paneView, paneView.window != nil else { return }
             paneView.window?.makeFirstResponder(paneView)
             RestoreTrace.log(
@@ -706,7 +707,7 @@ class PaneTabViewController: NSViewController, CommandHandler {
             let paneView = viewRegistry.view(for: activePaneId)
         else { return }
         RestoreTrace.log("\(Self.self).handleRefocusTerminal tab=\(activeTabId) pane=\(activePaneId)")
-        DispatchQueue.main.async { [weak paneView] in
+        Task { @MainActor [weak paneView] in
             guard let paneView, paneView.window != nil else { return }
             paneView.window?.makeFirstResponder(paneView)
             RestoreTrace.log("\(Self.self).handleRefocusTerminal async firstResponder set")

@@ -318,7 +318,7 @@ private struct SplitDropDelegate: DropDelegate {
                     return
                 }
 
-                DispatchQueue.main.async {
+                Task { @MainActor in
                     let splitPayload = SplitDropPayload(
                         kind: .existingTab(
                             tabId: payload.tabId
@@ -342,7 +342,7 @@ private struct SplitDropDelegate: DropDelegate {
                     return
                 }
 
-                DispatchQueue.main.async {
+                Task { @MainActor in
                     let splitPayload = SplitDropPayload(
                         kind: .existingPane(
                             paneId: payload.paneId,
@@ -355,7 +355,7 @@ private struct SplitDropDelegate: DropDelegate {
         }
 
         if provider.hasItemConformingToTypeIdentifier(UTType.agentStudioNewTab.identifier) {
-            DispatchQueue.main.async {
+            Task { @MainActor in
                 let splitPayload = SplitDropPayload(kind: .newTerminal)
                 onDrop(splitPayload, destination.id, zone)
             }
