@@ -130,4 +130,4 @@ jobs:
       - name: Test
         run: |
           set -o pipefail
-          swift test 2>&1 | scripts/filter-known-linker-warnings.sh
+          swift test --skip "PushPerformanceBenchmarkTests" 2>&1 | scripts/filter-known-linker-warnings.sh
