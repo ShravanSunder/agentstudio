@@ -329,6 +329,47 @@ struct PaneCoordinatorHardeningTests {
         #expect(harness.store.pane(terminalPane.id) == nil)
     }
 
+    @Test("undoTabClose preserves tab when only active arrangement is emptied")
+    func undoTabClose_activeArrangementEmpty_preservesTabViaFallbackArrangement() {
+        let harness = makeHarness()
+        defer { try? FileManager.default.removeItem(at: harness.tempDir) }
+
+        let (repo, worktree) = makeRepoAndWorktree(harness.store, root: harness.tempDir)
+        let terminalPane = makeWorktreePane(harness.store, repo: repo, worktree: worktree, title: "Terminal")
+        let webviewPane = makeWebviewPane(harness.store, title: "Web")
+        let tab = Tab(paneId: terminalPane.id)
+        harness.store.appendTab(tab)
+        harness.store.insertPane(
+            webviewPane.id,
+            inTab: tab.id,
+            at: terminalPane.id,
+            direction: .horizontal,
+            position: .after
+        )
+        guard
+            let terminalOnlyArrangementId = harness.store.createArrangement(
+                name: "Terminal only",
+                paneIds: Set([terminalPane.id]),
+                inTab: tab.id
+            )
+        else {
+            Issue.record("Expected arrangement creation to succeed")
+            return
+        }
+        harness.store.switchArrangement(to: terminalOnlyArrangementId, inTab: tab.id)
+
+        harness.coordinator.execute(.closeTab(tabId: tab.id))
+        harness.coordinator.undoCloseTab()
+
+        guard let restoredTab = harness.store.tab(tab.id) else {
+            Issue.record("Expected tab to remain after fallback arrangement recovery")
+            return
+        }
+        #expect(restoredTab.panes == [webviewPane.id])
+        #expect(!(restoredTab.activeArrangement.layout.paneIds.isEmpty))
+        #expect(restoredTab.activeArrangement.layout.contains(webviewPane.id))
+    }
+
     @Test("undoCloseTab skips orphaned drawer-child pane snapshots safely")
     func undoCloseTab_skipsOrphanedDrawerChildSnapshot() {
         let harness = makeHarness()

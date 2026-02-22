@@ -139,7 +139,7 @@ extension Ghostty {
             // Create the ghostty app
             self.app = ghostty_app_new(&runtimeConfig, config)
 
-            if self.app == nil {
+            guard let app = self.app else {
                 ghosttyLogger.error("Failed to create ghostty app")
                 ghostty_config_free(config)
                 self.config = nil
@@ -149,19 +149,24 @@ extension Ghostty {
             // Start unfocused; activation notifications synchronize real app focus state.
             ghostty_app_set_focus(app, false)
 
+            let appHandleBits = UInt(bitPattern: app)
             didBecomeActiveObserver = NotificationCenter.default.addObserver(
                 forName: NSApplication.didBecomeActiveNotification,
                 object: nil,
                 queue: .main
-            ) { [weak self] _ in
-                self?.applicationDidBecomeActive()
+            ) { _ in
+                guard let appHandle = UnsafeMutableRawPointer(bitPattern: appHandleBits) else { return }
+                ghostty_app_set_focus(appHandle, true)
+                RestoreTrace.log("Ghostty.App applicationDidBecomeActive -> ghostty_app_set_focus(true)")
             }
             didResignActiveObserver = NotificationCenter.default.addObserver(
                 forName: NSApplication.didResignActiveNotification,
                 object: nil,
                 queue: .main
-            ) { [weak self] _ in
-                self?.applicationDidResignActive()
+            ) { _ in
+                guard let appHandle = UnsafeMutableRawPointer(bitPattern: appHandleBits) else { return }
+                ghostty_app_set_focus(appHandle, false)
+                RestoreTrace.log("Ghostty.App applicationDidResignActive -> ghostty_app_set_focus(false)")
             }
 
             ghosttyLogger.info("Ghostty app initialized successfully")
@@ -186,18 +191,6 @@ extension Ghostty {
         func tick() {
             guard let app else { return }
             ghostty_app_tick(app)
-        }
-
-        private func applicationDidBecomeActive() {
-            guard let app else { return }
-            ghostty_app_set_focus(app, true)
-            RestoreTrace.log("Ghostty.App applicationDidBecomeActive -> ghostty_app_set_focus(true)")
-        }
-
-        private func applicationDidResignActive() {
-            guard let app else { return }
-            ghostty_app_set_focus(app, false)
-            RestoreTrace.log("Ghostty.App applicationDidResignActive -> ghostty_app_set_focus(false)")
         }
 
         // MARK: - Static Callbacks

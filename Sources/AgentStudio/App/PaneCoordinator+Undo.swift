@@ -61,7 +61,11 @@ extension PaneCoordinator {
             )
         }
 
-        guard let restoredTab = store.tab(snapshot.tab.id), !restoredTab.paneIds.isEmpty else {
+        // If the active arrangement was emptied by failure cleanup, prefer switching to
+        // any remaining non-empty arrangement before deciding the tab is empty.
+        recoverActiveArrangementIfNeeded(tabId: snapshot.tab.id)
+
+        guard let restoredTab = store.tab(snapshot.tab.id), !restoredTab.panes.isEmpty else {
             paneCoordinatorLogger.error("undoTabClose: all panes failed for tab \(snapshot.tab.id); removing empty tab")
             store.removeTab(snapshot.tab.id)
             return
@@ -134,6 +138,13 @@ extension PaneCoordinator {
             paneCoordinatorLogger.warning("Cannot restore unsupported pane \(pane.id)")
             return true
         }
+    }
+
+    private func recoverActiveArrangementIfNeeded(tabId: UUID) {
+        guard let tab = store.tab(tabId) else { return }
+        guard tab.activeArrangement.layout.paneIds.isEmpty else { return }
+        guard let fallbackArrangement = tab.arrangements.first(where: { !$0.layout.paneIds.isEmpty }) else { return }
+        store.switchArrangement(to: fallbackArrangement.id, inTab: tabId)
     }
 
     private func removeFailedRestoredPane(_ paneId: UUID, fromTab tabId: UUID) {
