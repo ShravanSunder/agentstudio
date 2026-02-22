@@ -85,32 +85,13 @@ jobs:
           cd vendor/zmx
           zig build -Doptimize=ReleaseFast
 
-      # --- Setup resources + build + test ---
+      # --- Setup resources + build + test (delegated to mise) ---
 
       - name: Copy XCFramework
-        run: |
-          mkdir -p Frameworks
-          cp -R vendor/ghostty/macos/GhosttyKit.xcframework Frameworks/
+        run: mise run copy-xcframework
 
       - name: Setup dev resources
-        run: |
-          if [ -d "vendor/ghostty/zig-out/share/ghostty/shell-integration" ]; then
-            SRC="vendor/ghostty/zig-out/share/ghostty/shell-integration"
-          elif [ -d "vendor/ghostty/src/shell-integration" ]; then
-            SRC="vendor/ghostty/src/shell-integration"
-          else
-            echo "ERROR: shell-integration not found" && exit 1
-          fi
-          mkdir -p Sources/AgentStudio/Resources/ghostty
-          rm -rf Sources/AgentStudio/Resources/ghostty/shell-integration
-          cp -R "$SRC" Sources/AgentStudio/Resources/ghostty/shell-integration
-
-          TERMINFO_SRC="vendor/ghostty/zig-out/share/terminfo"
-          if [ -d "$TERMINFO_SRC" ]; then
-            mkdir -p Sources/AgentStudio/Resources/terminfo/78 Sources/AgentStudio/Resources/terminfo/67
-            [ -f "$TERMINFO_SRC/78/xterm-ghostty" ] && cp "$TERMINFO_SRC/78/xterm-ghostty" Sources/AgentStudio/Resources/terminfo/78/
-            [ -f "$TERMINFO_SRC/67/ghostty" ] && cp "$TERMINFO_SRC/67/ghostty" Sources/AgentStudio/Resources/terminfo/67/
-          fi
+        run: mise run setup-dev-resources
 
       - name: Cache Swift build
         uses: actions/cache@v4
@@ -123,47 +104,17 @@ jobs:
       - name: Build
         run: swift build -c release
 
-      - name: Test (parallel, skip WebView serialized)
+      - name: Test
         env:
-          AGENT_STUDIO_BENCHMARK_MODE: "off"
-        run: |
-          set -o pipefail
-          SWIFT_TEST_WORKERS="${SWIFT_TEST_WORKERS:-8}"
-          swift test --parallel --num-workers "$SWIFT_TEST_WORKERS" --skip WebKitSerializedTests --quiet > test-parallel.log 2>&1 || {
-            echo "Parallel tests failed. Last 300 lines:";
-            tail -n 300 test-parallel.log;
-            exit 1;
-          }
-          if grep -q "Test run with" test-parallel.log; then
-            grep "Test run with" test-parallel.log | tail -n 1
-          else
-            echo "Parallel tests passed."
-          fi
-
-      - name: Test (WebView serialized)
-        env:
-          AGENT_STUDIO_BENCHMARK_MODE: "off"
-        run: |
-          set -o pipefail
-          swift test --filter WebKitSerializedTests --quiet > test-webkit.log 2>&1 || {
-            echo "WebView serialized tests failed. Last 300 lines:";
-            tail -n 300 test-webkit.log;
-            exit 1;
-          }
-          if grep -q "Test run with" test-webkit.log; then
-            grep "Test run with" test-webkit.log | tail -n 1
-          else
-            echo "WebView serialized tests passed."
-          fi
+          SWIFT_BUILD_DIR: .build
+          SWIFT_TEST_WORKERS: "8"
+        run: mise run test
 
       - name: Benchmark tests
         env:
-          AGENT_STUDIO_BENCHMARK_MODE: benchmark
+          SWIFT_BUILD_DIR: .build
         run: |
-          set -o pipefail
-          : > benchmark.log
-          swift test --build-path .build --filter PushBenchmarkSupportTests 2>&1 | tee -a benchmark.log
-          swift test --build-path .build --filter PushPerformanceBenchmarkTests 2>&1 | tee -a benchmark.log
+          mise run test-benchmark 2>&1 | tee benchmark.log
           grep -E "\[PushBenchmark\]" benchmark.log > benchmark-lines.txt || true
           if [ ! -s benchmark-lines.txt ]; then
             echo "[PushBenchmark] No benchmark threshold lines emitted in this run." > benchmark-lines.txt

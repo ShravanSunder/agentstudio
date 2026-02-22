@@ -89,14 +89,14 @@ bash scripts/check-core-boundary-imports.sh
 description = "Full debug build (ghostty + zmx + swift)"
 depends = ["copy-xcframework", "setup-dev-resources", "build-zmx"]
 run = """
-swift build > /tmp/build-output.txt 2>&1 && echo "BUILD OK" || { echo "BUILD FAIL"; tail -20 /tmp/build-output.txt; exit 1; }
+swift build 2>&1 && echo "BUILD OK" || { echo "BUILD FAIL"; exit 1; }
 """
 
 [tasks.build-release]
 description = "Full release build (ghostty + zmx + swift)"
 depends = ["copy-xcframework", "setup-dev-resources", "build-zmx"]
 run = """
-swift build -c release > /tmp/build-output.txt 2>&1 && echo "BUILD OK" || { echo "BUILD FAIL"; tail -20 /tmp/build-output.txt; exit 1; }
+swift build -c release 2>&1 && echo "BUILD OK" || { echo "BUILD FAIL"; exit 1; }
 """
 
 [tasks.test]
@@ -124,29 +124,11 @@ depends = ["copy-xcframework", "setup-dev-resources"]
 run = """
 #!/usr/bin/env bash
 set -euo pipefail
-export SWIFT_BUILD_DIR="${SWIFT_BUILD_DIR:-.build-agent-$RANDOM}"
+BUILD_PATH="${SWIFT_BUILD_DIR:-.build-agent-$RANDOM}"
 export AGENT_STUDIO_BENCHMARK_MODE=benchmark
 
-swift test --build-path "$SWIFT_BUILD_DIR" --filter "PushBenchmarkSupportTests"
-swift test --build-path "$SWIFT_BUILD_DIR" --filter "PushPerformanceBenchmarkTests"
-"""
-
-[tasks.test-ci]
-description = "Run full Swift test suite for CI with shared .build cache directory"
-depends = ["copy-xcframework", "setup-dev-resources"]
-run = """
-#!/usr/bin/env bash
-set -euo pipefail
-if [ "${SWIFT_TEST_PARALLEL:-1}" = "1" ]; then
-  SWIFT_TEST_WORKERS="${SWIFT_TEST_WORKERS:-4}"
-  if [ "$SWIFT_TEST_WORKERS" -lt 2 ]; then SWIFT_TEST_WORKERS=2; fi
-  if [ "$SWIFT_TEST_WORKERS" -gt 4 ]; then SWIFT_TEST_WORKERS=4; fi
-  AGENT_STUDIO_BENCHMARK_MODE=off swift test --parallel --num-workers "$SWIFT_TEST_WORKERS" --skip WebKitSerializedTests --build-path .build
-else
-  AGENT_STUDIO_BENCHMARK_MODE=off swift test --build-path .build
-fi
-echo "--- WebView serialized tests (serial) ---"
-AGENT_STUDIO_BENCHMARK_MODE=off swift test --filter WebKitSerializedTests --build-path .build
+swift test --build-path "$BUILD_PATH" --filter "PushBenchmarkSupportTests"
+swift test --build-path "$BUILD_PATH" --filter "PushPerformanceBenchmarkTests"
 """
 
 [tasks.clean]
