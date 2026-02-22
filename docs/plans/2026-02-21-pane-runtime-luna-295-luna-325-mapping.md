@@ -62,7 +62,7 @@
 | **Ghostty action coverage** | Contract 7a (Action Coverage Policy) | Per-tag handler, routing, priority table | LUNA-325 | Design frozen |
 | **GhosttyAdapter singleton** | D5 (Adapter→Runtime→Coordinator) | FFI boundary, `@Sendable` trampolines | LUNA-325 | Design frozen |
 | **TerminalRuntime class** | Contract 1 (PaneRuntime protocol) | Per-pane instance, `@MainActor` | LUNA-325 | Design frozen |
-| **Runtime registry** | Contract 11 (RuntimeRegistry) | `paneId→runtime` lookup, precondition on register | LUNA-325 | Design frozen |
+| **Runtime registry** | Contract 11 (RuntimeRegistry) | `paneId→runtime` lookup, uniqueness enforcement on register | LUNA-325 | Design frozen |
 | **Registry invariants** | Arch Invariants A2, A3 | One runtime per pane, sole lookup, unregister on terminate | LUNA-342 (freeze) | Design frozen |
 | **NotificationReducer** | Contract 12 | Critical/lossy queues, injectable clock, frame timer | LUNA-325 | Design frozen |
 | **Replay buffer** | Contract 14 (EventReplayBuffer) | Per-source ring buffer, bounded, gap detection | LUNA-325 | Design frozen |
@@ -146,7 +146,7 @@ LUNA-342 implemented the Swift 6 language mode migration alongside the contract 
 
 - `.swiftLanguageMode(.v5)` → `.swiftLanguageMode(.v6)` on both SPM targets (`Package.swift:34`, `Package.swift:61`)
 - Build passes with zero Swift concurrency diagnostics
-- 1293 tests pass across 98 suites
+- Test suite passes in this branch's verification flow (benchmark suite may be skipped where noted)
 
 ### Completed: `isolated deinit` Migration
 
@@ -190,17 +190,18 @@ Zero instances remain in Sources. `SurfaceManager.swift` was the last one — re
 
 ### Completed: SwiftLint Concurrency Rules
 
-`.swiftlint.yml` now includes three concurrency anti-pattern rules (warning severity, strict mode):
+`.swiftlint.yml` includes three concurrency anti-pattern rules (warning severity, strict mode).
 
-| Rule | Pattern | Violations |
-|------|---------|-----------|
-| `no_dispatch_queue_main` | `DispatchQueue.main.async/sync` | 23 |
-| `no_notification_center_selector` | `addObserver(_:selector:...)` | 20 |
-| `no_task_detached` | `Task.detached` | 1 |
+**Reality snapshot guidance:**
+
+| Rule | Pattern | Status |
+|------|---------|--------|
+| `no_dispatch_queue_main` | `DispatchQueue.main.async/sync` | Resolved in this branch |
+| `no_notification_center_selector` | `addObserver(_:selector:...)` | Resolved in this branch |
+| `no_task_detached` | `Task.detached` | Remaining migration scope |
 
 Plus `unhandled_throwing_task` opt-in rule (0 violations).
-
-These 44 violations are all LUNA-325 migration scope. `mise run lint` will fail until they are addressed.
+Always re-run `mise run lint` before starting LUNA-325 work; counts drift as code moves.
 
 ---
 
@@ -214,39 +215,73 @@ All items in the [LUNA-342 Implementation Record](#luna-342-implementation-recor
 - Swift 6 language mode is enforced — do not revert to `.v5`
 - All `isolated deinit` migrations are complete
 - `MainActor.assumeIsolated` is fully removed from Sources
-- C callback trampolines in `Ghostty.swift` partially migrated (wakeup_cb done, postSurfaceNotification still uses DispatchQueue)
+- `DispatchQueue.main.async` / `DispatchQueue.main.asyncAfter` have been removed from Sources
+- C callback trampolines in `Ghostty.swift` now use `Task { @MainActor in ... }` where needed
 - Existential Sendable constraints on `PaneKindEvent`/`PaneKindCommand` are in place
 
 ### What you must address
 
-**44 SwiftLint violations** across 10 files. These fire as warnings (promoted to errors by strict mode). Each violation marks a `DispatchQueue.main.async` or `NotificationCenter` selector pattern that must be replaced with the typed event stream architecture.
+Treat lint counts as live data from `mise run lint` output, not fixed numbers in this document.
 
-**`DispatchQueue.main.async` — 23 violations in 8 files:**
+**`no_dispatch_queue_main` — 0 violations**
 
-| File | Lines | Context |
-|------|-------|---------|
-| `Ghostty.swift` | 218, 229, 299 | `postSurfaceNotification` — C action dispatch to NotificationCenter. Replace with typed `GhosttyEvent` routing through `GhosttyAdapter`. |
-| `GhosttySurfaceView.swift` | 296, 452 | Surface lifecycle callbacks. Route through `TerminalRuntime`. |
-| `MainSplitViewController.swift` | 140, 197, 387 | Split view coordination. Evaluate if still needed with `@MainActor` isolation. |
-| `DraggableTabBarHostingView.swift` | 302, 331, 342, 381 | Drag/drop and tab management. Next-runloop-cycle dispatch for AppKit coordination. |
-| `PaneTabViewController.swift` | 326, 710 | Tab view updates. |
-| `AgentStudioTerminalView.swift` | 133, 141 | Terminal view focus management. |
-| `CustomTabBar.swift` | 351, 357 | Tab bar drag state. |
-| `TerminalPaneLeaf.swift` | 321, 345, 358 | Pane leaf view updates. |
-| `CommandBarTextField.swift` | 35, 109 | Text field focus. |
+This migration is complete in this branch. Do not re-introduce `DispatchQueue.main.async/sync`.
 
-**Migration pattern:** Do NOT blindly replace `DispatchQueue.main.async { ... }` with `Task { @MainActor in ... }`. These classes are already `@MainActor`. The real fix depends on context:
-- **C callback trampolines** (Ghostty.swift:299) → route through `GhosttyAdapter` → typed event → `TerminalRuntime`
-- **Next-runloop-cycle dispatch** (AppKit coordination) → evaluate if the timing hack is still needed; if so, `Task { }` (inherits MainActor) is the correct replacement
-- **NotificationCenter posting** (Ghostty.swift:218,229) → delete entirely when the NotificationCenter path is replaced by the event bus
+**`no_notification_center_selector` — current state**
 
-**NotificationCenter selector — 20 violations:**
+Selector-based observers are removed in this branch (`0` current violations).  
+Keep new observation code on async streams (`NotificationCenter.default.notifications(named:)`) or typed runtime event streams. Do not reintroduce selector observers.
 
-These are all `addObserver(_:selector:name:object:)` calls. Replace with `NotificationCenter.default.notifications(named:)` async stream, or delete if the notification is being replaced by the typed event bus.
+**`no_task_detached` — outstanding detached task usage:**
 
-**Task.detached — 1 violation:**
+`Features/Bridge/Push/Slice.swift` intentionally offloads cold-level JSON encoding to a background executor. Keep `Task.detached` only if profiling still justifies it, and keep inline suppression with explicit justification scoped to the detached call.
 
-Verify if detached execution is intentionally needed (global executor, not MainActor). If so, add inline `// swiftlint:disable:next no_task_detached` with a comment explaining why.
+### Readiness Tasks (Cross-Ticket)
+
+These tasks are required for LUNA-343 handoff readiness and Swift 6 strictness stability:
+
+1. `Package.swift` language mode guard:
+   Keep `.swiftLanguageMode(.v6)` on all active targets. No `.v5` fallback.
+2. `isolated deinit` guard:
+   Keep `isolated deinit` on actor-isolated classes that access stored state during teardown; no regression to nonisolated deinit workarounds.
+3. `RPCMessageHandler.onValidJSON` guard:
+   Keep `onValidJSON` `@MainActor`-isolated (no `nonisolated(unsafe)` regression). Any cross-isolation delivery must remain via explicit `Task { @MainActor in ... }` handoff.
+4. Compiler-driven sweep:
+   Run a full `swift build` + `swift test` + `mise run lint` pass and resolve any newly surfaced Swift 6 concurrency diagnostics before handoff.
+
+### Concurrency Migration Rules (do not regress)
+
+1. `Task {}` vs `Task { @MainActor in }`:
+`Task {}` inherits actor isolation **only when the call site is already actor-isolated** (for example, inside `@MainActor` classes like `MainSplitViewController`/`PaneTabViewController`).  
+Nonisolated static contexts (for example `Ghostty.App.handleAction` and `postSurfaceNotification`) must use explicit `Task { @MainActor in ... }`.
+
+2. Timing nuance:
+`DispatchQueue.main.async` and `Task {}` both defer past the current synchronous frame, but scheduler semantics differ (main dispatch queue vs MainActor executor). Validate each AppKit timing-sensitive replacement in behavior tests.
+
+3. `for await` consumer lifecycle:
+Every long-lived event consumption loop must run in a retained `Task` and be canceled on shutdown/deinit to avoid leaks.
+
+```swift
+eventConsumptionTask = Task { [weak self] in
+    for await envelope in runtime.subscribe() {
+        guard let self else { break }
+        self.handle(envelope)
+    }
+}
+
+isolated deinit {
+    eventConsumptionTask?.cancel()
+}
+```
+
+4. Async-stream observer helper trap:
+Avoid helper APIs that accept `@Sendable` handler closures for notification migration (for example `observe(_:handler:)`). In Swift 6, that often strips actor isolation and causes `#ActorIsolatedCall` when handlers call `@MainActor` methods. Prefer inline `Task { for await ... }` in actor-isolated context.
+
+5. AsyncStream continuation crossing isolation:
+`AsyncStream.Continuation` is `Sendable`. `yield()` and `finish()` are safe from any isolation context, which is required for adapter-to-runtime event bridging.
+
+6. FFI callback closure safety:
+C callback trampolines are `@Sendable` entry points from arbitrary threads. Do not capture non-Sendable raw pointers directly across concurrency boundaries. Use `UInt(bitPattern:)` transfer + pointer reconstruction inside the target actor context.
 
 ### Architecture references
 
@@ -260,7 +295,7 @@ Verify if detached execution is intentionally needed (global executor, not MainA
 After addressing all violations:
 1. `swift build` → zero errors, zero warnings
 2. `swift test` → all tests pass (skip `PushPerformanceBenchmarkTests`)
-3. `mise run lint` → zero violations (all 44 concurrency warnings resolved)
+3. `mise run lint` → zero violations
 
 ---
 

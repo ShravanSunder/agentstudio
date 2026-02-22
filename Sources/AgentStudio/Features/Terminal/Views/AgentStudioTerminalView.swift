@@ -16,6 +16,7 @@ final class AgentStudioTerminalView: PaneView, SurfaceHealthDelegate {
     private(set) var isProcessRunning = false
     private var errorOverlay: SurfaceErrorOverlayView?
     private let fallbackTitle: String
+    private var surfaceCloseObserver: NSObjectProtocol?
 
     /// The current terminal title
     var title: String {
@@ -56,6 +57,10 @@ final class AgentStudioTerminalView: PaneView, SurfaceHealthDelegate {
     }
 
     isolated deinit {
+        if let observer = surfaceCloseObserver {
+            NotificationCenter.default.removeObserver(observer)
+        }
+
         // Safety net: coordinator.teardownView() should have detached before dealloc.
         // If surfaceId is still set, the normal teardown path was missed.
         if let surfaceId {
@@ -111,12 +116,18 @@ final class AgentStudioTerminalView: PaneView, SurfaceHealthDelegate {
         self.layer?.backgroundColor = NSColor.clear.cgColor
 
         // Listen for surface close
-        NotificationCenter.default.addObserver(
-            self,
-            selector: #selector(handleSurfaceClose(_:)),
-            name: .ghosttyCloseSurface,
-            object: surfaceView
-        )
+        if let observer = surfaceCloseObserver {
+            NotificationCenter.default.removeObserver(observer)
+        }
+        surfaceCloseObserver = NotificationCenter.default.addObserver(
+            forName: .ghosttyCloseSurface,
+            object: surfaceView,
+            queue: .main
+        ) { [weak self] _ in
+            Task { @MainActor [weak self] in
+                self?.handleSurfaceClose()
+            }
+        }
     }
 
     func removeSurface() {
@@ -200,7 +211,7 @@ final class AgentStudioTerminalView: PaneView, SurfaceHealthDelegate {
 
     // MARK: - Surface Close Handling
 
-    @objc private func handleSurfaceClose(_ notification: Notification) {
+    private func handleSurfaceClose() {
         guard isProcessRunning else { return }
         isProcessRunning = false
         RestoreTrace.log(

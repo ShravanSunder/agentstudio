@@ -86,6 +86,8 @@ extension Ghostty {
 
         /// The ghostty configuration
         private var config: ghostty_config_t?
+        private var didBecomeActiveObserver: NSObjectProtocol?
+        private var didResignActiveObserver: NSObjectProtocol?
 
         init() {
             // Load default configuration
@@ -148,24 +150,31 @@ extension Ghostty {
             ghostty_app_set_focus(app, false)
 
             // Register for app activation notifications
-            NotificationCenter.default.addObserver(
-                self,
-                selector: #selector(applicationDidBecomeActive),
-                name: NSApplication.didBecomeActiveNotification,
-                object: nil
-            )
-            NotificationCenter.default.addObserver(
-                self,
-                selector: #selector(applicationDidResignActive),
-                name: NSApplication.didResignActiveNotification,
-                object: nil
-            )
+            didBecomeActiveObserver = NotificationCenter.default.addObserver(
+                forName: NSApplication.didBecomeActiveNotification,
+                object: nil,
+                queue: nil
+            ) { [weak self] notification in
+                self?.applicationDidBecomeActive(notification as NSNotification)
+            }
+            didResignActiveObserver = NotificationCenter.default.addObserver(
+                forName: NSApplication.didResignActiveNotification,
+                object: nil,
+                queue: nil
+            ) { [weak self] notification in
+                self?.applicationDidResignActive(notification as NSNotification)
+            }
 
             ghosttyLogger.info("Ghostty app initialized successfully")
         }
 
         deinit {
-            NotificationCenter.default.removeObserver(self)
+            if let observer = didBecomeActiveObserver {
+                NotificationCenter.default.removeObserver(observer)
+            }
+            if let observer = didResignActiveObserver {
+                NotificationCenter.default.removeObserver(observer)
+            }
             if let app {
                 ghostty_app_free(app)
             }
