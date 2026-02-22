@@ -28,13 +28,13 @@ struct PaneTargetResolverTests {
 
         let resolver = PaneTargetResolver(workspaceStore: store)
         let result = resolver.resolve(.activePane)
-        #expect(result == pane.id)
+        #expect(result?.uuid == pane.id)
     }
 
     @Test("returns nil when explicit pane target does not exist")
     func resolveMissingPane() {
         let store = makeStore()
         let resolver = PaneTargetResolver(workspaceStore: store)
-        #expect(resolver.resolve(.pane(UUID())) == nil)
+        #expect(resolver.resolve(.pane(PaneId())) == nil)
     }
 }

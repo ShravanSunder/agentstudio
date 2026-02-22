@@ -17,6 +17,18 @@ final class PaneTests {
 
     @Test
 
+    func test_defaultInit_generatesV7PaneId() {
+        let pane = Pane(
+            content: .terminal(TerminalState(provider: .zmx, lifetime: .persistent)),
+            metadata: PaneMetadata(source: .floating(workingDirectory: nil, title: nil))
+        )
+
+        #expect(UUIDv7.isV7(pane.id))
+        #expect(pane.metadata.paneId == PaneId(uuid: pane.id))
+    }
+
+    @Test
+
     func test_terminalState_returnsState_forTerminalContent() {
         let pane = makePane(provider: .zmx, lifetime: .persistent)
 

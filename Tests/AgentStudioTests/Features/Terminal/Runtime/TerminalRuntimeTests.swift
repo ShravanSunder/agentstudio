@@ -9,7 +9,7 @@ struct TerminalRuntimeTests {
     @Test("handleCommand rejects when lifecycle not ready")
     func rejectWhenNotReady() async {
         let runtime = TerminalRuntime(
-            paneId: UUID(),
+            paneId: PaneId(),
             metadata: PaneMetadata(source: .floating(workingDirectory: nil, title: "Runtime"), title: "Runtime")
         )
         let commandEnvelope = makeEnvelope(command: .activate, paneId: runtime.paneId)
@@ -20,7 +20,7 @@ struct TerminalRuntimeTests {
     @Test("handleCommand succeeds after ready transition")
     func succeedsWhenReady() async {
         let runtime = TerminalRuntime(
-            paneId: UUID(),
+            paneId: PaneId(),
             metadata: PaneMetadata(source: .floating(workingDirectory: nil, title: "Runtime"), title: "Runtime")
         )
         runtime.transitionToReady()
@@ -37,7 +37,7 @@ struct TerminalRuntimeTests {
     @Test("eventsSince replays emitted events")
     func replaysEvents() async {
         let runtime = TerminalRuntime(
-            paneId: UUID(),
+            paneId: PaneId(),
             metadata: PaneMetadata(source: .floating(workingDirectory: nil, title: "Runtime"), title: "Runtime")
         )
         runtime.transitionToReady()
@@ -55,7 +55,7 @@ struct TerminalRuntimeTests {
     func replayGapAfterEviction() async {
         let replayBuffer = EventReplayBuffer(config: .init(maxEvents: 2, maxBytes: 10_000, ttl: .seconds(300)))
         let runtime = TerminalRuntime(
-            paneId: UUID(),
+            paneId: PaneId(),
             metadata: PaneMetadata(source: .floating(workingDirectory: nil, title: "Runtime"), title: "Runtime"),
             replayBuffer: replayBuffer
         )
@@ -74,7 +74,7 @@ struct TerminalRuntimeTests {
     @Test("shutdown finishes event stream")
     func shutdownFinishesEventStream() async {
         let runtime = TerminalRuntime(
-            paneId: UUID(),
+            paneId: PaneId(),
             metadata: PaneMetadata(source: .floating(workingDirectory: nil, title: "Runtime"), title: "Runtime")
         )
         runtime.transitionToReady()
@@ -90,7 +90,7 @@ struct TerminalRuntimeTests {
     @Test("commands are rejected after shutdown")
     func rejectCommandsAfterShutdown() async {
         let runtime = TerminalRuntime(
-            paneId: UUID(),
+            paneId: PaneId(),
             metadata: PaneMetadata(source: .floating(workingDirectory: nil, title: "Runtime"), title: "Runtime")
         )
         runtime.transitionToReady()
@@ -102,7 +102,7 @@ struct TerminalRuntimeTests {
         #expect(result == .failure(.runtimeNotReady(lifecycle: .terminated)))
     }
 
-    private func makeEnvelope(command: PaneCommand, paneId: UUID) -> PaneCommandEnvelope {
+    private func makeEnvelope(command: PaneCommand, paneId: PaneId) -> PaneCommandEnvelope {
         let clock = ContinuousClock()
         return PaneCommandEnvelope(
             commandId: UUID(),

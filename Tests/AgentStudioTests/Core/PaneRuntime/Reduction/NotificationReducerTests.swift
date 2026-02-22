@@ -25,7 +25,7 @@ struct NotificationReducerTests {
     func lossyCoalesces() async {
         let reducer = NotificationReducer()
         var iterator = reducer.batchedEvents.makeAsyncIterator()
-        let source = EventSource.pane(UUID())
+        let source = EventSource.pane(PaneId())
 
         let first = makeEnvelope(
             seq: 1,
@@ -47,7 +47,7 @@ struct NotificationReducerTests {
 
     private func makeEnvelope(
         seq: UInt64,
-        source: EventSource = .pane(UUID()),
+        source: EventSource = .pane(PaneId()),
         event: PaneRuntimeEvent
     ) -> PaneEventEnvelope {
         let clock = ContinuousClock()

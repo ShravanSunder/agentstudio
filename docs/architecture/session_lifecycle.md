@@ -2,7 +2,7 @@
 
 ## TL;DR
 
-A pane's identity (`UUID`) is stable across its entire lifecycle — creation, layout changes, view switches, close/undo, persistence, and restore. `WorkspaceStore` owns pane records. `SessionRuntime` tracks runtime health. `PaneCoordinator` bridges panes to surfaces. Panes can be undone via a `CloseEntry` stack. The zmx backend provides persistence across app restarts.
+A pane's identity (`PaneId`) is stable across its entire lifecycle — creation, layout changes, view switches, close/undo, persistence, and restore. `WorkspaceStore` owns pane records. `SessionRuntime` tracks runtime health. `PaneCoordinator` bridges panes to surfaces. Panes can be undone via a `CloseEntry` stack. The zmx backend provides persistence across app restarts.
 
 ---
 
@@ -16,7 +16,7 @@ derivation.
 
 | Identifier | Type | Owner | Persisted | Generation | Used For |
 |------------|------|-------|-----------|------------|----------|
-| `PaneId` | `UUID` | `WorkspaceStore` | Yes | `Pane.init(id: UUID = UUID(), ...)` | Universal pane identity across store/layout/view/runtime/surface |
+| `PaneId` | `PaneId` (`struct` wrapping `UUID`) | `WorkspaceStore` | Yes | `Pane.init(id: UUID = UUIDv7.generate(), ...)` with `PaneMetadata.paneId = PaneId(uuid: id)` | Universal pane identity across store/layout/view/runtime/surface |
 | `RepoStableKey` | `String` (16 hex) | `Repo` | Derived | `StableKey.fromPath(repoPath)` | Deterministic zmx key segment |
 | `WorktreeStableKey` | `String` (16 hex) | `Worktree` | Derived | `StableKey.fromPath(worktree.path)` | Deterministic zmx key segment |
 | `MainZmxSessionId` | `String` (65 chars) | `ZmxBackend` | Derived | `agentstudio--<repo16>--<worktree16>--<pane16>` | zmx daemon/socket identity for layout panes |
@@ -24,10 +24,12 @@ derivation.
 
 ### Session Name Calculation Rules
 
-1. `pane16 = first16hex(lowercase(removeHyphens(paneId.uuidString)))`
-2. `mainSessionId = "agentstudio--" + repoStableKey + "--" + worktreeStableKey + "--" + pane16`
-3. `drawerSessionId = "agentstudio-d--" + parentPane16 + "--" + drawerPane16`
-4. `repoStableKey` and `worktreeStableKey` are deterministic SHA-256 path keys (16 hex chars each)
+1. `paneHex = lowercase(removeHyphens(paneId.uuidString))`
+2. `pane16 = (uuidVersion(paneId) == 7) ? last16hex(paneHex) : first16hex(paneHex)`
+3. UUIDv7 puts timestamp bits at the front; using trailing bits preserves per-pane entropy.
+4. `mainSessionId = "agentstudio--" + repoStableKey + "--" + worktreeStableKey + "--" + pane16`
+5. `drawerSessionId = "agentstudio-d--" + parentPane16 + "--" + drawerPane16`
+6. `repoStableKey` and `worktreeStableKey` are deterministic SHA-256 path keys (16 hex chars each)
 
 ### PaneId Lifecycle (ASCII)
 
@@ -39,7 +41,7 @@ PaneCoordinator.create/open*
     |
     v
 WorkspaceStore.createPane(...)
-    -> Pane(id = UUID())      <-- PaneId minted once
+    -> Pane(id = UUIDv7.generate())      <-- PaneId minted once
     -> panes[paneId] = Pane
     |
     v

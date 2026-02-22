@@ -140,7 +140,12 @@ class MainSplitViewController: NSSplitViewController {
             object: nil,
             queue: nil
         ) { [weak self] _ in
-            self?.saveSidebarState()
+            // Safety: NSApplication.willTerminateNotification is delivered on the main thread.
+            // Assert that invariant before using MainActor.assumeIsolated.
+            dispatchPrecondition(condition: .onQueue(.main))
+            MainActor.assumeIsolated {
+                self?.saveSidebarState()
+            }
         }
     }
 

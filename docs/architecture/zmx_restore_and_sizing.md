@@ -7,6 +7,7 @@ Keep session restore reliable while ensuring restored panes get correct terminal
 ## Identity Source of Truth
 
 `PaneId` is the primary identity. zmx session names are deterministic derived keys.
+For UUIDv7 pane IDs, zmx uses the UUID tail segment for `pane16` to preserve entropy and avoid same-millisecond prefix collisions.
 Canonical derivation and lookup ownership live in:
 [Session Lifecycle — Identity Contract (Canonical)](session_lifecycle.md#identity-contract-canonical).
 

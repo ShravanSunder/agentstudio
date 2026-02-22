@@ -77,7 +77,7 @@ struct EventReplayBufferTests {
         event: PaneRuntimeEvent
     ) -> PaneEventEnvelope {
         PaneEventEnvelope(
-            source: .pane(UUID()),
+            source: .pane(PaneId()),
             paneKind: .terminal,
             seq: seq,
             commandId: nil,

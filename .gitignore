@@ -69,3 +69,4 @@ Frameworks/GhosttyKit.xcframework
 .build-*
 test-inventory-*.md
 .lock
+build.db
