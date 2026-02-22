@@ -146,42 +146,53 @@ mise run lint                  # Lint all Swift sources (swift-format + swiftlin
 
 Requires `brew install swift-format swiftlint`. A PostToolUse hook (`.claude/hooks/check.sh`) runs swift-format and swiftlint automatically after every Edit/Write on `.swift` files.
 
-### ⚠️ Running Swift Commands
+### ⚠️ Running Swift Commands — Use Mise
 
-SwiftPM's interactive progress output (carriage returns, ANSI escapes) breaks in agent bash contexts. Always redirect to a file and check the exit code.
+**Always use `mise run` for build and test.** Mise tasks are the single source of truth for build orchestration. They handle the WebKit serialized test split, benchmark mode, and build path isolation automatically.
 
 ```bash
-swift test --build-path .build-agent-$RANDOM > /tmp/test-output.txt 2>&1 && echo "PASS" || echo "FAIL: $(tail -20 /tmp/test-output.txt)"
-swift build > /tmp/build-output.txt 2>&1 && echo "BUILD OK" || echo "BUILD FAIL: $(tail -20 /tmp/build-output.txt)"
-swift test --build-path .build-agent-$RANDOM --filter "CommandBarState" > /tmp/test-output.txt 2>&1 && echo "PASS" || echo "FAIL: $(tail -20 /tmp/test-output.txt)"
+mise run build                # Full debug build
+mise run build-release        # Full release build
+mise run test                 # Run all tests (parallel + WebView serialized serial)
+mise run test-benchmark       # Benchmark-only tests
+mise run format               # Auto-format Swift sources
+mise run lint                 # Lint (swift-format + swiftlint + boundary checks)
 ```
 
+**For filtered test runs** (when you need a specific suite), use raw `swift test` with a unique build path:
+
+```bash
+SWIFT_BUILD_DIR=".build-agent-$(uuidgen | tr -dc 'a-z0-9' | head -c 8)"
+swift test --build-path "$SWIFT_BUILD_DIR" --filter "CommandBarState" > /tmp/test-output.txt 2>&1 && echo "PASS" || echo "FAIL: $(tail -20 /tmp/test-output.txt)"
+```
+
+**Environment variables** control mise task behavior:
+
+| Env Var | Default | Purpose |
+|---------|---------|---------|
+| `SWIFT_BUILD_DIR` | `.build-agent-$RANDOM` | Build path isolation between agent sessions |
+| `SWIFT_TEST_PARALLEL` | `1` (enabled) | Set to `0` to disable parallel test workers |
+| `SWIFT_TEST_WORKERS` | `hw.ncpu / 2` (max 4) | Number of parallel test worker processes |
+
 **No parallel Swift commands. No background Swift commands.** SwiftPM holds an exclusive lock on `.build/`. Two concurrent swift processes — even `swift test --filter A` and `swift test --filter B`, or a foreground + background task — will deadlock waiting for the lock (up to 256s then fail). This means:
-- NEVER use `run_in_background: true` for any `swift build`, `swift test`, or `swift package` command
+- NEVER use `run_in_background: true` for any `swift build`, `swift test`, `mise run test`, or `mise run build` command
 - NEVER issue two Bash tool calls that both invoke swift in the same message (parallel tool calls)
 - NEVER launch a swift subagent while a swift command is running in the main session
 - Run them strictly one at a time, sequentially. If you need multiple test filters, just run the full suite once.
 
-**Test/build contention across agents.** Use a unique `.build-agent-<suffix>` folder per agent session so SwiftPM lock files do not collide across concurrent sessions.
+**Test/build contention across agents.** Mise tasks default to `.build-agent-$RANDOM` for isolation. To use a fixed path across your session:
 
 ```bash
-SWIFT_BUILD_DIR=".build-agent-$(uuidgen | tr -dc 'a-z0-9' | head -c 8)"
-swift test --build-path "$SWIFT_BUILD_DIR" --filter "ZmxE2ETests"
-swift build --build-path "$SWIFT_BUILD_DIR"
-swift test --build-path "$SWIFT_BUILD_DIR"
+export SWIFT_BUILD_DIR=".build-agent-$(uuidgen | tr -dc 'a-z0-9' | head -c 8)"
+mise run test                 # Uses $SWIFT_BUILD_DIR
+mise run build                # Uses default .build (builds are separate)
 ```
 
-Keep this `BUILD_DIR` constant for your entire session to avoid mixing artifacts.
-
-Run via `mise` (defaults to `.build-agent-$RANDOM`):
-
-```bash
-mise run test
-```
+Keep `SWIFT_BUILD_DIR` constant for your entire session to avoid mixing artifacts.
 
 **Lock contention recovery.** If you see "Another instance of SwiftPM is already running using '.build', waiting..." — do NOT launch more swift commands. Kill the stuck process (`pkill -f "swift-build"`) and retry.
 
-**Timeouts are mandatory.** Always set the Bash tool's `timeout` parameter: `60000` (60s) for `swift test`, `30000` (30s) for `swift build`. Tests complete in ~15s, builds in ~5s. Anything longer means lock contention or a hung process. Without an explicit timeout the Bash tool uses its 2-minute default, which silently wastes time on a stuck process the user then has to manually kill.
+**Timeouts are mandatory.** Always set the Bash tool's `timeout` parameter: `60000` (60s) for `mise run test` or `swift test`, `30000` (30s) for `mise run build` or `swift build`. Tests complete in ~15s, builds in ~5s. Anything longer means lock contention or a hung process. Without an explicit timeout the Bash tool uses its 2-minute default, which silently wastes time on a stuck process the user then has to manually kill.
 
 
 ### Launching the App
