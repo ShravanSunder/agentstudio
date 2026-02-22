@@ -303,13 +303,24 @@ struct ZmxE2ETests {
         sessionId: String,
         timeout: Int
     ) async -> Bool {
-        for _ in 0..<(timeout * pollsPerSecond) {
+        let maxPolls = timeout * pollsPerSecond
+        for attempt in 1...maxPolls {
             let alive = await backend.healthCheck(
                 makePaneSessionHandle(id: sessionId)
             )
-            if alive { return true }
+            if alive {
+                let elapsedSeconds = Double(attempt) / Double(pollsPerSecond)
+                print(
+                    "[ZmxE2E] Session \(sessionId) appeared after \(attempt)/\(maxPolls) polls (\(elapsedSeconds)s)"
+                )
+                return true
+            }
+            if shouldLogPollAttempt(attempt, maxPolls: maxPolls) {
+                print("[ZmxE2E] Waiting for session \(sessionId) to appear (\(attempt)/\(maxPolls))")
+            }
             try? await Task.sleep(nanoseconds: pollIntervalNanoseconds)
         }
+        print("[ZmxE2E] Timed out waiting for session \(sessionId) to appear after \(maxPolls) polls")
         return false
     }
 
@@ -319,13 +330,29 @@ struct ZmxE2ETests {
         sessionId: String,
         timeout: Int
     ) async -> Bool {
-        for _ in 0..<(timeout * pollsPerSecond) {
+        let maxPolls = timeout * pollsPerSecond
+        for attempt in 1...maxPolls {
             let alive = await backend.healthCheck(
                 makePaneSessionHandle(id: sessionId)
             )
-            if !alive { return true }
+            if !alive {
+                let elapsedSeconds = Double(attempt) / Double(pollsPerSecond)
+                print(
+                    "[ZmxE2E] Session \(sessionId) disappeared after \(attempt)/\(maxPolls) polls (\(elapsedSeconds)s)"
+                )
+                return true
+            }
+            if shouldLogPollAttempt(attempt, maxPolls: maxPolls) {
+                print("[ZmxE2E] Waiting for session \(sessionId) to disappear (\(attempt)/\(maxPolls))")
+            }
             try? await Task.sleep(nanoseconds: pollIntervalNanoseconds)
         }
+        print("[ZmxE2E] Timed out waiting for session \(sessionId) to disappear after \(maxPolls) polls")
         return false
+    }
+
+    private func shouldLogPollAttempt(_ attempt: Int, maxPolls: Int) -> Bool {
+        let heartbeatInterval = pollsPerSecond * 5
+        return attempt == 1 || attempt == maxPolls || attempt % heartbeatInterval == 0
     }
 }
