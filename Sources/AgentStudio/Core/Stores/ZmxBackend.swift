@@ -9,11 +9,11 @@ struct ZmxCommandRetryPolicy: Sendable {
     let maxAttempts: Int
     let backoffs: [Duration]
 
-    static let standard = ZmxCommandRetryPolicy(
+    static let standard = Self(
         maxAttempts: 3,
         backoffs: [.milliseconds(100), .milliseconds(250)]
     )
-    static let singleAttempt = ZmxCommandRetryPolicy(
+    static let singleAttempt = Self(
         maxAttempts: 1,
         backoffs: []
     )

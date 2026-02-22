@@ -87,11 +87,8 @@ jobs:
 
       # --- Setup resources + build + test (delegated to mise) ---
 
-      - name: Copy XCFramework
-        run: mise run copy-xcframework
-
-      - name: Setup dev resources
-        run: mise run setup-dev-resources
+      - name: Setup (copy xcframework + dev resources)
+        run: mise run setup
 
       - name: Cache Swift build
         uses: actions/cache@v4
@@ -102,17 +99,14 @@ jobs:
             swift-${{ runner.os }}-
 
       - name: Build
-        run: swift build -c release
+        run: mise run build-release
 
       - name: Test
         env:
-          SWIFT_BUILD_DIR: .build
           SWIFT_TEST_WORKERS: "8"
         run: mise run test
 
       - name: Benchmark tests
-        env:
-          SWIFT_BUILD_DIR: .build
         run: |
           mise run test-benchmark 2>&1 | tee benchmark.log
           grep -E "\[PushBenchmark\]" benchmark.log > benchmark-lines.txt || true

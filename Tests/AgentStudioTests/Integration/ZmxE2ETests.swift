@@ -354,7 +354,7 @@ extension E2ESerializedTests {
 
         private func shouldLogPollAttempt(_ attempt: Int, maxPolls: Int) -> Bool {
             let heartbeatInterval = pollsPerSecond * 5
-            return attempt == 1 || attempt == maxPolls || attempt % heartbeatInterval == 0
+            return attempt == 1 || attempt == maxPolls || attempt.isMultiple(of: heartbeatInterval)
         }
     }
 }

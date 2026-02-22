@@ -91,24 +91,26 @@ echo "--- architecture boundary checks ---"
 bash scripts/check-core-boundary-imports.sh
 """
 
+# --- Setup (first-time / after clean) ---
+
+[tasks.setup]
+description = "First-time setup: build zig deps, copy frameworks and resources"
+depends = ["copy-xcframework", "setup-dev-resources", "build-zmx"]
+run = "echo 'Setup complete. Run mise run build or mise run test.'"
+
 # --- Composite build tasks ---
 
 [tasks.build]
-description = "Full debug build (ghostty + zmx + swift)"
-depends = ["copy-xcframework", "setup-dev-resources", "build-zmx"]
-run = """
-swift build 2>&1 && echo "BUILD OK" || { echo "BUILD FAIL"; exit 1; }
-"""
+description = "Debug build (run mise run setup first time)"
+run = "swift build"
 
 [tasks.build-release]
-description = "Full release build (ghostty + zmx + swift)"
-depends = ["copy-xcframework", "setup-dev-resources", "build-zmx"]
-run = """
-swift build -c release 2>&1 && echo "BUILD OK" || { echo "BUILD FAIL"; exit 1; }
-"""
+description = "Release build (run mise run setup first time)"
+run = "swift build -c release"
 
 [tasks.test]
-description = "Run all tests (requires prior mise run build)"
+description = "Run all tests"
+depends = ["build"]
 run = """
 #!/usr/bin/env bash
 set -euo pipefail
@@ -128,7 +130,8 @@ AGENT_STUDIO_BENCHMARK_MODE=off swift test --filter E2ESerializedTests --build-p
 """
 
 [tasks.test-benchmark]
-description = "Run benchmark-only bridge push tests (requires prior mise run build)"
+description = "Run benchmark-only bridge push tests"
+depends = ["build"]
 run = """
 #!/usr/bin/env bash
 set -euo pipefail
