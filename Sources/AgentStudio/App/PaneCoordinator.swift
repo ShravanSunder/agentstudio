@@ -83,6 +83,7 @@ final class PaneCoordinator {
         self.runtimeRegistry = runtimeRegistry
         self.runtimeTargetResolver = RuntimeTargetResolver(workspaceStore: store)
         self.runtimeCommandClock = runtimeCommandClock
+        Ghostty.App.setRuntimeRegistry(runtimeRegistry)
         subscribeToCWDChanges()
         setupPrePersistHook()
     }

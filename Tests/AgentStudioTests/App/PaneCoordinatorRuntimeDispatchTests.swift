@@ -7,6 +7,29 @@ import Testing
 @MainActor
 @Suite(.serialized)
 struct PaneCoordinatorRuntimeDispatchTests {
+    @Test("coordinator injects its runtime registry into Ghostty action routing")
+    func coordinatorInjectsGhosttyRuntimeRegistry() {
+        let tempDir = FileManager.default.temporaryDirectory
+            .appending(path: "agentstudio-pane-coordinator-runtime-registry-injection-\(UUID().uuidString)")
+        let store = WorkspaceStore(persistor: WorkspacePersistor(workspacesDir: tempDir))
+        store.restore()
+        let viewRegistry = ViewRegistry()
+        let runtime = SessionRuntime(store: store)
+        let mockSurfaceManager = MockPaneCoordinatorSurfaceManager()
+        let runtimeRegistry = RuntimeRegistry()
+        _ = PaneCoordinator(
+            store: store,
+            viewRegistry: viewRegistry,
+            runtime: runtime,
+            surfaceManager: mockSurfaceManager,
+            runtimeRegistry: runtimeRegistry
+        )
+
+        #expect(ObjectIdentifier(Ghostty.App.runtimeRegistryForActionRouting) == ObjectIdentifier(runtimeRegistry))
+
+        try? FileManager.default.removeItem(at: tempDir)
+    }
+
     @Test("dispatchRuntimeCommand resolves pane target centrally")
     func dispatchUsesResolver() async {
         let tempDir = FileManager.default.temporaryDirectory

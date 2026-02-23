@@ -80,8 +80,8 @@ final class GhosttyAdapter {
             return .equalizeSplits
         case UInt32(GHOSTTY_ACTION_TOGGLE_SPLIT_ZOOM.rawValue):
             return .toggleSplitZoom
-        default:
-            return .unhandled(tag: actionTag)
+        case let unhandledTag:
+            return .unhandled(tag: unhandledTag)
         }
     }
 
