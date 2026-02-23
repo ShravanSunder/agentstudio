@@ -98,18 +98,8 @@ class PaneTabViewController: NSViewController, CommandHandler {
                         tabId: tabId, name: name, paneIds: Set(tab.paneIds)
                     ))
             },
-            onDuplicateTab: { [weak self] in
-                guard let self, let tabId = self.store.activeTabId else { return }
-                self.dispatchAction(.duplicateTab(tabId: tabId))
-            },
-            onDuplicatePane: { [weak self] in
-                guard let self,
-                    let tabId = self.store.activeTabId,
-                    let tab = self.store.tab(tabId),
-                    let paneId = tab.activePaneId
-                else { return }
-                self.dispatchAction(.duplicatePane(tabId: tabId, paneId: PaneId(uuid: paneId), direction: .right))
-            },
+            onDuplicateTab: nil,
+            onDuplicatePane: nil,
             onOpenRepoInTab: {
                 NotificationCenter.default.post(name: .showCommandBarRepos, object: nil)
             }
@@ -174,15 +164,15 @@ class PaneTabViewController: NSViewController, CommandHandler {
 
         setupNotificationObservers()
 
-        // Cmd+E for edit mode — handled via command pipeline (key event monitor)
+        // Cmd+E for management mode — handled via command pipeline (key event monitor)
         arrangementBarEventMonitor = NSEvent.addLocalMonitorForEvents(matching: .keyDown) { [weak self] event in
             guard self != nil else { return event }
-            // Cmd+E toggles edit mode (negative modifier check: only bare Cmd+E)
+            // Cmd+E toggles management mode (negative modifier check: only bare Cmd+E)
             if event.modifierFlags.contains([.command]),
                 !event.modifierFlags.contains([.shift, .option, .control]),
                 event.charactersIgnoringModifiers == "e"
             {
-                CommandDispatcher.shared.dispatch(.toggleEditMode)
+                CommandDispatcher.shared.dispatch(.toggleManagementMode)
                 return nil
             }
             return event
@@ -376,7 +366,7 @@ class PaneTabViewController: NSViewController, CommandHandler {
     private func handleAppKitStateChange() {
         updateEmptyState()
 
-        // Deactivate edit mode if no tabs
+        // Deactivate management mode if no tabs
         if store.tabs.isEmpty && ManagementModeMonitor.shared.isActive {
             ManagementModeMonitor.shared.deactivate()
         }
@@ -458,7 +448,8 @@ class PaneTabViewController: NSViewController, CommandHandler {
         let snapshot = ActionResolver.snapshot(
             from: store.tabs,
             activeTabId: store.activeTabId,
-            isManagementModeActive: ManagementModeMonitor.shared.isActive
+            isManagementModeActive: ManagementModeMonitor.shared.isActive,
+            knownWorktreeIds: Set(store.repos.flatMap(\.worktrees).map(\.id))
         )
         let payload = SplitDropPayload(
             kind: .existingTab(
@@ -487,7 +478,8 @@ class PaneTabViewController: NSViewController, CommandHandler {
         let snapshot = ActionResolver.snapshot(
             from: store.tabs,
             activeTabId: store.activeTabId,
-            isManagementModeActive: ManagementModeMonitor.shared.isActive
+            isManagementModeActive: ManagementModeMonitor.shared.isActive,
+            knownWorktreeIds: Set(store.repos.flatMap(\.worktrees).map(\.id))
         )
         if let action = ActionResolver.resolveDrop(
             payload: payload,
@@ -549,26 +541,35 @@ class PaneTabViewController: NSViewController, CommandHandler {
         subtitleLabel.maximumNumberOfLines = 3
 
         // Keyboard shortcut hint
-        let hintLabel = NSTextField(labelWithString: "Tip: Use Cmd+Shift+O to add a repo")
+        let hintLabel = NSTextField(labelWithString: "Tip: Use Cmd+Shift+O for Add Repo")
         hintLabel.font = NSFont.systemFont(ofSize: 11)
         hintLabel.textColor = .tertiaryLabelColor
 
-        // Add Repo button
-        let addButton = NSButton(title: "Add Repo...", target: self, action: #selector(addRepoAction))
-        addButton.bezelStyle = .rounded
-        addButton.controlSize = .large
-        addButton.keyEquivalent = "\r"
+        // Add Repo / Add Folder buttons
+        let addRepoButton = NSButton(title: "Add Repo...", target: self, action: #selector(addRepoAction))
+        addRepoButton.bezelStyle = .rounded
+        addRepoButton.controlSize = .large
+        addRepoButton.keyEquivalent = "\r"
+
+        let addFolderButton = NSButton(title: "Add Folder...", target: self, action: #selector(addFolderAction))
+        addFolderButton.bezelStyle = .rounded
+        addFolderButton.controlSize = .large
+
+        let buttonStack = NSStackView(views: [addRepoButton, addFolderButton])
+        buttonStack.orientation = .horizontal
+        buttonStack.spacing = 10
+        buttonStack.alignment = .centerY
 
         stackView.addArrangedSubview(iconContainer)
         stackView.addArrangedSubview(titleLabel)
         stackView.addArrangedSubview(subtitleLabel)
-        stackView.addArrangedSubview(addButton)
+        stackView.addArrangedSubview(buttonStack)
         stackView.addArrangedSubview(hintLabel)
 
         stackView.setCustomSpacing(24, after: iconContainer)
         stackView.setCustomSpacing(8, after: titleLabel)
         stackView.setCustomSpacing(24, after: subtitleLabel)
-        stackView.setCustomSpacing(12, after: addButton)
+        stackView.setCustomSpacing(12, after: buttonStack)
 
         container.addSubview(stackView)
 
@@ -583,6 +584,10 @@ class PaneTabViewController: NSViewController, CommandHandler {
 
     @objc private func addRepoAction() {
         NotificationCenter.default.post(name: .addRepoRequested, object: nil)
+    }
+
+    @objc private func addFolderAction() {
+        NotificationCenter.default.post(name: .addFolderRequested, object: nil)
     }
 
     private func updateEmptyState() {
@@ -621,12 +626,16 @@ class PaneTabViewController: NSViewController, CommandHandler {
 
     // MARK: - Terminal Management
 
-    func openTerminal(for worktree: Worktree, in repo: Repo) {
-        executor.openTerminal(for: worktree, in: repo)
+    func openTerminal(for worktree: Worktree, in _: Repo) {
+        dispatchAction(.openWorktree(worktreeId: worktree.id))
     }
 
-    func openNewTerminal(for worktree: Worktree, in repo: Repo) {
-        executor.openNewTerminal(for: worktree, in: repo)
+    func openNewTerminal(for worktree: Worktree, in _: Repo) {
+        dispatchAction(.openNewTerminalInTab(worktreeId: worktree.id))
+    }
+
+    func openWorktreeInPane(for worktree: Worktree, in _: Repo) {
+        dispatchAction(.openWorktreeInPane(worktreeId: worktree.id))
     }
 
     func closeTerminal(for worktreeId: UUID) {
@@ -672,7 +681,8 @@ class PaneTabViewController: NSViewController, CommandHandler {
         let snapshot = ActionResolver.snapshot(
             from: store.tabs,
             activeTabId: store.activeTabId,
-            isManagementModeActive: ManagementModeMonitor.shared.isActive
+            isManagementModeActive: ManagementModeMonitor.shared.isActive,
+            knownWorktreeIds: Set(store.repos.flatMap(\.worktrees).map(\.id))
         )
 
         switch ActionValidator.validate(action, state: snapshot) {
@@ -1004,11 +1014,13 @@ class PaneTabViewController: NSViewController, CommandHandler {
 
         // Non-pane commands handled directly
         switch command {
-        case .toggleEditMode:
+        case .toggleManagementMode:
             ManagementModeMonitor.shared.toggle()
 
         case .addRepo:
             NotificationCenter.default.post(name: .addRepoRequested, object: nil)
+        case .addFolder:
+            NotificationCenter.default.post(name: .addFolderRequested, object: nil)
         case .filterSidebar:
             NotificationCenter.default.post(name: .filterSidebarRequested, object: nil)
         case .addDrawerPane:
@@ -1054,7 +1066,7 @@ class PaneTabViewController: NSViewController, CommandHandler {
         case .newTerminalInTab, .newFloatingTerminal,
             .removeRepo, .refreshWorktrees,
             .toggleSidebar, .quickFind, .commandBar,
-            .openNewTerminalInTab,
+            .openNewTerminalInTab, .openWorktree, .openWorktreeInPane,
             .switchArrangement, .deleteArrangement, .renameArrangement,
             .navigateDrawerPane:
             break  // Handled via drill-in (target selection in command bar)
@@ -1094,6 +1106,12 @@ class PaneTabViewController: NSViewController, CommandHandler {
                     let paneId = tab.activePaneId
                 else { return nil }
                 return .setActiveDrawerPane(parentPaneId: paneId, drawerPaneId: target)
+            case (.openWorktree, .worktree):
+                return .openWorktree(worktreeId: target)
+            case (.openNewTerminalInTab, .worktree):
+                return .openNewTerminalInTab(worktreeId: target)
+            case (.openWorktreeInPane, .worktree):
+                return .openWorktreeInPane(worktreeId: target)
             default:
                 return nil
             }
@@ -1106,13 +1124,6 @@ class PaneTabViewController: NSViewController, CommandHandler {
 
         // Targeted non-pane commands (e.g. from command bar)
         switch (command, targetType) {
-        case (.openNewTerminalInTab, .worktree):
-            guard let worktree = store.worktree(target),
-                let repo = store.repo(containing: target)
-            else {
-                return
-            }
-            executor.openNewTerminal(for: worktree, in: repo)
         default:
             execute(command)
         }
@@ -1126,7 +1137,8 @@ class PaneTabViewController: NSViewController, CommandHandler {
             let snapshot = ActionResolver.snapshot(
                 from: store.tabs,
                 activeTabId: store.activeTabId,
-                isManagementModeActive: ManagementModeMonitor.shared.isActive
+                isManagementModeActive: ManagementModeMonitor.shared.isActive,
+                knownWorktreeIds: Set(store.repos.flatMap(\.worktrees).map(\.id))
             )
             switch ActionValidator.validate(action, state: snapshot) {
             case .success: return true

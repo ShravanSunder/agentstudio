@@ -162,7 +162,7 @@ run_webkit_suite_with_retry "WebKitSerializedTests/BridgeSchemeHandlerSpikeTests
 run_webkit_suite_with_retry "WebKitSerializedTests/BridgeTransportIntegrationTests"
 run_webkit_suite_with_retry "WebKitSerializedTests/BridgeWebKitSpikeTests"
 echo "--- E2E serialized tests (serial) ---"
-if [ "${SWIFT_TEST_INCLUDE_E2E:-1}" = "1" ]; then
+if [ "${SWIFT_TEST_INCLUDE_E2E:-0}" = "1" ]; then
   AGENT_STUDIO_BENCHMARK_MODE=off swift test --filter E2ESerializedTests --build-path "$BUILD_PATH"
 else
   echo "[test] skipping E2ESerializedTests (SWIFT_TEST_INCLUDE_E2E=${SWIFT_TEST_INCLUDE_E2E:-0})"

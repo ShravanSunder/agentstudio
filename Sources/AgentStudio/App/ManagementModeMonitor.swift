@@ -1,7 +1,7 @@
 import AppKit
 import Observation
 
-/// Manages edit mode — a toggle that reveals close buttons, drag handles,
+/// Manages management mode — a toggle that reveals close buttons, drag handles,
 /// arrangement bar, and management borders on panes.
 /// Toggled via Cmd+E (command pipeline) or the toolbar button.
 /// Escape key deactivates when active.
@@ -10,7 +10,7 @@ import Observation
 final class ManagementModeMonitor {
     static let shared = ManagementModeMonitor()
 
-    /// Whether edit mode is currently active
+    /// Whether management mode is currently active
     private(set) var isActive: Bool = false
 
     private var escapeMonitor: Any?
@@ -21,12 +21,12 @@ final class ManagementModeMonitor {
 
     // MARK: - Public API
 
-    /// Toggle edit mode on/off.
+    /// Toggle management mode on/off.
     func toggle() {
         isActive.toggle()
     }
 
-    /// Explicitly deactivate edit mode (e.g., from Escape key).
+    /// Explicitly deactivate management mode (e.g., from Escape key).
     func deactivate() {
         isActive = false
     }

@@ -62,10 +62,10 @@ struct ManagementModeTests {
     }
 
     @MainActor
-    @Test("toggleEditMode has expected command definition")
-    func test_toggleEditMode_commandDefinition() {
+    @Test("toggleManagementMode has expected command definition")
+    func test_toggleManagementMode_commandDefinition() {
         // Act
-        let def = CommandDispatcher.shared.definition(for: .toggleEditMode)
+        let def = CommandDispatcher.shared.definition(for: .toggleManagementMode)
 
         // Assert
         #expect(def != nil)

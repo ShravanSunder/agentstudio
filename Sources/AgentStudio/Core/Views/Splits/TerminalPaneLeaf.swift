@@ -63,7 +63,7 @@ struct TerminalPaneLeaf: View {
                         .animation(.easeInOut(duration: AppStyle.animationFast), value: isHovered)
                 }
 
-                // Drag handle: compact centered pill (edit mode + hover + no active drop).
+                // Drag handle: compact centered pill (management mode + hover + no active drop).
                 // Drawer children cannot be dragged out of their drawer.
                 // The Color.clear fills the ZStack for centering; allowsHitTesting(false)
                 // ensures only the capsule itself intercepts mouse events.
@@ -109,7 +109,7 @@ struct TerminalPaneLeaf: View {
                         .allowsHitTesting(false)
                 }
 
-                // Pane controls: minimize + close (top-left, edit mode + hover)
+                // Pane controls: minimize + close (top-left, management mode + hover)
                 if managementMode.isActive && isHovered && !store.isSplitResizing {
                     VStack {
                         HStack(spacing: AppStyle.spacingTight) {
@@ -143,7 +143,7 @@ struct TerminalPaneLeaf: View {
                     .transition(.opacity)
                 }
 
-                // Quarter-moon split button (top-right, edit mode + hover)
+                // Quarter-moon split button (top-right, management mode + hover)
                 if managementMode.isActive && isHovered && !store.isSplitResizing {
                     VStack {
                         HStack {

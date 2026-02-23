@@ -69,9 +69,9 @@ final class TabBarAdapter {
     static let tabBarPadding: CGFloat = 16
     static let hysteresisBuffer: CGFloat = 50
 
-    // MARK: - Edit Mode
+    // MARK: - Management Mode
 
-    private(set) var isEditModeActive: Bool = false
+    private(set) var isManagementModeActive: Bool = false
 
     // MARK: - Transient UI State
 
@@ -97,7 +97,7 @@ final class TabBarAdapter {
         // withObservationTracking fires once per registration, so we re-register
         // after each change. Task { @MainActor } satisfies @Sendable and ensures
         // we read new values (onChange has willSet semantics — old values only).
-        isEditModeActive = ManagementModeMonitor.shared.isActive
+        isManagementModeActive = ManagementModeMonitor.shared.isActive
         observeStore()
         observeManagementMode()
 
@@ -136,7 +136,7 @@ final class TabBarAdapter {
             Task { @MainActor [weak self] in
                 guard let self else { return }
                 self.isObservingManagementMode = false
-                self.isEditModeActive = ManagementModeMonitor.shared.isActive
+                self.isManagementModeActive = ManagementModeMonitor.shared.isActive
                 self.observeManagementMode()
             }
         }

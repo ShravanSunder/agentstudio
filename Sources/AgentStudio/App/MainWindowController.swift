@@ -163,9 +163,10 @@ extension MainWindowController: NSToolbarDelegate {
     func toolbarDefaultItemIdentifiers(_ toolbar: NSToolbar) -> [NSToolbarItem.Identifier] {
         [
             .flexibleSpace,
-            .editMode,
+            .managementMode,
             .space,
             .addRepo,
+            .addFolder,
         ]
     }
 
@@ -178,12 +179,12 @@ extension MainWindowController: NSToolbarDelegate {
         willBeInsertedIntoToolbar flag: Bool
     ) -> NSToolbarItem? {
         switch itemIdentifier {
-        case .editMode:
+        case .managementMode:
             let item = NSToolbarItem(itemIdentifier: itemIdentifier)
-            item.label = "Edit Mode"
-            item.paletteLabel = "Edit Mode"
+            item.label = "Management Mode"
+            item.paletteLabel = "Management Mode"
             // SwiftUI hosting for reactive toggle state
-            let hostingView = NSHostingView(rootView: EditModeToolbarButton())
+            let hostingView = NSHostingView(rootView: ManagementModeToolbarButton())
             hostingView.sizingOptions = .intrinsicContentSize
             item.view = hostingView
             return item
@@ -199,6 +200,17 @@ extension MainWindowController: NSToolbarDelegate {
             item.target = self
             return item
 
+        case .addFolder:
+            let item = NSToolbarItem(itemIdentifier: itemIdentifier)
+            item.label = "Add Folder"
+            item.paletteLabel = "Add Folder"
+            item.toolTip = "Add folder containing repos (⌘⌥⇧O)"
+            item.isBordered = true
+            item.image = NSImage(systemSymbolName: "folder.badge.questionmark", accessibilityDescription: "Add Folder")
+            item.action = #selector(addFolderAction)
+            item.target = self
+            return item
+
         default:
             return nil
         }
@@ -206,6 +218,10 @@ extension MainWindowController: NSToolbarDelegate {
 
     @objc private func addRepoAction() {
         NotificationCenter.default.post(name: .addRepoRequested, object: nil)
+    }
+
+    @objc private func addFolderAction() {
+        NotificationCenter.default.post(name: .addFolderRequested, object: nil)
     }
 }
 

@@ -9,7 +9,7 @@ import SwiftUI
 /// ## Icon Size Hierarchy
 /// ```
 /// 18pt  — In-pane controls (minimize, close, split "+")
-/// 16pt  — Toolbar actions (edit mode toggle, window controls)
+/// 16pt  — Toolbar actions (management mode toggle, window controls)
 /// 12pt  — Compact bars (tab bar, drawer icon bar, arrangement bar)
 /// ```
 ///
@@ -29,7 +29,7 @@ enum AppStyle {
     /// Icons in compact bars: tab bar, drawer icon bar, arrangement bar.
     static let compactIconSize: CGFloat = 12
 
-    /// Icons in the main toolbar: edit mode toggle, window-level actions.
+    /// Icons in the main toolbar: management mode toggle, window-level actions.
     static let toolbarIconSize: CGFloat = 16
 
     /// Icons for in-pane controls: minimize, close, split "+".

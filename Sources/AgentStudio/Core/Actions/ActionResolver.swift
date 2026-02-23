@@ -121,18 +121,18 @@ enum ActionResolver {
             return .duplicatePane(tabId: tab.id, paneId: PaneId(uuid: paneId), direction: .right)
 
         // Non-pane commands: not resolved to PaneAction
-        case .addRepo, .removeRepo, .refreshWorktrees,
+        case .addRepo, .addFolder, .removeRepo, .refreshWorktrees,
             .toggleSidebar, .newFloatingTerminal,
             .newTerminalInTab, .newTab, .undoCloseTab,
             .newWindow, .closeWindow,
             .quickFind, .commandBar,
             .openWebview, .signInGitHub, .signInGoogle,
-            .filterSidebar, .openNewTerminalInTab,
+            .filterSidebar, .openNewTerminalInTab, .openWorktree, .openWorktreeInPane,
             .switchArrangement, .saveArrangement,
             .deleteArrangement, .renameArrangement,
             .addDrawerPane, .toggleDrawer,
             .navigateDrawerPane, .closeDrawerPane,
-            .toggleEditMode:
+            .toggleManagementMode:
             return nil
         }
     }
@@ -196,7 +196,8 @@ enum ActionResolver {
     static func snapshot<T: ResolvableTab>(
         from tabs: [T],
         activeTabId: UUID?,
-        isManagementModeActive: Bool
+        isManagementModeActive: Bool,
+        knownWorktreeIds: Set<UUID> = []
     ) -> ActionStateSnapshot {
         ActionStateSnapshot(
             tabs: tabs.map { tab in
@@ -207,7 +208,8 @@ enum ActionResolver {
                 )
             },
             activeTabId: activeTabId,
-            isManagementModeActive: isManagementModeActive
+            isManagementModeActive: isManagementModeActive,
+            knownWorktreeIds: knownWorktreeIds
         )
     }
 

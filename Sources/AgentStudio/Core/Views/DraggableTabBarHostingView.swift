@@ -15,7 +15,7 @@ class DraggableTabBarHostingView: NSView, NSDraggingSource {
     private var hostingView: NSHostingView<CustomTabBar>!
     weak var tabBarAdapter: TabBarAdapter?
     var onReorder: ((_ fromId: UUID, _ toIndex: Int) -> Void)?
-    /// Called when a tab is clicked (mouse down + up without drag) during edit mode.
+    /// Called when a tab is clicked (mouse down + up without drag) during management mode.
     /// The pan gesture recognizer consumes mouse events, preventing SwiftUI's
     /// onTapGesture from firing. This callback forwards the click as a selection.
     var onSelect: ((_ tabId: UUID) -> Void)?

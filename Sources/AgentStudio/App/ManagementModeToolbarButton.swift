@@ -1,9 +1,9 @@
 import SwiftUI
 
-/// SwiftUI toggle button for the edit mode toolbar item.
+/// SwiftUI toggle button for the management mode toolbar item.
 /// Shows `rectangle.split.2x2` (outline) when inactive,
 /// `rectangle.split.2x2.fill` with accent tint when active.
-struct EditModeToolbarButton: View {
+struct ManagementModeToolbarButton: View {
     @Bindable private var managementMode = ManagementModeMonitor.shared
 
     var body: some View {
@@ -19,7 +19,7 @@ struct EditModeToolbarButton: View {
             .foregroundStyle(managementMode.isActive ? Color.accentColor : .primary)
         }
         .buttonStyle(.plain)
-        .help("Toggle Edit Mode (\u{2318}E)")
+        .help("Toggle Management Mode (\u{2318}E)")
         .frame(width: 36, height: 24)
     }
 }
