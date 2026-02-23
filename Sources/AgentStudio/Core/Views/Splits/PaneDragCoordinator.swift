@@ -16,6 +16,27 @@ struct PaneDragCoordinator {
         return resolveEdgeCorridorTarget(location: location, paneFrames: paneFrames)
     }
 
+    static func resolveLatchedTarget(
+        location: CGPoint,
+        paneFrames: [UUID: CGRect],
+        currentTarget: PaneDropTarget?,
+        shouldAcceptDrop: (UUID, DropZone) -> Bool
+    ) -> PaneDropTarget? {
+        if let resolvedTarget = resolveTarget(location: location, paneFrames: paneFrames),
+            shouldAcceptDrop(resolvedTarget.paneId, resolvedTarget.zone)
+        {
+            return resolvedTarget
+        }
+
+        if let currentTarget,
+            shouldAcceptDrop(currentTarget.paneId, currentTarget.zone)
+        {
+            return currentTarget
+        }
+
+        return nil
+    }
+
     private static func resolveContainedTarget(location: CGPoint, paneFrames: [UUID: CGRect]) -> PaneDropTarget? {
         let containingPanes = paneFrames.compactMap { paneId, paneFrame -> (UUID, CGRect)? in
             paneFrame.contains(location) ? (paneId, paneFrame) : nil

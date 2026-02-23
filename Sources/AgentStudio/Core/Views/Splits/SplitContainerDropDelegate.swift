@@ -114,18 +114,22 @@ struct SplitContainerDropDelegate: DropDelegate {
     }
 
     private func updateTarget(using info: DropInfo) -> Bool {
-        guard isManagementModeActive,
-            let resolvedTarget = PaneDragCoordinator.resolveTarget(
-                location: info.location,
-                paneFrames: paneFrames
-            ),
-            shouldAcceptDrop(resolvedTarget.paneId, resolvedTarget.zone)
-        else {
+        guard isManagementModeActive else {
             target = nil
             return false
         }
 
-        target = resolvedTarget
-        return true
+        if let resolvedTarget = PaneDragCoordinator.resolveLatchedTarget(
+            location: info.location,
+            paneFrames: paneFrames,
+            currentTarget: target,
+            shouldAcceptDrop: shouldAcceptDrop
+        ) {
+            target = resolvedTarget
+            return true
+        }
+
+        target = nil
+        return false
     }
 }

@@ -135,4 +135,72 @@ final class PaneDragCoordinatorTests {
         // Assert
         #expect(result == PaneDropTarget(paneId: leftmostPaneId, zone: .left))
     }
+
+    @Test
+    func test_resolveLatchedTarget_keepsCurrentTarget_whenLocationTemporarilyInvalid() {
+        // Arrange
+        let paneId = UUID()
+        let currentTarget = PaneDropTarget(paneId: paneId, zone: .left)
+        let paneFrames: [UUID: CGRect] = [
+            paneId: CGRect(x: 100, y: 100, width: 200, height: 200)
+        ]
+        let gapLocation = CGPoint(x: 350, y: 150)
+
+        // Act
+        let result = PaneDragCoordinator.resolveLatchedTarget(
+            location: gapLocation,
+            paneFrames: paneFrames,
+            currentTarget: currentTarget,
+            shouldAcceptDrop: { _, _ in true }
+        )
+
+        // Assert
+        #expect(result == currentTarget)
+    }
+
+    @Test
+    func test_resolveLatchedTarget_switchesToNewTarget_whenValidTargetAppears() {
+        // Arrange
+        let firstPaneId = UUID()
+        let secondPaneId = UUID()
+        let currentTarget = PaneDropTarget(paneId: firstPaneId, zone: .left)
+        let paneFrames: [UUID: CGRect] = [
+            firstPaneId: CGRect(x: 100, y: 100, width: 200, height: 200),
+            secondPaneId: CGRect(x: 320, y: 100, width: 200, height: 200),
+        ]
+        let newLocation = CGPoint(x: 470, y: 150)
+
+        // Act
+        let result = PaneDragCoordinator.resolveLatchedTarget(
+            location: newLocation,
+            paneFrames: paneFrames,
+            currentTarget: currentTarget,
+            shouldAcceptDrop: { _, _ in true }
+        )
+
+        // Assert
+        #expect(result == PaneDropTarget(paneId: secondPaneId, zone: .right))
+    }
+
+    @Test
+    func test_resolveLatchedTarget_clearsWhenCurrentTargetRejected() {
+        // Arrange
+        let paneId = UUID()
+        let currentTarget = PaneDropTarget(paneId: paneId, zone: .left)
+        let paneFrames: [UUID: CGRect] = [
+            paneId: CGRect(x: 100, y: 100, width: 200, height: 200)
+        ]
+        let gapLocation = CGPoint(x: 10, y: 10)
+
+        // Act
+        let result = PaneDragCoordinator.resolveLatchedTarget(
+            location: gapLocation,
+            paneFrames: paneFrames,
+            currentTarget: currentTarget,
+            shouldAcceptDrop: { _, _ in false }
+        )
+
+        // Assert
+        #expect(result == nil)
+    }
 }

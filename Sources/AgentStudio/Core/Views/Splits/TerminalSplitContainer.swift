@@ -34,6 +34,7 @@ struct TerminalSplitContainer: View {
     @State private var paneFrames: [UUID: CGRect] = [:]
     @State private var iconBarFrame: CGRect = .zero
     @State private var dropTarget: PaneDropTarget?
+    @State private var dropTargetWatchdogTask: Task<Void, Never>?
     @Bindable private var managementMode = ManagementModeMonitor.shared
 
     /// Content shown when all panes in the tab are minimized.
@@ -141,8 +142,48 @@ struct TerminalSplitContainer: View {
                     dropTarget = nil
                 }
             }
+            .onChange(of: dropTarget) { _, target in
+                if target == nil {
+                    stopDropTargetWatchdog()
+                } else {
+                    startDropTargetWatchdog()
+                }
+            }
+            .onDisappear {
+                stopDropTargetWatchdog()
+            }
+            .task {
+                for await _ in NotificationCenter.default.notifications(
+                    named: NSApplication.didResignActiveNotification
+                ) {
+                    dropTarget = nil
+                }
+            }
         }
         .coordinateSpace(name: "tabContainer")
+    }
+
+    private func startDropTargetWatchdog() {
+        stopDropTargetWatchdog()
+
+        dropTargetWatchdogTask = Task { @MainActor in
+            while !Task.isCancelled {
+                if DropTargetLatchState.shouldClearTarget(
+                    appIsActive: NSApplication.shared.isActive,
+                    pressedMouseButtons: NSEvent.pressedMouseButtons
+                ) {
+                    dropTarget = nil
+                    return
+                }
+
+                try? await Task.sleep(for: .milliseconds(16))
+            }
+        }
+    }
+
+    private func stopDropTargetWatchdog() {
+        dropTargetWatchdogTask?.cancel()
+        dropTargetWatchdogTask = nil
     }
 }
 
