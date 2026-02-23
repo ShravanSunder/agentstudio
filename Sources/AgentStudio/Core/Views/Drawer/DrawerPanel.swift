@@ -65,7 +65,7 @@ struct DrawerPanel: View {
             action(.addDrawerPane(parentPaneId: parentPaneId))
         } label: {
             Image(systemName: "plus")
-                .font(.system(size: 24, weight: .medium))
+                .font(.system(size: AppStyle.text2xl, weight: .medium))
                 .foregroundStyle(.secondary)
                 .frame(width: 48, height: 48)
                 .background(
@@ -146,7 +146,7 @@ struct DrawerPanel: View {
                     Spacer()
                     addDrawerButton
                     Text("Add a drawer terminal")
-                        .font(.system(size: AppStyle.fontSecondary))
+                        .font(.system(size: AppStyle.textXs))
                         .foregroundStyle(.tertiary)
                     Spacer()
                 }

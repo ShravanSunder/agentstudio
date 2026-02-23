@@ -28,7 +28,7 @@ struct CommandBarScopePill: View {
             }
             .buttonStyle(.plain)
         }
-        .font(.system(size: 12, weight: .medium))
+        .font(.system(size: AppStyle.textSm, weight: .medium))
         .padding(.horizontal, 6)
         .padding(.vertical, 3)
         .background(

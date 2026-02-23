@@ -15,7 +15,7 @@ struct ManagementModeToolbarButton: View {
                     ? "rectangle.split.2x2.fill"
                     : "rectangle.split.2x2"
             )
-            .font(.system(size: 14, weight: .medium))
+            .font(.system(size: AppStyle.textLg, weight: .medium))
             .foregroundStyle(managementMode.isActive ? Color.accentColor : .primary)
         }
         .buttonStyle(.plain)

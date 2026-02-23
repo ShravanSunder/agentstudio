@@ -277,9 +277,9 @@ struct CustomTabBar: View {
                         } label: {
                             HStack(spacing: AppStyle.spacingTight) {
                                 Image(systemName: "rectangle.stack")
-                                    .font(.system(size: AppStyle.fontSmall, weight: .medium))
+                                    .font(.system(size: AppStyle.textSm, weight: .medium))
                                 Text("\(adapter.tabs.count)")
-                                    .font(.system(size: AppStyle.fontSmall, weight: .semibold))
+                                    .font(.system(size: AppStyle.textSm, weight: .semibold))
                             }
                             .foregroundStyle(.secondary)
                             .padding(.horizontal, AppStyle.spacingLoose)
@@ -616,7 +616,7 @@ struct TabPillView: View {
             // Clear zones match the overlay positions so text is fully invisible
             // behind the shortcut label and close button.
             Text(tab.displayTitle)
-                .font(.system(size: AppStyle.fontBody))
+                .font(.system(size: AppStyle.textBase))
                 .lineLimit(1)
                 .foregroundStyle(isActive ? .primary : .secondary)
                 .frame(maxWidth: .infinity)
@@ -660,7 +660,7 @@ struct TabPillView: View {
                 if isHovering {
                     Button(action: onClose) {
                         Image(systemName: "xmark")
-                            .font(.system(size: AppStyle.fontCaption, weight: .medium))
+                            .font(.system(size: AppStyle.textXs, weight: .medium))
                             .foregroundStyle(.secondary)
                             .frame(width: 18, height: 18)
                             .background(
@@ -676,7 +676,7 @@ struct TabPillView: View {
 
                 if index < 9 {
                     Text("⌘\(index + 1)")
-                        .font(.system(size: AppStyle.fontSmall, weight: .medium))
+                        .font(.system(size: AppStyle.textSm, weight: .medium))
                         .foregroundStyle(.tertiary)
                         .fixedSize()
                 }
@@ -712,7 +712,7 @@ struct TabBarEmptyState: View {
     var body: some View {
         HStack {
             Text("No terminals open")
-                .font(.system(size: AppStyle.fontBody))
+                .font(.system(size: AppStyle.textBase))
                 .foregroundStyle(.secondary)
 
             Button(action: onAddTab) {
@@ -720,7 +720,7 @@ struct TabBarEmptyState: View {
                     Image(systemName: "plus")
                     Text("New Tab")
                 }
-                .font(.system(size: AppStyle.fontBody))
+                .font(.system(size: AppStyle.textBase))
             }
             .buttonStyle(.plain)
             .foregroundStyle(.secondary)

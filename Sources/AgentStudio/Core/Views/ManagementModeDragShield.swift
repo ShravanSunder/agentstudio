@@ -1,5 +1,4 @@
 import AppKit
-import Observation
 
 /// Transparent overlay that suppresses file/media drag types during management mode,
 /// preventing WKWebView-backed panes from showing "Drop files to upload."
@@ -21,8 +20,8 @@ import Observation
 ///
 /// ## Dynamic registration
 ///
-/// Registers/unregisters file/media drag types when management mode toggles,
-/// using `withObservationTracking` on ``ManagementModeMonitor/isActive``.
+/// Registers/unregisters file/media drag types when management mode toggles
+/// via `ManagementModeDidChange` notifications from ``ManagementModeMonitor``.
 /// Also notifies the parent ``PaneView`` to apply content-level interaction changes
 /// (e.g., CSS `pointer-events: none` for WKWebView).
 @MainActor
@@ -61,11 +60,12 @@ final class ManagementModeDragShield: NSView {
         ]
     }
 
-    private var observationTask: Task<Void, Never>?
+    private var managementModeTask: Task<Void, Never>?
 
     override init(frame frameRect: NSRect) {
         super.init(frame: frameRect)
-        observeManagementMode()
+        observeManagementModeNotifications()
+        updateRegistration()
     }
 
     @available(*, unavailable)
@@ -74,7 +74,15 @@ final class ManagementModeDragShield: NSView {
     }
 
     deinit {
-        observationTask?.cancel()
+        managementModeTask?.cancel()
+    }
+
+    override func viewDidMoveToSuperview() {
+        super.viewDidMoveToSuperview()
+        // Ensure parent pane receives the current interaction state when the shield
+        // is first attached. Without this, panes created while management mode is
+        // already active could miss content interaction suppression.
+        updateRegistration()
     }
 
     // MARK: - Hit Testing
@@ -84,7 +92,7 @@ final class ManagementModeDragShield: NSView {
         // The shield participates in drag routing via NSDraggingDestination
         // (bounds-based, independent of hitTest), not via hitTest.
         // PaneView.hitTest returning nil handles click blocking.
-        return nil
+        nil
     }
 
     // MARK: - NSDraggingDestination
@@ -111,19 +119,14 @@ final class ManagementModeDragShield: NSView {
 
     // MARK: - Management Mode Observation
 
-    private func observeManagementMode() {
-        observationTask?.cancel()
-        observationTask = Task { @MainActor [weak self] in
-            withObservationTracking {
-                _ = ManagementModeMonitor.shared.isActive
-            } onChange: { [weak self] in
-                Task { @MainActor [weak self] in
-                    self?.updateRegistration()
-                    self?.observeManagementMode()
-                }
+    private func observeManagementModeNotifications() {
+        managementModeTask?.cancel()
+        managementModeTask = Task { @MainActor [weak self] in
+            for await _ in NotificationCenter.default.notifications(named: .managementModeDidChange) {
+                guard let self else { return }
+                self.updateRegistration()
             }
         }
-        updateRegistration()
     }
 
     /// Dynamically register/unregister drag types based on management mode.

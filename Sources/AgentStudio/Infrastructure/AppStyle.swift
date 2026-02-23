@@ -158,7 +158,7 @@ enum AppStyle {
     static let sidebarStatusRowLeadingIndent: CGFloat = sidebarWorktreeIconSize + spacingStandard
 
     /// Font size for the branch name row under each checkout title.
-    static let sidebarBranchFontSize: CGFloat = fontSmall
+    static let sidebarBranchFontSize: CGFloat = textSm
 
     /// Vertical padding for sidebar group rows.
     static let sidebarGroupRowVerticalPadding: CGFloat = 2
@@ -191,7 +191,7 @@ enum AppStyle {
     static let sidebarChipVerticalPadding: CGFloat = 2
 
     /// Font size for compact sidebar chips.
-    static let sidebarChipFontSize: CGFloat = fontCaption
+    static let sidebarChipFontSize: CGFloat = textXs
 
     /// Icon size used in standard sidebar chips.
     static let sidebarChipIconSize: CGFloat = 8
@@ -212,34 +212,37 @@ enum AppStyle {
     static let barPadding: CGFloat = spacingTight
     static let barHorizontalPadding: CGFloat = spacingStandard
 
-    // MARK: - Font Sizes
+    // MARK: - Typography
     //
-    // Five-step scale for system font sizes. Components pick the step
-    // that matches their text hierarchy: caption for tiny labels,
-    // body for standard content.
+    // Tailwind-style text scale for app typography tokens.
+    // We use these as a single source of truth across views:
+    // text-xs, text-sm, text-base, text-lg, text-xl.
     //
-    // ```
-    // caption     9pt — close buttons, tiny labels
-    // small      10pt — compact labels, badge counts, zoom badge
-    // secondary  11pt — secondary text, collapsed bar titles
-    // body       12pt — tab titles, main body text
-    // primary    13pt — command bar input, prominent text
-    // ```
+    // Dynamic text roadmap:
+    // These are currently fixed point sizes. We will migrate these tokens
+    // to Dynamic Type-aware semantics (SwiftUI text styles) in AppStyle
+    // so scaling behavior can be enabled app-wide from one layer.
 
-    /// Tiny labels: close buttons, minimal annotations.
-    static let fontCaption: CGFloat = 9
+    /// Tailwind `text-xs`
+    static let textXs: CGFloat = 11
 
-    /// Compact labels: badge counts, zoom indicators, arrangement labels.
-    static let fontSmall: CGFloat = 10
+    /// Tailwind `text-sm`
+    static let textSm: CGFloat = 12
 
-    /// Secondary text: collapsed bar titles, arrangement panel text.
-    static let fontSecondary: CGFloat = 11
+    /// Tailwind `text-base`
+    static let textBase: CGFloat = 13
 
-    /// Standard body text: tab titles, empty state text.
-    static let fontBody: CGFloat = 12
+    /// Tailwind `text-lg`
+    static let textLg: CGFloat = 14
 
-    /// Prominent text: command bar input, search fields.
-    static let fontPrimary: CGFloat = 13
+    /// Tailwind `text-xl`
+    static let textXl: CGFloat = 16
+
+    /// Tailwind `text-2xl` for section/empty-state emphasis.
+    static let text2xl: CGFloat = 24
+
+    /// Tailwind `text-5xl` for large status overlays.
+    static let text5xl: CGFloat = 48
 
     // MARK: - Foreground Opacities (text & icon overlays)
     //
@@ -351,4 +354,16 @@ enum AppStyle {
 
     /// Inter-pane gap (padding around each pane leaf).
     static let paneGap: CGFloat = 2
+
+    /// Minimum pane size enforced while dragging split dividers.
+    static let splitMinimumPaneSize: CGFloat = 10
+
+    /// Width of the edge insertion marker shown while dragging panes.
+    static let dropTargetMarkerWidth: CGFloat = 8
+
+    /// Minimum preview width for split insertion affordance.
+    static let dropTargetPreviewMinimumWidth: CGFloat = 34
+
+    /// Maximum preview width as a fraction of the destination pane width.
+    static let dropTargetPreviewMaxFraction: CGFloat = 0.22
 }

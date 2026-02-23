@@ -29,15 +29,15 @@ private final class MockDraggingInfo: NSObject, @preconcurrency NSDraggingInfo {
     var draggingSequenceNumber: Int { 0 }
     var draggingFormation: NSDraggingFormation {
         get { .default }
-        set {}
+        set { _ = newValue }
     }
     var animatesToDestination: Bool {
         get { false }
-        set {}
+        set { _ = newValue }
     }
     var numberOfValidItemsForDrop: Int {
         get { 0 }
-        set {}
+        set { _ = newValue }
     }
     var springLoadingHighlight: NSSpringLoadingHighlight { .none }
     func slideDraggedImage(to _: NSPoint) {}
@@ -49,6 +49,15 @@ private final class MockDraggingInfo: NSObject, @preconcurrency NSDraggingInfo {
         using _: @escaping (NSDraggingItem, Int, UnsafeMutablePointer<ObjCBool>) -> Void
     ) {}
     func resetSpringLoading() {}
+}
+
+@MainActor
+private final class InteractionTrackingPaneView: PaneView {
+    private(set) var interactionEnabledHistory: [Bool] = []
+
+    override func setContentInteractionEnabled(_ enabled: Bool) {
+        interactionEnabledHistory.append(enabled)
+    }
 }
 
 @MainActor
@@ -171,6 +180,34 @@ struct ManagementModeDragShieldTests {
     }
 
     @Test
+    func test_shieldAttach_appliesCurrentInteractionState_managementModeActive() {
+        // Arrange
+        ManagementModeMonitor.shared.toggle()
+        let paneView = InteractionTrackingPaneView(paneId: UUID())
+
+        // Act — installing the shield should notify parent with current state.
+        _ = paneView.swiftUIContainer
+
+        // Assert
+        #expect(paneView.interactionEnabledHistory.last == false)
+
+        // Cleanup
+        ManagementModeMonitor.shared.deactivate()
+    }
+
+    @Test
+    func test_shieldAttach_appliesCurrentInteractionState_managementModeInactive() {
+        // Arrange
+        let paneView = InteractionTrackingPaneView(paneId: UUID())
+
+        // Act — installing the shield should notify parent with current state.
+        _ = paneView.swiftUIContainer
+
+        // Assert
+        #expect(paneView.interactionEnabledHistory.last == true)
+    }
+
+    @Test
     func test_paneViewHitTest_managementModeOn_returnsNil() {
         // Arrange
         let paneView = PaneView(paneId: UUID())
@@ -254,7 +291,7 @@ struct ManagementModeDragShieldTests {
         let result = shield.draggingEntered(mockDrag)
 
         // Assert — transparent when management mode is off
-        #expect(result == [])
+        #expect(result.isEmpty)
     }
 
     @Test

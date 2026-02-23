@@ -23,7 +23,7 @@ struct CollapsedPaneBar: View {
                 action(.expandPane(tabId: tabId, paneId: paneId))
             } label: {
                 Image(systemName: "arrow.right.to.line")
-                    .font(.system(size: AppStyle.fontSecondary, weight: .medium))
+                    .font(.system(size: AppStyle.textXs, weight: .medium))
                     .foregroundStyle(.white.opacity(AppStyle.foregroundSecondary))
                     .frame(width: 22, height: 22)
             }
@@ -47,7 +47,7 @@ struct CollapsedPaneBar: View {
                 }
             } label: {
                 Image(systemName: "line.3.horizontal")
-                    .font(.system(size: AppStyle.fontSmall))
+                    .font(.system(size: AppStyle.textSm))
                     .foregroundStyle(.white.opacity(AppStyle.foregroundDim))
                     .frame(width: 22, height: 22)
             }
@@ -59,7 +59,7 @@ struct CollapsedPaneBar: View {
 
             // Sideways text (bottom-to-top)
             Text(title)
-                .font(.system(size: AppStyle.fontBody, weight: .bold))
+                .font(.system(size: AppStyle.textBase, weight: .bold))
                 .foregroundStyle(.white.opacity(AppStyle.foregroundSecondary))
                 .lineLimit(1)
                 .truncationMode(.tail)

@@ -336,12 +336,12 @@ struct SidebarContentView: View {
             if isFilterVisible {
                 HStack(spacing: 6) {
                     Image(systemName: "magnifyingglass")
-                        .font(.system(size: 11))
+                        .font(.system(size: AppStyle.textXs))
                         .foregroundStyle(.tertiary)
 
                     TextField("Filter...", text: $filterText)
                         .textFieldStyle(.plain)
-                        .font(.system(size: 12))
+                        .font(.system(size: AppStyle.textSm))
                         .foregroundStyle(.primary)
                         .focused($isFilterFocused)
                         .onExitCommand {
@@ -358,7 +358,7 @@ struct SidebarContentView: View {
                             filterText = ""
                         } label: {
                             Image(systemName: "xmark.circle.fill")
-                                .font(.system(size: 12))
+                                .font(.system(size: AppStyle.textSm))
                                 .foregroundStyle(.secondary)
                         }
                         .buttonStyle(.plain)
@@ -385,12 +385,12 @@ struct SidebarContentView: View {
             if isFiltering && filteredRepos.isEmpty {
                 VStack(spacing: 8) {
                     Image(systemName: "magnifyingglass")
-                        .font(.system(size: 24))
+                        .font(.system(size: AppStyle.text2xl))
                         .foregroundStyle(.secondary)
                         .opacity(0.5)
 
                     Text("No results")
-                        .font(.system(size: 12, weight: .medium))
+                        .font(.system(size: AppStyle.textSm, weight: .medium))
                         .foregroundStyle(.secondary)
                 }
                 .frame(maxWidth: .infinity, maxHeight: .infinity)
@@ -590,11 +590,11 @@ struct RepoRowView: View {
     var body: some View {
         HStack(spacing: AppStyle.spacingStandard) {
             Image(systemName: "folder.fill")
-                .font(.system(size: 14))
+                .font(.system(size: AppStyle.textLg))
                 .foregroundStyle(.orange)
 
             Text(repo.name)
-                .font(.system(size: AppStyle.fontPrimary, weight: .medium))
+                .font(.system(size: AppStyle.textLg, weight: .medium))
                 .lineLimit(1)
 
             Spacer()
@@ -620,7 +620,7 @@ struct RepoRowView: View {
                         Button("Remove Repo", role: .destructive) { onRemove() }
                     } label: {
                         Image(systemName: "ellipsis")
-                            .font(.system(size: AppStyle.fontSmall))
+                            .font(.system(size: AppStyle.textSm))
                             .foregroundStyle(.secondary)
                             .frame(width: 20, height: 20)
                     }
@@ -632,7 +632,7 @@ struct RepoRowView: View {
             } else {
                 // Worktree count badge
                 Text("\(repo.worktrees.count)")
-                    .font(.system(size: AppStyle.fontSmall, weight: .medium))
+                    .font(.system(size: AppStyle.textSm, weight: .medium))
                     .foregroundStyle(.secondary)
                     .padding(.horizontal, 6)
                     .padding(.vertical, 2)
@@ -660,16 +660,16 @@ struct WorktreeRowView: View {
             // Main worktree gets star, others get branch icon
             if worktree.isMainWorktree {
                 Image(systemName: "star.fill")
-                    .font(.system(size: 10))
+                    .font(.system(size: AppStyle.textXs))
                     .foregroundStyle(.yellow)
             } else {
                 Image(systemName: "arrow.triangle.branch")
-                    .font(.system(size: 11))
+                    .font(.system(size: AppStyle.textXs))
                     .foregroundStyle(.secondary)
             }
 
             Text(worktree.name)
-                .font(.system(size: AppStyle.fontBody))
+                .font(.system(size: AppStyle.textBase))
                 .lineLimit(1)
                 .foregroundStyle(.primary)
 
@@ -763,7 +763,7 @@ struct StatusBadgeView: View {
                     .controlSize(.mini)
             }
             Text(status.displayName)
-                .font(.system(size: 9, weight: .medium))
+                .font(.system(size: AppStyle.textXs, weight: .medium))
         }
         .padding(.horizontal, 5)
         .padding(.vertical, 2)
@@ -780,7 +780,7 @@ struct AgentBadgeView: View {
 
     var body: some View {
         Text(agent.shortName)
-            .font(.system(size: 9, weight: .medium))
+            .font(.system(size: AppStyle.textXs, weight: .medium))
             .padding(.horizontal, 4)
             .padding(.vertical, 2)
             .background(agent.color.opacity(0.2))

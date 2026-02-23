@@ -58,6 +58,11 @@ final class BridgePaneController {
 
     let router: RPCRouter
     private let bridgeWorld = WKContentWorld.world(name: "agentStudioBridge")
+    private let userContentController: WKUserContentController
+    private let bootstrapScript: WKUserScript
+    private var managementScript: WKUserScript
+    private(set) var isContentInteractionEnabled: Bool
+    private var interactionApplyTask: Task<Void, Never>?
 
     /// Per store+op dedup cache. Bounded at O(StoreKey × PushOp) — currently 8 entries max.
     /// Each entry stores the epoch it was pushed in + the payload bytes. Dedup only matches
@@ -75,17 +80,24 @@ final class BridgePaneController {
     ///   - state: Serializable bridge pane state (panel kind + source).
     init(paneId: UUID, state: BridgePaneState) {
         self.paneId = paneId
+        let blockInteraction = ManagementModeMonitor.shared.isActive
+        let initialManagementScript = WebInteractionManagementScript.makeUserScript(
+            blockInteraction: blockInteraction
+        )
+        self.managementScript = initialManagementScript
+        self.isContentInteractionEnabled = !blockInteraction
 
         // Per-pane configuration — NOT shared (unlike WebviewPaneController.sharedConfiguration).
         // Each bridge pane needs its own userContentController for message handler and bootstrap script
         // registration, and its own urlSchemeHandlers for the agentstudio:// scheme.
         var config = WebPage.Configuration()
         config.websiteDataStore = .nonPersistent()
+        self.userContentController = config.userContentController
 
         // Register message handler in bridge content world only.
         // Page world scripts cannot access this handler — content world isolation enforced by WebKit.
         let messageHandler = RPCMessageHandler()
-        config.userContentController.add(
+        userContentController.add(
             messageHandler,
             contentWorld: bridgeWorld,
             name: "rpc"
@@ -101,7 +113,9 @@ final class BridgePaneController {
             forMainFrameOnly: true,
             in: bridgeWorld
         )
-        config.userContentController.addUserScript(bootstrapScript)
+        self.bootstrapScript = bootstrapScript
+        userContentController.addUserScript(bootstrapScript)
+        userContentController.addUserScript(initialManagementScript)
 
         // Register scheme handler for agentstudio:// URLs (bundled React app assets + resources).
         if let scheme = URLScheme("agentstudio") {
@@ -145,6 +159,53 @@ final class BridgePaneController {
         }
 
         registerNamespaceHandlers()
+    }
+
+    // MARK: - Content Interaction
+
+    /// Called by the pane view when management mode toggles. Keeps both the currently
+    /// loaded bridge page and future navigations in sync with interaction suppression.
+    func setWebContentInteractionEnabled(_ enabled: Bool) {
+        let didChange = enabled != isContentInteractionEnabled
+        isContentInteractionEnabled = enabled
+
+        if didChange {
+            refreshPersistentScripts()
+        }
+        applyCurrentDocumentInteractionState()
+    }
+
+    private func refreshPersistentScripts() {
+        userContentController.removeAllUserScripts()
+        userContentController.addUserScript(bootstrapScript)
+        managementScript = WebInteractionManagementScript.makeUserScript(
+            blockInteraction: !isContentInteractionEnabled
+        )
+        userContentController.addUserScript(managementScript)
+    }
+
+    private func applyCurrentDocumentInteractionState() {
+        let script = WebInteractionManagementScript.makeRuntimeToggleSource(
+            blockInteraction: !isContentInteractionEnabled
+        )
+        interactionApplyTask?.cancel()
+        let page = self.page
+        let shouldReapplyAfterLoad = page.isLoading
+
+        interactionApplyTask = Task { @MainActor in
+            _ = try? await page.callJavaScript(script)
+
+            guard shouldReapplyAfterLoad else { return }
+
+            let deadline = ContinuousClock.now + .seconds(2)
+            while page.isLoading, ContinuousClock.now < deadline {
+                if Task.isCancelled { return }
+                await Task.yield()
+            }
+
+            if Task.isCancelled { return }
+            _ = try? await page.callJavaScript(script)
+        }
     }
 
     /// Register stub handlers for command namespaces until behavior wiring is fully implemented.

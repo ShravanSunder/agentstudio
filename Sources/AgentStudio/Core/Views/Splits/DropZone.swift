@@ -23,28 +23,49 @@ enum DropZone: String, Equatable, CaseIterable {
     }
 
     /// Creates the overlay shape for visual feedback.
-    /// Shows the full half of the pane where the new split will appear.
+    /// Uses an edge insertion marker so the target reads as "between panes"
+    /// instead of replacing the destination pane.
     @ViewBuilder
     func overlay(in geometry: GeometryProxy) -> some View {
-        let overlayColor = Color.accentColor.opacity(0.3)
+        let markerColor = Color.accentColor.opacity(0.85)
+        let previewColor = Color.accentColor.opacity(0.16)
         let inset: CGFloat = 4
+        let availableWidth = max(geometry.size.width - (inset * 2), 1)
+        let markerWidth = min(AppStyle.dropTargetMarkerWidth, availableWidth)
+        let minimumPreviewWidth = max(
+            AppStyle.dropTargetPreviewMinimumWidth,
+            AppStyle.splitMinimumPaneSize + (AppStyle.paneGap * 2)
+        )
+        let fractionalPreviewWidth = geometry.size.width * AppStyle.dropTargetPreviewMaxFraction
+        let unclampedPreviewWidth = max(minimumPreviewWidth, fractionalPreviewWidth)
+        let previewWidth = min(unclampedPreviewWidth, availableWidth)
 
         switch self {
         case .left:
             HStack(spacing: 0) {
-                RoundedRectangle(cornerRadius: 4)
-                    .fill(overlayColor)
-                    .padding(inset)
-                    .frame(width: geometry.size.width * 0.5)
+                ZStack(alignment: .leading) {
+                    RoundedRectangle(cornerRadius: 4)
+                        .fill(previewColor)
+                        .frame(width: previewWidth)
+                    RoundedRectangle(cornerRadius: 4)
+                        .fill(markerColor)
+                        .frame(width: markerWidth)
+                }
+                .padding(inset)
                 Spacer()
             }
         case .right:
             HStack(spacing: 0) {
                 Spacer()
-                RoundedRectangle(cornerRadius: 4)
-                    .fill(overlayColor)
-                    .padding(inset)
-                    .frame(width: geometry.size.width * 0.5)
+                ZStack(alignment: .trailing) {
+                    RoundedRectangle(cornerRadius: 4)
+                        .fill(previewColor)
+                        .frame(width: previewWidth)
+                    RoundedRectangle(cornerRadius: 4)
+                        .fill(markerColor)
+                        .frame(width: markerWidth)
+                }
+                .padding(inset)
             }
         }
     }

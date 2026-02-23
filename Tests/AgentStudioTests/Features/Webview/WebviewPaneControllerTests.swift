@@ -7,6 +7,12 @@ import Testing
 @Suite(.serialized)
 struct WebviewPaneControllerTests {
 
+    private func settleEventLoop(turns: Int = 8) async {
+        for _ in 0..<turns {
+            await Task.yield()
+        }
+    }
+
     private func makeController() -> WebviewPaneController {
         WebviewPaneController(
             paneId: UUID(),
@@ -127,5 +133,34 @@ struct WebviewPaneControllerTests {
             WebviewPaneController.normalizeURLString("data:text/html,<h1>Hi</h1>")
                 == "data:text/html,<h1>Hi</h1>"
         )
+    }
+
+    // MARK: - Management Mode Interaction Regression Coverage
+
+    @Test
+    func test_managementModeToggle_updatesWebviewControllerInteractionState() async {
+        // Arrange
+        ManagementModeMonitor.shared.deactivate()
+        let paneView = WebviewPaneView(
+            paneId: UUID(),
+            state: WebviewState(url: URL(string: "about:blank")!)
+        )
+        _ = paneView.swiftUIContainer
+        await settleEventLoop()
+        #expect(paneView.controller.isContentInteractionEnabled)
+
+        // Act — enter management mode
+        ManagementModeMonitor.shared.toggle()
+        await settleEventLoop()
+
+        // Assert
+        #expect(!paneView.controller.isContentInteractionEnabled)
+
+        // Act — leave management mode
+        ManagementModeMonitor.shared.deactivate()
+        await settleEventLoop()
+
+        // Assert
+        #expect(paneView.controller.isContentInteractionEnabled)
     }
 }

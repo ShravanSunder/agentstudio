@@ -24,7 +24,8 @@ final class ManagementModeContainerView: NSView {
 ///    (frame-based routing, independent of hitTest). Agent studio custom types pass through
 ///    to SwiftUI's `.onDrop` on the outer hosting view.
 /// 4. **Hover**: Subclasses override ``setContentInteractionEnabled(_:)`` for content-level
-///    suppression (e.g., CSS `pointer-events:none` for WKWebView, Ghostty mouse guards).
+///    suppression (e.g., controller-managed WKUserScript + runtime JS for WKWebView panes,
+///    Ghostty mouse guards for terminal surfaces).
 ///
 /// Subclasses with custom hitTest (e.g. `AgentStudioTerminalView`) must
 /// call `super.hitTest` first during management mode.
@@ -71,8 +72,8 @@ class PaneView: NSView, Identifiable {
     /// Called by the interaction shield when management mode activates/deactivates.
     /// Subclasses override to apply content-level interaction suppression.
     ///
-    /// - `WebviewPaneView`: injects/removes CSS `pointer-events: none`
-    /// - `BridgePaneView`: injects/removes CSS `pointer-events: none`
+    /// - `WebviewPaneView`: delegates to controller-managed persistent WKUserScript
+    /// - `BridgePaneView`: delegates to controller-managed persistent WKUserScript
     /// - `AgentStudioTerminalView`: Ghostty mouse handlers have their own guards
     ///
     /// - Parameter enabled: `true` when management mode deactivates (normal interaction),

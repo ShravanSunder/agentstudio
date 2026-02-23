@@ -1,4 +1,5 @@
 import AppKit
+import Foundation
 import SwiftUI
 
 /// Redesigned sidebar content grouped by repository identity (worktree family / remote).
@@ -14,8 +15,7 @@ struct RepoSidebarContentView: View {
 
     @State private var repoMetadataById: [UUID: RepoIdentityMetadata] = [:]
     @State private var worktreeStatusById: [UUID: GitBranchStatus] = [:]
-    @State private var groupColorByKey: [String: String] = Self.loadGroupColors()
-    @State private var worktreeColorById: [String: String] = Self.loadWorktreeColors()
+    @State private var checkoutColorByRepoId: [String: String] = Self.loadCheckoutColors()
     @State private var notificationCountsByWorktreeId: [UUID: Int] = [:]
 
     @State private var debounceTask: Task<Void, Never>?
@@ -23,8 +23,7 @@ struct RepoSidebarContentView: View {
 
     private static let filterDebounceMilliseconds = 25
     private static let expandedGroupsKey = "sidebarExpandedRepoGroups"
-    private static let groupColorsKey = "sidebarRepoGroupColors"
-    private static let worktreeColorsKey = "sidebarWorktreeIconColors"
+    private static let checkoutColorsKey = "sidebarCheckoutIconColors"
 
     private var reposFingerprint: String {
         store.repos.map { "\($0.id.uuidString):\($0.updatedAt.timeIntervalSinceReferenceDate)" }
@@ -117,12 +116,12 @@ struct RepoSidebarContentView: View {
     private var filterBar: some View {
         HStack(spacing: 6) {
             Image(systemName: "magnifyingglass")
-                .font(.system(size: 11))
+                .font(.system(size: AppStyle.textXs))
                 .foregroundStyle(.tertiary)
 
             TextField("Filter...", text: $filterText)
                 .textFieldStyle(.plain)
-                .font(.system(size: 12))
+                .font(.system(size: AppStyle.textSm))
                 .foregroundStyle(.primary)
                 .focused($isFilterFocused)
                 .onExitCommand {
@@ -138,7 +137,7 @@ struct RepoSidebarContentView: View {
                     filterText = ""
                 } label: {
                     Image(systemName: "xmark.circle.fill")
-                        .font(.system(size: 12))
+                        .font(.system(size: AppStyle.textSm))
                         .foregroundStyle(.secondary)
                 }
                 .buttonStyle(.plain)
@@ -164,12 +163,12 @@ struct RepoSidebarContentView: View {
     private var noResultsView: some View {
         VStack(spacing: 8) {
             Image(systemName: "magnifyingglass")
-                .font(.system(size: 24))
+                .font(.system(size: AppStyle.text2xl))
                 .foregroundStyle(.secondary)
                 .opacity(0.5)
 
             Text("No results")
-                .font(.system(size: 12, weight: .medium))
+                .font(.system(size: AppStyle.textSm, weight: .medium))
                 .foregroundStyle(.secondary)
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity)
@@ -201,7 +200,7 @@ struct RepoSidebarContentView: View {
                                     checkoutTitle: worktree.name.isEmpty ? "checkout" : worktree.name,
                                     branchName: worktree.branch.isEmpty ? "detached HEAD" : worktree.branch,
                                     checkoutIconKind: checkoutIconKind(for: worktree, in: repo),
-                                    iconColor: colorForWorktree(worktree, groupKey: group.id),
+                                    iconColor: colorForCheckout(repo: repo, in: group),
                                     branchStatus: worktreeStatusById[worktree.id] ?? .unknown,
                                     notificationCount: notificationCountsByWorktreeId[worktree.id, default: 0],
                                     onOpen: {
@@ -229,13 +228,13 @@ struct RepoSidebarContentView: View {
                                         )
                                     },
                                     onSetIconColor: { colorHex in
-                                        let key = worktree.id.uuidString
+                                        let key = repo.id.uuidString
                                         if let colorHex {
-                                            worktreeColorById[key] = colorHex
+                                            checkoutColorByRepoId[key] = colorHex
                                         } else {
-                                            worktreeColorById.removeValue(forKey: key)
+                                            checkoutColorByRepoId.removeValue(forKey: key)
                                         }
-                                        saveWorktreeColors()
+                                        saveCheckoutColors()
                                     }
                                 )
                                 .listRowInsets(
@@ -265,20 +264,6 @@ struct RepoSidebarContentView: View {
                     )
                 )
                 .contextMenu {
-                    Menu("Set Default Icon Color") {
-                        ForEach(SidebarRepoGrouping.colorPresets, id: \.hex) { preset in
-                            Button(preset.name) {
-                                groupColorByKey[group.id] = preset.hex
-                                saveGroupColors()
-                            }
-                        }
-                        Divider()
-                        Button("Reset to Auto") {
-                            groupColorByKey.removeValue(forKey: group.id)
-                            saveGroupColors()
-                        }
-                    }
-
                     Divider()
 
                     Button("Refresh Worktrees") {
@@ -311,37 +296,39 @@ struct RepoSidebarContentView: View {
         UserDefaults.standard.set(Array(expandedGroups), forKey: Self.expandedGroupsKey)
     }
 
-    private static func loadGroupColors() -> [String: String] {
-        UserDefaults.standard.dictionary(forKey: groupColorsKey) as? [String: String] ?? [:]
+    private static func loadCheckoutColors() -> [String: String] {
+        UserDefaults.standard.dictionary(forKey: checkoutColorsKey) as? [String: String] ?? [:]
     }
 
-    private static func loadWorktreeColors() -> [String: String] {
-        UserDefaults.standard.dictionary(forKey: worktreeColorsKey) as? [String: String] ?? [:]
+    private func saveCheckoutColors() {
+        UserDefaults.standard.set(checkoutColorByRepoId, forKey: Self.checkoutColorsKey)
     }
 
-    private func saveGroupColors() {
-        UserDefaults.standard.set(groupColorByKey, forKey: Self.groupColorsKey)
-    }
-
-    private func saveWorktreeColors() {
-        UserDefaults.standard.set(worktreeColorById, forKey: Self.worktreeColorsKey)
-    }
-
-    private func colorForGroup(_ groupKey: String) -> Color {
-        if let hex = groupColorByKey[groupKey], let nsColor = NSColor(hex: hex) {
-            return Color(nsColor: nsColor)
-        }
-        let fallback = SidebarRepoGrouping.defaultColorHex(for: groupKey)
-        return Color(nsColor: NSColor(hex: fallback) ?? .controlAccentColor)
-    }
-
-    private func colorForWorktree(_ worktree: Worktree, groupKey: String) -> Color {
-        if let hex = worktreeColorById[worktree.id.uuidString],
+    private func colorForCheckout(repo: Repo, in group: SidebarRepoGroup) -> Color {
+        let overrideKey = repo.id.uuidString
+        if let hex = checkoutColorByRepoId[overrideKey],
             let nsColor = NSColor(hex: hex)
         {
             return Color(nsColor: nsColor)
         }
-        return colorForGroup(groupKey)
+
+        let orderedFamilies = group.repos.sorted { lhs, rhs in
+            lhs.stableKey.localizedCaseInsensitiveCompare(rhs.stableKey) == .orderedAscending
+        }
+
+        guard orderedFamilies.count > 1 else {
+            return Color(nsColor: NSColor(hex: SidebarRepoGrouping.automaticPaletteHexes[0]) ?? .controlAccentColor)
+        }
+
+        guard let familyIndex = orderedFamilies.firstIndex(where: { $0.id == repo.id }) else {
+            return Color(nsColor: NSColor(hex: SidebarRepoGrouping.automaticPaletteHexes[0]) ?? .controlAccentColor)
+        }
+
+        let colorHex = SidebarRepoGrouping.colorHexForCheckoutIndex(
+            familyIndex,
+            seed: "\(group.id)|\(repo.stableKey)|\(repo.id.uuidString)"
+        )
+        return Color(nsColor: NSColor(hex: colorHex) ?? .controlAccentColor)
     }
 
     private func sortedWorktrees(for repo: Repo) -> [Worktree] {
@@ -527,13 +514,13 @@ private struct SidebarGroupRow: View {
                 .foregroundStyle(.secondary)
 
             Text(title)
-                .font(.system(size: AppStyle.fontPrimary, weight: .semibold))
+                .font(.system(size: AppStyle.textLg, weight: .semibold))
                 .lineLimit(1)
 
             Spacer()
 
             Text("\(checkoutCount)")
-                .font(.system(size: AppStyle.fontSmall, weight: .medium))
+                .font(.system(size: AppStyle.textSm, weight: .medium))
                 .foregroundStyle(.secondary)
                 .padding(.horizontal, AppStyle.sidebarCountBadgeHorizontalPadding)
                 .padding(.vertical, AppStyle.sidebarCountBadgeVerticalPadding)
@@ -567,7 +554,7 @@ private struct SidebarWorktreeRow: View {
 
                 Text(checkoutTitle)
                     .font(
-                        .system(size: AppStyle.fontBody, weight: checkoutIconKind == .mainCheckout ? .medium : .regular)
+                        .system(size: AppStyle.textBase, weight: checkoutIconKind == .mainCheckout ? .medium : .regular)
                     )
                     .lineLimit(1)
                     .foregroundStyle(.primary)
@@ -586,9 +573,8 @@ private struct SidebarWorktreeRow: View {
             }
 
             HStack(spacing: AppStyle.sidebarChipRowSpacing) {
-                SidebarChip(
+                SidebarStatusIcon(
                     iconAsset: branchStatus.isDirty ? "octicon-dot-fill" : "octicon-check-circle-fill",
-                    text: nil,
                     style: branchStatus.isDirty ? .warning : .success
                 )
                 SidebarSyncChip(
@@ -737,6 +723,17 @@ private enum SidebarCheckoutIconKind {
     case mainCheckout
     case gitWorktree
     case standaloneCheckout
+}
+
+private struct SidebarStatusIcon: View {
+    let iconAsset: String
+    let style: SidebarChip.Style
+
+    var body: some View {
+        OcticonImage(name: iconAsset, size: AppStyle.sidebarChipIconSize)
+            .foregroundStyle(style.foreground)
+            .frame(width: AppStyle.sidebarChipIconSize + 2, height: AppStyle.sidebarChipIconSize + 2)
+    }
 }
 
 private struct SidebarChip: View {
@@ -917,22 +914,40 @@ private enum SidebarRepoGrouping {
         let hex: String
     }
 
-    static let colorPresets: [ColorPreset] = [
-        ColorPreset(name: "Amber", hex: "#F59E0B"),
-        ColorPreset(name: "Blue", hex: "#3B82F6"),
-        ColorPreset(name: "Green", hex: "#22C55E"),
-        ColorPreset(name: "Teal", hex: "#14B8A6"),
-        ColorPreset(name: "Pink", hex: "#EC4899"),
-        ColorPreset(name: "Red", hex: "#EF4444"),
-        ColorPreset(name: "Indigo", hex: "#6366F1"),
-        ColorPreset(name: "Orange", hex: "#F97316"),
+    static let automaticPaletteHexes: [String] = [
+        "#F5C451",  // 1: Yellow
+        "#58C4FF",  // 2: Sky
+        "#A78BFA",  // 3: Violet
+        "#4ADE80",  // 4: Green
+        "#FB923C",  // 5: Orange
+        "#F472B6",  // 6: Pink
     ]
 
-    static func defaultColorHex(for key: String) -> String {
-        let hash = key.unicodeScalars.reduce(0) { partial, scalar in
-            (partial &* 31 &+ Int(scalar.value)) & 0x7fff_ffff
+    static let colorPresets: [ColorPreset] = [
+        ColorPreset(name: "Yellow", hex: "#F5C451"),
+        ColorPreset(name: "Sky", hex: "#58C4FF"),
+        ColorPreset(name: "Violet", hex: "#A78BFA"),
+        ColorPreset(name: "Green", hex: "#4ADE80"),
+        ColorPreset(name: "Orange", hex: "#FB923C"),
+        ColorPreset(name: "Pink", hex: "#F472B6"),
+    ]
+
+    static func colorHexForCheckoutIndex(_ index: Int, seed: String) -> String {
+        if index < automaticPaletteHexes.count {
+            return automaticPaletteHexes[index]
         }
-        return colorPresets[hash % colorPresets.count].hex
+
+        return generatedColorHex(seed: seed)
+    }
+
+    private static func generatedColorHex(seed: String) -> String {
+        let hash = seed.unicodeScalars.reduce(0) { partial, scalar in
+            (partial &* 33 &+ Int(scalar.value)) & 0x7fff_ffff
+        }
+        let hue = CGFloat(hash % 360) / 360.0
+        let saturation: CGFloat = 0.58
+        let brightness: CGFloat = 0.94
+        return NSColor(calibratedHue: hue, saturation: saturation, brightness: brightness, alpha: 1.0).hexString
     }
 
     static func buildGroups(
@@ -971,5 +986,13 @@ extension NSColor {
         let green = CGFloat((value >> 8) & 0xff) / 255.0
         let blue = CGFloat(value & 0xff) / 255.0
         self.init(calibratedRed: red, green: green, blue: blue, alpha: 1.0)
+    }
+
+    fileprivate var hexString: String {
+        guard let rgb = usingColorSpace(.deviceRGB) else { return "#FFFFFF" }
+        let red = Int((rgb.redComponent * 255.0).rounded())
+        let green = Int((rgb.greenComponent * 255.0).rounded())
+        let blue = Int((rgb.blueComponent * 255.0).rounded())
+        return String(format: "#%02X%02X%02X", red, green, blue)
     }
 }

@@ -73,7 +73,7 @@ struct TerminalSplitContainer: View {
                             )
                             // Zoom indicator badge
                             Text("ZOOM")
-                                .font(.system(size: AppStyle.fontSmall, weight: .medium, design: .monospaced))
+                                .font(.system(size: AppStyle.textSm, weight: .medium, design: .monospaced))
                                 .foregroundStyle(.white.opacity(AppStyle.foregroundSecondary))
                                 .padding(.horizontal, AppStyle.spacingStandard)
                                 .padding(.vertical, AppStyle.paneGap)
