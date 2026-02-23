@@ -16,7 +16,7 @@
 7. [D6: Priority-aware event processing](../architecture/pane_runtime_architecture.md#d6-priority-aware-event-processing)
 8. [D7: Filesystem observation](../architecture/pane_runtime_architecture.md#d7-filesystem-observation-with-batched-artifact-production)
 9. [D8: Execution backend config](../architecture/pane_runtime_architecture.md#d8-execution-backend-as-pane-configuration-not-pane-type-jtbd-7-jtbd-8)
-10. [D9: System-level event sources](../architecture/pane_runtime_architecture.md#d9-system-level-event-sources--typed-services-vs-generic-plugins)
+10. [D9: System-level event sources](../architecture/pane_runtime_architecture.md#d9-system-level-event-sources--three-tier-hierarchy)
 11. [Runtime Type Taxonomy](../architecture/pane_runtime_architecture.md#runtime-type-taxonomy)
 12. [View / Controller / Runtime Separation](../architecture/pane_runtime_architecture.md#view--controller--runtime-separation-per-pane-type)
 13. [Source Inventory](../architecture/pane_runtime_architecture.md#source-inventory)
@@ -67,34 +67,6 @@ Current implementation commit baseline: `ba5d9d8`.
 - [x] Optional benchmark batch: run `PushPerformanceBenchmarkTests` separately; treat as performance signal, not release gate.
 - [x] Linear sync: update `LUNA-343` checklist/progress with shipped items and remaining follow-ups.
 
-## Current Snapshot (2026-02-22)
-
-This branch now includes the runtime-path execution milestones from the
-`2026-02-22-luna-325-contract-parity-execution-plan.md` mapping (`M1`–`M9`).
-Remaining full-contract closure is tracked through `LUNA-345`.
-
-Resolved drift in this branch:
-
-- `GhosttyAdapter` now routes supported split/tab/bell/new-tab families through typed runtime events.
-- `GhosttyEvent` split/tab action families now carry typed payloads and exhaustive enum switches.
-- `RuntimeRegistry` rejects duplicate registration (no silent replacement).
-- `NotificationReducer` has tier-ordered critical flush + tier-aware lossy ordering coverage.
-- Migrated split/tab action families are off legacy `NotificationCenter` posts.
-
-### Missing Things Task Ledger (Execution-Owned)
-
-Reference implementation plan: [`2026-02-22-luna-325-contract-parity-execution-plan.md`](2026-02-22-luna-325-contract-parity-execution-plan.md)
-
-- [x] `M1` Split E2E from default `mise run test` path and keep E2E opt-in/standalone.
-- [x] `M2` Add contract-gap tests for Ghostty adapter/action routing and runtime envelope metadata.
-- [x] `M3` Expand `GhosttyEvent` + `GhosttyAdapter` coverage for currently supported Ghostty action families.
-- [x] `M4` Harden `TerminalRuntime` command handling + metadata update behavior to match owned contract semantics.
-- [x] `M5` Align runtime command vocabulary toward `RuntimeCommand` naming without breaking current callsites.
-- [x] `M6` Enforce runtime registry uniqueness invariant (no silent replacement path).
-- [x] `M7` Complete reducer tier-order test coverage and behavior alignment.
-- [x] `M8` Migrate action families atomically off legacy NotificationCenter posts as typed runtime path lands.
-- [x] `M9` Re-run verification (`swift build`, `swift test`, `mise run lint`) and update this ledger + Linear.
-
 ## Requirement → Contract → Owner → Status Matrix
 
 | Requirement | Contract | Design Section | Owner Ticket | Status |
@@ -136,7 +108,7 @@ Reference implementation plan: [`2026-02-22-luna-325-contract-parity-execution-p
 | **Migration path** | Migration section | NotificationCenter/DispatchQueue → AsyncStream/event bus, per-action atomic | LUNA-325/327 | Partially implemented |
 | **Runtime type taxonomy** | D1, Runtime Type Taxonomy | Transport-based grouping: Terminal, Bridge, Webview, SwiftPane | LUNA-349 | Design frozen |
 | **View/Controller/Runtime separation** | D5, View/Controller/Runtime Separation | 4-layer pipeline per pane type | LUNA-349 | Design frozen |
-| **System-level event sources** | D9, Source Inventory | FSEvents watcher, git forge, container service | LUNA-349 | Design frozen |
+| **System-level event sources** | D9, Source Inventory | Built-in + service + plugin tiers (FSEvents, forge/container services, plugin-defined sources) | LUNA-349 | Design frozen |
 | **BridgeRuntime extraction** | Runtime Type Taxonomy (BridgeRuntime) | Extract runtime from BridgePaneController | LUNA-349 | Design frozen |
 | **WebviewRuntime extraction** | Runtime Type Taxonomy (WebviewRuntime) | Extract runtime from WebviewPaneController | LUNA-349 | Design frozen |
 | **FSEvents watcher** | D9 (FSEvents Watcher) | Per-worktree, debounced, injectable clock | LUNA-349 | Design frozen |
@@ -155,7 +127,7 @@ Reference implementation plan: [`2026-02-22-luna-325-contract-parity-execution-p
 1. `LUNA-327` → state ownership and coordinator boundaries:
 `D1`, `D5`, `Contract 1`, `Contract 11`, `Swift 6 invariants`, `Migration section` (partial — `DispatchQueue` → `MainActor`).
 2. `LUNA-342` → contract freeze gate:
-All design decisions (`D1`–`D8`), all contracts (`1`–`16`, `5a`, `5b`, `7a`, `12a`), all invariants (`A1`–`A15`, Swift 6 `1`–`9`).
+All design decisions (`D1`–`D9`), all contracts (`1`–`16`, `5a`, `5b`, `7a`, `12a`), all invariants (`A1`–`A15`, Swift 6 `1`–`9`).
 3. `LUNA-325` → terminal adapter/runtime implementation (architecture-owned set):
 `Contract 1`, `Contract 2`, `Contract 3`, `Contract 4`, `Contract 7`, `Contract 7a`, `Contract 8`, `Contract 10`, `Contract 11`, `Contract 12`, `Contract 14`, and `Migration section` (primary — `NotificationCenter` → event bus).
 `Contract 5` base lifecycle behavior (`created → ready → draining → terminated`) is implemented through runtime lifecycle semantics in this ticket's runtime path. `Contract 5a` remains `LUNA-295`; `Contract 5b` remains `LUNA-324`.
@@ -279,7 +251,7 @@ Zero instances remain in Sources. `SurfaceManager.swift` was the last one — re
 | File | What changed |
 |------|-------------|
 | `PaneRuntimeEvent.swift:9` | `any PaneKindEvent` → `any PaneKindEvent & Sendable` |
-| `PaneCommand.swift:24` | `any PaneKindCommand` → `any PaneKindCommand & Sendable` |
+| `PaneCommand.swift:24` (renamed to `RuntimeCommand.swift` in LUNA-325) | `any PaneKindCommand` → `any PaneKindCommand & Sendable` |
 | `GhosttySurfaceView.swift:73` | `surface: ghostty_surface_t?` → `nonisolated(unsafe)` (FFI pointer for isolated deinit) |
 | `GhosttySurfaceView.swift:854` | `NSTextInputClient` → `@preconcurrency NSTextInputClient` |
 | `SessionRuntime.swift:25` | `SessionBackendProtocol: Sendable` → `@MainActor protocol SessionBackendProtocol` |

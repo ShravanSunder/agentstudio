@@ -32,11 +32,40 @@ struct PaneRuntimeContractsTests {
         #expect(metadata.createdAt.timeIntervalSince1970 > 0)
     }
 
-    @Test("system source supports typed and plugin producers")
-    func systemSourceExtensibility() {
-        #expect(EventSource.system(.filesystemWatcher).description == "system:filesystemWatcher")
-        #expect(EventSource.system(.gitForge).description == "system:gitForge")
-        #expect(EventSource.system(.containerService).description == "system:containerService")
-        #expect(EventSource.system(.plugin("forge.github")).description == "system:plugin:forge.github")
+    @Test("system source three-tier hierarchy: builtin, service, plugin")
+    func systemSourceHierarchy() {
+        #expect(
+            EventSource.system(.builtin(.filesystemWatcher)).description
+                == "system:builtin/filesystemWatcher"
+        )
+        #expect(
+            EventSource.system(.builtin(.securityBackend)).description
+                == "system:builtin/securityBackend"
+        )
+        #expect(
+            EventSource.system(.builtin(.coordinator)).description
+                == "system:builtin/coordinator"
+        )
+        #expect(
+            EventSource.system(.service(.gitForge(provider: "github"))).description
+                == "system:service/gitForge/github"
+        )
+        #expect(
+            EventSource.system(.service(.containerService(provider: "docker"))).description
+                == "system:service/containerService/docker"
+        )
+        #expect(
+            EventSource.system(.plugin("mcp-weather")).description
+                == "system:plugin/mcp-weather"
+        )
+    }
+
+    @Test("provider names with special characters produce unambiguous descriptions")
+    func systemSourceProviderEscaping() {
+        let forgeWithColon = EventSource.system(.service(.gitForge(provider: "my:forge")))
+        #expect(forgeWithColon.description == "system:service/gitForge/my:forge")
+
+        let pluginWithSlash = EventSource.system(.plugin("mcp/weather"))
+        #expect(pluginWithSlash.description == "system:plugin/mcp/weather")
     }
 }

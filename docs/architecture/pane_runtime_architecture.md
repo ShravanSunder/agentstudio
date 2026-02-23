@@ -178,30 +178,33 @@ SwiftPaneView           (direct Swift)             SwiftPaneRuntime             
 
 **Deferred but reserved:** The `ExecutionBackend` type and `SecurityEvent` enum are defined now. Implementation ships when Gondolin or Docker integration begins. Zero cost to carry the types.
 
-### D9: System-level event sources — typed services vs generic plugins
+### D9: System-level event sources — three-tier hierarchy
 
 **User problem:** The workspace needs to react to external signals that aren't pane-scoped — filesystem changes across a worktree, PR status changes, container health, MCP tool availability (JTBD 5, JTBD 6).
 
-**Decision:** Two tiers of system-level event sources:
+**Decision:** Three tiers of system-level event sources, distinguished by who defines the event vocabulary:
 
-1. **Typed system services** — known event schemas, well-defined protocols, plugin-provided backends. These are concrete enough to design now because we know what events they produce.
-2. **Generic remote resources** — open-ended, schema determined at runtime. Deferred to plugin escape hatches and MCP transport.
+1. **Built-in sources** — core-owned, core-implemented. Known event schemas and lifecycle, no plugin involvement. Adding one is a core code change.
+2. **Typed service sources** — core defines the event protocol and command interface. Plugin provides the backend implementation for a specific provider. Service category is closed (new category = core code change with typed event vocabulary). Provider is open (String — any plugin can register a backend).
+3. **Plugin sources** — plugin defines everything at runtime. Schema opaque to Swift. Uses existing plugin escape hatches (`PaneRuntimeEvent.plugin(kind:event:)`, `PaneKindEvent` conformance). Last resort when no typed protocol exists.
 
-**Typed system services (known, designed):**
+**System source inventory:**
 
-| Service | Scope | Event types | Backend model |
-|---------|-------|-------------|---------------|
-| **FSEvents watcher** (Contract 6) | Per-worktree | `FilesystemEvent` (filesChanged, gitStatusChanged, diffAvailable, branchChanged) | Built-in, one watcher per worktree |
-| **Git forge service** | App-wide | `ForgeEvent` (future: prStatusChanged, reviewRequested, ciCompleted) | Plugin-provided backends (GitHub, GitLab, Bitbucket) |
-| **Container service** | App-wide | `ContainerEvent` (future: containerStarted, healthChanged, logOutput) | Plugin-provided backends (Docker, Podman, cloud) |
+| Tier | Service | Scope | Event types | Backend model |
+|------|---------|-------|-------------|---------------|
+| **Built-in** | FSEvents watcher (Contract 6) | Per-worktree | `FilesystemEvent` (filesChanged, gitStatusChanged, diffAvailable, branchChanged) | Core, one watcher per worktree |
+| **Built-in** | Security backend | Per-worktree | `SecurityEvent` (future) | Core |
+| **Built-in** | PaneCoordinator | App-wide | `LifecycleEvent` (tabSwitched, etc.) | Core |
+| **Service** | Git forge | App-wide | `ForgeEvent` (future: prStatusChanged, reviewRequested, ciCompleted) | Plugin backends (GitHub, GitLab, Bitbucket) |
+| **Service** | Container service | App-wide | `ContainerEvent` (future: containerStarted, healthChanged, logOutput) | Plugin backends (Docker, Podman, cloud) |
+| **Plugin** | _(open)_ | Varies | `any PaneKindEvent` via `.plugin(kind:event:)` | Plugin-defined |
 
-All typed services use `EventSource.system(...)` and produce `PaneRuntimeEvent` envelopes on the same coordination stream as pane events. They have no pane identity — they're shared infrastructure that any pane can subscribe to.
+All system sources produce `PaneRuntimeEvent` envelopes on the same coordination stream as pane events. They have no pane identity — they're shared infrastructure that any pane can subscribe to.
 
-**Git forge and container services follow the same pattern:** a protocol defines the event vocabulary and command interface. Plugin-provided backends conform to the protocol for specific providers. The service manages authentication, polling/webhook state, and event production. This is analogous to how `GhosttyAdapter` translates C API events — the forge adapter translates GitHub API events.
+**Service tier pattern:** A protocol defines the event vocabulary and command interface. Plugin-provided backends conform to the protocol for specific providers. The service manages authentication, polling/webhook state, and event production. This is analogous to how `GhosttyAdapter` translates C API events — the forge adapter translates GitHub API events. Each service source carries `provider: String` identity because multiple backends of the same category can be active simultaneously (GitHub for repo A, GitLab for repo B). `ServiceSource` is a discriminated union — each case will grow service-specific associated values as the service matures (e.g., forge gains `account`, container gains `socket`).
 
-**Generic remote resources (deferred):** MCP servers, arbitrary APIs, and other open-ended integrations don't have known event schemas at compile time. They use the existing plugin escape hatches: `PaneRuntimeEvent.plugin(kind:event:)`, `PaneContentType.plugin(String)`, `PaneCapability.plugin(String)`. The plugin infrastructure (Contract 2 escape hatches, NotificationReducer.submit(), EventReplayBuffer) already handles plugin events without core code changes. No new protocol needed — plugins define their own event types conforming to `PaneKindEvent`.
+**Plugin tier (deferred):** MCP servers, arbitrary APIs, and other open-ended integrations don't have known event schemas at compile time. They use the existing plugin escape hatches: `PaneRuntimeEvent.plugin(kind:event:)`, `PaneContentType.plugin(String)`, `PaneCapability.plugin(String)`. The plugin infrastructure (Contract 2 escape hatches, NotificationReducer.submit(), EventReplayBuffer) already handles plugin events without core code changes. No new protocol needed — plugins define their own event types conforming to `PaneKindEvent`.
 
-**Why not unify typed and generic:** Typed services earn their protocol because consumers know what to expect (`pullRequests`, `ciStatus`). Generic resources are schemaless from Swift's perspective — giving them a typed protocol is premature abstraction that would need to change with every new integration.
 
 #### FSEvents Watcher Implementation (Contract 6, LUNA-349)
 
@@ -212,7 +215,7 @@ The filesystem watcher is the first system-level source to implement. It's a pre
 │                    FSEventsWatcher (per-worktree)                │
 │                                                                  │
 │  Input:   macOS FSEvents stream for worktree root path           │
-│  Output:  PaneEventEnvelope with source = .system(.filesystemWatcher) │
+│  Output:  PaneEventEnvelope with source = .system(.builtin(.filesystemWatcher)) │
 │                                                                  │
 │  Pipeline:                                                       │
 │    FSEvents callback (arbitrary thread)                          │
@@ -266,7 +269,7 @@ extension PluginRegistry {
 }
 ```
 
-The forge service manages authentication, event polling, and command dispatch. Plugin-provided backends conform to the protocol for specific providers. Events are emitted as `PaneRuntimeEvent` envelopes with `source = .system(.gitForge)` and carried on the same coordination stream. No new infrastructure — just a new source producing envelopes.
+The forge service manages authentication, event polling, and command dispatch. Plugin-provided backends conform to the protocol for specific providers. Events are emitted as `PaneRuntimeEvent` envelopes with `source = .system(.service(.gitForge(provider: "github")))` and carried on the same coordination stream. No new infrastructure — just a new source producing envelopes.
 
 **External control interface (deferred):** An API for external systems (CLI, MCP servers, other apps) to control Agent Studio is a future concern. It depends on having runtime command dispatch (Contract 10) working across all 4 runtime types. The command surface would be "which RuntimeCommands can external callers issue, and through what transport?" — this emerges from the internal architecture, not the other way around. A one-paragraph placeholder is sufficient until the internal system is complete.
 
@@ -329,19 +332,39 @@ USER INPUT / COMMAND BAR / KEYBOARD
 
                     SYSTEM-LEVEL SOURCES (no pane, shared)
                     ──────────────────────────────────────
-┌──────────────────┐   ┌──────────────────────┐   ┌──────────────────────────┐
-│ FS WATCHER       │   │ GIT FORGE SERVICE    │   │ CONTAINER SERVICE        │
-│ (Contract 6)     │   │ (future)             │   │ (future)                 │
-│                  │   │                      │   │                          │
-│ Per-worktree     │   │ GitHub/GitLab/etc.   │   │ Docker/Podman/etc.       │
-│ FSEvents         │   │ Plugin-provided      │   │ Plugin-provided          │
-│ 500ms debounce   │   │ backends             │   │ backends                 │
-│ → FilesystemEvent│   │ → ForgeEvent (future)│   │ → ContainerEvent (future)│
-│                  │   │                      │   │                          │
-│ source:          │   │ source:              │   │ source:                  │
-│  .system(        │   │  .system(            │   │  .system(                │
-│   .filesystemWatcher)│   │   .gitForge)       │   │   .containerService)     │
-└──────────────────┘   └──────────────────────┘   └──────────────────────────┘
+
+BUILT-IN (core-owned, core-implemented):
+┌──────────────────────┐   ┌──────────────────────┐
+│ FS WATCHER           │   │ SECURITY BACKEND     │
+│ (Contract 6)         │   │                      │
+│                      │   │ Per-worktree          │
+│ Per-worktree         │   │ → SecurityEvent       │
+│ FSEvents, 500ms      │   │                      │
+│ → FilesystemEvent    │   │ source: .system(      │
+│                      │   │  .builtin(            │
+│ source: .system(     │   │   .securityBackend))  │
+│  .builtin(           │   └──────────────────────┘
+│   .filesystemWatcher))│
+└──────────────────────┘
+
+SERVICE (core protocol, plugin backend):
+┌──────────────────────┐   ┌──────────────────────────┐
+│ GIT FORGE SERVICE    │   │ CONTAINER SERVICE        │
+│ (future)             │   │ (future)                 │
+│                      │   │                          │
+│ Plugin backends:     │   │ Plugin backends:         │
+│  GitHub, GitLab, ... │   │  Docker, Podman, ...     │
+│ → ForgeEvent         │   │ → ContainerEvent         │
+│                      │   │                          │
+│ source: .system(     │   │ source: .system(         │
+│  .service(.gitForge( │   │  .service(               │
+│   provider:"github")))│   │   .containerService(     │
+│                      │   │    provider:"docker")))  │
+└──────────────────────┘   └──────────────────────────┘
+
+PLUGIN (schema-free, plugin-defined):
+  source: .system(.plugin("mcp-weather-api"))
+  Events: any PaneKindEvent via .plugin(kind:event:)
 ```
 
 ### Runtime Type Taxonomy
@@ -586,17 +609,17 @@ Contracts without a role keyword are **structural** — they define types, proto
 
 Sources are categorized by scope:
 
-| Scope | Source | EventSource value | Events produced | Status |
-|-------|--------|------------------|-----------------|--------|
-| **Pane** | TerminalRuntime | `.pane(paneId)` | `.terminal(GhosttyEvent)` | ✅ Implemented |
-| **Pane** | BridgeRuntime | `.pane(paneId)` | `.diff(...)`, `.editor(...)`, `.review(...)`, `.agent(...)`, `.plugin(...)` | Future (LUNA-349) |
-| **Pane** | WebviewRuntime | `.pane(paneId)` | `.browser(BrowserEvent)` | Future (LUNA-349) |
-| **Pane** | SwiftPaneRuntime | `.pane(paneId)` | Content-dependent | Future (LUNA-349) |
-| **Worktree** | FSEvents watcher | `.system(.filesystemWatcher)` | `.filesystem(FilesystemEvent)` | Future (LUNA-349, Contract 6) |
-| **App** | PaneCoordinator | `.system(.coordinator)` | `.lifecycle(.tabSwitched)` | ✅ Implemented |
-| **App** | Git forge service | `.system(.gitForge)` | Future: `ForgeEvent` | Future (plugin-based) |
-| **App** | Container service | `.system(.containerService)` | Future: `ContainerEvent` | Future (plugin-based) |
-| **Pane** | Agent RPC channel | `.pane(agentPaneId)` | Future: Contract 15 events | Deferred (LUNA-344) |
+| Scope | Source | Tier | EventSource value | Events produced | Status |
+|-------|--------|------|------------------|-----------------|--------|
+| **Pane** | TerminalRuntime | — | `.pane(paneId)` | `.terminal(GhosttyEvent)` | ✅ Implemented |
+| **Pane** | BridgeRuntime | — | `.pane(paneId)` | `.diff(...)`, `.editor(...)`, `.review(...)`, `.agent(...)`, `.plugin(...)` | Future (LUNA-349) |
+| **Pane** | WebviewRuntime | — | `.pane(paneId)` | `.browser(BrowserEvent)` | Future (LUNA-349) |
+| **Pane** | SwiftPaneRuntime | — | `.pane(paneId)` | Content-dependent | Future (LUNA-349) |
+| **Worktree** | FSEvents watcher | Built-in | `.system(.builtin(.filesystemWatcher))` | `.filesystem(FilesystemEvent)` | Future (LUNA-349, Contract 6) |
+| **App** | PaneCoordinator | Built-in | `.system(.builtin(.coordinator))` | `.lifecycle(.tabSwitched)` | ✅ Implemented |
+| **App** | Git forge service | Service | `.system(.service(.gitForge(provider:)))` | Future: `ForgeEvent` | Future (plugin-based) |
+| **App** | Container service | Service | `.system(.service(.containerService(provider:)))` | Future: `ContainerEvent` | Future (plugin-based) |
+| **Pane** | Agent RPC channel | — | `.pane(agentPaneId)` | Future: Contract 15 events | Deferred (LUNA-344) |
 
 ### Contract 1: PaneRuntime Protocol
 
@@ -619,7 +642,7 @@ protocol PaneRuntime: AnyObject {
     var capabilities: Set<PaneCapability> { get }
 
     /// Dispatch a command. Fails if lifecycle != .ready.
-    func handleCommand(_ envelope: PaneCommandEnvelope) async -> ActionResult
+    func handleCommand(_ envelope: RuntimeCommandEnvelope) async -> ActionResult
 
     /// Current state snapshot for late-joining consumers.
     func snapshot() -> PaneRuntimeSnapshot
@@ -876,7 +899,7 @@ extension PaneRuntimeEvent {
 ///     Lifecycle (surface/attach/close), drawer toggle, active pane change.
 ///     No paneId in event payload — it's on the envelope.
 ///
-///   WORKSPACE-SCOPED: envelope.source = .system(.coordinator)
+///   WORKSPACE-SCOPED: envelope.source = .system(.builtin(.coordinator))
 ///     Tab switch. The activeTabId IS domain data (which tab), not routing.
 ///
 ///   WORKTREE-SCOPED: envelope.source = .worktree(id)
@@ -906,7 +929,7 @@ enum PaneLifecycleEvent: Sendable {
     case drawerExpanded               // envelope.source = .pane(parentPaneId)
     case drawerCollapsed              // envelope.source = .pane(parentPaneId)
 
-    // ── Workspace-scoped: envelope.source = .system(.coordinator) ──
+    // ── Workspace-scoped: envelope.source = .system(.builtin(.coordinator)) ──
     case tabSwitched(activeTabId: UUID)   // tabId IS domain data, not routing
 }
 
@@ -981,7 +1004,7 @@ enum RuntimeErrorEvent: Error, Sendable {
 
 > **Role:** Structural (envelope shape). Carried by all sources, projections, and sinks.
 
-> **Extensibility:** `EventSource` and `SystemSource` are enums designed to grow. Adding a new case is a one-line change plus exhaustive switch updates in consumers. Per-source isolation guarantees (A4: independent `seq`, A10: independent replay buffer) mean new sources cannot break ordering or replay for existing sources. No shared state to corrupt. Add new sources in the same commit as the code that produces events on them.
+> **Extensibility:** `SystemSource` uses a three-tier hierarchy: `BuiltinSource` (closed, core-only), `ServiceSource` (discriminated union — new categories need a core code change with typed event protocol, new providers are a String), and `.plugin(String)` (fully open, schema-free). Per-source isolation guarantees (A4: independent `seq`, A10: independent replay buffer) mean new sources at any tier cannot break ordering or replay for existing sources. No shared state to corrupt.
 
 ```swift
 /// Metadata wrapper on every event for routing, ordering, and idempotency.
@@ -1013,13 +1036,35 @@ enum EventSource: Hashable, Sendable {
     case system(SystemSource)
 }
 
+/// Three-tier system source hierarchy (see D9).
+///
+/// Built-in: core-owned, core-implemented. Closed set.
+/// Service: core-defined event protocol, plugin-provided backend.
+///   Discriminated union — cases carry provider identity and will
+///   grow service-specific associated values as services mature.
+/// Plugin: schema-free, plugin-defined at runtime.
 enum SystemSource: Hashable, Sendable {
-    case filesystemWatcher       // Contract 6: per-worktree FSEvents
-    case securityBackend         // SecurityEvent producer
-    case coordinator             // workspace-scoped lifecycle events
-    case gitForge                // future: GitHub/GitLab/Bitbucket forge events
-    case containerService        // future: Docker/Podman container events
-    case plugin(String)          // generic remote resources via plugin
+    case builtin(BuiltinSource)
+    case service(ServiceSource)
+    case plugin(String)
+}
+
+/// Core-implemented system sources. Closed set — adding one is a core code change.
+enum BuiltinSource: Hashable, Sendable {
+    case filesystemWatcher   // Contract 6: per-worktree FSEvents
+    case securityBackend     // SecurityEvent producer, per-worktree
+    case coordinator         // workspace-scoped lifecycle events
+}
+
+/// Typed service categories with plugin-provided backends.
+/// Each case carries provider identity (String) because multiple
+/// backends of the same category can be active simultaneously
+/// (e.g., GitHub forge for repo A, GitLab forge for repo B).
+/// Cases will grow service-specific associated values as each
+/// service matures (forge gains account, container gains socket).
+enum ServiceSource: Hashable, Sendable {
+    case gitForge(provider: String)
+    case containerService(provider: String)
 }
 ```
 
@@ -1049,7 +1094,9 @@ Additional routing kinds (`.editor`, `.review`, `.agent`) are reserved for futur
 3. Source/payload compatibility:
 - Pane-scoped payloads (`.terminal`, `.browser`, `.diff`, `.editor`, `.plugin`) require `source = .pane(id)`.
 - Filesystem and security payloads require `source = .worktree(id)` or explicit system producer.
-- Workspace lifecycle events that are not pane-scoped require `source = .system(.coordinator)`.
+- Workspace lifecycle events that are not pane-scoped require `source = .system(.builtin(.coordinator))`.
+- Typed service events require `source = .system(.service(...))` with provider identity.
+- Plugin system events require `source = .system(.plugin(kind))`.
 4. Invalid source/payload combinations are contract violations and must emit a typed runtime error event.
 5. `commandId` is optional and only present for command-correlated events.
 
@@ -2277,7 +2324,7 @@ func submit(_ envelope: PaneEventEnvelope) {
 #### Visibility-Tier Invariants
 
 1. **Tier assignment is ephemeral.** Tiers are not stored on the envelope. They are resolved at submission time and used for ordering within the reducer's internal queues. A pane's tier can change between events (user switches tabs).
-2. **System events are always p0.** Events with `source = .system(...)` have no paneId and default to `p0ActivePane`. System events are never deprioritized.
+2. **System events are always p0.** Events with `source = .system(...)` (any tier: builtin, service, or plugin) have no paneId and default to `p0ActivePane`. System events are never deprioritized.
 3. **Tier ordering does not affect classification.** A p3 critical event is still processed immediately — it just goes after p0/p1/p2 critical events in the same cycle. Classification (critical/lossy) and scheduling (visibility tier) are independent axes.
 4. **Background bounded concurrency.** `p3Background` lossy events are rate-limited: at most N panes' worth of lossy events are flushed per frame cycle (N configurable, default 3). This prevents 20 background terminals from dominating frame budget.
 5. **Unknown paneId defaults to p3.** If the resolver cannot find a paneId (pane closing, race condition), it returns `.p3Background`. Events are delayed, never dropped.
@@ -2803,7 +2850,7 @@ Structural guarantees that hold across all contracts. Each invariant is enforced
 
 ### Event Scoping
 
-**A15. Source/payload compatibility is a contract invariant.** Pane-scoped payloads (`.terminal`, `.browser`, `.diff`, `.editor`, `.plugin`) require `source = .pane(id)`. Filesystem/security payloads require `source = .worktree(id)`. Workspace lifecycle events not pane-scoped require `source = .system(.coordinator)`. Invalid combinations are contract violations — runtime emits `RuntimeErrorEvent` rather than silently misrouting.
+**A15. Source/payload compatibility is a contract invariant.** Pane-scoped payloads (`.terminal`, `.browser`, `.diff`, `.editor`, `.plugin`) require `source = .pane(id)`. Filesystem/security payloads require `source = .worktree(id)`. Workspace lifecycle events not pane-scoped require `source = .system(.builtin(.coordinator))`. Typed service events require `source = .system(.service(...))` with provider identity. Plugin system events require `source = .system(.plugin(kind))`. Invalid combinations are contract violations — runtime emits `RuntimeErrorEvent` rather than silently misrouting.
 
 *Enforced by:* Envelope invariant #3 and #4 (Contract 3). Validated at envelope creation in runtime.
 
