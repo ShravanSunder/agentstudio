@@ -198,8 +198,9 @@ struct RepoSidebarContentView: View {
                             ForEach(sortedWorktrees) { worktree in
                                 SidebarWorktreeRow(
                                     worktree: worktree,
-                                    title: worktree.isMainWorktree
-                                        ? "main checkout: \(worktree.branch)" : worktree.name,
+                                    checkoutTitle: worktree.name.isEmpty ? "checkout" : worktree.name,
+                                    branchName: worktree.branch.isEmpty ? "detached HEAD" : worktree.branch,
+                                    checkoutIconKind: checkoutIconKind(for: worktree, in: repo),
                                     iconColor: colorForWorktree(worktree, groupKey: group.id),
                                     branchStatus: worktreeStatusById[worktree.id] ?? .unknown,
                                     notificationCount: notificationCountsByWorktreeId[worktree.id, default: 0],
@@ -354,6 +355,14 @@ struct RepoSidebarContentView: View {
 
     private func clearNotifications(for worktreeId: UUID) {
         notificationCountsByWorktreeId[worktreeId] = 0
+    }
+
+    private func checkoutIconKind(for worktree: Worktree, in repo: Repo) -> SidebarCheckoutIconKind {
+        if !worktree.isMainWorktree {
+            return .gitWorktree
+        }
+
+        return repo.worktrees.count > 1 ? .mainCheckout : .standaloneCheckout
     }
 
     private func hideFilter() {
@@ -538,7 +547,9 @@ private struct SidebarGroupRow: View {
 
 private struct SidebarWorktreeRow: View {
     let worktree: Worktree
-    let title: String
+    let checkoutTitle: String
+    let branchName: String
+    let checkoutIconKind: SidebarCheckoutIconKind
     let iconColor: Color
     let branchStatus: GitBranchStatus
     let notificationCount: Int
@@ -552,19 +563,25 @@ private struct SidebarWorktreeRow: View {
     var body: some View {
         VStack(alignment: .leading, spacing: AppStyle.sidebarRowContentSpacing) {
             HStack(spacing: AppStyle.spacingStandard) {
-                if worktree.isMainWorktree {
-                    OcticonImage(name: "octicon-star-fill", size: AppStyle.sidebarWorktreeIconSize)
-                        .foregroundStyle(iconColor)
-                } else {
-                    OcticonImage(name: "octicon-git-branch", size: AppStyle.sidebarWorktreeIconSize)
-                        .foregroundStyle(iconColor)
-                }
+                checkoutIcon
 
-                Text(title)
-                    .font(.system(size: AppStyle.fontBody, weight: worktree.isMainWorktree ? .medium : .regular))
+                Text(checkoutTitle)
+                    .font(
+                        .system(size: AppStyle.fontBody, weight: checkoutIconKind == .mainCheckout ? .medium : .regular)
+                    )
                     .lineLimit(1)
                     .foregroundStyle(.primary)
 
+                Spacer()
+            }
+
+            HStack(spacing: AppStyle.spacingStandard) {
+                OcticonImage(name: "octicon-git-branch", size: AppStyle.sidebarBranchIconSize)
+                    .foregroundStyle(.secondary)
+                Text(branchName)
+                    .font(.system(size: AppStyle.sidebarBranchFontSize, weight: .medium))
+                    .lineLimit(1)
+                    .foregroundStyle(.secondary)
                 Spacer()
             }
 
@@ -697,6 +714,28 @@ private struct SidebarWorktreeRow: View {
             return .warning
         }
     }
+
+    @ViewBuilder
+    private var checkoutIcon: some View {
+        switch checkoutIconKind {
+        case .mainCheckout:
+            OcticonImage(name: "octicon-git-merge", size: AppStyle.sidebarWorktreeIconSize)
+                .foregroundStyle(iconColor)
+        case .gitWorktree:
+            OcticonImage(name: "octicon-git-worktree", size: AppStyle.sidebarWorktreeIconSize)
+                .foregroundStyle(iconColor)
+                .rotationEffect(.degrees(180))
+        case .standaloneCheckout:
+            OcticonImage(name: "octicon-repo-clone", size: AppStyle.sidebarWorktreeIconSize)
+                .foregroundStyle(iconColor)
+        }
+    }
+}
+
+private enum SidebarCheckoutIconKind {
+    case mainCheckout
+    case gitWorktree
+    case standaloneCheckout
 }
 
 private struct SidebarChip: View {
@@ -869,40 +908,6 @@ struct GitBranchStatus: Equatable, Sendable {
     let prCount: Int?
 
     static let unknown = Self(isDirty: false, syncState: .unknown, prCount: nil)
-
-    var syncLabel: String {
-        switch syncState {
-        case .synced:
-            return "synced"
-        case .ahead(let count):
-            return "ahead +\(count)"
-        case .behind(let count):
-            return "behind -\(count)"
-        case .diverged(let ahead, let behind):
-            return "ahead +\(ahead) / behind -\(behind)"
-        case .noUpstream:
-            return "no-upstream"
-        case .unknown:
-            return "unknown"
-        }
-    }
-
-    var syncCompactLabel: String {
-        switch syncState {
-        case .synced:
-            return "sync"
-        case .ahead(let count):
-            return "+\(count)"
-        case .behind(let count):
-            return "-\(count)"
-        case .diverged(let ahead, let behind):
-            return "+\(ahead)/-\(behind)"
-        case .noUpstream:
-            return "no-up"
-        case .unknown:
-            return "?"
-        }
-    }
 }
 
 private enum SidebarRepoGrouping {

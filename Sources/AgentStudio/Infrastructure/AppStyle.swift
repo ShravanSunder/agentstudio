@@ -151,6 +151,12 @@ enum AppStyle {
     /// Worktree icon size in sidebar rows.
     static let sidebarWorktreeIconSize: CGFloat = 11
 
+    /// Branch icon size in the checkout branch row.
+    static let sidebarBranchIconSize: CGFloat = 10
+
+    /// Font size for the branch name row under each checkout title.
+    static let sidebarBranchFontSize: CGFloat = fontSmall
+
     /// Vertical padding for sidebar group rows.
     static let sidebarGroupRowVerticalPadding: CGFloat = 2
 
