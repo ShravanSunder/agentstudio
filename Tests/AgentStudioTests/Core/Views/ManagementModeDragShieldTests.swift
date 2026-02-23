@@ -65,37 +65,24 @@ struct ManagementModeDragShieldTests {
     // MARK: - hitTest Behavior
 
     @Test
-    func test_hitTest_managementModeOff_returnsNil() {
+    func test_hitTest_alwaysReturnsNil_managementModeOff() {
         // Arrange
         let shield = ManagementModeDragShield(frame: NSRect(x: 0, y: 0, width: 200, height: 200))
 
-        // Assert — transparent when management mode is off
+        // Assert — always transparent to mouse events (drag routing is frame-based)
         let result = shield.hitTest(NSPoint(x: 100, y: 100))
         #expect(result == nil)
     }
 
     @Test
-    func test_hitTest_managementModeOn_returnsSelf() {
+    func test_hitTest_alwaysReturnsNil_managementModeOn() {
         // Arrange
         let shield = ManagementModeDragShield(frame: NSRect(x: 0, y: 0, width: 200, height: 200))
         ManagementModeMonitor.shared.toggle()
 
-        // Assert — blocks all interaction when management mode is on
+        // Assert — still nil: NSDraggingDestination uses frame-based routing,
+        // not hitTest. PaneView.hitTest handles click blocking separately.
         let result = shield.hitTest(NSPoint(x: 100, y: 100))
-        #expect(result === shield)
-
-        // Cleanup
-        ManagementModeMonitor.shared.deactivate()
-    }
-
-    @Test
-    func test_hitTest_managementModeOn_outsideBounds_returnsNil() {
-        // Arrange
-        let shield = ManagementModeDragShield(frame: NSRect(x: 0, y: 0, width: 200, height: 200))
-        ManagementModeMonitor.shared.toggle()
-
-        // Assert — point outside bounds returns nil
-        let result = shield.hitTest(NSPoint(x: 300, y: 300))
         #expect(result == nil)
 
         // Cleanup
@@ -126,11 +113,30 @@ struct ManagementModeDragShieldTests {
         #expect(types.contains(.fileURL))
         #expect(types.contains(.URL))
         #expect(types.contains(.tiff))
+        #expect(types.contains(.png))
+        #expect(types.contains(.string))
+        #expect(types.contains(.html))
 
-        // Assert — agent studio types NOT registered
+        // Assert — agent studio types NOT registered (parent .onDrop owns these)
         #expect(!types.contains(.agentStudioTabDrop))
         #expect(!types.contains(.agentStudioPaneDrop))
         #expect(!types.contains(.agentStudioTabInternal))
+
+        // Cleanup
+        ManagementModeMonitor.shared.deactivate()
+    }
+
+    @Test
+    func test_registeredDragTypes_excludesBroadSupertypes() {
+        // Arrange — supertypes like public.data match agent studio CodableRepresentation
+        // payloads, which would intercept pane/tab drags and break .onDrop.
+        ManagementModeMonitor.shared.toggle()
+        let shield = ManagementModeDragShield(frame: .zero)
+
+        // Assert — broad supertypes are NOT registered
+        let types = shield.registeredDraggedTypes
+        #expect(!types.contains(NSPasteboard.PasteboardType("public.data")))
+        #expect(!types.contains(NSPasteboard.PasteboardType("public.content")))
 
         // Cleanup
         ManagementModeMonitor.shared.deactivate()
@@ -165,7 +171,7 @@ struct ManagementModeDragShieldTests {
     }
 
     @Test
-    func test_paneViewHitTest_managementModeOn_returnsShield() {
+    func test_paneViewHitTest_managementModeOn_returnsNil() {
         // Arrange
         let paneView = PaneView(paneId: UUID())
         _ = paneView.swiftUIContainer  // Install shield
@@ -174,8 +180,9 @@ struct ManagementModeDragShieldTests {
         // Act
         let result = paneView.hitTest(NSPoint(x: 100, y: 100))
 
-        // Assert — PaneView delegates to shield
-        #expect(result === paneView.interactionShield)
+        // Assert — PaneView returns nil to block clicks.
+        // NSDraggingDestination on the shield uses frame-based routing (independent of hitTest).
+        #expect(result == nil)
 
         // Cleanup
         ManagementModeMonitor.shared.deactivate()
@@ -190,7 +197,7 @@ struct ManagementModeDragShieldTests {
         // Act
         let result = paneView.hitTest(NSPoint(x: 100, y: 100))
 
-        // Assert — normal hit testing (shield is transparent)
+        // Assert — normal hit testing (shield is transparent, returns nil from hitTest)
         #expect(result !== paneView.interactionShield || result == nil)
     }
 

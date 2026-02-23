@@ -323,11 +323,13 @@ extension Ghostty {
         }
 
         override func mouseEntered(with event: NSEvent) {
-            // Send current position when cursor enters the view
+            // Block hover tracking during management mode — pane content is non-interactive.
+            guard !ManagementModeMonitor.shared.isActive else { return }
             sendMousePos(event)
         }
 
         override func mouseExited(with event: NSEvent) {
+            guard !ManagementModeMonitor.shared.isActive else { return }
             guard let surface else { return }
             let mods = ghosttyMods(from: event.modifierFlags)
             // Send -1,-1 to indicate cursor left the viewport
@@ -709,6 +711,7 @@ extension Ghostty {
         }
 
         override func mouseMoved(with event: NSEvent) {
+            guard !ManagementModeMonitor.shared.isActive else { return }
             sendMousePos(event)
         }
 

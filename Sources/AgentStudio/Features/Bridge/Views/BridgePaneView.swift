@@ -1,5 +1,6 @@
 import AppKit
 import SwiftUI
+@preconcurrency import WebKit
 
 /// Bridge pane embedding a BridgePaneController's WebPage via SwiftUI WebView.
 ///
@@ -24,6 +25,20 @@ final class BridgePaneView: PaneView {
     }
 
     override var acceptsFirstResponder: Bool { true }
+
+    // MARK: - Content Interaction
+
+    /// Injects/removes CSS `pointer-events: none` on the web content to suppress
+    /// hover effects (cursor changes, :hover CSS, tooltips) during management mode.
+    override func setContentInteractionEnabled(_ enabled: Bool) {
+        let js =
+            enabled
+            ? "document.documentElement.style.pointerEvents = 'auto'"
+            : "document.documentElement.style.pointerEvents = 'none'"
+        Task { @MainActor [weak self] in
+            _ = try? await self?.controller.page.callJavaScript(js)
+        }
+    }
 
     // MARK: - Setup
 

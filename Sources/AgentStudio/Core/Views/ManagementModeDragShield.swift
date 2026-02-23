@@ -1,27 +1,30 @@
 import AppKit
 import Observation
 
-/// Transparent overlay that blocks all pane interaction during management mode.
+/// Transparent overlay that suppresses file/media drag types during management mode,
+/// preventing WKWebView-backed panes from showing "Drop files to upload."
 ///
 /// Placed as the topmost subview of ``PaneView`` (above WKWebView / Ghostty content).
 ///
-/// ## During management mode
+/// ## Architecture: single-owner-per-drag-type
 ///
-/// - ``hitTest(_:)`` returns `self` — intercepts all mouse events (clicks, hover).
-/// - Registered for file/media drag types via ``DragPolicy/suppressedTypes`` —
-///   absorbs them before WKWebView can show "Drop files to upload."
-/// - **Not** registered for agent studio custom types — those propagate up to
-///   the outer ``NSHostingView``'s SwiftUI `.onDrop` (blue drop zone overlay).
+/// - **Shield owns** file/media suppression: `.fileURL`, `.URL`, `.tiff`, `.png`, `.string`, `.html`.
+/// - **Parent `.onDrop` owns** agent studio custom types: tab/pane/newTab drops.
+/// - Type sets are **disjoint** — no collision, no interception conflict.
 ///
-/// ## During normal mode
+/// ## hitTest behavior
 ///
-/// - ``hitTest(_:)`` returns `nil` — transparent to all events.
-/// - No drag types registered — WKWebView receives legitimate file drops normally.
+/// Always returns `nil` — transparent to mouse events (clicks, hover).
+/// ``PaneView/hitTest(_:)`` handles click blocking by returning `nil` during management mode.
+/// NSDraggingDestination routing is **frame-based** (independent of hitTest), so the shield
+/// still receives drag callbacks for its registered types.
 ///
 /// ## Dynamic registration
 ///
 /// Registers/unregisters file/media drag types when management mode toggles,
 /// using `withObservationTracking` on ``ManagementModeMonitor/isActive``.
+/// Also notifies the parent ``PaneView`` to apply content-level interaction changes
+/// (e.g., CSS `pointer-events: none` for WKWebView).
 @MainActor
 final class ManagementModeDragShield: NSView {
 
@@ -43,7 +46,11 @@ final class ManagementModeDragShield: NSView {
         ]
 
         /// File/media types suppressed during management mode.
-        /// These are the types WKWebView registers for internally.
+        /// These are the narrow types WKWebView registers for internally.
+        ///
+        /// **Critical:** Do NOT add supertypes like `public.data` or `public.content` —
+        /// they match agent studio CodableRepresentation payloads and would intercept
+        /// pane/tab drags, breaking SwiftUI's `.onDrop` on the parent hosting view.
         static let suppressedTypes: [NSPasteboard.PasteboardType] = [
             .fileURL,
             .URL,
@@ -51,8 +58,6 @@ final class ManagementModeDragShield: NSView {
             .png,
             .string,
             .html,
-            NSPasteboard.PasteboardType("public.data"),
-            NSPasteboard.PasteboardType("public.content"),
         ]
     }
 
@@ -122,11 +127,16 @@ final class ManagementModeDragShield: NSView {
     }
 
     /// Dynamically register/unregister drag types based on management mode.
+    /// Also notifies the parent PaneView to apply content-level interaction changes.
     private func updateRegistration() {
-        if ManagementModeMonitor.shared.isActive {
+        let isActive = ManagementModeMonitor.shared.isActive
+        if isActive {
             registerForDraggedTypes(DragPolicy.suppressedTypes)
         } else {
             unregisterDraggedTypes()
         }
+        // Notify parent PaneView for content-level interaction suppression
+        // (e.g., WKWebView pointer-events:none, Ghostty mouse tracking).
+        (superview as? PaneView)?.setContentInteractionEnabled(!isActive)
     }
 }

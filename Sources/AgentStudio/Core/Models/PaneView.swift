@@ -16,19 +16,23 @@ final class ManagementModeContainerView: NSView {
 /// Base class for all pane views that can appear in the split tree.
 /// Provides the common identity (paneId) and SwiftUI bridging contract.
 ///
-/// During management mode, ``hitTest(_:)`` delegates to an installed
-/// ``ManagementModeDragShield`` which blocks all AppKit interaction
-/// (clicks, drags, hover) with pane content. The shield registers for
-/// file/media drag types to suppress WKWebView's "Drop files to upload"
-/// affordance while allowing agent studio custom drag types to propagate
-/// up to SwiftUI's `.onDrop` on the outer hosting view.
+/// ## Management mode interaction blocking (4 layers)
+///
+/// 1. **Clicks**: ``hitTest(_:)`` returns `nil` during management mode.
+/// 2. **Keyboard**: ``ManagementModeMonitor`` consumes all keyDown events.
+/// 3. **File drags**: ``ManagementModeDragShield`` registers for narrow file/media types
+///    (frame-based routing, independent of hitTest). Agent studio custom types pass through
+///    to SwiftUI's `.onDrop` on the outer hosting view.
+/// 4. **Hover**: Subclasses override ``setContentInteractionEnabled(_:)`` for content-level
+///    suppression (e.g., CSS `pointer-events:none` for WKWebView, Ghostty mouse guards).
 ///
 /// Subclasses with custom hitTest (e.g. `AgentStudioTerminalView`) must
 /// call `super.hitTest` first during management mode.
 ///
 /// Subclasses:
 /// - `AgentStudioTerminalView` — Ghostty/zmx terminal
-/// - `WebviewPaneView` — embedded web content (stub)
+/// - `WebviewPaneView` — embedded web content
+/// - `BridgePaneView` — React bridge content
 /// - `CodeViewerPaneView` — source code viewer (stub)
 @MainActor
 class PaneView: NSView, Identifiable {
@@ -60,6 +64,21 @@ class PaneView: NSView, Identifiable {
     override func hitTest(_ point: NSPoint) -> NSView? {
         guard !ManagementModeMonitor.shared.isActive else { return nil }
         return super.hitTest(point)
+    }
+
+    // MARK: - Content Interaction
+
+    /// Called by the interaction shield when management mode activates/deactivates.
+    /// Subclasses override to apply content-level interaction suppression.
+    ///
+    /// - `WebviewPaneView`: injects/removes CSS `pointer-events: none`
+    /// - `BridgePaneView`: injects/removes CSS `pointer-events: none`
+    /// - `AgentStudioTerminalView`: Ghostty mouse handlers have their own guards
+    ///
+    /// - Parameter enabled: `true` when management mode deactivates (normal interaction),
+    ///   `false` when management mode activates (suppress interaction).
+    func setContentInteractionEnabled(_ enabled: Bool) {
+        // Base class no-op. Subclasses override for content-specific behavior.
     }
 
     // MARK: - Interaction Shield
