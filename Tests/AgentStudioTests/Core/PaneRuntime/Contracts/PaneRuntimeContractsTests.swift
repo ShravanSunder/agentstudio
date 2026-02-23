@@ -31,4 +31,12 @@ struct PaneRuntimeContractsTests {
         #expect(metadata.executionBackend == .local)
         #expect(metadata.createdAt.timeIntervalSince1970 > 0)
     }
+
+    @Test("system source supports typed and plugin producers")
+    func systemSourceExtensibility() {
+        #expect(EventSource.system(.filesystemWatcher).description == "system:filesystemWatcher")
+        #expect(EventSource.system(.gitForge).description == "system:gitForge")
+        #expect(EventSource.system(.containerService).description == "system:containerService")
+        #expect(EventSource.system(.plugin("forge.github")).description == "system:plugin:forge.github")
+    }
 }

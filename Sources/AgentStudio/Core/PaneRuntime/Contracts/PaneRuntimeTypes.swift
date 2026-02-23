@@ -7,6 +7,9 @@ enum PaneContentType: Hashable, Codable, Sendable {
     case browser
     case diff
     case editor
+    case review
+    case agent
+    case codeViewer
     case plugin(String)
 }
 

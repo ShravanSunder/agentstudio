@@ -52,6 +52,32 @@ final class PaneTests {
 
     @Test
 
+    func test_contentTypeMapping_bridgePanel_mapsToDiff() {
+        let pane = Pane(
+            content: .bridgePanel(
+                BridgePaneState(panelKind: .diffViewer, source: .commit(sha: "abc123"))
+            ),
+            metadata: PaneMetadata(source: .floating(workingDirectory: nil, title: nil), title: "Bridge Diff")
+        )
+
+        #expect(pane.metadata.contentType == .diff)
+    }
+
+    @Test
+
+    func test_contentTypeMapping_codeViewer_mapsToCodeViewer() {
+        let pane = Pane(
+            content: .codeViewer(
+                CodeViewerState(filePath: URL(fileURLWithPath: "/tmp/main.swift"), scrollToLine: 42)
+            ),
+            metadata: PaneMetadata(source: .floating(workingDirectory: nil, title: nil), title: "Code")
+        )
+
+        #expect(pane.metadata.contentType == .codeViewer)
+    }
+
+    @Test
+
     func test_provider_returnsSessionProvider_forTerminal() {
         let pane = makePane(provider: .ghostty)
         #expect(pane.provider == .ghostty)

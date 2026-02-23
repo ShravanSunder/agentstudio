@@ -12,7 +12,7 @@ import Foundation
 /// generally sort by creation time via standard string comparison.
 /// IDs generated within the same millisecond may not sort by exact
 /// creation order because low bits are random. The `hexPrefix` (first
-/// 16 hex chars) encodes the timestamp, making zmx session names debuggable.
+/// 16 hex chars) encodes the timestamp for diagnostics and ordering checks.
 ///
 /// Usage guidance:
 /// - Use `PaneId()` when minting a new pane identity in production code.
@@ -37,10 +37,10 @@ struct PaneId: Hashable, Sendable, CustomStringConvertible, CustomDebugStringCon
 
     // MARK: - Derived Identity
 
-    /// The 16 lowercase hex character prefix used in zmx session name segments.
+    /// The 16 lowercase hex character prefix.
     ///
-    /// For UUID v7, this is the timestamp portion — sortable and debuggable
-    /// in `zmx ls` output.
+    /// For UUID v7, this is the timestamp portion — useful for diagnostics
+    /// and temporal ordering checks.
     ///
     /// Derivation: `first16hex(lowercase(removeHyphens(uuid.uuidString)))`
     var hexPrefix: String {

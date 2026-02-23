@@ -20,13 +20,33 @@ enum EventSource: Hashable, Sendable, CustomStringConvertible {
         switch self {
         case .pane(let paneId): return "pane:\(paneId.uuidString)"
         case .worktree(let worktreeId): return "worktree:\(worktreeId.uuidString)"
-        case .system(let source): return "system:\(source.rawValue)"
+        case .system(let source): return "system:\(source.description)"
         }
     }
 }
 
-enum SystemSource: String, Hashable, Sendable {
+enum SystemSource: Hashable, Sendable, CustomStringConvertible {
     case filesystemWatcher
     case securityBackend
     case coordinator
+    case gitForge
+    case containerService
+    case plugin(String)
+
+    var description: String {
+        switch self {
+        case .filesystemWatcher:
+            return "filesystemWatcher"
+        case .securityBackend:
+            return "securityBackend"
+        case .coordinator:
+            return "coordinator"
+        case .gitForge:
+            return "gitForge"
+        case .containerService:
+            return "containerService"
+        case .plugin(let kind):
+            return "plugin:\(kind)"
+        }
+    }
 }

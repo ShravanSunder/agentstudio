@@ -73,6 +73,8 @@ RUNTIMES (per-pane, registered in RuntimeRegistry):
 
 **Why transport-based, not content-based:** Bridge panes (diff, editor, review, agent) all share WKWebView + JSON-RPC transport. Having separate `DiffRuntime`, `EditorRuntime`, `ReviewRuntime` classes that are 90% identical lifecycle/event/command boilerplate is premature abstraction. The content-specific behavior (what hunks to show, what file to edit) lives in the React app — the Swift runtime only handles lifecycle, event transport, and command dispatch. `BridgeRuntime.contentType` distinguishes behavior where needed.
 
+**Current code status note:** `PaneContent` currently persists `.bridgePanel(BridgePaneState)` and `.codeViewer(CodeViewerState)`. In current mapping, `.bridgePanel(panelKind: .diffViewer)` resolves to `PaneContentType.diff`; `.codeViewer` resolves to `PaneContentType.codeViewer`. `PaneContentType.editor/review/agent` are reserved routing kinds for upcoming bridge panel kinds.
+
 **Why webview is separate from bridge:** Plain browser panes (`.browser`) use WKWebView for navigation but have NO JSON-RPC bridge, no push plans, no React app. Their transport is fundamentally simpler — WebKit navigation delegate events, not RPC messages. Merging them would force browser panes to carry bridge infrastructure they don't use.
 
 **Why swift pane is separate:** Native AppKit/SwiftUI panes (`.codeViewer`) have no WebView at all. Their "adapter" is direct Swift method calls. A separate `SwiftPaneRuntime` keeps the WKWebView dependency out of native pane code.
@@ -210,7 +212,7 @@ The filesystem watcher is the first system-level source to implement. It's a pre
 │                    FSEventsWatcher (per-worktree)                │
 │                                                                  │
 │  Input:   macOS FSEvents stream for worktree root path           │
-│  Output:  PaneEventEnvelope with source = .system(.fsWatcher)    │
+│  Output:  PaneEventEnvelope with source = .system(.filesystemWatcher) │
 │                                                                  │
 │  Pipeline:                                                       │
 │    FSEvents callback (arbitrary thread)                          │
@@ -338,7 +340,7 @@ USER INPUT / COMMAND BAR / KEYBOARD
 │                  │   │                      │   │                          │
 │ source:          │   │ source:              │   │ source:                  │
 │  .system(        │   │  .system(            │   │  .system(                │
-│   .fsWatcher)    │   │   .gitForge)         │   │   .containerService)     │
+│   .filesystemWatcher)│   │   .gitForge)       │   │   .containerService)     │
 └──────────────────┘   └──────────────────────┘   └──────────────────────────┘
 ```
 
@@ -360,8 +362,11 @@ Runtime classes are organized by **transport mechanism** — the underlying tech
 func runtimeClass(for contentType: PaneContentType) -> PaneRuntime.Type {
     switch contentType {
     case .terminal:                return TerminalRuntime.self
-    case .diff, .editor:           return BridgeRuntime.self  // React apps via bridge
+    case .diff, .editor, .review, .agent:
+        return BridgeRuntime.self  // React apps via bridge
     case .browser:                 return WebviewRuntime.self
+    case .codeViewer:
+        return SwiftPaneRuntime.self
     case .plugin(let kind):        return BridgeRuntime.self  // plugins use bridge by default
     }
 }
@@ -584,7 +589,7 @@ Sources are categorized by scope:
 | Scope | Source | EventSource value | Events produced | Status |
 |-------|--------|------------------|-----------------|--------|
 | **Pane** | TerminalRuntime | `.pane(paneId)` | `.terminal(GhosttyEvent)` | ✅ Implemented |
-| **Pane** | BridgeRuntime | `.pane(paneId)` | `.browser(...)`, `.diff(...)`, `.editor(...)`, `.plugin(...)` | Future (LUNA-349) |
+| **Pane** | BridgeRuntime | `.pane(paneId)` | `.diff(...)`, `.editor(...)`, `.review(...)`, `.agent(...)`, `.plugin(...)` | Future (LUNA-349) |
 | **Pane** | WebviewRuntime | `.pane(paneId)` | `.browser(BrowserEvent)` | Future (LUNA-349) |
 | **Pane** | SwiftPaneRuntime | `.pane(paneId)` | Content-dependent | Future (LUNA-349) |
 | **Worktree** | FSEvents watcher | `.system(.filesystemWatcher)` | `.filesystem(FilesystemEvent)` | Future (LUNA-349, Contract 6) |
@@ -694,6 +699,9 @@ enum PaneContentType: Hashable, Sendable {
     case browser
     case diff
     case editor
+    case review
+    case agent
+    case codeViewer
     case plugin(String)
 }
 
@@ -1014,6 +1022,25 @@ enum SystemSource: Hashable, Sendable {
     case plugin(String)          // generic remote resources via plugin
 }
 ```
+
+#### PaneContent vs PaneContentType Mapping
+
+`PaneContent` and `PaneContentType` are intentionally separate:
+
+- `PaneContent` is the persistence/model union with associated state payloads.
+- `PaneContentType` is the runtime routing discriminator stored in `PaneMetadata`.
+
+Current mapping rules in code:
+
+| `PaneContent` case | `PaneContentType` |
+|---|---|
+| `.terminal(TerminalState)` | `.terminal` |
+| `.webview(WebviewState)` | `.browser` |
+| `.bridgePanel(BridgePaneState(panelKind: .diffViewer, ...))` | `.diff` |
+| `.codeViewer(CodeViewerState)` | `.codeViewer` |
+| `.unsupported(UnsupportedContent(type: t, ...))` | `.plugin(t)` |
+
+Additional routing kinds (`.editor`, `.review`, `.agent`) are reserved for future bridge panel kinds.
 
 #### Envelope Invariants (normative)
 
@@ -2696,7 +2723,9 @@ The current codebase uses `NotificationCenter` and `DispatchQueue.main.async` fo
 
 ### Migration Invariant
 
-**No dual-path period.** When a notification is migrated to the event bus, the `NotificationCenter.post()` call is deleted in the same commit. There is no compatibility shim where both paths fire. This means the migration is per-action (one `GhosttyEvent` case at a time), not big-bang. But each individual action migrates atomically — old path removed, new path added, in one commit.
+**No dual-path period (data-plane actions).** When a pane runtime action is migrated to the event bus, the corresponding `NotificationCenter.post()` call is deleted in the same commit. There is no compatibility shim where both paths fire. This migration remains per-action (one `GhosttyEvent` case at a time), not big-bang.
+
+**Explicit lifecycle exception:** two `NotificationCenter.post` calls remain in `Ghostty.App` for app/window/surface lifecycle (`.ghosttyNewWindow`, `.ghosttyCloseSurface`). These are control-plane bridge points for AppKit surface/window orchestration, not pane runtime data-plane events.
 
 ---
 

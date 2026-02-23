@@ -149,10 +149,13 @@ struct Pane: Codable, Identifiable, Hashable {
             return .terminal
         case .webview:
             return .browser
-        case .bridgePanel:
-            return .plugin("bridgePanel")
+        case .bridgePanel(let bridgeState):
+            switch bridgeState.panelKind {
+            case .diffViewer:
+                return .diff
+            }
         case .codeViewer:
-            return .editor
+            return .codeViewer
         case .unsupported(let unsupported):
             return .plugin(unsupported.type)
         }

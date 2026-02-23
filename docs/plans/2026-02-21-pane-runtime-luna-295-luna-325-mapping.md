@@ -61,7 +61,7 @@ Current implementation commit baseline: `ba5d9d8`.
 - [x] Introduce `PaneId` value type and `UUIDv7` utility; migrate runtime contracts and resolver/tests to typed pane identity.
 - [x] Ensure newly created panes mint UUIDv7 IDs (`Pane` default `id`) and keep `Pane.metadata.paneId` synchronized.
 - [x] Add/adjust identity coverage (`PaneIdTests`, `UUIDv7Tests`, `PaneTests`, shared model factories).
-- [x] Harden zmx session-id pane segment derivation for UUIDv7 entropy (`pane16` tail for v7, legacy prefix for non-v7) with regression tests.
+- [x] Harden zmx session-id pane segment derivation to canonical tail entropy (`pane16` uses trailing segment) with regression tests.
 - [x] Align architecture/plan docs on canonical identity source and migration ownership (`LUNA-324` restart reconcile mapping).
 - [x] Verification batch: `swift build`, `swift test --skip "PushPerformanceBenchmarkTests"` (gating), `mise run lint`, and `mise run test` (full-suite acceptance command).
 - [x] Optional benchmark batch: run `PushPerformanceBenchmarkTests` separately; treat as performance signal, not release gate.
@@ -172,21 +172,21 @@ Integration checkpoint for `LUNA-325` + `LUNA-295` + `LUNA-324` + `LUNA-344` + `
 
 ## LUNA-325 Non-Deferred Scope Checklist (Must Be Complete Before 325 Close)
 
-- [ ] Contract 1 implemented (PaneRuntime protocol conformance in terminal runtime path).
-- [ ] Contract 5 base lifecycle semantics implemented in runtime flow (`created → ready → draining → terminated`).
+- [x] Contract 1 implemented (PaneRuntime protocol conformance in terminal runtime path).
+- [x] Contract 5 base lifecycle semantics implemented in runtime flow (`created → ready → draining → terminated`).
   `Contract 5a` attach readiness remains `LUNA-295`; `Contract 5b` restart reconcile remains `LUNA-324`.
-- [ ] Contract 2 implemented (typed event taxonomy and runtime event usage).
-- [ ] Contract 3 implemented (envelope routing fields: source/seq/epoch/commandId semantics).
-- [ ] Contract 4 implemented (self-classifying `ActionPolicy` behavior).
-- [ ] Contract 7 implemented (Ghostty FFI action mapping to `GhosttyEvent`).
-- [ ] Contract 7a implemented (exhaustive action coverage policy).
-- [ ] Contract 8 implemented (per-kind event enums integrated in runtime transport).
-- [ ] Contract 10 implemented (inbound runtime command dispatch/capability/lifecycle guards).
-- [ ] Contract 11 implemented (runtime registry uniqueness + unregister discipline).
-- [ ] Contract 12 implemented (priority reducer with critical/lossy behavior).
-- [ ] Contract 14 implemented (bounded replay behavior and catch-up semantics).
-- [ ] Migration invariant satisfied: no dual-path event dispatch for migrated actions.
-- [ ] Verification complete: `swift build`, `swift test`, `mise run lint` all pass.
+- [x] Contract 2 implemented (typed event taxonomy and runtime event usage).
+- [x] Contract 3 implemented (envelope routing fields: source/seq/epoch/commandId semantics).
+- [x] Contract 4 implemented (self-classifying `ActionPolicy` behavior).
+- [x] Contract 7 implemented (Ghostty FFI action mapping to `GhosttyEvent`).
+- [x] Contract 7a implemented (exhaustive action coverage policy).
+- [x] Contract 8 implemented (per-kind event enums integrated in runtime transport).
+- [x] Contract 10 implemented (inbound runtime command dispatch/capability/lifecycle guards).
+- [x] Contract 11 implemented (runtime registry uniqueness + unregister discipline).
+- [x] Contract 12 implemented (priority reducer with critical/lossy behavior).
+- [x] Contract 14 implemented (bounded replay behavior and catch-up semantics).
+- [x] Migration invariant satisfied: no dual-path event dispatch for migrated pane runtime actions.
+- [x] Verification complete: `swift build`, `swift test`, `mise run lint` all pass.
 
 ## Deferred: Workflow Engine
 
