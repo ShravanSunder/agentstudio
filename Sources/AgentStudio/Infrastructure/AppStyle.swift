@@ -208,7 +208,37 @@ enum AppStyle {
     static let strokeVisible: CGFloat = 0.25
 
     /// Management mode dimming overlay on pane content.
-    static let managementModeDimming: CGFloat = 0.25
+    static let managementModeDimming: CGFloat = 0.45
+
+    /// Management mode hover delta added to managementModeDimming for interactive feedback.
+    static let managementModeHoverDelta: CGFloat = 0.05
+
+    // MARK: - Management Mode Controls
+    //
+    // Sizes for the four management mode control elements. Each element has
+    // its own natural shape; these constants set visually harmonious proportions
+    // while allowing independent customization.
+    //
+    // ```
+    // action circles:   28pt circle, 13pt icon  (minimize, close)
+    // split half-moon:  30×42pt pill, 14pt icon  (reuses paneSplitButtonSize/paneSplitIconSize)
+    // drag handle:      60×100pt pill, 16pt icon (reuses toolbarIconSize)
+    // ```
+
+    /// Diameter of management mode action circles (minimize, close).
+    static let managementActionSize: CGFloat = 28
+
+    /// Icon font size inside management mode action circles.
+    static let managementActionIconSize: CGFloat = 13
+
+    /// Drag handle pill width.
+    static let managementDragHandleWidth: CGFloat = 60
+
+    /// Drag handle pill height.
+    static let managementDragHandleHeight: CGFloat = 100
+
+    /// Drag handle corner radius.
+    static let managementDragHandleCornerRadius: CGFloat = 20
 
     // MARK: - Animation Durations
     //

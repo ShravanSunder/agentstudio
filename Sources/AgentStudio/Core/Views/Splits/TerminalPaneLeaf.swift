@@ -85,31 +85,37 @@ struct TerminalPaneLeaf: View {
                         Color.clear
                             .allowsHitTesting(false)
                         ZStack {
-                            RoundedRectangle(cornerRadius: 20)
-                                .fill(.ultraThinMaterial)
+                            RoundedRectangle(cornerRadius: AppStyle.managementDragHandleCornerRadius)
+                                .fill(Color.black.opacity(AppStyle.managementModeDimming))
                                 .shadow(color: .black.opacity(AppStyle.strokeVisible), radius: 4, y: 2)
                             Image(systemName: "arrow.up.and.down.and.arrow.left.and.right")
                                 .font(.system(size: AppStyle.toolbarIconSize, weight: .medium))
                                 .foregroundStyle(.white.opacity(AppStyle.foregroundMuted))
                         }
-                        .frame(width: 60, height: 100)
-                        .contentShape(RoundedRectangle(cornerRadius: 20))
+                        .frame(
+                            width: AppStyle.managementDragHandleWidth,
+                            height: AppStyle.managementDragHandleHeight
+                        )
+                        .contentShape(
+                            RoundedRectangle(cornerRadius: AppStyle.managementDragHandleCornerRadius)
+                        )
                         .draggable(
                             PaneDragPayload(
                                 paneId: paneView.id,
                                 tabId: tabId
                             )
                         ) {
-                            // Solid drag preview — .ultraThinMaterial renders as
-                            // concentric circles when captured without a background.
                             ZStack {
-                                RoundedRectangle(cornerRadius: 20)
+                                RoundedRectangle(cornerRadius: AppStyle.managementDragHandleCornerRadius)
                                     .fill(Color(.windowBackgroundColor).opacity(0.8))
                                 Image(systemName: "arrow.up.and.down.and.arrow.left.and.right")
                                     .font(.system(size: AppStyle.toolbarIconSize, weight: .medium))
                                     .foregroundStyle(.secondary)
                             }
-                            .frame(width: 60, height: 100)
+                            .frame(
+                                width: AppStyle.managementDragHandleWidth,
+                                height: AppStyle.managementDragHandleHeight
+                            )
                         }
                     }
                 }
@@ -127,19 +133,28 @@ struct TerminalPaneLeaf: View {
                             Button {
                                 action(.minimizePane(tabId: tabId, paneId: paneView.id))
                             } label: {
-                                Image(systemName: "minus.circle.fill")
-                                    .font(.system(size: AppStyle.paneActionIconSize))
-                                    .symbolRenderingMode(.palette)
+                                Image(systemName: "minus")
+                                    .font(.system(size: AppStyle.managementActionIconSize, weight: .bold))
                                     .foregroundStyle(
                                         .white.opacity(
                                             isMinimizeHovered
                                                 ? AppStyle.foregroundSecondary
-                                                : AppStyle.foregroundMuted),
-                                        Color.black.opacity(
-                                            isMinimizeHovered
-                                                ? AppStyle.managementModeDimming + 0.05
-                                                : AppStyle.managementModeDimming)
+                                                : AppStyle.foregroundMuted)
                                     )
+                                    .frame(
+                                        width: AppStyle.managementActionSize,
+                                        height: AppStyle.managementActionSize
+                                    )
+                                    .background(
+                                        Circle()
+                                            .fill(
+                                                Color.black.opacity(
+                                                    isMinimizeHovered
+                                                        ? AppStyle.managementModeDimming
+                                                            + AppStyle.managementModeHoverDelta
+                                                        : AppStyle.managementModeDimming))
+                                    )
+                                    .contentShape(Circle())
                             }
                             .buttonStyle(.plain)
                             .onHover { isMinimizeHovered = $0 }
@@ -148,19 +163,28 @@ struct TerminalPaneLeaf: View {
                             Button {
                                 action(.closePane(tabId: tabId, paneId: paneView.id))
                             } label: {
-                                Image(systemName: "xmark.circle.fill")
-                                    .font(.system(size: AppStyle.paneActionIconSize))
-                                    .symbolRenderingMode(.palette)
+                                Image(systemName: "xmark")
+                                    .font(.system(size: AppStyle.managementActionIconSize, weight: .bold))
                                     .foregroundStyle(
                                         .white.opacity(
                                             isCloseHovered
                                                 ? AppStyle.foregroundSecondary
-                                                : AppStyle.foregroundMuted),
-                                        Color.black.opacity(
-                                            isCloseHovered
-                                                ? AppStyle.managementModeDimming + 0.05
-                                                : AppStyle.managementModeDimming)
+                                                : AppStyle.foregroundMuted)
                                     )
+                                    .frame(
+                                        width: AppStyle.managementActionSize,
+                                        height: AppStyle.managementActionSize
+                                    )
+                                    .background(
+                                        Circle()
+                                            .fill(
+                                                Color.black.opacity(
+                                                    isCloseHovered
+                                                        ? AppStyle.managementModeDimming
+                                                            + AppStyle.managementModeHoverDelta
+                                                        : AppStyle.managementModeDimming))
+                                    )
+                                    .contentShape(Circle())
                             }
                             .buttonStyle(.plain)
                             .onHover { isCloseHovered = $0 }
@@ -210,7 +234,8 @@ struct TerminalPaneLeaf: View {
                                         .fill(
                                             Color.black.opacity(
                                                 isSplitHovered
-                                                    ? AppStyle.managementModeDimming + 0.05
+                                                    ? AppStyle.managementModeDimming
+                                                        + AppStyle.managementModeHoverDelta
                                                     : AppStyle.managementModeDimming))
                                     )
                                     .contentShape(
