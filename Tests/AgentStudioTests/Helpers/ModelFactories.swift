@@ -56,7 +56,7 @@ func makePane(
     Pane(
         id: id,
         content: .terminal(TerminalState(provider: provider, lifetime: lifetime)),
-        metadata: PaneMetadata(source: source, title: title, agentType: agent),
+        metadata: PaneMetadata(source: .init(source), title: title, agentType: agent),
         residency: residency
     )
 }

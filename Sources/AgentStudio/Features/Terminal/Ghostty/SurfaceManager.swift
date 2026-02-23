@@ -861,7 +861,12 @@ extension SurfaceManager {
 
     /// Reverse-lookup: SurfaceView → surfaceId via ObjectIdentifier map.
     func surfaceId(forView surfaceView: Ghostty.SurfaceView) -> UUID? {
-        surfaceViewToId[ObjectIdentifier(surfaceView)]
+        surfaceId(forViewObjectId: ObjectIdentifier(surfaceView))
+    }
+
+    /// Reverse-lookup: SurfaceView ObjectIdentifier → surfaceId.
+    func surfaceId(forViewObjectId viewObjectId: ObjectIdentifier) -> UUID? {
+        surfaceViewToId[viewObjectId]
     }
 }
 

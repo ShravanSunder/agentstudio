@@ -1,9 +1,6 @@
 import Foundation
 
 /// Metadata carried by every pane for runtime routing and dynamic grouping.
-///
-/// This structure intentionally keeps compatibility with existing workspace data
-/// while moving toward the richer pane-runtime contract surface.
 struct PaneMetadata: Codable, Hashable, Sendable {
     enum PaneMetadataSource: Codable, Hashable, Sendable {
         case worktree(worktreeId: UUID, repoId: UUID)
@@ -96,31 +93,6 @@ struct PaneMetadata: Codable, Hashable, Sendable {
         self.tags = tags
     }
 
-    /// Legacy compatibility initializer used throughout existing store/action flows.
-    init(
-        source: TerminalSource,
-        title: String = "Terminal",
-        cwd: URL? = nil,
-        agentType: AgentType? = nil,
-        tags: [String] = []
-    ) {
-        self.init(
-            paneId: nil,
-            contentType: .terminal,
-            source: PaneMetadataSource(source),
-            executionBackend: .local,
-            createdAt: Date(),
-            title: title,
-            cwd: cwd,
-            repoId: nil,
-            worktreeId: nil,
-            parentFolder: nil,
-            checkoutRef: nil,
-            agentType: agentType,
-            tags: tags
-        )
-    }
-
     var terminalSource: TerminalSource {
         source.terminalSource
     }
@@ -144,27 +116,18 @@ struct PaneMetadata: Codable, Hashable, Sendable {
     init(from decoder: Decoder) throws {
         let container = try decoder.container(keyedBy: CodingKeys.self)
 
-        let source = try container.decode(PaneMetadataSource.self, forKey: .source)
-        let titleFromSource: String
-        if case .floating(_, let sourceTitle) = source {
-            titleFromSource = sourceTitle ?? "Terminal"
-        } else {
-            titleFromSource = "Terminal"
-        }
-
         self.paneId = try container.decodeIfPresent(PaneId.self, forKey: .paneId)
-        self.contentType = try container.decodeIfPresent(PaneContentType.self, forKey: .contentType) ?? .terminal
-        self.source = source
-        self.executionBackend =
-            try container.decodeIfPresent(ExecutionBackend.self, forKey: .executionBackend) ?? .local
-        self.createdAt = try container.decodeIfPresent(Date.self, forKey: .createdAt) ?? Date()
-        self.title = try container.decodeIfPresent(String.self, forKey: .title) ?? titleFromSource
-        self.cwd = try container.decodeIfPresent(URL.self, forKey: .cwd) ?? source.workingDirectory
-        self.repoId = try container.decodeIfPresent(UUID.self, forKey: .repoId) ?? source.repoId
-        self.worktreeId = try container.decodeIfPresent(UUID.self, forKey: .worktreeId) ?? source.worktreeId
+        self.contentType = try container.decode(PaneContentType.self, forKey: .contentType)
+        self.source = try container.decode(PaneMetadataSource.self, forKey: .source)
+        self.executionBackend = try container.decode(ExecutionBackend.self, forKey: .executionBackend)
+        self.createdAt = try container.decode(Date.self, forKey: .createdAt)
+        self.title = try container.decode(String.self, forKey: .title)
+        self.cwd = try container.decodeIfPresent(URL.self, forKey: .cwd)
+        self.repoId = try container.decodeIfPresent(UUID.self, forKey: .repoId)
+        self.worktreeId = try container.decodeIfPresent(UUID.self, forKey: .worktreeId)
         self.parentFolder = try container.decodeIfPresent(String.self, forKey: .parentFolder)
         self.checkoutRef = try container.decodeIfPresent(String.self, forKey: .checkoutRef)
         self.agentType = try container.decodeIfPresent(AgentType.self, forKey: .agentType)
-        self.tags = try container.decodeIfPresent([String].self, forKey: .tags) ?? []
+        self.tags = try container.decode([String].self, forKey: .tags)
     }
 }

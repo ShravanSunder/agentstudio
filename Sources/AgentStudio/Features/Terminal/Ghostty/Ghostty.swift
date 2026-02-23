@@ -318,38 +318,51 @@ extension Ghostty {
                 return false
             }
 
-            let surfaceBits = UInt(bitPattern: surface)
-            Task { @MainActor in
-                guard let surfacePointer = UnsafeMutableRawPointer(bitPattern: surfaceBits) else {
-                    ghosttyLogger.warning("Dropped action tag \(actionTag): unable to reconstruct surface pointer")
-                    return
-                }
-                guard let surfaceView = surfaceView(from: surfacePointer) else {
-                    ghosttyLogger.warning("Dropped action tag \(actionTag): no surface view for callback target")
-                    return
-                }
-                guard let surfaceId = SurfaceManager.shared.surfaceId(forView: surfaceView) else {
-                    ghosttyLogger.warning("Dropped action tag \(actionTag): surface not registered in SurfaceManager")
-                    return
-                }
-                guard let paneUUID = SurfaceManager.shared.paneId(for: surfaceId) else {
-                    ghosttyLogger.warning("Dropped action tag \(actionTag): no pane mapped for surface \(surfaceId)")
-                    return
-                }
-                guard
-                    let runtime = RuntimeRegistry.shared.runtime(for: PaneId(uuid: paneUUID)) as? TerminalRuntime
-                else {
-                    ghosttyLogger.warning(
-                        "Dropped action tag \(actionTag): terminal runtime not found for pane \(paneUUID)")
-                    return
-                }
+            guard let resolvedSurfaceView = surfaceView(from: surface) else {
+                ghosttyLogger.warning("Dropped action tag \(actionTag): no surface view for callback target")
+                return true
+            }
 
-                GhosttyAdapter.shared.route(
+            // Resolve the callback target synchronously and pass only stable identity
+            // into the async hop so we never dereference raw surface pointers later.
+            let surfaceViewObjectId = ObjectIdentifier(resolvedSurfaceView)
+            Task { @MainActor in
+                _ = routeActionToTerminalRuntimeOnMainActor(
                     actionTag: actionTag,
                     payload: payload,
-                    to: runtime
+                    surfaceViewObjectId: surfaceViewObjectId
                 )
             }
+            return true
+        }
+
+        @MainActor
+        static func routeActionToTerminalRuntimeOnMainActor(
+            actionTag: UInt32,
+            payload: GhosttyAdapter.ActionPayload,
+            surfaceViewObjectId: ObjectIdentifier
+        ) -> Bool {
+            guard let surfaceId = SurfaceManager.shared.surfaceId(forViewObjectId: surfaceViewObjectId) else {
+                ghosttyLogger.warning("Dropped action tag \(actionTag): surface not registered in SurfaceManager")
+                return false
+            }
+            guard let paneUUID = SurfaceManager.shared.paneId(for: surfaceId) else {
+                ghosttyLogger.warning("Dropped action tag \(actionTag): no pane mapped for surface \(surfaceId)")
+                return false
+            }
+            guard
+                let runtime = RuntimeRegistry.shared.runtime(for: PaneId(uuid: paneUUID)) as? TerminalRuntime
+            else {
+                ghosttyLogger.warning(
+                    "Dropped action tag \(actionTag): terminal runtime not found for pane \(paneUUID)")
+                return false
+            }
+
+            GhosttyAdapter.shared.route(
+                actionTag: actionTag,
+                payload: payload,
+                to: runtime
+            )
             return true
         }
 

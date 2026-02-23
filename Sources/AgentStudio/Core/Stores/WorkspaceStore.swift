@@ -240,7 +240,7 @@ final class WorkspaceStore {
     ) -> Pane {
         let pane = Pane(
             content: .terminal(TerminalState(provider: provider, lifetime: lifetime)),
-            metadata: PaneMetadata(source: source, title: title),
+            metadata: PaneMetadata(source: .init(source), title: title),
             residency: residency
         )
         panes[pane.id] = pane

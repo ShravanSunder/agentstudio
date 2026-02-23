@@ -63,7 +63,7 @@ final class ZmxBackendTests {
 
         // Assert — format: agentstudio--<repo16>--<wt16>--<pane16>
         #expect(id.hasPrefix("agentstudio--"))
-        #expect(id == "agentstudio--a1b2c3d4e5f6a7b8--00112233aabbccdd--aabbccdd11223344")
+        #expect(id == "agentstudio--a1b2c3d4e5f6a7b8--00112233aabbccdd--5566778899001122")
         #expect(id.count == 65)
     }
 
@@ -122,8 +122,8 @@ final class ZmxBackendTests {
 
     @Test
 
-    func test_sessionId_preservesPrefixBehavior_forLegacyUUIDs() {
-        // Arrange — non-v7 UUIDs keep legacy prefix behavior for compatibility.
+    func test_sessionId_usesTrailingSegment_forNonV7PaneIds() {
+        // Arrange — greenfield path always uses the trailing 16-hex segment.
         let repoKey = "abcdef0123456789"
         let wtKey = "fedcba9876543210"
         let paneId = UUID(uuidString: "AABBCCDD-1122-3344-5566-778899001122")!
@@ -132,7 +132,7 @@ final class ZmxBackendTests {
         let id = ZmxBackend.sessionId(repoStableKey: repoKey, worktreeStableKey: wtKey, paneId: paneId)
 
         // Assert
-        #expect(id == "agentstudio--abcdef0123456789--fedcba9876543210--aabbccdd11223344")
+        #expect(id == "agentstudio--abcdef0123456789--fedcba9876543210--5566778899001122")
     }
 
     // MARK: - Drawer Session ID Generation
@@ -148,9 +148,8 @@ final class ZmxBackendTests {
         let id = ZmxBackend.drawerSessionId(parentPaneId: parentPaneId, drawerPaneId: drawerPaneId)
 
         // Assert — format: agentstudio-d--<parent16>--<drawer16>
-        // Parent UUID is legacy (prefix path); drawer UUID is v7 (trailing entropy path).
         #expect(id.hasPrefix("agentstudio-d--"))
-        #expect(id == "agentstudio-d--aabbccdd11223344--99aabbccddeeff00")
+        #expect(id == "agentstudio-d--5566778899001122--99aabbccddeeff00")
     }
 
     @Test

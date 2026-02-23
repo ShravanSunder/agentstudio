@@ -275,6 +275,12 @@ extension PaneCoordinator {
         worktree: Worktree,
         repo: Repo
     ) -> AgentStudioTerminalView? {
+        let runtimePaneId = PaneId(uuid: pane.id)
+        let runtimeWasAlreadyRegistered = runtimeForPane(runtimePaneId) != nil
+        if !runtimeWasAlreadyRegistered {
+            registerTerminalRuntimeIfNeeded(for: pane)
+        }
+
         if let undone = surfaceManager.undoClose() {
             if undone.metadata.paneId == pane.id {
                 let view = AgentStudioTerminalView(
@@ -298,7 +304,11 @@ extension PaneCoordinator {
         }
 
         Self.logger.info("Creating fresh view for pane \(pane.id)")
-        return createView(for: pane, worktree: worktree, repo: repo)
+        let restoredView = createView(for: pane, worktree: worktree, repo: repo)
+        if restoredView == nil, !runtimeWasAlreadyRegistered {
+            _ = unregisterRuntime(runtimePaneId)
+        }
+        return restoredView
     }
 
     /// Recreate views for all restored panes in all tabs, including drawer panes.

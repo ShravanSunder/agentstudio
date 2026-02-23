@@ -34,26 +34,48 @@ Each decision links to the user problem it solves and the alternatives considere
 **Decision:** One `@MainActor` runtime CLASS per pane type. One runtime INSTANCE per pane. `TerminalRuntime` is the class; each terminal pane gets its own instance. All instances share `@MainActor` (same thread, no async boundaries between them). Protocol is `async` from day one to preserve the actor upgrade path.
 
 **Instance model:**
+
+Runtime classes are grouped by **transport mechanism**, not by content type. Multiple content types share a single runtime class when their underlying transport is the same. This avoids duplicating 90% of lifecycle/event/command code across runtime classes that differ only in content semantics (which live in the frontend, not the Swift runtime layer).
+
 ```
-CLASSES (one per pane type):        INSTANCES (one per pane):
-  TerminalRuntime                     TerminalRuntime[pane-A]
-  BrowserRuntime                      TerminalRuntime[pane-B]
-  DiffRuntime                         BrowserRuntime[pane-C]
-  EditorRuntime                       DiffRuntime[pane-D]
+RUNTIME CLASSES (one per transport):       CONTENT TYPES SERVED:
+  TerminalRuntime                            .terminal
+  BridgeRuntime                              .diff, .editor, .review, .agent, .plugin(...)
+  WebviewRuntime                             .browser
+  SwiftPaneRuntime                           .codeViewer, future native panes
 ```
 
-Adapters are shared — one `GhosttyAdapter` singleton handles all C callbacks and routes by surfaceId to the correct `TerminalRuntime` instance. One `WebKitAdapter` routes by webViewId to the correct `BrowserRuntime` instance.
+```
+INSTANCES (one per pane):
+  TerminalRuntime[pane-A]     ← .terminal pane
+  TerminalRuntime[pane-B]     ← .terminal pane
+  BridgeRuntime[pane-C]       ← .diff pane (React app)
+  BridgeRuntime[pane-D]       ← .editor pane (React app)
+  WebviewRuntime[pane-E]      ← .browser pane
+  SwiftPaneRuntime[pane-F]    ← .codeViewer pane
+```
+
+Adapters are shared — one per backend technology. Each adapter routes by surface/view ID to the correct runtime instance.
 
 ```
 ADAPTERS (shared, one per backend technology):
-  GhosttyAdapter ──► routes by surfaceId ──► TerminalRuntime[pane-X]
-  WebKitAdapter  ──► routes by webViewId ──► BrowserRuntime[pane-Y]
+  GhosttyAdapter  ──► routes by surfaceId ──► TerminalRuntime[pane-X]
+  RPCRouter       ──► routes by paneId    ──► BridgeRuntime[pane-Y]
+  WebKitDelegate  ──► routes by webViewId ──► WebviewRuntime[pane-Z]
 
 RUNTIMES (per-pane, registered in RuntimeRegistry):
   RuntimeRegistry[pane-A] → TerminalRuntime instance
   RuntimeRegistry[pane-B] → TerminalRuntime instance
-  RuntimeRegistry[pane-C] → BrowserRuntime instance
+  RuntimeRegistry[pane-C] → BridgeRuntime instance
+  RuntimeRegistry[pane-D] → BridgeRuntime instance
+  RuntimeRegistry[pane-E] → WebviewRuntime instance
 ```
+
+**Why transport-based, not content-based:** Bridge panes (diff, editor, review, agent) all share WKWebView + JSON-RPC transport. Having separate `DiffRuntime`, `EditorRuntime`, `ReviewRuntime` classes that are 90% identical lifecycle/event/command boilerplate is premature abstraction. The content-specific behavior (what hunks to show, what file to edit) lives in the React app — the Swift runtime only handles lifecycle, event transport, and command dispatch. `BridgeRuntime.contentType` distinguishes behavior where needed.
+
+**Why webview is separate from bridge:** Plain browser panes (`.browser`) use WKWebView for navigation but have NO JSON-RPC bridge, no push plans, no React app. Their transport is fundamentally simpler — WebKit navigation delegate events, not RPC messages. Merging them would force browser panes to carry bridge infrastructure they don't use.
+
+**Why swift pane is separate:** Native AppKit/SwiftUI panes (`.codeViewer`) have no WebView at all. Their "adapter" is direct Swift method calls. A separate `SwiftPaneRuntime` keeps the WKWebView dependency out of native pane code.
 
 **Why not actor-per-pane:** Swift actors impose async boundaries on every property access. For a macOS UI app where all state feeds `@Observable` views on the main thread, this adds overhead without matching benefit. `@MainActor` already provides thread safety.
 
@@ -95,14 +117,38 @@ RUNTIMES (per-pane, registered in RuntimeRegistry):
 
 **Why:** Compile-time guarantee that adding a new Ghostty action forces a handler decision. The enum IS the documentation of "what Ghostty can tell us." Silent drops are how the current 12/40 gap happened.
 
-### D5: Adapter → Runtime → Coordinator layering
+### D5: View / Controller / Runtime / Adapter layering
 
-**User problem:** Ghostty C callbacks arrive on arbitrary threads with C types. The system must be safe under Swift 6 strict concurrency and testable without real Ghostty surfaces (JTBD 3).
+**User problem:** Ghostty C callbacks arrive on arbitrary threads with C types. The system must be safe under Swift 6 strict concurrency and testable without real Ghostty surfaces (JTBD 3). Multiple pane types (terminal, bridge, webview, native) each have a backend technology that needs lifecycle management and event translation.
 
-**Decision:** Three-layer pipeline:
-1. **Adapter** — FFI boundary only. Translates C types to Swift enums. `@Sendable` trampolines hop to `MainActor`. No domain logic.
-2. **Runtime** — Domain logic. Owns `@Observable` state. Produces coordination events. Pure Swift, testable with mock adapters.
-3. **Coordinator** — Cross-store sequencing. Routes commands to runtimes. Consumes coordination events. No pane-type-specific logic.
+**Decision:** Four-layer pipeline per pane type, plus a shared coordinator:
+
+1. **View** — NSView subclass. Renders content, handles input. No lifecycle or domain logic. One instance per pane.
+2. **Controller** — Per-pane lifecycle for the backend resource (WebKit page, RPC router, push plans). Owns transport-specific state. Not all pane types need a separate controller (terminal surfaces are managed by `SurfaceManager`).
+3. **Runtime** — `PaneRuntime` conformer. Owns lifecycle state machine, `@Observable` UI state, event stream, command dispatch. Pure Swift, testable with mock adapters. One instance per pane.
+4. **Adapter** — FFI/transport boundary. Translates platform types to Swift enums. Shared singleton per backend technology. `@Sendable` trampolines hop to `MainActor`. No domain logic.
+
+```
+VIEW (renders)          CONTROLLER (transport)     RUNTIME (PaneRuntime)        ADAPTER (boundary)
+─────────────────────   ──────────────────────     ────────────────────────     ──────────────────
+AgentStudioTerminalView SurfaceManager (shared)    TerminalRuntime              GhosttyAdapter
+BridgePaneView          BridgePaneController       BridgeRuntime                RPCRouter
+WebviewPaneView         WebviewPaneController      WebviewRuntime               WebKit delegate
+SwiftPaneView           (direct Swift)             SwiftPaneRuntime             (none — direct calls)
+```
+
+**Layer responsibilities:**
+
+| Layer | Owns | Does NOT own | Change driver |
+|-------|------|-------------|---------------|
+| **View** | NSView, input handling, rendering | Lifecycle, state, events | Rendering technology |
+| **Controller** | Backend resource (WebKit page, RPC, push plans) | Lifecycle state machine, event stream | Transport-specific behavior |
+| **Runtime** | Lifecycle, `@Observable` state, event stream, command dispatch | Backend resource, view rendering | PaneRuntime protocol contract |
+| **Adapter** | FFI/transport translation, routing to runtime instances | Domain logic, state | Backend technology API changes |
+
+**Why controller and runtime are separate:** The controller owns the backend resource (WebKit page, RPC wiring). The runtime owns the PaneRuntime protocol surface (lifecycle, events, commands). Separating them means the runtime is testable without a real WebKit instance, and the controller can be reused across content types (one `BridgePaneController` class serves diff, editor, review, agent).
+
+**5. Coordinator** — Cross-store sequencing. Routes commands to runtimes via `RuntimeRegistry`. Consumes coordination events. No pane-type-specific logic. See [PaneCoordinator](#architecture-overview).
 
 ### D6: Priority-aware event processing
 
@@ -130,6 +176,98 @@ RUNTIMES (per-pane, registered in RuntimeRegistry):
 
 **Deferred but reserved:** The `ExecutionBackend` type and `SecurityEvent` enum are defined now. Implementation ships when Gondolin or Docker integration begins. Zero cost to carry the types.
 
+### D9: System-level event sources — typed services vs generic plugins
+
+**User problem:** The workspace needs to react to external signals that aren't pane-scoped — filesystem changes across a worktree, PR status changes, container health, MCP tool availability (JTBD 5, JTBD 6).
+
+**Decision:** Two tiers of system-level event sources:
+
+1. **Typed system services** — known event schemas, well-defined protocols, plugin-provided backends. These are concrete enough to design now because we know what events they produce.
+2. **Generic remote resources** — open-ended, schema determined at runtime. Deferred to plugin escape hatches and MCP transport.
+
+**Typed system services (known, designed):**
+
+| Service | Scope | Event types | Backend model |
+|---------|-------|-------------|---------------|
+| **FSEvents watcher** (Contract 6) | Per-worktree | `FilesystemEvent` (filesChanged, gitStatusChanged, diffAvailable, branchChanged) | Built-in, one watcher per worktree |
+| **Git forge service** | App-wide | `ForgeEvent` (future: prStatusChanged, reviewRequested, ciCompleted) | Plugin-provided backends (GitHub, GitLab, Bitbucket) |
+| **Container service** | App-wide | `ContainerEvent` (future: containerStarted, healthChanged, logOutput) | Plugin-provided backends (Docker, Podman, cloud) |
+
+All typed services use `EventSource.system(...)` and produce `PaneRuntimeEvent` envelopes on the same coordination stream as pane events. They have no pane identity — they're shared infrastructure that any pane can subscribe to.
+
+**Git forge and container services follow the same pattern:** a protocol defines the event vocabulary and command interface. Plugin-provided backends conform to the protocol for specific providers. The service manages authentication, polling/webhook state, and event production. This is analogous to how `GhosttyAdapter` translates C API events — the forge adapter translates GitHub API events.
+
+**Generic remote resources (deferred):** MCP servers, arbitrary APIs, and other open-ended integrations don't have known event schemas at compile time. They use the existing plugin escape hatches: `PaneRuntimeEvent.plugin(kind:event:)`, `PaneContentType.plugin(String)`, `PaneCapability.plugin(String)`. The plugin infrastructure (Contract 2 escape hatches, NotificationReducer.submit(), EventReplayBuffer) already handles plugin events without core code changes. No new protocol needed — plugins define their own event types conforming to `PaneKindEvent`.
+
+**Why not unify typed and generic:** Typed services earn their protocol because consumers know what to expect (`pullRequests`, `ciStatus`). Generic resources are schemaless from Swift's perspective — giving them a typed protocol is premature abstraction that would need to change with every new integration.
+
+#### FSEvents Watcher Implementation (Contract 6, LUNA-349)
+
+The filesystem watcher is the first system-level source to implement. It's a prerequisite for Contract 16 (pane filesystem context stream, LUNA-344).
+
+```
+┌─────────────────────────────────────────────────────────────────┐
+│                    FSEventsWatcher (per-worktree)                │
+│                                                                  │
+│  Input:   macOS FSEvents stream for worktree root path           │
+│  Output:  PaneEventEnvelope with source = .system(.fsWatcher)    │
+│                                                                  │
+│  Pipeline:                                                       │
+│    FSEvents callback (arbitrary thread)                          │
+│      → Task { @MainActor in }  (safe hop)                       │
+│        → path dedup (Set<String>)                                │
+│          → debounce 500ms settle window                          │
+│            → max latency 2s cap                                  │
+│              → FileChangeset batch                               │
+│                → git status recompute (background Task)          │
+│                  → GitStatusSummary                              │
+│                    → yield FilesystemEvent envelopes             │
+│                                                                  │
+│  Lifecycle: Created when worktree added to workspace.            │
+│             Destroyed when worktree removed.                     │
+│             Independent of pane lifecycle.                        │
+│                                                                  │
+│  Location: Core/PaneRuntime/Sources/FSEventsWatcher.swift        │
+│  (system-level, not feature-specific)                            │
+└─────────────────────────────────────────────────────────────────┘
+```
+
+- One watcher per worktree. Multiple panes sharing a worktree share one watcher.
+- Uses `AsyncStream` continuation for event delivery — same pattern as pane runtimes.
+- Independent `seq` counter per watcher instance (Invariant A4).
+- `FileChangeset.worktreeId` is a denormalized copy of `envelope.source` for convenience — envelope is authoritative (Contract 3, Invariant A1).
+- Debounce uses injectable `Clock<Duration>` for testability (Swift 6 Invariant #5).
+
+#### Git Forge Service Pattern (future, plugin-provided)
+
+```swift
+// Conceptual — protocol shape for typed system services
+@MainActor
+protocol GitForgeBackend: AnyObject {
+    var forgeType: String { get }  // "github", "gitlab", "bitbucket"
+
+    /// Authenticate and begin event polling/webhook listening.
+    func connect(config: ForgeConfig) async throws
+
+    /// Subscribe to forge events.
+    func subscribe() -> AsyncStream<ForgeEvent>
+
+    /// Execute a forge command (create PR, approve review, etc.)
+    func execute(_ command: ForgeCommand) async -> ActionResult
+
+    func disconnect() async
+}
+
+// Plugin registration
+extension PluginRegistry {
+    func registerForgeBackend(_ backend: GitForgeBackend, for type: String)
+}
+```
+
+The forge service manages authentication, event polling, and command dispatch. Plugin-provided backends conform to the protocol for specific providers. Events are emitted as `PaneRuntimeEvent` envelopes with `source = .system(.gitForge)` and carried on the same coordination stream. No new infrastructure — just a new source producing envelopes.
+
+**External control interface (deferred):** An API for external systems (CLI, MCP servers, other apps) to control Agent Studio is a future concern. It depends on having runtime command dispatch (Contract 10) working across all 4 runtime types. The command surface would be "which RuntimeCommands can external callers issue, and through what transport?" — this emerges from the internal architecture, not the other way around. A one-paragraph placeholder is sufficient until the internal system is complete.
+
 ---
 
 ## Architecture Overview
@@ -138,56 +276,198 @@ RUNTIMES (per-pane, registered in RuntimeRegistry):
 USER INPUT / COMMAND BAR / KEYBOARD
               │
               v
-┌─────────────────────────────────────────────────────────────────┐
-│                      PANE COORDINATOR                           │
-│  global orchestration only: tabs, layout, arrangement, undo     │
-│  routes pane-scoped commands to runtimes                        │
-│  consumes PaneRuntimeEvent stream for cross-pane workflows      │
-│  owns NO domain state, NO pane-type-specific logic              │
-├────────────┬─────────────────────┬──────────────────────────────┤
-│            │                     │                              │
-│    ┌───────┴──────┐    ┌────────┴────────┐    ┌──────────────┐ │
-│    │ Workspace    │    │ Runtime         │    │ Surface      │ │
-│    │ Store        │    │ Registry        │    │ Manager      │ │
-│    │ (tabs,layout)│    │ (paneId→runtime)│    │ (C surfaces) │ │
-│    └──────────────┘    └────────┬────────┘    └──────────────┘ │
-└─────────────────────────────────┼──────────────────────────────┘
-                                  │
-        ┌─────────────────────────┼──────────────────────┐
-        │                        │                       │
-        v                        v                       v
-┌───────────────┐    ┌────────────────┐    ┌──────────────────┐
-│  TERMINAL     │    │   BROWSER      │    │    DIFF          │
-│  RUNTIME      │    │   RUNTIME      │    │    RUNTIME       │
-│               │    │                │    │                  │
-│ @Observable   │    │ @Observable    │    │ @Observable      │
-│ ┌───────────┐ │    │ ┌────────────┐ │    │ ┌──────────────┐ │
-│ │ command   │ │    │ │ navigation │ │    │ │ hunk state   │ │
-│ │ search    │ │    │ │ page       │ │    │ │ approval     │ │
-│ │ scroll    │ │    │ │ console    │ │    │ │ comments     │ │
-│ │ display   │ │    │ └────────────┘ │    │ └──────────────┘ │
-│ │ input     │ │    │                │    │                  │
-│ │ health    │ │    │ UI binds here  │    │ UI binds here    │
-│ └───────────┘ │    │                │    │                  │
-│               │    │                │    │                  │
-│ UI binds here │    │   Produces:    │    │   Produces:      │
-│               │    │ PaneRuntime-   │    │ PaneRuntime-     │
-│  Produces:    │    │ Event stream   │    │ Event stream     │
-│ PaneRuntime-  │    │                │    │                  │
-│ Event stream  │    │                │    │                  │
-└───────┬───────┘    └───────┬────────┘    └────────┬─────────┘
-        │                    │                      │
-        v                    v                      v
-┌───────────────┐    ┌───────────────┐    ┌──────────────────┐
-│ GHOSTTY       │    │ WEBKIT        │    │ ARTIFACT         │
-│ ADAPTER       │    │ ADAPTER       │    │ COORDINATOR      │
-│               │    │               │    │                  │
-│ C callbacks   │    │ WKNavigation  │    │ fs/git diff/     │
-│ → @Sendable   │    │ Delegate      │    │ snapshot         │
-│ → MainActor   │    │ → typed       │    │ → typed          │
-│ → GhosttyEvent│    │ → BrowserEvent│    │ → ArtifactEvent  │
-└───────────────┘    └───────────────┘    └──────────────────┘
+┌──────────────────────────────────────────────────────────────────────────────┐
+│                             PANE COORDINATOR                                  │
+│  global orchestration only: tabs, layout, arrangement, undo                   │
+│  routes pane-scoped commands to runtimes via RuntimeRegistry                  │
+│  consumes PaneRuntimeEvent stream for cross-pane workflows                    │
+│  owns NO domain state, NO pane-type-specific logic                            │
+├─────────────┬──────────────────────┬─────────────────────────────────────────┤
+│             │                      │                                          │
+│   ┌─────────┴────────┐   ┌────────┴────────┐   ┌──────────────────────────┐  │
+│   │ WorkspaceStore   │   │ RuntimeRegistry │   │ SurfaceManager           │  │
+│   │ (tabs, layout)   │   │ (paneId→runtime)│   │ (Ghostty surfaces only)  │  │
+│   └──────────────────┘   └────────┬────────┘   └──────────────────────────┘  │
+└────────────────────────────────────┼─────────────────────────────────────────┘
+                                     │
+     ┌───────────────────────────────┼──────────────────────────────────┐
+     │                               │                                  │
+     v                               v                                  v
+┌──────────────────┐   ┌──────────────────────┐   ┌──────────────────────────┐
+│  TERMINAL        │   │   BRIDGE             │   │   WEBVIEW / SWIFT PANE   │
+│  RUNTIME         │   │   RUNTIME            │   │   RUNTIME                │
+│                  │   │                      │   │                          │
+│ @Observable      │   │ @Observable          │   │ @Observable              │
+│ ┌──────────────┐ │   │ ┌──────────────────┐ │   │ ┌──────────────────────┐ │
+│ │ command      │ │   │ │ bridge state     │ │   │ │ navigation state     │ │
+│ │ search       │ │   │ │ push plan status │ │   │ │ page title/url       │ │
+│ │ scroll       │ │   │ │ RPC health       │ │   │ │ loading progress     │ │
+│ │ display      │ │   │ └──────────────────┘ │   │ └──────────────────────┘ │
+│ │ input        │ │   │                      │   │                          │
+│ │ health       │ │   │ Serves:              │   │ WebviewRuntime serves:   │
+│ └──────────────┘ │   │ .diff, .editor,      │   │   .browser              │
+│                  │   │ .review, .agent,      │   │                          │
+│ Serves:          │   │ .plugin(...)          │   │ SwiftPaneRuntime serves: │
+│   .terminal      │   │                      │   │   .codeViewer, native    │
+│                  │   │ Produces:             │   │                          │
+│ Produces:        │   │ PaneRuntimeEvent      │   │ Produces:                │
+│ PaneRuntimeEvent │   │ (.browser, .diff,     │   │ PaneRuntimeEvent         │
+│ (.terminal)      │   │  .editor, .plugin)    │   │ (.browser for webview)   │
+└────────┬─────────┘   └──────────┬───────────┘   └────────────┬─────────────┘
+         │                        │                             │
+         v                        v                             v
+┌──────────────────┐   ┌──────────────────────┐   ┌──────────────────────────┐
+│ GHOSTTY ADAPTER  │   │ BRIDGE CONTROLLER    │   │ WEBVIEW CONTROLLER       │
+│                  │   │ + RPC ROUTER         │   │ + WEBKIT DELEGATE        │
+│ C callbacks      │   │                      │   │                          │
+│ → @Sendable      │   │ WKWebView lifecycle  │   │ WKWebView navigation     │
+│ → MainActor      │   │ JSON-RPC transport   │   │ No bridge/RPC            │
+│ → GhosttyEvent   │   │ Push plan pipeline   │   │ → BrowserEvent           │
+└──────────────────┘   └──────────────────────┘   └──────────────────────────┘
+
+                    SYSTEM-LEVEL SOURCES (no pane, shared)
+                    ──────────────────────────────────────
+┌──────────────────┐   ┌──────────────────────┐   ┌──────────────────────────┐
+│ FS WATCHER       │   │ GIT FORGE SERVICE    │   │ CONTAINER SERVICE        │
+│ (Contract 6)     │   │ (future)             │   │ (future)                 │
+│                  │   │                      │   │                          │
+│ Per-worktree     │   │ GitHub/GitLab/etc.   │   │ Docker/Podman/etc.       │
+│ FSEvents         │   │ Plugin-provided      │   │ Plugin-provided          │
+│ 500ms debounce   │   │ backends             │   │ backends                 │
+│ → FilesystemEvent│   │ → ForgeEvent (future)│   │ → ContainerEvent (future)│
+│                  │   │                      │   │                          │
+│ source:          │   │ source:              │   │ source:                  │
+│  .system(        │   │  .system(            │   │  .system(                │
+│   .fsWatcher)    │   │   .gitForge)         │   │   .containerService)     │
+└──────────────────┘   └──────────────────────┘   └──────────────────────────┘
 ```
+
+### Runtime Type Taxonomy
+
+Runtime classes are organized by **transport mechanism** — the underlying technology that connects the Swift runtime to its content backend. This is different from `PaneContentType`, which classifies what the user sees. Multiple content types can share one runtime class.
+
+| Runtime Class | Transport | Content Types Served | Adapter | Controller |
+|---------------|-----------|---------------------|---------|------------|
+| `TerminalRuntime` | Ghostty C API (PTY + renderer) | `.terminal` | `GhosttyAdapter` (shared singleton) | `SurfaceManager` (shared) |
+| `BridgeRuntime` | WKWebView + JSON-RPC bridge | `.diff`, `.editor`, `.review`, `.agent`, `.plugin(...)` | `RPCRouter` (per-pane, inside controller) | `BridgePaneController` (per-pane) |
+| `WebviewRuntime` | WKWebView (plain navigation) | `.browser` | WebKit navigation delegate | `WebviewPaneController` (per-pane) |
+| `SwiftPaneRuntime` | Native AppKit/SwiftUI (direct calls) | `.codeViewer`, future native panes | None — direct Swift | None — direct Swift |
+
+**Content type → runtime resolution:** When a pane is created, `PaneContentType` determines which runtime class to instantiate. This mapping is static and exhaustive:
+
+```swift
+// Conceptual — resolution happens in PaneCoordinator at pane creation time
+func runtimeClass(for contentType: PaneContentType) -> PaneRuntime.Type {
+    switch contentType {
+    case .terminal:                return TerminalRuntime.self
+    case .diff, .editor:           return BridgeRuntime.self  // React apps via bridge
+    case .browser:                 return WebviewRuntime.self
+    case .plugin(let kind):        return BridgeRuntime.self  // plugins use bridge by default
+    }
+}
+```
+
+**BridgeRuntime dispatches by content type internally.** When BridgeRuntime receives a command or produces an event, it uses `metadata.contentType` to determine content-specific behavior (which React route to load, which RPC methods to register, which event types to emit). The runtime lifecycle, event stream, and command dispatch are identical across content types — only the content semantics differ.
+
+#### TerminalRuntime (implemented)
+
+The reference implementation. Fully conforms to `PaneRuntime`. One instance per terminal pane, registered in `RuntimeRegistry` on pane creation, unregistered on pane close.
+
+- **Adapter:** `GhosttyAdapter` (shared singleton). Routes C callbacks by `surfaceId` → `TerminalRuntime` instance via `RuntimeRegistry` lookup. C FFI boundary uses `@Sendable` trampolines + `Task { @MainActor in }` for safe actor hop.
+- **Controller:** `SurfaceManager` (shared). Owns Ghostty surface lifecycle (create, attach, detach, destroy, health, undo). Terminal panes don't have a per-pane controller — the surface manager handles resource management for all terminals.
+- **Event production:** `GhosttyAdapter.route()` translates C action tags to `GhosttyEvent` cases, then `TerminalRuntime.handleGhosttyEvent()` wraps in `PaneEventEnvelope` with seq/source/timestamp and yields to the AsyncStream continuation.
+- **Command handling:** `TerminalRuntime.handleCommand()` validates lifecycle + capability, then dispatches `.sendInput`, `.resize`, `.search` to the Ghostty surface via `SurfaceManager`.
+- **@Observable state:** `title`, `cwd`, `searchState`, `scrollbarState` — bound directly by SwiftUI views.
+
+#### BridgeRuntime (to be extracted from BridgePaneController)
+
+Serves ALL React-based pane types. The content-specific behavior lives in the React app (loaded via `agentstudio://` custom scheme), not in the Swift runtime. The runtime handles lifecycle, event transport, and command dispatch generically.
+
+- **Adapter:** `RPCRouter` (per-pane, owned by `BridgePaneController`). Routes incoming JSON-RPC messages to registered method handlers. Outgoing events are pushed via `PushTransport` to the React app.
+- **Controller:** `BridgePaneController` (per-pane). Owns the `WebPage` instance, RPC router configuration, push plan pipeline, bridge handshake state, and dedup cache. The controller handles the WebKit lifecycle — loading the React app, managing `bridge.ready` handshake, and push plan activation.
+- **Extraction strategy:** `BridgeRuntime` will be extracted as a new class that:
+  1. Conforms to `PaneRuntime` (lifecycle, subscribe, handleCommand, snapshot, eventsSince, shutdown)
+  2. Holds a reference to its `BridgePaneController` for transport operations
+  3. Produces `PaneEventEnvelope` from incoming RPC events (bridge → Swift direction)
+  4. Translates `RuntimeCommand` to outgoing RPC calls (Swift → bridge direction)
+  5. Manages its own lifecycle state machine independently of the controller's WebKit state
+- **Event production:** Bridge events arrive as JSON-RPC messages from the React app. The RPC router dispatches them. `BridgeRuntime` wraps them as `PaneRuntimeEvent.diff(...)`, `.editor(...)`, or `.browser(...)` in envelopes with proper seq/source.
+- **Content type dispatch:** `BridgeRuntime` uses `metadata.contentType` to determine:
+  - Which React route to load (e.g., `/diff`, `/editor`, `/review`)
+  - Which RPC methods to register on the router
+  - Which `PaneRuntimeEvent` case to use for outgoing events
+  - Which `PaneCapability` set to expose
+
+#### WebviewRuntime (to be extracted from WebviewPaneController)
+
+Serves plain browser panes. Simpler than BridgeRuntime — no JSON-RPC bridge, no push plans, no React app. Just WebKit navigation events.
+
+- **Adapter:** WebKit navigation delegate (per-pane, owned by `WebviewPaneController`). Translates `WKNavigationDelegate` callbacks to typed `BrowserEvent` cases.
+- **Controller:** `WebviewPaneController` (per-pane). Owns the `WebPage` instance, navigation state (URL, title, loading, back/forward lists), and navigation methods (`goBack`, `goForward`, `reload`, `navigate`).
+- **Extraction strategy:** `WebviewRuntime` will be extracted as a new class that:
+  1. Conforms to `PaneRuntime`
+  2. Holds a reference to `WebviewPaneController` for navigation operations
+  3. Produces `PaneEventEnvelope` from WebKit navigation delegate events
+  4. Translates `.navigation` commands to controller navigation methods
+- **Event production:** `BrowserEvent.navigationCompleted`, `.pageLoaded`, `.consoleMessage` wrapped in `PaneRuntimeEvent.browser(...)` envelopes.
+- **@Observable state:** `url`, `title`, `isLoading`, `canGoBack`, `canGoForward` — bound directly by `WebviewNavigationBar`.
+
+#### SwiftPaneRuntime (future — new class)
+
+Serves native AppKit/SwiftUI panes that have no WebView. The simplest runtime — no adapter, no controller, direct Swift calls.
+
+- **Adapter:** None. Swift panes produce events directly — no FFI boundary, no message translation.
+- **Controller:** None. The view IS the content — no separate resource to manage.
+- **Event production:** Direct `continuation.yield()` calls from the Swift view layer. No translation step.
+- **Use cases:** `.codeViewer` panes showing syntax-highlighted file content, future native editor panes, settings/configuration panels that need runtime lifecycle tracking.
+- **Implementation:** Minimal — lifecycle state machine + event stream + command dispatch. Most of the implementation is the `PaneRuntime` protocol surface itself. Content-specific behavior lives in the SwiftUI views.
+
+### View / Controller / Runtime Separation (per pane type)
+
+Each pane type follows a layered pattern. The layers have distinct responsibilities and change for different reasons:
+
+```
+┌─────────────────────────────────────────────────────────────────────────────┐
+│                         TERMINAL STACK (clean pattern)                      │
+│                                                                             │
+│  View:        AgentStudioTerminalView     ← renders Ghostty surface         │
+│  Controller:  SurfaceManager (shared)     ← owns Ghostty surface lifecycle  │
+│  Runtime:     TerminalRuntime             ← PaneRuntime conformer           │
+│  Adapter:     GhosttyAdapter (shared)     ← C FFI → GhosttyEvent           │
+├─────────────────────────────────────────────────────────────────────────────┤
+│                         BRIDGE STACK (extraction needed)                    │
+│                                                                             │
+│  View:        BridgePaneView              ← hosts WKWebView                 │
+│  Controller:  BridgePaneController        ← WebKit page, RPC, push plans    │
+│  Runtime:     BridgeRuntime (future)      ← PaneRuntime conformer           │
+│  Adapter:     RPCRouter (per-pane)        ← JSON-RPC → typed events         │
+│                                                                             │
+│  Current state: Controller and runtime concerns are fused in                │
+│  BridgePaneController. BridgeRuntime needs to be extracted.                 │
+├─────────────────────────────────────────────────────────────────────────────┤
+│                         WEBVIEW STACK (extraction needed)                   │
+│                                                                             │
+│  View:        WebviewPaneView             ← hosts WKWebView                 │
+│  Controller:  WebviewPaneController       ← WebKit page, navigation state   │
+│  Runtime:     WebviewRuntime (future)     ← PaneRuntime conformer           │
+│  Adapter:     WebKit delegate (per-pane)  ← navigation events → typed       │
+│                                                                             │
+│  Current state: Controller and runtime concerns are fused in                │
+│  WebviewPaneController. WebviewRuntime needs to be extracted.               │
+├─────────────────────────────────────────────────────────────────────────────┤
+│                         SWIFT PANE STACK (future)                           │
+│                                                                             │
+│  View:        SwiftPaneView (future)      ← native AppKit/SwiftUI           │
+│  Controller:  (none — direct Swift)       ← no WebView, no FFI              │
+│  Runtime:     SwiftPaneRuntime (future)   ← PaneRuntime conformer           │
+│  Adapter:     (none — direct calls)       ← no translation layer needed     │
+└─────────────────────────────────────────────────────────────────────────────┘
+```
+
+**Why separate controller and runtime:** The controller owns the backend resource (WebKit page, RPC wiring, push plans). The runtime owns the PaneRuntime protocol surface (lifecycle state machine, event stream, command dispatch). This separation means:
+- The runtime is testable without a real WebKit instance (inject a mock controller)
+- The controller can be reused across content types (one `BridgePaneController` serves diff, editor, review, agent)
+- Each layer changes for its own reason: controller changes when transport changes, runtime changes when the PaneRuntime contract changes
 
 ### Terminal-Driven Agent Workflow (the "inverse of Cursor" flow)
 
@@ -217,9 +497,9 @@ AGENT PROCESS (Claude/Codex)
   │              ┌─────────────────┼─────────────────┐
   │              │                 │                  │
   │              ▼                 ▼                  ▼
-  │     NotificationReducer   DiffRuntime      WorkspaceStore
-  │     (badge on tab,        (show diff       (update tab
-  │      toast, drawer)        to user)         metadata)
+  │     NotificationReducer   BridgeRuntime     WorkspaceStore
+  │     (badge on tab,        (diff pane via    (update tab
+  │      toast, drawer)        bridge+React)     metadata)
   │              │                 │
   │              ▼                 ▼
   │     User sees: "Agent A    User reviews diff
@@ -297,15 +577,31 @@ A projection is a source that depends on another source. It cannot exist without
 
 Contracts without a role keyword are **structural** — they define types, protocols, or policies rather than event flow participants (e.g., Contract 1 defines the runtime protocol, Contract 4 defines the priority classification).
 
+#### Source Inventory
+
+Sources are categorized by scope:
+
+| Scope | Source | EventSource value | Events produced | Status |
+|-------|--------|------------------|-----------------|--------|
+| **Pane** | TerminalRuntime | `.pane(paneId)` | `.terminal(GhosttyEvent)` | ✅ Implemented |
+| **Pane** | BridgeRuntime | `.pane(paneId)` | `.browser(...)`, `.diff(...)`, `.editor(...)`, `.plugin(...)` | Future (LUNA-349) |
+| **Pane** | WebviewRuntime | `.pane(paneId)` | `.browser(BrowserEvent)` | Future (LUNA-349) |
+| **Pane** | SwiftPaneRuntime | `.pane(paneId)` | Content-dependent | Future (LUNA-349) |
+| **Worktree** | FSEvents watcher | `.system(.filesystemWatcher)` | `.filesystem(FilesystemEvent)` | Future (LUNA-349, Contract 6) |
+| **App** | PaneCoordinator | `.system(.coordinator)` | `.lifecycle(.tabSwitched)` | ✅ Implemented |
+| **App** | Git forge service | `.system(.gitForge)` | Future: `ForgeEvent` | Future (plugin-based) |
+| **App** | Container service | `.system(.containerService)` | Future: `ContainerEvent` | Future (plugin-based) |
+| **Pane** | Agent RPC channel | `.pane(agentPaneId)` | Future: Contract 15 events | Deferred (LUNA-344) |
+
 ### Contract 1: PaneRuntime Protocol
 
 ```swift
-/// Every pane type (terminal, browser, diff, editor) conforms to this.
+/// Every pane transport type (terminal, bridge, webview, swift) conforms to this.
 /// Coordinator only knows this protocol — never pane-type-specific types.
 ///
 /// One instance per pane. All instances share @MainActor.
-/// Adapters (GhosttyAdapter, WebKitAdapter) are shared singletons
-/// that route events to the correct runtime instance.
+/// Adapters (GhosttyAdapter, RPCRouter, WebKit delegate) route events
+/// to the correct runtime instance by surface/view/pane ID.
 ///
 /// Runtime produces envelopes (not raw events) — routing identity
 /// (EventSource) and sequencing (seq) are set by the runtime itself.
@@ -347,18 +643,15 @@ typealias WorktreeId = UUID
 > **Current Code Status (LUNA-343 branch):**
 > - `PaneRuntime` now includes replay wiring via `eventsSince(seq:)`.
 > - `PaneMetadata` now includes rich identity fields (`contentType`, `executionBackend`, `createdAt`, `repoId`, `worktreeId`, `parentFolder`, `checkoutRef`).
-> - `PaneId` is now a first-class value type (`struct`) with UUIDv7-backed generation for new panes and UUID compatibility decoding for persisted legacy workspaces.
-> - Compatibility is preserved through a legacy initializer accepting `TerminalSource` and a compatibility `terminalSource` computed property.
+> - `PaneId` is now a first-class value type (`struct`) with UUIDv7-backed generation and strict canonical decoding.
+> - Persisted runtime contracts now decode canonical fields only (no legacy schema fallback).
 
 #### Supporting Types
 
 ```swift
 /// Rich pane identity used for routing, grouping, and projection.
 ///
-/// In current code, fixed identity fields are mutable for migration
-/// compatibility (`paneId`/`contentType` are normalized at pane creation).
-/// This remains compatible with the architectural target of immutable
-/// creation-time identity.
+/// Fixed identity fields are creation-time contract in greenfield mode.
 ///
 /// DYNAMIC VIEW CONTRACT: Live fields are ALL OPTIONAL because not every
 /// pane has a repo, worktree, or agent. Dynamic views (R5) group panes
@@ -376,7 +669,7 @@ typealias WorktreeId = UUID
 /// Association fields can be nil independently. `tags` is always present as
 /// a set (possibly empty).
 struct PaneMetadata: Sendable {
-    // ── Fixed-at-creation identity (currently mutable for migration) ──
+    // ── Fixed-at-creation identity ──
     var paneId: PaneId?
     var contentType: PaneContentType
     var source: PaneMetadataSource
@@ -713,9 +1006,12 @@ enum EventSource: Hashable, Sendable {
 }
 
 enum SystemSource: Hashable, Sendable {
-    case filesystemWatcher
-    case securityBackend
-    case coordinator
+    case filesystemWatcher       // Contract 6: per-worktree FSEvents
+    case securityBackend         // SecurityEvent producer
+    case coordinator             // workspace-scoped lifecycle events
+    case gitForge                // future: GitHub/GitLab/Bitbucket forge events
+    case containerService        // future: Docker/Podman container events
+    case plugin(String)          // generic remote resources via plugin
 }
 ```
 
@@ -2414,7 +2710,7 @@ Structural guarantees that hold across all contracts. Each invariant is enforced
 
 *Enforced by:* Code review + contract tests asserting no `paneId`/`worktreeId` routing fields in event enum cases.
 
-**A2. One runtime instance per pane. One adapter instance per backend technology.** `RuntimeRegistry` enforces uniqueness on `register()` by rejecting duplicate pane registrations and preserving the first runtime. Adapters (`GhosttyAdapter`, `WebKitAdapter`) are shared singletons that route by surface/webview ID to the correct runtime instance. No pane ever has two runtimes; no runtime ever serves two panes.
+**A2. One runtime instance per pane. One adapter instance per backend technology.** `RuntimeRegistry` enforces uniqueness on `register()` by rejecting duplicate pane registrations and preserving the first runtime. Adapters (`GhosttyAdapter` for terminal, `RPCRouter` for bridge, WebKit delegate for webview) route by surface/view/pane ID to the correct runtime instance. `GhosttyAdapter` is a shared singleton; bridge and webview adapters are per-pane (owned by their controllers). No pane ever has two runtimes; no runtime ever serves two panes.
 
 *Enforced by:* `RuntimeRegistry.register()` result (`inserted` vs `duplicateRejected`) with duplicate rejection logging. Violation response = reject replacement and preserve existing runtime mapping.
 
@@ -2557,6 +2853,9 @@ This architecture was reviewed by four independent analyses:
 | **LUNA-326** (Native Scrollbar) | Consumes the terminal runtime contract. Scrollbar behavior binds to `TerminalRuntime.scrollbarState` via @Observable. Does not invent new transport. | None (consumer only) |
 | **LUNA-327** (State Ownership + Observable Migration) | The current branch. Establishes @Observable store pattern, PaneCoordinator consolidation, `private(set)` unidirectional flow, and `DispatchQueue.main.async` → `MainActor` migration. | D1, D5, Swift 6 invariants, Migration section |
 | **LUNA-342** (Contract Freeze) | Freeze gate — all design decisions, contracts, and invariants locked. No implementation. | All invariants (A1-A15), Swift 6 invariants (1-9), envelope/source shape |
+| **LUNA-344** (Deferred Contracts) | Implements deferred contracts: workflow engine, terminal process RPC, pane filesystem context. | Contract 13, 15, 16 |
+| **LUNA-345** (Architecture Completion Gate) | Integration checkpoint — verifies all runtime conformers, system sources, and deferred contracts are complete. | None (gate only) |
+| **LUNA-349** (Non-Terminal Runtimes + FS Watcher) | Implements BridgeRuntime, WebviewRuntime, SwiftPaneRuntime as PaneRuntime conformers. Extracts runtime from BridgePaneController. Implements Contract 6 FSEvents watcher. | D1 (runtime taxonomy), D5 (view/controller/runtime layering), D9 (system sources), Contract 6 |
 
 ---
 
@@ -2574,7 +2873,12 @@ See [Directory Structure](directory_structure.md) for the full decision process 
 | **EventReplayBuffer** | `Core/PaneRuntime/Replay/` | Feature-agnostic buffering; consumed by PaneCoordinator |
 | **GhosttyAdapter** | `Features/Terminal/Ghostty/` | FFI-specific; translates C callbacks into Core event types |
 | **TerminalRuntime** | `Features/Terminal/Runtime/` | Terminal-specific `PaneRuntime` conformance |
-| **BrowserRuntime** (future) | `Features/Webview/Runtime/` | Webview-specific `PaneRuntime` conformance |
+| **BridgeRuntime** (future) | `Features/Bridge/Runtime/` | Bridge-specific `PaneRuntime` conformance (serves .diff, .editor, .review, .agent, .plugin) |
+| **BridgePaneController** | `Features/Bridge/Runtime/` | Per-pane WebKit page, RPC router, push plans (transport/view-side lifecycle) |
+| **WebviewRuntime** (future) | `Features/Webview/Runtime/` | Webview-specific `PaneRuntime` conformance (serves .browser) |
+| **WebviewPaneController** | `Features/Webview/` | Per-pane WebKit page, navigation state (transport/view-side lifecycle) |
+| **SwiftPaneRuntime** (future) | `Features/SwiftPane/Runtime/` | Native AppKit/SwiftUI `PaneRuntime` conformance (serves .codeViewer) |
+| **FSEventsWatcher** (future) | `Core/PaneRuntime/Sources/` | System-level filesystem watcher; produces FilesystemEvent envelopes |
 | **PaneCoordinator** | `App/` | Imports from multiple features; composition root |
 
 ### Why per-kind event enums live in Core

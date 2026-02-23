@@ -1,7 +1,6 @@
 import Foundation
 
-/// Primary pane identity. Time-ordered (UUID v7) for new panes,
-/// backward-compatible with existing UUID v4 from persisted state.
+/// Primary pane identity. Time-ordered UUID v7 in canonical greenfield schema.
 ///
 /// `PaneId` is the **only** primary identity in the pane system.
 /// All other identifiers (zmx session names, surface IDs, stable keys)
@@ -17,14 +16,10 @@ import Foundation
 ///
 /// Usage guidance:
 /// - Use `PaneId()` when minting a new pane identity in production code.
-/// - Use `PaneId(uuid:)` when wrapping an existing UUID from persisted state,
-///   migration boundaries, interop layers, or deterministic tests.
-///
-/// Codable encodes as a bare UUID string for backward compatibility
-/// with workspaces persisted under the old `typealias PaneId = UUID`.
+/// - Use `PaneId(uuid:)` when wrapping an existing UUID that is already v7.
 struct PaneId: Hashable, Sendable, CustomStringConvertible, CustomDebugStringConvertible {
 
-    /// The underlying UUID. v7 for new panes, v4 for deserialized legacy panes.
+    /// The underlying UUID (v7 in canonical flows).
     let uuid: UUID
 
     // MARK: - Creation
@@ -34,7 +29,8 @@ struct PaneId: Hashable, Sendable, CustomStringConvertible, CustomDebugStringCon
         self.uuid = UUIDv7.generate()
     }
 
-    /// Wrap an existing UUID (deserialization, migration, tests).
+    /// Wrap an existing UUID.
+    /// Callers are expected to pass UUID v7 for canonical pane identity.
     init(uuid: UUID) {
         self.uuid = uuid
     }
@@ -44,7 +40,7 @@ struct PaneId: Hashable, Sendable, CustomStringConvertible, CustomDebugStringCon
     /// The 16 lowercase hex character prefix used in zmx session name segments.
     ///
     /// For UUID v7, this is the timestamp portion — sortable and debuggable
-    /// in `zmx ls` output. For legacy UUID v4, it's the first 8 bytes in hex.
+    /// in `zmx ls` output.
     ///
     /// Derivation: `first16hex(lowercase(removeHyphens(uuid.uuidString)))`
     var hexPrefix: String {
@@ -65,7 +61,7 @@ struct PaneId: Hashable, Sendable, CustomStringConvertible, CustomDebugStringCon
         UUIDv7.isV7(uuid)
     }
 
-    /// The creation timestamp, if this is a UUID v7. Nil for legacy v4 IDs.
+    /// The creation timestamp for UUID v7, otherwise nil.
     var createdAt: Date? {
         UUIDv7.timestamp(from: uuid)
     }
@@ -82,8 +78,7 @@ struct PaneId: Hashable, Sendable, CustomStringConvertible, CustomDebugStringCon
     }
 
     var debugDescription: String {
-        let version = isV7 ? "v7" : "v4"
-        return "PaneId(\(version): \(uuid.uuidString))"
+        "PaneId(v7=\(isV7): \(uuid.uuidString))"
     }
 }
 
@@ -91,13 +86,20 @@ struct PaneId: Hashable, Sendable, CustomStringConvertible, CustomDebugStringCon
 
 extension PaneId: Codable {
 
-    /// Decode from a bare UUID string — backward compatible with `UUID` encoding.
+    /// Decode from a bare UUID string and enforce canonical UUID v7 identity.
     init(from decoder: Decoder) throws {
         let container = try decoder.singleValueContainer()
-        uuid = try container.decode(UUID.self)
+        let decodedUuid = try container.decode(UUID.self)
+        guard UUIDv7.isV7(decodedUuid) else {
+            throw DecodingError.dataCorruptedError(
+                in: container,
+                debugDescription: "PaneId must decode from UUID v7 in canonical greenfield schema"
+            )
+        }
+        uuid = decodedUuid
     }
 
-    /// Encode as a bare UUID string — backward compatible with `UUID` encoding.
+    /// Encode as a bare UUID string.
     func encode(to encoder: Encoder) throws {
         var container = encoder.singleValueContainer()
         try container.encode(uuid)
