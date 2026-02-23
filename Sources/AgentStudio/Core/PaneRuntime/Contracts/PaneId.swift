@@ -32,6 +32,7 @@ struct PaneId: Hashable, Sendable, CustomStringConvertible, CustomDebugStringCon
     /// Wrap an existing UUID.
     /// Callers are expected to pass UUID v7 for canonical pane identity.
     init(uuid: UUID) {
+        precondition(UUIDv7.isV7(uuid), "PaneId(uuid:) requires UUID v7 in canonical greenfield schema")
         self.uuid = uuid
     }
 

@@ -43,20 +43,6 @@ extension PaneCoordinator {
             }
         }
 
-        if let requiredCapability = requiredCapability(for: command),
-            !runtime.capabilities.contains(requiredCapability)
-        {
-            Self.logger.warning(
-                "Runtime command dispatch failed: pane \(paneId.uuid.uuidString, privacy: .public) missing capability \(String(describing: requiredCapability), privacy: .public) for command \(String(describing: command), privacy: .public)"
-            )
-            return .failure(
-                .unsupportedCommand(
-                    command: String(describing: command),
-                    required: requiredCapability
-                )
-            )
-        }
-
         let envelope = RuntimeCommandEnvelope(
             commandId: UUID(),
             correlationId: correlationId,
@@ -71,27 +57,5 @@ extension PaneCoordinator {
             )
         }
         return result
-    }
-
-    private func requiredCapability(for command: RuntimeCommand) -> PaneCapability? {
-        switch command {
-        case .activate, .deactivate, .prepareForClose, .requestSnapshot:
-            return nil
-        case .terminal(let terminalCommand):
-            switch terminalCommand {
-            case .sendInput, .clearScrollback:
-                return .input
-            case .resize:
-                return .resize
-            }
-        case .browser:
-            return .navigation
-        case .diff:
-            return .diffReview
-        case .editor:
-            return .editorActions
-        case .plugin:
-            return nil
-        }
     }
 }

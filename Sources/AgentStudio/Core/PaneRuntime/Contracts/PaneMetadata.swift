@@ -47,11 +47,11 @@ struct PaneMetadata: Codable, Hashable, Sendable {
     }
 
     // Fixed-at-creation identity
-    var paneId: PaneId?
-    var contentType: PaneContentType
-    var source: PaneMetadataSource
-    var executionBackend: ExecutionBackend
-    var createdAt: Date
+    let paneId: PaneId?
+    let contentType: PaneContentType
+    let source: PaneMetadataSource
+    let executionBackend: ExecutionBackend
+    let createdAt: Date
 
     // Live fields
     var title: String
@@ -95,6 +95,27 @@ struct PaneMetadata: Codable, Hashable, Sendable {
 
     var terminalSource: TerminalSource {
         source.terminalSource
+    }
+
+    func canonicalizedIdentity(
+        paneId: PaneId,
+        contentType: PaneContentType
+    ) -> Self {
+        Self(
+            paneId: paneId,
+            contentType: contentType,
+            source: source,
+            executionBackend: executionBackend,
+            createdAt: createdAt,
+            title: title,
+            cwd: cwd,
+            repoId: repoId,
+            worktreeId: worktreeId,
+            parentFolder: parentFolder,
+            checkoutRef: checkoutRef,
+            agentType: agentType,
+            tags: tags
+        )
     }
 
     private enum CodingKeys: String, CodingKey {

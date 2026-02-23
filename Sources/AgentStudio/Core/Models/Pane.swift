@@ -30,9 +30,10 @@ struct Pane: Codable, Identifiable, Hashable {
         residency: SessionResidency = .active,
         kind: PaneKind = .layout(drawer: Drawer())
     ) {
-        var normalizedMetadata = metadata
-        normalizedMetadata.paneId = PaneId(uuid: id)
-        normalizedMetadata.contentType = Self.contentType(for: content)
+        let normalizedMetadata = metadata.canonicalizedIdentity(
+            paneId: PaneId(uuid: id),
+            contentType: Self.contentType(for: content)
+        )
 
         self.id = id
         self.content = content
@@ -56,10 +57,11 @@ struct Pane: Codable, Identifiable, Hashable {
         }
         self.id = decodedId
         self.content = try container.decode(PaneContent.self, forKey: .content)
-        var decodedMetadata = try container.decode(PaneMetadata.self, forKey: .metadata)
-        decodedMetadata.paneId = PaneId(uuid: id)
-        decodedMetadata.contentType = Self.contentType(for: content)
-        self.metadata = decodedMetadata
+        let decodedMetadata = try container.decode(PaneMetadata.self, forKey: .metadata)
+        self.metadata = decodedMetadata.canonicalizedIdentity(
+            paneId: PaneId(uuid: id),
+            contentType: Self.contentType(for: content)
+        )
         self.residency = try container.decode(SessionResidency.self, forKey: .residency)
         self.kind = try container.decode(PaneKind.self, forKey: .kind)
     }

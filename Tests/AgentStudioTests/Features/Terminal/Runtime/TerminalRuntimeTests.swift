@@ -24,7 +24,7 @@ struct TerminalRuntimeTests {
             metadata: PaneMetadata(source: .floating(workingDirectory: nil, title: "Runtime"), title: "Runtime")
         )
         runtime.transitionToReady()
-        let commandEnvelope = makeEnvelope(command: .terminal(.clearScrollback), paneId: runtime.paneId)
+        let commandEnvelope = makeEnvelope(command: .activate, paneId: runtime.paneId)
         let result = await runtime.handleCommand(commandEnvelope)
         switch result {
         case .success(let commandId):
@@ -32,6 +32,19 @@ struct TerminalRuntimeTests {
         default:
             Issue.record("Expected success result for ready runtime")
         }
+    }
+
+    @Test("terminal commands fail when no surface is attached")
+    func terminalCommandFailsWithoutSurface() async {
+        let runtime = TerminalRuntime(
+            paneId: PaneId(),
+            metadata: PaneMetadata(source: .floating(workingDirectory: nil, title: "Runtime"), title: "Runtime")
+        )
+        runtime.transitionToReady()
+
+        let commandEnvelope = makeEnvelope(command: .terminal(.clearScrollback), paneId: runtime.paneId)
+        let result = await runtime.handleCommand(commandEnvelope)
+        #expect(result == .failure(.backendUnavailable(backend: "SurfaceManager")))
     }
 
     @Test("non-terminal command families are rejected as unsupported")

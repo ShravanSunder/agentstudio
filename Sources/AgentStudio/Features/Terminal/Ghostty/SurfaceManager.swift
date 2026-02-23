@@ -540,6 +540,40 @@ final class SurfaceManager {
         return .success(result)
     }
 
+    func sendInput(_ input: String, toPaneId paneId: UUID) -> Result<Void, SurfaceError> {
+        guard let surfaceId = surfaceId(forPaneId: paneId) else {
+            return .failure(.surfaceNotFound)
+        }
+
+        return withSurface(surfaceId) { surface in
+            input.withCString { ptr in
+                ghostty_surface_text(surface, ptr, UInt(input.utf8.count))
+            }
+        }.map { _ in () }
+    }
+
+    func clearScrollback(forPaneId paneId: UUID) -> Result<Void, SurfaceError> {
+        guard let surfaceId = surfaceId(forPaneId: paneId) else {
+            return .failure(.surfaceNotFound)
+        }
+
+        let clearScreenAction = "clear_screen"
+        let didPerform = withSurface(surfaceId) { surface in
+            clearScreenAction.withCString { ptr in
+                ghostty_surface_binding_action(surface, ptr, UInt(clearScreenAction.utf8.count))
+            }
+        }
+
+        switch didPerform {
+        case .success(true):
+            return .success(())
+        case .success(false):
+            return .failure(.operationFailed("Ghostty rejected clear_screen binding action"))
+        case .failure(let error):
+            return .failure(error)
+        }
+    }
+
     // MARK: - Checkpoint Persistence
 
     /// Save checkpoint to disk
@@ -867,6 +901,26 @@ extension SurfaceManager {
     /// Reverse-lookup: SurfaceView ObjectIdentifier → surfaceId.
     func surfaceId(forViewObjectId viewObjectId: ObjectIdentifier) -> UUID? {
         surfaceViewToId[viewObjectId]
+    }
+
+    /// Reverse-lookup: paneId → surfaceId.
+    func surfaceId(forPaneId paneId: UUID) -> UUID? {
+        if let activeMatch = activeSurfaces.first(where: { _, managed in
+            if case .active(let activePaneId) = managed.state {
+                return activePaneId == paneId
+            }
+            return managed.metadata.paneId == paneId
+        }) {
+            return activeMatch.key
+        }
+
+        if let hiddenMatch = hiddenSurfaces.first(where: { _, managed in
+            managed.metadata.paneId == paneId
+        }) {
+            return hiddenMatch.key
+        }
+
+        return nil
     }
 }
 

@@ -68,7 +68,7 @@ extension Ghostty {
 extension Ghostty {
     /// Wraps the ghostty_app_t and handles app-level callbacks
     final class App {
-        @MainActor private static weak var runtimeRegistryOverride: RuntimeRegistry?
+        @MainActor private static var runtimeRegistryOverride: RuntimeRegistry = .shared
 
         /// The ghostty app handle
         private(set) var app: ghostty_app_t?
@@ -353,7 +353,7 @@ extension Ghostty {
 
         @MainActor
         static var runtimeRegistryForActionRouting: RuntimeRegistry {
-            runtimeRegistryOverride ?? RuntimeRegistry.shared
+            runtimeRegistryOverride
         }
 
         private static func routeUnhandledAction(actionTag: UInt32, target: ghostty_target_s) -> Bool {
@@ -404,7 +404,16 @@ extension Ghostty {
             switch knownActionTag {
             case .render, .mouseShape, .mouseVisibility, .mouseOverLink, .scrollbar:
                 return false
-            default:
+            case .quit, .newWindow, .newTab, .ringBell, .setTitle, .pwd, .newSplit, .gotoSplit, .resizeSplit,
+                .equalizeSplits, .toggleSplitZoom, .closeTab, .gotoTab, .moveTab, .closeAllWindows, .toggleMaximize,
+                .toggleFullscreen, .toggleTabOverview, .toggleWindowDecorations, .toggleQuickTerminal,
+                .toggleCommandPalette, .toggleVisibility, .toggleBackgroundOpacity, .gotoWindow, .presentTerminal,
+                .sizeLimit, .resetWindowSize, .initialSize, .cellSize, .inspector, .showGtkInspector,
+                .renderInspector, .desktopNotification, .promptTitle, .rendererHealth, .openConfig, .quitTimer,
+                .floatWindow, .secureInput, .keySequence, .keyTable, .colorChange, .reloadConfig, .configChange,
+                .closeWindow, .undo, .redo, .checkForUpdates, .openURL, .showChildExited, .progressReport,
+                .showOnScreenKeyboard, .commandFinished, .startSearch, .endSearch, .searchTotal, .searchSelected,
+                .readOnly, .copyTitleToClipboard:
                 return true
             }
         }
@@ -450,10 +459,24 @@ extension Ghostty {
                 ghosttyLogger.warning("Dropped action tag \(actionTag): no pane mapped for surface \(surfaceId)")
                 return false
             }
-            guard
-                let runtime = runtimeRegistryForActionRouting.runtime(for: PaneId(uuid: paneUUID))
-                    as? TerminalRuntime
-            else {
+            guard UUIDv7.isV7(paneUUID) else {
+                ghosttyLogger.warning(
+                    "Dropped action tag \(actionTag): mapped pane id is not UUID v7 \(paneUUID.uuidString, privacy: .public)"
+                )
+                return false
+            }
+            let paneId = PaneId(uuid: paneUUID)
+            let routedRuntime = runtimeRegistryForActionRouting.runtime(for: paneId) as? TerminalRuntime
+            let runtime: TerminalRuntime?
+            if let routedRuntime {
+                runtime = routedRuntime
+            } else if ObjectIdentifier(runtimeRegistryForActionRouting) != ObjectIdentifier(RuntimeRegistry.shared) {
+                runtime = RuntimeRegistry.shared.runtime(for: paneId) as? TerminalRuntime
+            } else {
+                runtime = nil
+            }
+
+            guard let runtime else {
                 ghosttyLogger.warning(
                     "Dropped action tag \(actionTag): terminal runtime not found for pane \(paneUUID)")
                 return false

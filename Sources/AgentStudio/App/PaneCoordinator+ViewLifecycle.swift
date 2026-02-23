@@ -221,7 +221,13 @@ extension PaneCoordinator {
 
         viewRegistry.unregister(paneId)
         if shouldUnregisterRuntime {
-            _ = unregisterRuntime(PaneId(uuid: paneId))
+            if UUIDv7.isV7(paneId) {
+                _ = unregisterRuntime(PaneId(uuid: paneId))
+            } else {
+                Self.logger.warning(
+                    "Skipping runtime unregister for non-v7 pane id \(paneId.uuidString, privacy: .public)"
+                )
+            }
             runtime.removeSession(paneId)
         }
 
@@ -258,6 +264,12 @@ extension PaneCoordinator {
             return
         }
 
+        guard UUIDv7.isV7(pane.id) else {
+            Self.logger.error(
+                "Skipping terminal runtime registration for non-v7 pane id \(pane.id.uuidString, privacy: .public)"
+            )
+            return
+        }
         let runtimePaneId = PaneId(uuid: pane.id)
         guard runtimeForPane(runtimePaneId) == nil else { return }
 
@@ -282,6 +294,12 @@ extension PaneCoordinator {
         worktree: Worktree,
         repo: Repo
     ) -> AgentStudioTerminalView? {
+        guard UUIDv7.isV7(pane.id) else {
+            Self.logger.error(
+                "Unable to restore runtime for non-v7 pane id \(pane.id.uuidString, privacy: .public)"
+            )
+            return nil
+        }
         let runtimePaneId = PaneId(uuid: pane.id)
         let runtimeWasAlreadyRegistered = runtimeForPane(runtimePaneId) != nil
         if !runtimeWasAlreadyRegistered {

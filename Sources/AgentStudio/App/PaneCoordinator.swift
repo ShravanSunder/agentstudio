@@ -263,6 +263,9 @@ final class PaneCoordinator {
                 let command = mapGotoSplitDirection(direction),
                 let action = ActionResolver.resolve(command: command, tabs: store.tabs, activeTabId: sourceTabId)
             else {
+                Self.logger.debug(
+                    "Unable to resolve gotoSplit runtime event for pane \(sourcePaneUUID.uuidString, privacy: .public) direction=\(String(describing: direction), privacy: .public)"
+                )
                 return
             }
             execute(action)
@@ -358,6 +361,10 @@ final class PaneCoordinator {
 
         if let action {
             execute(action)
+        } else {
+            Self.logger.debug(
+                "Unable to resolve gotoTab runtime event for sourceTabId \(sourceTabId.uuidString, privacy: .public) target=\(String(describing: target), privacy: .public)"
+            )
         }
     }
 

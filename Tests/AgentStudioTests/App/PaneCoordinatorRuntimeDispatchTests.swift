@@ -126,7 +126,7 @@ struct PaneCoordinatorRuntimeDispatchTests {
         try? FileManager.default.removeItem(at: tempDir)
     }
 
-    @Test("dispatchRuntimeCommand enforces required command capability before dispatch")
+    @Test("dispatchRuntimeCommand surfaces runtime capability failures")
     func dispatchFailsWhenCapabilityMissing() async {
         let tempDir = FileManager.default.temporaryDirectory
             .appending(path: "agentstudio-pane-coordinator-runtime-capability-\(UUID().uuidString)")
@@ -851,6 +851,17 @@ private final class FakePaneRuntime: PaneRuntime {
     }
 
     func handleCommand(_ envelope: RuntimeCommandEnvelope) async -> ActionResult {
+        if let requiredCapability = requiredCapability(for: envelope.command),
+            !capabilities.contains(requiredCapability)
+        {
+            return .failure(
+                .unsupportedCommand(
+                    command: String(describing: envelope.command),
+                    required: requiredCapability
+                )
+            )
+        }
+
         receivedCommands.append(envelope)
         receivedCommandIds.append(envelope.commandId)
         return .success(commandId: envelope.commandId)
@@ -882,6 +893,28 @@ private final class FakePaneRuntime: PaneRuntime {
     func shutdown(timeout: Duration) async -> [UUID] {
         continuation.finish()
         return []
+    }
+
+    private func requiredCapability(for command: RuntimeCommand) -> PaneCapability? {
+        switch command {
+        case .activate, .deactivate, .prepareForClose, .requestSnapshot:
+            return nil
+        case .terminal(let terminalCommand):
+            switch terminalCommand {
+            case .sendInput, .clearScrollback:
+                return .input
+            case .resize:
+                return .resize
+            }
+        case .browser:
+            return .navigation
+        case .diff:
+            return .diffReview
+        case .editor:
+            return .editorActions
+        case .plugin:
+            return nil
+        }
     }
 }
 

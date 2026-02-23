@@ -75,10 +75,7 @@ final class TerminalRuntime: PaneRuntime {
                 )
             }
 
-            switch terminalCommand {
-            case .sendInput, .resize, .clearScrollback:
-                return .success(commandId: envelope.commandId)
-            }
+            return dispatchTerminalCommand(terminalCommand, commandId: envelope.commandId)
         case .browser, .diff, .editor, .plugin:
             return .failure(.unsupportedCommand(command: String(describing: envelope.command), required: .input))
         }
@@ -170,6 +167,42 @@ final class TerminalRuntime: PaneRuntime {
             return .input
         case .resize:
             return .resize
+        }
+    }
+
+    private func dispatchTerminalCommand(_ command: TerminalCommand, commandId: UUID) -> ActionResult {
+        switch command {
+        case .sendInput(let input):
+            let dispatchResult = SurfaceManager.shared.sendInput(input, toPaneId: paneId.uuid)
+            return mapSurfaceDispatchResult(dispatchResult, commandId: commandId, command: command)
+        case .clearScrollback:
+            let dispatchResult = SurfaceManager.shared.clearScrollback(forPaneId: paneId.uuid)
+            return mapSurfaceDispatchResult(dispatchResult, commandId: commandId, command: command)
+        case .resize(let cols, let rows):
+            Self.logger.warning(
+                "Rejected terminal resize command for pane \(self.paneId.uuid.uuidString, privacy: .public): cols=\(cols, privacy: .public) rows=\(rows, privacy: .public). Programmatic col/row resizing is not supported by embedded Ghostty surface API."
+            )
+            return .failure(
+                .invalidPayload(
+                    description: "Programmatic terminal resize by columns/rows is not supported by embedded Ghostty"
+                )
+            )
+        }
+    }
+
+    private func mapSurfaceDispatchResult(
+        _ result: Result<Void, SurfaceError>,
+        commandId: UUID,
+        command: TerminalCommand
+    ) -> ActionResult {
+        switch result {
+        case .success:
+            return .success(commandId: commandId)
+        case .failure(let error):
+            Self.logger.warning(
+                "Terminal command dispatch failed for pane \(self.paneId.uuid.uuidString, privacy: .public) command=\(String(describing: command), privacy: .public): \(String(describing: error), privacy: .public)"
+            )
+            return .failure(.backendUnavailable(backend: "SurfaceManager"))
         }
     }
 }
