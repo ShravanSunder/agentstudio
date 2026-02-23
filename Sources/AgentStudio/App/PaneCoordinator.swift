@@ -38,11 +38,14 @@ final class PaneCoordinator {
     let runtime: SessionRuntime
     let surfaceManager: PaneCoordinatorSurfaceManaging
     let runtimeRegistry: RuntimeRegistry
+    let runtimeEventReducer: NotificationReducer
     let runtimeTargetResolver: RuntimeTargetResolver
     let runtimeCommandClock: ContinuousClock
     lazy var sessionConfig = SessionConfiguration.detect()
     private var cwdChangesTask: Task<Void, Never>?
     private var runtimeEventTasks: [PaneId: Task<Void, Never>] = [:]
+    private var criticalRuntimeEventsTask: Task<Void, Never>?
+    private var batchedRuntimeEventsTask: Task<Void, Never>?
 
     /// Unified undo stack — holds both tab and pane close entries, chronologically ordered.
     /// NOTE: Undo stack owned here (not in a store) because undo is fundamentally
@@ -81,11 +84,13 @@ final class PaneCoordinator {
         self.runtime = runtime
         self.surfaceManager = surfaceManager
         self.runtimeRegistry = runtimeRegistry
+        self.runtimeEventReducer = NotificationReducer()
         self.runtimeTargetResolver = RuntimeTargetResolver(workspaceStore: store)
         self.runtimeCommandClock = runtimeCommandClock
         Ghostty.App.setRuntimeRegistry(runtimeRegistry)
         subscribeToCWDChanges()
         setupPrePersistHook()
+        startRuntimeReducerConsumers()
     }
 
     isolated deinit {
@@ -94,6 +99,8 @@ final class PaneCoordinator {
             task.cancel()
         }
         runtimeEventTasks.removeAll()
+        criticalRuntimeEventsTask?.cancel()
+        batchedRuntimeEventsTask?.cancel()
     }
 
     func appendUndoEntry(_ entry: WorkspaceStore.CloseEntry) {
@@ -171,9 +178,31 @@ final class PaneCoordinator {
             guard let self else { return }
             for await envelope in stream {
                 if Task.isCancelled { break }
-                self.handleRuntimeEnvelope(envelope)
+                self.runtimeEventReducer.submit(envelope)
             }
             self.runtimeEventTasks.removeValue(forKey: runtimePaneId)
+        }
+    }
+
+    private func startRuntimeReducerConsumers() {
+        guard criticalRuntimeEventsTask == nil, batchedRuntimeEventsTask == nil else { return }
+
+        criticalRuntimeEventsTask = Task { @MainActor [weak self] in
+            guard let self else { return }
+            for await envelope in self.runtimeEventReducer.criticalEvents {
+                if Task.isCancelled { break }
+                self.handleRuntimeEnvelope(envelope)
+            }
+        }
+
+        batchedRuntimeEventsTask = Task { @MainActor [weak self] in
+            guard let self else { return }
+            for await batch in self.runtimeEventReducer.batchedEvents {
+                if Task.isCancelled { break }
+                for envelope in batch {
+                    self.handleRuntimeEnvelope(envelope)
+                }
+            }
         }
     }
 

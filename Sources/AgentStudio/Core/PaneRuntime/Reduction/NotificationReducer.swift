@@ -46,6 +46,10 @@ final class NotificationReducer {
     func submit(_ envelope: PaneEventEnvelope) {
         switch envelope.event.actionPolicy {
         case .critical:
+            guard tierResolver != nil else {
+                criticalContinuation.yield(envelope)
+                return
+            }
             let visibilityTier = tier(for: envelope)
             criticalBufferByTier[visibilityTier, default: []].append(envelope)
             ensureCriticalFlushTask()

@@ -26,62 +26,80 @@ final class GhosttyAdapter {
         actionTag: UInt32,
         payload: ActionPayload = .noPayload
     ) -> GhosttyEvent {
+        guard let knownActionTag = GhosttyActionTag(rawValue: actionTag) else {
+            return .unhandled(tag: actionTag)
+        }
+        return translate(actionTag: knownActionTag, payload: payload)
+    }
+
+    func translate(
+        actionTag: GhosttyActionTag,
+        payload: ActionPayload = .noPayload
+    ) -> GhosttyEvent {
         switch actionTag {
-        case UInt32(GHOSTTY_ACTION_RING_BELL.rawValue):
+        case .ringBell:
             return .bellRang
-        case UInt32(GHOSTTY_ACTION_NEW_TAB.rawValue):
+        case .newTab:
             return .newTab
-        case UInt32(GHOSTTY_ACTION_CLOSE_TAB.rawValue):
+        case .closeTab:
             guard
                 case .closeTab(let modeRawValue) = payload,
                 let mode = closeTabMode(from: modeRawValue)
             else {
-                return .unhandled(tag: actionTag)
+                return .unhandled(tag: actionTag.rawValue)
             }
             return .closeTab(mode: mode)
-        case UInt32(GHOSTTY_ACTION_GOTO_TAB.rawValue):
+        case .gotoTab:
             guard
                 case .gotoTab(let targetRawValue) = payload,
                 let target = gotoTabTarget(from: targetRawValue)
             else {
-                return .unhandled(tag: actionTag)
+                return .unhandled(tag: actionTag.rawValue)
             }
             return .gotoTab(target: target)
-        case UInt32(GHOSTTY_ACTION_MOVE_TAB.rawValue):
+        case .moveTab:
             guard case .moveTab(let amount) = payload else {
-                return .unhandled(tag: actionTag)
+                return .unhandled(tag: actionTag.rawValue)
             }
             return .moveTab(amount: amount)
-        case UInt32(GHOSTTY_ACTION_NEW_SPLIT.rawValue):
+        case .newSplit:
             guard
                 case .newSplit(let directionRawValue) = payload,
                 let direction = splitDirection(from: directionRawValue)
             else {
-                return .unhandled(tag: actionTag)
+                return .unhandled(tag: actionTag.rawValue)
             }
             return .newSplit(direction: direction)
-        case UInt32(GHOSTTY_ACTION_GOTO_SPLIT.rawValue):
+        case .gotoSplit:
             guard
                 case .gotoSplit(let directionRawValue) = payload,
                 let direction = gotoSplitDirection(from: directionRawValue)
             else {
-                return .unhandled(tag: actionTag)
+                return .unhandled(tag: actionTag.rawValue)
             }
             return .gotoSplit(direction: direction)
-        case UInt32(GHOSTTY_ACTION_RESIZE_SPLIT.rawValue):
+        case .resizeSplit:
             guard
                 case .resizeSplit(let amount, let directionRawValue) = payload,
                 let direction = resizeSplitDirection(from: directionRawValue)
             else {
-                return .unhandled(tag: actionTag)
+                return .unhandled(tag: actionTag.rawValue)
             }
             return .resizeSplit(amount: amount, direction: direction)
-        case UInt32(GHOSTTY_ACTION_EQUALIZE_SPLITS.rawValue):
+        case .equalizeSplits:
             return .equalizeSplits
-        case UInt32(GHOSTTY_ACTION_TOGGLE_SPLIT_ZOOM.rawValue):
+        case .toggleSplitZoom:
             return .toggleSplitZoom
-        case let unhandledTag:
-            return .unhandled(tag: unhandledTag)
+        case .quit, .newWindow, .setTitle, .pwd, .closeAllWindows, .toggleMaximize, .toggleFullscreen,
+            .toggleTabOverview, .toggleWindowDecorations, .toggleQuickTerminal, .toggleCommandPalette,
+            .toggleVisibility, .toggleBackgroundOpacity, .gotoWindow, .presentTerminal, .sizeLimit,
+            .resetWindowSize, .initialSize, .cellSize, .scrollbar, .render, .inspector, .showGtkInspector,
+            .renderInspector, .desktopNotification, .promptTitle, .mouseShape, .mouseVisibility, .mouseOverLink,
+            .rendererHealth, .openConfig, .quitTimer, .floatWindow, .secureInput, .keySequence, .keyTable,
+            .colorChange, .reloadConfig, .configChange, .closeWindow, .undo, .redo, .checkForUpdates, .openURL,
+            .showChildExited, .progressReport, .showOnScreenKeyboard, .commandFinished, .startSearch, .endSearch,
+            .searchTotal, .searchSelected, .readOnly, .copyTitleToClipboard:
+            return .unhandled(tag: actionTag.rawValue)
         }
     }
 

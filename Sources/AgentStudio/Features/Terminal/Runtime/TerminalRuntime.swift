@@ -55,8 +55,22 @@ final class TerminalRuntime: PaneRuntime {
             return .success(commandId: envelope.commandId)
         case .requestSnapshot:
             return .success(commandId: envelope.commandId)
-        case .terminal:
-            return .success(commandId: envelope.commandId)
+        case .terminal(let terminalCommand):
+            if let requiredCapability = requiredCapability(for: terminalCommand),
+                !capabilities.contains(requiredCapability)
+            {
+                return .failure(
+                    .unsupportedCommand(
+                        command: String(describing: envelope.command),
+                        required: requiredCapability
+                    )
+                )
+            }
+
+            switch terminalCommand {
+            case .sendInput, .resize, .clearScrollback:
+                return .success(commandId: envelope.commandId)
+            }
         case .browser, .diff, .editor, .plugin:
             return .failure(.unsupportedCommand(command: String(describing: envelope.command), required: .input))
         }
@@ -134,6 +148,15 @@ final class TerminalRuntime: PaneRuntime {
             return false
         case .titleChanged, .cwdChanged, .commandFinished, .bellRang, .scrollbarChanged, .unhandled:
             return true
+        }
+    }
+
+    private func requiredCapability(for command: TerminalCommand) -> PaneCapability? {
+        switch command {
+        case .sendInput, .clearScrollback:
+            return .input
+        case .resize:
+            return .resize
         }
     }
 }

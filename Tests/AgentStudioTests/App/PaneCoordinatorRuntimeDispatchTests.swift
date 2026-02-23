@@ -89,6 +89,133 @@ struct PaneCoordinatorRuntimeDispatchTests {
         try? FileManager.default.removeItem(at: tempDir)
     }
 
+    @Test("dispatchRuntimeCommand rejects dispatch when runtime lifecycle is not ready")
+    func dispatchFailsWhenRuntimeNotReady() async {
+        let tempDir = FileManager.default.temporaryDirectory
+            .appending(path: "agentstudio-pane-coordinator-runtime-not-ready-\(UUID().uuidString)")
+        let store = WorkspaceStore(persistor: WorkspacePersistor(workspacesDir: tempDir))
+        store.restore()
+        let viewRegistry = ViewRegistry()
+        let runtime = SessionRuntime(store: store)
+        let mockSurfaceManager = MockPaneCoordinatorSurfaceManager()
+        let runtimeRegistry = RuntimeRegistry()
+        let coordinator = PaneCoordinator(
+            store: store,
+            viewRegistry: viewRegistry,
+            runtime: runtime,
+            surfaceManager: mockSurfaceManager,
+            runtimeRegistry: runtimeRegistry
+        )
+
+        let pane = store.createPane(
+            content: .webview(WebviewState(url: URL(string: "https://example.com/runtime-not-ready")!)),
+            metadata: PaneMetadata(source: .floating(workingDirectory: nil, title: "Runtime"), title: "Runtime")
+        )
+        let tab = Tab(paneId: pane.id)
+        store.appendTab(tab)
+        store.setActiveTab(tab.id)
+
+        let fakeRuntime = FakePaneRuntime(paneId: PaneId(uuid: pane.id))
+        fakeRuntime.lifecycle = .created
+        coordinator.registerRuntime(fakeRuntime)
+
+        let result = await coordinator.dispatchRuntimeCommand(.activate, target: .activePane)
+        #expect(result == .failure(.runtimeNotReady(lifecycle: .created)))
+        #expect(fakeRuntime.receivedCommands.isEmpty)
+
+        try? FileManager.default.removeItem(at: tempDir)
+    }
+
+    @Test("dispatchRuntimeCommand enforces required command capability before dispatch")
+    func dispatchFailsWhenCapabilityMissing() async {
+        let tempDir = FileManager.default.temporaryDirectory
+            .appending(path: "agentstudio-pane-coordinator-runtime-capability-\(UUID().uuidString)")
+        let store = WorkspaceStore(persistor: WorkspacePersistor(workspacesDir: tempDir))
+        store.restore()
+        let viewRegistry = ViewRegistry()
+        let runtime = SessionRuntime(store: store)
+        let mockSurfaceManager = MockPaneCoordinatorSurfaceManager()
+        let runtimeRegistry = RuntimeRegistry()
+        let coordinator = PaneCoordinator(
+            store: store,
+            viewRegistry: viewRegistry,
+            runtime: runtime,
+            surfaceManager: mockSurfaceManager,
+            runtimeRegistry: runtimeRegistry
+        )
+
+        let pane = store.createPane(
+            content: .webview(WebviewState(url: URL(string: "https://example.com/runtime-capability")!)),
+            metadata: PaneMetadata(source: .floating(workingDirectory: nil, title: "Runtime"), title: "Runtime")
+        )
+        let tab = Tab(paneId: pane.id)
+        store.appendTab(tab)
+        store.setActiveTab(tab.id)
+
+        let fakeRuntime = FakePaneRuntime(paneId: PaneId(uuid: pane.id))
+        fakeRuntime.capabilities = [.input]
+        coordinator.registerRuntime(fakeRuntime)
+
+        let result = await coordinator.dispatchRuntimeCommand(.browser(.reload(hard: false)), target: .activePane)
+        switch result {
+        case .failure(.unsupportedCommand(_, .navigation)):
+            break
+        default:
+            #expect(Bool(false), "Expected unsupportedCommand requiring navigation capability")
+        }
+        #expect(fakeRuntime.receivedCommands.isEmpty)
+
+        try? FileManager.default.removeItem(at: tempDir)
+    }
+
+    @Test("dispatchRuntimeCommand rejects diff artifact worktree mismatch")
+    func dispatchRejectsDiffWorktreeMismatch() async {
+        let tempDir = FileManager.default.temporaryDirectory
+            .appending(path: "agentstudio-pane-coordinator-runtime-diff-worktree-\(UUID().uuidString)")
+        let store = WorkspaceStore(persistor: WorkspacePersistor(workspacesDir: tempDir))
+        store.restore()
+        let viewRegistry = ViewRegistry()
+        let runtime = SessionRuntime(store: store)
+        let mockSurfaceManager = MockPaneCoordinatorSurfaceManager()
+        let runtimeRegistry = RuntimeRegistry()
+        let coordinator = PaneCoordinator(
+            store: store,
+            viewRegistry: viewRegistry,
+            runtime: runtime,
+            surfaceManager: mockSurfaceManager,
+            runtimeRegistry: runtimeRegistry
+        )
+
+        let pane = store.createPane(
+            content: .webview(WebviewState(url: URL(string: "https://example.com/runtime-diff")!)),
+            metadata: PaneMetadata(source: .floating(workingDirectory: nil, title: "Runtime"), title: "Runtime")
+        )
+        let tab = Tab(paneId: pane.id)
+        store.appendTab(tab)
+        store.setActiveTab(tab.id)
+
+        let fakeRuntime = FakePaneRuntime(paneId: PaneId(uuid: pane.id))
+        fakeRuntime.capabilities = [.diffReview]
+        fakeRuntime.metadata.worktreeId = UUID(uuidString: "00000000-0000-0000-0000-000000000001")
+        coordinator.registerRuntime(fakeRuntime)
+
+        let artifact = DiffArtifact(
+            diffId: UUID(),
+            worktreeId: UUID(uuidString: "00000000-0000-0000-0000-000000000002")!,
+            patchData: Data("diff".utf8)
+        )
+        let result = await coordinator.dispatchRuntimeCommand(.diff(.loadDiff(artifact)), target: .activePane)
+        switch result {
+        case .failure(.invalidPayload(let description)):
+            #expect(description.contains("worktree"))
+        default:
+            #expect(Bool(false), "Expected invalidPayload for mismatched diff worktree routing")
+        }
+        #expect(fakeRuntime.receivedCommands.isEmpty)
+
+        try? FileManager.default.removeItem(at: tempDir)
+    }
+
     @Test("closeTab teardown unregisters runtime from registry")
     func closeTab_unregistersRuntime() {
         let tempDir = FileManager.default.temporaryDirectory

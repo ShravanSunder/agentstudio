@@ -198,32 +198,36 @@ extension Ghostty {
         // coverage when Ghostty adds new action tags.
         // swiftlint:disable function_body_length
         static func handleAction(_ appPtr: ghostty_app_t, target: ghostty_target_s, action: ghostty_action_s) -> Bool {
-            let actionTag = UInt32(truncatingIfNeeded: action.tag.rawValue)
+            let rawActionTag = UInt32(truncatingIfNeeded: action.tag.rawValue)
+            guard let actionTag = GhosttyActionTag(rawValue: rawActionTag) else {
+                return routeUnhandledAction(actionTag: rawActionTag, target: target)
+            }
+
             switch actionTag {
-            case UInt32(GHOSTTY_ACTION_QUIT.rawValue):
+            case .quit:
                 // Don't quit - AgentStudio manages its own window lifecycle
                 // Ghostty sends this when all surfaces are closed, but we want to stay running
                 return true
 
-            case UInt32(GHOSTTY_ACTION_NEW_WINDOW.rawValue):
+            case .newWindow:
                 NotificationCenter.default.post(name: .ghosttyNewWindow, object: nil)
                 return true
 
-            case UInt32(GHOSTTY_ACTION_NEW_TAB.rawValue):
+            case .newTab:
                 return routeActionToTerminalRuntime(
-                    actionTag: actionTag,
+                    actionTag: actionTag.rawValue,
                     payload: .noPayload,
                     target: target
                 )
 
-            case UInt32(GHOSTTY_ACTION_RING_BELL.rawValue):
+            case .ringBell:
                 return routeActionToTerminalRuntime(
-                    actionTag: actionTag,
+                    actionTag: actionTag.rawValue,
                     payload: .noPayload,
                     target: target
                 )
 
-            case UInt32(GHOSTTY_ACTION_SET_TITLE.rawValue):
+            case .setTitle:
                 if target.tag == GHOSTTY_TARGET_SURFACE, let surface = target.target.surface {
                     if let surfaceView = surfaceView(from: surface),
                         let titlePtr = action.action.set_title.title
@@ -237,7 +241,7 @@ extension Ghostty {
                 }
                 return true
 
-            case UInt32(GHOSTTY_ACTION_PWD.rawValue):
+            case .pwd:
                 if target.tag == GHOSTTY_TARGET_SURFACE, let surface = target.target.surface {
                     if let surfaceView = surfaceView(from: surface) {
                         let pwd = action.action.pwd.pwd.map { String(cString: $0) }
@@ -250,23 +254,23 @@ extension Ghostty {
                 return true
 
             // Split actions
-            case UInt32(GHOSTTY_ACTION_NEW_SPLIT.rawValue):
+            case .newSplit:
                 return routeActionToTerminalRuntime(
-                    actionTag: actionTag,
+                    actionTag: actionTag.rawValue,
                     payload: .newSplit(directionRawValue: action.action.new_split.rawValue),
                     target: target
                 )
 
-            case UInt32(GHOSTTY_ACTION_GOTO_SPLIT.rawValue):
+            case .gotoSplit:
                 return routeActionToTerminalRuntime(
-                    actionTag: actionTag,
+                    actionTag: actionTag.rawValue,
                     payload: .gotoSplit(directionRawValue: action.action.goto_split.rawValue),
                     target: target
                 )
 
-            case UInt32(GHOSTTY_ACTION_RESIZE_SPLIT.rawValue):
+            case .resizeSplit:
                 return routeActionToTerminalRuntime(
-                    actionTag: actionTag,
+                    actionTag: actionTag.rawValue,
                     payload: .resizeSplit(
                         amount: action.action.resize_split.amount,
                         directionRawValue: action.action.resize_split.direction.rawValue
@@ -274,95 +278,51 @@ extension Ghostty {
                     target: target
                 )
 
-            case UInt32(GHOSTTY_ACTION_EQUALIZE_SPLITS.rawValue):
+            case .equalizeSplits:
                 return routeActionToTerminalRuntime(
-                    actionTag: actionTag,
+                    actionTag: actionTag.rawValue,
                     payload: .noPayload,
                     target: target
                 )
 
-            case UInt32(GHOSTTY_ACTION_TOGGLE_SPLIT_ZOOM.rawValue):
+            case .toggleSplitZoom:
                 return routeActionToTerminalRuntime(
-                    actionTag: actionTag,
+                    actionTag: actionTag.rawValue,
                     payload: .noPayload,
                     target: target
                 )
 
             // Tab actions
-            case UInt32(GHOSTTY_ACTION_CLOSE_TAB.rawValue):
+            case .closeTab:
                 return routeActionToTerminalRuntime(
-                    actionTag: actionTag,
+                    actionTag: actionTag.rawValue,
                     payload: .closeTab(modeRawValue: action.action.close_tab_mode.rawValue),
                     target: target
                 )
 
-            case UInt32(GHOSTTY_ACTION_GOTO_TAB.rawValue):
+            case .gotoTab:
                 return routeActionToTerminalRuntime(
-                    actionTag: actionTag,
+                    actionTag: actionTag.rawValue,
                     payload: .gotoTab(targetRawValue: action.action.goto_tab.rawValue),
                     target: target
                 )
 
-            case UInt32(GHOSTTY_ACTION_MOVE_TAB.rawValue):
+            case .moveTab:
                 return routeActionToTerminalRuntime(
-                    actionTag: actionTag,
+                    actionTag: actionTag.rawValue,
                     payload: .moveTab(amount: Int(action.action.move_tab.amount)),
                     target: target
                 )
-            case UInt32(GHOSTTY_ACTION_CLOSE_ALL_WINDOWS.rawValue),
-                UInt32(GHOSTTY_ACTION_TOGGLE_MAXIMIZE.rawValue),
-                UInt32(GHOSTTY_ACTION_TOGGLE_FULLSCREEN.rawValue),
-                UInt32(GHOSTTY_ACTION_TOGGLE_TAB_OVERVIEW.rawValue),
-                UInt32(GHOSTTY_ACTION_TOGGLE_WINDOW_DECORATIONS.rawValue),
-                UInt32(GHOSTTY_ACTION_TOGGLE_QUICK_TERMINAL.rawValue),
-                UInt32(GHOSTTY_ACTION_TOGGLE_COMMAND_PALETTE.rawValue),
-                UInt32(GHOSTTY_ACTION_TOGGLE_VISIBILITY.rawValue),
-                UInt32(GHOSTTY_ACTION_TOGGLE_BACKGROUND_OPACITY.rawValue),
-                UInt32(GHOSTTY_ACTION_GOTO_WINDOW.rawValue),
-                UInt32(GHOSTTY_ACTION_PRESENT_TERMINAL.rawValue),
-                UInt32(GHOSTTY_ACTION_SIZE_LIMIT.rawValue),
-                UInt32(GHOSTTY_ACTION_RESET_WINDOW_SIZE.rawValue),
-                UInt32(GHOSTTY_ACTION_INITIAL_SIZE.rawValue),
-                UInt32(GHOSTTY_ACTION_CELL_SIZE.rawValue),
-                UInt32(GHOSTTY_ACTION_SCROLLBAR.rawValue),
-                UInt32(GHOSTTY_ACTION_RENDER.rawValue),
-                UInt32(GHOSTTY_ACTION_INSPECTOR.rawValue),
-                UInt32(GHOSTTY_ACTION_SHOW_GTK_INSPECTOR.rawValue),
-                UInt32(GHOSTTY_ACTION_RENDER_INSPECTOR.rawValue),
-                UInt32(GHOSTTY_ACTION_DESKTOP_NOTIFICATION.rawValue),
-                UInt32(GHOSTTY_ACTION_PROMPT_TITLE.rawValue),
-                UInt32(GHOSTTY_ACTION_MOUSE_SHAPE.rawValue),
-                UInt32(GHOSTTY_ACTION_MOUSE_VISIBILITY.rawValue),
-                UInt32(GHOSTTY_ACTION_MOUSE_OVER_LINK.rawValue),
-                UInt32(GHOSTTY_ACTION_RENDERER_HEALTH.rawValue),
-                UInt32(GHOSTTY_ACTION_OPEN_CONFIG.rawValue),
-                UInt32(GHOSTTY_ACTION_QUIT_TIMER.rawValue),
-                UInt32(GHOSTTY_ACTION_FLOAT_WINDOW.rawValue),
-                UInt32(GHOSTTY_ACTION_SECURE_INPUT.rawValue),
-                UInt32(GHOSTTY_ACTION_KEY_SEQUENCE.rawValue),
-                UInt32(GHOSTTY_ACTION_KEY_TABLE.rawValue),
-                UInt32(GHOSTTY_ACTION_COLOR_CHANGE.rawValue),
-                UInt32(GHOSTTY_ACTION_RELOAD_CONFIG.rawValue),
-                UInt32(GHOSTTY_ACTION_CONFIG_CHANGE.rawValue),
-                UInt32(GHOSTTY_ACTION_CLOSE_WINDOW.rawValue),
-                UInt32(GHOSTTY_ACTION_UNDO.rawValue),
-                UInt32(GHOSTTY_ACTION_REDO.rawValue),
-                UInt32(GHOSTTY_ACTION_CHECK_FOR_UPDATES.rawValue),
-                UInt32(GHOSTTY_ACTION_OPEN_URL.rawValue),
-                UInt32(GHOSTTY_ACTION_SHOW_CHILD_EXITED.rawValue),
-                UInt32(GHOSTTY_ACTION_PROGRESS_REPORT.rawValue),
-                UInt32(GHOSTTY_ACTION_SHOW_ON_SCREEN_KEYBOARD.rawValue),
-                UInt32(GHOSTTY_ACTION_COMMAND_FINISHED.rawValue),
-                UInt32(GHOSTTY_ACTION_START_SEARCH.rawValue),
-                UInt32(GHOSTTY_ACTION_END_SEARCH.rawValue),
-                UInt32(GHOSTTY_ACTION_SEARCH_TOTAL.rawValue),
-                UInt32(GHOSTTY_ACTION_SEARCH_SELECTED.rawValue),
-                UInt32(GHOSTTY_ACTION_READONLY.rawValue),
-                UInt32(GHOSTTY_ACTION_COPY_TITLE_TO_CLIPBOARD.rawValue):
-                return routeUnhandledAction(actionTag: actionTag, target: target)
-
-            case let unhandledTag:
-                return routeUnhandledAction(actionTag: unhandledTag, target: target)
+            case .closeAllWindows, .toggleMaximize, .toggleFullscreen, .toggleTabOverview,
+                .toggleWindowDecorations, .toggleQuickTerminal, .toggleCommandPalette, .toggleVisibility,
+                .toggleBackgroundOpacity, .gotoWindow, .presentTerminal, .sizeLimit, .resetWindowSize,
+                .initialSize, .cellSize, .scrollbar, .render, .inspector, .showGtkInspector, .renderInspector,
+                .desktopNotification, .promptTitle, .mouseShape, .mouseVisibility, .mouseOverLink,
+                .rendererHealth, .openConfig, .quitTimer, .floatWindow, .secureInput, .keySequence, .keyTable,
+                .colorChange, .reloadConfig, .configChange, .closeWindow, .undo, .redo, .checkForUpdates,
+                .openURL, .showChildExited, .progressReport, .showOnScreenKeyboard, .commandFinished,
+                .startSearch, .endSearch, .searchTotal, .searchSelected, .readOnly, .copyTitleToClipboard:
+                return routeUnhandledAction(actionTag: actionTag.rawValue, target: target)
             }
         }
         // swiftlint:enable function_body_length
@@ -378,8 +338,39 @@ extension Ghostty {
         }
 
         private static func routeUnhandledAction(actionTag: UInt32, target: ghostty_target_s) -> Bool {
-            ghosttyLogger.warning("Unhandled Ghostty action tag \(actionTag)")
-            return routeActionToTerminalRuntime(actionTag: actionTag, payload: .noPayload, target: target)
+            let targetTag = UInt32(truncatingIfNeeded: target.tag.rawValue)
+            if target.tag == GHOSTTY_TARGET_SURFACE, let surface = target.target.surface {
+                let surfacePointerDescription = String(UInt(bitPattern: surface))
+                if let resolvedSurfaceView = surfaceView(from: surface) {
+                    let surfaceViewObjectId = ObjectIdentifier(resolvedSurfaceView)
+                    Task { @MainActor in
+                        let paneIdDescription: String
+                        if let surfaceId = SurfaceManager.shared.surfaceId(forViewObjectId: surfaceViewObjectId),
+                            let paneId = SurfaceManager.shared.paneId(for: surfaceId)
+                        {
+                            paneIdDescription = paneId.uuidString
+                        } else {
+                            paneIdDescription = "unknown"
+                        }
+                        ghosttyLogger.warning(
+                            "Unhandled Ghostty action tag \(actionTag) targetTag=\(targetTag) paneId=\(paneIdDescription, privacy: .public) surfacePtr=\(surfacePointerDescription, privacy: .public)"
+                        )
+                    }
+                } else {
+                    ghosttyLogger.warning(
+                        "Unhandled Ghostty action tag \(actionTag) targetTag=\(targetTag) paneId=unknown surfacePtr=\(surfacePointerDescription, privacy: .public)"
+                    )
+                }
+            } else {
+                ghosttyLogger.warning(
+                    "Unhandled Ghostty action tag \(actionTag) targetTag=\(targetTag) paneId=none surfacePtr=none"
+                )
+            }
+
+            _ = routeActionToTerminalRuntime(actionTag: actionTag, payload: .noPayload, target: target)
+            // Returning false preserves Ghostty's built-in default behavior for
+            // tags AgentStudio does not handle yet.
+            return false
         }
 
         private static func routeActionToTerminalRuntime(
