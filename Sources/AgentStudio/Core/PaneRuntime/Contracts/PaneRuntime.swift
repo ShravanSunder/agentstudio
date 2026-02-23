@@ -7,7 +7,7 @@ protocol PaneRuntime: AnyObject {
     var lifecycle: PaneRuntimeLifecycle { get }
     var capabilities: Set<PaneCapability> { get }
 
-    func handleCommand(_ envelope: PaneCommandEnvelope) async -> ActionResult
+    func handleCommand(_ envelope: RuntimeCommandEnvelope) async -> ActionResult
     func subscribe() -> AsyncStream<PaneEventEnvelope>
     func snapshot() -> PaneRuntimeSnapshot
     func eventsSince(seq: UInt64) async -> EventReplayBuffer.ReplayResult

@@ -26,8 +26,8 @@ struct RuntimeRegistryTests {
         #expect(registry.runtime(for: runtime.paneId) == nil)
     }
 
-    @Test("duplicate registration replaces existing runtime without crashing")
-    func duplicateRegistrationReplacesRuntime() {
+    @Test("duplicate registration is rejected and existing runtime is preserved")
+    func duplicateRegistrationRejected() {
         let registry = RuntimeRegistry()
         let paneId = PaneId()
         let first = TestPaneRuntime(paneId: paneId, contentType: .terminal)
@@ -37,11 +37,11 @@ struct RuntimeRegistryTests {
         let secondResult = registry.register(second)
 
         #expect(firstResult == .inserted)
-        #expect(secondResult == .replaced)
+        #expect(secondResult == .duplicateRejected)
         #expect(registry.count == 1)
-        #expect(registry.runtime(for: paneId)?.metadata.contentType == .browser)  // paneId is now PaneId
-        #expect(registry.runtimes(ofType: .terminal).isEmpty)
-        #expect(registry.runtimes(ofType: .browser).count == 1)
+        #expect(registry.runtime(for: paneId)?.metadata.contentType == .terminal)
+        #expect(registry.runtimes(ofType: .terminal).count == 1)
+        #expect(registry.runtimes(ofType: .browser).isEmpty)
     }
 }
 
@@ -72,7 +72,7 @@ private final class TestPaneRuntime: PaneRuntime {
         }
     }
 
-    func handleCommand(_ envelope: PaneCommandEnvelope) async -> ActionResult {
+    func handleCommand(_ envelope: RuntimeCommandEnvelope) async -> ActionResult {
         .success(commandId: envelope.commandId)
     }
 

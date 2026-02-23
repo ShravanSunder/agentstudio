@@ -116,7 +116,55 @@ enum RuntimeErrorEvent: Error, Sendable {
     case internalStateCorrupted
 }
 
-enum GhosttyEvent: PaneKindEvent, Sendable {
+// Ghostty payload enums are colocated with GhosttyEvent because they are associated
+// value types of a core runtime contract. Moving them under Features/Terminal would
+// introduce a Core -> Features import.
+enum GhosttyCloseTabMode: Sendable, Equatable {
+    case thisTab
+    case otherTabs
+    case rightTabs
+}
+
+enum GhosttyGotoTabTarget: Sendable, Equatable {
+    case previous
+    case next
+    case last
+    case index(Int)
+}
+
+enum GhosttySplitDirection: Sendable, Equatable {
+    case left
+    case right
+    case up
+    case down
+}
+
+enum GhosttyGotoSplitDirection: Sendable, Equatable {
+    case previous
+    case next
+    case left
+    case right
+    case up
+    case down
+}
+
+enum GhosttyResizeSplitDirection: Sendable, Equatable {
+    case left
+    case right
+    case up
+    case down
+}
+
+enum GhosttyEvent: PaneKindEvent, Sendable, Equatable {
+    case newTab
+    case closeTab(mode: GhosttyCloseTabMode)
+    case gotoTab(target: GhosttyGotoTabTarget)
+    case moveTab(amount: Int)
+    case newSplit(direction: GhosttySplitDirection)
+    case gotoSplit(direction: GhosttyGotoSplitDirection)
+    case resizeSplit(amount: UInt16, direction: GhosttyResizeSplitDirection)
+    case equalizeSplits
+    case toggleSplitZoom
     case titleChanged(String)
     case cwdChanged(String)
     case commandFinished(exitCode: Int, duration: UInt64)
@@ -128,13 +176,23 @@ enum GhosttyEvent: PaneKindEvent, Sendable {
         switch self {
         case .scrollbarChanged:
             return .lossy(consolidationKey: "scroll")
-        case .titleChanged, .cwdChanged, .commandFinished, .bellRang, .unhandled:
+        case .newTab, .closeTab, .gotoTab, .moveTab, .newSplit, .gotoSplit, .resizeSplit, .equalizeSplits,
+            .toggleSplitZoom, .titleChanged, .cwdChanged, .commandFinished, .bellRang, .unhandled:
             return .critical
         }
     }
 
     var eventName: EventIdentifier {
         switch self {
+        case .newTab: return .newTab
+        case .closeTab: return .closeTab
+        case .gotoTab: return .gotoTab
+        case .moveTab: return .moveTab
+        case .newSplit: return .newSplit
+        case .gotoSplit: return .gotoSplit
+        case .resizeSplit: return .resizeSplit
+        case .equalizeSplits: return .equalizeSplits
+        case .toggleSplitZoom: return .toggleSplitZoom
         case .titleChanged: return .titleChanged
         case .cwdChanged: return .cwdChanged
         case .commandFinished: return .commandFinished

@@ -1470,9 +1470,7 @@ struct RuntimeCommandEnvelope: Sendable {
 /// Protocol for per-kind commands. Same pattern as PaneKindEvent:
 /// built-in command enums conform AND have dedicated cases.
 /// Plugin commands conform and use the `.plugin` escape hatch.
-protocol RuntimeKindCommand: Sendable {
-    var commandName: String { get }
-}
+protocol RuntimeKindCommand: Sendable {}
 
 /// What the coordinator can tell any runtime to do.
 /// Discriminated union with plugin escape hatch — same pattern as
@@ -2396,7 +2394,7 @@ The current codebase uses `NotificationCenter` and `DispatchQueue.main.async` fo
 
 1. **LUNA-327 (done):** `@Observable` migration, `private(set)` stores, `PaneCoordinator` consolidation. Foundation for the event bus. `DispatchQueue.main.async` → `MainActor` primitives where touched.
 2. **LUNA-342 (done):** Contract freeze + Swift 6 language mode migration. `.swiftLanguageMode(.v6)` enforced, all `isolated deinit` migrations complete, `MainActor.assumeIsolated` removed from Sources, C callback trampolines partially migrated (`wakeup_cb` done), existential Sendable constraints added. SwiftLint concurrency rules added (44 violations marking LUNA-325 scope). See [migration spec](../plans/2026-02-22-swift6-language-mode-migration.md) and [mapping doc](../plans/2026-02-21-pane-runtime-luna-295-luna-325-mapping.md#luna-342-implementation-record) for details.
-3. **LUNA-325 (next):** Build `GhosttyAdapter`, `TerminalRuntime`, `RuntimeRegistry`, `NotificationReducer`. Replace `NotificationCenter`-based dispatch with typed event stream. Resolve remaining 44 SwiftLint concurrency violations (23 DispatchQueue, 20 NotificationCenter selector, 1 Task.detached). This is the primary migration ticket.
+3. **LUNA-325 (in progress):** `GhosttyAdapter`, `TerminalRuntime`, `RuntimeRegistry`, `NotificationReducer`, and runtime command dispatch scaffolding are landed. Migrated split/tab action families are now routed through typed runtime events (no dual-path NotificationCenter posts for migrated actions). Remaining full-contract parity is tracked through the LUNA-325/LUNA-345 closure gate.
 4. **LUNA-295 (attach orchestration):** Build attach readiness policies and visibility-tier scheduling. Consumes the event stream infrastructure from LUNA-325.
 5. **LUNA-324 (restart reconcile):** Build startup reconcile classification, orphan TTL cleanup, and post-restore health monitoring (Contract 5b).
 
@@ -2416,9 +2414,9 @@ Structural guarantees that hold across all contracts. Each invariant is enforced
 
 *Enforced by:* Code review + contract tests asserting no `paneId`/`worktreeId` routing fields in event enum cases.
 
-**A2. One runtime instance per pane. One adapter instance per backend technology.** `RuntimeRegistry` enforces uniqueness via `precondition` on `register()`. Adapters (`GhosttyAdapter`, `WebKitAdapter`) are shared singletons that route by surface/webview ID to the correct runtime instance. No pane ever has two runtimes; no runtime ever serves two panes.
+**A2. One runtime instance per pane. One adapter instance per backend technology.** `RuntimeRegistry` enforces uniqueness on `register()` by rejecting duplicate pane registrations and preserving the first runtime. Adapters (`GhosttyAdapter`, `WebKitAdapter`) are shared singletons that route by surface/webview ID to the correct runtime instance. No pane ever has two runtimes; no runtime ever serves two panes.
 
-*Enforced by:* `RuntimeRegistry.register()` precondition. Violation = fatal assertion (programmer error).
+*Enforced by:* `RuntimeRegistry.register()` result (`inserted` vs `duplicateRejected`) with duplicate rejection logging. Violation response = reject replacement and preserve existing runtime mapping.
 
 **A3. RuntimeRegistry is the sole lookup for paneId → runtime.** No parallel maps, no caching of runtime references outside the registry. Coordinator, event bus, and all consumers go through `RuntimeRegistry.runtime(for:)`. Terminated runtimes are removed via `unregister()` — the registry never contains terminated entries.
 

@@ -132,6 +132,7 @@ extension PaneCoordinator {
             view.displaySurface(managed.surface)
 
             viewRegistry.register(view, for: pane.id)
+            registerTerminalRuntimeIfNeeded(for: pane)
             runtime.markRunning(pane.id)
             RestoreTrace.log(
                 "createView complete pane=\(pane.id) surface=\(managed.id) viewBounds=\(NSStringFromRect(view.bounds))"
@@ -189,6 +190,7 @@ extension PaneCoordinator {
             view.displaySurface(managed.surface)
 
             viewRegistry.register(view, for: pane.id)
+            registerTerminalRuntimeIfNeeded(for: pane)
             runtime.markRunning(pane.id)
             RestoreTrace.log("createFloatingView complete pane=\(pane.id) surface=\(managed.id)")
 
@@ -246,6 +248,24 @@ extension PaneCoordinator {
             }
         }
         Self.logger.debug("Reattached pane \(paneId) for view switch")
+    }
+
+    private func registerTerminalRuntimeIfNeeded(for pane: Pane) {
+        let runtimePaneId = PaneId(uuid: pane.id)
+        guard runtimeForPane(runtimePaneId) == nil else { return }
+
+        let terminalRuntime = TerminalRuntime(
+            paneId: runtimePaneId,
+            metadata: pane.metadata
+        )
+        terminalRuntime.transitionToReady()
+        guard terminalRuntime.lifecycle == .ready else {
+            Self.logger.warning(
+                "Terminal runtime for pane \(pane.id.uuidString, privacy: .public) failed ready transition; skipping runtime registration"
+            )
+            return
+        }
+        registerRuntime(terminalRuntime)
     }
 
     /// Restore a view from an undo close. Tries to reuse the undone surface; creates fresh if expired.

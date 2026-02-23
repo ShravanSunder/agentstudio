@@ -1,10 +1,10 @@
 import Foundation
 
 @MainActor
-struct PaneTargetResolver {
+struct RuntimeTargetResolver {
     let workspaceStore: WorkspaceStore
 
-    func resolve(_ target: PaneCommandTarget) -> PaneId? {
+    func resolve(_ target: RuntimeCommandTarget) -> PaneId? {
         switch target {
         case .pane(let paneId):
             return workspaceStore.pane(paneId.uuid) == nil ? nil : paneId

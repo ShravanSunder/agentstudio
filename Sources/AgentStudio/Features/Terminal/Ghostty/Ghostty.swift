@@ -42,7 +42,6 @@ extension Ghostty {
     /// Notification names for Ghostty events
     enum Notification {
         static let ghosttyNewWindow = Foundation.Notification.Name("ghosttyNewWindow")
-        static let ghosttyNewTab = Foundation.Notification.Name("ghosttyNewTab")
         static let ghosttyCloseSurface = Foundation.Notification.Name("ghosttyCloseSurface")
 
         /// Posted when renderer health changes
@@ -63,18 +62,6 @@ extension Ghostty {
         /// Posted by SurfaceManager when a managed surface's CWD changes
         /// - userInfo: ["surfaceId": UUID, "url": URL] (url absent when cleared)
         static let surfaceCWDChanged = Foundation.Notification.Name("ghosttySurfaceCWDChanged")
-
-        // Split action notifications
-        static let ghosttyNewSplit = Foundation.Notification.Name("ghosttyNewSplit")
-        static let ghosttyGotoSplit = Foundation.Notification.Name("ghosttyGotoSplit")
-        static let ghosttyResizeSplit = Foundation.Notification.Name("ghosttyResizeSplit")
-        static let ghosttyEqualizeSplits = Foundation.Notification.Name("ghosttyEqualizeSplits")
-        static let ghosttyToggleSplitZoom = Foundation.Notification.Name("ghosttyToggleSplitZoom")
-
-        // Tab action notifications
-        static let ghosttyCloseTab = Foundation.Notification.Name("ghosttyCloseTab")
-        static let ghosttyGotoTab = Foundation.Notification.Name("ghosttyGotoTab")
-        static let ghosttyMoveTab = Foundation.Notification.Name("ghosttyMoveTab")
     }
 }
 
@@ -217,8 +204,18 @@ extension Ghostty {
                 return true
 
             case GHOSTTY_ACTION_NEW_TAB:
-                NotificationCenter.default.post(name: .ghosttyNewTab, object: nil)
-                return true
+                return routeActionToTerminalRuntime(
+                    actionTag: UInt32(action.tag.rawValue),
+                    payload: .noPayload,
+                    target: target
+                )
+
+            case GHOSTTY_ACTION_RING_BELL:
+                return routeActionToTerminalRuntime(
+                    actionTag: UInt32(action.tag.rawValue),
+                    payload: .noPayload,
+                    target: target
+                )
 
             case GHOSTTY_ACTION_SET_TITLE:
                 if target.tag == GHOSTTY_TARGET_SURFACE, let surface = target.target.surface {
@@ -248,73 +245,109 @@ extension Ghostty {
 
             // Split actions
             case GHOSTTY_ACTION_NEW_SPLIT:
-                let direction = action.action.new_split
-                return postSurfaceNotification(
-                    target, name: .ghosttyNewSplit,
-                    userInfo: ["direction": Int(direction.rawValue)])
+                return routeActionToTerminalRuntime(
+                    actionTag: UInt32(action.tag.rawValue),
+                    payload: .newSplit(directionRawValue: action.action.new_split.rawValue),
+                    target: target
+                )
 
             case GHOSTTY_ACTION_GOTO_SPLIT:
-                let goto = action.action.goto_split
-                return postSurfaceNotification(
-                    target, name: .ghosttyGotoSplit,
-                    userInfo: ["goto": Int(goto.rawValue)])
+                return routeActionToTerminalRuntime(
+                    actionTag: UInt32(action.tag.rawValue),
+                    payload: .gotoSplit(directionRawValue: action.action.goto_split.rawValue),
+                    target: target
+                )
 
             case GHOSTTY_ACTION_RESIZE_SPLIT:
-                let resize = action.action.resize_split
-                return postSurfaceNotification(
-                    target, name: .ghosttyResizeSplit,
-                    userInfo: [
-                        "amount": Int(resize.amount),
-                        "direction": Int(resize.direction.rawValue),
-                    ])
+                return routeActionToTerminalRuntime(
+                    actionTag: UInt32(action.tag.rawValue),
+                    payload: .resizeSplit(
+                        amount: action.action.resize_split.amount,
+                        directionRawValue: action.action.resize_split.direction.rawValue
+                    ),
+                    target: target
+                )
 
             case GHOSTTY_ACTION_EQUALIZE_SPLITS:
-                return postSurfaceNotification(target, name: .ghosttyEqualizeSplits)
+                return routeActionToTerminalRuntime(
+                    actionTag: UInt32(action.tag.rawValue),
+                    payload: .noPayload,
+                    target: target
+                )
 
             case GHOSTTY_ACTION_TOGGLE_SPLIT_ZOOM:
-                return postSurfaceNotification(target, name: .ghosttyToggleSplitZoom)
+                return routeActionToTerminalRuntime(
+                    actionTag: UInt32(action.tag.rawValue),
+                    payload: .noPayload,
+                    target: target
+                )
 
             // Tab actions
             case GHOSTTY_ACTION_CLOSE_TAB:
-                let mode = action.action.close_tab_mode
-                return postSurfaceNotification(
-                    target, name: .ghosttyCloseTab,
-                    userInfo: ["mode": Int(mode.rawValue)])
+                return routeActionToTerminalRuntime(
+                    actionTag: UInt32(action.tag.rawValue),
+                    payload: .closeTab(modeRawValue: action.action.close_tab_mode.rawValue),
+                    target: target
+                )
 
             case GHOSTTY_ACTION_GOTO_TAB:
-                let gotoTab = action.action.goto_tab
-                return postSurfaceNotification(
-                    target, name: .ghosttyGotoTab,
-                    userInfo: ["target": Int(gotoTab.rawValue)])
+                return routeActionToTerminalRuntime(
+                    actionTag: UInt32(action.tag.rawValue),
+                    payload: .gotoTab(targetRawValue: action.action.goto_tab.rawValue),
+                    target: target
+                )
 
             case GHOSTTY_ACTION_MOVE_TAB:
-                let moveTab = action.action.move_tab
-                return postSurfaceNotification(
-                    target, name: .ghosttyMoveTab,
-                    userInfo: ["amount": Int(moveTab.amount)])
+                return routeActionToTerminalRuntime(
+                    actionTag: UInt32(action.tag.rawValue),
+                    payload: .moveTab(amount: Int(action.action.move_tab.amount)),
+                    target: target
+                )
 
             default:
                 return false
             }
         }
 
-        /// Post a notification targeting a surface. Extracts the SurfaceView from the target
-        /// and posts the notification on the MainActor. Returns false if target is invalid.
-        private static func postSurfaceNotification(
-            _ target: ghostty_target_s,
-            name: Foundation.Notification.Name,
-            userInfo: [String: Int]? = nil
+        private static func routeActionToTerminalRuntime(
+            actionTag: UInt32,
+            payload: GhosttyAdapter.ActionPayload,
+            target: ghostty_target_s
         ) -> Bool {
-            guard target.tag == GHOSTTY_TARGET_SURFACE,
-                let surface = target.target.surface,
-                let surfaceView = surfaceView(from: surface)
-            else { return false }
-            Task { @MainActor [weak surfaceView] in
-                guard let surfaceView else { return }
-                NotificationCenter.default.post(
-                    name: name,
-                    object: surfaceView,
-                    userInfo: userInfo
+            guard target.tag == GHOSTTY_TARGET_SURFACE, let surface = target.target.surface else {
+                return false
+            }
+
+            let surfaceBits = UInt(bitPattern: surface)
+            Task { @MainActor in
+                guard let surfacePointer = UnsafeMutableRawPointer(bitPattern: surfaceBits) else {
+                    ghosttyLogger.warning("Dropped action tag \(actionTag): unable to reconstruct surface pointer")
+                    return
+                }
+                guard let surfaceView = surfaceView(from: surfacePointer) else {
+                    ghosttyLogger.warning("Dropped action tag \(actionTag): no surface view for callback target")
+                    return
+                }
+                guard let surfaceId = SurfaceManager.shared.surfaceId(forView: surfaceView) else {
+                    ghosttyLogger.warning("Dropped action tag \(actionTag): surface not registered in SurfaceManager")
+                    return
+                }
+                guard let paneUUID = SurfaceManager.shared.paneId(for: surfaceId) else {
+                    ghosttyLogger.warning("Dropped action tag \(actionTag): no pane mapped for surface \(surfaceId)")
+                    return
+                }
+                guard
+                    let runtime = RuntimeRegistry.shared.runtime(for: PaneId(uuid: paneUUID)) as? TerminalRuntime
+                else {
+                    ghosttyLogger.warning(
+                        "Dropped action tag \(actionTag): terminal runtime not found for pane \(paneUUID)")
+                    return
+                }
+
+                GhosttyAdapter.shared.route(
+                    actionTag: actionTag,
+                    payload: payload,
+                    to: runtime
                 )
             }
             return true
@@ -387,22 +420,9 @@ extension Ghostty {
 
 extension Notification.Name {
     static let ghosttyNewWindow = Ghostty.Notification.ghosttyNewWindow
-    static let ghosttyNewTab = Ghostty.Notification.ghosttyNewTab
     static let ghosttyCloseSurface = Ghostty.Notification.ghosttyCloseSurface
 
     // CWD notification aliases
     static let didUpdateWorkingDirectory = Ghostty.Notification.didUpdateWorkingDirectory
     static let surfaceCWDChanged = Ghostty.Notification.surfaceCWDChanged
-
-    // Split action aliases
-    static let ghosttyNewSplit = Ghostty.Notification.ghosttyNewSplit
-    static let ghosttyGotoSplit = Ghostty.Notification.ghosttyGotoSplit
-    static let ghosttyResizeSplit = Ghostty.Notification.ghosttyResizeSplit
-    static let ghosttyEqualizeSplits = Ghostty.Notification.ghosttyEqualizeSplits
-    static let ghosttyToggleSplitZoom = Ghostty.Notification.ghosttyToggleSplitZoom
-
-    // Tab action aliases
-    static let ghosttyCloseTab = Ghostty.Notification.ghosttyCloseTab
-    static let ghosttyGotoTab = Ghostty.Notification.ghosttyGotoTab
-    static let ghosttyMoveTab = Ghostty.Notification.ghosttyMoveTab
 }

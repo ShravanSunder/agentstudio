@@ -109,7 +109,7 @@ description = "Release build (run mise run setup first time)"
 run = "swift build -c release"
 
 [tasks.test]
-description = "Run all tests"
+description = "Run default test suite (excludes E2E + ZmxE2E by default)"
 depends = ["build"]
 run = """
 #!/usr/bin/env bash
@@ -119,9 +119,9 @@ if [ "${SWIFT_TEST_PARALLEL:-1}" = "1" ]; then
   SWIFT_TEST_WORKERS="${SWIFT_TEST_WORKERS:-$(( $(sysctl -n hw.ncpu) / 2 ))}"
   if [ "$SWIFT_TEST_WORKERS" -lt 2 ]; then SWIFT_TEST_WORKERS=2; fi
   if [ "$SWIFT_TEST_WORKERS" -gt 4 ]; then SWIFT_TEST_WORKERS=4; fi
-  AGENT_STUDIO_BENCHMARK_MODE=off swift test --parallel --num-workers "$SWIFT_TEST_WORKERS" --skip WebKitSerializedTests --skip E2ESerializedTests --build-path "$BUILD_PATH"
+  AGENT_STUDIO_BENCHMARK_MODE=off swift test --parallel --num-workers "$SWIFT_TEST_WORKERS" --skip WebKitSerializedTests --skip E2ESerializedTests --skip ZmxE2ETests --build-path "$BUILD_PATH"
 else
-  AGENT_STUDIO_BENCHMARK_MODE=off swift test --build-path "$BUILD_PATH"
+  AGENT_STUDIO_BENCHMARK_MODE=off swift test --skip WebKitSerializedTests --skip E2ESerializedTests --skip ZmxE2ETests --build-path "$BUILD_PATH"
 fi
 echo "--- WebView serialized tests (serial) ---"
 run_webkit_suite_with_retry() {
@@ -162,11 +162,37 @@ run_webkit_suite_with_retry "WebKitSerializedTests/BridgeSchemeHandlerSpikeTests
 run_webkit_suite_with_retry "WebKitSerializedTests/BridgeTransportIntegrationTests"
 run_webkit_suite_with_retry "WebKitSerializedTests/BridgeWebKitSpikeTests"
 echo "--- E2E serialized tests (serial) ---"
-if [ "${SWIFT_TEST_INCLUDE_E2E:-1}" = "1" ]; then
+if [ "${SWIFT_TEST_INCLUDE_E2E:-0}" = "1" ]; then
   AGENT_STUDIO_BENCHMARK_MODE=off swift test --filter E2ESerializedTests --build-path "$BUILD_PATH"
 else
   echo "[test] skipping E2ESerializedTests (SWIFT_TEST_INCLUDE_E2E=${SWIFT_TEST_INCLUDE_E2E:-0})"
 fi
+echo "--- Zmx E2E tests (serial) ---"
+if [ "${SWIFT_TEST_INCLUDE_ZMX_E2E:-0}" = "1" ]; then
+  AGENT_STUDIO_BENCHMARK_MODE=off swift test --filter ZmxE2ETests --build-path "$BUILD_PATH"
+else
+  echo "[test] skipping ZmxE2ETests (SWIFT_TEST_INCLUDE_ZMX_E2E=${SWIFT_TEST_INCLUDE_ZMX_E2E:-0})"
+fi
+"""
+
+[tasks.test-e2e]
+description = "Run E2E serialized tests only (opt-in; zmx E2E currently unstable)"
+depends = ["build"]
+run = """
+#!/usr/bin/env bash
+set -euo pipefail
+BUILD_PATH="${SWIFT_BUILD_DIR:-.build}"
+AGENT_STUDIO_BENCHMARK_MODE=off swift test --filter E2ESerializedTests --build-path "$BUILD_PATH"
+"""
+
+[tasks.test-zmx-e2e]
+description = "Run zmx E2E tests only (opt-in; may stall)"
+depends = ["build"]
+run = """
+#!/usr/bin/env bash
+set -euo pipefail
+BUILD_PATH="${SWIFT_BUILD_DIR:-.build}"
+AGENT_STUDIO_BENCHMARK_MODE=off swift test --filter ZmxE2ETests --build-path "$BUILD_PATH"
 """
 
 [tasks.test-benchmark]

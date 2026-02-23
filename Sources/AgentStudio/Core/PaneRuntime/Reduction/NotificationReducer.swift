@@ -11,6 +11,8 @@ final class NotificationReducer {
     private let batchContinuation: AsyncStream<[PaneEventEnvelope]>.Continuation
     let batchedEvents: AsyncStream<[PaneEventEnvelope]>
 
+    private var criticalBufferByTier: [VisibilityTier: [PaneEventEnvelope]] = [:]
+    private var criticalFlushTask: Task<Void, Never>?
     private var lossyBuffer: [String: PaneEventEnvelope] = [:]
     private var frameTimer: Task<Void, Never>?
 
@@ -35,6 +37,7 @@ final class NotificationReducer {
     }
 
     isolated deinit {
+        criticalFlushTask?.cancel()
         frameTimer?.cancel()
         criticalContinuation.finish()
         batchContinuation.finish()
@@ -43,7 +46,9 @@ final class NotificationReducer {
     func submit(_ envelope: PaneEventEnvelope) {
         switch envelope.event.actionPolicy {
         case .critical:
-            criticalContinuation.yield(envelope)
+            let visibilityTier = tier(for: envelope)
+            criticalBufferByTier[visibilityTier, default: []].append(envelope)
+            ensureCriticalFlushTask()
         case .lossy(let consolidationKey):
             let key = "\(envelope.source):\(consolidationKey)"
             lossyBuffer[key] = envelope
@@ -56,6 +61,16 @@ final class NotificationReducer {
         }
     }
 
+    private func ensureCriticalFlushTask() {
+        guard criticalFlushTask == nil else { return }
+        criticalFlushTask = Task { [weak self] in
+            await Task.yield()
+            guard !Task.isCancelled else { return }
+            self?.flushCriticalBuffer()
+            self?.criticalFlushTask = nil
+        }
+    }
+
     private func ensureFrameTimer() {
         guard frameTimer == nil else { return }
         frameTimer = Task { [weak self] in
@@ -65,6 +80,18 @@ final class NotificationReducer {
             }
             self?.frameTimer = nil
         }
+    }
+
+    private func flushCriticalBuffer() {
+        let orderedTiers: [VisibilityTier] = [.p0ActivePane, .p1ActiveDrawer, .p2VisibleActiveTab, .p3Background]
+        for visibilityTier in orderedTiers {
+            let queued = (criticalBufferByTier[visibilityTier] ?? []).sorted(by: compareEnvelopes)
+            guard !queued.isEmpty else { continue }
+            for envelope in queued {
+                criticalContinuation.yield(envelope)
+            }
+        }
+        criticalBufferByTier.removeAll(keepingCapacity: true)
     }
 
     private func flushLossyBuffer() {

@@ -190,6 +190,9 @@ final class EventReplayBuffer {
 
     private static func estimateSize(of event: GhosttyEvent) -> Int {
         switch event {
+        case .newTab, .closeTab, .gotoTab, .moveTab, .newSplit, .gotoSplit, .resizeSplit, .equalizeSplits,
+            .toggleSplitZoom:
+            return 24
         case .titleChanged(let title):
             return 32 + title.utf8.count
         case .cwdChanged(let cwd):

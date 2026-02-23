@@ -1,18 +1,16 @@
 import Foundation
 
-struct PaneCommandEnvelope: Sendable {
+struct RuntimeCommandEnvelope: Sendable {
     let commandId: UUID
     let correlationId: UUID?
     let targetPaneId: PaneId
-    let command: PaneCommand
+    let command: RuntimeCommand
     let timestamp: ContinuousClock.Instant
 }
 
-protocol PaneKindCommand: Sendable {
-    var commandName: String { get }
-}
+protocol RuntimeKindCommand: Sendable {}
 
-enum PaneCommand: Sendable {
+enum RuntimeCommand: Sendable {
     case activate
     case deactivate
     case prepareForClose
@@ -21,7 +19,7 @@ enum PaneCommand: Sendable {
     case browser(BrowserCommand)
     case diff(DiffCommand)
     case editor(EditorCommand)
-    case plugin(any PaneKindCommand & Sendable)
+    case plugin(any RuntimeKindCommand)
 }
 
 enum TerminalCommand: Sendable {

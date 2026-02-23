@@ -3,11 +3,11 @@ import Foundation
 @MainActor
 extension PaneCoordinator {
     func dispatchRuntimeCommand(
-        _ command: PaneCommand,
-        target: PaneCommandTarget,
+        _ command: RuntimeCommand,
+        target: RuntimeCommandTarget,
         correlationId: UUID? = nil
     ) async -> ActionResult {
-        guard let paneId = paneTargetResolver.resolve(target) else {
+        guard let paneId = runtimeTargetResolver.resolve(target) else {
             return .failure(.invalidPayload(description: "Unable to resolve pane target"))
         }
 
@@ -15,7 +15,7 @@ extension PaneCoordinator {
             return .failure(.backendUnavailable(backend: "RuntimeRegistry"))
         }
 
-        let envelope = PaneCommandEnvelope(
+        let envelope = RuntimeCommandEnvelope(
             commandId: UUID(),
             correlationId: correlationId,
             targetPaneId: paneId,

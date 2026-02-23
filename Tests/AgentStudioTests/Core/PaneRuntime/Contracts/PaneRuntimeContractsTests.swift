@@ -13,7 +13,7 @@ struct PaneRuntimeContractsTests {
 
     @Test("runtime command namespace is distinct from workspace PaneAction")
     func commandTypeIsDistinct() {
-        let command = PaneCommand.activate
+        let command = RuntimeCommand.activate
         #expect(String(describing: command).contains("activate"))
     }
 

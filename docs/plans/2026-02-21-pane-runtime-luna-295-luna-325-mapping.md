@@ -49,7 +49,7 @@
 
 ## Execution Tracker (LUNA-343 Branch)
 
-Current implementation commit baseline: `9e76b1c`.
+Current implementation commit baseline: `ba5d9d8`.
 
 - [x] Extract `PaneCoordinator` into focused extensions (`ActionExecution`, `Undo`, `ViewLifecycle`) and keep runtime dispatch wiring intact.
 - [x] Add hardening coverage for coordinator rollback/teardown paths (`PaneCoordinatorHardeningTests`).
@@ -61,6 +61,34 @@ Current implementation commit baseline: `9e76b1c`.
 - [x] Verification batch: `swift build`, `swift test --skip "PushPerformanceBenchmarkTests"` (gating), `mise run lint`, and `mise run test` (full-suite acceptance command).
 - [x] Optional benchmark batch: run `PushPerformanceBenchmarkTests` separately; treat as performance signal, not release gate.
 - [x] Linear sync: update `LUNA-343` checklist/progress with shipped items and remaining follow-ups.
+
+## Current Snapshot (2026-02-22)
+
+This branch now includes the runtime-path execution milestones from the
+`2026-02-22-luna-325-contract-parity-execution-plan.md` mapping (`M1`–`M9`).
+Remaining full-contract closure is tracked through `LUNA-345`.
+
+Resolved drift in this branch:
+
+- `GhosttyAdapter` now routes supported split/tab/bell/new-tab families through typed runtime events.
+- `GhosttyEvent` split/tab action families now carry typed payloads and exhaustive enum switches.
+- `RuntimeRegistry` rejects duplicate registration (no silent replacement).
+- `NotificationReducer` has tier-ordered critical flush + tier-aware lossy ordering coverage.
+- Migrated split/tab action families are off legacy `NotificationCenter` posts.
+
+### Missing Things Task Ledger (Execution-Owned)
+
+Reference implementation plan: [`2026-02-22-luna-325-contract-parity-execution-plan.md`](2026-02-22-luna-325-contract-parity-execution-plan.md)
+
+- [x] `M1` Split E2E from default `mise run test` path and keep E2E opt-in/standalone.
+- [x] `M2` Add contract-gap tests for Ghostty adapter/action routing and runtime envelope metadata.
+- [x] `M3` Expand `GhosttyEvent` + `GhosttyAdapter` coverage for currently supported Ghostty action families.
+- [x] `M4` Harden `TerminalRuntime` command handling + metadata update behavior to match owned contract semantics.
+- [x] `M5` Align runtime command vocabulary toward `RuntimeCommand` naming without breaking current callsites.
+- [x] `M6` Enforce runtime registry uniqueness invariant (no silent replacement path).
+- [x] `M7` Complete reducer tier-order test coverage and behavior alignment.
+- [x] `M8` Migrate action families atomically off legacy NotificationCenter posts as typed runtime path lands.
+- [x] `M9` Re-run verification (`swift build`, `swift test`, `mise run lint`) and update this ledger + Linear.
 
 ## Requirement → Contract → Owner → Status Matrix
 
@@ -360,7 +388,7 @@ After addressing all violations:
 - [x] Convert `SurfaceManager` config properties (`undoTTL`, `maxCreationRetries`, `healthCheckInterval`) to constructor-injected immutable config.
 - [x] Migrate store-level `Task.sleep` usage to injected clocks in `WorkspaceStore`, `SessionRuntime`, and `SurfaceManager`.
 - [ ] Move last-pane escalation domain rule from `PaneCoordinator.executeClosePane` into `WorkspaceStore` return signaling.
-- [ ] Land `Core/PaneRuntime/` contract directories (`Contracts/`, `Registry/`, `Reduction/`, `Replay/`) in LUNA-342.
+- [x] Land `Core/PaneRuntime/` contract directories (`Contracts/`, `Registry/`, `Reduction/`, `Replay/`) in LUNA-342.
 
 ## Notes
 

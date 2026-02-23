@@ -40,7 +40,7 @@ final class TerminalRuntime: PaneRuntime {
         lifecycle = .ready
     }
 
-    func handleCommand(_ envelope: PaneCommandEnvelope) async -> ActionResult {
+    func handleCommand(_ envelope: RuntimeCommandEnvelope) async -> ActionResult {
         guard lifecycle == .ready else {
             return .failure(.runtimeNotReady(lifecycle: lifecycle))
         }
@@ -99,6 +99,9 @@ final class TerminalRuntime: PaneRuntime {
         guard lifecycle != .terminated else { return }
 
         switch event {
+        case .newTab, .closeTab, .gotoTab, .moveTab, .newSplit, .gotoSplit, .resizeSplit, .equalizeSplits,
+            .toggleSplitZoom:
+            break
         case .titleChanged(let title):
             metadata.title = title
         case .cwdChanged(let cwdPath):
@@ -118,7 +121,19 @@ final class TerminalRuntime: PaneRuntime {
             epoch: 0,
             event: .terminal(event)
         )
-        replayBuffer.append(envelope)
+        if shouldPersistForReplay(event) {
+            replayBuffer.append(envelope)
+        }
         eventContinuation.yield(envelope)
+    }
+
+    private func shouldPersistForReplay(_ event: GhosttyEvent) -> Bool {
+        switch event {
+        case .newTab, .closeTab, .gotoTab, .moveTab, .newSplit, .gotoSplit, .resizeSplit, .equalizeSplits,
+            .toggleSplitZoom:
+            return false
+        case .titleChanged, .cwdChanged, .commandFinished, .bellRang, .scrollbarChanged, .unhandled:
+            return true
+        }
     }
 }
