@@ -1,7 +1,10 @@
 import Foundation
+import os.log
 
 @MainActor
 final class NotificationReducer {
+    private static let logger = Logger(subsystem: "com.agentstudio", category: "NotificationReducer")
+
     private let clock: any Clock<Duration>
     private let tierResolver: (any VisibilityTierResolver)?
 
@@ -59,6 +62,9 @@ final class NotificationReducer {
             if lossyBuffer.count > 1000,
                 let oldest = lossyBuffer.min(by: { $0.value.timestamp < $1.value.timestamp })
             {
+                Self.logger.warning(
+                    "Lossy buffer capacity exceeded; evicting oldest event seq=\(oldest.value.seq, privacy: .public) source=\(String(describing: oldest.value.source), privacy: .public)"
+                )
                 lossyBuffer.removeValue(forKey: oldest.key)
             }
             ensureFrameTimer()
@@ -78,11 +84,21 @@ final class NotificationReducer {
     private func ensureFrameTimer() {
         guard frameTimer == nil else { return }
         frameTimer = Task { [weak self] in
+            defer { self?.frameTimer = nil }
             while let self, !self.lossyBuffer.isEmpty {
-                try? await self.clock.sleep(for: .milliseconds(16))
+                do {
+                    try await self.clock.sleep(for: .milliseconds(16))
+                } catch is CancellationError {
+                    return
+                } catch {
+                    Self.logger.error(
+                        "Lossy frame timer sleep failed: \(String(describing: error), privacy: .public)"
+                    )
+                    continue
+                }
+                guard !Task.isCancelled else { return }
                 self.flushLossyBuffer()
             }
-            self?.frameTimer = nil
         }
     }
 

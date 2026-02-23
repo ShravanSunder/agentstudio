@@ -251,6 +251,13 @@ extension PaneCoordinator {
     }
 
     private func registerTerminalRuntimeIfNeeded(for pane: Pane) {
+        guard case .terminal = pane.content else {
+            Self.logger.debug(
+                "Skipping terminal runtime registration for non-terminal pane \(pane.id.uuidString, privacy: .public)"
+            )
+            return
+        }
+
         let runtimePaneId = PaneId(uuid: pane.id)
         guard runtimeForPane(runtimePaneId) == nil else { return }
 

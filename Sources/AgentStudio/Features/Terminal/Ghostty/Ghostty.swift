@@ -386,10 +386,27 @@ extension Ghostty {
                 )
             }
 
+            guard shouldForwardUnhandledActionToRuntime(actionTag: actionTag) else {
+                // Keep Ghostty defaults and avoid unnecessary runtime hops for
+                // high-frequency visual tags we do not consume.
+                return false
+            }
             _ = routeActionToTerminalRuntime(actionTag: actionTag, payload: .noPayload, target: target)
             // Returning false preserves Ghostty's built-in default behavior for
             // tags AgentStudio does not handle yet.
             return false
+        }
+
+        private static func shouldForwardUnhandledActionToRuntime(actionTag: UInt32) -> Bool {
+            guard let knownActionTag = GhosttyActionTag(rawValue: actionTag) else {
+                return true
+            }
+            switch knownActionTag {
+            case .render, .mouseShape, .mouseVisibility, .mouseOverLink, .scrollbar:
+                return false
+            default:
+                return true
+            }
         }
 
         private static func routeActionToTerminalRuntime(

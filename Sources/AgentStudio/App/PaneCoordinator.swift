@@ -212,18 +212,27 @@ final class PaneCoordinator {
     }
 
     private func handleRuntimeEnvelope(_ envelope: PaneEventEnvelope) {
-        guard case .pane(let sourcePaneId) = envelope.source else { return }
-
-        switch envelope.event {
-        case .terminal(let event):
-            handleTerminalRuntimeEvent(event, sourcePaneId: sourcePaneId)
-        case .error(let errorEvent):
-            Self.logger.warning(
-                "Runtime error event received from pane \(sourcePaneId.uuid.uuidString, privacy: .public): \(String(describing: errorEvent), privacy: .public)"
-            )
-        case .lifecycle, .browser, .diff, .editor, .plugin, .filesystem, .artifact, .security:
+        switch envelope.source {
+        case .pane(let sourcePaneId):
+            switch envelope.event {
+            case .terminal(let event):
+                handleTerminalRuntimeEvent(event, sourcePaneId: sourcePaneId)
+            case .error(let errorEvent):
+                Self.logger.warning(
+                    "Runtime error event received from pane \(sourcePaneId.uuid.uuidString, privacy: .public): \(String(describing: errorEvent), privacy: .public)"
+                )
+            case .lifecycle, .browser, .diff, .editor, .plugin, .filesystem, .artifact, .security:
+                Self.logger.debug(
+                    "Runtime event family ignored by coordinator for pane \(sourcePaneId.uuid.uuidString, privacy: .public): \(String(describing: envelope.event), privacy: .public)"
+                )
+            }
+        case .system(let systemSource):
             Self.logger.debug(
-                "Runtime event family ignored by coordinator for pane \(sourcePaneId.uuid.uuidString, privacy: .public): \(String(describing: envelope.event), privacy: .public)"
+                "Runtime event ignored for system source \(String(describing: systemSource), privacy: .public): \(String(describing: envelope.event), privacy: .public)"
+            )
+        case .worktree(let worktreeId):
+            Self.logger.debug(
+                "Runtime event ignored for worktree source \(worktreeId.uuidString, privacy: .public): \(String(describing: envelope.event), privacy: .public)"
             )
         }
     }
@@ -231,6 +240,9 @@ final class PaneCoordinator {
     private func handleTerminalRuntimeEvent(_ event: GhosttyEvent, sourcePaneId: PaneId) {
         let sourcePaneUUID = sourcePaneId.uuid
         guard let sourceTabId = store.tabs.first(where: { $0.paneIds.contains(sourcePaneUUID) })?.id else {
+            Self.logger.warning(
+                "Terminal runtime event dropped: source pane \(sourcePaneUUID.uuidString, privacy: .public) is not present in any tab. event=\(String(describing: event), privacy: .public)"
+            )
             return
         }
 

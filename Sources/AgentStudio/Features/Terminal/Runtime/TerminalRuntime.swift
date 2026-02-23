@@ -1,9 +1,12 @@
 import Foundation
 import Observation
+import os.log
 
 @MainActor
 @Observable
 final class TerminalRuntime: PaneRuntime {
+    private static let logger = Logger(subsystem: "com.agentstudio", category: "TerminalRuntime")
+
     let paneId: PaneId
     var metadata: PaneMetadata
     private(set) var lifecycle: PaneRuntimeLifecycle
@@ -36,7 +39,12 @@ final class TerminalRuntime: PaneRuntime {
     }
 
     func transitionToReady() {
-        guard lifecycle == .created else { return }
+        guard lifecycle == .created else {
+            Self.logger.warning(
+                "Rejected transitionToReady for pane \(self.paneId.uuid.uuidString, privacy: .public): lifecycle=\(String(describing: self.lifecycle), privacy: .public)"
+            )
+            return
+        }
         lifecycle = .ready
     }
 
@@ -110,7 +118,12 @@ final class TerminalRuntime: PaneRuntime {
         commandId: UUID? = nil,
         correlationId: UUID? = nil
     ) {
-        guard lifecycle != .terminated else { return }
+        guard lifecycle != .terminated else {
+            Self.logger.debug(
+                "Dropped terminal event after termination for pane \(self.paneId.uuid.uuidString, privacy: .public): \(String(describing: event), privacy: .public)"
+            )
+            return
+        }
 
         switch event {
         case .newTab, .closeTab, .gotoTab, .moveTab, .newSplit, .gotoSplit, .resizeSplit, .equalizeSplits,

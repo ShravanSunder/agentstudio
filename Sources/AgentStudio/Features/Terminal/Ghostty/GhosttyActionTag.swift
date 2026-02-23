@@ -69,8 +69,12 @@ enum GhosttyActionTag: Sendable, CaseIterable {
     case readOnly
     case copyTitleToClipboard
 
+    private static let tagsByRawValue: [UInt32: Self] = Dictionary(
+        uniqueKeysWithValues: Self.allCases.map { ($0.rawValue, $0) }
+    )
+
     init?(rawValue: UInt32) {
-        guard let mappedTag = Self.allCases.first(where: { $0.rawValue == rawValue }) else {
+        guard let mappedTag = Self.tagsByRawValue[rawValue] else {
             return nil
         }
         self = mappedTag

@@ -43,67 +43,25 @@ final class GhosttyAdapter {
         case .ringBell:
             return .bellRang
         case .setTitle:
-            guard case .titleChanged(let title) = payload else {
-                return .unhandled(tag: actionTag.rawValue)
-            }
-            return .titleChanged(title)
+            return translateSetTitle(payload: payload, actionTag: actionTag)
         case .pwd:
-            guard case .cwdChanged(let cwdPath) = payload else {
-                return .unhandled(tag: actionTag.rawValue)
-            }
-            return .cwdChanged(cwdPath)
+            return translatePwd(payload: payload, actionTag: actionTag)
         case .commandFinished:
-            guard case .commandFinished(let exitCode, let duration) = payload else {
-                return .unhandled(tag: actionTag.rawValue)
-            }
-            return .commandFinished(exitCode: exitCode, duration: duration)
+            return translateCommandFinished(payload: payload, actionTag: actionTag)
         case .newTab:
             return .newTab
         case .closeTab:
-            guard
-                case .closeTab(let modeRawValue) = payload,
-                let mode = closeTabMode(from: modeRawValue)
-            else {
-                return .unhandled(tag: actionTag.rawValue)
-            }
-            return .closeTab(mode: mode)
+            return translateCloseTab(payload: payload, actionTag: actionTag)
         case .gotoTab:
-            guard
-                case .gotoTab(let targetRawValue) = payload,
-                let target = gotoTabTarget(from: targetRawValue)
-            else {
-                return .unhandled(tag: actionTag.rawValue)
-            }
-            return .gotoTab(target: target)
+            return translateGotoTab(payload: payload, actionTag: actionTag)
         case .moveTab:
-            guard case .moveTab(let amount) = payload else {
-                return .unhandled(tag: actionTag.rawValue)
-            }
-            return .moveTab(amount: amount)
+            return translateMoveTab(payload: payload, actionTag: actionTag)
         case .newSplit:
-            guard
-                case .newSplit(let directionRawValue) = payload,
-                let direction = splitDirection(from: directionRawValue)
-            else {
-                return .unhandled(tag: actionTag.rawValue)
-            }
-            return .newSplit(direction: direction)
+            return translateNewSplit(payload: payload, actionTag: actionTag)
         case .gotoSplit:
-            guard
-                case .gotoSplit(let directionRawValue) = payload,
-                let direction = gotoSplitDirection(from: directionRawValue)
-            else {
-                return .unhandled(tag: actionTag.rawValue)
-            }
-            return .gotoSplit(direction: direction)
+            return translateGotoSplit(payload: payload, actionTag: actionTag)
         case .resizeSplit:
-            guard
-                case .resizeSplit(let amount, let directionRawValue) = payload,
-                let direction = resizeSplitDirection(from: directionRawValue)
-            else {
-                return .unhandled(tag: actionTag.rawValue)
-            }
-            return .resizeSplit(amount: amount, direction: direction)
+            return translateResizeSplit(payload: payload, actionTag: actionTag)
         case .equalizeSplits:
             return .equalizeSplits
         case .toggleSplitZoom:
@@ -119,6 +77,120 @@ final class GhosttyAdapter {
             .searchTotal, .searchSelected, .readOnly, .copyTitleToClipboard:
             return .unhandled(tag: actionTag.rawValue)
         }
+    }
+
+    private func translateSetTitle(payload: ActionPayload, actionTag: GhosttyActionTag) -> GhosttyEvent {
+        guard case .titleChanged(let title) = payload else {
+            return payloadMismatch(
+                actionTag: actionTag,
+                payload: payload,
+                expectedPayload: ".titleChanged(String)"
+            )
+        }
+        return .titleChanged(title)
+    }
+
+    private func translatePwd(payload: ActionPayload, actionTag: GhosttyActionTag) -> GhosttyEvent {
+        guard case .cwdChanged(let cwdPath) = payload else {
+            return payloadMismatch(
+                actionTag: actionTag,
+                payload: payload,
+                expectedPayload: ".cwdChanged(String)"
+            )
+        }
+        return .cwdChanged(cwdPath)
+    }
+
+    private func translateCommandFinished(payload: ActionPayload, actionTag: GhosttyActionTag) -> GhosttyEvent {
+        guard case .commandFinished(let exitCode, let duration) = payload else {
+            return payloadMismatch(
+                actionTag: actionTag,
+                payload: payload,
+                expectedPayload: ".commandFinished(exitCode: Int, duration: UInt64)"
+            )
+        }
+        return .commandFinished(exitCode: exitCode, duration: duration)
+    }
+
+    private func translateCloseTab(payload: ActionPayload, actionTag: GhosttyActionTag) -> GhosttyEvent {
+        guard
+            case .closeTab(let modeRawValue) = payload,
+            let mode = closeTabMode(from: modeRawValue)
+        else {
+            return payloadMismatch(
+                actionTag: actionTag,
+                payload: payload,
+                expectedPayload: ".closeTab(modeRawValue: UInt32)"
+            )
+        }
+        return .closeTab(mode: mode)
+    }
+
+    private func translateGotoTab(payload: ActionPayload, actionTag: GhosttyActionTag) -> GhosttyEvent {
+        guard
+            case .gotoTab(let targetRawValue) = payload,
+            let target = gotoTabTarget(from: targetRawValue)
+        else {
+            return payloadMismatch(
+                actionTag: actionTag,
+                payload: payload,
+                expectedPayload: ".gotoTab(targetRawValue: Int32)"
+            )
+        }
+        return .gotoTab(target: target)
+    }
+
+    private func translateMoveTab(payload: ActionPayload, actionTag: GhosttyActionTag) -> GhosttyEvent {
+        guard case .moveTab(let amount) = payload else {
+            return payloadMismatch(
+                actionTag: actionTag,
+                payload: payload,
+                expectedPayload: ".moveTab(amount: Int)"
+            )
+        }
+        return .moveTab(amount: amount)
+    }
+
+    private func translateNewSplit(payload: ActionPayload, actionTag: GhosttyActionTag) -> GhosttyEvent {
+        guard
+            case .newSplit(let directionRawValue) = payload,
+            let direction = splitDirection(from: directionRawValue)
+        else {
+            return payloadMismatch(
+                actionTag: actionTag,
+                payload: payload,
+                expectedPayload: ".newSplit(directionRawValue: UInt32)"
+            )
+        }
+        return .newSplit(direction: direction)
+    }
+
+    private func translateGotoSplit(payload: ActionPayload, actionTag: GhosttyActionTag) -> GhosttyEvent {
+        guard
+            case .gotoSplit(let directionRawValue) = payload,
+            let direction = gotoSplitDirection(from: directionRawValue)
+        else {
+            return payloadMismatch(
+                actionTag: actionTag,
+                payload: payload,
+                expectedPayload: ".gotoSplit(directionRawValue: UInt32)"
+            )
+        }
+        return .gotoSplit(direction: direction)
+    }
+
+    private func translateResizeSplit(payload: ActionPayload, actionTag: GhosttyActionTag) -> GhosttyEvent {
+        guard
+            case .resizeSplit(let amount, let directionRawValue) = payload,
+            let direction = resizeSplitDirection(from: directionRawValue)
+        else {
+            return payloadMismatch(
+                actionTag: actionTag,
+                payload: payload,
+                expectedPayload: ".resizeSplit(amount: UInt16, directionRawValue: UInt32)"
+            )
+        }
+        return .resizeSplit(amount: amount, direction: direction)
     }
 
     func route(
@@ -209,5 +281,16 @@ final class GhosttyAdapter {
         default:
             return nil
         }
+    }
+
+    private func payloadMismatch(
+        actionTag: GhosttyActionTag,
+        payload: ActionPayload,
+        expectedPayload: String
+    ) -> GhosttyEvent {
+        ghosttyAdapterLogger.warning(
+            "Ghostty payload mismatch for action tag \(actionTag.rawValue, privacy: .public): expected \(expectedPayload, privacy: .public), got \(String(describing: payload), privacy: .public)"
+        )
+        return .unhandled(tag: actionTag.rawValue)
     }
 }
