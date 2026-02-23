@@ -349,11 +349,11 @@ Manages live session state. Does **not** own sessions — reads the session list
 
 ### 3.4 ViewRegistry
 
-Maps session IDs to live `AgentStudioTerminalView` instances. Runtime-only (not persisted). `@MainActor`.
+Maps pane IDs to live `PaneView` instances (terminal/webview/bridge). Runtime-only (not persisted). `@MainActor`.
 
 - `register(view, paneId)` / `unregister(paneId)` — View lifecycle
 - `view(for: paneId)` — Lookup
-- `renderTree(for: Layout) -> TerminalSplitTree?` — Traverse a `Layout` tree, resolve each leaf to a registered pane view, return a renderable split tree. Gracefully promotes single-child splits when one side's view is missing.
+- `renderTree(for: Layout) -> PaneSplitTree?` — Traverse a `Layout` tree, resolve each leaf to a registered pane view, return a renderable split tree. Gracefully promotes single-child splits when one side's view is missing.
 
 > **File:** `App/Panes/ViewRegistry.swift`
 
@@ -364,7 +364,12 @@ There is no standalone `ViewResolver` type in code; this behavior is owned by th
 `App/Panes` layer.
 
 - `PaneTabViewController` observes app state and renders the active view arrangement.
-- `ViewRegistry` provides session-to-view mapping used by split rendering.
+- `ViewRegistry` provides pane-to-view mapping used by split rendering.
+- `TerminalSplitContainer` handles split-drop routing in management mode using:
+  - `SplitContainerDropDelegate` (single drop input surface)
+  - `PaneDragCoordinator` (pure drag target resolution)
+  - `PaneDropTargetOverlay` (single target visualization layer)
+  - `PaneLeafContainer` (pane-type-agnostic leaf wrapper)
 
 > **File:** `App/Panes/ViewRegistry.swift`
 

@@ -2,6 +2,8 @@ import AppKit
 import Foundation
 import SwiftUI
 
+// swiftlint:disable file_length
+
 /// Redesigned sidebar content grouped by repository identity (worktree family / remote).
 @MainActor
 struct RepoSidebarContentView: View {
@@ -454,10 +456,29 @@ struct RepoSidebarContentView: View {
     }
 
     private func addRepoAndRefreshWorktrees(at path: URL) {
-        guard !store.repos.contains(where: { $0.repoPath == path }) else { return }
+        guard !hasExistingCheckout(at: path) else { return }
         let repo = store.addRepo(at: path)
         let worktrees = WorktrunkService.shared.discoverWorktrees(for: repo.repoPath)
         store.updateRepoWorktrees(repo.id, worktrees: worktrees)
+    }
+
+    private func hasExistingCheckout(at path: URL) -> Bool {
+        let normalizedTarget = normalizedCwdPath(path)
+
+        for repo in store.repos {
+            if normalizedCwdPath(repo.repoPath) == normalizedTarget {
+                return true
+            }
+            if repo.worktrees.contains(where: { normalizedCwdPath($0.path) == normalizedTarget }) {
+                return true
+            }
+        }
+
+        return false
+    }
+
+    private func normalizedCwdPath(_ url: URL) -> String {
+        url.standardizedFileURL.path
     }
 
     private func refreshWorktrees() {
@@ -491,7 +512,19 @@ struct RepoSidebarContentView: View {
         let expectedFingerprint = reposFingerprint
 
         metadataReloadTask = Task {
+            // Defer initial sidebar metadata refresh until after the first List
+            // layout pass to avoid NSTableView delegate reentrancy during startup.
+            try? await Task.sleep(for: .milliseconds(120))
+            guard !Task.isCancelled else { return }
+            guard expectedFingerprint == reposFingerprint else { return }
+
             let initialSnapshot = await GitRepositoryInspector.metadataAndStatus(for: loadInput)
+            guard !Task.isCancelled else { return }
+            guard expectedFingerprint == reposFingerprint else { return }
+
+            // Avoid mutating SwiftUI List-backed state in the same turn as
+            // AppKit table delegate callbacks (can trigger reentrant warnings).
+            await Task.yield()
             guard !Task.isCancelled else { return }
             guard expectedFingerprint == reposFingerprint else { return }
 
@@ -503,6 +536,11 @@ struct RepoSidebarContentView: View {
             guard !Task.isCancelled else { return }
             guard expectedFingerprint == reposFingerprint else { return }
             guard !prCounts.isEmpty else { return }
+
+            // Same reentrancy guard for incremental row updates.
+            await Task.yield()
+            guard !Task.isCancelled else { return }
+            guard expectedFingerprint == reposFingerprint else { return }
 
             for (worktreeId, prCount) in prCounts {
                 guard let status = worktreeStatusById[worktreeId] else { continue }
@@ -588,13 +626,10 @@ private struct SidebarWorktreeRow: View {
             }
 
             HStack(spacing: AppStyle.sidebarChipRowSpacing) {
-                HStack(spacing: AppStyle.spacingTight) {
-                    Text("+\(lineDiffCounts.added)")
-                        .foregroundStyle(Color(red: 0.42, green: 0.84, blue: 0.50))
-                    Text("-\(lineDiffCounts.deleted)")
-                        .foregroundStyle(Color(red: 0.93, green: 0.41, blue: 0.41))
-                }
-                .font(.system(size: AppStyle.textXs, weight: .medium).monospacedDigit())
+                SidebarDiffChip(
+                    linesAdded: lineDiffCounts.added,
+                    linesDeleted: lineDiffCounts.deleted
+                )
 
                 SidebarStatusSyncChip(
                     statusIconAsset: branchStatus.isDirty ? "octicon-dot-fill" : "octicon-check-circle-fill",
@@ -831,6 +866,31 @@ private struct SidebarStatusSyncChip: View {
     }
 }
 
+private struct SidebarDiffChip: View {
+    let linesAdded: Int
+    let linesDeleted: Int
+
+    var body: some View {
+        HStack(spacing: AppStyle.spacingTight) {
+            Text("+\(linesAdded)")
+                .foregroundStyle(Color(red: 0.42, green: 0.84, blue: 0.50))
+            Text("-\(linesDeleted)")
+                .foregroundStyle(Color(red: 0.93, green: 0.41, blue: 0.41))
+        }
+        .font(.system(size: AppStyle.sidebarChipFontSize, weight: .medium).monospacedDigit())
+        .lineLimit(1)
+        .padding(.horizontal, AppStyle.sidebarChipHorizontalPadding)
+        .padding(.vertical, AppStyle.sidebarChipVerticalPadding)
+        .background(Color.white.opacity(AppStyle.sidebarChipBackgroundOpacity))
+        .overlay(
+            Capsule()
+                .stroke(Color.white.opacity(AppStyle.sidebarChipBorderOpacity), lineWidth: 1)
+        )
+        .clipShape(Capsule())
+        .fixedSize(horizontal: true, vertical: true)
+    }
+}
+
 private struct OcticonImage: View {
     let name: String
     let size: CGFloat
@@ -892,13 +952,13 @@ private final class SidebarOcticonLoader {
     }
 }
 
-private struct SidebarRepoGroup: Identifiable {
+struct SidebarRepoGroup: Identifiable {
     let id: String
     let title: String
     let repos: [Repo]
 
     var checkoutCount: Int {
-        repos.reduce(0) { $0 + max($1.worktrees.count, 1) }
+        repos.reduce(0) { $0 + $1.worktrees.count }
     }
 }
 
@@ -928,10 +988,18 @@ struct GitBranchStatus: Equatable, Sendable {
     static let unknown = Self(isDirty: false, syncState: .unknown, prCount: nil, linesAdded: 0, linesDeleted: 0)
 }
 
-private enum SidebarRepoGrouping {
+enum SidebarRepoGrouping {
     struct ColorPreset {
         let name: String
         let hex: String
+    }
+
+    private struct OwnerCandidate {
+        let repoId: UUID
+        let repoWorktreeCount: Int
+        let repoPathMatchesWorktree: Bool
+        let isMainWorktree: Bool
+        let stableTieBreaker: String
     }
 
     static let automaticPaletteHexes: [String] = [
@@ -978,16 +1046,19 @@ private enum SidebarRepoGrouping {
             metadataByRepoId[repo.id]?.groupKey ?? "path:\(repo.repoPath.standardizedFileURL.path)"
         }
 
-        return grouped.map { groupKey, groupRepos in
-            let firstRepoId = groupRepos.first?.id
+        return grouped.compactMap { groupKey, groupRepos in
+            let deduplicatedRepos = dedupeReposByCheckoutCwd(groupRepos)
+            guard !deduplicatedRepos.isEmpty else { return nil }
+
+            let firstRepoId = deduplicatedRepos.first?.id ?? groupRepos.first?.id
             let displayName =
                 firstRepoId.flatMap { metadataByRepoId[$0]?.displayName }
-                ?? groupRepos.first?.name
+                ?? deduplicatedRepos.first?.name
                 ?? "Repository"
             return SidebarRepoGroup(
                 id: groupKey,
                 title: displayName,
-                repos: groupRepos.sorted {
+                repos: deduplicatedRepos.sorted {
                     $0.name.localizedCaseInsensitiveCompare($1.name) == .orderedAscending
                 }
             )
@@ -995,6 +1066,73 @@ private enum SidebarRepoGrouping {
         .sorted { lhs, rhs in
             lhs.title.localizedCaseInsensitiveCompare(rhs.title) == .orderedAscending
         }
+    }
+
+    private static func dedupeReposByCheckoutCwd(_ repos: [Repo]) -> [Repo] {
+        var ownerByCwd: [String: OwnerCandidate] = [:]
+
+        for repo in repos {
+            for worktree in repo.worktrees {
+                let checkoutCwd = normalizedCwdPath(worktree.path)
+                let candidate = OwnerCandidate(
+                    repoId: repo.id,
+                    repoWorktreeCount: repo.worktrees.count,
+                    repoPathMatchesWorktree: normalizedCwdPath(repo.repoPath) == checkoutCwd,
+                    isMainWorktree: worktree.isMainWorktree,
+                    stableTieBreaker: "\(repo.id.uuidString)|\(worktree.id.uuidString)"
+                )
+
+                if let existing = ownerByCwd[checkoutCwd] {
+                    if shouldPrefer(candidate: candidate, over: existing) {
+                        ownerByCwd[checkoutCwd] = candidate
+                    }
+                } else {
+                    ownerByCwd[checkoutCwd] = candidate
+                }
+            }
+        }
+
+        var deduplicatedRepos: [Repo] = []
+        for repo in repos {
+            guard !repo.worktrees.isEmpty else { continue }
+
+            var seenWorktreeCwds: Set<String> = []
+            let deduplicatedWorktrees = repo.worktrees.filter { worktree in
+                let checkoutCwd = normalizedCwdPath(worktree.path)
+                guard !seenWorktreeCwds.contains(checkoutCwd) else { return false }
+                seenWorktreeCwds.insert(checkoutCwd)
+                return ownerByCwd[checkoutCwd]?.repoId == repo.id
+            }
+
+            guard !deduplicatedWorktrees.isEmpty else { continue }
+
+            var updated = repo
+            updated.worktrees = deduplicatedWorktrees
+            deduplicatedRepos.append(updated)
+        }
+
+        return deduplicatedRepos
+    }
+
+    private static func shouldPrefer(
+        candidate: OwnerCandidate,
+        over existing: OwnerCandidate
+    ) -> Bool {
+        if candidate.repoWorktreeCount != existing.repoWorktreeCount {
+            return candidate.repoWorktreeCount > existing.repoWorktreeCount
+        }
+        if candidate.repoPathMatchesWorktree != existing.repoPathMatchesWorktree {
+            return candidate.repoPathMatchesWorktree
+        }
+        if candidate.isMainWorktree != existing.isMainWorktree {
+            return candidate.isMainWorktree
+        }
+        return candidate.stableTieBreaker.localizedCaseInsensitiveCompare(existing.stableTieBreaker)
+            == .orderedAscending
+    }
+
+    private static func normalizedCwdPath(_ url: URL) -> String {
+        url.standardizedFileURL.path
     }
 }
 
@@ -1016,3 +1154,5 @@ extension NSColor {
         return String(format: "#%02X%02X%02X", red, green, blue)
     }
 }
+
+// swiftlint:enable file_length

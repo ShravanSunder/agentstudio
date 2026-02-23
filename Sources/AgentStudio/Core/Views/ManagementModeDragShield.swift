@@ -60,7 +60,7 @@ final class ManagementModeDragShield: NSView {
         ]
     }
 
-    private var managementModeTask: Task<Void, Never>?
+    private var managementModeObserver: NSObjectProtocol?
 
     override init(frame frameRect: NSRect) {
         super.init(frame: frameRect)
@@ -73,8 +73,10 @@ final class ManagementModeDragShield: NSView {
         fatalError("init(coder:) not supported")
     }
 
-    deinit {
-        managementModeTask?.cancel()
+    isolated deinit {
+        if let observer = managementModeObserver {
+            NotificationCenter.default.removeObserver(observer)
+        }
     }
 
     override func viewDidMoveToSuperview() {
@@ -120,11 +122,16 @@ final class ManagementModeDragShield: NSView {
     // MARK: - Management Mode Observation
 
     private func observeManagementModeNotifications() {
-        managementModeTask?.cancel()
-        managementModeTask = Task { @MainActor [weak self] in
-            for await _ in NotificationCenter.default.notifications(named: .managementModeDidChange) {
-                guard let self else { return }
-                self.updateRegistration()
+        if let observer = managementModeObserver {
+            NotificationCenter.default.removeObserver(observer)
+        }
+        managementModeObserver = NotificationCenter.default.addObserver(
+            forName: .managementModeDidChange,
+            object: nil,
+            queue: nil
+        ) { [weak self] _ in
+            Task { @MainActor in
+                self?.updateRegistration()
             }
         }
     }

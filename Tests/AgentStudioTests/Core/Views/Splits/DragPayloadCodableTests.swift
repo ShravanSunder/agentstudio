@@ -1,5 +1,6 @@
 import Foundation
 import Testing
+import UniformTypeIdentifiers
 
 @testable import AgentStudio
 
@@ -87,5 +88,62 @@ final class DragPayloadCodableTests {
 
         // Assert
         #expect(decoded.kind == .newTerminal)
+    }
+
+    @Test
+    func test_decodeSplitDropPayload_prefersPanePayloadWhenPresent() async throws {
+        // Arrange
+        let panePayload = PaneDragPayload(paneId: UUID(), tabId: UUID())
+        let tabPayload = TabDragPayload(tabId: UUID())
+        let providers = [
+            try makeProvider(
+                payload: tabPayload,
+                typeIdentifier: UTType.agentStudioTab.identifier
+            ),
+            try makeProvider(
+                payload: panePayload,
+                typeIdentifier: UTType.agentStudioPane.identifier
+            ),
+        ]
+
+        // Act
+        let decoded = await decodeSplitDropPayload(from: providers)
+
+        // Assert
+        #expect(
+            decoded == SplitDropPayload(kind: .existingPane(paneId: panePayload.paneId, sourceTabId: panePayload.tabId))
+        )
+    }
+
+    @Test
+    func test_decodeSplitDropPayload_decodesNewTerminalPayload() async {
+        // Arrange
+        let provider = NSItemProvider()
+        provider.registerDataRepresentation(
+            forTypeIdentifier: UTType.agentStudioNewTab.identifier,
+            visibility: .all
+        ) { completion in
+            completion(Data(), nil)
+            return nil
+        }
+
+        // Act
+        let decoded = await decodeSplitDropPayload(from: [provider])
+
+        // Assert
+        #expect(decoded == SplitDropPayload(kind: .newTerminal))
+    }
+
+    private func makeProvider<TPayload: Encodable>(
+        payload: TPayload,
+        typeIdentifier: String
+    ) throws -> NSItemProvider {
+        let data = try JSONEncoder().encode(payload)
+        let provider = NSItemProvider()
+        provider.registerDataRepresentation(forTypeIdentifier: typeIdentifier, visibility: .all) { completion in
+            completion(data, nil)
+            return nil
+        }
+        return provider
     }
 }

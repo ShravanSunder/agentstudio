@@ -1,25 +1,17 @@
 import AppKit
 import SwiftUI
-import UniformTypeIdentifiers
-import os.log
 
-private let splitLogger = Logger(subsystem: "com.agentstudio", category: "SplitDrop")
-
-/// Renders a single pane leaf with drop zone support for splitting.
+/// Renders a single pane leaf container.
 /// Handles terminal views (with surface dimming and drag handles) and
 /// non-terminal views (webview, code viewer stubs) uniformly.
-struct TerminalPaneLeaf: View {
+struct PaneLeafContainer: View {
     let paneView: PaneView
     let tabId: UUID
     let isActive: Bool
     let isSplit: Bool
     let store: WorkspaceStore
     let action: (PaneAction) -> Void
-    let shouldAcceptDrop: (UUID, DropZone) -> Bool
-    let onDrop: (SplitDropPayload, UUID, DropZone) -> Void
 
-    @State private var dropZone: DropZone?
-    @State private var isTargeted: Bool = false
     @State private var isHovered: Bool = false
     @Bindable private var managementMode = ManagementModeMonitor.shared
     @State private var isMinimizeHovered: Bool = false
@@ -43,7 +35,7 @@ struct TerminalPaneLeaf: View {
     }
 
     var body: some View {
-        GeometryReader { geometry in
+        GeometryReader { _ in
             ZStack(alignment: .topTrailing) {
                 // Pane content view
                 PaneViewRepresentable(paneView: paneView)
@@ -81,7 +73,7 @@ struct TerminalPaneLeaf: View {
                 // Drawer children cannot be dragged out of their drawer.
                 // The Color.clear fills the ZStack for centering; allowsHitTesting(false)
                 // ensures only the capsule itself intercepts mouse events.
-                if managementMode.isActive && isSplit && !isDrawerChild && isHovered && !isTargeted
+                if managementMode.isActive && isSplit && !isDrawerChild && isHovered
                     && !store.isSplitResizing
                 {
                     ZStack {
@@ -121,12 +113,6 @@ struct TerminalPaneLeaf: View {
                             )
                         }
                     }
-                }
-
-                // Drop zone overlay
-                if isTargeted, let zone = dropZone {
-                    zone.overlay(in: geometry)
-                        .allowsHitTesting(false)
                 }
 
                 // Pane controls: minimize + close (top-left, management mode + hover)
@@ -276,43 +262,25 @@ struct TerminalPaneLeaf: View {
             .onTapGesture {
                 action(.focusPane(tabId: tabId, paneId: paneView.id))
             }
-            .onDrop(
-                of: [.agentStudioTab, .agentStudioNewTab, .agentStudioPane],
-                delegate: SplitDropDelegate(
-                    viewSize: geometry.size,
-                    destination: paneView,
-                    dropZone: $dropZone,
-                    isTargeted: $isTargeted,
-                    shouldAcceptDrop: shouldAcceptDrop,
-                    onDrop: onDrop
-                ))
         }
         .clipShape(RoundedRectangle(cornerRadius: 1))
-        .onChange(of: managementMode.isActive) { _, isActive in
-            // Clear stale drag overlay when management mode toggles off
-            if !isActive {
-                isTargeted = false
-                dropZone = nil
-            }
-        }
-        .onChange(of: isHovered) { _, hovering in
-            // Safety: clear stuck drop overlay when cursor leaves the pane.
-            // SwiftUI's dropExited can be unreliable when drags cancel or
-            // leave the window boundary.
-            if !hovering && isTargeted {
-                isTargeted = false
-                dropZone = nil
-            }
-        }
         .padding(AppStyle.paneGap)
         .background(
             GeometryReader { geo in
                 // Report pane frame for tab-level overlay positioning (layout panes only).
                 // Drawer children are inside the drawer panel, not in the tab coordinate space.
                 if !isDrawerChild {
+                    let rawFrame = geo.frame(in: .named("tabContainer"))
+                    let paneGap = AppStyle.paneGap
+                    let measuredFrame = CGRect(
+                        x: rawFrame.minX + paneGap,
+                        y: rawFrame.minY + paneGap,
+                        width: max(rawFrame.width - (paneGap * 2), 1),
+                        height: max(rawFrame.height - (paneGap * 2), 1)
+                    )
                     Color.clear.preference(
                         key: PaneFramePreferenceKey.self,
-                        value: [paneView.id: geo.frame(in: .named("tabContainer"))]
+                        value: [paneView.id: measuredFrame]
                     )
                 } else {
                     Color.clear
@@ -341,118 +309,8 @@ struct PaneViewRepresentable: NSViewRepresentable {
 /// Backwards-compatible alias.
 typealias TerminalViewRepresentable = PaneViewRepresentable
 
-// MARK: - Drop Delegate
-
-/// Handles drag-and-drop for split pane creation.
-private struct SplitDropDelegate: DropDelegate {
-    let viewSize: CGSize
-    let destination: PaneView
-    @Binding var dropZone: DropZone?
-    @Binding var isTargeted: Bool
-    let shouldAcceptDrop: (UUID, DropZone) -> Bool
-    let onDrop: (SplitDropPayload, UUID, DropZone) -> Void
-
-    func validateDrop(info: DropInfo) -> Bool {
-        let valid = info.hasItemsConforming(to: [.agentStudioTab, .agentStudioNewTab, .agentStudioPane])
-        splitLogger.debug("[DROP-DIAG] validateDrop: \(valid) for pane \(destination.id.uuidString.prefix(8))")
-        return valid
-    }
-
-    func dropEntered(info: DropInfo) {
-        let zone = DropZone.calculate(at: info.location, in: viewSize)
-        dropZone = zone
-        let accepted = shouldAcceptDrop(destination.id, zone)
-        isTargeted = accepted
-        splitLogger.debug(
-            "[DROP-DIAG] dropEntered: zone=\(String(describing: zone)) accepted=\(accepted) pane=\(destination.id.uuidString.prefix(8))"
-        )
-    }
-
-    func dropUpdated(info: DropInfo) -> DropProposal? {
-        let zone = DropZone.calculate(at: info.location, in: viewSize)
-        dropZone = zone
-        let accepted = shouldAcceptDrop(destination.id, zone)
-        isTargeted = accepted
-        return DropProposal(operation: accepted ? .move : .cancel)
-    }
-
-    func dropExited(info: DropInfo) {
-        splitLogger.debug("[DROP-DIAG] dropExited: pane=\(destination.id.uuidString.prefix(8))")
-        isTargeted = false
-        dropZone = nil
-    }
-
-    func performDrop(info: DropInfo) -> Bool {
-        guard let zone = dropZone else { return false }
-
-        isTargeted = false
-        dropZone = nil
-
-        // Try to load the drop payload
-        let providers = info.itemProviders(for: [.agentStudioTab, .agentStudioNewTab, .agentStudioPane])
-        guard let provider = providers.first else { return false }
-
-        // Check which type of drop
-        if provider.hasItemConformingToTypeIdentifier(UTType.agentStudioTab.identifier) {
-            _ = provider.loadDataRepresentation(forTypeIdentifier: UTType.agentStudioTab.identifier) { data, error in
-                if let error {
-                    splitLogger.warning("Tab drop: failed to load data — \(error.localizedDescription)")
-                    return
-                }
-                guard let data,
-                    let payload = try? JSONDecoder().decode(TabDragPayload.self, from: data)
-                else {
-                    splitLogger.warning("Tab drop: failed to decode TabDragPayload")
-                    return
-                }
-
-                Task { @MainActor in
-                    let splitPayload = SplitDropPayload(
-                        kind: .existingTab(
-                            tabId: payload.tabId
-                        ))
-                    onDrop(splitPayload, destination.id, zone)
-                }
-            }
-            return true
-        }
-
-        if provider.hasItemConformingToTypeIdentifier(UTType.agentStudioPane.identifier) {
-            _ = provider.loadDataRepresentation(forTypeIdentifier: UTType.agentStudioPane.identifier) { data, error in
-                if let error {
-                    splitLogger.warning("Pane drop: failed to load data — \(error.localizedDescription)")
-                    return
-                }
-                guard let data,
-                    let payload = try? JSONDecoder().decode(PaneDragPayload.self, from: data)
-                else {
-                    splitLogger.warning("Pane drop: failed to decode PaneDragPayload")
-                    return
-                }
-
-                Task { @MainActor in
-                    let splitPayload = SplitDropPayload(
-                        kind: .existingPane(
-                            paneId: payload.paneId,
-                            sourceTabId: payload.tabId
-                        ))
-                    onDrop(splitPayload, destination.id, zone)
-                }
-            }
-            return true
-        }
-
-        if provider.hasItemConformingToTypeIdentifier(UTType.agentStudioNewTab.identifier) {
-            Task { @MainActor in
-                let splitPayload = SplitDropPayload(kind: .newTerminal)
-                onDrop(splitPayload, destination.id, zone)
-            }
-            return true
-        }
-
-        return false
-    }
-}
+@available(*, deprecated, renamed: "PaneLeafContainer")
+typealias TerminalPaneLeaf = PaneLeafContainer
 
 // MARK: - Drag Payloads
 

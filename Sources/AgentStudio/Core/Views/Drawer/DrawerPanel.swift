@@ -41,7 +41,7 @@ struct DrawerResizeHandle: View {
 /// Renders the drawer's split tree (via SplitSubtreeView) in a rectangular panel
 /// with a resize handle at the top and material background.
 ///
-/// Translates tab-level PaneActions dispatched by SplitSubtreeView/TerminalPaneLeaf
+/// Translates tab-level PaneActions dispatched by SplitSubtreeView/PaneLeafContainer
 /// into drawer-specific actions (resize, minimize, close, focus, equalize).
 struct DrawerPanel: View {
     let tree: PaneSplitTree
@@ -57,7 +57,7 @@ struct DrawerPanel: View {
     let onDismiss: () -> Void
 
     /// Translates tab-level actions into drawer-specific actions.
-    /// SplitSubtreeView and TerminalPaneLeaf dispatch actions using tabId,
+    /// SplitSubtreeView and PaneLeafContainer dispatch actions using tabId,
     /// but in the drawer context these need to be routed to drawer operations.
     @ViewBuilder
     private var addDrawerButton: some View {
@@ -119,8 +119,6 @@ struct DrawerPanel: View {
                     splitRenderInfo: splitRenderInfo,
                     action: drawerAction,
                     onPersist: nil,
-                    shouldAcceptDrop: { _, _ in false },
-                    onDrop: { _, _, _ in },
                     store: store
                 )
                 .padding(.horizontal, DrawerLayout.panelContentPadding)

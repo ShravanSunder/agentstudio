@@ -33,6 +33,8 @@ struct TerminalSplitContainer: View {
 
     @State private var paneFrames: [UUID: CGRect] = [:]
     @State private var iconBarFrame: CGRect = .zero
+    @State private var dropTarget: PaneDropTarget?
+    @Bindable private var managementMode = ManagementModeMonitor.shared
 
     /// Content shown when all panes in the tab are minimized.
     /// Collapsed bars aligned left, remaining space empty.
@@ -61,15 +63,13 @@ struct TerminalSplitContainer: View {
                     {
                         // Zoomed: render single pane at full size
                         ZStack(alignment: .topTrailing) {
-                            TerminalPaneLeaf(
+                            PaneLeafContainer(
                                 paneView: zoomedView,
                                 tabId: tabId,
                                 isActive: true,
                                 isSplit: false,
                                 store: store,
-                                action: action,
-                                shouldAcceptDrop: shouldAcceptDrop,
-                                onDrop: onDrop
+                                action: action
                             )
                             // Zoom indicator badge
                             Text("ZOOM")
@@ -95,8 +95,6 @@ struct TerminalSplitContainer: View {
                             splitRenderInfo: splitRenderInfo,
                             action: action,
                             onPersist: onPersist,
-                            shouldAcceptDrop: shouldAcceptDrop,
-                            onDrop: onDrop,
                             store: store
                         )
                         .id(node.structuralIdentity)  // Prevents view recreation on ratio changes
@@ -120,9 +118,29 @@ struct TerminalSplitContainer: View {
                     iconBarFrame: iconBarFrame,
                     action: action
                 )
+
+                if managementMode.isActive {
+                    PaneDropTargetOverlay(target: dropTarget, paneFrames: paneFrames)
+                        .allowsHitTesting(false)
+                }
             }
+            .onDrop(
+                of: SplitContainerDropDelegate.supportedDropTypes,
+                delegate: SplitContainerDropDelegate(
+                    paneFrames: paneFrames,
+                    target: $dropTarget,
+                    isManagementModeActive: managementMode.isActive,
+                    shouldAcceptDrop: shouldAcceptDrop,
+                    onDrop: onDrop
+                )
+            )
             .onPreferenceChange(PaneFramePreferenceKey.self) { paneFrames = $0 }
             .onPreferenceChange(DrawerIconBarFrameKey.self) { iconBarFrame = $0 }
+            .onChange(of: managementMode.isActive) { _, isActive in
+                if !isActive {
+                    dropTarget = nil
+                }
+            }
         }
         .coordinateSpace(name: "tabContainer")
     }
@@ -139,8 +157,6 @@ struct SplitSubtreeView: View {
     let splitRenderInfo: SplitRenderInfo
     let action: (PaneAction) -> Void
     let onPersist: (() -> Void)?
-    let shouldAcceptDrop: (UUID, DropZone) -> Bool
-    let onDrop: (SplitDropPayload, UUID, DropZone) -> Void
     let store: WorkspaceStore
 
     var body: some View {
@@ -154,15 +170,13 @@ struct SplitSubtreeView: View {
                     action: action
                 )
             } else {
-                TerminalPaneLeaf(
+                PaneLeafContainer(
                     paneView: paneView,
                     tabId: tabId,
                     isActive: paneView.id == activePaneId,
                     isSplit: isSplit,
                     store: store,
-                    action: action,
-                    shouldAcceptDrop: shouldAcceptDrop,
-                    onDrop: onDrop
+                    action: action
                 )
             }
 
@@ -287,8 +301,6 @@ struct SplitSubtreeView: View {
             splitRenderInfo: splitRenderInfo,
             action: action,
             onPersist: onPersist,
-            shouldAcceptDrop: shouldAcceptDrop,
-            onDrop: onDrop,
             store: store
         )
     }

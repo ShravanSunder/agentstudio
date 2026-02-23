@@ -284,6 +284,7 @@ struct ManagementModeDragShieldTests {
     @Test
     func test_draggingEntered_managementModeInactive_returnsEmpty() {
         // Arrange
+        ManagementModeMonitor.shared.deactivate()
         let shield = ManagementModeDragShield(frame: NSRect(x: 0, y: 0, width: 200, height: 200))
         let mockDrag = MockDraggingInfo(pasteboardTypes: [.fileURL])
 

@@ -13,6 +13,23 @@ struct WebviewPaneControllerTests {
         }
     }
 
+    private func setManagementMode(active: Bool) async {
+        for _ in 0..<6 {
+            if active {
+                if !ManagementModeMonitor.shared.isActive {
+                    ManagementModeMonitor.shared.toggle()
+                }
+            } else if ManagementModeMonitor.shared.isActive {
+                ManagementModeMonitor.shared.deactivate()
+            }
+
+            await settleEventLoop(turns: 10)
+            if ManagementModeMonitor.shared.isActive == active {
+                return
+            }
+        }
+    }
+
     private func makeController() -> WebviewPaneController {
         WebviewPaneController(
             paneId: UUID(),
@@ -140,7 +157,7 @@ struct WebviewPaneControllerTests {
     @Test
     func test_managementModeToggle_updatesWebviewControllerInteractionState() async {
         // Arrange
-        ManagementModeMonitor.shared.deactivate()
+        await setManagementMode(active: false)
         let paneView = WebviewPaneView(
             paneId: UUID(),
             state: WebviewState(url: URL(string: "about:blank")!)
@@ -150,17 +167,17 @@ struct WebviewPaneControllerTests {
         #expect(paneView.controller.isContentInteractionEnabled)
 
         // Act — enter management mode
-        ManagementModeMonitor.shared.toggle()
-        await settleEventLoop()
+        await setManagementMode(active: true)
 
         // Assert
+        #expect(ManagementModeMonitor.shared.isActive)
         #expect(!paneView.controller.isContentInteractionEnabled)
 
         // Act — leave management mode
-        ManagementModeMonitor.shared.deactivate()
-        await settleEventLoop()
+        await setManagementMode(active: false)
 
         // Assert
+        #expect(!ManagementModeMonitor.shared.isActive)
         #expect(paneView.controller.isContentInteractionEnabled)
     }
 }
