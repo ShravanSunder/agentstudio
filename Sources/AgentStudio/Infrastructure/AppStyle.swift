@@ -8,7 +8,7 @@ import SwiftUI
 ///
 /// ## Icon Size Hierarchy
 /// ```
-/// 18pt  — In-pane controls (minimize, close, split "+")
+/// 24pt  — In-pane controls (minimize, close, split "+")
 /// 16pt  — Toolbar actions (management mode toggle, window controls)
 /// 12pt  — Compact bars (tab bar, drawer icon bar, arrangement bar)
 /// ```
@@ -20,7 +20,7 @@ import SwiftUI
 /// ```
 /// compact:  12 + 2×6 = 24pt frame
 /// toolbar:  16 + 2×6 = 28pt frame
-/// pane:     18 + 2×8 = 34pt frame  (larger hit target over content)
+/// pane:     24 + 2×8 = 40pt frame  (larger hit target over content)
 /// ```
 enum AppStyle {
 
@@ -33,7 +33,7 @@ enum AppStyle {
     static let toolbarIconSize: CGFloat = 16
 
     /// Icons for in-pane controls: minimize, close, split "+".
-    static let paneControlIconSize: CGFloat = 18
+    static let paneControlIconSize: CGFloat = 24
 
     // MARK: - Icon Padding
 
