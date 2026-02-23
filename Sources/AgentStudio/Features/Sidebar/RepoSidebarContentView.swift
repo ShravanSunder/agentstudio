@@ -558,7 +558,7 @@ private struct SidebarWorktreeRow: View {
 
             HStack(spacing: 6) {
                 SidebarChip(
-                    icon: "circle.fill",
+                    icon: branchStatus.isDirty ? "exclamationmark.circle.fill" : "checkmark.circle.fill",
                     text: branchStatus.isDirty ? "dirty" : "clean",
                     style: branchStatus.isDirty ? .warning : .success
                 )
@@ -573,9 +573,9 @@ private struct SidebarWorktreeRow: View {
                     style: .neutral
                 )
                 SidebarChip(
-                    icon: "bell.badge",
+                    icon: "bell",
                     text: "\(notificationCount)",
-                    style: .info
+                    style: .neutral
                 )
             }
         }
@@ -661,7 +661,7 @@ private struct SidebarWorktreeRow: View {
     private var syncChipIcon: String {
         switch branchStatus.syncState {
         case .synced:
-            return "arrow.up.arrow.down"
+            return "arrow.triangle.2.circlepath"
         case .ahead:
             return "arrow.up"
         case .behind:
@@ -669,9 +669,9 @@ private struct SidebarWorktreeRow: View {
         case .diverged:
             return "arrow.up.arrow.down"
         case .noUpstream:
-            return "slash.circle"
+            return "exclamationmark.triangle"
         case .unknown:
-            return "questionmark.circle"
+            return "questionmark"
         }
     }
 
@@ -697,9 +697,9 @@ private struct SidebarChip: View {
         var foreground: Color {
             switch self {
             case .neutral: return .secondary
-            case .info: return .blue
-            case .success: return .green
-            case .warning: return .orange
+            case .info: return Color(red: 0.47, green: 0.69, blue: 0.96)
+            case .success: return Color(red: 0.42, green: 0.84, blue: 0.50)
+            case .warning: return Color(red: 0.93, green: 0.71, blue: 0.34)
             }
         }
     }
@@ -715,10 +715,14 @@ private struct SidebarChip: View {
             Text(text)
                 .font(.system(size: 9, weight: .medium))
         }
-        .padding(.horizontal, 5)
+        .padding(.horizontal, 6)
         .padding(.vertical, 2)
-        .background(style.foreground.opacity(0.16))
+        .background(Color.white.opacity(0.10))
         .foregroundStyle(style.foreground)
+        .overlay(
+            Capsule()
+                .stroke(Color.white.opacity(0.08), lineWidth: 1)
+        )
         .clipShape(Capsule())
     }
 }

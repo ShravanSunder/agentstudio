@@ -10,6 +10,9 @@ extension NSPasteboard.PasteboardType {
 
     // For pane drag-to-tab-bar (extract pane to new tab)
     static let agentStudioPaneDrop = NSPasteboard.PasteboardType(UTType.agentStudioPane.identifier)
+
+    // For new-tab drag from tab bar (matches UTType.agentStudioNewTab)
+    static let agentStudioNewTabDrop = NSPasteboard.PasteboardType(UTType.agentStudioNewTab.identifier)
 }
 
 extension NSToolbarItem.Identifier {
