@@ -283,6 +283,12 @@ final class AgentStudioTerminalView: PaneView, SurfaceHealthDelegate {
     // MARK: - Hit Testing
 
     override func hitTest(_ point: NSPoint) -> NSView? {
+        // Management mode: delegate to PaneView base class (uses interaction shield)
+        if ManagementModeMonitor.shared.isActive {
+            return super.hitTest(point)
+        }
+
+        // Normal mode: custom routing for error overlay and Ghostty surface
         if let overlay = errorOverlay, !overlay.isHidden {
             let overlayPoint = convert(point, to: overlay)
             if overlay.bounds.contains(overlayPoint) {

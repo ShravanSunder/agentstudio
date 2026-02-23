@@ -75,52 +75,28 @@ struct ManagementModeDragShieldTests {
     }
 
     @Test
-    func test_hitTest_managementModeOn_fileDrag_returnsSelf() {
-        // Arrange — simulate a file drag on the drag pasteboard
+    func test_hitTest_managementModeOn_returnsSelf() {
+        // Arrange
         let shield = ManagementModeDragShield(frame: NSRect(x: 0, y: 0, width: 200, height: 200))
         ManagementModeMonitor.shared.toggle()
-        let dragPasteboard = NSPasteboard(name: .drag)
-        dragPasteboard.clearContents()
-        dragPasteboard.declareTypes([.fileURL], owner: nil)
 
-        // Assert — shield intercepts file drags
+        // Assert — blocks all interaction when management mode is on
         let result = shield.hitTest(NSPoint(x: 100, y: 100))
         #expect(result === shield)
 
         // Cleanup
-        dragPasteboard.clearContents()
         ManagementModeMonitor.shared.deactivate()
     }
 
     @Test
-    func test_hitTest_managementModeOn_agentStudioDrag_returnsNil() {
-        // Arrange — simulate an agent studio pane drag
+    func test_hitTest_managementModeOn_outsideBounds_returnsNil() {
+        // Arrange
         let shield = ManagementModeDragShield(frame: NSRect(x: 0, y: 0, width: 200, height: 200))
         ManagementModeMonitor.shared.toggle()
-        let dragPasteboard = NSPasteboard(name: .drag)
-        dragPasteboard.clearContents()
-        dragPasteboard.declareTypes([.agentStudioPaneDrop], owner: nil)
 
-        // Assert — shield is transparent for agent studio drags
-        let result = shield.hitTest(NSPoint(x: 100, y: 100))
+        // Assert — point outside bounds returns nil
+        let result = shield.hitTest(NSPoint(x: 300, y: 300))
         #expect(result == nil)
-
-        // Cleanup
-        dragPasteboard.clearContents()
-        ManagementModeMonitor.shared.deactivate()
-    }
-
-    @Test
-    func test_hitTest_managementModeOn_emptyPasteboard_returnsSelf() {
-        // Arrange — no active drag (empty pasteboard)
-        let shield = ManagementModeDragShield(frame: NSRect(x: 0, y: 0, width: 200, height: 200))
-        ManagementModeMonitor.shared.toggle()
-        let dragPasteboard = NSPasteboard(name: .drag)
-        dragPasteboard.clearContents()
-
-        // Assert — shield participates (suppresses unknown drags)
-        let result = shield.hitTest(NSPoint(x: 100, y: 100))
-        #expect(result === shield)
 
         // Cleanup
         ManagementModeMonitor.shared.deactivate()
@@ -160,60 +136,93 @@ struct ManagementModeDragShieldTests {
         ManagementModeMonitor.shared.deactivate()
     }
 
-    // MARK: - Z-Order in PaneView
+    // MARK: - Shield Installation in PaneView
 
     @Test
-    func test_shieldIsTopSubview_ofPaneViewContainer() {
+    func test_swiftUIContainer_isManagementModeContainerView() {
         // Arrange
         let paneView = PaneView(paneId: UUID())
 
         // Act
         let container = paneView.swiftUIContainer
 
-        // Assert — shield is the topmost (last) subview
-        let topSubview = container.subviews.last
-        #expect(topSubview is ManagementModeDragShield)
+        // Assert — container is the management mode aware subclass
+        #expect(container is ManagementModeContainerView)
     }
 
-    // MARK: - Drag Type Gating (Allowlist)
+    @Test
+    func test_shieldInstalledAsTopmostSubview() {
+        // Arrange
+        let paneView = PaneView(paneId: UUID())
+
+        // Act — trigger lazy swiftUIContainer which installs the shield
+        _ = paneView.swiftUIContainer
+
+        // Assert — shield is installed
+        #expect(paneView.interactionShield != nil)
+        // Assert — shield is topmost (last) subview of PaneView
+        #expect(paneView.subviews.last is ManagementModeDragShield)
+    }
 
     @Test
-    func test_draggingEntered_agentStudioPaneType_passesThrough() {
-        // Arrange — pane drag should pass through to SwiftUI .onDrop
-        let shield = ManagementModeDragShield(frame: NSRect(x: 0, y: 0, width: 200, height: 200))
+    func test_paneViewHitTest_managementModeOn_returnsShield() {
+        // Arrange
+        let paneView = PaneView(paneId: UUID())
+        _ = paneView.swiftUIContainer  // Install shield
         ManagementModeMonitor.shared.toggle()
-        let mockDrag = MockDraggingInfo(pasteboardTypes: [.agentStudioPaneDrop])
 
         // Act
-        let result = shield.draggingEntered(mockDrag)
+        let result = paneView.hitTest(NSPoint(x: 100, y: 100))
 
-        // Assert — returns empty so AppKit forwards to SwiftUI
-        #expect(result == [])
+        // Assert — PaneView delegates to shield
+        #expect(result === paneView.interactionShield)
 
         // Cleanup
         ManagementModeMonitor.shared.deactivate()
     }
 
     @Test
-    func test_draggingEntered_agentStudioTabType_passesThrough() {
-        // Arrange — tab drag should pass through to SwiftUI .onDrop
-        let shield = ManagementModeDragShield(frame: NSRect(x: 0, y: 0, width: 200, height: 200))
-        ManagementModeMonitor.shared.toggle()
-        let mockDrag = MockDraggingInfo(pasteboardTypes: [.agentStudioTabDrop])
+    func test_paneViewHitTest_managementModeOff_returnsNormally() {
+        // Arrange
+        let paneView = PaneView(paneId: UUID())
+        _ = paneView.swiftUIContainer  // Install shield
 
         // Act
-        let result = shield.draggingEntered(mockDrag)
+        let result = paneView.hitTest(NSPoint(x: 100, y: 100))
 
-        // Assert
-        #expect(result == [])
+        // Assert — normal hit testing (shield is transparent)
+        #expect(result !== paneView.interactionShield || result == nil)
+    }
+
+    @Test
+    func test_containerHitTest_managementModeOff_returnsSelf() {
+        // Arrange
+        let container = ManagementModeContainerView(frame: NSRect(x: 0, y: 0, width: 200, height: 200))
+
+        // Assert — normal hit testing when management mode is off
+        let result = container.hitTest(NSPoint(x: 100, y: 100))
+        #expect(result === container)
+    }
+
+    @Test
+    func test_containerHitTest_managementModeOn_returnsNil() {
+        // Arrange
+        let container = ManagementModeContainerView(frame: NSRect(x: 0, y: 0, width: 200, height: 200))
+        ManagementModeMonitor.shared.toggle()
+
+        // Assert — invisible to AppKit during management mode
+        let result = container.hitTest(NSPoint(x: 100, y: 100))
+        #expect(result == nil)
 
         // Cleanup
         ManagementModeMonitor.shared.deactivate()
     }
 
+    // MARK: - NSDraggingDestination
+
     @Test
-    func test_draggingEntered_fileType_suppressed() {
-        // Arrange — file drag should be suppressed
+    func test_draggingEntered_managementModeActive_returnsGeneric() {
+        // Arrange
         let shield = ManagementModeDragShield(frame: NSRect(x: 0, y: 0, width: 200, height: 200))
         ManagementModeMonitor.shared.toggle()
         let mockDrag = MockDraggingInfo(pasteboardTypes: [.fileURL])
@@ -221,7 +230,7 @@ struct ManagementModeDragShieldTests {
         // Act
         let result = shield.draggingEntered(mockDrag)
 
-        // Assert — returns .generic to claim the drag (suppress)
+        // Assert — absorbs the drag
         #expect(result == .generic)
 
         // Cleanup
@@ -229,55 +238,20 @@ struct ManagementModeDragShieldTests {
     }
 
     @Test
-    func test_draggingEntered_mixedTypes_agentStudioWins() {
-        // Arrange — if pasteboard has both file and agent studio types,
-        // agent studio types take precedence (passes through)
-        let shield = ManagementModeDragShield(frame: NSRect(x: 0, y: 0, width: 200, height: 200))
-        ManagementModeMonitor.shared.toggle()
-        let mockDrag = MockDraggingInfo(pasteboardTypes: [.fileURL, .agentStudioPaneDrop])
-
-        // Act
-        let result = shield.draggingEntered(mockDrag)
-
-        // Assert — allowed type present, so pass through
-        #expect(result == [])
-
-        // Cleanup
-        ManagementModeMonitor.shared.deactivate()
-    }
-
-    @Test
-    func test_draggingEntered_managementModeInactive_alwaysPassesThrough() {
-        // Arrange — when management mode is off, all drags pass through
+    func test_draggingEntered_managementModeInactive_returnsEmpty() {
+        // Arrange
         let shield = ManagementModeDragShield(frame: NSRect(x: 0, y: 0, width: 200, height: 200))
         let mockDrag = MockDraggingInfo(pasteboardTypes: [.fileURL])
 
         // Act
         let result = shield.draggingEntered(mockDrag)
 
-        // Assert
+        // Assert — transparent when management mode is off
         #expect(result == [])
     }
 
     @Test
-    func test_draggingUpdated_agentStudioType_passesThrough() {
-        // Arrange
-        let shield = ManagementModeDragShield(frame: NSRect(x: 0, y: 0, width: 200, height: 200))
-        ManagementModeMonitor.shared.toggle()
-        let mockDrag = MockDraggingInfo(pasteboardTypes: [.agentStudioPaneDrop])
-
-        // Act
-        let result = shield.draggingUpdated(mockDrag)
-
-        // Assert
-        #expect(result == [])
-
-        // Cleanup
-        ManagementModeMonitor.shared.deactivate()
-    }
-
-    @Test
-    func test_draggingUpdated_fileType_suppressed() {
+    func test_draggingUpdated_managementModeActive_returnsGeneric() {
         // Arrange
         let shield = ManagementModeDragShield(frame: NSRect(x: 0, y: 0, width: 200, height: 200))
         ManagementModeMonitor.shared.toggle()

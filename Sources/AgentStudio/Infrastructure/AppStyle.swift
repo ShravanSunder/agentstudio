@@ -128,6 +128,77 @@ enum AppStyle {
     /// Loose spacing: container and section boundary padding.
     static let spacingLoose: CGFloat = 8
 
+    // MARK: - Sidebar Metrics
+
+    /// Vertical gap between a repo group header and its first checkout row.
+    static let sidebarGroupChildrenSpacing: CGFloat = 2
+
+    /// Internal vertical spacing between checkout title and chip row.
+    static let sidebarRowContentSpacing: CGFloat = 3
+
+    /// Vertical inset around each checkout row container.
+    static let sidebarRowVerticalInset: CGFloat = 4
+
+    /// Reduces default DisclosureGroup child indentation to keep tree rows tighter.
+    static let sidebarGroupChildLeadingReduction: CGFloat = 8
+
+    /// Leading inset used for sidebar list rows.
+    static let sidebarListRowLeadingInset: CGFloat = 2
+
+    /// Group (repo) icon size in sidebar rows.
+    static let sidebarGroupIconSize: CGFloat = 14
+
+    /// Worktree icon size in sidebar rows.
+    static let sidebarWorktreeIconSize: CGFloat = 11
+
+    /// Vertical padding for sidebar group rows.
+    static let sidebarGroupRowVerticalPadding: CGFloat = 2
+
+    /// Horizontal padding for sidebar group checkout-count badges.
+    static let sidebarCountBadgeHorizontalPadding: CGFloat = 6
+
+    /// Vertical padding for sidebar group checkout-count badges.
+    static let sidebarCountBadgeVerticalPadding: CGFloat = 2
+
+    /// Background opacity for sidebar group checkout-count badges.
+    static let sidebarCountBadgeBackgroundOpacity: CGFloat = 0.15
+
+    /// Horizontal spacing between chips in checkout rows.
+    static let sidebarChipRowSpacing: CGFloat = 4
+
+    /// Spacing between icon and text inside a chip.
+    static let sidebarChipContentSpacing: CGFloat = 2
+
+    /// Internal spacing between direction cluster icon and count in sync chip.
+    static let sidebarSyncClusterSpacing: CGFloat = 1
+
+    /// Horizontal padding for chips with icon + text.
+    static let sidebarChipHorizontalPadding: CGFloat = 4
+
+    /// Horizontal padding for icon-only chips.
+    static let sidebarChipIconOnlyHorizontalPadding: CGFloat = 3
+
+    /// Vertical padding for chips.
+    static let sidebarChipVerticalPadding: CGFloat = 2
+
+    /// Font size for compact sidebar chips.
+    static let sidebarChipFontSize: CGFloat = fontCaption
+
+    /// Icon size used in standard sidebar chips.
+    static let sidebarChipIconSize: CGFloat = 8
+
+    /// Icon size used in the compact sync chip.
+    static let sidebarSyncChipIconSize: CGFloat = 7
+
+    /// Chip background opacity for sidebar pills.
+    static let sidebarChipBackgroundOpacity: CGFloat = fillPressed
+
+    /// Chip border opacity for sidebar pills.
+    static let sidebarChipBorderOpacity: CGFloat = fillHover
+
+    /// Hover fill opacity for sidebar checkout rows.
+    static let sidebarRowHoverOpacity: CGFloat = fillPressed
+
     // Legacy aliases — prefer the spacing* names above.
     static let barPadding: CGFloat = spacingTight
     static let barHorizontalPadding: CGFloat = spacingStandard

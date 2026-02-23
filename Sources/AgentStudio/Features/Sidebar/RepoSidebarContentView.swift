@@ -192,7 +192,7 @@ struct RepoSidebarContentView: View {
                         }
                     )
                 ) {
-                    VStack(spacing: 2) {
+                    VStack(spacing: AppStyle.sidebarGroupChildrenSpacing) {
                         ForEach(group.repos) { repo in
                             let sortedWorktrees = sortedWorktrees(for: repo)
                             ForEach(sortedWorktrees) { worktree in
@@ -237,17 +237,32 @@ struct RepoSidebarContentView: View {
                                         saveWorktreeColors()
                                     }
                                 )
-                                .listRowInsets(EdgeInsets(top: 0, leading: 2, bottom: 0, trailing: 0))
+                                .listRowInsets(
+                                    EdgeInsets(
+                                        top: 0,
+                                        leading: AppStyle.sidebarListRowLeadingInset,
+                                        bottom: 0,
+                                        trailing: 0
+                                    )
+                                )
                             }
                         }
                     }
+                    .padding(.leading, -AppStyle.sidebarGroupChildLeadingReduction)
                 } label: {
                     SidebarGroupRow(
                         title: group.title,
                         checkoutCount: group.checkoutCount
                     )
                 }
-                .listRowInsets(EdgeInsets(top: 0, leading: 2, bottom: 0, trailing: 0))
+                .listRowInsets(
+                    EdgeInsets(
+                        top: 0,
+                        leading: AppStyle.sidebarListRowLeadingInset,
+                        bottom: 0,
+                        trailing: 0
+                    )
+                )
                 .contextMenu {
                     Menu("Set Default Icon Color") {
                         ForEach(SidebarRepoGrouping.colorPresets, id: \.hex) { preset in
@@ -499,7 +514,7 @@ private struct SidebarGroupRow: View {
 
     var body: some View {
         HStack(spacing: AppStyle.spacingStandard) {
-            OcticonImage(name: "octicon-repo", size: 14)
+            OcticonImage(name: "octicon-repo", size: AppStyle.sidebarGroupIconSize)
                 .foregroundStyle(.secondary)
 
             Text(title)
@@ -511,12 +526,12 @@ private struct SidebarGroupRow: View {
             Text("\(checkoutCount)")
                 .font(.system(size: AppStyle.fontSmall, weight: .medium))
                 .foregroundStyle(.secondary)
-                .padding(.horizontal, 6)
-                .padding(.vertical, 2)
-                .background(Color.secondary.opacity(0.15))
+                .padding(.horizontal, AppStyle.sidebarCountBadgeHorizontalPadding)
+                .padding(.vertical, AppStyle.sidebarCountBadgeVerticalPadding)
+                .background(Color.secondary.opacity(AppStyle.sidebarCountBadgeBackgroundOpacity))
                 .clipShape(Capsule())
         }
-        .padding(.vertical, 2)
+        .padding(.vertical, AppStyle.sidebarGroupRowVerticalPadding)
         .contentShape(Rectangle())
     }
 }
@@ -535,13 +550,13 @@ private struct SidebarWorktreeRow: View {
     @State private var isHovering = false
 
     var body: some View {
-        VStack(alignment: .leading, spacing: 3) {
+        VStack(alignment: .leading, spacing: AppStyle.sidebarRowContentSpacing) {
             HStack(spacing: AppStyle.spacingStandard) {
                 if worktree.isMainWorktree {
-                    OcticonImage(name: "octicon-star-fill", size: 11)
+                    OcticonImage(name: "octicon-star-fill", size: AppStyle.sidebarWorktreeIconSize)
                         .foregroundStyle(iconColor)
                 } else {
-                    OcticonImage(name: "octicon-git-branch", size: 11)
+                    OcticonImage(name: "octicon-git-branch", size: AppStyle.sidebarWorktreeIconSize)
                         .foregroundStyle(iconColor)
                 }
 
@@ -553,7 +568,7 @@ private struct SidebarWorktreeRow: View {
                 Spacer()
             }
 
-            HStack(spacing: 6) {
+            HStack(spacing: AppStyle.sidebarChipRowSpacing) {
                 SidebarChip(
                     iconAsset: branchStatus.isDirty ? "octicon-dot-fill" : "octicon-check-circle-fill",
                     text: nil,
@@ -576,11 +591,11 @@ private struct SidebarWorktreeRow: View {
                 )
             }
         }
-        .padding(.vertical, 4)
-        .padding(.horizontal, 4)
+        .padding(.vertical, AppStyle.sidebarRowVerticalInset)
+        .padding(.horizontal, AppStyle.spacingTight)
         .background(
             RoundedRectangle(cornerRadius: AppStyle.barCornerRadius)
-                .fill(isHovering ? Color.accentColor.opacity(0.1) : Color.clear)
+                .fill(isHovering ? Color.accentColor.opacity(AppStyle.sidebarRowHoverOpacity) : Color.clear)
         )
         .contentShape(Rectangle())
         .onHover { isHovering = $0 }
@@ -706,22 +721,27 @@ private struct SidebarChip: View {
     let style: Style
 
     var body: some View {
-        HStack(spacing: 3) {
-            OcticonImage(name: iconAsset, size: 10)
+        HStack(spacing: AppStyle.sidebarChipContentSpacing) {
+            OcticonImage(name: iconAsset, size: AppStyle.sidebarChipIconSize)
             if let text {
                 Text(text)
-                    .font(.system(size: 9, weight: .medium))
+                    .font(.system(size: AppStyle.sidebarChipFontSize, weight: .medium).monospacedDigit())
+                    .lineLimit(1)
             }
         }
-        .padding(.horizontal, text == nil ? 5 : 6)
-        .padding(.vertical, 2)
-        .background(Color.white.opacity(0.10))
+        .padding(
+            .horizontal,
+            text == nil ? AppStyle.sidebarChipIconOnlyHorizontalPadding : AppStyle.sidebarChipHorizontalPadding
+        )
+        .padding(.vertical, AppStyle.sidebarChipVerticalPadding)
+        .background(Color.white.opacity(AppStyle.sidebarChipBackgroundOpacity))
         .foregroundStyle(style.foreground)
         .overlay(
             Capsule()
-                .stroke(Color.white.opacity(0.08), lineWidth: 1)
+                .stroke(Color.white.opacity(AppStyle.sidebarChipBorderOpacity), lineWidth: 1)
         )
         .clipShape(Capsule())
+        .fixedSize(horizontal: true, vertical: true)
     }
 }
 
@@ -731,23 +751,28 @@ private struct SidebarSyncChip: View {
     let style: SidebarChip.Style
 
     var body: some View {
-        HStack(spacing: 4) {
-            OcticonImage(name: "octicon-arrow-up", size: 9)
-            Text(aheadText)
-                .font(.system(size: 9, weight: .medium))
-            OcticonImage(name: "octicon-arrow-down", size: 9)
-            Text(behindText)
-                .font(.system(size: 9, weight: .medium))
+        HStack(spacing: AppStyle.sidebarChipContentSpacing) {
+            HStack(spacing: AppStyle.sidebarSyncClusterSpacing) {
+                OcticonImage(name: "octicon-arrow-up", size: AppStyle.sidebarSyncChipIconSize)
+                Text(aheadText)
+            }
+            HStack(spacing: AppStyle.sidebarSyncClusterSpacing) {
+                OcticonImage(name: "octicon-arrow-down", size: AppStyle.sidebarSyncChipIconSize)
+                Text(behindText)
+            }
         }
-        .padding(.horizontal, 6)
-        .padding(.vertical, 2)
-        .background(Color.white.opacity(0.10))
+        .font(.system(size: AppStyle.sidebarChipFontSize, weight: .medium).monospacedDigit())
+        .lineLimit(1)
+        .padding(.horizontal, AppStyle.sidebarChipHorizontalPadding)
+        .padding(.vertical, AppStyle.sidebarChipVerticalPadding)
+        .background(Color.white.opacity(AppStyle.sidebarChipBackgroundOpacity))
         .foregroundStyle(style.foreground)
         .overlay(
             Capsule()
-                .stroke(Color.white.opacity(0.08), lineWidth: 1)
+                .stroke(Color.white.opacity(AppStyle.sidebarChipBorderOpacity), lineWidth: 1)
         )
         .clipShape(Capsule())
+        .fixedSize(horizontal: true, vertical: true)
     }
 }
 
@@ -756,11 +781,59 @@ private struct OcticonImage: View {
     let size: CGFloat
 
     var body: some View {
-        Image(name, bundle: .module)
-            .renderingMode(.template)
-            .resizable()
-            .aspectRatio(contentMode: .fit)
-            .frame(width: size, height: size)
+        Group {
+            if let image = SidebarOcticonLoader.shared.image(named: name) {
+                Image(nsImage: image)
+                    .renderingMode(.template)
+                    .resizable()
+                    .aspectRatio(contentMode: .fit)
+            } else {
+                Image(systemName: "questionmark.square.dashed")
+                    .resizable()
+                    .aspectRatio(contentMode: .fit)
+            }
+        }
+        .frame(width: size, height: size)
+    }
+}
+
+@MainActor
+private final class SidebarOcticonLoader {
+    static let shared = SidebarOcticonLoader()
+
+    private var cache: [String: NSImage] = [:]
+
+    private init() {}
+
+    func image(named name: String) -> NSImage? {
+        if let cached = cache[name] {
+            return cached
+        }
+
+        let subdirectory = "SidebarIcons.xcassets/\(name).imageset"
+        if let svgURL = Bundle.module.url(
+            forResource: name,
+            withExtension: "svg",
+            subdirectory: subdirectory
+        ),
+            let image = NSImage(contentsOf: svgURL)
+        {
+            cache[name] = image
+            return image
+        }
+
+        if let pdfURL = Bundle.module.url(
+            forResource: name,
+            withExtension: "pdf",
+            subdirectory: subdirectory
+        ),
+            let image = NSImage(contentsOf: pdfURL)
+        {
+            cache[name] = image
+            return image
+        }
+
+        return nil
     }
 }
 
