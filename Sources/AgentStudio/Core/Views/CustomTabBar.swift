@@ -99,13 +99,16 @@ struct CustomTabBar: View {
     var body: some View {
         GeometryReader { geometry in
             HStack(spacing: 0) {
-                // MARK: - Arrangement button (left of all tabs)
+                // MARK: - Management mode button (leftmost)
+                TabBarManagementModeButton()
+                    .padding(.leading, AppStyle.spacingLoose)
+
+                // MARK: - Arrangement button
                 TabBarArrangementButton(
                     adapter: adapter,
                     onPaneAction: onPaneAction,
                     onSaveArrangement: onSaveArrangement
                 )
-                .padding(.leading, AppStyle.spacingLoose)
 
                 // MARK: - Duplicate button
                 if let onDuplicateTab, let onDuplicatePane {
@@ -417,6 +420,44 @@ private struct TabBarArrangementButton: View {
                 )
             }
         }
+    }
+}
+
+/// Management mode toggle in the tab bar. Blue accent when active, standard hover otherwise.
+private struct TabBarManagementModeButton: View {
+    @Bindable private var managementMode = ManagementModeMonitor.shared
+    @State private var isHovered = false
+
+    var body: some View {
+        Button {
+            managementMode.toggle()
+        } label: {
+            Image(
+                systemName: managementMode.isActive
+                    ? "rectangle.split.2x2.fill"
+                    : "rectangle.split.2x2"
+            )
+            .font(.system(size: AppStyle.compactIconSize, weight: .medium))
+            .foregroundStyle(
+                managementMode.isActive
+                    ? Color.accentColor
+                    : (isHovered ? .primary : .secondary)
+            )
+            .frame(width: AppStyle.toolbarButtonSize, height: AppStyle.toolbarButtonSize)
+            .background(
+                Circle()
+                    .fill(
+                        managementMode.isActive
+                            ? Color.accentColor.opacity(AppStyle.fillActive)
+                            : Color.white.opacity(
+                                isHovered ? AppStyle.fillPressed : AppStyle.fillMuted)
+                    )
+            )
+            .contentShape(Circle())
+        }
+        .buttonStyle(.plain)
+        .onHover { isHovered = $0 }
+        .help("Toggle Management Mode (\u{2318}E)")
     }
 }
 
