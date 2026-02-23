@@ -22,6 +22,9 @@ struct TerminalPaneLeaf: View {
     @State private var isTargeted: Bool = false
     @State private var isHovered: Bool = false
     @Bindable private var managementMode = ManagementModeMonitor.shared
+    @State private var isMinimizeHovered: Bool = false
+    @State private var isCloseHovered: Bool = false
+    @State private var isSplitHovered: Bool = false
 
     /// Whether this pane is a drawer child (no drag, no drop, no sub-drawer).
     private var isDrawerChild: Bool {
@@ -118,10 +121,27 @@ struct TerminalPaneLeaf: View {
                             } label: {
                                 Image(systemName: "minus.circle.fill")
                                     .font(.system(size: AppStyle.paneControlIconSize))
-                                    .foregroundStyle(.white.opacity(AppStyle.foregroundMuted))
-                                    .background(Circle().fill(Color.black.opacity(AppStyle.foregroundDim)))
+                                    .foregroundStyle(
+                                        .white.opacity(
+                                            isMinimizeHovered
+                                                ? AppStyle.foregroundSecondary
+                                                : AppStyle.foregroundMuted)
+                                    )
+                                    .frame(
+                                        width: AppStyle.paneControlButtonSize,
+                                        height: AppStyle.paneControlButtonSize
+                                    )
+                                    .background(
+                                        Circle().fill(
+                                            Color.black.opacity(
+                                                isMinimizeHovered
+                                                    ? AppStyle.foregroundMuted
+                                                    : AppStyle.foregroundDim))
+                                    )
+                                    .contentShape(Circle())
                             }
                             .buttonStyle(.plain)
+                            .onHover { isMinimizeHovered = $0 }
                             .help("Minimize pane")
 
                             Button {
@@ -129,10 +149,27 @@ struct TerminalPaneLeaf: View {
                             } label: {
                                 Image(systemName: "xmark.circle.fill")
                                     .font(.system(size: AppStyle.paneControlIconSize))
-                                    .foregroundStyle(.white.opacity(AppStyle.foregroundMuted))
-                                    .background(Circle().fill(Color.black.opacity(AppStyle.foregroundDim)))
+                                    .foregroundStyle(
+                                        .white.opacity(
+                                            isCloseHovered
+                                                ? AppStyle.foregroundSecondary
+                                                : AppStyle.foregroundMuted)
+                                    )
+                                    .frame(
+                                        width: AppStyle.paneControlButtonSize,
+                                        height: AppStyle.paneControlButtonSize
+                                    )
+                                    .background(
+                                        Circle().fill(
+                                            Color.black.opacity(
+                                                isCloseHovered
+                                                    ? AppStyle.foregroundMuted
+                                                    : AppStyle.foregroundDim))
+                                    )
+                                    .contentShape(Circle())
                             }
                             .buttonStyle(.plain)
+                            .onHover { isCloseHovered = $0 }
                             .help("Close pane")
 
                             Spacer()
@@ -159,10 +196,15 @@ struct TerminalPaneLeaf: View {
                             } label: {
                                 Image(systemName: "plus")
                                     .font(.system(size: AppStyle.paneControlIconSize, weight: .bold))
-                                    .foregroundStyle(.white.opacity(AppStyle.foregroundMuted))
+                                    .foregroundStyle(
+                                        .white.opacity(
+                                            isSplitHovered
+                                                ? AppStyle.foregroundSecondary
+                                                : AppStyle.foregroundMuted)
+                                    )
                                     .frame(
-                                        width: AppStyle.paneControlButtonSize,
-                                        height: AppStyle.paneControlButtonSize + 12
+                                        width: AppStyle.paneControlButtonSize / 2,
+                                        height: AppStyle.paneControlButtonSize
                                     )
                                     .background(
                                         UnevenRoundedRectangle(
@@ -171,10 +213,23 @@ struct TerminalPaneLeaf: View {
                                             bottomTrailingRadius: 0,
                                             topTrailingRadius: 0
                                         )
-                                        .fill(Color.black.opacity(AppStyle.foregroundDim))
+                                        .fill(
+                                            Color.black.opacity(
+                                                isSplitHovered
+                                                    ? AppStyle.foregroundMuted
+                                                    : AppStyle.foregroundDim))
+                                    )
+                                    .contentShape(
+                                        UnevenRoundedRectangle(
+                                            topLeadingRadius: AppStyle.panelCornerRadius + 4,
+                                            bottomLeadingRadius: AppStyle.panelCornerRadius + 4,
+                                            bottomTrailingRadius: 0,
+                                            topTrailingRadius: 0
+                                        )
                                     )
                             }
                             .buttonStyle(.plain)
+                            .onHover { isSplitHovered = $0 }
                             .help("Split right")
                         }
                         .padding(.top, AppStyle.spacingStandard)
