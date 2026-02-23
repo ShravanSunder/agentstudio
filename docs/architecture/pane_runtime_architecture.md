@@ -798,6 +798,15 @@ var eventName: EventIdentifier { get }
 /// Typed event identity — replaces bare String for type safety.
 /// Core identifiers are exhaustive enum cases; plugins use `plugin(String)`.
 enum EventIdentifier: Hashable, Sendable, CustomStringConvertible {
+    case newTab
+    case closeTab
+    case gotoTab
+    case moveTab
+    case newSplit
+    case gotoSplit
+    case resizeSplit
+    case equalizeSplits
+    case toggleSplitZoom
     case commandFinished
     case cwdChanged
     case titleChanged
@@ -817,6 +826,15 @@ enum EventIdentifier: Hashable, Sendable, CustomStringConvertible {
 
     var description: String {
         switch self {
+        case .newTab: return "newTab"
+        case .closeTab: return "closeTab"
+        case .gotoTab: return "gotoTab"
+        case .moveTab: return "moveTab"
+        case .newSplit: return "newSplit"
+        case .gotoSplit: return "gotoSplit"
+        case .resizeSplit: return "resizeSplit"
+        case .equalizeSplits: return "equalizeSplits"
+        case .toggleSplitZoom: return "toggleSplitZoom"
         case .commandFinished: return "commandFinished"
         case .cwdChanged: return "cwdChanged"
         case .titleChanged: return "titleChanged"
@@ -938,7 +956,7 @@ enum AttachError: Error, Sendable {
     case surfaceNotFound
     case surfaceAlreadyAttached
     case backendUnavailable(reason: String)
-    case timeout(after: Duration)
+    case timeout
 }
 
 /// Filesystem events. envelope.source = .worktree(id) — routing identity.
@@ -992,8 +1010,8 @@ enum ViolationSeverity: String, Sendable {
 /// descriptions at the point of capture.
 enum RuntimeErrorEvent: Error, Sendable {
     case surfaceCrashed(reason: String)
-    case commandTimeout(commandId: UUID, after: Duration)
-    case actionDispatchFailed(action: String, underlyingDescription: String)
+    case commandTimeout(commandId: UUID)
+    case commandDispatchFailed(command: String, underlyingDescription: String)
     case adapterError(String)
     case resourceExhausted(resource: String)
     case internalStateCorrupted
@@ -1497,12 +1515,12 @@ enum GhosttyEvent: PaneKindEvent {
 
     // Tab/split requests (coordinator routes)
     case newTab
-    case closeTab(CloseMode)
-    case gotoTab(TabTarget)
+    case closeTab(GhosttyCloseTabMode)
+    case gotoTab(GhosttyGotoTabTarget)
     case moveTab(Int)
-    case newSplit(SplitDirection)
-    case gotoSplit(GotoDirection)
-    case resizeSplit(amount: Int, direction: ResizeDirection)
+    case newSplit(GhosttySplitDirection)
+    case gotoSplit(GhosttyGotoSplitDirection)
+    case resizeSplit(amount: UInt16, direction: GhosttyResizeSplitDirection)
     case equalizeSplits
     case toggleSplitZoom
 
@@ -1821,7 +1839,7 @@ enum TunnelType: String, Sendable { case ssh, zmx }
 struct RuntimeCommandEnvelope: Sendable {
     let commandId: UUID                     // idempotency
     let correlationId: UUID?                // links workflow steps
-    let targetPaneId: UUID                  // sole routing field on the envelope
+    let targetPaneId: PaneId                // sole routing field on the envelope
     let command: RuntimeCommand
     let timestamp: ContinuousClock.Instant
 }
@@ -1964,17 +1982,20 @@ USER ACTION (command bar, keyboard, menu)
 /// Pure lookup — no domain logic, no event processing.
 @MainActor
 final class RuntimeRegistry {
+    enum RegistrationResult { case inserted, duplicateRejected }
+
     private var runtimes: [PaneId: any PaneRuntime] = [:]
     private var kindIndex: [PaneContentType: Set<PaneId>] = [:]
 
     /// Register a new runtime. Called when pane is created.
-    /// Precondition: paneId not already registered.
-    func register(_ runtime: any PaneRuntime) {
-        precondition(runtimes[runtime.paneId] == nil,
-            "Duplicate registration for pane \(runtime.paneId)")
+    /// Duplicate registration is rejected; existing runtime is preserved.
+    @discardableResult
+    func register(_ runtime: any PaneRuntime) -> RegistrationResult {
+        if runtimes[runtime.paneId] != nil { return .duplicateRejected }
         runtimes[runtime.paneId] = runtime
         kindIndex[runtime.metadata.contentType, default: []]
             .insert(runtime.paneId)
+        return .inserted
     }
 
     /// Unregister after shutdown completes. Returns the runtime for cleanup.

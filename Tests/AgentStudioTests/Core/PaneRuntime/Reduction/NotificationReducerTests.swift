@@ -102,6 +102,39 @@ struct NotificationReducerTests {
         #expect(batch?.last?.source == .pane(lowTierPaneId))
     }
 
+    @Test("critical system events are treated as p0 and emitted ahead of background pane events")
+    func criticalSystemEventsPrioritizedAsP0() async {
+        let lowTierPaneId = PaneId()
+        let resolver = TestVisibilityTierResolver(
+            mapping: [
+                lowTierPaneId: .p3Background
+            ]
+        )
+        let reducer = NotificationReducer(tierResolver: resolver)
+        var iterator = reducer.criticalEvents.makeAsyncIterator()
+
+        reducer.submit(
+            makeEnvelope(
+                seq: 1,
+                source: .pane(lowTierPaneId),
+                event: .terminal(.bellRang)
+            )
+        )
+        reducer.submit(
+            makeEnvelope(
+                seq: 2,
+                source: .system(.builtin(.coordinator)),
+                event: .lifecycle(.activePaneChanged)
+            )
+        )
+
+        let first = await iterator.next()
+        let second = await iterator.next()
+
+        #expect(first?.source == .system(.builtin(.coordinator)))
+        #expect(second?.source == .pane(lowTierPaneId))
+    }
+
     private func makeEnvelope(
         seq: UInt64,
         source: EventSource = .pane(PaneId()),

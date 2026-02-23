@@ -187,7 +187,7 @@ final class PaneCoordinator {
     private func startRuntimeReducerConsumers() {
         guard criticalRuntimeEventsTask == nil, batchedRuntimeEventsTask == nil else { return }
 
-        criticalRuntimeEventsTask = Task { @MainActor [weak self] in
+        criticalRuntimeEventsTask = Task(priority: .userInitiated) { @MainActor [weak self] in
             guard let self else { return }
             for await envelope in self.runtimeEventReducer.criticalEvents {
                 if Task.isCancelled { break }
@@ -195,7 +195,7 @@ final class PaneCoordinator {
             }
         }
 
-        batchedRuntimeEventsTask = Task { @MainActor [weak self] in
+        batchedRuntimeEventsTask = Task(priority: .utility) { @MainActor [weak self] in
             guard let self else { return }
             for await batch in self.runtimeEventReducer.batchedEvents {
                 if Task.isCancelled { break }

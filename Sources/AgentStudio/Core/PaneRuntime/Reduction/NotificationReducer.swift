@@ -119,6 +119,10 @@ final class NotificationReducer {
     }
 
     private func tier(for envelope: PaneEventEnvelope) -> VisibilityTier {
+        if case .system = envelope.source {
+            // Contract 12a: system events are always highest visibility priority.
+            return .p0ActivePane
+        }
         guard
             let resolver = tierResolver,
             case .pane(let paneId) = envelope.source
