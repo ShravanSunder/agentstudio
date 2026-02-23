@@ -1,5 +1,10 @@
 import AppKit
 import Observation
+import os.log
+
+private let shieldLogger = Logger(
+    subsystem: "com.agentstudio", category: "DragShield"
+)
 
 /// Transparent overlay that suppresses standard file/media drag types during
 /// management mode, preventing WKWebView-backed panes from showing
@@ -101,7 +106,14 @@ final class ManagementModeDragShield: NSView {
         // let SwiftUI's .onDrop receive the drag is to return nil from hitTest so
         // AppKit skips the shield entirely and finds the hosting view.
         let pasteboardTypes = NSPasteboard(name: .drag).types ?? []
-        let isAgentStudioDrag = pasteboardTypes.contains { DragPolicy.allowedTypes.contains($0) }
+        let isAgentStudioDrag = pasteboardTypes.contains {
+            DragPolicy.allowedTypes.contains($0)
+        }
+        if !pasteboardTypes.isEmpty {
+            shieldLogger.debug(
+                "[SHIELD-DIAG] hitTest: types=\(pasteboardTypes.map(\.rawValue)) agentStudio=\(isAgentStudioDrag)"
+            )
+        }
         return isAgentStudioDrag ? nil : self
     }
 

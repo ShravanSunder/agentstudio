@@ -499,8 +499,7 @@ private struct SidebarGroupRow: View {
 
     var body: some View {
         HStack(spacing: AppStyle.spacingStandard) {
-            Image(systemName: "folder.fill")
-                .font(.system(size: 14))
+            OcticonImage(name: "octicon-repo", size: 14)
                 .foregroundStyle(.secondary)
 
             Text(title)
@@ -539,12 +538,10 @@ private struct SidebarWorktreeRow: View {
         VStack(alignment: .leading, spacing: 3) {
             HStack(spacing: AppStyle.spacingStandard) {
                 if worktree.isMainWorktree {
-                    Image(systemName: "star.fill")
-                        .font(.system(size: 10))
+                    OcticonImage(name: "octicon-star-fill", size: 11)
                         .foregroundStyle(iconColor)
                 } else {
-                    Image(systemName: "point.3.filled.connected.trianglepath.dotted")
-                        .font(.system(size: 11))
+                    OcticonImage(name: "octicon-git-branch", size: 11)
                         .foregroundStyle(iconColor)
                 }
 
@@ -558,22 +555,22 @@ private struct SidebarWorktreeRow: View {
 
             HStack(spacing: 6) {
                 SidebarChip(
-                    icon: branchStatus.isDirty ? "exclamationmark.circle.fill" : "checkmark.circle.fill",
-                    text: branchStatus.isDirty ? "dirty" : "clean",
+                    iconAsset: branchStatus.isDirty ? "octicon-dot-fill" : "octicon-check-circle-fill",
+                    text: nil,
                     style: branchStatus.isDirty ? .warning : .success
                 )
-                SidebarChip(
-                    icon: syncChipIcon,
-                    text: branchStatus.syncCompactLabel,
+                SidebarSyncChip(
+                    aheadText: syncCounts.ahead,
+                    behindText: syncCounts.behind,
                     style: syncChipStyle
                 )
                 SidebarChip(
-                    icon: "arrow.triangle.pull",
+                    iconAsset: "octicon-git-pull-request",
                     text: "\(branchStatus.prCount ?? 0)",
                     style: .neutral
                 )
                 SidebarChip(
-                    icon: "bell",
+                    iconAsset: "octicon-bell",
                     text: "\(notificationCount)",
                     style: .neutral
                 )
@@ -658,20 +655,20 @@ private struct SidebarWorktreeRow: View {
         )
     }
 
-    private var syncChipIcon: String {
+    private var syncCounts: (ahead: String, behind: String) {
         switch branchStatus.syncState {
         case .synced:
-            return "arrow.triangle.2.circlepath"
-        case .ahead:
-            return "arrow.up"
-        case .behind:
-            return "arrow.down"
-        case .diverged:
-            return "arrow.up.arrow.down"
+            return ("0", "0")
+        case .ahead(let count):
+            return ("\(count)", "0")
+        case .behind(let count):
+            return ("0", "\(count)")
+        case .diverged(let ahead, let behind):
+            return ("\(ahead)", "\(behind)")
         case .noUpstream:
-            return "exclamationmark.triangle"
+            return ("-", "-")
         case .unknown:
-            return "questionmark"
+            return ("?", "?")
         }
     }
 
@@ -704,15 +701,42 @@ private struct SidebarChip: View {
         }
     }
 
-    let icon: String
-    let text: String
+    let iconAsset: String
+    let text: String?
     let style: Style
 
     var body: some View {
         HStack(spacing: 3) {
-            Image(systemName: icon)
-                .font(.system(size: 8, weight: .semibold))
-            Text(text)
+            OcticonImage(name: iconAsset, size: 10)
+            if let text {
+                Text(text)
+                    .font(.system(size: 9, weight: .medium))
+            }
+        }
+        .padding(.horizontal, text == nil ? 5 : 6)
+        .padding(.vertical, 2)
+        .background(Color.white.opacity(0.10))
+        .foregroundStyle(style.foreground)
+        .overlay(
+            Capsule()
+                .stroke(Color.white.opacity(0.08), lineWidth: 1)
+        )
+        .clipShape(Capsule())
+    }
+}
+
+private struct SidebarSyncChip: View {
+    let aheadText: String
+    let behindText: String
+    let style: SidebarChip.Style
+
+    var body: some View {
+        HStack(spacing: 4) {
+            OcticonImage(name: "octicon-arrow-up", size: 9)
+            Text(aheadText)
+                .font(.system(size: 9, weight: .medium))
+            OcticonImage(name: "octicon-arrow-down", size: 9)
+            Text(behindText)
                 .font(.system(size: 9, weight: .medium))
         }
         .padding(.horizontal, 6)
@@ -724,6 +748,19 @@ private struct SidebarChip: View {
                 .stroke(Color.white.opacity(0.08), lineWidth: 1)
         )
         .clipShape(Capsule())
+    }
+}
+
+private struct OcticonImage: View {
+    let name: String
+    let size: CGFloat
+
+    var body: some View {
+        Image(name, bundle: .module)
+            .renderingMode(.template)
+            .resizable()
+            .aspectRatio(contentMode: .fit)
+            .frame(width: size, height: size)
     }
 }
 

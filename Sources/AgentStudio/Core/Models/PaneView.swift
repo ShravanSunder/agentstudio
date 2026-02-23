@@ -37,18 +37,11 @@ class PaneView: NSView, Identifiable {
             self.bottomAnchor.constraint(equalTo: container.bottomAnchor),
         ])
 
-        // Drag shield: suppresses standard file/media drag types during
-        // management mode so WKWebView-backed panes don't show "Drop files to upload".
-        // Agent studio custom types (tab/pane drops) pass through to parent .onDrop.
-        let shield = ManagementModeDragShield()
-        shield.translatesAutoresizingMaskIntoConstraints = false
-        container.addSubview(shield)
-        NSLayoutConstraint.activate([
-            shield.topAnchor.constraint(equalTo: container.topAnchor),
-            shield.leadingAnchor.constraint(equalTo: container.leadingAnchor),
-            shield.trailingAnchor.constraint(equalTo: container.trailingAnchor),
-            shield.bottomAnchor.constraint(equalTo: container.bottomAnchor),
-        ])
+        // NOTE: ManagementModeDragShield removed from NSView hierarchy.
+        // An NSView-level NSDraggingDestination inside NSViewRepresentable
+        // intercepts drags at the AppKit level BEFORE SwiftUI's .onDrop
+        // on the parent ZStack. This breaks the drop zone overlay.
+        // File drag suppression needs a SwiftUI-level solution instead.
 
         return container
     }()

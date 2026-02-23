@@ -46,8 +46,9 @@ struct TerminalPaneLeaf: View {
         GeometryReader { geometry in
             ZStack(alignment: .topTrailing) {
                 // Pane content view
+                // NOTE: .allowsHitTesting removed — investigating drop overlay bug.
+                // The management mode dimming overlay handles click suppression instead.
                 PaneViewRepresentable(paneView: paneView)
-                    .allowsHitTesting(!managementMode.isActive)
 
                 // Ghostty-style dimming for unfocused panes
                 if !isActive {
@@ -350,13 +351,19 @@ private struct SplitDropDelegate: DropDelegate {
     let onDrop: (SplitDropPayload, UUID, DropZone) -> Void
 
     func validateDrop(info: DropInfo) -> Bool {
-        info.hasItemsConforming(to: [.agentStudioTab, .agentStudioNewTab, .agentStudioPane])
+        let valid = info.hasItemsConforming(to: [.agentStudioTab, .agentStudioNewTab, .agentStudioPane])
+        splitLogger.debug("[DROP-DIAG] validateDrop: \(valid) for pane \(destination.id.uuidString.prefix(8))")
+        return valid
     }
 
     func dropEntered(info: DropInfo) {
         let zone = DropZone.calculate(at: info.location, in: viewSize)
         dropZone = zone
-        isTargeted = shouldAcceptDrop(destination.id, zone)
+        let accepted = shouldAcceptDrop(destination.id, zone)
+        isTargeted = accepted
+        splitLogger.debug(
+            "[DROP-DIAG] dropEntered: zone=\(String(describing: zone)) accepted=\(accepted) pane=\(destination.id.uuidString.prefix(8))"
+        )
     }
 
     func dropUpdated(info: DropInfo) -> DropProposal? {
@@ -368,6 +375,7 @@ private struct SplitDropDelegate: DropDelegate {
     }
 
     func dropExited(info: DropInfo) {
+        splitLogger.debug("[DROP-DIAG] dropExited: pane=\(destination.id.uuidString.prefix(8))")
         isTargeted = false
         dropZone = nil
     }
