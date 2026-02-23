@@ -208,10 +208,14 @@ enum AppStyle {
     static let strokeVisible: CGFloat = 0.25
 
     /// Management mode dimming overlay on pane content.
-    static let managementModeDimming: CGFloat = 0.45
+    static let managementModeDimming: CGFloat = 0.35
 
-    /// Management mode hover delta added to managementModeDimming for interactive feedback.
-    static let managementModeHoverDelta: CGFloat = 0.05
+    /// Fill opacity for management mode control backgrounds (action circles, half-moon, drag handle).
+    /// Darker than the dimming overlay so controls stand out against the dimmed pane content.
+    static let managementControlFill: CGFloat = 0.60
+
+    /// Hover delta added to managementControlFill for interactive feedback.
+    static let managementControlHoverDelta: CGFloat = 0.05
 
     // MARK: - Management Mode Controls
     //

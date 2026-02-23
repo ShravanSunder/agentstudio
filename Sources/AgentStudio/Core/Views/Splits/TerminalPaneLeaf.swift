@@ -86,7 +86,7 @@ struct TerminalPaneLeaf: View {
                             .allowsHitTesting(false)
                         ZStack {
                             RoundedRectangle(cornerRadius: AppStyle.managementDragHandleCornerRadius)
-                                .fill(Color.black.opacity(AppStyle.managementModeDimming))
+                                .fill(Color.black.opacity(AppStyle.managementControlFill))
                                 .shadow(color: .black.opacity(AppStyle.strokeVisible), radius: 4, y: 2)
                             Image(systemName: "arrow.up.and.down.and.arrow.left.and.right")
                                 .font(.system(size: AppStyle.toolbarIconSize, weight: .medium))
@@ -150,9 +150,9 @@ struct TerminalPaneLeaf: View {
                                             .fill(
                                                 Color.black.opacity(
                                                     isMinimizeHovered
-                                                        ? AppStyle.managementModeDimming
-                                                            + AppStyle.managementModeHoverDelta
-                                                        : AppStyle.managementModeDimming))
+                                                        ? AppStyle.managementControlFill
+                                                            + AppStyle.managementControlHoverDelta
+                                                        : AppStyle.managementControlFill))
                                     )
                                     .contentShape(Circle())
                             }
@@ -180,9 +180,9 @@ struct TerminalPaneLeaf: View {
                                             .fill(
                                                 Color.black.opacity(
                                                     isCloseHovered
-                                                        ? AppStyle.managementModeDimming
-                                                            + AppStyle.managementModeHoverDelta
-                                                        : AppStyle.managementModeDimming))
+                                                        ? AppStyle.managementControlFill
+                                                            + AppStyle.managementControlHoverDelta
+                                                        : AppStyle.managementControlFill))
                                     )
                                     .contentShape(Circle())
                             }
@@ -234,9 +234,9 @@ struct TerminalPaneLeaf: View {
                                         .fill(
                                             Color.black.opacity(
                                                 isSplitHovered
-                                                    ? AppStyle.managementModeDimming
-                                                        + AppStyle.managementModeHoverDelta
-                                                    : AppStyle.managementModeDimming))
+                                                    ? AppStyle.managementControlFill
+                                                        + AppStyle.managementControlHoverDelta
+                                                    : AppStyle.managementControlFill))
                                     )
                                     .contentShape(
                                         UnevenRoundedRectangle(
