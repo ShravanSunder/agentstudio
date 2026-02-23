@@ -28,13 +28,37 @@ final class BridgePaneView: PaneView {
 
     // MARK: - Content Interaction
 
-    /// Injects/removes CSS `pointer-events: none` on the web content to suppress
-    /// hover effects (cursor changes, :hover CSS, tooltips) during management mode.
+    /// Suppresses web content interaction during management mode:
+    /// - CSS `pointer-events: none` blocks hover (:hover, cursor, tooltips)
+    /// - Capture-phase drag event listeners block drag UI that WKWebView
+    ///   dispatches via its native NSView drag pathway, bypassing CSS pointer-events.
     override func setContentInteractionEnabled(_ enabled: Bool) {
         let js =
             enabled
-            ? "document.documentElement.style.pointerEvents = 'auto'"
-            : "document.documentElement.style.pointerEvents = 'none'"
+            ? """
+            document.documentElement.style.pointerEvents = 'auto';
+            (function() {
+                var b = window.__asDragBlock;
+                if (b) {
+                    document.removeEventListener('dragenter', b, true);
+                    document.removeEventListener('dragover', b, true);
+                    document.removeEventListener('dragleave', b, true);
+                    document.removeEventListener('drop', b, true);
+                    delete window.__asDragBlock;
+                }
+            })();
+            """
+            : """
+            document.documentElement.style.pointerEvents = 'none';
+            (function() {
+                function b(e) { e.preventDefault(); e.stopPropagation(); }
+                document.addEventListener('dragenter', b, true);
+                document.addEventListener('dragover', b, true);
+                document.addEventListener('dragleave', b, true);
+                document.addEventListener('drop', b, true);
+                window.__asDragBlock = b;
+            })();
+            """
         Task { @MainActor [weak self] in
             _ = try? await self?.controller.page.callJavaScript(js)
         }

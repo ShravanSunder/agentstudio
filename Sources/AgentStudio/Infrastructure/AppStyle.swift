@@ -154,6 +154,9 @@ enum AppStyle {
     /// Branch icon size in the checkout branch row.
     static let sidebarBranchIconSize: CGFloat = 10
 
+    /// Leading inset for status chips so they align with checkout/branch text after the leading icon.
+    static let sidebarStatusRowLeadingIndent: CGFloat = sidebarWorktreeIconSize + spacingStandard
+
     /// Font size for the branch name row under each checkout title.
     static let sidebarBranchFontSize: CGFloat = fontSmall
 

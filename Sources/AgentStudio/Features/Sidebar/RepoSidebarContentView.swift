@@ -607,6 +607,7 @@ private struct SidebarWorktreeRow: View {
                     style: .neutral
                 )
             }
+            .padding(.leading, AppStyle.sidebarStatusRowLeadingIndent)
         }
         .padding(.vertical, AppStyle.sidebarRowVerticalInset)
         .padding(.horizontal, AppStyle.spacingTight)
@@ -719,14 +720,14 @@ private struct SidebarWorktreeRow: View {
     private var checkoutIcon: some View {
         switch checkoutIconKind {
         case .mainCheckout:
-            OcticonImage(name: "octicon-git-merge", size: AppStyle.sidebarWorktreeIconSize)
+            OcticonImage(name: "octicon-repo-clone", size: AppStyle.sidebarWorktreeIconSize)
                 .foregroundStyle(iconColor)
         case .gitWorktree:
             OcticonImage(name: "octicon-git-worktree", size: AppStyle.sidebarWorktreeIconSize)
                 .foregroundStyle(iconColor)
                 .rotationEffect(.degrees(180))
         case .standaloneCheckout:
-            OcticonImage(name: "octicon-repo-clone", size: AppStyle.sidebarWorktreeIconSize)
+            OcticonImage(name: "octicon-git-merge", size: AppStyle.sidebarWorktreeIconSize)
                 .foregroundStyle(iconColor)
         }
     }
