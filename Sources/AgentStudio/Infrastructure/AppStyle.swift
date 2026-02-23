@@ -8,8 +8,9 @@ import SwiftUI
 ///
 /// ## Icon Size Hierarchy
 /// ```
-/// 18pt  — In-pane controls (minimize, close, split "+")
+/// 22pt  — Pane action buttons (minimize, close)
 /// 16pt  — Toolbar actions (management mode toggle, window controls)
+/// 14pt  — Split "+" half-moon button
 /// 12pt  — Compact bars (tab bar, drawer icon bar, arrangement bar)
 /// ```
 ///
@@ -18,9 +19,10 @@ import SwiftUI
 /// icons is visually consistent. Pane controls use a separate larger padding
 /// for easier in-pane targeting.
 /// ```
-/// compact:  12 + 2×6 = 24pt frame
-/// toolbar:  16 + 2×6 = 28pt frame
-/// pane:     18 + 2×8 = 34pt frame  (larger hit target over content)
+/// compact:     12 + 2×6 = 24pt frame
+/// toolbar:     16 + 2×6 = 28pt frame
+/// paneSplit:   14 + 2×8 = 30pt frame  (half-moon "+")
+/// paneAction:  22 + 2×8 = 38pt frame  (minimize, close)
 /// ```
 enum AppStyle {
 
@@ -32,8 +34,12 @@ enum AppStyle {
     /// Icons in the main toolbar: management mode toggle, window-level actions.
     static let toolbarIconSize: CGFloat = 16
 
-    /// Icons for in-pane controls: minimize, close, split "+".
-    static let paneControlIconSize: CGFloat = 18
+    /// Icons for pane action buttons: minimize (−), close (×).
+    /// Larger than the split button for easy targeting.
+    static let paneActionIconSize: CGFloat = 22
+
+    /// Icon for the split "+" half-moon button (top-right of pane).
+    static let paneSplitIconSize: CGFloat = 14
 
     // MARK: - Icon Padding
 
@@ -52,8 +58,11 @@ enum AppStyle {
     /// Frame for toolbar buttons: toolbarIconSize + 2 × iconPadding.
     static let toolbarButtonSize: CGFloat = toolbarIconSize + iconPadding * 2
 
-    /// Frame for in-pane control buttons: paneControlIconSize + 2 × paneControlIconPadding.
-    static let paneControlButtonSize: CGFloat = paneControlIconSize + paneControlIconPadding * 2
+    /// Frame for pane action buttons (minimize, close): paneActionIconSize + 2 × paneControlIconPadding.
+    static let paneActionButtonSize: CGFloat = paneActionIconSize + paneControlIconPadding * 2
+
+    /// Frame for the split half-moon button: paneSplitIconSize + 2 × paneControlIconPadding.
+    static let paneSplitButtonSize: CGFloat = paneSplitIconSize + paneControlIconPadding * 2
 
     // MARK: - Fill Opacities (white overlays on dark backgrounds)
     //
@@ -197,6 +206,9 @@ enum AppStyle {
 
     /// Prominent border: active hover states, pane leaf borders.
     static let strokeVisible: CGFloat = 0.25
+
+    /// Management mode dimming overlay on pane content.
+    static let managementModeDimming: CGFloat = 0.25
 
     // MARK: - Animation Durations
     //

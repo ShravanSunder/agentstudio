@@ -15,6 +15,7 @@ struct RepoSidebarContentView: View {
     @State private var repoMetadataById: [UUID: RepoIdentityMetadata] = [:]
     @State private var worktreeStatusById: [UUID: GitBranchStatus] = [:]
     @State private var groupColorByKey: [String: String] = Self.loadGroupColors()
+    @State private var worktreeColorById: [String: String] = Self.loadWorktreeColors()
     @State private var notificationCountsByWorktreeId: [UUID: Int] = [:]
 
     @State private var debounceTask: Task<Void, Never>?
@@ -23,6 +24,7 @@ struct RepoSidebarContentView: View {
     private static let filterDebounceMilliseconds = 25
     private static let expandedGroupsKey = "sidebarExpandedRepoGroups"
     private static let groupColorsKey = "sidebarRepoGroupColors"
+    private static let worktreeColorsKey = "sidebarWorktreeIconColors"
 
     private var reposFingerprint: String {
         store.repos.map { "\($0.id.uuidString):\($0.updatedAt.timeIntervalSinceReferenceDate)" }
@@ -198,9 +200,8 @@ struct RepoSidebarContentView: View {
                                     worktree: worktree,
                                     title: worktree.isMainWorktree
                                         ? "main checkout: \(worktree.branch)" : worktree.name,
-                                    groupColor: colorForGroup(group.id),
+                                    iconColor: colorForWorktree(worktree, groupKey: group.id),
                                     branchStatus: worktreeStatusById[worktree.id] ?? .unknown,
-                                    openPaneCount: store.paneCount(for: worktree.id),
                                     notificationCount: notificationCountsByWorktreeId[worktree.id, default: 0],
                                     onOpen: {
                                         clearNotifications(for: worktree.id)
@@ -225,6 +226,15 @@ struct RepoSidebarContentView: View {
                                             target: worktree.id,
                                             targetType: .worktree
                                         )
+                                    },
+                                    onSetIconColor: { colorHex in
+                                        let key = worktree.id.uuidString
+                                        if let colorHex {
+                                            worktreeColorById[key] = colorHex
+                                        } else {
+                                            worktreeColorById.removeValue(forKey: key)
+                                        }
+                                        saveWorktreeColors()
                                     }
                                 )
                                 .listRowInsets(EdgeInsets(top: 0, leading: 2, bottom: 0, trailing: 0))
@@ -234,13 +244,12 @@ struct RepoSidebarContentView: View {
                 } label: {
                     SidebarGroupRow(
                         title: group.title,
-                        checkoutCount: group.checkoutCount,
-                        color: colorForGroup(group.id)
+                        checkoutCount: group.checkoutCount
                     )
                 }
                 .listRowInsets(EdgeInsets(top: 0, leading: 2, bottom: 0, trailing: 0))
                 .contextMenu {
-                    Menu("Set Color") {
+                    Menu("Set Default Icon Color") {
                         ForEach(SidebarRepoGrouping.colorPresets, id: \.hex) { preset in
                             Button(preset.name) {
                                 groupColorByKey[group.id] = preset.hex
@@ -290,8 +299,16 @@ struct RepoSidebarContentView: View {
         UserDefaults.standard.dictionary(forKey: groupColorsKey) as? [String: String] ?? [:]
     }
 
+    private static func loadWorktreeColors() -> [String: String] {
+        UserDefaults.standard.dictionary(forKey: worktreeColorsKey) as? [String: String] ?? [:]
+    }
+
     private func saveGroupColors() {
         UserDefaults.standard.set(groupColorByKey, forKey: Self.groupColorsKey)
+    }
+
+    private func saveWorktreeColors() {
+        UserDefaults.standard.set(worktreeColorById, forKey: Self.worktreeColorsKey)
     }
 
     private func colorForGroup(_ groupKey: String) -> Color {
@@ -300,6 +317,15 @@ struct RepoSidebarContentView: View {
         }
         let fallback = SidebarRepoGrouping.defaultColorHex(for: groupKey)
         return Color(nsColor: NSColor(hex: fallback) ?? .controlAccentColor)
+    }
+
+    private func colorForWorktree(_ worktree: Worktree, groupKey: String) -> Color {
+        if let hex = worktreeColorById[worktree.id.uuidString],
+            let nsColor = NSColor(hex: hex)
+        {
+            return Color(nsColor: nsColor)
+        }
+        return colorForGroup(groupKey)
     }
 
     private func sortedWorktrees(for repo: Repo) -> [Worktree] {
@@ -470,13 +496,12 @@ struct RepoSidebarContentView: View {
 private struct SidebarGroupRow: View {
     let title: String
     let checkoutCount: Int
-    let color: Color
 
     var body: some View {
         HStack(spacing: AppStyle.spacingStandard) {
             Image(systemName: "folder.fill")
                 .font(.system(size: 14))
-                .foregroundStyle(color)
+                .foregroundStyle(.secondary)
 
             Text(title)
                 .font(.system(size: AppStyle.fontPrimary, weight: .semibold))
@@ -500,13 +525,13 @@ private struct SidebarGroupRow: View {
 private struct SidebarWorktreeRow: View {
     let worktree: Worktree
     let title: String
-    let groupColor: Color
+    let iconColor: Color
     let branchStatus: GitBranchStatus
-    let openPaneCount: Int
     let notificationCount: Int
     let onOpen: () -> Void
     let onOpenNew: () -> Void
     let onOpenInPane: () -> Void
+    let onSetIconColor: (String?) -> Void
 
     @State private var isHovering = false
 
@@ -516,11 +541,11 @@ private struct SidebarWorktreeRow: View {
                 if worktree.isMainWorktree {
                     Image(systemName: "star.fill")
                         .font(.system(size: 10))
-                        .foregroundStyle(groupColor)
+                        .foregroundStyle(iconColor)
                 } else {
                     Image(systemName: "point.3.filled.connected.trianglepath.dotted")
                         .font(.system(size: 11))
-                        .foregroundStyle(groupColor)
+                        .foregroundStyle(iconColor)
                 }
 
                 Text(title)
@@ -533,18 +558,25 @@ private struct SidebarWorktreeRow: View {
 
             HStack(spacing: 6) {
                 SidebarChip(
-                    text: branchStatus.isDirty ? "dirty" : "clean", style: branchStatus.isDirty ? .warning : .success)
-                SidebarChip(text: branchStatus.syncLabel, style: .neutral)
-
-                if let prCount = branchStatus.prCount {
-                    SidebarChip(text: "pr:\(prCount)", style: .neutral)
-                }
-
-                SidebarChip(text: "open:\(openPaneCount)", style: .neutral)
-
-                if notificationCount > 0 {
-                    SidebarChip(text: "bell:\(notificationCount)", style: .info)
-                }
+                    icon: "circle.fill",
+                    text: branchStatus.isDirty ? "dirty" : "clean",
+                    style: branchStatus.isDirty ? .warning : .success
+                )
+                SidebarChip(
+                    icon: syncChipIcon,
+                    text: branchStatus.syncCompactLabel,
+                    style: syncChipStyle
+                )
+                SidebarChip(
+                    icon: "arrow.triangle.pull",
+                    text: "\(branchStatus.prCount ?? 0)",
+                    style: .neutral
+                )
+                SidebarChip(
+                    icon: "bell.badge",
+                    text: "\(notificationCount)",
+                    style: .info
+                )
             }
         }
         .padding(.vertical, 4)
@@ -599,6 +631,20 @@ private struct SidebarWorktreeRow: View {
             } label: {
                 Label("Copy Path", systemImage: "doc.on.clipboard")
             }
+
+            Divider()
+
+            Menu("Set Icon Color") {
+                ForEach(SidebarRepoGrouping.colorPresets, id: \.hex) { preset in
+                    Button(preset.name) {
+                        onSetIconColor(preset.hex)
+                    }
+                }
+                Divider()
+                Button("Reset to Default") {
+                    onSetIconColor(nil)
+                }
+            }
         }
     }
 
@@ -610,6 +656,34 @@ private struct SidebarWorktreeRow: View {
             withApplicationAt: cursorURL,
             configuration: config
         )
+    }
+
+    private var syncChipIcon: String {
+        switch branchStatus.syncState {
+        case .synced:
+            return "arrow.up.arrow.down"
+        case .ahead:
+            return "arrow.up"
+        case .behind:
+            return "arrow.down"
+        case .diverged:
+            return "arrow.up.arrow.down"
+        case .noUpstream:
+            return "slash.circle"
+        case .unknown:
+            return "questionmark.circle"
+        }
+    }
+
+    private var syncChipStyle: SidebarChip.Style {
+        switch branchStatus.syncState {
+        case .synced:
+            return .success
+        case .ahead, .behind, .diverged:
+            return .info
+        case .noUpstream, .unknown:
+            return .warning
+        }
     }
 }
 
@@ -630,17 +704,22 @@ private struct SidebarChip: View {
         }
     }
 
+    let icon: String
     let text: String
     let style: Style
 
     var body: some View {
-        Text(text)
-            .font(.system(size: 9, weight: .medium))
-            .padding(.horizontal, 5)
-            .padding(.vertical, 2)
-            .background(style.foreground.opacity(0.16))
-            .foregroundStyle(style.foreground)
-            .clipShape(Capsule())
+        HStack(spacing: 3) {
+            Image(systemName: icon)
+                .font(.system(size: 8, weight: .semibold))
+            Text(text)
+                .font(.system(size: 9, weight: .medium))
+        }
+        .padding(.horizontal, 5)
+        .padding(.vertical, 2)
+        .background(style.foreground.opacity(0.16))
+        .foregroundStyle(style.foreground)
+        .clipShape(Capsule())
     }
 }
 
@@ -691,6 +770,23 @@ struct GitBranchStatus: Equatable, Sendable {
             return "no-upstream"
         case .unknown:
             return "unknown"
+        }
+    }
+
+    var syncCompactLabel: String {
+        switch syncState {
+        case .synced:
+            return "sync"
+        case .ahead(let count):
+            return "+\(count)"
+        case .behind(let count):
+            return "-\(count)"
+        case .diverged(let ahead, let behind):
+            return "+\(ahead)/-\(behind)"
+        case .noUpstream:
+            return "no-up"
+        case .unknown:
+            return "?"
         }
     }
 }

@@ -61,7 +61,7 @@ struct TerminalPaneLeaf: View {
                 if managementMode.isActive {
                     Rectangle()
                         .fill(Color.black)
-                        .opacity(AppStyle.strokeVisible)
+                        .opacity(AppStyle.managementModeDimming)
                         .allowsHitTesting(false)
                 }
 
@@ -123,17 +123,23 @@ struct TerminalPaneLeaf: View {
                 // Pane controls: minimize + close (top-left, management mode + hover)
                 if managementMode.isActive && isHovered && !store.isSplitResizing {
                     VStack {
-                        HStack(spacing: AppStyle.spacingTight) {
+                        HStack(spacing: AppStyle.spacingStandard) {
                             Button {
                                 action(.minimizePane(tabId: tabId, paneId: paneView.id))
                             } label: {
                                 Image(systemName: "minus.circle.fill")
-                                    .font(.system(size: AppStyle.paneControlIconSize))
+                                    .font(.system(size: AppStyle.paneActionIconSize))
+                                    .symbolRenderingMode(.palette)
                                     .foregroundStyle(
                                         .white.opacity(
                                             isMinimizeHovered
                                                 ? AppStyle.foregroundSecondary
-                                                : AppStyle.foregroundMuted))
+                                                : AppStyle.foregroundMuted),
+                                        Color.black.opacity(
+                                            isMinimizeHovered
+                                                ? AppStyle.managementModeDimming + 0.05
+                                                : AppStyle.managementModeDimming)
+                                    )
                             }
                             .buttonStyle(.plain)
                             .onHover { isMinimizeHovered = $0 }
@@ -143,12 +149,18 @@ struct TerminalPaneLeaf: View {
                                 action(.closePane(tabId: tabId, paneId: paneView.id))
                             } label: {
                                 Image(systemName: "xmark.circle.fill")
-                                    .font(.system(size: AppStyle.paneControlIconSize))
+                                    .font(.system(size: AppStyle.paneActionIconSize))
+                                    .symbolRenderingMode(.palette)
                                     .foregroundStyle(
                                         .white.opacity(
                                             isCloseHovered
                                                 ? AppStyle.foregroundSecondary
-                                                : AppStyle.foregroundMuted))
+                                                : AppStyle.foregroundMuted),
+                                        Color.black.opacity(
+                                            isCloseHovered
+                                                ? AppStyle.managementModeDimming + 0.05
+                                                : AppStyle.managementModeDimming)
+                                    )
                             }
                             .buttonStyle(.plain)
                             .onHover { isCloseHovered = $0 }
@@ -177,7 +189,7 @@ struct TerminalPaneLeaf: View {
                                     ))
                             } label: {
                                 Image(systemName: "plus")
-                                    .font(.system(size: AppStyle.paneControlIconSize, weight: .bold))
+                                    .font(.system(size: AppStyle.paneSplitIconSize, weight: .bold))
                                     .foregroundStyle(
                                         .white.opacity(
                                             isSplitHovered
@@ -185,8 +197,8 @@ struct TerminalPaneLeaf: View {
                                                 : AppStyle.foregroundMuted)
                                     )
                                     .frame(
-                                        width: AppStyle.paneControlButtonSize,
-                                        height: AppStyle.paneControlButtonSize + 12
+                                        width: AppStyle.paneSplitButtonSize,
+                                        height: AppStyle.paneSplitButtonSize + 12
                                     )
                                     .background(
                                         UnevenRoundedRectangle(
@@ -198,8 +210,8 @@ struct TerminalPaneLeaf: View {
                                         .fill(
                                             Color.black.opacity(
                                                 isSplitHovered
-                                                    ? AppStyle.foregroundMuted
-                                                    : AppStyle.foregroundDim))
+                                                    ? AppStyle.managementModeDimming + 0.05
+                                                    : AppStyle.managementModeDimming))
                                     )
                                     .contentShape(
                                         UnevenRoundedRectangle(

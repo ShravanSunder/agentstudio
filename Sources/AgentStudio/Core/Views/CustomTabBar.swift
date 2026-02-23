@@ -100,7 +100,7 @@ struct CustomTabBar: View {
         GeometryReader { geometry in
             HStack(spacing: 0) {
                 // MARK: - Left-side controls (management mode, arrangement, duplicate)
-                HStack(spacing: AppStyle.spacingTight) {
+                HStack(spacing: AppStyle.spacingStandard) {
                     TabBarManagementModeButton()
 
                     TabBarArrangementButton(
