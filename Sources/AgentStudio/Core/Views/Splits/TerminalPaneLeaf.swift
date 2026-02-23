@@ -46,9 +46,11 @@ struct TerminalPaneLeaf: View {
         GeometryReader { geometry in
             ZStack(alignment: .topTrailing) {
                 // Pane content view
-                // NOTE: .allowsHitTesting removed — investigating drop overlay bug.
-                // The management mode dimming overlay handles click suppression instead.
                 PaneViewRepresentable(paneView: paneView)
+                    // In management mode, route drag targeting through the shared
+                    // SwiftUI leaf container so pane type (WKWebView/Ghostty/etc.)
+                    // cannot intercept drop updates differently.
+                    .allowsHitTesting(!managementMode.isActive)
 
                 // Ghostty-style dimming for unfocused panes
                 if !isActive {

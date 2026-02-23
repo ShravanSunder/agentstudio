@@ -136,6 +136,14 @@ enum GitRepositoryInspector {
             "--untracked-files=normal",
         ])
         let isDirty = !(dirtyOutput?.isEmpty ?? true)
+        let diffShortstat = await git(args: [
+            "-C", worktree.path.path,
+            "diff",
+            "--shortstat",
+            "HEAD",
+            "--",
+        ])
+        let (linesAdded, linesDeleted) = parseLineDiffCounts(from: diffShortstat)
 
         let upstream = await git(args: [
             "-C", worktree.path.path,
@@ -181,8 +189,29 @@ enum GitRepositoryInspector {
         return GitBranchStatus(
             isDirty: isDirty,
             syncState: syncState,
-            prCount: nil
+            prCount: nil,
+            linesAdded: linesAdded,
+            linesDeleted: linesDeleted
         )
+    }
+
+    private static func parseLineDiffCounts(from shortstat: String?) -> (Int, Int) {
+        guard let shortstat else { return (0, 0) }
+        guard !shortstat.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else { return (0, 0) }
+
+        let added = captureFirstInt(in: shortstat, pattern: #"(\\d+) insertions?\(\+\)"#) ?? 0
+        let deleted = captureFirstInt(in: shortstat, pattern: #"(\\d+) deletions?\(-\)"#) ?? 0
+        return (added, deleted)
+    }
+
+    private static func captureFirstInt(in text: String, pattern: String) -> Int? {
+        guard let regex = try? NSRegularExpression(pattern: pattern) else { return nil }
+        let range = NSRange(text.startIndex..<text.endIndex, in: text)
+        guard let match = regex.firstMatch(in: text, options: [], range: range) else { return nil }
+        guard match.numberOfRanges > 1 else { return nil }
+        let valueRange = match.range(at: 1)
+        guard let swiftRange = Range(valueRange, in: text) else { return nil }
+        return Int(text[swiftRange])
     }
 
     private static func githubPRCount(for worktree: WorktreeStatusInput) async -> Int? {

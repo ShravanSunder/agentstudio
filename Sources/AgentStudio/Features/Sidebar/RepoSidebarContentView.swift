@@ -197,7 +197,7 @@ struct RepoSidebarContentView: View {
                             ForEach(sortedWorktrees) { worktree in
                                 SidebarWorktreeRow(
                                     worktree: worktree,
-                                    checkoutTitle: worktree.name.isEmpty ? "checkout" : worktree.name,
+                                    checkoutTitle: checkoutTitle(for: worktree, in: repo),
                                     branchName: worktree.branch.isEmpty ? "detached HEAD" : worktree.branch,
                                     checkoutIconKind: checkoutIconKind(for: worktree, in: repo),
                                     iconColor: colorForCheckout(repo: repo, in: group),
@@ -344,8 +344,20 @@ struct RepoSidebarContentView: View {
         notificationCountsByWorktreeId[worktreeId] = 0
     }
 
+    private func checkoutTitle(for worktree: Worktree, in repo: Repo) -> String {
+        let folderName = worktree.path.lastPathComponent
+        if !folderName.isEmpty {
+            return folderName
+        }
+        return repo.name
+    }
+
     private func checkoutIconKind(for worktree: Worktree, in repo: Repo) -> SidebarCheckoutIconKind {
-        if !worktree.isMainWorktree {
+        let isMainCheckout =
+            worktree.isMainWorktree
+            || worktree.path.standardizedFileURL.path == repo.repoPath.standardizedFileURL.path
+
+        if !isMainCheckout {
             return .gitWorktree
         }
 
@@ -497,7 +509,9 @@ struct RepoSidebarContentView: View {
                 worktreeStatusById[worktreeId] = GitBranchStatus(
                     isDirty: status.isDirty,
                     syncState: status.syncState,
-                    prCount: prCount
+                    prCount: prCount,
+                    linesAdded: status.linesAdded,
+                    linesDeleted: status.linesDeleted
                 )
             }
         }
@@ -550,7 +564,7 @@ private struct SidebarWorktreeRow: View {
     var body: some View {
         VStack(alignment: .leading, spacing: AppStyle.sidebarRowContentSpacing) {
             HStack(spacing: AppStyle.spacingStandard) {
-                checkoutIcon
+                checkoutTypeIcon
 
                 Text(checkoutTitle)
                     .font(
@@ -569,15 +583,22 @@ private struct SidebarWorktreeRow: View {
                     .font(.system(size: AppStyle.sidebarBranchFontSize, weight: .medium))
                     .lineLimit(1)
                     .foregroundStyle(.secondary)
-                Spacer()
+
+                Spacer(minLength: AppStyle.spacingStandard)
             }
 
             HStack(spacing: AppStyle.sidebarChipRowSpacing) {
-                SidebarStatusIcon(
-                    iconAsset: branchStatus.isDirty ? "octicon-dot-fill" : "octicon-check-circle-fill",
-                    style: branchStatus.isDirty ? .warning : .success
-                )
-                SidebarSyncChip(
+                HStack(spacing: AppStyle.spacingTight) {
+                    Text("+\(lineDiffCounts.added)")
+                        .foregroundStyle(Color(red: 0.42, green: 0.84, blue: 0.50))
+                    Text("-\(lineDiffCounts.deleted)")
+                        .foregroundStyle(Color(red: 0.93, green: 0.41, blue: 0.41))
+                }
+                .font(.system(size: AppStyle.textXs, weight: .medium).monospacedDigit())
+
+                SidebarStatusSyncChip(
+                    statusIconAsset: branchStatus.isDirty ? "octicon-dot-fill" : "octicon-check-circle-fill",
+                    statusStyle: branchStatus.isDirty ? .warning : .success,
                     aheadText: syncCounts.ahead,
                     behindText: syncCounts.behind,
                     style: syncChipStyle
@@ -593,7 +614,6 @@ private struct SidebarWorktreeRow: View {
                     style: .neutral
                 )
             }
-            .padding(.leading, AppStyle.sidebarStatusRowLeadingIndent)
         }
         .padding(.vertical, AppStyle.sidebarRowVerticalInset)
         .padding(.horizontal, AppStyle.spacingTight)
@@ -702,18 +722,23 @@ private struct SidebarWorktreeRow: View {
         }
     }
 
+    private var lineDiffCounts: (added: Int, deleted: Int) {
+        (branchStatus.linesAdded, branchStatus.linesDeleted)
+    }
+
     @ViewBuilder
-    private var checkoutIcon: some View {
+    private var checkoutTypeIcon: some View {
+        let checkoutTypeSize = AppStyle.textBase
         switch checkoutIconKind {
         case .mainCheckout:
-            OcticonImage(name: "octicon-repo-clone", size: AppStyle.sidebarWorktreeIconSize)
+            OcticonImage(name: "octicon-star-fill", size: checkoutTypeSize)
                 .foregroundStyle(iconColor)
         case .gitWorktree:
-            OcticonImage(name: "octicon-git-worktree", size: AppStyle.sidebarWorktreeIconSize)
+            OcticonImage(name: "octicon-git-worktree", size: checkoutTypeSize)
                 .foregroundStyle(iconColor)
                 .rotationEffect(.degrees(180))
         case .standaloneCheckout:
-            OcticonImage(name: "octicon-git-merge", size: AppStyle.sidebarWorktreeIconSize)
+            OcticonImage(name: "octicon-git-merge", size: checkoutTypeSize)
                 .foregroundStyle(iconColor)
         }
     }
@@ -723,17 +748,6 @@ private enum SidebarCheckoutIconKind {
     case mainCheckout
     case gitWorktree
     case standaloneCheckout
-}
-
-private struct SidebarStatusIcon: View {
-    let iconAsset: String
-    let style: SidebarChip.Style
-
-    var body: some View {
-        OcticonImage(name: iconAsset, size: AppStyle.sidebarChipIconSize)
-            .foregroundStyle(style.foreground)
-            .frame(width: AppStyle.sidebarChipIconSize + 2, height: AppStyle.sidebarChipIconSize + 2)
-    }
 }
 
 private struct SidebarChip: View {
@@ -782,13 +796,17 @@ private struct SidebarChip: View {
     }
 }
 
-private struct SidebarSyncChip: View {
+private struct SidebarStatusSyncChip: View {
+    let statusIconAsset: String
+    let statusStyle: SidebarChip.Style
     let aheadText: String
     let behindText: String
     let style: SidebarChip.Style
 
     var body: some View {
         HStack(spacing: AppStyle.sidebarChipContentSpacing) {
+            OcticonImage(name: statusIconAsset, size: AppStyle.sidebarChipIconSize)
+                .foregroundStyle(statusStyle.foreground)
             HStack(spacing: AppStyle.sidebarSyncClusterSpacing) {
                 OcticonImage(name: "octicon-arrow-up", size: AppStyle.sidebarSyncChipIconSize)
                 Text(aheadText)
@@ -904,8 +922,10 @@ struct GitBranchStatus: Equatable, Sendable {
     let isDirty: Bool
     let syncState: SyncState
     let prCount: Int?
+    let linesAdded: Int
+    let linesDeleted: Int
 
-    static let unknown = Self(isDirty: false, syncState: .unknown, prCount: nil)
+    static let unknown = Self(isDirty: false, syncState: .unknown, prCount: nil, linesAdded: 0, linesDeleted: 0)
 }
 
 private enum SidebarRepoGrouping {

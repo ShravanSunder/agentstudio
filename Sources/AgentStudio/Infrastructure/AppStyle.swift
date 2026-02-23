@@ -134,13 +134,13 @@ enum AppStyle {
     static let sidebarGroupChildrenSpacing: CGFloat = 2
 
     /// Internal vertical spacing between checkout title and chip row.
-    static let sidebarRowContentSpacing: CGFloat = 3
+    static let sidebarRowContentSpacing: CGFloat = 4
 
     /// Vertical inset around each checkout row container.
-    static let sidebarRowVerticalInset: CGFloat = 4
+    static let sidebarRowVerticalInset: CGFloat = 6
 
     /// Reduces default DisclosureGroup child indentation to keep tree rows tighter.
-    static let sidebarGroupChildLeadingReduction: CGFloat = 8
+    static let sidebarGroupChildLeadingReduction: CGFloat = 10
 
     /// Leading inset used for sidebar list rows.
     static let sidebarListRowLeadingInset: CGFloat = 2
