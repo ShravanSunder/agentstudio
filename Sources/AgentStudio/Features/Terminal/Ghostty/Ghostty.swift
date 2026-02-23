@@ -215,62 +215,72 @@ extension Ghostty {
 
             case .newTab:
                 return routeActionToTerminalRuntime(
-                    actionTag: actionTag.rawValue,
+                    actionTag: rawActionTag,
                     payload: .noPayload,
                     target: target
                 )
 
             case .ringBell:
                 return routeActionToTerminalRuntime(
-                    actionTag: actionTag.rawValue,
+                    actionTag: rawActionTag,
                     payload: .noPayload,
                     target: target
                 )
 
             case .setTitle:
-                if target.tag == GHOSTTY_TARGET_SURFACE, let surface = target.target.surface {
-                    if let surfaceView = surfaceView(from: surface),
-                        let titlePtr = action.action.set_title.title
-                    {
-                        let title = String(cString: titlePtr)
-                        Task { @MainActor [weak surfaceView] in
-                            guard let surfaceView else { return }
-                            surfaceView.titleDidChange(title)
-                        }
+                guard let titlePtr = action.action.set_title.title else {
+                    return routeUnhandledAction(actionTag: rawActionTag, target: target)
+                }
+                let title = String(cString: titlePtr)
+                if target.tag == GHOSTTY_TARGET_SURFACE, let surface = target.target.surface,
+                    let resolvedSurfaceView = surfaceView(from: surface)
+                {
+                    Task { @MainActor [weak resolvedSurfaceView] in
+                        resolvedSurfaceView?.titleDidChange(title)
                     }
                 }
-                return true
+                return routeActionToTerminalRuntime(
+                    actionTag: rawActionTag,
+                    payload: .titleChanged(title),
+                    target: target
+                )
 
             case .pwd:
-                if target.tag == GHOSTTY_TARGET_SURFACE, let surface = target.target.surface {
-                    if let surfaceView = surfaceView(from: surface) {
-                        let pwd = action.action.pwd.pwd.map { String(cString: $0) }
-                        Task { @MainActor [weak surfaceView] in
-                            guard let surfaceView else { return }
-                            surfaceView.pwdDidChange(pwd)
-                        }
+                let resolvedPwd = action.action.pwd.pwd.map { String(cString: $0) }
+                if target.tag == GHOSTTY_TARGET_SURFACE, let surface = target.target.surface,
+                    let resolvedSurfaceView = surfaceView(from: surface)
+                {
+                    Task { @MainActor [weak resolvedSurfaceView] in
+                        resolvedSurfaceView?.pwdDidChange(resolvedPwd)
                     }
                 }
-                return true
+                guard let cwdPath = resolvedPwd else {
+                    return routeUnhandledAction(actionTag: rawActionTag, target: target)
+                }
+                return routeActionToTerminalRuntime(
+                    actionTag: rawActionTag,
+                    payload: .cwdChanged(cwdPath),
+                    target: target
+                )
 
             // Split actions
             case .newSplit:
                 return routeActionToTerminalRuntime(
-                    actionTag: actionTag.rawValue,
+                    actionTag: rawActionTag,
                     payload: .newSplit(directionRawValue: action.action.new_split.rawValue),
                     target: target
                 )
 
             case .gotoSplit:
                 return routeActionToTerminalRuntime(
-                    actionTag: actionTag.rawValue,
+                    actionTag: rawActionTag,
                     payload: .gotoSplit(directionRawValue: action.action.goto_split.rawValue),
                     target: target
                 )
 
             case .resizeSplit:
                 return routeActionToTerminalRuntime(
-                    actionTag: actionTag.rawValue,
+                    actionTag: rawActionTag,
                     payload: .resizeSplit(
                         amount: action.action.resize_split.amount,
                         directionRawValue: action.action.resize_split.direction.rawValue
@@ -280,14 +290,14 @@ extension Ghostty {
 
             case .equalizeSplits:
                 return routeActionToTerminalRuntime(
-                    actionTag: actionTag.rawValue,
+                    actionTag: rawActionTag,
                     payload: .noPayload,
                     target: target
                 )
 
             case .toggleSplitZoom:
                 return routeActionToTerminalRuntime(
-                    actionTag: actionTag.rawValue,
+                    actionTag: rawActionTag,
                     payload: .noPayload,
                     target: target
                 )
@@ -295,22 +305,31 @@ extension Ghostty {
             // Tab actions
             case .closeTab:
                 return routeActionToTerminalRuntime(
-                    actionTag: actionTag.rawValue,
+                    actionTag: rawActionTag,
                     payload: .closeTab(modeRawValue: action.action.close_tab_mode.rawValue),
                     target: target
                 )
 
             case .gotoTab:
                 return routeActionToTerminalRuntime(
-                    actionTag: actionTag.rawValue,
+                    actionTag: rawActionTag,
                     payload: .gotoTab(targetRawValue: action.action.goto_tab.rawValue),
                     target: target
                 )
 
             case .moveTab:
                 return routeActionToTerminalRuntime(
-                    actionTag: actionTag.rawValue,
+                    actionTag: rawActionTag,
                     payload: .moveTab(amount: Int(action.action.move_tab.amount)),
+                    target: target
+                )
+            case .commandFinished:
+                return routeActionToTerminalRuntime(
+                    actionTag: rawActionTag,
+                    payload: .commandFinished(
+                        exitCode: Int(action.action.command_finished.exit_code),
+                        duration: action.action.command_finished.duration
+                    ),
                     target: target
                 )
             case .closeAllWindows, .toggleMaximize, .toggleFullscreen, .toggleTabOverview,
@@ -320,9 +339,9 @@ extension Ghostty {
                 .desktopNotification, .promptTitle, .mouseShape, .mouseVisibility, .mouseOverLink,
                 .rendererHealth, .openConfig, .quitTimer, .floatWindow, .secureInput, .keySequence, .keyTable,
                 .colorChange, .reloadConfig, .configChange, .closeWindow, .undo, .redo, .checkForUpdates,
-                .openURL, .showChildExited, .progressReport, .showOnScreenKeyboard, .commandFinished,
+                .openURL, .showChildExited, .progressReport, .showOnScreenKeyboard,
                 .startSearch, .endSearch, .searchTotal, .searchSelected, .readOnly, .copyTitleToClipboard:
-                return routeUnhandledAction(actionTag: actionTag.rawValue, target: target)
+                return routeUnhandledAction(actionTag: rawActionTag, target: target)
             }
         }
         // swiftlint:enable function_body_length

@@ -273,7 +273,15 @@ final class PaneCoordinator {
             executeGotoTabTarget(target, sourceTabId: sourceTabId)
         case .moveTab(let amount):
             execute(.moveTab(tabId: sourceTabId, delta: amount))
-        case .titleChanged, .cwdChanged, .commandFinished, .bellRang, .scrollbarChanged, .unhandled:
+        case .titleChanged(let title):
+            store.updatePaneTitle(sourcePaneUUID, title: title)
+        case .cwdChanged(let cwdPath):
+            store.updatePaneCWD(sourcePaneUUID, cwd: URL(fileURLWithPath: cwdPath))
+        case .commandFinished, .bellRang:
+            Self.logger.debug(
+                "Terminal control event received for pane \(sourcePaneUUID.uuidString, privacy: .public): \(String(describing: event), privacy: .public)"
+            )
+        case .scrollbarChanged, .unhandled:
             Self.logger.debug(
                 "Terminal runtime event ignored by coordinator for pane \(sourcePaneUUID.uuidString, privacy: .public): \(String(describing: event), privacy: .public)"
             )

@@ -10,6 +10,9 @@ private let ghosttyAdapterLogger = Logger(subsystem: "com.agentstudio", category
 final class GhosttyAdapter {
     enum ActionPayload: Sendable, Equatable {
         case noPayload
+        case titleChanged(String)
+        case cwdChanged(String)
+        case commandFinished(exitCode: Int, duration: UInt64)
         case closeTab(modeRawValue: UInt32)
         case gotoTab(targetRawValue: Int32)
         case moveTab(amount: Int)
@@ -39,6 +42,21 @@ final class GhosttyAdapter {
         switch actionTag {
         case .ringBell:
             return .bellRang
+        case .setTitle:
+            guard case .titleChanged(let title) = payload else {
+                return .unhandled(tag: actionTag.rawValue)
+            }
+            return .titleChanged(title)
+        case .pwd:
+            guard case .cwdChanged(let cwdPath) = payload else {
+                return .unhandled(tag: actionTag.rawValue)
+            }
+            return .cwdChanged(cwdPath)
+        case .commandFinished:
+            guard case .commandFinished(let exitCode, let duration) = payload else {
+                return .unhandled(tag: actionTag.rawValue)
+            }
+            return .commandFinished(exitCode: exitCode, duration: duration)
         case .newTab:
             return .newTab
         case .closeTab:
@@ -90,14 +108,14 @@ final class GhosttyAdapter {
             return .equalizeSplits
         case .toggleSplitZoom:
             return .toggleSplitZoom
-        case .quit, .newWindow, .setTitle, .pwd, .closeAllWindows, .toggleMaximize, .toggleFullscreen,
+        case .quit, .newWindow, .closeAllWindows, .toggleMaximize, .toggleFullscreen,
             .toggleTabOverview, .toggleWindowDecorations, .toggleQuickTerminal, .toggleCommandPalette,
             .toggleVisibility, .toggleBackgroundOpacity, .gotoWindow, .presentTerminal, .sizeLimit,
             .resetWindowSize, .initialSize, .cellSize, .scrollbar, .render, .inspector, .showGtkInspector,
             .renderInspector, .desktopNotification, .promptTitle, .mouseShape, .mouseVisibility, .mouseOverLink,
             .rendererHealth, .openConfig, .quitTimer, .floatWindow, .secureInput, .keySequence, .keyTable,
             .colorChange, .reloadConfig, .configChange, .closeWindow, .undo, .redo, .checkForUpdates, .openURL,
-            .showChildExited, .progressReport, .showOnScreenKeyboard, .commandFinished, .startSearch, .endSearch,
+            .showChildExited, .progressReport, .showOnScreenKeyboard, .startSearch, .endSearch,
             .searchTotal, .searchSelected, .readOnly, .copyTitleToClipboard:
             return .unhandled(tag: actionTag.rawValue)
         }

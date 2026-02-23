@@ -366,6 +366,70 @@ struct PaneCoordinatorRuntimeDispatchTests {
         try? FileManager.default.removeItem(at: tempDir)
     }
 
+    @Test("runtime terminal title/cwd events update pane metadata")
+    func runtimeEventMetadataUpdatesPaneStore() async {
+        let tempDir = FileManager.default.temporaryDirectory
+            .appending(path: "agentstudio-pane-coordinator-runtime-events-metadata-\(UUID().uuidString)")
+        let store = WorkspaceStore(persistor: WorkspacePersistor(workspacesDir: tempDir))
+        store.restore()
+        let viewRegistry = ViewRegistry()
+        let runtime = SessionRuntime(store: store)
+        let mockSurfaceManager = MockPaneCoordinatorSurfaceManager()
+        let coordinator = PaneCoordinator(
+            store: store,
+            viewRegistry: viewRegistry,
+            runtime: runtime,
+            surfaceManager: mockSurfaceManager,
+            runtimeRegistry: RuntimeRegistry()
+        )
+
+        let sourcePane = store.createPane(
+            content: .webview(WebviewState(url: URL(string: "https://example.com/source-metadata")!)),
+            metadata: PaneMetadata(source: .floating(workingDirectory: nil, title: "Source"), title: "Source")
+        )
+        let sourceTab = Tab(paneId: sourcePane.id)
+        store.appendTab(sourceTab)
+        store.setActiveTab(sourceTab.id)
+
+        let fakeRuntime = FakePaneRuntime(paneId: PaneId(uuid: sourcePane.id))
+        coordinator.registerRuntime(fakeRuntime)
+
+        fakeRuntime.emit(
+            PaneEventEnvelope(
+                source: .pane(PaneId(uuid: sourcePane.id)),
+                paneKind: .terminal,
+                seq: 1,
+                commandId: nil,
+                correlationId: nil,
+                timestamp: ContinuousClock().now,
+                epoch: 0,
+                event: .terminal(.titleChanged("Updated Title"))
+            )
+        )
+        fakeRuntime.emit(
+            PaneEventEnvelope(
+                source: .pane(PaneId(uuid: sourcePane.id)),
+                paneKind: .terminal,
+                seq: 2,
+                commandId: nil,
+                correlationId: nil,
+                timestamp: ContinuousClock().now,
+                epoch: 0,
+                event: .terminal(.cwdChanged("/tmp/updated-cwd"))
+            )
+        )
+
+        await eventually("runtime metadata updates are reflected in workspace store") {
+            store.pane(sourcePane.id)?.metadata.title == "Updated Title"
+                && store.pane(sourcePane.id)?.metadata.cwd == URL(fileURLWithPath: "/tmp/updated-cwd")
+        }
+
+        #expect(store.pane(sourcePane.id)?.metadata.title == "Updated Title")
+        #expect(store.pane(sourcePane.id)?.metadata.cwd == URL(fileURLWithPath: "/tmp/updated-cwd"))
+
+        try? FileManager.default.removeItem(at: tempDir)
+    }
+
     @Test("runtime terminal closeTab(rightTabs) closes tabs strictly to the right of source")
     func runtimeEventCloseRightTabs() async {
         let tempDir = FileManager.default.temporaryDirectory

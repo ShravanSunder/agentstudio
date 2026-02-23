@@ -58,6 +58,24 @@ struct GhosttyAdapterTests {
         #expect(
             adapter.translate(actionTag: UInt32(GHOSTTY_ACTION_RING_BELL.rawValue)) == .bellRang
         )
+        #expect(
+            adapter.translate(
+                actionTag: UInt32(GHOSTTY_ACTION_SET_TITLE.rawValue),
+                payload: .titleChanged("Build")
+            ) == .titleChanged("Build")
+        )
+        #expect(
+            adapter.translate(
+                actionTag: UInt32(GHOSTTY_ACTION_PWD.rawValue),
+                payload: .cwdChanged("/tmp/worktree")
+            ) == .cwdChanged("/tmp/worktree")
+        )
+        #expect(
+            adapter.translate(
+                actionTag: UInt32(GHOSTTY_ACTION_COMMAND_FINISHED.rawValue),
+                payload: .commandFinished(exitCode: 0, duration: 42)
+            ) == .commandFinished(exitCode: 0, duration: 42)
+        )
     }
 
     @Test("invalid payload maps to unhandled")
@@ -67,9 +85,10 @@ struct GhosttyAdapterTests {
         #expect(adapter.translate(actionTag: closeTag, payload: .noPayload) == .unhandled(tag: closeTag))
     }
 
-    @Test("unknown action tags map to unhandled event")
-    func unknownTagMapsToUnhandled() {
+    @Test("declared but unmigrated action tags map to unhandled event")
+    func unmigratedTagMapsToUnhandled() {
         let adapter = GhosttyAdapter.shared
-        #expect(adapter.translate(actionTag: 9999) == .unhandled(tag: 9999))
+        let unmigratedTag = UInt32(GHOSTTY_ACTION_OPEN_CONFIG.rawValue)
+        #expect(adapter.translate(actionTag: unmigratedTag) == .unhandled(tag: unmigratedTag))
     }
 }
