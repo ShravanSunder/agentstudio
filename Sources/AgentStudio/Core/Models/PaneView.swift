@@ -1,5 +1,21 @@
 import AppKit
 
+/// Container NSView that blocks all AppKit event routing to pane content
+/// during management mode. When `hitTest` returns `nil`, the entire subtree
+/// (terminal surfaces, WKWebView, etc.) becomes invisible to AppKit — no
+/// clicks, keyboard events, or drag destinations are delivered.
+///
+/// SwiftUI controls above the `NSViewRepresentable` in the ZStack
+/// (management buttons, drag handle, `.onDrop` overlay) are unaffected
+/// because they operate at the SwiftUI/hosting view level.
+@MainActor
+final class ManagementModeContainerView: NSView {
+    override func hitTest(_ point: NSPoint) -> NSView? {
+        guard !ManagementModeMonitor.shared.isActive else { return nil }
+        return super.hitTest(point)
+    }
+}
+
 /// Base class for all pane views that can appear in the split tree.
 /// Provides the common identity (paneId) and SwiftUI bridging contract.
 ///
@@ -24,8 +40,12 @@ class PaneView: NSView, Identifiable {
     /// SwiftUI bridge container. Returns a stable NSView wrapper for use with
     /// NSViewRepresentable. Terminal overrides this with its own implementation;
     /// non-terminal subclasses use the default.
+    ///
+    /// Uses `ManagementModeContainerView` which overrides `hitTest` to return
+    /// `nil` during management mode, blocking all AppKit events (clicks, drags,
+    /// keyboard) from reaching pane content.
     private(set) lazy var swiftUIContainer: NSView = {
-        let container = NSView()
+        let container = ManagementModeContainerView()
         container.wantsLayer = true
         container.layer?.backgroundColor = NSColor.clear.cgColor
         self.translatesAutoresizingMaskIntoConstraints = false
@@ -36,12 +56,6 @@ class PaneView: NSView, Identifiable {
             self.trailingAnchor.constraint(equalTo: container.trailingAnchor),
             self.bottomAnchor.constraint(equalTo: container.bottomAnchor),
         ])
-
-        // NOTE: ManagementModeDragShield removed from NSView hierarchy.
-        // An NSView-level NSDraggingDestination inside NSViewRepresentable
-        // intercepts drags at the AppKit level BEFORE SwiftUI's .onDrop
-        // on the parent ZStack. This breaks the drop zone overlay.
-        // File drag suppression needs a SwiftUI-level solution instead.
 
         return container
     }()
