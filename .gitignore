@@ -56,7 +56,9 @@ AgentStudio.app/
 *.profraw
 .claude/settings.local.json
 .claude/ralph-loop.local.md
-docs/plans
+docs/plans/*
+!docs/plans/2026-02-21-pane-runtime-luna-295-luna-325-mapping.md
+!docs/plans/2026-02-23-bridge-diff-execution-plan.md
 arm64-apple-macosx/
 checkouts/
 repositories/

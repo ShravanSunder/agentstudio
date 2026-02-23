@@ -5,6 +5,8 @@
 - [`docs/architecture/pane_runtime_architecture.md`](../architecture/pane_runtime_architecture.md)
 - [`docs/architecture/session_lifecycle.md#identity-contract-canonical`](../architecture/session_lifecycle.md#identity-contract-canonical)
 
+> Scope boundary: this plan is runtime-contract implementation mapping only. Bridge/diff project execution sequencing is maintained separately in [`docs/plans/2026-02-23-bridge-diff-execution-plan.md`](2026-02-23-bridge-diff-execution-plan.md).
+
 ## Design Heading Index (anchor links — no line numbers, they drift)
 
 1. [Design Decisions](../architecture/pane_runtime_architecture.md#design-decisions)

@@ -3,7 +3,7 @@
 > **Target**: macOS 26 (Tahoe) · Swift 6.2 · WebKit for SwiftUI
 > **Pattern**: Three-stream architecture with push-dominant state sync
 > **First use case**: Diff viewer and code review with Pierre (@pierre/diffs, @pierre/file-tree)
-> **Status**: Phase 1 (bridge infrastructure) and Phase 2 (push pipeline) are implemented in code. Phase 3 (typed JSON-RPC command channel) is complete and closed in LUNA-336.
+> **Status (2026-02-22)**: Phase 1 (bridge infrastructure), Phase 2 (push pipeline), and Phase 3 (typed JSON-RPC command channel, `LUNA-336`) are implemented. Active delivery chain is `LUNA-347` + `LUNA-325` -> `LUNA-337` -> (`LUNA-338`, `LUNA-339`) -> (`LUNA-340`, `LUNA-348`) -> `LUNA-341`.
 
 > **LUNA-336 closure scope**: sender parity, command ack semantics, and direct-response request handling are implemented and documented here as the closed Phase 3 baseline.
 
@@ -43,7 +43,7 @@ The diff viewer and code review system (powered by Pierre) is the first panel. I
 │  Tier 1: Swift Domain State (authoritative)           │
 │  @Observable models, Codable, persisted               │
 │                                                        │
-│  • DiffManifest: file metadata as keyed collection (per-file EntitySlice)  │
+│  • Diff metadata: keyed `DiffState.files` collection (per-file EntitySlice) │
 │  • File contents (served via data stream on demand)   │
 │  • ReviewThread, ReviewComment, ReviewAction           │
 │  • AgentTask: status, completed files, output refs     │
@@ -60,7 +60,7 @@ The diff viewer and code review system (powered by Pierre) is the first panel. I
 │  Tier 2: React Mirror State (derived from Swift)        │
 │  Zustand stores, normalized for UI rendering            │
 │                                                          │
-│  • DiffManifest mirror (file list, statuses)            │
+│  • Diff metadata mirror (file list, statuses)           │
 │  • File content LRU cache (~20 files in memory)         │
 │  • Review threads + comments (normalized by ID)          │
 │  • Agent task status                                     │
@@ -111,7 +111,7 @@ To prevent "local-first everywhere" complexity from leaking into this design, ow
 | Payload Size | Latency | Use Case |
 |---|---|---|
 | < 5 KB JSON | Sub-millisecond to ~1ms | Status updates, comment CRUD, file metadata |
-| 5–50 KB | 1–5ms | DiffManifest (500 files ≈ 25KB), agent events batch |
+| 5–50 KB | 1–5ms | Diff metadata payload (500 files ≈ 25KB), agent events batch |
 | 50–500 KB | 5–20ms | Reserved for data stream (agentstudio://) |
 
 A 60fps frame is 16.7ms. State stream payloads (<50KB) arrive within a single frame. File contents are pulled via the data stream, keeping the state stream fast.
@@ -242,7 +242,7 @@ Before any stream can operate, the bridge must complete initialization. The hand
 3. React app mounts, bridge receiver initializes, subscribes to events
 4. React dispatches '__bridge_ready' CustomEvent
 5. Bridge world captures it, relays to Swift via postMessage({ type: "bridge.ready" })
-6. Swift starts observation loops + pushes initial DiffManifest
+6. Swift starts observation loops + pushes initial diff metadata payload
 ```
 
 No state pushes or commands are allowed before step 6 completes. The `BridgePaneController` gates on receiving `bridge.ready` before starting observation loops.
@@ -462,7 +462,7 @@ Not all observed state should be pushed with the same cadence. This spec uses th
 |---|---|---|---|---|
 | **`.hot`** | < 1KB | 5-60Hz bursts | `connection.health`, loading/status flags | No debounce, `replace` |
 | **`.warm`** | 1-10KB | 1-20Hz | review thread updates, command acks, small task updates | 8-16ms debounce, `merge` (entity) or `replace` (scalar) |
-| **`.cold`** | > 10KB | < 2Hz | `DiffManifest` snapshots for 100-500 files | 16-50ms debounce, `replace` |
+| **`.cold`** | > 10KB | < 2Hz | Diff metadata snapshots for 100-500 files | 16-50ms debounce, `replace` |
 
 **Policy rule**:
 - Default every slice to `.cold`.
@@ -1036,7 +1036,7 @@ The push pipeline involves three CPU-bound steps per push: (1) Swift `JSONEncode
 
 | Strategy | When | Effect |
 |---|---|---|
-| **Metadata-only pushes** (§10.1) | Diff loaded | Push `DiffManifest` (file list + metadata), NOT file contents |
+| **Metadata-only pushes** (§10.1) | Diff loaded | Push keyed file metadata payload, NOT file contents |
 | **Content pull on demand** (§10.2) | File enters viewport | React fetches via `agentstudio://resource/file/{id}` — no state stream overhead |
 | **Debounced observation** (§6.2) | Rapid mutations | Coalesce multiple changes into one push (per-level cadence) |
 | **Off-main encoding** (§6.5) | `.cold` payloads | `Task.detached(priority: .utility)` keeps main actor responsive |
@@ -1045,7 +1045,7 @@ The push pipeline involves three CPU-bound steps per push: (1) Swift `JSONEncode
 | **Batched agent events** (§4.4) | Agent activity | 30-50ms batching cadence, append-only |
 | **LRU content cache** (§10.4) | Memory pressure | ~20 files in React memory, oldest evicted |
 
-**Measurement requirement**: Phase 2 testing must include a benchmark: push a 100-file `DiffManifest` (metadata only, no file contents), measure end-to-end time from Swift mutation to React rerender. Target: < 32ms (2 frames). File contents are never pushed via the state stream — they're served on demand via the data stream.
+**Measurement requirement**: Phase 2 testing must include a benchmark: push a 100-file metadata payload (metadata only, no file contents), measure end-to-end time from Swift mutation to React rerender. Target: < 32ms (2 frames). File contents are never pushed via the state stream — they are served on demand via the data stream.
 
 ---
 
@@ -1071,12 +1071,12 @@ interface DiffFile {
     size: number;
 }
 
-// Tier 2 mirror: DiffManifest store (pushed via state stream)
+// Tier 2 mirror: diff metadata store (pushed via state stream)
 interface DiffStore {
-    source: DiffSource | null;
-    manifest: FileManifest[] | null;
+    source: BridgePaneSource | null;
+    filesById: Record<string, FileManifest>;
     epoch: number;
-    status: 'idle' | 'loadingManifest' | 'manifestReady' | 'error';
+    status: 'idle' | 'loading' | 'ready' | 'error';
     error: string | null;
     lastRevision: number;           // tracks last accepted push revision
 }
@@ -1260,7 +1260,7 @@ function sendCommand(method: string, params?: unknown): void {
 
 export const commands = {
     diff: {
-        load: (source: DiffSource) =>
+        load: (source: BridgePaneSource) =>
             sendCommand("diff.loadDiff", { source }),
         requestFileContents: (fileId: string) =>
             sendCommand("diff.requestFileContents", { fileId }),
@@ -1455,74 +1455,59 @@ Domain state is split into two categories:
 @Observable
 @MainActor
 class PaneDomainState {
-    var diff: DiffState = .init()
-    var review: ReviewState = .init()
+    let diff = DiffState()
+    let review = ReviewState()
     let connection = ConnectionState()
-    var agentTasks: [UUID: AgentTask] = [:]
-    var timeline: [TimelineEvent] = []    // in-memory v1, .jsonl v2
+    private(set) var commandAcks: [String: CommandAck] = [:]
+
+    // Phase 5 target additions (LUNA-340):
+    // var agentTasks: [UUID: AgentTask] = [:]
+    // var timeline: [TimelineEvent] = []
 }
 ```
 
-**Shared state** — Reserved for truly application-wide state (not per-pane). Currently empty — `ConnectionState` was moved to `PaneDomainState` (see §8.7).
+**Shared state** — Reserved for truly application-wide state (not per-pane). Currently empty — `ConnectionState` is per-pane (`PaneDomainState`).
 
 **Ownership**: `BridgePaneController` owns one `PaneDomainState` (which includes `ConnectionState` — see §8.7). Each pane's observation loops push per-pane state into their respective Zustand stores.
 
-### 8.2 Diff Source and Manifest
+### 8.2 Bridge Source and File Manifest Contract
 
-The diff viewer supports four data sources, all producing the same review UI:
+The current pane source contract is `BridgePaneSource` (stored in `BridgePaneState.source`) and includes:
 
 ```swift
-enum DiffSource: Codable {
-    case none
-    case agentSnapshot(taskId: UUID, timestamp: Date)  // agent produced this
-    case commit(sha: String)                            // single commit review
-    case branchDiff(head: String, base: String)         // branch comparison
-    case workspace(rootPath: String, baseline: WorkspaceBaseline) // live workspace review
+enum BridgePaneSource: Codable, Hashable, Sendable {
+    case commit(sha: String)
+    case branchDiff(head: String, base: String)
+    case workspace(rootPath: String, baseline: WorkspaceBaseline)
+    case agentSnapshot(taskId: UUID, timestamp: Date)
 }
 
-enum WorkspaceBaseline: Codable {
-    case workingTreeVsHEAD
-    case workingTreeVsBranch(name: String)
-    case indexVsHEAD
+enum WorkspaceBaseline: String, Codable, Hashable, Sendable {
+    case headMinusOne
+    case staged
+    case unstaged
 }
 ```
 
-The diff loading pipeline takes a `DiffSource` and produces file metadata pushed via the state stream. File contents are NOT included; they're fetched on demand via the data stream.
+Historical `DiffSource` wording in this document refers to the same conceptual source family; the canonical code-level type is `BridgePaneSource`.
 
-The diff state stores file metadata as a `[String: FileManifest]` dictionary keyed by file ID. This enables per-file delta pushes via `EntitySlice` — when one file changes out of 100, only that file's data is pushed.
+File metadata is a keyed dictionary (`[String: FileManifest]`) for per-entity delta pushes:
 
 ```swift
-struct FileManifest: Codable, Identifiable {
+struct FileManifest: Encodable, Equatable, Sendable {
     let id: String
-    var version: Int                        // bumped when any field changes
+    var version: Int
     let path: String
-    let oldPath: String?                    // for renames
-    let changeType: FileChangeType
-    var loadStatus: FileLoadStatus
-    var additions: Int                      // line count
-    var deletions: Int                      // line count
-    var size: Int                           // bytes, for threshold decisions
-    let contextHash: String                 // hash of file content for comment anchoring
-    let hunkSummary: [HunkSummary]          // line ranges that changed
-}
+    let oldPath: String?
+    let changeType: ChangeType
+    var additions: Int
+    var deletions: Int
+    var size: Int
+    let contextHash: String
 
-struct HunkSummary: Codable {
-    let oldStart: Int
-    let oldCount: Int
-    let newStart: Int
-    let newCount: Int
-    let header: String?                     // e.g., "func loadDiff()"
-}
-
-enum FileChangeType: String, Codable {
-    case added, modified, deleted, renamed
-}
-
-enum FileLoadStatus: String, Codable {
-    case pending     // metadata known, content not yet requested
-    case loading     // content fetch in progress
-    case loaded      // content available via data stream
-    case error       // content fetch failed
+    enum ChangeType: String, Encodable, Equatable, Sendable {
+        case added, modified, deleted, renamed
+    }
 }
 ```
 
@@ -1530,25 +1515,24 @@ enum FileLoadStatus: String, Codable {
 
 ```swift
 @Observable
-class DiffState {
-    var source: DiffSource = .none
-    var files: [String: FileManifest] = [:] // keyed by file ID, pushed via EntitySlice
-    var status: DiffStatus = .idle
-    var error: String? = nil
-    var epoch: Int = 0                      // current load generation
+@MainActor
+final class DiffState {
+    private(set) var status: DiffStatus = .idle
+    private(set) var error: String?
+    private(set) var epoch: Int = 0
+    private(set) var files: [String: FileManifest] = [:]
 }
 
-enum DiffStatus: String, Codable {
-    case idle
-    case loadingManifest                    // computing file list from git
-    case manifestReady                      // file list available, contents on demand
-    case error
+enum DiffStatus: String, Codable, Equatable, Sendable {
+    case idle, loading, ready, error
 }
 ```
 
-**Note**: File contents are NOT stored in `DiffState`. They're served on demand via `agentstudio://resource/file/{id}` and cached in React's tier 2 mirror state (LRU of ~20 files). This keeps the state stream fast and Swift memory bounded.
+**Note**: File contents are NOT stored in `DiffState`. They are served on demand via `agentstudio://resource/file/{id}` and cached in React mirror state (LRU target ~20 files).
 
 ### 8.4 Review Domain Objects
+
+The structures below are the target Phase 5 model. Current bridge code keeps a minimal `ReviewThread` shape for push-pipeline validation (`id`, `version`, `body`) until `LUNA-340` lands the full review model.
 
 ```swift
 /// A comment thread anchored to a specific location in the diff.
@@ -1676,7 +1660,7 @@ class ConnectionState: Codable {
 
 ### 8.8 Codable Conformance
 
-All domain types conform to `Codable` for JSON serialization across the bridge. `@Observable` classes use the macro's auto-generated `Codable` conformance. `AnyCodableValue` (existing in `App/Models/PaneContent.swift`) is reused for flexible metadata fields.
+Bridge wire payload structs/enums conform to `Codable`/`Encodable` for transport serialization. `@Observable` domain classes are currently encoded through snapshot/push payload assembly rather than direct class-level `Codable` persistence. `AnyCodableValue` (existing in `Core/Models/PaneContent.swift`) is reused for flexible metadata fields.
 
 ---
 
@@ -1938,34 +1922,37 @@ For large diffs (100+ files), content delivery separates metadata (state stream)
 
 ### 10.1 Metadata Push (State Stream)
 
-Swift computes the `DiffManifest` (file paths, sizes, hunk summaries, statuses) and pushes it via the state stream. No file contents cross this stream.
+Swift computes keyed file metadata (`DiffState.files`) and pushes it via the state stream. No file contents cross this stream.
 
 ```swift
-func loadDiff(source: DiffSource) async {
-    paneState.diff.epoch += 1
-    paneState.diff.source = source
-    paneState.diff.status = .loadingManifest
+func loadDiff(source: BridgePaneSource) async {
+    paneState.diff.advanceEpoch()
+    paneState.diff.setStatus(.loading)
 
     do {
         let changedFiles = try await gitService.listChangedFiles(source: source)
-        paneState.diff.manifest = DiffManifest(
-            source: source,
-            epoch: paneState.diff.epoch,
-            files: changedFiles.map { file in
+        let byId = Dictionary(uniqueKeysWithValues: changedFiles.map { file in
+            (
+                file.id,
                 FileManifest(
-                    id: file.id, path: file.path, oldPath: file.oldPath,
-                    changeType: file.changeType, loadStatus: .pending,
-                    additions: file.additions, deletions: file.deletions,
-                    size: file.size, contextHash: file.contextHash,
-                    hunkSummary: file.hunks
+                    id: file.id,
+                    version: file.version,
+                    path: file.path,
+                    oldPath: file.oldPath,
+                    changeType: file.changeType,
+                    additions: file.additions,
+                    deletions: file.deletions,
+                    size: file.size,
+                    contextHash: file.contextHash
                 )
-            }
-        )
-        paneState.diff.status = .manifestReady
-        // Observations triggers push → React renders file tree + diff list immediately
+            )
+        })
+
+        paneState.diff.replaceFiles(byId)
+        paneState.diff.setStatus(.ready)
+        // Observation slices push metadata deltas to React mirror state.
     } catch {
-        paneState.diff.status = .error
-        paneState.diff.error = error.localizedDescription
+        paneState.diff.setStatus(.error, error: error.localizedDescription)
     }
 }
 ```
@@ -2295,24 +2282,24 @@ import { WorkerPoolManager } from '@pierre/diffs/worker';
 const workerManager = new WorkerPoolManager();
 
 function DiffFileView({ fileId }: { fileId: string }) {
-    const manifest = useDiffManifest(fileId);
+    const fileMetadata = useDiffFileMetadata(fileId);
     const content = useFileContent(fileId); // LRU cached, fetched via data stream
 
     if (!content) {
         // File content not yet loaded — Pierre still renders with approximate height
         // Content loader triggers fetch when this file enters viewport
-        return <DiffFileSkeleton manifest={manifest} />;
+        return <DiffFileSkeleton metadata={fileMetadata} />;
     }
 
     return (
         <MultiFileDiff
             oldFile={{
-                name: manifest.oldPath ?? manifest.path,
+                name: fileMetadata.oldPath ?? fileMetadata.path,
                 contents: content.oldContent ?? '',
                 cacheKey: `${fileId}:old`,  // enables worker highlight caching
             }}
             newFile={{
-                name: manifest.path,
+                name: fileMetadata.path,
                 contents: content.newContent ?? '',
                 cacheKey: `${fileId}:new`,
             }}
@@ -2340,11 +2327,11 @@ import { createFileTree } from '@pierre/file-tree';
 import { fileTreeReactPlugin, FileTreeComponent } from '@pierre/file-tree/react';
 
 function DiffSidebar() {
-    const manifest = useDiffManifest();
+    const diffState = useDiffState();
     const tree = useMemo(() => createFileTree({
         plugins: [fileTreeReactPlugin()],
-        files: manifest.files.map((f) => f.path),
-    }), [manifest]);
+        files: Object.values(diffState.files).map((f) => f.path),
+    }), [diffState.files]);
 
     return <FileTreeComponent tree={tree} />;
 }
@@ -2357,7 +2344,7 @@ function DiffSidebar() {
 ### 12.4 Content Loading Lifecycle
 
 ```
-1. Swift pushes DiffManifest via state stream (file paths, sizes, hunk summaries)
+1. Swift pushes diff metadata via state stream (file paths, sizes, status fields)
 2. React passes manifest to Pierre FileTree + creates diff components per file
 3. Viewport visibility signals determine which files are active
 4. Active file signal fires → content loader triggers
@@ -2463,7 +2450,7 @@ Agent memory loss is expected; continuity is preserved through repository artifa
 | Artifact | Location | Required Content |
 |---|---|---|
 | Architecture Decision Records (ADRs) | `docs/architecture/adr/` | Decision, alternatives, tradeoffs, reversal conditions |
-| Bridge contract fixtures | `Tests/BridgeContractFixtures/` and `WebApp/test/fixtures/bridge/` | Valid/invalid/stale/duplicate/reordered payload examples |
+| Bridge contract fixtures | `Tests/BridgeContractFixtures/` | Valid/invalid/stale/duplicate/reordered payload examples |
 | Stage handoff notes | `docs/architecture/swift_react_bridge_design.md` (phase checklist) | What is done, what is pending, which tests must pass next |
 | Failure mode matrix | `docs/architecture/swift_react_bridge_failures.md` | Timeout, duplication, reorder, stale epoch, cancellation behavior |
 
@@ -2484,6 +2471,14 @@ Testing prioritizes correctness under protocol failure modes, not snapshot volum
 - Additions to contract types are blocked until both suites are updated.
 - Invalid fixtures must fail decoding/validation deterministically in both runtimes.
 - Test failures must print `commandId`, `epoch`, `revision`, and method/store names to make CI logs "see-through" without a custom inspector UI.
+
+### 13.2 Current Linear Pathway (2026-02-22)
+
+Current project sequencing is:
+
+`LUNA-347` + `LUNA-325` -> `LUNA-337` -> (`LUNA-338`, `LUNA-339`) -> (`LUNA-340`, `LUNA-348`) -> `LUNA-341`
+
+With optional hardening tail: `LUNA-337` -> `LUNA-346`.
 
 ### Phase 1: Transport Foundation
 
@@ -2557,14 +2552,14 @@ Testing prioritizes correctness under protocol failure modes, not snapshot volum
 - Unit: Duplicate `commandId` → idempotent (no double execution)
 - Integration: JS sends command → Swift handler fires → commandAck pushed → state updates → push arrives in Zustand
 
-### Phase 4: Diff Viewer & Content Delivery (Pierre Integration)
+### Phase 4: Diff Viewer & Content Delivery (LUNA-347 / LUNA-337 / LUNA-338 / LUNA-339)
 
 **Goal**: Full diff viewer renders in a webview pane using metadata push + content pull.
 
 **Deliverables**:
-- `DiffManifest` and `FileManifest` domain models (Swift, §8)
-- `DiffSource` enum: `.agentSnapshot`, `.commit`, `.branchDiff`, `.workspace`
-- State stream: Swift pushes `DiffManifest` (file metadata only) into diff Zustand store
+- Keyed diff metadata contract (`DiffState.files`) and `FileManifest` domain model (Swift, §8)
+- Source contract: `BridgePaneSource` (`.agentSnapshot`, `.commit`, `.branchDiff`, `.workspace`)
+- State stream: Swift pushes keyed diff metadata payload (file metadata only) into diff Zustand store
 - Data stream: `BridgeSchemeHandler` extended for `agentstudio://resource/file/{id}` — React pulls file contents on demand
 - Priority queue on React side: viewport files (high), hovered files (medium), neighbor files (low), cancel when leaving viewport
 - LRU content cache (~20 files) in React, cleared on epoch change
@@ -2575,12 +2570,12 @@ Testing prioritizes correctness under protocol failure modes, not snapshot volum
 - Workspace refresh pipeline: event-driven incremental manifest updates + 10-15s safety revalidation
 
 **Tests**:
-- Unit: `DiffManifest` / `FileManifest` Codable round-trip
+- Unit: diff metadata payload / `FileManifest` encoding round-trip
 - Unit: `BridgeSchemeHandler` validates allowed resource types and rejects forbidden paths
 - Unit: Priority queue ordering logic (viewport > hover > neighbor)
 - Unit: LRU cache evicts oldest entries beyond capacity, clears on epoch bump
 - Unit: Pierre diff component renders with mock file contents
-- Integration: Swift pushes `DiffManifest` → FileTree renders file list within 100ms
+- Integration: Swift pushes diff metadata payload → FileTree renders file list within 100ms
 - Integration: React `fetch('agentstudio://resource/file/xyz')` returns correct file content
 - Integration: Scroll file into viewport → content pull fires → diff renders within 200ms
 - Integration: Epoch guard: start new diff during active load → stale results discarded
@@ -2588,7 +2583,7 @@ Testing prioritizes correctness under protocol failure modes, not snapshot volum
 - Performance: Binary channel latency for 100KB, 500KB, 1MB files on target hardware
 - E2E: Open diff pane → FileTree renders → select file → diff renders with syntax highlighting
 
-### Phase 5: Review System & Agent Integration
+### Phase 5: Review System & Agent Integration (LUNA-340)
 
 **Goal**: Comment threads, review actions, and agent task lifecycle.
 
@@ -2614,23 +2609,30 @@ Testing prioritizes correctness under protocol failure modes, not snapshot volum
 - Integration: Agent event stream batching: 5 rapid events coalesce into 1-2 batched pushes
 - E2E: Full review flow — open diff → add comment → send to agent → agent completes → timeline updated
 
-### Phase 6: Security Hardening
+### Phase 6: Security Hardening (LUNA-348 then LUNA-341)
 
-**Goal**: All six security layers verified and hardened.
+**Goal**: Land security in two explicit layers:
+1. Transport baseline (`LUNA-348`)
+2. Viewer/workflow fan-in hardening (`LUNA-341`)
 
 **Deliverables**:
-- Content world isolation audit — verify page world cannot access bridge internals
-- Navigation policy — verify all external URLs blocked
-- Method allowlisting audit — verify only registered methods dispatch
-- Path traversal tests for URL scheme handler
-- Rate limiting on RPC methods (if needed)
+- `LUNA-348` (transport baseline):
+  - Content world isolation audit
+  - Nonce validation for push/command relays
+  - Method allowlisting audit
+  - URL scheme traversal/path validation
+  - Navigation policy hardening
+- `LUNA-341` (post-fan-in):
+  - Workflow/lifecycle edge-case hardening under real diff + review + cwd flows
+  - Slow-consumer/backpressure + cancellation behavior validation
+  - Final cross-feature security invariants
 
 **Tests**:
-- Security: Inject script in page world → verify cannot call `window.webkit.messageHandlers.rpc`
-- Security: Navigate to `https://evil.com` → verify blocked, opens in default browser
-- Security: Send unknown method → verify `-32601` error
-- Security: `agentstudio://../../etc/passwd` → verify rejected
-- Security: Rapid command flooding → verify no resource exhaustion
+- Security: Inject script in page world -> cannot call `window.webkit.messageHandlers.rpc`
+- Security: Navigate to `https://evil.com` -> blocked, opens in default browser
+- Security: Unknown method -> `-32601`
+- Security: `agentstudio://../../etc/passwd` -> rejected
+- Lifecycle/security integration: page crash during push, hide/show resume, cancellation under fan-in flows
 
 ### Global Design Invariants
 
@@ -2687,7 +2689,7 @@ Each phase requires explicit acceptance criteria before proceeding to the next. 
 - [ ] `EntitySlice`: single entity change → delta contains only that entity (not full collection)
 - [ ] `EntityDelta` wire format uses String keys (UUID normalized, not raw)
 - [ ] Push failures log `store/level/revision/epoch/pushId` (verify log output format)
-- [ ] Push 100-file `DiffManifest` (metadata only): end-to-end < 32ms on target hardware
+- [ ] Push 100-file metadata payload (metadata only): end-to-end < 32ms on target hardware
 - [ ] Content world isolation verified: page world listener cannot forge `__bridge_push` events that bypass bridge world
 
 #### Phase 3 Exit Criteria (Closed in LUNA-336)
@@ -2701,7 +2703,7 @@ Each phase requires explicit acceptance criteria before proceeding to the next. 
 - [x] Command ack semantics: unique `__commandId` emits one ack; duplicates are idempotent; failures emit rejected ack with reason
 
 #### Phase 4 Exit Criteria
-- [ ] `DiffManifest` push → FileTree renders file list within 100ms (100 files)
+- [ ] Diff metadata push → FileTree renders file list within 100ms (100 files)
 - [ ] Content pull: scroll file into viewport → `fetch('agentstudio://resource/file/{id}')` → diff renders within 200ms
 - [ ] Priority queue: viewport files load before neighbor files (verified with request ordering log)
 - [ ] LRU cache: loading 25+ files evicts oldest, capacity stays at ~20
@@ -2741,88 +2743,53 @@ Each phase requires explicit acceptance criteria before proceeding to the next. 
 
 ## 14. File Structure
 
-```
+```text
 Sources/AgentStudio/Features/Bridge/
-├── BridgePaneController.swift             # Per-pane controller: WebPage setup, PushPlan lifecycle, PushTransport conformance
-├── BridgePaneState.swift                  # BridgePaneState, BridgePanelKind, BridgePaneSource
-├── BridgePaneView.swift                   # AppKit PaneView hosting BridgePaneContentView
-├── BridgePaneContentView.swift            # SwiftUI view: WebView(controller.page), no nav bar
-├── RPCRouter.swift                        # Method registry + dispatch
-├── RPCMethod.swift                        # Protocol + type-erased handler
-├── RPCMessageHandler.swift                # WKScriptMessageHandler for postMessage
-├── BridgeSchemeHandler.swift              # agentstudio:// URL scheme (app + resource)
 ├── BridgeNavigationDecider.swift          # Strict navigation: agentstudio + about only
-├── BridgeBootstrap.swift                  # JS bootstrap script for bridge world
-├── Push/                                  # Declarative push infrastructure (§6)
-│   ├── PushPlan.swift                     # PushPlan, PushPlanBuilder (result builder)
-│   ├── Slice.swift                        # Slice (value-level observation)
-│   ├── EntitySlice.swift                  # EntitySlice (keyed collection, per-entity diff)
-│   ├── PushTransport.swift                # PushTransport protocol, PushLevel, PushOp, StoreKey
-│   ├── RevisionClock.swift                # Monotonic per-store revision counter
-│   └── PushSnapshots.swift                # DiffStatusSlice, ConnectionSlice, EntityDelta (wire types)
-├── Methods/                               # One file per namespace
-│   ├── DiffMethods.swift                  # diff.requestFileContents, diff.loadDiff
-│   ├── ReviewMethods.swift                # review.addComment, review.resolveThread
-│   ├── AgentMethods.swift                 # agent.sendReview, agent.cancelTask
-│   └── SystemMethods.swift                # system.ping, system.getCapabilities
-└── Domain/                                # Bridge-specific domain models
-    ├── BridgeDomainState.swift            # @Observable root: PaneDomainState, DiffState, ReviewState, ConnectionState
-    ├── DiffManifest.swift                 # DiffManifest, FileManifest, HunkSummary, DiffSource
-    ├── ReviewState.swift                  # ReviewThread, ReviewComment, ReviewAction, CommentAnchor
-    ├── AgentTask.swift                    # AgentTask, AgentTaskStatus
-    ├── TimelineEvent.swift                # TimelineEvent, TimelineEventKind (in-memory v1)
-    └── ConnectionState.swift              # Connection health
+├── Runtime/
+│   └── BridgePaneController.swift         # Per-pane controller + handshake + push plan lifecycle
+├── State/
+│   ├── BridgeDomainState.swift            # PaneDomainState, DiffState, ReviewState, ConnectionState
+│   ├── BridgePaneState.swift              # BridgePaneState, BridgePanelKind, BridgePaneSource
+│   └── Push/
+│       ├── PushPlan.swift                 # PushPlan, PushPlanBuilder
+│       ├── Slice.swift                    # Slice (value-level observation)
+│       ├── EntitySlice.swift              # EntitySlice (keyed collection, per-entity diff)
+│       ├── PushTransport.swift            # Push transport protocol + envelopes
+│       ├── RevisionClock.swift            # Monotonic per-store revision counter
+│       └── PushSnapshots.swift            # Snapshot and delta wire types
+├── Transport/
+│   ├── RPCRouter.swift                    # Method registry + dispatch
+│   ├── RPCMethod.swift                    # Typed method contract
+│   ├── RPCMessageHandler.swift            # WKScriptMessage ingress
+│   ├── BridgeSchemeHandler.swift          # agentstudio:// URL scheme (app + resource)
+│   ├── BridgeBootstrap.swift              # Bridge-world bootstrap script
+│   └── Methods/
+│       ├── DiffMethods.swift
+│       ├── ReviewMethods.swift
+│       ├── AgentMethods.swift
+│       └── SystemMethods.swift
+└── Views/
+    ├── BridgePaneView.swift
+    └── BridgePaneContentView.swift
 
 Tests/AgentStudioTests/Features/Bridge/
 ├── BridgePaneControllerTests.swift
 ├── BridgeTransportIntegrationTests.swift
+├── BridgeSchemeHandlerTests.swift
+├── BridgeBootstrapTests.swift
 ├── RPCMessageHandlerTests.swift
 ├── RPCRouterTests.swift
+├── WebKitSerializedTests.swift
 └── Push/PushPerformanceBenchmarkTests.swift
 
-WebApp/                                    # React app (Vite + TypeScript)
-├── src/
-│   ├── bridge/
-│   │   ├── receiver.ts                   # __bridge_push/__bridge_agent CustomEvent → Zustand
-│   │   ├── commands.ts                   # Typed command senders with commandId
-│   │   ├── rpc-client.ts                 # Direct-response RPC (rare)
-│   │   └── types.ts                      # Shared protocol types, push envelope
-│   ├── stores/
-│   │   ├── diff-store.ts                 # Zustand: DiffManifest, FileManifest, epoch, revision
-│   │   ├── review-store.ts              # Zustand: ReviewThread, comments, viewed files
-│   │   ├── agent-store.ts              # Zustand: AgentTask, TimelineEvent, sequence tracking
-│   │   ├── content-cache.ts            # LRU cache (~20 files), priority queue, fetch manager
-│   │   └── connection-store.ts          # Zustand: connection health
-│   ├── hooks/
-│   │   ├── use-file-manifest.ts         # Derived selectors on DiffManifest
-│   │   ├── use-file-content.ts          # Content pull trigger + cache lookup
-│   │   ├── use-review-threads.ts        # Threads for a file, filtered by state
-│   │   └── use-agent-status.ts          # Current agent task progress
-│   ├── components/
-│   │   ├── DiffPanel.tsx                 # Layout: FileTree sidebar + diff renderer main
-│   │   ├── FileTreeSidebar.tsx           # Pierre FileTree adapter (plugin/component API)
-│   │   ├── FileDiffView.tsx              # Pierre diff component wrapper per file
-│   │   ├── ReviewThreadOverlay.tsx       # Comment thread UI (add, resolve, delete)
-│   │   ├── DiffHeader.tsx                # Status bar: source, file count, agent progress
-│   │   └── SendToAgentButton.tsx         # Creates AgentTask with review context
-│   ├── utils/
-│   │   └── deep-merge.ts
-│   └── App.tsx
-├── vite.config.ts
-└── package.json
-
-Contracts/
-├── bridge/
-│   ├── command.schema.json               # JSON-RPC command envelope extensions
-│   ├── push.schema.json                  # state/agent push envelope schema
-│   └── ack.schema.json                   # commandAck schema
-
-Tests/
-├── BridgeContractFixtures/               # Shared fixture corpus consumed by Swift + TS tests
-│   ├── valid/
-│   ├── invalid/
-│   └── edge/
+Tests/BridgeContractFixtures/
+├── valid/
+├── invalid/
+└── edge/
 ```
+
+Note: React panel source files are not currently committed as a `WebApp/` tree in this repository. This document defines the bridge-side contracts consumed by that client implementation.
 
 ---
 
@@ -2834,15 +2801,15 @@ The pane system is fully operational. Webview panes already work as general-purp
 
 | Component | File | Role |
 |---|---|---|
-| `PaneContent.webview(WebviewState)` | `App/Models/PaneContent.swift` | Discriminated union case for webview panes |
-| `WebviewState` | `App/Models/PaneContent.swift` | Serializable state: `url`, `title`, `showNavigation` |
+| `PaneContent.webview(WebviewState)` | `Core/Models/PaneContent.swift` | Discriminated union case for webview panes |
+| `WebviewState` | `Core/Models/PaneContent.swift` | Serializable state: `url`, `title`, `showNavigation` |
 | `WebviewPaneController` | `Features/Webview/WebviewPaneController.swift` | Per-pane `@Observable` controller owning a `WebPage` |
 | `WebviewPaneView` | `Features/Webview/Views/WebviewPaneView.swift` | AppKit `PaneView` subclass hosting SwiftUI via `NSHostingView` |
 | `WebviewPaneContentView` | `Features/Webview/Views/WebviewPaneContentView.swift` | SwiftUI view: nav bar + `WebView(controller.page)` |
 | `WebviewNavigationDecider` | `Features/Webview/WebviewNavigationDecider.swift` | Browser-oriented allowlist: `https`, `http`, `about`, `file`, `agentstudio` |
 | `WebviewDialogHandler` | `Features/Webview/WebviewDialogHandler.swift` | JS dialog handler (default implementations) |
-| `PaneCoordinator.createViewForContent` | `App/PaneCoordinator.swift` | Routes `PaneContent` → view creation; webview case at line 101 |
-| `PaneCoordinator.openWebview(url:)` | `App/PaneCoordinator.swift` | Creates browser pane with `WebviewState` + tab |
+| `PaneCoordinator.createViewForContent` | `App/PaneCoordinator+ViewLifecycle.swift` | Routes `PaneContent` -> concrete view/controller creation |
+| `PaneCoordinator.openWebview(url:)` | `App/PaneCoordinator+ActionExecution.swift` | Creates browser pane with `WebviewState` + tab |
 
 All webview panes currently share a single static `WebPage.Configuration` (`WebviewPaneController.sharedConfiguration`) with default `websiteDataStore`. The `ViewRegistry` tracks all webview views and supports lookup by pane ID.
 
@@ -2860,14 +2827,13 @@ Bridge panes (diff viewer, code review) have fundamentally different requirement
 | **Lifecycle** | Stateless (no observation loops) | `BridgePaneController` runs observation loops, pushes state, handles teardown |
 | **State model** | `WebviewState` (url, title, showNavigation) | `BridgePaneState` (source, panel type — no URL bar, no browser navigation) |
 
-**Implementation approach**: A new `PaneContent` case for bridge panes, with a dedicated controller type:
+**Current implementation**: `PaneContent` includes a bridge-pane case, with a dedicated controller type:
 
 ```swift
-// PaneContent gains a new case:
 enum PaneContent: Hashable {
     case terminal(TerminalState)
-    case webview(WebviewState)          // Browser panes (existing)
-    case bridgePanel(BridgePaneState)   // Bridge-backed app panels (new)
+    case webview(WebviewState)
+    case bridgePanel(BridgePaneState)
     case codeViewer(CodeViewerState)
     case unsupported(UnsupportedContent)
 }
@@ -2895,17 +2861,18 @@ enum BridgePaneSource: Codable, Hashable {
 
 ### 15.3 Routing and View Creation
 
-`PaneCoordinator.createViewForContent` gains a new case:
+`PaneCoordinator.createViewForContent` currently handles bridge panes as:
 
 ```swift
 case .bridgePanel(let state):
-    let controller = BridgePaneController(paneId: pane.id, state: state, sharedState: sharedBridgeState)
+    let controller = BridgePaneController(paneId: pane.id, state: state)
     let view = BridgePaneView(paneId: pane.id, controller: controller)
     viewRegistry.register(view, for: pane.id)
+    controller.loadApp()
     return view
 ```
 
-`ActionExecutor` gains a new method:
+An explicit `openDiffViewer(...)` action is still planned; current creation path uses generic pane creation + bridgePanel content wiring.
 
 ```swift
 func openDiffViewer(source: BridgePaneSource? = nil) -> Pane? {
@@ -2964,7 +2931,7 @@ init(paneId: UUID, state: BridgePaneState) {
 
 ### 15.5 Pane Lifecycle
 
-- **Creation**: `PaneCoordinator.openDiffViewer()` → `PaneCoordinator.createViewForContent(.bridgePanel)` → `BridgePaneController` + `BridgePaneView` → `ViewRegistry.register`
+- **Creation**: bridge-pane content is created in store/coordinator flow, then `PaneCoordinator.createViewForContent(.bridgePanel)` instantiates `BridgePaneController` + `BridgePaneView` and registers in `ViewRegistry`
 - **Active**: `BridgePaneController` owns observation loops (started on `bridge.ready`), pushes state to Zustand
 - **Teardown**: `BridgePaneController.teardown()` cancels observation tasks, releases `WebPage`. Triggered by pane removal via `WorkspaceStore.removePane` → `ViewRegistry.deregister`
 - **Persistence**: `BridgePaneState` is `Codable` — round-trips through workspace save/restore. On restore, the panel reloads from source (re-computes manifest from git)
@@ -2981,7 +2948,7 @@ The existing `ViewRegistry`, `Layout`, drag/drop, and split system work unchange
 
 ### Resolved (in this document)
 
-- ~~**Domain state scope**~~ → **Per-pane** `PaneDomainState` (diff, review, agent tasks, timeline, connection health). All state is per-pane. See §8.1, §8.7.
+- ~~**Domain state scope**~~ → **Per-pane** `PaneDomainState` (current baseline: diff, review, connection, command acks; Phase 5 adds agent tasks + timeline). All state is per-pane. See §8.1, §8.7.
 - ~~**CustomEvent command forgery**~~ → **Nonce token** generated at bootstrap, validated by bridge world. See §11.3.
 - ~~**Push error handling**~~ → **do-catch** with logging and connection health state update. No force-unwraps. See §6.4.
 - ~~**File loading race conditions**~~ → **Metadata push + content pull with priority queue, LRU cache, and epoch guard**. See §10.
@@ -3000,8 +2967,8 @@ These were previously open questions or verification spike items, now proven by 
 - ~~**`WebPage.DialogPresenting` protocol**~~ → `WebviewDialogHandler` conforms with default implementations. See `Features/Webview/WebviewDialogHandler.swift:9`.
 - ~~**SwiftUI `WebView` rendering**~~ → `WebView(controller.page)` renders in `WebviewPaneContentView`. See `Features/Webview/Views/WebviewPaneContentView.swift:25`.
 - ~~**Pane system integration**~~ → Full create/teardown/persist/restore lifecycle working. `PaneContent.webview`, `WebviewState`, `PaneCoordinator.createViewForContent`, `PaneCoordinator.openWebview`, `ViewRegistry` — all operational.
-- ~~**`AnyCodableValue` availability**~~ → Exists in `App/Models/PaneContent.swift:112`. Reusable for RPC envelope params.
-- ~~**Pane kind split (browser vs bridge)**~~ → Architecture decided: new `PaneContent.bridgePanel(BridgePaneState)` case with dedicated `BridgePaneController`. See §15.2.
+- ~~**`AnyCodableValue` availability**~~ → Exists in `Core/Models/PaneContent.swift`. Reusable for RPC envelope params.
+- ~~**Pane kind split (browser vs bridge)**~~ → Implemented: `PaneContent.bridgePanel(BridgePaneState)` with dedicated `BridgePaneController`. See §15.2.
 
 ### Resolved by Verification Spike (Stage 0)
 

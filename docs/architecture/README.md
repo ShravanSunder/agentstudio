@@ -82,8 +82,7 @@ Command Bar → CommandDispatcher.dispatch() → CommandHandler
 | [Surface Architecture](ghostty_surface_architecture.md) | Ghostty surface ownership, state machine, health monitoring, crash isolation, CWD propagation |
 | [App Architecture](appkit_swiftui_architecture.md) | AppKit+SwiftUI hybrid shell, controllers, command bar panel, event handling |
 | [Directory Structure](directory_structure.md) | Module boundaries, Core vs Features decision process, import rule, component placement |
-| [Swift-React Bridge](swift_react_bridge_design.md) | Three-stream bridge architecture, push pipeline, JSON-RPC command channel, content world isolation |
-| [Window System Design](window_system_design.md) | Dynamic views, pane arrangements, drawers, workspace layers |
+| [Swift-React Bridge](swift_react_bridge_design.md) | Three-stream bridge architecture, push pipeline, JSON-RPC command channel, content world isolation, diff/review delivery phases |
 | [JTBD & Requirements](jtbd_and_requirements.md) | Jobs to be done, pain points, and requirements for the dynamic window system |
 
 ## Related
