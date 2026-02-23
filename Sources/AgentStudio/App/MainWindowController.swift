@@ -205,10 +205,16 @@ extension MainWindowController: NSToolbarDelegate {
             item.label = "Add Folder"
             item.paletteLabel = "Add Folder"
             item.toolTip = "Add folder containing repos (⌘⌥⇧O)"
-            item.isBordered = true
-            item.image = NSImage(systemSymbolName: "folder.badge.questionmark", accessibilityDescription: "Add Folder")
-            item.action = #selector(addFolderAction)
-            item.target = self
+            let button = NSButton(title: "Add Folder", target: self, action: #selector(addFolderAction))
+            button.bezelStyle = .rounded
+            button.bezelColor = .systemTeal
+            button.controlSize = .regular
+            button.image = NSImage(
+                systemSymbolName: "folder.badge.questionmark",
+                accessibilityDescription: "Add Folder"
+            )
+            button.imagePosition = .imageLeading
+            item.view = button
             return item
 
         default:

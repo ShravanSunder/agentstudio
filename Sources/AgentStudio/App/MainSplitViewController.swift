@@ -126,6 +126,15 @@ class MainSplitViewController: NSSplitViewController {
 
         notificationTasks.append(
             Task { [weak self] in
+                for await notification in NotificationCenter.default.notifications(named: .openWorktreeInPaneRequested)
+                {
+                    guard let self, !Task.isCancelled else { break }
+                    self.handleOpenWorktreeInPane(notification)
+                }
+            })
+
+        notificationTasks.append(
+            Task { [weak self] in
                 for await notification in NotificationCenter.default.notifications(named: .filterSidebarRequested) {
                     guard let self, !Task.isCancelled else { break }
                     self.handleFilterSidebar(notification)
@@ -163,27 +172,66 @@ class MainSplitViewController: NSSplitViewController {
     }
 
     private func handleOpenWorktree(_ notification: Notification) {
-        guard let userInfo = notification.userInfo,
-            let worktree = userInfo["worktree"] as? Worktree,
-            let repo = userInfo["repo"] as? Repo
-        else {
+        guard let userInfo = notification.userInfo else {
             sidebarLogger.error("Invalid openWorktreeRequested notification payload")
             return
         }
-
-        paneTabViewController?.openTerminal(for: worktree, in: repo)
+        if let worktree = userInfo["worktree"] as? Worktree,
+            let repo = userInfo["repo"] as? Repo
+        {
+            paneTabViewController?.openTerminal(for: worktree, in: repo)
+            return
+        }
+        if let worktreeId = userInfo["worktreeId"] as? UUID,
+            let worktree = store.worktree(worktreeId),
+            let repo = store.repo(containing: worktreeId)
+        {
+            paneTabViewController?.openTerminal(for: worktree, in: repo)
+            return
+        }
+        sidebarLogger.error("Invalid openWorktreeRequested notification payload")
     }
 
     private func handleOpenNewTerminal(_ notification: Notification) {
-        guard let userInfo = notification.userInfo,
-            let worktree = userInfo["worktree"] as? Worktree,
-            let repo = userInfo["repo"] as? Repo
-        else {
+        guard let userInfo = notification.userInfo else {
             sidebarLogger.error("Invalid openNewTerminalRequested notification payload")
             return
         }
+        if let worktree = userInfo["worktree"] as? Worktree,
+            let repo = userInfo["repo"] as? Repo
+        {
+            paneTabViewController?.openNewTerminal(for: worktree, in: repo)
+            return
+        }
+        if let worktreeId = userInfo["worktreeId"] as? UUID,
+            let worktree = store.worktree(worktreeId),
+            let repo = store.repo(containing: worktreeId)
+        {
+            paneTabViewController?.openNewTerminal(for: worktree, in: repo)
+            return
+        }
+        sidebarLogger.error("Invalid openNewTerminalRequested notification payload")
+    }
 
-        paneTabViewController?.openNewTerminal(for: worktree, in: repo)
+    private func handleOpenWorktreeInPane(_ notification: Notification) {
+        guard let userInfo = notification.userInfo else {
+            sidebarLogger.error("Invalid openWorktreeInPaneRequested notification payload")
+            return
+        }
+        if let worktree = userInfo["worktree"] as? Worktree,
+            let repo = userInfo["repo"] as? Repo
+        {
+            paneTabViewController?.openWorktreeInPane(for: worktree, in: repo)
+            return
+        }
+        if let worktreeId = userInfo["worktreeId"] as? UUID,
+            let worktree = store.worktree(worktreeId),
+            let repo = store.repo(containing: worktreeId)
+        {
+            paneTabViewController?.openWorktreeInPane(for: worktree, in: repo)
+            return
+        }
+        sidebarLogger.error("Invalid openWorktreeInPaneRequested notification payload")
     }
 
     private func handleCloseTab(_ notification: Notification) {
@@ -247,7 +295,7 @@ struct SidebarViewWrapper: View {
     let store: WorkspaceStore
 
     var body: some View {
-        SidebarContentView(store: store)
+        RepoSidebarContentView(store: store)
     }
 }
 

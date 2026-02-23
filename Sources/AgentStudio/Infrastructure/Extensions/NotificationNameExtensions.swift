@@ -10,6 +10,7 @@ extension Notification.Name {
 
     // Repo management
     static let addRepoRequested = Notification.Name("addRepoRequested")
+    static let addFolderRequested = Notification.Name("addFolderRequested")
     static let refreshWorktreesRequested = Notification.Name("refreshWorktreesRequested")
 
     // Terminal management
@@ -34,6 +35,9 @@ extension Notification.Name {
 
     // Focus management
     static let refocusTerminalRequested = Notification.Name("refocusTerminalRequested")
+
+    // Terminal runtime events
+    static let worktreeBellRang = Notification.Name("worktreeBellRang")
 
     // Command bar
     static let showCommandBarRepos = Notification.Name("showCommandBarRepos")

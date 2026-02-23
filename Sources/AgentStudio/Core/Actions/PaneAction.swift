@@ -96,6 +96,11 @@ enum PaneAction: Equatable, Hashable {
     /// Uses PaneId (not UUID) for pane identity — first case to use the pane runtime contract.
     case duplicatePane(tabId: UUID, paneId: PaneId, direction: SplitNewDirection)
 
+    // Worktree actions (routed through command pipeline for validation)
+    case openWorktree(worktreeId: UUID)
+    case openNewTerminalInTab(worktreeId: UUID)
+    case openWorktreeInPane(worktreeId: UUID)
+
     // Minimize / Expand
     case minimizePane(tabId: UUID, paneId: UUID)
     case expandPane(tabId: UUID, paneId: UUID)

@@ -15,6 +15,7 @@ struct ValidatedAction: Equatable {
 enum ActionValidationError: Error, Equatable {
     case tabNotFound(tabId: UUID)
     case paneNotFound(paneId: UUID, tabId: UUID)
+    case worktreeNotFound(worktreeId: UUID)
     case tabNotSplit(tabId: UUID)
     case singlePaneTab(tabId: UUID)
     case selfPaneInsertion(paneId: UUID)
@@ -154,6 +155,14 @@ enum ActionValidator {
             }
             guard tab.paneIds.contains(paneId.uuid) else {
                 return .failure(.paneNotFound(paneId: paneId.uuid, tabId: tabId))
+            }
+            return .success(ValidatedAction(action))
+
+        case .openWorktree(let worktreeId),
+            .openNewTerminalInTab(let worktreeId),
+            .openWorktreeInPane(let worktreeId):
+            guard state.knownWorktreeIds.contains(worktreeId) else {
+                return .failure(.worktreeNotFound(worktreeId: worktreeId))
             }
             return .success(ValidatedAction(action))
 

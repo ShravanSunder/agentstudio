@@ -290,7 +290,7 @@ enum CommandBarDataSource {
         case .closeTab, .closePane, .extractPaneToTab, .focusPaneLeft, .focusPaneRight,
             .focusPaneUp, .focusPaneDown, .focusNextPane, .focusPrevPane,
             .switchArrangement, .deleteArrangement, .renameArrangement,
-            .navigateDrawerPane:
+            .navigateDrawerPane, .openWorktree, .openWorktreeInPane, .openNewTerminalInTab:
             return true
         default:
             return false
@@ -316,6 +316,7 @@ enum CommandBarDataSource {
 
         let appliesToTab = def.appliesTo.contains(.tab)
         let appliesToPane = def.appliesTo.contains(.pane) || def.appliesTo.contains(.floatingTerminal)
+        let appliesToWorktree = def.appliesTo.contains(.worktree)
 
         if appliesToTab {
             items.append(
@@ -356,6 +357,23 @@ enum CommandBarDataSource {
                             group: "Panes",
                             groupPriority: 1,
                             action: .dispatchTargeted(def.command, target: pane.id, targetType: targetType)
+                        ))
+                }
+            }
+        }
+
+        if appliesToWorktree {
+            for (repoIndex, repo) in store.repos.enumerated() {
+                for worktree in repo.worktrees {
+                    items.append(
+                        CommandBarItem(
+                            id: "target-worktree-\(worktree.id.uuidString)",
+                            title: worktree.name,
+                            subtitle: "\(repo.name) · \(worktree.branch)",
+                            icon: worktree.isMainWorktree ? "star.fill" : "arrow.triangle.branch",
+                            group: "Worktrees",
+                            groupPriority: 2 + repoIndex,
+                            action: .dispatchTargeted(def.command, target: worktree.id, targetType: .worktree)
                         ))
                 }
             }
@@ -442,7 +460,6 @@ enum CommandBarDataSource {
         var items: [CommandBarItem] = []
         for (repoIndex, repo) in store.repos.enumerated() {
             for worktree in repo.worktrees {
-                let worktreeId = worktree.id
                 let prefix = worktree.isMainWorktree ? "★ " : ""
                 items.append(
                     CommandBarItem(
@@ -453,13 +470,8 @@ enum CommandBarDataSource {
                         group: repo.name,
                         groupPriority: repoIndex,
                         keywords: ["repo", "worktree", "branch", worktree.branch, repo.name, worktree.name],
-                        action: .custom {
-                            NotificationCenter.default.post(
-                                name: .openWorktreeRequested,
-                                object: nil,
-                                userInfo: ["worktreeId": worktreeId]
-                            )
-                        }
+                        action: .dispatchTargeted(.openWorktree, target: worktree.id, targetType: .worktree),
+                        command: .openWorktree
                     ))
             }
         }
@@ -471,8 +483,7 @@ enum CommandBarDataSource {
     private static func worktreeItems(store: WorkspaceStore) -> [CommandBarItem] {
         store.repos.flatMap { repo in
             repo.worktrees.map { worktree in
-                let worktreeId = worktree.id
-                return CommandBarItem(
+                CommandBarItem(
                     id: "wt-\(worktree.id.uuidString)",
                     title: worktree.name,
                     subtitle: "\(repo.name) · \(worktree.branch)",
@@ -481,13 +492,8 @@ enum CommandBarDataSource {
                     group: Group.worktrees,
                     groupPriority: Priority.worktrees,
                     keywords: ["worktree", "branch", worktree.branch, repo.name],
-                    action: .custom {
-                        NotificationCenter.default.post(
-                            name: .openWorktreeRequested,
-                            object: nil,
-                            userInfo: ["worktreeId": worktreeId]
-                        )
-                    }
+                    action: .dispatchTargeted(.openWorktree, target: worktree.id, targetType: .worktree),
+                    command: .openWorktree
                 )
             }
         }
@@ -550,10 +556,11 @@ enum CommandBarDataSource {
         case .focusPaneLeft, .focusPaneRight, .focusPaneUp, .focusPaneDown,
             .focusNextPane, .focusPrevPane:
             return (Group.focusCommands, 1)
-        case .closeTab, .breakUpTab, .newTerminalInTab, .nextTab, .prevTab, .openNewTerminalInTab,
+        case .closeTab, .breakUpTab, .newTerminalInTab, .nextTab, .prevTab,
             .switchArrangement, .saveArrangement, .deleteArrangement, .renameArrangement:
             return (Group.tabCommands, 2)
-        case .addRepo, .removeRepo, .refreshWorktrees:
+        case .addRepo, .addFolder, .removeRepo, .refreshWorktrees,
+            .openWorktree, .openWorktreeInPane, .openNewTerminalInTab:
             return (Group.repoCommands, 3)
         case .toggleSidebar, .newFloatingTerminal, .filterSidebar:
             return (Group.windowCommands, 4)

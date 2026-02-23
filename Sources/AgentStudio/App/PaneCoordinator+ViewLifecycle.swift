@@ -283,62 +283,69 @@ extension PaneCoordinator {
 
     /// Recreate views for all restored panes in all tabs, including drawer panes.
     /// Called once at launch after store.restore() populates persisted state.
-    func restoreAllViews() {
-        let paneIds = store.tabs.flatMap(\.panes)
+    ///
+    /// Startup is staged so the active tab is restored first, then background tabs
+    /// are hydrated cooperatively with yields to keep first-interaction latency low.
+    func restoreAllViews() async {
+        let orderedPaneIds = Self.orderedUniquePaneIds(store.tabs.flatMap(\.panes))
         RestoreTrace.log(
-            "restoreAllViews begin tabs=\(store.tabs.count) paneIds=\(paneIds.count) activeTab=\(store.activeTabId?.uuidString ?? "nil")"
+            "restoreAllViews begin tabs=\(store.tabs.count) paneIds=\(orderedPaneIds.count) activeTab=\(store.activeTabId?.uuidString ?? "nil")"
         )
-        guard !paneIds.isEmpty else {
+        guard !orderedPaneIds.isEmpty else {
             Self.logger.info("No panes to restore views for")
             RestoreTrace.log("restoreAllViews no panes")
             return
         }
 
+        let activeTabPaneIds = Self.orderedUniquePaneIds(store.activeTab?.panes ?? [])
+        let activeTabPaneIdSet = Set(activeTabPaneIds)
+        let deferredPaneIds = orderedPaneIds.filter { !activeTabPaneIdSet.contains($0) }
+
         var restored = 0
         var drawerRestored = 0
         var failedPaneIds: [UUID] = []
         var failedDrawerPaneIds: [UUID] = []
-        for paneId in paneIds {
+        var restoredPaneIds: Set<UUID> = []
+
+        func restorePaneAndDrawers(_ paneId: UUID) {
+            guard restoredPaneIds.insert(paneId).inserted else { return }
             guard let pane = store.pane(paneId) else {
                 Self.logger.warning("Skipping view restore for pane \(paneId) — not in store")
                 RestoreTrace.log("restoreAllViews skip missing pane=\(paneId)")
-                continue
+                return
             }
+
             RestoreTrace.log("restoreAllViews restoring pane=\(paneId) content=\(String(describing: pane.content))")
-            if createViewForContent(pane: pane) != nil {
+            if viewRegistry.view(for: paneId) != nil || createViewForContent(pane: pane) != nil {
                 restored += 1
             } else {
                 failedPaneIds.append(paneId)
             }
 
-            if let drawer = pane.drawer {
-                for drawerPaneId in drawer.paneIds {
-                    guard let drawerPane = store.pane(drawerPaneId) else {
-                        Self.logger.warning(
-                            "restoreAllViews: drawer pane \(drawerPaneId) referenced by parent \(pane.id) is missing from store"
-                        )
-                        continue
-                    }
-                    RestoreTrace.log("restoreAllViews restoring drawer pane=\(drawerPaneId) parent=\(pane.id)")
-                    if createViewForContent(pane: drawerPane) != nil {
-                        drawerRestored += 1
-                    } else {
-                        failedDrawerPaneIds.append(drawerPaneId)
-                    }
+            guard let drawer = pane.drawer else { return }
+            for drawerPaneId in drawer.paneIds {
+                guard restoredPaneIds.insert(drawerPaneId).inserted else { continue }
+                guard let drawerPane = store.pane(drawerPaneId) else {
+                    Self.logger.warning(
+                        "restoreAllViews: drawer pane \(drawerPaneId) referenced by parent \(pane.id) is missing from store"
+                    )
+                    continue
+                }
+                RestoreTrace.log("restoreAllViews restoring drawer pane=\(drawerPaneId) parent=\(pane.id)")
+                if viewRegistry.view(for: drawerPaneId) != nil || createViewForContent(pane: drawerPane) != nil {
+                    drawerRestored += 1
+                } else {
+                    failedDrawerPaneIds.append(drawerPaneId)
                 }
             }
         }
-        Self.logger.info(
-            "Restored \(restored)/\(paneIds.count) pane views, \(drawerRestored) drawer pane views")
-        if !failedPaneIds.isEmpty || !failedDrawerPaneIds.isEmpty {
-            let failedPrimary = failedPaneIds.map(\.uuidString).joined(separator: ", ")
-            let failedDrawer = failedDrawerPaneIds.map(\.uuidString).joined(separator: ", ")
-            Self.logger.error(
-                """
-                restoreAllViews: failed view creation primary=[\(failedPrimary)] drawer=[\(failedDrawer)] \
-                (panes remain in store/layout and may appear as placeholders)
-                """
-            )
+
+        // Stage 1: restore active tab first for fast first paint/interaction.
+        for paneId in activeTabPaneIds {
+            restorePaneAndDrawers(paneId)
+        }
+        if !activeTabPaneIds.isEmpty {
+            store.bumpViewRevision()
         }
 
         if let activeTab = store.activeTab,
@@ -350,7 +357,40 @@ extension PaneCoordinator {
                 "restoreAllViews syncFocus activeTab=\(activeTab.id) activePane=\(activePaneId) activeSurface=\(terminalView.surfaceId?.uuidString ?? "nil")"
             )
         }
+
+        // Stage 2: restore remaining tabs in cooperative chunks.
+        for (index, paneId) in deferredPaneIds.enumerated() {
+            if Task.isCancelled { break }
+            restorePaneAndDrawers(paneId)
+            if index.isMultiple(of: 2) {
+                store.bumpViewRevision()
+                await Task.yield()
+            }
+        }
+
+        if !deferredPaneIds.isEmpty {
+            store.bumpViewRevision()
+        }
+
+        Self.logger.info(
+            "Restored \(restored)/\(orderedPaneIds.count) pane views, \(drawerRestored) drawer pane views")
+        if !failedPaneIds.isEmpty || !failedDrawerPaneIds.isEmpty {
+            let failedPrimary = failedPaneIds.map(\.uuidString).joined(separator: ", ")
+            let failedDrawer = failedDrawerPaneIds.map(\.uuidString).joined(separator: ", ")
+            Self.logger.error(
+                """
+                restoreAllViews: failed view creation primary=[\(failedPrimary)] drawer=[\(failedDrawer)] \
+                (panes remain in store/layout and may appear as placeholders)
+                """
+            )
+        }
+
         RestoreTrace.log("restoreAllViews end restored=\(restored) drawerRestored=\(drawerRestored)")
+    }
+
+    private static func orderedUniquePaneIds(_ paneIds: [UUID]) -> [UUID] {
+        var seen: Set<UUID> = []
+        return paneIds.filter { seen.insert($0).inserted }
     }
 
     private func buildZmxAttachCommand(pane: Pane, worktree: Worktree, repo: Repo, zmxPath: String) -> String {

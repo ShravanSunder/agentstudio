@@ -18,14 +18,21 @@ struct ActionStateSnapshot: Equatable {
     let tabs: [TabSnapshot]
     let activeTabId: UUID?
     let isManagementModeActive: Bool
+    let knownWorktreeIds: Set<UUID>
 
     /// Reverse lookup: paneId → tabId for O(1) resolution.
     private let paneToTab: [UUID: UUID]
 
-    init(tabs: [TabSnapshot], activeTabId: UUID?, isManagementModeActive: Bool) {
+    init(
+        tabs: [TabSnapshot],
+        activeTabId: UUID?,
+        isManagementModeActive: Bool,
+        knownWorktreeIds: Set<UUID> = []
+    ) {
         self.tabs = tabs
         self.activeTabId = activeTabId
         self.isManagementModeActive = isManagementModeActive
+        self.knownWorktreeIds = knownWorktreeIds
 
         var lookup: [UUID: UUID] = [:]
         for tab in tabs {
@@ -60,5 +67,6 @@ struct ActionStateSnapshot: Equatable {
         lhs.tabs == rhs.tabs
             && lhs.activeTabId == rhs.activeTabId
             && lhs.isManagementModeActive == rhs.isManagementModeActive
+            && lhs.knownWorktreeIds == rhs.knownWorktreeIds
     }
 }

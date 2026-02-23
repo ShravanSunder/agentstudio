@@ -57,6 +57,14 @@ struct TerminalPaneLeaf: View {
                         .allowsHitTesting(false)
                 }
 
+                // Management mode dimming: persistent overlay signaling content is non-interactive
+                if managementMode.isActive {
+                    Rectangle()
+                        .fill(Color.black)
+                        .opacity(AppStyle.strokeVisible)
+                        .allowsHitTesting(false)
+                }
+
                 // Hover border: drag affordance in management mode
                 if managementMode.isActive && isHovered && !store.isSplitResizing {
                     RoundedRectangle(cornerRadius: AppStyle.buttonCornerRadius)
@@ -125,20 +133,7 @@ struct TerminalPaneLeaf: View {
                                         .white.opacity(
                                             isMinimizeHovered
                                                 ? AppStyle.foregroundSecondary
-                                                : AppStyle.foregroundMuted)
-                                    )
-                                    .frame(
-                                        width: AppStyle.paneControlButtonSize,
-                                        height: AppStyle.paneControlButtonSize
-                                    )
-                                    .background(
-                                        Circle().fill(
-                                            Color.black.opacity(
-                                                isMinimizeHovered
-                                                    ? AppStyle.foregroundMuted
-                                                    : AppStyle.foregroundDim))
-                                    )
-                                    .contentShape(Circle())
+                                                : AppStyle.foregroundMuted))
                             }
                             .buttonStyle(.plain)
                             .onHover { isMinimizeHovered = $0 }
@@ -153,20 +148,7 @@ struct TerminalPaneLeaf: View {
                                         .white.opacity(
                                             isCloseHovered
                                                 ? AppStyle.foregroundSecondary
-                                                : AppStyle.foregroundMuted)
-                                    )
-                                    .frame(
-                                        width: AppStyle.paneControlButtonSize,
-                                        height: AppStyle.paneControlButtonSize
-                                    )
-                                    .background(
-                                        Circle().fill(
-                                            Color.black.opacity(
-                                                isCloseHovered
-                                                    ? AppStyle.foregroundMuted
-                                                    : AppStyle.foregroundDim))
-                                    )
-                                    .contentShape(Circle())
+                                                : AppStyle.foregroundMuted))
                             }
                             .buttonStyle(.plain)
                             .onHover { isCloseHovered = $0 }
@@ -203,8 +185,8 @@ struct TerminalPaneLeaf: View {
                                                 : AppStyle.foregroundMuted)
                                     )
                                     .frame(
-                                        width: AppStyle.paneControlButtonSize / 2,
-                                        height: AppStyle.paneControlButtonSize
+                                        width: AppStyle.paneControlButtonSize,
+                                        height: AppStyle.paneControlButtonSize + 12
                                     )
                                     .background(
                                         UnevenRoundedRectangle(

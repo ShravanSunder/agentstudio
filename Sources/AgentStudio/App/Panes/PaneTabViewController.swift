@@ -541,7 +541,7 @@ class PaneTabViewController: NSViewController, CommandHandler {
         subtitleLabel.maximumNumberOfLines = 3
 
         // Keyboard shortcut hint
-        let hintLabel = NSTextField(labelWithString: "Tip: Use Cmd+Shift+O for Add Repo")
+        let hintLabel = NSTextField(labelWithString: "Tip: Add Folder scans and imports all repos at once")
         hintLabel.font = NSFont.systemFont(ofSize: 11)
         hintLabel.textColor = .tertiaryLabelColor
 
@@ -549,11 +549,12 @@ class PaneTabViewController: NSViewController, CommandHandler {
         let addRepoButton = NSButton(title: "Add Repo...", target: self, action: #selector(addRepoAction))
         addRepoButton.bezelStyle = .rounded
         addRepoButton.controlSize = .large
-        addRepoButton.keyEquivalent = "\r"
 
         let addFolderButton = NSButton(title: "Add Folder...", target: self, action: #selector(addFolderAction))
         addFolderButton.bezelStyle = .rounded
         addFolderButton.controlSize = .large
+        addFolderButton.bezelColor = .systemTeal
+        addFolderButton.keyEquivalent = "\r"
 
         let buttonStack = NSStackView(views: [addRepoButton, addFolderButton])
         buttonStack.orientation = .horizontal

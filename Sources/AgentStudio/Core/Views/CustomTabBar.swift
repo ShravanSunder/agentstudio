@@ -99,24 +99,24 @@ struct CustomTabBar: View {
     var body: some View {
         GeometryReader { geometry in
             HStack(spacing: 0) {
-                // MARK: - Management mode button (leftmost)
-                TabBarManagementModeButton()
-                    .padding(.leading, AppStyle.spacingLoose)
+                // MARK: - Left-side controls (management mode, arrangement, duplicate)
+                HStack(spacing: AppStyle.spacingTight) {
+                    TabBarManagementModeButton()
 
-                // MARK: - Arrangement button
-                TabBarArrangementButton(
-                    adapter: adapter,
-                    onPaneAction: onPaneAction,
-                    onSaveArrangement: onSaveArrangement
-                )
-
-                // MARK: - Duplicate button
-                if let onDuplicateTab, let onDuplicatePane {
-                    TabBarDuplicateButton(
-                        onDuplicateTab: onDuplicateTab,
-                        onDuplicatePane: onDuplicatePane
+                    TabBarArrangementButton(
+                        adapter: adapter,
+                        onPaneAction: onPaneAction,
+                        onSaveArrangement: onSaveArrangement
                     )
+
+                    if let onDuplicateTab, let onDuplicatePane {
+                        TabBarDuplicateButton(
+                            onDuplicateTab: onDuplicateTab,
+                            onDuplicatePane: onDuplicatePane
+                        )
+                    }
                 }
+                .padding(.leading, AppStyle.spacingLoose)
 
                 // MARK: - Scroll area with gradient overlays
                 ZStack {

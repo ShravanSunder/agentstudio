@@ -115,11 +115,6 @@ class AppDelegate: NSObject, NSApplicationDelegate {
         commandBarController = CommandBarPanelController(store: store, dispatcher: .shared)
         oauthService = OAuthService()
 
-        // Restore terminal views for persisted panes
-        RestoreTrace.log("restoreAllViews: start")
-        paneCoordinator.restoreAllViews()
-        RestoreTrace.log("restoreAllViews: end registeredViews=\(viewRegistry.registeredPaneIds.count)")
-
         // Create main window
         mainWindowController = MainWindowController(
             store: store,
@@ -144,6 +139,16 @@ class AppDelegate: NSObject, NSApplicationDelegate {
                 "mainWindow forceMaximize screenVisible=\(NSStringFromRect(screen.visibleFrame)) finalFrame=\(NSStringFromRect(window.frame))"
             )
         }
+
+        // Restore persisted pane views after the first frame so launch remains responsive.
+        Task { @MainActor [weak self] in
+            guard let self else { return }
+            await Task.yield()
+            RestoreTrace.log("restoreAllViews: start")
+            await self.paneCoordinator.restoreAllViews()
+            RestoreTrace.log("restoreAllViews: end registeredViews=\(self.viewRegistry.registeredPaneIds.count)")
+        }
+
         // Listen for command bar repos scope requests
         NotificationCenter.default.addObserver(
             forName: .showCommandBarRepos,
@@ -391,6 +396,7 @@ class AppDelegate: NSObject, NSApplicationDelegate {
         fileMenu.addItem(menuItem("Close Window", command: .closeWindow, action: #selector(closeWindow)))
         fileMenu.addItem(NSMenuItem.separator())
         fileMenu.addItem(menuItem("Add Repo...", command: .addRepo, action: #selector(addRepo)))
+        fileMenu.addItem(menuItem("Add Folder...", command: .addFolder, action: #selector(addFolder)))
 
         let fileMenuItem = NSMenuItem()
         fileMenuItem.submenu = fileMenu
@@ -515,6 +521,10 @@ class AppDelegate: NSObject, NSApplicationDelegate {
 
     @objc private func addRepo() {
         NotificationCenter.default.post(name: .addRepoRequested, object: nil)
+    }
+
+    @objc private func addFolder() {
+        NotificationCenter.default.post(name: .addFolderRequested, object: nil)
     }
 
     @objc private func toggleSidebar() {
