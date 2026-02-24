@@ -1,3 +1,4 @@
+import AppKit
 import Foundation
 import Testing
 
@@ -179,5 +180,26 @@ struct WebviewPaneControllerTests {
         // Assert
         #expect(!ManagementModeMonitor.shared.isActive)
         #expect(paneView.controller.isContentInteractionEnabled)
+    }
+
+    @Test
+    func test_webviewPaneView_resizesHostingViewToBounds() {
+        // Arrange
+        let paneView = WebviewPaneView(
+            paneId: UUID(),
+            state: WebviewState(url: URL(string: "about:blank")!)
+        )
+        let targetSize = NSSize(width: 920, height: 620)
+
+        // Act
+        paneView.setFrameSize(targetSize)
+        paneView.layoutSubtreeIfNeeded()
+
+        // Assert
+        guard let hostingView = paneView.subviews.first else {
+            Issue.record("Expected hosting view to be installed")
+            return
+        }
+        #expect(hostingView.frame.equalTo(paneView.bounds))
     }
 }

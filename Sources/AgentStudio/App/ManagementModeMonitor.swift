@@ -10,9 +10,10 @@ extension Notification.Name {
 ///
 /// ## Keyboard blocking
 ///
-/// During management mode, ALL keyboard events are consumed except:
+/// During management mode, keyDown events are routed as:
 /// - **Escape** (keyCode 53) → deactivates management mode
-/// - **Cmd+E** → passes through to PaneTabViewController's event monitor for toggle
+/// - **Any Command shortcut** → passes through to app/window handlers (menu, command pipeline)
+/// - **Everything else** → consumed so pane content cannot type/interact
 ///
 /// On activation, first responder is resigned from the key window so terminal
 /// cursors stop blinking and pane content doesn't appear to accept input.
@@ -64,30 +65,52 @@ final class ManagementModeMonitor {
     // MARK: - Keyboard Blocking
 
     /// Monitors all keyDown events. During management mode:
-    /// - Escape → deactivates management mode (consumed)
-    /// - Cmd+E → passes through for toggle handling by PaneTabViewController
-    /// - All other keys → consumed (prevents typing in terminal/webview)
+    /// - Escape → deactivate + consume
+    /// - Any Command shortcut → pass through to app/window handlers
+    /// - All other keys → consume (prevents typing in terminal/webview)
     private func startKeyboardMonitoring() {
         keyboardMonitor = NSEvent.addLocalMonitorForEvents(matching: .keyDown) { [weak self] event in
             guard let self, self.isActive else { return event }
 
-            // Escape → deactivate management mode
-            if event.keyCode == 53 {
+            switch self.keyDownDecision(
+                keyCode: event.keyCode,
+                modifierFlags: event.modifierFlags,
+                charactersIgnoringModifiers: event.charactersIgnoringModifiers
+            ) {
+            case .deactivateAndConsume:
                 self.deactivate()
                 return nil
-            }
-
-            // Cmd+E → pass through for PaneTabViewController's toggle handler
-            if event.modifierFlags.contains(.command),
-                !event.modifierFlags.contains([.shift, .option, .control]),
-                event.charactersIgnoringModifiers == "e"
-            {
+            case .passThrough:
                 return event
+            case .consume:
+                return nil
             }
-
-            // All other keys → consume during management mode
-            return nil
         }
+    }
+
+    // MARK: - Key Policy
+
+    enum KeyDownDecision: Equatable {
+        case deactivateAndConsume
+        case passThrough
+        case consume
+    }
+
+    func keyDownDecision(
+        keyCode: UInt16,
+        modifierFlags: NSEvent.ModifierFlags,
+        charactersIgnoringModifiers _: String?
+    ) -> KeyDownDecision {
+        if keyCode == 53 {
+            return .deactivateAndConsume
+        }
+
+        let normalizedModifiers = modifierFlags.intersection(.deviceIndependentFlagsMask)
+        if normalizedModifiers.contains(.command) {
+            return .passThrough
+        }
+
+        return .consume
     }
 
     // MARK: - First Responder Management

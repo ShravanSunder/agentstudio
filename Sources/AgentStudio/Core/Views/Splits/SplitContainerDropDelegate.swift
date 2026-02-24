@@ -65,6 +65,7 @@ struct SplitContainerDropDelegate: DropDelegate {
     ]
 
     let paneFrames: [UUID: CGRect]
+    let containerBounds: CGRect
     @Binding var target: PaneDropTarget?
     let isManagementModeActive: Bool
     let shouldAcceptDrop: (UUID, DropZone) -> Bool
@@ -122,6 +123,7 @@ struct SplitContainerDropDelegate: DropDelegate {
         if let resolvedTarget = PaneDragCoordinator.resolveLatchedTarget(
             location: info.location,
             paneFrames: paneFrames,
+            containerBounds: containerBounds,
             currentTarget: target,
             shouldAcceptDrop: shouldAcceptDrop
         ) {

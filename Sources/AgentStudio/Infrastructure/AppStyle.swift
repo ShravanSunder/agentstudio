@@ -220,6 +220,9 @@ enum AppStyle {
     /// Foreground opacity for sidebar chip labels/icons to keep chips visually muted.
     static let sidebarChipForegroundOpacity: CGFloat = 0.82
 
+    /// Dark overlay opacity applied on top of chip fills to reduce color intensity.
+    static let sidebarChipMuteOverlayOpacity: CGFloat = 0.16
+
     /// Hover fill opacity for sidebar checkout rows.
     static let sidebarRowHoverOpacity: CGFloat = fillPressed
 

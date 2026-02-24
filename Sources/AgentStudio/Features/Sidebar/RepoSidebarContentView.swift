@@ -254,8 +254,7 @@ struct RepoSidebarContentView: View {
                 } label: {
                     SidebarGroupRow(
                         repoTitle: group.repoTitle,
-                        organizationName: group.organizationName,
-                        checkoutCount: group.checkoutCount
+                        organizationName: group.organizationName
                     )
                 }
                 .listRowInsets(
@@ -561,7 +560,6 @@ struct RepoSidebarContentView: View {
 private struct SidebarGroupRow: View {
     let repoTitle: String
     let organizationName: String?
-    let checkoutCount: Int
 
     var body: some View {
         HStack(spacing: AppStyle.spacingStandard) {
@@ -590,16 +588,6 @@ private struct SidebarGroupRow: View {
                 }
             }
             .frame(maxWidth: .infinity, alignment: .leading)
-
-            Spacer()
-
-            Text("\(checkoutCount)")
-                .font(.system(size: AppStyle.textSm, weight: .medium))
-                .foregroundStyle(.secondary)
-                .padding(.horizontal, AppStyle.sidebarCountBadgeHorizontalPadding)
-                .padding(.vertical, AppStyle.sidebarCountBadgeVerticalPadding)
-                .background(Color.secondary.opacity(AppStyle.sidebarCountBadgeBackgroundOpacity))
-                .clipShape(Capsule())
         }
         .padding(.vertical, AppStyle.sidebarGroupRowVerticalPadding)
         .contentShape(Rectangle())
@@ -656,25 +644,25 @@ private struct SidebarWorktreeRow: View {
             HStack(spacing: AppStyle.sidebarChipRowSpacing) {
                 SidebarDiffChip(
                     linesAdded: lineDiffCounts.added,
-                    linesDeleted: lineDiffCounts.deleted
+                    linesDeleted: lineDiffCounts.deleted,
+                    showsDirtyIndicator: branchStatus.isDirty,
+                    isMuted: lineDiffCounts.added == 0 && lineDiffCounts.deleted == 0
                 )
 
                 SidebarStatusSyncChip(
-                    statusIconAsset: branchStatus.isDirty ? "octicon-dot-fill" : "octicon-check-circle-fill",
-                    statusStyle: branchStatus.isDirty ? .warning : .success,
                     aheadText: syncCounts.ahead,
                     behindText: syncCounts.behind,
-                    style: syncChipStyle
+                    hasSyncSignal: hasSyncSignal
                 )
                 SidebarChip(
                     iconAsset: "octicon-git-pull-request",
                     text: "\(branchStatus.prCount ?? 0)",
-                    style: .accent(iconColor)
+                    style: (branchStatus.prCount ?? 0) > 0 ? .accent(iconColor) : .neutral
                 )
                 SidebarChip(
                     iconAsset: "octicon-bell",
                     text: "\(notificationCount)",
-                    style: .accent(iconColor)
+                    style: notificationCount > 0 ? .accent(iconColor) : .neutral
                 )
             }
             .padding(.leading, AppStyle.sidebarStatusRowLeadingIndent)
@@ -776,14 +764,16 @@ private struct SidebarWorktreeRow: View {
         }
     }
 
-    private var syncChipStyle: SidebarChip.Style {
+    private var hasSyncSignal: Bool {
         switch branchStatus.syncState {
-        case .synced:
-            return .success
-        case .ahead, .behind, .diverged:
-            return .info
-        case .noUpstream, .unknown:
-            return .warning
+        case .ahead(let count):
+            return count > 0
+        case .behind(let count):
+            return count > 0
+        case .diverged(let ahead, let behind):
+            return ahead > 0 || behind > 0
+        case .synced, .noUpstream, .unknown:
+            return false
         }
     }
 
@@ -821,6 +811,7 @@ private struct SidebarChip: View {
         case info
         case success
         case warning
+        case danger
         case accent(Color)
 
         var foreground: Color {
@@ -829,6 +820,7 @@ private struct SidebarChip: View {
             case .info: return Color(red: 0.47, green: 0.69, blue: 0.96)
             case .success: return Color(red: 0.42, green: 0.84, blue: 0.50)
             case .warning: return Color(red: 0.93, green: 0.71, blue: 0.34)
+            case .danger: return Color(red: 0.93, green: 0.41, blue: 0.41)
             case .accent(let color): return color
             }
         }
@@ -852,28 +844,34 @@ private struct SidebarChip: View {
             text == nil ? AppStyle.sidebarChipIconOnlyHorizontalPadding : AppStyle.sidebarChipHorizontalPadding
         )
         .padding(.vertical, AppStyle.sidebarChipVerticalPadding)
-        .background(Color.white.opacity(AppStyle.sidebarChipBackgroundOpacity))
+        .background(
+            Capsule()
+                .fill(Color.white.opacity(AppStyle.sidebarChipBackgroundOpacity))
+                .overlay(
+                    Capsule()
+                        .fill(Color.black.opacity(AppStyle.sidebarChipMuteOverlayOpacity))
+                )
+        )
         .foregroundStyle(style.foreground.opacity(AppStyle.sidebarChipForegroundOpacity))
         .overlay(
             Capsule()
                 .stroke(Color.white.opacity(AppStyle.sidebarChipBorderOpacity), lineWidth: 1)
         )
-        .clipShape(Capsule())
         .fixedSize(horizontal: true, vertical: true)
     }
 }
 
 private struct SidebarStatusSyncChip: View {
-    let statusIconAsset: String
-    let statusStyle: SidebarChip.Style
     let aheadText: String
     let behindText: String
-    let style: SidebarChip.Style
+    let hasSyncSignal: Bool
+
+    private var effectiveStyle: SidebarChip.Style {
+        hasSyncSignal ? .info : .neutral
+    }
 
     var body: some View {
         HStack(spacing: AppStyle.sidebarChipContentSpacing) {
-            OcticonImage(name: statusIconAsset, size: AppStyle.sidebarChipIconSize)
-                .foregroundStyle(statusStyle.foreground.opacity(AppStyle.sidebarChipForegroundOpacity))
             HStack(spacing: AppStyle.sidebarSyncClusterSpacing) {
                 OcticonImage(name: "octicon-arrow-up", size: AppStyle.sidebarSyncChipIconSize)
                 Text(aheadText)
@@ -887,13 +885,19 @@ private struct SidebarStatusSyncChip: View {
         .lineLimit(1)
         .padding(.horizontal, AppStyle.sidebarChipHorizontalPadding)
         .padding(.vertical, AppStyle.sidebarChipVerticalPadding)
-        .background(Color.white.opacity(AppStyle.sidebarChipBackgroundOpacity))
-        .foregroundStyle(style.foreground.opacity(AppStyle.sidebarChipForegroundOpacity))
+        .background(
+            Capsule()
+                .fill(Color.white.opacity(AppStyle.sidebarChipBackgroundOpacity))
+                .overlay(
+                    Capsule()
+                        .fill(Color.black.opacity(AppStyle.sidebarChipMuteOverlayOpacity))
+                )
+        )
+        .foregroundStyle(effectiveStyle.foreground.opacity(AppStyle.sidebarChipForegroundOpacity))
         .overlay(
             Capsule()
                 .stroke(Color.white.opacity(AppStyle.sidebarChipBorderOpacity), lineWidth: 1)
         )
-        .clipShape(Capsule())
         .fixedSize(horizontal: true, vertical: true)
     }
 }
@@ -901,26 +905,53 @@ private struct SidebarStatusSyncChip: View {
 private struct SidebarDiffChip: View {
     let linesAdded: Int
     let linesDeleted: Int
+    let showsDirtyIndicator: Bool
+    let isMuted: Bool
+
+    private var plusColor: Color {
+        if isMuted {
+            return SidebarChip.Style.neutral.foreground.opacity(AppStyle.sidebarChipForegroundOpacity)
+        }
+        return Color(red: 0.42, green: 0.84, blue: 0.50).opacity(AppStyle.sidebarChipForegroundOpacity)
+    }
+
+    private var minusColor: Color {
+        if isMuted {
+            return SidebarChip.Style.neutral.foreground.opacity(AppStyle.sidebarChipForegroundOpacity)
+        }
+        return Color(red: 0.93, green: 0.41, blue: 0.41).opacity(AppStyle.sidebarChipForegroundOpacity)
+    }
 
     var body: some View {
-        HStack(spacing: AppStyle.spacingTight) {
-            Text("+\(linesAdded)")
-                .foregroundStyle(
-                    Color(red: 0.42, green: 0.84, blue: 0.50).opacity(AppStyle.sidebarChipForegroundOpacity))
-            Text("-\(linesDeleted)")
-                .foregroundStyle(
-                    Color(red: 0.93, green: 0.41, blue: 0.41).opacity(AppStyle.sidebarChipForegroundOpacity))
+        HStack(spacing: AppStyle.sidebarChipContentSpacing) {
+            if showsDirtyIndicator {
+                OcticonImage(name: "octicon-dot-fill", size: AppStyle.sidebarChipIconSize)
+                    .foregroundStyle(SidebarChip.Style.danger.foreground.opacity(AppStyle.sidebarChipForegroundOpacity))
+            }
+
+            HStack(spacing: AppStyle.spacingTight) {
+                Text("+\(linesAdded)")
+                    .foregroundStyle(plusColor)
+                Text("-\(linesDeleted)")
+                    .foregroundStyle(minusColor)
+            }
         }
         .font(.system(size: AppStyle.sidebarChipFontSize, weight: .medium).monospacedDigit())
         .lineLimit(1)
         .padding(.horizontal, AppStyle.sidebarChipHorizontalPadding)
         .padding(.vertical, AppStyle.sidebarChipVerticalPadding)
-        .background(Color.white.opacity(AppStyle.sidebarChipBackgroundOpacity))
+        .background(
+            Capsule()
+                .fill(Color.white.opacity(AppStyle.sidebarChipBackgroundOpacity))
+                .overlay(
+                    Capsule()
+                        .fill(Color.black.opacity(AppStyle.sidebarChipMuteOverlayOpacity))
+                )
+        )
         .overlay(
             Capsule()
                 .stroke(Color.white.opacity(AppStyle.sidebarChipBorderOpacity), lineWidth: 1)
         )
-        .clipShape(Capsule())
         .fixedSize(horizontal: true, vertical: true)
     }
 }

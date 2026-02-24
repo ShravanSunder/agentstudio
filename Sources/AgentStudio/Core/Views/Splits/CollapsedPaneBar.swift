@@ -8,6 +8,7 @@ struct CollapsedPaneBar: View {
     let tabId: UUID
     let title: String
     let action: (PaneAction) -> Void
+    let dropTargetCoordinateSpace: String?
 
     @State private var isHovered: Bool = false
 
@@ -15,6 +16,20 @@ struct CollapsedPaneBar: View {
     static let barWidth: CGFloat = 30
     /// Fixed height for the collapsed bar (used in vertical splits).
     static let barHeight: CGFloat = 30
+
+    init(
+        paneId: UUID,
+        tabId: UUID,
+        title: String,
+        action: @escaping (PaneAction) -> Void,
+        dropTargetCoordinateSpace: String? = nil
+    ) {
+        self.paneId = paneId
+        self.tabId = tabId
+        self.title = title
+        self.action = action
+        self.dropTargetCoordinateSpace = dropTargetCoordinateSpace
+    }
 
     var body: some View {
         VStack(spacing: 4) {
@@ -86,5 +101,18 @@ struct CollapsedPaneBar: View {
             action(.expandPane(tabId: tabId, paneId: paneId))
         }
         .padding(AppStyle.paneGap)
+        .background(
+            GeometryReader { geo in
+                if let dropTargetCoordinateSpace {
+                    let frame = geo.frame(in: .named(dropTargetCoordinateSpace))
+                    Color.clear.preference(
+                        key: PaneFramePreferenceKey.self,
+                        value: [paneId: frame]
+                    )
+                } else {
+                    Color.clear
+                }
+            }
+        )
     }
 }

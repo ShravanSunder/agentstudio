@@ -47,7 +47,8 @@ struct TerminalSplitContainer: View {
                     paneId: paneId,
                     tabId: tabId,
                     title: store.pane(paneId)?.title ?? "Terminal",
-                    action: action
+                    action: action,
+                    dropTargetCoordinateSpace: "tabContainer"
                 )
                 .frame(width: CollapsedPaneBar.barWidth)
             }
@@ -57,6 +58,7 @@ struct TerminalSplitContainer: View {
 
     var body: some View {
         GeometryReader { tabGeometry in
+            let containerBounds = CGRect(origin: .zero, size: tabGeometry.size)
             ZStack {
                 if let node = tree.root {
                     if let zoomedPaneId,
@@ -129,6 +131,7 @@ struct TerminalSplitContainer: View {
                 of: SplitContainerDropDelegate.supportedDropTypes,
                 delegate: SplitContainerDropDelegate(
                     paneFrames: paneFrames,
+                    containerBounds: containerBounds,
                     target: $dropTarget,
                     isManagementModeActive: managementMode.isActive,
                     shouldAcceptDrop: shouldAcceptDrop,
@@ -208,7 +211,8 @@ struct SplitSubtreeView: View {
                     paneId: paneView.id,
                     tabId: tabId,
                     title: store.pane(paneView.id)?.title ?? "Terminal",
-                    action: action
+                    action: action,
+                    dropTargetCoordinateSpace: "tabContainer"
                 )
             } else {
                 PaneLeafContainer(
@@ -313,7 +317,8 @@ struct SplitSubtreeView: View {
                 paneId: paneId,
                 tabId: tabId,
                 title: store.pane(paneId)?.title ?? "Terminal",
-                action: action
+                action: action,
+                dropTargetCoordinateSpace: "tabContainer"
             )
             .frame(
                 width: isHorizontal ? CollapsedPaneBar.barWidth : nil,

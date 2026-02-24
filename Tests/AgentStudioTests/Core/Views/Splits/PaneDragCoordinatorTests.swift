@@ -101,6 +101,52 @@ final class PaneDragCoordinatorTests {
     }
 
     @Test
+    func test_target_insideLeftContainerGap_resolvesToLeftmostPaneWhenContainerBoundsProvided() {
+        // Arrange
+        let leftmostPaneId = UUID()
+        let rightPaneId = UUID()
+        let paneFrames: [UUID: CGRect] = [
+            leftmostPaneId: CGRect(x: 8, y: 80, width: 240, height: 300),
+            rightPaneId: CGRect(x: 264, y: 80, width: 240, height: 300),
+        ]
+        let containerBounds = CGRect(x: 0, y: 0, width: 520, height: 400)
+        let location = CGPoint(x: 4, y: 200)
+
+        // Act
+        let result = PaneDragCoordinator.resolveTarget(
+            location: location,
+            paneFrames: paneFrames,
+            containerBounds: containerBounds
+        )
+
+        // Assert
+        #expect(result == PaneDropTarget(paneId: leftmostPaneId, zone: .left))
+    }
+
+    @Test
+    func test_target_insideRightContainerGap_resolvesToRightmostPaneWhenContainerBoundsProvided() {
+        // Arrange
+        let leftPaneId = UUID()
+        let rightmostPaneId = UUID()
+        let paneFrames: [UUID: CGRect] = [
+            leftPaneId: CGRect(x: 16, y: 40, width: 220, height: 280),
+            rightmostPaneId: CGRect(x: 252, y: 40, width: 260, height: 280),
+        ]
+        let containerBounds = CGRect(x: 0, y: 0, width: 520, height: 360)
+        let location = CGPoint(x: 516, y: 180)
+
+        // Act
+        let result = PaneDragCoordinator.resolveTarget(
+            location: location,
+            paneFrames: paneFrames,
+            containerBounds: containerBounds
+        )
+
+        // Assert
+        #expect(result == PaneDropTarget(paneId: rightmostPaneId, zone: .right))
+    }
+
+    @Test
     func test_resolveTarget_overlappingFrames_prefersSmallerAreaFrame() {
         // Arrange
         let largerPaneId = UUID()

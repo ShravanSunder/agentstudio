@@ -9,20 +9,33 @@ struct PaneDropTarget: Equatable {
 struct PaneDragCoordinator {
     static let edgeCorridorWidth: CGFloat = 24
 
-    static func resolveTarget(location: CGPoint, paneFrames: [UUID: CGRect]) -> PaneDropTarget? {
+    static func resolveTarget(
+        location: CGPoint,
+        paneFrames: [UUID: CGRect],
+        containerBounds: CGRect? = nil
+    ) -> PaneDropTarget? {
         if let containedTarget = resolveContainedTarget(location: location, paneFrames: paneFrames) {
             return containedTarget
         }
-        return resolveEdgeCorridorTarget(location: location, paneFrames: paneFrames)
+        return resolveEdgeCorridorTarget(
+            location: location,
+            paneFrames: paneFrames,
+            containerBounds: containerBounds
+        )
     }
 
     static func resolveLatchedTarget(
         location: CGPoint,
         paneFrames: [UUID: CGRect],
+        containerBounds: CGRect? = nil,
         currentTarget: PaneDropTarget?,
         shouldAcceptDrop: (UUID, DropZone) -> Bool
     ) -> PaneDropTarget? {
-        if let resolvedTarget = resolveTarget(location: location, paneFrames: paneFrames),
+        if let resolvedTarget = resolveTarget(
+            location: location,
+            paneFrames: paneFrames,
+            containerBounds: containerBounds
+        ),
             shouldAcceptDrop(resolvedTarget.paneId, resolvedTarget.zone)
         {
             return resolvedTarget
@@ -69,8 +82,12 @@ struct PaneDragCoordinator {
         return PaneDropTarget(paneId: paneId, zone: zone)
     }
 
-    private static func resolveEdgeCorridorTarget(location: CGPoint, paneFrames: [UUID: CGRect]) -> PaneDropTarget? {
-        let verticalBounds = paneFrames.values.reduce(
+    private static func resolveEdgeCorridorTarget(
+        location: CGPoint,
+        paneFrames: [UUID: CGRect],
+        containerBounds: CGRect?
+    ) -> PaneDropTarget? {
+        let paneVerticalBounds = paneFrames.values.reduce(
             (minY: CGFloat.greatestFiniteMagnitude, maxY: -CGFloat.greatestFiniteMagnitude)
         ) { partial, frame in
             (
@@ -78,12 +95,26 @@ struct PaneDragCoordinator {
                 max(partial.maxY, frame.maxY)
             )
         }
-        guard verticalBounds.minY.isFinite,
-            verticalBounds.maxY.isFinite,
-            verticalBounds.maxY > verticalBounds.minY
+        guard paneVerticalBounds.minY.isFinite,
+            paneVerticalBounds.maxY.isFinite,
+            paneVerticalBounds.maxY > paneVerticalBounds.minY
         else {
             return nil
         }
+
+        let verticalMinY =
+            if let containerBounds {
+                max(paneVerticalBounds.minY, containerBounds.minY)
+            } else {
+                paneVerticalBounds.minY
+            }
+        let verticalMaxY =
+            if let containerBounds {
+                min(paneVerticalBounds.maxY, containerBounds.maxY)
+            } else {
+                paneVerticalBounds.maxY
+            }
+        guard verticalMaxY > verticalMinY else { return nil }
 
         guard let leftmostPane = paneFrames.min(by: { $0.value.minX < $1.value.minX }),
             let rightmostPane = paneFrames.max(by: { $0.value.maxX < $1.value.maxX })
@@ -91,21 +122,37 @@ struct PaneDragCoordinator {
             return nil
         }
 
+        let leftCorridorMinX =
+            if let containerBounds {
+                max(containerBounds.minX, leftmostPane.value.minX - edgeCorridorWidth)
+            } else {
+                leftmostPane.value.minX - edgeCorridorWidth
+            }
+        let leftCorridorMaxX = leftmostPane.value.minX
+
         let leftCorridor = CGRect(
-            x: leftmostPane.value.minX - edgeCorridorWidth,
-            y: verticalBounds.minY,
-            width: edgeCorridorWidth,
-            height: verticalBounds.maxY - verticalBounds.minY
+            x: leftCorridorMinX,
+            y: verticalMinY,
+            width: max(leftCorridorMaxX - leftCorridorMinX, 0),
+            height: verticalMaxY - verticalMinY
         )
         if leftCorridor.contains(location) {
             return PaneDropTarget(paneId: leftmostPane.key, zone: .left)
         }
 
+        let rightCorridorMinX = rightmostPane.value.maxX
+        let rightCorridorMaxX =
+            if let containerBounds {
+                min(containerBounds.maxX, rightmostPane.value.maxX + edgeCorridorWidth)
+            } else {
+                rightmostPane.value.maxX + edgeCorridorWidth
+            }
+
         let rightCorridor = CGRect(
-            x: rightmostPane.value.maxX,
-            y: verticalBounds.minY,
-            width: edgeCorridorWidth,
-            height: verticalBounds.maxY - verticalBounds.minY
+            x: rightCorridorMinX,
+            y: verticalMinY,
+            width: max(rightCorridorMaxX - rightCorridorMinX, 0),
+            height: verticalMaxY - verticalMinY
         )
         if rightCorridor.contains(location) {
             return PaneDropTarget(paneId: rightmostPane.key, zone: .right)

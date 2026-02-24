@@ -10,6 +10,7 @@ import SwiftUI
 final class WebviewPaneView: PaneView {
     let controller: WebviewPaneController
     private var hostingView: NSHostingView<WebviewPaneContentView>?
+    private var suspendedDragTypesByView: [ObjectIdentifier: (view: NSView, types: [NSPasteboard.PasteboardType])] = [:]
 
     init(paneId: UUID, state: WebviewState) {
         self.controller = WebviewPaneController(paneId: paneId, state: state)
@@ -23,6 +24,25 @@ final class WebviewPaneView: PaneView {
 
     override var acceptsFirstResponder: Bool { true }
 
+    override func setFrameSize(_ newSize: NSSize) {
+        super.setFrameSize(newSize)
+        syncHostingViewFrame()
+    }
+
+    override func layout() {
+        super.layout()
+        syncHostingViewFrame()
+        if ManagementModeMonitor.shared.isActive {
+            suspendDescendantDragRegistrationsIfNeeded()
+        }
+    }
+
+    override func viewDidMoveToWindow() {
+        super.viewDidMoveToWindow()
+        setContentInteractionEnabled(!ManagementModeMonitor.shared.isActive)
+        syncHostingViewFrame()
+    }
+
     /// Capture current tab state for persistence.
     func currentState() -> WebviewState {
         controller.snapshot()
@@ -33,6 +53,11 @@ final class WebviewPaneView: PaneView {
     /// Delegates management mode interaction suppression to the controller's
     /// persistent user-script pipeline (current document + future navigations).
     override func setContentInteractionEnabled(_ enabled: Bool) {
+        if enabled {
+            restoreDescendantDragRegistrationsIfNeeded()
+        } else {
+            suspendDescendantDragRegistrationsIfNeeded()
+        }
         controller.setWebContentInteractionEnabled(enabled)
     }
 
@@ -41,16 +66,46 @@ final class WebviewPaneView: PaneView {
     private func setupHostingView() {
         let contentView = WebviewPaneContentView(controller: controller)
         let hosting = NSHostingView(rootView: contentView)
-        hosting.translatesAutoresizingMaskIntoConstraints = false
+        hosting.frame = bounds
+        hosting.autoresizingMask = [.width, .height]
         addSubview(hosting)
-
-        NSLayoutConstraint.activate([
-            hosting.topAnchor.constraint(equalTo: topAnchor),
-            hosting.leadingAnchor.constraint(equalTo: leadingAnchor),
-            hosting.trailingAnchor.constraint(equalTo: trailingAnchor),
-            hosting.bottomAnchor.constraint(equalTo: bottomAnchor),
-        ])
-
         self.hostingView = hosting
+        syncHostingViewFrame()
+    }
+
+    private func syncHostingViewFrame() {
+        guard let hostingView else { return }
+        if hostingView.frame != bounds {
+            hostingView.frame = bounds
+        }
+        hostingView.layoutSubtreeIfNeeded()
+    }
+
+    private func suspendDescendantDragRegistrationsIfNeeded() {
+        guard let hostingView else { return }
+        var stack: [NSView] = [hostingView]
+        while let view = stack.popLast() {
+            stack.append(contentsOf: view.subviews)
+
+            let identifier = ObjectIdentifier(view)
+            if suspendedDragTypesByView[identifier] != nil {
+                continue
+            }
+
+            let registeredTypes = view.registeredDraggedTypes
+            guard !registeredTypes.isEmpty else { continue }
+
+            suspendedDragTypesByView[identifier] = (view, registeredTypes)
+            view.unregisterDraggedTypes()
+        }
+    }
+
+    private func restoreDescendantDragRegistrationsIfNeeded() {
+        guard !suspendedDragTypesByView.isEmpty else { return }
+        for (_, registration) in suspendedDragTypesByView {
+            guard !registration.types.isEmpty else { continue }
+            registration.view.registerForDraggedTypes(registration.types)
+        }
+        suspendedDragTypesByView.removeAll(keepingCapacity: true)
     }
 }
