@@ -1,6 +1,11 @@
 import Foundation
 import os.log
 
+/// Event scheduling reducer that splits runtime envelopes into two streams:
+/// immediate `criticalEvents` and frame-coalesced `batchedEvents` for lossy traffic.
+///
+/// Critical events can be tier-ordered (p0...p3) when a resolver is provided.
+/// Lossy events are consolidated by `(source, consolidationKey)` and emitted on a frame cadence.
 @MainActor
 final class NotificationReducer {
     private static let logger = Logger(subsystem: "com.agentstudio", category: "NotificationReducer")

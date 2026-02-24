@@ -115,8 +115,8 @@ struct Pane: Codable, Identifiable, Hashable {
     /// Lifetime from terminal state, if terminal content.
     var lifetime: SessionLifetime? { terminalState?.lifetime }
 
-    var worktreeId: UUID? { metadata.worktreeId }
-    var repoId: UUID? { metadata.repoId }
+    var worktreeId: UUID? { metadata.facets.worktreeId }
+    var repoId: UUID? { metadata.facets.repoId }
 
     // MARK: - PaneKind Convenience
 

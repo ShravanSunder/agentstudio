@@ -1,7 +1,12 @@
 import Foundation
 
+/// Transport envelope for all runtime events.
+///
+/// Routing identity is carried in `source`; domain payload is carried in `event`.
+/// Ordering, idempotency, and replay are handled by `(seq, epoch, timestamp)`.
 struct PaneEventEnvelope: Sendable {
     let source: EventSource
+    let sourceFacets: PaneContextFacets
     let paneKind: PaneContentType?
     let seq: UInt64
     let commandId: UUID?
@@ -9,8 +14,34 @@ struct PaneEventEnvelope: Sendable {
     let timestamp: ContinuousClock.Instant
     let epoch: UInt64
     let event: PaneRuntimeEvent
+
+    init(
+        source: EventSource,
+        sourceFacets: PaneContextFacets = .empty,
+        paneKind: PaneContentType?,
+        seq: UInt64,
+        commandId: UUID?,
+        correlationId: UUID?,
+        timestamp: ContinuousClock.Instant,
+        epoch: UInt64,
+        event: PaneRuntimeEvent
+    ) {
+        self.source = source
+        self.sourceFacets = sourceFacets
+        self.paneKind = paneKind
+        self.seq = seq
+        self.commandId = commandId
+        self.correlationId = correlationId
+        self.timestamp = timestamp
+        self.epoch = epoch
+        self.event = event
+    }
 }
 
+/// Event routing source identity.
+///
+/// `.pane` is per-pane routing, `.worktree` is cross-pane worktree routing,
+/// and `.system` is process-level system routing.
 enum EventSource: Hashable, Sendable, CustomStringConvertible {
     case pane(PaneId)
     case worktree(WorktreeId)

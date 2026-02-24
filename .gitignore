@@ -69,3 +69,6 @@ Frameworks/GhosttyKit.xcframework
 test-inventory-*.md
 .lock
 build.db
+.codanna
+.codannaignore
+.fastembed_cache

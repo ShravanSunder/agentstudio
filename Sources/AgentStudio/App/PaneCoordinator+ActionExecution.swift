@@ -266,12 +266,24 @@ extension PaneCoordinator {
 
     /// Common path: create pane + view + tab for a worktree.
     private func createTerminalTab(for worktree: Worktree, in repo: Repo) -> Pane? {
+        let paneFacets = PaneContextFacets(
+            repoId: repo.id,
+            repoName: repo.name,
+            worktreeId: worktree.id,
+            worktreeName: worktree.name,
+            cwd: worktree.path,
+            parentFolder: repo.repoPath.deletingLastPathComponent().path,
+            organizationName: repo.organizationName,
+            origin: repo.origin,
+            upstream: repo.upstream
+        )
         let pane = store.createPane(
             source: .worktree(worktreeId: worktree.id, repoId: repo.id),
             title: worktree.name,
             provider: .zmx,
             lifetime: .persistent,
-            residency: .active
+            residency: .active,
+            facets: paneFacets
         )
 
         guard createView(for: pane, worktree: worktree, repo: repo) != nil else {
@@ -447,7 +459,8 @@ extension PaneCoordinator {
 
             let pane = store.createPane(
                 source: .worktree(worktreeId: worktreeId, repoId: repoId),
-                provider: .zmx
+                provider: .zmx,
+                facets: targetPane?.metadata.facets ?? .empty
             )
 
             guard createView(for: pane, worktree: worktree, repo: repo) != nil else {

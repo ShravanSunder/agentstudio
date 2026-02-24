@@ -378,9 +378,11 @@ final class PaneTests {
         let metadata = PaneMetadata(
             source: .floating(workingDirectory: URL(fileURLWithPath: "/tmp"), title: "Test"),
             title: "Tagged",
-            cwd: URL(fileURLWithPath: "/home/user"),
+            facets: PaneContextFacets(
+                cwd: URL(fileURLWithPath: "/home/user"),
+                tags: ["focus", "dev"]
+            ),
             agentType: .claude,
-            tags: ["focus", "dev"]
         )
 
         let encoder = JSONEncoder()

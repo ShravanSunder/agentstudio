@@ -111,6 +111,7 @@ extension PaneCoordinator {
             title: worktree.name,
             worktreeId: worktree.id,
             repoId: repo.id,
+            contextFacets: pane.metadata.facets,
             paneId: pane.id
         )
 
@@ -154,7 +155,7 @@ extension PaneCoordinator {
     /// No worktree/repo context — uses home directory or pane's cwd.
     @discardableResult
     private func createFloatingTerminalView(for pane: Pane) -> AgentStudioTerminalView? {
-        let workingDir = pane.metadata.cwd ?? FileManager.default.homeDirectoryForCurrentUser
+        let workingDir = pane.metadata.facets.cwd ?? FileManager.default.homeDirectoryForCurrentUser
         let cmd = "\(getDefaultShell()) -i -l"
 
         RestoreTrace.log(
@@ -170,6 +171,7 @@ extension PaneCoordinator {
             workingDirectory: workingDir,
             command: cmd,
             title: pane.metadata.title,
+            contextFacets: pane.metadata.facets,
             paneId: pane.id
         )
 

@@ -125,6 +125,7 @@ struct TerminalRuntimeTests {
         #expect(replay.events.count == 2)
         #expect(replay.events.allSatisfy { $0.commandId == commandId })
         #expect(replay.events.allSatisfy { $0.correlationId == correlationId })
+        #expect(replay.events.last?.sourceFacets.cwd == URL(fileURLWithPath: "/tmp"))
     }
 
     @Test("eventsSince reports gap after replay eviction")

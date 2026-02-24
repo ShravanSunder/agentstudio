@@ -236,11 +236,12 @@ final class WorkspaceStore {
         title: String = "Terminal",
         provider: SessionProvider = .zmx,
         lifetime: SessionLifetime = .persistent,
-        residency: SessionResidency = .active
+        residency: SessionResidency = .active,
+        facets: PaneContextFacets = .empty
     ) -> Pane {
         let pane = Pane(
             content: .terminal(TerminalState(provider: provider, lifetime: lifetime)),
-            metadata: PaneMetadata(source: .init(source), title: title),
+            metadata: PaneMetadata(source: .init(source), title: title, facets: facets),
             residency: residency
         )
         panes[pane.id] = pane
@@ -321,8 +322,8 @@ final class WorkspaceStore {
             storeLogger.warning("updatePaneCWD: pane \(paneId) not found")
             return
         }
-        guard panes[paneId]!.metadata.cwd != cwd else { return }
-        panes[paneId]!.metadata.cwd = cwd
+        guard panes[paneId]!.metadata.facets.cwd != cwd else { return }
+        panes[paneId]!.metadata.facets.cwd = cwd
         markDirty()
     }
 
@@ -685,7 +686,7 @@ final class WorkspaceStore {
 
         // Resolve initial CWD: prefer parent's live CWD (respects user cd),
         // fall back to worktree root path
-        let parentCwd: URL? = parentPane.metadata.cwd ?? parentPane.worktreeId.flatMap { worktree($0)?.path }
+        let parentCwd: URL? = parentPane.metadata.facets.cwd ?? parentPane.worktreeId.flatMap { worktree($0)?.path }
 
         let content = PaneContent.terminal(TerminalState(provider: .zmx, lifetime: .persistent))
         let metadata = PaneMetadata(
@@ -745,7 +746,7 @@ final class WorkspaceStore {
 
         // Resolve initial CWD: prefer parent's live CWD (respects user cd),
         // fall back to worktree root path
-        let parentCwd: URL? = parentPane.metadata.cwd ?? parentPane.worktreeId.flatMap { worktree($0)?.path }
+        let parentCwd: URL? = parentPane.metadata.facets.cwd ?? parentPane.worktreeId.flatMap { worktree($0)?.path }
 
         let content = PaneContent.terminal(TerminalState(provider: .zmx, lifetime: .persistent))
         let metadata = PaneMetadata(

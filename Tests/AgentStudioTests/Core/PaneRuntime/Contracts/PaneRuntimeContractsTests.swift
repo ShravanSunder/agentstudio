@@ -30,6 +30,20 @@ struct PaneRuntimeContractsTests {
         #expect(metadata.contentType == .terminal)
         #expect(metadata.executionBackend == .local)
         #expect(metadata.createdAt.timeIntervalSince1970 > 0)
+        #expect(metadata.facets.tags.isEmpty)
+    }
+
+    @Test("pane context facets merge source defaults for worktree metadata")
+    func paneContextFacetsMergeSourceDefaults() {
+        let worktreeId = UUID()
+        let repoId = UUID()
+        let metadata = PaneMetadata(
+            source: .worktree(worktreeId: worktreeId, repoId: repoId),
+            facets: PaneContextFacets(tags: ["focus"])
+        )
+        #expect(metadata.facets.worktreeId == worktreeId)
+        #expect(metadata.facets.repoId == repoId)
+        #expect(metadata.facets.tags == ["focus"])
     }
 
     @Test("system source three-tier hierarchy: builtin, service, plugin")

@@ -1,5 +1,9 @@
 import Foundation
 
+/// Discriminated union for all runtime-plane events carried on `PaneEventEnvelope`.
+///
+/// Each case defines its own domain payload and participates in self-classifying
+/// `actionPolicy` routing through `NotificationReducer`.
 enum PaneRuntimeEvent: Sendable {
     case lifecycle(PaneLifecycleEvent)
     case terminal(GhosttyEvent)
@@ -14,6 +18,7 @@ enum PaneRuntimeEvent: Sendable {
 }
 
 extension PaneRuntimeEvent {
+    /// Envelope scheduling policy derived from the concrete event payload.
     var actionPolicy: ActionPolicy {
         switch self {
         case .terminal(let event): return event.actionPolicy

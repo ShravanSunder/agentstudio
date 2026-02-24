@@ -228,11 +228,11 @@ final class PaneCoordinator {
             }
         case .system(let systemSource):
             Self.logger.debug(
-                "Runtime event ignored for system source \(String(describing: systemSource), privacy: .public): \(String(describing: envelope.event), privacy: .public)"
+                "Runtime event ignored for system source \(String(describing: systemSource), privacy: .public) facets=\(String(describing: envelope.sourceFacets), privacy: .public): \(String(describing: envelope.event), privacy: .public)"
             )
         case .worktree(let worktreeId):
             Self.logger.debug(
-                "Runtime event ignored for worktree source \(worktreeId.uuidString, privacy: .public): \(String(describing: envelope.event), privacy: .public)"
+                "Runtime event ignored for worktree source \(worktreeId.uuidString, privacy: .public) facets=\(String(describing: envelope.sourceFacets), privacy: .public): \(String(describing: envelope.event), privacy: .public)"
             )
         }
     }

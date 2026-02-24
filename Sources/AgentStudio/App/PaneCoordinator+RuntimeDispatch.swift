@@ -31,9 +31,9 @@ extension PaneCoordinator {
         if case .diff(let diffCommand) = command,
             case .loadDiff(let artifact) = diffCommand
         {
-            guard runtime.metadata.worktreeId == artifact.worktreeId else {
+            guard runtime.metadata.facets.worktreeId == artifact.worktreeId else {
                 Self.logger.warning(
-                    "Runtime command dispatch failed: diff artifact worktree mismatch pane=\(paneId.uuid.uuidString, privacy: .public) expected=\(runtime.metadata.worktreeId?.uuidString ?? "nil", privacy: .public) got=\(artifact.worktreeId.uuidString, privacy: .public)"
+                    "Runtime command dispatch failed: diff artifact worktree mismatch pane=\(paneId.uuid.uuidString, privacy: .public) expected=\(runtime.metadata.facets.worktreeId?.uuidString ?? "nil", privacy: .public) got=\(artifact.worktreeId.uuidString, privacy: .public)"
                 )
                 return .failure(
                     .invalidPayload(

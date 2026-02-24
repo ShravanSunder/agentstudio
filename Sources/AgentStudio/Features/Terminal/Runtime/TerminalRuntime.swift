@@ -129,7 +129,7 @@ final class TerminalRuntime: PaneRuntime {
         case .titleChanged(let title):
             metadata.title = title
         case .cwdChanged(let cwdPath):
-            metadata.cwd = URL(fileURLWithPath: cwdPath)
+            metadata.facets.cwd = URL(fileURLWithPath: cwdPath)
         case .commandFinished, .bellRang, .scrollbarChanged, .unhandled:
             break
         }
@@ -137,6 +137,7 @@ final class TerminalRuntime: PaneRuntime {
         sequence += 1
         let envelope = PaneEventEnvelope(
             source: .pane(paneId),
+            sourceFacets: metadata.facets,
             paneKind: .terminal,
             seq: sequence,
             commandId: commandId,

@@ -5,6 +5,9 @@ struct Repo: Codable, Identifiable, Hashable {
     let id: UUID
     var name: String
     var repoPath: URL
+    var organizationName: String?
+    var origin: String?
+    var upstream: String?
     var worktrees: [Worktree]
     var createdAt: Date
     var updatedAt: Date
@@ -17,6 +20,9 @@ struct Repo: Codable, Identifiable, Hashable {
         id: UUID = UUID(),
         name: String,
         repoPath: URL,
+        organizationName: String? = nil,
+        origin: String? = nil,
+        upstream: String? = nil,
         worktrees: [Worktree] = [],
         createdAt: Date = Date(),
         updatedAt: Date = Date()
@@ -24,6 +30,9 @@ struct Repo: Codable, Identifiable, Hashable {
         self.id = id
         self.name = name
         self.repoPath = repoPath
+        self.organizationName = organizationName
+        self.origin = origin
+        self.upstream = upstream
         self.worktrees = worktrees
         self.createdAt = createdAt
         self.updatedAt = updatedAt

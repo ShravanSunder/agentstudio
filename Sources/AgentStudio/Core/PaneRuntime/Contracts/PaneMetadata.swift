@@ -55,13 +55,9 @@ struct PaneMetadata: Codable, Hashable, Sendable {
 
     // Live fields
     var title: String
-    var cwd: URL?
-    var repoId: UUID?
-    var worktreeId: UUID?
-    var parentFolder: String?
+    var facets: PaneContextFacets
     var checkoutRef: String?
     var agentType: AgentType?
-    var tags: [String]
 
     init(
         paneId: PaneId? = nil,
@@ -70,13 +66,9 @@ struct PaneMetadata: Codable, Hashable, Sendable {
         executionBackend: ExecutionBackend = .local,
         createdAt: Date = Date(),
         title: String = "Terminal",
-        cwd: URL? = nil,
-        repoId: UUID? = nil,
-        worktreeId: UUID? = nil,
-        parentFolder: String? = nil,
+        facets: PaneContextFacets = .empty,
         checkoutRef: String? = nil,
-        agentType: AgentType? = nil,
-        tags: [String] = []
+        agentType: AgentType? = nil
     ) {
         self.paneId = paneId
         self.contentType = contentType
@@ -84,13 +76,14 @@ struct PaneMetadata: Codable, Hashable, Sendable {
         self.executionBackend = executionBackend
         self.createdAt = createdAt
         self.title = title
-        self.cwd = cwd ?? source.workingDirectory
-        self.repoId = repoId ?? source.repoId
-        self.worktreeId = worktreeId ?? source.worktreeId
-        self.parentFolder = parentFolder
+        let sourceFacets = PaneContextFacets(
+            repoId: source.repoId,
+            worktreeId: source.worktreeId,
+            cwd: source.workingDirectory
+        )
+        self.facets = facets.fillingNilFields(from: sourceFacets)
         self.checkoutRef = checkoutRef
         self.agentType = agentType
-        self.tags = tags
     }
 
     var terminalSource: TerminalSource {
@@ -108,14 +101,62 @@ struct PaneMetadata: Codable, Hashable, Sendable {
             executionBackend: executionBackend,
             createdAt: createdAt,
             title: title,
-            cwd: cwd,
-            repoId: repoId,
-            worktreeId: worktreeId,
-            parentFolder: parentFolder,
+            facets: facets,
             checkoutRef: checkoutRef,
-            agentType: agentType,
-            tags: tags
+            agentType: agentType
         )
+    }
+
+    // MARK: - Facet Convenience Accessors
+
+    var cwd: URL? {
+        get { facets.cwd }
+        set { facets.cwd = newValue }
+    }
+
+    var repoId: UUID? {
+        get { facets.repoId }
+        set { facets.repoId = newValue }
+    }
+
+    var repoName: String? {
+        get { facets.repoName }
+        set { facets.repoName = newValue }
+    }
+
+    var worktreeId: UUID? {
+        get { facets.worktreeId }
+        set { facets.worktreeId = newValue }
+    }
+
+    var worktreeName: String? {
+        get { facets.worktreeName }
+        set { facets.worktreeName = newValue }
+    }
+
+    var parentFolder: String? {
+        get { facets.parentFolder }
+        set { facets.parentFolder = newValue }
+    }
+
+    var organizationName: String? {
+        get { facets.organizationName }
+        set { facets.organizationName = newValue }
+    }
+
+    var origin: String? {
+        get { facets.origin }
+        set { facets.origin = newValue }
+    }
+
+    var upstream: String? {
+        get { facets.upstream }
+        set { facets.upstream = newValue }
+    }
+
+    var tags: [String] {
+        get { facets.tags }
+        set { facets.tags = newValue }
     }
 
     private enum CodingKeys: String, CodingKey {
@@ -125,13 +166,9 @@ struct PaneMetadata: Codable, Hashable, Sendable {
         case executionBackend
         case createdAt
         case title
-        case cwd
-        case repoId
-        case worktreeId
-        case parentFolder
+        case facets
         case checkoutRef
         case agentType
-        case tags
     }
 
     init(from decoder: Decoder) throws {
@@ -143,12 +180,8 @@ struct PaneMetadata: Codable, Hashable, Sendable {
         self.executionBackend = try container.decode(ExecutionBackend.self, forKey: .executionBackend)
         self.createdAt = try container.decode(Date.self, forKey: .createdAt)
         self.title = try container.decode(String.self, forKey: .title)
-        self.cwd = try container.decodeIfPresent(URL.self, forKey: .cwd)
-        self.repoId = try container.decodeIfPresent(UUID.self, forKey: .repoId)
-        self.worktreeId = try container.decodeIfPresent(UUID.self, forKey: .worktreeId)
-        self.parentFolder = try container.decodeIfPresent(String.self, forKey: .parentFolder)
+        self.facets = try container.decode(PaneContextFacets.self, forKey: .facets)
         self.checkoutRef = try container.decodeIfPresent(String.self, forKey: .checkoutRef)
         self.agentType = try container.decodeIfPresent(AgentType.self, forKey: .agentType)
-        self.tags = try container.decode([String].self, forKey: .tags)
     }
 }

@@ -973,10 +973,11 @@ enum FilesystemEvent: Sendable {
 /// not routing — an artifact can be for a different worktree than the producer).
 enum ArtifactEvent: Sendable {
     case diffProduced(worktreeId: UUID, artifact: DiffArtifact)
-    case prCreated(prUrl: String)
     case approvalRequested(request: ApprovalRequest)
     case approvalDecided(decision: ApprovalDecision)
 }
+
+// Deferred (not in current implementation): prCreated(prUrl: String)
 
 /// Security events from execution backends (Gondolin, Docker, etc.).
 /// envelope.source = .worktree(id) — one sandbox may back multiple panes.
@@ -985,7 +986,6 @@ enum ArtifactEvent: Sendable {
 enum SecurityEvent: Sendable {
     // Policy enforcement
     case networkEgressBlocked(destination: String, rule: String)
-    case networkEgressAllowed(destination: String)
     case filesystemAccessDenied(path: String, operation: String)
     case secretAccessed(secretId: String, consumerId: String)
     case processSpawnBlocked(command: String, rule: String)
@@ -994,16 +994,13 @@ enum SecurityEvent: Sendable {
     case sandboxStarted(backend: ExecutionBackend, policy: String)
     case sandboxStopped(reason: String)
     case sandboxHealthChanged(healthy: Bool)
-
-    // Violations (always critical, always surfaced to user)
-    case policyViolation(description: String, severity: ViolationSeverity)
-    case credentialExfiltrationAttempt(targetHost: String)
 }
 
-enum ViolationSeverity: String, Sendable {
-    case warning    // logged, user notified
-    case critical   // process killed, user alerted
-}
+// Deferred (not in current implementation):
+// - networkEgressAllowed(destination: String)
+// - policyViolation(description: String, severity: ViolationSeverity)
+// - credentialExfiltrationAttempt(targetHost: String)
+// - enum ViolationSeverity
 
 /// Runtime error events. All payloads are Sendable — no bare `Error`
 /// across async boundaries. Underlying errors serialized to String
@@ -2691,7 +2688,7 @@ enum PaneFilesystemContextEvent: PaneKindEvent {
 | **Editor** | **Cursor** | cursorMoved, selectionChanged, visibleRangeChanged | `lossy` | key: `cursor` |
 | **Editor** | **Edits** | contentModified | `lossy` | key: `edit` |
 | **Cross** | **Filesystem** | filesChanged, gitStatusChanged, diffAvailable, branchChanged | `critical` | pre-batched by watcher |
-| **Cross** | **Artifacts** | diffProduced, prCreated, approvalRequested, approvalDecided | `critical` | never |
+| **Cross** | **Artifacts** | diffProduced, approvalRequested, approvalDecided | `critical` | never |
 | **Cross** | **Security** | all SecurityEvent cases | `critical` | never |
 | **Cross** | **Errors** | all RuntimeErrorEvent cases | `critical` | never |
 
