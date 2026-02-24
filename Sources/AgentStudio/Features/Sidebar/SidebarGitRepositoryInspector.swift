@@ -13,6 +13,11 @@ struct WorktreeStatusInput: Sendable {
     let branch: String
 }
 
+struct PullRequestLookupCandidate: Hashable, Sendable {
+    let repoSlug: String
+    let headRef: String
+}
+
 struct SidebarStatusLoadInput: Sendable {
     let repos: [RepoStatusInput]
     let worktrees: [WorktreeStatusInput]
@@ -257,24 +262,108 @@ enum GitRepositoryInspector {
     private static func githubPRCount(for worktree: WorktreeStatusInput) async -> Int? {
         let upstreamRemote = await git(args: ["-C", worktree.path.path, "remote", "get-url", "upstream"])
         let originRemote = await git(args: ["-C", worktree.path.path, "remote", "get-url", "origin"])
-        let remoteURL = upstreamRemote ?? originRemote
+        let upstreamNormalized = upstreamRemote.flatMap(normalizeRemoteURL)
+        let originNormalized = originRemote.flatMap(normalizeRemoteURL)
+        let upstreamSlug = githubRemoteSlug(from: upstreamNormalized)
+        let originSlug = githubRemoteSlug(from: originNormalized)
 
+        // Prefer live branch state from git at this worktree path so PR counts
+        // remain accurate even when cached worktree metadata is stale.
+        let liveBranch = await git(args: ["-C", worktree.path.path, "rev-parse", "--abbrev-ref", "HEAD"])
+        let candidateBranches = [liveBranch, worktree.branch]
+            .compactMap { $0?.trimmingCharacters(in: .whitespacesAndNewlines) }
+            .filter { !$0.isEmpty && $0 != "HEAD" }
+        guard !candidateBranches.isEmpty else { return nil }
+
+        var lookupCandidates: [PullRequestLookupCandidate] = []
+        for branch in candidateBranches {
+            lookupCandidates.append(
+                contentsOf: pullRequestLookupCandidates(
+                    branch: branch,
+                    upstreamRepoSlug: upstreamSlug,
+                    originRepoSlug: originSlug
+                ))
+        }
+        var seen = Set<PullRequestLookupCandidate>()
+        lookupCandidates = lookupCandidates.filter { seen.insert($0).inserted }
+        guard !lookupCandidates.isEmpty else { return nil }
+
+        var lastResolvedCount: Int?
+        for candidate in lookupCandidates {
+            guard let count = await githubPRCount(repoSlug: candidate.repoSlug, headRef: candidate.headRef) else {
+                continue
+            }
+            if count > 0 {
+                return count
+            }
+            lastResolvedCount = count
+        }
+
+        return lastResolvedCount
+    }
+
+    static func pullRequestLookupCandidates(
+        branch rawBranch: String,
+        upstreamRepoSlug: String?,
+        originRepoSlug: String?
+    ) -> [PullRequestLookupCandidate] {
+        let branch =
+            rawBranch
+            .trimmingCharacters(in: .whitespacesAndNewlines)
+            .replacingOccurrences(of: "refs/heads/", with: "")
+        guard !branch.isEmpty else { return [] }
+
+        var candidates: [PullRequestLookupCandidate] = []
+        candidates.reserveCapacity(3)
+
+        if let upstreamRepoSlug {
+            candidates.append(PullRequestLookupCandidate(repoSlug: upstreamRepoSlug, headRef: branch))
+
+            if let upstreamOwner = ownerFromRepoSlug(upstreamRepoSlug),
+                let originOwner = ownerFromRepoSlug(originRepoSlug),
+                upstreamOwner.lowercased() != originOwner.lowercased()
+            {
+                candidates.append(
+                    PullRequestLookupCandidate(
+                        repoSlug: upstreamRepoSlug,
+                        headRef: "\(originOwner):\(branch)"
+                    ))
+            }
+        }
+
+        if let originRepoSlug {
+            candidates.append(PullRequestLookupCandidate(repoSlug: originRepoSlug, headRef: branch))
+        }
+
+        var seen = Set<PullRequestLookupCandidate>()
+        return candidates.filter { seen.insert($0).inserted }
+    }
+
+    private static func githubRemoteSlug(from normalizedRemote: String?) -> String? {
         guard
-            let remoteURL,
-            let normalized = normalizeRemoteURL(remoteURL),
-            normalized.hasPrefix("github.com/"),
-            let remoteSlug = extractRemoteSlug(from: normalized)
+            let normalizedRemote,
+            normalizedRemote.hasPrefix("github.com/")
         else {
             return nil
         }
+        return extractRemoteSlug(from: normalizedRemote)
+    }
 
+    private static func ownerFromRepoSlug(_ slug: String?) -> String? {
+        guard let slug else { return nil }
+        let components = slug.split(separator: "/").map(String.init).filter { !$0.isEmpty }
+        guard components.count >= 2 else { return nil }
+        return components.dropLast().joined(separator: "/")
+    }
+
+    private static func githubPRCount(repoSlug: String, headRef: String) async -> Int? {
         guard
             let output = await run(
                 command: "gh",
                 args: [
                     "pr", "list",
-                    "--repo", remoteSlug,
-                    "--head", worktree.branch,
+                    "--repo", repoSlug,
+                    "--head", headRef,
                     "--state", "open",
                     "--json", "number",
                     "--limit", "50",
