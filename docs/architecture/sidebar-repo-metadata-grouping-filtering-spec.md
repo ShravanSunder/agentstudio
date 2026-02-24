@@ -19,7 +19,7 @@ Each `RepoIdentityMetadata` record is expected to carry:
 
 ## Display Rule
 Group title format:
-- Preferred: `repo [organization]`
+- Preferred: `repo · organization`
 - Fallback: `lastPathComponent`
 
 ## Next-Phase Functional Requirements
@@ -67,4 +67,3 @@ If metadata fields are unavailable, behavior must degrade gracefully:
 2. Filter facet tests (origin/upstream/org/parent/worktree count).
 3. Search token coverage tests for all indexed fields.
 4. Deterministic sort tests for mixed populated/missing metadata.
-

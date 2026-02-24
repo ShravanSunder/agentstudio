@@ -148,6 +148,18 @@ enum AppStyle {
     /// Group (repo) icon size in sidebar rows.
     static let sidebarGroupIconSize: CGFloat = 14
 
+    /// Shared icon column width for checkout/branch rows so text alignment is consistent.
+    static let sidebarRowLeadingIconColumnWidth: CGFloat = textBase
+
+    /// Font size for organization text in sidebar group titles.
+    static let sidebarGroupOrganizationFontSize: CGFloat = textSm
+
+    /// Spacing between repo title and organization title in sidebar group rows.
+    static let sidebarGroupTitleSpacing: CGFloat = spacingTight
+
+    /// Max width for organization text so repo and org truncate independently.
+    static let sidebarGroupOrganizationMaxWidth: CGFloat = 120
+
     /// Worktree icon size in sidebar rows.
     static let sidebarWorktreeIconSize: CGFloat = 11
 
@@ -155,7 +167,7 @@ enum AppStyle {
     static let sidebarBranchIconSize: CGFloat = 10
 
     /// Leading inset for status chips so they align with checkout/branch text after the leading icon.
-    static let sidebarStatusRowLeadingIndent: CGFloat = sidebarWorktreeIconSize + spacingStandard
+    static let sidebarStatusRowLeadingIndent: CGFloat = sidebarRowLeadingIconColumnWidth + spacingTight
 
     /// Font size for the branch name row under each checkout title.
     static let sidebarBranchFontSize: CGFloat = textSm
@@ -200,10 +212,13 @@ enum AppStyle {
     static let sidebarSyncChipIconSize: CGFloat = 7
 
     /// Chip background opacity for sidebar pills.
-    static let sidebarChipBackgroundOpacity: CGFloat = fillPressed
+    static let sidebarChipBackgroundOpacity: CGFloat = fillHover
 
     /// Chip border opacity for sidebar pills.
-    static let sidebarChipBorderOpacity: CGFloat = fillHover
+    static let sidebarChipBorderOpacity: CGFloat = fillMuted
+
+    /// Foreground opacity for sidebar chip labels/icons to keep chips visually muted.
+    static let sidebarChipForegroundOpacity: CGFloat = 0.82
 
     /// Hover fill opacity for sidebar checkout rows.
     static let sidebarRowHoverOpacity: CGFloat = fillPressed

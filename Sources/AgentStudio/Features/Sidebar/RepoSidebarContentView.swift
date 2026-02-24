@@ -253,7 +253,8 @@ struct RepoSidebarContentView: View {
                     .padding(.leading, -AppStyle.sidebarGroupChildLeadingReduction)
                 } label: {
                     SidebarGroupRow(
-                        title: group.title,
+                        repoTitle: group.repoTitle,
+                        organizationName: group.organizationName,
                         checkoutCount: group.checkoutCount
                     )
                 }
@@ -558,7 +559,8 @@ struct RepoSidebarContentView: View {
 }
 
 private struct SidebarGroupRow: View {
-    let title: String
+    let repoTitle: String
+    let organizationName: String?
     let checkoutCount: Int
 
     var body: some View {
@@ -566,9 +568,28 @@ private struct SidebarGroupRow: View {
             OcticonImage(name: "octicon-repo", size: AppStyle.sidebarGroupIconSize)
                 .foregroundStyle(.secondary)
 
-            Text(title)
-                .font(.system(size: AppStyle.textLg, weight: .semibold))
-                .lineLimit(1)
+            HStack(spacing: AppStyle.sidebarGroupTitleSpacing) {
+                Text(repoTitle)
+                    .font(.system(size: AppStyle.textLg, weight: .semibold))
+                    .lineLimit(1)
+                    .truncationMode(.tail)
+                    .layoutPriority(2)
+
+                if let organizationName, !organizationName.isEmpty {
+                    Text("·")
+                        .font(.system(size: AppStyle.textSm, weight: .semibold))
+                        .foregroundStyle(.secondary)
+
+                    Text(organizationName)
+                        .font(.system(size: AppStyle.sidebarGroupOrganizationFontSize, weight: .medium))
+                        .foregroundStyle(.secondary)
+                        .lineLimit(1)
+                        .truncationMode(.tail)
+                        .frame(maxWidth: AppStyle.sidebarGroupOrganizationMaxWidth, alignment: .leading)
+                        .layoutPriority(1)
+                }
+            }
+            .frame(maxWidth: .infinity, alignment: .leading)
 
             Spacer()
 
@@ -602,29 +623,35 @@ private struct SidebarWorktreeRow: View {
 
     var body: some View {
         VStack(alignment: .leading, spacing: AppStyle.sidebarRowContentSpacing) {
-            HStack(spacing: AppStyle.spacingStandard) {
+            HStack(spacing: AppStyle.spacingTight) {
                 checkoutTypeIcon
+                    .frame(width: AppStyle.sidebarRowLeadingIconColumnWidth, alignment: .leading)
 
                 Text(checkoutTitle)
                     .font(
                         .system(size: AppStyle.textBase, weight: checkoutIconKind == .mainCheckout ? .medium : .regular)
                     )
                     .lineLimit(1)
+                    .truncationMode(.tail)
+                    .layoutPriority(1)
                     .foregroundStyle(.primary)
-
-                Spacer()
+                    .frame(maxWidth: .infinity, alignment: .leading)
             }
+            .frame(maxWidth: .infinity, alignment: .leading)
 
-            HStack(spacing: AppStyle.spacingStandard) {
+            HStack(spacing: AppStyle.spacingTight) {
                 OcticonImage(name: "octicon-git-branch", size: AppStyle.sidebarBranchIconSize)
                     .foregroundStyle(.secondary)
+                    .frame(width: AppStyle.sidebarRowLeadingIconColumnWidth, alignment: .leading)
                 Text(branchName)
                     .font(.system(size: AppStyle.sidebarBranchFontSize, weight: .medium))
                     .lineLimit(1)
+                    .truncationMode(.tail)
+                    .layoutPriority(1)
                     .foregroundStyle(.secondary)
-
-                Spacer(minLength: AppStyle.spacingStandard)
+                    .frame(maxWidth: .infinity, alignment: .leading)
             }
+            .frame(maxWidth: .infinity, alignment: .leading)
 
             HStack(spacing: AppStyle.sidebarChipRowSpacing) {
                 SidebarDiffChip(
@@ -642,17 +669,19 @@ private struct SidebarWorktreeRow: View {
                 SidebarChip(
                     iconAsset: "octicon-git-pull-request",
                     text: "\(branchStatus.prCount ?? 0)",
-                    style: .neutral
+                    style: .accent(iconColor)
                 )
                 SidebarChip(
                     iconAsset: "octicon-bell",
                     text: "\(notificationCount)",
-                    style: .neutral
+                    style: .accent(iconColor)
                 )
             }
+            .padding(.leading, AppStyle.sidebarStatusRowLeadingIndent)
+            .frame(maxWidth: .infinity, alignment: .leading)
         }
         .padding(.vertical, AppStyle.sidebarRowVerticalInset)
-        .padding(.horizontal, AppStyle.spacingTight)
+        .padding(.horizontal, AppStyle.spacingTight / 2)
         .background(
             RoundedRectangle(cornerRadius: AppStyle.barCornerRadius)
                 .fill(isHovering ? Color.accentColor.opacity(AppStyle.sidebarRowHoverOpacity) : Color.clear)
@@ -792,6 +821,7 @@ private struct SidebarChip: View {
         case info
         case success
         case warning
+        case accent(Color)
 
         var foreground: Color {
             switch self {
@@ -799,6 +829,7 @@ private struct SidebarChip: View {
             case .info: return Color(red: 0.47, green: 0.69, blue: 0.96)
             case .success: return Color(red: 0.42, green: 0.84, blue: 0.50)
             case .warning: return Color(red: 0.93, green: 0.71, blue: 0.34)
+            case .accent(let color): return color
             }
         }
     }
@@ -822,7 +853,7 @@ private struct SidebarChip: View {
         )
         .padding(.vertical, AppStyle.sidebarChipVerticalPadding)
         .background(Color.white.opacity(AppStyle.sidebarChipBackgroundOpacity))
-        .foregroundStyle(style.foreground)
+        .foregroundStyle(style.foreground.opacity(AppStyle.sidebarChipForegroundOpacity))
         .overlay(
             Capsule()
                 .stroke(Color.white.opacity(AppStyle.sidebarChipBorderOpacity), lineWidth: 1)
@@ -842,7 +873,7 @@ private struct SidebarStatusSyncChip: View {
     var body: some View {
         HStack(spacing: AppStyle.sidebarChipContentSpacing) {
             OcticonImage(name: statusIconAsset, size: AppStyle.sidebarChipIconSize)
-                .foregroundStyle(statusStyle.foreground)
+                .foregroundStyle(statusStyle.foreground.opacity(AppStyle.sidebarChipForegroundOpacity))
             HStack(spacing: AppStyle.sidebarSyncClusterSpacing) {
                 OcticonImage(name: "octicon-arrow-up", size: AppStyle.sidebarSyncChipIconSize)
                 Text(aheadText)
@@ -857,7 +888,7 @@ private struct SidebarStatusSyncChip: View {
         .padding(.horizontal, AppStyle.sidebarChipHorizontalPadding)
         .padding(.vertical, AppStyle.sidebarChipVerticalPadding)
         .background(Color.white.opacity(AppStyle.sidebarChipBackgroundOpacity))
-        .foregroundStyle(style.foreground)
+        .foregroundStyle(style.foreground.opacity(AppStyle.sidebarChipForegroundOpacity))
         .overlay(
             Capsule()
                 .stroke(Color.white.opacity(AppStyle.sidebarChipBorderOpacity), lineWidth: 1)
@@ -874,9 +905,11 @@ private struct SidebarDiffChip: View {
     var body: some View {
         HStack(spacing: AppStyle.spacingTight) {
             Text("+\(linesAdded)")
-                .foregroundStyle(Color(red: 0.42, green: 0.84, blue: 0.50))
+                .foregroundStyle(
+                    Color(red: 0.42, green: 0.84, blue: 0.50).opacity(AppStyle.sidebarChipForegroundOpacity))
             Text("-\(linesDeleted)")
-                .foregroundStyle(Color(red: 0.93, green: 0.41, blue: 0.41))
+                .foregroundStyle(
+                    Color(red: 0.93, green: 0.41, blue: 0.41).opacity(AppStyle.sidebarChipForegroundOpacity))
         }
         .font(.system(size: AppStyle.sidebarChipFontSize, weight: .medium).monospacedDigit())
         .lineLimit(1)
@@ -955,7 +988,8 @@ private final class SidebarOcticonLoader {
 
 struct SidebarRepoGroup: Identifiable {
     let id: String
-    let title: String
+    let repoTitle: String
+    let organizationName: String?
     let repos: [Repo]
 
     var checkoutCount: Int {
@@ -1061,20 +1095,25 @@ enum SidebarRepoGrouping {
             guard !deduplicatedRepos.isEmpty else { return nil }
 
             let firstRepoId = deduplicatedRepos.first?.id ?? groupRepos.first?.id
-            let displayName =
-                firstRepoId.flatMap { metadataByRepoId[$0]?.displayName }
+            let metadata = firstRepoId.flatMap { metadataByRepoId[$0] }
+            let repoTitle =
+                metadata?.repoName
+                ?? metadata?.lastPathComponent
                 ?? deduplicatedRepos.first?.name
                 ?? "Repository"
             return SidebarRepoGroup(
                 id: groupKey,
-                title: displayName,
+                repoTitle: repoTitle,
+                organizationName: metadata?.organizationName,
                 repos: deduplicatedRepos.sorted {
                     $0.name.localizedCaseInsensitiveCompare($1.name) == .orderedAscending
                 }
             )
         }
         .sorted { lhs, rhs in
-            lhs.title.localizedCaseInsensitiveCompare(rhs.title) == .orderedAscending
+            let leftTitle = lhs.organizationName.map { "\(lhs.repoTitle)\($0)" } ?? lhs.repoTitle
+            let rightTitle = rhs.organizationName.map { "\(rhs.repoTitle)\($0)" } ?? rhs.repoTitle
+            return leftTitle.localizedCaseInsensitiveCompare(rightTitle) == .orderedAscending
         }
     }
 

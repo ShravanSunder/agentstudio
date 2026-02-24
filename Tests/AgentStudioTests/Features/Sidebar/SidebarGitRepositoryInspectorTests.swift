@@ -12,7 +12,7 @@ struct SidebarGitRepositoryInspectorTests {
             remoteSlug: "shravansunder/agent-studio"
         )
 
-        #expect(title == "agent-studio [shravansunder]")
+        #expect(title == "agent-studio · shravansunder")
     }
 
     @Test
@@ -22,7 +22,7 @@ struct SidebarGitRepositoryInspectorTests {
             remoteSlug: "company/platform/agent-studio"
         )
 
-        #expect(title == "agent-studio [company/platform]")
+        #expect(title == "agent-studio · company/platform")
     }
 
     @Test

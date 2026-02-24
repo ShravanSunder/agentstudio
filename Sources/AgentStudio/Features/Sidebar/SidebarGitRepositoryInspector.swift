@@ -368,7 +368,7 @@ enum GitRepositoryInspector {
         let organization = components.dropLast().joined(separator: "/")
         guard !organization.isEmpty else { return fallbackName }
 
-        return "\(repoComponent) [\(organization)]"
+        return "\(repoComponent) · \(organization)"
     }
 
     private static func isCommandAvailable(_ command: String) async -> Bool {
