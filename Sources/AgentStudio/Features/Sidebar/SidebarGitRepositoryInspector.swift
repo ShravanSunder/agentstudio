@@ -101,11 +101,12 @@ enum GitRepositoryInspector {
 
         let normalizedRemote = remoteURL.flatMap(normalizeRemoteURL)
         let remoteSlug = normalizedRemote.flatMap { extractRemoteSlug(from: $0) }
+        let displayName = makeRepoDisplayName(repoName: repo.repoName, remoteSlug: remoteSlug)
 
         if let normalizedRemote {
             return RepoIdentityMetadata(
                 groupKey: "remote:\(normalizedRemote)",
-                displayName: remoteSlug ?? repo.repoName,
+                displayName: displayName,
                 remoteFingerprint: normalizedRemote,
                 remoteSlug: remoteSlug
             )
@@ -114,7 +115,7 @@ enum GitRepositoryInspector {
         if let commonDir {
             return RepoIdentityMetadata(
                 groupKey: "common:\(commonDir.lowercased())",
-                displayName: repo.repoName,
+                displayName: displayName,
                 remoteFingerprint: nil,
                 remoteSlug: nil
             )
@@ -122,7 +123,7 @@ enum GitRepositoryInspector {
 
         return RepoIdentityMetadata(
             groupKey: "path:\(repo.repoPath.standardizedFileURL.path)",
-            displayName: repo.repoName,
+            displayName: displayName,
             remoteFingerprint: nil,
             remoteSlug: nil
         )
@@ -291,6 +292,24 @@ enum GitRepositoryInspector {
         guard let slashIndex = normalizedRemote.firstIndex(of: "/") else { return nil }
         let slug = String(normalizedRemote[normalizedRemote.index(after: slashIndex)...])
         return slug.isEmpty ? nil : slug
+    }
+
+    static func makeRepoDisplayName(repoName: String, remoteSlug: String?) -> String {
+        guard let remoteSlug else { return repoName }
+
+        let components =
+            remoteSlug
+            .split(separator: "/")
+            .map(String.init)
+            .filter { !$0.isEmpty }
+
+        guard components.count >= 2 else { return repoName }
+
+        let repoComponent = components.last ?? repoName
+        let organization = components.dropLast().joined(separator: "/")
+        guard !organization.isEmpty else { return repoName }
+
+        return "\(repoComponent) [\(organization)]"
     }
 
     private static func isCommandAvailable(_ command: String) async -> Bool {
