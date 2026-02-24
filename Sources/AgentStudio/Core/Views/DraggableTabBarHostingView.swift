@@ -314,8 +314,11 @@ class DraggableTabBarHostingView: NSView, NSDraggingSource {
             return []
         }
 
-        // Reject internal tab drags when management mode exited mid-drag
-        if types.contains(.agentStudioTabInternal) && !ManagementModeMonitor.shared.isActive {
+        // Reject drags when management mode exited mid-drag.
+        // Pane drags start only from management mode affordances.
+        if (types.contains(.agentStudioTabInternal) || types.contains(.agentStudioPaneDrop))
+            && !ManagementModeMonitor.shared.isActive
+        {
             return []
         }
 
@@ -326,12 +329,21 @@ class DraggableTabBarHostingView: NSView, NSDraggingSource {
     override func draggingUpdated(_ sender: NSDraggingInfo) -> NSDragOperation {
         let types = sender.draggingPasteboard.types ?? []
 
-        // Reject internal tab drags when management mode exited mid-drag
-        if types.contains(.agentStudioTabInternal) && !ManagementModeMonitor.shared.isActive {
+        // Reject drags when management mode exited mid-drag
+        if (types.contains(.agentStudioTabInternal) || types.contains(.agentStudioPaneDrop))
+            && !ManagementModeMonitor.shared.isActive
+        {
             Task { @MainActor [weak self] in
                 self?.tabBarAdapter?.dropTargetIndex = nil
             }
             return []
+        }
+
+        if types.contains(.agentStudioPaneDrop) {
+            let point = convert(sender.draggingLocation, from: nil)
+            if let hoveredTabId = tabAtPoint(point) {
+                onSelect?(hoveredTabId)
+            }
         }
 
         updateDropTarget(for: sender)
@@ -357,10 +369,26 @@ class DraggableTabBarHostingView: NSView, NSDraggingSource {
             return true
         }
 
-        // Handle pane drop → extract pane to new tab
+        // Handle pane drop:
+        // - If dropped on a specific tab pill -> move pane into that tab
+        // - Otherwise -> extract pane to a new tab (existing behavior)
         if let paneData = pasteboard.data(forType: .agentStudioPaneDrop),
             let payload = try? JSONDecoder().decode(PaneDragPayload.self, from: paneData)
         {
+            let dropPoint = convert(sender.draggingLocation, from: nil)
+            if let targetTabId = tabAtPoint(dropPoint), targetTabId != payload.tabId {
+                NotificationCenter.default.post(
+                    name: .movePaneToTabRequested,
+                    object: nil,
+                    userInfo: [
+                        "paneId": payload.paneId,
+                        "sourceTabId": payload.tabId,
+                        "targetTabId": targetTabId,
+                    ]
+                )
+                return true
+            }
+
             NotificationCenter.default.post(
                 name: .extractPaneRequested,
                 object: nil,

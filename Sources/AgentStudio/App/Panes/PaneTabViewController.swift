@@ -220,6 +220,14 @@ class PaneTabViewController: NSViewController, CommandHandler {
 
         notificationTasks.append(
             Task { [weak self] in
+                for await notification in NotificationCenter.default.notifications(named: .movePaneToTabRequested) {
+                    guard let self, !Task.isCancelled else { break }
+                    self.handleMovePaneToTabRequested(notification)
+                }
+            })
+
+        notificationTasks.append(
+            Task { [weak self] in
                 for await notification in NotificationCenter.default.notifications(named: .repairSurfaceRequested) {
                     guard let self, !Task.isCancelled else { break }
                     self.handleRepairSurfaceRequested(notification)
@@ -783,6 +791,53 @@ class PaneTabViewController: NSViewController, CommandHandler {
         dispatchAction(.extractPaneToTab(tabId: tabId, paneId: paneId))
     }
 
+    private func handleMovePaneToTabRequested(_ notification: Notification) {
+        guard let userInfo = notification.userInfo,
+            let paneId = userInfo["paneId"] as? UUID,
+            let targetTabId = userInfo["targetTabId"] as? UUID
+        else {
+            return
+        }
+        let sourceTabId = userInfo["sourceTabId"] as? UUID
+        dispatchMovePaneToTab(sourcePaneId: paneId, sourceTabId: sourceTabId, targetTabId: targetTabId)
+    }
+
+    private func dispatchMovePaneToTab(sourcePaneId: UUID, sourceTabId: UUID?, targetTabId: UUID) {
+        guard
+            let action = makeMovePaneToTabAction(
+                sourcePaneId: sourcePaneId,
+                sourceTabId: sourceTabId,
+                targetTabId: targetTabId
+            )
+        else { return }
+        dispatchAction(action)
+    }
+
+    private func makeMovePaneToTabAction(
+        sourcePaneId: UUID,
+        sourceTabId: UUID?,
+        targetTabId: UUID
+    ) -> PaneAction? {
+        let resolvedSourceTabId: UUID? =
+            if let sourceTabId, store.tab(sourceTabId)?.paneIds.contains(sourcePaneId) == true {
+                sourceTabId
+            } else {
+                store.tabs.first(where: { $0.paneIds.contains(sourcePaneId) })?.id
+            }
+
+        guard let resolvedSourceTabId else { return nil }
+        guard resolvedSourceTabId != targetTabId else { return nil }
+        guard let targetTab = store.tab(targetTabId) else { return nil }
+        guard let targetPaneId = targetTab.activePaneId ?? targetTab.paneIds.first else { return nil }
+
+        return .insertPane(
+            source: .existingPane(paneId: sourcePaneId, sourceTabId: resolvedSourceTabId),
+            targetTabId: targetTabId,
+            targetPaneId: targetPaneId,
+            direction: .right
+        )
+    }
+
     // MARK: - Undo Close Tab
 
     private func handleUndoCloseTab() {
@@ -1069,7 +1124,7 @@ class PaneTabViewController: NSViewController, CommandHandler {
             .toggleSidebar, .quickFind, .commandBar,
             .openNewTerminalInTab, .openWorktree, .openWorktreeInPane,
             .switchArrangement, .deleteArrangement, .renameArrangement,
-            .navigateDrawerPane:
+            .navigateDrawerPane, .movePaneToTab:
             break  // Handled via drill-in (target selection in command bar)
         default:
             break
@@ -1092,6 +1147,15 @@ class PaneTabViewController: NSViewController, CommandHandler {
                 guard let tab = store.tabs.first(where: { $0.paneIds.contains(target) })
                 else { return nil }
                 return .extractPaneToTab(tabId: tab.id, paneId: target)
+            case (.movePaneToTab, .tab):
+                guard let activeTabId = store.activeTabId,
+                    let activePaneId = store.tab(activeTabId)?.activePaneId
+                else { return nil }
+                return makeMovePaneToTabAction(
+                    sourcePaneId: activePaneId,
+                    sourceTabId: activeTabId,
+                    targetTabId: target
+                )
             case (.switchArrangement, .tab):
                 guard let tabId = store.activeTabId else { return nil }
                 return .switchArrangement(tabId: tabId, arrangementId: target)

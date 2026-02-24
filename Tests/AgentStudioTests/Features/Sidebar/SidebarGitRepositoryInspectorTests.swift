@@ -8,7 +8,7 @@ struct SidebarGitRepositoryInspectorTests {
     @Test
     func makeRepoDisplayName_formatsRepoAndOrganization() {
         let title = GitRepositoryInspector.makeRepoDisplayName(
-            repoName: "local-folder-name",
+            fallbackName: "local-folder-name",
             remoteSlug: "shravansunder/agent-studio"
         )
 
@@ -18,7 +18,7 @@ struct SidebarGitRepositoryInspectorTests {
     @Test
     func makeRepoDisplayName_formatsNestedOrganizationPath() {
         let title = GitRepositoryInspector.makeRepoDisplayName(
-            repoName: "local-folder-name",
+            fallbackName: "local-folder-name",
             remoteSlug: "company/platform/agent-studio"
         )
 
@@ -28,7 +28,7 @@ struct SidebarGitRepositoryInspectorTests {
     @Test
     func makeRepoDisplayName_fallsBackToFolderNameWhenOrgMissing() {
         let title = GitRepositoryInspector.makeRepoDisplayName(
-            repoName: "askluna-finance",
+            fallbackName: "askluna-finance",
             remoteSlug: "agent-studio"
         )
 
@@ -38,7 +38,7 @@ struct SidebarGitRepositoryInspectorTests {
     @Test
     func makeRepoDisplayName_fallsBackToFolderNameWhenRemoteMissing() {
         let title = GitRepositoryInspector.makeRepoDisplayName(
-            repoName: "askluna-finance",
+            fallbackName: "askluna-finance",
             remoteSlug: nil
         )
 

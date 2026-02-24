@@ -4,6 +4,7 @@ struct RepoStatusInput: Sendable {
     let repoId: UUID
     let repoName: String
     let repoPath: URL
+    let worktreePaths: [URL]
 }
 
 struct WorktreeStatusInput: Sendable {
@@ -92,6 +93,15 @@ enum GitRepositoryInspector {
     }
 
     private static func identity(for repo: RepoStatusInput) async -> RepoIdentityMetadata {
+        let normalizedRepoPath = repo.repoPath.standardizedFileURL.path
+        let lastPathComponent =
+            repo.repoPath.lastPathComponent.isEmpty ? repo.repoName : repo.repoPath.lastPathComponent
+        let parentFolderURL = repo.repoPath.deletingLastPathComponent()
+        let parentFolderName =
+            parentFolderURL.lastPathComponent.isEmpty ? parentFolderURL.path : parentFolderURL.lastPathComponent
+        let folderCwd = normalizedRepoPath
+        let normalizedWorktreeCwds = repo.worktreePaths.map { $0.standardizedFileURL.path }
+
         let commonDir = await git(args: ["-C", repo.repoPath.path, "rev-parse", "--git-common-dir"])
             .flatMap { canonicalizeGitPath($0, relativeTo: repo.repoPath) }
 
@@ -101,12 +111,23 @@ enum GitRepositoryInspector {
 
         let normalizedRemote = remoteURL.flatMap(normalizeRemoteURL)
         let remoteSlug = normalizedRemote.flatMap { extractRemoteSlug(from: $0) }
-        let displayName = makeRepoDisplayName(repoName: repo.repoName, remoteSlug: remoteSlug)
+        let organizationName = remoteSlug.flatMap(extractOrganizationName(from:))
+        let remoteRepoName = remoteSlug.flatMap(extractRepoName(from:)) ?? lastPathComponent
+        let displayName = makeRepoDisplayName(fallbackName: lastPathComponent, remoteSlug: remoteSlug)
 
         if let normalizedRemote {
             return RepoIdentityMetadata(
                 groupKey: "remote:\(normalizedRemote)",
                 displayName: displayName,
+                repoName: remoteRepoName,
+                worktreeCommonDirectory: commonDir,
+                folderCwd: folderCwd,
+                parentFolder: parentFolderName,
+                organizationName: organizationName,
+                originRemote: originRemote,
+                upstreamRemote: upstreamRemote,
+                lastPathComponent: lastPathComponent,
+                worktreeCwds: normalizedWorktreeCwds,
                 remoteFingerprint: normalizedRemote,
                 remoteSlug: remoteSlug
             )
@@ -116,14 +137,32 @@ enum GitRepositoryInspector {
             return RepoIdentityMetadata(
                 groupKey: "common:\(commonDir.lowercased())",
                 displayName: displayName,
+                repoName: remoteRepoName,
+                worktreeCommonDirectory: commonDir,
+                folderCwd: folderCwd,
+                parentFolder: parentFolderName,
+                organizationName: organizationName,
+                originRemote: originRemote,
+                upstreamRemote: upstreamRemote,
+                lastPathComponent: lastPathComponent,
+                worktreeCwds: normalizedWorktreeCwds,
                 remoteFingerprint: nil,
                 remoteSlug: nil
             )
         }
 
         return RepoIdentityMetadata(
-            groupKey: "path:\(repo.repoPath.standardizedFileURL.path)",
+            groupKey: "path:\(normalizedRepoPath)",
             displayName: displayName,
+            repoName: remoteRepoName,
+            worktreeCommonDirectory: nil,
+            folderCwd: folderCwd,
+            parentFolder: parentFolderName,
+            organizationName: organizationName,
+            originRemote: originRemote,
+            upstreamRemote: upstreamRemote,
+            lastPathComponent: lastPathComponent,
+            worktreeCwds: normalizedWorktreeCwds,
             remoteFingerprint: nil,
             remoteSlug: nil
         )
@@ -294,8 +333,28 @@ enum GitRepositoryInspector {
         return slug.isEmpty ? nil : slug
     }
 
-    static func makeRepoDisplayName(repoName: String, remoteSlug: String?) -> String {
-        guard let remoteSlug else { return repoName }
+    private static func extractOrganizationName(from remoteSlug: String) -> String? {
+        let components =
+            remoteSlug
+            .split(separator: "/")
+            .map(String.init)
+            .filter { !$0.isEmpty }
+        guard components.count >= 2 else { return nil }
+        let organization = components.dropLast().joined(separator: "/")
+        return organization.isEmpty ? nil : organization
+    }
+
+    private static func extractRepoName(from remoteSlug: String) -> String? {
+        let components =
+            remoteSlug
+            .split(separator: "/")
+            .map(String.init)
+            .filter { !$0.isEmpty }
+        return components.last
+    }
+
+    static func makeRepoDisplayName(fallbackName: String, remoteSlug: String?) -> String {
+        guard let remoteSlug else { return fallbackName }
 
         let components =
             remoteSlug
@@ -303,11 +362,11 @@ enum GitRepositoryInspector {
             .map(String.init)
             .filter { !$0.isEmpty }
 
-        guard components.count >= 2 else { return repoName }
+        guard components.count >= 2 else { return fallbackName }
 
-        let repoComponent = components.last ?? repoName
+        let repoComponent = components.last ?? fallbackName
         let organization = components.dropLast().joined(separator: "/")
-        guard !organization.isEmpty else { return repoName }
+        guard !organization.isEmpty else { return fallbackName }
 
         return "\(repoComponent) [\(organization)]"
     }

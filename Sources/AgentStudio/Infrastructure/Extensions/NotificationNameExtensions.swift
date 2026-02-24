@@ -19,6 +19,7 @@ extension Notification.Name {
 
     // Pane management
     static let extractPaneRequested = Notification.Name("extractPaneRequested")
+    static let movePaneToTabRequested = Notification.Name("movePaneToTabRequested")
     static let openWorktreeInPaneRequested = Notification.Name("openWorktreeInPaneRequested")
 
     // Webview management

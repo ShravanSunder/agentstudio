@@ -23,6 +23,7 @@ enum AppCommand: String, CaseIterable {
     // Pane commands
     case closePane
     case extractPaneToTab
+    case movePaneToTab
     case splitRight, splitBelow, splitLeft, splitAbove
     case equalizePanes
     case focusPaneLeft, focusPaneRight, focusPaneUp, focusPaneDown
@@ -203,7 +204,13 @@ final class CommandDispatcher {
 
     /// Check if a command can currently be executed
     func canDispatch(_ command: AppCommand) -> Bool {
-        handler?.canExecute(command) ?? false
+        if let definition = definitions[command],
+            definition.requiresManagementMode,
+            !ManagementModeMonitor.shared.isActive
+        {
+            return false
+        }
+        return handler?.canExecute(command) ?? false
     }
 
     // MARK: - Lookup
@@ -268,6 +275,13 @@ final class CommandDispatcher {
                 label: "Extract Pane to Tab",
                 icon: "arrow.up.right.square",
                 appliesTo: [.pane, .floatingTerminal]
+            ),
+            CommandDefinition(
+                command: .movePaneToTab,
+                label: "Move Pane to Tab",
+                icon: "arrow.left.and.right.square",
+                appliesTo: [.pane],
+                requiresManagementMode: true
             ),
             CommandDefinition(
                 command: .splitRight,

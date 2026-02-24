@@ -71,6 +71,12 @@ struct ManagementModeDragShieldTests {
         }
     }
 
+    private func ensureManagementModeActive() {
+        if !ManagementModeMonitor.shared.isActive {
+            ManagementModeMonitor.shared.toggle()
+        }
+    }
+
     // MARK: - hitTest Behavior
 
     @Test
@@ -87,7 +93,7 @@ struct ManagementModeDragShieldTests {
     func test_hitTest_alwaysReturnsNil_managementModeOn() {
         // Arrange
         let shield = ManagementModeDragShield(frame: NSRect(x: 0, y: 0, width: 200, height: 200))
-        ManagementModeMonitor.shared.toggle()
+        ensureManagementModeActive()
 
         // Assert — still nil: NSDraggingDestination uses frame-based routing,
         // not hitTest. PaneView.hitTest handles click blocking separately.
@@ -114,7 +120,7 @@ struct ManagementModeDragShieldTests {
     func test_registeredDragTypes_managementModeOn_includesFileTypes() {
         // Arrange — toggle management mode BEFORE creating shield so
         // updateRegistration() runs synchronously during init.
-        ManagementModeMonitor.shared.toggle()
+        ensureManagementModeActive()
         let shield = ManagementModeDragShield(frame: .zero)
 
         // Assert — file/media types registered
@@ -139,7 +145,7 @@ struct ManagementModeDragShieldTests {
     func test_registeredDragTypes_excludesBroadSupertypes() {
         // Arrange — supertypes like public.data match agent studio CodableRepresentation
         // payloads, which would intercept pane/tab drags and break .onDrop.
-        ManagementModeMonitor.shared.toggle()
+        ensureManagementModeActive()
         let shield = ManagementModeDragShield(frame: .zero)
 
         // Assert — broad supertypes are NOT registered
@@ -182,7 +188,7 @@ struct ManagementModeDragShieldTests {
     @Test
     func test_shieldAttach_appliesCurrentInteractionState_managementModeActive() {
         // Arrange
-        ManagementModeMonitor.shared.toggle()
+        ensureManagementModeActive()
         let paneView = InteractionTrackingPaneView(paneId: UUID())
 
         // Act — installing the shield should notify parent with current state.
@@ -212,7 +218,7 @@ struct ManagementModeDragShieldTests {
         // Arrange
         let paneView = PaneView(paneId: UUID())
         _ = paneView.swiftUIContainer  // Install shield
-        ManagementModeMonitor.shared.toggle()
+        ensureManagementModeActive()
 
         // Act
         let result = paneView.hitTest(NSPoint(x: 100, y: 100))
@@ -252,7 +258,7 @@ struct ManagementModeDragShieldTests {
     func test_containerHitTest_managementModeOn_returnsNil() {
         // Arrange
         let container = ManagementModeContainerView(frame: NSRect(x: 0, y: 0, width: 200, height: 200))
-        ManagementModeMonitor.shared.toggle()
+        ensureManagementModeActive()
 
         // Assert — invisible to AppKit during management mode
         let result = container.hitTest(NSPoint(x: 100, y: 100))
@@ -268,7 +274,7 @@ struct ManagementModeDragShieldTests {
     func test_draggingEntered_managementModeActive_returnsGeneric() {
         // Arrange
         let shield = ManagementModeDragShield(frame: NSRect(x: 0, y: 0, width: 200, height: 200))
-        ManagementModeMonitor.shared.toggle()
+        ensureManagementModeActive()
         let mockDrag = MockDraggingInfo(pasteboardTypes: [.fileURL])
 
         // Act
@@ -299,7 +305,7 @@ struct ManagementModeDragShieldTests {
     func test_draggingUpdated_managementModeActive_returnsGeneric() {
         // Arrange
         let shield = ManagementModeDragShield(frame: NSRect(x: 0, y: 0, width: 200, height: 200))
-        ManagementModeMonitor.shared.toggle()
+        ensureManagementModeActive()
         let mockDrag = MockDraggingInfo(pasteboardTypes: [.fileURL])
 
         // Act

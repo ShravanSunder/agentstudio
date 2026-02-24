@@ -62,6 +62,9 @@ enum ActionResolver {
             else { return nil }
             return .extractPaneToTab(tabId: tab.id, paneId: paneId)
 
+        case .movePaneToTab:
+            return nil
+
         case .equalizePanes:
             guard let tabId = activeTabId else { return nil }
             return .equalizePanes(tabId: tabId)

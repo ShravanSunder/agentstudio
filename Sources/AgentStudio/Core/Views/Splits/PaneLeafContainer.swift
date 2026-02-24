@@ -34,6 +34,15 @@ struct PaneLeafContainer: View {
         paneView as? AgentStudioTerminalView
     }
 
+    private var movePaneDestinations: [(tabId: UUID, title: String)] {
+        store.tabs.enumerated().compactMap { index, tab in
+            guard tab.id != tabId else { return nil }
+            guard tab.activePaneId ?? tab.paneIds.first != nil else { return nil }
+            let title = tabDisplayTitle(tab: tab)
+            return (tab.id, "Tab \(index + 1): \(title)")
+        }
+    }
+
     var body: some View {
         GeometryReader { _ in
             ZStack(alignment: .topTrailing) {
@@ -262,6 +271,29 @@ struct PaneLeafContainer: View {
             .onTapGesture {
                 action(.focusPane(tabId: tabId, paneId: paneView.id))
             }
+            .contextMenu {
+                if managementMode.isActive && !isDrawerChild {
+                    Button("Extract Pane to New Tab") {
+                        action(.extractPaneToTab(tabId: tabId, paneId: paneView.id))
+                    }
+
+                    Menu("Move Pane to Tab") {
+                        ForEach(movePaneDestinations, id: \.tabId) { destination in
+                            Button(destination.title) {
+                                NotificationCenter.default.post(
+                                    name: .movePaneToTabRequested,
+                                    object: nil,
+                                    userInfo: [
+                                        "paneId": paneView.id,
+                                        "sourceTabId": tabId,
+                                        "targetTabId": destination.tabId,
+                                    ]
+                                )
+                            }
+                        }
+                    }
+                }
+            }
         }
         .clipShape(RoundedRectangle(cornerRadius: 1))
         .padding(AppStyle.paneGap)
@@ -287,6 +319,14 @@ struct PaneLeafContainer: View {
                 }
             }
         )
+    }
+
+    private func tabDisplayTitle(tab: Tab) -> String {
+        let paneTitles = tab.paneIds.compactMap { store.pane($0)?.title }
+        if paneTitles.count > 1 {
+            return paneTitles.joined(separator: " | ")
+        }
+        return paneTitles.first ?? "Terminal"
     }
 }
 

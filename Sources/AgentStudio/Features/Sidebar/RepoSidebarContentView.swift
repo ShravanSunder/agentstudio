@@ -496,7 +496,8 @@ struct RepoSidebarContentView: View {
                 RepoStatusInput(
                     repoId: repo.id,
                     repoName: repo.name,
-                    repoPath: repo.repoPath
+                    repoPath: repo.repoPath,
+                    worktreePaths: repo.worktrees.map(\.path)
                 )
             },
             worktrees: reposSnapshot.flatMap { repo in
@@ -965,6 +966,15 @@ struct SidebarRepoGroup: Identifiable {
 struct RepoIdentityMetadata: Sendable {
     let groupKey: String
     let displayName: String
+    let repoName: String
+    let worktreeCommonDirectory: String?
+    let folderCwd: String
+    let parentFolder: String
+    let organizationName: String?
+    let originRemote: String?
+    let upstreamRemote: String?
+    let lastPathComponent: String
+    let worktreeCwds: [String]
     let remoteFingerprint: String?
     let remoteSlug: String?
 }
