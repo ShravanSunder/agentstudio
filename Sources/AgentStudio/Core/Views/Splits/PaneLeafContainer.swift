@@ -11,12 +11,35 @@ struct PaneLeafContainer: View {
     let isSplit: Bool
     let store: WorkspaceStore
     let action: (PaneAction) -> Void
+    let dropTargetCoordinateSpace: String?
+    let useDrawerFramePreference: Bool
 
     @State private var isHovered: Bool = false
+    @State private var globalFrame: CGRect = .zero
     @Bindable private var managementMode = ManagementModeMonitor.shared
     @State private var isMinimizeHovered: Bool = false
     @State private var isCloseHovered: Bool = false
     @State private var isSplitHovered: Bool = false
+
+    init(
+        paneView: PaneView,
+        tabId: UUID,
+        isActive: Bool,
+        isSplit: Bool,
+        store: WorkspaceStore,
+        action: @escaping (PaneAction) -> Void,
+        dropTargetCoordinateSpace: String? = "tabContainer",
+        useDrawerFramePreference: Bool = false
+    ) {
+        self.paneView = paneView
+        self.tabId = tabId
+        self.isActive = isActive
+        self.isSplit = isSplit
+        self.store = store
+        self.action = action
+        self.dropTargetCoordinateSpace = dropTargetCoordinateSpace
+        self.useDrawerFramePreference = useDrawerFramePreference
+    }
 
     /// Whether this pane is a drawer child (no drag, no drop, no sub-drawer).
     private var isDrawerChild: Bool {
@@ -27,6 +50,18 @@ struct PaneLeafContainer: View {
     /// Only layout panes have drawers; drawer children return nil.
     private var drawer: Drawer? {
         store.pane(paneView.id)?.drawer
+    }
+
+    /// Parent pane ID for drawer children; nil for layout panes.
+    private var drawerParentPaneId: UUID? {
+        store.pane(paneView.id)?.parentPaneId
+    }
+
+    /// True when hover is active either via tracking events or by direct pointer query.
+    /// The direct query fixes the Cmd+E case where management mode toggles while the
+    /// pointer is already inside the pane and no hover transition event fires.
+    private var isManagementHovered: Bool {
+        isHovered || globalFrame.contains(NSEvent.mouseLocation)
     }
 
     /// Downcast to terminal view for terminal-specific features.
@@ -70,19 +105,18 @@ struct PaneLeafContainer: View {
                 }
 
                 // Hover border: drag affordance in management mode
-                if managementMode.isActive && isHovered && !store.isSplitResizing {
+                if managementMode.isActive && isManagementHovered && !store.isSplitResizing {
                     RoundedRectangle(cornerRadius: AppStyle.buttonCornerRadius)
                         .strokeBorder(Color.white.opacity(AppStyle.strokeVisible), lineWidth: 1)
                         .padding(1)
                         .allowsHitTesting(false)
-                        .animation(.easeInOut(duration: AppStyle.animationFast), value: isHovered)
+                        .animation(.easeInOut(duration: AppStyle.animationFast), value: isManagementHovered)
                 }
 
                 // Drag handle: compact centered pill (management mode + hover + no active drop).
-                // Drawer children cannot be dragged out of their drawer.
                 // The Color.clear fills the ZStack for centering; allowsHitTesting(false)
                 // ensures only the capsule itself intercepts mouse events.
-                if managementMode.isActive && isSplit && !isDrawerChild && isHovered
+                if managementMode.isActive && isManagementHovered
                     && !store.isSplitResizing
                 {
                     ZStack {
@@ -106,7 +140,8 @@ struct PaneLeafContainer: View {
                         .draggable(
                             PaneDragPayload(
                                 paneId: paneView.id,
-                                tabId: tabId
+                                tabId: tabId,
+                                drawerParentPaneId: drawerParentPaneId
                             )
                         ) {
                             ZStack {
@@ -125,7 +160,7 @@ struct PaneLeafContainer: View {
                 }
 
                 // Pane controls: minimize + close (top-left, management mode + hover)
-                if managementMode.isActive && isHovered && !store.isSplitResizing {
+                if managementMode.isActive && isManagementHovered && !store.isSplitResizing {
                     VStack {
                         HStack(spacing: AppStyle.spacingStandard) {
                             Button {
@@ -197,7 +232,7 @@ struct PaneLeafContainer: View {
                 }
 
                 // Quarter-moon split button (top-right, management mode + hover)
-                if managementMode.isActive && isHovered && !store.isSplitResizing {
+                if managementMode.isActive && isManagementHovered && !store.isSplitResizing {
                     VStack {
                         HStack {
                             Spacer()
@@ -299,34 +334,67 @@ struct PaneLeafContainer: View {
         .padding(AppStyle.paneGap)
         .background(
             GeometryReader { geo in
-                // Report pane frame for tab-level overlay positioning (layout panes only).
-                // Drawer children are inside the drawer panel, not in the tab coordinate space.
-                if !isDrawerChild {
-                    let rawFrame = geo.frame(in: .named("tabContainer"))
-                    let paneGap = AppStyle.paneGap
-                    let measuredFrame = CGRect(
-                        x: rawFrame.minX + paneGap,
-                        y: rawFrame.minY + paneGap,
-                        width: max(rawFrame.width - (paneGap * 2), 1),
-                        height: max(rawFrame.height - (paneGap * 2), 1)
-                    )
-                    Color.clear.preference(
-                        key: PaneFramePreferenceKey.self,
-                        value: [paneView.id: measuredFrame]
-                    )
-                } else {
-                    Color.clear
+                let global = geo.frame(in: .global)
+                ZStack {
+                    if let dropTargetCoordinateSpace {
+                        // Report pane frame for overlay positioning in the configured container
+                        // coordinate space (tab container or drawer container).
+                        let rawFrame = geo.frame(in: .named(dropTargetCoordinateSpace))
+                        let paneGap = AppStyle.paneGap
+                        let measuredFrame = CGRect(
+                            x: rawFrame.minX + paneGap,
+                            y: rawFrame.minY + paneGap,
+                            width: max(rawFrame.width - (paneGap * 2), 1),
+                            height: max(rawFrame.height - (paneGap * 2), 1)
+                        )
+                        if useDrawerFramePreference {
+                            Color.clear.preference(
+                                key: DrawerPaneFramePreferenceKey.self,
+                                value: [paneView.id: measuredFrame]
+                            )
+                        } else {
+                            Color.clear.preference(
+                                key: PaneFramePreferenceKey.self,
+                                value: [paneView.id: measuredFrame]
+                            )
+                        }
+                    } else {
+                        Color.clear
+                    }
+                }
+                .onAppear {
+                    globalFrame = global
+                }
+                .onChange(of: global) { _, newGlobalFrame in
+                    globalFrame = newGlobalFrame
                 }
             }
         )
     }
 
     private func tabDisplayTitle(tab: Tab) -> String {
-        let paneTitles = tab.paneIds.compactMap { store.pane($0)?.title }
+        let paneTitles = tab.paneIds.map(paneDisplayTitle)
         if paneTitles.count > 1 {
             return paneTitles.joined(separator: " | ")
         }
         return paneTitles.first ?? "Terminal"
+    }
+
+    private func paneDisplayTitle(_ paneId: UUID) -> String {
+        guard let pane = store.pane(paneId) else { return "Terminal" }
+        let rawTitle = pane.title.trimmingCharacters(in: .whitespacesAndNewlines)
+        let isGenericTitle =
+            rawTitle.isEmpty || rawTitle.localizedCaseInsensitiveCompare("Terminal") == .orderedSame
+            || rawTitle.localizedCaseInsensitiveCompare("Drawer") == .orderedSame
+
+        if isGenericTitle,
+            let cwdName = pane.metadata.cwd?.lastPathComponent,
+            !cwdName.isEmpty
+        {
+            return cwdName
+        }
+
+        return rawTitle.isEmpty ? "Terminal" : rawTitle
     }
 }
 
@@ -367,6 +435,13 @@ struct TabDragPayload: Codable, Transferable {
 struct PaneDragPayload: Codable, Transferable {
     let paneId: UUID
     let tabId: UUID
+    let drawerParentPaneId: UUID?
+
+    init(paneId: UUID, tabId: UUID, drawerParentPaneId: UUID? = nil) {
+        self.paneId = paneId
+        self.tabId = tabId
+        self.drawerParentPaneId = drawerParentPaneId
+    }
 
     static var transferRepresentation: some TransferRepresentation {
         CodableRepresentation(contentType: .agentStudioPane)

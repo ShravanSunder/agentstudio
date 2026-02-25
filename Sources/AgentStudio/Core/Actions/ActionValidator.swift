@@ -217,7 +217,8 @@ enum ActionValidator {
             .equalizeDrawerPanes(let parentPaneId),
             .minimizeDrawerPane(let parentPaneId, _),
             .expandDrawerPane(let parentPaneId, _),
-            .insertDrawerPane(let parentPaneId, _, _):
+            .insertDrawerPane(let parentPaneId, _, _),
+            .moveDrawerPane(let parentPaneId, _, _, _):
             guard state.tabContaining(paneId: parentPaneId) != nil else {
                 return .failure(.paneNotFound(paneId: parentPaneId, tabId: state.activeTabId ?? UUID()))
             }

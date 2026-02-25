@@ -1,3 +1,4 @@
+import AppKit
 import SwiftUI
 
 // MARK: - DrawerResizeHandle
@@ -56,6 +57,11 @@ struct DrawerPanel: View {
     let onResize: (CGFloat) -> Void
     let onDismiss: () -> Void
 
+    @State private var drawerPaneFrames: [UUID: CGRect] = [:]
+    @State private var dropTarget: PaneDropTarget?
+    @State private var dropTargetWatchdogTask: Task<Void, Never>?
+    @Bindable private var managementMode = ManagementModeMonitor.shared
+
     /// Translates tab-level actions into drawer-specific actions.
     /// SplitSubtreeView and PaneLeafContainer dispatch actions using tabId,
     /// but in the drawer context these need to be routed to drawer operations.
@@ -104,55 +110,154 @@ struct DrawerPanel: View {
     }
 
     var body: some View {
-        VStack(spacing: 0) {
-            // Resize handle at top
-            DrawerResizeHandle(onDrag: onResize)
+        GeometryReader { drawerGeometry in
+            let containerBounds = CGRect(origin: .zero, size: drawerGeometry.size)
+            ZStack(alignment: .topLeading) {
+                VStack(spacing: 0) {
+                    // Resize handle at top
+                    DrawerResizeHandle(onDrag: onResize)
 
-            // Drawer split tree content — padded to match inter-pane gap (2px here + 2px pane padding = 4px)
-            if let node = tree.root, !splitRenderInfo.allMinimized {
-                SplitSubtreeView(
-                    node: node,
-                    tabId: tabId,
-                    isSplit: tree.isSplit,
-                    activePaneId: activePaneId,
-                    minimizedPaneIds: minimizedPaneIds,
-                    splitRenderInfo: splitRenderInfo,
-                    action: drawerAction,
-                    onPersist: nil,
-                    store: store
-                )
-                .padding(.horizontal, DrawerLayout.panelContentPadding)
-                .padding(.bottom, DrawerLayout.panelContentPadding)
-            } else if splitRenderInfo.allMinimized {
-                // All drawer panes minimized — show bars + add button
-                HStack(spacing: 0) {
-                    ForEach(splitRenderInfo.allMinimizedPaneIds, id: \.self) { paneId in
-                        CollapsedPaneBar(
-                            paneId: paneId,
+                    // Drawer split tree content — padded to match inter-pane gap
+                    if let node = tree.root, !splitRenderInfo.allMinimized {
+                        SplitSubtreeView(
+                            node: node,
                             tabId: tabId,
-                            title: store.pane(paneId)?.title ?? "Terminal",
-                            action: drawerAction
+                            isSplit: tree.isSplit,
+                            activePaneId: activePaneId,
+                            minimizedPaneIds: minimizedPaneIds,
+                            splitRenderInfo: splitRenderInfo,
+                            action: drawerAction,
+                            onPersist: nil,
+                            store: store,
+                            dropTargetCoordinateSpace: Self.drawerDropCoordinateSpace,
+                            useDrawerFramePreference: true
                         )
-                        .frame(width: CollapsedPaneBar.barWidth)
+                        .padding(.horizontal, DrawerLayout.panelContentPadding)
+                        .padding(.bottom, DrawerLayout.panelContentPadding)
+                    } else if splitRenderInfo.allMinimized {
+                        // All drawer panes minimized — show bars + add button
+                        HStack(spacing: 0) {
+                            ForEach(splitRenderInfo.allMinimizedPaneIds, id: \.self) { paneId in
+                                CollapsedPaneBar(
+                                    paneId: paneId,
+                                    tabId: tabId,
+                                    title: store.pane(paneId)?.title ?? "Terminal",
+                                    action: drawerAction
+                                )
+                                .frame(width: CollapsedPaneBar.barWidth)
+                            }
+                            Spacer()
+                            addDrawerButton
+                            Spacer()
+                        }
+                    } else {
+                        VStack(spacing: 12) {
+                            Spacer()
+                            addDrawerButton
+                            Text("Add a drawer terminal")
+                                .font(.system(size: AppStyle.textXs))
+                                .foregroundStyle(.tertiary)
+                            Spacer()
+                        }
+                        .frame(maxWidth: .infinity)
                     }
-                    Spacer()
-                    addDrawerButton
-                    Spacer()
                 }
-            } else {
-                VStack(spacing: 12) {
-                    Spacer()
-                    addDrawerButton
-                    Text("Add a drawer terminal")
-                        .font(.system(size: AppStyle.textXs))
-                        .foregroundStyle(.tertiary)
-                    Spacer()
+
+                if managementMode.isActive {
+                    PaneDropTargetOverlay(target: dropTarget, paneFrames: drawerPaneFrames)
+                        .allowsHitTesting(false)
                 }
-                .frame(maxWidth: .infinity)
+
+                SplitContainerDropCaptureOverlay(
+                    paneFrames: drawerPaneFrames,
+                    containerBounds: containerBounds,
+                    target: $dropTarget,
+                    isManagementModeActive: managementMode.isActive,
+                    shouldAcceptDrop: shouldAcceptDrawerDrop,
+                    onDrop: handleDrawerDrop
+                )
+            }
+            .onPreferenceChange(DrawerPaneFramePreferenceKey.self) { drawerPaneFrames = $0 }
+            .onChange(of: managementMode.isActive) { _, isActive in
+                if !isActive {
+                    dropTarget = nil
+                }
+            }
+            .onChange(of: dropTarget) { _, target in
+                if target == nil {
+                    stopDropTargetWatchdog()
+                } else {
+                    startDropTargetWatchdog()
+                }
+            }
+            .onDisappear {
+                stopDropTargetWatchdog()
+            }
+            .task {
+                for await _ in NotificationCenter.default.notifications(
+                    named: NSApplication.didResignActiveNotification
+                ) {
+                    dropTarget = nil
+                }
             }
         }
         .frame(height: height)
+        .coordinateSpace(name: Self.drawerDropCoordinateSpace)
         .contentShape(RoundedRectangle(cornerRadius: DrawerLayout.panelCornerRadius, style: .continuous))
+    }
+
+    private static let drawerDropCoordinateSpace = "drawerContainer"
+
+    private func shouldAcceptDrawerDrop(destPaneId: UUID, zone _: DropZone) -> Bool {
+        guard managementMode.isActive else { return false }
+        guard let drawer = store.pane(parentPaneId)?.drawer else { return false }
+        return drawer.layout.contains(destPaneId)
+    }
+
+    private func handleDrawerDrop(payload: SplitDropPayload, destPaneId: UUID, zone: DropZone) {
+        guard case .existingPane(let sourcePaneId, _) = payload.kind else { return }
+        guard sourcePaneId != destPaneId else { return }
+        guard let sourcePane = store.pane(sourcePaneId) else { return }
+        guard sourcePane.parentPaneId == parentPaneId else { return }
+
+        action(
+            .moveDrawerPane(
+                parentPaneId: parentPaneId,
+                drawerPaneId: sourcePaneId,
+                targetDrawerPaneId: destPaneId,
+                direction: splitDirection(for: zone)
+            )
+        )
+    }
+
+    private func splitDirection(for zone: DropZone) -> SplitNewDirection {
+        switch zone {
+        case .left: return .left
+        case .right: return .right
+        }
+    }
+
+    private func startDropTargetWatchdog() {
+        stopDropTargetWatchdog()
+
+        dropTargetWatchdogTask = Task { @MainActor in
+            while !Task.isCancelled {
+                if DropTargetLatchState.shouldClearTarget(
+                    appIsActive: NSApplication.shared.isActive,
+                    pressedMouseButtons: NSEvent.pressedMouseButtons
+                ) {
+                    dropTarget = nil
+                    return
+                }
+
+                try? await Task.sleep(for: .milliseconds(16))
+            }
+        }
+    }
+
+    private func stopDropTargetWatchdog() {
+        dropTargetWatchdogTask?.cancel()
+        dropTargetWatchdogTask = nil
     }
 }
 

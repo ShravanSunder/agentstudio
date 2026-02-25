@@ -375,6 +375,12 @@ class DraggableTabBarHostingView: NSView, NSDraggingSource {
         if let paneData = pasteboard.data(forType: .agentStudioPaneDrop),
             let payload = try? JSONDecoder().decode(PaneDragPayload.self, from: paneData)
         {
+            // Drawer child panes are constrained to their parent drawer and cannot
+            // be moved into top-level tabs.
+            if payload.drawerParentPaneId != nil {
+                return false
+            }
+
             let dropPoint = convert(sender.draggingLocation, from: nil)
             if let targetTabId = tabAtPoint(dropPoint), targetTabId != payload.tabId {
                 NotificationCenter.default.post(
@@ -389,13 +395,18 @@ class DraggableTabBarHostingView: NSView, NSDraggingSource {
                 return true
             }
 
+            let targetTabIndex = dropIndexAtPoint(dropPoint)
+            var userInfo: [String: Any] = [
+                "tabId": payload.tabId,
+                "paneId": payload.paneId,
+            ]
+            if let targetTabIndex {
+                userInfo["targetTabIndex"] = targetTabIndex
+            }
             NotificationCenter.default.post(
                 name: .extractPaneRequested,
                 object: nil,
-                userInfo: [
-                    "tabId": payload.tabId,
-                    "paneId": payload.paneId,
-                ]
+                userInfo: userInfo
             )
             return true
         }

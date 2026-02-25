@@ -200,6 +200,34 @@ struct SplitSubtreeView: View {
     let action: (PaneAction) -> Void
     let onPersist: (() -> Void)?
     let store: WorkspaceStore
+    let dropTargetCoordinateSpace: String?
+    let useDrawerFramePreference: Bool
+
+    init(
+        node: PaneSplitTree.Node,
+        tabId: UUID,
+        isSplit: Bool,
+        activePaneId: UUID?,
+        minimizedPaneIds: Set<UUID>,
+        splitRenderInfo: SplitRenderInfo,
+        action: @escaping (PaneAction) -> Void,
+        onPersist: (() -> Void)?,
+        store: WorkspaceStore,
+        dropTargetCoordinateSpace: String? = "tabContainer",
+        useDrawerFramePreference: Bool = false
+    ) {
+        self.node = node
+        self.tabId = tabId
+        self.isSplit = isSplit
+        self.activePaneId = activePaneId
+        self.minimizedPaneIds = minimizedPaneIds
+        self.splitRenderInfo = splitRenderInfo
+        self.action = action
+        self.onPersist = onPersist
+        self.store = store
+        self.dropTargetCoordinateSpace = dropTargetCoordinateSpace
+        self.useDrawerFramePreference = useDrawerFramePreference
+    }
 
     var body: some View {
         switch node {
@@ -210,7 +238,7 @@ struct SplitSubtreeView: View {
                     tabId: tabId,
                     title: store.pane(paneView.id)?.title ?? "Terminal",
                     action: action,
-                    dropTargetCoordinateSpace: "tabContainer"
+                    dropTargetCoordinateSpace: dropTargetCoordinateSpace
                 )
             } else {
                 PaneLeafContainer(
@@ -219,7 +247,9 @@ struct SplitSubtreeView: View {
                     isActive: paneView.id == activePaneId,
                     isSplit: isSplit,
                     store: store,
-                    action: action
+                    action: action,
+                    dropTargetCoordinateSpace: dropTargetCoordinateSpace,
+                    useDrawerFramePreference: useDrawerFramePreference
                 )
             }
 
@@ -316,7 +346,7 @@ struct SplitSubtreeView: View {
                 tabId: tabId,
                 title: store.pane(paneId)?.title ?? "Terminal",
                 action: action,
-                dropTargetCoordinateSpace: "tabContainer"
+                dropTargetCoordinateSpace: dropTargetCoordinateSpace
             )
             .frame(
                 width: isHorizontal ? CollapsedPaneBar.barWidth : nil,
@@ -345,7 +375,9 @@ struct SplitSubtreeView: View {
             splitRenderInfo: splitRenderInfo,
             action: action,
             onPersist: onPersist,
-            store: store
+            store: store,
+            dropTargetCoordinateSpace: dropTargetCoordinateSpace,
+            useDrawerFramePreference: useDrawerFramePreference
         )
     }
 

@@ -1,3 +1,4 @@
+import Foundation
 import Testing
 
 @testable import AgentStudio
@@ -104,5 +105,41 @@ struct SidebarGitRepositoryInspectorTests {
         )
 
         #expect(candidates.isEmpty)
+    }
+
+    @Test
+    func deduplicatedPRLookupWorktrees_collapsesEquivalentPaths() {
+        let basePath = URL(fileURLWithPath: "/tmp/agentstudio")
+        let equivalentPath = URL(fileURLWithPath: "/tmp/agentstudio/./")
+        let distinctPath = URL(fileURLWithPath: "/tmp/agentstudio-2")
+
+        let worktrees = [
+            WorktreeStatusInput(worktreeId: UUID(), path: basePath, branch: "main"),
+            WorktreeStatusInput(worktreeId: UUID(), path: equivalentPath, branch: "feature"),
+            WorktreeStatusInput(worktreeId: UUID(), path: distinctPath, branch: "main"),
+        ]
+
+        let deduplicated = GitRepositoryInspector.deduplicatedPRLookupWorktrees(worktrees)
+        #expect(deduplicated.count == 2)
+
+        let normalized = Set(deduplicated.map { GitRepositoryInspector.normalizedPRLookupWorktreePath($0.path) })
+        #expect(normalized.contains(GitRepositoryInspector.normalizedPRLookupWorktreePath(basePath)))
+        #expect(normalized.contains(GitRepositoryInspector.normalizedPRLookupWorktreePath(distinctPath)))
+    }
+
+    @Test
+    func deduplicatedPRLookupWorktrees_keepsSingleEntryWhenAllSamePath() {
+        let pathA = URL(fileURLWithPath: "/tmp/repo")
+        let pathB = URL(fileURLWithPath: "/tmp/repo/")
+        let pathC = URL(fileURLWithPath: "/tmp/repo/./")
+
+        let worktrees = [
+            WorktreeStatusInput(worktreeId: UUID(), path: pathA, branch: "main"),
+            WorktreeStatusInput(worktreeId: UUID(), path: pathB, branch: "feature"),
+            WorktreeStatusInput(worktreeId: UUID(), path: pathC, branch: "bugfix"),
+        ]
+
+        let deduplicated = GitRepositoryInspector.deduplicatedPRLookupWorktrees(worktrees)
+        #expect(deduplicated.count == 1)
     }
 }

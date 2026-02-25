@@ -490,6 +490,9 @@ struct RepoSidebarContentView: View {
 
     private func reloadMetadataAndStatus() {
         metadataReloadTask?.cancel()
+        // Patch behavior: whenever sidebar status reloads, refresh worktree discovery first
+        // so branch labels and worktree mappings reflect current git state.
+        refreshWorktrees()
         let reposSnapshot = store.repos
         let loadInput = SidebarStatusLoadInput(
             repos: reposSnapshot.map { repo in

@@ -136,6 +136,8 @@ enum PaneAction: Equatable, Hashable {
     case expandDrawerPane(parentPaneId: UUID, drawerPaneId: UUID)
     /// Insert a new pane into a drawer's layout next to a target drawer pane.
     case insertDrawerPane(parentPaneId: UUID, targetDrawerPaneId: UUID, direction: SplitNewDirection)
+    /// Move an existing drawer pane within the same drawer layout.
+    case moveDrawerPane(parentPaneId: UUID, drawerPaneId: UUID, targetDrawerPaneId: UUID, direction: SplitNewDirection)
 
     // System actions — dispatched by Reconciler and undo timers, not by user input.
 

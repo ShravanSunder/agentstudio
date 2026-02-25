@@ -313,6 +313,21 @@ extension PaneCoordinator {
                 direction: direction
             )
 
+        case .moveDrawerPane(let parentPaneId, let drawerPaneId, let targetDrawerPaneId, let direction):
+            let layoutDirection = bridgeDirection(direction)
+            let position: Layout.Position = (direction == .left || direction == .up) ? .before : .after
+            store.moveDrawerPane(
+                drawerPaneId,
+                in: parentPaneId,
+                at: targetDrawerPaneId,
+                direction: layoutDirection,
+                position: position
+            )
+            if let terminalView = viewRegistry.terminalView(for: drawerPaneId) {
+                terminalView.window?.makeFirstResponder(terminalView)
+                surfaceManager.syncFocus(activeSurfaceId: terminalView.surfaceId)
+            }
+
         case .duplicateTab(let tabId):
             Self.logger.info("duplicateTab: tab \(tabId) — not yet implemented")
 

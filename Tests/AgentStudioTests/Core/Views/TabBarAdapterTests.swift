@@ -200,6 +200,21 @@ final class TabBarAdapterTests {
         #expect(tabItem.displayTitle == "Terminal")
     }
 
+    @Test
+    func test_genericTerminalTitle_usesCwdFolderNameWhenAvailable() async throws {
+        resetFixture()
+
+        let pane = store.createPane(source: .floating(workingDirectory: nil, title: nil))
+        store.updatePaneCWD(pane.id, cwd: URL(filePath: "/tmp/askluna-finance"))
+        store.appendTab(Tab(paneId: pane.id))
+
+        await waitForAdapterRefresh()
+
+        let tabItem = try #require(adapter.tabs[safe: 0], "Expected derived tab to exist")
+        #expect(tabItem.title == "askluna-finance")
+        #expect(tabItem.displayTitle == "askluna-finance")
+    }
+
     // MARK: - Transient State
 
     @Test

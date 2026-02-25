@@ -34,7 +34,7 @@ enum GitRepositoryInspector {
     private static let processExecutor: any ProcessExecutor = DefaultProcessExecutor(timeout: 4)
     private static let metadataConcurrency = 3
     private static let statusConcurrency = 4
-    private static let prConcurrency = 1
+    private static let prConcurrency = 6
     private static let commandLookupPrefixes = ["/opt/homebrew/bin", "/usr/local/bin"]
 
     static func metadataAndStatus(for input: SidebarStatusLoadInput) async -> GitMetadataSnapshot {
@@ -79,21 +79,52 @@ enum GitRepositoryInspector {
             return [:]
         }
 
-        let prPairs: [(UUID, Int)] = await boundedConcurrentMap(
-            inputs: worktrees,
+        // Lookup PR counts once per checkout path, then fan results back out to
+        // any duplicate worktree IDs that point at the same checkout.
+        let uniqueWorktrees = deduplicatedPRLookupWorktrees(worktrees)
+        let prPairs: [(String, Int)] = await boundedConcurrentMap(
+            inputs: uniqueWorktrees,
             limit: prConcurrency
         ) { worktree in
             guard let prCount = await githubPRCount(for: worktree) else { return nil }
-            return (worktree.worktreeId, prCount)
+            return (normalizedPRLookupWorktreePath(worktree.path), prCount)
+        }
+
+        var countByPath: [String: Int] = [:]
+        countByPath.reserveCapacity(prPairs.count)
+        for (worktreePath, count) in prPairs {
+            countByPath[worktreePath] = count
         }
 
         var countsByWorktreeId: [UUID: Int] = [:]
-        countsByWorktreeId.reserveCapacity(prPairs.count)
-        for (worktreeId, count) in prPairs {
-            countsByWorktreeId[worktreeId] = count
+        countsByWorktreeId.reserveCapacity(worktrees.count)
+        for worktree in worktrees {
+            let path = normalizedPRLookupWorktreePath(worktree.path)
+            if let count = countByPath[path] {
+                countsByWorktreeId[worktree.worktreeId] = count
+            }
         }
+
         logger.debug("Resolved PR counts for \(countsByWorktreeId.count, privacy: .public) worktrees")
         return countsByWorktreeId
+    }
+
+    static func deduplicatedPRLookupWorktrees(_ worktrees: [WorktreeStatusInput]) -> [WorktreeStatusInput] {
+        var uniqueByPath: [String: WorktreeStatusInput] = [:]
+        uniqueByPath.reserveCapacity(worktrees.count)
+
+        for worktree in worktrees {
+            let path = normalizedPRLookupWorktreePath(worktree.path)
+            if uniqueByPath[path] == nil {
+                uniqueByPath[path] = worktree
+            }
+        }
+
+        return Array(uniqueByPath.values)
+    }
+
+    static func normalizedPRLookupWorktreePath(_ path: URL) -> String {
+        path.standardizedFileURL.resolvingSymlinksInPath().path
     }
 
     static func isGitRepository(at url: URL) -> Bool {
@@ -364,19 +395,73 @@ enum GitRepositoryInspector {
     }
 
     private static func githubPRCount(repoSlug: String, headRef: String) async -> Int? {
-        guard
-            let output = await run(
-                command: "gh",
-                args: [
-                    "pr", "list",
-                    "--repo", repoSlug,
-                    "--head", headRef,
-                    "--state", "open",
-                    "--json", "number",
-                    "--limit", "50",
-                ])
-        else { return nil }
+        if let output = await run(
+            command: "gh",
+            args: [
+                "pr", "list",
+                "--repo", repoSlug,
+                "--head", headRef,
+                "--state", "open",
+                "--json", "number",
+                "--limit", "50",
+            ])
+        {
+            if let count = parsePullRequestArrayCount(from: output) {
+                return count
+            }
+            logger.warning(
+                "gh PR response parse failed for repo=\(repoSlug, privacy: .public) head=\(headRef, privacy: .public)"
+            )
+        } else {
+            logger.debug(
+                "Falling back to GitHub REST PR lookup for \(repoSlug, privacy: .public) head=\(headRef, privacy: .public)"
+            )
+        }
 
+        return await githubPRCountViaREST(repoSlug: repoSlug, headRef: headRef)
+    }
+
+    private static func githubPRCountViaREST(repoSlug: String, headRef: String) async -> Int? {
+        var components = URLComponents(string: "https://api.github.com/repos/\(repoSlug)/pulls")
+        components?.queryItems = [
+            URLQueryItem(name: "head", value: headRef),
+            URLQueryItem(name: "state", value: "open"),
+            URLQueryItem(name: "per_page", value: "100"),
+        ]
+
+        guard let requestURL = components?.url else { return nil }
+
+        var args = [
+            "-sS",
+            "-L",
+            "--connect-timeout", "2",
+            "--max-time", "4",
+            "-H", "Accept: application/vnd.github+json",
+            "-H", "X-GitHub-Api-Version: 2022-11-28",
+        ]
+
+        // If user has a token in environment, forward it for private repos /
+        // higher rate limits. Fallback remains unauthenticated for public repos.
+        let environment = ProcessInfo.processInfo.environment
+        if let token = environment["GH_TOKEN"] ?? environment["GITHUB_TOKEN"],
+            !token.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+        {
+            args.append(contentsOf: ["-H", "Authorization: Bearer \(token)"])
+        }
+
+        args.append(requestURL.absoluteString)
+
+        guard let output = await run(command: "curl", args: args) else { return nil }
+        if let count = parsePullRequestArrayCount(from: output) {
+            return count
+        }
+        logger.warning(
+            "GitHub REST PR response parse failed for repo=\(repoSlug, privacy: .public) head=\(headRef, privacy: .public)"
+        )
+        return nil
+    }
+
+    private static func parsePullRequestArrayCount(from output: String) -> Int? {
         guard let data = output.data(using: .utf8) else { return nil }
         guard let array = try? JSONSerialization.jsonObject(with: data) as? [[String: Any]] else { return nil }
         return array.count

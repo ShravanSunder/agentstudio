@@ -788,7 +788,34 @@ class PaneTabViewController: NSViewController, CommandHandler {
         else {
             return
         }
+
+        let targetTabIndex = userInfo["targetTabIndex"] as? Int
+
+        // Single-pane tabs cannot extract; treat tab-bar pane drag as tab reorder
+        // so "single pane move ability" still works.
+        if let sourceTab = store.tab(tabId),
+            sourceTab.paneIds.count == 1
+        {
+            if let targetTabIndex {
+                store.moveTab(fromId: tabId, toIndex: targetTabIndex)
+                store.setActiveTab(tabId)
+            }
+            return
+        }
+
+        let tabCountBefore = store.tabs.count
         dispatchAction(.extractPaneToTab(tabId: tabId, paneId: paneId))
+
+        // For tab-bar drops, place the newly extracted tab at the drop insertion index.
+        guard let targetTabIndex,
+            store.tabs.count == tabCountBefore + 1,
+            let extractedTabId = store.activeTabId
+        else {
+            return
+        }
+
+        store.moveTab(fromId: extractedTabId, toIndex: targetTabIndex)
+        store.setActiveTab(extractedTabId)
     }
 
     private func handleMovePaneToTabRequested(_ notification: Notification) {

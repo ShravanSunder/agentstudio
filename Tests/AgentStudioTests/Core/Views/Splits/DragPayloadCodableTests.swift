@@ -42,6 +42,26 @@ final class DragPayloadCodableTests {
         // Assert
         #expect(decoded.paneId == paneId)
         #expect(decoded.tabId == tabId)
+        #expect((decoded.drawerParentPaneId) == nil)
+    }
+
+    @Test
+    func test_paneDragPayload_withDrawerParent_roundTrip() throws {
+        let paneId = UUID()
+        let tabId = UUID()
+        let parentPaneId = UUID()
+        let original = PaneDragPayload(
+            paneId: paneId,
+            tabId: tabId,
+            drawerParentPaneId: parentPaneId
+        )
+
+        let data = try JSONEncoder().encode(original)
+        let decoded = try JSONDecoder().decode(PaneDragPayload.self, from: data)
+
+        #expect(decoded.paneId == paneId)
+        #expect(decoded.tabId == tabId)
+        #expect(decoded.drawerParentPaneId == parentPaneId)
     }
 
     // MARK: - SplitDropPayload

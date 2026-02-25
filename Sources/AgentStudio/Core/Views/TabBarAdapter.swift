@@ -146,9 +146,7 @@ final class TabBarAdapter {
         let storeTabs = store.tabs
 
         tabs = storeTabs.map { tab in
-            let paneTitles = tab.paneIds.compactMap { paneId in
-                store.pane(paneId)?.title
-            }
+            let paneTitles = tab.paneIds.map { paneDisplayTitle(for: $0) }
             let displayTitle =
                 paneTitles.count > 1
                 ? paneTitles.joined(separator: " | ")
@@ -160,7 +158,7 @@ final class TabBarAdapter {
             let paneInfos: [TabBarPaneInfo] = tab.paneIds.map { paneId in
                 TabBarPaneInfo(
                     id: paneId,
-                    title: store.pane(paneId)?.title ?? "Terminal",
+                    title: paneDisplayTitle(for: paneId),
                     isMinimized: tab.minimizedPaneIds.contains(paneId)
                 )
             }
@@ -195,6 +193,23 @@ final class TabBarAdapter {
             activeTabId = tabs.last?.id
         }
         updateOverflow()
+    }
+
+    private func paneDisplayTitle(for paneId: UUID) -> String {
+        guard let pane = store.pane(paneId) else { return "Terminal" }
+        let rawTitle = pane.title.trimmingCharacters(in: .whitespacesAndNewlines)
+        let isGenericTitle =
+            rawTitle.isEmpty || rawTitle.localizedCaseInsensitiveCompare("Terminal") == .orderedSame
+            || rawTitle.localizedCaseInsensitiveCompare("Drawer") == .orderedSame
+
+        if isGenericTitle,
+            let cwdName = pane.metadata.cwd?.lastPathComponent,
+            !cwdName.isEmpty
+        {
+            return cwdName
+        }
+
+        return rawTitle.isEmpty ? "Terminal" : rawTitle
     }
 
     private func updateOverflow() {
