@@ -6,7 +6,7 @@
 
 ## TL;DR
 
-One `actor EventBus` on cooperative pool. Boundary actors for filesystem/network. `@MainActor` runtimes for `@Observable` state. `@Observable` for UI binding, bus for coordination — same event, multiplexed. `@concurrent` for heavy one-shot per-pane work (scrollback search, artifact extraction, diff computation). Swift 6.2 / macOS 26.
+One `actor EventBus` on cooperative pool. Domain boundary actors (FilesystemActor, ForgeActor, ContainerActor) for off-MainActor work — each owns its transport internally. `@MainActor` runtimes for `@Observable` state. `@Observable` for UI binding, bus for coordination — same event, multiplexed. `@concurrent` for heavy one-shot per-pane work. No core actor calls another core actor. Plugin sources are actors with injected `PluginContext` for mediated bus access (deferred). Swift 6.2 / macOS 26.
 
 ## Why This Exists
 
@@ -16,7 +16,7 @@ Four problems drive this design:
 
 1. **Multi-subscriber coordination.** Reducer, coordinator, and future analytics all need the same events. A single `AsyncStream` with one consumer doesn't broadcast. The bus provides fan-out: one `post()`, N independent subscriber streams.
 
-2. **Off-MainActor producers.** Filesystem watchers (FSEvents + git status), network services (forge polling, container health), and future plugin hosts do real work — 1ms to 100ms+ — that shouldn't block the UI thread. Boundary actors own this work and post enriched envelopes to the bus.
+2. **Off-MainActor producers.** Filesystem watchers (FSEvents + git status), forge integrations (PR polling, checks), container health monitors, and future plugin hosts do real work — 1ms to 100ms+ — that shouldn't block the UI thread. Domain boundary actors own this work and post enriched envelopes to the bus.
 
 3. **One-way data flow.** Events flow producers → bus → subscribers. Commands flow user/system → coordinator → runtime. These never share the same channel. The bus carries events only.
 
@@ -55,17 +55,17 @@ Each contract (C1-C16) has a specific relationship to the EventBus:
                            PRODUCERS
     ─────────────────────────────────────────────────────
 
-    BOUNDARY 1              BOUNDARY 2              BOUNDARY 3
-    Terminal/FFI            Filesystem/CLI          Network/Plugin
-    (~100ns translate)      (~1-100ms work)         (~100ms+ I/O)
+    BOUNDARY 1              BOUNDARY 2              BOUNDARY 3            BOUNDARY 4
+    Terminal/FFI            Filesystem/Git          Forge                 Container (deferred)
+    (~100ns translate)      (~1-100ms work)         (~100ms-2s I/O)       (~100ms+ I/O)
 
-    C callback              FSEvents callback       HTTP polling
-    → @Sendable trampoline  → actor Filesystem      → actor Network
-    → MainActor translate   → debounce + git status → parse + enrich
-    → runtime.emit()        → bus.post(envelope)    → bus.post(envelope)
-         │                        │                       │
-         │ bus.post(envelope)     │                       │
-         ▼                        ▼                       ▼
+    C callback              FSEvents callback       gh CLI / HTTP         HTTP / Docker API
+    → @Sendable trampoline  → FilesystemActor       → ForgeActor          → ContainerActor
+    → MainActor translate   → debounce + git status → poll PR / checks    → poll health
+    → runtime.emit()        → bus.post(envelope)    → bus.post(envelope)  → bus.post(envelope)
+         │                        │                       │                     │
+         │ bus.post(envelope)     │                       │                     │
+         ▼                        ▼                       ▼                     ▼
     ┌─────────────────────────────────────────────────────────────┐
     │               actor EventBus<PaneEventEnvelope>             │
     │                    (cooperative pool)                        │
@@ -87,7 +87,12 @@ Each contract (C1-C16) has a specific relationship to the EventBus:
     ─────────────────────────────────────────────────────
 ```
 
-Actor count: 3 named actors (EventBus, FilesystemActor, NetworkActor) plus `@MainActor`. Ghostty C callback translation does NOT need its own actor — the work is ~100ns (enum match + struct init), far below the actor hop cost threshold.
+**Actor inventory (final):** 4 named actors (EventBus, FilesystemActor, ForgeActor, ContainerActor) plus `@MainActor`. No core actor calls another core actor — all cross-actor communication flows through the EventBus. Ghostty C callback translation does NOT need its own actor — the work is ~100ns (enum match + struct init), far below the actor hop cost threshold. Git CLI write commands (commit, push, stash) are stateless request-response via ProcessExecutor — no actor needed. Shared infrastructure (URLSession, ProcessExecutor) is injected utilities, not actors.
+
+**What we dropped:**
+- ~~NetworkActor~~ — transport is an implementation detail of domain actors, not an actor boundary. ForgeActor uses ProcessExecutor or URLSession internally; FilesystemActor shells to git. Each domain actor owns its own I/O.
+- ~~ProcessActor~~ — same reasoning. ProcessExecutor is a shared utility injected into actors that need CLI execution.
+- ~~ExternalEventSource protocol~~ — premature abstraction. Plugin source contracts are deferred to the plugin system design.
 
 ## The Multiplexing Rule
 
@@ -183,8 +188,9 @@ Events from boundary actors. Real work (filesystem scanning, network I/O) justif
 | `branchChanged` | `FilesystemActor` | 1-10ms | Rare | Yes |
 | `diffAvailable` | `FilesystemActor` | 10-100ms (diff compute) | After git status | Yes |
 | `securityEvent` | Security backend | Varies | Rare | Yes |
-| Future: `prStatusChanged` | `NetworkActor` (forge) | 100ms+ (API call) | Polling interval | Yes |
-| Future: `containerHealthChanged` | `NetworkActor` | 100ms+ (API call) | Polling interval | Yes |
+| Future: `prStatusChanged` | `ForgeActor` | 100ms-2s (`gh` CLI or HTTP) | Polling ~30-60s | Yes |
+| Future: `checksUpdated` | `ForgeActor` | 100ms-2s (`gh` CLI or HTTP) | Polling ~30-60s | Yes |
+| Future: `containerHealthChanged` | `ContainerActor` | 100ms+ (Docker API / HTTP) | Polling ~5-10s | Yes |
 
 ### Category 5: Lifecycle Events (bus — rare, benefit from fan-out)
 
@@ -241,19 +247,24 @@ actor EventBus<Envelope: Sendable> {
 
 ### `actor FilesystemActor` (future — LUNA-349)
 
-One instance per worktree. Owns FSEvents subscription, debounce logic, git status computation, and diff production. Posts enriched `PaneEventEnvelope` to EventBus.
+App-wide singleton, keyed by worktree internally. Monitors all repos via FSEvents, owns debounce logic, git status computation, and diff production per worktree. Posts enriched `PaneEventEnvelope` to EventBus.
+
+**Why app-wide, not per-worktree:** One FSEvents stream can monitor multiple paths efficiently. Per-worktree actors would multiply actor hop overhead and complicate lifecycle management (create/destroy actors as worktrees appear/disappear). Internal keying gives the same isolation semantics without the actor overhead.
 
 ```swift
-/// Per-worktree filesystem observation. Owns the expensive work
-/// that justifies an actor boundary: FSEvents → debounce → git status → diff.
+/// App-wide filesystem observation, keyed by worktree internally.
+/// Owns the expensive work that justifies an actor boundary:
+/// FSEvents → debounce → git status → diff.
 ///
 /// The actor boundary is justified because git status + diff compute
 /// takes 1-100ms — well above the ~20μs break-even for actor hop cost.
 actor FilesystemActor {
-    private let worktreeId: WorktreeId
-    private let worktreePath: URL
+    private var worktrees: [WorktreeId: WorktreeState] = [:]
     private let bus: EventBus<PaneEventEnvelope>
     private let clock: any Clock<Duration>
+
+    func register(worktree: WorktreeId, path: URL) { ... }
+    func unregister(worktree: WorktreeId) { ... }
 
     /// Heavy inner work runs on cooperative pool via @concurrent nonisolated.
     /// nonisolated is required: actor methods inherit actor isolation by default,
@@ -277,9 +288,80 @@ actor FilesystemActor {
 }
 ```
 
-### `actor NetworkActor` (future)
+### `actor ForgeActor` (future)
 
-Forge API polling, container health checks. 100ms+ network I/O justifies actor isolation. Posts to EventBus.
+App-wide singleton, keyed by repo internally. Owns git forge domain: PR status, checks, reviews, merge readiness. **Transport-agnostic** — uses `ProcessExecutor` (`gh` CLI) or `URLSession` (direct API) internally, whichever fits. The actor boundary is the domain, not the transport.
+
+**Why separate from FilesystemActor:** Different I/O profile (network/CLI vs filesystem), different auth model (OAuth tokens vs none), different failure modes (rate limits vs disk errors), different state shape (per-repo vs per-worktree).
+
+**Plugin extensibility (deferred):** When users have their own forge (GitLab, Bitbucket, self-hosted), ForgeActor becomes the integration point. Plugin-provided forge adapters conform to a protocol; ForgeActor dispatches to the right adapter per repo remote URL.
+
+```swift
+/// App-wide forge API actor, keyed by repo internally.
+/// Polls PR/checks status and posts state changes to the EventBus.
+///
+/// Transport-agnostic: uses ProcessExecutor (gh CLI) today,
+/// URLSession (direct HTTP) later, or both per-repo.
+/// The actor boundary is the forge DOMAIN, not the transport.
+actor ForgeActor {
+    private var repoState: [RepoId: ForgeRepoState] = [:]
+    private let processExecutor: ProcessExecutor  // injected utility
+    private let bus: EventBus<PaneEventEnvelope>
+    private let clock: any Clock<Duration>
+
+    func register(repo: RepoId, remote: URL) { ... }
+    func unregister(repo: RepoId) { ... }
+
+    /// Self-driven polling loop — no inbound stream needed.
+    func startPolling() async {
+        for await _ in clock.timer(interval: .seconds(30)) {
+            for (repo, state) in repoState {
+                let status = await Self.fetchPRStatus(
+                    repo, using: processExecutor
+                )
+                if status != state.prStatus {
+                    repoState[repo]?.prStatus = status
+                    await bus.post(PaneEventEnvelope(
+                        source: .system(.builtin(.forge)),
+                        event: .forge(.prStatusChanged(repo, status))
+                    ))
+                }
+            }
+        }
+    }
+
+    /// On-demand refresh (e.g., after git push completes).
+    func refresh(repo: RepoId) async { ... }
+
+    @concurrent
+    nonisolated private static func fetchPRStatus(
+        _ repo: RepoId, using executor: ProcessExecutor
+    ) async -> PRStatus {
+        // gh pr view --json state,checks,reviews ...
+        // or direct HTTP to GitHub API
+        // 100ms-2s of I/O
+    }
+}
+```
+
+### `actor ContainerActor` (future, deferred)
+
+Per-terminal actor for container lifecycle management during agent execution. Docker API, devcontainer status, resource usage. Different auth, cadence (~5-10s), and state shape (per-terminal) from ForgeActor. Created when a terminal enters container-backed execution mode; destroyed when the terminal exits it.
+
+### Git CLI Write Commands — No Actor
+
+Git mutations (`git commit`, `git stash`, `git push`, `git checkout`) are **stateless request-response**. They go through the existing command dispatch path:
+
+```
+User action → PaneCoordinator → ProcessExecutor → git commit → result
+```
+
+No ongoing state = no actor. ProcessExecutor already offloads to `DispatchQueue.global()`. The feedback loop is natural:
+
+- **Local mutations** (commit, stash, checkout): FSEvents fires → FilesystemActor picks up → recomputes git status → `bus.post()` → consumers see updated state.
+- **Remote mutations** (push): Coordinator signals `ForgeActor.refresh(repo:)` → ForgeActor re-polls PR status → `bus.post()` if changed.
+
+The command doesn't post to the bus directly — the reactive system handles fanout.
 
 ### `@MainActor` (existing, unchanged)
 
@@ -362,11 +444,14 @@ Two one-way channels. They never share infrastructure.
 ```
 EVENTS (one-way, producers → bus → consumers):
 
-  Runtimes (@MainActor)          Boundary actors              Future sources
-  ├── TerminalRuntime            ├── FilesystemActor          ├── NetworkActor
-  ├── BridgeRuntime              │   (FSEvents, git status,   │   (forge polling,
-  ├── WebviewRuntime             │    diff compute)            │    container health)
-  └── SwiftPaneRuntime           └── SecurityBackend          └── Plugin hosts
+  Runtimes (@MainActor)          Domain actors                 Deferred sources
+  ├── TerminalRuntime            ├── FilesystemActor          ├── ContainerActor
+  ├── BridgeRuntime              │   (app-wide, keyed by       │   (per-terminal)
+  ├── WebviewRuntime             │    worktree; FSEvents,      ├── Plugin actors
+  └── SwiftPaneRuntime           │    git status, diff)        │   (per-plugin, mediated)
+                                 ├── ForgeActor               └── SecurityBackend
+                                 │   (app-wide, keyed by
+                                 │    repo; PR, checks, reviews)
          │                              │                           │
          └──────────────────────────────┼───────────────────────────┘
                                         │
@@ -483,20 +568,40 @@ Every edge in the architecture uses one of four patterns. The choice is mechanic
 
 Same pattern applies to BridgeRuntime, WebviewRuntime, SwiftPaneRuntime — transport differs but connection patterns are identical.
 
-#### FilesystemActor (future, LUNA-349)
+#### FilesystemActor (app-wide singleton, future — LUNA-349)
 
 | Direction | Connection | Pattern | Why |
 |-----------|-----------|---------|-----|
 | **In** | FSEvents callback → actor | **AsyncStream** | FSEvents fires rapid bursts (50 paths in 2s). Stream provides buffering, composes with `.debounce()`. |
-| **Internal** | Debounce → `@concurrent` git status/diff | Direct call (await) | Structured concurrency inside actor. One batch in, one result out. |
+| **In** | `register(worktree:path:)` / `unregister(worktree:)` | Direct call | Coordinator manages worktree registration lifecycle. |
+| **Internal** | Debounce → `@concurrent` git status/diff (per worktree key) | Direct call (await) | Structured concurrency inside actor. One batch in, one result out. |
 | **Out** | `await bus.post(enrichedEnvelope)` | Direct call to bus | Same as every other producer. |
 
-#### NetworkActor (future)
+#### ForgeActor (app-wide singleton, future)
 
 | Direction | Connection | Pattern | Why |
 |-----------|-----------|---------|-----|
-| **In** | Timer-driven polling | No stream needed | Actor owns its own polling loop. No external producer. |
+| **In** | Timer-driven polling (`clock.timer(interval:)`) | No stream needed | Actor owns its own polling loop (~30-60s). No external producer. |
+| **In** | `register(repo:remote:)` / `unregister(repo:)` | Direct call | Coordinator manages repo registration. |
+| **In** | On-demand refresh (after `git push`) | Direct call from coordinator | `await forgeActor.refresh(repo:)` — known target, request-response. |
+| **Internal** | `@concurrent nonisolated` via ProcessExecutor or URLSession | Direct call (await) | Transport-agnostic I/O. One request, one response. |
+| **Out** | `await bus.post(envelope)` | Direct call to bus | Same pattern as every other producer. |
+
+#### ContainerActor (per-terminal, deferred)
+
+| Direction | Connection | Pattern | Why |
+|-----------|-----------|---------|-----|
+| **In** | Timer-driven polling (~5-10s) | No stream needed | Actor owns its polling loop. |
 | **Out** | `await bus.post(envelope)` | Direct call to bus | Same pattern. |
+
+#### Plugin Actor (per-plugin, deferred)
+
+Each plugin is its own actor. It receives a `PluginContext` struct at registration that mediates bus access.
+
+| Direction | Connection | Pattern | Why |
+|-----------|-----------|---------|-----|
+| **In** | `for await envelope in context.events` | **AsyncStream** (pre-filtered from bus) | Sink role — `PluginContext` subscribes to bus, filters to manifest-declared event types. |
+| **Out** | `context.post(event)` → validates → `bus.post(envelope)` | Direct call (mediated by context) | Source role — context validates event type against manifest, checks rate limit, stamps `.plugin(id)` source. |
 
 #### GhosttyAdapter (@MainActor)
 
@@ -671,7 +776,9 @@ ANY PRODUCER → BUS (inbound post):
 
   TerminalRuntime ──► await bus.post(envelope)   direct call
   FilesystemActor ──► await bus.post(envelope)   direct call
-  NetworkActor    ──► await bus.post(envelope)   direct call
+  ForgeActor      ──► await bus.post(envelope)   direct call
+  ContainerActor  ──► await bus.post(envelope)   direct call
+  Plugin actor    ──► context.post() → bus.post() mediated via PluginContext
   CheckpointActor ──► await bus.post(envelope)   direct call
 ```
 
@@ -808,13 +915,17 @@ If a sink+source needs to transform events for a different audience (e.g., Check
 
 Concrete list of what runs where, with Swift 6.2 keywords:
 
-| Isolation | What Runs Here | Swift 6.2 Keyword |
-|-----------|----------------|-------------------|
-| `@MainActor` | Runtimes, stores, coordinator, views, reducer, ViewRegistry | `@MainActor` on class/func |
-| `actor EventBus` | Subscriber management, fan-out | `actor` (cooperative pool) |
-| `actor FilesystemActor` | FSEvents, debounce, git status, diff (future) | `actor` (cooperative pool) |
-| `actor NetworkActor` | Forge polling, container health (future) | `actor` (cooperative pool) |
-| Cooperative pool (anonymous) | Heavy per-pane one-shot work (search, parse, extract, hash) | `@concurrent nonisolated` on static func |
+| Isolation | Scope | What Runs Here | Swift 6.2 Keyword |
+|-----------|-------|----------------|-------------------|
+| `@MainActor` | App-wide | Runtimes, stores, coordinator, views, reducer, ViewRegistry | `@MainActor` on class/func |
+| `actor EventBus` | App-wide singleton | Subscriber management, fan-out | `actor` (cooperative pool) |
+| `actor FilesystemActor` | App-wide singleton (keyed by worktree) | FSEvents, debounce, git status, diff (future) | `actor` (cooperative pool) |
+| `actor ForgeActor` | App-wide singleton (keyed by repo) | Forge PR status, checks, reviews (future) | `actor` (cooperative pool) |
+| `actor ContainerActor` | Per-terminal (deferred) | Container health, devcontainer status | `actor` (cooperative pool) |
+| Plugin actors | Per-plugin (deferred) | Plugin domain work; bus access mediated via `PluginContext` struct | `actor` (cooperative pool) |
+| Cooperative pool (anonymous) | Per-call | Heavy per-pane one-shot work (search, parse, extract, hash) | `@concurrent nonisolated` on static func |
+
+**Constraint:** No core actor calls another core actor directly. All cross-actor communication flows through the EventBus. Domain actors post events to the bus; `@MainActor` consumers subscribe from the bus. This prevents hidden coupling and makes the event flow auditable.
 
 ### Swift 6.2 concurrency rules (SE-0461)
 
@@ -905,8 +1016,10 @@ FSEvents callback (arbitrary thread)
 | Ghostty event work | ~1μs | Enum match + struct init |
 | EventBus overhead per event | ~4-18μs (2-3 hops) | Acceptable: 0.1% of frame |
 | Boundary actor justified when | work > ~20μs | Hop cost amortized by real work |
-| FilesystemActor work | 1,000-100,000μs | Strongly justified |
-| NetworkActor work | 100,000μs+ | Strongly justified |
+| FilesystemActor work | 1,000-100,000μs | Strongly justified (app-wide, keyed by worktree) |
+| ForgeActor work | 100,000-2,000,000μs (100ms-2s) | Strongly justified (app-wide, keyed by repo) |
+| ContainerActor work | 100,000μs+ | Strongly justified (per-terminal, deferred) |
+| PluginContext validation | ~1-10μs (type check + rate limit) | Trivial vs plugin work; struct method, no actor hop |
 | Ghostty translation work | ~0.1μs | NOT justified — stay on MainActor |
 
 ## Jank Risk Assessment
@@ -934,9 +1047,103 @@ Incremental, each step independently shippable:
 
 4. **Add `actor FilesystemActor`** when FSEvents watcher ships (LUNA-349). First real boundary actor. Posts enriched envelopes with `source = .system(.builtin(.filesystemWatcher))`.
 
-5. **Add `actor NetworkActor`** when forge/container services ship. Second boundary actor. Same posting pattern.
+5. **Add `actor ForgeActor`** when forge integration ships. App-wide singleton, keyed by repo. Uses ProcessExecutor (`gh` CLI) or URLSession (direct API) as transport internally. Posts enriched envelopes with `source = .system(.builtin(.forge))`.
 
-6. **Migrate heavy per-pane work to `@concurrent`** as it appears. Scrollback search, artifact extraction, log parsing — each gets a `@concurrent static func` instead of inline MainActor processing. The D1 processing budget guidance in pane_runtime_architecture.md reflects this pattern.
+6. **Add `actor ContainerActor`** (per-terminal) when container/agent execution ships. Polls Docker API / devcontainer status.
+
+7. **Migrate heavy per-pane work to `@concurrent`** as it appears. Scrollback search, artifact extraction, log parsing — each gets a `@concurrent nonisolated static func` instead of inline MainActor processing. The D1 processing budget guidance in pane_runtime_architecture.md reflects this pattern.
+
+8. **Add plugin integration** when plugin system ships. Each plugin is its own actor with injected `PluginContext` for mediated bus access. See [Plugin Integration Model](#plugin-integration-model-deferred).
+
+## Plugin Integration Model (Deferred)
+
+Plugin sources, sinks, and projections participate in the EventBus through a **mediated actor boundary**. The plugin never touches the bus directly.
+
+### Mental Model
+
+A plugin is ONE thing — a single Swift package. Roles (source, sink, projection) emerge from behavior, declared in a manifest for the host to enforce. A developer doesn't think "I'm writing a source" — they think "I'm writing a Linear integration." If it posts events, it's a source. If it handles events, it's a sink. If it does both and projects derived state, it's a projection.
+
+### Architecture
+
+```
+┌──────────────────────────────────────────────────────────┐
+│  App Process                                              │
+│                                                           │
+│  ┌─────────────────────────────────────────────────────┐ │
+│  │  PluginHost (per-plugin actor)                      │ │
+│  │                                                     │ │
+│  │  Manifest    ← declared capabilities (ceiling)      │ │
+│  │  RateLimiter ← prevents abuse                       │ │
+│  │  Watchdog    ← detects hangs, triggers recovery     │ │
+│  │                                                     │ │
+│  │  ┌───────────────────────────────────────────────┐  │ │
+│  │  │  Mediated Bus Interface                       │  │ │
+│  │  │  post() → validate type + rate → bus.post()   │  │ │
+│  │  │  events → pre-filtered stream from bus        │  │ │
+│  │  └───────────────────────────────────────────────┘  │ │
+│  └────────────────────────┬────────────────────────────┘ │
+│                            │                              │
+│              ┌─────────────┼────────────┐                 │
+│              ▼             ▼            ▼                  │
+│         EventBus       Stores      Runtimes               │
+└──────────────────────────────────────────────────────────┘
+```
+
+### Isolation: Actor Boundary
+
+Plugins run in-process inside a `PluginHost` actor. The actor boundary provides concurrency safety. If plugin code throws, the host catches the error, logs a diagnostic, and disables the plugin. The app continues.
+
+**Why actor isolation:** Most plugins are first-party or trusted community. Actor boundaries provide concurrency safety with zero IPC overhead. Plugin code runs in structured concurrency under the host's task tree — cancellation propagates cleanly on disable or error.
+
+### Capability Model
+
+The manifest declares what the plugin can do. The `PluginHost` mints capability tokens at load time based on manifest + user approval.
+
+```swift
+let manifest = PluginManifest(
+    name: "Linear",
+    capabilities: [
+        .produces([.integration(.issueStatusChanged)]),
+        .consumes([.lifecycle(.paneClosed), .terminal(.commandFinished)]),
+    ],
+    resources: .network
+)
+```
+
+- A source-only plugin gets `post()` but no event stream
+- A sink-only plugin gets an event stream but no `post()`
+- A projection gets both, validated in both directions
+- The `PluginHost` sets `source: .plugin(pluginId)` on outbound envelopes — unforgeable by the plugin
+
+### PluginContext: The Narrow Interface
+
+The plugin sees `PluginContext`, not the bus. This is the mediated gateway.
+
+```swift
+protocol PluginContext: Sendable {
+    func post(_ event: PluginEvent)                    // source capability
+    var events: AsyncStream<PaneEventEnvelope> { get } // sink capability (pre-filtered)
+    var clock: any Clock<Duration> { get }             // testable time
+    // No direct bus, no stores, no coordinator, no runtimes
+}
+```
+
+### Safety Invariants
+
+1. **No direct bus access** — plugin never holds a reference to `EventBus`
+2. **Declared capabilities are the ceiling** — can't escalate at runtime
+3. **Source identity is unforgeable** — `.plugin(id)` set by host, not plugin
+4. **Rate limits enforced by host** — excess posts dropped with diagnostic
+5. **Backpressure is per-plugin** — if plugin's consumer falls behind, only its buffer fills; other bus subscribers unaffected
+6. **Watchdog is mandatory** — no heartbeat within N seconds → cancel plugin task + restart with backoff
+
+### What's Deferred
+
+- Exact `PluginManifest` schema
+- Plugin discovery and loading mechanism
+- User approval UI for capabilities
+- Plugin versioning and compatibility
+- Forge adapter protocol (how ForgeActor dispatches to plugin-provided forge implementations)
 
 ## Implementation Migration Inventory
 
@@ -1016,3 +1223,6 @@ These methods don't need MainActor isolation — they take immutable input and r
 7. Avoid `MainActor.run` in common architecture paths (exception: hopping TO MainActor from non-main isolated context)
 8. Coordinator remains sequencing-only (no domain logic in fan-out paths)
 9. `@Observable` mutations happen synchronously on MainActor before bus posting (UI never lags behind coordination)
+10. No core actor calls another core actor — all cross-actor communication flows through EventBus
+11. Domain actors own their transport (no NetworkActor, no ProcessActor — shared infra is injected utilities)
+12. Plugin events carry unforgeable `.plugin(id)` source set by PluginHost, not by plugin code
