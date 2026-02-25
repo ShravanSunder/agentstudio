@@ -56,7 +56,6 @@ AgentStudio.app/
 *.profraw
 .claude/settings.local.json
 .claude/ralph-loop.local.md
-docs/plans
 arm64-apple-macosx/
 checkouts/
 repositories/

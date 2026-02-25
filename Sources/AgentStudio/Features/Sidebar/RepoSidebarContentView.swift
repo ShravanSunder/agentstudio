@@ -513,24 +513,20 @@ struct RepoSidebarContentView: View {
                 }
             }
         )
-        let expectedFingerprint = reposFingerprint
 
         metadataReloadTask = Task {
             // Defer initial sidebar metadata refresh until after the first List
             // layout pass to avoid NSTableView delegate reentrancy during startup.
             try? await Task.sleep(for: .milliseconds(120))
             guard !Task.isCancelled else { return }
-            guard expectedFingerprint == reposFingerprint else { return }
 
             let initialSnapshot = await GitRepositoryInspector.metadataAndStatus(for: loadInput)
             guard !Task.isCancelled else { return }
-            guard expectedFingerprint == reposFingerprint else { return }
 
             // Avoid mutating SwiftUI List-backed state in the same turn as
             // AppKit table delegate callbacks (can trigger reentrant warnings).
             await Task.yield()
             guard !Task.isCancelled else { return }
-            guard expectedFingerprint == reposFingerprint else { return }
 
             repoMetadataById = initialSnapshot.metadataByRepoId
             worktreeStatusById = initialSnapshot.statusByWorktreeId
@@ -538,13 +534,11 @@ struct RepoSidebarContentView: View {
             // Stage PR metadata after first paint so startup remains responsive.
             let prCounts = await GitRepositoryInspector.prCounts(for: loadInput.worktrees)
             guard !Task.isCancelled else { return }
-            guard expectedFingerprint == reposFingerprint else { return }
             guard !prCounts.isEmpty else { return }
 
             // Same reentrancy guard for incremental row updates.
             await Task.yield()
             guard !Task.isCancelled else { return }
-            guard expectedFingerprint == reposFingerprint else { return }
 
             for (worktreeId, prCount) in prCounts {
                 guard let status = worktreeStatusById[worktreeId] else { continue }
