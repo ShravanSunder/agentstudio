@@ -489,10 +489,22 @@ enum GitRepositoryInspector {
                     cwd: nil,
                     environment: nil
                 )
-                guard result.succeeded else { continue }
+                guard result.succeeded else {
+                    if command == "gh" {
+                        logger.warning(
+                            "gh command failed: executable=\(executable, privacy: .public) args=\(args.joined(separator: " "), privacy: .public) stderr=\(result.stderr, privacy: .public)"
+                        )
+                    }
+                    continue
+                }
                 let trimmed = result.stdout.trimmingCharacters(in: .whitespacesAndNewlines)
                 return trimmed.isEmpty ? nil : trimmed
             } catch {
+                if command == "gh" {
+                    logger.warning(
+                        "gh command threw: executable=\(executable, privacy: .public) args=\(args.joined(separator: " "), privacy: .public) error=\(error.localizedDescription, privacy: .public)"
+                    )
+                }
                 continue
             }
         }
@@ -551,6 +563,10 @@ enum GitRepositoryInspector {
         let inheritedPath = env["PATH"]?.trimmingCharacters(in: .whitespacesAndNewlines)
         let basePath = (inheritedPath?.isEmpty == false) ? inheritedPath! : "/usr/bin:/bin:/usr/sbin:/sbin"
         env["PATH"] = "/opt/homebrew/bin:/usr/local/bin:\(basePath)"
+        let inheritedHome = env["HOME"]?.trimmingCharacters(in: .whitespacesAndNewlines)
+        if inheritedHome?.isEmpty != false {
+            env["HOME"] = FileManager.default.homeDirectoryForCurrentUser.path
+        }
         process.environment = env
 
         let stdout = Pipe()

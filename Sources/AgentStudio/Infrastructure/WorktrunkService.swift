@@ -237,6 +237,10 @@ final class WorktrunkService: Sendable {
         let inheritedPath = environment["PATH"]?.trimmingCharacters(in: .whitespacesAndNewlines)
         let basePath = (inheritedPath?.isEmpty == false) ? inheritedPath! : "/usr/bin:/bin:/usr/sbin:/sbin"
         environment["PATH"] = "/opt/homebrew/bin:/usr/local/bin:\(basePath)"
+        let inheritedHome = environment["HOME"]?.trimmingCharacters(in: .whitespacesAndNewlines)
+        if inheritedHome?.isEmpty != false {
+            environment["HOME"] = FileManager.default.homeDirectoryForCurrentUser.path
+        }
         process.environment = environment
 
         let outputPipe = Pipe()
