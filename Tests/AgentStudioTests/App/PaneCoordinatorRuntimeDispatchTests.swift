@@ -196,7 +196,9 @@ struct PaneCoordinatorRuntimeDispatchTests {
 
         let fakeRuntime = FakePaneRuntime(paneId: PaneId(uuid: pane.id))
         fakeRuntime.capabilities = [.diffReview]
-        fakeRuntime.metadata.worktreeId = UUID(uuidString: "00000000-0000-0000-0000-000000000001")
+        var facets = fakeRuntime.metadata.facets
+        facets.worktreeId = UUID(uuidString: "00000000-0000-0000-0000-000000000001")
+        fakeRuntime.metadata.updateFacets(facets)
         coordinator.registerRuntime(fakeRuntime)
 
         let artifact = DiffArtifact(

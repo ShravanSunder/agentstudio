@@ -313,7 +313,7 @@ final class WorkspaceStore {
             storeLogger.warning("updatePaneTitle: pane \(paneId) not found")
             return
         }
-        panes[paneId]!.metadata.title = title
+        panes[paneId]!.metadata.updateTitle(title)
         markDirty()
     }
 
@@ -323,7 +323,7 @@ final class WorkspaceStore {
             return
         }
         guard panes[paneId]!.metadata.facets.cwd != cwd else { return }
-        panes[paneId]!.metadata.facets.cwd = cwd
+        panes[paneId]!.metadata.updateCWD(cwd)
         markDirty()
     }
 
@@ -332,7 +332,7 @@ final class WorkspaceStore {
             storeLogger.warning("updatePaneAgent: pane \(paneId) not found")
             return
         }
-        panes[paneId]!.metadata.agentType = agent
+        panes[paneId]!.metadata.updateAgentType(agent)
         markDirty()
     }
 

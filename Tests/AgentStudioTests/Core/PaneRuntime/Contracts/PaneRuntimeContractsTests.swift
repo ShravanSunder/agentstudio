@@ -27,6 +27,7 @@ struct PaneRuntimeContractsTests {
     func paneMetadataRelocation() {
         let metadata = PaneMetadata(source: .floating(workingDirectory: nil, title: "X"), title: "X")
         #expect(metadata.title == "X")
+        #expect(metadata.paneId.isV7)
         #expect(metadata.contentType == .terminal)
         #expect(metadata.executionBackend == .local)
         #expect(metadata.createdAt.timeIntervalSince1970 > 0)

@@ -76,6 +76,7 @@ Command Bar → CommandDispatcher.dispatch() → CommandHandler
 |----------|--------|
 | [Component Architecture](component_architecture.md) | Data model, service layer, command bar, data flow, persistence, invariants |
 | [Pane Runtime Architecture](pane_runtime_architecture.md) | Pane runtime contracts (1-16), event taxonomy, priority system, adapter/runtime/coordinator layers, filesystem batching, attach readiness (5a), restart reconcile (5b), visibility-tier scheduling (12a), Ghostty action coverage (7a), RuntimeCommand dispatch (10), source/sink/projection vocabulary, agent harness model, directory placement, migration path |
+| [Pane Runtime Option 2 Design](pane_runtime_option2_design.md) | Proposed background-ingestion + MainActor-coordination split for pane/system/plugin events; facets propagation and tradeoffs vs Options 1/3 |
 | [Window System Design](window_system_design.md) | Window/tab/pane/drawer data model, dynamic views, arrangements, orphaned pane pool, ownership invariants |
 | [Session Lifecycle](session_lifecycle.md) | Pane identity contract, creation, close, undo, restore, runtime status, zmx backend |
 | [Zmx Restore and Sizing](zmx_restore_and_sizing.md) | Deferred attach sequencing, geometry readiness, restart reconcile policy, and zmx restore/sizing test coverage |

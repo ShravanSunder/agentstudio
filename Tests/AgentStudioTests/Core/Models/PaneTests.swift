@@ -339,6 +339,37 @@ final class PaneTests {
         }
     }
 
+    @Test
+
+    func test_decode_withMismatchedMetadataPaneId_throws() throws {
+        let pane = makePane(
+            source: .floating(workingDirectory: nil, title: nil),
+            title: "MismatchedMetadataId",
+            provider: .zmx
+        )
+        let currentData = try encoder.encode(pane)
+        guard var object = try JSONSerialization.jsonObject(with: currentData) as? [String: Any] else {
+            Issue.record("Expected pane JSON dictionary")
+            return
+        }
+        guard var metadata = object["metadata"] as? [String: Any] else {
+            Issue.record("Expected metadata dictionary")
+            return
+        }
+
+        var mismatchedPaneId = UUIDv7.generate()
+        while mismatchedPaneId == pane.id {
+            mismatchedPaneId = UUIDv7.generate()
+        }
+        metadata["paneId"] = mismatchedPaneId.uuidString
+        object["metadata"] = metadata
+
+        let mismatchedData = try JSONSerialization.data(withJSONObject: object)
+        #expect(throws: Error.self) {
+            try decoder.decode(Pane.self, from: mismatchedData)
+        }
+    }
+
     // MARK: - PaneMetadata
 
     @Test

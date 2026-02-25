@@ -58,6 +58,17 @@ struct Pane: Codable, Identifiable, Hashable {
         self.id = decodedId
         self.content = try container.decode(PaneContent.self, forKey: .content)
         let decodedMetadata = try container.decode(PaneMetadata.self, forKey: .metadata)
+        let metadataPaneId = decodedMetadata.paneId.uuid
+        guard metadataPaneId == decodedId else {
+            let mismatchDescription =
+                "Pane.metadata.paneId (\(metadataPaneId.uuidString)) must match " +
+                "Pane.id (\(decodedId.uuidString)) in canonical schema"
+            throw DecodingError.dataCorruptedError(
+                forKey: .metadata,
+                in: container,
+                debugDescription: mismatchDescription
+            )
+        }
         self.metadata = decodedMetadata.canonicalizedIdentity(
             paneId: PaneId(uuid: id),
             contentType: Self.contentType(for: content)
@@ -100,13 +111,13 @@ struct Pane: Codable, Identifiable, Hashable {
     /// Title from metadata.
     var title: String {
         get { metadata.title }
-        set { metadata.title = newValue }
+        set { metadata.updateTitle(newValue) }
     }
 
     /// Agent type from metadata.
     var agent: AgentType? {
         get { metadata.agentType }
-        set { metadata.agentType = newValue }
+        set { metadata.updateAgentType(newValue) }
     }
 
     /// Provider from terminal state, if terminal content.

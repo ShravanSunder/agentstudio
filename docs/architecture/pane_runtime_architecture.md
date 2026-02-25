@@ -8,6 +8,8 @@ The current Ghostty integration handles 12 of 40+ C API actions, uses `DispatchQ
 
 This document defines the pane runtime communication architecture: how panes of all types produce events, receive commands, and coordinate through the workspace.
 
+> **Implementation status note:** This document includes both shipped contracts and forward-defined target contracts. For ticket-by-ticket implementation state, use the mapping ledger in `docs/plans/2026-02-21-pane-runtime-luna-295-luna-325-mapping.md`. For the background-ingestion alternative design, see [Pane Runtime Option 2 Design](pane_runtime_option2_design.md).
+
 ### Jobs This Architecture Solves
 
 > JTBD 1-8 and Pain Points P1-P8 are defined in [JTBD & Requirements](jtbd_and_requirements.md). This table maps the subset addressed by the pane runtime architecture.
@@ -692,26 +694,35 @@ typealias WorktreeId = UUID
 ///   - A terminal cd'd into /tmp has cwd but no worktreeId → included
 ///     in "group by CWD" but not "group by worktree"
 ///
-/// Dynamic view projector reads: repoId, worktreeId, cwd, parentFolder,
-/// checkoutRef, agentType, tags.
+/// Dynamic view projector reads facet fields from `PaneContextFacets`:
+/// repoId, worktreeId, cwd, parentFolder, checkoutRef, agentType, tags.
 /// Association fields can be nil independently. `tags` is always present as
 /// a set (possibly empty).
 struct PaneMetadata: Sendable {
     // ── Fixed-at-creation identity ──
-    var paneId: PaneId?
-    var contentType: PaneContentType
-    var source: PaneMetadataSource
-    var executionBackend: ExecutionBackend
-    var createdAt: Date
+    let paneId: PaneId
+    let contentType: PaneContentType
+    let source: PaneMetadataSource
+    let executionBackend: ExecutionBackend
+    let createdAt: Date
 
     // ── Live-updated fields ───────────────────────────────
     var title: String
-    var cwd: URL?
-    var repoId: UUID?
-    var worktreeId: UUID?
-    var parentFolder: String?
+    var facets: PaneContextFacets
     var checkoutRef: String?
     var agentType: AgentType?
+}
+
+struct PaneContextFacets: Sendable {
+    var repoId: UUID?
+    var repoName: String?
+    var worktreeId: UUID?
+    var worktreeName: String?
+    var cwd: URL?
+    var parentFolder: String?
+    var organizationName: String?
+    var origin: String?
+    var upstream: String?
     var tags: [String]
 }
 
@@ -1033,6 +1044,7 @@ enum RuntimeErrorEvent: Error, Sendable {
 /// this directly. One classification authority, no drift.
 struct PaneEventEnvelope: Sendable {
     let source: EventSource                  // who produced this event
+    let sourceFacets: PaneContextFacets      // denormalized source context for projection/grouping
     let paneKind: PaneContentType?           // nil for cross-cutting (filesystem, security)
     let seq: UInt64                          // monotonic per source, ordering guarantee
     let commandId: UUID?                     // idempotency for command-triggered events; nil for spontaneous
@@ -2858,9 +2870,9 @@ Structural guarantees that hold across all contracts. Each invariant is enforced
 
 ### Metadata & Dynamic Views
 
-**A13. PaneMetadata live fields are ALL OPTIONAL.** `repoId`, `worktreeId`, `parentFolder`, `cwd`, `agentType`, `tags` — each can be `nil` independently. Not every pane participates in every dynamic view grouping dimension. A `nil` value excludes the pane from that grouping. This is intentional, not a missing-data bug.
+**A13. PaneMetadata facet associations are optional, identity is not.** `paneId` is required and immutable. Facet associations (`repoId`, `worktreeId`, `parentFolder`, `cwd`, `agentType`, `origin`, `upstream`) can be absent independently. `tags` is always present (possibly empty). Not every pane participates in every dynamic-view grouping dimension; absent facet values intentionally exclude that pane from that grouping.
 
-*Enforced by:* All live fields typed as optionals (`UUID?`, `URL?`, `String?`, `AgentType?`, `Set<String>` defaults empty). Dynamic view projector handles nil gracefully — nil means "excluded from this facet."
+*Enforced by:* `paneId` is non-optional and v7-validated. Facet fields are optional where association is conditional, and `tags` defaults to an empty array. Dynamic view projector treats missing facet values as "not in this grouping."
 
 **A14. `PaneMetadata.executionBackend` is immutable after creation.** To change backends, close the pane and create a new one. Live migration is a future capability with no current SecurityEvent case.
 

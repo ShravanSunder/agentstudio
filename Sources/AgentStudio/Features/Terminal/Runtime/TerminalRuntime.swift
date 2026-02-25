@@ -8,7 +8,7 @@ final class TerminalRuntime: PaneRuntime {
     private static let logger = Logger(subsystem: "com.agentstudio", category: "TerminalRuntime")
 
     let paneId: PaneId
-    var metadata: PaneMetadata
+    private(set) var metadata: PaneMetadata
     private(set) var lifecycle: PaneRuntimeLifecycle
     let capabilities: Set<PaneCapability>
 
@@ -127,9 +127,9 @@ final class TerminalRuntime: PaneRuntime {
             .toggleSplitZoom:
             break
         case .titleChanged(let title):
-            metadata.title = title
+            metadata.updateTitle(title)
         case .cwdChanged(let cwdPath):
-            metadata.facets.cwd = URL(fileURLWithPath: cwdPath)
+            metadata.updateCWD(URL(fileURLWithPath: cwdPath))
         case .commandFinished, .bellRang, .scrollbarChanged, .unhandled:
             break
         }

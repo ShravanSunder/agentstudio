@@ -47,20 +47,20 @@ struct PaneMetadata: Codable, Hashable, Sendable {
     }
 
     // Fixed-at-creation identity
-    let paneId: PaneId?
+    let paneId: PaneId
     let contentType: PaneContentType
     let source: PaneMetadataSource
     let executionBackend: ExecutionBackend
     let createdAt: Date
 
     // Live fields
-    var title: String
-    var facets: PaneContextFacets
-    var checkoutRef: String?
-    var agentType: AgentType?
+    private(set) var title: String
+    private(set) var facets: PaneContextFacets
+    private(set) var checkoutRef: String?
+    private(set) var agentType: AgentType?
 
     init(
-        paneId: PaneId? = nil,
+        paneId: PaneId = PaneId(),
         contentType: PaneContentType = .terminal,
         source: PaneMetadataSource,
         executionBackend: ExecutionBackend = .local,
@@ -90,6 +90,30 @@ struct PaneMetadata: Codable, Hashable, Sendable {
         source.terminalSource
     }
 
+    mutating func updateTitle(_ newTitle: String) {
+        title = newTitle
+    }
+
+    mutating func updateFacets(_ newFacets: PaneContextFacets) {
+        facets = newFacets
+    }
+
+    mutating func updateCWD(_ newCWD: URL?) {
+        facets.cwd = newCWD
+    }
+
+    mutating func updateAgentType(_ newAgentType: AgentType?) {
+        agentType = newAgentType
+    }
+
+    mutating func updateCheckoutRef(_ newCheckoutRef: String?) {
+        checkoutRef = newCheckoutRef
+    }
+
+    mutating func updateTags(_ newTags: [String]) {
+        facets.tags = newTags
+    }
+
     func canonicalizedIdentity(
         paneId: PaneId,
         contentType: PaneContentType
@@ -109,55 +133,25 @@ struct PaneMetadata: Codable, Hashable, Sendable {
 
     // MARK: - Facet Convenience Accessors
 
-    var cwd: URL? {
-        get { facets.cwd }
-        set { facets.cwd = newValue }
-    }
+    var cwd: URL? { facets.cwd }
 
-    var repoId: UUID? {
-        get { facets.repoId }
-        set { facets.repoId = newValue }
-    }
+    var repoId: UUID? { facets.repoId }
 
-    var repoName: String? {
-        get { facets.repoName }
-        set { facets.repoName = newValue }
-    }
+    var repoName: String? { facets.repoName }
 
-    var worktreeId: UUID? {
-        get { facets.worktreeId }
-        set { facets.worktreeId = newValue }
-    }
+    var worktreeId: UUID? { facets.worktreeId }
 
-    var worktreeName: String? {
-        get { facets.worktreeName }
-        set { facets.worktreeName = newValue }
-    }
+    var worktreeName: String? { facets.worktreeName }
 
-    var parentFolder: String? {
-        get { facets.parentFolder }
-        set { facets.parentFolder = newValue }
-    }
+    var parentFolder: String? { facets.parentFolder }
 
-    var organizationName: String? {
-        get { facets.organizationName }
-        set { facets.organizationName = newValue }
-    }
+    var organizationName: String? { facets.organizationName }
 
-    var origin: String? {
-        get { facets.origin }
-        set { facets.origin = newValue }
-    }
+    var origin: String? { facets.origin }
 
-    var upstream: String? {
-        get { facets.upstream }
-        set { facets.upstream = newValue }
-    }
+    var upstream: String? { facets.upstream }
 
-    var tags: [String] {
-        get { facets.tags }
-        set { facets.tags = newValue }
-    }
+    var tags: [String] { facets.tags }
 
     private enum CodingKeys: String, CodingKey {
         case paneId
@@ -174,7 +168,7 @@ struct PaneMetadata: Codable, Hashable, Sendable {
     init(from decoder: Decoder) throws {
         let container = try decoder.container(keyedBy: CodingKeys.self)
 
-        self.paneId = try container.decodeIfPresent(PaneId.self, forKey: .paneId)
+        self.paneId = try container.decode(PaneId.self, forKey: .paneId)
         self.contentType = try container.decode(PaneContentType.self, forKey: .contentType)
         self.source = try container.decode(PaneMetadataSource.self, forKey: .source)
         self.executionBackend = try container.decode(ExecutionBackend.self, forKey: .executionBackend)
