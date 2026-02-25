@@ -37,7 +37,7 @@ All data flow in the pane runtime architecture follows one of three planes. Ever
 
 **The multiplexing rule:** When a runtime processes a domain event (e.g., `titleChanged`), it writes `@Observable` state first (UI plane), then posts to the bus (event plane). Both happen, in that order. The test for whether an event needs the bus: "Would any other component in the system care?" If yes → bus. If only the bound view cares → `@Observable` only.
 
-**Why not three separate streams:** Two independent reviewers identified an ordering hazard with separate control/state/data streams (see D2 below). Single event stream with per-source ordering eliminates cross-plane inconsistency.
+**Why not three separate streams:** These three planes are **logical roles**, not three separate data structures. Separate control/state/data streams create an ordering hazard: a late-joining consumer can observe inconsistent state (e.g., seeing a loaded diff without knowing which terminal produced it). The event plane uses a single `AsyncStream` per runtime (posted to one `EventBus`) — not three separate streams. The planes describe what each data path *does*; the implementation shares infrastructure where ordering matters. See [D2](#d2-single-typed-event-stream-not-three-separate-planes) for the full rationale.
 
 ---
 
@@ -105,15 +105,13 @@ RUNTIMES (per-pane, registered in RuntimeRegistry):
 
 **Why not single coordinator handling all events:** Becomes a god object as pane types grow. Per-type runtimes have clear ownership, are testable in isolation, and scale with new pane types.
 
-**Reviewed by:** 4 independent opinions (Claude, Codex ×2, Gemini+Codex counsel). All converged on this choice.
-
 ### D2: Single typed event stream, not three separate planes
 
 **User problem:** When agent A finishes a task and a diff appears, the user needs to know which agent produced it, what repo it's in, and the diff content — all consistently, with no missing context (JTBD 6, P6).
 
 **Decision:** One `PaneRuntimeEvent` enum carried on one `AsyncStream` per runtime, with per-source sequence numbers (`seq` is monotonic within a single source — pane, worktree watcher, or system). Cross-source ordering is best-effort via `timestamp`. Events cover lifecycle, terminal, browser, filesystem, artifact, and error cases.
 
-**Why not three planes (control/state/data):** Two independent reviewers identified an ordering hazard: if control events ("diff generated") and state events ("diff pane loaded") travel on separate streams, a late-joining consumer can observe inconsistent state — seeing a loaded diff without knowing which terminal produced it. Single stream with per-source ordering eliminates this within a pane. Cross-source ordering relies on timestamps — sufficient for UI rendering and workflow matching, not for strict causal ordering.
+**Why not three planes (control/state/data):** Separate streams create an ordering hazard: if control events ("diff generated") and state events ("diff pane loaded") travel on separate streams, a late-joining consumer can observe inconsistent state — seeing a loaded diff without knowing which terminal produced it. Single stream with per-source ordering eliminates this within a pane. Cross-source ordering relies on timestamps — sufficient for UI rendering and workflow matching, not for strict causal ordering.
 
 **Cross-source workflow example:** Terminal agent finishes (`source: .pane(agentA)`, `GhosttyEvent.commandFinished`) → filesystem watcher detects changes (`source: .worktree(wt1)`, `FilesystemEvent.filesChanged`) → coordinator creates diff pane. These events come from different sources, so `seq` is independent. The coordinator uses `correlationId` to link the workflow chain and `timestamp` to order them. This is sufficient: the coordinator doesn't need strict causal ordering — it only needs "commandFinished happened, then files changed" which timestamps guarantee within clock precision.
 
@@ -2984,23 +2982,6 @@ You **accept** the risk that `@MainActor` becomes a bottleneck for high-frequenc
 You **reduce** ordering hazards (single stream, per-source ordering with cross-source best-effort) and operational complexity (one stream to debug, not three).
 
 You **accept** the discipline of classifying every event kind (critical vs lossy) and maintaining the priority table. The event enum makes this explicit — you can't add an event without deciding its priority.
-
----
-
-## Review Findings
-
-This architecture was reviewed by four independent analyses:
-
-| Reviewer | Key Finding | Impact on Design |
-|----------|-------------|-----------------|
-| **User's Codex** | Three planes + envelope design + NotificationReducer keyed by paneId+category+taskId | Adopted: NotificationReducer concept, correlationId, envelope fields |
-| **Standalone Codex** | Staged approach is flawed (sync→async protocol change). Three planes over-vocabulary. Subprocess isolation preferred. | Partially adopted: make protocol async from day one. Rejected: subprocess isolation (Ghostty surfaces are in-process NSViews). Adopted: envelope simplification. |
-| **Counsel (Gemini+Codex)** | Three planes create ordering hazards. Missing lifecycle state machine. Priority inversion in batching. Need bounded replay. | Adopted: single event stream, lifecycle contract, priority queues, ring buffer replay |
-| **Claude (synthesis)** | Narrow waist: @Observable for UI, event stream for coordination. GhosttyEvent enum for compile-time exhaustiveness. | Adopted: dual consumption path, FFI enum contract |
-
-**Convergence points** (all 4 agreed): per-pane-type runtimes, @MainActor sufficient, exhaustive Ghostty action capture, explicit error contract.
-
-**Key disagreement resolved:** Three planes vs single stream. Two reviewers independently identified the ordering hazard. Adopted single stream.
 
 ---
 

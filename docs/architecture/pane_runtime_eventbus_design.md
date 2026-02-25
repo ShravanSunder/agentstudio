@@ -239,6 +239,13 @@ actor EventBus<Envelope: Sendable> {
 
 **Why actor, not class with lock:** Swift actors are the standard concurrency primitive. The cooperative pool gives fair scheduling without dedicated thread overhead. `await bus.post()` is the consistent interface for all producers regardless of their isolation context.
 
+**Buffer policy:** `AsyncStream.makeStream()` defaults to unbounded buffering. Under burst conditions (agent dumps 500 lines → 500 events in quick succession), subscriber streams can grow unbounded. Policy per subscriber tier:
+- **Critical subscribers** (NotificationReducer, PaneCoordinator): unbounded. These must never drop events — correctness depends on completeness. They consume quickly on MainActor.
+- **Lossy subscribers** (analytics, logging, future plugin sinks): use `.bufferingPolicy(.bufferingNewest(100))` on `makeStream()`. Dropping oldest events under burst is acceptable — these consumers don't need total recall.
+- **The bus itself does not enforce buffer policy** — it yields to every continuation unconditionally. Buffer policy is chosen at `subscribe()` time by the caller, not imposed by the bus. This keeps the bus dumb.
+
+**onTermination cleanup:** The `Task { await self?.removeSubscriber(id) }` in `onTermination` is intentionally unstructured. `onTermination` is a synchronous `@Sendable` closure — it cannot `await` directly. The unstructured Task is the only way to reach actor-isolated `removeSubscriber`. If the EventBus actor is deallocated before the cleanup Task runs, `self` is nil and the entry is harmless (dead actor's dictionary is already gone). This is an acceptable trade-off for the cleanup ergonomics.
+
 **Why one bus, not per-pane:** Coordination consumers (reducer, coordinator, workflow engine) need events from ALL panes. Per-pane buses would require N subscriptions and a manual merge step — exactly the centralization problem the bus solves.
 
 ### `actor FilesystemActor` (future — LUNA-349)
@@ -246,6 +253,8 @@ actor EventBus<Envelope: Sendable> {
 App-wide singleton, keyed by worktree internally. Monitors all repos via FSEvents, owns debounce logic, git status computation, and diff production per worktree. Posts enriched `PaneEventEnvelope` to EventBus.
 
 **Why app-wide, not per-worktree:** One FSEvents stream can monitor multiple paths efficiently. Per-worktree actors would multiply actor hop overhead and complicate lifecycle management (create/destroy actors as worktrees appear/disappear). Internal keying gives the same isolation semantics without the actor overhead.
+
+**Contention note:** The actor serializes entry, but the heavy git status/diff work runs via `@concurrent nonisolated static` functions. When the actor `await`s these calls, it suspends and releases its serial executor — other worktree work can enter the actor during the suspension. The actor only holds the lock for dedup/debounce logic (~microseconds), not for the 10-100ms of git work. With 5 agents across 3 worktrees, this means worktree B's git status can run concurrently with worktree A's. If profiling ever shows the dedup/debounce serialization itself becoming a bottleneck (unlikely — it's μs-scale), the escape hatch is per-worktree actors, but the lifecycle management cost makes this a last resort.
 
 ```swift
 /// App-wide filesystem observation, keyed by worktree internally.
@@ -383,6 +392,8 @@ final class NotificationReducer {
 ## Per-Pane Heavy Work: `@concurrent`
 
 Heavy per-pane work (scrollback search, artifact extraction, log parsing, diff computation) uses `@concurrent nonisolated` static functions. This is the Swift 6.2 pattern for explicit cooperative pool execution.
+
+**Why `static`:** Inside a `@MainActor` class, instance methods inherit `@MainActor` isolation because the implicit `self` parameter carries the enclosing actor's isolation (SE-0316). The compiler rejects `@concurrent nonisolated` on instance methods — `@concurrent` requires the function to be truly nonisolated, but `self` makes it actor-isolated regardless of the `nonisolated` keyword. Making the function `static` eliminates `self` capture entirely, so `@concurrent nonisolated static func` is valid and genuinely runs on the cooperative pool. Data the function needs is passed as value-type parameters (`ScrollbackSnapshot`, `URL`), not by accessing `self`.
 
 ### Swift 6.2 rules (SE-0461)
 
@@ -932,6 +943,18 @@ Concrete list of what runs where, with Swift 6.2 keywords:
 5. **All cross-boundary data is `Sendable`.** `PaneEventEnvelope`, all event types, all command types — `Sendable` is required for data that crosses actor boundaries.
 6. **C callbacks use `@Sendable` trampolines** + `MainActor.assumeIsolated` for synchronous hops or `Task { @MainActor in }` for async work. No `DispatchQueue.main.async`.
 
+### Swift 6.2 Gotchas (quick reference)
+
+Common traps in this codebase. Each is documented in detail above; this is the scannable checklist.
+
+| Gotcha | Wrong | Right | Why |
+|--------|-------|-------|-----|
+| `nonisolated async` ≠ pool | `nonisolated func doWork() async` | `@concurrent nonisolated func doWork() async` | In 6.2, `nonisolated async` inherits caller isolation (runs on MainActor if called from MainActor) |
+| `@concurrent` requires `nonisolated` | `@concurrent func doWork()` inside `@MainActor` class | `@concurrent nonisolated static func doWork()` | Two keywords required; `@concurrent` alone on an actor-isolated func is a compile error |
+| Instance method captures `self` isolation | `@concurrent nonisolated func search()` on `@MainActor` class | `@concurrent nonisolated static func search(_ snapshot: T)` | Instance `self` carries `@MainActor` isolation; `static` eliminates `self` capture |
+| `Task { }` inherits actor | `Task { heavyWork() }` inside `@MainActor` | `await Self.heavyWork(data)` where `heavyWork` is `@concurrent nonisolated static` | Unstructured `Task` inside `@MainActor` runs on MainActor |
+| `Task.detached` strips context | `Task.detached { await doWork() }` | `@concurrent nonisolated static func doWork()` | Detached strips priority + task-locals; `@concurrent` preserves them |
+
 ## Hop Analysis
 
 ### Current system: 1 hop
@@ -1028,8 +1051,13 @@ FSEvents callback (arbitrary thread)
 | Filesystem git status on MainActor | **High (prevented)** | 10-100ms blocks UI | FilesystemActor keeps this off MainActor |
 | Heavy scrollback search on MainActor | **High (prevented)** | 1-50ms blocks UI | `@concurrent` static function |
 | Ghostty terminal rendering | **None** | Ghostty has its own Metal/GPU pipeline, independent of Swift event system | N/A — not in our control or concern |
+| Bus fan-out scaling (50+ plugins) | Future risk | `post()` iterates N continuations on bus actor's serial executor; N > 50 → fan-out > ~1ms | Shard into topic-based buses (see below) |
+
+**Bus scaling escape hatch:** The current single bus is sized for ~3-10 subscribers (~100ns per continuation × 10 = ~1μs per `post()`). If the plugin system scales to 50+ subscribers, `post()` iterates 50+ continuations on the bus actor's serial executor, potentially exceeding ~1ms per event. The escape hatch is **topic-based sharding**: split into `PaneEventBus`, `SystemEventBus`, `PluginEventBus` — each with its own actor. Producers post to the relevant bus; consumers that need multiple topics subscribe to multiple buses and merge client-side via `swift-async-algorithms`. This keeps per-bus fan-out bounded. Profile before sharding — the threshold is `post()` cost > ~1ms sustained.
 
 **Key insight:** Ghostty renders on its own Metal pipeline. Terminal rendering cannot jank from Swift event processing — they are completely independent. Swift jank only happens if `@MainActor` blocks the AppKit event loop for >16ms. The EventBus adds ~4-18μs per event, well within budget.
+
+**MainActor round-trip overhead:** When a `@MainActor` runtime posts to the pool-based bus and a `@MainActor` consumer reads from it, the event takes a round-trip: main → pool (hop to bus actor) → main (hop back to consumer). This is ~4-12μs of pure overhead for events that originate and terminate on MainActor. At current event volume (~1-10 coordination events per user action, ~10-100 events/sec sustained), this is negligible. The threshold where a `@MainActor` bus becomes worth evaluating: if 80%+ of producers AND consumers are `@MainActor`, and event throughput exceeds ~1000 events/sec sustained. Given that boundary actors (FilesystemActor, ForgeActor) post from the cooperative pool (~30-40% of events at scale), the pool-based bus is the correct default. Revisit if profiling shows bus hops consuming >1% of frame budget.
 
 ## Adoption Plan
 
@@ -1115,7 +1143,7 @@ struct PluginContext: Sendable {
 1. **No direct bus access** — plugin never holds a reference to `EventBus`
 2. **Declared capabilities are the ceiling** — can't escalate at runtime
 3. **Source identity is unforgeable** — `.system(.plugin(id))` stamped by `PluginContext`, not by plugin code
-4. **Rate limits enforced by context** — excess posts dropped with diagnostic
+4. **Rate limits enforced by context** — excess posts dropped with diagnostic. Mechanism: `PluginContext.post()` uses an **atomic token bucket** (`Atomics.ManagedAtomic<Int>` from SE-0410, not deprecated `OSAtomicIncrement`) embedded in the `PluginContext` struct. The bucket refills at a configured rate (e.g., 100 events/sec per plugin) and the `post()` closure checks tokens before forwarding to `bus.post()`. This keeps rate-limiting out of the bus actor's hot path — no per-post overhead for non-plugin producers. Dropped events increment a diagnostic counter exposed via the plugin health API. Implementation note: `ManagedAtomic` is a reference-counted heap allocation, so `PluginContext` remains a simple `Sendable` struct without non-copyable constraints — the atomic is shared by reference, not by value
 5. **Backpressure is per-plugin** — if plugin's consumer falls behind, only its stream buffer fills; other bus subscribers unaffected
 6. **Watchdog is mandatory** — no heartbeat within N seconds → cancel plugin task + restart with backoff
 
