@@ -2085,6 +2085,11 @@ This enables use cases like "show all events from panes in worktree X" or "aggre
 ///       → critical path: immediate yield to consumers
 ///       → lossy path: buffer until next frame, dedup by consolidation key
 ///     → Coordinator consumes from reducer's output streams
+///
+/// Subscription contract:
+///   - Each subscribe() call returns an independent stream for that subscriber.
+///   - Runtimes fan out emitted envelopes to all active subscribers.
+///   - Shared single-consumer stream reuse is invalid for this contract.
 @MainActor
 final class NotificationReducer {
 

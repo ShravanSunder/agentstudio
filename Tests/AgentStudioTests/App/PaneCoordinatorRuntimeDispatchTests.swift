@@ -845,11 +845,9 @@ private final class FakePaneRuntime: PaneRuntime {
     init(paneId: PaneId) {
         self.paneId = paneId
         self.metadata = PaneMetadata(source: .floating(workingDirectory: nil, title: "Fake"), title: "Fake")
-        var streamContinuation: AsyncStream<PaneEventEnvelope>.Continuation?
-        self.stream = AsyncStream<PaneEventEnvelope> { continuation in
-            streamContinuation = continuation
-        }
-        self.continuation = streamContinuation!
+        let (stream, continuation) = AsyncStream.makeStream(of: PaneEventEnvelope.self)
+        self.stream = stream
+        self.continuation = continuation
     }
 
     func handleCommand(_ envelope: RuntimeCommandEnvelope) async -> ActionResult {

@@ -18,6 +18,7 @@ protocol PaneRuntime: AnyObject {
     /// Handle a routed runtime command envelope.
     func handleCommand(_ envelope: RuntimeCommandEnvelope) async -> ActionResult
     /// Subscribe to the live event stream emitted by this runtime.
+    /// Each call returns an independent stream for that subscriber.
     func subscribe() -> AsyncStream<PaneEventEnvelope>
     /// Capture an instant runtime state snapshot.
     func snapshot() -> PaneRuntimeSnapshot

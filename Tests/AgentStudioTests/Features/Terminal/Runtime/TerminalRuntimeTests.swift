@@ -175,6 +175,40 @@ struct TerminalRuntimeTests {
         #expect(!replay.gapDetected)
     }
 
+    @Test("subscribe returns independent streams and broadcasts events to all subscribers")
+    func subscribeBroadcastsToMultipleSubscribers() async {
+        let runtime = TerminalRuntime(
+            paneId: PaneId(),
+            metadata: PaneMetadata(source: .floating(workingDirectory: nil, title: "Runtime"), title: "Runtime")
+        )
+        runtime.transitionToReady()
+
+        var firstIterator = runtime.subscribe().makeAsyncIterator()
+        var secondIterator = runtime.subscribe().makeAsyncIterator()
+
+        runtime.handleGhosttyEvent(.bellRang)
+
+        let firstEvent = await firstIterator.next()
+        let secondEvent = await secondIterator.next()
+
+        #expect(firstEvent?.seq == 1)
+        #expect(secondEvent?.seq == 1)
+
+        guard let firstEvent, let secondEvent else {
+            Issue.record("Expected both subscribers to receive runtime event")
+            return
+        }
+
+        guard case .terminal(.bellRang) = firstEvent.event else {
+            Issue.record("Expected bellRang terminal event for first subscriber")
+            return
+        }
+        guard case .terminal(.bellRang) = secondEvent.event else {
+            Issue.record("Expected bellRang terminal event for second subscriber")
+            return
+        }
+    }
+
     @Test("shutdown finishes event stream")
     func shutdownFinishesEventStream() async {
         let runtime = TerminalRuntime(

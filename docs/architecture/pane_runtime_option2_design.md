@@ -75,6 +75,15 @@ flowchart LR
 - **Background lane** does ingestion work: normalize, enrich with facets, classify, and stage envelopes.
 - **MainActor lane** performs authoritative mutations and view-facing sequencing.
 - The join boundary is explicit: only typed envelopes cross from background actors into MainActor consumers.
+- Runtime event fan-out is explicit: if multiple consumers subscribe, the runtime must broadcast to independent streams (no shared single-consumer iterator semantics).
+
+## Subscriber Semantics (Swift Async Requirement)
+
+Option 2 assumes more than one consumer may need the same event stream (for example, reducer + coordinator taps during migration windows). Therefore:
+
+1. `PaneRuntime.subscribe()` must return an independent stream per subscriber.
+2. Runtime implementations must fan out each emitted envelope to all active continuations.
+3. Shared single-stream iteration is not a valid broadcast contract.
 
 ## Event Envelope and Facet Propagation
 
@@ -165,7 +174,7 @@ flowchart TB
 
 1. Introduce `EventIngestorActor` and `FacetEnricherActor` behind existing runtime APIs.
 2. Move adapter-heavy transformations into ingestion lane.
-3. Keep `NotificationReducer` and coordinator APIs unchanged.
+3. Keep `NotificationReducer` and coordinator APIs unchanged, but enforce runtime-level multi-subscriber fan-out semantics.
 4. Add observability: queue depth, coalescing drops, enrichment latency.
 5. Expand to non-terminal runtimes (LUNA-349) using same ingestion boundary.
 

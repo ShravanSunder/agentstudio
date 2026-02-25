@@ -15,8 +15,8 @@ final class TerminalRuntime: PaneRuntime {
     private let envelopeClock: ContinuousClock
     private let replayBuffer: EventReplayBuffer
     private var sequence: UInt64 = 0
-    private let eventStream: AsyncStream<PaneEventEnvelope>
-    private let eventContinuation: AsyncStream<PaneEventEnvelope>.Continuation
+    private var nextSubscriberId: UInt64 = 0
+    private var subscribers: [UInt64: AsyncStream<PaneEventEnvelope>.Continuation] = [:]
 
     init(
         paneId: PaneId,
@@ -30,12 +30,6 @@ final class TerminalRuntime: PaneRuntime {
         self.capabilities = [.input, .resize, .search]
         self.envelopeClock = clock
         self.replayBuffer = replayBuffer ?? EventReplayBuffer()
-
-        var continuation: AsyncStream<PaneEventEnvelope>.Continuation?
-        self.eventStream = AsyncStream<PaneEventEnvelope> { streamContinuation in
-            continuation = streamContinuation
-        }
-        self.eventContinuation = continuation!
     }
 
     func transitionToReady() {
@@ -82,7 +76,23 @@ final class TerminalRuntime: PaneRuntime {
     }
 
     func subscribe() -> AsyncStream<PaneEventEnvelope> {
-        eventStream
+        let (stream, continuation) = AsyncStream.makeStream(of: PaneEventEnvelope.self)
+        guard lifecycle != .terminated else {
+            continuation.finish()
+            return stream
+        }
+
+        let subscriberId = nextSubscriberId
+        nextSubscriberId += 1
+        subscribers[subscriberId] = continuation
+
+        continuation.onTermination = { [weak self] _ in
+            Task { @MainActor [weak self] in
+                self?.subscribers.removeValue(forKey: subscriberId)
+            }
+        }
+
+        return stream
     }
 
     func snapshot() -> PaneRuntimeSnapshot {
@@ -106,7 +116,11 @@ final class TerminalRuntime: PaneRuntime {
         }
         lifecycle = .draining
         lifecycle = .terminated
-        eventContinuation.finish()
+        let activeSubscribers = Array(subscribers.values)
+        subscribers.removeAll(keepingCapacity: true)
+        for continuation in activeSubscribers {
+            continuation.finish()
+        }
         return []
     }
 
@@ -149,7 +163,13 @@ final class TerminalRuntime: PaneRuntime {
         if shouldPersistForReplay(event) {
             replayBuffer.append(envelope)
         }
-        eventContinuation.yield(envelope)
+        broadcast(envelope)
+    }
+
+    private func broadcast(_ envelope: PaneEventEnvelope) {
+        for continuation in subscribers.values {
+            continuation.yield(envelope)
+        }
     }
 
     private func shouldPersistForReplay(_ event: GhosttyEvent) -> Bool {
