@@ -85,7 +85,7 @@ RUNTIMES (per-pane, registered in RuntimeRegistry):
 
 **Actor migration path (honest cost):** The protocol is `async` from day one, which minimizes caller-side changes if a runtime is later moved to its own actor. However, `@MainActor` on the protocol itself and sync property access (`paneId`, `metadata`, `lifecycle`, `capabilities`, `snapshot()`) lock current conformers to main-actor isolation. Migrating to actor-per-pane would require: (1) removing `@MainActor` from the protocol, (2) making sync properties `async` or using `nonisolated`, (3) updating all callsites. This is a real migration cost — the protocol reduces it but does not eliminate it. Profile before deciding (>1000 events/sec sustained).
 
-**MainActor processing budget:** Since `TerminalRuntime` is `@MainActor`, heavy processing of Ghostty output (regex searching, artifact extraction, log parsing) MUST be offloaded to the cooperative pool via `@concurrent` static functions (Swift 6.2). The runtime's event handler should be fast — classify the event, update `@Observable` state, emit the envelope. Anything that takes >1ms (string matching across scrollback, diff computation, file content hashing) must use `@concurrent` to avoid UI stutters on the main thread. Do NOT use `Task.detached` (strips priority and task-locals) or `nonisolated async` (inherits caller isolation in Swift 6.2 — it would run on MainActor). See [Pane Runtime EventBus Design — Per-Pane Heavy Work](pane_runtime_eventbus_design.md#per-pane-heavy-work-concurrent) for the full pattern.
+**MainActor processing budget:** Since `TerminalRuntime` is `@MainActor`, heavy processing of Ghostty output (regex searching, artifact extraction, log parsing) MUST be offloaded to the cooperative pool via `@concurrent nonisolated` static functions (Swift 6.2). Both keywords are required: `nonisolated` opts out of the class's `@MainActor` isolation (SE-0316 inherits actor isolation to all members), and `@concurrent` opts into pool execution (SE-0461 — `@concurrent` is only valid on `nonisolated` declarations). The runtime's event handler should be fast — classify the event, update `@Observable` state, emit the envelope. Anything that takes >1ms (string matching across scrollback, diff computation, file content hashing) must use `@concurrent nonisolated` to avoid UI stutters on the main thread. Prefer `@concurrent` over `Task.detached` (which strips priority and task-locals). Do NOT use plain `nonisolated async` expecting pool execution — it inherits caller isolation in Swift 6.2. See [Pane Runtime EventBus Design — Per-Pane Heavy Work](pane_runtime_eventbus_design.md#per-pane-heavy-work-concurrent) for the full pattern.
 
 **Why not single coordinator handling all events:** Becomes a god object as pane types grow. Per-type runtimes have clear ownership, are testable in isolation, and scale with new pane types.
 
@@ -226,7 +226,7 @@ The filesystem watcher is the first system-level source to implement. It's a pre
 │          → debounce 500ms settle window                          │
 │            → max latency 2s cap                                  │
 │              → FileChangeset batch                               │
-│                → @concurrent git status recompute                │
+│                → @concurrent nonisolated git status recompute    │
 │                  → GitStatusSummary                              │
 │                    → bus.post(PaneEventEnvelope)                 │
 │                                                                  │
@@ -2096,7 +2096,7 @@ This enables use cases like "show all events from panes in worktree X" or "aggre
 
 ### Contract 12: NotificationReducer
 
-> **Role:** Sink. Consumes `PaneEventEnvelope` from the coordination stream, classifies by priority, and delivers to the coordinator's event loop. Terminal consumer — does not produce events back onto the stream.
+> **Role:** Sink. Subscribes to `EventBus<PaneEventEnvelope>`, classifies envelopes by self-declared priority, and delivers to consumers via critical/lossy output streams. Terminal consumer — does not produce events back onto the bus.
 
 ```swift
 /// Routes events through priority-aware processing.
@@ -2107,18 +2107,25 @@ This enables use cases like "show all events from panes in worktree X" or "aggre
 /// directly — no centralized classify() method. This means plugin events
 /// self-classify without any core code changes.
 ///
-/// Event flow:
-///   Runtime.subscribe() → PaneEventEnvelope (runtime produces envelopes)
-///     → NotificationReducer.submit(envelope)
+/// Event flow (EventBus path — see pane_runtime_eventbus_design.md):
+///   Runtimes post envelopes → EventBus.post(envelope) → fan-out
+///     → NotificationReducer subscribes via bus.subscribe()
+///       → for await envelope in bus stream
 ///       → reads envelope.event.actionPolicy (self-classifying)
 ///       → critical path: immediate yield to consumers
 ///       → lossy path: buffer until next frame, dedup by consolidation key
-///     → Coordinator consumes from reducer's output streams
+///     → Coordinator also subscribes from bus independently
+///
+/// Note: The reducer consumes from the EventBus, not directly from
+/// per-runtime subscribe() streams. The bus provides the merge point
+/// so the reducer sees events from ALL runtimes through one stream.
 ///
 /// Subscription contract:
-///   - Each subscribe() call returns an independent stream for that subscriber.
-///   - Runtimes fan out emitted envelopes to all active subscribers.
-///   - Shared single-consumer stream reuse is invalid for this contract.
+///   - EventBus.subscribe() returns an independent stream per caller.
+///   - Each subscriber (reducer, coordinator, future consumers) gets
+///     its own stream and consumes at its own pace.
+///   - Per-runtime subscribe() still exists for replay catch-up and
+///     per-pane direct subscription, but is secondary to the bus path.
 @MainActor
 final class NotificationReducer {
 

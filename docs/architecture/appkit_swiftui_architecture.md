@@ -120,7 +120,7 @@ Swift 6.2 toolchain, `.swiftLanguageMode(.v6)`, macOS 26. Data-race safety is en
 
 **Don't:**
 
-- **No `Task.detached { }`** — it strips task priority and task-locals. Use `@concurrent` static functions (Swift 6.2, SE-0461) for explicit cooperative pool execution instead. `@concurrent` preserves structured concurrency and priority inheritance.
+- **Prefer `@concurrent nonisolated` over `Task.detached { }`** (project policy) — `Task.detached` strips task priority and task-locals. `@concurrent nonisolated` static functions (Swift 6.2, SE-0461) preserve structured concurrency and priority inheritance. Inside `@MainActor` types, `nonisolated` is required because `@concurrent` is only valid on `nonisolated` declarations (SE-0461, SE-0316). Exception: `Task.detached` is still appropriate when you need to escape structured concurrency scope or intentionally strip task-locals.
 - **No `MainActor.assumeIsolated { }` in deinit** — use `isolated deinit` instead (SE-0414 makes `assumeIsolated` problematic with non-Sendable types). Note: `assumeIsolated` is valid in synchronous C callback trampolines where you can prove you're on MainActor but the compiler can't see it — this restriction is specifically about deinit.
 - **No plain `deinit` accessing non-Sendable `@MainActor` stored properties** — compilation error. Use `isolated deinit`.
 - **Prefer `isolated deinit` over `@MainActor deinit`** — both are valid (SE-0371 allows global actor annotations on deinit), but `isolated deinit` is more generic and works for any actor type.

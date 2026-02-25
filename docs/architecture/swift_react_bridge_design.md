@@ -692,7 +692,7 @@ struct Slice<State: Observable & AnyObject, Snapshot: Encodable & Equatable> {
                             // .cold payloads may be large — encode off main actor
                             // Swift 6.2: use @concurrent static func instead of Task.detached
                             do {
-                                data = try await Self.encodeColdPayload(snapshot, encoder: encoder)
+                                data = try await Self.encodeColdPayload(snapshot)
                             } catch {
                                 logger.error("[PushEngine] encode failed slice=\(name) store=\(store): \(error)")
                                 continue
@@ -717,12 +717,14 @@ struct Slice<State: Observable & AnyObject, Snapshot: Encodable & Equatable> {
     }
 
     /// Encode .cold payloads off MainActor via @concurrent (Swift 6.2, SE-0461).
-    /// Replaces Task.detached — preserves priority and task-locals.
+    /// Creates its own encoder — JSONEncoder is not Sendable across actor boundaries.
     @concurrent
     private static func encodeColdPayload<T: Encodable>(
-        _ snapshot: T, encoder: JSONEncoder
+        _ snapshot: T
     ) async throws -> Data {
-        try encoder.encode(snapshot)
+        let coldEncoder = JSONEncoder()
+        coldEncoder.outputFormatting = .sortedKeys
+        return try coldEncoder.encode(snapshot)
     }
 }
 ```

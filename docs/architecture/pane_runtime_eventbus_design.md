@@ -1,7 +1,7 @@
 # Pane Runtime EventBus Design
 
 > **Status:** Companion design for event coordination architecture
-> **Target:** Swift 6.2 / macOS 26 (uses `@concurrent`, not `Task.detached`)
+> **Target:** Swift 6.2 / macOS 26 (uses `@concurrent nonisolated`, not `Task.detached`)
 > **Companion:** [Pane Runtime Architecture](pane_runtime_architecture.md) remains the contract source of truth
 
 ## TL;DR
@@ -255,9 +255,11 @@ actor FilesystemActor {
     private let bus: EventBus<PaneEventEnvelope>
     private let clock: any Clock<Duration>
 
-    /// Heavy inner work runs on cooperative pool via @concurrent.
+    /// Heavy inner work runs on cooperative pool via @concurrent nonisolated.
+    /// nonisolated is required: actor methods inherit actor isolation by default,
+    /// and @concurrent is only valid on nonisolated declarations (SE-0461).
     @concurrent
-    private static func computeGitStatus(
+    nonisolated private static func computeGitStatus(
         worktreePath: URL
     ) async -> GitStatusSummary {
         // Shell out to git status, parse output
@@ -265,7 +267,7 @@ actor FilesystemActor {
     }
 
     @concurrent
-    private static func computeDiff(
+    nonisolated private static func computeDiff(
         worktreePath: URL,
         changeset: FileChangeset
     ) async -> DiffResult {
@@ -302,16 +304,18 @@ final class NotificationReducer {
 
 ## Per-Pane Heavy Work: `@concurrent`
 
-Heavy per-pane work (scrollback search, artifact extraction, log parsing, diff computation) uses `@concurrent` static functions. This is the Swift 6.2 pattern for explicit cooperative pool execution.
+Heavy per-pane work (scrollback search, artifact extraction, log parsing, diff computation) uses `@concurrent nonisolated` static functions. This is the Swift 6.2 pattern for explicit cooperative pool execution.
 
 ### Swift 6.2 rules (SE-0461)
 
 SE-0461 changes the default isolation behavior for `nonisolated async` functions. In Swift 6.0, `nonisolated async` ran on the cooperative pool. In Swift 6.2, `nonisolated async` inherits the caller's isolation — the new default is `nonisolated(nonsending)`. This means `@concurrent` is now required to explicitly opt into pool execution.
 
-- **`@concurrent`** explicitly runs on cooperative pool. This is the correct way to offload CPU-bound work. It is the Swift 6.2 replacement for `Task.detached` and the explicit opt-out from `nonisolated(nonsending)` default.
-- **NOT `nonisolated async`** — in Swift 6.2, `nonisolated async` means `nonisolated(nonsending)` by default: it inherits caller isolation. A `nonisolated async` method called from `@MainActor` runs ON MainActor in 6.2. This is a behavioral change from Swift 6.0.
-- **NOT `Task.detached`** — strips task priority, task-locals, and structured concurrency. `@concurrent` preserves all of these.
-- **NOT `MainActor.run`** — unnecessary. When returning from a `@concurrent` function back to a `@MainActor` caller, the compiler automatically handles the hop.
+**Critical:** `@concurrent` is only valid on `nonisolated` declarations (SE-0461). It is an error to apply `@concurrent` to a function with any other isolation — including functions inside `@MainActor` types, which inherit actor isolation by default (SE-0316). Inside a `@MainActor` class, you MUST write `@concurrent nonisolated` to first opt out of actor isolation, then opt into pool execution.
+
+- **`@concurrent nonisolated`** explicitly runs on cooperative pool. `nonisolated` opts out of the enclosing actor's isolation; `@concurrent` opts into pool execution. This is the project's preferred pattern for offloading CPU-bound work, replacing most uses of `Task.detached`.
+- **NOT `nonisolated async` alone** — in Swift 6.2, `nonisolated async` means `nonisolated(nonsending)` by default: it inherits caller isolation. A `nonisolated async` method called from `@MainActor` runs ON MainActor in 6.2. This is a behavioral change from Swift 6.0.
+- **Prefer `@concurrent` over `Task.detached`** (project policy) — `Task.detached` strips task priority, task-locals, and structured concurrency. `@concurrent` preserves all of these. Exception: `Task.detached` remains appropriate when you explicitly need to escape structured concurrency (e.g., fire-and-forget background work that must outlive the calling scope) or when you need to strip inherited task-locals intentionally.
+- **Avoid `MainActor.run` in this architecture** — in the typical pattern of awaiting a `@concurrent nonisolated` function from a `@MainActor` caller, the compiler handles the hop back automatically. `MainActor.run` is still valid Swift when you genuinely need to hop TO MainActor from a non-MainActor isolated context (e.g., inside a `nonisolated` actor method that needs a one-off MainActor call), but in our architecture's common paths it adds unnecessary noise.
 
 ### Pattern: Runtime offloads heavy work
 
@@ -327,9 +331,9 @@ final class TerminalRuntime {
     }
 
     /// Heavy regex search runs on cooperative pool, not MainActor.
-    /// @concurrent ensures this does NOT inherit @MainActor isolation.
+    /// nonisolated opts out of @MainActor; @concurrent opts into pool execution.
     @concurrent
-    private static func performSearch(
+    nonisolated private static func performSearch(
         _ snapshot: ScrollbackSnapshot, query: String
     ) async -> [SearchMatch] {
         // 1-50ms of regex work — would stall UI if on MainActor
@@ -392,6 +396,414 @@ COMMANDS (one-way, user/system → coordinator → runtime):
   Commands and events NEVER share the same channel.
 ```
 
+## Connection Patterns
+
+Every edge in the architecture uses one of four patterns. The choice is mechanical — answer one question: **is the producer ongoing and decoupled from the consumer?**
+
+```
+ ┌─────────────────────────────────────────────────────────┐
+ │  IS THE PRODUCER ONGOING AND DECOUPLED FROM CONSUMER?   │
+ │                                                         │
+ │  Yes + multiple consumers  →  Bus (AsyncStream out)     │
+ │  Yes + one known consumer  →  Direct AsyncStream pipe   │
+ │  No  + request-response    →  Direct await call         │
+ │  No  + UI binding          →  @Observable               │
+ │  No  + one-shot/finite     →  Continuation / array      │
+ └─────────────────────────────────────────────────────────┘
+```
+
+### When to use each pattern
+
+**AsyncStream** — ongoing, decoupled, pull-based:
+1. **Bus → subscriber** — always. This is the bus's outbound interface. Decoupled, independent consumption.
+2. **Bursty OS/system source → boundary actor** — FSEvents, process stdout, webhook streams. Natural buffering, composes with AsyncAlgorithms (debounce, throttle, merge).
+3. **Per-runtime `subscribe()`** — for direct per-pane consumers and replay catch-up continuation.
+
+**Direct `await` call** — known target, request-response, or one-shot:
+1. **Any producer → bus** — `await bus.post(envelope)`. Producer knows the bus. One call, one destination.
+2. **Adapter → runtime** — route by surfaceId, one target, synchronous on MainActor.
+3. **Coordinator → runtime** — command dispatch returns `ActionResult`.
+4. **Coordinator → stores** — known targets, domain mutations.
+5. **User input → C API** — synchronous, one producer, one consumer.
+
+**`@Observable`** — UI binding, zero overhead:
+1. **Runtime state → SwiftUI view** — direct binding via `@Observable` macro tracking.
+2. **Projection state → SwiftUI view** — C16 filesystem context, derived from bus events.
+3. **Notification state → UI** — reducer writes `@Observable` properties, views bind.
+
+**Never stream** — one-shot signals, bounded queries, lookups:
+1. **Readiness gates** (C5a) — fires once, not ongoing. Use `Task.value` or continuation.
+2. **Catch-up replay** (C14) — returns `[PaneEventEnvelope]` array, not a stream.
+3. **Registry lookup** (C11) — dictionary access, not a flow.
+4. **Config read** (C9) — immutable at creation time.
+
+### Per-Contract Stream Decision
+
+| Contract | Stream Decision | Pattern |
+|----------|----------------|---------|
+| C1 PaneRuntime | `subscribe()` returns AsyncStream; `handleCommand()` is direct call | Stream for outbound events, direct for inbound commands |
+| C2 PaneKindEvent | No stream — protocol conformance | Events self-classify via protocol property |
+| C3 PaneEventEnvelope | Carried ON streams, not a stream itself | Bus payload |
+| C4 ActionPolicy | No stream — read from envelope | Direct property access |
+| C5 Lifecycle | `@Observable` for UI; multiplexed to bus via `bus.post()` | Direct write + direct post |
+| C5a Attach Readiness | **Not a stream** — one-shot readiness gate | `Task.value` or continuation. State machine transition, not ongoing. |
+| C5b Restart Reconcile | **Not a stream** — one-shot at launch | Direct call during app startup |
+| C6 Filesystem Batching | **AsyncStream inbound** (FSEvents → actor); direct `bus.post()` outbound | Stream for bursty OS events + debounce; direct for bus delivery |
+| C7 GhosttyEvent FFI | **Not a stream** — individual C callback hops | Direct trampoline → direct call to runtime |
+| C7a Action Coverage | No stream — compile-time exhaustiveness | Policy, not data flow |
+| C8 Per-Kind Events | Flow through bus → AsyncStream from `bus.subscribe()` | Stream at bus boundary only |
+| C9 Execution Backend | No stream — immutable config | Read-only at creation time |
+| C10 Command Dispatch | **Not a stream** — request-response | `await runtime.handleCommand() -> ActionResult` |
+| C11 Registry | No stream — synchronous lookup map | `registry[paneId]` |
+| C12 NotificationReducer | **AsyncStream inbound** from `bus.subscribe()` | Stream from bus; @Observable outbound |
+| C12a Visibility Tiers | No stream — policy lookup | Resolved from UI state |
+| C13 Workflow Engine | **AsyncStream inbound** from `bus.subscribe()` | Stream from bus; may also post back to bus |
+| C14 Replay Buffer | **Not a stream** — `eventsSince(seq:)` returns array | Catch-up is a bounded query, not ongoing consumption |
+| C15 Process Channel | **AsyncStream for stdout**; direct call for stdin | Process output is ongoing and bursty → stream. Input is direct `await process.write()`. |
+| C16 Filesystem Context | **Not a stream** — derived `@Observable` projection | Updates when C6 events arrive via bus subscription; UI binds via @Observable |
+
+### Per-Actor Connection Inventory
+
+#### EventBus actor
+
+| Direction | Connection | Pattern | Why |
+|-----------|-----------|---------|-----|
+| **In** | Any producer → `bus.post(envelope)` | Direct `await` call | Producer knows the bus. One call, one destination. |
+| **Out** | `bus.subscribe()` → any consumer | **AsyncStream** | Multiple independent consumers, pull at own pace. This IS the bus's value proposition. |
+
+#### TerminalRuntime (@MainActor)
+
+| Direction | Connection | Pattern | Why |
+|-----------|-----------|---------|-----|
+| **In** | GhosttyAdapter → `runtime.handleGhosttyEvent()` | Direct call | Adapter knows exact target (surfaceId → registry lookup). One producer, one consumer. |
+| **In** | Coordinator → `runtime.handleCommand(envelope)` | Direct call | Request-response. Returns `ActionResult`. |
+| **Out** | `@Observable` mutation | Direct property write | SwiftUI binding, synchronous, zero overhead. |
+| **Out** | `await bus.post(envelope)` | Direct call to bus | Runtime knows the bus. No stream between runtime and bus. |
+| **Out** | `subscribe()` → per-runtime stream | **AsyncStream** | For replay catch-up and per-pane direct subscription. Secondary to bus path. |
+
+Same pattern applies to BridgeRuntime, WebviewRuntime, SwiftPaneRuntime — transport differs but connection patterns are identical.
+
+#### FilesystemActor (future, LUNA-349)
+
+| Direction | Connection | Pattern | Why |
+|-----------|-----------|---------|-----|
+| **In** | FSEvents callback → actor | **AsyncStream** | FSEvents fires rapid bursts (50 paths in 2s). Stream provides buffering, composes with `.debounce()`. |
+| **Internal** | Debounce → `@concurrent` git status/diff | Direct call (await) | Structured concurrency inside actor. One batch in, one result out. |
+| **Out** | `await bus.post(enrichedEnvelope)` | Direct call to bus | Same as every other producer. |
+
+#### NetworkActor (future)
+
+| Direction | Connection | Pattern | Why |
+|-----------|-----------|---------|-----|
+| **In** | Timer-driven polling | No stream needed | Actor owns its own polling loop. No external producer. |
+| **Out** | `await bus.post(envelope)` | Direct call to bus | Same pattern. |
+
+#### GhosttyAdapter (@MainActor)
+
+| Direction | Connection | Pattern | Why |
+|-----------|-----------|---------|-----|
+| **In** | C callback → `@Sendable` trampoline → MainActor | Direct hop | Individual function calls, not an iterable sequence. |
+| **Out** | `runtime.handleGhosttyEvent()` | Direct call | Route by surfaceId to known target. |
+
+No AsyncStream — wrapping individual C callbacks in a stream would yield one, consume one — pointless indirection.
+
+#### NotificationReducer (@MainActor)
+
+| Direction | Connection | Pattern | Why |
+|-----------|-----------|---------|-----|
+| **In** | `for await envelope in await bus.subscribe()` | **AsyncStream** (from bus) | Decoupled consumption. Reducer pulls at its own pace. |
+| **Out** | `@Observable` mutations to notification state | Direct property write | SwiftUI binding. |
+
+Pure sink. Consumes from bus stream, writes to @Observable.
+
+#### PaneCoordinator (@MainActor)
+
+| Direction | Connection | Pattern | Why |
+|-----------|-----------|---------|-----|
+| **In** | `for await envelope in await bus.subscribe()` | **AsyncStream** (from bus) | Decoupled consumption from bus. |
+| **Out** | `runtime.handleCommand(envelope)` | Direct call | Command dispatch is request-response. |
+| **Out** | Store mutations | Direct call | `workspace.closeTab()`, `surfaces.moveSurfacesToUndo()` — known targets. |
+
+#### Sink+Source actors (CheckpointActor pattern, future)
+
+A component that subscribes from the bus, accumulates state, and produces events when ready:
+
+| Direction | Connection | Pattern | Why |
+|-----------|-----------|---------|-----|
+| **In** | `for await envelope in await bus.subscribe()` | **AsyncStream** (from bus) | Sink role — consumes coordination events. |
+| **Out (multiple consumers)** | `await bus.post(checkpointReadyEnvelope)` | Direct call to bus | Coordination event — workflow engine, reducer, UI all might want it. |
+| **Out (single known consumer)** | `@Observable` state | Direct property write | If only the checkpoint panel UI cares. |
+
+Same multiplexing rule as runtimes: `@Observable` for UI binding, `bus.post()` for coordination consumers.
+
+### Pattern Diagrams
+
+#### AsyncStream patterns
+
+```
+BUS OUTBOUND (fan-out to independent consumers):
+
+  Any producer
+       │
+       │  await bus.post(envelope)          ← direct call IN
+       ▼
+  ┌─────────────────────────────────────┐
+  │         actor EventBus              │
+  │                                     │
+  │  subscribers: [UUID: Continuation]  │
+  │                                     │
+  │  post() { for c in subs { c.yield(envelope) } }
+  └───────┬──────────┬──────────┬───────┘
+          │          │          │
+     AsyncStream  AsyncStream  AsyncStream   ← stream OUT (one per subscriber)
+          │          │          │
+          ▼          ▼          ▼
+     Reducer    Coordinator   Workflow
+     for await  for await     for await
+     envelope   envelope      envelope
+
+
+BURSTY OS SOURCE (FSEvents → boundary actor):
+
+  macOS FSEvents (arbitrary thread, 50 paths in 2s burst)
+       │
+       │  continuation.yield(paths)
+       ▼
+  ╔═══════════════════════════════════════════════╗
+  ║  AsyncStream<[String]>                        ║
+  ║  (buffered pipe between OS callback and actor)║
+  ╚═══════════════╤═══════════════════════════════╝
+                   │
+                   │  for await paths in stream.debounce(500ms)
+                   ▼
+  ┌─────────────────────────────────────┐
+  │      actor FilesystemActor          │
+  │                                     │
+  │  dedup → batch → @concurrent git    │
+  │  status → @concurrent diff          │
+  │                                     │
+  │  await bus.post(enrichedEnvelope)   │──── direct call to bus
+  └─────────────────────────────────────┘
+
+
+PROCESS STDOUT (C15, bidirectional — stream out, direct in):
+
+  Agent process (PTY)
+       │
+       │  stdout bytes arrive continuously
+       ▼
+  ╔══════════════════════════════╗
+  ║  AsyncStream<ProcessOutput>  ║
+  ║  (ongoing, bursty)           ║
+  ╚═══════════════╤══════════════╝
+                   │  for await chunk in stdout
+                   ▼
+  ┌─────────────────────────────────┐
+  │   TerminalRuntime (@MainActor)  │
+  │                                 │
+  │   parse → classify → emit       │
+  └─────────────────────────────────┘
+                   │
+                   │  await bus.post(envelope)
+                   ▼
+              EventBus
+
+
+  OPPOSITE DIRECTION (stdin — direct call, NOT stream):
+
+  Coordinator                    Agent process
+       │                              ▲
+       │  await runtime               │  runtime calls
+       │    .handleCommand(           │  ghostty_surface_write()
+       │      .sendInput("yes\n"))    │
+       ▼                              │
+  TerminalRuntime ────────────────────┘
+       direct call, request-response
+```
+
+#### Direct call patterns
+
+```
+ADAPTER → RUNTIME (C7: Ghostty FFI):
+
+  C callback (arbitrary thread)
+       │
+       │  @Sendable static trampoline
+       │  MainActor.assumeIsolated { }
+       ▼
+  GhosttyAdapter.translate(action)       ~100ns
+       │
+       │  RuntimeRegistry[surfaceId]     lookup, not stream
+       │  runtime.handleGhosttyEvent()   direct call
+       ▼
+  TerminalRuntime (@MainActor)
+
+
+COMMAND DISPATCH (C10: coordinator → runtime):
+
+  User taps "Approve"
+       │
+       ▼
+  PaneCoordinator (@MainActor)
+       │
+       │  let runtime = registry[paneId]       ← lookup
+       │  let result = await runtime            ← direct call
+       │      .handleCommand(envelope)
+       ▼
+  ActionResult
+    .success(commandId)
+    .failure(.runtimeNotReady)
+
+
+COORDINATOR → STORES (cross-store sequencing):
+
+  PaneCoordinator.closeTab(tabId)
+       │
+       ├──► workspace.removeTab(tabId)           direct call
+       │         returns TabSnapshot
+       │
+       ├──► surfaces.moveSurfacesToUndo(ids)     direct call
+       │
+       └──► runtime.markSessionsPendingUndo(ids) direct call
+
+
+ANY PRODUCER → BUS (inbound post):
+
+  TerminalRuntime ──► await bus.post(envelope)   direct call
+  FilesystemActor ──► await bus.post(envelope)   direct call
+  NetworkActor    ──► await bus.post(envelope)   direct call
+  CheckpointActor ──► await bus.post(envelope)   direct call
+```
+
+#### @Observable patterns
+
+```
+RUNTIME → SWIFTUI VIEW (zero-overhead binding):
+
+  TerminalRuntime (@MainActor, @Observable)
+  ┌──────────────────────────────────────┐
+  │  private(set) var title: String      │◄─── GhosttyAdapter writes
+  │  private(set) var cwd: URL?          │     directly on MainActor
+  │  private(set) var searchState: ...   │
+  │  private(set) var scrollbarState: .. │
+  └────────────┬─────────────────────────┘
+               │
+               │  SwiftUI @Observable tracking
+               │  (compiler-generated, zero overhead)
+               ▼
+  ┌──────────────────────────────────────┐
+  │  AgentStudioTerminalView             │
+  │                                      │
+  │  Text(runtime.title)       ← binds   │
+  │  ScrollBar(runtime         ← binds   │
+  │    .scrollbarState)                   │
+  └──────────────────────────────────────┘
+
+
+MULTIPLEXING (Categories 2 & 5 — @Observable AND bus):
+
+  TerminalRuntime receives titleChanged("new title")
+       │
+       ├──► SYNC: self.title = "new title"          @Observable
+       │         (SwiftUI re-renders immediately)
+       │
+       └──► ASYNC: await bus.post(envelope(          EventBus
+                     .terminal(.titleChanged(...))
+                   ))
+                   (tab bar, notifications, dynamic views)
+
+  The @Observable write happens FIRST, synchronously.
+  The bus post happens AFTER, asynchronously.
+  UI is never stale relative to coordination consumers.
+
+
+PROJECTION (C16: filesystem context → view):
+
+  EventBus
+       │
+       │  for await envelope in bus.subscribe()
+       │  filter: source == .system(.builtin(.filesystemWatcher))
+       │  filter: worktreeId matches pane's worktree
+       ▼
+  PaneFilesystemContext (@MainActor, @Observable)
+  ┌──────────────────────────────────────┐
+  │  private(set) var changedFiles: ...  │◄─── updated from C6 events
+  │  private(set) var gitStatus: ...     │
+  │  private(set) var lastDiff: ...      │
+  └────────────┬─────────────────────────┘
+               │  @Observable binding
+               ▼
+  DiffPaneView / SidebarFileTree / etc.
+```
+
+#### Never-stream patterns
+
+```
+ONE-SHOT SIGNAL (C5a: attach readiness gate):
+
+  DeferredStartupReadiness
+       │
+       │  await readiness.wait()    ← suspends until ready
+       │                            ← resumes once (not ongoing)
+       ▼
+  proceed with attach
+
+  Implementation: AsyncStream.Continuation.yield() + finish(),
+  or Task that resolves once. NOT an ongoing stream.
+
+
+CATCH-UP REPLAY (C14: eventsSince):
+
+  Late-joining consumer (e.g., new workflow subscriber)
+       │
+       │  let missed = await runtime.eventsSince(seq: lastSeen)
+       │
+       ▼
+  EventReplayBuffer.ReplayResult
+    .complete([envelope, envelope, envelope])    ← array, not stream
+    .partial([envelope, ...], gapStart: seq)
+
+  ┌──────────────────────────────────────────────┐
+  │  CATCH-UP THEN LIVE:                         │
+  │                                              │
+  │  let missed = await runtime.eventsSince(42)  │  ← array
+  │  process(missed)                             │
+  │                                              │
+  │  for await envelope in await bus.subscribe() │  ← stream
+  │      where envelope.seq > missed.lastSeq     │
+  │      process(envelope)                       │
+  │  }                                           │
+  └──────────────────────────────────────────────┘
+
+
+LOOKUP (C11: RuntimeRegistry):
+
+  registry[paneId]  →  TerminalRuntime?
+
+  Dictionary lookup. Not a stream. Not async.
+
+
+CONFIG READ (C9: ExecutionBackend):
+
+  pane.metadata.executionBackend  →  .bareMetal | .docker | .gondolin
+
+  Immutable at creation time. Read once, never changes.
+```
+
+### Bus Enrichment Rule
+
+The bus is a dumb pipe. It never transforms, enriches, or filters payloads. Enrichment happens at the boundary before posting:
+
+```
+BOUNDARY does enrichment:
+  FSEvents → FilesystemActor → enrich(worktree, git, diff) → bus.post(enriched)
+
+BUS does fan-out only:
+  bus.post(enriched) → subscriber1, subscriber2, subscriber3
+```
+
+If a sink+source needs to transform events for a different audience (e.g., CheckpointActor), it subscribes from the bus, transforms, and posts back. The bus itself never knows what the payload means.
+
 ## Threading Model
 
 Concrete list of what runs where, with Swift 6.2 keywords:
@@ -402,14 +814,14 @@ Concrete list of what runs where, with Swift 6.2 keywords:
 | `actor EventBus` | Subscriber management, fan-out | `actor` (cooperative pool) |
 | `actor FilesystemActor` | FSEvents, debounce, git status, diff (future) | `actor` (cooperative pool) |
 | `actor NetworkActor` | Forge polling, container health (future) | `actor` (cooperative pool) |
-| Cooperative pool (anonymous) | Heavy per-pane one-shot work (search, parse, extract, hash) | `@concurrent` on static func |
+| Cooperative pool (anonymous) | Heavy per-pane one-shot work (search, parse, extract, hash) | `@concurrent nonisolated` on static func |
 
 ### Swift 6.2 concurrency rules (SE-0461)
 
-1. **`@concurrent`** for explicit pool execution. This is the replacement for `Task.detached` and the correct way to say "run this on the cooperative pool, not on my caller's actor." The `@concurrent` attribute is the explicit opt-out from the `nonisolated(nonsending)` default.
+1. **`@concurrent nonisolated`** for explicit pool execution. `@concurrent` is only valid on `nonisolated` declarations (SE-0461) — it is an error to apply it to actor-isolated functions. Inside `@MainActor` types, both keywords are required: `nonisolated` to opt out of actor isolation, `@concurrent` to opt into pool execution.
 2. **`nonisolated async` means `nonisolated(nonsending)` in Swift 6.2** (SE-0461). It inherits caller isolation. Do NOT use this expecting pool execution — it will run on MainActor if called from MainActor.
-3. **No `Task.detached`** — strips priority and task-locals. `@concurrent` preserves structured concurrency.
-4. **No `MainActor.run`** — the compiler handles actor hops when returning from `@concurrent` to `@MainActor`. Explicit `MainActor.run` is unnecessary and adds noise.
+3. **Prefer `@concurrent` over `Task.detached`** (project policy) — `Task.detached` strips priority and task-locals; `@concurrent` preserves structured concurrency. Exception: `Task.detached` remains appropriate when you need to escape structured concurrency scope or intentionally strip task-locals.
+4. **Avoid `MainActor.run` in this architecture's common paths** — the compiler handles actor hops when returning from `@concurrent nonisolated` to `@MainActor`. `MainActor.run` is still valid when genuinely needed (hopping TO MainActor from a non-main context), but our typical pattern doesn't require it.
 5. **All cross-boundary data is `Sendable`.** `PaneEventEnvelope`, all event types, all command types — `Sendable` is required for data that crosses actor boundaries.
 6. **C callbacks use `@Sendable` trampolines** + `MainActor.assumeIsolated` for synchronous hops or `Task { @MainActor in }` for async work. No `DispatchQueue.main.async`.
 
@@ -468,7 +880,7 @@ FSEvents callback (arbitrary thread)
                     │
                     ▼
          Debounce + git status + diff   1-100ms (REAL WORK)
-         @concurrent inner functions    (pool execution)
+         @concurrent nonisolated funcs (pool execution)
                     │
                     ▼
          await bus.post(envelope)
@@ -526,14 +938,81 @@ Incremental, each step independently shippable:
 
 6. **Migrate heavy per-pane work to `@concurrent`** as it appears. Scrollback search, artifact extraction, log parsing — each gets a `@concurrent static func` instead of inline MainActor processing. The D1 processing budget guidance in pane_runtime_architecture.md reflects this pattern.
 
+## Implementation Migration Inventory
+
+Current codebase patterns that need migration to align with this design. Audited from `Sources/AgentStudio/`.
+
+### What's already clean
+
+- **No `Task.detached`** in production code
+- **No `MainActor.run`** in production code
+- **No `DispatchQueue.main.async`** — only `DispatchQueue.global()` in ProcessExecutor (correct)
+- **No Combine** (`import Combine`, `AnyCancellable`, `@Published`, `ObservableObject`) — already on `@Observable`
+- **FileManager I/O** already isolated in WorkspacePersistor (not `@MainActor`)
+- **C callback patterns** correctly use `@Sendable` trampolines + `Task { @MainActor in }`
+
+### Phase 1: Core — NotificationCenter → typed EventBus
+
+**~38 NotificationCenter calls** across the codebase form the current command/event dispatch system. These are the primary migration target.
+
+| File | Pattern | Events | Severity |
+|------|---------|--------|----------|
+| `App/Panes/PaneTabViewController.swift` | 8 `for await` consumers, 3 `.post()` producers | selectTabById, extractPane, repairSurface, processTerminated, undoClose, refocusTerminal, webviewOpen, addRepo, filterSidebar, signIn | HIGH |
+| `App/MainSplitViewController.swift` | 6 `for await` consumers, 1 `addObserver` | openWorktree, tabClose, selectTab, sidebarToggle, newTerminal, sidebarFilter, willTerminate | HIGH |
+| `Features/CommandBar/CommandBarDataSource.swift` | 5 `.post()` producers | selectTabById, openWorktreeRequested | HIGH |
+| `Features/Terminal/Ghostty/GhosttySurfaceView.swift` | 2 `.post()` producers | didUpdateWorkingDirectory, didUpdateRendererHealth | MEDIUM |
+| `Features/Terminal/Ghostty/Ghostty.swift` | 2 `for await` consumers, 2 `.post()` | ghosttyNewWindow, ghosttyCloseSurface, didBecomeActive, didResignActive | MEDIUM |
+| `Features/Terminal/Views/AgentStudioTerminalView.swift` | 2 `addObserver`, 2 `.post()` | surfaceClose, repairSurfaceRequested, terminalProcessTerminated | MEDIUM |
+| `App/MainWindowController.swift` | 2 `.post()` | filterSidebarRequested, addRepoRequested | LOW |
+| `App/AppDelegate.swift` | 1 `addObserver` | signIn OAuth callback | LOW |
+| `Features/Terminal/Ghostty/SurfaceManager.swift` | 1 `addObserver`, 1 `removeObserver` | Health notifications | LOW |
+
+**Target pattern:**
+```swift
+// Before: untyped, stringly-keyed
+NotificationCenter.default.post(name: .selectTabById, userInfo: ["tabId": tabId])
+
+// After: typed, compiler-checked
+await bus.post(PaneEventEnvelope(source: .system(.ui), event: .navigation(.selectTab(tabId))))
+```
+
+### Phase 1: Core — JSON encoding off MainActor
+
+**RPCRouter** (`Features/Bridge/Transport/RPCRouter.swift`) does JSON decode/encode on MainActor — performance-sensitive path for bridge RPC dispatch.
+
+| Method | Line | Work | Target |
+|--------|------|------|--------|
+| `parseRequestEnvelope(from:)` | ~158 | `JSONDecoder().decode()` from raw string | `nonisolated` sync method or `@concurrent nonisolated` if payload is large |
+| `decodeResultData(from:)` | ~391 | `JSONDecoder().decode()` | Same |
+| `decodeParamsData(from:)` | ~431 | `JSONEncoder().encode()` | Same |
+
+These methods don't need MainActor isolation — they take immutable input and return parsed results. Making them `nonisolated` is the simplest fix; `@concurrent nonisolated` if profiling shows >1ms per call.
+
+### Phase 2: UI — Combine bridge patterns
+
+3 `.onReceive(NotificationCenter.default.publisher(...))` in `MainSplitViewController.swift` (lines 395-404). These bridge NotificationCenter to SwiftUI. They can migrate to EventBus subscriptions or direct store method calls when Phase 1 completes.
+
+### Phase 3: Polish — URLHistoryService JSON I/O
+
+4 `JSONEncoder`/`JSONDecoder` calls in `URLHistoryService.swift` (lines 167-192). Low frequency, not on critical path. Can offload to `nonisolated` or `@concurrent nonisolated` for consistency.
+
+### Not requiring migration
+
+| Pattern | Location | Why it's fine |
+|---------|----------|---------------|
+| `DispatchQueue.global()` | ProcessExecutor.swift | Correct: offloads blocking pipe I/O |
+| `NotificationCenter.notifications(named: .didBecomeActive)` | Ghostty.swift | System notification — stays as-is |
+| `FileManager` operations | WorkspacePersistor | Already not `@MainActor` |
+| `@concurrent` on plain structs | Slice.swift, EntitySlice.swift | No actor isolation to opt out of — `nonisolated` implicit |
+
 ## Verification Checklist
 
 1. No MainActor frame stalls from event processing (benchmark: 100 events/frame stays under 2ms)
 2. Every envelope reaches all subscribers (fan-out correctness: post once, N streams receive)
 3. Events and commands flow in opposite directions (never share channel)
 4. All cross-boundary payloads are `Sendable` (compiler-enforced)
-5. `@concurrent` used for cooperative pool execution, not `nonisolated async` (which inherits caller in 6.2)
-6. No `Task.detached` in new code (use `@concurrent` instead)
-7. No `MainActor.run` in new code (compiler handles hops)
+5. `@concurrent nonisolated` used for cooperative pool execution — both keywords required inside `@MainActor` types (SE-0461, SE-0316)
+6. Prefer `@concurrent` over `Task.detached` in new code (exception: escaping structured concurrency scope)
+7. Avoid `MainActor.run` in common architecture paths (exception: hopping TO MainActor from non-main isolated context)
 8. Coordinator remains sequencing-only (no domain logic in fan-out paths)
 9. `@Observable` mutations happen synchronously on MainActor before bus posting (UI never lags behind coordination)
