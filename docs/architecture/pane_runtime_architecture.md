@@ -8,7 +8,7 @@ The current Ghostty integration handles 12 of 40+ C API actions, uses `DispatchQ
 
 This document defines the pane runtime communication architecture: how panes of all types produce events, receive commands, and coordinate through the workspace.
 
-> **Implementation status note:** This document includes both shipped contracts and forward-defined target contracts. For ticket-by-ticket implementation state, use the mapping ledger in `docs/plans/2026-02-21-pane-runtime-luna-295-luna-325-mapping.md`. For the background-ingestion alternative design, see [Pane Runtime Option 2 Design](pane_runtime_option2_design.md).
+> **Implementation status note:** This document includes both shipped contracts and forward-defined target contracts. For ticket-by-ticket implementation state, use the mapping ledger in `docs/plans/2026-02-21-pane-runtime-luna-295-luna-325-mapping.md`. For the EventBus coordination design (actor fan-out, boundary actors, data flow per contract), see [Pane Runtime EventBus Design](pane_runtime_eventbus_design.md).
 
 ### Jobs This Architecture Solves
 
@@ -85,7 +85,7 @@ RUNTIMES (per-pane, registered in RuntimeRegistry):
 
 **Actor migration path (honest cost):** The protocol is `async` from day one, which minimizes caller-side changes if a runtime is later moved to its own actor. However, `@MainActor` on the protocol itself and sync property access (`paneId`, `metadata`, `lifecycle`, `capabilities`, `snapshot()`) lock current conformers to main-actor isolation. Migrating to actor-per-pane would require: (1) removing `@MainActor` from the protocol, (2) making sync properties `async` or using `nonisolated`, (3) updating all callsites. This is a real migration cost — the protocol reduces it but does not eliminate it. Profile before deciding (>1000 events/sec sustained).
 
-**MainActor processing budget:** Since `TerminalRuntime` is `@MainActor`, heavy processing of Ghostty output (regex searching, artifact extraction, log parsing) MUST happen on a detached background `Task` before yielding the result to the MainActor runtime. The runtime's event handler should be fast — classify the event, update `@Observable` state, emit the envelope. Anything that takes >1ms (string matching across scrollback, diff computation, file content hashing) must be offloaded to avoid UI stutters on the main thread.
+**MainActor processing budget:** Since `TerminalRuntime` is `@MainActor`, heavy processing of Ghostty output (regex searching, artifact extraction, log parsing) MUST be offloaded to the cooperative pool via `@concurrent` static functions (Swift 6.2). The runtime's event handler should be fast — classify the event, update `@Observable` state, emit the envelope. Anything that takes >1ms (string matching across scrollback, diff computation, file content hashing) must use `@concurrent` to avoid UI stutters on the main thread. Do NOT use `Task.detached` (strips priority and task-locals) or `nonisolated async` (inherits caller isolation in Swift 6.2 — it would run on MainActor). See [Pane Runtime EventBus Design — Per-Pane Heavy Work](pane_runtime_eventbus_design.md#per-pane-heavy-work-concurrent) for the full pattern.
 
 **Why not single coordinator handling all events:** Becomes a god object as pane types grow. Per-type runtimes have clear ownership, are testable in isolation, and scale with new pane types.
 
@@ -219,16 +219,16 @@ The filesystem watcher is the first system-level source to implement. It's a pre
 │  Input:   macOS FSEvents stream for worktree root path           │
 │  Output:  PaneEventEnvelope with source = .system(.builtin(.filesystemWatcher)) │
 │                                                                  │
-│  Pipeline:                                                       │
+│  Pipeline (inside FilesystemActor — see EventBus design):        │
 │    FSEvents callback (arbitrary thread)                          │
-│      → Task { @MainActor in }  (safe hop)                       │
+│      → FilesystemActor (boundary actor, cooperative pool)        │
 │        → path dedup (Set<String>)                                │
 │          → debounce 500ms settle window                          │
 │            → max latency 2s cap                                  │
 │              → FileChangeset batch                               │
-│                → git status recompute (background Task)          │
+│                → @concurrent git status recompute                │
 │                  → GitStatusSummary                              │
-│                    → yield FilesystemEvent envelopes             │
+│                    → bus.post(PaneEventEnvelope)                 │
 │                                                                  │
 │  Lifecycle: Created when worktree added to workspace.            │
 │             Destroyed when worktree removed.                     │
@@ -588,6 +588,35 @@ Priority tiers control scheduling order:
   p2: other visible panes in active tab → after p1
   p3: hidden/background panes          → bounded concurrency
 ```
+
+---
+
+### Contract Data Flow Direction
+
+Quick reference: which direction each contract's data flows and which actor boundaries are involved. For the full EventBus coordination design, see [Pane Runtime EventBus Design](pane_runtime_eventbus_design.md).
+
+| Contract | Name | Direction | Actor Boundary | Role |
+|----------|------|-----------|----------------|------|
+| C1 | PaneRuntime | Bidirectional | @MainActor | Commands in, events out |
+| C2 | PaneKindEvent | Outbound | @MainActor → EventBus | Self-classifying events |
+| C3 | PaneEventEnvelope | Outbound | Any → EventBus → @MainActor | Bus payload |
+| C4 | ActionPolicy | Read-only | @MainActor | Priority classification |
+| C5 | Lifecycle | Internal | @MainActor | Forward-only state machine |
+| C5a | Attach Readiness | Internal | @MainActor | Readiness gates |
+| C5b | Restart Reconcile | Internal | @MainActor | Launch reconcile |
+| C6 | Filesystem Batching | Outbound | FilesystemActor → EventBus | Boundary actor source |
+| C7 | GhosttyEvent FFI | Inbound→Outbound | C thread → @MainActor → EventBus | Translate, multiplex |
+| C7a | Action Coverage | Policy | @MainActor | Exhaustive handling |
+| C8 | Per-Kind Events | Outbound | @MainActor → EventBus | Per-kind event flow |
+| C9 | Execution Backend | Config | @MainActor | Immutable config |
+| C10 | Command Dispatch | Inbound | @MainActor → Runtime | Opposite direction from events |
+| C11 | Registry | Lookup | @MainActor | PaneId → Runtime map |
+| C12 | NotificationReducer | Consumer | EventBus → @MainActor | Bus subscriber |
+| C12a | Visibility Tiers | Policy | @MainActor | Scheduling priority |
+| C13 | Workflow Engine | Consumer (deferred) | EventBus → @MainActor | Future bus subscriber |
+| C14 | Replay Buffer | Internal | @MainActor | Per-runtime replay |
+| C15 | Process Channel | Source (deferred) | Future boundary | Request/response, not bus |
+| C16 | Filesystem Context | Projection (deferred) | @MainActor | Derived from C6 |
 
 ---
 
