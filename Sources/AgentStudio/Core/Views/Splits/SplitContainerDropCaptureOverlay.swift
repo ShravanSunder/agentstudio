@@ -142,9 +142,7 @@ struct SplitContainerDropCaptureOverlay: NSViewRepresentable {
                 return nil
             }
 
-            if let resolvedTarget = resolveTarget(at: location, payload: payload),
-                shouldAcceptDrop(payload, resolvedTarget.paneId, resolvedTarget.zone)
-            {
+            if let resolvedTarget = resolveTarget(at: location, payload: payload) {
                 let candidate = DragSessionCandidate(payload: payload, target: resolvedTarget)
                 dragSession = .armed(candidate: candidate)
                 return resolvedTarget
@@ -156,16 +154,14 @@ struct SplitContainerDropCaptureOverlay: NSViewRepresentable {
 
         func performDrop(from pasteboard: NSPasteboard, location: CGPoint) -> Bool {
             guard isManagementModeActive else {
-                finalizeDragSession()
+                dragSession = .teardown
                 return false
             }
 
             guard let payload = decodeSplitDropPayload(from: pasteboard),
-                let resolvedTarget = resolveTarget(at: location, payload: payload),
-                shouldAcceptDrop(payload, resolvedTarget.paneId, resolvedTarget.zone)
+                let resolvedTarget = resolveTarget(at: location, payload: payload)
             else {
                 dragSession = .teardown
-                finalizeDragSession()
                 return false
             }
 
@@ -173,7 +169,6 @@ struct SplitContainerDropCaptureOverlay: NSViewRepresentable {
             dragSession = .committing(candidate: candidate)
             onDrop(payload, resolvedTarget.paneId, resolvedTarget.zone)
             dragSession = .teardown
-            finalizeDragSession()
             return true
         }
 

@@ -193,9 +193,7 @@ class DraggableTabBarHostingView: NSView, NSDraggingSource {
     }
 
     private func clearDropTargetIndicator() {
-        Task { @MainActor [weak self] in
-            self?.tabBarAdapter?.dropTargetIndex = nil
-        }
+        tabBarAdapter?.dropTargetIndex = nil
     }
 
     // MARK: - Pan Gesture Handler

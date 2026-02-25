@@ -35,6 +35,11 @@ This plan intentionally mirrors those patterns:
 - boundary actors for expensive/external source work,
 - `AsyncStream` event fan-out via EventBus.
 
+Non-goal for this plan:
+
+- no additional buses,
+- no additional source actors beyond the existing runtime architecture actors.
+
 ---
 
 ## 1. Current Problems and Actual Data Flow
@@ -130,7 +135,7 @@ Owned by `PreferencesStore` and `KeybindingsStore`.
 
 ## 3. Swift 6.2 Actor + Async Standards (Hard Requirements)
 
-## 3.1 Actor Roles
+## 3.1 Reuse Existing Actor Roles (No New Bus/Actors)
 
 ### `EventBus` actor
 
@@ -138,28 +143,18 @@ Owned by `PreferencesStore` and `KeybindingsStore`.
 - no domain logic,
 - payload is typed event envelope.
 
-EventBus contract (initial concrete shape):
+EventBus contract (existing system, reused here):
 
-```swift
-enum WorkspaceSourceEvent: Sendable {
-    case filesystem(FilesystemEventPayload)
-    case forge(ForgeEventPayload)
-}
+1. Reuse existing `EventBus<PaneEventEnvelope>`.
+2. `FilesystemActor` and `ForgeActor` continue posting to this existing bus.
+3. `WorkspaceCacheCoordinator` subscribes to the same existing bus and filters filesystem/forge events relevant to cache updates.
+4. Do not introduce `WorkspaceEventBus` or parallel bus topology for this migration.
 
-struct WorkspaceSourceEnvelope: Sendable {
-    let source: WorkspaceSource
-    let revision: UInt64
-    let timestamp: Date
-    let event: WorkspaceSourceEvent
-}
+Single-bus rule for this plan:
 
-actor WorkspaceEventBus {
-    // Use bounded buffering to avoid unbounded memory growth.
-    // Policy: bufferingNewest(64) per subscriber.
-    func subscribe() -> AsyncStream<WorkspaceSourceEnvelope> { ... }
-    func post(_ envelope: WorkspaceSourceEnvelope) { ... }
-}
-```
+1. Exactly one bus is used: existing `EventBus<PaneEventEnvelope>`.
+2. Existing boundary actors remain the only source actors.
+3. Any new logic is coordinator/store integration only.
 
 Subscription lifecycle policy:
 
@@ -177,13 +172,13 @@ Backpressure policy:
 
 - source for filesystem/git-derived updates,
 - worktree discovery scheduling and git status recompute,
-- posts source events to EventBus.
+- posts source events to existing `EventBus<PaneEventEnvelope>`.
 
 ### `ForgeActor` (boundary actor)
 
 - source for PR/check/forge-derived updates,
 - uses gh/API transport internally,
-- posts source events to EventBus.
+- posts source events to existing `EventBus<PaneEventEnvelope>`.
 
 ## 3.2 Isolation Rules
 
@@ -191,6 +186,7 @@ Backpressure policy:
 2. Boundary actors perform non-UI source work and publish envelopes.
 3. Store mutations remain synchronous/typed on owner actor (`private(set)` state).
 4. New event plumbing uses `AsyncStream` (`NotificationCenter` can remain only as migration bridge).
+5. `WorkspaceCacheCoordinator` performs lightweight filtering on `@MainActor`; any heavy diff/transform must be moved to `@concurrent nonisolated` helpers.
 
 ## 3.3 Swift 6.2 Concurrency Rule for Heavy One-Shot Work
 
@@ -218,7 +214,7 @@ Boundary actors must never fail silently.
 
 ## 4. Concrete Design for Repo/Worktree + PR Refresh
 
-## 4.1 One-Way Flow
+## 4.1 One-Way Flow (Single Existing Bus)
 
 ```text
 User intent (add repo/folder/manual refresh)
@@ -227,7 +223,7 @@ User intent (add repo/folder/manual refresh)
   -> Watch registrations for FilesystemActor/ForgeActor updated
 
 FilesystemActor / ForgeActor
-  -> EventBus.post(envelope)
+  -> existing EventBus<PaneEventEnvelope>.post(envelope)
 
 WorkspaceCacheCoordinator (subscriber)
   -> WorkspaceCacheStore.apply(...)
@@ -344,13 +340,12 @@ Planned location map:
 3. `Core/Stores/WorkspaceCachePersistor.swift`
 4. `Core/Stores/WorkspaceUIPersistor.swift`
 5. `App/WorkspaceCacheCoordinator.swift`
-6. `Core/Events/WorkspaceEventBus.swift` (or equivalent domain-neutral event location)
-7. `Features/Sidebar/FilesystemActor.swift` and `Features/Sidebar/ForgeActor.swift` initially, promote to `Core` if reused across features.
-8. `Core/Stores/WorkspacePersistor.swift` remains canonical persistor and drops derived/UI concerns.
+6. `Core/Stores/WorkspacePersistor.swift` remains canonical persistor and drops derived/UI concerns.
+7. Reuse existing core EventBus and existing core boundary actors (no new bus/actor files added by this plan).
 
 ---
 
-## 5. Migration Plan (Execution Order)
+## 5. Migration Plan (Execution Order, Reuse Existing Runtime Bus/Actors)
 
 ## Phase 1: Document and Guard Current Behavior
 
@@ -371,12 +366,16 @@ Planned location map:
 2. Add `WorkspaceUIStore` (`@Observable`, `private(set)`).
 3. Ensure views read stores only, no direct persistence in view code.
 
-## Phase 4: Add EventBus + Boundary Source Actors
+## Phase 4: Integrate Existing EventBus + Existing Boundary Actors
 
-1. Add shared `EventBus` actor for source envelopes with explicit buffering and termination behavior.
-2. Add `FilesystemActor` source production path.
-3. Add `ForgeActor` source production path.
-4. Add `WorkspaceCacheCoordinator` subscriber to apply envelopes into cache store.
+1. Wire `WorkspaceCacheCoordinator` subscription to existing `EventBus<PaneEventEnvelope>`.
+2. Add cache-event filtering/projection from existing filesystem/forge envelope kinds.
+3. Keep buffering/termination behavior aligned with existing bus policy (`bufferingNewest(64)` target).
+4. Do not add new bus instances or duplicate source actors.
+
+Phase guardrail:
+
+1. Any implementation that introduces a second bus or duplicate source actor is out of scope for this plan.
 
 ## Phase 4.5: Bootstrap and Restore Wiring
 
@@ -442,7 +441,7 @@ Planned location map:
 1. Canonical persistence remains stable and free of derived forge/git observation fields.
 2. Sidebar PR/check/status chips are fed from cache store and update deterministically.
 3. Structural worktree refresh is explicit; metadata refresh is cache-only.
-4. Source collection is actorized (`FilesystemActor`, `ForgeActor`) with EventBus fan-out.
+4. Source collection reuses existing actorized sources (`FilesystemActor`, `ForgeActor`) with single existing EventBus fan-out.
 5. New pipeline conforms to Swift 6.2 actor + async standards, including `@concurrent nonisolated` pattern for heavy non-UI work.
 
 ---
