@@ -15,7 +15,6 @@ struct PaneLeafContainer: View {
     let useDrawerFramePreference: Bool
 
     @State private var isHovered: Bool = false
-    @State private var globalFrame: CGRect = .zero
     @Bindable private var managementMode = ManagementModeMonitor.shared
     @State private var isMinimizeHovered: Bool = false
     @State private var isCloseHovered: Bool = false
@@ -58,10 +57,18 @@ struct PaneLeafContainer: View {
     }
 
     /// True when hover is active either via tracking events or by direct pointer query.
-    /// The direct query fixes the Cmd+E case where management mode toggles while the
-    /// pointer is already inside the pane and no hover transition event fires.
+    /// The direct pointer query fixes the Cmd+E case where management mode toggles
+    /// while the pointer is already inside the pane and no hover transition fires.
     private var isManagementHovered: Bool {
-        isHovered || globalFrame.contains(NSEvent.mouseLocation)
+        isHovered || isPointerInsidePaneView
+    }
+
+    private var isPointerInsidePaneView: Bool {
+        guard managementMode.isActive else { return false }
+        guard let window = paneView.window else { return false }
+        let pointInWindow = window.mouseLocationOutsideOfEventStream
+        let pointInPane = paneView.convert(pointInWindow, from: nil)
+        return paneView.bounds.contains(pointInPane)
     }
 
     /// Downcast to terminal view for terminal-specific features.
@@ -334,7 +341,6 @@ struct PaneLeafContainer: View {
         .padding(AppStyle.paneGap)
         .background(
             GeometryReader { geo in
-                let global = geo.frame(in: .global)
                 ZStack {
                     if let dropTargetCoordinateSpace {
                         // Report pane frame for overlay positioning in the configured container
@@ -361,12 +367,6 @@ struct PaneLeafContainer: View {
                     } else {
                         Color.clear
                     }
-                }
-                .onAppear {
-                    globalFrame = global
-                }
-                .onChange(of: global) { _, newGlobalFrame in
-                    globalFrame = newGlobalFrame
                 }
             }
         )

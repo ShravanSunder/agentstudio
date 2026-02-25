@@ -112,6 +112,10 @@ struct DrawerPanel: View {
     var body: some View {
         GeometryReader { drawerGeometry in
             let containerBounds = CGRect(origin: .zero, size: drawerGeometry.size)
+            let paneUnionBounds = drawerPaneFrames.values.reduce(into: CGRect.null) { partial, frame in
+                partial = partial.union(frame)
+            }
+            let effectiveBounds = paneUnionBounds.isNull ? containerBounds : paneUnionBounds
             ZStack(alignment: .topLeading) {
                 VStack(spacing: 0) {
                     // Resize handle at top
@@ -170,7 +174,7 @@ struct DrawerPanel: View {
 
                 SplitContainerDropCaptureOverlay(
                     paneFrames: drawerPaneFrames,
-                    containerBounds: containerBounds,
+                    containerBounds: effectiveBounds,
                     target: $dropTarget,
                     isManagementModeActive: managementMode.isActive,
                     shouldAcceptDrop: shouldAcceptDrawerDrop,
@@ -208,10 +212,36 @@ struct DrawerPanel: View {
 
     private static let drawerDropCoordinateSpace = "drawerContainer"
 
-    private func shouldAcceptDrawerDrop(destPaneId: UUID, zone _: DropZone) -> Bool {
+    private func shouldAcceptDrawerDrop(
+        payload: SplitDropPayload,
+        destPaneId: UUID,
+        zone: DropZone
+    ) -> Bool {
         guard managementMode.isActive else { return false }
         guard let drawer = store.pane(parentPaneId)?.drawer else { return false }
-        return drawer.layout.contains(destPaneId)
+        guard drawer.layout.contains(destPaneId) else { return false }
+
+        guard case .existingPane(let sourcePaneId, _) = payload.kind else { return false }
+        guard sourcePaneId != destPaneId else { return false }
+        guard let sourcePane = store.pane(sourcePaneId) else { return false }
+        guard sourcePane.parentPaneId == parentPaneId else { return false }
+
+        let snapshot = ActionResolver.snapshot(
+            from: store.tabs,
+            activeTabId: store.activeTabId,
+            isManagementModeActive: managementMode.isActive,
+            knownWorktreeIds: Set(store.repos.flatMap(\.worktrees).map(\.id))
+        )
+        let action = PaneAction.moveDrawerPane(
+            parentPaneId: parentPaneId,
+            drawerPaneId: sourcePaneId,
+            targetDrawerPaneId: destPaneId,
+            direction: splitDirection(for: zone)
+        )
+        if case .success = ActionValidator.validate(action, state: snapshot) {
+            return true
+        }
+        return false
     }
 
     private func handleDrawerDrop(payload: SplitDropPayload, destPaneId: UUID, zone: DropZone) {

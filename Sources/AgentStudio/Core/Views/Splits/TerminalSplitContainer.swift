@@ -26,7 +26,7 @@ struct TerminalSplitContainer: View {
     let action: (PaneAction) -> Void
     /// Called when a resize drag ends to persist the current split tree state.
     let onPersist: (() -> Void)?
-    let shouldAcceptDrop: (UUID, DropZone) -> Bool
+    let shouldAcceptDrop: (SplitDropPayload, UUID, DropZone) -> Bool
     let onDrop: (SplitDropPayload, UUID, DropZone) -> Void
     let store: WorkspaceStore
     let viewRegistry: ViewRegistry

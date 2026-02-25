@@ -249,4 +249,34 @@ final class PaneDragCoordinatorTests {
         // Assert
         #expect(result == nil)
     }
+
+    @Test
+    func test_edgeCorridor_respectsProvidedContainerBounds() {
+        // Arrange
+        let leftPaneId = UUID()
+        let rightPaneId = UUID()
+        let paneFrames: [UUID: CGRect] = [
+            leftPaneId: CGRect(x: 40, y: 120, width: 200, height: 200),
+            rightPaneId: CGRect(x: 260, y: 120, width: 200, height: 200),
+        ]
+        let fullPanelBounds = CGRect(x: 0, y: 0, width: 600, height: 420)
+        let paneUnionBounds = CGRect(x: 40, y: 120, width: 420, height: 200)
+        let pointInPanelButOutsidePaneUnion = CGPoint(x: 20, y: 160)
+
+        // Act
+        let targetWithFullBounds = PaneDragCoordinator.resolveTarget(
+            location: pointInPanelButOutsidePaneUnion,
+            paneFrames: paneFrames,
+            containerBounds: fullPanelBounds
+        )
+        let targetWithPaneUnionBounds = PaneDragCoordinator.resolveTarget(
+            location: pointInPanelButOutsidePaneUnion,
+            paneFrames: paneFrames,
+            containerBounds: paneUnionBounds
+        )
+
+        // Assert
+        #expect(targetWithFullBounds != nil)
+        #expect(targetWithPaneUnionBounds == nil)
+    }
 }

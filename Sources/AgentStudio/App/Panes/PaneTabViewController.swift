@@ -424,8 +424,12 @@ class PaneTabViewController: NSViewController, CommandHandler {
             store: store,
             viewRegistry: viewRegistry,
             action: { [weak self] action in self?.dispatchAction(action) },
-            shouldAcceptDrop: { [weak self] destPaneId, zone in
-                self?.evaluateDropAcceptance(destPaneId: destPaneId, zone: zone) ?? false
+            shouldAcceptDrop: { [weak self] payload, destPaneId, zone in
+                self?.evaluateDropAcceptance(
+                    payload: payload,
+                    destPaneId: destPaneId,
+                    zone: zone
+                ) ?? false
             },
             onDrop: { [weak self] payload, destPaneId, zone in
                 self?.handleSplitDrop(payload: payload, destPaneId: destPaneId, zone: zone)
@@ -448,9 +452,11 @@ class PaneTabViewController: NSViewController, CommandHandler {
     }
 
     /// Evaluate whether a drop is acceptable at the given pane and zone.
-    private func evaluateDropAcceptance(destPaneId: UUID, zone: DropZone) -> Bool {
-        // New terminal drags have no draggingTabId — always valid
-        guard let draggingTabId = tabBarAdapter.draggingTabId else { return true }
+    private func evaluateDropAcceptance(
+        payload: SplitDropPayload,
+        destPaneId: UUID,
+        zone: DropZone
+    ) -> Bool {
         guard let tabId = store.activeTabId else { return false }
 
         let snapshot = ActionResolver.snapshot(
@@ -459,10 +465,6 @@ class PaneTabViewController: NSViewController, CommandHandler {
             isManagementModeActive: ManagementModeMonitor.shared.isActive,
             knownWorktreeIds: Set(store.repos.flatMap(\.worktrees).map(\.id))
         )
-        let payload = SplitDropPayload(
-            kind: .existingTab(
-                tabId: draggingTabId
-            ))
         guard
             let action = ActionResolver.resolveDrop(
                 payload: payload,

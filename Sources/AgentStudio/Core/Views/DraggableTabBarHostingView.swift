@@ -147,15 +147,38 @@ class DraggableTabBarHostingView: NSView, NSDraggingSource {
     /// Find the insertion index for a drop at the given point
     private func dropIndexAtPoint(_ point: NSPoint) -> Int? {
         guard let adapter = tabBarAdapter, !adapter.tabs.isEmpty else { return nil }
+        let orderedTabIds = adapter.tabs.map(\.id)
+        return Self.paneDropInsertionIndex(
+            dropPoint: point,
+            boundsHeight: bounds.height,
+            tabFrames: currentTabFrames,
+            orderedTabIds: orderedTabIds
+        )
+    }
 
-        let swiftUIPoint = CGPoint(x: point.x, y: bounds.height - point.y)
-        let frames = currentTabFrames
+    /// Shared insertion-index resolver used by tab-bar drag preview and drop commit.
+    /// Returning nil means the pointer is outside the tab row and no insertion marker
+    /// should be shown.
+    nonisolated static func paneDropInsertionIndex(
+        dropPoint: NSPoint,
+        boundsHeight: CGFloat,
+        tabFrames: [UUID: CGRect],
+        orderedTabIds: [UUID]
+    ) -> Int? {
+        guard !orderedTabIds.isEmpty else { return nil }
 
-        // Sort tabs by their x position
-        let sortedTabs = adapter.tabs.enumerated().compactMap { index, tab -> (index: Int, frame: CGRect)? in
-            guard let frame = frames[tab.id] else { return nil }
-            return (index, frame)
+        let swiftUIPoint = CGPoint(x: dropPoint.x, y: boundsHeight - dropPoint.y)
+        let sortedTabs = orderedTabIds.enumerated().compactMap { index, tabId -> (index: Int, frame: CGRect)? in
+            guard let frame = tabFrames[tabId] else { return nil }
+            return (index: index, frame: frame)
         }.sorted { $0.frame.minX < $1.frame.minX }
+        guard !sortedTabs.isEmpty else { return nil }
+
+        let verticalMinY = sortedTabs.map(\.frame.minY).min() ?? 0
+        let verticalMaxY = sortedTabs.map(\.frame.maxY).max() ?? 0
+        guard swiftUIPoint.y >= verticalMinY, swiftUIPoint.y <= verticalMaxY else {
+            return nil
+        }
 
         // Find insertion point based on midpoint
         for item in sortedTabs {
@@ -166,7 +189,13 @@ class DraggableTabBarHostingView: NSView, NSDraggingSource {
         }
 
         // Past the last tab
-        return adapter.tabs.count
+        return orderedTabIds.count
+    }
+
+    private func clearDropTargetIndicator() {
+        Task { @MainActor [weak self] in
+            self?.tabBarAdapter?.dropTargetIndex = nil
+        }
     }
 
     // MARK: - Pan Gesture Handler
@@ -351,12 +380,11 @@ class DraggableTabBarHostingView: NSView, NSDraggingSource {
     }
 
     override func draggingExited(_ sender: NSDraggingInfo?) {
-        Task { @MainActor [weak self] in
-            self?.tabBarAdapter?.dropTargetIndex = nil
-        }
+        clearDropTargetIndicator()
     }
 
     override func performDragOperation(_ sender: NSDraggingInfo) -> Bool {
+        defer { clearDropTargetIndicator() }
         let pasteboard = sender.draggingPasteboard
 
         // Handle internal tab reorder (only when management mode is still active)
@@ -370,8 +398,8 @@ class DraggableTabBarHostingView: NSView, NSDraggingSource {
         }
 
         // Handle pane drop:
-        // - If dropped on a specific tab pill -> move pane into that tab
-        // - Otherwise -> extract pane to a new tab (existing behavior)
+        // - Always use insertion index semantics on the tab row
+        // - Create/move to a new tab at the insertion target
         if let paneData = pasteboard.data(forType: .agentStudioPaneDrop),
             let payload = try? JSONDecoder().decode(PaneDragPayload.self, from: paneData)
         {
@@ -382,27 +410,16 @@ class DraggableTabBarHostingView: NSView, NSDraggingSource {
             }
 
             let dropPoint = convert(sender.draggingLocation, from: nil)
-            if let targetTabId = tabAtPoint(dropPoint), targetTabId != payload.tabId {
-                NotificationCenter.default.post(
-                    name: .movePaneToTabRequested,
-                    object: nil,
-                    userInfo: [
-                        "paneId": payload.paneId,
-                        "sourceTabId": payload.tabId,
-                        "targetTabId": targetTabId,
-                    ]
-                )
-                return true
+            let targetTabIndex = dropIndexAtPoint(dropPoint)
+            guard let targetTabIndex else {
+                return false
             }
 
-            let targetTabIndex = dropIndexAtPoint(dropPoint)
             var userInfo: [String: Any] = [
                 "tabId": payload.tabId,
                 "paneId": payload.paneId,
             ]
-            if let targetTabIndex {
-                userInfo["targetTabIndex"] = targetTabIndex
-            }
+            userInfo["targetTabIndex"] = targetTabIndex
             NotificationCenter.default.post(
                 name: .extractPaneRequested,
                 object: nil,

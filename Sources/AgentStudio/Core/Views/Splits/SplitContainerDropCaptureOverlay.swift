@@ -11,7 +11,7 @@ struct SplitContainerDropCaptureOverlay: NSViewRepresentable {
     let containerBounds: CGRect
     @Binding var target: PaneDropTarget?
     let isManagementModeActive: Bool
-    let shouldAcceptDrop: (UUID, DropZone) -> Bool
+    let shouldAcceptDrop: (SplitDropPayload, UUID, DropZone) -> Bool
     let onDrop: (SplitDropPayload, UUID, DropZone) -> Void
 
     static let supportedPasteboardTypes: [NSPasteboard.PasteboardType] = [
@@ -60,23 +60,24 @@ struct SplitContainerDropCaptureOverlay: NSViewRepresentable {
         )
         nsView.updateDropRegistration(isManagementModeActive: isManagementModeActive)
         if !isManagementModeActive {
-            context.coordinator.setTarget(nil)
+            context.coordinator.finalizeDragSession()
         }
     }
 
     @MainActor
     final class Coordinator {
         private var targetBinding: Binding<PaneDropTarget?>
-        private var shouldAcceptDrop: (UUID, DropZone) -> Bool
+        private var shouldAcceptDrop: (SplitDropPayload, UUID, DropZone) -> Bool
         private var onDrop: (SplitDropPayload, UUID, DropZone) -> Void
 
         private(set) var paneFrames: [UUID: CGRect] = [:]
         private(set) var containerBounds: CGRect = .zero
         private(set) var isManagementModeActive: Bool = false
+        private(set) var dragSession: DragSessionState = .idle
 
         init(
             targetBinding: Binding<PaneDropTarget?>,
-            shouldAcceptDrop: @escaping (UUID, DropZone) -> Bool,
+            shouldAcceptDrop: @escaping (SplitDropPayload, UUID, DropZone) -> Bool,
             onDrop: @escaping (SplitDropPayload, UUID, DropZone) -> Void
         ) {
             self.targetBinding = targetBinding
@@ -86,7 +87,7 @@ struct SplitContainerDropCaptureOverlay: NSViewRepresentable {
 
         func updateHandlers(
             targetBinding: Binding<PaneDropTarget?>,
-            shouldAcceptDrop: @escaping (UUID, DropZone) -> Bool,
+            shouldAcceptDrop: @escaping (SplitDropPayload, UUID, DropZone) -> Bool,
             onDrop: @escaping (SplitDropPayload, UUID, DropZone) -> Void
         ) {
             self.targetBinding = targetBinding
@@ -110,37 +111,69 @@ struct SplitContainerDropCaptureOverlay: NSViewRepresentable {
             }
         }
 
+        func finalizeDragSession() {
+            setTarget(nil)
+            dragSession = .idle
+        }
+
         func hasSupportedTypes(in pasteboard: NSPasteboard) -> Bool {
             guard let types = pasteboard.types else { return false }
             return types.contains(where: { Self.supportedTypeSet.contains($0) })
         }
 
-        func resolveTarget(at location: CGPoint) -> PaneDropTarget? {
+        private func resolveTarget(
+            at location: CGPoint,
+            payload: SplitDropPayload
+        ) -> PaneDropTarget? {
             PaneDragCoordinator.resolveLatchedTarget(
                 location: location,
                 paneFrames: paneFrames,
                 containerBounds: containerBounds,
                 currentTarget: targetBinding.wrappedValue,
-                shouldAcceptDrop: shouldAcceptDrop
+                shouldAcceptDrop: { paneId, zone in
+                    shouldAcceptDrop(payload, paneId, zone)
+                }
             )
+        }
+
+        func handleDragUpdate(from pasteboard: NSPasteboard, location: CGPoint) -> PaneDropTarget? {
+            guard let payload = decodeSplitDropPayload(from: pasteboard) else {
+                dragSession = .idle
+                return nil
+            }
+
+            if let resolvedTarget = resolveTarget(at: location, payload: payload),
+                shouldAcceptDrop(payload, resolvedTarget.paneId, resolvedTarget.zone)
+            {
+                let candidate = DragSessionCandidate(payload: payload, target: resolvedTarget)
+                dragSession = .armed(candidate: candidate)
+                return resolvedTarget
+            }
+
+            dragSession = .previewing(payload: payload)
+            return nil
         }
 
         func performDrop(from pasteboard: NSPasteboard, location: CGPoint) -> Bool {
             guard isManagementModeActive else {
-                setTarget(nil)
+                finalizeDragSession()
                 return false
             }
 
-            guard let resolvedTarget = resolveTarget(at: location),
-                shouldAcceptDrop(resolvedTarget.paneId, resolvedTarget.zone),
-                let payload = decodeSplitDropPayload(from: pasteboard)
+            guard let payload = decodeSplitDropPayload(from: pasteboard),
+                let resolvedTarget = resolveTarget(at: location, payload: payload),
+                shouldAcceptDrop(payload, resolvedTarget.paneId, resolvedTarget.zone)
             else {
-                setTarget(nil)
+                dragSession = .teardown
+                finalizeDragSession()
                 return false
             }
 
-            setTarget(nil)
+            let candidate = DragSessionCandidate(payload: payload, target: resolvedTarget)
+            dragSession = .committing(candidate: candidate)
             onDrop(payload, resolvedTarget.paneId, resolvedTarget.zone)
+            dragSession = .teardown
+            finalizeDragSession()
             return true
         }
 
@@ -188,15 +221,16 @@ final class SplitContainerDropCaptureView: NSView {
     }
 
     override func draggingExited(_ sender: (any NSDraggingInfo)?) {
-        coordinator?.setTarget(nil)
+        coordinator?.finalizeDragSession()
     }
 
     override func draggingEnded(_ sender: any NSDraggingInfo) {
-        coordinator?.setTarget(nil)
+        coordinator?.finalizeDragSession()
     }
 
     override func performDragOperation(_ sender: any NSDraggingInfo) -> Bool {
         guard let coordinator else { return false }
+        defer { coordinator.finalizeDragSession() }
         let location = convert(sender.draggingLocation, from: nil)
         return coordinator.performDrop(
             from: sender.draggingPasteboard,
@@ -207,16 +241,19 @@ final class SplitContainerDropCaptureView: NSView {
     private func routeDragUpdate(_ sender: any NSDraggingInfo) -> NSDragOperation {
         guard let coordinator else { return [] }
         guard coordinator.isManagementModeActive else {
-            coordinator.setTarget(nil)
+            coordinator.finalizeDragSession()
             return []
         }
         guard coordinator.hasSupportedTypes(in: sender.draggingPasteboard) else {
-            coordinator.setTarget(nil)
+            coordinator.finalizeDragSession()
             return []
         }
 
         let location = convert(sender.draggingLocation, from: nil)
-        let target = coordinator.resolveTarget(at: location)
+        let target = coordinator.handleDragUpdate(
+            from: sender.draggingPasteboard,
+            location: location
+        )
         coordinator.setTarget(target)
         return target == nil ? [] : .move
     }
