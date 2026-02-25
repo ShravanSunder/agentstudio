@@ -25,6 +25,22 @@ This document defines the pane runtime communication architecture: how panes of 
 
 ---
 
+## Three Data Flow Planes
+
+All data flow in the pane runtime architecture follows one of three planes. Every new feature, event, or interaction pattern should be classified into exactly one.
+
+| Plane | Direction | Mechanism | Invariant |
+|-------|-----------|-----------|-----------|
+| **Event plane** | Producers → EventBus → consumers | Runtimes (`@MainActor`) and boundary actors (FilesystemActor, ForgeActor, ContainerActor) post `PaneEventEnvelope`s to `EventBus`. Coordinator, `NotificationReducer`, and future analytics subscribe from the bus independently. | One-way. Events never flow backward. Bus is dumb fan-out (`post()` + `subscribe()` only). See [EventBus Design](pane_runtime_eventbus_design.md). |
+| **Command plane** | User/system → coordinator → runtime | Coordinator dispatches `RuntimeCommand`s directly via `RuntimeRegistry` (`runtime.handleCommand(envelope)`). Command-plane calls to boundary actors (e.g., `forgeActor.refresh(repo:)`) are also direct. | Request-response. Commands never flow through the EventBus. |
+| **UI plane** | Runtime → SwiftUI view | `@Observable` properties on each runtime, views bind directly. `@Observable` mutation happens synchronously on `@MainActor` **before** any bus post. | Synchronous, zero-overhead. UI is never stale relative to coordination consumers. Bus is for coordination, not UI state transport. |
+
+**The multiplexing rule:** When a runtime processes a domain event (e.g., `titleChanged`), it writes `@Observable` state first (UI plane), then posts to the bus (event plane). Both happen, in that order. The test for whether an event needs the bus: "Would any other component in the system care?" If yes → bus. If only the bound view cares → `@Observable` only.
+
+**Why not three separate streams:** Two independent reviewers identified an ordering hazard with separate control/state/data streams (see D2 below). Single event stream with per-source ordering eliminates cross-plane inconsistency.
+
+---
+
 ## Design Decisions
 
 Each decision links to the user problem it solves and the alternatives considered.
@@ -2267,15 +2283,13 @@ extension PaneRuntimeEvent {
 ┌──────────────────────────────────────────────────────────┐
 │ PaneCoordinator event consumption loop                    │
 │                                                          │
-│  for runtime in registry.readyRuntimes {                 │
-│    Task {                                                │
-│      for await envelope in runtime.subscribe() {         │
-│        // Runtime produces envelopes directly — no       │
-│        // wrapping step. source/seq/paneKind set by      │
-│        // the runtime.                                   │
-│        reducer.submit(envelope)  // self-classifying     │
-│        replayBuffer[runtime.paneId].append(envelope)     │
-│      }                                                   │
+│  // Single bus subscription — all runtimes and system    │
+│  // producers post to EventBus, coordinator consumes     │
+│  // from bus fan-out (not per-runtime streams).           │
+│  Task {                                                  │
+│    for await envelope in bus.subscribe() {               │
+│      reducer.submit(envelope)  // self-classifying       │
+│      replayBuffer[envelope.source].append(envelope)      │
 │    }                                                     │
 │  }                                                       │
 │                                                          │
@@ -2753,7 +2767,7 @@ enum PaneFilesystemContextEvent: PaneKindEvent {
 
 **Risk:** One AsyncStream for all events can become a bottleneck with 10+ active terminals.
 
-**Mitigation:** Ordering is per-source (`seq` field on envelope, monotonic within each `EventSource`), not one total global sequence. The stream is a merge of per-runtime streams. No global sequence number means no global serialization. Per-source ordering is the guarantee; cross-source ordering uses `timestamp` for best-effort. This is sufficient for UI rendering and workflow matching but not for strict causal ordering across panes.
+**Mitigation:** Ordering is per-source (`seq` field on envelope, monotonic within each `EventSource`), not one total global sequence. The EventBus fans out each posted envelope to all subscribers independently — there is no global merge or serialization step. Per-source ordering is the guarantee; cross-source ordering uses `timestamp` for best-effort. This is sufficient for UI rendering and workflow matching but not for strict causal ordering across panes.
 
 ### 2. Priority inversion in batching
 
@@ -2805,7 +2819,7 @@ enum PaneFilesystemContextEvent: PaneKindEvent {
 
 **Risk:** Event bus accumulates routing logic, filtering, batching, domain decisions, workflow branching.
 
-**Mitigation:** Bus only routes, filters, and batches. It never makes domain decisions. Workflow logic lives in the coordinator. Domain logic lives in runtimes. The bus is infrastructure — a typed `AsyncStream` with merge, filter, and throttle operators from `swift-async-algorithms`. If the bus grows methods that aren't pure stream operations, it's doing too much.
+**Mitigation:** The bus is a dumb fan-out pipe: `post()` and `subscribe()` are its only operations. It never filters, batches, transforms, or makes domain decisions. Filtering and batching live in consumers (`NotificationReducer` for priority-aware delivery, coordinator for replay buffering). Domain logic lives in runtimes. Stream operators from `swift-async-algorithms` (merge, filter, throttle) are applied by consumers on their subscription streams, not inside the bus itself. If the bus grows methods beyond `post()` and `subscribe()`, it's doing too much.
 
 ---
 
@@ -2819,7 +2833,7 @@ The current codebase uses `NotificationCenter` and `DispatchQueue.main.async` fo
 |---|---|---|
 | `NotificationCenter.default.post(name: .ghosttyAction, ...)` | `GhosttyAdapter` → typed `GhosttyEvent` → `TerminalRuntime.handleEvent()` | LUNA-325 |
 | `DispatchQueue.main.async { ... }` in C callback trampolines | `Task { @MainActor in ... }` or direct `@MainActor` calls | LUNA-342 (partial — wakeup_cb, initialize), LUNA-325 (remaining 23 instances) |
-| `@objc` notification observers in `PaneCoordinator` | `for await envelope in runtime.subscribe()` in coordinator event loop | LUNA-325 |
+| `@objc` notification observers in `PaneCoordinator` | `for await envelope in bus.subscribe()` in coordinator event loop (EventBus fan-out) | LUNA-325 |
 | `userInfo` dictionaries on notifications | Typed `GhosttyEvent` enum cases with associated values | LUNA-325 |
 | String-keyed notification names (`.ghosttyTitleChanged`, etc.) | Exhaustive `GhosttyEvent` enum switch (compile-time coverage) | LUNA-325 |
 
