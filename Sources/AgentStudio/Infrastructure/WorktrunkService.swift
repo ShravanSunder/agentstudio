@@ -19,28 +19,26 @@ final class WorktrunkService: Sendable {
 
     /// Get the homebrew install command
     var installCommand: String {
-        "brew install shravansunder/tap/worktrunk"
+        "brew install worktrunk"
     }
 
     // MARK: - Worktree Discovery
 
     /// Discovers all worktrees for a repository using worktrunk
     func discoverWorktrees(for projectPath: URL) -> [Worktree] {
-        let projectName = projectPath.lastPathComponent
-            .replacingOccurrences(of: ".wt", with: "")
-            .replacingOccurrences(of: ".git", with: "")
+        let gitWorktrees = discoverWithGit(projectPath: projectPath)
 
         // Try worktrunk first (preferred)
-        if let worktrees = discoverWithWorktrunk(projectName: projectName, projectPath: projectPath) {
+        if let worktrees = discoverWithWorktrunk(projectPath: projectPath, gitWorktrees: gitWorktrees) {
             return worktrees
         }
 
         // Fallback to raw git worktree command
-        return discoverWithGit(projectPath: projectPath)
+        return gitWorktrees
     }
 
     /// Discover worktrees using `wt list --format=json`
-    private func discoverWithWorktrunk(projectName: String, projectPath: URL) -> [Worktree]? {
+    private func discoverWithWorktrunk(projectPath: URL, gitWorktrees: [Worktree]) -> [Worktree]? {
         let result = shell("wt", args: ["list", "--format=json"], cwd: projectPath)
 
         guard result.exitCode == 0, !result.output.isEmpty else {
@@ -54,24 +52,74 @@ final class WorktrunkService: Sendable {
             return nil
         }
 
-        // Filter entries belonging to this repo
-        let filtered = entries.filter { entry in
-            entry.path.contains(projectName)
+        // `wt list` can include entries from many repos. Use git's authoritative
+        // worktree paths for this repo to keep mapping deterministic.
+        guard !gitWorktrees.isEmpty else { return nil }
+        return mergeWorktrunkEntries(entries, orderedBy: gitWorktrees)
+    }
+
+    func mergeWorktrunkEntries(_ entries: [WorktrunkEntry], orderedBy gitWorktrees: [Worktree]) -> [Worktree] {
+        guard !gitWorktrees.isEmpty else { return [] }
+
+        var entryByCanonicalPath: [String: WorktrunkEntry] = [:]
+        entryByCanonicalPath.reserveCapacity(entries.count)
+        for entry in entries {
+            let canonicalPath = canonicalPathString(URL(fileURLWithPath: entry.path))
+            entryByCanonicalPath[canonicalPath] = entry
         }
 
-        return filtered.enumerated().map { index, entry in
-            let pathURL = URL(fileURLWithPath: entry.path)
-            let name =
-                entry.branch.replacingOccurrences(of: "refs/heads/", with: "")
-                .components(separatedBy: "/").last ?? entry.branch
+        var merged: [Worktree] = []
+        merged.reserveCapacity(gitWorktrees.count)
+        var matchedEntries = 0
 
-            return Worktree(
-                name: name,
-                path: pathURL,
-                branch: entry.branch,
-                isMainWorktree: index == 0
-            )
+        for (index, gitWorktree) in gitWorktrees.enumerated() {
+            let canonicalGitPath = canonicalPathString(gitWorktree.path)
+            guard let entry = entryByCanonicalPath[canonicalGitPath] else {
+                merged.append(
+                    Worktree(
+                        name: gitWorktree.name,
+                        path: gitWorktree.path,
+                        branch: gitWorktree.branch,
+                        isMainWorktree: index == 0
+                    ))
+                continue
+            }
+
+            matchedEntries += 1
+            let normalizedBranch = normalizeBranch(entry.branch)
+            let branchName = normalizedBranch.isEmpty ? gitWorktree.branch : normalizedBranch
+            let worktreeName = branchName.components(separatedBy: "/").last ?? gitWorktree.name
+            merged.append(
+                Worktree(
+                    name: worktreeName.isEmpty ? gitWorktree.name : worktreeName,
+                    path: URL(fileURLWithPath: entry.path),
+                    branch: branchName,
+                    isMainWorktree: index == 0
+                ))
         }
+
+        if matchedEntries == 0 {
+            return gitWorktrees.enumerated().map { index, worktree in
+                Worktree(
+                    name: worktree.name,
+                    path: worktree.path,
+                    branch: worktree.branch,
+                    isMainWorktree: index == 0
+                )
+            }
+        }
+
+        return merged
+    }
+
+    private func normalizeBranch(_ rawBranch: String) -> String {
+        rawBranch
+            .trimmingCharacters(in: .whitespacesAndNewlines)
+            .replacingOccurrences(of: "refs/heads/", with: "")
+    }
+
+    private func canonicalPathString(_ path: URL) -> String {
+        path.standardizedFileURL.resolvingSymlinksInPath().path
     }
 
     /// Fallback: discover worktrees using raw git command
@@ -186,9 +234,9 @@ final class WorktrunkService: Sendable {
 
         // Inherit user's PATH to find wt and git
         var environment = ProcessInfo.processInfo.environment
-        if let path = environment["PATH"] {
-            environment["PATH"] = "/opt/homebrew/bin:/usr/local/bin:\(path)"
-        }
+        let inheritedPath = environment["PATH"]?.trimmingCharacters(in: .whitespacesAndNewlines)
+        let basePath = (inheritedPath?.isEmpty == false) ? inheritedPath! : "/usr/bin:/bin:/usr/sbin:/sbin"
+        environment["PATH"] = "/opt/homebrew/bin:/usr/local/bin:\(basePath)"
         process.environment = environment
 
         let outputPipe = Pipe()
@@ -222,6 +270,13 @@ struct WorktrunkEntry: Codable {
     let branch: String
     let head: String?
     let status: String?
+
+    init(path: String, branch: String, head: String?, status: String?) {
+        self.path = path
+        self.branch = branch
+        self.head = head
+        self.status = status
+    }
 
     enum CodingKeys: String, CodingKey {
         case path

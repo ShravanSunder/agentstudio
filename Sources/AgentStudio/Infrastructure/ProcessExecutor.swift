@@ -55,6 +55,9 @@ struct DefaultProcessExecutor: ProcessExecutor {
         self.timeout = timeout
     }
 
+    private static let defaultSystemPath = "/usr/bin:/bin:/usr/sbin:/sbin"
+    private static let toolchainPathPrefix = "/opt/homebrew/bin:/usr/local/bin"
+
     func execute(
         command: String,
         args: [String],
@@ -74,9 +77,10 @@ struct DefaultProcessExecutor: ProcessExecutor {
         if let override = environment {
             env.merge(override) { _, new in new }
         }
-        if let path = env["PATH"] {
-            env["PATH"] = "/opt/homebrew/bin:/usr/local/bin:\(path)"
-        }
+        let inheritedPath = env["PATH"]?.trimmingCharacters(in: .whitespacesAndNewlines)
+        let basePath =
+            (inheritedPath?.isEmpty == false) ? inheritedPath! : Self.defaultSystemPath
+        env["PATH"] = "\(Self.toolchainPathPrefix):\(basePath)"
         process.environment = env
 
         let stdoutPipe = Pipe()

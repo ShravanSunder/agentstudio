@@ -10,7 +10,6 @@ import SwiftUI
 final class WebviewPaneView: PaneView {
     let controller: WebviewPaneController
     private var hostingView: NSHostingView<WebviewPaneContentView>?
-    private var suspendedDragTypesByView: [ObjectIdentifier: (view: NSView, types: [NSPasteboard.PasteboardType])] = [:]
 
     init(paneId: UUID, state: WebviewState) {
         self.controller = WebviewPaneController(paneId: paneId, state: state)
@@ -32,9 +31,6 @@ final class WebviewPaneView: PaneView {
     override func layout() {
         super.layout()
         syncHostingViewFrame()
-        if ManagementModeMonitor.shared.isActive {
-            suspendDescendantDragRegistrationsIfNeeded()
-        }
     }
 
     override func viewDidMoveToWindow() {
@@ -53,11 +49,6 @@ final class WebviewPaneView: PaneView {
     /// Delegates management mode interaction suppression to the controller's
     /// persistent user-script pipeline (current document + future navigations).
     override func setContentInteractionEnabled(_ enabled: Bool) {
-        if enabled {
-            restoreDescendantDragRegistrationsIfNeeded()
-        } else {
-            suspendDescendantDragRegistrationsIfNeeded()
-        }
         controller.setWebContentInteractionEnabled(enabled)
     }
 
@@ -79,33 +70,5 @@ final class WebviewPaneView: PaneView {
             hostingView.frame = bounds
         }
         hostingView.layoutSubtreeIfNeeded()
-    }
-
-    private func suspendDescendantDragRegistrationsIfNeeded() {
-        guard let hostingView else { return }
-        var stack: [NSView] = [hostingView]
-        while let view = stack.popLast() {
-            stack.append(contentsOf: view.subviews)
-
-            let identifier = ObjectIdentifier(view)
-            if suspendedDragTypesByView[identifier] != nil {
-                continue
-            }
-
-            let registeredTypes = view.registeredDraggedTypes
-            guard !registeredTypes.isEmpty else { continue }
-
-            suspendedDragTypesByView[identifier] = (view, registeredTypes)
-            view.unregisterDraggedTypes()
-        }
-    }
-
-    private func restoreDescendantDragRegistrationsIfNeeded() {
-        guard !suspendedDragTypesByView.isEmpty else { return }
-        for (_, registration) in suspendedDragTypesByView {
-            guard !registration.types.isEmpty else { continue }
-            registration.view.registerForDraggedTypes(registration.types)
-        }
-        suspendedDragTypesByView.removeAll(keepingCapacity: true)
     }
 }

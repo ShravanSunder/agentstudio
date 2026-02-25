@@ -1,4 +1,5 @@
 import Foundation
+import os
 
 struct RepoStatusInput: Sendable {
     let repoId: UUID
@@ -29,10 +30,12 @@ struct GitMetadataSnapshot: Sendable {
 }
 
 enum GitRepositoryInspector {
+    private static let logger = Logger(subsystem: "com.agentstudio", category: "SidebarGitRepositoryInspector")
     private static let processExecutor: any ProcessExecutor = DefaultProcessExecutor(timeout: 4)
     private static let metadataConcurrency = 3
     private static let statusConcurrency = 4
     private static let prConcurrency = 1
+    private static let commandLookupPrefixes = ["/opt/homebrew/bin", "/usr/local/bin"]
 
     static func metadataAndStatus(for input: SidebarStatusLoadInput) async -> GitMetadataSnapshot {
         let metadataPairs: [(UUID, RepoIdentityMetadata)] = await boundedConcurrentMap(
@@ -71,7 +74,10 @@ enum GitRepositoryInspector {
 
     static func prCounts(for worktrees: [WorktreeStatusInput]) async -> [UUID: Int] {
         guard !worktrees.isEmpty else { return [:] }
-        guard await isCommandAvailable("gh") else { return [:] }
+        guard await isCommandAvailable("gh") else {
+            logger.warning("Skipping PR count lookup: 'gh' command unavailable in process environment")
+            return [:]
+        }
 
         let prPairs: [(UUID, Int)] = await boundedConcurrentMap(
             inputs: worktrees,
@@ -86,6 +92,7 @@ enum GitRepositoryInspector {
         for (worktreeId, count) in prPairs {
             countsByWorktreeId[worktreeId] = count
         }
+        logger.debug("Resolved PR counts for \(countsByWorktreeId.count, privacy: .public) worktrees")
         return countsByWorktreeId
     }
 
@@ -461,7 +468,12 @@ enum GitRepositoryInspector {
     }
 
     private static func isCommandAvailable(_ command: String) async -> Bool {
-        await run(command: "which", args: [command]) != nil
+        if await run(command: "which", args: [command]) != nil {
+            return true
+        }
+        return commandLookupPrefixes.contains { prefix in
+            FileManager.default.isExecutableFile(atPath: "\(prefix)/\(command)")
+        }
     }
 
     private static func git(args: [String]) async -> String? {
@@ -469,19 +481,23 @@ enum GitRepositoryInspector {
     }
 
     private static func run(command: String, args: [String]) async -> String? {
-        do {
-            let result = try await processExecutor.execute(
-                command: command,
-                args: args,
-                cwd: nil,
-                environment: nil
-            )
-            guard result.succeeded else { return nil }
-            let trimmed = result.stdout.trimmingCharacters(in: .whitespacesAndNewlines)
-            return trimmed.isEmpty ? nil : trimmed
-        } catch {
-            return nil
+        for executable in commandCandidates(for: command) {
+            do {
+                let result = try await processExecutor.execute(
+                    command: executable,
+                    args: args,
+                    cwd: nil,
+                    environment: nil
+                )
+                guard result.succeeded else { continue }
+                let trimmed = result.stdout.trimmingCharacters(in: .whitespacesAndNewlines)
+                return trimmed.isEmpty ? nil : trimmed
+            } catch {
+                continue
+            }
         }
+
+        return nil
     }
 
     private static func runSync(command: String, args: [String]) -> String? {
@@ -532,9 +548,9 @@ enum GitRepositoryInspector {
         process.arguments = [command] + args
 
         var env = ProcessInfo.processInfo.environment
-        if let path = env["PATH"] {
-            env["PATH"] = "/opt/homebrew/bin:/usr/local/bin:\(path)"
-        }
+        let inheritedPath = env["PATH"]?.trimmingCharacters(in: .whitespacesAndNewlines)
+        let basePath = (inheritedPath?.isEmpty == false) ? inheritedPath! : "/usr/bin:/bin:/usr/sbin:/sbin"
+        env["PATH"] = "/opt/homebrew/bin:/usr/local/bin:\(basePath)"
         process.environment = env
 
         let stdout = Pipe()
@@ -551,5 +567,20 @@ enum GitRepositoryInspector {
         } catch {
             return nil
         }
+    }
+
+    private static func commandCandidates(for command: String) -> [String] {
+        guard !command.contains("/") else { return [command] }
+
+        var candidates = [command]
+        for prefix in commandLookupPrefixes {
+            let candidate = "\(prefix)/\(command)"
+            if FileManager.default.isExecutableFile(atPath: candidate) {
+                candidates.append(candidate)
+            }
+        }
+
+        var seen = Set<String>()
+        return candidates.filter { seen.insert($0).inserted }
     }
 }

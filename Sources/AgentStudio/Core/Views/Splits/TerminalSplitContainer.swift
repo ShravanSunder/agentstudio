@@ -126,10 +126,8 @@ struct TerminalSplitContainer: View {
                     PaneDropTargetOverlay(target: dropTarget, paneFrames: paneFrames)
                         .allowsHitTesting(false)
                 }
-            }
-            .onDrop(
-                of: SplitContainerDropDelegate.supportedDropTypes,
-                delegate: SplitContainerDropDelegate(
+
+                SplitContainerDropCaptureOverlay(
                     paneFrames: paneFrames,
                     containerBounds: containerBounds,
                     target: $dropTarget,
@@ -137,7 +135,7 @@ struct TerminalSplitContainer: View {
                     shouldAcceptDrop: shouldAcceptDrop,
                     onDrop: onDrop
                 )
-            )
+            }
             .onPreferenceChange(PaneFramePreferenceKey.self) { paneFrames = $0 }
             .onPreferenceChange(DrawerIconBarFrameKey.self) { iconBarFrame = $0 }
             .onChange(of: managementMode.isActive) { _, isActive in

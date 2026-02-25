@@ -9,6 +9,7 @@ cask "agent-studio" do
 
   depends_on macos: ">= :tahoe"
   depends_on formula: "gh"
+  depends_on formula: "worktrunk"
 
   app "AgentStudio.app"
 

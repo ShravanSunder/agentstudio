@@ -1,3 +1,4 @@
+import AppKit
 import Foundation
 import Testing
 import UniformTypeIdentifiers
@@ -129,6 +130,66 @@ final class DragPayloadCodableTests {
 
         // Act
         let decoded = await decodeSplitDropPayload(from: [provider])
+
+        // Assert
+        #expect(decoded == SplitDropPayload(kind: .newTerminal))
+    }
+
+    @Test
+    func test_decodeSplitDropPayload_fromPasteboard_prefersPanePayloadWhenPresent() throws {
+        // Arrange
+        let panePayload = PaneDragPayload(paneId: UUID(), tabId: UUID())
+        let tabPayload = TabDragPayload(tabId: UUID())
+        let pasteboard = NSPasteboard(name: NSPasteboard.Name(UUID().uuidString))
+        pasteboard.clearContents()
+        pasteboard.setData(
+            try JSONEncoder().encode(tabPayload),
+            forType: NSPasteboard.PasteboardType.agentStudioTabDrop
+        )
+        pasteboard.setData(
+            try JSONEncoder().encode(panePayload),
+            forType: NSPasteboard.PasteboardType.agentStudioPaneDrop
+        )
+
+        // Act
+        let decoded = decodeSplitDropPayload(from: pasteboard)
+
+        // Assert
+        #expect(
+            decoded == SplitDropPayload(kind: .existingPane(paneId: panePayload.paneId, sourceTabId: panePayload.tabId))
+        )
+    }
+
+    @Test
+    func test_decodeSplitDropPayload_fromPasteboard_decodesInternalTabFallback() {
+        // Arrange
+        let tabId = UUID()
+        let pasteboard = NSPasteboard(name: NSPasteboard.Name(UUID().uuidString))
+        pasteboard.clearContents()
+        pasteboard.setString(
+            tabId.uuidString,
+            forType: NSPasteboard.PasteboardType.agentStudioTabInternal
+        )
+
+        // Act
+        let decoded = decodeSplitDropPayload(from: pasteboard)
+
+        // Assert
+        #expect(decoded == SplitDropPayload(kind: .existingTab(tabId: tabId)))
+    }
+
+    @Test
+    func test_decodeSplitDropPayload_fromPasteboard_decodesNewTerminalPayload() {
+        // Arrange
+        let pasteboard = NSPasteboard(name: NSPasteboard.Name(UUID().uuidString))
+        pasteboard.clearContents()
+        pasteboard.setData(
+            Data(),
+            forType: NSPasteboard.PasteboardType.agentStudioNewTabDrop
+        )
+
+        // Act
+        let decoded = decodeSplitDropPayload(from: pasteboard)
 
         // Assert
         #expect(decoded == SplitDropPayload(kind: .newTerminal))
