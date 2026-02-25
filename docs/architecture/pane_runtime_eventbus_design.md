@@ -304,10 +304,12 @@ final class NotificationReducer {
 
 Heavy per-pane work (scrollback search, artifact extraction, log parsing, diff computation) uses `@concurrent` static functions. This is the Swift 6.2 pattern for explicit cooperative pool execution.
 
-### Swift 6.2 rules
+### Swift 6.2 rules (SE-0461)
 
-- **`@concurrent`** explicitly runs on cooperative pool. This is the correct way to offload CPU-bound work.
-- **NOT `nonisolated async`** — in Swift 6.2, `nonisolated async` inherits caller isolation. A `nonisolated async` method called from `@MainActor` runs ON MainActor in 6.2. This is a behavioral change from Swift 6.0.
+SE-0461 changes the default isolation behavior for `nonisolated async` functions. In Swift 6.0, `nonisolated async` ran on the cooperative pool. In Swift 6.2, `nonisolated async` inherits the caller's isolation — the new default is `nonisolated(nonsending)`. This means `@concurrent` is now required to explicitly opt into pool execution.
+
+- **`@concurrent`** explicitly runs on cooperative pool. This is the correct way to offload CPU-bound work. It is the Swift 6.2 replacement for `Task.detached` and the explicit opt-out from `nonisolated(nonsending)` default.
+- **NOT `nonisolated async`** — in Swift 6.2, `nonisolated async` means `nonisolated(nonsending)` by default: it inherits caller isolation. A `nonisolated async` method called from `@MainActor` runs ON MainActor in 6.2. This is a behavioral change from Swift 6.0.
 - **NOT `Task.detached`** — strips task priority, task-locals, and structured concurrency. `@concurrent` preserves all of these.
 - **NOT `MainActor.run`** — unnecessary. When returning from a `@concurrent` function back to a `@MainActor` caller, the compiler automatically handles the hop.
 
@@ -402,10 +404,10 @@ Concrete list of what runs where, with Swift 6.2 keywords:
 | `actor NetworkActor` | Forge polling, container health (future) | `actor` (cooperative pool) |
 | Cooperative pool (anonymous) | Heavy per-pane one-shot work (search, parse, extract, hash) | `@concurrent` on static func |
 
-### Swift 6.2 concurrency rules
+### Swift 6.2 concurrency rules (SE-0461)
 
-1. **`@concurrent`** for explicit pool execution. This is the replacement for `Task.detached` and the correct way to say "run this on the cooperative pool, not on my caller's actor."
-2. **`nonisolated async`** inherits caller isolation in Swift 6.2 (SE-0461). Do NOT use this expecting pool execution — it will run on MainActor if called from MainActor.
+1. **`@concurrent`** for explicit pool execution. This is the replacement for `Task.detached` and the correct way to say "run this on the cooperative pool, not on my caller's actor." The `@concurrent` attribute is the explicit opt-out from the `nonisolated(nonsending)` default.
+2. **`nonisolated async` means `nonisolated(nonsending)` in Swift 6.2** (SE-0461). It inherits caller isolation. Do NOT use this expecting pool execution — it will run on MainActor if called from MainActor.
 3. **No `Task.detached`** — strips priority and task-locals. `@concurrent` preserves structured concurrency.
 4. **No `MainActor.run`** — the compiler handles actor hops when returning from `@concurrent` to `@MainActor`. Explicit `MainActor.run` is unnecessary and adds noise.
 5. **All cross-boundary data is `Sendable`.** `PaneEventEnvelope`, all event types, all command types — `Sendable` is required for data that crosses actor boundaries.

@@ -120,7 +120,7 @@ Swift 6.2 toolchain, `.swiftLanguageMode(.v6)`, macOS 26. Data-race safety is en
 
 **Don't:**
 
-- **No `Task.detached { }`** unless you specifically need the global executor. It does not inherit actor isolation.
+- **No `Task.detached { }`** — it strips task priority and task-locals. Use `@concurrent` static functions (Swift 6.2, SE-0461) for explicit cooperative pool execution instead. `@concurrent` preserves structured concurrency and priority inheritance.
 - **No `MainActor.assumeIsolated { }` in deinit** — use `isolated deinit` instead (SE-0414 makes `assumeIsolated` problematic with non-Sendable types). Note: `assumeIsolated` is valid in synchronous C callback trampolines where you can prove you're on MainActor but the compiler can't see it — this restriction is specifically about deinit.
 - **No plain `deinit` accessing non-Sendable `@MainActor` stored properties** — compilation error. Use `isolated deinit`.
 - **Prefer `isolated deinit` over `@MainActor deinit`** — both are valid (SE-0371 allows global actor annotations on deinit), but `isolated deinit` is more generic and works for any actor type.
@@ -205,6 +205,7 @@ Agents reviewing Swift concurrency code must not flag these as bugs:
 | SE-0388 | `AsyncStream.makeStream` | Factory returning `(stream, continuation)` tuple (Swift 5.9) |
 | SE-0420 | Isolation inheritance refinement | Clarified `@_inheritActorContext` semantics for Task/TaskGroup |
 | SE-0431 | `@isolated(any)` function types | Task.init uses `@isolated(any)` for correct executor enqueue |
+| SE-0461 | `@concurrent` / `nonisolated(nonsending)` | `nonisolated async` inherits caller isolation by default (Swift 6.2); use `@concurrent` to explicitly run on cooperative pool |
 
 ---
 

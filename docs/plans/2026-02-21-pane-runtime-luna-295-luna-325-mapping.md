@@ -304,7 +304,7 @@ Keep new observation code on async streams (`NotificationCenter.default.notifica
 
 **`no_task_detached` — outstanding detached task usage:**
 
-`Features/Bridge/Push/Slice.swift` intentionally offloads cold-level JSON encoding to a background executor. Keep `Task.detached` only if profiling still justifies it, and keep inline suppression with explicit justification scoped to the detached call.
+`Features/Bridge/Push/Slice.swift` intentionally offloads cold-level JSON encoding to a background executor. Migrate to `@concurrent` static function (Swift 6.2, SE-0461) — this preserves priority and task-locals that `Task.detached` strips. See [Pane Runtime EventBus Design — Per-Pane Heavy Work](../architecture/pane_runtime_eventbus_design.md#per-pane-heavy-work-concurrent) for the canonical pattern.
 
 ### Readiness Tasks (Cross-Ticket)
 
