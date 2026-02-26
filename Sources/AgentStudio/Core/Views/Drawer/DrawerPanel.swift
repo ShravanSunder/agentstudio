@@ -112,10 +112,6 @@ struct DrawerPanel: View {
     var body: some View {
         GeometryReader { drawerGeometry in
             let containerBounds = CGRect(origin: .zero, size: drawerGeometry.size)
-            let paneUnionBounds = drawerPaneFrames.values.reduce(into: CGRect.null) { partial, frame in
-                partial = partial.union(frame)
-            }
-            let effectiveBounds = paneUnionBounds.isNull ? containerBounds : paneUnionBounds
             ZStack(alignment: .topLeading) {
                 VStack(spacing: 0) {
                     // Resize handle at top
@@ -174,7 +170,9 @@ struct DrawerPanel: View {
 
                 SplitContainerDropCaptureOverlay(
                     paneFrames: drawerPaneFrames,
-                    containerBounds: effectiveBounds,
+                    // Use full drawer panel geometry so edge corridors remain
+                    // available for left/right insertion around outermost panes.
+                    containerBounds: containerBounds,
                     target: $dropTarget,
                     isManagementModeActive: managementMode.isActive,
                     shouldAcceptDrop: shouldAcceptDrawerDrop,

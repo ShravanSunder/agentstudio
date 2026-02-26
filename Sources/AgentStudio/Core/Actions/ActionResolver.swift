@@ -114,10 +114,6 @@ enum ActionResolver {
             else { return nil }
             return .expandPane(tabId: tab.id, paneId: paneId)
 
-        case .duplicateTab:
-            guard let tabId = activeTabId else { return nil }
-            return .duplicateTab(tabId: tabId)
-
         case .duplicatePane:
             guard let (tab, paneId) = activeTabAndPane(tabs: tabs, activeTabId: activeTabId)
             else { return nil }

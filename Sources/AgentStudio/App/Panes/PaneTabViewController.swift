@@ -98,8 +98,6 @@ class PaneTabViewController: NSViewController, CommandHandler {
                         tabId: tabId, name: name, paneIds: Set(tab.paneIds)
                     ))
             },
-            onDuplicateTab: nil,
-            onDuplicatePane: nil,
             onOpenRepoInTab: {
                 NotificationCenter.default.post(name: .showCommandBarRepos, object: nil)
             }

@@ -35,6 +35,7 @@ class DraggableTabBarHostingView: NSView, NSDraggingSource {
     /// Track the tab being dragged and the original event for drag session
     private var panStartTabId: UUID?
     private var panStartEvent: NSEvent?
+    private var lastAutoSelectedTabIdForPaneDrag: UUID?
 
     private var managementModeObservation: Task<Void, Never>?
 
@@ -194,6 +195,7 @@ class DraggableTabBarHostingView: NSView, NSDraggingSource {
 
     private func clearDropTargetIndicator() {
         tabBarAdapter?.dropTargetIndex = nil
+        lastAutoSelectedTabIdForPaneDrag = nil
     }
 
     // MARK: - Pan Gesture Handler
@@ -341,6 +343,13 @@ class DraggableTabBarHostingView: NSView, NSDraggingSource {
             return []
         }
 
+        if types.contains(.agentStudioPaneDrop),
+            !paneDropIsAllowedInTabBar(sender.draggingPasteboard)
+        {
+            clearDropTargetIndicator()
+            return []
+        }
+
         // Reject drags when management mode exited mid-drag.
         // Pane drags start only from management mode affordances.
         if (types.contains(.agentStudioTabInternal) || types.contains(.agentStudioPaneDrop))
@@ -356,6 +365,13 @@ class DraggableTabBarHostingView: NSView, NSDraggingSource {
     override func draggingUpdated(_ sender: NSDraggingInfo) -> NSDragOperation {
         let types = sender.draggingPasteboard.types ?? []
 
+        if types.contains(.agentStudioPaneDrop),
+            !paneDropIsAllowedInTabBar(sender.draggingPasteboard)
+        {
+            clearDropTargetIndicator()
+            return []
+        }
+
         // Reject drags when management mode exited mid-drag
         if (types.contains(.agentStudioTabInternal) || types.contains(.agentStudioPaneDrop))
             && !ManagementModeMonitor.shared.isActive
@@ -368,7 +384,10 @@ class DraggableTabBarHostingView: NSView, NSDraggingSource {
 
         if types.contains(.agentStudioPaneDrop) {
             let point = convert(sender.draggingLocation, from: nil)
-            if let hoveredTabId = tabAtPoint(point) {
+            if let hoveredTabId = tabAtPoint(point),
+                hoveredTabId != lastAutoSelectedTabIdForPaneDrag
+            {
+                lastAutoSelectedTabIdForPaneDrag = hoveredTabId
                 onSelect?(hoveredTabId)
             }
         }
@@ -401,9 +420,7 @@ class DraggableTabBarHostingView: NSView, NSDraggingSource {
         if let paneData = pasteboard.data(forType: .agentStudioPaneDrop),
             let payload = try? JSONDecoder().decode(PaneDragPayload.self, from: paneData)
         {
-            // Drawer child panes are constrained to their parent drawer and cannot
-            // be moved into top-level tabs.
-            if payload.drawerParentPaneId != nil {
+            if !Self.allowsTabBarInsertion(for: payload) {
                 return false
             }
 
@@ -429,25 +446,35 @@ class DraggableTabBarHostingView: NSView, NSDraggingSource {
         return false
     }
 
+    private func paneDropIsAllowedInTabBar(_ pasteboard: NSPasteboard) -> Bool {
+        guard let paneData = pasteboard.data(forType: .agentStudioPaneDrop),
+            let payload = try? JSONDecoder().decode(PaneDragPayload.self, from: paneData)
+        else {
+            return false
+        }
+        return Self.allowsTabBarInsertion(for: payload)
+    }
+
+    nonisolated static func allowsTabBarInsertion(for payload: PaneDragPayload) -> Bool {
+        // Drawer child panes are constrained to their parent drawer and cannot
+        // be moved into top-level tabs.
+        payload.drawerParentPaneId == nil
+    }
+
     private func updateDropTarget(for sender: NSDraggingInfo) {
         let point = convert(sender.draggingLocation, from: nil)
-
-        Task { @MainActor [weak self] in
-            guard let self else { return }
-
-            if let index = self.dropIndexAtPoint(point) {
-                // Don't highlight if dropping in same position
-                if let draggingId = self.draggingTabId,
-                    let currentIndex = self.tabBarAdapter?.tabs.firstIndex(where: { $0.id == draggingId }),
-                    index == currentIndex || index == currentIndex + 1
-                {
-                    self.tabBarAdapter?.dropTargetIndex = nil
-                } else {
-                    self.tabBarAdapter?.dropTargetIndex = index
-                }
+        if let index = dropIndexAtPoint(point) {
+            // Don't highlight if dropping in same position.
+            if let draggingId = draggingTabId,
+                let currentIndex = tabBarAdapter?.tabs.firstIndex(where: { $0.id == draggingId }),
+                index == currentIndex || index == currentIndex + 1
+            {
+                tabBarAdapter?.dropTargetIndex = nil
             } else {
-                self.tabBarAdapter?.dropTargetIndex = nil
+                tabBarAdapter?.dropTargetIndex = index
             }
+        } else {
+            tabBarAdapter?.dropTargetIndex = nil
         }
     }
 }

@@ -31,7 +31,6 @@ enum AppCommand: String, CaseIterable {
     case toggleSplitZoom
     case minimizePane
     case expandPane
-    case duplicateTab
     case duplicatePane
 
     // Arrangement commands

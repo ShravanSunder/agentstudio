@@ -50,4 +50,26 @@ final class TabBarPaneDropContractTests {
         #expect(beforeSecond == 1)
         #expect(atEnd == 3)
     }
+
+    @Test
+    func test_allowsTabBarInsertion_returnsTrue_forLayoutPanePayload() {
+        let payload = PaneDragPayload(
+            paneId: UUID(),
+            tabId: UUID(),
+            drawerParentPaneId: nil
+        )
+
+        #expect(DraggableTabBarHostingView.allowsTabBarInsertion(for: payload))
+    }
+
+    @Test
+    func test_allowsTabBarInsertion_returnsFalse_forDrawerPanePayload() {
+        let payload = PaneDragPayload(
+            paneId: UUID(),
+            tabId: UUID(),
+            drawerParentPaneId: UUID()
+        )
+
+        #expect(!DraggableTabBarHostingView.allowsTabBarInsertion(for: payload))
+    }
 }

@@ -465,34 +465,6 @@ final class ActionResolverTests {
 
     @Test
 
-    func test_resolve_duplicateTab_returnsWithActiveTab() {
-        // Arrange
-        let tabId = UUID()
-        let paneId = UUID()
-        let tab = MockTab(id: tabId, activePaneId: paneId, allPaneIds: [paneId])
-
-        // Act
-        let result = ActionResolver.resolve(command: .duplicateTab, tabs: [tab], activeTabId: tabId)
-
-        // Assert
-        #expect(result == .duplicateTab(tabId: tabId))
-    }
-
-    @Test
-
-    func test_resolve_duplicateTab_noActiveTab_returnsNil() {
-        // Arrange
-        let tab = MockTab(id: UUID(), activePaneId: UUID(), allPaneIds: [UUID()])
-
-        // Act
-        let result = ActionResolver.resolve(command: .duplicateTab, tabs: [tab], activeTabId: nil)
-
-        // Assert
-        #expect(result == nil)
-    }
-
-    @Test
-
     func test_resolve_duplicatePane_returnsWithActivePaneAndRightDirection() {
         // Arrange
         let tabId = UUID()

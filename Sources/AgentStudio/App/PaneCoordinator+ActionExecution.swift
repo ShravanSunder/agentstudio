@@ -328,9 +328,6 @@ extension PaneCoordinator {
                 surfaceManager.syncFocus(activeSurfaceId: terminalView.surfaceId)
             }
 
-        case .duplicateTab(let tabId):
-            Self.logger.info("duplicateTab: tab \(tabId) — not yet implemented")
-
         case .duplicatePane(let tabId, let paneId, _):
             Self.logger.info(
                 "duplicatePane: pane \(paneId) in tab \(tabId) — not yet implemented"

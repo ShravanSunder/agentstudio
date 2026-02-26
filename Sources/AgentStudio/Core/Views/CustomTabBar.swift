@@ -64,8 +64,6 @@ struct CustomTabBar: View {
     var onAdd: (() -> Void)?
     var onPaneAction: ((PaneAction) -> Void)?
     var onSaveArrangement: ((UUID) -> Void)?
-    var onDuplicateTab: (() -> Void)?
-    var onDuplicatePane: (() -> Void)?
     var onOpenRepoInTab: (() -> Void)?
 
     @State private var scrollOffset: CGFloat = 0
@@ -99,7 +97,7 @@ struct CustomTabBar: View {
     var body: some View {
         GeometryReader { geometry in
             HStack(spacing: 0) {
-                // MARK: - Left-side controls (management mode, arrangement, duplicate)
+                // MARK: - Left-side controls (management mode, arrangement)
                 HStack(spacing: AppStyle.spacingStandard) {
                     TabBarManagementModeButton()
 
@@ -108,13 +106,6 @@ struct CustomTabBar: View {
                         onPaneAction: onPaneAction,
                         onSaveArrangement: onSaveArrangement
                     )
-
-                    if let onDuplicateTab, let onDuplicatePane {
-                        TabBarDuplicateButton(
-                            onDuplicateTab: onDuplicateTab,
-                            onDuplicatePane: onDuplicatePane
-                        )
-                    }
                 }
                 .padding(.leading, AppStyle.spacingLoose)
 
@@ -458,37 +449,6 @@ private struct TabBarManagementModeButton: View {
         .buttonStyle(.plain)
         .onHover { isHovered = $0 }
         .help("Toggle Management Mode (\u{2318}E)")
-    }
-}
-
-/// Duplicate button in the tab bar. Click = duplicate tab, menu = duplicate pane option.
-private struct TabBarDuplicateButton: View {
-    let onDuplicateTab: () -> Void
-    let onDuplicatePane: () -> Void
-    @State private var isHovered = false
-
-    var body: some View {
-        Menu {
-            Button("Duplicate Tab") { onDuplicateTab() }
-            Button("Duplicate Focused Pane") { onDuplicatePane() }
-        } label: {
-            Image(systemName: "plus.square.on.square")
-                .font(.system(size: AppStyle.compactIconSize, weight: .medium))
-                .foregroundStyle(isHovered ? .primary : .secondary)
-                .frame(width: AppStyle.toolbarButtonSize, height: AppStyle.toolbarButtonSize)
-                .background(
-                    Circle()
-                        .fill(Color.white.opacity(isHovered ? AppStyle.fillPressed : AppStyle.fillMuted))
-                )
-                .contentShape(Circle())
-        } primaryAction: {
-            onDuplicateTab()
-        }
-        .menuStyle(.borderlessButton)
-        .menuIndicator(.hidden)
-        .fixedSize()
-        .onHover { isHovered = $0 }
-        .help("Duplicate Tab")
     }
 }
 

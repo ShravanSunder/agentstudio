@@ -52,6 +52,7 @@ final class ManagementModeMonitor {
         isActive = false
         if wasActive {
             NotificationCenter.default.post(name: .managementModeDidChange, object: false)
+            NotificationCenter.default.post(name: .refocusTerminalRequested, object: nil)
         }
     }
 

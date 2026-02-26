@@ -143,12 +143,6 @@ enum ActionValidator {
             }
             return .success(ValidatedAction(action))
 
-        case .duplicateTab(let tabId):
-            guard state.tab(tabId) != nil else {
-                return .failure(.tabNotFound(tabId: tabId))
-            }
-            return .success(ValidatedAction(action))
-
         case .duplicatePane(let tabId, let paneId, _):
             guard let tab = state.tab(tabId) else {
                 return .failure(.tabNotFound(tabId: tabId))

@@ -90,8 +90,6 @@ enum PaneAction: Equatable, Hashable {
     case renameArrangement(tabId: UUID, arrangementId: UUID, name: String)
 
     // Duplicate operations
-    /// Duplicate an entire tab's layout with new sessions for each pane.
-    case duplicateTab(tabId: UUID)
     /// Duplicate a pane by splitting and creating a new session with the same source.
     /// Uses PaneId (not UUID) for pane identity — first case to use the pane runtime contract.
     case duplicatePane(tabId: UUID, paneId: PaneId, direction: SplitNewDirection)

@@ -127,12 +127,12 @@ enum GitRepositoryInspector {
         path.standardizedFileURL.resolvingSymlinksInPath().path
     }
 
-    static func isGitRepository(at url: URL) -> Bool {
+    static func isGitRepository(at url: URL) async -> Bool {
         let dotGit = url.appending(path: ".git").path
         if FileManager.default.fileExists(atPath: dotGit) {
             return true
         }
-        return runSync(command: "git", args: ["-C", url.path, "rev-parse", "--is-inside-work-tree"]) == "true"
+        return await run(command: "git", args: ["-C", url.path, "rev-parse", "--is-inside-work-tree"]) == "true"
     }
 
     private static func identity(for repo: RepoStatusInput) async -> RepoIdentityMetadata {
@@ -145,11 +145,13 @@ enum GitRepositoryInspector {
         let folderCwd = normalizedRepoPath
         let normalizedWorktreeCwds = repo.worktreePaths.map { $0.standardizedFileURL.path }
 
-        let commonDir = await git(args: ["-C", repo.repoPath.path, "rev-parse", "--git-common-dir"])
-            .flatMap { canonicalizeGitPath($0, relativeTo: repo.repoPath) }
+        async let commonDirResult = git(args: ["-C", repo.repoPath.path, "rev-parse", "--git-common-dir"])
+        async let upstreamRemoteResult = git(args: ["-C", repo.repoPath.path, "remote", "get-url", "upstream"])
+        async let originRemoteResult = git(args: ["-C", repo.repoPath.path, "remote", "get-url", "origin"])
 
-        let upstreamRemote = await git(args: ["-C", repo.repoPath.path, "remote", "get-url", "upstream"])
-        let originRemote = await git(args: ["-C", repo.repoPath.path, "remote", "get-url", "origin"])
+        let commonDir = await commonDirResult.flatMap { canonicalizeGitPath($0, relativeTo: repo.repoPath) }
+        let upstreamRemote = await upstreamRemoteResult
+        let originRemote = await originRemoteResult
         let remoteURL = upstreamRemote ?? originRemote
 
         let normalizedRemote = remoteURL.flatMap(normalizeRemoteURL)
@@ -282,8 +284,8 @@ enum GitRepositoryInspector {
         guard let shortstat else { return (0, 0) }
         guard !shortstat.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else { return (0, 0) }
 
-        let added = captureFirstInt(in: shortstat, pattern: #"(\\d+) insertions?\(\+\)"#) ?? 0
-        let deleted = captureFirstInt(in: shortstat, pattern: #"(\\d+) deletions?\(-\)"#) ?? 0
+        let added = captureFirstInt(in: shortstat, pattern: #"(\d+) insertions?\(\+\)"#) ?? 0
+        let deleted = captureFirstInt(in: shortstat, pattern: #"(\d+) deletions?\(-\)"#) ?? 0
         return (added, deleted)
     }
 
@@ -487,25 +489,28 @@ enum GitRepositoryInspector {
             let withoutPrefix = trimmed.replacingOccurrences(of: "git@", with: "")
             let normalized = withoutPrefix.replacingOccurrences(
                 of: ":", with: "/", options: .literal, range: withoutPrefix.range(of: ":"))
+            let suffixStripped = removingGitSuffix(
+                from: normalized.trimmingCharacters(in: CharacterSet(charactersIn: "/")))
             return
-                normalized
-                .trimmingCharacters(in: CharacterSet(charactersIn: "/"))
-                .replacingOccurrences(of: ".git", with: "")
+                suffixStripped
                 .lowercased()
         }
 
         if let url = URL(string: trimmed), let host = url.host {
-            let path = url.path
-                .trimmingCharacters(in: CharacterSet(charactersIn: "/"))
-                .replacingOccurrences(of: ".git", with: "")
+            let path = removingGitSuffix(from: url.path.trimmingCharacters(in: CharacterSet(charactersIn: "/")))
             return "\(host.lowercased())/\(path)"
         }
 
+        let suffixStripped = removingGitSuffix(
+            from: trimmed.trimmingCharacters(in: CharacterSet(charactersIn: "/")))
         return
-            trimmed
-            .trimmingCharacters(in: CharacterSet(charactersIn: "/"))
-            .replacingOccurrences(of: ".git", with: "")
+            suffixStripped
             .lowercased()
+    }
+
+    private static func removingGitSuffix(from value: String) -> String {
+        guard value.lowercased().hasSuffix(".git") else { return value }
+        return String(value.dropLast(4))
     }
 
     private static func extractRemoteSlug(from normalizedRemote: String) -> String? {
@@ -575,32 +580,22 @@ enum GitRepositoryInspector {
                     environment: nil
                 )
                 guard result.succeeded else {
-                    if command == "gh" {
-                        logger.warning(
-                            "gh command failed: executable=\(executable, privacy: .public) args=\(args.joined(separator: " "), privacy: .public) stderr=\(result.stderr, privacy: .public)"
-                        )
-                    }
+                    logger.warning(
+                        "Command failed: command=\(command, privacy: .public) executable=\(executable, privacy: .public) args=\(args.joined(separator: " "), privacy: .public) stderr=\(result.stderr, privacy: .public)"
+                    )
                     continue
                 }
                 let trimmed = result.stdout.trimmingCharacters(in: .whitespacesAndNewlines)
                 return trimmed.isEmpty ? nil : trimmed
             } catch {
-                if command == "gh" {
-                    logger.warning(
-                        "gh command threw: executable=\(executable, privacy: .public) args=\(args.joined(separator: " "), privacy: .public) error=\(error.localizedDescription, privacy: .public)"
-                    )
-                }
+                logger.warning(
+                    "Command threw: command=\(command, privacy: .public) executable=\(executable, privacy: .public) args=\(args.joined(separator: " "), privacy: .public) error=\(error.localizedDescription, privacy: .public)"
+                )
                 continue
             }
         }
 
         return nil
-    }
-
-    private static func runSync(command: String, args: [String]) -> String? {
-        guard let output = runProcess(command: command, args: args) else { return nil }
-        let trimmed = output.trimmingCharacters(in: .whitespacesAndNewlines)
-        return trimmed.isEmpty ? nil : trimmed
     }
 
     private static func boundedConcurrentMap<Input: Sendable, Output: Sendable>(
@@ -636,37 +631,6 @@ enum GitRepositoryInspector {
             }
 
             return outputs
-        }
-    }
-
-    private static func runProcess(command: String, args: [String]) -> String? {
-        let process = Process()
-        process.executableURL = URL(fileURLWithPath: "/usr/bin/env")
-        process.arguments = [command] + args
-
-        var env = ProcessInfo.processInfo.environment
-        let inheritedPath = env["PATH"]?.trimmingCharacters(in: .whitespacesAndNewlines)
-        let basePath = (inheritedPath?.isEmpty == false) ? inheritedPath! : "/usr/bin:/bin:/usr/sbin:/sbin"
-        env["PATH"] = "/opt/homebrew/bin:/usr/local/bin:\(basePath)"
-        let inheritedHome = env["HOME"]?.trimmingCharacters(in: .whitespacesAndNewlines)
-        if inheritedHome?.isEmpty != false {
-            env["HOME"] = FileManager.default.homeDirectoryForCurrentUser.path
-        }
-        process.environment = env
-
-        let stdout = Pipe()
-        let stderr = Pipe()
-        process.standardOutput = stdout
-        process.standardError = stderr
-
-        do {
-            try process.run()
-            process.waitUntilExit()
-            guard process.terminationStatus == 0 else { return nil }
-            let data = stdout.fileHandleForReading.readDataToEndOfFile()
-            return String(data: data, encoding: .utf8)
-        } catch {
-            return nil
         }
     }
 

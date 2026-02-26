@@ -26,6 +26,7 @@ struct RepoSidebarContentView: View {
     private static let filterDebounceMilliseconds = 25
     private static let expandedGroupsKey = "sidebarExpandedRepoGroups"
     private static let checkoutColorsKey = "sidebarCheckoutIconColors"
+    private static let initialMetadataReloadDelay: Duration = .milliseconds(120)
 
     private var reposFingerprint: String {
         store.repos.map { "\($0.id.uuidString):\($0.updatedAt.timeIntervalSinceReferenceDate)" }
@@ -63,10 +64,14 @@ struct RepoSidebarContentView: View {
             reloadMetadataAndStatus()
         }
         .onReceive(NotificationCenter.default.publisher(for: .addRepoRequested)) { _ in
-            addRepo()
+            Task { @MainActor in
+                await addRepo()
+            }
         }
         .onReceive(NotificationCenter.default.publisher(for: .addFolderRequested)) { _ in
-            addFolder()
+            Task { @MainActor in
+                await addFolder()
+            }
         }
         .onReceive(NotificationCenter.default.publisher(for: .refreshWorktreesRequested)) { _ in
             refreshWorktrees()
@@ -376,7 +381,7 @@ struct RepoSidebarContentView: View {
         NotificationCenter.default.post(name: .refocusTerminalRequested, object: nil)
     }
 
-    private func addRepo() {
+    private func addRepo() async {
         var initialDirectory: URL?
 
         while true {
@@ -392,7 +397,7 @@ struct RepoSidebarContentView: View {
                 return
             }
 
-            if GitRepositoryInspector.isGitRepository(at: url) {
+            if await GitRepositoryInspector.isGitRepository(at: url) {
                 addRepoAndRefreshWorktrees(at: url)
                 return
             }
@@ -410,7 +415,7 @@ struct RepoSidebarContentView: View {
             case .alertFirstButtonReturn:
                 initialDirectory = url.deletingLastPathComponent()
             case .alertSecondButtonReturn:
-                addFolder(startingAt: url)
+                await addFolder(startingAt: url)
                 return
             default:
                 return
@@ -418,7 +423,7 @@ struct RepoSidebarContentView: View {
         }
     }
 
-    private func addFolder(startingAt initialURL: URL? = nil) {
+    private func addFolder(startingAt initialURL: URL? = nil) async {
         let rootURL: URL
 
         if let initialURL {
@@ -437,8 +442,7 @@ struct RepoSidebarContentView: View {
             rootURL = url
         }
 
-        let scanner = RepoScanner()
-        let repoPaths = scanner.scanForGitRepos(in: rootURL, maxDepth: 3)
+        let repoPaths = await Self.scanForGitReposInBackground(rootURL: rootURL, maxDepth: 3)
 
         guard !repoPaths.isEmpty else {
             let alert = NSAlert()
@@ -481,6 +485,12 @@ struct RepoSidebarContentView: View {
         url.standardizedFileURL.path
     }
 
+    private nonisolated static func scanForGitReposInBackground(rootURL: URL, maxDepth: Int) async -> [URL] {
+        await Task(priority: .userInitiated) {
+            RepoScanner().scanForGitRepos(in: rootURL, maxDepth: maxDepth)
+        }.value
+    }
+
     private func refreshWorktrees() {
         for repo in store.repos {
             let worktrees = WorktrunkService.shared.discoverWorktrees(for: repo.repoPath)
@@ -517,7 +527,7 @@ struct RepoSidebarContentView: View {
         metadataReloadTask = Task {
             // Defer initial sidebar metadata refresh until after the first List
             // layout pass to avoid NSTableView delegate reentrancy during startup.
-            try? await Task.sleep(for: .milliseconds(120))
+            try? await Task.sleep(for: Self.initialMetadataReloadDelay)
             guard !Task.isCancelled else { return }
 
             let initialSnapshot = await GitRepositoryInspector.metadataAndStatus(for: loadInput)
