@@ -391,15 +391,15 @@ final class NotificationReducer {
 
 ## Per-Pane Heavy Work: `@concurrent`
 
-Heavy per-pane work (scrollback search, artifact extraction, log parsing, diff computation) uses `@concurrent nonisolated` static functions. This is the Swift 6.2 pattern for explicit cooperative pool execution.
+Heavy per-pane work (scrollback search, artifact extraction, log parsing, diff computation) uses `@concurrent nonisolated` helpers. This is the Swift 6.2 pattern for explicit cooperative pool execution.
 
-**Why `static`:** Inside a `@MainActor` class, instance methods inherit `@MainActor` isolation because the implicit `self` parameter carries the enclosing actor's isolation (SE-0316). The compiler rejects `@concurrent nonisolated` on instance methods — `@concurrent` requires the function to be truly nonisolated, but `self` makes it actor-isolated regardless of the `nonisolated` keyword. Making the function `static` eliminates `self` capture entirely, so `@concurrent nonisolated static func` is valid and genuinely runs on the cooperative pool. Data the function needs is passed as value-type parameters (`ScrollbackSnapshot`, `URL`), not by accessing `self`.
+**Why we prefer `static`:** Inside a `@MainActor` class, accidental `self`/state access can pull work back into actor-isolated paths. The safest project pattern is `@concurrent nonisolated static` helpers with explicit value-type inputs (`ScrollbackSnapshot`, `URL`) so no actor-isolated state is captured. This makes pool execution intent obvious in reviews and keeps heavy work off MainActor.
 
 ### Swift 6.2 rules (SE-0461)
 
 SE-0461 changes the default isolation behavior for `nonisolated async` functions. In Swift 6.0, `nonisolated async` ran on the cooperative pool. In Swift 6.2, `nonisolated async` inherits the caller's isolation — the new default is `nonisolated(nonsending)`. This means `@concurrent` is now required to explicitly opt into pool execution.
 
-**Critical:** `@concurrent` is only valid on `nonisolated` declarations (SE-0461). It is an error to apply `@concurrent` to a function with any other isolation — including functions inside `@MainActor` types, which inherit actor isolation by default (SE-0316). Inside a `@MainActor` class, you MUST write `@concurrent nonisolated` to first opt out of actor isolation, then opt into pool execution.
+**Critical:** `@concurrent` is only valid on nonisolated declarations (SE-0461). In `@MainActor` types, helpers must first opt out of actor isolation (`nonisolated`) before using `@concurrent` to opt into pool execution.
 
 - **`@concurrent nonisolated`** explicitly runs on cooperative pool. `nonisolated` opts out of the enclosing actor's isolation; `@concurrent` opts into pool execution. This is the project's preferred pattern for offloading CPU-bound work, replacing most uses of `Task.detached`.
 - **NOT `nonisolated async` alone** — in Swift 6.2, `nonisolated async` means `nonisolated(nonsending)` by default: it inherits caller isolation. A `nonisolated async` method called from `@MainActor` runs ON MainActor in 6.2. This is a behavioral change from Swift 6.0.
@@ -608,7 +608,7 @@ Each plugin is its own actor. It receives a `PluginContext` struct at registrati
 | Direction | Connection | Pattern | Why |
 |-----------|-----------|---------|-----|
 | **In** | `for await envelope in context.events` | **AsyncStream** (pre-filtered from bus) | Sink role — `PluginContext` subscribes to bus, filters to manifest-declared event types. |
-| **Out** | `context.post(event)` → validates → `bus.post(envelope)` | Direct call (mediated by context) | Source role — context validates event type against manifest, checks rate limit, stamps `.plugin(id)` source. |
+| **Out** | `context.post(event)` → validates → `bus.post(envelope)` | Direct call (mediated by context) | Source role — context validates event type against manifest, checks rate limit, stamps `.system(.plugin(id))` source. |
 
 #### GhosttyAdapter (@MainActor)
 
@@ -936,7 +936,7 @@ Concrete list of what runs where, with Swift 6.2 keywords:
 
 ### Swift 6.2 concurrency rules (SE-0461)
 
-1. **`@concurrent nonisolated`** for explicit pool execution. `@concurrent` is only valid on `nonisolated` declarations (SE-0461) — it is an error to apply it to actor-isolated functions. Inside `@MainActor` types, both keywords are required: `nonisolated` to opt out of actor isolation, `@concurrent` to opt into pool execution.
+1. **`@concurrent nonisolated`** for explicit pool execution. `@concurrent` is only valid on nonisolated declarations (SE-0461). In `@MainActor` types, helpers must opt out of actor isolation (`nonisolated`) before using `@concurrent`.
 2. **`nonisolated async` means `nonisolated(nonsending)` in Swift 6.2** (SE-0461). It inherits caller isolation. Do NOT use this expecting pool execution — it will run on MainActor if called from MainActor.
 3. **Prefer `@concurrent` over `Task.detached`** (project policy) — `Task.detached` strips priority and task-locals; `@concurrent` preserves structured concurrency. Exception: `Task.detached` remains appropriate when you need to escape structured concurrency scope or intentionally strip task-locals.
 4. **Avoid `MainActor.run` in this architecture's common paths** — the compiler handles actor hops when returning from `@concurrent nonisolated` to `@MainActor`. `MainActor.run` is still valid when genuinely needed (hopping TO MainActor from a non-main context), but our typical pattern doesn't require it.
@@ -950,8 +950,8 @@ Common traps in this codebase. Each is documented in detail above; this is the s
 | Gotcha | Wrong | Right | Why |
 |--------|-------|-------|-----|
 | `nonisolated async` ≠ pool | `nonisolated func doWork() async` | `@concurrent nonisolated func doWork() async` | In 6.2, `nonisolated async` inherits caller isolation (runs on MainActor if called from MainActor) |
-| `@concurrent` requires `nonisolated` | `@concurrent func doWork()` inside `@MainActor` class | `@concurrent nonisolated static func doWork()` | Two keywords required; `@concurrent` alone on an actor-isolated func is a compile error |
-| Instance method captures `self` isolation | `@concurrent nonisolated func search()` on `@MainActor` class | `@concurrent nonisolated static func search(_ snapshot: T)` | Instance `self` carries `@MainActor` isolation; `static` eliminates `self` capture |
+| `@concurrent` requires nonisolated context | `@concurrent func doWork()` while relying on actor-isolated state | `@concurrent nonisolated static func doWork()` | Use nonisolated helpers for explicit pool execution and clearer isolation boundaries |
+| Avoid accidental actor capture | `@concurrent nonisolated func search()` that touches `self` members | `@concurrent nonisolated static func search(_ snapshot: T)` | `static` avoids `self` capture and makes isolation intent reviewable |
 | `Task { }` inherits actor | `Task { heavyWork() }` inside `@MainActor` | `await Self.heavyWork(data)` where `heavyWork` is `@concurrent nonisolated static` | Unstructured `Task` inside `@MainActor` runs on MainActor |
 | `Task.detached` strips context | `Task.detached { await doWork() }` | `@concurrent nonisolated static func doWork()` | Detached strips priority + task-locals; `@concurrent` preserves them |
 
@@ -1093,7 +1093,7 @@ A plugin is ONE thing — a single Swift package. It IS its own actor. Roles (so
 Plugin actor                          PluginContext (struct)              EventBus
 ┌────────────────────┐     calls     ┌─────────────────────────┐        ┌──────────┐
 │ actor LinearPlugin │──────────────►│ validate type + rate    │───────►│ bus.post()│
-│                    │  context.post │ stamp .plugin(id) source│        │          │
+│                    │  context.post │ stamp .system(.plugin(id))│        │          │
 │ polls, processes,  │               └─────────────────────────┘        └──────────┘
 │ posts when ready   │◄──────────────── context.events (pre-filtered AsyncStream)
 └────────────────────┘

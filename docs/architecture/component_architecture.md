@@ -10,7 +10,7 @@ State is distributed across independent `@Observable` stores (Jotai-style atomic
 
 ### 1.1 Architecture Principles
 
-1. **Session as primary entity** — A `TerminalSession` exists independently of layout, view, or surface. It can move between tabs, views, and layout positions while keeping the same identity.
+1. **Pane identity is primary; terminal sessions are a specialization** — `PaneId` is the cross-feature identity contract. For terminal panes, a `TerminalSession` continues to exist independently of layout, view, or surface and can move between tabs, views, and layout positions while keeping identity.
 2. **Atomic stores (Jotai-style)** — Each domain has its own `@Observable` store. `WorkspaceStore` owns workspace structure (tabs, layouts, views). `SurfaceManager` owns Ghostty surfaces. `SessionRuntime` owns backends. No god-store — each store has one domain, one reason to change, testable in isolation.
 3. **Unidirectional flow (Valtio-style)** — All store state is `private(set)`. External code reads freely, mutates only through store methods. No action enums, no reducers — the compiler enforces the boundary.
 4. **Coordinator for cross-store sequencing** — A coordinator sequences operations across multiple stores for a single user action. Owns no state, contains no domain logic. If a coordinator method contains an `if` that decides what to do with domain data, that logic belongs in a store.
@@ -165,7 +165,7 @@ The relationship is:
 | `ViewRegistry` (sessionId → NSView) | Coexists with `RuntimeRegistry` (paneId → PaneRuntime) | ViewRegistry maps to NSViews; RuntimeRegistry maps to runtime protocol instances. Both keyed by the same UUID. |
 | `SurfaceManager` | Internal to `GhosttyAdapter` / terminal feature | Surface lifecycle is terminal-specific, not generic to all pane types |
 
-This is an evolutionary relationship, not a replacement. `TerminalSession` and `SessionRuntime` continue to exist in the current code. As non-terminal pane types are implemented (LUNA-325), the pane-centric contracts in `Core/PaneRuntime/` will become the shared abstraction layer, and terminal-specific models will specialize under `Features/Terminal/`.
+This is an evolutionary relationship, not a replacement. `TerminalSession` and `SessionRuntime` continue to exist in the current code. As non-terminal pane types are implemented (LUNA-349), the pane-centric contracts in `Core/PaneRuntime/` become the shared abstraction layer, and terminal-specific models specialize under `Features/Terminal/`.
 
 ### 2.4 ViewDefinition & ViewKind
 
