@@ -457,14 +457,25 @@ class PaneTabViewController: NSViewController, CommandHandler {
         destPaneId: UUID,
         zone: DropZone
     ) -> Bool {
-        guard let tabId = store.activeTabId else { return false }
-
         let snapshot = ActionResolver.snapshot(
             from: store.tabs,
             activeTabId: store.activeTabId,
             isManagementModeActive: ManagementModeMonitor.shared.isActive,
             knownWorktreeIds: Set(store.repos.flatMap(\.worktrees).map(\.id))
         )
+        if let drawerAction = drawerMoveDropAction(payload: payload, destPaneId: destPaneId, zone: zone) {
+            if case .success = ActionValidator.validate(drawerAction, state: snapshot) {
+                return true
+            }
+            return false
+        }
+
+        if store.pane(destPaneId)?.isDrawerChild == true {
+            return false
+        }
+
+        guard let tabId = store.activeTabId else { return false }
+
         guard
             let action = ActionResolver.resolveDrop(
                 payload: payload,
@@ -483,6 +494,15 @@ class PaneTabViewController: NSViewController, CommandHandler {
 
     /// Handle a completed drop on a split pane.
     private func handleSplitDrop(payload: SplitDropPayload, destPaneId: UUID, zone: DropZone) {
+        if let drawerAction = drawerMoveDropAction(payload: payload, destPaneId: destPaneId, zone: zone) {
+            dispatchAction(drawerAction)
+            return
+        }
+
+        if store.pane(destPaneId)?.isDrawerChild == true {
+            return
+        }
+
         guard let tabId = store.activeTabId else { return }
 
         let snapshot = ActionResolver.snapshot(
@@ -499,6 +519,55 @@ class PaneTabViewController: NSViewController, CommandHandler {
             state: snapshot
         ) {
             dispatchAction(action)
+        }
+    }
+
+    private func drawerMoveDropAction(
+        payload: SplitDropPayload,
+        destPaneId: UUID,
+        zone: DropZone
+    ) -> PaneAction? {
+        let destinationPane = store.pane(destPaneId)
+        let sourcePane: Pane? =
+            if case .existingPane(let sourcePaneId, _) = payload.kind {
+                store.pane(sourcePaneId)
+            } else {
+                nil
+            }
+
+        return Self.resolveDrawerMoveDropAction(
+            payload: payload,
+            destinationPane: destinationPane,
+            sourcePane: sourcePane,
+            zone: zone
+        )
+    }
+
+    nonisolated static func resolveDrawerMoveDropAction(
+        payload: SplitDropPayload,
+        destinationPane: Pane?,
+        sourcePane: Pane?,
+        zone: DropZone
+    ) -> PaneAction? {
+        guard case .existingPane(let sourcePaneId, _) = payload.kind else { return nil }
+        guard let destinationPane, let destinationParentPaneId = destinationPane.parentPaneId else { return nil }
+        guard destinationPane.id != sourcePaneId else { return nil }
+        guard sourcePane?.parentPaneId == destinationParentPaneId else { return nil }
+
+        return .moveDrawerPane(
+            parentPaneId: destinationParentPaneId,
+            drawerPaneId: sourcePaneId,
+            targetDrawerPaneId: destinationPane.id,
+            direction: splitDirection(for: zone)
+        )
+    }
+
+    nonisolated private static func splitDirection(for zone: DropZone) -> SplitNewDirection {
+        switch zone {
+        case .left:
+            return .left
+        case .right:
+            return .right
         }
     }
 

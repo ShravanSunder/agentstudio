@@ -9,6 +9,7 @@ struct CollapsedPaneBar: View {
     let title: String
     let action: (PaneAction) -> Void
     let dropTargetCoordinateSpace: String?
+    let useDrawerFramePreference: Bool
 
     @State private var isHovered: Bool = false
 
@@ -22,13 +23,15 @@ struct CollapsedPaneBar: View {
         tabId: UUID,
         title: String,
         action: @escaping (PaneAction) -> Void,
-        dropTargetCoordinateSpace: String? = nil
+        dropTargetCoordinateSpace: String? = nil,
+        useDrawerFramePreference: Bool = false
     ) {
         self.paneId = paneId
         self.tabId = tabId
         self.title = title
         self.action = action
         self.dropTargetCoordinateSpace = dropTargetCoordinateSpace
+        self.useDrawerFramePreference = useDrawerFramePreference
     }
 
     var body: some View {
@@ -105,10 +108,22 @@ struct CollapsedPaneBar: View {
             GeometryReader { geo in
                 if let dropTargetCoordinateSpace {
                     let frame = geo.frame(in: .named(dropTargetCoordinateSpace))
-                    Color.clear.preference(
-                        key: PaneFramePreferenceKey.self,
-                        value: [paneId: frame]
-                    )
+                    if useDrawerFramePreference {
+                        Color.clear
+                            .preference(
+                                key: DrawerPaneFramePreferenceKey.self,
+                                value: [paneId: frame]
+                            )
+                            .preference(
+                                key: PaneFramePreferenceKey.self,
+                                value: [paneId: geo.frame(in: .named("tabContainer"))]
+                            )
+                    } else {
+                        Color.clear.preference(
+                            key: PaneFramePreferenceKey.self,
+                            value: [paneId: frame]
+                        )
+                    }
                 } else {
                     Color.clear
                 }

@@ -85,6 +85,16 @@ struct PaneLeafContainer: View {
         }
     }
 
+    private func normalizedMeasuredFrame(from rawFrame: CGRect) -> CGRect {
+        let paneGap = AppStyle.paneGap
+        return CGRect(
+            x: rawFrame.minX + paneGap,
+            y: rawFrame.minY + paneGap,
+            width: max(rawFrame.width - (paneGap * 2), 1),
+            height: max(rawFrame.height - (paneGap * 2), 1)
+        )
+    }
+
     var body: some View {
         GeometryReader { _ in
             ZStack(alignment: .topTrailing) {
@@ -346,17 +356,17 @@ struct PaneLeafContainer: View {
                         // Report pane frame for overlay positioning in the configured container
                         // coordinate space (tab container or drawer container).
                         let rawFrame = geo.frame(in: .named(dropTargetCoordinateSpace))
-                        let paneGap = AppStyle.paneGap
-                        let measuredFrame = CGRect(
-                            x: rawFrame.minX + paneGap,
-                            y: rawFrame.minY + paneGap,
-                            width: max(rawFrame.width - (paneGap * 2), 1),
-                            height: max(rawFrame.height - (paneGap * 2), 1)
-                        )
+                        let measuredFrame = normalizedMeasuredFrame(from: rawFrame)
                         if useDrawerFramePreference {
+                            let tabRawFrame = geo.frame(in: .named("tabContainer"))
+                            let tabMeasuredFrame = normalizedMeasuredFrame(from: tabRawFrame)
                             Color.clear.preference(
                                 key: DrawerPaneFramePreferenceKey.self,
                                 value: [paneView.id: measuredFrame]
+                            )
+                            .preference(
+                                key: PaneFramePreferenceKey.self,
+                                value: [paneView.id: tabMeasuredFrame]
                             )
                         } else {
                             Color.clear.preference(
