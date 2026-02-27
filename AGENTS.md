@@ -355,24 +355,40 @@ final class PaneEventBus {
 
 **Why not Combine:** Apple's Xcode 26 guidance explicitly steers away from Combine. AsyncStream integrates naturally with Swift concurrency, has no publisher/subscriber ceremony, and composes via `swift-async-algorithms` (merge, debounce, throttle).
 
-### Swift 6 Concurrency from C Callbacks
+### Swift 6.2 Concurrency Best Practices (Future-Default)
 
-Ghostty C API callbacks arrive on arbitrary threads. The pattern is static `@Sendable` trampolines that hop to MainActor:
+1. Isolation first
+- Keep UI, stores, and coordinator mutations on `@MainActor`.
+- Prefer actor-isolated APIs over manual thread control.
 
-```swift
-nonisolated static func handleAction(
-    _ surface: ghostty_surface_t,
-    _ action: ghostty_action_s
-) {
-    MainActor.assumeIsolated {
-        guard let bridge = SurfaceManager.shared
-            .terminalBridge(for: surface) else { return }
-        bridge.handleAction(action)
-    }
-}
-```
+2. Explicit execution intent
+- Assume `nonisolated async` follows caller isolation in Swift 6.2.
+- Use `@concurrent nonisolated` for work that must run off actor isolation.
 
-**Never** use `DispatchQueue.main.async` from C callbacks — use `MainActor.assumeIsolated` for synchronous hops or `Task { @MainActor in }` for async work.
+3. Minimize unstructured tasks
+- Prefer structured concurrency and `@concurrent` helpers.
+- Use `Task.detached` only when isolation inheritance must be intentionally broken, and document why.
+
+4. Safe callback bridging
+- In C/ObjC callbacks, capture stable IDs synchronously.
+- Never defer raw pointer dereference across async hops.
+- If order matters, enqueue through a serial bridge before actor handling.
+
+5. Actor hop safety
+- Avoid `MainActor.assumeIsolated` unless main-actor execution is provably guaranteed.
+- Prefer `Task { @MainActor in ... }` or actor-isolated methods.
+
+6. Async stream standard
+- Use `AsyncStream.makeStream(of:)` for new streams.
+- Define buffering/eviction policy explicitly.
+- Always cancel tasks and finish continuations on shutdown/deinit.
+
+7. Protocol isolation clarity
+- Use actor-isolated protocols (for example `@MainActor protocol`) when APIs are actor-bound.
+- Require `Sendable` only when values truly cross actor boundaries.
+
+8. Verification gate
+- Before merge: confirm no hidden actor hops, no unsafe pointer lifetimes, explicit off-actor boundaries, and deterministic cancellation/stream cleanup.
 
 ### Testable Time: Injectable Clock
 

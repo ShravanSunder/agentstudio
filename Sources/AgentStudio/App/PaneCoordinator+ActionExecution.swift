@@ -449,11 +449,6 @@ extension PaneCoordinator {
             return
         }
 
-        if !closingPane.isDrawerChild, let tab = store.tab(tabId), tab.paneIds.count <= 1 {
-            executeCloseTab(tabId)
-            return
-        }
-
         if let snapshot = store.snapshotForPaneClose(paneId: paneId, inTab: tabId) {
             appendUndoEntry(.pane(snapshot))
         } else {
@@ -474,12 +469,7 @@ extension PaneCoordinator {
         let drawerChildIds = closingPane.drawer?.paneIds ?? []
         teardownDrawerPanes(for: paneId)
         teardownView(for: paneId)
-        let tabNowEmpty = store.removePaneFromLayout(paneId, inTab: tabId)
-
-        if tabNowEmpty {
-            executeCloseTab(tabId)
-            return
-        }
+        store.removePaneFromLayout(paneId, inTab: tabId)
 
         for drawerPaneId in drawerChildIds {
             store.removeDrawerPane(drawerPaneId, from: paneId)
@@ -516,14 +506,11 @@ extension PaneCoordinator {
                 Self.logger.warning("insertPane existingPane: target tab \(targetTabId) not found")
                 return
             }
-            let sourceTabEmpty = store.removePaneFromLayout(paneId, inTab: sourceTabId)
+            store.removePaneFromLayout(paneId, inTab: sourceTabId)
             store.insertPane(
                 paneId, inTab: targetTabId, at: targetPaneId,
                 direction: layoutDirection, position: position
             )
-            if sourceTabEmpty {
-                store.removeTab(sourceTabId)
-            }
 
         case .newTerminal:
             let targetPane = store.pane(targetPaneId)

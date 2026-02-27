@@ -135,9 +135,7 @@ final class PaneRemovalCascadeTests {
         store.switchArrangement(to: arrId, inTab: tab.id)
 
         // Remove pane[1] from layout (while in custom arrangement)
-        let isEmpty = store.removePaneFromLayout(paneIds[1], inTab: tab.id)
-
-        #expect(!(isEmpty))
+        store.removePaneFromLayout(paneIds[1], inTab: tab.id)
 
         let updatedTab = store.tab(tab.id)!
 
@@ -179,12 +177,12 @@ final class PaneRemovalCascadeTests {
 
     @Test
 
-    func test_removePaneFromLayout_returnsTrue_whenLastPaneRemoved() {
+    func test_removePaneFromLayout_removesTab_whenLastPaneRemoved() {
         let (tab, paneIds) = createTabWithPanes(1)
 
-        let isEmpty = store.removePaneFromLayout(paneIds[0], inTab: tab.id)
+        store.removePaneFromLayout(paneIds[0], inTab: tab.id)
 
-        #expect(isEmpty)
+        #expect(store.tab(tab.id) == nil)
     }
 
     @Test

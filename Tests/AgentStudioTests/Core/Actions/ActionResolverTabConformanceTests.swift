@@ -66,7 +66,7 @@ final class ActionResolverTabConformanceTests {
 
     @Test
 
-    func test_resolve_closePane_withTab() {
+    func test_resolve_closePane_withSinglePaneTab_escalatesToCloseTab() {
         // Arrange
         let paneId = UUID()
         let tab = Tab(paneId: paneId)
@@ -77,7 +77,24 @@ final class ActionResolverTabConformanceTests {
         )
 
         // Assert
-        #expect(result == .closePane(tabId: tab.id, paneId: paneId))
+        #expect(result == .closeTab(tabId: tab.id))
+    }
+
+    @Test
+
+    func test_resolve_closePane_withSplitTab_returnsClosePane() {
+        // Arrange
+        let paneA = UUIDv7.generate()
+        let paneB = UUIDv7.generate()
+        let tab = makeTab(paneIds: [paneA, paneB], activePaneId: paneA)
+
+        // Act
+        let result = ActionResolver.resolve(
+            command: .closePane, tabs: [tab], activeTabId: tab.id
+        )
+
+        // Assert
+        #expect(result == .closePane(tabId: tab.id, paneId: paneA))
     }
 
     @Test

@@ -31,17 +31,13 @@ final class NotificationReducer {
         self.clock = clock
         self.tierResolver = tierResolver
 
-        var criticalCont: AsyncStream<PaneEventEnvelope>.Continuation?
-        self.criticalEvents = AsyncStream<PaneEventEnvelope> { continuation in
-            criticalCont = continuation
-        }
-        self.criticalContinuation = criticalCont!
+        let (criticalEvents, criticalContinuation) = AsyncStream.makeStream(of: PaneEventEnvelope.self)
+        self.criticalEvents = criticalEvents
+        self.criticalContinuation = criticalContinuation
 
-        var batchCont: AsyncStream<[PaneEventEnvelope]>.Continuation?
-        self.batchedEvents = AsyncStream<[PaneEventEnvelope]> { continuation in
-            batchCont = continuation
-        }
-        self.batchContinuation = batchCont!
+        let (batchedEvents, batchContinuation) = AsyncStream.makeStream(of: [PaneEventEnvelope].self)
+        self.batchedEvents = batchedEvents
+        self.batchContinuation = batchContinuation
     }
 
     isolated deinit {
