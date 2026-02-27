@@ -63,39 +63,38 @@ struct RepoSidebarContentView: View {
         .task(id: reposFingerprint) {
             reloadMetadataAndStatus()
         }
-        .onReceive(NotificationCenter.default.publisher(for: .addRepoRequested)) { _ in
-            Task { @MainActor in
-                await addRepo()
-            }
-        }
-        .onReceive(NotificationCenter.default.publisher(for: .addFolderRequested)) { _ in
-            Task { @MainActor in
-                await addFolder()
-            }
-        }
-        .onReceive(NotificationCenter.default.publisher(for: .refreshWorktreesRequested)) { _ in
-            refreshWorktrees()
-        }
-        .onReceive(NotificationCenter.default.publisher(for: .filterSidebarRequested)) { _ in
-            withAnimation(.easeOut(duration: 0.15)) {
-                if isFilterVisible {
-                    hideFilter()
-                } else {
-                    isFilterVisible = true
+        .task {
+            let stream = await AppEventBus.shared.subscribe()
+            for await event in stream {
+                switch event {
+                case .addRepoRequested:
+                    await addRepo()
+                case .addFolderRequested:
+                    await addFolder()
+                case .refreshWorktreesRequested:
+                    refreshWorktrees()
+                case .filterSidebarRequested:
+                    withAnimation(.easeOut(duration: 0.15)) {
+                        if isFilterVisible {
+                            hideFilter()
+                        } else {
+                            isFilterVisible = true
+                        }
+                    }
+                    Task { @MainActor in
+                        try? await Task.sleep(for: .milliseconds(50))
+                        isFilterFocused = true
+                    }
+                case .worktreeBellRang(let paneId):
+                    guard
+                        let pane = store.pane(paneId),
+                        let worktreeId = pane.worktreeId
+                    else { continue }
+                    notificationCountsByWorktreeId[worktreeId, default: 0] += 1
+                default:
+                    continue
                 }
             }
-            Task { @MainActor in
-                try? await Task.sleep(for: .milliseconds(50))
-                isFilterFocused = true
-            }
-        }
-        .onReceive(NotificationCenter.default.publisher(for: .worktreeBellRang)) { notification in
-            guard
-                let paneId = notification.userInfo?["paneId"] as? UUID,
-                let pane = store.pane(paneId),
-                let worktreeId = pane.worktreeId
-            else { return }
-            notificationCountsByWorktreeId[worktreeId, default: 0] += 1
         }
         .onDisappear {
             debounceTask?.cancel()
@@ -378,7 +377,7 @@ struct RepoSidebarContentView: View {
         withAnimation(.easeOut(duration: 0.15)) {
             isFilterVisible = false
         }
-        NotificationCenter.default.post(name: .refocusTerminalRequested, object: nil)
+        postAppEvent(.refocusTerminalRequested)
     }
 
     private func addRepo() async {

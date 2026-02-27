@@ -3,20 +3,20 @@ import Testing
 
 @testable import AgentStudio
 
-private final class NotificationUserInfoBox: @unchecked Sendable {
+private final class AppEventBox: @unchecked Sendable {
     private let lock = NSLock()
-    private var userInfo: [AnyHashable: Any]?
+    private var event: AppEvent?
 
-    func set(_ value: [AnyHashable: Any]?) {
+    func set(_ value: AppEvent) {
         lock.lock()
-        userInfo = value
+        event = value
         lock.unlock()
     }
 
-    func get() -> [AnyHashable: Any]? {
+    func get() -> AppEvent? {
         lock.lock()
         defer { lock.unlock() }
-        return userInfo
+        return event
     }
 }
 
@@ -265,7 +265,7 @@ struct CommandBarDataSourceTests {
     }
 
     @Test
-    func test_movePaneToTab_drillIn_postsMoveNotification() {
+    func test_movePaneToTab_drillIn_postsMoveEvent() async {
         let store = makeStore()
 
         let paneA = store.createPane(source: .floating(workingDirectory: nil, title: "Pane A"))
@@ -296,24 +296,39 @@ struct CommandBarDataSourceTests {
             return
         }
 
-        let userInfoBox = NotificationUserInfoBox()
-        let token = NotificationCenter.default.addObserver(
-            forName: .movePaneToTabRequested,
-            object: nil,
-            queue: nil
-        ) { notification in
-            userInfoBox.set(notification.userInfo)
+        let eventBox = AppEventBox()
+        let captureTask = Task {
+            let stream = await AppEventBus.shared.subscribe()
+            for await event in stream {
+                guard case .movePaneToTabRequested = event else { continue }
+                eventBox.set(event)
+                break
+            }
         }
-        defer {
-            NotificationCenter.default.removeObserver(token)
-        }
+        defer { captureTask.cancel() }
+        try? await Task.sleep(for: .milliseconds(10))
 
         action()
+        try? await Task.sleep(for: .milliseconds(20))
 
-        let userInfo = userInfoBox.get()
-        #expect((userInfo?["paneId"] as? UUID) == paneA.id)
-        #expect((userInfo?["sourceTabId"] as? UUID) == tabA.id)
-        #expect((userInfo?["targetTabId"] as? UUID) == tabB.id)
+        guard let postedEvent = eventBox.get() else {
+            Issue.record("Expected movePaneToTabRequested event to be posted")
+            return
+        }
+        guard
+            case .movePaneToTabRequested(
+                let paneId,
+                let sourceTabId,
+                let targetTabId
+            ) = postedEvent
+        else {
+            Issue.record("Expected movePaneToTabRequested event payload")
+            return
+        }
+
+        #expect(paneId == paneA.id)
+        #expect(sourceTabId == tabA.id)
+        #expect(targetTabId == tabB.id)
     }
 
     // MARK: - Repos Scope

@@ -98,7 +98,7 @@ final class SurfaceManager {
 
     /// Checkpoint file URL
     private let checkpointURL: URL
-    private var ghosttyNotificationObservers: [NSObjectProtocol] = []
+    private var ghosttyEventTask: Task<Void, Never>?
 
     // MARK: - Initialization
 
@@ -129,10 +129,7 @@ final class SurfaceManager {
         healthCheckTimer?.invalidate()
         healthCheckTimer = nil
         cwdChangeContinuation.finish()
-        for observer in ghosttyNotificationObservers {
-            NotificationCenter.default.removeObserver(observer)
-        }
-        ghosttyNotificationObservers.removeAll()
+        ghosttyEventTask?.cancel()
     }
 
     var surfaceCWDChanges: AsyncStream<SurfaceCWDChangeEvent> {
@@ -634,37 +631,22 @@ extension SurfaceManager {
     }
 
     private func subscribeToGhosttyNotifications() {
-        let center = NotificationCenter.default
-
-        // Renderer health changes
-        let healthObserver = center.addObserver(
-            forName: Ghostty.Notification.didUpdateRendererHealth,
-            object: nil,
-            queue: .main
-        ) { [weak self] notification in
-            guard let surfaceView = notification.object as? Ghostty.SurfaceView else { return }
-            let surfaceViewId = ObjectIdentifier(surfaceView)
-            let isHealthy = notification.userInfo?["healthy"] as? Bool
-            Task { @MainActor [weak self] in
-                self?.onRendererHealthChanged(surfaceViewId: surfaceViewId, isHealthyOverride: isHealthy)
+        ghosttyEventTask?.cancel()
+        ghosttyEventTask = Task { @MainActor [weak self] in
+            guard let self else { return }
+            let stream = await GhosttyEventBus.shared.subscribe()
+            for await event in stream {
+                guard !Task.isCancelled else { break }
+                switch event {
+                case .rendererHealthUpdated(let surfaceViewId, let isHealthy):
+                    self.onRendererHealthChanged(surfaceViewId: surfaceViewId, isHealthyOverride: isHealthy)
+                case .workingDirectoryUpdated(let surfaceViewId, let rawPwd):
+                    self.onWorkingDirectoryChanged(surfaceViewId: surfaceViewId, rawPwd: rawPwd)
+                case .newWindowRequested, .closeSurface:
+                    continue
+                }
             }
         }
-        ghosttyNotificationObservers.append(healthObserver)
-
-        // Working directory changes (OSC 7)
-        let cwdObserver = center.addObserver(
-            forName: Ghostty.Notification.didUpdateWorkingDirectory,
-            object: nil,
-            queue: .main
-        ) { [weak self] notification in
-            guard let surfaceView = notification.object as? Ghostty.SurfaceView else { return }
-            let surfaceViewId = ObjectIdentifier(surfaceView)
-            let rawPwd = notification.userInfo?["pwd"] as? String
-            Task { @MainActor [weak self] in
-                self?.onWorkingDirectoryChanged(surfaceViewId: surfaceViewId, rawPwd: rawPwd)
-            }
-        }
-        ghosttyNotificationObservers.append(cwdObserver)
     }
 
     private func subscribeToSurfaceNotifications(_ surfaceView: Ghostty.SurfaceView) {

@@ -472,13 +472,12 @@ final class WorkspaceStore {
         markDirty()
     }
 
-    /// Remove a pane from a tab's layouts. Returns `true` if the tab is now empty
-    /// (last pane was removed) — caller is responsible for handling tab closure with undo.
-    @discardableResult
-    func removePaneFromLayout(_ paneId: UUID, inTab tabId: UUID) -> Bool {
+    /// Remove a pane from a tab's layouts and keep workspace invariants consistent.
+    /// If this removal leaves the tab with no panes, the tab is removed.
+    func removePaneFromLayout(_ paneId: UUID, inTab tabId: UUID) {
         guard let tabIndex = findTabIndex(tabId) else {
             storeLogger.warning("removePaneFromLayout: tab \(tabId) not found")
-            return false
+            return
         }
         let arrIndex = tabs[tabIndex].activeArrangementIndex
 
@@ -499,9 +498,9 @@ final class WorkspaceStore {
                 tabs[tabIndex].activePaneId = remaining.first
             }
         } else {
-            // Last pane removed — signal to caller that tab is now empty.
-            // Do NOT call removeTab here: let PaneCoordinator handle it with undo support.
-            return true
+            tabs[tabIndex].arrangements[arrIndex].layout = Layout()
+            tabs[tabIndex].arrangements[arrIndex].visiblePaneIds.remove(paneId)
+            tabs[tabIndex].activePaneId = nil
         }
 
         // Also remove from default arrangement if active is not default
@@ -510,14 +509,20 @@ final class WorkspaceStore {
             tabs[tabIndex].arrangements[defIdx].visiblePaneIds.remove(paneId)
             if let newDefLayout = tabs[tabIndex].arrangements[defIdx].layout.removing(paneId: paneId) {
                 tabs[tabIndex].arrangements[defIdx].layout = newDefLayout
+            } else {
+                tabs[tabIndex].arrangements[defIdx].layout = Layout()
             }
         }
 
         // Remove from tab's pane list
         tabs[tabIndex].panes.removeAll { $0 == paneId }
 
+        if tabs[tabIndex].panes.isEmpty {
+            removeTab(tabId)
+            return
+        }
+
         markDirty()
-        return false
     }
 
     func resizePane(tabId: UUID, splitId: UUID, ratio: Double) {

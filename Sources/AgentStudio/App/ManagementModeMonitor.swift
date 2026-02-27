@@ -1,10 +1,6 @@
 import AppKit
 import Observation
 
-extension Notification.Name {
-    static let managementModeDidChange = Notification.Name("ManagementModeDidChange")
-}
-
 /// Manages management mode — a toggle that reveals close buttons, drag handles,
 /// arrangement bar, and management borders on panes.
 ///
@@ -40,7 +36,7 @@ final class ManagementModeMonitor {
     /// Toggle management mode on/off.
     func toggle() {
         isActive.toggle()
-        NotificationCenter.default.post(name: .managementModeDidChange, object: isActive)
+        postAppEvent(.managementModeChanged(isActive: isActive))
         if isActive {
             resignPaneFirstResponder()
         }
@@ -51,8 +47,8 @@ final class ManagementModeMonitor {
         let wasActive = isActive
         isActive = false
         if wasActive {
-            NotificationCenter.default.post(name: .managementModeDidChange, object: false)
-            NotificationCenter.default.post(name: .refocusTerminalRequested, object: nil)
+            postAppEvent(.managementModeChanged(isActive: false))
+            postAppEvent(.refocusTerminalRequested)
         }
     }
 

@@ -83,7 +83,14 @@ final class RPCRouter {
     /// JSON-RPC requests with an `id` emit direct response envelopes via `onResponse`.
     /// Notifications (no `id`) remain fire-and-forget and do not emit responses.
     func dispatch(json: String, isBridgeReady: Bool) async {
-        guard let request = await parseRequestEnvelope(from: json) else {
+        let request: ParsedRPCRequest
+        do {
+            request = try parseRequestEnvelope(from: json)
+        } catch let parseError as RequestEnvelopeParseError {
+            await reportError(parseError.code, parseError.message, id: parseError.id)
+            return
+        } catch {
+            await reportError(.parseError, "Parse error: \(errorMessage(from: error))", id: .null)
             return
         }
 
@@ -147,36 +154,45 @@ final class RPCRouter {
         let params: JSONRPCValue?
     }
 
-    private func parseRequestEnvelope(from json: String) async -> ParsedRPCRequest? {
+    private struct RequestEnvelopeParseError: Error {
+        let code: RPCErrorCode
+        let message: String
+        let id: RPCIdentifier?
+    }
+
+    private nonisolated func parseRequestEnvelope(from json: String) throws -> ParsedRPCRequest {
         guard let data = json.data(using: .utf8) else {
-            await reportError(.parseError, "Parse error", id: .null)
-            return nil
+            throw RequestEnvelopeParseError(code: .parseError, message: "Parse error", id: .null)
         }
 
         let raw: JSONRPCValue
         do {
             raw = try JSONDecoder().decode(JSONRPCValue.self, from: data)
         } catch {
-            await reportError(.parseError, "Parse error: \(error.localizedDescription)", id: .null)
-            return nil
+            throw RequestEnvelopeParseError(
+                code: .parseError,
+                message: "Parse error: \(error.localizedDescription)",
+                id: .null
+            )
         }
 
         if case .array = raw {
-            await reportError(.invalidRequest, "Batch requests not supported", id: nil)
-            return nil
+            throw RequestEnvelopeParseError(code: .invalidRequest, message: "Batch requests not supported", id: nil)
         }
 
         guard case .object(let dict) = raw else {
-            await reportError(.invalidRequest, "Invalid request", id: nil)
-            return nil
+            throw RequestEnvelopeParseError(code: .invalidRequest, message: "Invalid request", id: nil)
         }
 
         let idValidation = parseRequestID(dict["id"])
         let requestId: RPCIdentifier?
         switch idValidation {
         case .invalid:
-            await reportError(.invalidRequest, "Invalid request: invalid id", id: .null)
-            return nil
+            throw RequestEnvelopeParseError(
+                code: .invalidRequest,
+                message: "Invalid request: invalid id",
+                id: .null
+            )
         case .missing:
             requestId = nil
         case .valid(let parsedID):
@@ -184,13 +200,19 @@ final class RPCRouter {
         }
 
         guard case .string("2.0")? = dict["jsonrpc"] else {
-            await reportError(.invalidRequest, "Invalid request: unsupported jsonrpc version", id: requestId)
-            return nil
+            throw RequestEnvelopeParseError(
+                code: .invalidRequest,
+                message: "Invalid request: unsupported jsonrpc version",
+                id: requestId
+            )
         }
 
         guard case .string(let method)? = dict["method"] else {
-            await reportError(.invalidRequest, "Invalid request: missing method", id: requestId)
-            return nil
+            throw RequestEnvelopeParseError(
+                code: .invalidRequest,
+                message: "Invalid request: missing method",
+                id: requestId
+            )
         }
 
         let commandId: String?
@@ -384,14 +406,18 @@ final class RPCRouter {
         }
     }
 
-    private func responseJSONValue(for resultData: Data?) throws -> JSONRPCValue {
+    private nonisolated func decodeResultData(from resultData: Data?) throws -> JSONRPCValue {
         guard let resultData else {
             return .null
         }
         return try JSONDecoder().decode(JSONRPCValue.self, from: resultData)
     }
 
-    private func parseRequestID(_ raw: JSONRPCValue?) -> RPCRequestIDState {
+    private func responseJSONValue(for resultData: Data?) throws -> JSONRPCValue {
+        try decodeResultData(from: resultData)
+    }
+
+    private nonisolated func parseRequestID(_ raw: JSONRPCValue?) -> RPCRequestIDState {
         guard let raw else {
             return .missing
         }
@@ -419,7 +445,7 @@ final class RPCRouter {
 
     /// Return serialized `params` payload bytes for typed decoding.
     /// Returns `nil` when no params were provided so method defaulting can decide.
-    private func decodeParamsData(from rawParams: JSONRPCValue?) throws -> Data? {
+    private nonisolated func decodeParamsData(from rawParams: JSONRPCValue?) throws -> Data? {
         guard let rawParams else {
             return nil
         }

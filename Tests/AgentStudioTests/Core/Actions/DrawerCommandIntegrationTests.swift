@@ -31,7 +31,7 @@ final class DrawerCommandIntegrationTests {
             surfaceManager: surfaceManager,
             runtimeRegistry: RuntimeRegistry()
         )
-        executor = ActionExecutor(coordinator: coordinator)
+        executor = ActionExecutor(coordinator: coordinator, store: store)
     }
 
     deinit {
@@ -337,15 +337,15 @@ final class DrawerCommandIntegrationTests {
 
 @MainActor
 private final class MockPaneCoordinatorSurfaceManager: PaneCoordinatorSurfaceManaging {
-    private let stream: AsyncStream<SurfaceManager.SurfaceCWDChangeEvent>
+    private let cwdStream: AsyncStream<SurfaceManager.SurfaceCWDChangeEvent>
 
     init() {
-        stream = AsyncStream<SurfaceManager.SurfaceCWDChangeEvent> { continuation in
+        self.cwdStream = AsyncStream<SurfaceManager.SurfaceCWDChangeEvent> { continuation in
             continuation.finish()
         }
     }
 
-    var surfaceCWDChanges: AsyncStream<SurfaceManager.SurfaceCWDChangeEvent> { stream }
+    var surfaceCWDChanges: AsyncStream<SurfaceManager.SurfaceCWDChangeEvent> { cwdStream }
 
     func syncFocus(activeSurfaceId: UUID?) {}
 

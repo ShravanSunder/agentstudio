@@ -23,7 +23,7 @@ final class ActionExecutorTests {
         viewRegistry = ViewRegistry()
         runtime = SessionRuntime(store: store)
         coordinator = PaneCoordinator(store: store, viewRegistry: viewRegistry, runtime: runtime)
-        executor = ActionExecutor(coordinator: coordinator)
+        executor = ActionExecutor(coordinator: coordinator, store: store)
     }
 
     deinit {

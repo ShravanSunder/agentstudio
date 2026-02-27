@@ -98,7 +98,7 @@ class PaneTabViewController: NSViewController, CommandHandler {
                     ))
             },
             onOpenRepoInTab: {
-                NotificationCenter.default.post(name: .showCommandBarRepos, object: nil)
+                postAppEvent(.showCommandBarRepos)
             }
         )
         tabBarHostingView = DraggableTabBarHostingView(rootView: tabBar)
@@ -184,65 +184,34 @@ class PaneTabViewController: NSViewController, CommandHandler {
     private func setupAppNotificationObservers() {
         notificationTasks.append(
             Task { [weak self] in
-                for await notification in NotificationCenter.default.notifications(named: .terminalProcessTerminated) {
-                    guard let self, !Task.isCancelled else { break }
-                    self.handleProcessTerminated(notification)
-                }
-            })
-
-        notificationTasks.append(
-            Task { [weak self] in
-                for await notification in NotificationCenter.default.notifications(named: .selectTabById) {
-                    guard let self, !Task.isCancelled else { break }
-                    self.handleSelectTabById(notification)
-                }
-            })
-
-        notificationTasks.append(
-            Task { [weak self] in
-                for await _ in NotificationCenter.default.notifications(named: .undoCloseTabRequested) {
-                    guard let self, !Task.isCancelled else { break }
-                    self.handleUndoCloseTab()
-                }
-            })
-
-        notificationTasks.append(
-            Task { [weak self] in
-                for await notification in NotificationCenter.default.notifications(named: .extractPaneRequested) {
-                    guard let self, !Task.isCancelled else { break }
-                    self.handleExtractPaneRequested(notification)
-                }
-            })
-
-        notificationTasks.append(
-            Task { [weak self] in
-                for await notification in NotificationCenter.default.notifications(named: .movePaneToTabRequested) {
-                    guard let self, !Task.isCancelled else { break }
-                    self.handleMovePaneToTabRequested(notification)
-                }
-            })
-
-        notificationTasks.append(
-            Task { [weak self] in
-                for await notification in NotificationCenter.default.notifications(named: .repairSurfaceRequested) {
-                    guard let self, !Task.isCancelled else { break }
-                    self.handleRepairSurfaceRequested(notification)
-                }
-            })
-
-        notificationTasks.append(
-            Task { [weak self] in
-                for await _ in NotificationCenter.default.notifications(named: .refocusTerminalRequested) {
-                    guard let self, !Task.isCancelled else { break }
-                    self.handleRefocusTerminal()
-                }
-            })
-
-        notificationTasks.append(
-            Task { [weak self] in
-                for await _ in NotificationCenter.default.notifications(named: .openWebviewRequested) {
-                    guard let self, !Task.isCancelled else { break }
-                    self.handleOpenWebviewRequested()
+                guard let self else { return }
+                let stream = await AppEventBus.shared.subscribe()
+                for await event in stream {
+                    guard !Task.isCancelled else { break }
+                    switch event {
+                    case .terminalProcessTerminated(let worktreeId, _):
+                        self.handleProcessTerminated(worktreeId: worktreeId)
+                    case .selectTabById(let tabId, let paneId):
+                        self.handleSelectTabById(tabId: tabId, paneId: paneId)
+                    case .undoCloseTabRequested:
+                        self.handleUndoCloseTab()
+                    case .extractPaneRequested(let tabId, let paneId, let targetTabIndex):
+                        self.handleExtractPaneRequested(tabId: tabId, paneId: paneId, targetTabIndex: targetTabIndex)
+                    case .movePaneToTabRequested(let paneId, let sourceTabId, let targetTabId):
+                        self.handleMovePaneToTabRequested(
+                            paneId: paneId,
+                            sourceTabId: sourceTabId,
+                            targetTabId: targetTabId
+                        )
+                    case .repairSurfaceRequested(let paneId):
+                        self.handleRepairSurfaceRequested(paneId: paneId)
+                    case .refocusTerminalRequested:
+                        self.handleRefocusTerminal()
+                    case .openWebviewRequested:
+                        self.handleOpenWebviewRequested()
+                    default:
+                        continue
+                    }
                 }
             })
     }
@@ -251,25 +220,15 @@ class PaneTabViewController: NSViewController, CommandHandler {
         executor.openWebview()
     }
 
-    private func handleRepairSurfaceRequested(_ notification: Notification) {
-        guard let userInfo = notification.userInfo,
-            let paneId = userInfo["paneId"] as? UUID
-        else {
-            return
-        }
+    private func handleRepairSurfaceRequested(paneId: UUID) {
         dispatchAction(.repair(.recreateSurface(paneId: paneId)))
     }
 
-    private func handleSelectTabById(_ notification: Notification) {
-        guard let userInfo = notification.userInfo,
-            let tabId = userInfo["tabId"] as? UUID
-        else {
-            return
-        }
+    private func handleSelectTabById(tabId: UUID, paneId: UUID?) {
         dispatchAction(.selectTab(tabId: tabId))
 
         // If a specific pane was requested, focus it within the tab
-        if let paneId = userInfo["paneId"] as? UUID {
+        if let paneId {
             dispatchAction(.focusPane(tabId: tabId, paneId: paneId))
         }
     }
@@ -512,11 +471,11 @@ class PaneTabViewController: NSViewController, CommandHandler {
     }
 
     @objc private func addRepoAction() {
-        NotificationCenter.default.post(name: .addRepoRequested, object: nil)
+        postAppEvent(.addRepoRequested)
     }
 
     @objc private func addFolderAction() {
-        NotificationCenter.default.post(name: .addFolderRequested, object: nil)
+        postAppEvent(.addFolderRequested)
     }
 
     private func updateEmptyState() {
@@ -692,25 +651,12 @@ class PaneTabViewController: NSViewController, CommandHandler {
 
     // MARK: - Process Termination
 
-    private func handleProcessTerminated(_ notification: Notification) {
-        guard let userInfo = notification.userInfo,
-            let worktreeId = userInfo["worktreeId"] as? UUID
-        else {
-            return
-        }
+    private func handleProcessTerminated(worktreeId: UUID?) {
+        guard let worktreeId else { return }
         closeTerminal(for: worktreeId)
     }
 
-    private func handleExtractPaneRequested(_ notification: Notification) {
-        guard let userInfo = notification.userInfo,
-            let tabId = userInfo["tabId"] as? UUID,
-            let paneId = userInfo["paneId"] as? UUID
-        else {
-            return
-        }
-
-        let targetTabIndex = userInfo["targetTabIndex"] as? Int
-
+    private func handleExtractPaneRequested(tabId: UUID, paneId: UUID, targetTabIndex: Int?) {
         // Single-pane tabs cannot extract; treat tab-bar pane drag as tab reorder
         // so "single pane move ability" still works.
         if let sourceTab = store.tab(tabId),
@@ -738,14 +684,7 @@ class PaneTabViewController: NSViewController, CommandHandler {
         store.setActiveTab(extractedTabId)
     }
 
-    private func handleMovePaneToTabRequested(_ notification: Notification) {
-        guard let userInfo = notification.userInfo,
-            let paneId = userInfo["paneId"] as? UUID,
-            let targetTabId = userInfo["targetTabId"] as? UUID
-        else {
-            return
-        }
-        let sourceTabId = userInfo["sourceTabId"] as? UUID
+    private func handleMovePaneToTabRequested(paneId: UUID, sourceTabId: UUID?, targetTabId: UUID) {
         dispatchMovePaneToTab(sourcePaneId: paneId, sourceTabId: sourceTabId, targetTabId: targetTabId)
     }
 
@@ -843,11 +782,11 @@ class PaneTabViewController: NSViewController, CommandHandler {
             ManagementModeMonitor.shared.toggle()
 
         case .addRepo:
-            NotificationCenter.default.post(name: .addRepoRequested, object: nil)
+            postAppEvent(.addRepoRequested)
         case .addFolder:
-            NotificationCenter.default.post(name: .addFolderRequested, object: nil)
+            postAppEvent(.addFolderRequested)
         case .filterSidebar:
-            NotificationCenter.default.post(name: .filterSidebarRequested, object: nil)
+            postAppEvent(.filterSidebarRequested)
         case .addDrawerPane:
             guard let tabId = store.activeTabId,
                 let tab = store.tab(tabId),
@@ -885,9 +824,9 @@ class PaneTabViewController: NSViewController, CommandHandler {
         case .openWebview:
             executor.openWebview()
         case .signInGitHub:
-            NotificationCenter.default.post(name: .signInRequested, object: nil, userInfo: ["provider": "github"])
+            postAppEvent(.signInRequested(provider: OAuthProvider.github.rawValue))
         case .signInGoogle:
-            NotificationCenter.default.post(name: .signInRequested, object: nil, userInfo: ["provider": "google"])
+            postAppEvent(.signInRequested(provider: OAuthProvider.google.rawValue))
         case .newTerminalInTab, .newFloatingTerminal,
             .removeRepo, .refreshWorktrees,
             .toggleSidebar, .quickFind, .commandBar,

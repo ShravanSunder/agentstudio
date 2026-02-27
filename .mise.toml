@@ -143,7 +143,7 @@ run_webkit_suite_with_retry() {
       return 0
     fi
 
-    if echo "$output" | rg -q "unexpected signal code 5"; then
+    if echo "$output" | grep -q "unexpected signal code 5"; then
       if [ "$attempt" -lt "$max_attempts" ]; then
         echo "[webkit] signal 5 in $filter; retrying after ${backoff_seconds}s"
         sleep "$backoff_seconds"

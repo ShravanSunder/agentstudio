@@ -36,35 +36,6 @@ enum Ghostty {
     }
 }
 
-// MARK: - Ghostty Notifications
-
-extension Ghostty {
-    /// Notification names for Ghostty events
-    enum Notification {
-        static let ghosttyNewWindow = Foundation.Notification.Name("ghosttyNewWindow")
-        static let ghosttyCloseSurface = Foundation.Notification.Name("ghosttyCloseSurface")
-
-        /// Posted when renderer health changes
-        /// - object: The SurfaceView whose health changed
-        /// - userInfo: ["healthy": Bool]
-        static let didUpdateRendererHealth = Foundation.Notification.Name("ghosttyDidUpdateRendererHealth")
-
-        /// Posted when a surface's title changes
-        /// - object: The SurfaceView whose title changed
-        /// - userInfo: ["title": String]
-        static let didUpdateTitle = Foundation.Notification.Name("ghosttyDidUpdateTitle")
-
-        /// Posted when a surface's working directory changes (OSC 7)
-        /// - object: The SurfaceView whose CWD changed
-        /// - userInfo: ["pwd": String] (nil userInfo when pwd cleared)
-        static let didUpdateWorkingDirectory = Foundation.Notification.Name("ghosttyDidUpdateWorkingDirectory")
-
-        /// Posted by SurfaceManager when a managed surface's CWD changes
-        /// - userInfo: ["surfaceId": UUID, "url": URL] (url absent when cleared)
-        static let surfaceCWDChanged = Foundation.Notification.Name("ghosttySurfaceCWDChanged")
-    }
-}
-
 extension Ghostty {
     /// Wraps the ghostty_app_t and handles app-level callbacks
     final class App {
@@ -210,7 +181,7 @@ extension Ghostty {
                 return true
 
             case .newWindow:
-                NotificationCenter.default.post(name: .ghosttyNewWindow, object: nil)
+                postGhosttyEvent(.newWindowRequested)
                 return true
 
             case .newTab:
@@ -539,10 +510,11 @@ extension Ghostty {
                 "Ghostty.App.closeSurface view=\(ObjectIdentifier(surfaceView)) processAlive=\(processAlive)"
             )
 
-            NotificationCenter.default.post(
-                name: .ghosttyCloseSurface,
-                object: surfaceView,
-                userInfo: ["processAlive": processAlive]
+            postGhosttyEvent(
+                .closeSurface(
+                    surfaceViewId: ObjectIdentifier(surfaceView),
+                    processAlive: processAlive
+                )
             )
         }
 
@@ -551,15 +523,4 @@ extension Ghostty {
             return Unmanaged<SurfaceView>.fromOpaque(userdata).takeUnretainedValue()
         }
     }
-}
-
-// MARK: - Notification Name Aliases
-
-extension Notification.Name {
-    static let ghosttyNewWindow = Ghostty.Notification.ghosttyNewWindow
-    static let ghosttyCloseSurface = Ghostty.Notification.ghosttyCloseSurface
-
-    // CWD notification aliases
-    static let didUpdateWorkingDirectory = Ghostty.Notification.didUpdateWorkingDirectory
-    static let surfaceCWDChanged = Ghostty.Notification.surfaceCWDChanged
 }

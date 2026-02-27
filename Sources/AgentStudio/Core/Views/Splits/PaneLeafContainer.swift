@@ -332,14 +332,12 @@ struct PaneLeafContainer: View {
                     Menu("Move Pane to Tab") {
                         ForEach(movePaneDestinations, id: \.tabId) { destination in
                             Button(destination.title) {
-                                NotificationCenter.default.post(
-                                    name: .movePaneToTabRequested,
-                                    object: nil,
-                                    userInfo: [
-                                        "paneId": paneView.id,
-                                        "sourceTabId": tabId,
-                                        "targetTabId": destination.tabId,
-                                    ]
+                                postAppEvent(
+                                    .movePaneToTabRequested(
+                                        paneId: paneView.id,
+                                        sourceTabId: tabId,
+                                        targetTabId: destination.tabId
+                                    )
                                 )
                             }
                         }

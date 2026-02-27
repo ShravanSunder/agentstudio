@@ -39,11 +39,13 @@ final class PaneCoordinator {
     let surfaceManager: PaneCoordinatorSurfaceManaging
     let runtimeRegistry: RuntimeRegistry
     let runtimeEventReducer: NotificationReducer
+    let paneEventBus: EventBus<PaneEventEnvelope>
     let runtimeTargetResolver: RuntimeTargetResolver
     let runtimeCommandClock: ContinuousClock
     lazy var sessionConfig = SessionConfiguration.detect()
     private var cwdChangesTask: Task<Void, Never>?
-    private var runtimeEventTasks: [PaneId: Task<Void, Never>] = [:]
+    private var paneEventIngressTask: Task<Void, Never>?
+    private var runtimeEventBridgeTasks: [PaneId: Task<Void, Never>] = [:]
     private var criticalRuntimeEventsTask: Task<Void, Never>?
     private var batchedRuntimeEventsTask: Task<Void, Never>?
 
@@ -67,6 +69,7 @@ final class PaneCoordinator {
             runtime: runtime,
             surfaceManager: SurfaceManager.shared,
             runtimeRegistry: .shared,
+            paneEventBus: PaneRuntimeEventBus.shared,
             runtimeCommandClock: ContinuousClock()
         )
     }
@@ -77,6 +80,7 @@ final class PaneCoordinator {
         runtime: SessionRuntime,
         surfaceManager: PaneCoordinatorSurfaceManaging,
         runtimeRegistry: RuntimeRegistry,
+        paneEventBus: EventBus<PaneEventEnvelope> = PaneRuntimeEventBus.shared,
         runtimeCommandClock: ContinuousClock = ContinuousClock()
     ) {
         self.store = store
@@ -85,20 +89,23 @@ final class PaneCoordinator {
         self.surfaceManager = surfaceManager
         self.runtimeRegistry = runtimeRegistry
         self.runtimeEventReducer = NotificationReducer()
+        self.paneEventBus = paneEventBus
         self.runtimeTargetResolver = RuntimeTargetResolver(workspaceStore: store)
         self.runtimeCommandClock = runtimeCommandClock
         Ghostty.App.setRuntimeRegistry(runtimeRegistry)
         subscribeToCWDChanges()
         setupPrePersistHook()
+        startPaneEventIngress()
         startRuntimeReducerConsumers()
     }
 
     isolated deinit {
         cwdChangesTask?.cancel()
-        for task in runtimeEventTasks.values {
+        paneEventIngressTask?.cancel()
+        for task in runtimeEventBridgeTasks.values {
             task.cancel()
         }
-        runtimeEventTasks.removeAll()
+        runtimeEventBridgeTasks.removeAll()
         criticalRuntimeEventsTask?.cancel()
         batchedRuntimeEventsTask?.cancel()
     }
@@ -156,12 +163,12 @@ final class PaneCoordinator {
     func registerRuntime(_ runtime: any PaneRuntime) {
         let registrationResult = runtimeRegistry.register(runtime)
         guard registrationResult == .inserted else { return }
-        startRuntimeEventSubscription(for: runtime)
+        startRuntimeEventBridge(for: runtime)
     }
 
     @discardableResult
     func unregisterRuntime(_ paneId: PaneId) -> (any PaneRuntime)? {
-        stopRuntimeEventSubscription(for: paneId)
+        stopRuntimeEventBridge(for: paneId)
         return runtimeRegistry.unregister(paneId)
     }
 
@@ -169,19 +176,38 @@ final class PaneCoordinator {
         runtimeRegistry.runtime(for: paneId)
     }
 
-    private func startRuntimeEventSubscription(for runtime: any PaneRuntime) {
-        let runtimePaneId = runtime.paneId
-        guard runtimeEventTasks[runtimePaneId] == nil else { return }
-
-        let stream = runtime.subscribe()
-        runtimeEventTasks[runtimePaneId] = Task { @MainActor [weak self] in
+    private func startPaneEventIngress() {
+        guard paneEventIngressTask == nil else { return }
+        paneEventIngressTask = Task { @MainActor [weak self] in
             guard let self else { return }
+            let stream = await self.paneEventBus.subscribe()
             for await envelope in stream {
                 if Task.isCancelled { break }
                 self.runtimeEventReducer.submit(envelope)
             }
-            self.runtimeEventTasks.removeValue(forKey: runtimePaneId)
         }
+    }
+
+    private func startRuntimeEventBridge(for runtime: any PaneRuntime) {
+        guard !(runtime is any BusPostingPaneRuntime) else { return }
+
+        let runtimePaneId = runtime.paneId
+        guard runtimeEventBridgeTasks[runtimePaneId] == nil else { return }
+
+        let stream = runtime.subscribe()
+        runtimeEventBridgeTasks[runtimePaneId] = Task { @MainActor [weak self] in
+            guard let self else { return }
+            for await envelope in stream {
+                if Task.isCancelled { break }
+                await self.paneEventBus.post(envelope)
+            }
+            self.runtimeEventBridgeTasks.removeValue(forKey: runtimePaneId)
+        }
+    }
+
+    private func stopRuntimeEventBridge(for paneId: PaneId) {
+        runtimeEventBridgeTasks[paneId]?.cancel()
+        runtimeEventBridgeTasks.removeValue(forKey: paneId)
     }
 
     private func startRuntimeReducerConsumers() {
@@ -204,11 +230,6 @@ final class PaneCoordinator {
                 }
             }
         }
-    }
-
-    private func stopRuntimeEventSubscription(for paneId: PaneId) {
-        runtimeEventTasks[paneId]?.cancel()
-        runtimeEventTasks.removeValue(forKey: paneId)
     }
 
     private func handleRuntimeEnvelope(_ envelope: PaneEventEnvelope) {
@@ -292,9 +313,14 @@ final class PaneCoordinator {
             store.updatePaneTitle(sourcePaneUUID, title: title)
         case .cwdChanged(let cwdPath):
             store.updatePaneCWD(sourcePaneUUID, cwd: URL(fileURLWithPath: cwdPath))
-        case .commandFinished, .bellRang:
+        case .commandFinished:
             Self.logger.debug(
                 "Terminal control event received for pane \(sourcePaneUUID.uuidString, privacy: .public): \(String(describing: event), privacy: .public)"
+            )
+        case .bellRang:
+            postAppEvent(.worktreeBellRang(paneId: sourcePaneUUID))
+            Self.logger.debug(
+                "Terminal bell event received for pane \(sourcePaneUUID.uuidString, privacy: .public)"
             )
         case .scrollbarChanged, .unhandled:
             Self.logger.debug(

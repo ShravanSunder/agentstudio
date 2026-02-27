@@ -108,7 +108,8 @@ struct ManagementModeDragShieldTests {
 
     @Test
     func test_registeredDragTypes_managementModeOff_isEmpty() {
-        // Arrange — management mode is off (from init)
+        // Arrange — explicitly force inactive to avoid relying on suite init ordering.
+        ManagementModeMonitor.shared.deactivate()
         let shield = ManagementModeDragShield(frame: .zero)
 
         // Assert — no types registered when management mode is off

@@ -109,11 +109,7 @@ enum CommandBarDataSource {
                 groupPriority: Priority.tabs,
                 keywords: ["tab", "switch"],
                 action: .custom {
-                    NotificationCenter.default.post(
-                        name: .selectTabById,
-                        object: nil,
-                        userInfo: ["tabId": tabId]
-                    )
+                    postAppEvent(.selectTabById(tabId: tabId, paneId: nil))
                 }
             )
         }
@@ -142,11 +138,7 @@ enum CommandBarDataSource {
                         keywords: keywordsForPane(pane, store: store),
                         action: .custom {
                             // Select the parent tab and focus the specific pane
-                            NotificationCenter.default.post(
-                                name: .selectTabById,
-                                object: nil,
-                                userInfo: ["tabId": parentTabId, "paneId": capturedPaneId]
-                            )
+                            postAppEvent(.selectTabById(tabId: parentTabId, paneId: capturedPaneId))
                         }
                     ))
             }
@@ -179,11 +171,7 @@ enum CommandBarDataSource {
                     groupPriority: tabIndex,
                     keywords: ["tab", "switch"],
                     action: .custom {
-                        NotificationCenter.default.post(
-                            name: .selectTabById,
-                            object: nil,
-                            userInfo: ["tabId": tabId]
-                        )
+                        postAppEvent(.selectTabById(tabId: tabId, paneId: nil))
                     }
                 ))
 
@@ -205,11 +193,7 @@ enum CommandBarDataSource {
                         groupPriority: tabIndex,
                         keywords: keywordsForPane(pane, store: store),
                         action: .custom {
-                            NotificationCenter.default.post(
-                                name: .selectTabById,
-                                object: nil,
-                                userInfo: ["tabId": capturedTabId, "paneId": capturedPaneId]
-                            )
+                            postAppEvent(.selectTabById(tabId: capturedTabId, paneId: capturedPaneId))
                         }
                     ))
             }
@@ -464,14 +448,12 @@ enum CommandBarDataSource {
                 group: "Tabs",
                 groupPriority: 0,
                 action: .custom {
-                    NotificationCenter.default.post(
-                        name: .movePaneToTabRequested,
-                        object: nil,
-                        userInfo: [
-                            "paneId": sourcePaneId,
-                            "sourceTabId": sourceTabId,
-                            "targetTabId": targetTabId,
-                        ]
+                    postAppEvent(
+                        .movePaneToTabRequested(
+                            paneId: sourcePaneId,
+                            sourceTabId: sourceTabId,
+                            targetTabId: targetTabId
+                        )
                     )
                 },
                 command: def.command

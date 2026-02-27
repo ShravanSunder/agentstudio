@@ -248,14 +248,26 @@ extension PaneCoordinator {
 
     /// Reattach a pane's surface after a view switch.
     func reattachForViewSwitch(paneId: UUID) {
-        if let terminal = viewRegistry.terminalView(for: paneId),
-            let surfaceId = terminal.surfaceId
-        {
-            if let surfaceView = surfaceManager.attach(surfaceId, to: paneId) {
-                terminal.displaySurface(surfaceView)
-            }
+        guard let terminal = viewRegistry.terminalView(for: paneId) else {
+            Self.logger.warning(
+                "Unable to reattach pane \(paneId.uuidString, privacy: .public): terminal view not found"
+            )
+            return
         }
-        Self.logger.debug("Reattached pane \(paneId) for view switch")
+        guard let surfaceId = terminal.surfaceId else {
+            Self.logger.warning(
+                "Unable to reattach pane \(paneId.uuidString, privacy: .public): terminal view has no surface id"
+            )
+            return
+        }
+        guard let surfaceView = surfaceManager.attach(surfaceId, to: paneId) else {
+            Self.logger.warning(
+                "Unable to reattach pane \(paneId.uuidString, privacy: .public): attach returned nil for surface \(surfaceId.uuidString, privacy: .public)"
+            )
+            return
+        }
+        terminal.displaySurface(surfaceView)
+        Self.logger.debug("Reattached pane \(paneId.uuidString, privacy: .public) for view switch")
     }
 
     private func registerTerminalRuntimeIfNeeded(for pane: Pane) {
