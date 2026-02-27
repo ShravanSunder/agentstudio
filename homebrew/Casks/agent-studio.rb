@@ -7,7 +7,9 @@ cask "agent-studio" do
   desc "macOS terminal application with Ghostty terminal emulator and project management"
   homepage "https://github.com/ShravanSunder/agentstudio"
 
-  depends_on macos: ">= :sonoma"
+  depends_on macos: ">= :tahoe"
+  depends_on formula: "gh"
+  depends_on formula: "worktrunk"
 
   app "AgentStudio.app"
 

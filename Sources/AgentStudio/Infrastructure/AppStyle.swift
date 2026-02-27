@@ -8,8 +8,9 @@ import SwiftUI
 ///
 /// ## Icon Size Hierarchy
 /// ```
-/// 18pt  — In-pane controls (minimize, close, split "+")
-/// 16pt  — Toolbar actions (edit mode toggle, window controls)
+/// 22pt  — Pane action buttons (minimize, close)
+/// 16pt  — Toolbar actions (management mode toggle, window controls)
+/// 14pt  — Split "+" half-moon button
 /// 12pt  — Compact bars (tab bar, drawer icon bar, arrangement bar)
 /// ```
 ///
@@ -18,9 +19,10 @@ import SwiftUI
 /// icons is visually consistent. Pane controls use a separate larger padding
 /// for easier in-pane targeting.
 /// ```
-/// compact:  12 + 2×6 = 24pt frame
-/// toolbar:  16 + 2×6 = 28pt frame
-/// pane:     18 + 2×8 = 34pt frame  (larger hit target over content)
+/// compact:     12 + 2×6 = 24pt frame
+/// toolbar:     16 + 2×6 = 28pt frame
+/// paneSplit:   14 + 2×8 = 30pt frame  (half-moon "+")
+/// paneAction:  22 + 2×8 = 38pt frame  (minimize, close)
 /// ```
 enum AppStyle {
 
@@ -29,11 +31,15 @@ enum AppStyle {
     /// Icons in compact bars: tab bar, drawer icon bar, arrangement bar.
     static let compactIconSize: CGFloat = 12
 
-    /// Icons in the main toolbar: edit mode toggle, window-level actions.
+    /// Icons in the main toolbar: management mode toggle, window-level actions.
     static let toolbarIconSize: CGFloat = 16
 
-    /// Icons for in-pane controls: minimize, close, split "+".
-    static let paneControlIconSize: CGFloat = 18
+    /// Icons for pane action buttons: minimize (−), close (×).
+    /// Larger than the split button for easy targeting.
+    static let paneActionIconSize: CGFloat = 22
+
+    /// Icon for the split "+" half-moon button (top-right of pane).
+    static let paneSplitIconSize: CGFloat = 14
 
     // MARK: - Icon Padding
 
@@ -52,8 +58,11 @@ enum AppStyle {
     /// Frame for toolbar buttons: toolbarIconSize + 2 × iconPadding.
     static let toolbarButtonSize: CGFloat = toolbarIconSize + iconPadding * 2
 
-    /// Frame for in-pane control buttons: paneControlIconSize + 2 × paneControlIconPadding.
-    static let paneControlButtonSize: CGFloat = paneControlIconSize + paneControlIconPadding * 2
+    /// Frame for pane action buttons (minimize, close): paneActionIconSize + 2 × paneControlIconPadding.
+    static let paneActionButtonSize: CGFloat = paneActionIconSize + paneControlIconPadding * 2
+
+    /// Frame for the split half-moon button: paneSplitIconSize + 2 × paneControlIconPadding.
+    static let paneSplitButtonSize: CGFloat = paneSplitIconSize + paneControlIconPadding * 2
 
     // MARK: - Fill Opacities (white overlays on dark backgrounds)
     //
@@ -119,38 +128,139 @@ enum AppStyle {
     /// Loose spacing: container and section boundary padding.
     static let spacingLoose: CGFloat = 8
 
+    // MARK: - Sidebar Metrics
+
+    /// Vertical gap between a repo group header and its first checkout row.
+    static let sidebarGroupChildrenSpacing: CGFloat = 2
+
+    /// Internal vertical spacing between checkout title and chip row.
+    static let sidebarRowContentSpacing: CGFloat = 4
+
+    /// Vertical inset around each checkout row container.
+    static let sidebarRowVerticalInset: CGFloat = 6
+
+    /// Reduces default DisclosureGroup child indentation to keep tree rows tighter.
+    static let sidebarGroupChildLeadingReduction: CGFloat = 10
+
+    /// Leading inset used for sidebar list rows.
+    static let sidebarListRowLeadingInset: CGFloat = 2
+
+    /// Group (repo) icon size in sidebar rows.
+    static let sidebarGroupIconSize: CGFloat = 14
+
+    /// Shared icon column width for checkout/branch rows so text alignment is consistent.
+    static let sidebarRowLeadingIconColumnWidth: CGFloat = textBase
+
+    /// Font size for organization text in sidebar group titles.
+    static let sidebarGroupOrganizationFontSize: CGFloat = textSm
+
+    /// Spacing between repo title and organization title in sidebar group rows.
+    static let sidebarGroupTitleSpacing: CGFloat = spacingTight
+
+    /// Max width for organization text so repo and org truncate independently.
+    static let sidebarGroupOrganizationMaxWidth: CGFloat = 120
+
+    /// Worktree icon size in sidebar rows.
+    static let sidebarWorktreeIconSize: CGFloat = 11
+
+    /// Branch icon size in the checkout branch row.
+    static let sidebarBranchIconSize: CGFloat = 10
+
+    /// Leading inset for status chips so they align with checkout/branch text after the leading icon.
+    static let sidebarStatusRowLeadingIndent: CGFloat = sidebarRowLeadingIconColumnWidth + spacingTight
+
+    /// Font size for the branch name row under each checkout title.
+    static let sidebarBranchFontSize: CGFloat = textSm
+
+    /// Vertical padding for sidebar group rows.
+    static let sidebarGroupRowVerticalPadding: CGFloat = 2
+
+    /// Horizontal padding for sidebar group checkout-count badges.
+    static let sidebarCountBadgeHorizontalPadding: CGFloat = 6
+
+    /// Vertical padding for sidebar group checkout-count badges.
+    static let sidebarCountBadgeVerticalPadding: CGFloat = 2
+
+    /// Background opacity for sidebar group checkout-count badges.
+    static let sidebarCountBadgeBackgroundOpacity: CGFloat = 0.15
+
+    /// Horizontal spacing between chips in checkout rows.
+    static let sidebarChipRowSpacing: CGFloat = 4
+
+    /// Spacing between icon and text inside a chip.
+    static let sidebarChipContentSpacing: CGFloat = 2
+
+    /// Internal spacing between direction cluster icon and count in sync chip.
+    static let sidebarSyncClusterSpacing: CGFloat = 1
+
+    /// Horizontal padding for chips with icon + text.
+    static let sidebarChipHorizontalPadding: CGFloat = 4
+
+    /// Horizontal padding for icon-only chips.
+    static let sidebarChipIconOnlyHorizontalPadding: CGFloat = 3
+
+    /// Vertical padding for chips.
+    static let sidebarChipVerticalPadding: CGFloat = 2
+
+    /// Font size for compact sidebar chips.
+    static let sidebarChipFontSize: CGFloat = textXs
+
+    /// Icon size used in standard sidebar chips.
+    static let sidebarChipIconSize: CGFloat = 8
+
+    /// Icon size used in the compact sync chip.
+    static let sidebarSyncChipIconSize: CGFloat = 7
+
+    /// Chip background opacity for sidebar pills.
+    static let sidebarChipBackgroundOpacity: CGFloat = fillHover
+
+    /// Chip border opacity for sidebar pills.
+    static let sidebarChipBorderOpacity: CGFloat = fillMuted
+
+    /// Foreground opacity for sidebar chip labels/icons to keep chips visually muted.
+    static let sidebarChipForegroundOpacity: CGFloat = 0.82
+
+    /// Dark overlay opacity applied on top of chip fills to reduce color intensity.
+    static let sidebarChipMuteOverlayOpacity: CGFloat = 0.16
+
+    /// Hover fill opacity for sidebar checkout rows.
+    static let sidebarRowHoverOpacity: CGFloat = fillPressed
+
     // Legacy aliases — prefer the spacing* names above.
     static let barPadding: CGFloat = spacingTight
     static let barHorizontalPadding: CGFloat = spacingStandard
 
-    // MARK: - Font Sizes
+    // MARK: - Typography
     //
-    // Five-step scale for system font sizes. Components pick the step
-    // that matches their text hierarchy: caption for tiny labels,
-    // body for standard content.
+    // Tailwind-style text scale for app typography tokens.
+    // We use these as a single source of truth across views:
+    // text-xs, text-sm, text-base, text-lg, text-xl.
     //
-    // ```
-    // caption     9pt — close buttons, tiny labels
-    // small      10pt — compact labels, badge counts, zoom badge
-    // secondary  11pt — secondary text, collapsed bar titles
-    // body       12pt — tab titles, main body text
-    // primary    13pt — command bar input, prominent text
-    // ```
+    // Dynamic text roadmap:
+    // These are currently fixed point sizes. We will migrate these tokens
+    // to Dynamic Type-aware semantics (SwiftUI text styles) in AppStyle
+    // so scaling behavior can be enabled app-wide from one layer.
 
-    /// Tiny labels: close buttons, minimal annotations.
-    static let fontCaption: CGFloat = 9
+    /// Tailwind `text-xs`
+    static let textXs: CGFloat = 11
 
-    /// Compact labels: badge counts, zoom indicators, arrangement labels.
-    static let fontSmall: CGFloat = 10
+    /// Tailwind `text-sm`
+    static let textSm: CGFloat = 12
 
-    /// Secondary text: collapsed bar titles, arrangement panel text.
-    static let fontSecondary: CGFloat = 11
+    /// Tailwind `text-base`
+    static let textBase: CGFloat = 13
 
-    /// Standard body text: tab titles, empty state text.
-    static let fontBody: CGFloat = 12
+    /// Tailwind `text-lg`
+    static let textLg: CGFloat = 14
 
-    /// Prominent text: command bar input, search fields.
-    static let fontPrimary: CGFloat = 13
+    /// Tailwind `text-xl`
+    static let textXl: CGFloat = 16
+
+    /// Tailwind `text-2xl` for section/empty-state emphasis.
+    static let text2xl: CGFloat = 24
+
+    /// Tailwind `text-5xl` for large status overlays.
+    static let text5xl: CGFloat = 48
 
     // MARK: - Foreground Opacities (text & icon overlays)
     //
@@ -198,6 +308,43 @@ enum AppStyle {
     /// Prominent border: active hover states, pane leaf borders.
     static let strokeVisible: CGFloat = 0.25
 
+    /// Management mode dimming overlay on pane content.
+    static let managementModeDimming: CGFloat = 0.35
+
+    /// Fill opacity for management mode control backgrounds (action circles, half-moon, drag handle).
+    /// Darker than the dimming overlay so controls stand out against the dimmed pane content.
+    static let managementControlFill: CGFloat = 0.60
+
+    /// Hover delta added to managementControlFill for interactive feedback.
+    static let managementControlHoverDelta: CGFloat = 0.05
+
+    // MARK: - Management Mode Controls
+    //
+    // Sizes for the four management mode control elements. Each element has
+    // its own natural shape; these constants set visually harmonious proportions
+    // while allowing independent customization.
+    //
+    // ```
+    // action circles:   28pt circle, 13pt icon  (minimize, close)
+    // split half-moon:  30×42pt pill, 14pt icon  (reuses paneSplitButtonSize/paneSplitIconSize)
+    // drag handle:      60×100pt pill, 16pt icon (reuses toolbarIconSize)
+    // ```
+
+    /// Diameter of management mode action circles (minimize, close).
+    static let managementActionSize: CGFloat = 28
+
+    /// Icon font size inside management mode action circles.
+    static let managementActionIconSize: CGFloat = 13
+
+    /// Drag handle pill width.
+    static let managementDragHandleWidth: CGFloat = 60
+
+    /// Drag handle pill height.
+    static let managementDragHandleHeight: CGFloat = 100
+
+    /// Drag handle corner radius.
+    static let managementDragHandleCornerRadius: CGFloat = 20
+
     // MARK: - Animation Durations
     //
     // Two-step scale for transition and hover animations.
@@ -225,4 +372,16 @@ enum AppStyle {
 
     /// Inter-pane gap (padding around each pane leaf).
     static let paneGap: CGFloat = 2
+
+    /// Minimum pane size enforced while dragging split dividers.
+    static let splitMinimumPaneSize: CGFloat = 10
+
+    /// Width of the edge insertion marker shown while dragging panes.
+    static let dropTargetMarkerWidth: CGFloat = 8
+
+    /// Minimum preview width for split insertion affordance.
+    static let dropTargetPreviewMinimumWidth: CGFloat = 34
+
+    /// Maximum preview width as a fraction of the destination pane width.
+    static let dropTargetPreviewMaxFraction: CGFloat = 0.22
 }

@@ -349,11 +349,11 @@ Manages live session state. Does **not** own sessions — reads the session list
 
 ### 3.4 ViewRegistry
 
-Maps session IDs to live `AgentStudioTerminalView` instances. Runtime-only (not persisted). `@MainActor`.
+Maps pane IDs to live `PaneView` instances (terminal/webview/bridge). Runtime-only (not persisted). `@MainActor`.
 
 - `register(view, paneId)` / `unregister(paneId)` — View lifecycle
 - `view(for: paneId)` — Lookup
-- `renderTree(for: Layout) -> TerminalSplitTree?` — Traverse a `Layout` tree, resolve each leaf to a registered pane view, return a renderable split tree. Gracefully promotes single-child splits when one side's view is missing.
+- `renderTree(for: Layout) -> PaneSplitTree?` — Traverse a `Layout` tree, resolve each leaf to a registered pane view, return a renderable split tree. Gracefully promotes single-child splits when one side's view is missing.
 
 > **File:** `App/Panes/ViewRegistry.swift`
 
@@ -364,7 +364,12 @@ There is no standalone `ViewResolver` type in code; this behavior is owned by th
 `App/Panes` layer.
 
 - `PaneTabViewController` observes app state and renders the active view arrangement.
-- `ViewRegistry` provides session-to-view mapping used by split rendering.
+- `ViewRegistry` provides pane-to-view mapping used by split rendering.
+- `TerminalSplitContainer` handles split-drop routing in management mode using:
+  - `SplitContainerDropDelegate` (single drop input surface)
+  - `PaneDragCoordinator` (pure drag target resolution)
+  - `PaneDropTargetOverlay` (single target visualization layer)
+  - `PaneLeafContainer` (pane-type-agnostic leaf wrapper)
 
 > **File:** `App/Panes/ViewRegistry.swift`
 
@@ -415,6 +420,144 @@ Owned by `WorkspaceStore` as a `private let` member. Pure persistence I/O. No bu
 - `ensureDirectory()`, `hasWorkspaceFiles()`, `delete()`
 
 > **File:** `Core/Stores/WorkspacePersistor.swift`
+
+### 3.9.1 Persistence Domain Segregation (Target)
+
+To keep Jotai-style store boundaries and Valtio-style source-of-truth guarantees intact, persistence is split by domain responsibility:
+
+- Canonical workspace model (`WorkspaceStore`) stays in `workspace.state.json`
+- Derived/stale-prone lookup data (git/wt/gh metadata, branch/sync/PR/diff status) moves to `workspace.cache.json`
+- Workspace-scoped UI preferences move to `workspace.ui.json`
+- Global app preferences and keybindings are stored separately from workspace state
+
+This prevents derived data from silently becoming canonical truth and aligns each persisted file with exactly one reason to change.
+
+#### File Layout (Target)
+
+```text
+~/.agentstudio/
+  workspaces/
+    <workspace-id>/
+      workspace.state.json
+      workspace.cache.json
+      workspace.ui.json
+  preferences.global.json
+  keybindings.json
+  webview.history.json
+  webview.favorites.json
+```
+
+#### Store Ownership
+
+- `WorkspaceStore` → canonical workspace model in `workspace.state.json`
+- `WorkspaceCacheStore` → derived git/wt/gh metadata + status in `workspace.cache.json`
+- `WorkspaceUIStore` → workspace-scoped UI preferences in `workspace.ui.json`
+- `PreferencesStore` → global app preferences in `preferences.global.json`
+- `KeybindingsStore` → command-to-shortcut overrides in `keybindings.json`
+
+#### Property-to-File Contract
+
+**Canonical (`workspace.state.json`)**
+
+- `workspaceId`, `workspaceName`, `createdAt`, `updatedAt`
+- `repos[].id`, `repos[].repoPath`
+- `worktrees[].id`, `worktrees[].path`, `worktrees[].agent`
+- `panes`, `tabs`, `activeTabId`
+- Canonical layout and drawer model state
+
+Explicitly excluded from canonical state:
+
+- Branch labels
+- Dirty/sync/divergence status
+- PR counts
+- Diff stats
+- Remote metadata that can change out-of-band
+
+**Derived cache (`workspace.cache.json`)**
+
+- Repo identity metadata:
+  - `repoName`
+  - `worktreeCommonDirectory`
+  - `folderCwd`
+  - `parentFolder`
+  - `organizationName`
+  - `originRemote`
+  - `upstreamRemote`
+  - `lastPathComponent`
+  - `worktreeCwds`
+  - `remoteFingerprint`
+  - `remoteSlug`
+- Worktree status metadata:
+  - `branch`
+  - `isMainWorktree`
+  - `isDirty`
+  - `syncState` (`ahead`, `behind`, `diverged`, `noUpstream`, `unknown`)
+  - `linesAdded`, `linesDeleted`
+  - `prCount`
+  - `notificationCount`
+
+Required cache validity fields:
+
+- `workspaceId`
+- `sourceStateRevision` (or `sourceStateUpdatedAt`)
+- `generatedAt`
+- Optional per-entry `fetchedAt`
+
+**Workspace UI (`workspace.ui.json`)**
+
+- Sidebar collapsed/expanded groups
+- Checkout color overrides
+- Workspace-local command bar recents (if scoped per workspace)
+- Workspace-local view toggles
+
+**Global preferences (`preferences.global.json`)**
+
+- Terminal defaults (for example `terminalFontSize`)
+- Global behavior toggles (for example `autoRefreshWorktrees`, `detachOnClose`)
+- Global visual defaults (for example drawer ratio if globally scoped)
+
+**Keybindings (`keybindings.json`)**
+
+- `AppCommand` → `KeyBinding` override map only
+- No command execution history
+- No UI state
+
+#### Load / Refresh Sequencing
+
+1. Load `workspace.state.json` into `WorkspaceStore`
+2. Load `workspace.ui.json` into `WorkspaceUIStore`
+3. Load global preferences and keybindings into their stores
+4. Load `workspace.cache.json` only if cache revision matches canonical workspace revision
+5. Trigger async refresh pipeline (`wt`, `git`, `gh`) and patch `WorkspaceCacheStore`
+
+Coordinator owns sequencing, not domain decisions:
+
+- `WorkspaceBootstrapCoordinator`
+- `SidebarRefreshCoordinator`
+
+#### Write Semantics
+
+- `workspace.state.json` — debounced writes on canonical model mutation
+- `workspace.cache.json` — throttled/coalesced writes on derived refresh updates
+- `workspace.ui.json` — immediate atomic writes on workspace UI preference change
+- `preferences.global.json` — immediate atomic writes on global preference change
+- `keybindings.json` — immediate atomic writes on keymap change
+
+#### Rules and Invariants
+
+1. Canonical state never depends on cache correctness
+2. Cache can be deleted at any time without data loss
+3. Cache must be versioned against canonical state revision
+4. Every persisted file has one owning store and one reason to change
+5. Cross-store flows are coordinator-only sequencing
+
+#### Migration Notes
+
+1. Read legacy single-file workspace JSON
+2. Split fields into canonical and cache structures on load
+3. Write segmented files atomically
+4. Keep legacy reader for compatibility during migration window
+5. Migrate scattered `UserDefaults` keys into `workspace.ui.json` or `preferences.global.json`
 
 ### 3.10 SurfaceManager
 

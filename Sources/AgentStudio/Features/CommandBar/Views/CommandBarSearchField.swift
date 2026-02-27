@@ -15,7 +15,7 @@ struct CommandBarSearchField: View {
         HStack(spacing: 10) {
             // Scope icon
             Image(systemName: state.scopeIcon)
-                .font(.system(size: 13, weight: .medium))
+                .font(.system(size: AppStyle.textBase, weight: .medium))
                 .foregroundStyle(.primary.opacity(0.35))
                 .frame(width: 16, height: 16)
 

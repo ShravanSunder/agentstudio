@@ -103,7 +103,13 @@ final class TerminalRuntime: PaneRuntime {
             metadata.title = title
         case .cwdChanged(let cwdPath):
             metadata.cwd = URL(fileURLWithPath: cwdPath)
-        case .commandFinished, .bellRang, .scrollbarChanged, .unhandled:
+        case .bellRang:
+            NotificationCenter.default.post(
+                name: .worktreeBellRang,
+                object: nil,
+                userInfo: ["paneId": paneId.uuid]
+            )
+        case .commandFinished, .scrollbarChanged, .unhandled:
             break
         }
 

@@ -8,7 +8,7 @@ struct CommandBarGroupHeader: View {
 
     var body: some View {
         Text(name)
-            .font(.system(size: 11, weight: .semibold))
+            .font(.system(size: AppStyle.textXs, weight: .semibold))
             .foregroundStyle(Color.accentColor.opacity(0.50))
             .padding(.top, 8)
             .padding(.bottom, 4)

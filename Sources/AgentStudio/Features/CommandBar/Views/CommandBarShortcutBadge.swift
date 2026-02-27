@@ -11,7 +11,7 @@ struct CommandBarShortcutBadge: View {
         HStack(spacing: 2) {
             ForEach(keys) { key in
                 Text(key.symbol)
-                    .font(.system(size: 10, weight: .medium, design: .monospaced))
+                    .font(.system(size: AppStyle.textXs, weight: .medium, design: .monospaced))
                     .foregroundStyle(.primary.opacity(0.35))
                     .padding(.horizontal, 4)
                     .padding(.vertical, 2)

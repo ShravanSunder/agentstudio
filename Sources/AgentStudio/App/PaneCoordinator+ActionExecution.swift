@@ -39,6 +39,45 @@ extension PaneCoordinator {
         createTerminalTab(for: worktree, in: repo)
     }
 
+    /// Open a worktree terminal as a split pane in the active tab.
+    /// Falls back to opening a new tab when there is no active split target.
+    @discardableResult
+    func openWorktreeInPane(for worktree: Worktree, in repo: Repo) -> Pane? {
+        guard
+            let activeTabId = store.activeTabId,
+            let activeTab = store.tab(activeTabId),
+            let targetPaneId = activeTab.activePaneId
+        else {
+            return openNewTerminal(for: worktree, in: repo)
+        }
+
+        let pane = store.createPane(
+            source: .worktree(worktreeId: worktree.id, repoId: repo.id),
+            title: worktree.name,
+            provider: .zmx,
+            lifetime: .persistent,
+            residency: .active
+        )
+
+        guard createView(for: pane, worktree: worktree, repo: repo) != nil else {
+            Self.logger.error("Surface creation failed for split pane — rolling back pane \(pane.id)")
+            store.removePane(pane.id)
+            return nil
+        }
+
+        store.insertPane(
+            pane.id,
+            inTab: activeTabId,
+            at: targetPaneId,
+            direction: .horizontal,
+            position: .after
+        )
+        store.setActivePane(pane.id, inTab: activeTabId)
+
+        Self.logger.info("Opened worktree '\(worktree.name)' in split pane")
+        return pane
+    }
+
     /// Open a new webview pane in a new tab. Loads about:blank with navigation bar visible.
     @discardableResult
     func openWebview(url: URL = URL(string: "about:blank")!) -> Pane? {
@@ -69,6 +108,27 @@ extension PaneCoordinator {
         Self.logger.debug("Executing: \(String(describing: action))")
 
         switch action {
+        case .openWorktree(let worktreeId):
+            guard let worktree = store.worktree(worktreeId), let repo = store.repo(containing: worktreeId) else {
+                Self.logger.warning("openWorktree: worktree \(worktreeId) not found")
+                return
+            }
+            _ = openTerminal(for: worktree, in: repo)
+
+        case .openNewTerminalInTab(let worktreeId):
+            guard let worktree = store.worktree(worktreeId), let repo = store.repo(containing: worktreeId) else {
+                Self.logger.warning("openNewTerminalInTab: worktree \(worktreeId) not found")
+                return
+            }
+            _ = openNewTerminal(for: worktree, in: repo)
+
+        case .openWorktreeInPane(let worktreeId):
+            guard let worktree = store.worktree(worktreeId), let repo = store.repo(containing: worktreeId) else {
+                Self.logger.warning("openWorktreeInPane: worktree \(worktreeId) not found")
+                return
+            }
+            _ = openWorktreeInPane(for: worktree, in: repo)
+
         case .selectTab(let tabId):
             store.setActiveTab(tabId)
 
@@ -251,6 +311,26 @@ extension PaneCoordinator {
                 parentPaneId: parentPaneId,
                 targetDrawerPaneId: targetDrawerPaneId,
                 direction: direction
+            )
+
+        case .moveDrawerPane(let parentPaneId, let drawerPaneId, let targetDrawerPaneId, let direction):
+            let layoutDirection = bridgeDirection(direction)
+            let position: Layout.Position = (direction == .left || direction == .up) ? .before : .after
+            store.moveDrawerPane(
+                drawerPaneId,
+                in: parentPaneId,
+                at: targetDrawerPaneId,
+                direction: layoutDirection,
+                position: position
+            )
+            if let terminalView = viewRegistry.terminalView(for: drawerPaneId) {
+                terminalView.window?.makeFirstResponder(terminalView)
+                surfaceManager.syncFocus(activeSurfaceId: terminalView.surfaceId)
+            }
+
+        case .duplicatePane(let tabId, let paneId, _):
+            Self.logger.info(
+                "duplicatePane: pane \(paneId) in tab \(tabId) — not yet implemented"
             )
 
         case .expireUndoEntry:

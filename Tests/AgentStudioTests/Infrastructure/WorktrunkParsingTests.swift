@@ -131,6 +131,63 @@ struct WorktrunkParsingTests {
         #expect(entry.status == nil)
     }
 
+    // MARK: - Worktrunk/Git Merge
+
+    @Test
+    func test_mergeWorktrunkEntries_matchesByCanonicalPathOnly() {
+        // Arrange
+        let entries: [WorktrunkEntry] = [
+            .init(path: "/tmp/askluna-finance/main", branch: "refs/heads/main", head: nil, status: nil),
+            .init(path: "/tmp/askluna-finance/feature-a", branch: "refs/heads/feature-a", head: nil, status: nil),
+            .init(path: "/tmp/askluna-finance-archive/main", branch: "refs/heads/archive-main", head: nil, status: nil),
+        ]
+        let gitWorktrees: [Worktree] = [
+            Worktree(
+                name: "main", path: URL(fileURLWithPath: "/tmp/askluna-finance/main"), branch: "main",
+                isMainWorktree: true),
+            Worktree(
+                name: "feature-a",
+                path: URL(fileURLWithPath: "/tmp/askluna-finance/feature-a"),
+                branch: "feature-a",
+                isMainWorktree: false
+            ),
+        ]
+
+        // Act
+        let merged = service.mergeWorktrunkEntries(entries, orderedBy: gitWorktrees)
+
+        // Assert
+        #expect(merged.count == 2)
+        #expect(merged[0].path.path == "/tmp/askluna-finance/main")
+        #expect(merged[0].branch == "main")
+        #expect(merged[1].path.path == "/tmp/askluna-finance/feature-a")
+        #expect(merged[1].branch == "feature-a")
+    }
+
+    @Test
+    func test_mergeWorktrunkEntries_preservesGitOrderAndFallsBackWhenMissingEntry() {
+        // Arrange
+        let entries: [WorktrunkEntry] = [
+            .init(path: "/tmp/repo/feature-b", branch: "refs/heads/feature-b", head: nil, status: nil)
+        ]
+        let gitWorktrees: [Worktree] = [
+            Worktree(name: "main", path: URL(fileURLWithPath: "/tmp/repo/main"), branch: "main", isMainWorktree: true),
+            Worktree(name: "feature-b", path: URL(fileURLWithPath: "/tmp/repo/feature-b"), branch: "feature-b"),
+        ]
+
+        // Act
+        let merged = service.mergeWorktrunkEntries(entries, orderedBy: gitWorktrees)
+
+        // Assert
+        #expect(merged.count == 2)
+        #expect(merged[0].name == "main")
+        #expect(merged[0].branch == "main")
+        #expect(merged[0].isMainWorktree == true)
+        #expect(merged[1].name == "feature-b")
+        #expect(merged[1].branch == "feature-b")
+        #expect(merged[1].isMainWorktree == false)
+    }
+
     // MARK: - WorktrunkError
 
     @Test

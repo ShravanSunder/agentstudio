@@ -90,7 +90,7 @@ enum DrawerLayout {
     static let iconBarTotalHeight: CGFloat = connectorHeight + iconStripHeight
 
     /// Icon bar height in pane frame coordinates.
-    /// Includes TerminalPaneLeaf's pane gap padding since pane frames
+    /// Includes PaneLeafContainer's pane gap padding since pane frames
     /// are reported after that padding is applied.
     static let iconBarFrameHeight: CGFloat = iconBarTotalHeight + AppStyle.paneGap
 }

@@ -198,6 +198,7 @@ final class AppCommandTests {
         let commandNames = paneCommands.map(\.command)
         #expect(commandNames.contains(.closePane))
         #expect(commandNames.contains(.extractPaneToTab))
+        #expect(commandNames.contains(.movePaneToTab))
     }
 
     @MainActor
@@ -319,12 +320,59 @@ final class AppCommandTests {
     @MainActor
 
     @Test
+    func test_dispatcher_movePaneToTab_requiresManagementMode() {
+        // Act
+        let def = CommandDispatcher.shared.definition(for: .movePaneToTab)
+
+        // Assert
+        #expect(def?.requiresManagementMode ?? false)
+        #expect(def?.appliesTo.contains(.pane) ?? false)
+    }
+
+    @MainActor
+
+    @Test
     func test_dispatcher_closeTab_doesNotRequireManagementMode() {
         // Act
         let def = CommandDispatcher.shared.definition(for: .closeTab)
 
         // Assert
         #expect(!(def?.requiresManagementMode ?? true))
+    }
+
+    @MainActor
+
+    @Test
+    func test_dispatcher_managementRequiredCommand_blockedWhenInactive() {
+        let dispatcher = CommandDispatcher.shared
+        let handler = MockCommandHandler()
+        dispatcher.handler = handler
+        ManagementModeMonitor.shared.deactivate()
+        defer {
+            dispatcher.handler = nil
+            ManagementModeMonitor.shared.deactivate()
+        }
+
+        #expect(!dispatcher.canDispatch(.closePane))
+        #expect(!dispatcher.canDispatch(.movePaneToTab))
+    }
+
+    @MainActor
+
+    @Test
+    func test_dispatcher_managementRequiredCommand_allowedWhenActive() {
+        let dispatcher = CommandDispatcher.shared
+        let handler = MockCommandHandler()
+        dispatcher.handler = handler
+        ManagementModeMonitor.shared.deactivate()
+        ManagementModeMonitor.shared.toggle()
+        defer {
+            dispatcher.handler = nil
+            ManagementModeMonitor.shared.deactivate()
+        }
+
+        #expect(dispatcher.canDispatch(.closePane))
+        #expect(dispatcher.canDispatch(.movePaneToTab))
     }
 
     // MARK: - Sidebar Commands

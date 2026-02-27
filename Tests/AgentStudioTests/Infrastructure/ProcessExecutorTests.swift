@@ -106,6 +106,51 @@ final class ProcessExecutorTests {
         }
     }
 
+    @Test
+    func test_execute_rebuildsPathWhenOverrideIsEmpty() async throws {
+        // Act
+        let result = try await executor.execute(
+            command: "env",
+            args: [],
+            cwd: nil,
+            environment: ["PATH": ""]
+        )
+
+        // Assert
+        let pathLine = result.stdout
+            .components(separatedBy: "\n")
+            .first { $0.hasPrefix("PATH=") }
+
+        #expect(pathLine != nil, "Expected PATH in environment output")
+        if let pathLine {
+            #expect(pathLine.contains("/opt/homebrew/bin"))
+            #expect(pathLine.contains("/usr/local/bin"))
+            #expect(pathLine.contains("/usr/bin"))
+        }
+    }
+
+    @Test
+    func test_execute_rebuildsHomeWhenOverrideIsEmpty() async throws {
+        // Act
+        let result = try await executor.execute(
+            command: "env",
+            args: [],
+            cwd: nil,
+            environment: ["HOME": ""]
+        )
+
+        // Assert
+        let homeLine = result.stdout
+            .components(separatedBy: "\n")
+            .first { $0.hasPrefix("HOME=") }
+
+        #expect(homeLine != nil, "Expected HOME in environment output")
+        if let homeLine {
+            #expect(homeLine.count > "HOME=".count)
+            #expect(homeLine != "HOME=")
+        }
+    }
+
     // MARK: - Timeout
 
     @Test

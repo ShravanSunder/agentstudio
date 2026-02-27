@@ -50,6 +50,8 @@ enum CommandBarDataSource {
             return commandItems(dispatcher: dispatcher, store: store)
         case .panes:
             return paneAndTabItems(store: store)
+        case .repos:
+            return repoScopeItems(store: store)
         }
     }
 
@@ -250,6 +252,22 @@ enum CommandBarDataSource {
         groupPriority: Int,
         store: WorkspaceStore? = nil
     ) -> CommandBarItem {
+        if def.command == .movePaneToTab, let store {
+            let level = buildMovePaneSourceLevel(for: def, store: store)
+            return CommandBarItem(
+                id: "cmd-\(def.command.rawValue)",
+                title: def.label,
+                icon: def.icon,
+                shortcutKeys: def.keyBinding.map { ShortcutKey.from(keyBinding: $0) },
+                group: groupName,
+                groupPriority: groupPriority,
+                keywords: commandKeywords(for: def),
+                hasChildren: true,
+                action: .navigate(level),
+                command: def.command
+            )
+        }
+
         // Commands with appliesTo targets and a live store → drill-in to pick target
         let hasDrillIn = store != nil && !def.appliesTo.isEmpty && isTargetableCommand(def.command)
 
@@ -285,10 +303,10 @@ enum CommandBarDataSource {
     /// Whether a command should show as a drill-in item with target selection.
     private static func isTargetableCommand(_ command: AppCommand) -> Bool {
         switch command {
-        case .closeTab, .closePane, .extractPaneToTab, .focusPaneLeft, .focusPaneRight,
+        case .closeTab, .closePane, .extractPaneToTab, .movePaneToTab, .focusPaneLeft, .focusPaneRight,
             .focusPaneUp, .focusPaneDown, .focusNextPane, .focusPrevPane,
             .switchArrangement, .deleteArrangement, .renameArrangement,
-            .navigateDrawerPane:
+            .navigateDrawerPane, .openWorktree, .openWorktreeInPane, .openNewTerminalInTab:
             return true
         default:
             return false
@@ -300,6 +318,10 @@ enum CommandBarDataSource {
         for def: CommandDefinition,
         store: WorkspaceStore
     ) -> CommandBarLevel {
+        if def.command == .movePaneToTab {
+            return buildMovePaneSourceLevel(for: def, store: store)
+        }
+
         // Arrangement commands show arrangement targets, not generic tab/pane targets
         if def.command == .switchArrangement || def.command == .deleteArrangement || def.command == .renameArrangement {
             return buildArrangementTargetLevel(for: def, store: store)
@@ -314,6 +336,7 @@ enum CommandBarDataSource {
 
         let appliesToTab = def.appliesTo.contains(.tab)
         let appliesToPane = def.appliesTo.contains(.pane) || def.appliesTo.contains(.floatingTerminal)
+        let appliesToWorktree = def.appliesTo.contains(.worktree)
 
         if appliesToTab {
             items.append(
@@ -359,10 +382,106 @@ enum CommandBarDataSource {
             }
         }
 
+        if appliesToWorktree {
+            for (repoIndex, repo) in store.repos.enumerated() {
+                for worktree in repo.worktrees {
+                    items.append(
+                        CommandBarItem(
+                            id: "target-worktree-\(worktree.id.uuidString)",
+                            title: worktree.name,
+                            subtitle: "\(repo.name) · \(worktree.branch)",
+                            icon: worktree.isMainWorktree ? "star.fill" : "arrow.triangle.branch",
+                            group: "Worktrees",
+                            groupPriority: 2 + repoIndex,
+                            action: .dispatchTargeted(def.command, target: worktree.id, targetType: .worktree)
+                        ))
+                }
+            }
+        }
+
         return CommandBarLevel(
             id: "level-\(def.command.rawValue)",
             title: def.label,
             parentLabel: "Commands",
+            items: items
+        )
+    }
+
+    /// Build a two-level flow for moving panes:
+    /// source pane selection -> destination tab selection.
+    private static func buildMovePaneSourceLevel(
+        for def: CommandDefinition,
+        store: WorkspaceStore
+    ) -> CommandBarLevel {
+        let items: [CommandBarItem] = store.tabs.enumerated().flatMap { tabIndex, tab in
+            tab.paneIds.compactMap { paneId in
+                guard let pane = store.pane(paneId), !pane.isDrawerChild else { return nil }
+                let destinationLevel = buildMovePaneDestinationLevel(
+                    for: def,
+                    store: store,
+                    sourcePaneId: pane.id,
+                    sourceTabId: tab.id
+                )
+                return CommandBarItem(
+                    id: "target-move-source-pane-\(pane.id.uuidString)",
+                    title: pane.title,
+                    subtitle: "Tab \(tabIndex + 1)",
+                    icon: iconForPane(pane),
+                    iconColor: pane.agent?.color,
+                    group: "Panes",
+                    groupPriority: 0,
+                    action: .navigate(destinationLevel),
+                    command: def.command
+                )
+            }
+        }
+
+        return CommandBarLevel(
+            id: "level-\(def.command.rawValue)-source",
+            title: "Select Pane",
+            parentLabel: def.label,
+            items: items
+        )
+    }
+
+    private static func buildMovePaneDestinationLevel(
+        for def: CommandDefinition,
+        store: WorkspaceStore,
+        sourcePaneId: UUID,
+        sourceTabId: UUID
+    ) -> CommandBarLevel {
+        let items: [CommandBarItem] = store.tabs.enumerated().compactMap { tabIndex, tab in
+            guard tab.id != sourceTabId else { return nil }
+            guard tab.activePaneId ?? tab.paneIds.first != nil else { return nil }
+
+            let targetTabId = tab.id
+            let tabTitle = tabDisplayTitle(tab: tab, store: store)
+            return CommandBarItem(
+                id: "target-move-dest-tab-\(sourcePaneId.uuidString)-\(targetTabId.uuidString)",
+                title: tabTitle,
+                subtitle: "Tab \(tabIndex + 1)",
+                icon: "rectangle.stack",
+                group: "Tabs",
+                groupPriority: 0,
+                action: .custom {
+                    NotificationCenter.default.post(
+                        name: .movePaneToTabRequested,
+                        object: nil,
+                        userInfo: [
+                            "paneId": sourcePaneId,
+                            "sourceTabId": sourceTabId,
+                            "targetTabId": targetTabId,
+                        ]
+                    )
+                },
+                command: def.command
+            )
+        }
+
+        return CommandBarLevel(
+            id: "level-\(def.command.rawValue)-destination-\(sourcePaneId.uuidString)",
+            title: "Select Destination Tab",
+            parentLabel: def.label,
             items: items
         )
     }
@@ -434,13 +553,36 @@ enum CommandBarDataSource {
         )
     }
 
+    // MARK: - Repos Scope (grouped by repo)
+
+    private static func repoScopeItems(store: WorkspaceStore) -> [CommandBarItem] {
+        var items: [CommandBarItem] = []
+        for (repoIndex, repo) in store.repos.enumerated() {
+            for worktree in repo.worktrees {
+                let prefix = worktree.isMainWorktree ? "★ " : ""
+                items.append(
+                    CommandBarItem(
+                        id: "repo-wt-\(worktree.id.uuidString)",
+                        title: "\(prefix)\(worktree.name)",
+                        subtitle: worktree.branch,
+                        icon: worktree.isMainWorktree ? "star.fill" : "arrow.triangle.branch",
+                        group: repo.name,
+                        groupPriority: repoIndex,
+                        keywords: ["repo", "worktree", "branch", worktree.branch, repo.name, worktree.name],
+                        action: .dispatchTargeted(.openWorktree, target: worktree.id, targetType: .worktree),
+                        command: .openWorktree
+                    ))
+            }
+        }
+        return items
+    }
+
     // MARK: - Worktree Items
 
     private static func worktreeItems(store: WorkspaceStore) -> [CommandBarItem] {
         store.repos.flatMap { repo in
             repo.worktrees.map { worktree in
-                let worktreeId = worktree.id
-                return CommandBarItem(
+                CommandBarItem(
                     id: "wt-\(worktree.id.uuidString)",
                     title: worktree.name,
                     subtitle: "\(repo.name) · \(worktree.branch)",
@@ -449,13 +591,8 @@ enum CommandBarDataSource {
                     group: Group.worktrees,
                     groupPriority: Priority.worktrees,
                     keywords: ["worktree", "branch", worktree.branch, repo.name],
-                    action: .custom {
-                        NotificationCenter.default.post(
-                            name: .openWorktreeRequested,
-                            object: nil,
-                            userInfo: ["worktreeId": worktreeId]
-                        )
-                    }
+                    action: .dispatchTargeted(.openWorktree, target: worktree.id, targetType: .worktree),
+                    command: .openWorktree
                 )
             }
         }
@@ -494,6 +631,14 @@ enum CommandBarDataSource {
         return keywords
     }
 
+    private static func tabDisplayTitle(tab: Tab, store: WorkspaceStore) -> String {
+        let paneTitles = tab.paneIds.compactMap { store.pane($0)?.title }
+        if paneTitles.count > 1 {
+            return paneTitles.joined(separator: " | ")
+        }
+        return paneTitles.first ?? "Terminal"
+    }
+
     private static func isHiddenCommand(_ command: AppCommand) -> Bool {
         switch command {
         case .selectTab1, .selectTab2, .selectTab3, .selectTab4, .selectTab5,
@@ -511,17 +656,18 @@ enum CommandBarDataSource {
 
     private static func commandGroup(for command: AppCommand) -> (name: String, priority: Int) {
         switch command {
-        case .closePane, .extractPaneToTab, .splitRight, .splitBelow, .splitLeft, .splitAbove,
+        case .closePane, .extractPaneToTab, .movePaneToTab, .splitRight, .splitBelow, .splitLeft, .splitAbove,
             .equalizePanes, .toggleSplitZoom,
             .addDrawerPane, .toggleDrawer, .navigateDrawerPane, .closeDrawerPane:
             return (Group.paneCommands, 0)
         case .focusPaneLeft, .focusPaneRight, .focusPaneUp, .focusPaneDown,
             .focusNextPane, .focusPrevPane:
             return (Group.focusCommands, 1)
-        case .closeTab, .breakUpTab, .newTerminalInTab, .nextTab, .prevTab, .openNewTerminalInTab,
+        case .closeTab, .breakUpTab, .newTerminalInTab, .nextTab, .prevTab,
             .switchArrangement, .saveArrangement, .deleteArrangement, .renameArrangement:
             return (Group.tabCommands, 2)
-        case .addRepo, .removeRepo, .refreshWorktrees:
+        case .addRepo, .addFolder, .removeRepo, .refreshWorktrees,
+            .openWorktree, .openWorktreeInPane, .openNewTerminalInTab:
             return (Group.repoCommands, 3)
         case .toggleSidebar, .newFloatingTerminal, .filterSidebar:
             return (Group.windowCommands, 4)

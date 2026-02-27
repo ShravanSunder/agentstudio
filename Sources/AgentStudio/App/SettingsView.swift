@@ -54,7 +54,7 @@ struct GeneralSettingsView: View {
                 LabeledContent("Data Location") {
                     Text("~/.agentstudio/")
                         .foregroundStyle(.secondary)
-                        .font(.system(.body, design: .monospaced))
+                        .font(.system(size: AppStyle.textBase, design: .monospaced))
                 }
 
                 Button("Reveal in Finder") {
@@ -92,7 +92,7 @@ struct TerminalSettingsView: View {
                 LabeledContent("Config Location") {
                     Text("~/.config/zellij/")
                         .foregroundStyle(.secondary)
-                        .font(.system(.body, design: .monospaced))
+                        .font(.system(size: AppStyle.textBase, design: .monospaced))
                 }
 
                 Button("Open Zellij Config") {
@@ -126,11 +126,11 @@ struct AgentSettingsView: View {
                         if isAgentInstalled(agent) {
                             Label("Installed", systemImage: "checkmark.circle.fill")
                                 .foregroundStyle(.green)
-                                .font(.caption)
+                                .font(.system(size: AppStyle.textXs))
                         } else {
                             Label("Not Found", systemImage: "xmark.circle")
                                 .foregroundStyle(.secondary)
-                                .font(.caption)
+                                .font(.system(size: AppStyle.textXs))
                         }
                     }
                 }
@@ -138,7 +138,7 @@ struct AgentSettingsView: View {
 
             Section {
                 Text("Agents are discovered from your PATH. Install them using their respective installers.")
-                    .font(.caption)
+                    .font(.system(size: AppStyle.textXs))
                     .foregroundStyle(.secondary)
             }
         }
@@ -182,9 +182,9 @@ struct WebviewSettingsView: View {
                     HStack {
                         VStack(alignment: .leading, spacing: 2) {
                             Text(entry.title)
-                                .font(.system(size: 12))
+                                .font(.system(size: AppStyle.textSm))
                             Text(entry.url.absoluteString)
-                                .font(.system(size: 11))
+                                .font(.system(size: AppStyle.textXs))
                                 .foregroundStyle(.secondary)
                                 .lineLimit(1)
                                 .truncationMode(.middle)
@@ -196,7 +196,7 @@ struct WebviewSettingsView: View {
                             history.removeFavorite(url: entry.url)
                         } label: {
                             Image(systemName: "trash")
-                                .font(.system(size: 11))
+                                .font(.system(size: AppStyle.textXs))
                                 .foregroundStyle(.secondary)
                         }
                         .buttonStyle(.plain)
@@ -207,11 +207,11 @@ struct WebviewSettingsView: View {
                     VStack(spacing: 6) {
                         TextField("Title", text: $newFavoriteTitle)
                             .textFieldStyle(.roundedBorder)
-                            .font(.system(size: 12))
+                            .font(.system(size: AppStyle.textSm))
 
                         TextField("URL (e.g. https://example.com)", text: $newFavoriteURL)
                             .textFieldStyle(.roundedBorder)
-                            .font(.system(size: 12))
+                            .font(.system(size: AppStyle.textSm))
 
                         HStack {
                             Spacer()
@@ -242,12 +242,12 @@ struct WebviewSettingsView: View {
 
             Section("History") {
                 Text("History older than 2 weeks is automatically removed.")
-                    .font(.caption)
+                    .font(.system(size: AppStyle.textXs))
                     .foregroundStyle(.secondary)
 
                 HStack {
                     Text("\(history.entries.count) entries")
-                        .font(.caption)
+                        .font(.system(size: AppStyle.textXs))
                         .foregroundStyle(.secondary)
 
                     Spacer()

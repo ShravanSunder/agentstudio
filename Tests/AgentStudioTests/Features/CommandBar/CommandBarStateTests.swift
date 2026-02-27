@@ -135,9 +135,19 @@ final class CommandBarStateTests {
     }
 
     @Test
-    func test_activePrefix_unknownPrefix_returnsNil() {
+    func test_activePrefix_hashPrefix_returnsHash() {
         // Arrange
         state.rawInput = "#search"
+
+        // Assert
+        #expect(state.activePrefix == "#")
+        #expect(state.activeScope == .repos)
+    }
+
+    @Test
+    func test_activePrefix_unknownPrefix_returnsNil() {
+        // Arrange
+        state.rawInput = "!search"
 
         // Assert
         #expect(state.activePrefix == nil)
@@ -607,13 +617,25 @@ final class CommandBarStateTests {
     }
 
     @Test
-    func test_show_unknownPrefix_treatedAsPlainText() {
+    func test_show_hashPrefix_activatesReposScope() {
         // Act
         state.show(prefix: "#")
 
-        // Assert — "#" is stored as rawInput but not a recognized prefix
+        // Assert — "#" is now recognized as the repos scope prefix
         #expect(state.isVisible)
-        #expect(state.rawInput == "#")
+        #expect(state.rawInput == "# ")
+        #expect(state.activePrefix == "#")
+        #expect(state.activeScope == .repos)
+    }
+
+    @Test
+    func test_show_unknownPrefix_treatedAsPlainText() {
+        // Act
+        state.show(prefix: "!")
+
+        // Assert — "!" is stored as rawInput but not a recognized prefix
+        #expect(state.isVisible)
+        #expect(state.rawInput == "!")
         #expect(state.activePrefix == nil)
         #expect(state.activeScope == .everything)
     }
