@@ -5,6 +5,20 @@ import Testing
 
 @Suite("PaneTabViewControllerDropRoutingTests")
 struct PaneTabViewControllerDropRoutingTests {
+    private func makeSnapshot(
+        tabs: [TabSnapshot],
+        activeTabId: UUID?,
+        isManagementModeActive: Bool = true,
+        drawerParentByPaneId: [UUID: UUID] = [:]
+    ) -> ActionStateSnapshot {
+        ActionStateSnapshot(
+            tabs: tabs,
+            activeTabId: activeTabId,
+            isManagementModeActive: isManagementModeActive,
+            drawerParentByPaneId: drawerParentByPaneId
+        )
+    }
+
     @Test
     func resolveDrawerMoveDropAction_returnsMoveAction_forSameDrawerParent() {
         let parentPaneId = UUIDv7.generate()
@@ -82,5 +96,134 @@ struct PaneTabViewControllerDropRoutingTests {
         )
 
         #expect(action == nil)
+    }
+
+    @Test
+    func splitDropCommitPlan_matchesPlannerDecision_forLayoutSplit() {
+        let sourceTabId = UUIDv7.generate()
+        let targetTabId = UUIDv7.generate()
+        let sourcePaneId = UUIDv7.generate()
+        let targetPaneId = UUIDv7.generate()
+
+        let sourceTab = TabSnapshot(id: sourceTabId, paneIds: [sourcePaneId], activePaneId: sourcePaneId)
+        let targetTab = TabSnapshot(id: targetTabId, paneIds: [targetPaneId], activePaneId: targetPaneId)
+        let state = makeSnapshot(tabs: [sourceTab, targetTab], activeTabId: targetTabId)
+        let payload = SplitDropPayload(kind: .existingPane(paneId: sourcePaneId, sourceTabId: sourceTabId))
+        let destinationPane = makePane(id: targetPaneId)
+
+        let plannerDecision = PaneDropPlanner.previewDecision(
+            payload: payload,
+            destination: .split(
+                targetPaneId: targetPaneId,
+                targetTabId: targetTabId,
+                direction: .right,
+                targetDrawerParentPaneId: nil
+            ),
+            state: state
+        )
+        let commitPlan = PaneTabViewController.splitDropCommitPlan(
+            payload: payload,
+            destinationPane: destinationPane,
+            destinationPaneId: targetPaneId,
+            zone: .right,
+            activeTabId: targetTabId,
+            state: state
+        )
+
+        if case .eligible(let expectedPlan) = plannerDecision {
+            #expect(commitPlan == expectedPlan)
+        } else {
+            #expect(commitPlan == nil)
+        }
+    }
+
+    @Test
+    func splitDropCommitPlan_returnsMoveDrawerPlan_forSameDrawerParent() {
+        let parentPaneId = UUIDv7.generate()
+        let sourcePaneId = UUIDv7.generate()
+        let destinationPaneId = UUIDv7.generate()
+        let tabId = UUIDv7.generate()
+
+        var sourcePane = makePane(id: sourcePaneId)
+        sourcePane.kind = .drawerChild(parentPaneId: parentPaneId)
+
+        var destinationPane = makePane(id: destinationPaneId)
+        destinationPane.kind = .drawerChild(parentPaneId: parentPaneId)
+
+        let state = makeSnapshot(
+            tabs: [
+                TabSnapshot(
+                    id: tabId, paneIds: [parentPaneId, sourcePaneId, destinationPaneId], activePaneId: parentPaneId)
+            ],
+            activeTabId: tabId,
+            drawerParentByPaneId: [
+                sourcePaneId: parentPaneId,
+                destinationPaneId: parentPaneId,
+            ]
+        )
+        let payload = SplitDropPayload(kind: .existingPane(paneId: sourcePaneId, sourceTabId: tabId))
+
+        let commitPlan = PaneTabViewController.splitDropCommitPlan(
+            payload: payload,
+            destinationPane: destinationPane,
+            destinationPaneId: destinationPaneId,
+            zone: .left,
+            activeTabId: tabId,
+            state: state
+        )
+
+        #expect(
+            commitPlan
+                == .paneAction(
+                    .moveDrawerPane(
+                        parentPaneId: parentPaneId,
+                        drawerPaneId: sourcePaneId,
+                        targetDrawerPaneId: destinationPaneId,
+                        direction: .left
+                    )
+                )
+        )
+    }
+
+    @Test
+    func splitDropCommitPlan_returnsNil_forCrossParentDrawerMove() {
+        let sourceParentPaneId = UUIDv7.generate()
+        let destinationParentPaneId = UUIDv7.generate()
+        let sourcePaneId = UUIDv7.generate()
+        let destinationPaneId = UUIDv7.generate()
+        let tabId = UUIDv7.generate()
+
+        var sourcePane = makePane(id: sourcePaneId)
+        sourcePane.kind = .drawerChild(parentPaneId: sourceParentPaneId)
+
+        var destinationPane = makePane(id: destinationPaneId)
+        destinationPane.kind = .drawerChild(parentPaneId: destinationParentPaneId)
+
+        let state = makeSnapshot(
+            tabs: [
+                TabSnapshot(
+                    id: tabId,
+                    paneIds: [sourceParentPaneId, destinationParentPaneId, sourcePaneId, destinationPaneId],
+                    activePaneId: sourceParentPaneId
+                )
+            ],
+            activeTabId: tabId,
+            drawerParentByPaneId: [
+                sourcePaneId: sourceParentPaneId,
+                destinationPaneId: destinationParentPaneId,
+            ]
+        )
+        let payload = SplitDropPayload(kind: .existingPane(paneId: sourcePaneId, sourceTabId: tabId))
+
+        let commitPlan = PaneTabViewController.splitDropCommitPlan(
+            payload: payload,
+            destinationPane: destinationPane,
+            destinationPaneId: destinationPaneId,
+            zone: .right,
+            activeTabId: tabId,
+            state: state
+        )
+
+        #expect(commitPlan == nil)
     }
 }
