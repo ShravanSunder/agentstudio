@@ -48,34 +48,28 @@ struct ManagementModeTests {
 
     @MainActor
     @Test("deactivate posts refocus notification when active")
-    func test_managementMode_deactivate_postsRefocusNotification() async {
+    func test_managementMode_deactivate_postsRefocusNotification() {
         // Arrange
         let monitor = ManagementModeMonitor.shared
         monitor.deactivate()
         monitor.toggle()
         defer { monitor.deactivate() }
 
-        // Act
-        let didPostRefocus = await withTaskGroup(of: Bool.self) { group in
-            group.addTask {
-                for await _ in NotificationCenter.default.notifications(named: .refocusTerminalRequested) {
-                    return true
-                }
-                return false
-            }
-            group.addTask {
-                try? await Task.sleep(for: .milliseconds(100))
-                return false
-            }
-            await Task.yield()
-            monitor.deactivate()
-            let result = await group.next() ?? false
-            group.cancelAll()
-            return result
+        let didPostRefocus = LockedFlag()
+        let observer = NotificationCenter.default.addObserver(
+            forName: .refocusTerminalRequested,
+            object: nil,
+            queue: nil
+        ) { _ in
+            didPostRefocus.set()
         }
+        defer { NotificationCenter.default.removeObserver(observer) }
+
+        // Act
+        monitor.deactivate()
 
         // Assert
-        #expect(didPostRefocus)
+        #expect(didPostRefocus.value)
         #expect(!monitor.isActive)
     }
 
