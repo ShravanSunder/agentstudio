@@ -165,6 +165,45 @@ final class WorkspacePersistorTests {
         #expect((loaded) == nil)
     }
 
+    @Test
+
+    func test_load_legacyPaneSchemaWithoutKind_returnsNil() throws {
+        let pane = makePane(
+            source: .floating(workingDirectory: nil, title: nil),
+            title: "LegacyPane",
+            provider: .zmx
+        )
+        var state = WorkspacePersistor.PersistableState()
+        state.panes = [pane]
+        let stateData = try JSONEncoder().encode(state)
+
+        guard var stateObject = try JSONSerialization.jsonObject(with: stateData) as? [String: Any],
+            var panes = stateObject["panes"] as? [[String: Any]],
+            var firstPane = panes.first
+        else {
+            Issue.record("Expected persistable state JSON with panes")
+            return
+        }
+
+        firstPane.removeValue(forKey: "kind")
+        firstPane["drawer"] = [
+            "paneIds": [],
+            "layout": NSNull(),
+            "activePaneId": NSNull(),
+            "isExpanded": false,
+            "minimizedPaneIds": [],
+        ]
+        panes[0] = firstPane
+        stateObject["panes"] = panes
+
+        let legacyData = try JSONSerialization.data(withJSONObject: stateObject)
+        let legacyURL = tempDir.appending(path: "legacy-\(UUID().uuidString).json")
+        try legacyData.write(to: legacyURL, options: .atomic)
+
+        let loaded = persistor.load(from: legacyURL)
+        #expect(loaded == nil)
+    }
+
     // MARK: - Delete
 
     @Test

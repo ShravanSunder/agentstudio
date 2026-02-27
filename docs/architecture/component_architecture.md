@@ -10,7 +10,7 @@ State is distributed across independent `@Observable` stores (Jotai-style atomic
 
 ### 1.1 Architecture Principles
 
-1. **Session as primary entity** — A `TerminalSession` exists independently of layout, view, or surface. It can move between tabs, views, and layout positions while keeping the same identity.
+1. **Pane identity is primary; terminal sessions are a specialization** — `PaneId` is the cross-feature identity contract. For terminal panes, a `TerminalSession` continues to exist independently of layout, view, or surface and can move between tabs, views, and layout positions while keeping identity.
 2. **Atomic stores (Jotai-style)** — Each domain has its own `@Observable` store. `WorkspaceStore` owns workspace structure (tabs, layouts, views). `SurfaceManager` owns Ghostty surfaces. `SessionRuntime` owns backends. No god-store — each store has one domain, one reason to change, testable in isolation.
 3. **Unidirectional flow (Valtio-style)** — All store state is `private(set)`. External code reads freely, mutates only through store methods. No action enums, no reducers — the compiler enforces the boundary.
 4. **Coordinator for cross-store sequencing** — A coordinator sequences operations across multiple stores for a single user action. Owns no state, contains no domain logic. If a coordinator method contains an `if` that decides what to do with domain data, that logic belongs in a store.
@@ -165,7 +165,7 @@ The relationship is:
 | `ViewRegistry` (sessionId → NSView) | Coexists with `RuntimeRegistry` (paneId → PaneRuntime) | ViewRegistry maps to NSViews; RuntimeRegistry maps to runtime protocol instances. Both keyed by the same UUID. |
 | `SurfaceManager` | Internal to `GhosttyAdapter` / terminal feature | Surface lifecycle is terminal-specific, not generic to all pane types |
 
-This is an evolutionary relationship, not a replacement. `TerminalSession` and `SessionRuntime` continue to exist in the current code. As non-terminal pane types are implemented (LUNA-325), the pane-centric contracts in `Core/PaneRuntime/` will become the shared abstraction layer, and terminal-specific models will specialize under `Features/Terminal/`.
+This is an evolutionary relationship, not a replacement. `TerminalSession` and `SessionRuntime` continue to exist in the current code. As non-terminal pane types are implemented (LUNA-349), the pane-centric contracts in `Core/PaneRuntime/` become the shared abstraction layer, and terminal-specific models specialize under `Features/Terminal/`.
 
 ### 2.4 ViewDefinition & ViewKind
 
@@ -298,6 +298,8 @@ Singletons:
 └── Ghostty.shared           ← Ghostty C API wrapper
 ```
 
+> **Testability note on singletons:** These `static let shared` singletons are `@MainActor` (inferred or explicit). Under Swift 6.2, `static var` on `@MainActor` types is also MainActor-isolated (enforced since Swift 5.10). This is fine for production — they don't cross actor boundaries. However, `static let` cannot be swapped for testing. When boundary actors need these services (e.g., `FilesystemActor` needing `WorktrunkService` for worktree path resolution, or `ForgeActor` needing `ProcessExecutor` for git CLI), **inject via constructor parameter**, not via `.shared` access from inside the actor. The EventBus design already follows this pattern: `private let bus: EventBus<PaneEventEnvelope>` is constructor-injected. Apply the same to any singleton that a non-MainActor component needs.
+
 ### 3.2 WorkspaceStore
 
 Owns all workspace structure state. `@Observable`, `@MainActor`. All properties are `private(set)` — external code mutates only through methods.
@@ -344,6 +346,8 @@ Manages live session state. Does **not** own sessions — reads the session list
 > **Note:** A full `SessionStatus` state machine (7 states: unknown, verifying, alive, dead, missing, recovering, failed) exists in `Models/StateMachine/SessionStatus.swift` for future zmx health integration but is not yet wired into `SessionRuntime`. See [Session Lifecycle](session_lifecycle.md) for details.
 >
 > `ZmxBackend` conforms to a separate `SessionBackend` protocol (defined in `ZmxBackend.swift`) with its own method signatures. A future phase will wire `SessionRuntime` → `ZmxBackend` and consolidate the two protocols.
+>
+> **Isolation audit:** `ZmxBackend.isAlive()` shells out to the `zmx` CLI — this is 10-100ms of blocking I/O. Since `SessionRuntime` is `@MainActor`, `isAlive()` must not run synchronously on the main thread. The current implementation dispatches via `ProcessExecutor` (which uses `DispatchQueue.global()`). When the backend protocol is consolidated, `isAlive()` should be `@concurrent nonisolated` (Swift 6.2) to explicitly run on the cooperative pool. Plain `nonisolated async` would inherit MainActor isolation if called from `SessionRuntime` — see [EventBus Design — Swift 6.2 Gotchas](pane_runtime_eventbus_design.md#swift-62-gotchas-quick-reference).
 
 > **File:** `Core/Stores/SessionRuntime.swift`
 
@@ -381,7 +385,7 @@ The `PaneCoordinator` is the canonical orchestration boundary for action executi
 - Applies action intent through command validation and mutation APIs.
 - Manages undo sequencing with deterministic restore/reattach behavior.
 
-> **Expansion (LUNA-325):** The coordinator gains event consumption and runtime command dispatch responsibilities: it will own the `RuntimeRegistry`, subscribe to `PaneRuntimeEvent` streams from all runtimes, feed the `NotificationReducer` (priority-aware delivery), maintain per-source replay buffers, and dispatch `RuntimeCommand`s to individual runtimes via `RuntimeCommandEnvelope`. The coordinator event loop processes critical events at `.userInitiated` priority and lossy batches at `.utility`. See [Pane Runtime Architecture — Coordinator Event Loop](pane_runtime_architecture.md#coordinator-event-loop-how-it-connects) for the target design.
+> **Target architecture (LUNA-351+):** The coordinator gains EventBus event consumption and runtime command dispatch responsibilities: it will own the `RuntimeRegistry`, subscribe to the `EventBus` (not per-runtime streams — runtimes post to the bus, coordinator consumes from bus fan-out), feed the `NotificationReducer` (priority-aware delivery), maintain per-source replay buffers, and dispatch `RuntimeCommand`s to individual runtimes via `RuntimeCommandEnvelope`. The coordinator event loop processes critical events at `.userInitiated` priority and lossy batches at `.utility`. See [Pane Runtime Architecture — Coordinator Event Loop](pane_runtime_architecture.md#coordinator-event-loop-how-it-connects) for the target design.
 
 **Two action layers flow through the coordinator:**
 - **Workspace actions** (`PaneAction` from `Core/Actions/`): workspace structure mutations (selectTab, closePane, insertPane, etc.) → resolved by `ActionResolver`, validated by `ActionValidator`, executed against `WorkspaceStore`.
@@ -402,6 +406,8 @@ The `PaneCoordinator` is the canonical orchestration boundary for action executi
 - `undoStack: [WorkspaceStore.CloseEntry]` — in-memory LIFO, max 10 entries
 - `TabCloseSnapshot` captures: `tab`, `panes`, `tabIndex`
 - Oldest entries GC'd when stack exceeds limit; orphaned sessions cleaned up
+
+**Target reentrant-safety invariant (EventBus migration):** Once the coordinator uses an async `for await` loop from EventBus, synchronous mutation methods (e.g., `execute(_ action: PaneAction)`, `closeTab()`) can interleave between loop iterations. Since both are `@MainActor`, this is correct and expected (same model as Python asyncio). The multiplexing rule guarantees safety: `@Observable` mutation happens synchronously on MainActor **before** `bus.post()`, so by the time the coordinator's event loop picks up an envelope, all store state is already consistent. The coordinator never sees an envelope whose corresponding `@Observable` state hasn't been applied yet. Frame-level interleaving between synchronous UI mutations and async event processing is expected and safe — UI sees updates immediately (synchronous `@Observable`), coordination consumers see complete envelopes within one frame (~16ms). This is not a race; it's the intended scheduling model.
 
 > **File:** `App/PaneCoordinator.swift`
 

@@ -26,6 +26,24 @@ struct RuntimeRegistryTests {
         #expect(registry.runtime(for: runtime.paneId) == nil)
     }
 
+    @Test("duplicate registration is rejected and existing runtime is preserved")
+    func duplicateRegistrationRejected() {
+        let registry = RuntimeRegistry()
+        let paneId = PaneId()
+        let first = TestPaneRuntime(paneId: paneId, contentType: .terminal)
+        let second = TestPaneRuntime(paneId: paneId, contentType: .browser)
+
+        let firstResult = registry.register(first)
+        let secondResult = registry.register(second)
+
+        #expect(firstResult == .inserted)
+        #expect(secondResult == .duplicateRejected)
+        #expect(registry.count == 1)
+        #expect(registry.runtime(for: paneId)?.metadata.contentType == .terminal)
+        #expect(registry.runtimes(ofType: .terminal).count == 1)
+        #expect(registry.runtimes(ofType: .browser).isEmpty)
+    }
+
     @Test("findPaneWithWorktree returns paneId when worktree is registered")
     func findPaneWithWorktreeFindsExisting() {
         let registry = RuntimeRegistry()
@@ -57,24 +75,6 @@ struct RuntimeRegistryTests {
 
         #expect(registry.findPaneWithWorktree(worktreeId: UUID()) == nil)
     }
-
-    @Test("duplicate registration replaces existing runtime without crashing")
-    func duplicateRegistrationReplacesRuntime() {
-        let registry = RuntimeRegistry()
-        let paneId = PaneId()
-        let first = TestPaneRuntime(paneId: paneId, contentType: .terminal)
-        let second = TestPaneRuntime(paneId: paneId, contentType: .browser)
-
-        let firstResult = registry.register(first)
-        let secondResult = registry.register(second)
-
-        #expect(firstResult == .inserted)
-        #expect(secondResult == .replaced)
-        #expect(registry.count == 1)
-        #expect(registry.runtime(for: paneId)?.metadata.contentType == .browser)  // paneId is now PaneId
-        #expect(registry.runtimes(ofType: .terminal).isEmpty)
-        #expect(registry.runtimes(ofType: .browser).count == 1)
-    }
 }
 
 @MainActor
@@ -105,7 +105,7 @@ private final class TestPaneRuntime: PaneRuntime {
         }
     }
 
-    func handleCommand(_ envelope: PaneCommandEnvelope) async -> ActionResult {
+    func handleCommand(_ envelope: RuntimeCommandEnvelope) async -> ActionResult {
         .success(commandId: envelope.commandId)
     }
 

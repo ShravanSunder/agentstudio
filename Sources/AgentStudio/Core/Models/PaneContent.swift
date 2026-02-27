@@ -61,27 +61,11 @@ extension PaneContent: Codable {
         case .terminal:
             self = .terminal(try container.decode(TerminalState.self, forKey: .state))
         case .webview:
-            do {
-                self = .webview(try container.decode(WebviewState.self, forKey: .state))
-            } catch {
-                // Schema changed between versions — preserve raw state for round-trip
-                let rawState = try? container.decodeIfPresent(AnyCodableValue.self, forKey: .state)
-                self = .unsupported(UnsupportedContent(type: "webview", version: version, rawState: rawState))
-            }
+            self = .webview(try container.decode(WebviewState.self, forKey: .state))
         case .bridgePanel:
-            do {
-                self = .bridgePanel(try container.decode(BridgePaneState.self, forKey: .state))
-            } catch {
-                let rawState = try? container.decodeIfPresent(AnyCodableValue.self, forKey: .state)
-                self = .unsupported(UnsupportedContent(type: "bridgePanel", version: version, rawState: rawState))
-            }
+            self = .bridgePanel(try container.decode(BridgePaneState.self, forKey: .state))
         case .codeViewer:
-            do {
-                self = .codeViewer(try container.decode(CodeViewerState.self, forKey: .state))
-            } catch {
-                let rawState = try? container.decodeIfPresent(AnyCodableValue.self, forKey: .state)
-                self = .unsupported(UnsupportedContent(type: "codeViewer", version: version, rawState: rawState))
-            }
+            self = .codeViewer(try container.decode(CodeViewerState.self, forKey: .state))
         }
         _ = version  // reserved for future state migration
     }
@@ -201,35 +185,15 @@ struct WebviewState: Codable, Hashable {
         self.showNavigation = showNavigation
     }
 
-    // MARK: - Backward-Compatible Decoding
+    // MARK: - Canonical Decoding
 
-    /// Decodes three shapes:
-    /// 1. Current: `{url, title, showNavigation}`
-    /// 2. Multi-tab (v2 legacy): `{tabs: [{url, title}], activeTabIndex, showNavigation}` — extracts first tab
-    /// 3. v1 legacy: `{url, showNavigation}` (no title)
+    /// Decodes only the canonical shape: `{url, title, showNavigation}`.
+    /// Greenfield persistence intentionally rejects legacy webview payloads.
     init(from decoder: Decoder) throws {
         let container = try decoder.container(keyedBy: CodingKeys.self)
-
-        if let url = try? container.decode(URL.self, forKey: .url) {
-            // Current shape or v1 legacy
-            self.url = url
-            self.title = try container.decodeIfPresent(String.self, forKey: .title) ?? ""
-        } else if let tabs = try? container.decode([LegacyTabState].self, forKey: .tabs),
-            let firstTab = tabs.first
-        {
-            // Multi-tab legacy shape — extract first tab's URL
-            let activeIndex = (try? container.decode(Int.self, forKey: .activeTabIndex)) ?? 0
-            let tab = (activeIndex >= 0 && activeIndex < tabs.count) ? tabs[activeIndex] : firstTab
-            self.url = tab.url
-            self.title = tab.title
-        } else {
-            throw DecodingError.dataCorrupted(
-                DecodingError.Context(
-                    codingPath: decoder.codingPath,
-                    debugDescription: "WebviewState: missing both 'url' and 'tabs'")
-            )
-        }
-        self.showNavigation = try container.decodeIfPresent(Bool.self, forKey: .showNavigation) ?? true
+        self.url = try container.decode(URL.self, forKey: .url)
+        self.title = try container.decode(String.self, forKey: .title)
+        self.showNavigation = try container.decode(Bool.self, forKey: .showNavigation)
     }
 
     func encode(to encoder: Encoder) throws {
@@ -241,14 +205,6 @@ struct WebviewState: Codable, Hashable {
 
     private enum CodingKeys: String, CodingKey {
         case url, title, showNavigation
-        // Legacy keys for backward-compatible decoding
-        case tabs, activeTabIndex
-    }
-
-    /// Used only for decoding the legacy multi-tab shape.
-    private struct LegacyTabState: Codable {
-        let url: URL
-        var title: String = ""
     }
 }
 

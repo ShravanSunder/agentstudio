@@ -30,9 +30,10 @@ struct Pane: Codable, Identifiable, Hashable {
         residency: SessionResidency = .active,
         kind: PaneKind = .layout(drawer: Drawer())
     ) {
-        var normalizedMetadata = metadata
-        normalizedMetadata.paneId = PaneId(uuid: id)
-        normalizedMetadata.contentType = Self.contentType(for: content)
+        let normalizedMetadata = metadata.canonicalizedIdentity(
+            paneId: PaneId(uuid: id),
+            contentType: Self.contentType(for: content)
+        )
 
         self.id = id
         self.content = content
@@ -41,34 +42,42 @@ struct Pane: Codable, Identifiable, Hashable {
         self.kind = kind
     }
 
-    // MARK: - Legacy Decoding
+    // MARK: - Codable
 
-    /// Custom decoder supporting both the current schema (`kind: PaneKind`) and the
-    /// legacy schema (`drawer: Drawer?`). Workspaces persisted before the PaneKind
-    /// migration have no `kind` key — they store drawer state directly on Pane.
-    /// This decoder reads `kind` first; if absent, falls back to the legacy `drawer`
-    /// field and maps it to `.layout(drawer:)`.
+    /// Canonical greenfield decode: only the current `kind: PaneKind` schema is accepted.
     init(from decoder: Decoder) throws {
         let container = try decoder.container(keyedBy: CodingKeys.self)
-        self.id = try container.decode(UUID.self, forKey: .id)
-        self.content = try container.decode(PaneContent.self, forKey: .content)
-        var decodedMetadata = try container.decode(PaneMetadata.self, forKey: .metadata)
-        decodedMetadata.paneId = PaneId(uuid: id)
-        decodedMetadata.contentType = Self.contentType(for: content)
-        self.metadata = decodedMetadata
-        self.residency = try container.decode(SessionResidency.self, forKey: .residency)
-
-        if let kind = try container.decodeIfPresent(PaneKind.self, forKey: .kind) {
-            // Current schema — kind is present
-            self.kind = kind
-        } else {
-            // Legacy schema — read optional drawer field, default to empty drawer
-            let drawer = try container.decodeIfPresent(Drawer.self, forKey: .legacyDrawer) ?? Drawer()
-            self.kind = .layout(drawer: drawer)
+        let decodedId = try container.decode(UUID.self, forKey: .id)
+        guard UUIDv7.isV7(decodedId) else {
+            throw DecodingError.dataCorruptedError(
+                forKey: .id,
+                in: container,
+                debugDescription: "Pane.id must be UUID v7 in canonical greenfield schema"
+            )
         }
+        self.id = decodedId
+        self.content = try container.decode(PaneContent.self, forKey: .content)
+        let decodedMetadata = try container.decode(PaneMetadata.self, forKey: .metadata)
+        let metadataPaneId = decodedMetadata.paneId.uuid
+        guard metadataPaneId == decodedId else {
+            let mismatchDescription =
+                "Pane.metadata.paneId (\(metadataPaneId.uuidString)) must match "
+                + "Pane.id (\(decodedId.uuidString)) in canonical schema"
+            throw DecodingError.dataCorruptedError(
+                forKey: .metadata,
+                in: container,
+                debugDescription: mismatchDescription
+            )
+        }
+        self.metadata = decodedMetadata.canonicalizedIdentity(
+            paneId: PaneId(uuid: id),
+            contentType: Self.contentType(for: content)
+        )
+        self.residency = try container.decode(SessionResidency.self, forKey: .residency)
+        self.kind = try container.decode(PaneKind.self, forKey: .kind)
     }
 
-    /// Encodes using the current schema only (writes `kind`, never the legacy `drawer` key).
+    /// Encodes using the canonical schema.
     func encode(to encoder: Encoder) throws {
         var container = encoder.container(keyedBy: CodingKeys.self)
         try container.encode(id, forKey: .id)
@@ -80,10 +89,6 @@ struct Pane: Codable, Identifiable, Hashable {
 
     private enum CodingKeys: String, CodingKey {
         case id, content, metadata, residency, kind
-        /// Legacy key: pre-PaneKind workspaces stored `drawer` directly on Pane.
-        /// Keep this until we intentionally drop backward compatibility for old
-        /// serialized workspaces.
-        case legacyDrawer = "drawer"
     }
 
     // MARK: - Convenience Accessors
@@ -106,13 +111,13 @@ struct Pane: Codable, Identifiable, Hashable {
     /// Title from metadata.
     var title: String {
         get { metadata.title }
-        set { metadata.title = newValue }
+        set { metadata.updateTitle(newValue) }
     }
 
     /// Agent type from metadata.
     var agent: AgentType? {
         get { metadata.agentType }
-        set { metadata.agentType = newValue }
+        set { metadata.updateAgentType(newValue) }
     }
 
     /// Provider from terminal state, if terminal content.
@@ -121,8 +126,8 @@ struct Pane: Codable, Identifiable, Hashable {
     /// Lifetime from terminal state, if terminal content.
     var lifetime: SessionLifetime? { terminalState?.lifetime }
 
-    var worktreeId: UUID? { metadata.worktreeId }
-    var repoId: UUID? { metadata.repoId }
+    var worktreeId: UUID? { metadata.facets.worktreeId }
+    var repoId: UUID? { metadata.facets.repoId }
 
     // MARK: - PaneKind Convenience
 
@@ -157,10 +162,13 @@ struct Pane: Codable, Identifiable, Hashable {
             return .terminal
         case .webview:
             return .browser
-        case .bridgePanel:
-            return .plugin("bridgePanel")
+        case .bridgePanel(let bridgeState):
+            switch bridgeState.panelKind {
+            case .diffViewer:
+                return .diff
+            }
         case .codeViewer:
-            return .editor
+            return .codeViewer
         case .unsupported(let unsupported):
             return .plugin(unsupported.type)
         }

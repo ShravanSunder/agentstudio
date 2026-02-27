@@ -81,7 +81,6 @@ struct WorkspacePersistor {
     }
 
     /// Load state from disk. Returns nil if no workspace file exists or schema is incompatible.
-    /// Tries the current schema first, then falls back to the legacy (pre-pane-model) schema.
     func load() -> PersistableState? {
         let contents: [URL]
         do {
@@ -99,7 +98,7 @@ struct WorkspacePersistor {
 
         // Single workspace — load the first one found
         for fileURL in workspaceFiles {
-            if let state = decodeWithMigration(from: fileURL) {
+            if let state = decodePersistedState(from: fileURL) {
                 return state
             }
         }
@@ -109,11 +108,11 @@ struct WorkspacePersistor {
 
     /// Load state from a specific file URL (for testing).
     func load(from url: URL) -> PersistableState? {
-        decodeWithMigration(from: url)
+        decodePersistedState(from: url)
     }
 
-    /// Try current schema first, then fall back to legacy migration.
-    private func decodeWithMigration(from url: URL) -> PersistableState? {
+    /// Decode canonical persisted workspace state.
+    private func decodePersistedState(from url: URL) -> PersistableState? {
         let data: Data
         do {
             data = try Data(contentsOf: url)

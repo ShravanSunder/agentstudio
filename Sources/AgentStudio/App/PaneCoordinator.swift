@@ -5,8 +5,6 @@ import os.log
 
 @MainActor
 protocol PaneCoordinatorSurfaceManaging: AnyObject {
-    var surfaceCWDChanges: AsyncStream<SurfaceManager.SurfaceCWDChangeEvent> { get }
-
     func syncFocus(activeSurfaceId: UUID?)
 
     func createSurface(
@@ -38,10 +36,13 @@ final class PaneCoordinator {
     let runtime: SessionRuntime
     let surfaceManager: PaneCoordinatorSurfaceManaging
     let runtimeRegistry: RuntimeRegistry
-    let paneTargetResolver: PaneTargetResolver
+    let runtimeEventReducer: NotificationReducer
+    let runtimeTargetResolver: RuntimeTargetResolver
     let runtimeCommandClock: ContinuousClock
     lazy var sessionConfig = SessionConfiguration.detect()
-    private var cwdChangesTask: Task<Void, Never>?
+    private var runtimeEventTasks: [PaneId: Task<Void, Never>] = [:]
+    private var criticalRuntimeEventsTask: Task<Void, Never>?
+    private var batchedRuntimeEventsTask: Task<Void, Never>?
 
     /// Unified undo stack — holds both tab and pane close entries, chronologically ordered.
     /// NOTE: Undo stack owned here (not in a store) because undo is fundamentally
@@ -62,7 +63,7 @@ final class PaneCoordinator {
             viewRegistry: viewRegistry,
             runtime: runtime,
             surfaceManager: SurfaceManager.shared,
-            runtimeRegistry: RuntimeRegistry(),
+            runtimeRegistry: .shared,
             runtimeCommandClock: ContinuousClock()
         )
     }
@@ -80,14 +81,21 @@ final class PaneCoordinator {
         self.runtime = runtime
         self.surfaceManager = surfaceManager
         self.runtimeRegistry = runtimeRegistry
-        self.paneTargetResolver = PaneTargetResolver(workspaceStore: store)
+        self.runtimeEventReducer = NotificationReducer()
+        self.runtimeTargetResolver = RuntimeTargetResolver(workspaceStore: store)
         self.runtimeCommandClock = runtimeCommandClock
-        subscribeToCWDChanges()
+        Ghostty.App.setRuntimeRegistry(runtimeRegistry)
         setupPrePersistHook()
+        startRuntimeReducerConsumers()
     }
 
     isolated deinit {
-        cwdChangesTask?.cancel()
+        for task in runtimeEventTasks.values {
+            task.cancel()
+        }
+        runtimeEventTasks.removeAll()
+        criticalRuntimeEventsTask?.cancel()
+        batchedRuntimeEventsTask?.cancel()
     }
 
     func appendUndoEntry(_ entry: WorkspaceStore.CloseEntry) {
@@ -102,23 +110,6 @@ final class PaneCoordinator {
     @discardableResult
     func removeFirstUndoEntry() -> WorkspaceStore.CloseEntry {
         undoStack.removeFirst()
-    }
-
-    // MARK: - CWD Propagation
-
-    private func subscribeToCWDChanges() {
-        cwdChangesTask = Task { @MainActor [weak self] in
-            guard let self else { return }
-            for await event in self.surfaceManager.surfaceCWDChanges {
-                if Task.isCancelled { break }
-                self.onSurfaceCWDChanged(event)
-            }
-        }
-    }
-
-    private func onSurfaceCWDChanged(_ event: SurfaceManager.SurfaceCWDChangeEvent) {
-        guard let paneId = event.paneId else { return }
-        store.updatePaneCWD(paneId, cwd: event.cwd)
     }
 
     // MARK: - Webview State Sync
@@ -141,15 +132,279 @@ final class PaneCoordinator {
     // MARK: - Runtime Registry
 
     func registerRuntime(_ runtime: any PaneRuntime) {
-        runtimeRegistry.register(runtime)
+        let registrationResult = runtimeRegistry.register(runtime)
+        guard registrationResult == .inserted else { return }
+        startRuntimeEventSubscription(for: runtime)
     }
 
     @discardableResult
     func unregisterRuntime(_ paneId: PaneId) -> (any PaneRuntime)? {
-        runtimeRegistry.unregister(paneId)
+        stopRuntimeEventSubscription(for: paneId)
+        return runtimeRegistry.unregister(paneId)
     }
 
     func runtimeForPane(_ paneId: PaneId) -> (any PaneRuntime)? {
         runtimeRegistry.runtime(for: paneId)
+    }
+
+    private func startRuntimeEventSubscription(for runtime: any PaneRuntime) {
+        let runtimePaneId = runtime.paneId
+        guard runtimeEventTasks[runtimePaneId] == nil else { return }
+
+        let stream = runtime.subscribe()
+        runtimeEventTasks[runtimePaneId] = Task { @MainActor [weak self] in
+            guard let self else { return }
+            for await envelope in stream {
+                if Task.isCancelled { break }
+                self.runtimeEventReducer.submit(envelope)
+            }
+            self.runtimeEventTasks.removeValue(forKey: runtimePaneId)
+        }
+    }
+
+    private func startRuntimeReducerConsumers() {
+        guard criticalRuntimeEventsTask == nil, batchedRuntimeEventsTask == nil else { return }
+
+        criticalRuntimeEventsTask = Task(priority: .userInitiated) { @MainActor [weak self] in
+            guard let self else { return }
+            for await envelope in self.runtimeEventReducer.criticalEvents {
+                if Task.isCancelled { break }
+                self.handleRuntimeEnvelope(envelope)
+            }
+        }
+
+        batchedRuntimeEventsTask = Task(priority: .utility) { @MainActor [weak self] in
+            guard let self else { return }
+            for await batch in self.runtimeEventReducer.batchedEvents {
+                if Task.isCancelled { break }
+                for envelope in batch {
+                    self.handleRuntimeEnvelope(envelope)
+                }
+            }
+        }
+    }
+
+    private func stopRuntimeEventSubscription(for paneId: PaneId) {
+        runtimeEventTasks[paneId]?.cancel()
+        runtimeEventTasks.removeValue(forKey: paneId)
+    }
+
+    private func handleRuntimeEnvelope(_ envelope: PaneEventEnvelope) {
+        switch envelope.source {
+        case .pane(let sourcePaneId):
+            switch envelope.event {
+            case .terminal(let event):
+                handleTerminalRuntimeEvent(event, sourcePaneId: sourcePaneId)
+            case .lifecycle(let lifecycleEvent):
+                handleLifecycleRuntimeEvent(lifecycleEvent, sourcePaneId: sourcePaneId)
+            case .error(let errorEvent):
+                Self.logger.warning(
+                    "Runtime error event received from pane \(sourcePaneId.uuid.uuidString, privacy: .public): \(String(describing: errorEvent), privacy: .public)"
+                )
+            case .browser, .diff, .editor, .plugin, .filesystem, .artifact, .security:
+                Self.logger.debug(
+                    "Runtime event family ignored by coordinator for pane \(sourcePaneId.uuid.uuidString, privacy: .public): \(String(describing: envelope.event), privacy: .public)"
+                )
+            }
+        case .system(let systemSource):
+            Self.logger.debug(
+                "Runtime event ignored for system source \(String(describing: systemSource), privacy: .public) facets=\(String(describing: envelope.sourceFacets), privacy: .public): \(String(describing: envelope.event), privacy: .public)"
+            )
+        case .worktree(let worktreeId):
+            Self.logger.debug(
+                "Runtime event ignored for worktree source \(worktreeId.uuidString, privacy: .public) facets=\(String(describing: envelope.sourceFacets), privacy: .public): \(String(describing: envelope.event), privacy: .public)"
+            )
+        }
+    }
+
+    private func handleLifecycleRuntimeEvent(_ event: PaneLifecycleEvent, sourcePaneId: PaneId) {
+        switch event {
+        case .attachFailed(let error):
+            Self.logger.warning(
+                "Runtime lifecycle attach failed for pane \(sourcePaneId.uuid.uuidString, privacy: .public): \(String(describing: error), privacy: .public)"
+            )
+        case .surfaceCreated, .sizeObserved, .sizeStabilized, .attachStarted, .attachSucceeded, .paneClosed,
+            .activePaneChanged, .drawerExpanded, .drawerCollapsed, .tabSwitched:
+            Self.logger.debug(
+                "Runtime lifecycle event for pane \(sourcePaneId.uuid.uuidString, privacy: .public): \(String(describing: event), privacy: .public)"
+            )
+        }
+    }
+
+    private func handleTerminalRuntimeEvent(_ event: GhosttyEvent, sourcePaneId: PaneId) {
+        let sourcePaneUUID = sourcePaneId.uuid
+        guard let sourceTabId = store.tabs.first(where: { $0.paneIds.contains(sourcePaneUUID) })?.id else {
+            Self.logger.warning(
+                "Terminal runtime event dropped: source pane \(sourcePaneUUID.uuidString, privacy: .public) is not present in any tab. event=\(String(describing: event), privacy: .public)"
+            )
+            return
+        }
+
+        switch event {
+        case .newTab:
+            openNewTabFromSourcePane(sourcePaneUUID)
+        case .newSplit(let direction):
+            execute(
+                .insertPane(
+                    source: .newTerminal,
+                    targetTabId: sourceTabId,
+                    targetPaneId: sourcePaneUUID,
+                    direction: mapSplitDirection(direction)
+                )
+            )
+        case .gotoSplit(let direction):
+            guard
+                let command = mapGotoSplitDirection(direction),
+                let action = ActionResolver.resolve(command: command, tabs: store.tabs, activeTabId: sourceTabId)
+            else {
+                Self.logger.debug(
+                    "Unable to resolve gotoSplit runtime event for pane \(sourcePaneUUID.uuidString, privacy: .public) direction=\(String(describing: direction), privacy: .public)"
+                )
+                return
+            }
+            execute(action)
+        case .resizeSplit(let amount, let direction):
+            execute(
+                .resizePaneByDelta(
+                    tabId: sourceTabId,
+                    paneId: sourcePaneUUID,
+                    direction: mapResizeSplitDirection(direction),
+                    amount: amount
+                )
+            )
+        case .equalizeSplits:
+            execute(.equalizePanes(tabId: sourceTabId))
+        case .toggleSplitZoom:
+            execute(.toggleSplitZoom(tabId: sourceTabId, paneId: sourcePaneUUID))
+        case .closeTab(let mode):
+            executeCloseTabMode(mode, sourceTabId: sourceTabId)
+        case .gotoTab(let target):
+            executeGotoTabTarget(target, sourceTabId: sourceTabId)
+        case .moveTab(let amount):
+            execute(.moveTab(tabId: sourceTabId, delta: amount))
+        case .titleChanged(let title):
+            store.updatePaneTitle(sourcePaneUUID, title: title)
+        case .cwdChanged(let cwdPath):
+            store.updatePaneCWD(sourcePaneUUID, cwd: URL(fileURLWithPath: cwdPath))
+        case .commandFinished, .bellRang:
+            Self.logger.debug(
+                "Terminal control event received for pane \(sourcePaneUUID.uuidString, privacy: .public): \(String(describing: event), privacy: .public)"
+            )
+        case .scrollbarChanged, .unhandled:
+            Self.logger.debug(
+                "Terminal runtime event ignored by coordinator for pane \(sourcePaneUUID.uuidString, privacy: .public): \(String(describing: event), privacy: .public)"
+            )
+        }
+    }
+
+    private func openNewTabFromSourcePane(_ sourcePaneId: UUID) {
+        if let sourcePane = store.pane(sourcePaneId),
+            let worktreeId = sourcePane.worktreeId,
+            let repoId = sourcePane.repoId,
+            let worktree = store.worktree(worktreeId),
+            let repo = store.repo(repoId)
+        {
+            _ = openNewTerminal(for: worktree, in: repo)
+            return
+        }
+
+        if let repo = store.repos.first, let worktree = repo.worktrees.first {
+            Self.logger.warning(
+                "Opening new tab from fallback repo/worktree because source pane \(sourcePaneId.uuidString, privacy: .public) has no worktree context"
+            )
+            _ = openNewTerminal(for: worktree, in: repo)
+            return
+        }
+
+        Self.logger.warning(
+            "Unable to open new tab from source pane \(sourcePaneId.uuidString, privacy: .public): no repo/worktree available"
+        )
+    }
+
+    private func executeCloseTabMode(_ mode: GhosttyCloseTabMode, sourceTabId: UUID) {
+        let tabs = store.tabs
+        switch mode {
+        case .thisTab:
+            execute(.closeTab(tabId: sourceTabId))
+        case .otherTabs:
+            for tab in tabs where tab.id != sourceTabId {
+                execute(.closeTab(tabId: tab.id))
+            }
+        case .rightTabs:
+            guard let sourceTabIndex = tabs.firstIndex(where: { $0.id == sourceTabId }) else { return }
+            let rightTabs = tabs.dropFirst(sourceTabIndex + 1)
+            for tab in rightTabs {
+                execute(.closeTab(tabId: tab.id))
+            }
+        }
+    }
+
+    private func executeGotoTabTarget(_ target: GhosttyGotoTabTarget, sourceTabId: UUID) {
+        let tabs = store.tabs
+        guard !tabs.isEmpty else { return }
+
+        let action: PaneAction?
+        switch target {
+        case .previous:
+            action = ActionResolver.resolve(command: .prevTab, tabs: tabs, activeTabId: sourceTabId)
+        case .next:
+            action = ActionResolver.resolve(command: .nextTab, tabs: tabs, activeTabId: sourceTabId)
+        case .last:
+            action = tabs.last.map { .selectTab(tabId: $0.id) }
+        case .index(let oneBasedIndex):
+            let zeroBasedIndex = min(max(oneBasedIndex - 1, 0), tabs.count - 1)
+            action = .selectTab(tabId: tabs[zeroBasedIndex].id)
+        }
+
+        if let action {
+            execute(action)
+        } else {
+            Self.logger.debug(
+                "Unable to resolve gotoTab runtime event for sourceTabId \(sourceTabId.uuidString, privacy: .public) target=\(String(describing: target), privacy: .public)"
+            )
+        }
+    }
+
+    private func mapSplitDirection(_ direction: GhosttySplitDirection) -> SplitNewDirection {
+        switch direction {
+        case .left:
+            return .left
+        case .right:
+            return .right
+        case .up:
+            return .up
+        case .down:
+            return .down
+        }
+    }
+
+    private func mapResizeSplitDirection(_ direction: GhosttyResizeSplitDirection) -> SplitResizeDirection {
+        switch direction {
+        case .left:
+            return .left
+        case .right:
+            return .right
+        case .up:
+            return .up
+        case .down:
+            return .down
+        }
+    }
+
+    private func mapGotoSplitDirection(_ direction: GhosttyGotoSplitDirection) -> AppCommand? {
+        switch direction {
+        case .previous:
+            return .focusPrevPane
+        case .next:
+            return .focusNextPane
+        case .left:
+            return .focusPaneLeft
+        case .right:
+            return .focusPaneRight
+        case .up:
+            return .focusPaneUp
+        case .down:
+            return .focusPaneDown
+        }
     }
 }

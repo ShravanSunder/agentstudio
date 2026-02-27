@@ -61,7 +61,7 @@ enum DynamicViewProjector {
         var ungrouped: [UUID] = []
 
         for pane in panes {
-            if let repoId = pane.repoId, let repo = repoLookup[repoId] {
+            if let repoId = pane.metadata.facets.repoId, let repo = repoLookup[repoId] {
                 groups[repoId, default: (name: repo.name, paneIds: [])].paneIds.append(pane.id)
             } else {
                 ungrouped.append(pane.id)
@@ -90,7 +90,7 @@ enum DynamicViewProjector {
         var ungrouped: [UUID] = []
 
         for pane in panes {
-            if let wtId = pane.worktreeId, let wt = worktreeLookup[wtId] {
+            if let wtId = pane.metadata.facets.worktreeId, let wt = worktreeLookup[wtId] {
                 groups[wtId, default: (name: wt.name, paneIds: [])].paneIds.append(pane.id)
             } else {
                 ungrouped.append(pane.id)
@@ -111,7 +111,7 @@ enum DynamicViewProjector {
         var ungrouped: [UUID] = []
 
         for pane in panes {
-            if let cwd = pane.metadata.cwd {
+            if let cwd = pane.metadata.facets.cwd {
                 let path = cwd.path
                 let name = cwd.lastPathComponent.isEmpty ? path : cwd.lastPathComponent
                 groups[path, default: (name: name, paneIds: [])].paneIds.append(pane.id)
@@ -162,7 +162,14 @@ enum DynamicViewProjector {
         var ungrouped: [UUID] = []
 
         for pane in panes {
-            if let repoId = pane.repoId, let parentFolder = repoParentFolder[repoId] {
+            // Prefer explicit pane facets when available so projected grouping follows
+            // runtime-propagated context instead of recomputing from repo lookup.
+            if let parentFolder = pane.metadata.facets.parentFolder {
+                let path = parentFolder
+                let pathURL = URL(fileURLWithPath: path)
+                let name = pathURL.lastPathComponent.isEmpty ? path : pathURL.lastPathComponent
+                groups[path, default: (name: name, paneIds: [])].paneIds.append(pane.id)
+            } else if let repoId = pane.metadata.facets.repoId, let parentFolder = repoParentFolder[repoId] {
                 let path = parentFolder.path
                 let name = parentFolder.lastPathComponent.isEmpty ? path : parentFolder.lastPathComponent
                 groups[path, default: (name: name, paneIds: [])].paneIds.append(pane.id)

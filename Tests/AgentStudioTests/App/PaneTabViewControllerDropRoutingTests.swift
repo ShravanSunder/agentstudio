@@ -7,9 +7,9 @@ import Testing
 struct PaneTabViewControllerDropRoutingTests {
     @Test
     func resolveDrawerMoveDropAction_returnsMoveAction_forSameDrawerParent() {
-        let parentPaneId = UUID()
-        let sourcePaneId = UUID()
-        let destinationPaneId = UUID()
+        let parentPaneId = UUIDv7.generate()
+        let sourcePaneId = UUIDv7.generate()
+        let destinationPaneId = UUIDv7.generate()
 
         var sourcePane = makePane(id: sourcePaneId)
         sourcePane.kind = .drawerChild(parentPaneId: parentPaneId)
@@ -39,10 +39,10 @@ struct PaneTabViewControllerDropRoutingTests {
 
     @Test
     func resolveDrawerMoveDropAction_returnsNil_forCrossParentMove() {
-        let sourceParentPaneId = UUID()
-        let destinationParentPaneId = UUID()
-        let sourcePaneId = UUID()
-        let destinationPaneId = UUID()
+        let sourceParentPaneId = UUIDv7.generate()
+        let destinationParentPaneId = UUIDv7.generate()
+        let sourcePaneId = UUIDv7.generate()
+        let destinationPaneId = UUIDv7.generate()
 
         var sourcePane = makePane(id: sourcePaneId)
         sourcePane.kind = .drawerChild(parentPaneId: sourceParentPaneId)
@@ -64,9 +64,9 @@ struct PaneTabViewControllerDropRoutingTests {
 
     @Test
     func resolveDrawerMoveDropAction_returnsNil_whenDestinationIsLayoutPane() {
-        let sourcePaneId = UUID()
-        let destinationPaneId = UUID()
-        let parentPaneId = UUID()
+        let sourcePaneId = UUIDv7.generate()
+        let destinationPaneId = UUIDv7.generate()
+        let parentPaneId = UUIDv7.generate()
 
         var sourcePane = makePane(id: sourcePaneId)
         sourcePane.kind = .drawerChild(parentPaneId: parentPaneId)

@@ -76,6 +76,7 @@ Command Bar → CommandDispatcher.dispatch() → CommandHandler
 |----------|--------|
 | [Component Architecture](component_architecture.md) | Data model, service layer, command bar, data flow, persistence, invariants |
 | [Pane Runtime Architecture](pane_runtime_architecture.md) | Pane runtime contracts (1-16), event taxonomy, priority system, adapter/runtime/coordinator layers, filesystem batching, attach readiness (5a), restart reconcile (5b), visibility-tier scheduling (12a), Ghostty action coverage (7a), RuntimeCommand dispatch (10), source/sink/projection vocabulary, agent harness model, directory placement, migration path |
+| [Pane Runtime EventBus Design](pane_runtime_eventbus_design.md) | EventBus coordination: actor fan-out, boundary actors (filesystem/forge/container) plus plugin context mediation, `@concurrent nonisolated` for per-pane work, multiplexed `@Observable` + event stream, connection patterns (AsyncStream vs direct call vs @Observable), data flow per contract, Swift 6.2 threading model |
 | [Window System Design](window_system_design.md) | Window/tab/pane/drawer data model, dynamic views, arrangements, orphaned pane pool, ownership invariants |
 | [Session Lifecycle](session_lifecycle.md) | Pane identity contract, creation, close, undo, restore, runtime status, zmx backend |
 | [Zmx Restore and Sizing](zmx_restore_and_sizing.md) | Deferred attach sequencing, geometry readiness, restart reconcile policy, and zmx restore/sizing test coverage |
@@ -83,7 +84,6 @@ Command Bar → CommandDispatcher.dispatch() → CommandHandler
 | [App Architecture](appkit_swiftui_architecture.md) | AppKit+SwiftUI hybrid shell, controllers, command bar panel, event handling |
 | [Directory Structure](directory_structure.md) | Module boundaries, Core vs Features decision process, import rule, component placement |
 | [Swift-React Bridge](swift_react_bridge_design.md) | Three-stream bridge architecture, push pipeline, JSON-RPC command channel, content world isolation |
-| [Window System Design](window_system_design.md) | Dynamic views, pane arrangements, drawers, workspace layers |
 | [JTBD & Requirements](jtbd_and_requirements.md) | Jobs to be done, pain points, and requirements for the dynamic window system |
 
 ## Related

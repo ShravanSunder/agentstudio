@@ -1,4 +1,3 @@
-// swiftlint:disable file_length type_body_length
 import AppKit
 import GhosttyKit
 import Observation
@@ -180,7 +179,6 @@ class PaneTabViewController: NSViewController, CommandHandler {
 
     private func setupNotificationObservers() {
         setupAppNotificationObservers()
-        setupGhosttyNotificationObservers()
     }
 
     private func setupAppNotificationObservers() {
@@ -245,72 +243,6 @@ class PaneTabViewController: NSViewController, CommandHandler {
                 for await _ in NotificationCenter.default.notifications(named: .openWebviewRequested) {
                     guard let self, !Task.isCancelled else { break }
                     self.handleOpenWebviewRequested()
-                }
-            })
-    }
-
-    private func setupGhosttyNotificationObservers() {
-        notificationTasks.append(
-            Task { [weak self] in
-                for await notification in NotificationCenter.default.notifications(named: .ghosttyNewSplit) {
-                    guard let self, !Task.isCancelled else { break }
-                    self.handleGhosttyNewSplit(notification)
-                }
-            })
-
-        notificationTasks.append(
-            Task { [weak self] in
-                for await notification in NotificationCenter.default.notifications(named: .ghosttyGotoSplit) {
-                    guard let self, !Task.isCancelled else { break }
-                    self.handleGhosttyGotoSplit(notification)
-                }
-            })
-
-        notificationTasks.append(
-            Task { [weak self] in
-                for await notification in NotificationCenter.default.notifications(named: .ghosttyResizeSplit) {
-                    guard let self, !Task.isCancelled else { break }
-                    self.handleGhosttyResizeSplit(notification)
-                }
-            })
-
-        notificationTasks.append(
-            Task { [weak self] in
-                for await notification in NotificationCenter.default.notifications(named: .ghosttyEqualizeSplits) {
-                    guard let self, !Task.isCancelled else { break }
-                    self.handleGhosttyEqualizeSplits(notification)
-                }
-            })
-
-        notificationTasks.append(
-            Task { [weak self] in
-                for await notification in NotificationCenter.default.notifications(named: .ghosttyToggleSplitZoom) {
-                    guard let self, !Task.isCancelled else { break }
-                    self.handleGhosttyToggleSplitZoom(notification)
-                }
-            })
-
-        notificationTasks.append(
-            Task { [weak self] in
-                for await notification in NotificationCenter.default.notifications(named: .ghosttyCloseTab) {
-                    guard let self, !Task.isCancelled else { break }
-                    self.handleGhosttyCloseTab(notification)
-                }
-            })
-
-        notificationTasks.append(
-            Task { [weak self] in
-                for await notification in NotificationCenter.default.notifications(named: .ghosttyGotoTab) {
-                    guard let self, !Task.isCancelled else { break }
-                    self.handleGhosttyGotoTab(notification)
-                }
-            })
-
-        notificationTasks.append(
-            Task { [weak self] in
-                for await notification in NotificationCenter.default.notifications(named: .ghosttyMoveTab) {
-                    guard let self, !Task.isCancelled else { break }
-                    self.handleGhosttyMoveTab(notification)
                 }
             })
     }
@@ -572,92 +504,11 @@ class PaneTabViewController: NSViewController, CommandHandler {
     // MARK: - Empty State
 
     private func createEmptyStateView() -> NSView {
-        let container = NSView()
-        container.wantsLayer = true
-
-        let stackView = NSStackView()
-        stackView.orientation = .vertical
-        stackView.alignment = .centerX
-        stackView.spacing = 20
-        stackView.translatesAutoresizingMaskIntoConstraints = false
-
-        // Icon with gradient background
-        let iconContainer = NSView()
-        iconContainer.wantsLayer = true
-        iconContainer.layer?.cornerRadius = 20
-        iconContainer.layer?.backgroundColor = NSColor.controlAccentColor.withAlphaComponent(0.1).cgColor
-        iconContainer.translatesAutoresizingMaskIntoConstraints = false
-
-        let iconView = NSImageView()
-        iconView.image = NSImage(systemSymbolName: "terminal.fill", accessibilityDescription: "Terminal")
-        iconView.symbolConfiguration = NSImage.SymbolConfiguration(pointSize: 36, weight: .medium)
-        iconView.contentTintColor = .controlAccentColor
-        iconView.translatesAutoresizingMaskIntoConstraints = false
-        iconContainer.addSubview(iconView)
-
-        NSLayoutConstraint.activate([
-            iconContainer.widthAnchor.constraint(equalToConstant: 80),
-            iconContainer.heightAnchor.constraint(equalToConstant: 80),
-            iconView.centerXAnchor.constraint(equalTo: iconContainer.centerXAnchor),
-            iconView.centerYAnchor.constraint(equalTo: iconContainer.centerYAnchor),
-        ])
-
-        // Title
-        let titleLabel = NSTextField(labelWithString: "Welcome to AgentStudio")
-        titleLabel.font = NSFont.systemFont(ofSize: 20, weight: .semibold)
-        titleLabel.textColor = .labelColor
-
-        // Subtitle
-        let subtitleLabel = NSTextField(
-            wrappingLabelWithString:
-                "Manage your AI agent worktrees with integrated terminal sessions.\nDouble-click a worktree to open a terminal."
+        PaneTabEmptyStateViewFactory.make(
+            target: self,
+            addRepoAction: #selector(addRepoAction),
+            addFolderAction: #selector(addFolderAction)
         )
-        subtitleLabel.font = NSFont.systemFont(ofSize: 13)
-        subtitleLabel.textColor = .secondaryLabelColor
-        subtitleLabel.alignment = .center
-        subtitleLabel.maximumNumberOfLines = 3
-
-        // Keyboard shortcut hint
-        let hintLabel = NSTextField(labelWithString: "Tip: Add Folder scans and imports all repos at once")
-        hintLabel.font = NSFont.systemFont(ofSize: 11)
-        hintLabel.textColor = .tertiaryLabelColor
-
-        // Add Repo / Add Folder buttons
-        let addRepoButton = NSButton(title: "Add Repo...", target: self, action: #selector(addRepoAction))
-        addRepoButton.bezelStyle = .rounded
-        addRepoButton.controlSize = .large
-
-        let addFolderButton = NSButton(title: "Add Folder...", target: self, action: #selector(addFolderAction))
-        addFolderButton.bezelStyle = .rounded
-        addFolderButton.controlSize = .large
-        addFolderButton.bezelColor = .systemTeal
-        addFolderButton.keyEquivalent = "\r"
-
-        let buttonStack = NSStackView(views: [addRepoButton, addFolderButton])
-        buttonStack.orientation = .horizontal
-        buttonStack.spacing = 10
-        buttonStack.alignment = .centerY
-
-        stackView.addArrangedSubview(iconContainer)
-        stackView.addArrangedSubview(titleLabel)
-        stackView.addArrangedSubview(subtitleLabel)
-        stackView.addArrangedSubview(buttonStack)
-        stackView.addArrangedSubview(hintLabel)
-
-        stackView.setCustomSpacing(24, after: iconContainer)
-        stackView.setCustomSpacing(8, after: titleLabel)
-        stackView.setCustomSpacing(24, after: subtitleLabel)
-        stackView.setCustomSpacing(12, after: buttonStack)
-
-        container.addSubview(stackView)
-
-        NSLayoutConstraint.activate([
-            stackView.centerXAnchor.constraint(equalTo: container.centerXAnchor),
-            stackView.centerYAnchor.constraint(equalTo: container.centerYAnchor),
-            subtitleLabel.widthAnchor.constraint(lessThanOrEqualToConstant: 400),
-        ])
-
-        return container
     }
 
     @objc private func addRepoAction() {
@@ -756,19 +607,7 @@ class PaneTabViewController: NSViewController, CommandHandler {
     /// Central entry point: validates a PaneAction and executes it if valid.
     /// All input sources (keyboard, menu, drag-drop, commands) converge here.
     private func dispatchAction(_ action: PaneAction) {
-        let snapshot = ActionResolver.snapshot(
-            from: store.tabs,
-            activeTabId: store.activeTabId,
-            isManagementModeActive: ManagementModeMonitor.shared.isActive,
-            knownWorktreeIds: Set(store.repos.flatMap(\.worktrees).map(\.id))
-        )
-
-        switch ActionValidator.validate(action, state: snapshot) {
-        case .success:
-            executor.execute(action)
-        case .failure(let error):
-            ghosttyLogger.warning("Action rejected: \(error)")
-        }
+        executor.execute(action)
     }
 
     // MARK: - Tab Commands
@@ -960,184 +799,6 @@ class PaneTabViewController: NSViewController, CommandHandler {
                     "\(Self.self).handleRefocusTerminal syncFocus activeSurface=\(terminal.surfaceId?.uuidString ?? "nil")"
                 )
             }
-        }
-    }
-
-    // MARK: - Ghostty Target Resolution
-
-    private func resolveGhosttyTarget(_ surfaceView: Ghostty.SurfaceView) -> (tabId: UUID, paneId: UUID)? {
-        guard let surfaceId = SurfaceManager.shared.surfaceId(forView: surfaceView) else {
-            ghosttyLogger.warning("[\(Self.self)] resolveGhosttyTarget: surfaceView not found in SurfaceManager")
-            return nil
-        }
-        guard let paneId = SurfaceManager.shared.paneId(for: surfaceId) else {
-            ghosttyLogger.warning("[\(Self.self)] resolveGhosttyTarget: no pane for surfaceId \(surfaceId)")
-            return nil
-        }
-        guard let tab = store.tabs.first(where: { $0.paneIds.contains(paneId) }) else {
-            ghosttyLogger.warning("[\(Self.self)] resolveGhosttyTarget: no tab contains pane \(paneId)")
-            return nil
-        }
-        return (tab.id, paneId)
-    }
-
-    // MARK: - Ghostty Split Action Handlers
-
-    private func handleGhosttyNewSplit(_ notification: Notification) {
-        guard let surfaceView = notification.object as? Ghostty.SurfaceView,
-            let dirValue = notification.userInfo?["direction"] as? UInt32,
-            let direction = mapGhosttyNewSplitDirection(dirValue),
-            let (tabId, paneId) = resolveGhosttyTarget(surfaceView)
-        else { return }
-        dispatchAction(
-            .insertPane(
-                source: .newTerminal, targetTabId: tabId,
-                targetPaneId: paneId, direction: direction))
-    }
-
-    private func handleGhosttyGotoSplit(_ notification: Notification) {
-        guard let surfaceView = notification.object as? Ghostty.SurfaceView,
-            let gotoValue = notification.userInfo?["goto"] as? UInt32,
-            let command = mapGhosttyGotoSplit(gotoValue),
-            let (tabId, _) = resolveGhosttyTarget(surfaceView)
-        else { return }
-        if let action = ActionResolver.resolve(command: command, tabs: store.tabs, activeTabId: tabId) {
-            dispatchAction(action)
-        }
-    }
-
-    private func handleGhosttyResizeSplit(_ notification: Notification) {
-        guard let surfaceView = notification.object as? Ghostty.SurfaceView,
-            let amount = notification.userInfo?["amount"] as? UInt16,
-            let dirValue = notification.userInfo?["direction"] as? UInt32,
-            let direction = mapGhosttyResizeDirection(dirValue),
-            let (tabId, paneId) = resolveGhosttyTarget(surfaceView)
-        else { return }
-        dispatchAction(
-            .resizePaneByDelta(
-                tabId: tabId, paneId: paneId,
-                direction: direction, amount: amount))
-    }
-
-    private func handleGhosttyEqualizeSplits(_ notification: Notification) {
-        guard let surfaceView = notification.object as? Ghostty.SurfaceView,
-            let (tabId, _) = resolveGhosttyTarget(surfaceView)
-        else { return }
-        dispatchAction(.equalizePanes(tabId: tabId))
-    }
-
-    private func handleGhosttyToggleSplitZoom(_ notification: Notification) {
-        guard let surfaceView = notification.object as? Ghostty.SurfaceView,
-            let (tabId, paneId) = resolveGhosttyTarget(surfaceView)
-        else { return }
-        dispatchAction(.toggleSplitZoom(tabId: tabId, paneId: paneId))
-    }
-
-    // MARK: - Ghostty Tab Action Handlers
-
-    private func handleGhosttyCloseTab(_ notification: Notification) {
-        guard let surfaceView = notification.object as? Ghostty.SurfaceView,
-            let modeValue = notification.userInfo?["mode"] as? UInt32,
-            let (tabId, _) = resolveGhosttyTarget(surfaceView)
-        else { return }
-        let tabs = store.tabs
-        switch modeValue {
-        case GHOSTTY_ACTION_CLOSE_TAB_MODE_THIS.rawValue:
-            dispatchAction(.closeTab(tabId: tabId))
-        case GHOSTTY_ACTION_CLOSE_TAB_MODE_OTHER.rawValue:
-            for tab in tabs where tab.id != tabId {
-                dispatchAction(.closeTab(tabId: tab.id))
-            }
-        case GHOSTTY_ACTION_CLOSE_TAB_MODE_RIGHT.rawValue:
-            guard let currentIndex = tabs.firstIndex(where: { $0.id == tabId }) else { return }
-            for tab in tabs[(currentIndex + 1)...] {
-                dispatchAction(.closeTab(tabId: tab.id))
-            }
-        default:
-            ghosttyLogger.warning("[\(Self.self)] Unknown close_tab mode: \(modeValue)")
-        }
-    }
-
-    private func handleGhosttyGotoTab(_ notification: Notification) {
-        guard let surfaceView = notification.object as? Ghostty.SurfaceView,
-            let targetValue = notification.userInfo?["target"] as? Int32,
-            let (tabId, _) = resolveGhosttyTarget(surfaceView)
-        else { return }
-
-        let tabs = store.tabs
-        let action: PaneAction?
-
-        switch targetValue {
-        case GHOSTTY_GOTO_TAB_PREVIOUS.rawValue:
-            action = ActionResolver.resolve(command: .prevTab, tabs: tabs, activeTabId: tabId)
-        case GHOSTTY_GOTO_TAB_NEXT.rawValue:
-            action = ActionResolver.resolve(command: .nextTab, tabs: tabs, activeTabId: tabId)
-        case GHOSTTY_GOTO_TAB_LAST.rawValue:
-            if let lastTab = tabs.last {
-                action = .selectTab(tabId: lastTab.id)
-            } else {
-                action = nil
-            }
-        default:
-            // Ghostty uses 1-indexed tab numbers for positive values.
-            // Out-of-range snaps to the last tab (matches Ghostty's TerminalController).
-            guard targetValue >= 1 else {
-                ghosttyLogger.warning("[\(Self.self)] goto_tab index \(targetValue) out of range")
-                action = nil
-                break
-            }
-            let index = min(Int(targetValue - 1), tabs.count - 1)
-            action = .selectTab(tabId: tabs[index].id)
-        }
-
-        if let action { dispatchAction(action) }
-    }
-
-    private func handleGhosttyMoveTab(_ notification: Notification) {
-        guard let surfaceView = notification.object as? Ghostty.SurfaceView,
-            let amount = notification.userInfo?["amount"] as? Int,
-            let (tabId, _) = resolveGhosttyTarget(surfaceView)
-        else { return }
-        dispatchAction(.moveTab(tabId: tabId, delta: amount))
-    }
-
-    // MARK: - Ghostty Enum Mapping
-
-    private func mapGhosttyNewSplitDirection(_ raw: UInt32) -> SplitNewDirection? {
-        switch raw {
-        case GHOSTTY_SPLIT_DIRECTION_RIGHT.rawValue: return .right
-        case GHOSTTY_SPLIT_DIRECTION_DOWN.rawValue: return .down
-        case GHOSTTY_SPLIT_DIRECTION_LEFT.rawValue: return .left
-        case GHOSTTY_SPLIT_DIRECTION_UP.rawValue: return .up
-        default:
-            ghosttyLogger.warning("[\(Self.self)] Unknown split direction: \(raw)")
-            return nil
-        }
-    }
-
-    private func mapGhosttyGotoSplit(_ raw: UInt32) -> AppCommand? {
-        switch raw {
-        case GHOSTTY_GOTO_SPLIT_PREVIOUS.rawValue: return .focusPrevPane
-        case GHOSTTY_GOTO_SPLIT_NEXT.rawValue: return .focusNextPane
-        case GHOSTTY_GOTO_SPLIT_UP.rawValue: return .focusPaneUp
-        case GHOSTTY_GOTO_SPLIT_DOWN.rawValue: return .focusPaneDown
-        case GHOSTTY_GOTO_SPLIT_LEFT.rawValue: return .focusPaneLeft
-        case GHOSTTY_GOTO_SPLIT_RIGHT.rawValue: return .focusPaneRight
-        default:
-            ghosttyLogger.warning("[\(Self.self)] Unknown goto_split value: \(raw)")
-            return nil
-        }
-    }
-
-    private func mapGhosttyResizeDirection(_ raw: UInt32) -> SplitResizeDirection? {
-        switch raw {
-        case GHOSTTY_RESIZE_SPLIT_UP.rawValue: return .up
-        case GHOSTTY_RESIZE_SPLIT_DOWN.rawValue: return .down
-        case GHOSTTY_RESIZE_SPLIT_LEFT.rawValue: return .left
-        case GHOSTTY_RESIZE_SPLIT_RIGHT.rawValue: return .right
-        default:
-            ghosttyLogger.warning("[\(Self.self)] Unknown resize direction: \(raw)")
-            return nil
         }
     }
 

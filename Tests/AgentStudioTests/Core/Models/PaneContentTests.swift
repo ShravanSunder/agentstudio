@@ -367,45 +367,39 @@ final class PaneContentTests {
         #expect(s1 != s2)
     }
 
-    // MARK: - Backward-Compatible Decoding
+    // MARK: - Strict Canonical Decoding
 
     @Test
 
-    func test_decode_legacyV1_singleURL() throws {
-        // Arrange — v1 shape: {url, showNavigation} (no title)
+    func test_decode_missingTitle_throws() throws {
         let json: [String: Any] = [
             "url": "https://example.com",
             "showNavigation": true,
         ]
         let data = try JSONSerialization.data(withJSONObject: json)
 
-        // Act
-        let state = try decoder.decode(WebviewState.self, from: data)
-
-        // Assert
-        #expect(state.url.absoluteString == "https://example.com")
-        #expect(state.title.isEmpty)
-        #expect(state.showNavigation)
+        #expect(throws: Error.self) {
+            try decoder.decode(WebviewState.self, from: data)
+        }
     }
 
     @Test
 
-    func test_decode_legacyV1_noNavigation() throws {
+    func test_decode_missingShowNavigation_throws() throws {
         let json: [String: Any] = [
             "url": "https://example.com",
-            "showNavigation": false,
+            "title": "Example",
         ]
         let data = try JSONSerialization.data(withJSONObject: json)
 
-        let state = try decoder.decode(WebviewState.self, from: data)
-
-        #expect(!(state.showNavigation))
+        #expect(throws: Error.self) {
+            try decoder.decode(WebviewState.self, from: data)
+        }
     }
 
     @Test
 
-    func test_decode_legacyV2_tabsArray_extractsActiveTab() throws {
-        // Arrange — v2 multi-tab shape: {tabs: [{url, title}], activeTabIndex}
+    func test_decode_legacyTabsArray_throws() throws {
         let json: [String: Any] = [
             "tabs": [
                 ["url": "https://github.com", "title": "GitHub", "id": UUID().uuidString],
@@ -416,38 +410,14 @@ final class PaneContentTests {
         ]
         let data = try JSONSerialization.data(withJSONObject: json)
 
-        // Act
-        let state = try decoder.decode(WebviewState.self, from: data)
-
-        // Assert — extracts the active tab (index 1 = docs.swift.org)
-        #expect(state.url.absoluteString == "https://docs.swift.org")
-        #expect(state.showNavigation)
+        #expect(throws: Error.self) {
+            try decoder.decode(WebviewState.self, from: data)
+        }
     }
 
     @Test
 
-    func test_decode_legacyV2_tabsArray_fallsBackToFirstTab() throws {
-        // Arrange — tabs shape with out-of-range activeTabIndex
-        let json: [String: Any] = [
-            "tabs": [
-                ["url": "https://github.com", "title": "GitHub", "id": UUID().uuidString]
-            ],
-            "activeTabIndex": 99,
-            "showNavigation": false,
-        ]
-        let data = try JSONSerialization.data(withJSONObject: json)
-
-        // Act
-        let state = try decoder.decode(WebviewState.self, from: data)
-
-        // Assert — falls back to first tab
-        #expect(state.url.absoluteString == "https://github.com")
-    }
-
-    @Test
-
-    func test_decode_legacyV2_viaFullPaneContent() throws {
-        // Arrange — PaneContent envelope with v2 tabs shape
+    func test_decode_legacyV2_viaFullPaneContent_throws() throws {
         let json: [String: Any] = [
             "type": "webview",
             "version": 2,
@@ -461,21 +431,14 @@ final class PaneContentTests {
         ]
         let data = try JSONSerialization.data(withJSONObject: json)
 
-        // Act
-        let content = try decoder.decode(PaneContent.self, from: data)
-
-        // Assert
-        if case .webview(let state) = content {
-            #expect(state.url.absoluteString == "https://github.com")
-        } else {
-            Issue.record("Expected .webview, got \(content)")
+        #expect(throws: Error.self) {
+            _ = try decoder.decode(PaneContent.self, from: data)
         }
     }
 
     @Test
 
-    func test_decode_legacyV1_viaFullPaneContent() throws {
-        // Arrange — PaneContent envelope with v1 single-URL shape
+    func test_decode_legacyV1_viaFullPaneContent_throws() throws {
         let json: [String: Any] = [
             "type": "webview",
             "version": 1,
@@ -486,14 +449,8 @@ final class PaneContentTests {
         ]
         let data = try JSONSerialization.data(withJSONObject: json)
 
-        // Act
-        let content = try decoder.decode(PaneContent.self, from: data)
-
-        // Assert
-        if case .webview(let state) = content {
-            #expect(state.url.absoluteString == "https://github.com")
-        } else {
-            Issue.record("Expected .webview, got \(content)")
+        #expect(throws: Error.self) {
+            _ = try decoder.decode(PaneContent.self, from: data)
         }
     }
 

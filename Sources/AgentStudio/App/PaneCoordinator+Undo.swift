@@ -180,7 +180,7 @@ extension PaneCoordinator {
 
         teardownDrawerPanes(for: paneId)
         teardownView(for: paneId)
-        _ = store.removePaneFromLayout(paneId, inTab: tabId)
+        store.removePaneFromLayout(paneId, inTab: tabId)
         store.removePane(paneId)
     }
 }

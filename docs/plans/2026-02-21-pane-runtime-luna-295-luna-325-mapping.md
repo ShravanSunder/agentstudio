@@ -12,29 +12,33 @@
 3. [D2: Single typed event stream](../architecture/pane_runtime_architecture.md#d2-single-typed-event-stream-not-three-separate-planes)
 4. [D3: @Observable for UI, event stream for coordination](../architecture/pane_runtime_architecture.md#d3-observable-for-ui-state-event-stream-for-coordination)
 5. [D4: GhosttyEvent FFI enum](../architecture/pane_runtime_architecture.md#d4-ghosttyevent-enum-at-ffi-boundary-for-exhaustive-capture)
-6. [D5: Adapter → Runtime → Coordinator](../architecture/pane_runtime_architecture.md#d5-adapter--runtime--coordinator-layering)
+6. [D5: View / Controller / Runtime / Adapter layering](../architecture/pane_runtime_architecture.md#d5-view--controller--runtime--adapter-layering)
 7. [D6: Priority-aware event processing](../architecture/pane_runtime_architecture.md#d6-priority-aware-event-processing)
 8. [D7: Filesystem observation](../architecture/pane_runtime_architecture.md#d7-filesystem-observation-with-batched-artifact-production)
 9. [D8: Execution backend config](../architecture/pane_runtime_architecture.md#d8-execution-backend-as-pane-configuration-not-pane-type-jtbd-7-jtbd-8)
-10. [Contract Vocabulary](../architecture/pane_runtime_architecture.md#contract-vocabulary)
-11. [Contract 1: PaneRuntime Protocol](../architecture/pane_runtime_architecture.md#contract-1-paneruntime-protocol)
-12. [Contract 2: PaneKindEvent + PaneRuntimeEvent](../architecture/pane_runtime_architecture.md#contract-2-panekindevent-protocol--paneruntimeevent-enum)
-13. [Contract 3: PaneEventEnvelope](../architecture/pane_runtime_architecture.md#contract-3-paneeventenvelope)
-14. [Contract 5: PaneLifecycleStateMachine](../architecture/pane_runtime_architecture.md#contract-5-panelifecyclestatemachine)
-15. [Contract 5a: Attach Readiness Policy (LUNA-295)](../architecture/pane_runtime_architecture.md#contract-5a-attach-readiness-policy-luna-295)
-16. [Contract 5b: Restart Reconcile Policy (LUNA-324)](../architecture/pane_runtime_architecture.md#contract-5b-restart-reconcile-policy-luna-324)
-17. [Contract 7a: Ghostty Action Coverage Policy (LUNA-325)](../architecture/pane_runtime_architecture.md#contract-7a-ghostty-action-coverage-policy-luna-325)
-18. [Contract 10: Inbound Runtime Command Dispatch](../architecture/pane_runtime_architecture.md#contract-10-inbound-runtime-command-dispatch)
-19. [Contract 11: Runtime Registry](../architecture/pane_runtime_architecture.md#contract-11-runtime-registry)
-20. [Contract 12: NotificationReducer](../architecture/pane_runtime_architecture.md#contract-12-notificationreducer)
-21. [Contract 12a: Visibility-Tier Scheduling (LUNA-295)](../architecture/pane_runtime_architecture.md#contract-12a-visibility-tier-scheduling-luna-295)
-22. [Contract 13: Workflow Engine (deferred)](../architecture/pane_runtime_architecture.md#contract-13-workflow-engine-deferred)
-23. [Contract 14: Replay Buffer](../architecture/pane_runtime_architecture.md#contract-14-replay-buffer)
-24. [Contract 15: Terminal Process RPC (deferred)](../architecture/pane_runtime_architecture.md#contract-15-terminal-process-requestresponse-channel-deferred)
-25. [Contract 16: Pane Filesystem Context (deferred)](../architecture/pane_runtime_architecture.md#contract-16-pane-filesystem-context-stream-deferred)
-26. [Migration: NotificationCenter → AsyncStream](../architecture/pane_runtime_architecture.md#migration-notificationcenterdispatchqueue--asyncstreamevent-bus)
-27. [Architectural Invariants (A1-A15)](../architecture/pane_runtime_architecture.md#architectural-invariants)
-28. [Swift 6 Type and Concurrency Invariants](../architecture/pane_runtime_architecture.md#swift-6-type-and-concurrency-invariants)
+10. [D9: System-level event sources](../architecture/pane_runtime_architecture.md#d9-system-level-event-sources--three-tier-hierarchy)
+11. [Runtime Type Taxonomy](../architecture/pane_runtime_architecture.md#runtime-type-taxonomy)
+12. [View / Controller / Runtime Separation](../architecture/pane_runtime_architecture.md#view--controller--runtime-separation-per-pane-type)
+13. [Source Inventory](../architecture/pane_runtime_architecture.md#source-inventory)
+14. [Contract Vocabulary](../architecture/pane_runtime_architecture.md#contract-vocabulary)
+15. [Contract 1: PaneRuntime Protocol](../architecture/pane_runtime_architecture.md#contract-1-paneruntime-protocol)
+16. [Contract 2: PaneKindEvent + PaneRuntimeEvent](../architecture/pane_runtime_architecture.md#contract-2-panekindevent-protocol--paneruntimeevent-enum)
+17. [Contract 3: PaneEventEnvelope](../architecture/pane_runtime_architecture.md#contract-3-paneeventenvelope)
+18. [Contract 5: PaneLifecycleStateMachine](../architecture/pane_runtime_architecture.md#contract-5-panelifecyclestatemachine)
+19. [Contract 5a: Attach Readiness Policy (LUNA-295)](../architecture/pane_runtime_architecture.md#contract-5a-attach-readiness-policy-luna-295)
+20. [Contract 5b: Restart Reconcile Policy (LUNA-324)](../architecture/pane_runtime_architecture.md#contract-5b-restart-reconcile-policy-luna-324)
+21. [Contract 7a: Ghostty Action Coverage Policy (LUNA-325)](../architecture/pane_runtime_architecture.md#contract-7a-ghostty-action-coverage-policy-luna-325)
+22. [Contract 10: Inbound Runtime Command Dispatch](../architecture/pane_runtime_architecture.md#contract-10-inbound-runtime-command-dispatch)
+23. [Contract 11: Runtime Registry](../architecture/pane_runtime_architecture.md#contract-11-runtime-registry)
+24. [Contract 12: NotificationReducer](../architecture/pane_runtime_architecture.md#contract-12-notificationreducer)
+25. [Contract 12a: Visibility-Tier Scheduling (LUNA-295)](../architecture/pane_runtime_architecture.md#contract-12a-visibility-tier-scheduling-luna-295)
+26. [Contract 13: Workflow Engine (deferred)](../architecture/pane_runtime_architecture.md#contract-13-workflow-engine-deferred)
+27. [Contract 14: Replay Buffer](../architecture/pane_runtime_architecture.md#contract-14-replay-buffer)
+28. [Contract 15: Terminal Process RPC (deferred)](../architecture/pane_runtime_architecture.md#contract-15-terminal-process-requestresponse-channel-deferred)
+29. [Contract 16: Pane Filesystem Context (deferred)](../architecture/pane_runtime_architecture.md#contract-16-pane-filesystem-context-stream-deferred)
+30. [Migration: NotificationCenter → AsyncStream](../architecture/pane_runtime_architecture.md#migration-notificationcenterdispatchqueue--asyncstreamevent-bus)
+31. [Architectural Invariants (A1-A15)](../architecture/pane_runtime_architecture.md#architectural-invariants)
+32. [Swift 6 Type and Concurrency Invariants](../architecture/pane_runtime_architecture.md#swift-6-type-and-concurrency-invariants)
 
 ## Ticket Links
 
@@ -46,17 +50,18 @@
 6. `LUNA-343`: https://linear.app/askluna/issue/LUNA-343/post-freeze-contract-consistency-pass-panecoordinator-hardening
 7. `LUNA-344`: https://linear.app/askluna/issue/LUNA-344/deferred-pane-runtime-contracts-implementation-contract-13-15-16
 8. `LUNA-345`: https://linear.app/askluna/issue/LUNA-345/pane-runtime-architecture-completion-gate-post-freeze-full-contract
+9. `LUNA-349`: https://linear.app/askluna/issue/LUNA-349/non-terminal-paneruntime-conformers-fsevents-watcher-system-source
 
 ## Execution Tracker (LUNA-343 Branch)
 
-Current implementation commit baseline: `9e76b1c`.
+Current implementation commit baseline: `ba5d9d8`.
 
 - [x] Extract `PaneCoordinator` into focused extensions (`ActionExecution`, `Undo`, `ViewLifecycle`) and keep runtime dispatch wiring intact.
 - [x] Add hardening coverage for coordinator rollback/teardown paths (`PaneCoordinatorHardeningTests`).
 - [x] Introduce `PaneId` value type and `UUIDv7` utility; migrate runtime contracts and resolver/tests to typed pane identity.
 - [x] Ensure newly created panes mint UUIDv7 IDs (`Pane` default `id`) and keep `Pane.metadata.paneId` synchronized.
 - [x] Add/adjust identity coverage (`PaneIdTests`, `UUIDv7Tests`, `PaneTests`, shared model factories).
-- [x] Harden zmx session-id pane segment derivation for UUIDv7 entropy (`pane16` tail for v7, legacy prefix for non-v7) with regression tests.
+- [x] Harden zmx session-id pane segment derivation to canonical tail entropy (`pane16` uses trailing segment) with regression tests.
 - [x] Align architecture/plan docs on canonical identity source and migration ownership (`LUNA-324` restart reconcile mapping).
 - [x] Verification batch: `swift build`, `swift test --skip "PushPerformanceBenchmarkTests"` (gating), `mise run lint`, and `mise run test` (full-suite acceptance command).
 - [x] Optional benchmark batch: run `PushPerformanceBenchmarkTests` separately; treat as performance signal, not release gate.
@@ -80,7 +85,7 @@ Current implementation commit baseline: `9e76b1c`.
 | **Attach sequencing** | Contract 5, Existing attach flow | `attachStarted→sizeObserved→sizeStabilized→attachSucceeded` | LUNA-295 | Design frozen |
 | **GhosttyEvent FFI enum** | Contract 7 (GhosttyEvent) | Exhaustive C action mapping | LUNA-325 | Design frozen |
 | **Ghostty action coverage** | Contract 7a (Action Coverage Policy) | Per-tag handler, routing, priority table | LUNA-325 | Design frozen |
-| **GhosttyAdapter singleton** | D5 (Adapter→Runtime→Coordinator) | FFI boundary, `@Sendable` trampolines | LUNA-325 | Design frozen |
+| **GhosttyAdapter singleton** | D5 (View/Controller/Runtime/Adapter) | FFI boundary, `@Sendable` trampolines | LUNA-325 | Design frozen |
 | **TerminalRuntime class** | Contract 1 (PaneRuntime protocol) | Per-pane instance, `@MainActor` | LUNA-325 | Design frozen |
 | **Runtime registry** | Contract 11 (RuntimeRegistry) | `paneId→runtime` lookup, uniqueness enforcement on register | LUNA-325 | Design frozen |
 | **Registry invariants** | Arch Invariants A2, A3 | One runtime per pane, sole lookup, unregister on terminate | LUNA-342 (freeze) | Design frozen |
@@ -101,6 +106,12 @@ Current implementation commit baseline: `9e76b1c`.
 | **Swift 6 invariants** | Swift 6 section (9 rules) | Sendable, no DispatchQueue, injectable clock, @MainActor | LUNA-342 (freeze) | Partially implemented |
 | **Architectural invariants** | Arch Invariants (A1-A15) | Structural guarantees across all contracts | LUNA-342 (freeze) | Design frozen |
 | **Migration path** | Migration section | NotificationCenter/DispatchQueue → AsyncStream/event bus, per-action atomic | LUNA-325/327 | Partially implemented |
+| **Runtime type taxonomy** | D1, Runtime Type Taxonomy | Transport-based grouping: Terminal, Bridge, Webview, SwiftPane | LUNA-349 | Design frozen |
+| **View/Controller/Runtime separation** | D5, View/Controller/Runtime Separation | 4-layer pipeline per pane type | LUNA-349 | Design frozen |
+| **System-level event sources** | D9, Source Inventory | Built-in + service + plugin tiers (FSEvents, forge/container services, plugin-defined sources) | LUNA-349 | Design frozen |
+| **BridgeRuntime extraction** | Runtime Type Taxonomy (BridgeRuntime) | Extract runtime from BridgePaneController | LUNA-349 | Design frozen |
+| **WebviewRuntime extraction** | Runtime Type Taxonomy (WebviewRuntime) | Extract runtime from WebviewPaneController | LUNA-349 | Design frozen |
+| **FSEvents watcher** | D9 (FSEvents Watcher) | Per-worktree, debounced, injectable clock | LUNA-349 | Design frozen |
 
 ### Status Legend
 
@@ -116,7 +127,7 @@ Current implementation commit baseline: `9e76b1c`.
 1. `LUNA-327` → state ownership and coordinator boundaries:
 `D1`, `D5`, `Contract 1`, `Contract 11`, `Swift 6 invariants`, `Migration section` (partial — `DispatchQueue` → `MainActor`).
 2. `LUNA-342` → contract freeze gate:
-All design decisions (`D1`–`D8`), all contracts (`1`–`16`, `5a`, `5b`, `7a`, `12a`), all invariants (`A1`–`A15`, Swift 6 `1`–`9`).
+All design decisions (`D1`–`D9`), all contracts (`1`–`16`, `5a`, `5b`, `7a`, `12a`), all invariants (`A1`–`A15`, Swift 6 `1`–`9`).
 3. `LUNA-325` → terminal adapter/runtime implementation (architecture-owned set):
 `Contract 1`, `Contract 2`, `Contract 3`, `Contract 4`, `Contract 7`, `Contract 7a`, `Contract 8`, `Contract 10`, `Contract 11`, `Contract 12`, `Contract 14`, and `Migration section` (primary — `NotificationCenter` → event bus).
 `Contract 5` base lifecycle behavior (`created → ready → draining → terminated`) is implemented through runtime lifecycle semantics in this ticket's runtime path. `Contract 5a` remains `LUNA-295`; `Contract 5b` remains `LUNA-324`.
@@ -127,25 +138,27 @@ All design decisions (`D1`–`D8`), all contracts (`1`–`16`, `5a`, `5b`, `7a`,
 6. `LUNA-344` → deferred runtime architecture implementation:
 `Contract 13`, `Contract 15`, `Contract 16`.
 7. `LUNA-345` → full architecture completion gate:
-Integration checkpoint for `LUNA-325` + `LUNA-295` + `LUNA-324` + `LUNA-344`.
+Integration checkpoint for `LUNA-325` + `LUNA-295` + `LUNA-324` + `LUNA-344` + `LUNA-349`.
+8. `LUNA-349` → non-terminal runtimes + system-level event sources:
+`D1` (runtime taxonomy), `D5` (view/controller/runtime/adapter layering), `D9` (system-level sources), `Runtime Type Taxonomy`, `View/Controller/Runtime Separation`, `Source Inventory`, `Contract 1` (conformance for Bridge/Webview/SwiftPane), `Contract 16` (pane filesystem context via FSEvents watcher).
 
 ## LUNA-325 Non-Deferred Scope Checklist (Must Be Complete Before 325 Close)
 
-- [ ] Contract 1 implemented (PaneRuntime protocol conformance in terminal runtime path).
-- [ ] Contract 5 base lifecycle semantics implemented in runtime flow (`created → ready → draining → terminated`).
+- [x] Contract 1 implemented (PaneRuntime protocol conformance in terminal runtime path).
+- [x] Contract 5 base lifecycle semantics implemented in runtime flow (`created → ready → draining → terminated`).
   `Contract 5a` attach readiness remains `LUNA-295`; `Contract 5b` restart reconcile remains `LUNA-324`.
-- [ ] Contract 2 implemented (typed event taxonomy and runtime event usage).
-- [ ] Contract 3 implemented (envelope routing fields: source/seq/epoch/commandId semantics).
-- [ ] Contract 4 implemented (self-classifying `ActionPolicy` behavior).
-- [ ] Contract 7 implemented (Ghostty FFI action mapping to `GhosttyEvent`).
-- [ ] Contract 7a implemented (exhaustive action coverage policy).
-- [ ] Contract 8 implemented (per-kind event enums integrated in runtime transport).
-- [ ] Contract 10 implemented (inbound runtime command dispatch/capability/lifecycle guards).
-- [ ] Contract 11 implemented (runtime registry uniqueness + unregister discipline).
-- [ ] Contract 12 implemented (priority reducer with critical/lossy behavior).
-- [ ] Contract 14 implemented (bounded replay behavior and catch-up semantics).
-- [ ] Migration invariant satisfied: no dual-path event dispatch for migrated actions.
-- [ ] Verification complete: `swift build`, `swift test`, `mise run lint` all pass.
+- [x] Contract 2 implemented (typed event taxonomy and runtime event usage).
+- [x] Contract 3 implemented (envelope routing fields: source/seq/epoch/commandId semantics).
+- [x] Contract 4 implemented (self-classifying `ActionPolicy` behavior).
+- [x] Contract 7 implemented (Ghostty FFI action mapping to `GhosttyEvent`).
+- [x] Contract 7a implemented (exhaustive action coverage policy).
+- [x] Contract 8 implemented (per-kind event enums integrated in runtime transport).
+- [x] Contract 10 implemented (inbound runtime command dispatch/capability/lifecycle guards).
+- [x] Contract 11 implemented (runtime registry uniqueness + unregister discipline).
+- [x] Contract 12 implemented (priority reducer with critical/lossy behavior).
+- [x] Contract 14 implemented (bounded replay behavior and catch-up semantics).
+- [x] Migration invariant satisfied: no dual-path event dispatch for migrated pane runtime actions.
+- [x] Verification complete: `swift build`, `swift test`, `mise run lint` all pass.
 
 ## Deferred: Workflow Engine
 
@@ -172,6 +185,20 @@ Core/PaneRuntime/
 Features/Terminal/
 ├── Ghostty/         # GhosttyAdapter (C FFI boundary)
 └── Runtime/         # TerminalRuntime (PaneRuntime conformance)
+
+Features/Bridge/
+├── Runtime/         # BridgeRuntime (PaneRuntime conformance), BridgePaneController
+├── Transport/       # RPCRouter, RPCMethod, BridgeBootstrap, BridgeSchemeHandler
+├── State/           # BridgeDomainState, BridgePaneState, Push/
+└── Views/           # BridgePaneView, BridgePaneContentView
+
+Features/Webview/
+├── Runtime/         # WebviewRuntime (PaneRuntime conformance)
+├── Controller/      # WebviewPaneController
+└── Views/           # WebviewPaneView, WebviewNavigationBar
+
+Infrastructure/
+└── FSEvents/        # FSEventsWatcher (per-worktree filesystem observation)
 ```
 
 ### Naming: PaneAction vs RuntimeCommand
@@ -224,7 +251,7 @@ Zero instances remain in Sources. `SurfaceManager.swift` was the last one — re
 | File | What changed |
 |------|-------------|
 | `PaneRuntimeEvent.swift:9` | `any PaneKindEvent` → `any PaneKindEvent & Sendable` |
-| `PaneCommand.swift:24` | `any PaneKindCommand` → `any PaneKindCommand & Sendable` |
+| `PaneCommand.swift:24` (renamed to `RuntimeCommand.swift` in LUNA-325) | `any PaneKindCommand` → `any PaneKindCommand & Sendable` |
 | `GhosttySurfaceView.swift:73` | `surface: ghostty_surface_t?` → `nonisolated(unsafe)` (FFI pointer for isolated deinit) |
 | `GhosttySurfaceView.swift:854` | `NSTextInputClient` → `@preconcurrency NSTextInputClient` |
 | `SessionRuntime.swift:25` | `SessionBackendProtocol: Sendable` → `@MainActor protocol SessionBackendProtocol` |
@@ -277,7 +304,7 @@ Keep new observation code on async streams (`NotificationCenter.default.notifica
 
 **`no_task_detached` — outstanding detached task usage:**
 
-`Features/Bridge/Push/Slice.swift` intentionally offloads cold-level JSON encoding to a background executor. Keep `Task.detached` only if profiling still justifies it, and keep inline suppression with explicit justification scoped to the detached call.
+`Features/Bridge/Push/Slice.swift` intentionally offloads cold-level JSON encoding to a background executor. Migrate to `@concurrent` static function (Swift 6.2, SE-0461) — this preserves priority and task-locals that `Task.detached` strips. See [Pane Runtime EventBus Design — Per-Pane Heavy Work](../architecture/pane_runtime_eventbus_design.md#per-pane-heavy-work-concurrent) for the canonical pattern.
 
 ### Readiness Tasks (Cross-Ticket)
 
@@ -329,7 +356,7 @@ C callback trampolines are `@Sendable` entry points from arbitrary threads. Do n
 ### Architecture references
 
 - [Migration: NotificationCenter/DispatchQueue → AsyncStream/Event Bus](../architecture/pane_runtime_architecture.md#migration-notificationcenterdispatchqueue--asyncstreamevent-bus)
-- [D5: Adapter → Runtime → Coordinator](../architecture/pane_runtime_architecture.md#d5-adapter--runtime--coordinator-layering)
+- [D5: View / Controller / Runtime / Adapter layering](../architecture/pane_runtime_architecture.md#d5-view--controller--runtime--adapter-layering)
 - [Swift 6 Concurrency](../architecture/appkit_swiftui_architecture.md#swift-6-concurrency)
 - [Contract 7a: Ghostty Action Coverage Policy](../architecture/pane_runtime_architecture.md#contract-7a-ghostty-action-coverage-policy-luna-325)
 
@@ -360,7 +387,7 @@ After addressing all violations:
 - [x] Convert `SurfaceManager` config properties (`undoTTL`, `maxCreationRetries`, `healthCheckInterval`) to constructor-injected immutable config.
 - [x] Migrate store-level `Task.sleep` usage to injected clocks in `WorkspaceStore`, `SessionRuntime`, and `SurfaceManager`.
 - [ ] Move last-pane escalation domain rule from `PaneCoordinator.executeClosePane` into `WorkspaceStore` return signaling.
-- [ ] Land `Core/PaneRuntime/` contract directories (`Contracts/`, `Registry/`, `Reduction/`, `Replay/`) in LUNA-342.
+- [x] Land `Core/PaneRuntime/` contract directories (`Contracts/`, `Registry/`, `Reduction/`, `Replay/`) in LUNA-342.
 
 ## Notes
 

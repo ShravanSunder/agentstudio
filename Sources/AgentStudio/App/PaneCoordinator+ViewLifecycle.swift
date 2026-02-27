@@ -111,6 +111,7 @@ extension PaneCoordinator {
             title: worktree.name,
             worktreeId: worktree.id,
             repoId: repo.id,
+            contextFacets: pane.metadata.facets,
             paneId: pane.id
         )
 
@@ -132,6 +133,7 @@ extension PaneCoordinator {
             view.displaySurface(managed.surface)
 
             viewRegistry.register(view, for: pane.id)
+            registerTerminalRuntimeIfNeeded(for: pane)
             runtime.markRunning(pane.id)
             RestoreTrace.log(
                 "createView complete pane=\(pane.id) surface=\(managed.id) viewBounds=\(NSStringFromRect(view.bounds))"
@@ -153,7 +155,7 @@ extension PaneCoordinator {
     /// No worktree/repo context — uses home directory or pane's cwd.
     @discardableResult
     private func createFloatingTerminalView(for pane: Pane) -> AgentStudioTerminalView? {
-        let workingDir = pane.metadata.cwd ?? FileManager.default.homeDirectoryForCurrentUser
+        let workingDir = pane.metadata.facets.cwd ?? FileManager.default.homeDirectoryForCurrentUser
         let cmd = "\(getDefaultShell()) -i -l"
 
         RestoreTrace.log(
@@ -169,6 +171,7 @@ extension PaneCoordinator {
             workingDirectory: workingDir,
             command: cmd,
             title: pane.metadata.title,
+            contextFacets: pane.metadata.facets,
             paneId: pane.id
         )
 
@@ -189,6 +192,7 @@ extension PaneCoordinator {
             view.displaySurface(managed.surface)
 
             viewRegistry.register(view, for: pane.id)
+            registerTerminalRuntimeIfNeeded(for: pane)
             runtime.markRunning(pane.id)
             RestoreTrace.log("createFloatingView complete pane=\(pane.id) surface=\(managed.id)")
 
@@ -219,7 +223,13 @@ extension PaneCoordinator {
 
         viewRegistry.unregister(paneId)
         if shouldUnregisterRuntime {
-            _ = unregisterRuntime(PaneId(uuid: paneId))
+            if UUIDv7.isV7(paneId) {
+                _ = unregisterRuntime(PaneId(uuid: paneId))
+            } else {
+                Self.logger.warning(
+                    "Skipping runtime unregister for non-v7 pane id \(paneId.uuidString, privacy: .public)"
+                )
+            }
             runtime.removeSession(paneId)
         }
 
@@ -238,14 +248,57 @@ extension PaneCoordinator {
 
     /// Reattach a pane's surface after a view switch.
     func reattachForViewSwitch(paneId: UUID) {
-        if let terminal = viewRegistry.terminalView(for: paneId),
-            let surfaceId = terminal.surfaceId
-        {
-            if let surfaceView = surfaceManager.attach(surfaceId, to: paneId) {
-                terminal.displaySurface(surfaceView)
-            }
+        guard let terminal = viewRegistry.terminalView(for: paneId) else {
+            Self.logger.warning(
+                "Unable to reattach pane \(paneId.uuidString, privacy: .public): terminal view not found"
+            )
+            return
         }
-        Self.logger.debug("Reattached pane \(paneId) for view switch")
+        guard let surfaceId = terminal.surfaceId else {
+            Self.logger.warning(
+                "Unable to reattach pane \(paneId.uuidString, privacy: .public): terminal view has no surface id"
+            )
+            return
+        }
+        guard let surfaceView = surfaceManager.attach(surfaceId, to: paneId) else {
+            Self.logger.warning(
+                "Unable to reattach pane \(paneId.uuidString, privacy: .public): attach returned nil for surface \(surfaceId.uuidString, privacy: .public)"
+            )
+            return
+        }
+        terminal.displaySurface(surfaceView)
+        Self.logger.debug("Reattached pane \(paneId.uuidString, privacy: .public) for view switch")
+    }
+
+    private func registerTerminalRuntimeIfNeeded(for pane: Pane) {
+        guard case .terminal = pane.content else {
+            Self.logger.debug(
+                "Skipping terminal runtime registration for non-terminal pane \(pane.id.uuidString, privacy: .public)"
+            )
+            return
+        }
+
+        guard UUIDv7.isV7(pane.id) else {
+            Self.logger.error(
+                "Skipping terminal runtime registration for non-v7 pane id \(pane.id.uuidString, privacy: .public)"
+            )
+            return
+        }
+        let runtimePaneId = PaneId(uuid: pane.id)
+        guard runtimeForPane(runtimePaneId) == nil else { return }
+
+        let terminalRuntime = TerminalRuntime(
+            paneId: runtimePaneId,
+            metadata: pane.metadata
+        )
+        terminalRuntime.transitionToReady()
+        guard terminalRuntime.lifecycle == .ready else {
+            Self.logger.warning(
+                "Terminal runtime for pane \(pane.id.uuidString, privacy: .public) failed ready transition; skipping runtime registration"
+            )
+            return
+        }
+        registerRuntime(terminalRuntime)
     }
 
     /// Restore a view from an undo close. Tries to reuse the undone surface; creates fresh if expired.
@@ -255,6 +308,18 @@ extension PaneCoordinator {
         worktree: Worktree,
         repo: Repo
     ) -> AgentStudioTerminalView? {
+        guard UUIDv7.isV7(pane.id) else {
+            Self.logger.error(
+                "Unable to restore runtime for non-v7 pane id \(pane.id.uuidString, privacy: .public)"
+            )
+            return nil
+        }
+        let runtimePaneId = PaneId(uuid: pane.id)
+        let runtimeWasAlreadyRegistered = runtimeForPane(runtimePaneId) != nil
+        if !runtimeWasAlreadyRegistered {
+            registerTerminalRuntimeIfNeeded(for: pane)
+        }
+
         if let undone = surfaceManager.undoClose() {
             if undone.metadata.paneId == pane.id {
                 let view = AgentStudioTerminalView(
@@ -278,7 +343,11 @@ extension PaneCoordinator {
         }
 
         Self.logger.info("Creating fresh view for pane \(pane.id)")
-        return createView(for: pane, worktree: worktree, repo: repo)
+        let restoredView = createView(for: pane, worktree: worktree, repo: repo)
+        if restoredView == nil, !runtimeWasAlreadyRegistered {
+            _ = unregisterRuntime(runtimePaneId)
+        }
+        return restoredView
     }
 
     /// Recreate views for all restored panes in all tabs, including drawer panes.

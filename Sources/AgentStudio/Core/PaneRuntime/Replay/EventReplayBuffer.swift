@@ -1,5 +1,9 @@
 import Foundation
 
+/// Per-runtime replay buffer for `PaneEventEnvelope` with bounded memory and TTL eviction.
+///
+/// Uses a ring buffer to preserve append order and supports gap-aware replay queries
+/// via `eventsSince(seq:)`.
 @MainActor
 final class EventReplayBuffer {
     struct Config: Sendable {
@@ -156,10 +160,26 @@ final class EventReplayBuffer {
     private static func estimateSize(_ envelope: PaneEventEnvelope) -> Int {
         var bytes = 128
         bytes += envelope.source.description.utf8.count
+        bytes += estimateSize(of: envelope.sourceFacets)
         bytes += envelope.paneKind.map { String(describing: $0).utf8.count } ?? 0
         bytes += envelope.commandId == nil ? 0 : 16
         bytes += envelope.correlationId == nil ? 0 : 16
         bytes += estimateSize(of: envelope.event)
+        return bytes
+    }
+
+    private static func estimateSize(of facets: PaneContextFacets) -> Int {
+        var bytes = 32
+        bytes += facets.repoName?.utf8.count ?? 0
+        bytes += facets.worktreeName?.utf8.count ?? 0
+        bytes += facets.cwd?.path.utf8.count ?? 0
+        bytes += facets.parentFolder?.utf8.count ?? 0
+        bytes += facets.organizationName?.utf8.count ?? 0
+        bytes += facets.origin?.utf8.count ?? 0
+        bytes += facets.upstream?.utf8.count ?? 0
+        bytes += facets.tags.reduce(into: 0) { partial, tag in
+            partial += tag.utf8.count
+        }
         return bytes
     }
 
@@ -190,6 +210,9 @@ final class EventReplayBuffer {
 
     private static func estimateSize(of event: GhosttyEvent) -> Int {
         switch event {
+        case .newTab, .closeTab, .gotoTab, .moveTab, .newSplit, .gotoSplit, .resizeSplit, .equalizeSplits,
+            .toggleSplitZoom:
+            return 24
         case .titleChanged(let title):
             return 32 + title.utf8.count
         case .cwdChanged(let cwd):

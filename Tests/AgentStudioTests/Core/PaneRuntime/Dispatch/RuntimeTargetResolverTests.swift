@@ -4,8 +4,8 @@ import Testing
 @testable import AgentStudio
 
 @MainActor
-@Suite("PaneTargetResolver")
-struct PaneTargetResolverTests {
+@Suite("RuntimeTargetResolver")
+struct RuntimeTargetResolverTests {
     private func makeStore() -> WorkspaceStore {
         let tempDir = FileManager.default.temporaryDirectory
             .appending(path: "agentstudio-pane-target-resolver-\(UUID().uuidString)")
@@ -26,7 +26,7 @@ struct PaneTargetResolverTests {
         store.appendTab(tab)
         store.setActiveTab(tab.id)
 
-        let resolver = PaneTargetResolver(workspaceStore: store)
+        let resolver = RuntimeTargetResolver(workspaceStore: store)
         let result = resolver.resolve(.activePane)
         #expect(result?.uuid == pane.id)
     }
@@ -34,7 +34,7 @@ struct PaneTargetResolverTests {
     @Test("returns nil when explicit pane target does not exist")
     func resolveMissingPane() {
         let store = makeStore()
-        let resolver = PaneTargetResolver(workspaceStore: store)
+        let resolver = RuntimeTargetResolver(workspaceStore: store)
         #expect(resolver.resolve(.pane(PaneId())) == nil)
     }
 }

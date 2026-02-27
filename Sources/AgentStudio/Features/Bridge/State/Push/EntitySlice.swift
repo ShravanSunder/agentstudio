@@ -87,15 +87,9 @@ struct EntitySlice<
                     let data: Data
                     do {
                         if level == .cold {
-                            // Offload JSON encoding for cold slices (e.g. diffFiles) to
-                            // avoid blocking the main actor on large payloads.
-                            // swiftlint:disable no_task_detached
-                            data = try await Task.detached(priority: .utility) {
-                                let coldEncoder = JSONEncoder()
-                                coldEncoder.outputFormatting = .sortedKeys
-                                return try coldEncoder.encode(deltaComputation.delta)
-                            }.value
-                            // swiftlint:enable no_task_detached
+                            // Off-main cold delta encoding prevents large payload serialization
+                            // from blocking MainActor. @concurrent runs on cooperative pool (SE-0461).
+                            data = try await Self.encodeColdDelta(deltaComputation.delta)
                         } else {
                             data = try encoder.encode(deltaComputation.delta)
                         }
@@ -117,6 +111,15 @@ struct EntitySlice<
                 }
             }
         }
+    }
+
+    /// Encode cold deltas off MainActor on cooperative pool (Swift 6.2, SE-0461).
+    /// Preserves priority and task-locals that detached tasks would strip.
+    @concurrent
+    private static func encodeColdDelta(_ delta: EntityDelta<Entity>) async throws -> Data {
+        let coldEncoder = JSONEncoder()
+        coldEncoder.outputFormatting = .sortedKeys
+        return try coldEncoder.encode(delta)
     }
 
     // MARK: - Delta Computation

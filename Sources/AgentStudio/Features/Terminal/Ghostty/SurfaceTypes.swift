@@ -47,11 +47,9 @@ enum SurfaceState: Equatable {
 
 /// Metadata associated with a managed surface
 struct SurfaceMetadata: Codable, Equatable {
-    var workingDirectory: URL?
+    var contextFacets: PaneContextFacets
     var command: String?
     var title: String
-    var worktreeId: UUID?
-    var repoId: UUID?
     var paneId: UUID?
     var createdAt: Date
     var lastActiveAt: Date
@@ -62,16 +60,35 @@ struct SurfaceMetadata: Codable, Equatable {
         title: String = "Terminal",
         worktreeId: UUID? = nil,
         repoId: UUID? = nil,
+        contextFacets: PaneContextFacets = .empty,
         paneId: UUID? = nil
     ) {
-        self.workingDirectory = workingDirectory
+        let sourceFacets = PaneContextFacets(
+            repoId: repoId,
+            worktreeId: worktreeId,
+            cwd: workingDirectory
+        )
+        self.contextFacets = contextFacets.fillingNilFields(from: sourceFacets)
         self.command = command
         self.title = title
-        self.worktreeId = worktreeId
-        self.repoId = repoId
         self.paneId = paneId
         self.createdAt = Date()
         self.lastActiveAt = Date()
+    }
+
+    var workingDirectory: URL? {
+        get { contextFacets.cwd }
+        set { contextFacets.cwd = newValue }
+    }
+
+    var worktreeId: UUID? {
+        get { contextFacets.worktreeId }
+        set { contextFacets.worktreeId = newValue }
+    }
+
+    var repoId: UUID? {
+        get { contextFacets.repoId }
+        set { contextFacets.repoId = newValue }
     }
 }
 

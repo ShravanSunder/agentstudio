@@ -6,6 +6,17 @@ protocol PaneKindEvent: Sendable {
 }
 
 enum EventIdentifier: Hashable, Sendable, CustomStringConvertible {
+    // Keep identifiers globally unique across all pane kinds. For new events, prefer
+    // kind-qualified names when semantic overlap exists (for example, browserNewTab).
+    case newTab
+    case closeTab
+    case gotoTab
+    case moveTab
+    case newSplit
+    case gotoSplit
+    case resizeSplit
+    case equalizeSplits
+    case toggleSplitZoom
     case commandFinished
     case cwdChanged
     case titleChanged
@@ -25,6 +36,15 @@ enum EventIdentifier: Hashable, Sendable, CustomStringConvertible {
 
     var rawValue: String {
         switch self {
+        case .newTab: return "newTab"
+        case .closeTab: return "closeTab"
+        case .gotoTab: return "gotoTab"
+        case .moveTab: return "moveTab"
+        case .newSplit: return "newSplit"
+        case .gotoSplit: return "gotoSplit"
+        case .resizeSplit: return "resizeSplit"
+        case .equalizeSplits: return "equalizeSplits"
+        case .toggleSplitZoom: return "toggleSplitZoom"
         case .commandFinished: return "commandFinished"
         case .cwdChanged: return "cwdChanged"
         case .titleChanged: return "titleChanged"
