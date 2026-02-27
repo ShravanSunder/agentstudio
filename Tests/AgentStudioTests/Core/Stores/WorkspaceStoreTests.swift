@@ -415,10 +415,9 @@ final class WorkspaceStoreTests {
         store.appendTab(tab)
 
         // Act
-        let tabEmpty = store.removePaneFromLayout(s1.id, inTab: tab.id)
+        store.removePaneFromLayout(s1.id, inTab: tab.id)
 
         // Assert
-        #expect(!(tabEmpty))
         let updatedTab = store.tabs[0]
         #expect(!(updatedTab.isSplit))
         #expect(updatedTab.paneIds == [s2.id])
@@ -427,17 +426,17 @@ final class WorkspaceStoreTests {
 
     @Test
 
-    func test_removePaneFromLayout_lastPane_returnsTrue() {
+    func test_removePaneFromLayout_lastPane_removesTab() {
         // Arrange
         let s1 = store.createPane(source: .floating(workingDirectory: nil, title: nil))
         let tab = Tab(paneId: s1.id)
         store.appendTab(tab)
 
-        // Act — removePaneFromLayout returns true when tab is now empty
-        let tabEmpty = store.removePaneFromLayout(s1.id, inTab: tab.id)
+        // Act
+        store.removePaneFromLayout(s1.id, inTab: tab.id)
 
-        // Assert — returns true, but tab is NOT auto-removed (caller handles that)
-        #expect(tabEmpty)
+        // Assert
+        #expect(store.tab(tab.id) == nil)
     }
 
     @Test

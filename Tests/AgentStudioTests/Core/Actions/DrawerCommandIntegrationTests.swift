@@ -31,7 +31,7 @@ final class DrawerCommandIntegrationTests {
             surfaceManager: surfaceManager,
             runtimeRegistry: RuntimeRegistry()
         )
-        executor = ActionExecutor(coordinator: coordinator)
+        executor = ActionExecutor(coordinator: coordinator, store: store)
     }
 
     deinit {

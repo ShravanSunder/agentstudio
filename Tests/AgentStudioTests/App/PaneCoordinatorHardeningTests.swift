@@ -395,7 +395,7 @@ struct PaneCoordinatorHardeningTests {
         harness.coordinator.execute(.closePane(tabId: tab.id, paneId: drawerPane.id))
         #expect(harness.coordinator.undoStack.count == 1)
 
-        _ = harness.store.removePaneFromLayout(parentPane.id, inTab: tab.id)
+        harness.store.removePaneFromLayout(parentPane.id, inTab: tab.id)
         harness.store.removePane(parentPane.id)
 
         harness.coordinator.undoCloseTab()

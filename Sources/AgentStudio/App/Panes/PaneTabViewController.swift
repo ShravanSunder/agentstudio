@@ -607,19 +607,7 @@ class PaneTabViewController: NSViewController, CommandHandler {
     /// Central entry point: validates a PaneAction and executes it if valid.
     /// All input sources (keyboard, menu, drag-drop, commands) converge here.
     private func dispatchAction(_ action: PaneAction) {
-        let snapshot = ActionResolver.snapshot(
-            from: store.tabs,
-            activeTabId: store.activeTabId,
-            isManagementModeActive: ManagementModeMonitor.shared.isActive,
-            knownWorktreeIds: Set(store.repos.flatMap(\.worktrees).map(\.id))
-        )
-
-        switch ActionValidator.validate(action, state: snapshot) {
-        case .success:
-            executor.execute(action)
-        case .failure(let error):
-            ghosttyLogger.warning("Action rejected: \(error)")
-        }
+        executor.execute(action)
     }
 
     // MARK: - Tab Commands

@@ -1,4 +1,5 @@
 import Foundation
+import os.log
 
 /// Executes validated PaneActions by delegating to `PaneCoordinator`.
 /// This class remains the app-facing entry point and preserves historical action
@@ -6,11 +7,14 @@ import Foundation
 @MainActor
 final class ActionExecutor {
     typealias SwitchArrangementTransitions = PaneCoordinator.SwitchArrangementTransitions
+    private static let logger = Logger(subsystem: "com.agentstudio", category: "ActionExecutor")
 
     private let coordinator: PaneCoordinator
+    private let store: WorkspaceStore
 
-    init(coordinator: PaneCoordinator) {
+    init(coordinator: PaneCoordinator, store: WorkspaceStore) {
         self.coordinator = coordinator
+        self.store = store
     }
 
     static func computeSwitchArrangementTransitions(
@@ -56,8 +60,21 @@ final class ActionExecutor {
         coordinator.undoCloseTab()
     }
 
-    /// Execute a resolved PaneAction.
+    /// Validate/canonicalize a PaneAction against current state, then execute it.
     func execute(_ action: PaneAction) {
-        coordinator.execute(action)
+        let snapshot = ActionResolver.snapshot(
+            from: store.tabs,
+            activeTabId: store.activeTabId,
+            isManagementModeActive: ManagementModeMonitor.shared.isActive,
+            knownWorktreeIds: Set(store.repos.flatMap(\.worktrees).map(\.id))
+        )
+        switch ActionValidator.validate(action, state: snapshot) {
+        case .success(let validated):
+            coordinator.execute(validated.action)
+        case .failure(let error):
+            Self.logger.warning(
+                "Action rejected: \(String(describing: action), privacy: .public) reason=\(String(describing: error), privacy: .public)"
+            )
+        }
     }
 }

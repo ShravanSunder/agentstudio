@@ -20,7 +20,8 @@ final class ActionValidatorTests {
         )
     }
 
-    private func makeSinglePaneTab(tabId: UUID = UUID(), paneId: UUID = UUIDv7.generate()) -> (TabSnapshot, UUID, UUID) {
+    private func makeSinglePaneTab(tabId: UUID = UUID(), paneId: UUID = UUIDv7.generate()) -> (TabSnapshot, UUID, UUID)
+    {
         let tab = TabSnapshot(id: tabId, paneIds: [paneId], activePaneId: paneId)
         return (tab, tabId, paneId)
     }
@@ -159,8 +160,8 @@ final class ActionValidatorTests {
 
     @Test
 
-    func test_closePane_singlePaneTab_succeeds_escalatesToCloseTab() {
-        // Arrange — single-pane close is valid; executor escalates to closeTab with undo
+    func test_closePane_singlePaneTab_canonicalizesToCloseTab() {
+        // Arrange — single-pane close is canonicalized to closeTab during validation
         let (tab, tabId, paneId) = makeSinglePaneTab()
         let snapshot = makeSnapshot(tabs: [tab])
 
@@ -171,7 +172,11 @@ final class ActionValidatorTests {
         )
 
         // Assert
-        #expect((try? result.get()) != nil)
+        guard case .success(let validated) = result else {
+            Issue.record("Expected success")
+            return
+        }
+        #expect(validated.action == .closeTab(tabId: tabId))
     }
 
     @Test

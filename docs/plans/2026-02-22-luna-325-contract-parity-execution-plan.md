@@ -35,6 +35,17 @@
   - `mise run lint`
   - `mise run build`
 - [ ] Record UI-scope NotificationCenter posts introduced by merge as explicit EventBus migration backlog (LUNA-351), ensuring runtime data-plane remains typed-stream only.
+- [ ] Validate and disposition pending review comments (Gemini Code Assist):
+  - `Sources/AgentStudio/Core/Models/Pane.swift`:
+    strict canonical decode (no legacy fallback) is intentional; ensure PR description/docs explicitly state breaking compatibility posture.
+  - `Sources/AgentStudio/App/PaneCoordinator+RuntimeDispatch.swift`:
+    track refactor to move diff-specific payload validation into `DiffRuntime` once non-terminal runtimes land, keeping coordinator dispatch generic.
+  - `Sources/AgentStudio/Core/PaneRuntime/Contracts/PaneId.swift`:
+    consider `guard + preconditionFailure` message including the offending UUID string for better crash diagnostics.
+- [ ] Push and verify PR/CI with GitHub CLI:
+  - `git push`
+  - `gh pr status`
+  - `gh pr checks --watch` for the active PR until all required checks pass.
 
 ---
 

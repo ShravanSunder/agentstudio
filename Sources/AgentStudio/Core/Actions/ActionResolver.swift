@@ -55,6 +55,9 @@ enum ActionResolver {
         case .closePane:
             guard let (tab, paneId) = activeTabAndPane(tabs: tabs, activeTabId: activeTabId)
             else { return nil }
+            if tab.allPaneIds.count <= 1 {
+                return .closeTab(tabId: tab.id)
+            }
             return .closePane(tabId: tab.id, paneId: paneId)
 
         case .extractPaneToTab:

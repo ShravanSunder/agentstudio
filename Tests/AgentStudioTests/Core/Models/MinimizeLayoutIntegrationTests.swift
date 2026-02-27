@@ -40,15 +40,15 @@ final class MinimizeLayoutIntegrationTests {
 
     @Test
 
-    func test_closeLastPane_tabSignalsEmpty() {
+    func test_closeLastPane_removesTab() {
         // Arrange
         let (tab, paneIds) = createTabWithPanes(1)
 
         // Act
-        let isEmpty = store.removePaneFromLayout(paneIds[0], inTab: tab.id)
+        store.removePaneFromLayout(paneIds[0], inTab: tab.id)
 
         // Assert
-        #expect(isEmpty)
+        #expect(store.tab(tab.id) == nil)
     }
 
     // MARK: - Minimize All Tab Panes
@@ -157,10 +157,9 @@ final class MinimizeLayoutIntegrationTests {
         #expect(before.activePaneId == a)
 
         // Act: close A — remaining panes (B, C) are both minimized
-        let isEmpty = store.removePaneFromLayout(a, inTab: tab.id)
+        store.removePaneFromLayout(a, inTab: tab.id)
 
         // Assert: tab NOT empty, B and C remain minimized (no auto-expand)
-        #expect(!(isEmpty))
         let updated = store.tab(tab.id)!
         #expect(updated.minimizedPaneIds.contains(b))
         #expect(updated.minimizedPaneIds.contains(c))
