@@ -68,8 +68,8 @@ struct ManagementModeTests {
         defer { monitor.deactivate() }
 
         let didPostRefocus = LockedFlag()
+        let stream = await AppEventBus.shared.subscribe()
         let captureTask = Task {
-            let stream = await AppEventBus.shared.subscribe()
             for await event in stream {
                 guard case .refocusTerminalRequested = event else { continue }
                 didPostRefocus.set()
@@ -77,7 +77,6 @@ struct ManagementModeTests {
             }
         }
         defer { captureTask.cancel() }
-        try? await Task.sleep(for: .milliseconds(50))
 
         // Act
         monitor.deactivate()
@@ -97,8 +96,8 @@ struct ManagementModeTests {
         defer { monitor.deactivate() }
 
         let didPostActive = LockedFlag()
+        let stream = await AppEventBus.shared.subscribe()
         let captureTask = Task {
-            let stream = await AppEventBus.shared.subscribe()
             for await event in stream {
                 guard case .managementModeChanged(let isActive) = event, isActive else { continue }
                 didPostActive.set()
@@ -106,7 +105,6 @@ struct ManagementModeTests {
             }
         }
         defer { captureTask.cancel() }
-        try? await Task.sleep(for: .milliseconds(50))
 
         // Act
         monitor.toggle()
