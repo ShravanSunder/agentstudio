@@ -69,6 +69,20 @@ extension Ghostty {
     /// Wraps the ghostty_app_t and handles app-level callbacks
     final class App {
         @MainActor private static var runtimeRegistryOverride: RuntimeRegistry = .shared
+        private struct PendingRuntimeRoute: Sendable {
+            let actionTag: UInt32
+            let payload: GhosttyAdapter.ActionPayload
+            let surfaceViewObjectId: ObjectIdentifier
+        }
+
+        private struct RuntimeRouteQueueState {
+            var pending: [PendingRuntimeRoute] = []
+            var isDraining = false
+        }
+
+        private static let runtimeRouteQueue = OSAllocatedUnfairLock<RuntimeRouteQueueState>(
+            initialState: RuntimeRouteQueueState()
+        )
 
         /// The ghostty app handle
         private(set) var app: ghostty_app_t?
@@ -435,14 +449,60 @@ extension Ghostty {
             // Resolve the callback target synchronously and pass only stable identity
             // into the async hop so we never dereference raw surface pointers later.
             let surfaceViewObjectId = ObjectIdentifier(resolvedSurfaceView)
-            Task { @MainActor in
-                _ = routeActionToTerminalRuntimeOnMainActor(
-                    actionTag: actionTag,
-                    payload: payload,
-                    surfaceViewObjectId: surfaceViewObjectId
-                )
-            }
+            enqueueRuntimeRoute(
+                actionTag: actionTag,
+                payload: payload,
+                surfaceViewObjectId: surfaceViewObjectId
+            )
             return true
+        }
+
+        private static func enqueueRuntimeRoute(
+            actionTag: UInt32,
+            payload: GhosttyAdapter.ActionPayload,
+            surfaceViewObjectId: ObjectIdentifier
+        ) {
+            let shouldStartDraining = runtimeRouteQueue.withLock { state in
+                state.pending.append(
+                    PendingRuntimeRoute(
+                        actionTag: actionTag,
+                        payload: payload,
+                        surfaceViewObjectId: surfaceViewObjectId
+                    )
+                )
+                guard !state.isDraining else { return false }
+                state.isDraining = true
+                return true
+            }
+
+            guard shouldStartDraining else { return }
+            Task { @MainActor in
+                drainRuntimeRouteQueueOnMainActor()
+            }
+        }
+
+        @MainActor
+        private static func drainRuntimeRouteQueueOnMainActor() {
+            while true {
+                let pendingRoute = runtimeRouteQueue.withLock { state -> PendingRuntimeRoute? in
+                    guard !state.pending.isEmpty else {
+                        state.isDraining = false
+                        return nil
+                    }
+                    return state.pending.removeFirst()
+                }
+                guard let pendingRoute else { return }
+                let didRoute = routeActionToTerminalRuntimeOnMainActor(
+                    actionTag: pendingRoute.actionTag,
+                    payload: pendingRoute.payload,
+                    surfaceViewObjectId: pendingRoute.surfaceViewObjectId
+                )
+                if !didRoute {
+                    ghosttyLogger.warning(
+                        "Dropped action tag \(pendingRoute.actionTag): callback returned handled before runtime routing completed"
+                    )
+                }
+            }
         }
 
         @MainActor

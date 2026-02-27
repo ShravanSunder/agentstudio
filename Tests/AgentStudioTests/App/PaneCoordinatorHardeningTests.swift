@@ -477,7 +477,6 @@ struct PaneCoordinatorHardeningTests {
 
 @MainActor
 private final class MockPaneCoordinatorSurfaceManager: PaneCoordinatorSurfaceManaging {
-    private let cwdStream: AsyncStream<SurfaceManager.SurfaceCWDChangeEvent>
     private let createSurfaceResult: Result<ManagedSurface, SurfaceError>
 
     private(set) var createSurfaceCallCount = 0
@@ -492,12 +491,7 @@ private final class MockPaneCoordinatorSurfaceManager: PaneCoordinatorSurfaceMan
         self.createSurfaceResult = createSurfaceResult
         self.undoCloseResult = undoCloseResult
         self.onUndoClose = onUndoClose
-        self.cwdStream = AsyncStream<SurfaceManager.SurfaceCWDChangeEvent> { continuation in
-            continuation.finish()
-        }
     }
-
-    var surfaceCWDChanges: AsyncStream<SurfaceManager.SurfaceCWDChangeEvent> { cwdStream }
 
     func syncFocus(activeSurfaceId: UUID?) {}
 

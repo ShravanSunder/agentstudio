@@ -47,6 +47,46 @@ struct TerminalRuntimeTests {
         #expect(result == .failure(.backendUnavailable(backend: "SurfaceManager")))
     }
 
+    @Test("terminal sendInput succeeds with injected surface dispatcher")
+    func terminalSendInputUsesInjectedDispatcher() async {
+        let dispatcher = MockTerminalSurfaceDispatcher()
+        let runtime = TerminalRuntime(
+            paneId: PaneId(),
+            metadata: PaneMetadata(source: .floating(workingDirectory: nil, title: "Runtime"), title: "Runtime"),
+            surfaceDispatch: dispatcher
+        )
+        runtime.transitionToReady()
+
+        let commandEnvelope = makeEnvelope(command: .terminal(.sendInput("echo hi")), paneId: runtime.paneId)
+        let result = await runtime.handleCommand(commandEnvelope)
+
+        #expect(result == .success(commandId: commandEnvelope.commandId))
+        #expect(dispatcher.sentInputs == ["echo hi"])
+        #expect(dispatcher.targetPaneIds == [runtime.paneId.uuid])
+    }
+
+    @Test("resize command is rejected as unsupported capability")
+    func resizeCommandRejectedAsUnsupported() async {
+        let runtime = TerminalRuntime(
+            paneId: PaneId(),
+            metadata: PaneMetadata(source: .floating(workingDirectory: nil, title: "Runtime"), title: "Runtime")
+        )
+        runtime.transitionToReady()
+
+        let commandEnvelope = makeEnvelope(command: .terminal(.resize(cols: 80, rows: 24)), paneId: runtime.paneId)
+        let result = await runtime.handleCommand(commandEnvelope)
+
+        #expect(
+            result
+                == .failure(
+                    .unsupportedCommand(
+                        command: String(describing: commandEnvelope.command),
+                        required: .resize
+                    )
+                )
+        )
+    }
+
     @Test("non-terminal command families are rejected as unsupported")
     func rejectsUnsupportedCommandFamilies() async {
         let runtime = TerminalRuntime(
@@ -103,6 +143,21 @@ struct TerminalRuntimeTests {
         #expect(!replay.gapDetected)
         #expect(replay.events.count == 2)
         #expect(replay.nextSeq == 2)
+    }
+
+    @Test("events are ignored before runtime ready transition")
+    func eventsIgnoredBeforeReady() async {
+        let runtime = TerminalRuntime(
+            paneId: PaneId(),
+            metadata: PaneMetadata(source: .floating(workingDirectory: nil, title: "Runtime"), title: "Runtime")
+        )
+
+        runtime.handleGhosttyEvent(.titleChanged("ShouldNotApply"))
+        let replay = await runtime.eventsSince(seq: 0)
+
+        #expect(runtime.metadata.title == "Runtime")
+        #expect(replay.events.isEmpty)
+        #expect(replay.nextSeq == 0)
     }
 
     @Test("handleGhosttyEvent updates metadata and preserves envelope identifiers")
@@ -249,5 +304,22 @@ struct TerminalRuntimeTests {
             command: command,
             timestamp: clock.now
         )
+    }
+}
+
+@MainActor
+private final class MockTerminalSurfaceDispatcher: TerminalSurfaceDispatching {
+    private(set) var sentInputs: [String] = []
+    private(set) var targetPaneIds: [UUID] = []
+
+    func sendInput(_ input: String, toPaneId paneId: UUID) -> Result<Void, SurfaceError> {
+        sentInputs.append(input)
+        targetPaneIds.append(paneId)
+        return .success(())
+    }
+
+    func clearScrollback(forPaneId paneId: UUID) -> Result<Void, SurfaceError> {
+        targetPaneIds.append(paneId)
+        return .success(())
     }
 }

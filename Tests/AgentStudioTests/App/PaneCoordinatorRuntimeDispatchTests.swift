@@ -920,15 +920,7 @@ private final class FakePaneRuntime: PaneRuntime {
 
 @MainActor
 private final class MockPaneCoordinatorSurfaceManager: PaneCoordinatorSurfaceManaging {
-    private let cwdStream: AsyncStream<SurfaceManager.SurfaceCWDChangeEvent>
-
-    init() {
-        self.cwdStream = AsyncStream<SurfaceManager.SurfaceCWDChangeEvent> { continuation in
-            continuation.finish()
-        }
-    }
-
-    var surfaceCWDChanges: AsyncStream<SurfaceManager.SurfaceCWDChangeEvent> { cwdStream }
+    init() {}
 
     func syncFocus(activeSurfaceId: UUID?) {}
 

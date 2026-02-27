@@ -337,15 +337,7 @@ final class DrawerCommandIntegrationTests {
 
 @MainActor
 private final class MockPaneCoordinatorSurfaceManager: PaneCoordinatorSurfaceManaging {
-    private let stream: AsyncStream<SurfaceManager.SurfaceCWDChangeEvent>
-
-    init() {
-        stream = AsyncStream<SurfaceManager.SurfaceCWDChangeEvent> { continuation in
-            continuation.finish()
-        }
-    }
-
-    var surfaceCWDChanges: AsyncStream<SurfaceManager.SurfaceCWDChangeEvent> { stream }
+    init() {}
 
     func syncFocus(activeSurfaceId: UUID?) {}
 

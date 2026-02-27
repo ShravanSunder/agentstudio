@@ -3,6 +3,14 @@ import Observation
 import os.log
 
 @MainActor
+protocol TerminalSurfaceDispatching: AnyObject {
+    func sendInput(_ input: String, toPaneId paneId: UUID) -> Result<Void, SurfaceError>
+    func clearScrollback(forPaneId paneId: UUID) -> Result<Void, SurfaceError>
+}
+
+extension SurfaceManager: TerminalSurfaceDispatching {}
+
+@MainActor
 @Observable
 final class TerminalRuntime: PaneRuntime {
     private static let logger = Logger(subsystem: "com.agentstudio", category: "TerminalRuntime")
@@ -14,6 +22,7 @@ final class TerminalRuntime: PaneRuntime {
 
     private let envelopeClock: ContinuousClock
     private let replayBuffer: EventReplayBuffer
+    private let surfaceDispatch: any TerminalSurfaceDispatching
     private var sequence: UInt64 = 0
     private var nextSubscriberId: UInt64 = 0
     private var subscribers: [UInt64: AsyncStream<PaneEventEnvelope>.Continuation] = [:]
@@ -22,14 +31,16 @@ final class TerminalRuntime: PaneRuntime {
         paneId: PaneId,
         metadata: PaneMetadata,
         clock: ContinuousClock = ContinuousClock(),
-        replayBuffer: EventReplayBuffer? = nil
+        replayBuffer: EventReplayBuffer? = nil,
+        surfaceDispatch: any TerminalSurfaceDispatching = SurfaceManager.shared
     ) {
         self.paneId = paneId
         self.metadata = metadata
         self.lifecycle = .created
-        self.capabilities = [.input, .resize, .search]
+        self.capabilities = [.input, .search]
         self.envelopeClock = clock
         self.replayBuffer = replayBuffer ?? EventReplayBuffer()
+        self.surfaceDispatch = surfaceDispatch
     }
 
     func transitionToReady() {
@@ -129,6 +140,12 @@ final class TerminalRuntime: PaneRuntime {
         commandId: UUID? = nil,
         correlationId: UUID? = nil
     ) {
+        guard lifecycle != .created else {
+            Self.logger.debug(
+                "Dropped terminal event before runtime was ready for pane \(self.paneId.uuid.uuidString, privacy: .public): \(String(describing: event), privacy: .public)"
+            )
+            return
+        }
         guard lifecycle != .terminated else {
             Self.logger.debug(
                 "Dropped terminal event after termination for pane \(self.paneId.uuid.uuidString, privacy: .public): \(String(describing: event), privacy: .public)"
@@ -194,10 +211,10 @@ final class TerminalRuntime: PaneRuntime {
     private func dispatchTerminalCommand(_ command: TerminalCommand, commandId: UUID) -> ActionResult {
         switch command {
         case .sendInput(let input):
-            let dispatchResult = SurfaceManager.shared.sendInput(input, toPaneId: paneId.uuid)
+            let dispatchResult = surfaceDispatch.sendInput(input, toPaneId: paneId.uuid)
             return mapSurfaceDispatchResult(dispatchResult, commandId: commandId, command: command)
         case .clearScrollback:
-            let dispatchResult = SurfaceManager.shared.clearScrollback(forPaneId: paneId.uuid)
+            let dispatchResult = surfaceDispatch.clearScrollback(forPaneId: paneId.uuid)
             return mapSurfaceDispatchResult(dispatchResult, commandId: commandId, command: command)
         case .resize(let cols, let rows):
             Self.logger.warning(
