@@ -69,6 +69,10 @@ enum GhosttyActionTag: Sendable, CaseIterable {
     case readOnly
     case copyTitleToClipboard
 
+    /// Copy-title action was appended after readonly in Ghostty and may not be present
+    /// in older generated headers; derive the raw value from readonly to keep compatibility.
+    private static let copyTitleToClipboardRawValue = UInt32(GHOSTTY_ACTION_READONLY.rawValue) + 1
+
     private static let tagsByRawValue: [UInt32: Self] = Dictionary(
         uniqueKeysWithValues: Self.allCases.map { ($0.rawValue, $0) }
     )
@@ -145,7 +149,7 @@ enum GhosttyActionTag: Sendable, CaseIterable {
         case .searchTotal: return UInt32(GHOSTTY_ACTION_SEARCH_TOTAL.rawValue)
         case .searchSelected: return UInt32(GHOSTTY_ACTION_SEARCH_SELECTED.rawValue)
         case .readOnly: return UInt32(GHOSTTY_ACTION_READONLY.rawValue)
-        case .copyTitleToClipboard: return UInt32(GHOSTTY_ACTION_COPY_TITLE_TO_CLIPBOARD.rawValue)
+        case .copyTitleToClipboard: return Self.copyTitleToClipboardRawValue
         }
     }
 }
