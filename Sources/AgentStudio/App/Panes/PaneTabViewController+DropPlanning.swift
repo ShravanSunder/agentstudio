@@ -2,27 +2,6 @@ import Foundation
 
 @MainActor
 extension PaneTabViewController {
-    func drawerMoveDropAction(
-        payload: SplitDropPayload,
-        destPaneId: UUID,
-        zone: DropZone
-    ) -> PaneAction? {
-        let destinationPane = store.pane(destPaneId)
-        let sourcePane: Pane? =
-            if case .existingPane(let sourcePaneId, _) = payload.kind {
-                store.pane(sourcePaneId)
-            } else {
-                nil
-            }
-
-        return Self.resolveDrawerMoveDropAction(
-            payload: payload,
-            destinationPane: destinationPane,
-            sourcePane: sourcePane,
-            zone: zone
-        )
-    }
-
     nonisolated static func resolveDrawerMoveDropAction(
         payload: SplitDropPayload,
         destinationPane: Pane?,

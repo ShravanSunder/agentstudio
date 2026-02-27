@@ -480,6 +480,27 @@ class PaneTabViewController: NSViewController, CommandHandler {
         return nil
     }
 
+    private func drawerMoveDropAction(
+        payload: SplitDropPayload,
+        destPaneId: UUID,
+        zone: DropZone
+    ) -> PaneAction? {
+        let destinationPane = store.pane(destPaneId)
+        let sourcePane: Pane? =
+            if case .existingPane(let sourcePaneId, _) = payload.kind {
+                store.pane(sourcePaneId)
+            } else {
+                nil
+            }
+
+        return Self.resolveDrawerMoveDropAction(
+            payload: payload,
+            destinationPane: destinationPane,
+            sourcePane: sourcePane,
+            zone: zone
+        )
+    }
+
     // MARK: - Empty State
 
     private func createEmptyStateView() -> NSView {
