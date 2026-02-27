@@ -461,6 +461,37 @@ final class ActionResolverTests {
         #expect((result) == nil)
     }
 
+    // MARK: - resolve(command:) — Duplicate
+
+    @Test
+
+    func test_resolve_duplicatePane_returnsWithActivePaneAndRightDirection() {
+        // Arrange
+        let tabId = UUID()
+        let paneId = UUID()
+        let tab = MockTab(id: tabId, activePaneId: paneId, allPaneIds: [paneId])
+
+        // Act
+        let result = ActionResolver.resolve(command: .duplicatePane, tabs: [tab], activeTabId: tabId)
+
+        // Assert
+        #expect(result == .duplicatePane(tabId: tabId, paneId: PaneId(uuid: paneId), direction: .right))
+    }
+
+    @Test
+
+    func test_resolve_duplicatePane_noActivePane_returnsNil() {
+        // Arrange — tab with no activePaneId
+        let tabId = UUID()
+        let tab = MockTab(id: tabId, activePaneId: nil, allPaneIds: [UUID()])
+
+        // Act
+        let result = ActionResolver.resolve(command: .duplicatePane, tabs: [tab], activeTabId: tabId)
+
+        // Assert
+        #expect(result == nil)
+    }
+
     // MARK: - resolve(command:) — Edge Cases
 
     @Test

@@ -206,6 +206,15 @@ Manages `NSTabViewItems` containing pane views. Handles focus, layout, tab switc
 
 **Deletion test:** passes for any single feature. **Change driver:** tab management behavior changes, not new pane types.
 
+### PaneLeafContainer + Split Drop Components → `Core/Views/Splits/`
+
+`PaneLeafContainer`, `PaneDragCoordinator`, `SplitContainerDropDelegate`, and `PaneDropTargetOverlay`
+belong in `Core/Views/Splits/` because they are pane-type-agnostic split-system primitives:
+
+- They operate on pane IDs and frame geometry, not terminal/webview/bridge-specific APIs.
+- They are reused by any pane feature rendered inside split trees.
+- Their change driver is split interaction behavior, not any individual feature implementation.
+
 ### MainSplitViewController → `App/`
 
 Manages the top-level split between sidebar and content area. Feature-agnostic but app-lifecycle-coupled.

@@ -9,3 +9,13 @@ struct PaneFramePreferenceKey: PreferenceKey {
         value.merge(nextValue(), uniquingKeysWith: { $1 })
     }
 }
+
+/// Preference key for pane frames reported inside a drawer container coordinate space.
+/// Kept separate from tab-level pane frames so drawer drag targeting never pollutes
+/// the tab-level split overlay target map.
+struct DrawerPaneFramePreferenceKey: PreferenceKey {
+    static let defaultValue: [UUID: CGRect] = [:]
+    static func reduce(value: inout [UUID: CGRect], nextValue: () -> [UUID: CGRect]) {
+        value.merge(nextValue(), uniquingKeysWith: { $1 })
+    }
+}

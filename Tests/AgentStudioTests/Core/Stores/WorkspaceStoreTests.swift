@@ -952,6 +952,27 @@ final class WorkspaceStoreTests {
         #expect(updated.worktrees[0].id == storedWt1Id)
     }
 
+    @Test
+
+    func test_updateRepoWorktrees_noopWhenMergedResultUnchanged() {
+        // Arrange
+        let repo = store.addRepo(at: URL(fileURLWithPath: "/tmp/wt-test-repo4"))
+        let wt1 = makeWorktree(name: "main", path: "/tmp/wt-test-repo4/main", branch: "main")
+        let wt2 = makeWorktree(name: "feat", path: "/tmp/wt-test-repo4/feat", branch: "feat")
+        store.updateRepoWorktrees(repo.id, worktrees: [wt1, wt2])
+        let before = store.repos.first(where: { $0.id == repo.id })!
+
+        // Act — same effective data, but fresh worktree instances
+        let sameWt1 = makeWorktree(name: "main", path: "/tmp/wt-test-repo4/main", branch: "main")
+        let sameWt2 = makeWorktree(name: "feat", path: "/tmp/wt-test-repo4/feat", branch: "feat")
+        store.updateRepoWorktrees(repo.id, worktrees: [sameWt1, sameWt2])
+        let after = store.repos.first(where: { $0.id == repo.id })!
+
+        // Assert — IDs/worktrees unchanged and updatedAt not churned
+        #expect(after.worktrees == before.worktrees)
+        #expect(after.updatedAt == before.updatedAt)
+    }
+
     // MARK: - Restore Validation
 
     @Test

@@ -50,6 +50,17 @@ final class RuntimeRegistry {
         runtimes.values.filter { $0.lifecycle == .ready }
     }
 
+    /// Find a pane whose metadata source has the given worktreeId.
+    /// Returns the first matching PaneId, or nil.
+    func findPaneWithWorktree(worktreeId: UUID) -> PaneId? {
+        for (paneId, runtime) in runtimes {
+            if runtime.metadata.source.worktreeId == worktreeId {
+                return paneId
+            }
+        }
+        return nil
+    }
+
     func shutdownAll(timeout: Duration) async -> [PaneId: [UUID]] {
         var unfinished: [PaneId: [UUID]] = [:]
         // PaneRuntime is MainActor-isolated, so shutdown is intentionally ordered here.

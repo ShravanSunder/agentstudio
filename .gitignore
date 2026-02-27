@@ -72,3 +72,4 @@ build.db
 .codanna
 .codannaignore
 .fastembed_cache
+build.db-journal

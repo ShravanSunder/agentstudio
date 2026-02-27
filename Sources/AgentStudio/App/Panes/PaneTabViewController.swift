@@ -96,6 +96,9 @@ class PaneTabViewController: NSViewController, CommandHandler {
                     .createArrangement(
                         tabId: tabId, name: name, paneIds: Set(tab.paneIds)
                     ))
+            },
+            onOpenRepoInTab: {
+                NotificationCenter.default.post(name: .showCommandBarRepos, object: nil)
             }
         )
         tabBarHostingView = DraggableTabBarHostingView(rootView: tabBar)
@@ -158,15 +161,15 @@ class PaneTabViewController: NSViewController, CommandHandler {
 
         setupNotificationObservers()
 
-        // Cmd+E for edit mode — handled via command pipeline (key event monitor)
+        // Cmd+E for management mode — handled via command pipeline (key event monitor)
         arrangementBarEventMonitor = NSEvent.addLocalMonitorForEvents(matching: .keyDown) { [weak self] event in
             guard self != nil else { return event }
-            // Cmd+E toggles edit mode (negative modifier check: only bare Cmd+E)
+            // Cmd+E toggles management mode (negative modifier check: only bare Cmd+E)
             if event.modifierFlags.contains([.command]),
                 !event.modifierFlags.contains([.shift, .option, .control]),
                 event.charactersIgnoringModifiers == "e"
             {
-                CommandDispatcher.shared.dispatch(.toggleEditMode)
+                CommandDispatcher.shared.dispatch(.toggleManagementMode)
                 return nil
             }
             return event
@@ -208,6 +211,14 @@ class PaneTabViewController: NSViewController, CommandHandler {
                 for await notification in NotificationCenter.default.notifications(named: .extractPaneRequested) {
                     guard let self, !Task.isCancelled else { break }
                     self.handleExtractPaneRequested(notification)
+                }
+            })
+
+        notificationTasks.append(
+            Task { [weak self] in
+                for await notification in NotificationCenter.default.notifications(named: .movePaneToTabRequested) {
+                    guard let self, !Task.isCancelled else { break }
+                    self.handleMovePaneToTabRequested(notification)
                 }
             })
 
@@ -293,7 +304,7 @@ class PaneTabViewController: NSViewController, CommandHandler {
     private func handleAppKitStateChange() {
         updateEmptyState()
 
-        // Deactivate edit mode if no tabs
+        // Deactivate management mode if no tabs
         if store.tabs.isEmpty && ManagementModeMonitor.shared.isActive {
             ManagementModeMonitor.shared.deactivate()
         }
@@ -343,8 +354,12 @@ class PaneTabViewController: NSViewController, CommandHandler {
             store: store,
             viewRegistry: viewRegistry,
             action: { [weak self] action in self?.dispatchAction(action) },
-            shouldAcceptDrop: { [weak self] destPaneId, zone in
-                self?.evaluateDropAcceptance(destPaneId: destPaneId, zone: zone) ?? false
+            shouldAcceptDrop: { [weak self] payload, destPaneId, zone in
+                self?.evaluateDropAcceptance(
+                    payload: payload,
+                    destPaneId: destPaneId,
+                    zone: zone
+                ) ?? false
             },
             onDrop: { [weak self] payload, destPaneId, zone in
                 self?.handleSplitDrop(payload: payload, destPaneId: destPaneId, zone: zone)
@@ -367,20 +382,30 @@ class PaneTabViewController: NSViewController, CommandHandler {
     }
 
     /// Evaluate whether a drop is acceptable at the given pane and zone.
-    private func evaluateDropAcceptance(destPaneId: UUID, zone: DropZone) -> Bool {
-        // New terminal drags have no draggingTabId — always valid
-        guard let draggingTabId = tabBarAdapter.draggingTabId else { return true }
-        guard let tabId = store.activeTabId else { return false }
-
+    private func evaluateDropAcceptance(
+        payload: SplitDropPayload,
+        destPaneId: UUID,
+        zone: DropZone
+    ) -> Bool {
         let snapshot = ActionResolver.snapshot(
             from: store.tabs,
             activeTabId: store.activeTabId,
-            isManagementModeActive: ManagementModeMonitor.shared.isActive
+            isManagementModeActive: ManagementModeMonitor.shared.isActive,
+            knownWorktreeIds: Set(store.repos.flatMap(\.worktrees).map(\.id))
         )
-        let payload = SplitDropPayload(
-            kind: .existingTab(
-                tabId: draggingTabId
-            ))
+        if let drawerAction = drawerMoveDropAction(payload: payload, destPaneId: destPaneId, zone: zone) {
+            if case .success = ActionValidator.validate(drawerAction, state: snapshot) {
+                return true
+            }
+            return false
+        }
+
+        if store.pane(destPaneId)?.isDrawerChild == true {
+            return false
+        }
+
+        guard let tabId = store.activeTabId else { return false }
+
         guard
             let action = ActionResolver.resolveDrop(
                 payload: payload,
@@ -399,12 +424,22 @@ class PaneTabViewController: NSViewController, CommandHandler {
 
     /// Handle a completed drop on a split pane.
     private func handleSplitDrop(payload: SplitDropPayload, destPaneId: UUID, zone: DropZone) {
+        if let drawerAction = drawerMoveDropAction(payload: payload, destPaneId: destPaneId, zone: zone) {
+            dispatchAction(drawerAction)
+            return
+        }
+
+        if store.pane(destPaneId)?.isDrawerChild == true {
+            return
+        }
+
         guard let tabId = store.activeTabId else { return }
 
         let snapshot = ActionResolver.snapshot(
             from: store.tabs,
             activeTabId: store.activeTabId,
-            isManagementModeActive: ManagementModeMonitor.shared.isActive
+            isManagementModeActive: ManagementModeMonitor.shared.isActive,
+            knownWorktreeIds: Set(store.repos.flatMap(\.worktrees).map(\.id))
         )
         if let action = ActionResolver.resolveDrop(
             payload: payload,
@@ -414,6 +449,55 @@ class PaneTabViewController: NSViewController, CommandHandler {
             state: snapshot
         ) {
             dispatchAction(action)
+        }
+    }
+
+    private func drawerMoveDropAction(
+        payload: SplitDropPayload,
+        destPaneId: UUID,
+        zone: DropZone
+    ) -> PaneAction? {
+        let destinationPane = store.pane(destPaneId)
+        let sourcePane: Pane? =
+            if case .existingPane(let sourcePaneId, _) = payload.kind {
+                store.pane(sourcePaneId)
+            } else {
+                nil
+            }
+
+        return Self.resolveDrawerMoveDropAction(
+            payload: payload,
+            destinationPane: destinationPane,
+            sourcePane: sourcePane,
+            zone: zone
+        )
+    }
+
+    nonisolated static func resolveDrawerMoveDropAction(
+        payload: SplitDropPayload,
+        destinationPane: Pane?,
+        sourcePane: Pane?,
+        zone: DropZone
+    ) -> PaneAction? {
+        guard case .existingPane(let sourcePaneId, _) = payload.kind else { return nil }
+        guard let destinationPane, let destinationParentPaneId = destinationPane.parentPaneId else { return nil }
+        guard destinationPane.id != sourcePaneId else { return nil }
+        guard sourcePane?.parentPaneId == destinationParentPaneId else { return nil }
+
+        return .moveDrawerPane(
+            parentPaneId: destinationParentPaneId,
+            drawerPaneId: sourcePaneId,
+            targetDrawerPaneId: destinationPane.id,
+            direction: splitDirection(for: zone)
+        )
+    }
+
+    nonisolated private static func splitDirection(for zone: DropZone) -> SplitNewDirection {
+        switch zone {
+        case .left:
+            return .left
+        case .right:
+            return .right
         }
     }
 
@@ -466,26 +550,36 @@ class PaneTabViewController: NSViewController, CommandHandler {
         subtitleLabel.maximumNumberOfLines = 3
 
         // Keyboard shortcut hint
-        let hintLabel = NSTextField(labelWithString: "Tip: Use Cmd+Shift+O to add a repo")
+        let hintLabel = NSTextField(labelWithString: "Tip: Add Folder scans and imports all repos at once")
         hintLabel.font = NSFont.systemFont(ofSize: 11)
         hintLabel.textColor = .tertiaryLabelColor
 
-        // Add Repo button
-        let addButton = NSButton(title: "Add Repo...", target: self, action: #selector(addRepoAction))
-        addButton.bezelStyle = .rounded
-        addButton.controlSize = .large
-        addButton.keyEquivalent = "\r"
+        // Add Repo / Add Folder buttons
+        let addRepoButton = NSButton(title: "Add Repo...", target: self, action: #selector(addRepoAction))
+        addRepoButton.bezelStyle = .rounded
+        addRepoButton.controlSize = .large
+
+        let addFolderButton = NSButton(title: "Add Folder...", target: self, action: #selector(addFolderAction))
+        addFolderButton.bezelStyle = .rounded
+        addFolderButton.controlSize = .large
+        addFolderButton.bezelColor = .systemTeal
+        addFolderButton.keyEquivalent = "\r"
+
+        let buttonStack = NSStackView(views: [addRepoButton, addFolderButton])
+        buttonStack.orientation = .horizontal
+        buttonStack.spacing = 10
+        buttonStack.alignment = .centerY
 
         stackView.addArrangedSubview(iconContainer)
         stackView.addArrangedSubview(titleLabel)
         stackView.addArrangedSubview(subtitleLabel)
-        stackView.addArrangedSubview(addButton)
+        stackView.addArrangedSubview(buttonStack)
         stackView.addArrangedSubview(hintLabel)
 
         stackView.setCustomSpacing(24, after: iconContainer)
         stackView.setCustomSpacing(8, after: titleLabel)
         stackView.setCustomSpacing(24, after: subtitleLabel)
-        stackView.setCustomSpacing(12, after: addButton)
+        stackView.setCustomSpacing(12, after: buttonStack)
 
         container.addSubview(stackView)
 
@@ -500,6 +594,10 @@ class PaneTabViewController: NSViewController, CommandHandler {
 
     @objc private func addRepoAction() {
         NotificationCenter.default.post(name: .addRepoRequested, object: nil)
+    }
+
+    @objc private func addFolderAction() {
+        NotificationCenter.default.post(name: .addFolderRequested, object: nil)
     }
 
     private func updateEmptyState() {
@@ -538,12 +636,16 @@ class PaneTabViewController: NSViewController, CommandHandler {
 
     // MARK: - Terminal Management
 
-    func openTerminal(for worktree: Worktree, in repo: Repo) {
-        executor.openTerminal(for: worktree, in: repo)
+    func openTerminal(for worktree: Worktree, in _: Repo) {
+        dispatchAction(.openWorktree(worktreeId: worktree.id))
     }
 
-    func openNewTerminal(for worktree: Worktree, in repo: Repo) {
-        executor.openNewTerminal(for: worktree, in: repo)
+    func openNewTerminal(for worktree: Worktree, in _: Repo) {
+        dispatchAction(.openNewTerminalInTab(worktreeId: worktree.id))
+    }
+
+    func openWorktreeInPane(for worktree: Worktree, in _: Repo) {
+        dispatchAction(.openWorktreeInPane(worktreeId: worktree.id))
     }
 
     func closeTerminal(for worktreeId: UUID) {
@@ -589,7 +691,8 @@ class PaneTabViewController: NSViewController, CommandHandler {
         let snapshot = ActionResolver.snapshot(
             from: store.tabs,
             activeTabId: store.activeTabId,
-            isManagementModeActive: ManagementModeMonitor.shared.isActive
+            isManagementModeActive: ManagementModeMonitor.shared.isActive,
+            knownWorktreeIds: Set(store.repos.flatMap(\.worktrees).map(\.id))
         )
 
         switch ActionValidator.validate(action, state: snapshot) {
@@ -686,7 +789,81 @@ class PaneTabViewController: NSViewController, CommandHandler {
         else {
             return
         }
+
+        let targetTabIndex = userInfo["targetTabIndex"] as? Int
+
+        // Single-pane tabs cannot extract; treat tab-bar pane drag as tab reorder
+        // so "single pane move ability" still works.
+        if let sourceTab = store.tab(tabId),
+            sourceTab.paneIds.count == 1
+        {
+            if let targetTabIndex {
+                store.moveTab(fromId: tabId, toIndex: targetTabIndex)
+                store.setActiveTab(tabId)
+            }
+            return
+        }
+
+        let tabCountBefore = store.tabs.count
         dispatchAction(.extractPaneToTab(tabId: tabId, paneId: paneId))
+
+        // For tab-bar drops, place the newly extracted tab at the drop insertion index.
+        guard let targetTabIndex,
+            store.tabs.count == tabCountBefore + 1,
+            let extractedTabId = store.activeTabId
+        else {
+            return
+        }
+
+        store.moveTab(fromId: extractedTabId, toIndex: targetTabIndex)
+        store.setActiveTab(extractedTabId)
+    }
+
+    private func handleMovePaneToTabRequested(_ notification: Notification) {
+        guard let userInfo = notification.userInfo,
+            let paneId = userInfo["paneId"] as? UUID,
+            let targetTabId = userInfo["targetTabId"] as? UUID
+        else {
+            return
+        }
+        let sourceTabId = userInfo["sourceTabId"] as? UUID
+        dispatchMovePaneToTab(sourcePaneId: paneId, sourceTabId: sourceTabId, targetTabId: targetTabId)
+    }
+
+    private func dispatchMovePaneToTab(sourcePaneId: UUID, sourceTabId: UUID?, targetTabId: UUID) {
+        guard
+            let action = makeMovePaneToTabAction(
+                sourcePaneId: sourcePaneId,
+                sourceTabId: sourceTabId,
+                targetTabId: targetTabId
+            )
+        else { return }
+        dispatchAction(action)
+    }
+
+    private func makeMovePaneToTabAction(
+        sourcePaneId: UUID,
+        sourceTabId: UUID?,
+        targetTabId: UUID
+    ) -> PaneAction? {
+        let resolvedSourceTabId: UUID? =
+            if let sourceTabId, store.tab(sourceTabId)?.paneIds.contains(sourcePaneId) == true {
+                sourceTabId
+            } else {
+                store.tabs.first(where: { $0.paneIds.contains(sourcePaneId) })?.id
+            }
+
+        guard let resolvedSourceTabId else { return nil }
+        guard resolvedSourceTabId != targetTabId else { return nil }
+        guard let targetTab = store.tab(targetTabId) else { return nil }
+        guard let targetPaneId = targetTab.activePaneId ?? targetTab.paneIds.first else { return nil }
+
+        return .insertPane(
+            source: .existingPane(paneId: sourcePaneId, sourceTabId: resolvedSourceTabId),
+            targetTabId: targetTabId,
+            targetPaneId: targetPaneId,
+            direction: .right
+        )
     }
 
     // MARK: - Undo Close Tab
@@ -743,11 +920,13 @@ class PaneTabViewController: NSViewController, CommandHandler {
 
         // Non-pane commands handled directly
         switch command {
-        case .toggleEditMode:
+        case .toggleManagementMode:
             ManagementModeMonitor.shared.toggle()
 
         case .addRepo:
             NotificationCenter.default.post(name: .addRepoRequested, object: nil)
+        case .addFolder:
+            NotificationCenter.default.post(name: .addFolderRequested, object: nil)
         case .filterSidebar:
             NotificationCenter.default.post(name: .filterSidebarRequested, object: nil)
         case .addDrawerPane:
@@ -793,9 +972,9 @@ class PaneTabViewController: NSViewController, CommandHandler {
         case .newTerminalInTab, .newFloatingTerminal,
             .removeRepo, .refreshWorktrees,
             .toggleSidebar, .quickFind, .commandBar,
-            .openNewTerminalInTab,
+            .openNewTerminalInTab, .openWorktree, .openWorktreeInPane,
             .switchArrangement, .deleteArrangement, .renameArrangement,
-            .navigateDrawerPane:
+            .navigateDrawerPane, .movePaneToTab:
             break  // Handled via drill-in (target selection in command bar)
         default:
             break
@@ -818,6 +997,15 @@ class PaneTabViewController: NSViewController, CommandHandler {
                 guard let tab = store.tabs.first(where: { $0.paneIds.contains(target) })
                 else { return nil }
                 return .extractPaneToTab(tabId: tab.id, paneId: target)
+            case (.movePaneToTab, .tab):
+                guard let activeTabId = store.activeTabId,
+                    let activePaneId = store.tab(activeTabId)?.activePaneId
+                else { return nil }
+                return makeMovePaneToTabAction(
+                    sourcePaneId: activePaneId,
+                    sourceTabId: activeTabId,
+                    targetTabId: target
+                )
             case (.switchArrangement, .tab):
                 guard let tabId = store.activeTabId else { return nil }
                 return .switchArrangement(tabId: tabId, arrangementId: target)
@@ -833,6 +1021,12 @@ class PaneTabViewController: NSViewController, CommandHandler {
                     let paneId = tab.activePaneId
                 else { return nil }
                 return .setActiveDrawerPane(parentPaneId: paneId, drawerPaneId: target)
+            case (.openWorktree, .worktree):
+                return .openWorktree(worktreeId: target)
+            case (.openNewTerminalInTab, .worktree):
+                return .openNewTerminalInTab(worktreeId: target)
+            case (.openWorktreeInPane, .worktree):
+                return .openWorktreeInPane(worktreeId: target)
             default:
                 return nil
             }
@@ -845,13 +1039,6 @@ class PaneTabViewController: NSViewController, CommandHandler {
 
         // Targeted non-pane commands (e.g. from command bar)
         switch (command, targetType) {
-        case (.openNewTerminalInTab, .worktree):
-            guard let worktree = store.worktree(target),
-                let repo = store.repo(containing: target)
-            else {
-                return
-            }
-            executor.openNewTerminal(for: worktree, in: repo)
         default:
             execute(command)
         }
@@ -865,7 +1052,8 @@ class PaneTabViewController: NSViewController, CommandHandler {
             let snapshot = ActionResolver.snapshot(
                 from: store.tabs,
                 activeTabId: store.activeTabId,
-                isManagementModeActive: ManagementModeMonitor.shared.isActive
+                isManagementModeActive: ManagementModeMonitor.shared.isActive,
+                knownWorktreeIds: Set(store.repos.flatMap(\.worktrees).map(\.id))
             )
             switch ActionValidator.validate(action, state: snapshot) {
             case .success: return true

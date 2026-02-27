@@ -16,7 +16,7 @@ struct ArrangementPanel: View {
         VStack(alignment: .leading, spacing: 8) {
             // MARK: - Arrangement chips
             Text("Arrangements")
-                .font(.system(size: AppStyle.fontSmall, weight: .semibold))
+                .font(.system(size: AppStyle.textSm, weight: .semibold))
                 .foregroundStyle(.tertiary)
                 .textCase(.uppercase)
 
@@ -29,7 +29,7 @@ struct ArrangementPanel: View {
                 if panes.count > 1 {
                     Button(action: onSaveArrangement) {
                         Image(systemName: "plus")
-                            .font(.system(size: AppStyle.fontSmall, weight: .medium))
+                            .font(.system(size: AppStyle.textSm, weight: .medium))
                             .foregroundStyle(.secondary)
                             .frame(width: 22, height: 22)
                             .background(
@@ -48,7 +48,7 @@ struct ArrangementPanel: View {
                     .padding(.vertical, 2)
 
                 Text("Pane Visibility")
-                    .font(.system(size: AppStyle.fontSmall, weight: .semibold))
+                    .font(.system(size: AppStyle.textSm, weight: .semibold))
                     .foregroundStyle(.tertiary)
                     .textCase(.uppercase)
 
@@ -92,7 +92,7 @@ struct ArrangementPanel: View {
                 .frame(width: 8, height: 8)
 
             Text(pane.title)
-                .font(.system(size: AppStyle.fontSecondary))
+                .font(.system(size: AppStyle.textXs))
                 .foregroundStyle(pane.isMinimized ? .tertiary : .primary)
                 .lineLimit(1)
                 .truncationMode(.tail)
@@ -108,7 +108,7 @@ struct ArrangementPanel: View {
                 }
             } label: {
                 Image(systemName: pane.isMinimized ? "eye" : "eye.slash")
-                    .font(.system(size: AppStyle.fontSmall))
+                    .font(.system(size: AppStyle.textSm))
                     .foregroundStyle(.secondary)
                     .frame(width: 20, height: 20)
             }
@@ -127,7 +127,7 @@ struct ArrangementPanel: View {
 
     private func arrangementChip(_ arr: TabBarArrangementInfo) -> some View {
         Text(arr.name)
-            .font(.system(size: AppStyle.fontSecondary, weight: arr.isActive ? .semibold : .regular))
+            .font(.system(size: AppStyle.textXs, weight: arr.isActive ? .semibold : .regular))
             .foregroundStyle(arr.isActive ? .primary : .secondary)
             .padding(.horizontal, AppStyle.spacingLoose)
             .padding(.vertical, AppStyle.spacingTight)

@@ -222,6 +222,53 @@ final class WorkspaceStoreDrawerTests {
         #expect(store.pane(pane.id)!.drawer!.activePaneId == dp.id)
     }
 
+    // MARK: - moveDrawerPane
+
+    @Test
+    func test_moveDrawerPane_repositionsInLayoutAndFocusesMovedPane() {
+        let pane = store.createPane(source: .floating(workingDirectory: nil, title: nil))
+        let dp1 = store.addDrawerPane(to: pane.id)!
+        let dp2 = store.addDrawerPane(to: pane.id)!
+        let dp3 = store.addDrawerPane(to: pane.id)!
+
+        let beforeOrder = store.pane(pane.id)!.drawer!.layout.paneIds
+        #expect(Set(beforeOrder) == Set([dp1.id, dp2.id, dp3.id]))
+
+        store.moveDrawerPane(
+            dp1.id,
+            in: pane.id,
+            at: dp3.id,
+            direction: .horizontal,
+            position: .after
+        )
+
+        let drawer = store.pane(pane.id)!.drawer!
+        let afterOrder = drawer.layout.paneIds
+        #expect(Set(afterOrder) == Set([dp1.id, dp2.id, dp3.id]))
+        #expect(afterOrder.last == dp1.id)
+        #expect(drawer.activePaneId == dp1.id)
+    }
+
+    @Test
+    func test_moveDrawerPane_invalidTarget_noOp() {
+        let pane = store.createPane(source: .floating(workingDirectory: nil, title: nil))
+        let dp1 = store.addDrawerPane(to: pane.id)!
+        let dp2 = store.addDrawerPane(to: pane.id)!
+        let beforeOrder = store.pane(pane.id)!.drawer!.layout.paneIds
+
+        store.moveDrawerPane(
+            dp1.id,
+            in: pane.id,
+            at: UUID(),
+            direction: .horizontal,
+            position: .after
+        )
+
+        let drawer = store.pane(pane.id)!.drawer!
+        #expect(drawer.layout.paneIds == beforeOrder)
+        #expect(drawer.layout.contains(dp2.id))
+    }
+
     // MARK: - resizeDrawerPane
 
     @Test

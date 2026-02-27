@@ -8,6 +8,8 @@ struct CollapsedPaneBar: View {
     let tabId: UUID
     let title: String
     let action: (PaneAction) -> Void
+    let dropTargetCoordinateSpace: String?
+    let useDrawerFramePreference: Bool
 
     @State private var isHovered: Bool = false
 
@@ -16,6 +18,22 @@ struct CollapsedPaneBar: View {
     /// Fixed height for the collapsed bar (used in vertical splits).
     static let barHeight: CGFloat = 30
 
+    init(
+        paneId: UUID,
+        tabId: UUID,
+        title: String,
+        action: @escaping (PaneAction) -> Void,
+        dropTargetCoordinateSpace: String? = nil,
+        useDrawerFramePreference: Bool = false
+    ) {
+        self.paneId = paneId
+        self.tabId = tabId
+        self.title = title
+        self.action = action
+        self.dropTargetCoordinateSpace = dropTargetCoordinateSpace
+        self.useDrawerFramePreference = useDrawerFramePreference
+    }
+
     var body: some View {
         VStack(spacing: 4) {
             // Expand button (top)
@@ -23,7 +41,7 @@ struct CollapsedPaneBar: View {
                 action(.expandPane(tabId: tabId, paneId: paneId))
             } label: {
                 Image(systemName: "arrow.right.to.line")
-                    .font(.system(size: AppStyle.fontSecondary, weight: .medium))
+                    .font(.system(size: AppStyle.textXs, weight: .medium))
                     .foregroundStyle(.white.opacity(AppStyle.foregroundSecondary))
                     .frame(width: 22, height: 22)
             }
@@ -47,7 +65,7 @@ struct CollapsedPaneBar: View {
                 }
             } label: {
                 Image(systemName: "line.3.horizontal")
-                    .font(.system(size: AppStyle.fontSmall))
+                    .font(.system(size: AppStyle.textSm))
                     .foregroundStyle(.white.opacity(AppStyle.foregroundDim))
                     .frame(width: 22, height: 22)
             }
@@ -59,7 +77,7 @@ struct CollapsedPaneBar: View {
 
             // Sideways text (bottom-to-top)
             Text(title)
-                .font(.system(size: AppStyle.fontBody, weight: .bold))
+                .font(.system(size: AppStyle.textBase, weight: .bold))
                 .foregroundStyle(.white.opacity(AppStyle.foregroundSecondary))
                 .lineLimit(1)
                 .truncationMode(.tail)
@@ -86,5 +104,30 @@ struct CollapsedPaneBar: View {
             action(.expandPane(tabId: tabId, paneId: paneId))
         }
         .padding(AppStyle.paneGap)
+        .background(
+            GeometryReader { geo in
+                if let dropTargetCoordinateSpace {
+                    let frame = geo.frame(in: .named(dropTargetCoordinateSpace))
+                    if useDrawerFramePreference {
+                        Color.clear
+                            .preference(
+                                key: DrawerPaneFramePreferenceKey.self,
+                                value: [paneId: frame]
+                            )
+                            .preference(
+                                key: PaneFramePreferenceKey.self,
+                                value: [paneId: geo.frame(in: .named("tabContainer"))]
+                            )
+                    } else {
+                        Color.clear.preference(
+                            key: PaneFramePreferenceKey.self,
+                            value: [paneId: frame]
+                        )
+                    }
+                } else {
+                    Color.clear
+                }
+            }
+        )
     }
 }

@@ -22,7 +22,7 @@ struct CommandBarResultRow: View {
             // Icon
             if let iconName = item.icon {
                 Image(systemName: iconName)
-                    .font(.system(size: 13, weight: .medium))
+                    .font(.system(size: AppStyle.textBase, weight: .medium))
                     .foregroundStyle(iconColor)
                     .frame(width: 16, height: 16)
             } else {
@@ -36,7 +36,7 @@ struct CommandBarResultRow: View {
             // Subtitle
             if let subtitle = item.subtitle {
                 Text(subtitle)
-                    .font(.system(size: 12))
+                    .font(.system(size: AppStyle.textSm))
                     .foregroundStyle(.primary.opacity(isDimmed ? 0.25 : 0.5))
                     .lineLimit(1)
             }
@@ -46,7 +46,7 @@ struct CommandBarResultRow: View {
             // Drill-in chevron
             if item.hasChildren {
                 Image(systemName: "chevron.right")
-                    .font(.system(size: 10, weight: .medium))
+                    .font(.system(size: AppStyle.textXs, weight: .medium))
                     .foregroundStyle(.primary.opacity(0.3))
             }
 
@@ -73,26 +73,26 @@ struct CommandBarResultRow: View {
         let title = displayTitle
         if searchQuery.isEmpty {
             Text(title)
-                .font(.system(size: 13, weight: .medium))
+                .font(.system(size: AppStyle.textBase, weight: .medium))
                 .foregroundStyle(Color.primary.opacity(isDimmed ? 0.4 : 0.88))
         } else if let matchResult = CommandBarSearch.fuzzyMatch(pattern: searchQuery, in: title) {
             buildHighlightedText(title, ranges: matchResult.matchedRanges)
         } else {
             Text(title)
-                .font(.system(size: 13, weight: .medium))
+                .font(.system(size: AppStyle.textBase, weight: .medium))
                 .foregroundStyle(Color.primary.opacity(isDimmed ? 0.4 : 0.88))
         }
     }
 
     private func buildHighlightedText(_ text: String, ranges: [Range<String.Index>]) -> some View {
         var result = AttributedString(text)
-        result.font = .system(size: 13, weight: .medium)
+        result.font = .system(size: AppStyle.textBase, weight: .medium)
         result.foregroundColor = Color.primary.opacity(isDimmed ? 0.4 : 0.58)
 
         for range in ranges {
             guard let attrRange = Range(range, in: result) else { continue }
             result[attrRange].foregroundColor = Color.primary.opacity(isDimmed ? 0.6 : 0.95)
-            result[attrRange].font = .system(size: 13, weight: .bold)
+            result[attrRange].font = .system(size: AppStyle.textBase, weight: .bold)
         }
 
         return Text(result)

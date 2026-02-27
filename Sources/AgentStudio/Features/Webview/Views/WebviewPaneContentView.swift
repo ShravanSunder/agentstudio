@@ -21,10 +21,13 @@ struct WebviewPaneContentView: View {
                 WebviewNewTabView { url in
                     controller.navigate(to: url.absoluteString)
                 }
+                .frame(maxWidth: .infinity, maxHeight: .infinity)
             } else {
                 WebView(controller.page)
+                    .frame(maxWidth: .infinity, maxHeight: .infinity)
             }
         }
+        .frame(maxWidth: .infinity, maxHeight: .infinity)
         .onChange(of: controller.isLoading) { wasLoading, isLoading in
             if wasLoading && !isLoading {
                 controller.recordCurrentPage()

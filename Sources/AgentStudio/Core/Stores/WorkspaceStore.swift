@@ -776,6 +776,60 @@ final class WorkspaceStore {
         return drawerPane
     }
 
+    /// Move an existing drawer pane within the same drawer layout.
+    /// Keeps the pane in the same parent drawer and rewrites the drawer layout tree
+    /// to place `drawerPaneId` adjacent to `targetDrawerPaneId`.
+    func moveDrawerPane(
+        _ drawerPaneId: UUID,
+        in parentPaneId: UUID,
+        at targetDrawerPaneId: UUID,
+        direction: Layout.SplitDirection,
+        position: Layout.Position
+    ) {
+        guard panes[parentPaneId] != nil,
+            panes[parentPaneId]!.drawer != nil
+        else {
+            storeLogger.warning("moveDrawerPane: parent pane \(parentPaneId) has no drawer")
+            return
+        }
+
+        guard drawerPaneId != targetDrawerPaneId else { return }
+
+        var didMove = false
+        panes[parentPaneId]!.withDrawer { drawer in
+            guard drawer.layout.contains(drawerPaneId) else {
+                return
+            }
+            guard drawer.layout.contains(targetDrawerPaneId) else {
+                return
+            }
+            guard let layoutWithoutSource = drawer.layout.removing(paneId: drawerPaneId) else {
+                return
+            }
+
+            let movedLayout = layoutWithoutSource.inserting(
+                paneId: drawerPaneId, at: targetDrawerPaneId,
+                direction: direction, position: position
+            )
+            guard movedLayout != layoutWithoutSource else {
+                return
+            }
+
+            drawer.layout = movedLayout
+            drawer.paneIds = movedLayout.paneIds
+            drawer.activePaneId = drawerPaneId
+            didMove = true
+        }
+
+        if didMove {
+            markDirty()
+        } else {
+            storeLogger.warning(
+                "moveDrawerPane: failed moving pane \(drawerPaneId) near \(targetDrawerPaneId) in \(parentPaneId)"
+            )
+        }
+    }
+
     /// Remove a drawer pane from its parent. Removes the drawer panes list entry,
     /// the layout leaf, and the store entry. Resets drawer if empty.
     func removeDrawerPane(_ drawerPaneId: UUID, from parentPaneId: UUID) {
@@ -1178,6 +1232,8 @@ final class WorkspaceStore {
             }
             return discovered
         }
+
+        guard merged != existing else { return }
 
         repos[index].worktrees = merged
         repos[index].updatedAt = Date()

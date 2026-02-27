@@ -1,3 +1,4 @@
+import AppKit
 import Foundation
 import Testing
 
@@ -6,6 +7,29 @@ import Testing
 @MainActor
 @Suite(.serialized)
 struct WebviewPaneControllerTests {
+
+    private func settleEventLoop(turns: Int = 8) async {
+        for _ in 0..<turns {
+            await Task.yield()
+        }
+    }
+
+    private func setManagementMode(active: Bool) async {
+        for _ in 0..<6 {
+            if active {
+                if !ManagementModeMonitor.shared.isActive {
+                    ManagementModeMonitor.shared.toggle()
+                }
+            } else if ManagementModeMonitor.shared.isActive {
+                ManagementModeMonitor.shared.deactivate()
+            }
+
+            await settleEventLoop(turns: 10)
+            if ManagementModeMonitor.shared.isActive == active {
+                return
+            }
+        }
+    }
 
     private func makeController() -> WebviewPaneController {
         WebviewPaneController(
@@ -127,5 +151,55 @@ struct WebviewPaneControllerTests {
             WebviewPaneController.normalizeURLString("data:text/html,<h1>Hi</h1>")
                 == "data:text/html,<h1>Hi</h1>"
         )
+    }
+
+    // MARK: - Management Mode Interaction Regression Coverage
+
+    @Test
+    func test_managementModeToggle_updatesWebviewControllerInteractionState() async {
+        // Arrange
+        await setManagementMode(active: false)
+        let paneView = WebviewPaneView(
+            paneId: UUID(),
+            state: WebviewState(url: URL(string: "about:blank")!)
+        )
+        _ = paneView.swiftUIContainer
+        await settleEventLoop()
+        #expect(paneView.controller.isContentInteractionEnabled)
+
+        // Act — enter management mode
+        await setManagementMode(active: true)
+
+        // Assert
+        #expect(ManagementModeMonitor.shared.isActive)
+        #expect(!paneView.controller.isContentInteractionEnabled)
+
+        // Act — leave management mode
+        await setManagementMode(active: false)
+
+        // Assert
+        #expect(!ManagementModeMonitor.shared.isActive)
+        #expect(paneView.controller.isContentInteractionEnabled)
+    }
+
+    @Test
+    func test_webviewPaneView_resizesHostingViewToBounds() {
+        // Arrange
+        let paneView = WebviewPaneView(
+            paneId: UUID(),
+            state: WebviewState(url: URL(string: "about:blank")!)
+        )
+        let targetSize = NSSize(width: 920, height: 620)
+
+        // Act
+        paneView.setFrameSize(targetSize)
+        paneView.layoutSubtreeIfNeeded()
+
+        // Assert
+        guard let hostingView = paneView.subviews.first else {
+            Issue.record("Expected hosting view to be installed")
+            return
+        }
+        #expect(hostingView.frame.equalTo(paneView.bounds))
     }
 }

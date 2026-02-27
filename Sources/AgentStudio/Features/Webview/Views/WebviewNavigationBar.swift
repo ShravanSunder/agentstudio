@@ -38,7 +38,7 @@ struct WebviewNavigationBar: View {
                 controller.goBack()
             } label: {
                 Image(systemName: "chevron.left")
-                    .font(.system(size: 12, weight: .medium))
+                    .font(.system(size: AppStyle.textSm, weight: .medium))
             }
             .disabled(!controller.canGoBack)
             .buttonStyle(.plain)
@@ -50,7 +50,7 @@ struct WebviewNavigationBar: View {
                 controller.goForward()
             } label: {
                 Image(systemName: "chevron.right")
-                    .font(.system(size: 12, weight: .medium))
+                    .font(.system(size: AppStyle.textSm, weight: .medium))
             }
             .disabled(!controller.canGoForward)
             .buttonStyle(.plain)
@@ -63,7 +63,7 @@ struct WebviewNavigationBar: View {
                     controller.stopLoading()
                 } label: {
                     Image(systemName: "xmark")
-                        .font(.system(size: 11, weight: .medium))
+                        .font(.system(size: AppStyle.textXs, weight: .medium))
                 }
                 .buttonStyle(.plain)
                 .help("Stop loading")
@@ -72,7 +72,7 @@ struct WebviewNavigationBar: View {
                     controller.reload()
                 } label: {
                     Image(systemName: "arrow.clockwise")
-                        .font(.system(size: 11, weight: .medium))
+                        .font(.system(size: AppStyle.textXs, weight: .medium))
                 }
                 .buttonStyle(.plain)
                 .keyboardShortcut("r", modifiers: .command)
@@ -83,7 +83,7 @@ struct WebviewNavigationBar: View {
                 controller.goHome()
             } label: {
                 Image(systemName: "house")
-                    .font(.system(size: 11, weight: .medium))
+                    .font(.system(size: AppStyle.textXs, weight: .medium))
             }
             .buttonStyle(.plain)
             .foregroundStyle(.primary)
@@ -109,7 +109,7 @@ struct WebviewNavigationBar: View {
                 controller.navigate(to: urlFieldText)
             } label: {
                 Image(systemName: "arrow.right.circle.fill")
-                    .font(.system(size: 14))
+                    .font(.system(size: AppStyle.textLg))
                     .foregroundStyle(.secondary)
             }
             .buttonStyle(.plain)
@@ -136,7 +136,7 @@ struct WebviewNavigationBar: View {
                 }
             } label: {
                 Image(systemName: isCurrentPageFavorite ? "star.fill" : "star")
-                    .font(.system(size: 12, weight: .medium))
+                    .font(.system(size: AppStyle.textSm, weight: .medium))
                     .foregroundStyle(isCurrentPageFavorite ? .yellow : .secondary)
             }
             .buttonStyle(.plain)

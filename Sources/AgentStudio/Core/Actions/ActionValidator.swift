@@ -15,6 +15,7 @@ struct ValidatedAction: Equatable {
 enum ActionValidationError: Error, Equatable {
     case tabNotFound(tabId: UUID)
     case paneNotFound(paneId: UUID, tabId: UUID)
+    case worktreeNotFound(worktreeId: UUID)
     case tabNotSplit(tabId: UUID)
     case singlePaneTab(tabId: UUID)
     case selfPaneInsertion(paneId: UUID)
@@ -142,6 +143,23 @@ enum ActionValidator {
             }
             return .success(ValidatedAction(action))
 
+        case .duplicatePane(let tabId, let paneId, _):
+            guard let tab = state.tab(tabId) else {
+                return .failure(.tabNotFound(tabId: tabId))
+            }
+            guard tab.paneIds.contains(paneId.uuid) else {
+                return .failure(.paneNotFound(paneId: paneId.uuid, tabId: tabId))
+            }
+            return .success(ValidatedAction(action))
+
+        case .openWorktree(let worktreeId),
+            .openNewTerminalInTab(let worktreeId),
+            .openWorktreeInPane(let worktreeId):
+            guard state.knownWorktreeIds.contains(worktreeId) else {
+                return .failure(.worktreeNotFound(worktreeId: worktreeId))
+            }
+            return .success(ValidatedAction(action))
+
         case .toggleSplitZoom(let tabId, let paneId),
             .resizePaneByDelta(let tabId, let paneId, _, _),
             .minimizePane(let tabId, let paneId),
@@ -193,7 +211,8 @@ enum ActionValidator {
             .equalizeDrawerPanes(let parentPaneId),
             .minimizeDrawerPane(let parentPaneId, _),
             .expandDrawerPane(let parentPaneId, _),
-            .insertDrawerPane(let parentPaneId, _, _):
+            .insertDrawerPane(let parentPaneId, _, _),
+            .moveDrawerPane(let parentPaneId, _, _, _):
             guard state.tabContaining(paneId: parentPaneId) != nil else {
                 return .failure(.paneNotFound(paneId: parentPaneId, tabId: state.activeTabId ?? UUID()))
             }

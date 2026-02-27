@@ -72,7 +72,7 @@ Each AppKit controller that hosts SwiftUI creates NSHostingView(s) **once** at s
 | NSHostingView | SwiftUI Root | Purpose |
 |---|---|---|
 | `tabBarHostingView` | `CustomTabBar` | Tab bar (top strip) |
-| `splitHostingView` | `ActiveTabContent` → `TerminalSplitContainer` | Main content area — renders active tab's split tree |
+| `splitHostingView` | `ActiveTabContent` → `TerminalSplitContainer` | Main content area — renders the active tab's split tree via `PaneLeafContainer` leaves |
 | `arrangementButtonHostingView` | `ArrangementFloatingButton` | Floating arrangement button |
 | _(pure AppKit)_ | `emptyStateView` | Empty state when no tabs exist |
 
@@ -104,6 +104,17 @@ AppDelegate
 ```
 
 See [Component Architecture — Service Layer](component_architecture.md#3-service-layer) for detailed descriptions of each service.
+
+### Split Drag Interaction Path
+
+Management-mode split insertion is coordinated at the tab container level:
+
+- `PaneLeafContainer` renders pane content and controls uniformly for all pane kinds.
+- `PaneFramePreferenceKey` reports pane frames in `tabContainer` coordinates.
+- `SplitContainerDropDelegate` resolves drag location using `PaneDragCoordinator` and submits validated drop actions through existing `PaneAction` flow.
+- `PaneDropTargetOverlay` renders the active destination marker from `PaneDropTarget` + `DropZone`.
+
+This keeps split targeting pane-type-agnostic (terminal/webview/bridge/future panes).
 
 ## Swift 6 Concurrency
 

@@ -26,13 +26,16 @@ struct TerminalSplitContainer: View {
     let action: (PaneAction) -> Void
     /// Called when a resize drag ends to persist the current split tree state.
     let onPersist: (() -> Void)?
-    let shouldAcceptDrop: (UUID, DropZone) -> Bool
+    let shouldAcceptDrop: (SplitDropPayload, UUID, DropZone) -> Bool
     let onDrop: (SplitDropPayload, UUID, DropZone) -> Void
     let store: WorkspaceStore
     let viewRegistry: ViewRegistry
 
     @State private var paneFrames: [UUID: CGRect] = [:]
     @State private var iconBarFrame: CGRect = .zero
+    @State private var dropTarget: PaneDropTarget?
+    @State private var dropTargetWatchdogTask: Task<Void, Never>?
+    @Bindable private var managementMode = ManagementModeMonitor.shared
 
     /// Content shown when all panes in the tab are minimized.
     /// Collapsed bars aligned left, remaining space empty.
@@ -44,7 +47,8 @@ struct TerminalSplitContainer: View {
                     paneId: paneId,
                     tabId: tabId,
                     title: store.pane(paneId)?.title ?? "Terminal",
-                    action: action
+                    action: action,
+                    dropTargetCoordinateSpace: "tabContainer"
                 )
                 .frame(width: CollapsedPaneBar.barWidth)
             }
@@ -54,6 +58,7 @@ struct TerminalSplitContainer: View {
 
     var body: some View {
         GeometryReader { tabGeometry in
+            let containerBounds = CGRect(origin: .zero, size: tabGeometry.size)
             ZStack {
                 if let node = tree.root {
                     if let zoomedPaneId,
@@ -61,19 +66,17 @@ struct TerminalSplitContainer: View {
                     {
                         // Zoomed: render single pane at full size
                         ZStack(alignment: .topTrailing) {
-                            TerminalPaneLeaf(
+                            PaneLeafContainer(
                                 paneView: zoomedView,
                                 tabId: tabId,
                                 isActive: true,
                                 isSplit: false,
                                 store: store,
-                                action: action,
-                                shouldAcceptDrop: shouldAcceptDrop,
-                                onDrop: onDrop
+                                action: action
                             )
                             // Zoom indicator badge
                             Text("ZOOM")
-                                .font(.system(size: AppStyle.fontSmall, weight: .medium, design: .monospaced))
+                                .font(.system(size: AppStyle.textSm, weight: .medium, design: .monospaced))
                                 .foregroundStyle(.white.opacity(AppStyle.foregroundSecondary))
                                 .padding(.horizontal, AppStyle.spacingStandard)
                                 .padding(.vertical, AppStyle.paneGap)
@@ -95,8 +98,6 @@ struct TerminalSplitContainer: View {
                             splitRenderInfo: splitRenderInfo,
                             action: action,
                             onPersist: onPersist,
-                            shouldAcceptDrop: shouldAcceptDrop,
-                            onDrop: onDrop,
                             store: store
                         )
                         .id(node.structuralIdentity)  // Prevents view recreation on ratio changes
@@ -120,11 +121,70 @@ struct TerminalSplitContainer: View {
                     iconBarFrame: iconBarFrame,
                     action: action
                 )
+
+                if managementMode.isActive {
+                    PaneDropTargetOverlay(target: dropTarget, paneFrames: paneFrames)
+                        .allowsHitTesting(false)
+                }
+
+                SplitContainerDropCaptureOverlay(
+                    paneFrames: paneFrames,
+                    containerBounds: containerBounds,
+                    target: $dropTarget,
+                    isManagementModeActive: managementMode.isActive,
+                    shouldAcceptDrop: shouldAcceptDrop,
+                    onDrop: onDrop
+                )
             }
             .onPreferenceChange(PaneFramePreferenceKey.self) { paneFrames = $0 }
             .onPreferenceChange(DrawerIconBarFrameKey.self) { iconBarFrame = $0 }
+            .onChange(of: managementMode.isActive) { _, isActive in
+                if !isActive {
+                    dropTarget = nil
+                }
+            }
+            .onChange(of: dropTarget) { _, target in
+                if target == nil {
+                    stopDropTargetWatchdog()
+                } else {
+                    startDropTargetWatchdog()
+                }
+            }
+            .onDisappear {
+                stopDropTargetWatchdog()
+            }
+            .task {
+                for await _ in NotificationCenter.default.notifications(
+                    named: NSApplication.didResignActiveNotification
+                ) {
+                    dropTarget = nil
+                }
+            }
         }
         .coordinateSpace(name: "tabContainer")
+    }
+
+    private func startDropTargetWatchdog() {
+        stopDropTargetWatchdog()
+
+        dropTargetWatchdogTask = Task { @MainActor in
+            while !Task.isCancelled {
+                if DropTargetLatchState.shouldClearTarget(
+                    appIsActive: NSApplication.shared.isActive,
+                    pressedMouseButtons: NSEvent.pressedMouseButtons
+                ) {
+                    dropTarget = nil
+                    return
+                }
+
+                try? await Task.sleep(for: .milliseconds(16))
+            }
+        }
+    }
+
+    private func stopDropTargetWatchdog() {
+        dropTargetWatchdogTask?.cancel()
+        dropTargetWatchdogTask = nil
     }
 }
 
@@ -139,9 +199,35 @@ struct SplitSubtreeView: View {
     let splitRenderInfo: SplitRenderInfo
     let action: (PaneAction) -> Void
     let onPersist: (() -> Void)?
-    let shouldAcceptDrop: (UUID, DropZone) -> Bool
-    let onDrop: (SplitDropPayload, UUID, DropZone) -> Void
     let store: WorkspaceStore
+    let dropTargetCoordinateSpace: String?
+    let useDrawerFramePreference: Bool
+
+    init(
+        node: PaneSplitTree.Node,
+        tabId: UUID,
+        isSplit: Bool,
+        activePaneId: UUID?,
+        minimizedPaneIds: Set<UUID>,
+        splitRenderInfo: SplitRenderInfo,
+        action: @escaping (PaneAction) -> Void,
+        onPersist: (() -> Void)?,
+        store: WorkspaceStore,
+        dropTargetCoordinateSpace: String? = "tabContainer",
+        useDrawerFramePreference: Bool = false
+    ) {
+        self.node = node
+        self.tabId = tabId
+        self.isSplit = isSplit
+        self.activePaneId = activePaneId
+        self.minimizedPaneIds = minimizedPaneIds
+        self.splitRenderInfo = splitRenderInfo
+        self.action = action
+        self.onPersist = onPersist
+        self.store = store
+        self.dropTargetCoordinateSpace = dropTargetCoordinateSpace
+        self.useDrawerFramePreference = useDrawerFramePreference
+    }
 
     var body: some View {
         switch node {
@@ -151,18 +237,20 @@ struct SplitSubtreeView: View {
                     paneId: paneView.id,
                     tabId: tabId,
                     title: store.pane(paneView.id)?.title ?? "Terminal",
-                    action: action
+                    action: action,
+                    dropTargetCoordinateSpace: dropTargetCoordinateSpace,
+                    useDrawerFramePreference: useDrawerFramePreference
                 )
             } else {
-                TerminalPaneLeaf(
+                PaneLeafContainer(
                     paneView: paneView,
                     tabId: tabId,
                     isActive: paneView.id == activePaneId,
                     isSplit: isSplit,
                     store: store,
                     action: action,
-                    shouldAcceptDrop: shouldAcceptDrop,
-                    onDrop: onDrop
+                    dropTargetCoordinateSpace: dropTargetCoordinateSpace,
+                    useDrawerFramePreference: useDrawerFramePreference
                 )
             }
 
@@ -258,7 +346,9 @@ struct SplitSubtreeView: View {
                 paneId: paneId,
                 tabId: tabId,
                 title: store.pane(paneId)?.title ?? "Terminal",
-                action: action
+                action: action,
+                dropTargetCoordinateSpace: dropTargetCoordinateSpace,
+                useDrawerFramePreference: useDrawerFramePreference
             )
             .frame(
                 width: isHorizontal ? CollapsedPaneBar.barWidth : nil,
@@ -287,9 +377,9 @@ struct SplitSubtreeView: View {
             splitRenderInfo: splitRenderInfo,
             action: action,
             onPersist: onPersist,
-            shouldAcceptDrop: shouldAcceptDrop,
-            onDrop: onDrop,
-            store: store
+            store: store,
+            dropTargetCoordinateSpace: dropTargetCoordinateSpace,
+            useDrawerFramePreference: useDrawerFramePreference
         )
     }
 

@@ -44,7 +44,7 @@ final class CommandBarState {
         guard navigationStack.isEmpty else { return nil }
         guard let first = rawInput.first else { return nil }
         let char = String(first)
-        return [">", "@"].contains(char) ? char : nil
+        return [">", "@", "#"].contains(char) ? char : nil
     }
 
     /// Search query text after stripping the prefix (and any leading space).
@@ -63,6 +63,7 @@ final class CommandBarState {
         switch activePrefix {
         case ">": return .commands
         case "@": return .panes
+        case "#": return .repos
         default: return .everything
         }
     }
@@ -88,6 +89,7 @@ final class CommandBarState {
         case .everything: return "Search or jump to..."
         case .commands: return "Run a command..."
         case .panes: return "Switch to pane..."
+        case .repos: return "Open repo or worktree..."
         }
     }
 
@@ -98,6 +100,7 @@ final class CommandBarState {
         case .everything: return "magnifyingglass"
         case .commands: return "chevron.right.2"
         case .panes: return "at"
+        case .repos: return "number"
         }
     }
 
@@ -106,7 +109,7 @@ final class CommandBarState {
     /// Show the command bar with an optional prefix pre-filled.
     /// Adds a trailing space after known prefixes so the cursor lands after it.
     func show(prefix: String? = nil) {
-        if let prefix, !prefix.isEmpty, [">", "@"].contains(prefix) {
+        if let prefix, !prefix.isEmpty, [">", "@", "#"].contains(prefix) {
             rawInput = prefix + " "
         } else {
             rawInput = prefix ?? ""

@@ -722,6 +722,63 @@ final class ActionValidatorTests {
         #expect((try? result.get()) != nil)
     }
 
+    // MARK: - duplicatePane
+
+    @Test
+
+    func test_duplicatePane_validPane_succeeds() {
+        // Arrange
+        let paneId = UUID()
+        let tabId = UUID()
+        let tab = TabSnapshot(id: tabId, paneIds: [paneId], activePaneId: paneId)
+        let snapshot = makeSnapshot(tabs: [tab])
+
+        // Act
+        let result = ActionValidator.validate(
+            .duplicatePane(tabId: tabId, paneId: PaneId(uuid: paneId), direction: .right),
+            state: snapshot
+        )
+
+        // Assert
+        #expect((try? result.get()) != nil)
+    }
+
+    @Test
+
+    func test_duplicatePane_paneNotInTab_fails() {
+        // Arrange
+        let (tab, tabId, _) = makeSinglePaneTab()
+        let snapshot = makeSnapshot(tabs: [tab])
+        let orphanPaneId = PaneId()
+
+        // Act
+        let result = ActionValidator.validate(
+            .duplicatePane(tabId: tabId, paneId: orphanPaneId, direction: .right),
+            state: snapshot
+        )
+
+        // Assert
+        if case .failure(.paneNotFound) = result { return }
+        Issue.record("Expected paneNotFound error")
+    }
+
+    @Test
+
+    func test_duplicatePane_missingTab_fails() {
+        // Arrange
+        let snapshot = makeSnapshot()
+
+        // Act
+        let result = ActionValidator.validate(
+            .duplicatePane(tabId: UUID(), paneId: PaneId(), direction: .left),
+            state: snapshot
+        )
+
+        // Assert
+        if case .failure(.tabNotFound) = result { return }
+        Issue.record("Expected tabNotFound error")
+    }
+
     // MARK: - ValidatedAction preserves action
 
     @Test

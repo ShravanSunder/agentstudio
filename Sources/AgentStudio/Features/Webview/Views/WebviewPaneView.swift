@@ -23,9 +23,33 @@ final class WebviewPaneView: PaneView {
 
     override var acceptsFirstResponder: Bool { true }
 
+    override func setFrameSize(_ newSize: NSSize) {
+        super.setFrameSize(newSize)
+        syncHostingViewFrame()
+    }
+
+    override func layout() {
+        super.layout()
+        syncHostingViewFrame()
+    }
+
+    override func viewDidMoveToWindow() {
+        super.viewDidMoveToWindow()
+        setContentInteractionEnabled(!ManagementModeMonitor.shared.isActive)
+        syncHostingViewFrame()
+    }
+
     /// Capture current tab state for persistence.
     func currentState() -> WebviewState {
         controller.snapshot()
+    }
+
+    // MARK: - Content Interaction
+
+    /// Delegates management mode interaction suppression to the controller's
+    /// persistent user-script pipeline (current document + future navigations).
+    override func setContentInteractionEnabled(_ enabled: Bool) {
+        controller.setWebContentInteractionEnabled(enabled)
     }
 
     // MARK: - Setup
@@ -33,16 +57,18 @@ final class WebviewPaneView: PaneView {
     private func setupHostingView() {
         let contentView = WebviewPaneContentView(controller: controller)
         let hosting = NSHostingView(rootView: contentView)
-        hosting.translatesAutoresizingMaskIntoConstraints = false
+        hosting.frame = bounds
+        hosting.autoresizingMask = [.width, .height]
         addSubview(hosting)
-
-        NSLayoutConstraint.activate([
-            hosting.topAnchor.constraint(equalTo: topAnchor),
-            hosting.leadingAnchor.constraint(equalTo: leadingAnchor),
-            hosting.trailingAnchor.constraint(equalTo: trailingAnchor),
-            hosting.bottomAnchor.constraint(equalTo: bottomAnchor),
-        ])
-
         self.hostingView = hosting
+        syncHostingViewFrame()
+    }
+
+    private func syncHostingViewFrame() {
+        guard let hostingView else { return }
+        if hostingView.frame != bounds {
+            hostingView.frame = bounds
+        }
+        hostingView.layoutSubtreeIfNeeded()
     }
 }
