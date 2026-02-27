@@ -8,6 +8,12 @@
 
 **Tech Stack:** Swift 6, SwiftUI, AppKit (NSSplitViewController), `@Observable` stores, `PaneId` (UUIDv7), `PaneMetadata`, `RuntimeRegistry`, `WorktrunkService` (git CLI wrapper)
 
+## Review Follow-up Tasks
+
+- [x] Resolve every open Gemini code review comment for this UX fixes stream.
+- [x] Post a GitHub reply on each Gemini review thread with explicit status: `Addressed` or `Dismissed`.
+- [x] For each `Dismissed` reply, include a brief technical reason and the file/line reference used for validation.
+
 **Pane Identity Contract:**
 - `PaneId` struct (UUIDv7 for new panes, UUID compat for legacy) — already exists in `Core/PaneRuntime/Contracts/PaneId.swift`
 - `PaneMetadata` with rich identity — already exists in `Core/PaneRuntime/Contracts/PaneMetadata.swift`

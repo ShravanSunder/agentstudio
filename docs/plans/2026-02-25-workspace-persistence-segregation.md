@@ -93,6 +93,18 @@ This is the current self-triggering loop.
 2. `AppCommand.refreshWorktrees` exists but is effectively no-op in active execution path.
 3. Legacy `SidebarContentView` exists in file but active mounted view is `RepoSidebarContentView`.
 
+## 1.4 Precursor Cleanup Before Persistence Cutover
+
+- ⚠️ Existing `Task.detached` usages (documented in comments, but still present):
+  - `Sources/AgentStudio/Features/Bridge/State/Push/Slice.swift:81`
+  - `Sources/AgentStudio/Features/Bridge/State/Push/EntitySlice.swift:93`
+- ⚠️ Heavy IO currently still runs on main flow in sidebar refresh path:
+  - `Sources/AgentStudio/Features/Sidebar/RepoSidebarContentView.swift:501` (calls `refreshWorktrees`)
+  - `Sources/AgentStudio/Features/Sidebar/RepoSidebarContentView.swift:494`
+  - `Sources/AgentStudio/Infrastructure/WorktrunkService.swift:28` (sync shell-based discovery)
+
+These must be cleaned up before persistence segregation implementation so canonical/cache split work is not built on top of known concurrency regressions.
+
 ---
 
 ## 2. Target Mental Model (Aligned to New Architecture)
