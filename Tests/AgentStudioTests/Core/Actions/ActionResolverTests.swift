@@ -19,12 +19,12 @@ final class ActionResolverTests {
         )
     }
 
-    private func makeSinglePaneTab(tabId: UUID = UUID(), paneId: UUID = UUID()) -> TabSnapshot {
+    private func makeSinglePaneTab(tabId: UUID = UUID(), paneId: UUID = UUIDv7.generate()) -> TabSnapshot {
         TabSnapshot(id: tabId, paneIds: [paneId], activePaneId: paneId)
     }
 
     private func makeMultiPaneTab(tabId: UUID = UUID(), paneIds: [UUID]? = nil) -> TabSnapshot {
-        let ids = paneIds ?? [UUID(), UUID()]
+        let ids = paneIds ?? [UUIDv7.generate(), UUIDv7.generate()]
         return TabSnapshot(id: tabId, paneIds: ids, activePaneId: ids.first)
     }
 
@@ -468,7 +468,7 @@ final class ActionResolverTests {
     func test_resolve_duplicatePane_returnsWithActivePaneAndRightDirection() {
         // Arrange
         let tabId = UUID()
-        let paneId = UUID()
+        let paneId = UUIDv7.generate()
         let tab = MockTab(id: tabId, activePaneId: paneId, allPaneIds: [paneId])
 
         // Act

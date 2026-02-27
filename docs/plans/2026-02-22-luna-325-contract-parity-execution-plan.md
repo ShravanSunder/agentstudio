@@ -23,6 +23,19 @@
 - [x] Task 9: Migrate Ghostty Action Dispatch Off Legacy Notification Posts (Atomic per Action Family)
 - [x] Task 10: Final Verification, Docs, and Linear Sync
 
+## Post-Merge Audit Tasks (PR #43 -> LUNA-325 Branch)
+
+- [x] Replace merge-introduced non-v7 pane IDs in runtime-invariant tests.
+  - Updated `Tests/AgentStudioTests/Core/Actions/ActionResolverTests.swift` duplicate-pane path + pane-id helpers.
+  - Updated `Tests/AgentStudioTests/Core/Actions/ActionValidatorTests.swift` duplicate-pane path + pane-id helpers.
+- [ ] Keep scanning merge-touched tests for `PaneId(uuid:)` call sites fed by plain `UUID()` and convert pane identity inputs to `UUIDv7.generate()` where needed.
+- [ ] Resolve merge-introduced lint regression in `Sources/AgentStudio/App/Panes/PaneTabViewController.swift` (`file_length`, `type_body_length`) with an extraction refactor that preserves behavior.
+- [ ] Validate all merge-touch gates in one pass after cleanup:
+  - `mise run test`
+  - `mise run lint`
+  - `mise run build`
+- [ ] Record UI-scope NotificationCenter posts introduced by merge as explicit EventBus migration backlog (LUNA-351), ensuring runtime data-plane remains typed-stream only.
+
 ---
 
 ### Task 1: Stabilize Test Entrypoints
@@ -421,4 +434,3 @@ Re-run the same three commands; expect zero failures.
 git add docs/plans/2026-02-21-pane-runtime-luna-295-luna-325-mapping.md docs/plans/2026-02-22-luna-325-contract-parity-execution-plan.md
 git commit -m "docs: close LUNA-325 parity execution ledger with verification evidence"
 ```
-

@@ -20,13 +20,13 @@ final class ActionValidatorTests {
         )
     }
 
-    private func makeSinglePaneTab(tabId: UUID = UUID(), paneId: UUID = UUID()) -> (TabSnapshot, UUID, UUID) {
+    private func makeSinglePaneTab(tabId: UUID = UUID(), paneId: UUID = UUIDv7.generate()) -> (TabSnapshot, UUID, UUID) {
         let tab = TabSnapshot(id: tabId, paneIds: [paneId], activePaneId: paneId)
         return (tab, tabId, paneId)
     }
 
     private func makeMultiPaneTab(tabId: UUID = UUID(), paneIds: [UUID]? = nil) -> (TabSnapshot, UUID, [UUID]) {
-        let ids = paneIds ?? [UUID(), UUID()]
+        let ids = paneIds ?? [UUIDv7.generate(), UUIDv7.generate()]
         let tab = TabSnapshot(id: tabId, paneIds: ids, activePaneId: ids.first)
         return (tab, tabId, ids)
     }
@@ -728,7 +728,7 @@ final class ActionValidatorTests {
 
     func test_duplicatePane_validPane_succeeds() {
         // Arrange
-        let paneId = UUID()
+        let paneId = UUIDv7.generate()
         let tabId = UUID()
         let tab = TabSnapshot(id: tabId, paneIds: [paneId], activePaneId: paneId)
         let snapshot = makeSnapshot(tabs: [tab])
