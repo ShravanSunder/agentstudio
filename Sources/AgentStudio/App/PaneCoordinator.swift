@@ -5,6 +5,8 @@ import os.log
 
 @MainActor
 protocol PaneCoordinatorSurfaceManaging: AnyObject {
+    var surfaceCWDChanges: AsyncStream<SurfaceManager.SurfaceCWDChangeEvent> { get }
+
     func syncFocus(activeSurfaceId: UUID?)
 
     func createSurface(
@@ -37,10 +39,13 @@ final class PaneCoordinator {
     let surfaceManager: PaneCoordinatorSurfaceManaging
     let runtimeRegistry: RuntimeRegistry
     let runtimeEventReducer: NotificationReducer
+    let paneEventBus: EventBus<PaneEventEnvelope>
     let runtimeTargetResolver: RuntimeTargetResolver
     let runtimeCommandClock: ContinuousClock
     lazy var sessionConfig = SessionConfiguration.detect()
-    private var runtimeEventTasks: [PaneId: Task<Void, Never>] = [:]
+    private var cwdChangesTask: Task<Void, Never>?
+    private var paneEventIngressTask: Task<Void, Never>?
+    private var runtimeEventBridgeTasks: [PaneId: Task<Void, Never>] = [:]
     private var criticalRuntimeEventsTask: Task<Void, Never>?
     private var batchedRuntimeEventsTask: Task<Void, Never>?
 
@@ -64,6 +69,7 @@ final class PaneCoordinator {
             runtime: runtime,
             surfaceManager: SurfaceManager.shared,
             runtimeRegistry: .shared,
+            paneEventBus: PaneRuntimeEventBus.shared,
             runtimeCommandClock: ContinuousClock()
         )
     }
@@ -74,6 +80,7 @@ final class PaneCoordinator {
         runtime: SessionRuntime,
         surfaceManager: PaneCoordinatorSurfaceManaging,
         runtimeRegistry: RuntimeRegistry,
+        paneEventBus: EventBus<PaneEventEnvelope> = PaneRuntimeEventBus.shared,
         runtimeCommandClock: ContinuousClock = ContinuousClock()
     ) {
         self.store = store
@@ -82,18 +89,23 @@ final class PaneCoordinator {
         self.surfaceManager = surfaceManager
         self.runtimeRegistry = runtimeRegistry
         self.runtimeEventReducer = NotificationReducer()
+        self.paneEventBus = paneEventBus
         self.runtimeTargetResolver = RuntimeTargetResolver(workspaceStore: store)
         self.runtimeCommandClock = runtimeCommandClock
         Ghostty.App.setRuntimeRegistry(runtimeRegistry)
+        subscribeToCWDChanges()
         setupPrePersistHook()
+        startPaneEventIngress()
         startRuntimeReducerConsumers()
     }
 
     isolated deinit {
-        for task in runtimeEventTasks.values {
+        cwdChangesTask?.cancel()
+        paneEventIngressTask?.cancel()
+        for task in runtimeEventBridgeTasks.values {
             task.cancel()
         }
-        runtimeEventTasks.removeAll()
+        runtimeEventBridgeTasks.removeAll()
         criticalRuntimeEventsTask?.cancel()
         batchedRuntimeEventsTask?.cancel()
     }
@@ -110,6 +122,23 @@ final class PaneCoordinator {
     @discardableResult
     func removeFirstUndoEntry() -> WorkspaceStore.CloseEntry {
         undoStack.removeFirst()
+    }
+
+    // MARK: - CWD Propagation
+
+    private func subscribeToCWDChanges() {
+        cwdChangesTask = Task { @MainActor [weak self] in
+            guard let self else { return }
+            for await event in self.surfaceManager.surfaceCWDChanges {
+                if Task.isCancelled { break }
+                self.onSurfaceCWDChanged(event)
+            }
+        }
+    }
+
+    private func onSurfaceCWDChanged(_ event: SurfaceManager.SurfaceCWDChangeEvent) {
+        guard let paneId = event.paneId else { return }
+        store.updatePaneCWD(paneId, cwd: event.cwd)
     }
 
     // MARK: - Webview State Sync
@@ -134,12 +163,12 @@ final class PaneCoordinator {
     func registerRuntime(_ runtime: any PaneRuntime) {
         let registrationResult = runtimeRegistry.register(runtime)
         guard registrationResult == .inserted else { return }
-        startRuntimeEventSubscription(for: runtime)
+        startRuntimeEventBridge(for: runtime)
     }
 
     @discardableResult
     func unregisterRuntime(_ paneId: PaneId) -> (any PaneRuntime)? {
-        stopRuntimeEventSubscription(for: paneId)
+        stopRuntimeEventBridge(for: paneId)
         return runtimeRegistry.unregister(paneId)
     }
 
@@ -147,19 +176,38 @@ final class PaneCoordinator {
         runtimeRegistry.runtime(for: paneId)
     }
 
-    private func startRuntimeEventSubscription(for runtime: any PaneRuntime) {
-        let runtimePaneId = runtime.paneId
-        guard runtimeEventTasks[runtimePaneId] == nil else { return }
-
-        let stream = runtime.subscribe()
-        runtimeEventTasks[runtimePaneId] = Task { @MainActor [weak self] in
+    private func startPaneEventIngress() {
+        guard paneEventIngressTask == nil else { return }
+        paneEventIngressTask = Task { @MainActor [weak self] in
             guard let self else { return }
+            let stream = await self.paneEventBus.subscribe()
             for await envelope in stream {
                 if Task.isCancelled { break }
                 self.runtimeEventReducer.submit(envelope)
             }
-            self.runtimeEventTasks.removeValue(forKey: runtimePaneId)
         }
+    }
+
+    private func startRuntimeEventBridge(for runtime: any PaneRuntime) {
+        guard !(runtime is any BusPostingPaneRuntime) else { return }
+
+        let runtimePaneId = runtime.paneId
+        guard runtimeEventBridgeTasks[runtimePaneId] == nil else { return }
+
+        let stream = runtime.subscribe()
+        runtimeEventBridgeTasks[runtimePaneId] = Task { @MainActor [weak self] in
+            guard let self else { return }
+            for await envelope in stream {
+                if Task.isCancelled { break }
+                await self.paneEventBus.post(envelope)
+            }
+            self.runtimeEventBridgeTasks.removeValue(forKey: runtimePaneId)
+        }
+    }
+
+    private func stopRuntimeEventBridge(for paneId: PaneId) {
+        runtimeEventBridgeTasks[paneId]?.cancel()
+        runtimeEventBridgeTasks.removeValue(forKey: paneId)
     }
 
     private func startRuntimeReducerConsumers() {
@@ -184,24 +232,17 @@ final class PaneCoordinator {
         }
     }
 
-    private func stopRuntimeEventSubscription(for paneId: PaneId) {
-        runtimeEventTasks[paneId]?.cancel()
-        runtimeEventTasks.removeValue(forKey: paneId)
-    }
-
     private func handleRuntimeEnvelope(_ envelope: PaneEventEnvelope) {
         switch envelope.source {
         case .pane(let sourcePaneId):
             switch envelope.event {
             case .terminal(let event):
                 handleTerminalRuntimeEvent(event, sourcePaneId: sourcePaneId)
-            case .lifecycle(let lifecycleEvent):
-                handleLifecycleRuntimeEvent(lifecycleEvent, sourcePaneId: sourcePaneId)
             case .error(let errorEvent):
                 Self.logger.warning(
                     "Runtime error event received from pane \(sourcePaneId.uuid.uuidString, privacy: .public): \(String(describing: errorEvent), privacy: .public)"
                 )
-            case .browser, .diff, .editor, .plugin, .filesystem, .artifact, .security:
+            case .lifecycle, .browser, .diff, .editor, .plugin, .filesystem, .artifact, .security:
                 Self.logger.debug(
                     "Runtime event family ignored by coordinator for pane \(sourcePaneId.uuid.uuidString, privacy: .public): \(String(describing: envelope.event), privacy: .public)"
                 )
@@ -213,20 +254,6 @@ final class PaneCoordinator {
         case .worktree(let worktreeId):
             Self.logger.debug(
                 "Runtime event ignored for worktree source \(worktreeId.uuidString, privacy: .public) facets=\(String(describing: envelope.sourceFacets), privacy: .public): \(String(describing: envelope.event), privacy: .public)"
-            )
-        }
-    }
-
-    private func handleLifecycleRuntimeEvent(_ event: PaneLifecycleEvent, sourcePaneId: PaneId) {
-        switch event {
-        case .attachFailed(let error):
-            Self.logger.warning(
-                "Runtime lifecycle attach failed for pane \(sourcePaneId.uuid.uuidString, privacy: .public): \(String(describing: error), privacy: .public)"
-            )
-        case .surfaceCreated, .sizeObserved, .sizeStabilized, .attachStarted, .attachSucceeded, .paneClosed,
-            .activePaneChanged, .drawerExpanded, .drawerCollapsed, .tabSwitched:
-            Self.logger.debug(
-                "Runtime lifecycle event for pane \(sourcePaneId.uuid.uuidString, privacy: .public): \(String(describing: event), privacy: .public)"
             )
         }
     }
@@ -286,9 +313,14 @@ final class PaneCoordinator {
             store.updatePaneTitle(sourcePaneUUID, title: title)
         case .cwdChanged(let cwdPath):
             store.updatePaneCWD(sourcePaneUUID, cwd: URL(fileURLWithPath: cwdPath))
-        case .commandFinished, .bellRang:
+        case .commandFinished:
             Self.logger.debug(
                 "Terminal control event received for pane \(sourcePaneUUID.uuidString, privacy: .public): \(String(describing: event), privacy: .public)"
+            )
+        case .bellRang:
+            postAppEvent(.worktreeBellRang(paneId: sourcePaneUUID))
+            Self.logger.debug(
+                "Terminal bell event received for pane \(sourcePaneUUID.uuidString, privacy: .public)"
             )
         case .scrollbarChanged, .unhandled:
             Self.logger.debug(
@@ -309,9 +341,6 @@ final class PaneCoordinator {
         }
 
         if let repo = store.repos.first, let worktree = repo.worktrees.first {
-            Self.logger.warning(
-                "Opening new tab from fallback repo/worktree because source pane \(sourcePaneId.uuidString, privacy: .public) has no worktree context"
-            )
             _ = openNewTerminal(for: worktree, in: repo)
             return
         }

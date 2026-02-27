@@ -395,7 +395,7 @@ struct PaneCoordinatorHardeningTests {
         harness.coordinator.execute(.closePane(tabId: tab.id, paneId: drawerPane.id))
         #expect(harness.coordinator.undoStack.count == 1)
 
-        harness.store.removePaneFromLayout(parentPane.id, inTab: tab.id)
+        _ = harness.store.removePaneFromLayout(parentPane.id, inTab: tab.id)
         harness.store.removePane(parentPane.id)
 
         harness.coordinator.undoCloseTab()
@@ -477,6 +477,7 @@ struct PaneCoordinatorHardeningTests {
 
 @MainActor
 private final class MockPaneCoordinatorSurfaceManager: PaneCoordinatorSurfaceManaging {
+    private let cwdStream: AsyncStream<SurfaceManager.SurfaceCWDChangeEvent>
     private let createSurfaceResult: Result<ManagedSurface, SurfaceError>
 
     private(set) var createSurfaceCallCount = 0
@@ -491,7 +492,12 @@ private final class MockPaneCoordinatorSurfaceManager: PaneCoordinatorSurfaceMan
         self.createSurfaceResult = createSurfaceResult
         self.undoCloseResult = undoCloseResult
         self.onUndoClose = onUndoClose
+        self.cwdStream = AsyncStream<SurfaceManager.SurfaceCWDChangeEvent> { continuation in
+            continuation.finish()
+        }
     }
+
+    var surfaceCWDChanges: AsyncStream<SurfaceManager.SurfaceCWDChangeEvent> { cwdStream }
 
     func syncFocus(activeSurfaceId: UUID?) {}
 

@@ -153,7 +153,7 @@ class MainWindowController: NSWindowController, NSWindowDelegate {
     }
 
     @objc private func filterSidebarAction() {
-        NotificationCenter.default.post(name: .filterSidebarRequested, object: nil)
+        postAppEvent(.filterSidebarRequested)
     }
 }
 
@@ -223,11 +223,11 @@ extension MainWindowController: NSToolbarDelegate {
     }
 
     @objc private func addRepoAction() {
-        NotificationCenter.default.post(name: .addRepoRequested, object: nil)
+        postAppEvent(.addRepoRequested)
     }
 
     @objc private func addFolderAction() {
-        NotificationCenter.default.post(name: .addFolderRequested, object: nil)
+        postAppEvent(.addFolderRequested)
     }
 }
 

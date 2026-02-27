@@ -86,58 +86,28 @@ class MainSplitViewController: NSSplitViewController {
     private func setupNotificationObservers() {
         notificationTasks.append(
             Task { [weak self] in
-                for await notification in NotificationCenter.default.notifications(named: .openWorktreeRequested) {
-                    guard let self, !Task.isCancelled else { break }
-                    self.handleOpenWorktree(notification)
-                }
-            })
-
-        notificationTasks.append(
-            Task { [weak self] in
-                for await notification in NotificationCenter.default.notifications(named: .closeTabRequested) {
-                    guard let self, !Task.isCancelled else { break }
-                    self.handleCloseTab(notification)
-                }
-            })
-
-        notificationTasks.append(
-            Task { [weak self] in
-                for await notification in NotificationCenter.default.notifications(named: .selectTabAtIndex) {
-                    guard let self, !Task.isCancelled else { break }
-                    self.handleSelectTab(notification)
-                }
-            })
-
-        notificationTasks.append(
-            Task { [weak self] in
-                for await notification in NotificationCenter.default.notifications(named: .toggleSidebarRequested) {
-                    guard let self, !Task.isCancelled else { break }
-                    self.handleToggleSidebar(notification)
-                }
-            })
-
-        notificationTasks.append(
-            Task { [weak self] in
-                for await notification in NotificationCenter.default.notifications(named: .openNewTerminalRequested) {
-                    guard let self, !Task.isCancelled else { break }
-                    self.handleOpenNewTerminal(notification)
-                }
-            })
-
-        notificationTasks.append(
-            Task { [weak self] in
-                for await notification in NotificationCenter.default.notifications(named: .openWorktreeInPaneRequested)
-                {
-                    guard let self, !Task.isCancelled else { break }
-                    self.handleOpenWorktreeInPane(notification)
-                }
-            })
-
-        notificationTasks.append(
-            Task { [weak self] in
-                for await notification in NotificationCenter.default.notifications(named: .filterSidebarRequested) {
-                    guard let self, !Task.isCancelled else { break }
-                    self.handleFilterSidebar(notification)
+                guard let self else { return }
+                let stream = await AppEventBus.shared.subscribe()
+                for await event in stream {
+                    guard !Task.isCancelled else { break }
+                    switch event {
+                    case .openWorktreeRequested(let worktreeId):
+                        self.handleOpenWorktree(worktreeId: worktreeId)
+                    case .closeTabRequested:
+                        self.handleCloseTab()
+                    case .selectTabAtIndex(let index):
+                        self.handleSelectTab(index: index)
+                    case .toggleSidebarRequested:
+                        self.handleToggleSidebar()
+                    case .openNewTerminalRequested(let worktreeId):
+                        self.handleOpenNewTerminal(worktreeId: worktreeId)
+                    case .openWorktreeInPaneRequested(let worktreeId):
+                        self.handleOpenWorktreeInPane(worktreeId: worktreeId)
+                    case .filterSidebarRequested:
+                        self.handleFilterSidebar()
+                    default:
+                        continue
+                    }
                 }
             })
 
@@ -158,7 +128,7 @@ class MainSplitViewController: NSSplitViewController {
         }
     }
 
-    private func handleToggleSidebar(_ notification: Notification) {
+    private func handleToggleSidebar() {
         toggleSidebar(nil)
         // Yield to the next MainActor turn so the sidebar item's collapsed state is updated.
         Task { @MainActor [weak self] in
@@ -166,85 +136,46 @@ class MainSplitViewController: NSSplitViewController {
         }
     }
 
-    private func handleFilterSidebar(_ notification: Notification) {
+    private func handleFilterSidebar() {
         guard isSidebarCollapsed else { return }
         expandSidebar()
     }
 
-    private func handleOpenWorktree(_ notification: Notification) {
-        guard let userInfo = notification.userInfo else {
-            sidebarLogger.error("Invalid openWorktreeRequested notification payload")
-            return
-        }
-        if let worktree = userInfo["worktree"] as? Worktree,
-            let repo = userInfo["repo"] as? Repo
-        {
-            paneTabViewController?.openTerminal(for: worktree, in: repo)
-            return
-        }
-        if let worktreeId = userInfo["worktreeId"] as? UUID,
-            let worktree = store.worktree(worktreeId),
+    private func handleOpenWorktree(worktreeId: UUID) {
+        guard let worktree = store.worktree(worktreeId),
             let repo = store.repo(containing: worktreeId)
-        {
-            paneTabViewController?.openTerminal(for: worktree, in: repo)
+        else {
+            sidebarLogger.error("Invalid openWorktreeRequested payload for worktree \(worktreeId.uuidString)")
             return
         }
-        sidebarLogger.error("Invalid openWorktreeRequested notification payload")
+        paneTabViewController?.openTerminal(for: worktree, in: repo)
     }
 
-    private func handleOpenNewTerminal(_ notification: Notification) {
-        guard let userInfo = notification.userInfo else {
-            sidebarLogger.error("Invalid openNewTerminalRequested notification payload")
-            return
-        }
-        if let worktree = userInfo["worktree"] as? Worktree,
-            let repo = userInfo["repo"] as? Repo
-        {
-            paneTabViewController?.openNewTerminal(for: worktree, in: repo)
-            return
-        }
-        if let worktreeId = userInfo["worktreeId"] as? UUID,
-            let worktree = store.worktree(worktreeId),
+    private func handleOpenNewTerminal(worktreeId: UUID) {
+        guard let worktree = store.worktree(worktreeId),
             let repo = store.repo(containing: worktreeId)
-        {
-            paneTabViewController?.openNewTerminal(for: worktree, in: repo)
+        else {
+            sidebarLogger.error("Invalid openNewTerminalRequested payload for worktree \(worktreeId.uuidString)")
             return
         }
-        sidebarLogger.error("Invalid openNewTerminalRequested notification payload")
+        paneTabViewController?.openNewTerminal(for: worktree, in: repo)
     }
 
-    private func handleOpenWorktreeInPane(_ notification: Notification) {
-        guard let userInfo = notification.userInfo else {
-            sidebarLogger.error("Invalid openWorktreeInPaneRequested notification payload")
-            return
-        }
-        if let worktree = userInfo["worktree"] as? Worktree,
-            let repo = userInfo["repo"] as? Repo
-        {
-            paneTabViewController?.openWorktreeInPane(for: worktree, in: repo)
-            return
-        }
-        if let worktreeId = userInfo["worktreeId"] as? UUID,
-            let worktree = store.worktree(worktreeId),
+    private func handleOpenWorktreeInPane(worktreeId: UUID) {
+        guard let worktree = store.worktree(worktreeId),
             let repo = store.repo(containing: worktreeId)
-        {
-            paneTabViewController?.openWorktreeInPane(for: worktree, in: repo)
+        else {
+            sidebarLogger.error("Invalid openWorktreeInPaneRequested payload for worktree \(worktreeId.uuidString)")
             return
         }
-        sidebarLogger.error("Invalid openWorktreeInPaneRequested notification payload")
+        paneTabViewController?.openWorktreeInPane(for: worktree, in: repo)
     }
 
-    private func handleCloseTab(_ notification: Notification) {
+    private func handleCloseTab() {
         paneTabViewController?.closeActiveTab()
     }
 
-    private func handleSelectTab(_ notification: Notification) {
-        guard let userInfo = notification.userInfo,
-            let index = userInfo["index"] as? Int
-        else {
-            return
-        }
-
+    private func handleSelectTab(index: Int) {
         paneTabViewController?.selectTab(at: index)
     }
 
@@ -453,24 +384,30 @@ struct SidebarContentView: View {
         .background(Color(nsColor: .windowBackgroundColor))
         // Subtle shadow on right edge only
         .shadow(color: .black.opacity(0.2), radius: 4, x: 2, y: 0)
-        .onReceive(NotificationCenter.default.publisher(for: .addRepoRequested)) { _ in
-            addRepo()
-        }
-        .onReceive(NotificationCenter.default.publisher(for: .refreshWorktreesRequested)) { _ in
-            refreshWorktrees()
-        }
-        .onReceive(NotificationCenter.default.publisher(for: .filterSidebarRequested)) { _ in
-            withAnimation(.easeOut(duration: 0.15)) {
-                if isFilterVisible {
-                    hideFilter()
-                } else {
-                    isFilterVisible = true
+        .task {
+            let stream = await AppEventBus.shared.subscribe()
+            for await event in stream {
+                switch event {
+                case .addRepoRequested:
+                    addRepo()
+                case .refreshWorktreesRequested:
+                    refreshWorktrees()
+                case .filterSidebarRequested:
+                    withAnimation(.easeOut(duration: 0.15)) {
+                        if isFilterVisible {
+                            hideFilter()
+                        } else {
+                            isFilterVisible = true
+                        }
+                    }
+                    // Focus after animation starts
+                    Task { @MainActor in
+                        try? await Task.sleep(for: .milliseconds(50))
+                        isFilterFocused = true
+                    }
+                default:
+                    continue
                 }
-            }
-            // Focus after animation starts
-            Task { @MainActor in
-                try? await Task.sleep(for: .milliseconds(50))
-                isFilterFocused = true
             }
         }
         .onDisappear {
@@ -507,35 +444,23 @@ struct SidebarContentView: View {
             isFilterVisible = false
         }
         // Return focus to the active terminal
-        NotificationCenter.default.post(name: .refocusTerminalRequested, object: nil)
+        postAppEvent(.refocusTerminalRequested)
     }
 
     private func toggleSidebar() {
-        NotificationCenter.default.post(name: .toggleSidebarRequested, object: nil)
+        postAppEvent(.toggleSidebarRequested)
     }
 
-    private func openWorktree(_ worktree: Worktree, in repo: Repo) {
-        NotificationCenter.default.post(
-            name: .openWorktreeRequested,
-            object: nil,
-            userInfo: ["worktree": worktree, "repo": repo]
-        )
+    private func openWorktree(_ worktree: Worktree, in _: Repo) {
+        postAppEvent(.openWorktreeRequested(worktreeId: worktree.id))
     }
 
-    private func openNewTerminal(_ worktree: Worktree, in repo: Repo) {
-        NotificationCenter.default.post(
-            name: .openNewTerminalRequested,
-            object: nil,
-            userInfo: ["worktree": worktree, "repo": repo]
-        )
+    private func openNewTerminal(_ worktree: Worktree, in _: Repo) {
+        postAppEvent(.openNewTerminalRequested(worktreeId: worktree.id))
     }
 
-    private func openWorktreeInPane(_ worktree: Worktree, in repo: Repo) {
-        NotificationCenter.default.post(
-            name: .openWorktreeInPaneRequested,
-            object: nil,
-            userInfo: ["worktree": worktree, "repo": repo]
-        )
+    private func openWorktreeInPane(_ worktree: Worktree, in _: Repo) {
+        postAppEvent(.openWorktreeInPaneRequested(worktreeId: worktree.id))
     }
 
     private func addRepo() {

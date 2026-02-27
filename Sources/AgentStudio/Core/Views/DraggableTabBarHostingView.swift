@@ -430,15 +430,12 @@ class DraggableTabBarHostingView: NSView, NSDraggingSource {
                 return false
             }
 
-            var userInfo: [String: Any] = [
-                "tabId": payload.tabId,
-                "paneId": payload.paneId,
-            ]
-            userInfo["targetTabIndex"] = targetTabIndex
-            NotificationCenter.default.post(
-                name: .extractPaneRequested,
-                object: nil,
-                userInfo: userInfo
+            postAppEvent(
+                .extractPaneRequested(
+                    tabId: payload.tabId,
+                    paneId: payload.paneId,
+                    targetTabIndex: targetTabIndex
+                )
             )
             return true
         }

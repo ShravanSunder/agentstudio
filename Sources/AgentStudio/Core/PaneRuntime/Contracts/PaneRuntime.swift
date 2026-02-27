@@ -27,3 +27,10 @@ protocol PaneRuntime: AnyObject {
     /// Begin shutdown and return any command IDs that were canceled.
     func shutdown(timeout: Duration) async -> [UUID]
 }
+
+/// Marker for runtimes that publish envelopes directly onto `PaneRuntimeEventBus`.
+///
+/// Legacy/fake runtimes that only support `subscribe()` are bridged to the bus
+/// by `PaneCoordinator`.
+@MainActor
+protocol BusPostingPaneRuntime: PaneRuntime {}

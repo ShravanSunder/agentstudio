@@ -8,7 +8,7 @@ The current Ghostty integration handles 12 of 40+ C API actions, uses `DispatchQ
 
 This document defines the pane runtime communication architecture: how panes of all types produce events, receive commands, and coordinate through the workspace.
 
-> **Implementation status note:** This document includes both shipped contracts and forward-defined target contracts. For ticket-by-ticket implementation state, use the mapping ledger in `docs/plans/2026-02-21-pane-runtime-luna-295-luna-325-mapping.md`. EventBus fan-out and coordinator `bus.subscribe()` loops are target architecture for LUNA-351+; current LUNA-325 shipping code uses per-runtime `subscribe()` streams wired by `PaneCoordinator.startRuntimeEventSubscription(for:)`. For EventBus coordination design (actor fan-out, boundary actors, data flow per contract), see [Pane Runtime EventBus Design](pane_runtime_eventbus_design.md).
+> **Implementation status note:** This document includes both shipped contracts and forward-defined target contracts. For ticket-by-ticket implementation state, use the mapping ledger in `docs/plans/2026-02-21-pane-runtime-luna-295-luna-325-mapping.md`. For the EventBus coordination design (actor fan-out, boundary actors, data flow per contract), see [Pane Runtime EventBus Design](pane_runtime_eventbus_design.md).
 
 ### Jobs This Architecture Solves
 
@@ -750,10 +750,10 @@ struct PaneMetadata: Sendable {
     let createdAt: Date
 
     // ── Live-updated fields ───────────────────────────────
-    private(set) var title: String
-    private(set) var facets: PaneContextFacets
-    private(set) var checkoutRef: String?
-    private(set) var agentType: AgentType?
+    var title: String
+    var facets: PaneContextFacets
+    var checkoutRef: String?
+    var agentType: AgentType?
 }
 
 struct PaneContextFacets: Sendable {
