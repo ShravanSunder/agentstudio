@@ -8,6 +8,18 @@ import Testing
 struct ManagementModeTests {
     // MARK: - ManagementModeMonitor
 
+    private func waitForFlag(
+        _ flag: LockedFlag,
+        timeout: Duration = .milliseconds(300)
+    ) async -> Bool {
+        let clock = ContinuousClock()
+        let deadline = clock.now.advanced(by: timeout)
+        while !flag.value, clock.now < deadline {
+            try? await Task.sleep(for: .milliseconds(5))
+        }
+        return flag.value
+    }
+
     @MainActor
     @Test("defaults to inactive")
     func test_managementMode_defaultsToInactive() {
@@ -47,8 +59,8 @@ struct ManagementModeTests {
     }
 
     @MainActor
-    @Test("deactivate posts refocus notification when active")
-    func test_managementMode_deactivate_postsRefocusNotification() {
+    @Test("deactivate posts refocus event when active")
+    func test_managementMode_deactivate_postsRefocusEvent() async {
         // Arrange
         let monitor = ManagementModeMonitor.shared
         monitor.deactivate()
@@ -56,21 +68,53 @@ struct ManagementModeTests {
         defer { monitor.deactivate() }
 
         let didPostRefocus = LockedFlag()
-        let observer = NotificationCenter.default.addObserver(
-            forName: .refocusTerminalRequested,
-            object: nil,
-            queue: nil
-        ) { _ in
-            didPostRefocus.set()
+        let captureTask = Task {
+            let stream = await AppEventBus.shared.subscribe()
+            for await event in stream {
+                guard case .refocusTerminalRequested = event else { continue }
+                didPostRefocus.set()
+                break
+            }
         }
-        defer { NotificationCenter.default.removeObserver(observer) }
+        defer { captureTask.cancel() }
+        try? await Task.sleep(for: .milliseconds(50))
 
         // Act
         monitor.deactivate()
+        let didReceiveRefocus = await waitForFlag(didPostRefocus)
 
         // Assert
-        #expect(didPostRefocus.value)
+        #expect(didReceiveRefocus)
         #expect(!monitor.isActive)
+    }
+
+    @MainActor
+    @Test("toggle posts management-mode changed active event")
+    func test_managementMode_toggle_postsActiveChangedEvent() async {
+        // Arrange
+        let monitor = ManagementModeMonitor.shared
+        monitor.deactivate()
+        defer { monitor.deactivate() }
+
+        let didPostActive = LockedFlag()
+        let captureTask = Task {
+            let stream = await AppEventBus.shared.subscribe()
+            for await event in stream {
+                guard case .managementModeChanged(let isActive) = event, isActive else { continue }
+                didPostActive.set()
+                break
+            }
+        }
+        defer { captureTask.cancel() }
+        try? await Task.sleep(for: .milliseconds(50))
+
+        // Act
+        monitor.toggle()
+        let didReceiveActive = await waitForFlag(didPostActive)
+
+        // Assert
+        #expect(didReceiveActive)
+        #expect(monitor.isActive)
     }
 
     @MainActor

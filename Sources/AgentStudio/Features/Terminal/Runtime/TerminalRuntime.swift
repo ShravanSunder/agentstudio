@@ -4,7 +4,7 @@ import os.log
 
 @MainActor
 @Observable
-final class TerminalRuntime: PaneRuntime {
+final class TerminalRuntime: BusPostingPaneRuntime {
     private static let logger = Logger(subsystem: "com.agentstudio", category: "TerminalRuntime")
 
     let paneId: PaneId
@@ -14,6 +14,7 @@ final class TerminalRuntime: PaneRuntime {
 
     private let envelopeClock: ContinuousClock
     private let replayBuffer: EventReplayBuffer
+    private let paneEventBus: EventBus<PaneEventEnvelope>
     private var sequence: UInt64 = 0
     private var nextSubscriberId: UInt64 = 0
     private var subscribers: [UInt64: AsyncStream<PaneEventEnvelope>.Continuation] = [:]
@@ -22,7 +23,8 @@ final class TerminalRuntime: PaneRuntime {
         paneId: PaneId,
         metadata: PaneMetadata,
         clock: ContinuousClock = ContinuousClock(),
-        replayBuffer: EventReplayBuffer? = nil
+        replayBuffer: EventReplayBuffer? = nil,
+        paneEventBus: EventBus<PaneEventEnvelope> = PaneRuntimeEventBus.shared
     ) {
         self.paneId = paneId
         self.metadata = metadata
@@ -30,6 +32,7 @@ final class TerminalRuntime: PaneRuntime {
         self.capabilities = [.input, .resize, .search]
         self.envelopeClock = clock
         self.replayBuffer = replayBuffer ?? EventReplayBuffer()
+        self.paneEventBus = paneEventBus
     }
 
     func transitionToReady() {
@@ -164,6 +167,9 @@ final class TerminalRuntime: PaneRuntime {
             replayBuffer.append(envelope)
         }
         broadcast(envelope)
+        Task { [paneEventBus] in
+            await paneEventBus.post(envelope)
+        }
     }
 
     private func broadcast(_ envelope: PaneEventEnvelope) {

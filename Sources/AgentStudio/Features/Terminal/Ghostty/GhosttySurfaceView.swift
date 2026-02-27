@@ -91,10 +91,11 @@ extension Ghostty {
         private(set) var pwd: String? {
             didSet {
                 if pwd != oldValue {
-                    NotificationCenter.default.post(
-                        name: Ghostty.Notification.didUpdateWorkingDirectory,
-                        object: self,
-                        userInfo: pwd.map { ["pwd": $0] }
+                    postGhosttyEvent(
+                        .workingDirectoryUpdated(
+                            surfaceViewId: ObjectIdentifier(self),
+                            rawPwd: pwd
+                        )
                     )
                 }
             }
@@ -104,10 +105,11 @@ extension Ghostty {
         private(set) var healthy: Bool = true {
             didSet {
                 if healthy != oldValue {
-                    NotificationCenter.default.post(
-                        name: Ghostty.Notification.didUpdateRendererHealth,
-                        object: self,
-                        userInfo: ["healthy": healthy]
+                    postGhosttyEvent(
+                        .rendererHealthUpdated(
+                            surfaceViewId: ObjectIdentifier(self),
+                            isHealthy: healthy
+                        )
                     )
                 }
             }

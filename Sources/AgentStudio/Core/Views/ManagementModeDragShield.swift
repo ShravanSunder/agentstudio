@@ -21,7 +21,7 @@ import AppKit
 /// ## Dynamic registration
 ///
 /// Registers/unregisters file/media drag types when management mode toggles
-/// via `ManagementModeDidChange` notifications from ``ManagementModeMonitor``.
+/// via typed `AppEventBus` events from ``ManagementModeMonitor``.
 /// Also notifies the parent ``PaneView`` to apply content-level interaction changes
 /// (e.g., CSS `pointer-events: none` for WKWebView).
 @MainActor
@@ -60,11 +60,11 @@ final class ManagementModeDragShield: NSView {
         ]
     }
 
-    private var managementModeObserver: NSObjectProtocol?
+    private var managementModeTask: Task<Void, Never>?
 
     override init(frame frameRect: NSRect) {
         super.init(frame: frameRect)
-        observeManagementModeNotifications()
+        subscribeToManagementModeEvents()
         updateRegistration()
     }
 
@@ -74,9 +74,7 @@ final class ManagementModeDragShield: NSView {
     }
 
     isolated deinit {
-        if let observer = managementModeObserver {
-            NotificationCenter.default.removeObserver(observer)
-        }
+        managementModeTask?.cancel()
     }
 
     override func viewDidMoveToSuperview() {
@@ -119,19 +117,17 @@ final class ManagementModeDragShield: NSView {
         false
     }
 
-    // MARK: - Management Mode Observation
+    // MARK: - Management Mode Events
 
-    private func observeManagementModeNotifications() {
-        if let observer = managementModeObserver {
-            NotificationCenter.default.removeObserver(observer)
-        }
-        managementModeObserver = NotificationCenter.default.addObserver(
-            forName: .managementModeDidChange,
-            object: nil,
-            queue: nil
-        ) { [weak self] _ in
-            Task { @MainActor in
-                self?.updateRegistration()
+    private func subscribeToManagementModeEvents() {
+        managementModeTask?.cancel()
+        managementModeTask = Task { @MainActor [weak self] in
+            guard let self else { return }
+            let stream = await AppEventBus.shared.subscribe()
+            for await event in stream {
+                if Task.isCancelled { break }
+                guard case .managementModeChanged = event else { continue }
+                self.updateRegistration()
             }
         }
     }

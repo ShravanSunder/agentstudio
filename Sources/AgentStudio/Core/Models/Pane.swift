@@ -61,8 +61,8 @@ struct Pane: Codable, Identifiable, Hashable {
         let metadataPaneId = decodedMetadata.paneId.uuid
         guard metadataPaneId == decodedId else {
             let mismatchDescription =
-                "Pane.metadata.paneId (\(metadataPaneId.uuidString)) must match " +
-                "Pane.id (\(decodedId.uuidString)) in canonical schema"
+                "Pane.metadata.paneId (\(metadataPaneId.uuidString)) must match "
+                + "Pane.id (\(decodedId.uuidString)) in canonical schema"
             throw DecodingError.dataCorruptedError(
                 forKey: .metadata,
                 in: container,
