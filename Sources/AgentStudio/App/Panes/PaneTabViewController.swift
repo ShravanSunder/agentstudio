@@ -387,69 +387,97 @@ class PaneTabViewController: NSViewController, CommandHandler {
         destPaneId: UUID,
         zone: DropZone
     ) -> Bool {
-        let snapshot = ActionResolver.snapshot(
-            from: store.tabs,
+        let snapshot = dragDropSnapshot()
+        return Self.splitDropCommitPlan(
+            payload: payload,
+            destinationPane: store.pane(destPaneId),
+            destinationPaneId: destPaneId,
+            zone: zone,
             activeTabId: store.activeTabId,
-            isManagementModeActive: ManagementModeMonitor.shared.isActive,
-            knownWorktreeIds: Set(store.repos.flatMap(\.worktrees).map(\.id))
-        )
-        if let drawerAction = drawerMoveDropAction(payload: payload, destPaneId: destPaneId, zone: zone) {
-            if case .success = ActionValidator.validate(drawerAction, state: snapshot) {
-                return true
-            }
-            return false
-        }
-
-        if store.pane(destPaneId)?.isDrawerChild == true {
-            return false
-        }
-
-        guard let tabId = store.activeTabId else { return false }
-
-        guard
-            let action = ActionResolver.resolveDrop(
-                payload: payload,
-                destinationPaneId: destPaneId,
-                destinationTabId: tabId,
-                zone: zone,
-                state: snapshot
-            )
-        else { return false }
-
-        if case .success = ActionValidator.validate(action, state: snapshot) {
-            return true
-        }
-        return false
+            state: snapshot
+        ) != nil
     }
 
     /// Handle a completed drop on a split pane.
     private func handleSplitDrop(payload: SplitDropPayload, destPaneId: UUID, zone: DropZone) {
-        if let drawerAction = drawerMoveDropAction(payload: payload, destPaneId: destPaneId, zone: zone) {
-            dispatchAction(drawerAction)
+        let snapshot = dragDropSnapshot()
+        guard
+            let plan = Self.splitDropCommitPlan(
+                payload: payload,
+                destinationPane: store.pane(destPaneId),
+                destinationPaneId: destPaneId,
+                zone: zone,
+                activeTabId: store.activeTabId,
+                state: snapshot
+            )
+        else {
             return
         }
+        executeDropCommitPlan(plan)
+    }
 
-        if store.pane(destPaneId)?.isDrawerChild == true {
-            return
+    private func dragDropSnapshot() -> ActionStateSnapshot {
+        let drawerParentByPaneId = store.panes.values.reduce(into: [UUID: UUID]()) { result, pane in
+            guard let parentPaneId = pane.parentPaneId else { return }
+            result[pane.id] = parentPaneId
         }
 
-        guard let tabId = store.activeTabId else { return }
-
-        let snapshot = ActionResolver.snapshot(
+        return ActionResolver.snapshot(
             from: store.tabs,
             activeTabId: store.activeTabId,
             isManagementModeActive: ManagementModeMonitor.shared.isActive,
-            knownWorktreeIds: Set(store.repos.flatMap(\.worktrees).map(\.id))
+            knownWorktreeIds: Set(store.repos.flatMap(\.worktrees).map(\.id)),
+            drawerParentByPaneId: drawerParentByPaneId
         )
-        if let action = ActionResolver.resolveDrop(
-            payload: payload,
-            destinationPaneId: destPaneId,
-            destinationTabId: tabId,
-            zone: zone,
-            state: snapshot
-        ) {
+    }
+
+    private func executeDropCommitPlan(_ plan: DropCommitPlan) {
+        switch plan {
+        case .paneAction(let action):
             dispatchAction(action)
+        case .moveTab(let tabId, let toIndex):
+            store.moveTab(fromId: tabId, toIndex: toIndex)
+            store.setActiveTab(tabId)
+        case .extractPaneToTabThenMove(let paneId, let sourceTabId, let toIndex):
+            let tabCountBefore = store.tabs.count
+            dispatchAction(.extractPaneToTab(tabId: sourceTabId, paneId: paneId))
+            guard
+                store.tabs.count == tabCountBefore + 1,
+                let extractedTabId = store.activeTabId
+            else {
+                return
+            }
+            store.moveTab(fromId: extractedTabId, toIndex: toIndex)
+            store.setActiveTab(extractedTabId)
         }
+    }
+
+    nonisolated static func splitDropCommitPlan(
+        payload: SplitDropPayload,
+        destinationPane: Pane?,
+        destinationPaneId: UUID,
+        zone: DropZone,
+        activeTabId: UUID?,
+        state: ActionStateSnapshot
+    ) -> DropCommitPlan? {
+        guard let activeTabId else {
+            return nil
+        }
+        let destination = PaneDropDestination.split(
+            targetPaneId: destinationPaneId,
+            targetTabId: activeTabId,
+            direction: splitDirection(for: zone),
+            targetDrawerParentPaneId: destinationPane?.parentPaneId
+        )
+        let decision = PaneDropPlanner.previewDecision(
+            payload: payload,
+            destination: destination,
+            state: state
+        )
+        if case .eligible(let plan) = decision {
+            return plan
+        }
+        return nil
     }
 
     private func drawerMoveDropAction(

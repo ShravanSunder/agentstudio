@@ -20,7 +20,8 @@ final class ActionValidatorTests {
         )
     }
 
-    private func makeSinglePaneTab(tabId: UUID = UUID(), paneId: UUID = UUIDv7.generate()) -> (TabSnapshot, UUID, UUID) {
+    private func makeSinglePaneTab(tabId: UUID = UUID(), paneId: UUID = UUIDv7.generate()) -> (TabSnapshot, UUID, UUID)
+    {
         let tab = TabSnapshot(id: tabId, paneIds: [paneId], activePaneId: paneId)
         return (tab, tabId, paneId)
     }

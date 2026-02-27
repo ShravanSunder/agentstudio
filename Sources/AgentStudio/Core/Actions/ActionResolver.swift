@@ -196,7 +196,8 @@ enum ActionResolver {
         from tabs: [T],
         activeTabId: UUID?,
         isManagementModeActive: Bool,
-        knownWorktreeIds: Set<UUID> = []
+        knownWorktreeIds: Set<UUID> = [],
+        drawerParentByPaneId: [UUID: UUID] = [:]
     ) -> ActionStateSnapshot {
         ActionStateSnapshot(
             tabs: tabs.map { tab in
@@ -208,7 +209,8 @@ enum ActionResolver {
             },
             activeTabId: activeTabId,
             isManagementModeActive: isManagementModeActive,
-            knownWorktreeIds: knownWorktreeIds
+            knownWorktreeIds: knownWorktreeIds,
+            drawerParentByPaneId: drawerParentByPaneId
         )
     }
 

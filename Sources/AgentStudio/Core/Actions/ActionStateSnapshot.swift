@@ -19,6 +19,8 @@ struct ActionStateSnapshot: Equatable {
     let activeTabId: UUID?
     let isManagementModeActive: Bool
     let knownWorktreeIds: Set<UUID>
+    /// Drawer child -> parent layout pane mapping for drag/drop policy checks.
+    let drawerParentByPaneId: [UUID: UUID]
 
     /// Reverse lookup: paneId → tabId for O(1) resolution.
     private let paneToTab: [UUID: UUID]
@@ -27,12 +29,14 @@ struct ActionStateSnapshot: Equatable {
         tabs: [TabSnapshot],
         activeTabId: UUID?,
         isManagementModeActive: Bool,
-        knownWorktreeIds: Set<UUID> = []
+        knownWorktreeIds: Set<UUID> = [],
+        drawerParentByPaneId: [UUID: UUID] = [:]
     ) {
         self.tabs = tabs
         self.activeTabId = activeTabId
         self.isManagementModeActive = isManagementModeActive
         self.knownWorktreeIds = knownWorktreeIds
+        self.drawerParentByPaneId = drawerParentByPaneId
 
         var lookup: [UUID: UUID] = [:]
         for tab in tabs {
@@ -56,6 +60,10 @@ struct ActionStateSnapshot: Equatable {
         return tab(tabId)
     }
 
+    func drawerParentPaneId(of paneId: UUID) -> UUID? {
+        drawerParentByPaneId[paneId]
+    }
+
     var tabCount: Int { tabs.count }
 
     /// All pane IDs across all tabs. Used for cardinality validation.
@@ -68,5 +76,6 @@ struct ActionStateSnapshot: Equatable {
             && lhs.activeTabId == rhs.activeTabId
             && lhs.isManagementModeActive == rhs.isManagementModeActive
             && lhs.knownWorktreeIds == rhs.knownWorktreeIds
+            && lhs.drawerParentByPaneId == rhs.drawerParentByPaneId
     }
 }
