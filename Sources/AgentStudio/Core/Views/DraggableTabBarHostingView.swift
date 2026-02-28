@@ -15,7 +15,7 @@ class DraggableTabBarHostingView: NSView, NSDraggingSource {
     private var hostingView: NSHostingView<CustomTabBar>!
     weak var tabBarAdapter: TabBarAdapter?
     var onReorder: ((_ fromId: UUID, _ toIndex: Int) -> Void)?
-    /// Called when a tab is clicked (mouse down + up without drag) during edit mode.
+    /// Called when a tab is clicked (mouse down + up without drag) during management mode.
     /// The pan gesture recognizer consumes mouse events, preventing SwiftUI's
     /// onTapGesture from firing. This callback forwards the click as a selection.
     var onSelect: ((_ tabId: UUID) -> Void)?
@@ -35,6 +35,7 @@ class DraggableTabBarHostingView: NSView, NSDraggingSource {
     /// Track the tab being dragged and the original event for drag session
     private var panStartTabId: UUID?
     private var panStartEvent: NSEvent?
+    private var lastAutoSelectedTabIdForPaneDrag: UUID?
 
     private var managementModeObservation: Task<Void, Never>?
 
@@ -147,15 +148,38 @@ class DraggableTabBarHostingView: NSView, NSDraggingSource {
     /// Find the insertion index for a drop at the given point
     private func dropIndexAtPoint(_ point: NSPoint) -> Int? {
         guard let adapter = tabBarAdapter, !adapter.tabs.isEmpty else { return nil }
+        let orderedTabIds = adapter.tabs.map(\.id)
+        return Self.paneDropInsertionIndex(
+            dropPoint: point,
+            boundsHeight: bounds.height,
+            tabFrames: currentTabFrames,
+            orderedTabIds: orderedTabIds
+        )
+    }
 
-        let swiftUIPoint = CGPoint(x: point.x, y: bounds.height - point.y)
-        let frames = currentTabFrames
+    /// Shared insertion-index resolver used by tab-bar drag preview and drop commit.
+    /// Returning nil means the pointer is outside the tab row and no insertion marker
+    /// should be shown.
+    nonisolated static func paneDropInsertionIndex(
+        dropPoint: NSPoint,
+        boundsHeight: CGFloat,
+        tabFrames: [UUID: CGRect],
+        orderedTabIds: [UUID]
+    ) -> Int? {
+        guard !orderedTabIds.isEmpty else { return nil }
 
-        // Sort tabs by their x position
-        let sortedTabs = adapter.tabs.enumerated().compactMap { index, tab -> (index: Int, frame: CGRect)? in
-            guard let frame = frames[tab.id] else { return nil }
-            return (index, frame)
+        let swiftUIPoint = CGPoint(x: dropPoint.x, y: boundsHeight - dropPoint.y)
+        let sortedTabs = orderedTabIds.enumerated().compactMap { index, tabId -> (index: Int, frame: CGRect)? in
+            guard let frame = tabFrames[tabId] else { return nil }
+            return (index: index, frame: frame)
         }.sorted { $0.frame.minX < $1.frame.minX }
+        guard !sortedTabs.isEmpty else { return nil }
+
+        let verticalMinY = sortedTabs.map(\.frame.minY).min() ?? 0
+        let verticalMaxY = sortedTabs.map(\.frame.maxY).max() ?? 0
+        guard swiftUIPoint.y >= verticalMinY, swiftUIPoint.y <= verticalMaxY else {
+            return nil
+        }
 
         // Find insertion point based on midpoint
         for item in sortedTabs {
@@ -166,7 +190,12 @@ class DraggableTabBarHostingView: NSView, NSDraggingSource {
         }
 
         // Past the last tab
-        return adapter.tabs.count
+        return orderedTabIds.count
+    }
+
+    private func clearDropTargetIndicator() {
+        tabBarAdapter?.dropTargetIndex = nil
+        lastAutoSelectedTabIdForPaneDrag = nil
     }
 
     // MARK: - Pan Gesture Handler
@@ -314,8 +343,18 @@ class DraggableTabBarHostingView: NSView, NSDraggingSource {
             return []
         }
 
-        // Reject internal tab drags when management mode exited mid-drag
-        if types.contains(.agentStudioTabInternal) && !ManagementModeMonitor.shared.isActive {
+        if types.contains(.agentStudioPaneDrop),
+            !paneDropIsAllowedInTabBar(sender.draggingPasteboard)
+        {
+            clearDropTargetIndicator()
+            return []
+        }
+
+        // Reject drags when management mode exited mid-drag.
+        // Pane drags start only from management mode affordances.
+        if (types.contains(.agentStudioTabInternal) || types.contains(.agentStudioPaneDrop))
+            && !ManagementModeMonitor.shared.isActive
+        {
             return []
         }
 
@@ -326,12 +365,31 @@ class DraggableTabBarHostingView: NSView, NSDraggingSource {
     override func draggingUpdated(_ sender: NSDraggingInfo) -> NSDragOperation {
         let types = sender.draggingPasteboard.types ?? []
 
-        // Reject internal tab drags when management mode exited mid-drag
-        if types.contains(.agentStudioTabInternal) && !ManagementModeMonitor.shared.isActive {
+        if types.contains(.agentStudioPaneDrop),
+            !paneDropIsAllowedInTabBar(sender.draggingPasteboard)
+        {
+            clearDropTargetIndicator()
+            return []
+        }
+
+        // Reject drags when management mode exited mid-drag
+        if (types.contains(.agentStudioTabInternal) || types.contains(.agentStudioPaneDrop))
+            && !ManagementModeMonitor.shared.isActive
+        {
             Task { @MainActor [weak self] in
                 self?.tabBarAdapter?.dropTargetIndex = nil
             }
             return []
+        }
+
+        if types.contains(.agentStudioPaneDrop) {
+            let point = convert(sender.draggingLocation, from: nil)
+            if let hoveredTabId = tabAtPoint(point),
+                hoveredTabId != lastAutoSelectedTabIdForPaneDrag
+            {
+                lastAutoSelectedTabIdForPaneDrag = hoveredTabId
+                onSelect?(hoveredTabId)
+            }
         }
 
         updateDropTarget(for: sender)
@@ -339,12 +397,11 @@ class DraggableTabBarHostingView: NSView, NSDraggingSource {
     }
 
     override func draggingExited(_ sender: NSDraggingInfo?) {
-        Task { @MainActor [weak self] in
-            self?.tabBarAdapter?.dropTargetIndex = nil
-        }
+        clearDropTargetIndicator()
     }
 
     override func performDragOperation(_ sender: NSDraggingInfo) -> Bool {
+        defer { clearDropTargetIndicator() }
         let pasteboard = sender.draggingPasteboard
 
         // Handle internal tab reorder (only when management mode is still active)
@@ -357,17 +414,28 @@ class DraggableTabBarHostingView: NSView, NSDraggingSource {
             return true
         }
 
-        // Handle pane drop → extract pane to new tab
+        // Handle pane drop:
+        // - Always use insertion index semantics on the tab row
+        // - Create/move to a new tab at the insertion target
         if let paneData = pasteboard.data(forType: .agentStudioPaneDrop),
             let payload = try? JSONDecoder().decode(PaneDragPayload.self, from: paneData)
         {
-            NotificationCenter.default.post(
-                name: .extractPaneRequested,
-                object: nil,
-                userInfo: [
-                    "tabId": payload.tabId,
-                    "paneId": payload.paneId,
-                ]
+            if !Self.allowsTabBarInsertion(for: payload) {
+                return false
+            }
+
+            let dropPoint = convert(sender.draggingLocation, from: nil)
+            let targetTabIndex = dropIndexAtPoint(dropPoint)
+            guard let targetTabIndex else {
+                return false
+            }
+
+            postAppEvent(
+                .extractPaneRequested(
+                    tabId: payload.tabId,
+                    paneId: payload.paneId,
+                    targetTabIndex: targetTabIndex
+                )
             )
             return true
         }
@@ -375,25 +443,35 @@ class DraggableTabBarHostingView: NSView, NSDraggingSource {
         return false
     }
 
+    private func paneDropIsAllowedInTabBar(_ pasteboard: NSPasteboard) -> Bool {
+        guard let paneData = pasteboard.data(forType: .agentStudioPaneDrop),
+            let payload = try? JSONDecoder().decode(PaneDragPayload.self, from: paneData)
+        else {
+            return false
+        }
+        return Self.allowsTabBarInsertion(for: payload)
+    }
+
+    nonisolated static func allowsTabBarInsertion(for payload: PaneDragPayload) -> Bool {
+        // Drawer child panes are constrained to their parent drawer and cannot
+        // be moved into top-level tabs.
+        payload.drawerParentPaneId == nil
+    }
+
     private func updateDropTarget(for sender: NSDraggingInfo) {
         let point = convert(sender.draggingLocation, from: nil)
-
-        Task { @MainActor [weak self] in
-            guard let self else { return }
-
-            if let index = self.dropIndexAtPoint(point) {
-                // Don't highlight if dropping in same position
-                if let draggingId = self.draggingTabId,
-                    let currentIndex = self.tabBarAdapter?.tabs.firstIndex(where: { $0.id == draggingId }),
-                    index == currentIndex || index == currentIndex + 1
-                {
-                    self.tabBarAdapter?.dropTargetIndex = nil
-                } else {
-                    self.tabBarAdapter?.dropTargetIndex = index
-                }
+        if let index = dropIndexAtPoint(point) {
+            // Don't highlight if dropping in same position.
+            if let draggingId = draggingTabId,
+                let currentIndex = tabBarAdapter?.tabs.firstIndex(where: { $0.id == draggingId }),
+                index == currentIndex || index == currentIndex + 1
+            {
+                tabBarAdapter?.dropTargetIndex = nil
             } else {
-                self.tabBarAdapter?.dropTargetIndex = nil
+                tabBarAdapter?.dropTargetIndex = index
             }
+        } else {
+            tabBarAdapter?.dropTargetIndex = nil
         }
     }
 }

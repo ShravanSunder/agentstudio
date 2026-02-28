@@ -25,6 +25,7 @@ let package = Package(
                 "Resources/terminfo-src",
             ],
             resources: [
+                .process("Resources/SidebarIcons.xcassets"),
                 .copy("Resources/AppIcon.icns"),
                 .copy("Resources/AppIcon.iconset"),
                 .copy("Resources/terminfo"),

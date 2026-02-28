@@ -45,6 +45,96 @@ struct NotificationReducerTests {
         #expect(batch?.first?.seq == 2)
     }
 
+    @Test("critical events are ordered by visibility tier before emission")
+    func criticalTierOrdering() async {
+        let highTierPaneId = PaneId()
+        let lowTierPaneId = PaneId()
+        let resolver = TestVisibilityTierResolver(
+            mapping: [
+                highTierPaneId: .p0ActivePane,
+                lowTierPaneId: .p3Background,
+            ]
+        )
+        let reducer = NotificationReducer(tierResolver: resolver)
+        var iterator = reducer.criticalEvents.makeAsyncIterator()
+
+        reducer.submit(makeEnvelope(seq: 1, source: .pane(lowTierPaneId), event: .terminal(.bellRang)))
+        reducer.submit(makeEnvelope(seq: 2, source: .pane(highTierPaneId), event: .terminal(.bellRang)))
+
+        let first = await iterator.next()
+        let second = await iterator.next()
+
+        #expect(first?.source == .pane(highTierPaneId))
+        #expect(second?.source == .pane(lowTierPaneId))
+    }
+
+    @Test("lossy batch ordering prioritizes visibility tier")
+    func lossyTierOrdering() async {
+        let highTierPaneId = PaneId()
+        let lowTierPaneId = PaneId()
+        let resolver = TestVisibilityTierResolver(
+            mapping: [
+                highTierPaneId: .p0ActivePane,
+                lowTierPaneId: .p3Background,
+            ]
+        )
+        let reducer = NotificationReducer(tierResolver: resolver)
+        var iterator = reducer.batchedEvents.makeAsyncIterator()
+
+        reducer.submit(
+            makeEnvelope(
+                seq: 1,
+                source: .pane(lowTierPaneId),
+                event: .terminal(.scrollbarChanged(ScrollbarState(top: 1, bottom: 10, total: 100)))
+            )
+        )
+        reducer.submit(
+            makeEnvelope(
+                seq: 2,
+                source: .pane(highTierPaneId),
+                event: .terminal(.scrollbarChanged(ScrollbarState(top: 1, bottom: 10, total: 100)))
+            )
+        )
+
+        let batch = await iterator.next()
+        #expect(batch?.count == 2)
+        #expect(batch?.first?.source == .pane(highTierPaneId))
+        #expect(batch?.last?.source == .pane(lowTierPaneId))
+    }
+
+    @Test("critical system events are treated as p0 and emitted ahead of background pane events")
+    func criticalSystemEventsPrioritizedAsP0() async {
+        let lowTierPaneId = PaneId()
+        let resolver = TestVisibilityTierResolver(
+            mapping: [
+                lowTierPaneId: .p3Background
+            ]
+        )
+        let reducer = NotificationReducer(tierResolver: resolver)
+        var iterator = reducer.criticalEvents.makeAsyncIterator()
+
+        reducer.submit(
+            makeEnvelope(
+                seq: 1,
+                source: .pane(lowTierPaneId),
+                event: .terminal(.bellRang)
+            )
+        )
+        reducer.submit(
+            makeEnvelope(
+                seq: 2,
+                source: .system(.builtin(.coordinator)),
+                event: .lifecycle(.activePaneChanged)
+            )
+        )
+
+        let first = await iterator.next()
+        let second = await iterator.next()
+
+        #expect(first?.source == .system(.builtin(.coordinator)))
+        #expect(second?.source == .pane(lowTierPaneId))
+    }
+
     private func makeEnvelope(
         seq: UInt64,
         source: EventSource = .pane(PaneId()),
@@ -61,5 +151,18 @@ struct NotificationReducerTests {
             epoch: 0,
             event: event
         )
+    }
+}
+
+@MainActor
+private final class TestVisibilityTierResolver: VisibilityTierResolver {
+    private let mapping: [PaneId: VisibilityTier]
+
+    init(mapping: [PaneId: VisibilityTier]) {
+        self.mapping = mapping
+    }
+
+    func tier(for paneId: PaneId) -> VisibilityTier {
+        mapping[paneId] ?? .p3Background
     }
 }

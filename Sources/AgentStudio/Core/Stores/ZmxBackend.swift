@@ -135,9 +135,8 @@ final class ZmxBackend: SessionBackend {
     /// Generate a deterministic session ID from stable keys + pane UUID.
     /// Format: `agentstudio--<repoKey16>--<wtKey16>--<pane16>` (65 chars)
     ///
-    /// `pane16` is derived from the pane UUID with UUID-version awareness:
-    /// - UUIDv7: use the trailing 16 hex chars (high-entropy random tail)
-    /// - Legacy UUIDs: use the leading 16 hex chars (backward-compatible behavior)
+    /// `pane16` is derived from the pane UUID tail (last 16 hex chars).
+    /// In greenfield mode all pane identifiers are UUIDv7, so tail entropy is canonical.
     static func sessionId(repoStableKey: String, worktreeStableKey: String, paneId: UUID) -> String {
         let paneSegment = paneSessionSegment(paneId)
         return "\(sessionPrefix)\(repoStableKey)--\(worktreeStableKey)--\(paneSegment)"
@@ -154,17 +153,7 @@ final class ZmxBackend: SessionBackend {
 
     private static func paneSessionSegment(_ paneId: UUID) -> String {
         let hex = paneId.uuidString.replacingOccurrences(of: "-", with: "").lowercased()
-        if uuidVersion(paneId) == 7 {
-            return String(hex.suffix(16))
-        }
-        return String(hex.prefix(16))
-    }
-
-    private static func uuidVersion(_ uuid: UUID) -> UInt8 {
-        var raw = uuid.uuid
-        return withUnsafeBytes(of: &raw) { bytes in
-            (bytes[6] & 0xF0) >> 4
-        }
+        return String(hex.suffix(16))
     }
 
     // MARK: - Availability

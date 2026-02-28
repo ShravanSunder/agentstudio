@@ -39,6 +39,45 @@ extension PaneCoordinator {
         createTerminalTab(for: worktree, in: repo)
     }
 
+    /// Open a worktree terminal as a split pane in the active tab.
+    /// Falls back to opening a new tab when there is no active split target.
+    @discardableResult
+    func openWorktreeInPane(for worktree: Worktree, in repo: Repo) -> Pane? {
+        guard
+            let activeTabId = store.activeTabId,
+            let activeTab = store.tab(activeTabId),
+            let targetPaneId = activeTab.activePaneId
+        else {
+            return openNewTerminal(for: worktree, in: repo)
+        }
+
+        let pane = store.createPane(
+            source: .worktree(worktreeId: worktree.id, repoId: repo.id),
+            title: worktree.name,
+            provider: .zmx,
+            lifetime: .persistent,
+            residency: .active
+        )
+
+        guard createView(for: pane, worktree: worktree, repo: repo) != nil else {
+            Self.logger.error("Surface creation failed for split pane — rolling back pane \(pane.id)")
+            store.removePane(pane.id)
+            return nil
+        }
+
+        store.insertPane(
+            pane.id,
+            inTab: activeTabId,
+            at: targetPaneId,
+            direction: .horizontal,
+            position: .after
+        )
+        store.setActivePane(pane.id, inTab: activeTabId)
+
+        Self.logger.info("Opened worktree '\(worktree.name)' in split pane")
+        return pane
+    }
+
     /// Open a new webview pane in a new tab. Loads about:blank with navigation bar visible.
     @discardableResult
     func openWebview(url: URL = URL(string: "about:blank")!) -> Pane? {
@@ -69,6 +108,27 @@ extension PaneCoordinator {
         Self.logger.debug("Executing: \(String(describing: action))")
 
         switch action {
+        case .openWorktree(let worktreeId):
+            guard let worktree = store.worktree(worktreeId), let repo = store.repo(containing: worktreeId) else {
+                Self.logger.warning("openWorktree: worktree \(worktreeId) not found")
+                return
+            }
+            _ = openTerminal(for: worktree, in: repo)
+
+        case .openNewTerminalInTab(let worktreeId):
+            guard let worktree = store.worktree(worktreeId), let repo = store.repo(containing: worktreeId) else {
+                Self.logger.warning("openNewTerminalInTab: worktree \(worktreeId) not found")
+                return
+            }
+            _ = openNewTerminal(for: worktree, in: repo)
+
+        case .openWorktreeInPane(let worktreeId):
+            guard let worktree = store.worktree(worktreeId), let repo = store.repo(containing: worktreeId) else {
+                Self.logger.warning("openWorktreeInPane: worktree \(worktreeId) not found")
+                return
+            }
+            _ = openWorktreeInPane(for: worktree, in: repo)
+
         case .selectTab(let tabId):
             store.setActiveTab(tabId)
 
@@ -253,6 +313,26 @@ extension PaneCoordinator {
                 direction: direction
             )
 
+        case .moveDrawerPane(let parentPaneId, let drawerPaneId, let targetDrawerPaneId, let direction):
+            let layoutDirection = bridgeDirection(direction)
+            let position: Layout.Position = (direction == .left || direction == .up) ? .before : .after
+            store.moveDrawerPane(
+                drawerPaneId,
+                in: parentPaneId,
+                at: targetDrawerPaneId,
+                direction: layoutDirection,
+                position: position
+            )
+            if let terminalView = viewRegistry.terminalView(for: drawerPaneId) {
+                terminalView.window?.makeFirstResponder(terminalView)
+                surfaceManager.syncFocus(activeSurfaceId: terminalView.surfaceId)
+            }
+
+        case .duplicatePane(let tabId, let paneId, _):
+            Self.logger.info(
+                "duplicatePane: pane \(paneId) in tab \(tabId) — not yet implemented"
+            )
+
         case .expireUndoEntry:
             Self.logger.warning(
                 "expireUndoEntry: explicit per-pane expiry is currently unsupported; undo GC is handled by expireOldUndoEntries()"
@@ -266,12 +346,24 @@ extension PaneCoordinator {
 
     /// Common path: create pane + view + tab for a worktree.
     private func createTerminalTab(for worktree: Worktree, in repo: Repo) -> Pane? {
+        let paneFacets = PaneContextFacets(
+            repoId: repo.id,
+            repoName: repo.name,
+            worktreeId: worktree.id,
+            worktreeName: worktree.name,
+            cwd: worktree.path,
+            parentFolder: repo.repoPath.deletingLastPathComponent().path,
+            organizationName: repo.organizationName,
+            origin: repo.origin,
+            upstream: repo.upstream
+        )
         let pane = store.createPane(
             source: .worktree(worktreeId: worktree.id, repoId: repo.id),
             title: worktree.name,
             provider: .zmx,
             lifetime: .persistent,
-            residency: .active
+            residency: .active,
+            facets: paneFacets
         )
 
         guard createView(for: pane, worktree: worktree, repo: repo) != nil else {
@@ -357,11 +449,6 @@ extension PaneCoordinator {
             return
         }
 
-        if !closingPane.isDrawerChild, let tab = store.tab(tabId), tab.paneIds.count <= 1 {
-            executeCloseTab(tabId)
-            return
-        }
-
         if let snapshot = store.snapshotForPaneClose(paneId: paneId, inTab: tabId) {
             appendUndoEntry(.pane(snapshot))
         } else {
@@ -382,12 +469,7 @@ extension PaneCoordinator {
         let drawerChildIds = closingPane.drawer?.paneIds ?? []
         teardownDrawerPanes(for: paneId)
         teardownView(for: paneId)
-        let tabNowEmpty = store.removePaneFromLayout(paneId, inTab: tabId)
-
-        if tabNowEmpty {
-            executeCloseTab(tabId)
-            return
-        }
+        store.removePaneFromLayout(paneId, inTab: tabId)
 
         for drawerPaneId in drawerChildIds {
             store.removeDrawerPane(drawerPaneId, from: paneId)
@@ -424,14 +506,11 @@ extension PaneCoordinator {
                 Self.logger.warning("insertPane existingPane: target tab \(targetTabId) not found")
                 return
             }
-            let sourceTabEmpty = store.removePaneFromLayout(paneId, inTab: sourceTabId)
+            store.removePaneFromLayout(paneId, inTab: sourceTabId)
             store.insertPane(
                 paneId, inTab: targetTabId, at: targetPaneId,
                 direction: layoutDirection, position: position
             )
-            if sourceTabEmpty {
-                store.removeTab(sourceTabId)
-            }
 
         case .newTerminal:
             let targetPane = store.pane(targetPaneId)
@@ -447,7 +526,8 @@ extension PaneCoordinator {
 
             let pane = store.createPane(
                 source: .worktree(worktreeId: worktreeId, repoId: repoId),
-                provider: .zmx
+                provider: .zmx,
+                facets: targetPane?.metadata.facets ?? .empty
             )
 
             guard createView(for: pane, worktree: worktree, repo: repo) != nil else {

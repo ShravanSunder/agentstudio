@@ -153,7 +153,7 @@ class MainWindowController: NSWindowController, NSWindowDelegate {
     }
 
     @objc private func filterSidebarAction() {
-        NotificationCenter.default.post(name: .filterSidebarRequested, object: nil)
+        postAppEvent(.filterSidebarRequested)
     }
 }
 
@@ -163,9 +163,10 @@ extension MainWindowController: NSToolbarDelegate {
     func toolbarDefaultItemIdentifiers(_ toolbar: NSToolbar) -> [NSToolbarItem.Identifier] {
         [
             .flexibleSpace,
-            .editMode,
+            .managementMode,
             .space,
             .addRepo,
+            .addFolder,
         ]
     }
 
@@ -178,12 +179,12 @@ extension MainWindowController: NSToolbarDelegate {
         willBeInsertedIntoToolbar flag: Bool
     ) -> NSToolbarItem? {
         switch itemIdentifier {
-        case .editMode:
+        case .managementMode:
             let item = NSToolbarItem(itemIdentifier: itemIdentifier)
-            item.label = "Edit Mode"
-            item.paletteLabel = "Edit Mode"
+            item.label = "Management Mode"
+            item.paletteLabel = "Management Mode"
             // SwiftUI hosting for reactive toggle state
-            let hostingView = NSHostingView(rootView: EditModeToolbarButton())
+            let hostingView = NSHostingView(rootView: ManagementModeToolbarButton())
             hostingView.sizingOptions = .intrinsicContentSize
             item.view = hostingView
             return item
@@ -199,13 +200,34 @@ extension MainWindowController: NSToolbarDelegate {
             item.target = self
             return item
 
+        case .addFolder:
+            let item = NSToolbarItem(itemIdentifier: itemIdentifier)
+            item.label = "Add Folder"
+            item.paletteLabel = "Add Folder"
+            item.toolTip = "Add folder containing repos (⌘⌥⇧O)"
+            let button = NSButton(title: "Add Folder", target: self, action: #selector(addFolderAction))
+            button.bezelStyle = .rounded
+            button.bezelColor = .systemTeal
+            button.controlSize = .regular
+            button.image = NSImage(
+                systemSymbolName: "folder.badge.questionmark",
+                accessibilityDescription: "Add Folder"
+            )
+            button.imagePosition = .imageLeading
+            item.view = button
+            return item
+
         default:
             return nil
         }
     }
 
     @objc private func addRepoAction() {
-        NotificationCenter.default.post(name: .addRepoRequested, object: nil)
+        postAppEvent(.addRepoRequested)
+    }
+
+    @objc private func addFolderAction() {
+        postAppEvent(.addFolderRequested)
     }
 }
 

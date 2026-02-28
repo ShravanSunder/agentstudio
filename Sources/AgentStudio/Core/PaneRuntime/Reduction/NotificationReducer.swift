@@ -1,7 +1,15 @@
 import Foundation
+import os.log
 
+/// Event scheduling reducer that splits runtime envelopes into two streams:
+/// immediate `criticalEvents` and frame-coalesced `batchedEvents` for lossy traffic.
+///
+/// Critical events can be tier-ordered (p0...p3) when a resolver is provided.
+/// Lossy events are consolidated by `(source, consolidationKey)` and emitted on a frame cadence.
 @MainActor
 final class NotificationReducer {
+    private static let logger = Logger(subsystem: "com.agentstudio", category: "NotificationReducer")
+
     private let clock: any Clock<Duration>
     private let tierResolver: (any VisibilityTierResolver)?
 
@@ -11,6 +19,8 @@ final class NotificationReducer {
     private let batchContinuation: AsyncStream<[PaneEventEnvelope]>.Continuation
     let batchedEvents: AsyncStream<[PaneEventEnvelope]>
 
+    private var criticalBufferByTier: [VisibilityTier: [PaneEventEnvelope]] = [:]
+    private var criticalFlushTask: Task<Void, Never>?
     private var lossyBuffer: [String: PaneEventEnvelope] = [:]
     private var frameTimer: Task<Void, Never>?
 
@@ -21,20 +31,17 @@ final class NotificationReducer {
         self.clock = clock
         self.tierResolver = tierResolver
 
-        var criticalCont: AsyncStream<PaneEventEnvelope>.Continuation?
-        self.criticalEvents = AsyncStream<PaneEventEnvelope> { continuation in
-            criticalCont = continuation
-        }
-        self.criticalContinuation = criticalCont!
+        let (criticalEvents, criticalContinuation) = AsyncStream.makeStream(of: PaneEventEnvelope.self)
+        self.criticalEvents = criticalEvents
+        self.criticalContinuation = criticalContinuation
 
-        var batchCont: AsyncStream<[PaneEventEnvelope]>.Continuation?
-        self.batchedEvents = AsyncStream<[PaneEventEnvelope]> { continuation in
-            batchCont = continuation
-        }
-        self.batchContinuation = batchCont!
+        let (batchedEvents, batchContinuation) = AsyncStream.makeStream(of: [PaneEventEnvelope].self)
+        self.batchedEvents = batchedEvents
+        self.batchContinuation = batchContinuation
     }
 
     isolated deinit {
+        criticalFlushTask?.cancel()
         frameTimer?.cancel()
         criticalContinuation.finish()
         batchContinuation.finish()
@@ -43,28 +50,69 @@ final class NotificationReducer {
     func submit(_ envelope: PaneEventEnvelope) {
         switch envelope.event.actionPolicy {
         case .critical:
-            criticalContinuation.yield(envelope)
+            guard tierResolver != nil else {
+                criticalContinuation.yield(envelope)
+                return
+            }
+            let visibilityTier = tier(for: envelope)
+            criticalBufferByTier[visibilityTier, default: []].append(envelope)
+            ensureCriticalFlushTask()
         case .lossy(let consolidationKey):
             let key = "\(envelope.source):\(consolidationKey)"
             lossyBuffer[key] = envelope
             if lossyBuffer.count > 1000,
                 let oldest = lossyBuffer.min(by: { $0.value.timestamp < $1.value.timestamp })
             {
+                Self.logger.warning(
+                    "Lossy buffer capacity exceeded; evicting oldest event seq=\(oldest.value.seq, privacy: .public) source=\(String(describing: oldest.value.source), privacy: .public)"
+                )
                 lossyBuffer.removeValue(forKey: oldest.key)
             }
             ensureFrameTimer()
         }
     }
 
+    private func ensureCriticalFlushTask() {
+        guard criticalFlushTask == nil else { return }
+        criticalFlushTask = Task { [weak self] in
+            await Task.yield()
+            guard !Task.isCancelled else { return }
+            self?.flushCriticalBuffer()
+            self?.criticalFlushTask = nil
+        }
+    }
+
     private func ensureFrameTimer() {
         guard frameTimer == nil else { return }
         frameTimer = Task { [weak self] in
+            defer { self?.frameTimer = nil }
             while let self, !self.lossyBuffer.isEmpty {
-                try? await self.clock.sleep(for: .milliseconds(16))
+                do {
+                    try await self.clock.sleep(for: .milliseconds(16))
+                } catch is CancellationError {
+                    return
+                } catch {
+                    Self.logger.error(
+                        "Lossy frame timer sleep failed: \(String(describing: error), privacy: .public)"
+                    )
+                    continue
+                }
+                guard !Task.isCancelled else { return }
                 self.flushLossyBuffer()
             }
-            self?.frameTimer = nil
         }
+    }
+
+    private func flushCriticalBuffer() {
+        let orderedTiers: [VisibilityTier] = [.p0ActivePane, .p1ActiveDrawer, .p2VisibleActiveTab, .p3Background]
+        for visibilityTier in orderedTiers {
+            let queued = (criticalBufferByTier[visibilityTier] ?? []).sorted(by: compareEnvelopes)
+            guard !queued.isEmpty else { continue }
+            for envelope in queued {
+                criticalContinuation.yield(envelope)
+            }
+        }
+        criticalBufferByTier.removeAll(keepingCapacity: true)
     }
 
     private func flushLossyBuffer() {
@@ -88,6 +136,10 @@ final class NotificationReducer {
     }
 
     private func tier(for envelope: PaneEventEnvelope) -> VisibilityTier {
+        if case .system = envelope.source {
+            // Contract 12a: system events are always highest visibility priority.
+            return .p0ActivePane
+        }
         guard
             let resolver = tierResolver,
             case .pane(let paneId) = envelope.source

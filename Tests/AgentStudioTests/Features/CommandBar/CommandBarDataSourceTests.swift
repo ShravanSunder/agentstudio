@@ -3,6 +3,23 @@ import Testing
 
 @testable import AgentStudio
 
+private final class AppEventBox: @unchecked Sendable {
+    private let lock = NSLock()
+    private var event: AppEvent?
+
+    func set(_ value: AppEvent) {
+        lock.lock()
+        event = value
+        lock.unlock()
+    }
+
+    func get() -> AppEvent? {
+        lock.lock()
+        defer { lock.unlock() }
+        return event
+    }
+}
+
 @MainActor
 @Suite(.serialized)
 struct CommandBarDataSourceTests {
@@ -223,6 +240,148 @@ struct CommandBarDataSourceTests {
         #expect((deleteItem?.hasChildren ?? false) == true)
         #expect((renameItem?.hasChildren ?? false) == true)
         #expect((saveItem?.hasChildren ?? true) == false)
+    }
+
+    // MARK: - Move Pane Command
+
+    @Test
+    func test_commandsScope_movePaneToTab_hasDrillIn() {
+        let store = makeStore()
+
+        let paneA = store.createPane(source: .floating(workingDirectory: nil, title: "Pane A"))
+        let paneB = store.createPane(source: .floating(workingDirectory: nil, title: "Pane B"))
+        let tabA = Tab(paneId: paneA.id)
+        let tabB = Tab(paneId: paneB.id)
+        store.appendTab(tabA)
+        store.appendTab(tabB)
+        store.setActiveTab(tabA.id)
+
+        let items = CommandBarDataSource.items(scope: .commands, store: store, dispatcher: dispatcher)
+        let moveItem = items.first { $0.id == "cmd-movePaneToTab" }
+
+        #expect(moveItem != nil)
+        #expect(moveItem?.group == "Pane")
+        #expect((moveItem?.hasChildren ?? false) == true)
+    }
+
+    @Test
+    func test_movePaneToTab_drillIn_postsMoveEvent() async {
+        let store = makeStore()
+
+        let paneA = store.createPane(source: .floating(workingDirectory: nil, title: "Pane A"))
+        let paneB = store.createPane(source: .floating(workingDirectory: nil, title: "Pane B"))
+        let tabA = Tab(paneId: paneA.id)
+        let tabB = Tab(paneId: paneB.id)
+        store.appendTab(tabA)
+        store.appendTab(tabB)
+        store.setActiveTab(tabA.id)
+
+        let items = CommandBarDataSource.items(scope: .commands, store: store, dispatcher: dispatcher)
+        let moveItem = items.first { $0.id == "cmd-movePaneToTab" }
+        guard case .navigate(let sourceLevel) = moveItem?.action else {
+            Issue.record("Expected movePaneToTab command to navigate to source pane level")
+            return
+        }
+
+        let sourceItem = sourceLevel.items.first { $0.id == "target-move-source-pane-\(paneA.id.uuidString)" }
+        guard case .navigate(let destinationLevel) = sourceItem?.action else {
+            Issue.record("Expected source pane row to navigate to destination tab level")
+            return
+        }
+        let destinationItem = destinationLevel.items.first {
+            $0.id == "target-move-dest-tab-\(paneA.id.uuidString)-\(tabB.id.uuidString)"
+        }
+        guard case .custom(let action) = destinationItem?.action else {
+            Issue.record("Expected destination tab row to dispatch custom move action")
+            return
+        }
+
+        let eventBox = AppEventBox()
+        let captureTask = Task {
+            let stream = await AppEventBus.shared.subscribe()
+            for await event in stream {
+                guard case .movePaneToTabRequested = event else { continue }
+                eventBox.set(event)
+                break
+            }
+        }
+        defer { captureTask.cancel() }
+        try? await Task.sleep(for: .milliseconds(10))
+
+        action()
+        try? await Task.sleep(for: .milliseconds(20))
+
+        guard let postedEvent = eventBox.get() else {
+            Issue.record("Expected movePaneToTabRequested event to be posted")
+            return
+        }
+        guard
+            case .movePaneToTabRequested(
+                let paneId,
+                let sourceTabId,
+                let targetTabId
+            ) = postedEvent
+        else {
+            Issue.record("Expected movePaneToTabRequested event payload")
+            return
+        }
+
+        #expect(paneId == paneA.id)
+        #expect(sourceTabId == tabA.id)
+        #expect(targetTabId == tabB.id)
+    }
+
+    // MARK: - Repos Scope
+
+    @Test
+    func test_reposScope_emptyStore_returnsEmpty() {
+        let store = makeStore()
+
+        // Act
+        let items = CommandBarDataSource.items(scope: .repos, store: store, dispatcher: dispatcher)
+
+        // Assert
+        #expect(items.isEmpty)
+    }
+
+    @Test
+    func test_reposScope_returnsWorktreesGroupedByRepo() {
+        // Arrange
+        let store = makeStore()
+        let repo = store.addRepo(at: URL(filePath: "/tmp/test-repo"))
+        store.updateRepoWorktrees(
+            repo.id,
+            worktrees: [
+                Worktree(
+                    name: "main",
+                    path: URL(filePath: "/tmp/test-repo"),
+                    branch: "main",
+                    isMainWorktree: true
+                ),
+                Worktree(
+                    name: "feat-branch",
+                    path: URL(filePath: "/tmp/test-repo-feat"),
+                    branch: "feat/branch",
+                    isMainWorktree: false
+                ),
+            ])
+
+        // Act
+        let items = CommandBarDataSource.items(scope: .repos, store: store, dispatcher: dispatcher)
+
+        // Assert
+        #expect(items.count == 2)
+        #expect(items.allSatisfy { $0.id.hasPrefix("repo-wt-") })
+        #expect(items.allSatisfy { $0.group == repo.name })
+
+        // Main worktree should have star prefix and star icon
+        let mainItem = items.first { $0.title.contains("main") }
+        #expect(mainItem?.title.hasPrefix("★") == true)
+        #expect(mainItem?.icon == "star.fill")
+
+        // Feature branch should have branch icon
+        let featItem = items.first { $0.title.contains("feat-branch") }
+        #expect(featItem?.icon == "arrow.triangle.branch")
     }
 
     // MARK: - Drawer Commands

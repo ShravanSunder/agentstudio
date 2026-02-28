@@ -13,7 +13,7 @@ struct PaneRuntimeContractsTests {
 
     @Test("runtime command namespace is distinct from workspace PaneAction")
     func commandTypeIsDistinct() {
-        let command = PaneCommand.activate
+        let command = RuntimeCommand.activate
         #expect(String(describing: command).contains("activate"))
     }
 
@@ -27,8 +27,60 @@ struct PaneRuntimeContractsTests {
     func paneMetadataRelocation() {
         let metadata = PaneMetadata(source: .floating(workingDirectory: nil, title: "X"), title: "X")
         #expect(metadata.title == "X")
+        #expect(metadata.paneId.isV7)
         #expect(metadata.contentType == .terminal)
         #expect(metadata.executionBackend == .local)
         #expect(metadata.createdAt.timeIntervalSince1970 > 0)
+        #expect(metadata.facets.tags.isEmpty)
+    }
+
+    @Test("pane context facets merge source defaults for worktree metadata")
+    func paneContextFacetsMergeSourceDefaults() {
+        let worktreeId = UUID()
+        let repoId = UUID()
+        let metadata = PaneMetadata(
+            source: .worktree(worktreeId: worktreeId, repoId: repoId),
+            facets: PaneContextFacets(tags: ["focus"])
+        )
+        #expect(metadata.facets.worktreeId == worktreeId)
+        #expect(metadata.facets.repoId == repoId)
+        #expect(metadata.facets.tags == ["focus"])
+    }
+
+    @Test("system source three-tier hierarchy: builtin, service, plugin")
+    func systemSourceHierarchy() {
+        #expect(
+            EventSource.system(.builtin(.filesystemWatcher)).description
+                == "system:builtin/filesystemWatcher"
+        )
+        #expect(
+            EventSource.system(.builtin(.securityBackend)).description
+                == "system:builtin/securityBackend"
+        )
+        #expect(
+            EventSource.system(.builtin(.coordinator)).description
+                == "system:builtin/coordinator"
+        )
+        #expect(
+            EventSource.system(.service(.gitForge(provider: "github"))).description
+                == "system:service/gitForge/github"
+        )
+        #expect(
+            EventSource.system(.service(.containerService(provider: "docker"))).description
+                == "system:service/containerService/docker"
+        )
+        #expect(
+            EventSource.system(.plugin("mcp-weather")).description
+                == "system:plugin/mcp-weather"
+        )
+    }
+
+    @Test("provider names with special characters produce unambiguous descriptions")
+    func systemSourceProviderEscaping() {
+        let forgeWithColon = EventSource.system(.service(.gitForge(provider: "my:forge")))
+        #expect(forgeWithColon.description == "system:service/gitForge/my:forge")
+
+        let pluginWithSlash = EventSource.system(.plugin("mcp/weather"))
+        #expect(pluginWithSlash.description == "system:plugin/mcp/weather")
     }
 }

@@ -64,6 +64,7 @@ struct CustomTabBar: View {
     var onAdd: (() -> Void)?
     var onPaneAction: ((PaneAction) -> Void)?
     var onSaveArrangement: ((UUID) -> Void)?
+    var onOpenRepoInTab: (() -> Void)?
 
     @State private var scrollOffset: CGFloat = 0
     @State private var scrollProxy: ScrollViewProxy?
@@ -96,12 +97,16 @@ struct CustomTabBar: View {
     var body: some View {
         GeometryReader { geometry in
             HStack(spacing: 0) {
-                // MARK: - Arrangement button (left of all tabs)
-                TabBarArrangementButton(
-                    adapter: adapter,
-                    onPaneAction: onPaneAction,
-                    onSaveArrangement: onSaveArrangement
-                )
+                // MARK: - Left-side controls (management mode, arrangement)
+                HStack(spacing: AppStyle.spacingStandard) {
+                    TabBarManagementModeButton()
+
+                    TabBarArrangementButton(
+                        adapter: adapter,
+                        onPaneAction: onPaneAction,
+                        onSaveArrangement: onSaveArrangement
+                    )
+                }
                 .padding(.leading, AppStyle.spacingLoose)
 
                 // MARK: - Scroll area with gradient overlays
@@ -263,9 +268,9 @@ struct CustomTabBar: View {
                         } label: {
                             HStack(spacing: AppStyle.spacingTight) {
                                 Image(systemName: "rectangle.stack")
-                                    .font(.system(size: AppStyle.fontSmall, weight: .medium))
+                                    .font(.system(size: AppStyle.textSm, weight: .medium))
                                 Text("\(adapter.tabs.count)")
-                                    .font(.system(size: AppStyle.fontSmall, weight: .semibold))
+                                    .font(.system(size: AppStyle.textSm, weight: .semibold))
                             }
                             .foregroundStyle(.secondary)
                             .padding(.horizontal, AppStyle.spacingLoose)
@@ -283,7 +288,7 @@ struct CustomTabBar: View {
 
                     // New tab button (always visible)
                     if let onAdd {
-                        NewTabButton(onAdd: onAdd)
+                        NewTabButton(onAdd: onAdd, onOpenRepoInTab: onOpenRepoInTab)
                     }
                 }
                 .padding(.horizontal, AppStyle.spacingTight)
@@ -409,13 +414,61 @@ private struct TabBarArrangementButton: View {
     }
 }
 
-/// Circular "+" button for creating a new tab.
-private struct NewTabButton: View {
-    let onAdd: () -> Void
+/// Management mode toggle in the tab bar. Blue accent when active, standard hover otherwise.
+private struct TabBarManagementModeButton: View {
+    @Bindable private var managementMode = ManagementModeMonitor.shared
     @State private var isHovered = false
 
     var body: some View {
-        Button(action: onAdd) {
+        Button {
+            managementMode.toggle()
+        } label: {
+            Image(
+                systemName: managementMode.isActive
+                    ? "rectangle.split.2x2.fill"
+                    : "rectangle.split.2x2"
+            )
+            .font(.system(size: AppStyle.compactIconSize, weight: .medium))
+            .foregroundStyle(
+                managementMode.isActive
+                    ? Color.accentColor
+                    : (isHovered ? .primary : .secondary)
+            )
+            .frame(width: AppStyle.toolbarButtonSize, height: AppStyle.toolbarButtonSize)
+            .background(
+                Circle()
+                    .fill(
+                        managementMode.isActive
+                            ? Color.accentColor.opacity(AppStyle.fillActive)
+                            : Color.white.opacity(
+                                isHovered ? AppStyle.fillPressed : AppStyle.fillMuted)
+                    )
+            )
+            .contentShape(Circle())
+        }
+        .buttonStyle(.plain)
+        .onHover { isHovered = $0 }
+        .help("Toggle Management Mode (\u{2318}E)")
+    }
+}
+
+/// Circular "+" button for creating a new tab.
+/// Click = empty terminal (existing behavior). Right-click = menu with options.
+private struct NewTabButton: View {
+    let onAdd: () -> Void
+    let onOpenRepoInTab: (() -> Void)?
+    @State private var isHovered = false
+
+    var body: some View {
+        Menu {
+            Button("Empty Terminal") { onAdd() }
+            Divider()
+            if let onOpenRepoInTab {
+                Button("Open Repo/Worktree...") {
+                    onOpenRepoInTab()
+                }
+            }
+        } label: {
             Image(systemName: "plus")
                 .font(.system(size: AppStyle.compactIconSize, weight: .medium))
                 .foregroundStyle(isHovered ? .primary : .secondary)
@@ -425,9 +478,13 @@ private struct NewTabButton: View {
                         .fill(Color.white.opacity(isHovered ? AppStyle.fillPressed : AppStyle.fillMuted))
                 )
                 .contentShape(Circle())
+        } primaryAction: {
+            onAdd()
         }
-        .buttonStyle(.plain)
-        .onHover { hovering in isHovered = hovering }
+        .menuStyle(.borderlessButton)
+        .menuIndicator(.hidden)
+        .fixedSize()
+        .onHover { isHovered = $0 }
         .help("New Tab")
     }
 }
@@ -519,7 +576,7 @@ struct TabPillView: View {
             // Clear zones match the overlay positions so text is fully invisible
             // behind the shortcut label and close button.
             Text(tab.displayTitle)
-                .font(.system(size: AppStyle.fontBody))
+                .font(.system(size: AppStyle.textBase))
                 .lineLimit(1)
                 .foregroundStyle(isActive ? .primary : .secondary)
                 .frame(maxWidth: .infinity)
@@ -563,7 +620,7 @@ struct TabPillView: View {
                 if isHovering {
                     Button(action: onClose) {
                         Image(systemName: "xmark")
-                            .font(.system(size: AppStyle.fontCaption, weight: .medium))
+                            .font(.system(size: AppStyle.textXs, weight: .medium))
                             .foregroundStyle(.secondary)
                             .frame(width: 18, height: 18)
                             .background(
@@ -579,7 +636,7 @@ struct TabPillView: View {
 
                 if index < 9 {
                     Text("⌘\(index + 1)")
-                        .font(.system(size: AppStyle.fontSmall, weight: .medium))
+                        .font(.system(size: AppStyle.textSm, weight: .medium))
                         .foregroundStyle(.tertiary)
                         .fixedSize()
                 }
@@ -615,7 +672,7 @@ struct TabBarEmptyState: View {
     var body: some View {
         HStack {
             Text("No terminals open")
-                .font(.system(size: AppStyle.fontBody))
+                .font(.system(size: AppStyle.textBase))
                 .foregroundStyle(.secondary)
 
             Button(action: onAddTab) {
@@ -623,7 +680,7 @@ struct TabBarEmptyState: View {
                     Image(systemName: "plus")
                     Text("New Tab")
                 }
-                .font(.system(size: AppStyle.fontBody))
+                .font(.system(size: AppStyle.textBase))
             }
             .buttonStyle(.plain)
             .foregroundStyle(.secondary)

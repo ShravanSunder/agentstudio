@@ -55,12 +55,18 @@ enum ActionResolver {
         case .closePane:
             guard let (tab, paneId) = activeTabAndPane(tabs: tabs, activeTabId: activeTabId)
             else { return nil }
+            if tab.allPaneIds.count <= 1 {
+                return .closeTab(tabId: tab.id)
+            }
             return .closePane(tabId: tab.id, paneId: paneId)
 
         case .extractPaneToTab:
             guard let (tab, paneId) = activeTabAndPane(tabs: tabs, activeTabId: activeTabId)
             else { return nil }
             return .extractPaneToTab(tabId: tab.id, paneId: paneId)
+
+        case .movePaneToTab:
+            return nil
 
         case .equalizePanes:
             guard let tabId = activeTabId else { return nil }
@@ -111,19 +117,24 @@ enum ActionResolver {
             else { return nil }
             return .expandPane(tabId: tab.id, paneId: paneId)
 
+        case .duplicatePane:
+            guard let (tab, paneId) = activeTabAndPane(tabs: tabs, activeTabId: activeTabId)
+            else { return nil }
+            return .duplicatePane(tabId: tab.id, paneId: PaneId(uuid: paneId), direction: .right)
+
         // Non-pane commands: not resolved to PaneAction
-        case .addRepo, .removeRepo, .refreshWorktrees,
+        case .addRepo, .addFolder, .removeRepo, .refreshWorktrees,
             .toggleSidebar, .newFloatingTerminal,
             .newTerminalInTab, .newTab, .undoCloseTab,
             .newWindow, .closeWindow,
             .quickFind, .commandBar,
             .openWebview, .signInGitHub, .signInGoogle,
-            .filterSidebar, .openNewTerminalInTab,
+            .filterSidebar, .openNewTerminalInTab, .openWorktree, .openWorktreeInPane,
             .switchArrangement, .saveArrangement,
             .deleteArrangement, .renameArrangement,
             .addDrawerPane, .toggleDrawer,
             .navigateDrawerPane, .closeDrawerPane,
-            .toggleEditMode:
+            .toggleManagementMode:
             return nil
         }
     }
@@ -187,7 +198,9 @@ enum ActionResolver {
     static func snapshot<T: ResolvableTab>(
         from tabs: [T],
         activeTabId: UUID?,
-        isManagementModeActive: Bool
+        isManagementModeActive: Bool,
+        knownWorktreeIds: Set<UUID> = [],
+        drawerParentByPaneId: [UUID: UUID] = [:]
     ) -> ActionStateSnapshot {
         ActionStateSnapshot(
             tabs: tabs.map { tab in
@@ -198,7 +211,9 @@ enum ActionResolver {
                 )
             },
             activeTabId: activeTabId,
-            isManagementModeActive: isManagementModeActive
+            isManagementModeActive: isManagementModeActive,
+            knownWorktreeIds: knownWorktreeIds,
+            drawerParentByPaneId: drawerParentByPaneId
         )
     }
 

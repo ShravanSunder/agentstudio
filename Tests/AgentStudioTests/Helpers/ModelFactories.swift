@@ -10,7 +10,8 @@ func makeWorktree(
     path: String = "/tmp/test-repo/feature-branch",
     branch: String = "feature-branch",
     agent: AgentType? = nil,
-    status: WorktreeStatus = .idle
+    status: WorktreeStatus = .idle,
+    isMainWorktree: Bool = false
 ) -> Worktree {
     Worktree(
         id: id,
@@ -18,7 +19,8 @@ func makeWorktree(
         path: URL(fileURLWithPath: path),
         branch: branch,
         agent: agent,
-        status: status
+        status: status,
+        isMainWorktree: isMainWorktree
     )
 }
 
@@ -56,7 +58,7 @@ func makePane(
     Pane(
         id: id,
         content: .terminal(TerminalState(provider: provider, lifetime: lifetime)),
-        metadata: PaneMetadata(source: source, title: title, agentType: agent),
+        metadata: PaneMetadata(source: .init(source), title: title, agentType: agent),
         residency: residency
     )
 }

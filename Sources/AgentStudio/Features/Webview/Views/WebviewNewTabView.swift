@@ -66,7 +66,7 @@ struct WebviewNewTabView: View {
     private var searchBar: some View {
         HStack(spacing: 8) {
             Image(systemName: "magnifyingglass")
-                .font(.system(size: 12))
+                .font(.system(size: AppStyle.textSm))
                 .foregroundStyle(.secondary)
 
             SelectAllTextField(
@@ -150,7 +150,7 @@ struct WebviewNewTabView: View {
         let results = fuzzyResults
         if results.isEmpty {
             Text("No results")
-                .font(.system(size: 12))
+                .font(.system(size: AppStyle.textSm))
                 .foregroundStyle(.tertiary)
                 .frame(maxWidth: .infinity, alignment: .center)
                 .padding(.top, 32)
@@ -172,7 +172,7 @@ struct WebviewNewTabView: View {
 
     private func sectionHeader(_ title: String) -> some View {
         Text(title)
-            .font(.system(size: 11, weight: .semibold))
+            .font(.system(size: AppStyle.textXs, weight: .semibold))
             .foregroundStyle(.secondary)
             .textCase(.uppercase)
     }
@@ -210,7 +210,7 @@ private struct FavoriteCard: View {
             FaviconView(url: entry.url, size: 36)
 
             Text(entry.title)
-                .font(.system(size: 11))
+                .font(.system(size: AppStyle.textXs))
                 .lineLimit(1)
                 .truncationMode(.tail)
                 .foregroundStyle(.primary)
@@ -224,7 +224,7 @@ private struct FavoriteCard: View {
             if isHovered {
                 Button(action: onRemove) {
                     Image(systemName: "xmark.circle.fill")
-                        .font(.system(size: 12))
+                        .font(.system(size: AppStyle.textSm))
                         .foregroundStyle(.secondary)
                 }
                 .buttonStyle(.plain)
@@ -256,12 +256,12 @@ private struct RecentSiteRow: View {
                 FaviconView(url: entry.url, size: 16)
 
                 Text(entry.title)
-                    .font(.system(size: 12))
+                    .font(.system(size: AppStyle.textSm))
                     .foregroundStyle(.primary)
                     .lineLimit(1)
 
                 Text(entry.url.host() ?? entry.url.absoluteString)
-                    .font(.system(size: 11))
+                    .font(.system(size: AppStyle.textXs))
                     .foregroundStyle(.tertiary)
                     .lineLimit(1)
                     .truncationMode(.middle)

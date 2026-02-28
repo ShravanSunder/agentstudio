@@ -109,25 +109,15 @@ final class BridgePaneStateTests {
     }
 
     @Test
-    func test_paneContent_bridgePanel_unknownVersion_decodesAsUnsupported() throws {
-        // Simulate a future version that adds unknown fields by manually crafting JSON
-        // with an unrecognized state shape that will fail BridgePaneState decoding
+    func test_paneContent_bridgePanel_unknownVersion_throws() throws {
+        // Strict canonical decode rejects malformed bridge panel state.
         let json = """
             {"type":"bridgePanel","version":99,"state":{"unknownField":"value"}}
             """
         let data = Data(json.utf8)
-        let decoded = try JSONDecoder().decode(PaneContent.self, from: data)
 
-        let unsupported = try #require(
-            {
-                if case .unsupported(let content) = decoded {
-                    return content
-                }
-                return nil
-            }(),
-            "Expected .unsupported for malformed bridgePanel state, got \(decoded)"
-        )
-        #expect(unsupported.type == "bridgePanel")
-        #expect(unsupported.version == 99)
+        #expect(throws: Error.self) {
+            _ = try JSONDecoder().decode(PaneContent.self, from: data)
+        }
     }
 }

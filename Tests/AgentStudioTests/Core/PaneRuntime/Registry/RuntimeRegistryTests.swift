@@ -26,8 +26,8 @@ struct RuntimeRegistryTests {
         #expect(registry.runtime(for: runtime.paneId) == nil)
     }
 
-    @Test("duplicate registration replaces existing runtime without crashing")
-    func duplicateRegistrationReplacesRuntime() {
+    @Test("duplicate registration is rejected and existing runtime is preserved")
+    func duplicateRegistrationRejected() {
         let registry = RuntimeRegistry()
         let paneId = PaneId()
         let first = TestPaneRuntime(paneId: paneId, contentType: .terminal)
@@ -37,11 +37,43 @@ struct RuntimeRegistryTests {
         let secondResult = registry.register(second)
 
         #expect(firstResult == .inserted)
-        #expect(secondResult == .replaced)
+        #expect(secondResult == .duplicateRejected)
         #expect(registry.count == 1)
-        #expect(registry.runtime(for: paneId)?.metadata.contentType == .browser)  // paneId is now PaneId
-        #expect(registry.runtimes(ofType: .terminal).isEmpty)
-        #expect(registry.runtimes(ofType: .browser).count == 1)
+        #expect(registry.runtime(for: paneId)?.metadata.contentType == .terminal)
+        #expect(registry.runtimes(ofType: .terminal).count == 1)
+        #expect(registry.runtimes(ofType: .browser).isEmpty)
+    }
+
+    @Test("findPaneWithWorktree returns paneId when worktree is registered")
+    func findPaneWithWorktreeFindsExisting() {
+        let registry = RuntimeRegistry()
+        let paneId = PaneId()
+        let worktreeId = UUID()
+        let runtime = TestPaneRuntime(
+            paneId: paneId,
+            source: .worktree(worktreeId: worktreeId, repoId: UUID())
+        )
+        registry.register(runtime)
+
+        let found = registry.findPaneWithWorktree(worktreeId: worktreeId)
+
+        #expect(found == paneId)
+    }
+
+    @Test("findPaneWithWorktree returns nil for unknown worktree")
+    func findPaneWithWorktreeReturnsNilForUnknown() {
+        let registry = RuntimeRegistry()
+
+        #expect(registry.findPaneWithWorktree(worktreeId: UUID()) == nil)
+    }
+
+    @Test("findPaneWithWorktree ignores floating panes")
+    func findPaneWithWorktreeIgnoresFloating() {
+        let registry = RuntimeRegistry()
+        let runtime = TestPaneRuntime(paneId: PaneId())
+        registry.register(runtime)
+
+        #expect(registry.findPaneWithWorktree(worktreeId: UUID()) == nil)
     }
 }
 
@@ -56,13 +88,14 @@ private final class TestPaneRuntime: PaneRuntime {
 
     init(
         paneId: PaneId,
-        contentType: PaneContentType = .terminal
+        contentType: PaneContentType = .terminal,
+        source: PaneMetadata.PaneMetadataSource = .floating(workingDirectory: nil, title: "Test")
     ) {
         self.paneId = paneId
         self.metadata = PaneMetadata(
             paneId: paneId,
             contentType: contentType,
-            source: .floating(workingDirectory: nil, title: "Test"),
+            source: source,
             title: "Test"
         )
         self.lifecycle = .ready
@@ -72,7 +105,7 @@ private final class TestPaneRuntime: PaneRuntime {
         }
     }
 
-    func handleCommand(_ envelope: PaneCommandEnvelope) async -> ActionResult {
+    func handleCommand(_ envelope: RuntimeCommandEnvelope) async -> ActionResult {
         .success(commandId: envelope.commandId)
     }
 

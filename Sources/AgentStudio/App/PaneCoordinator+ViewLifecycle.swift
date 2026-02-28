@@ -111,6 +111,7 @@ extension PaneCoordinator {
             title: worktree.name,
             worktreeId: worktree.id,
             repoId: repo.id,
+            contextFacets: pane.metadata.facets,
             paneId: pane.id
         )
 
@@ -132,6 +133,7 @@ extension PaneCoordinator {
             view.displaySurface(managed.surface)
 
             viewRegistry.register(view, for: pane.id)
+            registerTerminalRuntimeIfNeeded(for: pane)
             runtime.markRunning(pane.id)
             RestoreTrace.log(
                 "createView complete pane=\(pane.id) surface=\(managed.id) viewBounds=\(NSStringFromRect(view.bounds))"
@@ -153,7 +155,7 @@ extension PaneCoordinator {
     /// No worktree/repo context — uses home directory or pane's cwd.
     @discardableResult
     private func createFloatingTerminalView(for pane: Pane) -> AgentStudioTerminalView? {
-        let workingDir = pane.metadata.cwd ?? FileManager.default.homeDirectoryForCurrentUser
+        let workingDir = pane.metadata.facets.cwd ?? FileManager.default.homeDirectoryForCurrentUser
         let cmd = "\(getDefaultShell()) -i -l"
 
         RestoreTrace.log(
@@ -169,6 +171,7 @@ extension PaneCoordinator {
             workingDirectory: workingDir,
             command: cmd,
             title: pane.metadata.title,
+            contextFacets: pane.metadata.facets,
             paneId: pane.id
         )
 
@@ -189,6 +192,7 @@ extension PaneCoordinator {
             view.displaySurface(managed.surface)
 
             viewRegistry.register(view, for: pane.id)
+            registerTerminalRuntimeIfNeeded(for: pane)
             runtime.markRunning(pane.id)
             RestoreTrace.log("createFloatingView complete pane=\(pane.id) surface=\(managed.id)")
 
@@ -219,7 +223,13 @@ extension PaneCoordinator {
 
         viewRegistry.unregister(paneId)
         if shouldUnregisterRuntime {
-            _ = unregisterRuntime(PaneId(uuid: paneId))
+            if UUIDv7.isV7(paneId) {
+                _ = unregisterRuntime(PaneId(uuid: paneId))
+            } else {
+                Self.logger.warning(
+                    "Skipping runtime unregister for non-v7 pane id \(paneId.uuidString, privacy: .public)"
+                )
+            }
             runtime.removeSession(paneId)
         }
 
@@ -238,14 +248,57 @@ extension PaneCoordinator {
 
     /// Reattach a pane's surface after a view switch.
     func reattachForViewSwitch(paneId: UUID) {
-        if let terminal = viewRegistry.terminalView(for: paneId),
-            let surfaceId = terminal.surfaceId
-        {
-            if let surfaceView = surfaceManager.attach(surfaceId, to: paneId) {
-                terminal.displaySurface(surfaceView)
-            }
+        guard let terminal = viewRegistry.terminalView(for: paneId) else {
+            Self.logger.warning(
+                "Unable to reattach pane \(paneId.uuidString, privacy: .public): terminal view not found"
+            )
+            return
         }
-        Self.logger.debug("Reattached pane \(paneId) for view switch")
+        guard let surfaceId = terminal.surfaceId else {
+            Self.logger.warning(
+                "Unable to reattach pane \(paneId.uuidString, privacy: .public): terminal view has no surface id"
+            )
+            return
+        }
+        guard let surfaceView = surfaceManager.attach(surfaceId, to: paneId) else {
+            Self.logger.warning(
+                "Unable to reattach pane \(paneId.uuidString, privacy: .public): attach returned nil for surface \(surfaceId.uuidString, privacy: .public)"
+            )
+            return
+        }
+        terminal.displaySurface(surfaceView)
+        Self.logger.debug("Reattached pane \(paneId.uuidString, privacy: .public) for view switch")
+    }
+
+    private func registerTerminalRuntimeIfNeeded(for pane: Pane) {
+        guard case .terminal = pane.content else {
+            Self.logger.debug(
+                "Skipping terminal runtime registration for non-terminal pane \(pane.id.uuidString, privacy: .public)"
+            )
+            return
+        }
+
+        guard UUIDv7.isV7(pane.id) else {
+            Self.logger.error(
+                "Skipping terminal runtime registration for non-v7 pane id \(pane.id.uuidString, privacy: .public)"
+            )
+            return
+        }
+        let runtimePaneId = PaneId(uuid: pane.id)
+        guard runtimeForPane(runtimePaneId) == nil else { return }
+
+        let terminalRuntime = TerminalRuntime(
+            paneId: runtimePaneId,
+            metadata: pane.metadata
+        )
+        terminalRuntime.transitionToReady()
+        guard terminalRuntime.lifecycle == .ready else {
+            Self.logger.warning(
+                "Terminal runtime for pane \(pane.id.uuidString, privacy: .public) failed ready transition; skipping runtime registration"
+            )
+            return
+        }
+        registerRuntime(terminalRuntime)
     }
 
     /// Restore a view from an undo close. Tries to reuse the undone surface; creates fresh if expired.
@@ -255,6 +308,18 @@ extension PaneCoordinator {
         worktree: Worktree,
         repo: Repo
     ) -> AgentStudioTerminalView? {
+        guard UUIDv7.isV7(pane.id) else {
+            Self.logger.error(
+                "Unable to restore runtime for non-v7 pane id \(pane.id.uuidString, privacy: .public)"
+            )
+            return nil
+        }
+        let runtimePaneId = PaneId(uuid: pane.id)
+        let runtimeWasAlreadyRegistered = runtimeForPane(runtimePaneId) != nil
+        if !runtimeWasAlreadyRegistered {
+            registerTerminalRuntimeIfNeeded(for: pane)
+        }
+
         if let undone = surfaceManager.undoClose() {
             if undone.metadata.paneId == pane.id {
                 let view = AgentStudioTerminalView(
@@ -278,67 +343,78 @@ extension PaneCoordinator {
         }
 
         Self.logger.info("Creating fresh view for pane \(pane.id)")
-        return createView(for: pane, worktree: worktree, repo: repo)
+        let restoredView = createView(for: pane, worktree: worktree, repo: repo)
+        if restoredView == nil, !runtimeWasAlreadyRegistered {
+            _ = unregisterRuntime(runtimePaneId)
+        }
+        return restoredView
     }
 
     /// Recreate views for all restored panes in all tabs, including drawer panes.
     /// Called once at launch after store.restore() populates persisted state.
-    func restoreAllViews() {
-        let paneIds = store.tabs.flatMap(\.panes)
+    ///
+    /// Startup is staged so the active tab is restored first, then background tabs
+    /// are hydrated cooperatively with yields to keep first-interaction latency low.
+    func restoreAllViews() async {
+        let orderedPaneIds = Self.orderedUniquePaneIds(store.tabs.flatMap(\.panes))
         RestoreTrace.log(
-            "restoreAllViews begin tabs=\(store.tabs.count) paneIds=\(paneIds.count) activeTab=\(store.activeTabId?.uuidString ?? "nil")"
+            "restoreAllViews begin tabs=\(store.tabs.count) paneIds=\(orderedPaneIds.count) activeTab=\(store.activeTabId?.uuidString ?? "nil")"
         )
-        guard !paneIds.isEmpty else {
+        guard !orderedPaneIds.isEmpty else {
             Self.logger.info("No panes to restore views for")
             RestoreTrace.log("restoreAllViews no panes")
             return
         }
 
+        let activeTabPaneIds = Self.orderedUniquePaneIds(store.activeTab?.panes ?? [])
+        let activeTabPaneIdSet = Set(activeTabPaneIds)
+        let deferredPaneIds = orderedPaneIds.filter { !activeTabPaneIdSet.contains($0) }
+
         var restored = 0
         var drawerRestored = 0
         var failedPaneIds: [UUID] = []
         var failedDrawerPaneIds: [UUID] = []
-        for paneId in paneIds {
+        var restoredPaneIds: Set<UUID> = []
+
+        func restorePaneAndDrawers(_ paneId: UUID) {
+            guard restoredPaneIds.insert(paneId).inserted else { return }
             guard let pane = store.pane(paneId) else {
                 Self.logger.warning("Skipping view restore for pane \(paneId) — not in store")
                 RestoreTrace.log("restoreAllViews skip missing pane=\(paneId)")
-                continue
+                return
             }
+
             RestoreTrace.log("restoreAllViews restoring pane=\(paneId) content=\(String(describing: pane.content))")
-            if createViewForContent(pane: pane) != nil {
+            if viewRegistry.view(for: paneId) != nil || createViewForContent(pane: pane) != nil {
                 restored += 1
             } else {
                 failedPaneIds.append(paneId)
             }
 
-            if let drawer = pane.drawer {
-                for drawerPaneId in drawer.paneIds {
-                    guard let drawerPane = store.pane(drawerPaneId) else {
-                        Self.logger.warning(
-                            "restoreAllViews: drawer pane \(drawerPaneId) referenced by parent \(pane.id) is missing from store"
-                        )
-                        continue
-                    }
-                    RestoreTrace.log("restoreAllViews restoring drawer pane=\(drawerPaneId) parent=\(pane.id)")
-                    if createViewForContent(pane: drawerPane) != nil {
-                        drawerRestored += 1
-                    } else {
-                        failedDrawerPaneIds.append(drawerPaneId)
-                    }
+            guard let drawer = pane.drawer else { return }
+            for drawerPaneId in drawer.paneIds {
+                guard restoredPaneIds.insert(drawerPaneId).inserted else { continue }
+                guard let drawerPane = store.pane(drawerPaneId) else {
+                    Self.logger.warning(
+                        "restoreAllViews: drawer pane \(drawerPaneId) referenced by parent \(pane.id) is missing from store"
+                    )
+                    continue
+                }
+                RestoreTrace.log("restoreAllViews restoring drawer pane=\(drawerPaneId) parent=\(pane.id)")
+                if viewRegistry.view(for: drawerPaneId) != nil || createViewForContent(pane: drawerPane) != nil {
+                    drawerRestored += 1
+                } else {
+                    failedDrawerPaneIds.append(drawerPaneId)
                 }
             }
         }
-        Self.logger.info(
-            "Restored \(restored)/\(paneIds.count) pane views, \(drawerRestored) drawer pane views")
-        if !failedPaneIds.isEmpty || !failedDrawerPaneIds.isEmpty {
-            let failedPrimary = failedPaneIds.map(\.uuidString).joined(separator: ", ")
-            let failedDrawer = failedDrawerPaneIds.map(\.uuidString).joined(separator: ", ")
-            Self.logger.error(
-                """
-                restoreAllViews: failed view creation primary=[\(failedPrimary)] drawer=[\(failedDrawer)] \
-                (panes remain in store/layout and may appear as placeholders)
-                """
-            )
+
+        // Stage 1: restore active tab first for fast first paint/interaction.
+        for paneId in activeTabPaneIds {
+            restorePaneAndDrawers(paneId)
+        }
+        if !activeTabPaneIds.isEmpty {
+            store.bumpViewRevision()
         }
 
         if let activeTab = store.activeTab,
@@ -350,7 +426,40 @@ extension PaneCoordinator {
                 "restoreAllViews syncFocus activeTab=\(activeTab.id) activePane=\(activePaneId) activeSurface=\(terminalView.surfaceId?.uuidString ?? "nil")"
             )
         }
+
+        // Stage 2: restore remaining tabs in cooperative chunks.
+        for (index, paneId) in deferredPaneIds.enumerated() {
+            if Task.isCancelled { break }
+            restorePaneAndDrawers(paneId)
+            if index.isMultiple(of: 2) {
+                store.bumpViewRevision()
+                await Task.yield()
+            }
+        }
+
+        if !deferredPaneIds.isEmpty {
+            store.bumpViewRevision()
+        }
+
+        Self.logger.info(
+            "Restored \(restored)/\(orderedPaneIds.count) pane views, \(drawerRestored) drawer pane views")
+        if !failedPaneIds.isEmpty || !failedDrawerPaneIds.isEmpty {
+            let failedPrimary = failedPaneIds.map(\.uuidString).joined(separator: ", ")
+            let failedDrawer = failedDrawerPaneIds.map(\.uuidString).joined(separator: ", ")
+            Self.logger.error(
+                """
+                restoreAllViews: failed view creation primary=[\(failedPrimary)] drawer=[\(failedDrawer)] \
+                (panes remain in store/layout and may appear as placeholders)
+                """
+            )
+        }
+
         RestoreTrace.log("restoreAllViews end restored=\(restored) drawerRestored=\(drawerRestored)")
+    }
+
+    private static func orderedUniquePaneIds(_ paneIds: [UUID]) -> [UUID] {
+        var seen: Set<UUID> = []
+        return paneIds.filter { seen.insert($0).inserted }
     }
 
     private func buildZmxAttachCommand(pane: Pane, worktree: Worktree, repo: Repo, zmxPath: String) -> String {

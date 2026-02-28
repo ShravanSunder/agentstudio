@@ -68,7 +68,7 @@ class AppDelegate: NSObject, NSApplicationDelegate {
     // MARK: - OAuth
 
     private var oauthService: OAuthService!
-    private var signInObserver: NSObjectProtocol?
+    private var appEventTask: Task<Void, Never>?
 
     func applicationDidFinishLaunching(_ notification: Notification) {
         RestoreTrace.log("appDidFinishLaunching: begin")
@@ -110,15 +110,10 @@ class AppDelegate: NSObject, NSApplicationDelegate {
 
         viewRegistry = ViewRegistry()
         paneCoordinator = PaneCoordinator(store: store, viewRegistry: viewRegistry, runtime: runtime)
-        executor = ActionExecutor(coordinator: paneCoordinator)
+        executor = ActionExecutor(coordinator: paneCoordinator, store: store)
         tabBarAdapter = TabBarAdapter(store: store)
         commandBarController = CommandBarPanelController(store: store, dispatcher: .shared)
         oauthService = OAuthService()
-
-        // Restore terminal views for persisted panes
-        RestoreTrace.log("restoreAllViews: start")
-        paneCoordinator.restoreAllViews()
-        RestoreTrace.log("restoreAllViews: end registeredViews=\(viewRegistry.registeredPaneIds.count)")
 
         // Create main window
         mainWindowController = MainWindowController(
@@ -144,22 +139,38 @@ class AppDelegate: NSObject, NSApplicationDelegate {
                 "mainWindow forceMaximize screenVisible=\(NSStringFromRect(screen.visibleFrame)) finalFrame=\(NSStringFromRect(window.frame))"
             )
         }
-        // Listen for OAuth sign-in requests
-        signInObserver = NotificationCenter.default.addObserver(
-            forName: .signInRequested,
-            object: nil,
-            queue: .main
-        ) { [weak self] notification in
-            guard let providerName = notification.userInfo?["provider"] as? String
-            else {
-                return
-            }
-            Task { @MainActor [weak self] in
-                guard let provider = OAuthProvider(rawValue: providerName) else { return }
-                self?.handleSignInRequested(provider: provider)
+
+        // Restore persisted pane views after the first frame so launch remains responsive.
+        Task { @MainActor [weak self] in
+            guard let self else { return }
+            await Task.yield()
+            RestoreTrace.log("restoreAllViews: start")
+            await self.paneCoordinator.restoreAllViews()
+            RestoreTrace.log("restoreAllViews: end registeredViews=\(self.viewRegistry.registeredPaneIds.count)")
+        }
+
+        appEventTask?.cancel()
+        appEventTask = Task { @MainActor [weak self] in
+            guard let self else { return }
+            let stream = await AppEventBus.shared.subscribe()
+            for await event in stream {
+                guard !Task.isCancelled else { break }
+                switch event {
+                case .showCommandBarRepos:
+                    self.showCommandBarRepos()
+                case .signInRequested(let providerName):
+                    guard let provider = OAuthProvider(rawValue: providerName) else { continue }
+                    self.handleSignInRequested(provider: provider)
+                default:
+                    continue
+                }
             }
         }
         RestoreTrace.log("appDidFinishLaunching: end")
+    }
+
+    isolated deinit {
+        appEventTask?.cancel()
     }
 
     // MARK: - Dependency Check
@@ -380,6 +391,7 @@ class AppDelegate: NSObject, NSApplicationDelegate {
         fileMenu.addItem(menuItem("Close Window", command: .closeWindow, action: #selector(closeWindow)))
         fileMenu.addItem(NSMenuItem.separator())
         fileMenu.addItem(menuItem("Add Repo...", command: .addRepo, action: #selector(addRepo)))
+        fileMenu.addItem(menuItem("Add Folder...", command: .addFolder, action: #selector(addFolder)))
 
         let fileMenuItem = NSMenuItem()
         fileMenuItem.submenu = fileMenu
@@ -487,15 +499,15 @@ class AppDelegate: NSObject, NSApplicationDelegate {
     }
 
     @objc private func newTab() {
-        NotificationCenter.default.post(name: .newTabRequested, object: nil)
+        postAppEvent(.newTabRequested)
     }
 
     @objc private func closeTab() {
-        NotificationCenter.default.post(name: .closeTabRequested, object: nil)
+        postAppEvent(.closeTabRequested)
     }
 
     @objc private func undoCloseTab() {
-        NotificationCenter.default.post(name: .undoCloseTabRequested, object: nil)
+        postAppEvent(.undoCloseTabRequested)
     }
 
     @objc private func closeWindow() {
@@ -503,7 +515,11 @@ class AppDelegate: NSObject, NSApplicationDelegate {
     }
 
     @objc private func addRepo() {
-        NotificationCenter.default.post(name: .addRepoRequested, object: nil)
+        postAppEvent(.addRepoRequested)
+    }
+
+    @objc private func addFolder() {
+        postAppEvent(.addFolderRequested)
     }
 
     @objc private func toggleSidebar() {
@@ -511,21 +527,17 @@ class AppDelegate: NSObject, NSApplicationDelegate {
     }
 
     @objc private func filterSidebar() {
-        NotificationCenter.default.post(name: .filterSidebarRequested, object: nil)
+        postAppEvent(.filterSidebarRequested)
     }
 
     @objc private func selectTab(_ sender: NSMenuItem) {
-        NotificationCenter.default.post(
-            name: .selectTabAtIndex,
-            object: nil,
-            userInfo: ["index": sender.tag]
-        )
+        postAppEvent(.selectTabAtIndex(index: sender.tag))
     }
 
     // MARK: - Webview Actions
 
     @objc private func openWebviewAction() {
-        NotificationCenter.default.post(name: .openWebviewRequested, object: nil)
+        postAppEvent(.openWebviewRequested)
     }
 
     private func handleSignInRequested(provider: OAuthProvider) {
@@ -575,5 +587,14 @@ class AppDelegate: NSObject, NSApplicationDelegate {
             return
         }
         commandBarController.show(prefix: "@", parentWindow: window)
+    }
+
+    @objc private func showCommandBarRepos() {
+        appLogger.info("showCommandBarRepos triggered")
+        guard let window = NSApp.keyWindow ?? mainWindowController?.window else {
+            appLogger.warning("No window available for command bar (repos)")
+            return
+        }
+        commandBarController.show(prefix: "#", parentWindow: window)
     }
 }

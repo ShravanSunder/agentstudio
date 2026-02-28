@@ -452,6 +452,27 @@ struct PaneCoordinatorHardeningTests {
         }
         #expect(harness.store.pane(oldestClosedPaneId) == nil)
     }
+
+    @Test("restoreView registers runtime before undo lookup and rolls back runtime when restore fails")
+    func restoreView_registersRuntimeBeforeUndoLookup() {
+        let harness = makeHarness()
+        defer { try? FileManager.default.removeItem(at: harness.tempDir) }
+
+        let (repo, worktree) = makeRepoAndWorktree(harness.store, root: harness.tempDir)
+        let pane = makeWorktreePane(harness.store, repo: repo, worktree: worktree, title: "Restore")
+        let runtimePaneId = PaneId(uuid: pane.id)
+
+        var runtimeWasRegisteredDuringUndoLookup = false
+        harness.surfaceManager.onUndoClose = {
+            runtimeWasRegisteredDuringUndoLookup = harness.coordinator.runtimeForPane(runtimePaneId) != nil
+        }
+
+        let restored = harness.coordinator.restoreView(for: pane, worktree: worktree, repo: repo)
+
+        #expect(restored == nil)
+        #expect(runtimeWasRegisteredDuringUndoLookup)
+        #expect(harness.coordinator.runtimeForPane(runtimePaneId) == nil)
+    }
 }
 
 @MainActor
@@ -460,9 +481,17 @@ private final class MockPaneCoordinatorSurfaceManager: PaneCoordinatorSurfaceMan
     private let createSurfaceResult: Result<ManagedSurface, SurfaceError>
 
     private(set) var createSurfaceCallCount = 0
+    var onUndoClose: (() -> Void)?
+    var undoCloseResult: ManagedSurface?
 
-    init(createSurfaceResult: Result<ManagedSurface, SurfaceError>) {
+    init(
+        createSurfaceResult: Result<ManagedSurface, SurfaceError>,
+        undoCloseResult: ManagedSurface? = nil,
+        onUndoClose: (() -> Void)? = nil
+    ) {
         self.createSurfaceResult = createSurfaceResult
+        self.undoCloseResult = undoCloseResult
+        self.onUndoClose = onUndoClose
         self.cwdStream = AsyncStream<SurfaceManager.SurfaceCWDChangeEvent> { continuation in
             continuation.finish()
         }
@@ -488,7 +517,8 @@ private final class MockPaneCoordinatorSurfaceManager: PaneCoordinatorSurfaceMan
     func detach(_ surfaceId: UUID, reason: SurfaceDetachReason) {}
 
     func undoClose() -> ManagedSurface? {
-        nil
+        onUndoClose?()
+        return undoCloseResult
     }
 
     func requeueUndo(_ surfaceId: UUID) {}

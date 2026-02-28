@@ -111,8 +111,8 @@ struct PaneCoordinatorTests {
         #expect(Set(afterUndo.paneIds) == Set([paneA.id, paneB.id]))
     }
 
-    @Test("closing the last pane escalates to a tab close entry")
-    func closePane_lastPane_escalatesToTabClose() {
+    @Test("close-pane on a single-pane tab canonicalizes to close-tab before coordinator execution")
+    func closePane_singlePaneTabCanonicalizesToCloseTab() {
         let harness = makeHarnessCoordinator()
         defer { try? FileManager.default.removeItem(at: harness.tempDir) }
         let store = harness.store
@@ -122,7 +122,21 @@ struct PaneCoordinatorTests {
         let tab = Tab(paneId: pane.id)
         store.appendTab(tab)
 
-        coordinator.execute(.closePane(tabId: tab.id, paneId: pane.id))
+        let snapshot = ActionResolver.snapshot(
+            from: store.tabs,
+            activeTabId: store.activeTabId,
+            isManagementModeActive: false
+        )
+        let validated = try? ActionValidator.validate(
+            .closePane(tabId: tab.id, paneId: pane.id),
+            state: snapshot
+        ).get()
+        guard let validated else {
+            Issue.record("Expected closePane to validate")
+            return
+        }
+
+        coordinator.execute(validated.action)
 
         #expect(store.tab(tab.id) == nil)
         guard let entry = coordinator.undoStack.last else {

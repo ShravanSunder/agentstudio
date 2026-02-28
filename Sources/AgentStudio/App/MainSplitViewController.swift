@@ -52,7 +52,7 @@ class MainSplitViewController: NSSplitViewController {
         sidebarItem.minimumThickness = 200
         sidebarItem.maximumThickness = 400
         sidebarItem.canCollapse = true
-        sidebarItem.collapseBehavior = .preferResizingSplitViewWithFixedSiblings
+        sidebarItem.collapseBehavior = .preferResizingSiblingsWithFixedSplitView
         addSplitViewItem(sidebarItem)
 
         // Create pane tab area (pure AppKit)
@@ -86,49 +86,28 @@ class MainSplitViewController: NSSplitViewController {
     private func setupNotificationObservers() {
         notificationTasks.append(
             Task { [weak self] in
-                for await notification in NotificationCenter.default.notifications(named: .openWorktreeRequested) {
-                    guard let self, !Task.isCancelled else { break }
-                    self.handleOpenWorktree(notification)
-                }
-            })
-
-        notificationTasks.append(
-            Task { [weak self] in
-                for await notification in NotificationCenter.default.notifications(named: .closeTabRequested) {
-                    guard let self, !Task.isCancelled else { break }
-                    self.handleCloseTab(notification)
-                }
-            })
-
-        notificationTasks.append(
-            Task { [weak self] in
-                for await notification in NotificationCenter.default.notifications(named: .selectTabAtIndex) {
-                    guard let self, !Task.isCancelled else { break }
-                    self.handleSelectTab(notification)
-                }
-            })
-
-        notificationTasks.append(
-            Task { [weak self] in
-                for await notification in NotificationCenter.default.notifications(named: .toggleSidebarRequested) {
-                    guard let self, !Task.isCancelled else { break }
-                    self.handleToggleSidebar(notification)
-                }
-            })
-
-        notificationTasks.append(
-            Task { [weak self] in
-                for await notification in NotificationCenter.default.notifications(named: .openNewTerminalRequested) {
-                    guard let self, !Task.isCancelled else { break }
-                    self.handleOpenNewTerminal(notification)
-                }
-            })
-
-        notificationTasks.append(
-            Task { [weak self] in
-                for await notification in NotificationCenter.default.notifications(named: .filterSidebarRequested) {
-                    guard let self, !Task.isCancelled else { break }
-                    self.handleFilterSidebar(notification)
+                guard let self else { return }
+                let stream = await AppEventBus.shared.subscribe()
+                for await event in stream {
+                    guard !Task.isCancelled else { break }
+                    switch event {
+                    case .openWorktreeRequested(let worktreeId):
+                        self.handleOpenWorktree(worktreeId: worktreeId)
+                    case .closeTabRequested:
+                        self.handleCloseTab()
+                    case .selectTabAtIndex(let index):
+                        self.handleSelectTab(index: index)
+                    case .toggleSidebarRequested:
+                        self.handleToggleSidebar()
+                    case .openNewTerminalRequested(let worktreeId):
+                        self.handleOpenNewTerminal(worktreeId: worktreeId)
+                    case .openWorktreeInPaneRequested(let worktreeId):
+                        self.handleOpenWorktreeInPane(worktreeId: worktreeId)
+                    case .filterSidebarRequested:
+                        self.handleFilterSidebar()
+                    default:
+                        continue
+                    }
                 }
             })
 
@@ -149,7 +128,7 @@ class MainSplitViewController: NSSplitViewController {
         }
     }
 
-    private func handleToggleSidebar(_ notification: Notification) {
+    private func handleToggleSidebar() {
         toggleSidebar(nil)
         // Yield to the next MainActor turn so the sidebar item's collapsed state is updated.
         Task { @MainActor [weak self] in
@@ -157,46 +136,46 @@ class MainSplitViewController: NSSplitViewController {
         }
     }
 
-    private func handleFilterSidebar(_ notification: Notification) {
+    private func handleFilterSidebar() {
         guard isSidebarCollapsed else { return }
         expandSidebar()
     }
 
-    private func handleOpenWorktree(_ notification: Notification) {
-        guard let userInfo = notification.userInfo,
-            let worktree = userInfo["worktree"] as? Worktree,
-            let repo = userInfo["repo"] as? Repo
+    private func handleOpenWorktree(worktreeId: UUID) {
+        guard let worktree = store.worktree(worktreeId),
+            let repo = store.repo(containing: worktreeId)
         else {
-            sidebarLogger.error("Invalid openWorktreeRequested notification payload")
+            sidebarLogger.error("Invalid openWorktreeRequested payload for worktree \(worktreeId.uuidString)")
             return
         }
-
         paneTabViewController?.openTerminal(for: worktree, in: repo)
     }
 
-    private func handleOpenNewTerminal(_ notification: Notification) {
-        guard let userInfo = notification.userInfo,
-            let worktree = userInfo["worktree"] as? Worktree,
-            let repo = userInfo["repo"] as? Repo
+    private func handleOpenNewTerminal(worktreeId: UUID) {
+        guard let worktree = store.worktree(worktreeId),
+            let repo = store.repo(containing: worktreeId)
         else {
-            sidebarLogger.error("Invalid openNewTerminalRequested notification payload")
+            sidebarLogger.error("Invalid openNewTerminalRequested payload for worktree \(worktreeId.uuidString)")
             return
         }
-
         paneTabViewController?.openNewTerminal(for: worktree, in: repo)
     }
 
-    private func handleCloseTab(_ notification: Notification) {
+    private func handleOpenWorktreeInPane(worktreeId: UUID) {
+        guard let worktree = store.worktree(worktreeId),
+            let repo = store.repo(containing: worktreeId)
+        else {
+            sidebarLogger.error("Invalid openWorktreeInPaneRequested payload for worktree \(worktreeId.uuidString)")
+            return
+        }
+        paneTabViewController?.openWorktreeInPane(for: worktree, in: repo)
+    }
+
+    private func handleCloseTab() {
         paneTabViewController?.closeActiveTab()
     }
 
-    private func handleSelectTab(_ notification: Notification) {
-        guard let userInfo = notification.userInfo,
-            let index = userInfo["index"] as? Int
-        else {
-            return
-        }
-
+    private func handleSelectTab(index: Int) {
         paneTabViewController?.selectTab(at: index)
     }
 
@@ -247,7 +226,7 @@ struct SidebarViewWrapper: View {
     let store: WorkspaceStore
 
     var body: some View {
-        SidebarContentView(store: store)
+        RepoSidebarContentView(store: store)
     }
 }
 
@@ -288,12 +267,12 @@ struct SidebarContentView: View {
             if isFilterVisible {
                 HStack(spacing: 6) {
                     Image(systemName: "magnifyingglass")
-                        .font(.system(size: 11))
+                        .font(.system(size: AppStyle.textXs))
                         .foregroundStyle(.tertiary)
 
                     TextField("Filter...", text: $filterText)
                         .textFieldStyle(.plain)
-                        .font(.system(size: 12))
+                        .font(.system(size: AppStyle.textSm))
                         .foregroundStyle(.primary)
                         .focused($isFilterFocused)
                         .onExitCommand {
@@ -310,7 +289,7 @@ struct SidebarContentView: View {
                             filterText = ""
                         } label: {
                             Image(systemName: "xmark.circle.fill")
-                                .font(.system(size: 12))
+                                .font(.system(size: AppStyle.textSm))
                                 .foregroundStyle(.secondary)
                         }
                         .buttonStyle(.plain)
@@ -337,12 +316,12 @@ struct SidebarContentView: View {
             if isFiltering && filteredRepos.isEmpty {
                 VStack(spacing: 8) {
                     Image(systemName: "magnifyingglass")
-                        .font(.system(size: 24))
+                        .font(.system(size: AppStyle.text2xl))
                         .foregroundStyle(.secondary)
                         .opacity(0.5)
 
                     Text("No results")
-                        .font(.system(size: 12, weight: .medium))
+                        .font(.system(size: AppStyle.textSm, weight: .medium))
                         .foregroundStyle(.secondary)
                 }
                 .frame(maxWidth: .infinity, maxHeight: .infinity)
@@ -373,12 +352,25 @@ struct SidebarContentView: View {
                                     },
                                     onOpenNew: {
                                         openNewTerminal(worktree, in: repo)
+                                    },
+                                    onOpenInPane: {
+                                        openWorktreeInPane(worktree, in: repo)
                                     }
                                 )
                                 .listRowInsets(EdgeInsets(top: 0, leading: 2, bottom: 0, trailing: 0))
                             }
                         } label: {
-                            RepoRowView(repo: repo)
+                            RepoRowView(
+                                repo: repo,
+                                onRefresh: {
+                                    let worktrees = WorktrunkService.shared.discoverWorktrees(
+                                        for: repo.repoPath)
+                                    store.updateRepoWorktrees(repo.id, worktrees: worktrees)
+                                },
+                                onRemove: {
+                                    store.removeRepo(repo.id)
+                                }
+                            )
                         }
                         .listRowInsets(EdgeInsets(top: 0, leading: 2, bottom: 0, trailing: 0))
                     }
@@ -392,24 +384,30 @@ struct SidebarContentView: View {
         .background(Color(nsColor: .windowBackgroundColor))
         // Subtle shadow on right edge only
         .shadow(color: .black.opacity(0.2), radius: 4, x: 2, y: 0)
-        .onReceive(NotificationCenter.default.publisher(for: .addRepoRequested)) { _ in
-            addRepo()
-        }
-        .onReceive(NotificationCenter.default.publisher(for: .refreshWorktreesRequested)) { _ in
-            refreshWorktrees()
-        }
-        .onReceive(NotificationCenter.default.publisher(for: .filterSidebarRequested)) { _ in
-            withAnimation(.easeOut(duration: 0.15)) {
-                if isFilterVisible {
-                    hideFilter()
-                } else {
-                    isFilterVisible = true
+        .task {
+            let stream = await AppEventBus.shared.subscribe()
+            for await event in stream {
+                switch event {
+                case .addRepoRequested:
+                    addRepo()
+                case .refreshWorktreesRequested:
+                    refreshWorktrees()
+                case .filterSidebarRequested:
+                    withAnimation(.easeOut(duration: 0.15)) {
+                        if isFilterVisible {
+                            hideFilter()
+                        } else {
+                            isFilterVisible = true
+                        }
+                    }
+                    // Focus after animation starts
+                    Task { @MainActor in
+                        try? await Task.sleep(for: .milliseconds(50))
+                        isFilterFocused = true
+                    }
+                default:
+                    continue
                 }
-            }
-            // Focus after animation starts
-            Task { @MainActor in
-                try? await Task.sleep(for: .milliseconds(50))
-                isFilterFocused = true
             }
         }
         .onDisappear {
@@ -446,27 +444,23 @@ struct SidebarContentView: View {
             isFilterVisible = false
         }
         // Return focus to the active terminal
-        NotificationCenter.default.post(name: .refocusTerminalRequested, object: nil)
+        postAppEvent(.refocusTerminalRequested)
     }
 
     private func toggleSidebar() {
-        NotificationCenter.default.post(name: .toggleSidebarRequested, object: nil)
+        postAppEvent(.toggleSidebarRequested)
     }
 
-    private func openWorktree(_ worktree: Worktree, in repo: Repo) {
-        NotificationCenter.default.post(
-            name: .openWorktreeRequested,
-            object: nil,
-            userInfo: ["worktree": worktree, "repo": repo]
-        )
+    private func openWorktree(_ worktree: Worktree, in _: Repo) {
+        postAppEvent(.openWorktreeRequested(worktreeId: worktree.id))
     }
 
-    private func openNewTerminal(_ worktree: Worktree, in repo: Repo) {
-        NotificationCenter.default.post(
-            name: .openNewTerminalRequested,
-            object: nil,
-            userInfo: ["worktree": worktree, "repo": repo]
-        )
+    private func openNewTerminal(_ worktree: Worktree, in _: Repo) {
+        postAppEvent(.openNewTerminalRequested(worktreeId: worktree.id))
+    }
+
+    private func openWorktreeInPane(_ worktree: Worktree, in _: Repo) {
+        postAppEvent(.openWorktreeInPaneRequested(worktreeId: worktree.id))
     }
 
     private func addRepo() {
@@ -474,14 +468,30 @@ struct SidebarContentView: View {
         panel.canChooseFiles = false
         panel.canChooseDirectories = true
         panel.allowsMultipleSelection = false
-        panel.message = "Select a git repository"
-        panel.prompt = "Add Repo"
+        panel.message = "Select a folder containing git repositories"
+        panel.prompt = "Add Repos"
 
         if panel.runModal() == .OK, let url = panel.url {
-            let repo = store.addRepo(at: url)
-            // Immediately discover worktrees so the sidebar isn't empty
-            let worktrees = WorktrunkService.shared.discoverWorktrees(for: repo.repoPath)
-            store.updateRepoWorktrees(repo.id, worktrees: worktrees)
+            let scanner = RepoScanner()
+            let repoPaths = scanner.scanForGitRepos(in: url, maxDepth: 3)
+
+            if repoPaths.isEmpty {
+                // Fallback: treat the selected folder itself as a repo
+                let repo = store.addRepo(at: url)
+                let worktrees = WorktrunkService.shared.discoverWorktrees(for: repo.repoPath)
+                store.updateRepoWorktrees(repo.id, worktrees: worktrees)
+            } else {
+                for repoPath in repoPaths {
+                    // Skip if repo already exists (by path)
+                    guard !store.repos.contains(where: { $0.repoPath == repoPath }) else {
+                        continue
+                    }
+                    let repo = store.addRepo(at: repoPath)
+                    let worktrees = WorktrunkService.shared.discoverWorktrees(
+                        for: repo.repoPath)
+                    store.updateRepoWorktrees(repo.id, worktrees: worktrees)
+                }
+            }
         }
     }
 
@@ -498,29 +508,66 @@ struct SidebarContentView: View {
 
 struct RepoRowView: View {
     let repo: Repo
+    let onRefresh: () -> Void
+    let onRemove: () -> Void
+    @State private var isHovered: Bool = false
 
     var body: some View {
-        HStack(spacing: 8) {
+        HStack(spacing: AppStyle.spacingStandard) {
             Image(systemName: "folder.fill")
-                .font(.system(size: 14))
+                .font(.system(size: AppStyle.textLg))
                 .foregroundStyle(.orange)
 
             Text(repo.name)
-                .font(.system(size: 13, weight: .medium))
+                .font(.system(size: AppStyle.textLg, weight: .medium))
                 .lineLimit(1)
 
             Spacer()
 
-            // Worktree count badge
-            Text("\(repo.worktrees.count)")
-                .font(.system(size: 10, weight: .medium))
-                .foregroundStyle(.secondary)
-                .padding(.horizontal, 6)
-                .padding(.vertical, 2)
-                .background(Color.secondary.opacity(0.15))
-                .clipShape(Capsule())
+            if isHovered {
+                HStack(spacing: 2) {
+                    Menu {
+                        Button("Refresh Worktrees") { onRefresh() }
+                        Divider()
+                        Button {
+                            NSWorkspace.shared.selectFile(
+                                nil, inFileViewerRootedAtPath: repo.repoPath.path)
+                        } label: {
+                            Label("Reveal in Finder", systemImage: "folder")
+                        }
+                        Button {
+                            NSPasteboard.general.clearContents()
+                            NSPasteboard.general.setString(repo.repoPath.path, forType: .string)
+                        } label: {
+                            Label("Copy Path", systemImage: "doc.on.clipboard")
+                        }
+                        Divider()
+                        Button("Remove Repo", role: .destructive) { onRemove() }
+                    } label: {
+                        Image(systemName: "ellipsis")
+                            .font(.system(size: AppStyle.textSm))
+                            .foregroundStyle(.secondary)
+                            .frame(width: 20, height: 20)
+                    }
+                    .menuStyle(.borderlessButton)
+                    .menuIndicator(.hidden)
+                    .fixedSize()
+                }
+                .transition(.opacity)
+            } else {
+                // Worktree count badge
+                Text("\(repo.worktrees.count)")
+                    .font(.system(size: AppStyle.textSm, weight: .medium))
+                    .foregroundStyle(.secondary)
+                    .padding(.horizontal, 6)
+                    .padding(.vertical, 2)
+                    .background(Color.secondary.opacity(0.15))
+                    .clipShape(Capsule())
+            }
         }
         .padding(.vertical, 2)
+        .contentShape(Rectangle())
+        .onHover { isHovered = $0 }
     }
 }
 
@@ -530,29 +577,33 @@ struct WorktreeRowView: View {
     let worktree: Worktree
     let onOpen: () -> Void
     let onOpenNew: () -> Void
+    let onOpenInPane: () -> Void
     @State private var isHovering = false
 
     var body: some View {
-        HStack(spacing: 6) {
-            // Branch icon
-            Image(systemName: "arrow.triangle.branch")
-                .font(.system(size: 11))
-                .foregroundStyle(.secondary)
+        HStack(spacing: AppStyle.spacingStandard) {
+            // Main worktree gets star, others get branch icon
+            if worktree.isMainWorktree {
+                Image(systemName: "star.fill")
+                    .font(.system(size: AppStyle.textXs))
+                    .foregroundStyle(.yellow)
+            } else {
+                Image(systemName: "arrow.triangle.branch")
+                    .font(.system(size: AppStyle.textXs))
+                    .foregroundStyle(.secondary)
+            }
 
-            // Worktree name
             Text(worktree.name)
-                .font(.system(size: 12))
+                .font(.system(size: AppStyle.textBase))
                 .lineLimit(1)
                 .foregroundStyle(.primary)
 
             Spacer()
 
-            // Status badge
             if worktree.status != .idle {
                 StatusBadgeView(status: worktree.status)
             }
 
-            // Agent badge
             if let agent = worktree.agent {
                 AgentBadgeView(agent: agent)
             }
@@ -560,13 +611,11 @@ struct WorktreeRowView: View {
         .padding(.vertical, 3)
         .padding(.horizontal, 4)
         .background(
-            RoundedRectangle(cornerRadius: 6)
+            RoundedRectangle(cornerRadius: AppStyle.barCornerRadius)
                 .fill(isHovering ? Color.accentColor.opacity(0.1) : Color.clear)
         )
         .contentShape(Rectangle())
-        .onHover { hovering in
-            isHovering = hovering
-        }
+        .onHover { isHovering = $0 }
         .onTapGesture(count: 2) {
             onOpen()
         }
@@ -574,8 +623,16 @@ struct WorktreeRowView: View {
             Button {
                 onOpenNew()
             } label: {
-                Label("Open New Terminal in Tab", systemImage: "terminal.fill")
+                Label("Open in New Tab", systemImage: "plus.rectangle")
             }
+
+            Button {
+                onOpenInPane()
+            } label: {
+                Label("Open in Pane (Split)", systemImage: "rectangle.split.2x1")
+            }
+
+            Divider()
 
             Button {
                 onOpen()
@@ -592,7 +649,8 @@ struct WorktreeRowView: View {
             Divider()
 
             Button {
-                NSWorkspace.shared.selectFile(nil, inFileViewerRootedAtPath: worktree.path.path)
+                NSWorkspace.shared.selectFile(
+                    nil, inFileViewerRootedAtPath: worktree.path.path)
             } label: {
                 Label("Reveal in Finder", systemImage: "folder")
             }
@@ -608,7 +666,8 @@ struct WorktreeRowView: View {
     private func openInCursor() {
         let cursorURL = URL(fileURLWithPath: "/Applications/Cursor.app")
         let config = NSWorkspace.OpenConfiguration()
-        NSWorkspace.shared.open([worktree.path], withApplicationAt: cursorURL, configuration: config)
+        NSWorkspace.shared.open(
+            [worktree.path], withApplicationAt: cursorURL, configuration: config)
     }
 
     private func copyPath() {
@@ -629,7 +688,7 @@ struct StatusBadgeView: View {
                     .controlSize(.mini)
             }
             Text(status.displayName)
-                .font(.system(size: 9, weight: .medium))
+                .font(.system(size: AppStyle.textXs, weight: .medium))
         }
         .padding(.horizontal, 5)
         .padding(.vertical, 2)
@@ -646,7 +705,7 @@ struct AgentBadgeView: View {
 
     var body: some View {
         Text(agent.shortName)
-            .font(.system(size: 9, weight: .medium))
+            .font(.system(size: AppStyle.textXs, weight: .medium))
             .padding(.horizontal, 4)
             .padding(.vertical, 2)
             .background(agent.color.opacity(0.2))

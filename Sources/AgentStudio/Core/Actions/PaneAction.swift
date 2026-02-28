@@ -89,6 +89,16 @@ enum PaneAction: Equatable, Hashable {
     /// Rename an arrangement.
     case renameArrangement(tabId: UUID, arrangementId: UUID, name: String)
 
+    // Duplicate operations
+    /// Duplicate a pane by splitting and creating a new session with the same source.
+    /// Uses PaneId (not UUID) for pane identity — first case to use the pane runtime contract.
+    case duplicatePane(tabId: UUID, paneId: PaneId, direction: SplitNewDirection)
+
+    // Worktree actions (routed through command pipeline for validation)
+    case openWorktree(worktreeId: UUID)
+    case openNewTerminalInTab(worktreeId: UUID)
+    case openWorktreeInPane(worktreeId: UUID)
+
     // Minimize / Expand
     case minimizePane(tabId: UUID, paneId: UUID)
     case expandPane(tabId: UUID, paneId: UUID)
@@ -124,6 +134,8 @@ enum PaneAction: Equatable, Hashable {
     case expandDrawerPane(parentPaneId: UUID, drawerPaneId: UUID)
     /// Insert a new pane into a drawer's layout next to a target drawer pane.
     case insertDrawerPane(parentPaneId: UUID, targetDrawerPaneId: UUID, direction: SplitNewDirection)
+    /// Move an existing drawer pane within the same drawer layout.
+    case moveDrawerPane(parentPaneId: UUID, drawerPaneId: UUID, targetDrawerPaneId: UUID, direction: SplitNewDirection)
 
     // System actions — dispatched by Reconciler and undo timers, not by user input.
 

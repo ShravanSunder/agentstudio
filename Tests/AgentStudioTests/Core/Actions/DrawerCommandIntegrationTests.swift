@@ -31,7 +31,7 @@ final class DrawerCommandIntegrationTests {
             surfaceManager: surfaceManager,
             runtimeRegistry: RuntimeRegistry()
         )
-        executor = ActionExecutor(coordinator: coordinator)
+        executor = ActionExecutor(coordinator: coordinator, store: store)
     }
 
     deinit {
@@ -150,6 +150,28 @@ final class DrawerCommandIntegrationTests {
 
         // Assert
         #expect(store.pane(parentPaneId)!.drawer!.activePaneId == dp1.id)
+    }
+
+    @Test
+    func test_moveDrawerPane_reordersLayoutWithinSameParent() {
+        let (parentPaneId, _) = createParentPaneInTab()
+        let dp1 = store.addDrawerPane(to: parentPaneId)!
+        let dp2 = store.addDrawerPane(to: parentPaneId)!
+        let dp3 = store.addDrawerPane(to: parentPaneId)!
+
+        executor.execute(
+            .moveDrawerPane(
+                parentPaneId: parentPaneId,
+                drawerPaneId: dp1.id,
+                targetDrawerPaneId: dp3.id,
+                direction: .right
+            )
+        )
+
+        let drawer = store.pane(parentPaneId)!.drawer!
+        #expect(Set(drawer.layout.paneIds) == Set([dp1.id, dp2.id, dp3.id]))
+        #expect(drawer.layout.paneIds.last == dp1.id)
+        #expect(drawer.activePaneId == dp1.id)
     }
 
     // MARK: - Minimize / Expand Drawer Pane
@@ -315,15 +337,15 @@ final class DrawerCommandIntegrationTests {
 
 @MainActor
 private final class MockPaneCoordinatorSurfaceManager: PaneCoordinatorSurfaceManaging {
-    private let stream: AsyncStream<SurfaceManager.SurfaceCWDChangeEvent>
+    private let cwdStream: AsyncStream<SurfaceManager.SurfaceCWDChangeEvent>
 
     init() {
-        stream = AsyncStream<SurfaceManager.SurfaceCWDChangeEvent> { continuation in
+        self.cwdStream = AsyncStream<SurfaceManager.SurfaceCWDChangeEvent> { continuation in
             continuation.finish()
         }
     }
 
-    var surfaceCWDChanges: AsyncStream<SurfaceManager.SurfaceCWDChangeEvent> { stream }
+    var surfaceCWDChanges: AsyncStream<SurfaceManager.SurfaceCWDChangeEvent> { cwdStream }
 
     func syncFocus(activeSurfaceId: UUID?) {}
 

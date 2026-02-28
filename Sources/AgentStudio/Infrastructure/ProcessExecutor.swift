@@ -55,6 +55,25 @@ struct DefaultProcessExecutor: ProcessExecutor {
         self.timeout = timeout
     }
 
+    private static let defaultSystemPath = "/usr/bin:/bin:/usr/sbin:/sbin"
+    private static let toolchainPathPrefix = "/opt/homebrew/bin:/usr/local/bin"
+
+    private static func normalizedEnvironment(from environment: [String: String]) -> [String: String] {
+        var env = environment
+
+        let inheritedPath = env["PATH"]?.trimmingCharacters(in: .whitespacesAndNewlines)
+        let basePath =
+            (inheritedPath?.isEmpty == false) ? inheritedPath! : Self.defaultSystemPath
+        env["PATH"] = "\(Self.toolchainPathPrefix):\(basePath)"
+
+        let inheritedHome = env["HOME"]?.trimmingCharacters(in: .whitespacesAndNewlines)
+        if inheritedHome?.isEmpty != false {
+            env["HOME"] = FileManager.default.homeDirectoryForCurrentUser.path
+        }
+
+        return env
+    }
+
     func execute(
         command: String,
         args: [String],
@@ -70,14 +89,12 @@ struct DefaultProcessExecutor: ProcessExecutor {
         }
 
         // Merge provided environment with inherited, ensuring brew paths
+        // and HOME are available for CLI tools (gh auth config lookup).
         var env = ProcessInfo.processInfo.environment
         if let override = environment {
             env.merge(override) { _, new in new }
         }
-        if let path = env["PATH"] {
-            env["PATH"] = "/opt/homebrew/bin:/usr/local/bin:\(path)"
-        }
-        process.environment = env
+        process.environment = Self.normalizedEnvironment(from: env)
 
         let stdoutPipe = Pipe()
         let stderrPipe = Pipe()

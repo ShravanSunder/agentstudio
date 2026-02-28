@@ -28,7 +28,7 @@ struct ActionExecutorTestsQuick {
             viewRegistry: viewRegistry,
             runtime: runtime
         )
-        let executor = ActionExecutor(coordinator: coordinator)
+        let executor = ActionExecutor(coordinator: coordinator, store: store)
         return ActionExecutorHarness(
             store: store,
             viewRegistry: viewRegistry,

@@ -511,7 +511,7 @@ Each slice is a capture closure that reads specific properties from an `@Observa
 
 Revisions must be **monotonic per store across all slices in the pane** (§5.7 invariant). A single `RevisionClock` is owned by `BridgePaneController` and shared across all `PushPlan` instances for that pane.
 
-> **Concurrency safety**: `RevisionClock` is `@MainActor`-isolated. All callers (`PushPlan.observe()`) must call `clock.next(for:)` on the main actor **before** detaching any encoding work (e.g., `.cold` payloads use `Task.detached` for JSON encoding). The revision value is captured as a `let` before the detached block, so no race is possible. This is a high-risk area for future refactoring — moving `next(for:)` into a detached context would break the monotonicity invariant.
+> **Concurrency safety**: `RevisionClock` is `@MainActor`-isolated. All callers (`PushPlan.observe()`) must call `clock.next(for:)` on the main actor **before** offloading any encoding work. `.cold` payloads use `@concurrent` static functions (Swift 6.2, SE-0461) for JSON encoding off the main actor. The revision value is captured as a `let` before the `@concurrent` call, so no race is possible. This is a high-risk area for future refactoring — moving `next(for:)` into a `@concurrent` context would break the monotonicity invariant.
 
 ```swift
 /// Monotonic revision counter per store. Shared across all push plans
@@ -690,10 +690,9 @@ struct Slice<State: Observable & AnyObject, Snapshot: Encodable & Equatable> {
                         let data: Data
                         if level == .cold {
                             // .cold payloads may be large — encode off main actor
+                            // Swift 6.2: use @concurrent static func instead of Task.detached
                             do {
-                                data = try await Task.detached(priority: .utility) {
-                                    try encoder.encode(snapshot)
-                                }.value
+                                data = try await Self.encodeColdPayload(snapshot)
                             } catch {
                                 logger.error("[PushEngine] encode failed slice=\(name) store=\(store): \(error)")
                                 continue
@@ -715,6 +714,17 @@ struct Slice<State: Observable & AnyObject, Snapshot: Encodable & Equatable> {
                 }
             }
         }
+    }
+
+    /// Encode .cold payloads off MainActor via @concurrent (Swift 6.2, SE-0461).
+    /// Creates its own encoder — JSONEncoder is not Sendable across actor boundaries.
+    @concurrent
+    private static func encodeColdPayload<T: Encodable>(
+        _ snapshot: T
+    ) async throws -> Data {
+        let coldEncoder = JSONEncoder()
+        coldEncoder.outputFormatting = .sortedKeys
+        return try coldEncoder.encode(snapshot)
     }
 }
 ```
@@ -1039,7 +1049,7 @@ The push pipeline involves three CPU-bound steps per push: (1) Swift `JSONEncode
 | **Metadata-only pushes** (§10.1) | Diff loaded | Push keyed file metadata payload, NOT file contents |
 | **Content pull on demand** (§10.2) | File enters viewport | React fetches via `agentstudio://resource/file/{id}` — no state stream overhead |
 | **Debounced observation** (§6.2) | Rapid mutations | Coalesce multiple changes into one push (per-level cadence) |
-| **Off-main encoding** (§6.5) | `.cold` payloads | `Task.detached(priority: .utility)` keeps main actor responsive |
+| **Off-main encoding** (§6.5) | `.cold` payloads | `@concurrent` static func (Swift 6.2, SE-0461) keeps main actor responsive |
 | **Equatable skip** (§6.9) | No-op mutations | Snapshot comparison prevents push when value unchanged |
 | **Per-entity diff** (§6.6) | Keyed collections | Only changed entities in delta payload, not full collection |
 | **Batched agent events** (§4.4) | Agent activity | 30-50ms batching cadence, append-only |
@@ -2510,7 +2520,7 @@ With optional hardening tail: `LUNA-337` -> `LUNA-346`.
 - Bridge receiver listens for `__bridge_push` and `__bridge_agent` CustomEvents relayed from `__bridgeInternal`, routes to correct Zustand store
 - Push envelope carries `__revision` (per store, monotonic via shared `RevisionClock`) and `__epoch` (from `EpochProvider`) — React drops stale pushes
 - `.hot` slices push immediately; `.warm`/`.cold` use debounce from `PushLevel.debounce` (§6.2)
-- `.cold` payloads encode off-main-actor via `Task.detached(priority: .utility)` (§6.5)
+- `.cold` payloads encode off-main-actor via `@concurrent` static func (§6.5, Swift 6.2 SE-0461)
 - Error handling: push failures log `store/level/revision/epoch/pushId` per §13.1
 - Content world ↔ page world relay via CustomEvents
 
@@ -2684,7 +2694,7 @@ Each phase requires explicit acceptance criteria before proceeding to the next. 
 - [ ] `RevisionClock` produces monotonic revisions per store across all plans in a pane
 - [ ] `EpochProvider` reads real epoch from domain state (not hardcoded 0)
 - [ ] `.hot` slice: mutate `@Observable` property → Zustand store updated within 1 frame (< 16ms)
-- [ ] `.cold` slice: payload encodes off-main-actor via `Task.detached` (verify main actor not blocked)
+- [ ] `.cold` slice: payload encodes off-main-actor via `@concurrent` static func (verify main actor not blocked)
 - [ ] 10 rapid synchronous mutations coalesce into ≤ 2 pushes per slice (verify with push counter)
 - [ ] `EntitySlice`: single entity change → delta contains only that entity (not full collection)
 - [ ] `EntityDelta` wire format uses String keys (UUID normalized, not raw)

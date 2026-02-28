@@ -415,10 +415,9 @@ final class WorkspaceStoreTests {
         store.appendTab(tab)
 
         // Act
-        let tabEmpty = store.removePaneFromLayout(s1.id, inTab: tab.id)
+        store.removePaneFromLayout(s1.id, inTab: tab.id)
 
         // Assert
-        #expect(!(tabEmpty))
         let updatedTab = store.tabs[0]
         #expect(!(updatedTab.isSplit))
         #expect(updatedTab.paneIds == [s2.id])
@@ -427,17 +426,17 @@ final class WorkspaceStoreTests {
 
     @Test
 
-    func test_removePaneFromLayout_lastPane_returnsTrue() {
+    func test_removePaneFromLayout_lastPane_removesTab() {
         // Arrange
         let s1 = store.createPane(source: .floating(workingDirectory: nil, title: nil))
         let tab = Tab(paneId: s1.id)
         store.appendTab(tab)
 
-        // Act — removePaneFromLayout returns true when tab is now empty
-        let tabEmpty = store.removePaneFromLayout(s1.id, inTab: tab.id)
+        // Act
+        store.removePaneFromLayout(s1.id, inTab: tab.id)
 
-        // Assert — returns true, but tab is NOT auto-removed (caller handles that)
-        #expect(tabEmpty)
+        // Assert
+        #expect(store.tab(tab.id) == nil)
     }
 
     @Test
@@ -950,6 +949,27 @@ final class WorkspaceStoreTests {
         let updated = store.repos.first(where: { $0.id == repo.id })!
         #expect(updated.worktrees.count == 1)
         #expect(updated.worktrees[0].id == storedWt1Id)
+    }
+
+    @Test
+
+    func test_updateRepoWorktrees_noopWhenMergedResultUnchanged() {
+        // Arrange
+        let repo = store.addRepo(at: URL(fileURLWithPath: "/tmp/wt-test-repo4"))
+        let wt1 = makeWorktree(name: "main", path: "/tmp/wt-test-repo4/main", branch: "main")
+        let wt2 = makeWorktree(name: "feat", path: "/tmp/wt-test-repo4/feat", branch: "feat")
+        store.updateRepoWorktrees(repo.id, worktrees: [wt1, wt2])
+        let before = store.repos.first(where: { $0.id == repo.id })!
+
+        // Act — same effective data, but fresh worktree instances
+        let sameWt1 = makeWorktree(name: "main", path: "/tmp/wt-test-repo4/main", branch: "main")
+        let sameWt2 = makeWorktree(name: "feat", path: "/tmp/wt-test-repo4/feat", branch: "feat")
+        store.updateRepoWorktrees(repo.id, worktrees: [sameWt1, sameWt2])
+        let after = store.repos.first(where: { $0.id == repo.id })!
+
+        // Assert — IDs/worktrees unchanged and updatedAt not churned
+        #expect(after.worktrees == before.worktrees)
+        #expect(after.updatedAt == before.updatedAt)
     }
 
     // MARK: - Restore Validation

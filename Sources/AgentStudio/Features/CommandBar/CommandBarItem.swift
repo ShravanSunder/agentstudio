@@ -8,6 +8,7 @@ enum CommandBarScope {
     case everything  // no prefix — shows recents, tabs, panes, commands, worktrees
     case commands  // ">" prefix — shows only commands grouped by category
     case panes  // "@" prefix — shows only panes grouped by tab
+    case repos  // "#" prefix — shows repos and worktrees for opening
 }
 
 // MARK: - CommandBarAction

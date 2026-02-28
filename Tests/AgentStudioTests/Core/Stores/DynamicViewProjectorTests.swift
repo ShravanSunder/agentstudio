@@ -30,7 +30,9 @@ final class DynamicViewProjectorTests {
             metadata: PaneMetadata(
                 source: .worktree(worktreeId: wtA1.id, repoId: repoA.id),
                 title: "agent-studio main",
-                cwd: URL(fileURLWithPath: "/Users/dev/projects/agent-studio/main"),
+                facets: PaneContextFacets(
+                    cwd: URL(fileURLWithPath: "/Users/dev/projects/agent-studio/main")
+                ),
                 agentType: .claude
             )
         )
@@ -39,7 +41,9 @@ final class DynamicViewProjectorTests {
             metadata: PaneMetadata(
                 source: .worktree(worktreeId: wtA2.id, repoId: repoA.id),
                 title: "agent-studio feature-x",
-                cwd: URL(fileURLWithPath: "/Users/dev/projects/agent-studio/feature-x"),
+                facets: PaneContextFacets(
+                    cwd: URL(fileURLWithPath: "/Users/dev/projects/agent-studio/feature-x")
+                ),
                 agentType: .codex
             )
         )
@@ -48,7 +52,9 @@ final class DynamicViewProjectorTests {
             metadata: PaneMetadata(
                 source: .worktree(worktreeId: wtB1.id, repoId: repoB.id),
                 title: "askluna main",
-                cwd: URL(fileURLWithPath: "/Users/dev/projects/askluna/main"),
+                facets: PaneContextFacets(
+                    cwd: URL(fileURLWithPath: "/Users/dev/projects/askluna/main")
+                ),
                 agentType: .claude
             )
         )

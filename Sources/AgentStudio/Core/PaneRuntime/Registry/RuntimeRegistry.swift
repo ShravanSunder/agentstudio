@@ -5,9 +5,11 @@ private let runtimeRegistryLogger = Logger(subsystem: "com.agentstudio", categor
 
 @MainActor
 final class RuntimeRegistry {
+    static let shared = RuntimeRegistry()
+
     enum RegistrationResult: Equatable {
         case inserted
-        case replaced
+        case duplicateRejected
     }
 
     private var runtimes: [PaneId: any PaneRuntime] = [:]
@@ -15,13 +17,11 @@ final class RuntimeRegistry {
 
     @discardableResult
     func register(_ runtime: any PaneRuntime) -> RegistrationResult {
-        if let existing = runtimes[runtime.paneId] {
+        if runtimes[runtime.paneId] != nil {
             runtimeRegistryLogger.error(
-                "Duplicate registration for pane \(runtime.paneId, privacy: .public); replacing existing runtime")
-            removeFromKindIndex(paneId: runtime.paneId, contentType: existing.metadata.contentType)
-            runtimes[runtime.paneId] = runtime
-            kindIndex[runtime.metadata.contentType, default: []].insert(runtime.paneId)
-            return .replaced
+                "Duplicate registration rejected for pane \(runtime.paneId, privacy: .public); existing runtime preserved"
+            )
+            return .duplicateRejected
         }
 
         runtimes[runtime.paneId] = runtime
@@ -48,6 +48,17 @@ final class RuntimeRegistry {
 
     var readyRuntimes: [any PaneRuntime] {
         runtimes.values.filter { $0.lifecycle == .ready }
+    }
+
+    /// Find a pane whose metadata source has the given worktreeId.
+    /// Returns the first matching PaneId, or nil.
+    func findPaneWithWorktree(worktreeId: UUID) -> PaneId? {
+        for (paneId, runtime) in runtimes {
+            if runtime.metadata.source.worktreeId == worktreeId {
+                return paneId
+            }
+        }
+        return nil
     }
 
     func shutdownAll(timeout: Duration) async -> [PaneId: [UUID]] {

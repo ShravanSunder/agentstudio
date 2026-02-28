@@ -69,9 +69,9 @@ final class TabBarAdapter {
     static let tabBarPadding: CGFloat = 16
     static let hysteresisBuffer: CGFloat = 50
 
-    // MARK: - Edit Mode
+    // MARK: - Management Mode
 
-    private(set) var isEditModeActive: Bool = false
+    private(set) var isManagementModeActive: Bool = false
 
     // MARK: - Transient UI State
 
@@ -97,7 +97,7 @@ final class TabBarAdapter {
         // withObservationTracking fires once per registration, so we re-register
         // after each change. Task { @MainActor } satisfies @Sendable and ensures
         // we read new values (onChange has willSet semantics — old values only).
-        isEditModeActive = ManagementModeMonitor.shared.isActive
+        isManagementModeActive = ManagementModeMonitor.shared.isActive
         observeStore()
         observeManagementMode()
 
@@ -136,7 +136,7 @@ final class TabBarAdapter {
             Task { @MainActor [weak self] in
                 guard let self else { return }
                 self.isObservingManagementMode = false
-                self.isEditModeActive = ManagementModeMonitor.shared.isActive
+                self.isManagementModeActive = ManagementModeMonitor.shared.isActive
                 self.observeManagementMode()
             }
         }
@@ -146,9 +146,7 @@ final class TabBarAdapter {
         let storeTabs = store.tabs
 
         tabs = storeTabs.map { tab in
-            let paneTitles = tab.paneIds.compactMap { paneId in
-                store.pane(paneId)?.title
-            }
+            let paneTitles = tab.paneIds.map { paneDisplayTitle(for: $0) }
             let displayTitle =
                 paneTitles.count > 1
                 ? paneTitles.joined(separator: " | ")
@@ -160,7 +158,7 @@ final class TabBarAdapter {
             let paneInfos: [TabBarPaneInfo] = tab.paneIds.map { paneId in
                 TabBarPaneInfo(
                     id: paneId,
-                    title: store.pane(paneId)?.title ?? "Terminal",
+                    title: paneDisplayTitle(for: paneId),
                     isMinimized: tab.minimizedPaneIds.contains(paneId)
                 )
             }
@@ -195,6 +193,23 @@ final class TabBarAdapter {
             activeTabId = tabs.last?.id
         }
         updateOverflow()
+    }
+
+    private func paneDisplayTitle(for paneId: UUID) -> String {
+        guard let pane = store.pane(paneId) else { return "Terminal" }
+        let rawTitle = pane.title.trimmingCharacters(in: .whitespacesAndNewlines)
+        let isGenericTitle =
+            rawTitle.isEmpty || rawTitle.localizedCaseInsensitiveCompare("Terminal") == .orderedSame
+            || rawTitle.localizedCaseInsensitiveCompare("Drawer") == .orderedSame
+
+        if isGenericTitle,
+            let cwdName = pane.metadata.cwd?.lastPathComponent,
+            !cwdName.isEmpty
+        {
+            return cwdName
+        }
+
+        return rawTitle.isEmpty ? "Terminal" : rawTitle
     }
 
     private func updateOverflow() {

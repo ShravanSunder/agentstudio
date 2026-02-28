@@ -23,29 +23,62 @@ enum DropZone: String, Equatable, CaseIterable {
     }
 
     /// Creates the overlay shape for visual feedback.
-    /// Shows the full half of the pane where the new split will appear.
+    /// Uses an edge insertion marker so the target reads as "between panes"
+    /// instead of replacing the destination pane.
     @ViewBuilder
     func overlay(in geometry: GeometryProxy) -> some View {
-        let overlayColor = Color.accentColor.opacity(0.3)
-        let inset: CGFloat = 4
+        let paneFrame = CGRect(origin: .zero, size: geometry.size)
+        overlay(paneFrame: paneFrame)
+    }
 
-        switch self {
-        case .left:
-            HStack(spacing: 0) {
-                RoundedRectangle(cornerRadius: 4)
-                    .fill(overlayColor)
-                    .padding(inset)
-                    .frame(width: geometry.size.width * 0.5)
-                Spacer()
+    /// Returns the translucent preview rectangle for a pane frame in container coordinates.
+    func overlayRect(in paneFrame: CGRect) -> CGRect {
+        let inset: CGFloat = 4
+        let availableWidth = max(paneFrame.width - (inset * 2), 1)
+        let minimumPreviewWidth = max(
+            AppStyle.dropTargetPreviewMinimumWidth,
+            AppStyle.splitMinimumPaneSize + (AppStyle.paneGap * 2)
+        )
+        let fractionalPreviewWidth = paneFrame.width * AppStyle.dropTargetPreviewMaxFraction
+        let unclampedPreviewWidth = max(minimumPreviewWidth, fractionalPreviewWidth)
+        let previewWidth = min(unclampedPreviewWidth, availableWidth)
+        let height = max(paneFrame.height - (inset * 2), 1)
+        let x =
+            switch self {
+            case .left: paneFrame.minX + inset
+            case .right: paneFrame.maxX - inset - previewWidth
             }
-        case .right:
-            HStack(spacing: 0) {
-                Spacer()
-                RoundedRectangle(cornerRadius: 4)
-                    .fill(overlayColor)
-                    .padding(inset)
-                    .frame(width: geometry.size.width * 0.5)
+        return CGRect(x: x, y: paneFrame.minY + inset, width: previewWidth, height: height)
+    }
+
+    /// Returns the solid insertion marker rectangle for a pane frame in container coordinates.
+    func markerRect(in paneFrame: CGRect) -> CGRect {
+        let previewRect = overlayRect(in: paneFrame)
+        let markerWidth = min(AppStyle.dropTargetMarkerWidth, previewRect.width)
+        let x =
+            switch self {
+            case .left: previewRect.minX
+            case .right: previewRect.maxX - markerWidth
             }
+        return CGRect(x: x, y: previewRect.minY, width: markerWidth, height: previewRect.height)
+    }
+
+    @ViewBuilder
+    private func overlay(paneFrame: CGRect) -> some View {
+        let markerColor = Color.accentColor.opacity(0.85)
+        let previewColor = Color.accentColor.opacity(0.16)
+        let previewRect = overlayRect(in: paneFrame)
+        let markerRect = markerRect(in: paneFrame)
+
+        ZStack(alignment: .topLeading) {
+            RoundedRectangle(cornerRadius: 4)
+                .fill(previewColor)
+                .frame(width: previewRect.width, height: previewRect.height)
+                .offset(x: previewRect.minX, y: previewRect.minY)
+            RoundedRectangle(cornerRadius: 4)
+                .fill(markerColor)
+                .frame(width: markerRect.width, height: markerRect.height)
+                .offset(x: markerRect.minX, y: markerRect.minY)
         }
     }
 }

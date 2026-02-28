@@ -45,7 +45,7 @@ struct PaneCoordinatorViewFactoryTests {
         defer { try? FileManager.default.removeItem(at: tempDir) }
 
         let pane = Pane(
-            id: UUID(),
+            id: UUIDv7.generate(),
             content: .webview(WebviewState(url: URL(string: "https://example.com")!)),
             metadata: PaneMetadata(source: .floating(workingDirectory: nil, title: "Web"))
         )
@@ -68,7 +68,7 @@ struct PaneCoordinatorViewFactoryTests {
         defer { try? FileManager.default.removeItem(at: tempDir) }
 
         let pane = Pane(
-            id: UUID(),
+            id: UUIDv7.generate(),
             content: .codeViewer(
                 CodeViewerState(filePath: URL(fileURLWithPath: "/tmp/example.swift"), scrollToLine: 42)
             ),
@@ -92,7 +92,7 @@ struct PaneCoordinatorViewFactoryTests {
         defer { try? FileManager.default.removeItem(at: tempDir) }
 
         let pane = Pane(
-            id: UUID(),
+            id: UUIDv7.generate(),
             content: .bridgePanel(BridgePaneState(panelKind: .diffViewer, source: .commit(sha: "abc123"))),
             metadata: PaneMetadata(source: .floating(workingDirectory: nil, title: "Diff"))
         )
@@ -124,7 +124,7 @@ struct PaneCoordinatorViewFactoryTests {
         defer { try? FileManager.default.removeItem(at: tempDir) }
 
         let pane = Pane(
-            id: UUID(),
+            id: UUIDv7.generate(),
             content: .unsupported(UnsupportedContent(type: "legacy", version: 1, rawState: nil)),
             metadata: PaneMetadata(source: .floating(workingDirectory: nil, title: "Legacy"))
         )

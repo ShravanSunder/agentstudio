@@ -15,6 +15,10 @@ final class WebviewPaneController {
     private(set) var page: WebPage
     var showNavigation: Bool
     var isFindPresented: Bool = false
+    private let userContentController: WKUserContentController
+    private var managementScript: WKUserScript
+    private(set) var isContentInteractionEnabled: Bool
+    private var interactionApplyTask: Task<Void, Never>?
 
     /// Called when a page finishes loading with the new display title.
     /// Wired by the coordinator to sync pane metadata in the store.
@@ -23,11 +27,7 @@ final class WebviewPaneController {
     // MARK: - Shared Configuration
 
     /// All webview panes share the same persistent data store (cookies, local storage).
-    static let sharedConfiguration: WebPage.Configuration = {
-        var config = WebPage.Configuration()
-        config.websiteDataStore = .default()
-        return config
-    }()
+    static let sharedWebsiteDataStore: WKWebsiteDataStore = .default()
 
     // MARK: - Derived State
 
@@ -49,13 +49,71 @@ final class WebviewPaneController {
     init(paneId: UUID, state: WebviewState) {
         self.paneId = paneId
         self.showNavigation = state.showNavigation
+        let blockInteraction = ManagementModeMonitor.shared.isActive
+        let initialManagementScript = WebInteractionManagementScript.makeUserScript(
+            blockInteraction: blockInteraction
+        )
+        self.managementScript = initialManagementScript
+        self.isContentInteractionEnabled = !blockInteraction
+
+        var config = WebPage.Configuration()
+        config.websiteDataStore = Self.sharedWebsiteDataStore
+        config.userContentController.addUserScript(initialManagementScript)
+        self.userContentController = config.userContentController
+
         self.page = WebPage(
-            configuration: Self.sharedConfiguration,
+            configuration: config,
             navigationDecider: WebviewNavigationDecider(),
             dialogPresenter: WebviewDialogHandler()
         )
         if state.url.scheme != "about" {
             _ = page.load(state.url)
+        }
+    }
+
+    // MARK: - Content Interaction
+
+    /// Called by the pane view when management mode toggles. Keeps both the currently
+    /// loaded document and future navigations in sync with the interaction state.
+    func setWebContentInteractionEnabled(_ enabled: Bool) {
+        let didChange = enabled != isContentInteractionEnabled
+        isContentInteractionEnabled = enabled
+
+        if didChange {
+            refreshPersistentManagementScript()
+        }
+        applyCurrentDocumentInteractionState()
+    }
+
+    private func refreshPersistentManagementScript() {
+        userContentController.removeAllUserScripts()
+        managementScript = WebInteractionManagementScript.makeUserScript(
+            blockInteraction: !isContentInteractionEnabled
+        )
+        userContentController.addUserScript(managementScript)
+    }
+
+    private func applyCurrentDocumentInteractionState() {
+        let script = WebInteractionManagementScript.makeRuntimeToggleSource(
+            blockInteraction: !isContentInteractionEnabled
+        )
+        interactionApplyTask?.cancel()
+        let page = self.page
+        let shouldReapplyAfterLoad = page.isLoading
+
+        interactionApplyTask = Task { @MainActor in
+            _ = try? await page.callJavaScript(script)
+
+            guard shouldReapplyAfterLoad else { return }
+
+            let deadline = ContinuousClock.now + .seconds(2)
+            while page.isLoading, ContinuousClock.now < deadline {
+                if Task.isCancelled { return }
+                await Task.yield()
+            }
+
+            if Task.isCancelled { return }
+            _ = try? await page.callJavaScript(script)
         }
     }
 

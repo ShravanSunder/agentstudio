@@ -1,4 +1,3 @@
-// swiftlint:disable file_length type_body_length
 import AppKit
 import GhosttyKit
 import Observation
@@ -97,6 +96,9 @@ class PaneTabViewController: NSViewController, CommandHandler {
                     .createArrangement(
                         tabId: tabId, name: name, paneIds: Set(tab.paneIds)
                     ))
+            },
+            onOpenRepoInTab: {
+                postAppEvent(.showCommandBarRepos)
             }
         )
         tabBarHostingView = DraggableTabBarHostingView(rootView: tabBar)
@@ -159,15 +161,15 @@ class PaneTabViewController: NSViewController, CommandHandler {
 
         setupNotificationObservers()
 
-        // Cmd+E for edit mode — handled via command pipeline (key event monitor)
+        // Cmd+E for management mode — handled via command pipeline (key event monitor)
         arrangementBarEventMonitor = NSEvent.addLocalMonitorForEvents(matching: .keyDown) { [weak self] event in
             guard self != nil else { return event }
-            // Cmd+E toggles edit mode (negative modifier check: only bare Cmd+E)
+            // Cmd+E toggles management mode (negative modifier check: only bare Cmd+E)
             if event.modifierFlags.contains([.command]),
                 !event.modifierFlags.contains([.shift, .option, .control]),
                 event.charactersIgnoringModifiers == "e"
             {
-                CommandDispatcher.shared.dispatch(.toggleEditMode)
+                CommandDispatcher.shared.dispatch(.toggleManagementMode)
                 return nil
             }
             return event
@@ -177,129 +179,39 @@ class PaneTabViewController: NSViewController, CommandHandler {
 
     private func setupNotificationObservers() {
         setupAppNotificationObservers()
-        setupGhosttyNotificationObservers()
     }
 
     private func setupAppNotificationObservers() {
         notificationTasks.append(
             Task { [weak self] in
-                for await notification in NotificationCenter.default.notifications(named: .terminalProcessTerminated) {
-                    guard let self, !Task.isCancelled else { break }
-                    self.handleProcessTerminated(notification)
-                }
-            })
-
-        notificationTasks.append(
-            Task { [weak self] in
-                for await notification in NotificationCenter.default.notifications(named: .selectTabById) {
-                    guard let self, !Task.isCancelled else { break }
-                    self.handleSelectTabById(notification)
-                }
-            })
-
-        notificationTasks.append(
-            Task { [weak self] in
-                for await _ in NotificationCenter.default.notifications(named: .undoCloseTabRequested) {
-                    guard let self, !Task.isCancelled else { break }
-                    self.handleUndoCloseTab()
-                }
-            })
-
-        notificationTasks.append(
-            Task { [weak self] in
-                for await notification in NotificationCenter.default.notifications(named: .extractPaneRequested) {
-                    guard let self, !Task.isCancelled else { break }
-                    self.handleExtractPaneRequested(notification)
-                }
-            })
-
-        notificationTasks.append(
-            Task { [weak self] in
-                for await notification in NotificationCenter.default.notifications(named: .repairSurfaceRequested) {
-                    guard let self, !Task.isCancelled else { break }
-                    self.handleRepairSurfaceRequested(notification)
-                }
-            })
-
-        notificationTasks.append(
-            Task { [weak self] in
-                for await _ in NotificationCenter.default.notifications(named: .refocusTerminalRequested) {
-                    guard let self, !Task.isCancelled else { break }
-                    self.handleRefocusTerminal()
-                }
-            })
-
-        notificationTasks.append(
-            Task { [weak self] in
-                for await _ in NotificationCenter.default.notifications(named: .openWebviewRequested) {
-                    guard let self, !Task.isCancelled else { break }
-                    self.handleOpenWebviewRequested()
-                }
-            })
-    }
-
-    private func setupGhosttyNotificationObservers() {
-        notificationTasks.append(
-            Task { [weak self] in
-                for await notification in NotificationCenter.default.notifications(named: .ghosttyNewSplit) {
-                    guard let self, !Task.isCancelled else { break }
-                    self.handleGhosttyNewSplit(notification)
-                }
-            })
-
-        notificationTasks.append(
-            Task { [weak self] in
-                for await notification in NotificationCenter.default.notifications(named: .ghosttyGotoSplit) {
-                    guard let self, !Task.isCancelled else { break }
-                    self.handleGhosttyGotoSplit(notification)
-                }
-            })
-
-        notificationTasks.append(
-            Task { [weak self] in
-                for await notification in NotificationCenter.default.notifications(named: .ghosttyResizeSplit) {
-                    guard let self, !Task.isCancelled else { break }
-                    self.handleGhosttyResizeSplit(notification)
-                }
-            })
-
-        notificationTasks.append(
-            Task { [weak self] in
-                for await notification in NotificationCenter.default.notifications(named: .ghosttyEqualizeSplits) {
-                    guard let self, !Task.isCancelled else { break }
-                    self.handleGhosttyEqualizeSplits(notification)
-                }
-            })
-
-        notificationTasks.append(
-            Task { [weak self] in
-                for await notification in NotificationCenter.default.notifications(named: .ghosttyToggleSplitZoom) {
-                    guard let self, !Task.isCancelled else { break }
-                    self.handleGhosttyToggleSplitZoom(notification)
-                }
-            })
-
-        notificationTasks.append(
-            Task { [weak self] in
-                for await notification in NotificationCenter.default.notifications(named: .ghosttyCloseTab) {
-                    guard let self, !Task.isCancelled else { break }
-                    self.handleGhosttyCloseTab(notification)
-                }
-            })
-
-        notificationTasks.append(
-            Task { [weak self] in
-                for await notification in NotificationCenter.default.notifications(named: .ghosttyGotoTab) {
-                    guard let self, !Task.isCancelled else { break }
-                    self.handleGhosttyGotoTab(notification)
-                }
-            })
-
-        notificationTasks.append(
-            Task { [weak self] in
-                for await notification in NotificationCenter.default.notifications(named: .ghosttyMoveTab) {
-                    guard let self, !Task.isCancelled else { break }
-                    self.handleGhosttyMoveTab(notification)
+                guard let self else { return }
+                let stream = await AppEventBus.shared.subscribe()
+                for await event in stream {
+                    guard !Task.isCancelled else { break }
+                    switch event {
+                    case .terminalProcessTerminated(let worktreeId, _):
+                        self.handleProcessTerminated(worktreeId: worktreeId)
+                    case .selectTabById(let tabId, let paneId):
+                        self.handleSelectTabById(tabId: tabId, paneId: paneId)
+                    case .undoCloseTabRequested:
+                        self.handleUndoCloseTab()
+                    case .extractPaneRequested(let tabId, let paneId, let targetTabIndex):
+                        self.handleExtractPaneRequested(tabId: tabId, paneId: paneId, targetTabIndex: targetTabIndex)
+                    case .movePaneToTabRequested(let paneId, let sourceTabId, let targetTabId):
+                        self.handleMovePaneToTabRequested(
+                            paneId: paneId,
+                            sourceTabId: sourceTabId,
+                            targetTabId: targetTabId
+                        )
+                    case .repairSurfaceRequested(let paneId):
+                        self.handleRepairSurfaceRequested(paneId: paneId)
+                    case .refocusTerminalRequested:
+                        self.handleRefocusTerminal()
+                    case .openWebviewRequested:
+                        self.handleOpenWebviewRequested()
+                    default:
+                        continue
+                    }
                 }
             })
     }
@@ -308,25 +220,15 @@ class PaneTabViewController: NSViewController, CommandHandler {
         executor.openWebview()
     }
 
-    private func handleRepairSurfaceRequested(_ notification: Notification) {
-        guard let userInfo = notification.userInfo,
-            let paneId = userInfo["paneId"] as? UUID
-        else {
-            return
-        }
+    private func handleRepairSurfaceRequested(paneId: UUID) {
         dispatchAction(.repair(.recreateSurface(paneId: paneId)))
     }
 
-    private func handleSelectTabById(_ notification: Notification) {
-        guard let userInfo = notification.userInfo,
-            let tabId = userInfo["tabId"] as? UUID
-        else {
-            return
-        }
+    private func handleSelectTabById(tabId: UUID, paneId: UUID?) {
         dispatchAction(.selectTab(tabId: tabId))
 
         // If a specific pane was requested, focus it within the tab
-        if let paneId = userInfo["paneId"] as? UUID {
+        if let paneId {
             dispatchAction(.focusPane(tabId: tabId, paneId: paneId))
         }
     }
@@ -361,7 +263,7 @@ class PaneTabViewController: NSViewController, CommandHandler {
     private func handleAppKitStateChange() {
         updateEmptyState()
 
-        // Deactivate edit mode if no tabs
+        // Deactivate management mode if no tabs
         if store.tabs.isEmpty && ManagementModeMonitor.shared.isActive {
             ManagementModeMonitor.shared.deactivate()
         }
@@ -411,8 +313,12 @@ class PaneTabViewController: NSViewController, CommandHandler {
             store: store,
             viewRegistry: viewRegistry,
             action: { [weak self] action in self?.dispatchAction(action) },
-            shouldAcceptDrop: { [weak self] destPaneId, zone in
-                self?.evaluateDropAcceptance(destPaneId: destPaneId, zone: zone) ?? false
+            shouldAcceptDrop: { [weak self] payload, destPaneId, zone in
+                self?.evaluateDropAcceptance(
+                    payload: payload,
+                    destPaneId: destPaneId,
+                    zone: zone
+                ) ?? false
             },
             onDrop: { [weak self] payload, destPaneId, zone in
                 self?.handleSplitDrop(payload: payload, destPaneId: destPaneId, zone: zone)
@@ -435,139 +341,141 @@ class PaneTabViewController: NSViewController, CommandHandler {
     }
 
     /// Evaluate whether a drop is acceptable at the given pane and zone.
-    private func evaluateDropAcceptance(destPaneId: UUID, zone: DropZone) -> Bool {
-        // New terminal drags have no draggingTabId — always valid
-        guard let draggingTabId = tabBarAdapter.draggingTabId else { return true }
-        guard let tabId = store.activeTabId else { return false }
-
-        let snapshot = ActionResolver.snapshot(
-            from: store.tabs,
+    private func evaluateDropAcceptance(
+        payload: SplitDropPayload,
+        destPaneId: UUID,
+        zone: DropZone
+    ) -> Bool {
+        let snapshot = dragDropSnapshot()
+        return Self.splitDropCommitPlan(
+            payload: payload,
+            destinationPane: store.pane(destPaneId),
+            destinationPaneId: destPaneId,
+            zone: zone,
             activeTabId: store.activeTabId,
-            isManagementModeActive: ManagementModeMonitor.shared.isActive
-        )
-        let payload = SplitDropPayload(
-            kind: .existingTab(
-                tabId: draggingTabId
-            ))
-        guard
-            let action = ActionResolver.resolveDrop(
-                payload: payload,
-                destinationPaneId: destPaneId,
-                destinationTabId: tabId,
-                zone: zone,
-                state: snapshot
-            )
-        else { return false }
-
-        if case .success = ActionValidator.validate(action, state: snapshot) {
-            return true
-        }
-        return false
+            state: snapshot
+        ) != nil
     }
 
     /// Handle a completed drop on a split pane.
     private func handleSplitDrop(payload: SplitDropPayload, destPaneId: UUID, zone: DropZone) {
-        guard let tabId = store.activeTabId else { return }
+        let snapshot = dragDropSnapshot()
+        guard
+            let plan = Self.splitDropCommitPlan(
+                payload: payload,
+                destinationPane: store.pane(destPaneId),
+                destinationPaneId: destPaneId,
+                zone: zone,
+                activeTabId: store.activeTabId,
+                state: snapshot
+            )
+        else {
+            return
+        }
+        executeDropCommitPlan(plan)
+    }
 
-        let snapshot = ActionResolver.snapshot(
+    private func dragDropSnapshot() -> ActionStateSnapshot {
+        let drawerParentByPaneId = store.panes.values.reduce(into: [UUID: UUID]()) { result, pane in
+            guard let parentPaneId = pane.parentPaneId else { return }
+            result[pane.id] = parentPaneId
+        }
+
+        return ActionResolver.snapshot(
             from: store.tabs,
             activeTabId: store.activeTabId,
-            isManagementModeActive: ManagementModeMonitor.shared.isActive
+            isManagementModeActive: ManagementModeMonitor.shared.isActive,
+            knownWorktreeIds: Set(store.repos.flatMap(\.worktrees).map(\.id)),
+            drawerParentByPaneId: drawerParentByPaneId
         )
-        if let action = ActionResolver.resolveDrop(
-            payload: payload,
-            destinationPaneId: destPaneId,
-            destinationTabId: tabId,
-            zone: zone,
-            state: snapshot
-        ) {
+    }
+
+    private func executeDropCommitPlan(_ plan: DropCommitPlan) {
+        switch plan {
+        case .paneAction(let action):
             dispatchAction(action)
+        case .moveTab(let tabId, let toIndex):
+            store.moveTab(fromId: tabId, toIndex: toIndex)
+            store.setActiveTab(tabId)
+        case .extractPaneToTabThenMove(let paneId, let sourceTabId, let toIndex):
+            let tabCountBefore = store.tabs.count
+            dispatchAction(.extractPaneToTab(tabId: sourceTabId, paneId: paneId))
+            guard
+                store.tabs.count == tabCountBefore + 1,
+                let extractedTabId = store.activeTabId
+            else {
+                return
+            }
+            store.moveTab(fromId: extractedTabId, toIndex: toIndex)
+            store.setActiveTab(extractedTabId)
         }
+    }
+
+    nonisolated static func splitDropCommitPlan(
+        payload: SplitDropPayload,
+        destinationPane: Pane?,
+        destinationPaneId: UUID,
+        zone: DropZone,
+        activeTabId: UUID?,
+        state: ActionStateSnapshot
+    ) -> DropCommitPlan? {
+        guard let activeTabId else {
+            return nil
+        }
+        let destination = PaneDropDestination.split(
+            targetPaneId: destinationPaneId,
+            targetTabId: activeTabId,
+            direction: splitDirection(for: zone),
+            targetDrawerParentPaneId: destinationPane?.parentPaneId
+        )
+        let decision = PaneDropPlanner.previewDecision(
+            payload: payload,
+            destination: destination,
+            state: state
+        )
+        if case .eligible(let plan) = decision {
+            return plan
+        }
+        return nil
+    }
+
+    private func drawerMoveDropAction(
+        payload: SplitDropPayload,
+        destPaneId: UUID,
+        zone: DropZone
+    ) -> PaneAction? {
+        let destinationPane = store.pane(destPaneId)
+        let sourcePane: Pane? =
+            if case .existingPane(let sourcePaneId, _) = payload.kind {
+                store.pane(sourcePaneId)
+            } else {
+                nil
+            }
+
+        return Self.resolveDrawerMoveDropAction(
+            payload: payload,
+            destinationPane: destinationPane,
+            sourcePane: sourcePane,
+            zone: zone
+        )
     }
 
     // MARK: - Empty State
 
     private func createEmptyStateView() -> NSView {
-        let container = NSView()
-        container.wantsLayer = true
-
-        let stackView = NSStackView()
-        stackView.orientation = .vertical
-        stackView.alignment = .centerX
-        stackView.spacing = 20
-        stackView.translatesAutoresizingMaskIntoConstraints = false
-
-        // Icon with gradient background
-        let iconContainer = NSView()
-        iconContainer.wantsLayer = true
-        iconContainer.layer?.cornerRadius = 20
-        iconContainer.layer?.backgroundColor = NSColor.controlAccentColor.withAlphaComponent(0.1).cgColor
-        iconContainer.translatesAutoresizingMaskIntoConstraints = false
-
-        let iconView = NSImageView()
-        iconView.image = NSImage(systemSymbolName: "terminal.fill", accessibilityDescription: "Terminal")
-        iconView.symbolConfiguration = NSImage.SymbolConfiguration(pointSize: 36, weight: .medium)
-        iconView.contentTintColor = .controlAccentColor
-        iconView.translatesAutoresizingMaskIntoConstraints = false
-        iconContainer.addSubview(iconView)
-
-        NSLayoutConstraint.activate([
-            iconContainer.widthAnchor.constraint(equalToConstant: 80),
-            iconContainer.heightAnchor.constraint(equalToConstant: 80),
-            iconView.centerXAnchor.constraint(equalTo: iconContainer.centerXAnchor),
-            iconView.centerYAnchor.constraint(equalTo: iconContainer.centerYAnchor),
-        ])
-
-        // Title
-        let titleLabel = NSTextField(labelWithString: "Welcome to AgentStudio")
-        titleLabel.font = NSFont.systemFont(ofSize: 20, weight: .semibold)
-        titleLabel.textColor = .labelColor
-
-        // Subtitle
-        let subtitleLabel = NSTextField(
-            wrappingLabelWithString:
-                "Manage your AI agent worktrees with integrated terminal sessions.\nDouble-click a worktree to open a terminal."
+        PaneTabEmptyStateViewFactory.make(
+            target: self,
+            addRepoAction: #selector(addRepoAction),
+            addFolderAction: #selector(addFolderAction)
         )
-        subtitleLabel.font = NSFont.systemFont(ofSize: 13)
-        subtitleLabel.textColor = .secondaryLabelColor
-        subtitleLabel.alignment = .center
-        subtitleLabel.maximumNumberOfLines = 3
-
-        // Keyboard shortcut hint
-        let hintLabel = NSTextField(labelWithString: "Tip: Use Cmd+Shift+O to add a repo")
-        hintLabel.font = NSFont.systemFont(ofSize: 11)
-        hintLabel.textColor = .tertiaryLabelColor
-
-        // Add Repo button
-        let addButton = NSButton(title: "Add Repo...", target: self, action: #selector(addRepoAction))
-        addButton.bezelStyle = .rounded
-        addButton.controlSize = .large
-        addButton.keyEquivalent = "\r"
-
-        stackView.addArrangedSubview(iconContainer)
-        stackView.addArrangedSubview(titleLabel)
-        stackView.addArrangedSubview(subtitleLabel)
-        stackView.addArrangedSubview(addButton)
-        stackView.addArrangedSubview(hintLabel)
-
-        stackView.setCustomSpacing(24, after: iconContainer)
-        stackView.setCustomSpacing(8, after: titleLabel)
-        stackView.setCustomSpacing(24, after: subtitleLabel)
-        stackView.setCustomSpacing(12, after: addButton)
-
-        container.addSubview(stackView)
-
-        NSLayoutConstraint.activate([
-            stackView.centerXAnchor.constraint(equalTo: container.centerXAnchor),
-            stackView.centerYAnchor.constraint(equalTo: container.centerYAnchor),
-            subtitleLabel.widthAnchor.constraint(lessThanOrEqualToConstant: 400),
-        ])
-
-        return container
     }
 
     @objc private func addRepoAction() {
-        NotificationCenter.default.post(name: .addRepoRequested, object: nil)
+        postAppEvent(.addRepoRequested)
+    }
+
+    @objc private func addFolderAction() {
+        postAppEvent(.addFolderRequested)
     }
 
     private func updateEmptyState() {
@@ -606,12 +514,16 @@ class PaneTabViewController: NSViewController, CommandHandler {
 
     // MARK: - Terminal Management
 
-    func openTerminal(for worktree: Worktree, in repo: Repo) {
-        executor.openTerminal(for: worktree, in: repo)
+    func openTerminal(for worktree: Worktree, in _: Repo) {
+        dispatchAction(.openWorktree(worktreeId: worktree.id))
     }
 
-    func openNewTerminal(for worktree: Worktree, in repo: Repo) {
-        executor.openNewTerminal(for: worktree, in: repo)
+    func openNewTerminal(for worktree: Worktree, in _: Repo) {
+        dispatchAction(.openNewTerminalInTab(worktreeId: worktree.id))
+    }
+
+    func openWorktreeInPane(for worktree: Worktree, in _: Repo) {
+        dispatchAction(.openWorktreeInPane(worktreeId: worktree.id))
     }
 
     func closeTerminal(for worktreeId: UUID) {
@@ -657,7 +569,8 @@ class PaneTabViewController: NSViewController, CommandHandler {
         let snapshot = ActionResolver.snapshot(
             from: store.tabs,
             activeTabId: store.activeTabId,
-            isManagementModeActive: ManagementModeMonitor.shared.isActive
+            isManagementModeActive: ManagementModeMonitor.shared.isActive,
+            knownWorktreeIds: Set(store.repos.flatMap(\.worktrees).map(\.id))
         )
 
         switch ActionValidator.validate(action, state: snapshot) {
@@ -738,23 +651,77 @@ class PaneTabViewController: NSViewController, CommandHandler {
 
     // MARK: - Process Termination
 
-    private func handleProcessTerminated(_ notification: Notification) {
-        guard let userInfo = notification.userInfo,
-            let worktreeId = userInfo["worktreeId"] as? UUID
-        else {
-            return
-        }
+    private func handleProcessTerminated(worktreeId: UUID?) {
+        guard let worktreeId else { return }
         closeTerminal(for: worktreeId)
     }
 
-    private func handleExtractPaneRequested(_ notification: Notification) {
-        guard let userInfo = notification.userInfo,
-            let tabId = userInfo["tabId"] as? UUID,
-            let paneId = userInfo["paneId"] as? UUID
+    private func handleExtractPaneRequested(tabId: UUID, paneId: UUID, targetTabIndex: Int?) {
+        // Single-pane tabs cannot extract; treat tab-bar pane drag as tab reorder
+        // so "single pane move ability" still works.
+        if let sourceTab = store.tab(tabId),
+            sourceTab.paneIds.count == 1
+        {
+            if let targetTabIndex {
+                store.moveTab(fromId: tabId, toIndex: targetTabIndex)
+                store.setActiveTab(tabId)
+            }
+            return
+        }
+
+        let tabCountBefore = store.tabs.count
+        dispatchAction(.extractPaneToTab(tabId: tabId, paneId: paneId))
+
+        // For tab-bar drops, place the newly extracted tab at the drop insertion index.
+        guard let targetTabIndex,
+            store.tabs.count == tabCountBefore + 1,
+            let extractedTabId = store.activeTabId
         else {
             return
         }
-        dispatchAction(.extractPaneToTab(tabId: tabId, paneId: paneId))
+
+        store.moveTab(fromId: extractedTabId, toIndex: targetTabIndex)
+        store.setActiveTab(extractedTabId)
+    }
+
+    private func handleMovePaneToTabRequested(paneId: UUID, sourceTabId: UUID?, targetTabId: UUID) {
+        dispatchMovePaneToTab(sourcePaneId: paneId, sourceTabId: sourceTabId, targetTabId: targetTabId)
+    }
+
+    private func dispatchMovePaneToTab(sourcePaneId: UUID, sourceTabId: UUID?, targetTabId: UUID) {
+        guard
+            let action = makeMovePaneToTabAction(
+                sourcePaneId: sourcePaneId,
+                sourceTabId: sourceTabId,
+                targetTabId: targetTabId
+            )
+        else { return }
+        dispatchAction(action)
+    }
+
+    private func makeMovePaneToTabAction(
+        sourcePaneId: UUID,
+        sourceTabId: UUID?,
+        targetTabId: UUID
+    ) -> PaneAction? {
+        let resolvedSourceTabId: UUID? =
+            if let sourceTabId, store.tab(sourceTabId)?.paneIds.contains(sourcePaneId) == true {
+                sourceTabId
+            } else {
+                store.tabs.first(where: { $0.paneIds.contains(sourcePaneId) })?.id
+            }
+
+        guard let resolvedSourceTabId else { return nil }
+        guard resolvedSourceTabId != targetTabId else { return nil }
+        guard let targetTab = store.tab(targetTabId) else { return nil }
+        guard let targetPaneId = targetTab.activePaneId ?? targetTab.paneIds.first else { return nil }
+
+        return .insertPane(
+            source: .existingPane(paneId: sourcePaneId, sourceTabId: resolvedSourceTabId),
+            targetTabId: targetTabId,
+            targetPaneId: targetPaneId,
+            direction: .right
+        )
     }
 
     // MARK: - Undo Close Tab
@@ -786,184 +753,6 @@ class PaneTabViewController: NSViewController, CommandHandler {
         }
     }
 
-    // MARK: - Ghostty Target Resolution
-
-    private func resolveGhosttyTarget(_ surfaceView: Ghostty.SurfaceView) -> (tabId: UUID, paneId: UUID)? {
-        guard let surfaceId = SurfaceManager.shared.surfaceId(forView: surfaceView) else {
-            ghosttyLogger.warning("[\(Self.self)] resolveGhosttyTarget: surfaceView not found in SurfaceManager")
-            return nil
-        }
-        guard let paneId = SurfaceManager.shared.paneId(for: surfaceId) else {
-            ghosttyLogger.warning("[\(Self.self)] resolveGhosttyTarget: no pane for surfaceId \(surfaceId)")
-            return nil
-        }
-        guard let tab = store.tabs.first(where: { $0.paneIds.contains(paneId) }) else {
-            ghosttyLogger.warning("[\(Self.self)] resolveGhosttyTarget: no tab contains pane \(paneId)")
-            return nil
-        }
-        return (tab.id, paneId)
-    }
-
-    // MARK: - Ghostty Split Action Handlers
-
-    private func handleGhosttyNewSplit(_ notification: Notification) {
-        guard let surfaceView = notification.object as? Ghostty.SurfaceView,
-            let dirValue = notification.userInfo?["direction"] as? UInt32,
-            let direction = mapGhosttyNewSplitDirection(dirValue),
-            let (tabId, paneId) = resolveGhosttyTarget(surfaceView)
-        else { return }
-        dispatchAction(
-            .insertPane(
-                source: .newTerminal, targetTabId: tabId,
-                targetPaneId: paneId, direction: direction))
-    }
-
-    private func handleGhosttyGotoSplit(_ notification: Notification) {
-        guard let surfaceView = notification.object as? Ghostty.SurfaceView,
-            let gotoValue = notification.userInfo?["goto"] as? UInt32,
-            let command = mapGhosttyGotoSplit(gotoValue),
-            let (tabId, _) = resolveGhosttyTarget(surfaceView)
-        else { return }
-        if let action = ActionResolver.resolve(command: command, tabs: store.tabs, activeTabId: tabId) {
-            dispatchAction(action)
-        }
-    }
-
-    private func handleGhosttyResizeSplit(_ notification: Notification) {
-        guard let surfaceView = notification.object as? Ghostty.SurfaceView,
-            let amount = notification.userInfo?["amount"] as? UInt16,
-            let dirValue = notification.userInfo?["direction"] as? UInt32,
-            let direction = mapGhosttyResizeDirection(dirValue),
-            let (tabId, paneId) = resolveGhosttyTarget(surfaceView)
-        else { return }
-        dispatchAction(
-            .resizePaneByDelta(
-                tabId: tabId, paneId: paneId,
-                direction: direction, amount: amount))
-    }
-
-    private func handleGhosttyEqualizeSplits(_ notification: Notification) {
-        guard let surfaceView = notification.object as? Ghostty.SurfaceView,
-            let (tabId, _) = resolveGhosttyTarget(surfaceView)
-        else { return }
-        dispatchAction(.equalizePanes(tabId: tabId))
-    }
-
-    private func handleGhosttyToggleSplitZoom(_ notification: Notification) {
-        guard let surfaceView = notification.object as? Ghostty.SurfaceView,
-            let (tabId, paneId) = resolveGhosttyTarget(surfaceView)
-        else { return }
-        dispatchAction(.toggleSplitZoom(tabId: tabId, paneId: paneId))
-    }
-
-    // MARK: - Ghostty Tab Action Handlers
-
-    private func handleGhosttyCloseTab(_ notification: Notification) {
-        guard let surfaceView = notification.object as? Ghostty.SurfaceView,
-            let modeValue = notification.userInfo?["mode"] as? UInt32,
-            let (tabId, _) = resolveGhosttyTarget(surfaceView)
-        else { return }
-        let tabs = store.tabs
-        switch modeValue {
-        case GHOSTTY_ACTION_CLOSE_TAB_MODE_THIS.rawValue:
-            dispatchAction(.closeTab(tabId: tabId))
-        case GHOSTTY_ACTION_CLOSE_TAB_MODE_OTHER.rawValue:
-            for tab in tabs where tab.id != tabId {
-                dispatchAction(.closeTab(tabId: tab.id))
-            }
-        case GHOSTTY_ACTION_CLOSE_TAB_MODE_RIGHT.rawValue:
-            guard let currentIndex = tabs.firstIndex(where: { $0.id == tabId }) else { return }
-            for tab in tabs[(currentIndex + 1)...] {
-                dispatchAction(.closeTab(tabId: tab.id))
-            }
-        default:
-            ghosttyLogger.warning("[\(Self.self)] Unknown close_tab mode: \(modeValue)")
-        }
-    }
-
-    private func handleGhosttyGotoTab(_ notification: Notification) {
-        guard let surfaceView = notification.object as? Ghostty.SurfaceView,
-            let targetValue = notification.userInfo?["target"] as? Int32,
-            let (tabId, _) = resolveGhosttyTarget(surfaceView)
-        else { return }
-
-        let tabs = store.tabs
-        let action: PaneAction?
-
-        switch targetValue {
-        case GHOSTTY_GOTO_TAB_PREVIOUS.rawValue:
-            action = ActionResolver.resolve(command: .prevTab, tabs: tabs, activeTabId: tabId)
-        case GHOSTTY_GOTO_TAB_NEXT.rawValue:
-            action = ActionResolver.resolve(command: .nextTab, tabs: tabs, activeTabId: tabId)
-        case GHOSTTY_GOTO_TAB_LAST.rawValue:
-            if let lastTab = tabs.last {
-                action = .selectTab(tabId: lastTab.id)
-            } else {
-                action = nil
-            }
-        default:
-            // Ghostty uses 1-indexed tab numbers for positive values.
-            // Out-of-range snaps to the last tab (matches Ghostty's TerminalController).
-            guard targetValue >= 1 else {
-                ghosttyLogger.warning("[\(Self.self)] goto_tab index \(targetValue) out of range")
-                action = nil
-                break
-            }
-            let index = min(Int(targetValue - 1), tabs.count - 1)
-            action = .selectTab(tabId: tabs[index].id)
-        }
-
-        if let action { dispatchAction(action) }
-    }
-
-    private func handleGhosttyMoveTab(_ notification: Notification) {
-        guard let surfaceView = notification.object as? Ghostty.SurfaceView,
-            let amount = notification.userInfo?["amount"] as? Int,
-            let (tabId, _) = resolveGhosttyTarget(surfaceView)
-        else { return }
-        dispatchAction(.moveTab(tabId: tabId, delta: amount))
-    }
-
-    // MARK: - Ghostty Enum Mapping
-
-    private func mapGhosttyNewSplitDirection(_ raw: UInt32) -> SplitNewDirection? {
-        switch raw {
-        case GHOSTTY_SPLIT_DIRECTION_RIGHT.rawValue: return .right
-        case GHOSTTY_SPLIT_DIRECTION_DOWN.rawValue: return .down
-        case GHOSTTY_SPLIT_DIRECTION_LEFT.rawValue: return .left
-        case GHOSTTY_SPLIT_DIRECTION_UP.rawValue: return .up
-        default:
-            ghosttyLogger.warning("[\(Self.self)] Unknown split direction: \(raw)")
-            return nil
-        }
-    }
-
-    private func mapGhosttyGotoSplit(_ raw: UInt32) -> AppCommand? {
-        switch raw {
-        case GHOSTTY_GOTO_SPLIT_PREVIOUS.rawValue: return .focusPrevPane
-        case GHOSTTY_GOTO_SPLIT_NEXT.rawValue: return .focusNextPane
-        case GHOSTTY_GOTO_SPLIT_UP.rawValue: return .focusPaneUp
-        case GHOSTTY_GOTO_SPLIT_DOWN.rawValue: return .focusPaneDown
-        case GHOSTTY_GOTO_SPLIT_LEFT.rawValue: return .focusPaneLeft
-        case GHOSTTY_GOTO_SPLIT_RIGHT.rawValue: return .focusPaneRight
-        default:
-            ghosttyLogger.warning("[\(Self.self)] Unknown goto_split value: \(raw)")
-            return nil
-        }
-    }
-
-    private func mapGhosttyResizeDirection(_ raw: UInt32) -> SplitResizeDirection? {
-        switch raw {
-        case GHOSTTY_RESIZE_SPLIT_UP.rawValue: return .up
-        case GHOSTTY_RESIZE_SPLIT_DOWN.rawValue: return .down
-        case GHOSTTY_RESIZE_SPLIT_LEFT.rawValue: return .left
-        case GHOSTTY_RESIZE_SPLIT_RIGHT.rawValue: return .right
-        default:
-            ghosttyLogger.warning("[\(Self.self)] Unknown resize direction: \(raw)")
-            return nil
-        }
-    }
-
     // MARK: - Arrangement Naming
 
     /// Generate a unique arrangement name by finding the next unused index.
@@ -989,13 +778,15 @@ class PaneTabViewController: NSViewController, CommandHandler {
 
         // Non-pane commands handled directly
         switch command {
-        case .toggleEditMode:
+        case .toggleManagementMode:
             ManagementModeMonitor.shared.toggle()
 
         case .addRepo:
-            NotificationCenter.default.post(name: .addRepoRequested, object: nil)
+            postAppEvent(.addRepoRequested)
+        case .addFolder:
+            postAppEvent(.addFolderRequested)
         case .filterSidebar:
-            NotificationCenter.default.post(name: .filterSidebarRequested, object: nil)
+            postAppEvent(.filterSidebarRequested)
         case .addDrawerPane:
             guard let tabId = store.activeTabId,
                 let tab = store.tab(tabId),
@@ -1033,15 +824,15 @@ class PaneTabViewController: NSViewController, CommandHandler {
         case .openWebview:
             executor.openWebview()
         case .signInGitHub:
-            NotificationCenter.default.post(name: .signInRequested, object: nil, userInfo: ["provider": "github"])
+            postAppEvent(.signInRequested(provider: OAuthProvider.github.rawValue))
         case .signInGoogle:
-            NotificationCenter.default.post(name: .signInRequested, object: nil, userInfo: ["provider": "google"])
+            postAppEvent(.signInRequested(provider: OAuthProvider.google.rawValue))
         case .newTerminalInTab, .newFloatingTerminal,
             .removeRepo, .refreshWorktrees,
             .toggleSidebar, .quickFind, .commandBar,
-            .openNewTerminalInTab,
+            .openNewTerminalInTab, .openWorktree, .openWorktreeInPane,
             .switchArrangement, .deleteArrangement, .renameArrangement,
-            .navigateDrawerPane:
+            .navigateDrawerPane, .movePaneToTab:
             break  // Handled via drill-in (target selection in command bar)
         default:
             break
@@ -1064,6 +855,15 @@ class PaneTabViewController: NSViewController, CommandHandler {
                 guard let tab = store.tabs.first(where: { $0.paneIds.contains(target) })
                 else { return nil }
                 return .extractPaneToTab(tabId: tab.id, paneId: target)
+            case (.movePaneToTab, .tab):
+                guard let activeTabId = store.activeTabId,
+                    let activePaneId = store.tab(activeTabId)?.activePaneId
+                else { return nil }
+                return makeMovePaneToTabAction(
+                    sourcePaneId: activePaneId,
+                    sourceTabId: activeTabId,
+                    targetTabId: target
+                )
             case (.switchArrangement, .tab):
                 guard let tabId = store.activeTabId else { return nil }
                 return .switchArrangement(tabId: tabId, arrangementId: target)
@@ -1079,6 +879,12 @@ class PaneTabViewController: NSViewController, CommandHandler {
                     let paneId = tab.activePaneId
                 else { return nil }
                 return .setActiveDrawerPane(parentPaneId: paneId, drawerPaneId: target)
+            case (.openWorktree, .worktree):
+                return .openWorktree(worktreeId: target)
+            case (.openNewTerminalInTab, .worktree):
+                return .openNewTerminalInTab(worktreeId: target)
+            case (.openWorktreeInPane, .worktree):
+                return .openWorktreeInPane(worktreeId: target)
             default:
                 return nil
             }
@@ -1091,13 +897,6 @@ class PaneTabViewController: NSViewController, CommandHandler {
 
         // Targeted non-pane commands (e.g. from command bar)
         switch (command, targetType) {
-        case (.openNewTerminalInTab, .worktree):
-            guard let worktree = store.worktree(target),
-                let repo = store.repo(containing: target)
-            else {
-                return
-            }
-            executor.openNewTerminal(for: worktree, in: repo)
         default:
             execute(command)
         }
@@ -1111,7 +910,8 @@ class PaneTabViewController: NSViewController, CommandHandler {
             let snapshot = ActionResolver.snapshot(
                 from: store.tabs,
                 activeTabId: store.activeTabId,
-                isManagementModeActive: ManagementModeMonitor.shared.isActive
+                isManagementModeActive: ManagementModeMonitor.shared.isActive,
+                knownWorktreeIds: Set(store.repos.flatMap(\.worktrees).map(\.id))
             )
             switch ActionValidator.validate(action, state: snapshot) {
             case .success: return true

@@ -1,6 +1,6 @@
 import Foundation
 
-enum PaneCommandTarget: Sendable, Equatable {
+enum RuntimeCommandTarget: Sendable, Equatable {
     case pane(PaneId)
     case activePane
     case activePaneInTab(UUID)

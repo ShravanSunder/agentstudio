@@ -236,11 +236,12 @@ final class WorkspaceStore {
         title: String = "Terminal",
         provider: SessionProvider = .zmx,
         lifetime: SessionLifetime = .persistent,
-        residency: SessionResidency = .active
+        residency: SessionResidency = .active,
+        facets: PaneContextFacets = .empty
     ) -> Pane {
         let pane = Pane(
             content: .terminal(TerminalState(provider: provider, lifetime: lifetime)),
-            metadata: PaneMetadata(source: source, title: title),
+            metadata: PaneMetadata(source: .init(source), title: title, facets: facets),
             residency: residency
         )
         panes[pane.id] = pane
@@ -312,7 +313,7 @@ final class WorkspaceStore {
             storeLogger.warning("updatePaneTitle: pane \(paneId) not found")
             return
         }
-        panes[paneId]!.metadata.title = title
+        panes[paneId]!.metadata.updateTitle(title)
         markDirty()
     }
 
@@ -321,8 +322,8 @@ final class WorkspaceStore {
             storeLogger.warning("updatePaneCWD: pane \(paneId) not found")
             return
         }
-        guard panes[paneId]!.metadata.cwd != cwd else { return }
-        panes[paneId]!.metadata.cwd = cwd
+        guard panes[paneId]!.metadata.facets.cwd != cwd else { return }
+        panes[paneId]!.metadata.updateCWD(cwd)
         markDirty()
     }
 
@@ -331,7 +332,7 @@ final class WorkspaceStore {
             storeLogger.warning("updatePaneAgent: pane \(paneId) not found")
             return
         }
-        panes[paneId]!.metadata.agentType = agent
+        panes[paneId]!.metadata.updateAgentType(agent)
         markDirty()
     }
 
@@ -471,13 +472,12 @@ final class WorkspaceStore {
         markDirty()
     }
 
-    /// Remove a pane from a tab's layouts. Returns `true` if the tab is now empty
-    /// (last pane was removed) — caller is responsible for handling tab closure with undo.
-    @discardableResult
-    func removePaneFromLayout(_ paneId: UUID, inTab tabId: UUID) -> Bool {
+    /// Remove a pane from a tab's layouts and keep workspace invariants consistent.
+    /// If this removal leaves the tab with no panes, the tab is removed.
+    func removePaneFromLayout(_ paneId: UUID, inTab tabId: UUID) {
         guard let tabIndex = findTabIndex(tabId) else {
             storeLogger.warning("removePaneFromLayout: tab \(tabId) not found")
-            return false
+            return
         }
         let arrIndex = tabs[tabIndex].activeArrangementIndex
 
@@ -498,9 +498,9 @@ final class WorkspaceStore {
                 tabs[tabIndex].activePaneId = remaining.first
             }
         } else {
-            // Last pane removed — signal to caller that tab is now empty.
-            // Do NOT call removeTab here: let PaneCoordinator handle it with undo support.
-            return true
+            tabs[tabIndex].arrangements[arrIndex].layout = Layout()
+            tabs[tabIndex].arrangements[arrIndex].visiblePaneIds.remove(paneId)
+            tabs[tabIndex].activePaneId = nil
         }
 
         // Also remove from default arrangement if active is not default
@@ -509,14 +509,20 @@ final class WorkspaceStore {
             tabs[tabIndex].arrangements[defIdx].visiblePaneIds.remove(paneId)
             if let newDefLayout = tabs[tabIndex].arrangements[defIdx].layout.removing(paneId: paneId) {
                 tabs[tabIndex].arrangements[defIdx].layout = newDefLayout
+            } else {
+                tabs[tabIndex].arrangements[defIdx].layout = Layout()
             }
         }
 
         // Remove from tab's pane list
         tabs[tabIndex].panes.removeAll { $0 == paneId }
 
+        if tabs[tabIndex].panes.isEmpty {
+            removeTab(tabId)
+            return
+        }
+
         markDirty()
-        return false
     }
 
     func resizePane(tabId: UUID, splitId: UUID, ratio: Double) {
@@ -685,7 +691,7 @@ final class WorkspaceStore {
 
         // Resolve initial CWD: prefer parent's live CWD (respects user cd),
         // fall back to worktree root path
-        let parentCwd: URL? = parentPane.metadata.cwd ?? parentPane.worktreeId.flatMap { worktree($0)?.path }
+        let parentCwd: URL? = parentPane.metadata.facets.cwd ?? parentPane.worktreeId.flatMap { worktree($0)?.path }
 
         let content = PaneContent.terminal(TerminalState(provider: .zmx, lifetime: .persistent))
         let metadata = PaneMetadata(
@@ -745,7 +751,7 @@ final class WorkspaceStore {
 
         // Resolve initial CWD: prefer parent's live CWD (respects user cd),
         // fall back to worktree root path
-        let parentCwd: URL? = parentPane.metadata.cwd ?? parentPane.worktreeId.flatMap { worktree($0)?.path }
+        let parentCwd: URL? = parentPane.metadata.facets.cwd ?? parentPane.worktreeId.flatMap { worktree($0)?.path }
 
         let content = PaneContent.terminal(TerminalState(provider: .zmx, lifetime: .persistent))
         let metadata = PaneMetadata(
@@ -773,6 +779,60 @@ final class WorkspaceStore {
 
         markDirty()
         return drawerPane
+    }
+
+    /// Move an existing drawer pane within the same drawer layout.
+    /// Keeps the pane in the same parent drawer and rewrites the drawer layout tree
+    /// to place `drawerPaneId` adjacent to `targetDrawerPaneId`.
+    func moveDrawerPane(
+        _ drawerPaneId: UUID,
+        in parentPaneId: UUID,
+        at targetDrawerPaneId: UUID,
+        direction: Layout.SplitDirection,
+        position: Layout.Position
+    ) {
+        guard panes[parentPaneId] != nil,
+            panes[parentPaneId]!.drawer != nil
+        else {
+            storeLogger.warning("moveDrawerPane: parent pane \(parentPaneId) has no drawer")
+            return
+        }
+
+        guard drawerPaneId != targetDrawerPaneId else { return }
+
+        var didMove = false
+        panes[parentPaneId]!.withDrawer { drawer in
+            guard drawer.layout.contains(drawerPaneId) else {
+                return
+            }
+            guard drawer.layout.contains(targetDrawerPaneId) else {
+                return
+            }
+            guard let layoutWithoutSource = drawer.layout.removing(paneId: drawerPaneId) else {
+                return
+            }
+
+            let movedLayout = layoutWithoutSource.inserting(
+                paneId: drawerPaneId, at: targetDrawerPaneId,
+                direction: direction, position: position
+            )
+            guard movedLayout != layoutWithoutSource else {
+                return
+            }
+
+            drawer.layout = movedLayout
+            drawer.paneIds = movedLayout.paneIds
+            drawer.activePaneId = drawerPaneId
+            didMove = true
+        }
+
+        if didMove {
+            markDirty()
+        } else {
+            storeLogger.warning(
+                "moveDrawerPane: failed moving pane \(drawerPaneId) near \(targetDrawerPaneId) in \(parentPaneId)"
+            )
+        }
     }
 
     /// Remove a drawer pane from its parent. Removes the drawer panes list entry,
@@ -1177,6 +1237,8 @@ final class WorkspaceStore {
             }
             return discovered
         }
+
+        guard merged != existing else { return }
 
         repos[index].worktrees = merged
         repos[index].updatedAt = Date()

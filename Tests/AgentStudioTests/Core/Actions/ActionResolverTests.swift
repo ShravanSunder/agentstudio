@@ -19,12 +19,12 @@ final class ActionResolverTests {
         )
     }
 
-    private func makeSinglePaneTab(tabId: UUID = UUID(), paneId: UUID = UUID()) -> TabSnapshot {
+    private func makeSinglePaneTab(tabId: UUID = UUID(), paneId: UUID = UUIDv7.generate()) -> TabSnapshot {
         TabSnapshot(id: tabId, paneIds: [paneId], activePaneId: paneId)
     }
 
     private func makeMultiPaneTab(tabId: UUID = UUID(), paneIds: [UUID]? = nil) -> TabSnapshot {
-        let ids = paneIds ?? [UUID(), UUID()]
+        let ids = paneIds ?? [UUIDv7.generate(), UUIDv7.generate()]
         return TabSnapshot(id: tabId, paneIds: ids, activePaneId: ids.first)
     }
 
@@ -294,7 +294,7 @@ final class ActionResolverTests {
 
     @Test
 
-    func test_resolve_closePane_returnsClosePaneWithActivePane() {
+    func test_resolve_closePane_singlePaneEscalatesToCloseTab() {
         // Arrange
         let tabId = UUID()
         let paneId = UUID()
@@ -304,7 +304,23 @@ final class ActionResolverTests {
         let result = ActionResolver.resolve(command: .closePane, tabs: [tab], activeTabId: tabId)
 
         // Assert
-        #expect(result == .closePane(tabId: tabId, paneId: paneId))
+        #expect(result == .closeTab(tabId: tabId))
+    }
+
+    @Test
+
+    func test_resolve_closePane_splitTabReturnsClosePane() {
+        // Arrange
+        let tabId = UUID()
+        let paneA = UUIDv7.generate()
+        let paneB = UUIDv7.generate()
+        let tab = MockTab(id: tabId, activePaneId: paneA, allPaneIds: [paneA, paneB])
+
+        // Act
+        let result = ActionResolver.resolve(command: .closePane, tabs: [tab], activeTabId: tabId)
+
+        // Assert
+        #expect(result == .closePane(tabId: tabId, paneId: paneA))
     }
 
     @Test
@@ -459,6 +475,37 @@ final class ActionResolverTests {
 
         // Assert
         #expect((result) == nil)
+    }
+
+    // MARK: - resolve(command:) — Duplicate
+
+    @Test
+
+    func test_resolve_duplicatePane_returnsWithActivePaneAndRightDirection() {
+        // Arrange
+        let tabId = UUID()
+        let paneId = UUIDv7.generate()
+        let tab = MockTab(id: tabId, activePaneId: paneId, allPaneIds: [paneId])
+
+        // Act
+        let result = ActionResolver.resolve(command: .duplicatePane, tabs: [tab], activeTabId: tabId)
+
+        // Assert
+        #expect(result == .duplicatePane(tabId: tabId, paneId: PaneId(uuid: paneId), direction: .right))
+    }
+
+    @Test
+
+    func test_resolve_duplicatePane_noActivePane_returnsNil() {
+        // Arrange — tab with no activePaneId
+        let tabId = UUID()
+        let tab = MockTab(id: tabId, activePaneId: nil, allPaneIds: [UUID()])
+
+        // Act
+        let result = ActionResolver.resolve(command: .duplicatePane, tabs: [tab], activeTabId: tabId)
+
+        // Assert
+        #expect(result == nil)
     }
 
     // MARK: - resolve(command:) — Edge Cases

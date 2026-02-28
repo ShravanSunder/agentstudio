@@ -177,4 +177,34 @@ final class DropZoneTests {
         // Assert
         #expect(DropZone.allCases.count == 2)
     }
+
+    // MARK: - Overlay Geometry
+
+    @Test
+    func test_overlayRect_leftZone_anchorsToLeftEdge() {
+        // Arrange
+        let paneFrame = CGRect(x: 100, y: 40, width: 500, height: 300)
+
+        // Act
+        let overlayRect = DropZone.left.overlayRect(in: paneFrame)
+
+        // Assert
+        #expect(overlayRect.minX == 104)
+        #expect(overlayRect.minY == 44)
+        #expect(overlayRect.maxY == 336)
+    }
+
+    @Test
+    func test_overlayRect_rightZone_anchorsToRightEdge() {
+        // Arrange
+        let paneFrame = CGRect(x: 100, y: 40, width: 500, height: 300)
+
+        // Act
+        let overlayRect = DropZone.right.overlayRect(in: paneFrame)
+
+        // Assert
+        #expect(overlayRect.maxX == 596)
+        #expect(overlayRect.minY == 44)
+        #expect(overlayRect.maxY == 336)
+    }
 }

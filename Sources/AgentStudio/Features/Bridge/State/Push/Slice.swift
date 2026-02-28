@@ -46,6 +46,15 @@ struct Slice<State: Observable & AnyObject, Snapshot: Encodable & Equatable & Se
         self.capture = capture
     }
 
+    /// Encode cold payloads off MainActor on cooperative pool (Swift 6.2, SE-0461).
+    /// Preserves priority and task-locals that detached tasks would strip.
+    @concurrent
+    private static func encodeColdPayload(_ snapshot: Snapshot) async throws -> Data {
+        let coldEncoder = JSONEncoder()
+        coldEncoder.outputFormatting = .sortedKeys
+        return try coldEncoder.encode(snapshot)
+    }
+
     func erased<C: Clock & Sendable>(
         debounceClock: C = ContinuousClock()
     ) -> AnyPushSlice<State> where C.Duration == Duration {
@@ -74,16 +83,9 @@ struct Slice<State: Observable & AnyObject, Snapshot: Encodable & Equatable & Se
                     let data: Data
                     do {
                         if level == .cold {
-                            // swiftlint:disable no_task_detached
                             // Off-main cold snapshot encoding prevents large payload serialization
-                            // from blocking MainActor. Detached task is intentional: we need the
-                            // global executor. See CLAUDE.md "No Task.detached" rule.
-                            data = try await Task.detached(priority: .utility) {
-                                let coldEncoder = JSONEncoder()
-                                coldEncoder.outputFormatting = .sortedKeys
-                                return try coldEncoder.encode(snapshot)
-                            }.value
-                            // swiftlint:enable no_task_detached
+                            // from blocking MainActor. @concurrent runs on cooperative pool (SE-0461).
+                            data = try await Self.encodeColdPayload(snapshot)
                         } else {
                             data = try encoder.encode(snapshot)
                         }

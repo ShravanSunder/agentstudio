@@ -72,7 +72,7 @@ Each AppKit controller that hosts SwiftUI creates NSHostingView(s) **once** at s
 | NSHostingView | SwiftUI Root | Purpose |
 |---|---|---|
 | `tabBarHostingView` | `CustomTabBar` | Tab bar (top strip) |
-| `splitHostingView` | `ActiveTabContent` → `TerminalSplitContainer` | Main content area — renders active tab's split tree |
+| `splitHostingView` | `ActiveTabContent` → `TerminalSplitContainer` | Main content area — renders the active tab's split tree via `PaneLeafContainer` leaves |
 | `arrangementButtonHostingView` | `ArrangementFloatingButton` | Floating arrangement button |
 | _(pure AppKit)_ | `emptyStateView` | Empty state when no tabs exist |
 
@@ -105,6 +105,17 @@ AppDelegate
 
 See [Component Architecture — Service Layer](component_architecture.md#3-service-layer) for detailed descriptions of each service.
 
+### Split Drag Interaction Path
+
+Management-mode split insertion is coordinated at the tab container level:
+
+- `PaneLeafContainer` renders pane content and controls uniformly for all pane kinds.
+- `PaneFramePreferenceKey` reports pane frames in `tabContainer` coordinates.
+- `SplitContainerDropDelegate` resolves drag location using `PaneDragCoordinator` and submits validated drop actions through existing `PaneAction` flow.
+- `PaneDropTargetOverlay` renders the active destination marker from `PaneDropTarget` + `DropZone`.
+
+This keeps split targeting pane-type-agnostic (terminal/webview/bridge/future panes).
+
 ## Swift 6 Concurrency
 
 Swift 6.2 toolchain, `.swiftLanguageMode(.v6)`, macOS 26. Data-race safety is enforced — Sendable violations are compilation errors. Research via DeepWiki (`swiftlang/swift-evolution`) before guessing at concurrency patterns.
@@ -120,7 +131,7 @@ Swift 6.2 toolchain, `.swiftLanguageMode(.v6)`, macOS 26. Data-race safety is en
 
 **Don't:**
 
-- **No `Task.detached { }`** unless you specifically need the global executor. It does not inherit actor isolation.
+- **Prefer `@concurrent nonisolated` over `Task.detached { }`** (project policy) — `Task.detached` strips task priority and task-locals. `@concurrent nonisolated` helpers (Swift 6.2, SE-0461) preserve structured concurrency and priority inheritance. In `@MainActor` types, helpers must opt out of actor isolation (`nonisolated`) before using `@concurrent`; project convention is `static` helpers to avoid accidental `self` capture. Exception: `Task.detached` is still appropriate when you need to escape structured concurrency scope or intentionally strip task-locals.
 - **No `MainActor.assumeIsolated { }` in deinit** — use `isolated deinit` instead (SE-0414 makes `assumeIsolated` problematic with non-Sendable types). Note: `assumeIsolated` is valid in synchronous C callback trampolines where you can prove you're on MainActor but the compiler can't see it — this restriction is specifically about deinit.
 - **No plain `deinit` accessing non-Sendable `@MainActor` stored properties** — compilation error. Use `isolated deinit`.
 - **Prefer `isolated deinit` over `@MainActor deinit`** — both are valid (SE-0371 allows global actor annotations on deinit), but `isolated deinit` is more generic and works for any actor type.
@@ -205,6 +216,7 @@ Agents reviewing Swift concurrency code must not flag these as bugs:
 | SE-0388 | `AsyncStream.makeStream` | Factory returning `(stream, continuation)` tuple (Swift 5.9) |
 | SE-0420 | Isolation inheritance refinement | Clarified `@_inheritActorContext` semantics for Task/TaskGroup |
 | SE-0431 | `@isolated(any)` function types | Task.init uses `@isolated(any)` for correct executor enqueue |
+| SE-0461 | `@concurrent` / `nonisolated(nonsending)` | `nonisolated async` inherits caller isolation by default (Swift 6.2); use `@concurrent` to explicitly run on cooperative pool |
 
 ---
 

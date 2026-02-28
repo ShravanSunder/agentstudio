@@ -12,7 +12,7 @@ struct ActiveTabContent: View {
     let store: WorkspaceStore
     let viewRegistry: ViewRegistry
     let action: (PaneAction) -> Void
-    let shouldAcceptDrop: (UUID, DropZone) -> Bool
+    let shouldAcceptDrop: (SplitDropPayload, UUID, DropZone) -> Bool
     let onDrop: (SplitDropPayload, UUID, DropZone) -> Void
 
     var body: some View {

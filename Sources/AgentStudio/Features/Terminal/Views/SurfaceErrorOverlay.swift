@@ -56,11 +56,11 @@ struct SurfaceErrorOverlay: View {
     private func unhealthyView(reason: SurfaceHealth.UnhealthyReason) -> some View {
         VStack(spacing: 16) {
             Image(systemName: "exclamationmark.triangle.fill")
-                .font(.system(size: 48))
+                .font(.system(size: AppStyle.text5xl))
                 .foregroundColor(.orange)
 
             Text("Terminal Unhealthy")
-                .font(.title2.bold())
+                .font(.system(size: AppStyle.textXl, weight: .bold))
 
             Text(unhealthyMessage(for: reason))
                 .multilineTextAlignment(.center)
@@ -74,15 +74,15 @@ struct SurfaceErrorOverlay: View {
     private func processExitedView(exitCode: Int32?) -> some View {
         VStack(spacing: 16) {
             Image(systemName: "stop.circle.fill")
-                .font(.system(size: 48))
+                .font(.system(size: AppStyle.text5xl))
                 .foregroundColor(.gray)
 
             Text("Process Exited")
-                .font(.title2.bold())
+                .font(.system(size: AppStyle.textXl, weight: .bold))
 
             if let code = exitCode {
                 Text("Exit code: \(code)")
-                    .font(.system(.body, design: .monospaced))
+                    .font(.system(size: AppStyle.textBase, design: .monospaced))
                     .foregroundColor(.secondary)
             } else {
                 Text("The process has terminated.")
@@ -96,11 +96,11 @@ struct SurfaceErrorOverlay: View {
     private func deadView() -> some View {
         VStack(spacing: 16) {
             Image(systemName: "xmark.octagon.fill")
-                .font(.system(size: 48))
+                .font(.system(size: AppStyle.text5xl))
                 .foregroundColor(.red)
 
             Text("Terminal Error")
-                .font(.title2.bold())
+                .font(.system(size: AppStyle.textXl, weight: .bold))
 
             Text("The terminal has stopped responding. This may be due to a crash or resource exhaustion.")
                 .multilineTextAlignment(.center)

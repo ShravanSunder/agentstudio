@@ -23,6 +23,7 @@ enum AppCommand: String, CaseIterable {
     // Pane commands
     case closePane
     case extractPaneToTab
+    case movePaneToTab
     case splitRight, splitBelow, splitLeft, splitAbove
     case equalizePanes
     case focusPaneLeft, focusPaneRight, focusPaneUp, focusPaneDown
@@ -30,6 +31,7 @@ enum AppCommand: String, CaseIterable {
     case toggleSplitZoom
     case minimizePane
     case expandPane
+    case duplicatePane
 
     // Arrangement commands
     case switchArrangement
@@ -44,10 +46,12 @@ enum AppCommand: String, CaseIterable {
     case closeDrawerPane
 
     // Repo commands
-    case addRepo, removeRepo, refreshWorktrees
+    case addRepo, addFolder, removeRepo, refreshWorktrees
+    case openWorktree
+    case openWorktreeInPane
 
-    // Edit mode
-    case toggleEditMode
+    // Management mode
+    case toggleManagementMode
 
     // Workspace commands
     case toggleSidebar
@@ -199,7 +203,13 @@ final class CommandDispatcher {
 
     /// Check if a command can currently be executed
     func canDispatch(_ command: AppCommand) -> Bool {
-        handler?.canExecute(command) ?? false
+        if let definition = definitions[command],
+            definition.requiresManagementMode,
+            !ManagementModeMonitor.shared.isActive
+        {
+            return false
+        }
+        return handler?.canExecute(command) ?? false
     }
 
     // MARK: - Lookup
@@ -266,6 +276,13 @@ final class CommandDispatcher {
                 appliesTo: [.pane, .floatingTerminal]
             ),
             CommandDefinition(
+                command: .movePaneToTab,
+                label: "Move Pane to Tab",
+                icon: "arrow.left.and.right.square",
+                appliesTo: [.pane],
+                requiresManagementMode: true
+            ),
+            CommandDefinition(
                 command: .splitRight,
                 label: "Split Right",
                 icon: "rectangle.split.1x2",
@@ -327,6 +344,7 @@ final class CommandDispatcher {
                 icon: "arrow.up.left.and.arrow.down.right",
                 appliesTo: [.pane]
             ),
+            // Duplicate actions are intentionally hidden until behavior is implemented.
 
             // Arrangement commands
             CommandDefinition(
@@ -389,6 +407,12 @@ final class CommandDispatcher {
                 appliesTo: [.repo]
             ),
             CommandDefinition(
+                command: .addFolder,
+                keyBinding: KeyBinding(key: "O", modifiers: [.command, .shift, .option]),
+                label: "Add Folder",
+                icon: "folder.badge.questionmark"
+            ),
+            CommandDefinition(
                 command: .removeRepo,
                 label: "Remove Repo",
                 icon: "folder.badge.minus",
@@ -400,12 +424,24 @@ final class CommandDispatcher {
                 icon: "arrow.clockwise",
                 appliesTo: [.repo]
             ),
-
-            // Edit mode
             CommandDefinition(
-                command: .toggleEditMode,
+                command: .openWorktree,
+                label: "Open Worktree",
+                icon: "terminal",
+                appliesTo: [.worktree]
+            ),
+            CommandDefinition(
+                command: .openWorktreeInPane,
+                label: "Open Worktree in Pane",
+                icon: "rectangle.split.2x1",
+                appliesTo: [.worktree]
+            ),
+
+            // Management mode
+            CommandDefinition(
+                command: .toggleManagementMode,
                 keyBinding: KeyBinding(key: "e", modifiers: [.command]),
-                label: "Toggle Edit Mode",
+                label: "Toggle Management Mode",
                 icon: "rectangle.split.2x2"
             ),
 

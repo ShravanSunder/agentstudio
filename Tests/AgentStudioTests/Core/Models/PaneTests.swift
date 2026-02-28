@@ -52,6 +52,32 @@ final class PaneTests {
 
     @Test
 
+    func test_contentTypeMapping_bridgePanel_mapsToDiff() {
+        let pane = Pane(
+            content: .bridgePanel(
+                BridgePaneState(panelKind: .diffViewer, source: .commit(sha: "abc123"))
+            ),
+            metadata: PaneMetadata(source: .floating(workingDirectory: nil, title: nil), title: "Bridge Diff")
+        )
+
+        #expect(pane.metadata.contentType == .diff)
+    }
+
+    @Test
+
+    func test_contentTypeMapping_codeViewer_mapsToCodeViewer() {
+        let pane = Pane(
+            content: .codeViewer(
+                CodeViewerState(filePath: URL(fileURLWithPath: "/tmp/main.swift"), scrollToLine: 42)
+            ),
+            metadata: PaneMetadata(source: .floating(workingDirectory: nil, title: nil), title: "Code")
+        )
+
+        #expect(pane.metadata.contentType == .codeViewer)
+    }
+
+    @Test
+
     func test_provider_returnsSessionProvider_forTerminal() {
         let pane = makePane(provider: .ghostty)
         #expect(pane.provider == .ghostty)
@@ -237,11 +263,11 @@ final class PaneTests {
         #expect(decoded.residency == .backgrounded)
     }
 
-    // MARK: - Legacy Decoding
+    // MARK: - Strict Greenfield Decoding
 
     @Test
 
-    func test_legacyDecode_withoutKind_usesTopLevelDrawer() throws {
+    func test_decode_withoutKind_throws() throws {
         let drawerPaneId = UUID()
         let drawer = Drawer(
             paneIds: [drawerPaneId],
@@ -264,18 +290,14 @@ final class PaneTests {
         legacyObject["drawer"] = try JSONSerialization.jsonObject(with: encoder.encode(drawer))
 
         let legacyData = try JSONSerialization.data(withJSONObject: legacyObject)
-        let decoded = try decoder.decode(Pane.self, from: legacyData)
-
-        #expect(decoded.id == pane.id)
-        #expect((decoded.drawer) != nil)
-        #expect(decoded.drawer?.paneIds == [drawerPaneId])
-        #expect(decoded.drawer?.activePaneId == drawerPaneId)
-        #expect(decoded.drawer?.isExpanded ?? false)
+        #expect(throws: Error.self) {
+            try decoder.decode(Pane.self, from: legacyData)
+        }
     }
 
     @Test
 
-    func test_legacyDecode_withoutKindAndDrawer_defaultsEmptyDrawer() throws {
+    func test_decode_withoutKindAndDrawer_throws() throws {
         let pane = makePane(
             source: .floating(workingDirectory: nil, title: nil),
             title: "Legacy Empty Drawer",
@@ -291,12 +313,61 @@ final class PaneTests {
         legacyObject.removeValue(forKey: "drawer")
 
         let legacyData = try JSONSerialization.data(withJSONObject: legacyObject)
-        let decoded = try decoder.decode(Pane.self, from: legacyData)
+        #expect(throws: Error.self) {
+            try decoder.decode(Pane.self, from: legacyData)
+        }
+    }
 
-        #expect(decoded.id == pane.id)
-        #expect((decoded.drawer) != nil)
-        #expect(decoded.drawer?.paneIds.isEmpty ?? false)
-        #expect((decoded.drawer?.activePaneId) == nil)
+    @Test
+
+    func test_decode_withV4PaneId_throws() throws {
+        let pane = makePane(
+            source: .floating(workingDirectory: nil, title: nil),
+            title: "NonCanonicalId",
+            provider: .zmx
+        )
+        let currentData = try encoder.encode(pane)
+        guard var object = try JSONSerialization.jsonObject(with: currentData) as? [String: Any] else {
+            Issue.record("Expected pane JSON dictionary")
+            return
+        }
+        object["id"] = UUID().uuidString
+        let nonCanonicalData = try JSONSerialization.data(withJSONObject: object)
+
+        #expect(throws: Error.self) {
+            try decoder.decode(Pane.self, from: nonCanonicalData)
+        }
+    }
+
+    @Test
+
+    func test_decode_withMismatchedMetadataPaneId_throws() throws {
+        let pane = makePane(
+            source: .floating(workingDirectory: nil, title: nil),
+            title: "MismatchedMetadataId",
+            provider: .zmx
+        )
+        let currentData = try encoder.encode(pane)
+        guard var object = try JSONSerialization.jsonObject(with: currentData) as? [String: Any] else {
+            Issue.record("Expected pane JSON dictionary")
+            return
+        }
+        guard var metadata = object["metadata"] as? [String: Any] else {
+            Issue.record("Expected metadata dictionary")
+            return
+        }
+
+        var mismatchedPaneId = UUIDv7.generate()
+        while mismatchedPaneId == pane.id {
+            mismatchedPaneId = UUIDv7.generate()
+        }
+        metadata["paneId"] = mismatchedPaneId.uuidString
+        object["metadata"] = metadata
+
+        let mismatchedData = try JSONSerialization.data(withJSONObject: object)
+        #expect(throws: Error.self) {
+            try decoder.decode(Pane.self, from: mismatchedData)
+        }
     }
 
     // MARK: - PaneMetadata
@@ -338,9 +409,11 @@ final class PaneTests {
         let metadata = PaneMetadata(
             source: .floating(workingDirectory: URL(fileURLWithPath: "/tmp"), title: "Test"),
             title: "Tagged",
-            cwd: URL(fileURLWithPath: "/home/user"),
+            facets: PaneContextFacets(
+                cwd: URL(fileURLWithPath: "/home/user"),
+                tags: ["focus", "dev"]
+            ),
             agentType: .claude,
-            tags: ["focus", "dev"]
         )
 
         let encoder = JSONEncoder()
@@ -351,6 +424,26 @@ final class PaneTests {
         #expect(decoded.tags == ["focus", "dev"])
         #expect(decoded.agentType == .claude)
         #expect(decoded.cwd == URL(fileURLWithPath: "/home/user"))
+    }
+
+    @Test
+
+    func test_metadata_decode_missingCanonicalFields_throws() throws {
+        let metadata = PaneMetadata(
+            source: .floating(workingDirectory: URL(fileURLWithPath: "/tmp"), title: "Test"),
+            title: "Canonical"
+        )
+        let data = try JSONEncoder().encode(metadata)
+        guard var object = try JSONSerialization.jsonObject(with: data) as? [String: Any] else {
+            Issue.record("Expected metadata JSON dictionary")
+            return
+        }
+        object.removeValue(forKey: "contentType")
+        let invalidData = try JSONSerialization.data(withJSONObject: object)
+
+        #expect(throws: Error.self) {
+            try JSONDecoder().decode(PaneMetadata.self, from: invalidData)
+        }
     }
 
     // MARK: - DrawerChild Pane
