@@ -62,7 +62,7 @@ enum FilesystemEvent: Sendable {
 
 struct FileChangeset: Sendable {
     let worktreeId: WorktreeId
-    let paths: Set<String>
+    let paths: [String]
     let timestamp: ContinuousClock.Instant
     let batchSeq: UInt64
 }

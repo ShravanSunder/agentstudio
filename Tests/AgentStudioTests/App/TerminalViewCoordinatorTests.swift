@@ -115,6 +115,43 @@ struct PaneCoordinatorViewFactoryTests {
         #expect(viewRegistry.registeredPaneIds == Set<UUID>())
     }
 
+    @Test("createViewForContent registers runtime for bridge, webview, and code viewer panes")
+    func createViewForContent_registersNonTerminalRuntimes() {
+        let harness = makeHarness()
+        let coordinator = harness.coordinator
+        let tempDir = harness.tempDir
+        defer { try? FileManager.default.removeItem(at: tempDir) }
+
+        let webviewPane = Pane(
+            id: UUIDv7.generate(),
+            content: .webview(WebviewState(url: URL(string: "https://example.com/runtime-web")!)),
+            metadata: PaneMetadata(source: .floating(workingDirectory: nil, title: "Web"))
+        )
+        let bridgePane = Pane(
+            id: UUIDv7.generate(),
+            content: .bridgePanel(BridgePaneState(panelKind: .diffViewer, source: .commit(sha: "def456"))),
+            metadata: PaneMetadata(source: .floating(workingDirectory: nil, title: "Diff"))
+        )
+        let fileURL = FileManager.default.temporaryDirectory
+            .appending(path: "code-view-runtime-\(UUID().uuidString).swift")
+        try? "struct Runtime {}\n".write(to: fileURL, atomically: true, encoding: .utf8)
+        defer { try? FileManager.default.removeItem(at: fileURL) }
+        let codeViewerPane = Pane(
+            id: UUIDv7.generate(),
+            content: .codeViewer(CodeViewerState(filePath: fileURL, scrollToLine: 1)),
+            metadata: PaneMetadata(
+                source: .floating(workingDirectory: fileURL.deletingLastPathComponent(), title: "Code"))
+        )
+
+        _ = coordinator.createViewForContent(pane: webviewPane)
+        _ = coordinator.createViewForContent(pane: bridgePane)
+        _ = coordinator.createViewForContent(pane: codeViewerPane)
+
+        #expect(coordinator.runtimeForPane(PaneId(uuid: webviewPane.id)) is WebviewRuntime)
+        #expect(coordinator.runtimeForPane(PaneId(uuid: bridgePane.id)) is BridgeRuntime)
+        #expect(coordinator.runtimeForPane(PaneId(uuid: codeViewerPane.id)) is SwiftPaneRuntime)
+    }
+
     @Test("createViewForContent returns nil for unsupported pane content")
     func createViewForContent_unsupportedContentReturnsNil() {
         let harness = makeHarness()

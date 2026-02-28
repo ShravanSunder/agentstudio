@@ -238,9 +238,9 @@ struct ViewRegistryTests {
     @Test("allWebviewViews returns only webview panes")
     func allWebviewViews_returnsOnlyWebviewViewsInRegistry() {
         let registry = ViewRegistry()
-        let terminalPaneId = UUID()
-        let webviewPaneId = UUID()
-        let normalPaneId = UUID()
+        let terminalPaneId = UUIDv7.generate()
+        let webviewPaneId = UUIDv7.generate()
+        let normalPaneId = UUIDv7.generate()
 
         registry.register(PaneView(paneId: terminalPaneId), for: terminalPaneId)
         registry.register(

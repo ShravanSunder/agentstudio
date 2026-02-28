@@ -33,7 +33,7 @@ struct WebviewPaneControllerTests {
 
     private func makeController() -> WebviewPaneController {
         WebviewPaneController(
-            paneId: UUID(),
+            paneId: UUIDv7.generate(),
             state: WebviewState(url: URL(string: "https://example.com")!)
         )
     }
@@ -46,7 +46,7 @@ struct WebviewPaneControllerTests {
         let state = WebviewState(url: URL(string: "https://github.com")!, title: "GitHub")
 
         // Act
-        let controller = WebviewPaneController(paneId: UUID(), state: state)
+        let controller = WebviewPaneController(paneId: UUIDv7.generate(), state: state)
 
         // Assert
         #expect(controller.showNavigation)
@@ -60,7 +60,7 @@ struct WebviewPaneControllerTests {
         let state = WebviewState(url: URL(string: "about:blank")!)
 
         // Act
-        let controller = WebviewPaneController(paneId: UUID(), state: state)
+        let controller = WebviewPaneController(paneId: UUIDv7.generate(), state: state)
 
         // Assert — page exists but url is nil (nothing loaded)
         #expect(controller.url == nil)
@@ -72,7 +72,7 @@ struct WebviewPaneControllerTests {
         let state = WebviewState(url: URL(string: "https://example.com")!, showNavigation: false)
 
         // Act
-        let controller = WebviewPaneController(paneId: UUID(), state: state)
+        let controller = WebviewPaneController(paneId: UUIDv7.generate(), state: state)
 
         // Assert
         #expect(!controller.showNavigation)
@@ -97,7 +97,7 @@ struct WebviewPaneControllerTests {
     func test_snapshot_aboutBlank_fallback() {
         // Arrange — controller with about:blank (nothing loaded → url is nil)
         let controller = WebviewPaneController(
-            paneId: UUID(),
+            paneId: UUIDv7.generate(),
             state: WebviewState(url: URL(string: "about:blank")!)
         )
 
@@ -160,7 +160,7 @@ struct WebviewPaneControllerTests {
         // Arrange
         await setManagementMode(active: false)
         let paneView = WebviewPaneView(
-            paneId: UUID(),
+            paneId: UUIDv7.generate(),
             state: WebviewState(url: URL(string: "about:blank")!)
         )
         _ = paneView.swiftUIContainer
@@ -186,7 +186,7 @@ struct WebviewPaneControllerTests {
     func test_webviewPaneView_resizesHostingViewToBounds() {
         // Arrange
         let paneView = WebviewPaneView(
-            paneId: UUID(),
+            paneId: UUIDv7.generate(),
             state: WebviewState(url: URL(string: "about:blank")!)
         )
         let targetSize = NSSize(width: 920, height: 620)

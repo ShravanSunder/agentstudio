@@ -341,6 +341,8 @@ extension PaneCoordinator {
         case .repair(let repairAction):
             executeRepair(repairAction)
         }
+
+        syncFilesystemRootsAndActivity()
     }
     // swiftlint:enable cyclomatic_complexity function_body_length
 

@@ -12,6 +12,7 @@ final class WebviewPaneController {
     // MARK: - State
 
     let paneId: UUID
+    let runtime: WebviewRuntime
     private(set) var page: WebPage
     var showNavigation: Bool
     var isFindPresented: Bool = false
@@ -48,6 +49,15 @@ final class WebviewPaneController {
 
     init(paneId: UUID, state: WebviewState) {
         self.paneId = paneId
+        let runtimePaneId = PaneId(uuid: paneId)
+        let runtimeMetadata = Self.makeDefaultRuntimeMetadata(
+            paneId: runtimePaneId,
+            state: state
+        )
+        self.runtime = WebviewRuntime(
+            paneId: runtimePaneId,
+            metadata: runtimeMetadata
+        )
         self.showNavigation = state.showNavigation
         let blockInteraction = ManagementModeMonitor.shared.isActive
         let initialManagementScript = WebInteractionManagementScript.makeUserScript(
@@ -66,6 +76,8 @@ final class WebviewPaneController {
             navigationDecider: WebviewNavigationDecider(),
             dialogPresenter: WebviewDialogHandler()
         )
+        runtime.commandHandler = self
+        runtime.transitionToReady()
         if state.url.scheme != "about" {
             _ = page.load(state.url)
         }
@@ -171,6 +183,12 @@ final class WebviewPaneController {
         let displayTitle = page.title.isEmpty ? (url.host() ?? "Web") : page.title
         URLHistoryService.shared.record(url: url, title: displayTitle)
         onTitleChange?(displayTitle)
+        runtime.ingestBrowserEvent(
+            .navigationCompleted(url: url, statusCode: nil)
+        )
+        runtime.ingestBrowserEvent(
+            .pageLoaded(url: url)
+        )
     }
 
     // MARK: - URL Normalization
@@ -184,5 +202,34 @@ final class WebviewPaneController {
             return "http://\(trimmed)"
         }
         return "https://\(trimmed)"
+    }
+
+    private static func makeDefaultRuntimeMetadata(
+        paneId: PaneId,
+        state: WebviewState
+    ) -> PaneMetadata {
+        let title = state.title.isEmpty ? "Web" : state.title
+        return PaneMetadata(
+            paneId: paneId,
+            contentType: .browser,
+            source: .floating(workingDirectory: nil, title: title),
+            title: title
+        )
+    }
+}
+
+extension WebviewPaneController: WebviewRuntimeCommandHandling {
+    func handleBrowserCommand(_ command: BrowserCommand) -> Bool {
+        switch command {
+        case .navigate(let url):
+            _ = page.load(url)
+            return true
+        case .reload:
+            _ = page.reload()
+            return true
+        case .stop:
+            page.stopLoading()
+            return true
+        }
     }
 }

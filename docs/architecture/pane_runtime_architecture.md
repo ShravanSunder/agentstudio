@@ -113,7 +113,7 @@ RUNTIMES (per-pane, registered in RuntimeRegistry):
 
 **Why not three planes (control/state/data):** Separate streams create an ordering hazard: if control events ("diff generated") and state events ("diff pane loaded") travel on separate streams, a late-joining consumer can observe inconsistent state — seeing a loaded diff without knowing which terminal produced it. Single stream with per-source ordering eliminates this within a pane. Cross-source ordering relies on timestamps — sufficient for UI rendering and workflow matching, not for strict causal ordering.
 
-**Cross-source workflow example:** Terminal agent finishes (`source: .pane(agentA)`, `GhosttyEvent.commandFinished`) → filesystem watcher detects changes (`source: .worktree(wt1)`, `FilesystemEvent.filesChanged`) → coordinator creates diff pane. These events come from different sources, so `seq` is independent. The coordinator uses `correlationId` to link the workflow chain and `timestamp` to order them. This is sufficient: the coordinator doesn't need strict causal ordering — it only needs "commandFinished happened, then files changed" which timestamps guarantee within clock precision.
+**Cross-source workflow example:** Terminal agent finishes (`source: .pane(agentA)`, `GhosttyEvent.commandFinished`) → filesystem watcher detects changes (`source: .system(.builtin(.filesystemWatcher))` with `sourceFacets.worktreeId = wt1`, `FilesystemEvent.filesChanged`) → coordinator creates diff pane. These events come from different sources, so `seq` is independent. The coordinator uses `correlationId` to link the workflow chain and `timestamp` to order them. This is sufficient: the coordinator doesn't need strict causal ordering — it only needs "commandFinished happened, then files changed" which timestamps guarantee within clock precision.
 
 **Clarification:** `@Observable` state for UI binding remains separate from the event stream. Terminal views bind directly to `runtime.searchState` or `runtime.scrollbarState` via `@Observable`. The event stream carries coordination events only — things the workspace or other panes need to react to.
 
@@ -256,7 +256,7 @@ The filesystem watcher is the first system-level source to implement. It's a pre
 - One watcher per worktree. Multiple panes sharing a worktree share one watcher.
 - Uses `AsyncStream` continuation for event delivery — same pattern as pane runtimes.
 - Independent `seq` counter per watcher instance (Invariant A4).
-- `FileChangeset.worktreeId` is a denormalized copy of `envelope.source` for convenience — envelope is authoritative (Contract 3, Invariant A1).
+- `FileChangeset.worktreeId` is a denormalized copy of `envelope.sourceFacets.worktreeId` for convenience — envelope source + facets are authoritative (Contract 3, Invariant A1).
 - Debounce uses injectable `Clock<Duration>` for testability (Swift 6 Invariant #5).
 
 #### Git Forge Service Pattern (future, plugin-provided)
@@ -923,7 +923,7 @@ enum EventIdentifier: Hashable, Sendable, CustomStringConvertible {
 ///   PANE-SCOPED: terminal, browser, diff, editor, plugin
 ///     (envelope.source = .pane(id))
 ///   CROSS-CUTTING: lifecycle, filesystem, artifact, security, error
-///     (envelope.source = .worktree(id) or .system(...))
+///     (envelope.source = .system(...) for system producers, .pane(...) for pane producers)
 enum PaneRuntimeEvent: Sendable {
     // ── Lifecycle — all pane types ──────────────────────
     case lifecycle(PaneLifecycleEvent)
@@ -974,10 +974,12 @@ extension PaneRuntimeEvent {
 ///   WORKSPACE-SCOPED: envelope.source = .system(.builtin(.coordinator))
 ///     Tab switch. The activeTabId IS domain data (which tab), not routing.
 ///
-///   WORKTREE-SCOPED: envelope.source = .worktree(id)
-///     Filesystem changes, security events. No worktreeId in event cases.
-///     Exception: FileChangeset.worktreeId is a DENORMALIZED COPY of
-///     envelope.source for convenience — envelope.source is authoritative.
+///   FILESYSTEM-SCOPED: envelope.source = .system(.builtin(.filesystemWatcher))
+///     Routing worktree identity is carried in sourceFacets.worktreeId.
+///     FileChangeset.worktreeId is a DENORMALIZED COPY for convenience.
+///
+///   SECURITY-SCOPED: envelope.source = .system(.builtin(.securityBackend))
+///     Security events are system-produced; pane/worktree association lives in facets.
 ///
 ///   AGENT-SCOPED: envelope.source = .pane(agentPaneId)
 ///     Artifact events. The producing agent is routing identity.
@@ -1013,8 +1015,8 @@ enum AttachError: Error, Sendable {
     case timeout
 }
 
-/// Filesystem events. envelope.source = .worktree(id) — routing identity.
-/// No worktreeId in event payloads (it's on the envelope).
+/// Filesystem events. envelope.source = .system(.builtin(.filesystemWatcher)).
+/// Routing worktree identity lives in sourceFacets.worktreeId.
 enum FilesystemEvent: Sendable {
     case filesChanged(changeset: FileChangeset)
     case gitStatusChanged(summary: GitStatusSummary)
@@ -1034,8 +1036,8 @@ enum ArtifactEvent: Sendable {
 // Deferred (not in current implementation): prCreated(prUrl: String)
 
 /// Security events from execution backends (Gondolin, Docker, etc.).
-/// envelope.source = .worktree(id) — one sandbox may back multiple panes.
-/// No worktreeId in event payloads (it's on the envelope).
+/// envelope.source = .system(.builtin(.securityBackend)).
+/// Routing worktree/pane association is carried by sourceFacets.
 /// All cases are critical priority (user must know immediately).
 enum SecurityEvent: Sendable {
     // Policy enforcement
@@ -1080,7 +1082,7 @@ enum RuntimeErrorEvent: Error, Sendable {
 ///
 /// ROUTING IDENTITY LIVES HERE — not in event payloads.
 /// Pane-scoped events: source = .pane(id), paneKind = .terminal/.browser/etc.
-/// Cross-cutting events: source = .worktree(id) or .system(...), paneKind = nil.
+/// Cross-cutting events: source is system or pane producer identity, paneKind = nil.
 ///
 /// Priority is NOT cached on the envelope. The event self-classifies via
 /// event.actionPolicy (PaneKindEvent protocol). NotificationReducer reads
@@ -1163,7 +1165,8 @@ Additional routing kinds (`.editor`, `.review`, `.agent`) are reserved for futur
 2. Monotonicity: `seq` is strictly increasing per `EventSource`. Gaps are allowed only due to bounded replay eviction.
 3. Source/payload compatibility:
 - Pane-scoped payloads (`.terminal`, `.browser`, `.diff`, `.editor`, `.plugin`) require `source = .pane(id)`.
-- Filesystem and security payloads require `source = .worktree(id)` or explicit system producer.
+- Filesystem payloads require `source = .system(.builtin(.filesystemWatcher))` and `sourceFacets.worktreeId`.
+- Security payloads require `source = .system(.builtin(.securityBackend))`.
 - Workspace lifecycle events that are not pane-scoped require `source = .system(.builtin(.coordinator))`.
 - Typed service events require `source = .system(.service(...))` with provider identity.
 - Plugin system events require `source = .system(.plugin(kind))`.
@@ -1492,7 +1495,7 @@ struct OrphanCleanupPolicy: Sendable {
 
 ### Contract 6: Filesystem Batching
 
-> **Role:** Source. Produces `FilesystemEvent` on the coordination stream with `source = .worktree(id)`. One watcher instance per worktree — shared across all panes in that worktree. Contract 16 is a projection of this source.
+> **Role:** Source. Produces `FilesystemEvent` on the coordination stream with `source = .system(.builtin(.filesystemWatcher))` and `sourceFacets.worktreeId = <watcher worktree>`. One watcher instance per worktree — shared across all panes in that worktree. Contract 16 is a projection of this source.
 
 ```swift
 /// Worktree-scoped filesystem observation contract.
@@ -1521,17 +1524,17 @@ struct OrphanCleanupPolicy: Sendable {
 
 /// Standalone data structure — may be serialized/stored independently.
 /// worktreeId denormalized here for self-documenting data. Canonical
-/// source is envelope.source = .worktree(id).
+/// source identity is envelope.source + envelope.sourceFacets.
 /// IDENTITY vs DOMAIN DATA clarification:
 ///
-/// FileChangeset.worktreeId is a DENORMALIZED COPY of envelope.source's
-/// WorktreeId. It exists for convenience — consumers can access worktreeId
-/// without unwrapping the envelope. Routing decisions use envelope.source;
+/// FileChangeset.worktreeId is a DENORMALIZED COPY of envelope.sourceFacets.worktreeId.
+/// It exists for convenience — consumers can access worktreeId
+/// without unwrapping facets. Routing decisions use envelope.source + facets;
 /// this field is a read-through copy, not a separate source of truth.
 ///
 /// Same pattern as ArtifactEvent.diffProduced(worktreeId:) — worktreeId
 /// in the payload is DOMAIN DATA ("which worktree this changeset covers"),
-/// while envelope.source = .worktree(id) is ROUTING IDENTITY.
+/// while envelope source + facets carry ROUTING IDENTITY.
 ///
 /// In practice, FileChangeset.worktreeId == envelope.source.worktreeId
 /// always. If they ever diverge, envelope.source is authoritative.
@@ -2933,7 +2936,7 @@ Structural guarantees that hold across all contracts. Each invariant is enforced
 
 ### Event Scoping
 
-**A15. Source/payload compatibility is a contract invariant.** Pane-scoped payloads (`.terminal`, `.browser`, `.diff`, `.editor`, `.plugin`) require `source = .pane(id)`. Filesystem/security payloads require `source = .worktree(id)`. Workspace lifecycle events not pane-scoped require `source = .system(.builtin(.coordinator))`. Typed service events require `source = .system(.service(...))` with provider identity. Plugin system events require `source = .system(.plugin(kind))`. Invalid combinations are contract violations — runtime emits `RuntimeErrorEvent` rather than silently misrouting.
+**A15. Source/payload compatibility is a contract invariant.** Pane-scoped payloads (`.terminal`, `.browser`, `.diff`, `.editor`, `.plugin`) require `source = .pane(id)`. Filesystem payloads require `source = .system(.builtin(.filesystemWatcher))` and `sourceFacets.worktreeId`. Security payloads require `source = .system(.builtin(.securityBackend))`. Workspace lifecycle events not pane-scoped require `source = .system(.builtin(.coordinator))`. Typed service events require `source = .system(.service(...))` with provider identity. Plugin system events require `source = .system(.plugin(kind))`. Invalid combinations are contract violations — runtime emits `RuntimeErrorEvent` rather than silently misrouting.
 
 *Enforced by:* Envelope invariant #3 and #4 (Contract 3). Validated at envelope creation in runtime.
 

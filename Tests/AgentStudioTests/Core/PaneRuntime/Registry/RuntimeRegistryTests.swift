@@ -75,6 +75,26 @@ struct RuntimeRegistryTests {
 
         #expect(registry.findPaneWithWorktree(worktreeId: UUID()) == nil)
     }
+
+    @Test("runtimes(ofType:) tracks non-terminal runtime kinds")
+    func runtimesByNonTerminalKinds() {
+        let registry = RuntimeRegistry()
+        let webviewRuntime = TestPaneRuntime(paneId: PaneId(), contentType: .browser)
+        let bridgeRuntime = TestPaneRuntime(paneId: PaneId(), contentType: .diff)
+        let codeViewerRuntime = TestPaneRuntime(paneId: PaneId(), contentType: .codeViewer)
+        registry.register(webviewRuntime)
+        registry.register(bridgeRuntime)
+        registry.register(codeViewerRuntime)
+
+        let browserPaneIds = Set(registry.runtimes(ofType: .browser).map(\.paneId))
+        let diffPaneIds = Set(registry.runtimes(ofType: .diff).map(\.paneId))
+        let codeViewerPaneIds = Set(registry.runtimes(ofType: .codeViewer).map(\.paneId))
+
+        #expect(browserPaneIds == [webviewRuntime.paneId])
+        #expect(diffPaneIds == [bridgeRuntime.paneId])
+        #expect(codeViewerPaneIds == [codeViewerRuntime.paneId])
+        #expect(registry.runtimes(ofType: .terminal).isEmpty)
+    }
 }
 
 @MainActor

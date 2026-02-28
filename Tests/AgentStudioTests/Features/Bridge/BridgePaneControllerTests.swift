@@ -54,7 +54,7 @@ extension WebKitSerializedTests {
 
         private func makeController() -> BridgePaneController {
             BridgePaneController(
-                paneId: UUID(),
+                paneId: UUIDv7.generate(),
                 state: BridgePaneState(panelKind: .diffViewer, source: nil)
             )
         }

@@ -835,16 +835,26 @@ private final class FakePaneRuntime: PaneRuntime {
     let paneId: PaneId
     var metadata: PaneMetadata
     var lifecycle: PaneRuntimeLifecycle = .ready
-    var capabilities: Set<PaneCapability> = [.input]
+    var capabilities: Set<PaneCapability>
     private let stream: AsyncStream<PaneEventEnvelope>
     private let continuation: AsyncStream<PaneEventEnvelope>.Continuation
 
     private(set) var receivedCommands: [RuntimeCommandEnvelope] = []
     private(set) var receivedCommandIds: [UUID] = []
 
-    init(paneId: PaneId) {
+    init(
+        paneId: PaneId,
+        contentType: PaneContentType = .terminal,
+        capabilities: Set<PaneCapability> = [.input]
+    ) {
         self.paneId = paneId
-        self.metadata = PaneMetadata(source: .floating(workingDirectory: nil, title: "Fake"), title: "Fake")
+        self.metadata = PaneMetadata(
+            paneId: paneId,
+            contentType: contentType,
+            source: .floating(workingDirectory: nil, title: "Fake"),
+            title: "Fake"
+        )
+        self.capabilities = capabilities
         let (stream, continuation) = AsyncStream.makeStream(of: PaneEventEnvelope.self)
         self.stream = stream
         self.continuation = continuation
