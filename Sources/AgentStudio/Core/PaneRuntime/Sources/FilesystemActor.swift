@@ -8,18 +8,15 @@ import os
 actor FilesystemActor {
     private static let logger = Logger(subsystem: "com.agentstudio", category: "FilesystemActor")
     static let maxPathsPerFilesChangedEvent = 256
-    static let shared = FilesystemActor()
 
     private struct RootState: Sendable {
         let rootPath: URL
         let canonicalRootPath: String
         var isActiveInApp: Bool
         var nextBatchSeq: UInt64
-        var lastKnownBranch: String?
     }
 
     private let bus: EventBus<PaneEventEnvelope>
-    private let gitStatusProvider: any GitStatusProvider
     private let fseventStreamClient: any FSEventStreamClient
     private let envelopeClock = ContinuousClock()
 
@@ -33,12 +30,9 @@ actor FilesystemActor {
 
     init(
         bus: EventBus<PaneEventEnvelope> = PaneRuntimeEventBus.shared,
-        clock _: any Clock<Duration> = ContinuousClock(),
-        gitStatusProvider: any GitStatusProvider = ShellGitStatusProvider(),
         fseventStreamClient: any FSEventStreamClient = NoopFSEventStreamClient()
     ) {
         self.bus = bus
-        self.gitStatusProvider = gitStatusProvider
         self.fseventStreamClient = fseventStreamClient
     }
 
@@ -60,20 +54,30 @@ actor FilesystemActor {
             rootPath: rootPath,
             canonicalRootPath: canonicalRootPath,
             isActiveInApp: existing?.isActiveInApp ?? false,
-            nextBatchSeq: existing?.nextBatchSeq ?? 0,
-            lastKnownBranch: existing?.lastKnownBranch
+            nextBatchSeq: existing?.nextBatchSeq ?? 0
         )
         pendingRelativePathsByWorktreeId[worktreeId] = pendingRelativePathsByWorktreeId[worktreeId] ?? []
         await fseventStreamClient.register(worktreeId: worktreeId, rootPath: rootPath)
+        await emitFilesystemEvent(
+            worktreeId: worktreeId,
+            timestamp: envelopeClock.now,
+            event: .worktreeRegistered(worktreeId: worktreeId, rootPath: rootPath)
+        )
     }
 
     func unregister(worktreeId: UUID) async {
-        roots.removeValue(forKey: worktreeId)
+        let hadRoot = roots.removeValue(forKey: worktreeId) != nil
         pendingRelativePathsByWorktreeId.removeValue(forKey: worktreeId)
         if activePaneWorktreeId == worktreeId {
             activePaneWorktreeId = nil
         }
         await fseventStreamClient.unregister(worktreeId: worktreeId)
+        guard hadRoot else { return }
+        await emitFilesystemEvent(
+            worktreeId: worktreeId,
+            timestamp: envelopeClock.now,
+            event: .worktreeUnregistered(worktreeId: worktreeId)
+        )
     }
 
     /// Test seam for deterministic ingress without OS-level FSEvents.
@@ -232,39 +236,6 @@ actor FilesystemActor {
             )
         }
         roots[worktreeId] = root
-
-        guard let statusSnapshot = await gitStatusProvider.status(for: root.rootPath) else {
-            return
-        }
-        guard var currentRoot = roots[worktreeId] else {
-            return
-        }
-
-        await emitFilesystemEvent(
-            worktreeId: worktreeId,
-            timestamp: envelopeClock.now,
-            event: .gitSnapshotChanged(
-                snapshot: GitWorkingTreeSnapshot(
-                    worktreeId: worktreeId,
-                    rootPath: root.rootPath,
-                    summary: statusSnapshot.summary,
-                    branch: statusSnapshot.branch
-                )
-            )
-        )
-
-        if let previousBranch = currentRoot.lastKnownBranch,
-            let nextBranch = statusSnapshot.branch,
-            previousBranch != nextBranch
-        {
-            await emitFilesystemEvent(
-                worktreeId: worktreeId,
-                timestamp: envelopeClock.now,
-                event: .branchChanged(from: previousBranch, to: nextBranch)
-            )
-        }
-        currentRoot.lastKnownBranch = statusSnapshot.branch
-        roots[worktreeId] = currentRoot
     }
 
     nonisolated private static func chunkPaths(

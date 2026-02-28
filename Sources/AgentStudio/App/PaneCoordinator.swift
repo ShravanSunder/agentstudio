@@ -87,7 +87,7 @@ final class PaneCoordinator {
         runtimeRegistry: RuntimeRegistry,
         paneEventBus: EventBus<PaneEventEnvelope> = PaneRuntimeEventBus.shared,
         runtimeCommandClock: ContinuousClock = ContinuousClock(),
-        filesystemSource: any PaneCoordinatorFilesystemSourceManaging = FilesystemActor.shared,
+        filesystemSource: any PaneCoordinatorFilesystemSourceManaging = FilesystemActor(),
         paneFilesystemProjectionStore: PaneFilesystemProjectionStore = .shared,
         workspaceGitStatusStore: WorkspaceGitStatusStore = .shared
     ) {

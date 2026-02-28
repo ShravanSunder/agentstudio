@@ -37,10 +37,7 @@ extension E2ESerializedTests {
             store.setActiveTab(tab.id)
 
             let paneEventBus = EventBus<PaneEventEnvelope>()
-            let filesystemSource = FilesystemActor(
-                bus: paneEventBus,
-                gitStatusProvider: ShellGitStatusProvider(processExecutor: DefaultProcessExecutor(timeout: 5))
-            )
+            let filesystemSource = FilesystemActor(bus: paneEventBus)
             let paneProjectionStore = PaneFilesystemProjectionStore()
             let workspaceGitStatusStore = WorkspaceGitStatusStore()
 

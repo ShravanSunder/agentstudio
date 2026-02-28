@@ -5,13 +5,61 @@ import Testing
 
 @Suite("FilesystemActor")
 struct FilesystemActorTests {
+    @Test("register emits worktreeRegistered fact")
+    func registerEmitsWorktreeRegisteredFact() async throws {
+        let bus = EventBus<PaneEventEnvelope>()
+        let actor = FilesystemActor(bus: bus)
+
+        let stream = await bus.subscribe()
+        var iterator = stream.makeAsyncIterator()
+
+        let worktreeId = UUID()
+        let rootPath = URL(fileURLWithPath: "/tmp/register-\(UUID().uuidString)")
+        await actor.register(worktreeId: worktreeId, rootPath: rootPath)
+
+        let envelope = try #require(await iterator.next())
+        guard case .filesystem(.worktreeRegistered(let registeredWorktreeId, let registeredRootPath)) = envelope.event else {
+            Issue.record("Expected worktreeRegistered filesystem event")
+            return
+        }
+
+        #expect(registeredWorktreeId == worktreeId)
+        #expect(registeredRootPath == rootPath)
+        #expect(envelope.sourceFacets.worktreeId == worktreeId)
+
+        await actor.shutdown()
+    }
+
+    @Test("unregister emits worktreeUnregistered fact")
+    func unregisterEmitsWorktreeUnregisteredFact() async throws {
+        let bus = EventBus<PaneEventEnvelope>()
+        let actor = FilesystemActor(bus: bus)
+
+        let stream = await bus.subscribe()
+        var iterator = stream.makeAsyncIterator()
+
+        let worktreeId = UUID()
+        let rootPath = URL(fileURLWithPath: "/tmp/unregister-\(UUID().uuidString)")
+        await actor.register(worktreeId: worktreeId, rootPath: rootPath)
+        _ = try #require(await iterator.next()) // worktreeRegistered
+
+        await actor.unregister(worktreeId: worktreeId)
+        let envelope = try #require(await iterator.next())
+        guard case .filesystem(.worktreeUnregistered(let unregisteredWorktreeId)) = envelope.event else {
+            Issue.record("Expected worktreeUnregistered filesystem event")
+            return
+        }
+
+        #expect(unregisteredWorktreeId == worktreeId)
+        #expect(envelope.sourceFacets.worktreeId == worktreeId)
+
+        await actor.shutdown()
+    }
+
     @Test("deepest ownership dedupes nested roots")
     func deepestOwnershipDedupesNestedRoots() async throws {
         let bus = EventBus<PaneEventEnvelope>()
-        let actor = FilesystemActor(
-            bus: bus,
-            gitStatusProvider: StubGitStatusProvider()
-        )
+        let actor = FilesystemActor(bus: bus)
 
         let parentId = UUID()
         let childId = UUID()
@@ -37,10 +85,7 @@ struct FilesystemActorTests {
     @Test("nested root routing emits one owner event per path without duplication")
     func nestedRootRoutingEmitsSingleOwnerPerPath() async throws {
         let bus = EventBus<PaneEventEnvelope>()
-        let actor = FilesystemActor(
-            bus: bus,
-            gitStatusProvider: StubGitStatusProvider()
-        )
+        let actor = FilesystemActor(bus: bus)
 
         let parentId = UUID()
         let childId = UUID()
@@ -71,10 +116,7 @@ struct FilesystemActorTests {
     @Test("active-in-app priority order beats sidebar-only")
     func activeInAppPriorityWinsQueueOrder() async throws {
         let bus = EventBus<PaneEventEnvelope>()
-        let actor = FilesystemActor(
-            bus: bus,
-            gitStatusProvider: StubGitStatusProvider()
-        )
+        let actor = FilesystemActor(bus: bus)
 
         let sidebarOnlyWorktreeId = UUID()
         let activeWorktreeId = UUID()
@@ -100,10 +142,7 @@ struct FilesystemActorTests {
     @Test("priority ordering is focused active pane, then active in app, then sidebar-only")
     func priorityOrderingFocusedThenActiveThenSidebar() async throws {
         let bus = EventBus<PaneEventEnvelope>()
-        let actor = FilesystemActor(
-            bus: bus,
-            gitStatusProvider: StubGitStatusProvider()
-        )
+        let actor = FilesystemActor(bus: bus)
 
         let basePath = "/tmp/priority-\(UUID().uuidString)"
         let sidebarWorktreeId = UUID()
@@ -146,10 +185,7 @@ struct FilesystemActorTests {
     @Test("filesChanged envelope source and facets contract")
     func filesChangedSourceFacetContract() async throws {
         let bus = EventBus<PaneEventEnvelope>()
-        let actor = FilesystemActor(
-            bus: bus,
-            gitStatusProvider: StubGitStatusProvider()
-        )
+        let actor = FilesystemActor(bus: bus)
 
         let worktreeId = UUID()
         await actor.register(worktreeId: worktreeId, rootPath: URL(fileURLWithPath: "/tmp/contract"))
@@ -173,10 +209,7 @@ struct FilesystemActorTests {
     @Test("large path bursts split into fixed-size ordered filesChanged batches")
     func largeBurstSplitsIntoBoundedSortedBatches() async throws {
         let bus = EventBus<PaneEventEnvelope>()
-        let actor = FilesystemActor(
-            bus: bus,
-            gitStatusProvider: StubGitStatusProvider()
-        )
+        let actor = FilesystemActor(bus: bus)
 
         let worktreeId = UUID()
         await actor.register(worktreeId: worktreeId, rootPath: URL(fileURLWithPath: "/tmp/large-batch"))
