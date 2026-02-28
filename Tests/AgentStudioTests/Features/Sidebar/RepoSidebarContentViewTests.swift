@@ -74,7 +74,14 @@ struct RepoSidebarContentViewTests {
             makeFilesystemEnvelope(
                 seq: 1,
                 worktreeId: worktreeId,
-                event: .gitStatusChanged(summary: GitStatusSummary(changed: 2, staged: 1, untracked: 0))
+                event: .gitSnapshotChanged(
+                    snapshot: GitWorkingTreeSnapshot(
+                        worktreeId: worktreeId,
+                        rootPath: URL(fileURLWithPath: "/tmp/repo-\(UUID().uuidString)"),
+                        summary: GitStatusSummary(changed: 2, staged: 1, untracked: 0),
+                        branch: "main"
+                    )
+                )
             )
         )
         gitStatusStore.consume(

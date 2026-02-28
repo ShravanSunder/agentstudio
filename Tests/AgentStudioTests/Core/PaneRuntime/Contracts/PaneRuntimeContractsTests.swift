@@ -101,6 +101,7 @@ struct PaneRuntimeContractsTests {
                 .filesChanged(
                     changeset: FileChangeset(
                         worktreeId: worktreeId,
+                        rootPath: URL(fileURLWithPath: "/tmp/worktree-\(UUID().uuidString)"),
                         paths: ["README.md"],
                         timestamp: now,
                         batchSeq: 1

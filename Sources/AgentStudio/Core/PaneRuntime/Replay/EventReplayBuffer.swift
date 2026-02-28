@@ -263,10 +263,14 @@ final class EventReplayBuffer {
 
     private static func estimateSize(of event: FilesystemEvent) -> Int {
         switch event {
+        case .worktreeRegistered(_, let rootPath):
+            return 40 + rootPath.path.utf8.count
+        case .worktreeUnregistered:
+            return 24
         case .filesChanged(let changeset):
             return 48 + changeset.paths.reduce(0) { partial, path in partial + path.utf8.count }
-        case .gitStatusChanged:
-            return 40
+        case .gitSnapshotChanged(let snapshot):
+            return 56 + snapshot.rootPath.path.utf8.count + (snapshot.branch?.utf8.count ?? 0)
         case .diffAvailable:
             return 32
         case .branchChanged(let from, let to):

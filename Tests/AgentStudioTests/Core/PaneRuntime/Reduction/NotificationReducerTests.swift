@@ -130,6 +130,7 @@ struct NotificationReducerTests {
                     .filesChanged(
                         changeset: FileChangeset(
                             worktreeId: worktreeId,
+                            rootPath: URL(fileURLWithPath: "/tmp/worktree-\(UUID().uuidString)"),
                             paths: ["Sources/AgentStudio/App/PaneCoordinator.swift"],
                             timestamp: ContinuousClock().now,
                             batchSeq: 7

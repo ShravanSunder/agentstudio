@@ -192,6 +192,7 @@ struct PaneFilesystemProjectionStoreTests {
                 .filesChanged(
                     changeset: FileChangeset(
                         worktreeId: worktreeId,
+                        rootPath: URL(fileURLWithPath: "/tmp/worktree-\(UUID().uuidString)"),
                         paths: paths,
                         timestamp: ContinuousClock().now,
                         batchSeq: seq

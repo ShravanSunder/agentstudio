@@ -34,11 +34,12 @@ final class WorkspaceGitStatusStore {
         guard envelope.seq >= snapshot.lastSequence else { return }
 
         switch filesystemEvent {
-        case .gitStatusChanged(let summary):
-            snapshot.summary = summary
+        case .gitSnapshotChanged(let gitSnapshot):
+            snapshot.summary = gitSnapshot.summary
+            snapshot.branch = gitSnapshot.branch
         case .branchChanged(_, let nextBranch):
             snapshot.branch = nextBranch
-        case .filesChanged, .diffAvailable:
+        case .worktreeRegistered, .worktreeUnregistered, .filesChanged, .diffAvailable:
             return
         }
 
@@ -62,9 +63,17 @@ final class WorkspaceGitStatusStore {
         if let worktreeId = envelope.sourceFacets.worktreeId {
             return worktreeId
         }
-        if case .filesChanged(let changeset) = filesystemEvent {
+        switch filesystemEvent {
+        case .worktreeRegistered(let worktreeId, _):
+            return worktreeId
+        case .worktreeUnregistered(let worktreeId):
+            return worktreeId
+        case .filesChanged(let changeset):
             return changeset.worktreeId
+        case .gitSnapshotChanged(let snapshot):
+            return snapshot.worktreeId
+        case .diffAvailable, .branchChanged:
+            return nil
         }
-        return nil
     }
 }

@@ -6,16 +6,24 @@ import Testing
 @MainActor
 @Suite("WorkspaceGitStatusStore")
 struct WorkspaceGitStatusStoreTests {
-    @Test("git status + branch events merge into one worktree snapshot")
-    func mergesStatusAndBranchEvents() {
+    @Test("git snapshot + branch events merge into one worktree snapshot")
+    func mergesSnapshotAndBranchEvents() {
         let store = WorkspaceGitStatusStore()
         let worktreeId = UUID()
+        let rootPath = URL(fileURLWithPath: "/tmp/worktree-\(UUID().uuidString)")
 
         store.consume(
             makeFilesystemEnvelope(
                 seq: 1,
                 worktreeId: worktreeId,
-                event: .gitStatusChanged(summary: GitStatusSummary(changed: 2, staged: 1, untracked: 3))
+                event: .gitSnapshotChanged(
+                    snapshot: GitWorkingTreeSnapshot(
+                        worktreeId: worktreeId,
+                        rootPath: rootPath,
+                        summary: GitStatusSummary(changed: 2, staged: 1, untracked: 3),
+                        branch: "main"
+                    )
+                )
             )
         )
 
@@ -55,7 +63,14 @@ struct WorkspaceGitStatusStoreTests {
             makeFilesystemEnvelope(
                 seq: 4,
                 worktreeId: worktreeId,
-                event: .gitStatusChanged(summary: GitStatusSummary(changed: 9, staged: 9, untracked: 9))
+                event: .gitSnapshotChanged(
+                    snapshot: GitWorkingTreeSnapshot(
+                        worktreeId: worktreeId,
+                        rootPath: URL(fileURLWithPath: "/tmp/worktree-\(UUID().uuidString)"),
+                        summary: GitStatusSummary(changed: 9, staged: 9, untracked: 9),
+                        branch: "feature/new"
+                    )
+                )
             )
         )
 
@@ -79,14 +94,28 @@ struct WorkspaceGitStatusStoreTests {
             makeFilesystemEnvelope(
                 seq: 1,
                 worktreeId: keepWorktreeId,
-                event: .gitStatusChanged(summary: GitStatusSummary(changed: 1, staged: 0, untracked: 0))
+                event: .gitSnapshotChanged(
+                    snapshot: GitWorkingTreeSnapshot(
+                        worktreeId: keepWorktreeId,
+                        rootPath: URL(fileURLWithPath: "/tmp/worktree-\(UUID().uuidString)"),
+                        summary: GitStatusSummary(changed: 1, staged: 0, untracked: 0),
+                        branch: "main"
+                    )
+                )
             )
         )
         store.consume(
             makeFilesystemEnvelope(
                 seq: 2,
                 worktreeId: dropWorktreeId,
-                event: .gitStatusChanged(summary: GitStatusSummary(changed: 0, staged: 1, untracked: 0))
+                event: .gitSnapshotChanged(
+                    snapshot: GitWorkingTreeSnapshot(
+                        worktreeId: dropWorktreeId,
+                        rootPath: URL(fileURLWithPath: "/tmp/worktree-\(UUID().uuidString)"),
+                        summary: GitStatusSummary(changed: 0, staged: 1, untracked: 0),
+                        branch: "feature/drop"
+                    )
+                )
             )
         )
 

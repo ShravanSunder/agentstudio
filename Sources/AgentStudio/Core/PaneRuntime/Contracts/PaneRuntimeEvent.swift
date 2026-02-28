@@ -54,14 +54,17 @@ enum AttachError: Error, Sendable, Equatable {
 }
 
 enum FilesystemEvent: Sendable {
+    case worktreeRegistered(worktreeId: UUID, rootPath: URL)
+    case worktreeUnregistered(worktreeId: UUID)
     case filesChanged(changeset: FileChangeset)
-    case gitStatusChanged(summary: GitStatusSummary)
+    case gitSnapshotChanged(snapshot: GitWorkingTreeSnapshot)
     case diffAvailable(diffId: UUID)
     case branchChanged(from: String, to: String)
 }
 
 struct FileChangeset: Sendable {
     let worktreeId: WorktreeId
+    let rootPath: URL
     let paths: [String]
     let timestamp: ContinuousClock.Instant
     let batchSeq: UInt64
@@ -71,6 +74,13 @@ struct GitStatusSummary: Sendable {
     let changed: Int
     let staged: Int
     let untracked: Int
+}
+
+struct GitWorkingTreeSnapshot: Sendable {
+    let worktreeId: UUID
+    let rootPath: URL
+    let summary: GitStatusSummary
+    let branch: String?
 }
 
 enum ArtifactEvent: Sendable {

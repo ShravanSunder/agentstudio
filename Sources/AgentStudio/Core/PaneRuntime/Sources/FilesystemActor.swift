@@ -219,6 +219,7 @@ actor FilesystemActor {
             let timestamp = envelopeClock.now
             let changeset = FileChangeset(
                 worktreeId: worktreeId,
+                rootPath: root.rootPath,
                 paths: pathChunk,
                 timestamp: timestamp,
                 batchSeq: batchSeq
@@ -242,7 +243,14 @@ actor FilesystemActor {
         await emitFilesystemEvent(
             worktreeId: worktreeId,
             timestamp: envelopeClock.now,
-            event: .gitStatusChanged(summary: statusSnapshot.summary)
+            event: .gitSnapshotChanged(
+                snapshot: GitWorkingTreeSnapshot(
+                    worktreeId: worktreeId,
+                    rootPath: root.rootPath,
+                    summary: statusSnapshot.summary,
+                    branch: statusSnapshot.branch
+                )
+            )
         )
 
         if let previousBranch = currentRoot.lastKnownBranch,
