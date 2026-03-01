@@ -2,7 +2,7 @@
 
 <!-- REQUIRED: Every PR must close or reference an issue. PRs without a linked issue will not be merged. -->
 
-Closes #
+Closes #<!-- REQUIRED: Add the issue number here. e.g., Closes #123 -->
 
 **User pain point / why this matters:**
 
