@@ -13,17 +13,24 @@
 ## Architecture References (Authoritative)
 
 - [Pane Runtime Architecture - Three Data Flow Planes](../architecture/pane_runtime_architecture.md#three-data-flow-planes)
-- [Pane Runtime Architecture - Contract 3: PaneEventEnvelope](../architecture/pane_runtime_architecture.md#contract-3-paneeventenvelope)
+- [Pane Runtime Architecture - Contract 3: Event Envelope](../architecture/pane_runtime_architecture.md#contract-3-event-envelope) (current `PaneEventEnvelope` + target `RuntimeEnvelope`)
+- [Pane Runtime Architecture - Envelope Invariants](../architecture/pane_runtime_architecture.md#envelope-invariants-normative)
 - [Pane Runtime Architecture - Contract 6: Filesystem Batching](../architecture/pane_runtime_architecture.md#contract-6-filesystem-batching)
 - [Pane Runtime Architecture - Contract 14: Replay Buffer](../architecture/pane_runtime_architecture.md#contract-14-replay-buffer)
 - [Pane Runtime Architecture - Event Scoping Invariants](../architecture/pane_runtime_architecture.md#event-scoping)
+- [Pane Runtime Architecture - Architectural Invariants (A10: Replay)](../architecture/pane_runtime_architecture.md#replay--recovery)
 - [Pane Runtime EventBus Design - The Multiplexing Rule](../architecture/pane_runtime_eventbus_design.md#the-multiplexing-rule)
 - [Pane Runtime EventBus Design - Bus Enrichment Rule](../architecture/pane_runtime_eventbus_design.md#bus-enrichment-rule)
+- [Pane Runtime EventBus Design - Actor Inventory](../architecture/pane_runtime_eventbus_design.md#actor-inventory)
+- [Pane Runtime EventBus Design - Threading Model](../architecture/pane_runtime_eventbus_design.md#threading-model)
 - [Workspace Data Architecture - Three Persistence Tiers](../architecture/workspace_data_architecture.md#three-persistence-tiers)
 - [Workspace Data Architecture - Enrichment Pipeline](../architecture/workspace_data_architecture.md#enrichment-pipeline)
 - [Workspace Data Architecture - Event Namespaces](../architecture/workspace_data_architecture.md#event-namespaces)
 - [Workspace Data Architecture - Ordering, Replay, and Idempotency](../architecture/workspace_data_architecture.md#ordering-replay-and-idempotency)
 - [Workspace Data Architecture - Direct Store Mutation Callsites (12 total)](../architecture/workspace_data_architecture.md#direct-store-mutation-callsites-12-total)
+- [Workspace Data Architecture - Migration from Current Models](../architecture/workspace_data_architecture.md#migration-from-current-models)
+- [Workspace Data Architecture - Sidebar Data Flow](../architecture/workspace_data_architecture.md#sidebar-data-flow)
+- [Component Architecture - Section 2.2: Contamination Table](../architecture/component_architecture.md#22-repo--worktree)
 
 ---
 
@@ -85,7 +92,7 @@ enum RuntimeEnvelope: Sendable {
 }
 ```
 
-Add concrete structs (`SystemEnvelope`, `WorktreeEnvelope`, `PaneEnvelope`) with required/optional fields from [Workspace Data Architecture - Event Namespaces](../architecture/workspace_data_architecture.md#event-namespaces) and [Pane Runtime Architecture - Contract 3: PaneEventEnvelope](../architecture/pane_runtime_architecture.md#contract-3-paneeventenvelope).
+Add concrete structs (`SystemEnvelope`, `WorktreeEnvelope`, `PaneEnvelope`) with required/optional fields from [Workspace Data Architecture - Event Namespaces](../architecture/workspace_data_architecture.md#event-namespaces) and [Pane Runtime Architecture - Contract 3: Event Envelope](../architecture/pane_runtime_architecture.md#contract-3-event-envelope). Include base fields on all tiers: `eventId`, `source`, `seq`, `timestamp`, `schemaVersion`, plus optional `correlationId`, `causationId`, `commandId`.
 
 **Step 4: Run test to verify it passes**
 
@@ -539,40 +546,47 @@ git commit -m "test(integration): verify sequential enrichment and cache/sidebar
 
 ### Task 11: Architecture Docs Final Sync (Single Source of Truth)
 
+> **Pre-work completed:** The following doc alignment was done during the LUNA-350 design session (before implementation begins):
+> - Contract 3 updated from `PaneEventEnvelope` to `Event Envelope` with both current and target `RuntimeEnvelope` models including `eventId`/`causationId`
+> - Bus Enrichment Rule rewritten to show 3-actor pipeline (FilesystemActor → GitWorkingDirectoryProjector → ForgeActor)
+> - Threading table updated: FilesystemActor description corrected, GitWorkingDirectoryProjector row added
+> - Coordinator subscription scope fixed to `RuntimeEnvelope` (system + worktree tiers)
+> - Replay buffer constant aligned to 256 events per source (A10 matched to workspace_data_architecture.md)
+> - Envelope invariants expanded for 3-tier model with per-tier scope rules
+> - Contamination table expanded to all 18 fields in component_architecture.md
+> - Cross-references made bidirectional across all architecture docs
+
 **Files:**
 - Modify: `docs/architecture/pane_runtime_architecture.md`
 - Modify: `docs/architecture/pane_runtime_eventbus_design.md`
 - Modify: `docs/architecture/workspace_data_architecture.md`
+- Modify: `docs/architecture/component_architecture.md`
 
-**Step 1: Write failing consistency check (scriptless)**
+**Step 1: Run consistency check for remaining stale references**
 
-Run: `rg -n "EventBus<PaneEventEnvelope>|FilesystemActor.*git status|SUBSCRIBES TO: ALL WorktreeEnvelope events" docs/architecture/*.md`
-Expected: stale matches present before doc sync.
+Run: `rg -n “EventBus<PaneEventEnvelope>|FilesystemActor.*git status|SUBSCRIBES TO: ALL WorktreeEnvelope events” docs/architecture/*.md`
+Expected: zero stale matches (pre-work should have eliminated these).
 
-**Step 2: Update docs**
+**Step 2: Verify code samples match implemented types**
 
-- Make `RuntimeEnvelope` schema canonical in [Contract 3](../architecture/pane_runtime_architecture.md#contract-3-paneeventenvelope).
-- Remove stale “filesystem does git enrichment” wording in [EventBus Design](../architecture/pane_runtime_eventbus_design.md#bus-enrichment-rule).
-- Align coordinator subscription scope to `RuntimeEnvelope` (system + worktree tiers) per [Workspace Data Architecture - Enrichment Pipeline](../architecture/workspace_data_architecture.md#enrichment-pipeline).
-- Align replay constants and references across [Workspace Data Architecture - Ordering, Replay, and Idempotency](../architecture/workspace_data_architecture.md#ordering-replay-and-idempotency) and [Contract 14](../architecture/pane_runtime_architecture.md#contract-14-replay-buffer).
+After Tasks 1-3 land new Swift types, update any code samples in architecture docs that show old type names or missing fields. Focus on:
+- Contract 3 “Current” section — should match the actual `PaneEventEnvelope.swift`
+- Contract 3 “Target” section — should match the actual `RuntimeEnvelope.swift`
+- EventBus design actor inventory — should match actual actor files
 
-**Step 3: Re-run consistency check**
+**Step 3: Run markdown sanity check**
 
-Run: same `rg` command from Step 1.
-Expected: zero stale matches.
-
-**Step 4: Run markdown sanity check**
-
-Run: `rg -n "TODO\\(LUNA-350\\)|TBD|NEEDS SPEC" docs/architecture/*.md docs/plans/*.md`
+Run: `rg -n “TODO\\(LUNA-350\\)|TBD|NEEDS SPEC” docs/architecture/*.md docs/plans/*.md`
 Expected: no unresolved placeholders for this scope.
 
-**Step 5: Commit**
+**Step 4: Commit**
 
 ```bash
 git add docs/architecture/pane_runtime_architecture.md \
   docs/architecture/pane_runtime_eventbus_design.md \
-  docs/architecture/workspace_data_architecture.md
-git commit -m "docs(architecture): align runtime envelope and workspace pipeline contracts"
+  docs/architecture/workspace_data_architecture.md \
+  docs/architecture/component_architecture.md
+git commit -m “docs(architecture): final sync after runtime envelope implementation”
 ```
 
 ### Task 12: Full Verification Gate
