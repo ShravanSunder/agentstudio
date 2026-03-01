@@ -49,6 +49,16 @@ final class WorkspaceStoreOrphanPoolTests {
         #expect(!(store.orphanedPanes.contains { $0.id == pane2.id }))
     }
 
+    @Test
+
+    func test_orphanedPanes_includesOrphanedResidency() {
+        let (_, pane) = createTabWithPane()
+        store.backgroundPane(pane.id)
+        store.setResidency(.orphaned(reason: .worktreeNotFound(path: "/tmp/missing")), for: pane.id)
+
+        #expect(store.orphanedPanes.contains { $0.id == pane.id })
+    }
+
     // MARK: - backgroundPane
 
     @Test

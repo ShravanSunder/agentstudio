@@ -47,7 +47,7 @@ actor EventBus<Envelope: Sendable> {
     }
 
     func subscribe(
-        bufferingPolicy: AsyncStream<Envelope>.Continuation.BufferingPolicy = .unbounded
+        bufferingPolicy: AsyncStream<Envelope>.Continuation.BufferingPolicy = .bufferingNewest(256)
     ) -> AsyncStream<Envelope> {
         let subscriberID = UUID()
         let replaySnapshot = replaySnapshot()

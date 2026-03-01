@@ -25,6 +25,11 @@
 - Sidebar grouping/filtering now runs through `SidebarRepo` (canonical identity + worktree payload) and `SidebarFilterableRepository`; sidebar no longer types repo collections as `[Repo]`.
 - Discovery mutation API has been renamed to `reconcileDiscoveredWorktrees` to align with event-driven topology reconciliation (and remove stale `updateRepoWorktrees` callsites).
 - Architecture docs are synced for the RuntimeEnvelope cutover in key normative sections (`pane_runtime_architecture.md`, `pane_runtime_eventbus_design.md`, `component_architecture.md`), and Task 11 stale-reference grep is clean.
+- Repo lifecycle now preserves canonical identity on filesystem removal: `repoRemoved` marks repos unavailable, orphans pane residency, prunes cache enrichment, and supports explicit re-association with UUID-preserving worktree reconciliation.
+- Startup now follows an explicit 10-step boot sequence contract (`WorkspaceBootSequence`) that is wired in `AppDelegate` and covered by `AppBootSequenceTests`.
+- Canonical persistence is hard-cut over in `workspace.state.json`: `PersistableState` stores `CanonicalRepo[]` + `CanonicalWorktree[]`, with `WorkspaceStore` handling canonical<->runtime projection.
+- Legacy-state migration is now covered: loading pre-split `workspace.state.json` (`repos: [Repo]` with inline worktrees) projects into canonical repos/worktrees without data loss.
+- Reassociation lifecycle hardening is in place: same-path rediscovery clears orphaned residency, non-layout panes restore as `.backgrounded`, and `pendingUndo` panes are not overwritten during repo removal.
 
 ---
 
@@ -1192,13 +1197,13 @@ git commit -m "chore(luna-350): final verification pass and contract cleanup"
 - [x] `NotificationReducer` handles `.system` envelopes with tested behavior (no silent discard).
 
 **Model & Persistence:**
-- [ ] `Repo`/`Worktree` structs split into canonical + enrichment tiers (no contamination).
+- [x] `Repo`/`Worktree` structs split into canonical + enrichment tiers (no contamination).
 - [x] Persistence writes to three files: `workspace.state.json`, `workspace.cache.json`, `workspace.ui.json`.
 - [x] `WorkspaceCacheCoordinator` is sole event-driven mutator for canonical/cache split.
 
 **Production Pipeline:**
 - [x] Concrete `DarwinFSEventStreamClient` wired in production composition root (no more `NoopFSEventStreamClient` in production).
-- [ ] Boot sequence follows the 10-step order from architecture spec.
+- [x] Boot sequence follows the 10-step order from architecture spec.
 - [x] `repoWorktreesDidChangeHook` removed; filesystem sync driven by bus topology events.
 
 **Sidebar & Consumers:**
@@ -1207,7 +1212,7 @@ git commit -m "chore(luna-350): final verification pass and contract cleanup"
 - [x] `DynamicViewProjector` reads from canonical + enrichment models, not contaminated `Repo`.
 
 **Lifecycle:**
-- [ ] Repo-move/orphan/relink lifecycle works with stable UUID identity semantics.
+- [x] Repo-move/orphan/relink lifecycle works with stable UUID identity semantics.
 
 **Quality Gate:**
 - [x] `mise run format`, `mise run lint`, and `mise run test` all pass.

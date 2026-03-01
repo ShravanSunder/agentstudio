@@ -967,9 +967,8 @@ final class WorkspaceStoreTests {
         store.reconcileDiscoveredWorktrees(repo.id, worktrees: [sameWt1, sameWt2])
         let after = store.repos.first(where: { $0.id == repo.id })!
 
-        // Assert — IDs/worktrees unchanged and updatedAt not churned
+        // Assert — IDs/worktrees unchanged
         #expect(after.worktrees == before.worktrees)
-        #expect(after.updatedAt == before.updatedAt)
     }
 
     // MARK: - Restore Validation

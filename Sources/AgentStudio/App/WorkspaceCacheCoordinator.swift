@@ -8,16 +8,19 @@ final class WorkspaceCacheCoordinator {
     private let bus: EventBus<RuntimeEnvelope>
     private let workspaceStore: WorkspaceStore
     private let cacheStore: WorkspaceCacheStore
+    private let scopeSyncHandler: (@Sendable (ScopeChange) async -> Void)?
     private var consumeTask: Task<Void, Never>?
 
     init(
         bus: EventBus<RuntimeEnvelope> = PaneRuntimeEventBus.shared,
         workspaceStore: WorkspaceStore,
-        cacheStore: WorkspaceCacheStore
+        cacheStore: WorkspaceCacheStore,
+        scopeSyncHandler: (@Sendable (ScopeChange) async -> Void)? = nil
     ) {
         self.bus = bus
         self.workspaceStore = workspaceStore
         self.cacheStore = cacheStore
+        self.scopeSyncHandler = scopeSyncHandler
     }
 
     deinit {
@@ -60,11 +63,28 @@ final class WorkspaceCacheCoordinator {
             let exists = workspaceStore.repos.contains { $0.repoPath == repoPath }
             if !exists {
                 _ = workspaceStore.addRepo(at: repoPath)
+            } else if let repo = workspaceStore.repos.first(where: { $0.repoPath == repoPath }) {
+                if workspaceStore.isRepoUnavailable(repo.id) {
+                    _ = workspaceStore.reassociateRepo(
+                        repo.id,
+                        to: repoPath,
+                        discoveredWorktrees: repo.worktrees
+                    )
+                }
             }
         case .repoRemoved(let repoPath):
             if let repo = workspaceStore.repos.first(where: { $0.repoPath == repoPath }) {
-                workspaceStore.removeRepo(repo.id)
+                workspaceStore.markRepoUnavailable(repo.id)
+                let orphanedPaneIds = workspaceStore.orphanPanesForRepo(repo.id)
+                if !orphanedPaneIds.isEmpty {
+                    Self.logger.info(
+                        "Repo removed at path=\(repoPath.path, privacy: .public); orphaned \(orphanedPaneIds.count, privacy: .public) pane(s)"
+                    )
+                }
                 cacheStore.removeRepo(repo.id)
+                Task { [weak self] in
+                    await self?.syncScope(.unregisterForgeRepo(repoId: repo.id))
+                }
             }
         case .worktreeRegistered(let worktreeId, let repoId, let rootPath):
             guard let repo = workspaceStore.repos.first(where: { $0.id == repoId }) else {
@@ -107,16 +127,33 @@ final class WorkspaceCacheCoordinator {
                 )
                 cacheStore.setWorktreeEnrichment(enrichment)
             case .branchChanged(let worktreeId, let repoId, _, let to):
-                let enrichment = WorktreeEnrichment(
-                    worktreeId: worktreeId,
-                    repoId: repoId,
-                    branch: to
-                )
+                var enrichment =
+                    cacheStore.worktreeEnrichmentByWorktreeId[worktreeId]
+                    ?? WorktreeEnrichment(
+                        worktreeId: worktreeId,
+                        repoId: repoId,
+                        branch: to
+                    )
+                enrichment.branch = to
+                enrichment.updatedAt = Date()
                 cacheStore.setWorktreeEnrichment(enrichment)
+                Task { [weak self] in
+                    await self?.syncScope(
+                        .refreshForgeRepo(repoId: repoId, correlationId: envelope.correlationId)
+                    )
+                }
             case .originChanged(let repoId, _, let to):
                 var existing = cacheStore.repoEnrichmentByRepoId[repoId] ?? RepoEnrichment(repoId: repoId)
                 existing.origin = to
                 cacheStore.setRepoEnrichment(existing)
+                Task { [weak self] in
+                    guard let self else { return }
+                    if to.isEmpty {
+                        await self.syncScope(.unregisterForgeRepo(repoId: repoId))
+                    } else {
+                        await self.syncScope(.registerForgeRepo(repoId: repoId, remote: to))
+                    }
+                }
             case .worktreeDiscovered, .worktreeRemoved, .diffAvailable:
                 break
             }
@@ -129,8 +166,18 @@ final class WorkspaceCacheCoordinator {
                         cacheStore.setPullRequestCount(count, for: worktreeId)
                     }
                 }
-            case .refreshFailed, .checksUpdated, .rateLimited:
-                break
+            case .refreshFailed(let repoId, let error):
+                Self.logger.error(
+                    "Forge refresh failed for repoId=\(repoId.uuidString, privacy: .public): \(error, privacy: .public)"
+                )
+            case .checksUpdated(let repoId, let status):
+                Self.logger.debug(
+                    "Forge checks updated for repoId=\(repoId.uuidString, privacy: .public) status=\(status.rawValue, privacy: .public)"
+                )
+            case .rateLimited(let repoId, let retryAfterSeconds):
+                Self.logger.warning(
+                    "Forge provider rate limited for repoId=\(repoId.uuidString, privacy: .public); retryAfterSeconds=\(retryAfterSeconds, privacy: .public)"
+                )
             }
         case .filesystem, .security:
             break
@@ -138,14 +185,43 @@ final class WorkspaceCacheCoordinator {
     }
 
     func syncScope(_ change: ScopeChange) async {
-        _ = change
-        // Scope synchronization is wired when FilesystemActor/ForgeActor orchestration lands.
+        guard let scopeSyncHandler else {
+            Self.logger.warning(
+                "Scope change dropped because no sync handler is configured: \(String(describing: change), privacy: .public)"
+            )
+            return
+        }
+        await scopeSyncHandler(change)
+    }
+
+    @discardableResult
+    func reassociateRepo(
+        repoId: UUID,
+        to newPath: URL,
+        discoveredWorktrees: [Worktree]
+    ) -> Bool {
+        let updated = workspaceStore.reassociateRepo(repoId, to: newPath, discoveredWorktrees: discoveredWorktrees)
+        guard updated else { return false }
+        return true
     }
 }
 
 enum ScopeChange: Sendable {
-    case repoDiscovered(repoId: UUID)
-    case repoRemoved(repoId: UUID)
-    case worktreeRegistered(worktreeId: UUID)
-    case worktreeUnregistered(worktreeId: UUID)
+    case registerForgeRepo(repoId: UUID, remote: String)
+    case unregisterForgeRepo(repoId: UUID)
+    case refreshForgeRepo(repoId: UUID, correlationId: UUID?)
+}
+
+extension ScopeChange: CustomStringConvertible {
+    var description: String {
+        switch self {
+        case .registerForgeRepo(let repoId, let remote):
+            return "registerForgeRepo(repoId: \(repoId.uuidString), remote: \(remote))"
+        case .unregisterForgeRepo(let repoId):
+            return "unregisterForgeRepo(repoId: \(repoId.uuidString))"
+        case .refreshForgeRepo(let repoId, let correlationId):
+            return
+                "refreshForgeRepo(repoId: \(repoId.uuidString), correlationId: \(correlationId?.uuidString ?? "nil"))"
+        }
+    }
 }

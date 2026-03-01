@@ -383,7 +383,7 @@ struct SidebarContentView: View {
                                     requestWorktreeRefresh()
                                 },
                                 onRemove: {
-                                    store.removeRepo(repo.id)
+                                    postAppEvent(.removeRepoRequested(repoId: repo.id))
                                 }
                             )
                         }

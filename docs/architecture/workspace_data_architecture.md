@@ -456,7 +456,7 @@ All follow the same anti-pattern: `WorktrunkService.shared.discoverWorktrees(for
 
 ## Prerequisite: FSEvents Noop
 
-Both `FilesystemActor` and `FilesystemGitPipeline` default to `NoopFSEventStreamClient` (log `TODO(LUNA-349)`). The subscription and transformation logic exists — only the real FSEvents source is missing. This is the prerequisite for the entire enrichment pipeline.
+`FilesystemActor` and `FilesystemGitPipeline` now use concrete `DarwinFSEventStreamClient` wiring in production composition. The prerequisite is closed and the enrichment pipeline can consume real filesystem ingress.
 
 ---
 

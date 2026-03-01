@@ -12,7 +12,7 @@ final class FilesystemGitPipeline: PaneCoordinatorFilesystemSourceManaging, Send
     init(
         bus: EventBus<RuntimeEnvelope> = PaneRuntimeEventBus.shared,
         gitWorkingTreeProvider: any GitWorkingTreeStatusProvider = ShellGitWorkingTreeStatusProvider(),
-        forgeStatusProvider: any ForgeStatusProvider = NoopForgeStatusProvider(),
+        forgeStatusProvider: any ForgeStatusProvider = GitHubCLIForgeStatusProvider(),
         fseventStreamClient: any FSEventStreamClient = DarwinFSEventStreamClient(),
         gitCoalescingWindow: Duration = .milliseconds(200)
     ) {
@@ -27,12 +27,26 @@ final class FilesystemGitPipeline: PaneCoordinatorFilesystemSourceManaging, Send
         )
         self.forgeActor = ForgeActor(
             bus: bus,
-            statusProvider: forgeStatusProvider
+            statusProvider: forgeStatusProvider,
+            providerName: "github"
         )
     }
 
     func start() async {
+        await startFilesystemActor()
+        await startGitProjector()
+        await startForgeActor()
+    }
+
+    func startFilesystemActor() async {
+        await filesystemActor.start()
+    }
+
+    func startGitProjector() async {
         await gitWorkingDirectoryProjector.start()
+    }
+
+    func startForgeActor() async {
         await forgeActor.start()
     }
 
@@ -44,8 +58,8 @@ final class FilesystemGitPipeline: PaneCoordinatorFilesystemSourceManaging, Send
 
     func register(worktreeId: UUID, repoId: UUID, rootPath: URL) async {
         // Ensure projector subscription is active before lifecycle facts are posted.
-        await gitWorkingDirectoryProjector.start()
-        await forgeActor.start()
+        await startGitProjector()
+        await startForgeActor()
         await filesystemActor.register(worktreeId: worktreeId, repoId: repoId, rootPath: rootPath)
     }
 
@@ -63,5 +77,16 @@ final class FilesystemGitPipeline: PaneCoordinatorFilesystemSourceManaging, Send
 
     func enqueueRawPathsForTesting(worktreeId: UUID, paths: [String]) async {
         await filesystemActor.enqueueRawPaths(worktreeId: worktreeId, paths: paths)
+    }
+
+    func applyScopeChange(_ change: ScopeChange) async {
+        switch change {
+        case .registerForgeRepo(let repoId, let remote):
+            await forgeActor.register(repo: repoId, remote: remote)
+        case .unregisterForgeRepo(let repoId):
+            await forgeActor.unregister(repo: repoId)
+        case .refreshForgeRepo(let repoId, let correlationId):
+            await forgeActor.refresh(repo: repoId, correlationId: correlationId)
+        }
     }
 }

@@ -106,8 +106,21 @@ final class PaneRuntimeEventChannel {
             replayBuffer.append(envelope)
         }
 
-        for continuation in subscribers.values {
-            continuation.yield(envelope)
+        for (subscriberId, continuation) in subscribers {
+            switch continuation.yield(envelope) {
+            case .enqueued:
+                continue
+            case .dropped:
+                Self.logger.warning(
+                    "Dropped local runtime envelope for subscriberId=\(subscriberId, privacy: .public) seq=\(envelope.seq, privacy: .public)"
+                )
+            case .terminated:
+                Self.logger.debug(
+                    "Skipped terminated subscriberId=\(subscriberId, privacy: .public) seq=\(envelope.seq, privacy: .public)"
+                )
+            @unknown default:
+                continue
+            }
         }
 
         // Intentional fire-and-forget hop to keep runtime emit paths non-blocking.

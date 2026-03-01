@@ -116,18 +116,19 @@ final class WorkspacePersistorTests {
             sidebarWidth: 300,
             windowFrame: CGRect(x: 10, y: 20, width: 1000, height: 800)
         )
-        let repo = Repo(
+        let repo = CanonicalRepo(
             name: "test-repo",
-            repoPath: URL(fileURLWithPath: "/tmp/test-repo"),
-            worktrees: [
-                Worktree(
-                    name: "main",
-                    path: URL(fileURLWithPath: "/tmp/test-repo/main"),
-                    branch: "main"
-                )
-            ]
+            repoPath: URL(fileURLWithPath: "/tmp/test-repo")
         )
         state.repos = [repo]
+        state.worktrees = [
+            CanonicalWorktree(
+                repoId: repo.id,
+                name: "main",
+                path: URL(fileURLWithPath: "/tmp/test-repo/main"),
+                isMainWorktree: true
+            )
+        ]
 
         // Act
         try persistor.save(state)
@@ -139,7 +140,7 @@ final class WorkspacePersistorTests {
         #expect(loaded?.windowFrame == CGRect(x: 10, y: 20, width: 1000, height: 800))
         #expect(loaded?.repos.count == 1)
         #expect(loaded?.repos[0].name == "test-repo")
-        #expect(loaded?.repos[0].worktrees.count == 1)
+        #expect(loaded?.worktrees.count == 1)
     }
 
     @Test
@@ -347,5 +348,122 @@ final class WorkspacePersistorTests {
         #expect(loaded?.checkoutColors["repoA"] == "#22cc88")
         #expect(loaded?.filterText == "forge")
         #expect(loaded?.isFilterVisible == true)
+    }
+
+    @Test
+    func test_loadCache_corruptJson_returnsNil() throws {
+        let workspaceId = UUID()
+        let cacheURL = tempDir.appending(path: "\(workspaceId.uuidString).workspace.cache.json")
+        let data = Data("{not-valid-json}".utf8)
+        try data.write(to: cacheURL, options: .atomic)
+
+        let loaded = persistor.loadCache(for: workspaceId)
+
+        #expect(loaded == nil)
+    }
+
+    @Test
+    func test_loadUI_corruptJson_returnsNil() throws {
+        let workspaceId = UUID()
+        let uiURL = tempDir.appending(path: "\(workspaceId.uuidString).workspace.ui.json")
+        let data = Data("{not-valid-json}".utf8)
+        try data.write(to: uiURL, options: .atomic)
+
+        let loaded = persistor.loadUI(for: workspaceId)
+
+        #expect(loaded == nil)
+    }
+
+    @Test
+    func test_load_legacyWorkspaceStateWithInlineWorktrees_migratesToCanonicalShape() throws {
+        let workspaceId = UUID()
+        let repoId = UUID()
+        let worktreeId = UUID()
+        let repoPath = URL(fileURLWithPath: "/tmp/legacy-repo")
+
+        let legacyState = LegacyPersistableState(
+            id: workspaceId,
+            name: "Legacy Workspace",
+            repos: [
+                LegacyRepo(
+                    id: repoId,
+                    name: "legacy-repo",
+                    repoPath: repoPath,
+                    organizationName: "askluna",
+                    origin: "git@github.com:askluna/legacy-repo.git",
+                    upstream: nil,
+                    worktrees: [
+                        LegacyWorktree(
+                            id: worktreeId,
+                            name: "main",
+                            path: repoPath,
+                            branch: "main",
+                            agent: nil,
+                            status: .idle,
+                            isMainWorktree: true
+                        )
+                    ],
+                    createdAt: Date(timeIntervalSince1970: 1_700_000_000),
+                    updatedAt: Date(timeIntervalSince1970: 1_700_000_100)
+                )
+            ],
+            panes: [],
+            tabs: [],
+            activeTabId: nil,
+            sidebarWidth: 250,
+            windowFrame: nil,
+            createdAt: Date(timeIntervalSince1970: 1_700_000_000),
+            updatedAt: Date(timeIntervalSince1970: 1_700_000_100)
+        )
+
+        let legacyURL = tempDir.appending(path: "\(workspaceId.uuidString).workspace.state.json")
+        try JSONEncoder().encode(legacyState).write(to: legacyURL, options: .atomic)
+
+        let loaded = persistor.load()
+
+        #expect(loaded != nil)
+        #expect(loaded?.repos.count == 1)
+        #expect(loaded?.repos.first?.id == repoId)
+        #expect(loaded?.repos.first?.repoPath == repoPath)
+        #expect(loaded?.worktrees.count == 1)
+        #expect(loaded?.worktrees.first?.id == worktreeId)
+        #expect(loaded?.worktrees.first?.repoId == repoId)
+        #expect(loaded?.worktrees.first?.path == repoPath)
+        #expect(loaded?.unavailableRepoIds.isEmpty == true)
+    }
+
+    private struct LegacyPersistableState: Codable {
+        var id: UUID
+        var name: String
+        var repos: [LegacyRepo]
+        var panes: [Pane]
+        var tabs: [Tab]
+        var activeTabId: UUID?
+        var sidebarWidth: CGFloat
+        var windowFrame: CGRect?
+        var createdAt: Date
+        var updatedAt: Date
+    }
+
+    private struct LegacyRepo: Codable {
+        var id: UUID
+        var name: String
+        var repoPath: URL
+        var organizationName: String?
+        var origin: String?
+        var upstream: String?
+        var worktrees: [LegacyWorktree]
+        var createdAt: Date
+        var updatedAt: Date
+    }
+
+    private struct LegacyWorktree: Codable {
+        var id: UUID
+        var name: String
+        var path: URL
+        var branch: String
+        var agent: AgentType?
+        var status: WorktreeStatus
+        var isMainWorktree: Bool
     }
 }

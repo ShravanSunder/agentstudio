@@ -5,6 +5,91 @@ protocol ForgeStatusProvider: Sendable {
     func pullRequestCounts(origin: String, branches: Set<String>) async throws -> [String: Int]
 }
 
+enum ForgeStatusProviderError: Error, Sendable {
+    case unsupportedRemote(String)
+    case commandFailed(message: String)
+    case invalidResponse(String)
+}
+
+struct GitHubCLIForgeStatusProvider: ForgeStatusProvider {
+    private struct PullRequestHead: Decodable {
+        let headRefName: String
+    }
+
+    private let processExecutor: any ProcessExecutor
+
+    init(processExecutor: any ProcessExecutor = DefaultProcessExecutor(timeout: 8)) {
+        self.processExecutor = processExecutor
+    }
+
+    func pullRequestCounts(origin: String, branches: Set<String>) async throws -> [String: Int] {
+        let trackedBranches = Set(branches.filter { !$0.isEmpty })
+        guard !trackedBranches.isEmpty else { return [:] }
+
+        guard let repoSlug = Self.extractGitHubRepoSlug(from: origin) else {
+            throw ForgeStatusProviderError.unsupportedRemote(origin)
+        }
+
+        let result = try await processExecutor.execute(
+            command: "gh",
+            args: [
+                "pr",
+                "list",
+                "--repo", repoSlug,
+                "--state", "open",
+                "--json", "headRefName",
+                "--limit", "200",
+            ],
+            cwd: nil,
+            environment: nil
+        )
+
+        guard result.succeeded else {
+            let message = result.stderr.isEmpty ? result.stdout : result.stderr
+            throw ForgeStatusProviderError.commandFailed(message: message)
+        }
+
+        guard let data = result.stdout.data(using: .utf8) else {
+            throw ForgeStatusProviderError.invalidResponse("gh output is not valid UTF-8")
+        }
+        let pullRequests = try JSONDecoder().decode([PullRequestHead].self, from: data)
+        var counts = Dictionary(uniqueKeysWithValues: trackedBranches.map { ($0, 0) })
+        for pullRequest in pullRequests {
+            guard trackedBranches.contains(pullRequest.headRefName) else { continue }
+            counts[pullRequest.headRefName, default: 0] += 1
+        }
+        return counts
+    }
+
+    private static func extractGitHubRepoSlug(from remote: String) -> String? {
+        let normalized = remote.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !normalized.isEmpty else { return nil }
+
+        if normalized.hasPrefix("git@github.com:") {
+            return stripGitSuffix(from: String(normalized.dropFirst("git@github.com:".count)))
+        }
+        if normalized.hasPrefix("ssh://git@github.com/") {
+            return stripGitSuffix(from: String(normalized.dropFirst("ssh://git@github.com/".count)))
+        }
+        if normalized.hasPrefix("https://github.com/") {
+            return stripGitSuffix(from: String(normalized.dropFirst("https://github.com/".count)))
+        }
+        if normalized.hasPrefix("http://github.com/") {
+            return stripGitSuffix(from: String(normalized.dropFirst("http://github.com/".count)))
+        }
+        return nil
+    }
+
+    private static func stripGitSuffix(from slug: String) -> String? {
+        let trimmed = slug.trimmingCharacters(in: CharacterSet(charactersIn: "/"))
+        guard !trimmed.isEmpty else { return nil }
+        if trimmed.hasSuffix(".git") {
+            return String(trimmed.dropLast(4))
+        }
+        return trimmed
+    }
+}
+
 struct NoopForgeStatusProvider: ForgeStatusProvider {
     func pullRequestCounts(origin _: String, branches _: Set<String>) async throws -> [String: Int] {
         [:]
@@ -47,6 +132,7 @@ actor ForgeActor {
     private var nextEnvelopeSequence: UInt64 = 0
     private var repoOriginByRepoId: [UUID: String] = [:]
     private var branchesByRepoId: [UUID: Set<String>] = [:]
+    private var hasLoggedNoopProviderWarning = false
 
     init(
         bus: EventBus<RuntimeEnvelope> = PaneRuntimeEventBus.shared,
@@ -72,6 +158,8 @@ actor ForgeActor {
     }
 
     func start() async {
+        maybeLogNoopProviderWarning()
+
         if subscriptionTask == nil {
             let stream = await runtimeBus.subscribe(
                 bufferingPolicy: .bufferingNewest(subscriptionBufferLimit)
@@ -91,6 +179,29 @@ actor ForgeActor {
                 await self.pollLoop()
             }
         }
+    }
+
+    func register(repo repoId: UUID, remote: String) async {
+        let trimmedRemote = remote.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !trimmedRemote.isEmpty else {
+            await unregister(repo: repoId)
+            return
+        }
+
+        repoOriginByRepoId[repoId] = trimmedRemote
+        if branchesByRepoId[repoId] == nil {
+            branchesByRepoId[repoId] = []
+        }
+        await refresh(repo: repoId)
+    }
+
+    func unregister(repo repoId: UUID) async {
+        repoOriginByRepoId.removeValue(forKey: repoId)
+        branchesByRepoId.removeValue(forKey: repoId)
+    }
+
+    func refresh(repo repoId: UUID, correlationId: UUID? = nil) async {
+        await refreshRepo(repoId: repoId, correlationId: correlationId)
     }
 
     func shutdown() async {
@@ -141,10 +252,9 @@ actor ForgeActor {
             if !to.isEmpty {
                 branchesByRepoId[repoId, default: []].insert(to)
             }
-            await refreshRepo(repoId: repoId, correlationId: correlationId)
+            await refresh(repo: repoId, correlationId: correlationId)
         case .originChanged(_, _, let to):
-            repoOriginByRepoId[repoId] = to
-            await refreshRepo(repoId: repoId, correlationId: correlationId)
+            await register(repo: repoId, remote: to)
         case .worktreeDiscovered(_, _, let branch, _):
             if !branch.isEmpty {
                 branchesByRepoId[repoId, default: []].insert(branch)
@@ -170,7 +280,7 @@ actor ForgeActor {
             guard !Task.isCancelled else { return }
             let repoIds = Array(repoOriginByRepoId.keys)
             for repoId in repoIds {
-                await refreshRepo(repoId: repoId, correlationId: nil)
+                await refresh(repo: repoId)
             }
         }
     }
@@ -197,6 +307,15 @@ actor ForgeActor {
                 event: .refreshFailed(repoId: repoId, error: String(describing: error))
             )
         }
+    }
+
+    private func maybeLogNoopProviderWarning() {
+        guard !hasLoggedNoopProviderWarning else { return }
+        guard providerName == "noop" else { return }
+        hasLoggedNoopProviderWarning = true
+        Self.logger.warning(
+            "ForgeActor running with noop provider; forge enrichment will remain empty until a real provider is configured."
+        )
     }
 
     private func emitForgeEvent(

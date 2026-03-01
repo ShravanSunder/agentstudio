@@ -331,7 +331,7 @@ struct RepoSidebarContentView: View {
                     Menu("Remove Checkout") {
                         ForEach(group.repos) { repo in
                             Button(repo.name, role: .destructive) {
-                                store.removeRepo(repo.id)
+                                postAppEvent(.removeRepoRequested(repoId: repo.id))
                             }
                         }
                     }
@@ -430,7 +430,7 @@ struct RepoSidebarContentView: View {
                 return
             }
 
-            if await GitRepositoryInspector.isGitRepository(at: url) {
+            if isGitRepositoryFolder(url) {
                 addRepoAndRefreshWorktrees(at: url)
                 return
             }
@@ -494,8 +494,7 @@ struct RepoSidebarContentView: View {
 
     private func addRepoAndRefreshWorktrees(at path: URL) {
         guard !hasExistingCheckout(at: path) else { return }
-        _ = store.addRepo(at: path)
-        postAppEvent(.refreshWorktreesRequested)
+        postAppEvent(.addRepoAtPathRequested(path: path))
     }
 
     private func hasExistingCheckout(at path: URL) -> Bool {
@@ -515,6 +514,11 @@ struct RepoSidebarContentView: View {
 
     private func normalizedCwdPath(_ url: URL) -> String {
         url.standardizedFileURL.path
+    }
+
+    private func isGitRepositoryFolder(_ url: URL) -> Bool {
+        let dotGitPath = url.appending(path: ".git").path
+        return FileManager.default.fileExists(atPath: dotGitPath)
     }
 
     private nonisolated static func scanForGitReposInBackground(rootURL: URL, maxDepth: Int) async -> [URL] {

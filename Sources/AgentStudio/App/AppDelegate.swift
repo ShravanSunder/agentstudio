@@ -72,8 +72,135 @@ class AppDelegate: NSObject, NSApplicationDelegate {
 
     private var oauthService: OAuthService!
     private var appEventTask: Task<Void, Never>?
+    private var filesystemPipelineBootTask: Task<Void, Never>?
+
+    private func recordBootStep(_ step: WorkspaceBootStep) {
+        RestoreTrace.log("workspace.boot.step=\(step.rawValue)")
+    }
 
     // swiftlint:disable:next function_body_length
+    private func executeBootStep(
+        _ step: WorkspaceBootStep,
+        persistor: WorkspacePersistor,
+        paneRuntimeBus: EventBus<RuntimeEnvelope>,
+        filesystemSource: inout FilesystemGitPipeline?
+    ) {
+        switch step {
+        case .loadCanonicalStore:
+            store = WorkspaceStore()
+            store.restore()
+            RestoreTrace.log(
+                "store.restore complete tabs=\(store.tabs.count) panes=\(store.panes.count) activeTab=\(store.activeTabId?.uuidString ?? "nil")"
+            )
+        case .loadCacheStore:
+            workspaceCacheStore = WorkspaceCacheStore()
+            if let cacheState = persistor.loadCache(for: store.workspaceId) {
+                for enrichment in cacheState.repoEnrichmentByRepoId.values {
+                    workspaceCacheStore.setRepoEnrichment(enrichment)
+                }
+                for enrichment in cacheState.worktreeEnrichmentByWorktreeId.values {
+                    workspaceCacheStore.setWorktreeEnrichment(enrichment)
+                }
+                for (worktreeId, count) in cacheState.pullRequestCountByWorktreeId {
+                    workspaceCacheStore.setPullRequestCount(count, for: worktreeId)
+                }
+                for (worktreeId, count) in cacheState.notificationCountByWorktreeId {
+                    workspaceCacheStore.setNotificationCount(count, for: worktreeId)
+                }
+                workspaceCacheStore.markRebuilt(
+                    sourceRevision: cacheState.sourceRevision,
+                    at: cacheState.lastRebuiltAt ?? Date()
+                )
+            }
+        case .loadUIStore:
+            workspaceUIStore = WorkspaceUIStore()
+            if let uiState = persistor.loadUI(for: store.workspaceId) {
+                workspaceUIStore.setExpandedGroups(uiState.expandedGroups)
+                for (stableKey, colorHex) in uiState.checkoutColors {
+                    workspaceUIStore.setCheckoutColor(colorHex, for: stableKey)
+                }
+                workspaceUIStore.setFilterText(uiState.filterText)
+                workspaceUIStore.setFilterVisible(uiState.isFilterVisible)
+            }
+        case .establishRuntimeBus:
+            runtime = SessionRuntime(store: store)
+            cleanupOrphanZmxSessions()
+            viewRegistry = ViewRegistry()
+            let pipeline = FilesystemGitPipeline(
+                bus: paneRuntimeBus,
+                fseventStreamClient: DarwinFSEventStreamClient()
+            )
+            filesystemSource = pipeline
+            paneCoordinator = PaneCoordinator(
+                store: store,
+                viewRegistry: viewRegistry,
+                runtime: runtime,
+                surfaceManager: SurfaceManager.shared,
+                runtimeRegistry: .shared,
+                paneEventBus: paneRuntimeBus,
+                filesystemSource: pipeline
+            )
+            workspaceCacheCoordinator = WorkspaceCacheCoordinator(
+                bus: paneRuntimeBus,
+                workspaceStore: store,
+                cacheStore: workspaceCacheStore,
+                scopeSyncHandler: { [weak pipeline] change in
+                    guard let pipeline else { return }
+                    await pipeline.applyScopeChange(change)
+                }
+            )
+            executor = ActionExecutor(coordinator: paneCoordinator, store: store)
+            tabBarAdapter = TabBarAdapter(store: store)
+            commandBarController = CommandBarPanelController(store: store, dispatcher: .shared)
+            oauthService = OAuthService()
+        case .startFilesystemActor:
+            if let filesystemSource {
+                let previousTask = filesystemPipelineBootTask
+                filesystemPipelineBootTask = Task {
+                    if let previousTask {
+                        await previousTask.value
+                    }
+                    await filesystemSource.startFilesystemActor()
+                }
+            }
+        case .startGitProjector:
+            if let filesystemSource {
+                let previousTask = filesystemPipelineBootTask
+                filesystemPipelineBootTask = Task {
+                    if let previousTask {
+                        await previousTask.value
+                    }
+                    await filesystemSource.startGitProjector()
+                }
+            }
+        case .startForgeActor:
+            if let filesystemSource {
+                let previousTask = filesystemPipelineBootTask
+                filesystemPipelineBootTask = Task {
+                    if let previousTask {
+                        await previousTask.value
+                    }
+                    await filesystemSource.startForgeActor()
+                }
+            }
+        case .startCacheCoordinator:
+            workspaceCacheCoordinator.startConsuming()
+        case .triggerInitialTopologySync:
+            if let filesystemPipelineBootTask {
+                Task { [weak self] in
+                    await filesystemPipelineBootTask.value
+                    await MainActor.run {
+                        self?.paneCoordinator.syncFilesystemRootsAndActivity()
+                    }
+                }
+            } else {
+                paneCoordinator.syncFilesystemRootsAndActivity()
+            }
+        case .readyForReactiveSidebar:
+            break
+        }
+    }
+
     func applicationDidFinishLaunching(_ notification: Notification) {
         RestoreTrace.log("appDidFinishLaunching: begin")
         // Set GHOSTTY_RESOURCES_DIR before any GhosttyKit initialization.
@@ -100,73 +227,20 @@ class AppDelegate: NSObject, NSApplicationDelegate {
         // Set up main menu (doesn't depend on zmx restore)
         setupMainMenu()
 
-        // Create new services
-        store = WorkspaceStore()
-        store.restore()
-        RestoreTrace.log(
-            "store.restore complete tabs=\(store.tabs.count) panes=\(store.panes.count) activeTab=\(store.activeTabId?.uuidString ?? "nil")"
-        )
-
-        workspaceCacheStore = WorkspaceCacheStore()
-        workspaceUIStore = WorkspaceUIStore()
+        // Create new services following the 10-step workspace boot contract.
         let persistor = WorkspacePersistor()
-        if let cacheState = persistor.loadCache(for: store.workspaceId) {
-            for enrichment in cacheState.repoEnrichmentByRepoId.values {
-                workspaceCacheStore.setRepoEnrichment(enrichment)
-            }
-            for enrichment in cacheState.worktreeEnrichmentByWorktreeId.values {
-                workspaceCacheStore.setWorktreeEnrichment(enrichment)
-            }
-            for (worktreeId, count) in cacheState.pullRequestCountByWorktreeId {
-                workspaceCacheStore.setPullRequestCount(count, for: worktreeId)
-            }
-            for (worktreeId, count) in cacheState.notificationCountByWorktreeId {
-                workspaceCacheStore.setNotificationCount(count, for: worktreeId)
-            }
-            workspaceCacheStore.markRebuilt(
-                sourceRevision: cacheState.sourceRevision,
-                at: cacheState.lastRebuiltAt ?? Date()
+        let paneRuntimeBus = PaneRuntimeEventBus.shared
+        var filesystemSource: FilesystemGitPipeline?
+
+        WorkspaceBootSequence.run { [self] step in
+            recordBootStep(step)
+            executeBootStep(
+                step,
+                persistor: persistor,
+                paneRuntimeBus: paneRuntimeBus,
+                filesystemSource: &filesystemSource
             )
         }
-        if let uiState = persistor.loadUI(for: store.workspaceId) {
-            workspaceUIStore.setExpandedGroups(uiState.expandedGroups)
-            for (stableKey, colorHex) in uiState.checkoutColors {
-                workspaceUIStore.setCheckoutColor(colorHex, for: stableKey)
-            }
-            workspaceUIStore.setFilterText(uiState.filterText)
-            workspaceUIStore.setFilterVisible(uiState.isFilterVisible)
-        }
-
-        runtime = SessionRuntime(store: store)
-
-        // Clean up orphan zmx daemons from previous launches
-        cleanupOrphanZmxSessions()
-
-        viewRegistry = ViewRegistry()
-        let paneRuntimeBus = PaneRuntimeEventBus.shared
-        let filesystemSource = FilesystemGitPipeline(
-            bus: paneRuntimeBus,
-            fseventStreamClient: DarwinFSEventStreamClient()
-        )
-        paneCoordinator = PaneCoordinator(
-            store: store,
-            viewRegistry: viewRegistry,
-            runtime: runtime,
-            surfaceManager: SurfaceManager.shared,
-            runtimeRegistry: .shared,
-            paneEventBus: paneRuntimeBus,
-            filesystemSource: filesystemSource
-        )
-        workspaceCacheCoordinator = WorkspaceCacheCoordinator(
-            bus: paneRuntimeBus,
-            workspaceStore: store,
-            cacheStore: workspaceCacheStore
-        )
-        workspaceCacheCoordinator.startConsuming()
-        executor = ActionExecutor(coordinator: paneCoordinator, store: store)
-        tabBarAdapter = TabBarAdapter(store: store)
-        commandBarController = CommandBarPanelController(store: store, dispatcher: .shared)
-        oauthService = OAuthService()
 
         // Create main window
         mainWindowController = MainWindowController(
@@ -216,6 +290,12 @@ class AppDelegate: NSObject, NSApplicationDelegate {
                 case .signInRequested(let providerName):
                     guard let provider = OAuthProvider(rawValue: providerName) else { continue }
                     self.handleSignInRequested(provider: provider)
+                case .addRepoAtPathRequested(let path):
+                    _ = self.store.addRepo(at: path)
+                    self.paneCoordinator.syncFilesystemRootsAndActivity()
+                case .removeRepoRequested(let repoId):
+                    self.store.removeRepo(repoId)
+                    self.paneCoordinator.syncFilesystemRootsAndActivity()
                 default:
                     continue
                 }
@@ -226,6 +306,7 @@ class AppDelegate: NSObject, NSApplicationDelegate {
 
     isolated deinit {
         appEventTask?.cancel()
+        filesystemPipelineBootTask?.cancel()
     }
 
     // MARK: - Dependency Check

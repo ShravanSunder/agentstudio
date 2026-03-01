@@ -11,7 +11,9 @@ struct WorkspacePersistor {
     struct PersistableState: Codable {
         var id: UUID
         var name: String
-        var repos: [Repo]
+        var repos: [CanonicalRepo]
+        var worktrees: [CanonicalWorktree]
+        var unavailableRepoIds: Set<UUID>
         var panes: [Pane]
         var tabs: [Tab]
         var activeTabId: UUID?
@@ -23,7 +25,9 @@ struct WorkspacePersistor {
         init(
             id: UUID = UUID(),
             name: String = "Default Workspace",
-            repos: [Repo] = [],
+            repos: [CanonicalRepo] = [],
+            worktrees: [CanonicalWorktree] = [],
+            unavailableRepoIds: Set<UUID> = [],
             panes: [Pane] = [],
             tabs: [Tab] = [],
             activeTabId: UUID? = nil,
@@ -35,6 +39,8 @@ struct WorkspacePersistor {
             self.id = id
             self.name = name
             self.repos = repos
+            self.worktrees = worktrees
+            self.unavailableRepoIds = unavailableRepoIds
             self.panes = panes
             self.tabs = tabs
             self.activeTabId = activeTabId
@@ -42,6 +48,56 @@ struct WorkspacePersistor {
             self.windowFrame = windowFrame
             self.createdAt = createdAt
             self.updatedAt = updatedAt
+        }
+
+        init(from decoder: Decoder) throws {
+            let container = try decoder.container(keyedBy: CodingKeys.self)
+            id = try container.decode(UUID.self, forKey: .id)
+            name = try container.decode(String.self, forKey: .name)
+
+            // Migration path: pre-split state stored `repos: [Repo]` with nested worktrees.
+            let canonicalRepos = try? container.decode([CanonicalRepo].self, forKey: .repos)
+            let legacyRepos = try? container.decode([Repo].self, forKey: .repos)
+            if let canonicalRepos {
+                repos = canonicalRepos
+            } else if let legacyRepos {
+                repos = legacyRepos.map {
+                    CanonicalRepo(id: $0.id, name: $0.name, repoPath: $0.repoPath, createdAt: $0.createdAt)
+                }
+            } else {
+                throw DecodingError.dataCorruptedError(
+                    forKey: .repos,
+                    in: container,
+                    debugDescription: "Unable to decode repos as canonical or legacy shape."
+                )
+            }
+
+            if let decodedWorktrees = try container.decodeIfPresent([CanonicalWorktree].self, forKey: .worktrees) {
+                worktrees = decodedWorktrees
+            } else if let legacyRepos {
+                worktrees = legacyRepos.flatMap { repo in
+                    repo.worktrees.map { worktree in
+                        CanonicalWorktree(
+                            id: worktree.id,
+                            repoId: repo.id,
+                            name: worktree.name,
+                            path: worktree.path,
+                            isMainWorktree: worktree.isMainWorktree
+                        )
+                    }
+                }
+            } else {
+                worktrees = []
+            }
+
+            unavailableRepoIds = try container.decodeIfPresent(Set<UUID>.self, forKey: .unavailableRepoIds) ?? []
+            panes = try container.decode([Pane].self, forKey: .panes)
+            tabs = try container.decode([Tab].self, forKey: .tabs)
+            activeTabId = try container.decodeIfPresent(UUID.self, forKey: .activeTabId)
+            sidebarWidth = try container.decode(CGFloat.self, forKey: .sidebarWidth)
+            windowFrame = try container.decodeIfPresent(CGRect.self, forKey: .windowFrame)
+            createdAt = try container.decode(Date.self, forKey: .createdAt)
+            updatedAt = try container.decode(Date.self, forKey: .updatedAt)
         }
     }
 
