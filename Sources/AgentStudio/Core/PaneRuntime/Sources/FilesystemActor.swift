@@ -295,9 +295,9 @@ actor FilesystemActor {
                     return
                 } catch {
                     Self.logger.warning(
-                        "Unexpected filesystem drain sleep failure: \(error.localizedDescription, privacy: .public)"
+                        "Unexpected filesystem drain sleep failure: \(String(describing: error), privacy: .public)"
                     )
-                    return
+                    continue
                 }
                 guard !Task.isCancelled else { return }
             } else {

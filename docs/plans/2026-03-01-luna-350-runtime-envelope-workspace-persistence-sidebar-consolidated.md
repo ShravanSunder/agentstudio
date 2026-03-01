@@ -48,6 +48,37 @@ This plan replaces and consolidates:
 - `docs/plans/2026-02-22-luna-325-contract-parity-execution-plan.md`
 - `docs/plans/2026-02-25-workspace-persistence-segregation.md`
 
+### Task 0: Plan Hygiene (Deprecate + Remove Superseded Plans)
+
+**Files:**
+- Delete: `docs/plans/sidebar-repo-metadata-grouping-filtering-spec.md`
+- Delete: `docs/plans/sidebar-cwd-dedupe-test-spec.md`
+- Delete: `docs/plans/sidebar-cwd-dedupe-requirements.md`
+- Delete: `docs/plans/2026-03-01-luna-350-forgeactor-workspace-persistence-segregation-sidebar-rewiring.md`
+- Delete: `docs/plans/2026-02-28-luna-349-filesystem-git-actor-split.md`
+- Delete: `docs/plans/2026-02-27-luna-349-test-value-plan.md`
+- Delete: `docs/plans/2026-02-27-luna-349-fs-event-source-and-runtime-conformers.md`
+- Delete: `docs/plans/2026-02-21-pane-runtime-luna-295-luna-325-mapping.md`
+- Delete: `docs/plans/2026-02-22-luna-325-contract-parity-execution-plan.md`
+- Delete: `docs/plans/2026-02-25-workspace-persistence-segregation.md`
+
+**Step 1: Delete superseded files**
+
+Run: `git rm <each superseded file listed above>`
+
+**Step 2: Verify there are no stale references**
+
+Run: `rg -n "sidebar-repo-metadata-grouping-filtering-spec|luna-349-filesystem-git-actor-split|workspace-persistence-segregation" docs/`
+Expected: references only in this consolidated plan (or migration notes if intentionally retained).
+
+**Step 3: Checkpoint**
+
+```bash
+git status --short docs/plans
+# Commit only if explicitly requested:
+# git commit -m "docs(plans): remove superseded plans after consolidation"
+```
+
 ## Execution Standards
 
 - Use `@superpowers/executing-plans` for task-by-task execution.
@@ -58,11 +89,23 @@ This plan replaces and consolidates:
 - Do not commit unless explicitly requested by the user.
 - Keep tests deterministic: no sleeps for ordering tests unless required by API contract.
 
+## Locked Review Fixes (Must Ship)
+
+- Remove legacy event bridge entirely: no `PaneEventEnvelope`, no `fromLegacy`, no `toLegacy`, no dual-bus constructor paths.
+- Route topology events through `SystemEnvelope` only; system tier must be reachable by producers/consumers.
+- `NotificationReducer` must consume `.system` envelopes (no silent discard).
+- Split `RuntimeEnvelope.swift` by responsibility so contract/bridge/test-factory concerns are not in one file.
+- Add dedicated tests for runtime-envelope ingestion paths (no legacy-only constructor usage in tests).
+- Remove silent event drops: log + metric on any dropped emit/translation path.
+- Handle replay delivery outcomes (`EventBus.subscribe`) and surface replay gaps.
+- Add deterministic shutdown for `EventBus` subscriber continuations.
+- Keep drain loops resilient: recoverable errors should log and continue flushing.
+
 ### Task 1: Introduce `RuntimeEnvelope` 3-Tier Contract
 
 **Files:**
 - Create: `Sources/AgentStudio/Core/PaneRuntime/Contracts/RuntimeEnvelope.swift`
-- Modify: `Sources/AgentStudio/Core/PaneRuntime/Contracts/PaneEventEnvelope.swift`
+- Create: `Sources/AgentStudio/Core/PaneRuntime/Contracts/RuntimeEnvelopeScopes.swift`
 - Modify: `Sources/AgentStudio/Core/PaneRuntime/Contracts/PaneContextFacets.swift`
 - Test: `Tests/AgentStudioTests/Core/PaneRuntime/Contracts/RuntimeEnvelopeContractsTests.swift`
 
@@ -110,7 +153,7 @@ Expected: exit code `0`.
 
 ```bash
 git add Sources/AgentStudio/Core/PaneRuntime/Contracts/RuntimeEnvelope.swift \
-  Sources/AgentStudio/Core/PaneRuntime/Contracts/PaneEventEnvelope.swift \
+  Sources/AgentStudio/Core/PaneRuntime/Contracts/RuntimeEnvelopeScopes.swift \
   Sources/AgentStudio/Core/PaneRuntime/Contracts/PaneContextFacets.swift \
   Tests/AgentStudioTests/Core/PaneRuntime/Contracts/RuntimeEnvelopeContractsTests.swift
 git status --short
@@ -118,7 +161,7 @@ git status --short
 # git commit -m "feat(runtime): add 3-tier RuntimeEnvelope contracts"
 ```
 
-### Task 2: Define Event Namespaces + Compatibility Mapping (Pre-Bus-Migration)
+### Task 2: Define Event Namespaces for Hard Cutover (No Compatibility Layer)
 
 **Files:**
 - Modify: `Sources/AgentStudio/Core/PaneRuntime/Contracts/PaneRuntimeEvent.swift`
@@ -151,13 +194,11 @@ enum SystemScopedEvent: Sendable { case topology(TopologyEvent), appLifecycle(Ap
 enum WorktreeScopedEvent: Sendable { case filesystem(FilesystemEvent), gitWorkingDirectory(GitWorkingDirectoryEvent), forge(ForgeEvent), security(SecurityEvent) }
 ```
 
-Add explicit old-to-new case mapping in code comments/tests without changing bus payload type yet:
-- `FilesystemEvent.worktreeRegistered` -> future `SystemScopedEvent.topology(.repoDiscovered/.worktreeDiscovered)`
-- `FilesystemEvent.worktreeUnregistered` -> future `SystemScopedEvent.topology(.repoRemoved/.worktreeRemoved)`
-- `FilesystemEvent.filesChanged` -> future `WorktreeScopedEvent.filesystem(.filesChanged)`
-- `FilesystemEvent.gitSnapshotChanged/.branchChanged` -> future `WorktreeScopedEvent.gitWorkingDirectory(...)`
-
-Keep producers emitting `PaneEventEnvelope` in this task. Envelope routing changes land in Task 3.
+Cut over producers directly to scoped events now:
+- `worktreeRegistered/worktreeUnregistered` -> `SystemScopedEvent.topology(...)`
+- `filesChanged` -> `WorktreeScopedEvent.filesystem(.filesChanged)`
+- `gitSnapshotChanged/branchChanged` -> `WorktreeScopedEvent.gitWorkingDirectory(...)`
+- Do not add adapters that preserve `PaneEventEnvelope` routing.
 
 **Step 4: Run tests to verify pass**
 
@@ -176,7 +217,7 @@ git add Sources/AgentStudio/Core/PaneRuntime/Contracts/PaneRuntimeEvent.swift \
   Tests/AgentStudioTests/Core/PaneRuntime/Projection/WorkspaceGitWorkingTreeStoreTests.swift
 git status --short
 # Commit only if explicitly requested:
-# git commit -m "feat(events): define scoped event namespaces and compatibility mappings"
+# git commit -m "feat(events): define scoped event namespaces for hard cutover"
 ```
 
 ### Task 3: Migrate Bus to `EventBus<RuntimeEnvelope>` + Bus Replay Contract
@@ -243,7 +284,86 @@ git status --short
 # git commit -m "feat(eventbus): migrate to RuntimeEnvelope and add bounded bus replay"
 ```
 
-### Task 3a: Split Contaminated Repo/Worktree Model Structs
+### Task 3a: Remove Legacy Envelope Path + Split Runtime Envelope Files
+
+> **Mandatory closure task for branch acceptance.** This task resolves the outstanding review blockers on runtime-envelope migration quality and removes temporary compatibility scaffolding.
+
+**Files:**
+- Delete: `Sources/AgentStudio/Core/PaneRuntime/Contracts/PaneEventEnvelope.swift`
+- Create: `Sources/AgentStudio/Core/PaneRuntime/Contracts/RuntimeEnvelopeCore.swift`
+- Create: `Sources/AgentStudio/Core/PaneRuntime/Contracts/RuntimeEnvelopeMetadata.swift`
+- Create: `Sources/AgentStudio/Core/PaneRuntime/Contracts/RuntimeEnvelopeFactories.swift`
+- Modify: `Sources/AgentStudio/Core/PaneRuntime/Contracts/RuntimeEnvelope.swift`
+- Modify: `Sources/AgentStudio/Core/PaneRuntime/Reduction/NotificationReducer.swift`
+- Modify: `Sources/AgentStudio/Core/PaneRuntime/Sources/GitWorkingDirectoryProjector.swift`
+- Modify: `Sources/AgentStudio/Core/PaneRuntime/Sources/FilesystemActor.swift`
+- Modify: `Sources/AgentStudio/Core/PaneRuntime/Runtime/PaneRuntimeEventChannel.swift`
+- Modify: `Sources/AgentStudio/Core/PaneRuntime/Events/EventBus.swift`
+- Create: `Tests/AgentStudioTests/Core/PaneRuntime/Contracts/RuntimeEnvelopeHardCutoverTests.swift`
+- Modify: `Tests/AgentStudioTests/Core/PaneRuntime/Reduction/NotificationReducerTests.swift`
+- Modify: `Tests/AgentStudioTests/Core/PaneRuntime/Events/EventBusRuntimeEnvelopeTests.swift`
+
+**Step 1: Write failing tests**
+
+```swift
+@Test("no legacy envelope symbols remain in runtime contract")
+func noLegacyEnvelopeSymbolsRemain() { /* ... */ }
+
+@Test("notification reducer consumes system envelopes")
+func reducerConsumesSystemTier() async { /* ... */ }
+
+@Test("runtime bus API has no dual-bus compatibility constructors")
+func noDualBusCompatibilityPaths() { /* ... */ }
+```
+
+**Step 2: Run tests to verify failure**
+
+Run: `SWIFT_BUILD_DIR=".build-agent-hard-cutover"; swift test --build-path "$SWIFT_BUILD_DIR" --filter "RuntimeEnvelopeHardCutoverTests|NotificationReducerTests|EventBusRuntimeEnvelopeTests|FilesystemActorTests|GitWorkingDirectoryProjectorTests" > /tmp/luna350-task3b.log 2>&1; echo $?`
+Expected: failures on remaining legacy references and missing system-tier coverage.
+
+**Step 3: Write minimal implementation**
+
+- Hard-remove legacy envelope bridge (`PaneEventEnvelope`, `fromLegacy`, `toLegacy`) and dual-bus initialization paths.
+- Split runtime-envelope declarations by responsibility:
+  - `RuntimeEnvelopeCore.swift`: 3-tier discriminated union + envelope structs
+  - `RuntimeEnvelopeMetadata.swift`: common metadata/context helpers
+  - `RuntimeEnvelopeFactories.swift`: test-only builders/factories
+- Ensure topology events are emitted/consumed via `SystemEnvelope` (no pane-tier fallback).
+- Eliminate silent drops:
+  - projector/reducer/channel paths log at warning level when events cannot be emitted.
+  - `PaneRuntimeEventChannel.emit` observes post results instead of fire-and-forget drop.
+- Harden bus semantics:
+  - handle replay result at subscribe time and surface gaps.
+  - add deterministic `shutdown()` (or equivalent isolated deinit cleanup) that finishes subscriber continuations.
+- Make drain loops resilient (`FilesystemActor`/`GitWorkingDirectoryProjector`): recoverable errors log and continue.
+
+**Step 4: Run tests to verify pass**
+
+Run: same command from Step 2.
+Expected: exit code `0`.
+
+**Step 5: Checkpoint**
+
+```bash
+git add Sources/AgentStudio/Core/PaneRuntime/Contracts/RuntimeEnvelope.swift \
+  Sources/AgentStudio/Core/PaneRuntime/Contracts/RuntimeEnvelopeCore.swift \
+  Sources/AgentStudio/Core/PaneRuntime/Contracts/RuntimeEnvelopeMetadata.swift \
+  Sources/AgentStudio/Core/PaneRuntime/Contracts/RuntimeEnvelopeFactories.swift \
+  Sources/AgentStudio/Core/PaneRuntime/Reduction/NotificationReducer.swift \
+  Sources/AgentStudio/Core/PaneRuntime/Sources/GitWorkingDirectoryProjector.swift \
+  Sources/AgentStudio/Core/PaneRuntime/Sources/FilesystemActor.swift \
+  Sources/AgentStudio/Core/PaneRuntime/Runtime/PaneRuntimeEventChannel.swift \
+  Sources/AgentStudio/Core/PaneRuntime/Events/EventBus.swift \
+  Tests/AgentStudioTests/Core/PaneRuntime/Contracts/RuntimeEnvelopeHardCutoverTests.swift \
+  Tests/AgentStudioTests/Core/PaneRuntime/Reduction/NotificationReducerTests.swift \
+  Tests/AgentStudioTests/Core/PaneRuntime/Events/EventBusRuntimeEnvelopeTests.swift
+git rm Sources/AgentStudio/Core/PaneRuntime/Contracts/PaneEventEnvelope.swift
+git status --short
+# Commit only if explicitly requested:
+# git commit -m "refactor(runtime): hard-cut legacy envelope path and split runtime envelope contracts"
+```
+
+### Task 3b: Split Contaminated Repo/Worktree Model Structs
 
 > **Prerequisite for Task 4.** The current `Repo` and `Worktree` structs mix canonical identity, discovered state, and runtime state. This task splits them into tier-appropriate models before persistence can be segregated.
 
@@ -280,7 +400,7 @@ struct CanonicalModelTests {
 
 **Step 2: Run tests to verify failure**
 
-Run: `SWIFT_BUILD_DIR=".build-agent-model-split"; swift test --build-path "" --filter "CanonicalModelTests" > /tmp/luna350-task3a.log 2>&1; echo $?`
+Run: `SWIFT_BUILD_DIR=".build-agent-model-split"; swift test --build-path "$SWIFT_BUILD_DIR" --filter "CanonicalModelTests" > /tmp/luna350-task3a.log 2>&1; echo $?`
 Expected: missing `CanonicalRepo`, `WorktreeEnrichment` symbols.
 
 **Step 3: Write minimal implementation**
@@ -301,7 +421,7 @@ RepoEnrichment: repoId, organizationName?, origin?, upstream?, stableKey
 WorktreeEnrichment: worktreeId, repoId, branch, stableKey
 ```
 
-Keep existing `Repo`/`Worktree` structs temporarily as compatibility aliases (typealiases or adapter extensions) until all consumers are migrated. Hard cutover within this task — no shim layer persists.
+If temporary aliases are introduced to unblock compilation, remove them before Step 4 passes. End-of-task state is hard cutover: no persistent compatibility alias/shim remains.
 
 **Step 4: Run tests to verify pass**
 
@@ -323,7 +443,7 @@ git commit -m "refactor(models): split contaminated Repo/Worktree into canonical
 
 ### Task 4: Add Cache/UI Stores and Persistence Segregation
 
-> **Depends on Task 3a.** Uses `CanonicalRepo`, `CanonicalWorktree`, `RepoEnrichment`, `WorktreeEnrichment` models from the model split. `WorkspaceCacheStore` stores enrichment models. `WorkspaceUIStore` stores sidebar/UI preferences. `WorkspacePersistor` writes three separate JSON files.
+> **Depends on Task 3b.** Uses `CanonicalRepo`, `CanonicalWorktree`, `RepoEnrichment`, `WorktreeEnrichment` models from the model split. `WorkspaceCacheStore` stores enrichment models. `WorkspaceUIStore` stores sidebar/UI preferences. `WorkspacePersistor` writes three separate JSON files.
 
 **Files:**
 - Create: `Sources/AgentStudio/Core/Stores/WorkspaceCacheStore.swift`
@@ -342,7 +462,7 @@ func persistsThreeTierState() throws { /* ... */ }
 
 **Step 2: Run tests to verify failure**
 
-Run: `SWIFT_BUILD_DIR=".build-agent-persistence-split"; swift test --build-path "" --filter "WorkspacePersistorTests|WorkspaceCacheStoreTests" > /tmp/luna350-task4.log 2>&1; echo $?`
+Run: `SWIFT_BUILD_DIR=".build-agent-persistence-split"; swift test --build-path "$SWIFT_BUILD_DIR" --filter "WorkspacePersistorTests|WorkspaceCacheStoreTests" > /tmp/luna350-task4.log 2>&1; echo $?`
 Expected: failure due to missing cache/UI stores and file split.
 
 **Step 3: Write minimal implementation**
@@ -390,7 +510,7 @@ func routesMutationsByMethodGroup() async { /* ... */ }
 
 **Step 2: Run tests to verify failure**
 
-Run: `SWIFT_BUILD_DIR=".build-agent-cache-coordinator"; swift test --build-path "" --filter "WorkspaceCacheCoordinatorTests" > /tmp/luna350-task5.log 2>&1; echo $?`
+Run: `SWIFT_BUILD_DIR=".build-agent-cache-coordinator"; swift test --build-path "$SWIFT_BUILD_DIR" --filter "WorkspaceCacheCoordinatorTests" > /tmp/luna350-task5.log 2>&1; echo $?`
 Expected: missing coordinator symbols/handlers.
 
 **Step 3: Write minimal implementation**
@@ -441,7 +561,7 @@ func emitsRepoDiscoveredTopology() async { /* ... */ }
 
 **Step 2: Run tests to verify failure**
 
-Run: `SWIFT_BUILD_DIR=".build-agent-discovery"; swift test --build-path "" --filter "RepoScannerTests|FilesystemActorTests" > /tmp/luna350-task6.log 2>&1; echo $?`
+Run: `SWIFT_BUILD_DIR=".build-agent-discovery"; swift test --build-path "$SWIFT_BUILD_DIR" --filter "RepoScannerTests|FilesystemActorTests" > /tmp/luna350-task6.log 2>&1; echo $?`
 Expected: failure on discovery semantics and envelope category.
 
 **Step 3: Write minimal implementation**
@@ -489,7 +609,7 @@ func pollingFallbackErrorPath() async { /* ... */ }
 
 **Step 2: Run tests to verify failure**
 
-Run: `SWIFT_BUILD_DIR=".build-agent-forge"; swift test --build-path "" --filter "ForgeActorTests" > /tmp/luna350-task7.log 2>&1; echo $?`
+Run: `SWIFT_BUILD_DIR=".build-agent-forge"; swift test --build-path "$SWIFT_BUILD_DIR" --filter "ForgeActorTests" > /tmp/luna350-task7.log 2>&1; echo $?`
 Expected: missing `ForgeActor` implementation.
 
 **Step 3: Write minimal implementation**
@@ -554,7 +674,7 @@ struct DarwinFSEventStreamClientTests {
 
 **Step 2: Run tests to verify failure**
 
-Run: `SWIFT_BUILD_DIR=".build-agent-fsevents"; swift test --build-path "" --filter "DarwinFSEventStreamClientTests" > /tmp/luna350-task7a.log 2>&1; echo $?`
+Run: `SWIFT_BUILD_DIR=".build-agent-fsevents"; swift test --build-path "$SWIFT_BUILD_DIR" --filter "DarwinFSEventStreamClientTests" > /tmp/luna350-task7a.log 2>&1; echo $?`
 Expected: missing `DarwinFSEventStreamClient` symbol.
 
 **Step 3: Write minimal implementation**
@@ -607,7 +727,7 @@ func relocateRepoPreservesIdentity() async { /* ... */ }
 
 **Step 2: Run tests to verify failure**
 
-Run: `SWIFT_BUILD_DIR=".build-agent-repo-move"; swift test --build-path "" --filter "WorkspaceStoreOrphanPoolTests|WorkspaceCacheCoordinatorRepoMoveTests" > /tmp/luna350-task8.log 2>&1; echo $?`
+Run: `SWIFT_BUILD_DIR=".build-agent-repo-move"; swift test --build-path "$SWIFT_BUILD_DIR" --filter "WorkspaceStoreOrphanPoolTests|WorkspaceCacheCoordinatorRepoMoveTests" > /tmp/luna350-task8.log 2>&1; echo $?`
 Expected: failure due to missing move/relink lifecycle behavior.
 
 **Step 3: Write minimal implementation**
@@ -656,7 +776,7 @@ func sidebarProjectionUsesStores() { /* ... */ }
 
 **Step 2: Run tests to verify failure**
 
-Run: `SWIFT_BUILD_DIR=".build-agent-sidebar-rewire"; swift test --build-path "" --filter "RepoSidebarContentViewTests|SidebarRepoGroupingTests|PaneCoordinatorTests" > /tmp/luna350-task9.log 2>&1; echo $?`
+Run: `SWIFT_BUILD_DIR=".build-agent-sidebar-rewire"; swift test --build-path "$SWIFT_BUILD_DIR" --filter "RepoSidebarContentViewTests|SidebarRepoGroupingTests|PaneCoordinatorTests" > /tmp/luna350-task9.log 2>&1; echo $?`
 Expected: failure on direct mutation expectations.
 
 **Step 3: Write minimal implementation**
@@ -709,7 +829,7 @@ func sidebarUsesNewCacheStore() {
 
 **Step 2: Run tests to verify failure**
 
-Run: `SWIFT_BUILD_DIR=".build-agent-store-migration"; swift test --build-path "" --filter "RepoSidebarContentViewTests" > /tmp/luna350-task9a.log 2>&1; echo $?`
+Run: `SWIFT_BUILD_DIR=".build-agent-store-migration"; swift test --build-path "$SWIFT_BUILD_DIR" --filter "RepoSidebarContentViewTests" > /tmp/luna350-task9a.log 2>&1; echo $?`
 Expected: assertion failure on old dependency.
 
 **Step 3: Write minimal implementation**
@@ -763,7 +883,7 @@ func projectByRepoUsesCanonicalModels() {
 
 **Step 2: Run tests to verify failure**
 
-Run: `SWIFT_BUILD_DIR=".build-agent-projector"; swift test --build-path "" --filter "DynamicViewProjector" > /tmp/luna350-task9b.log 2>&1; echo $?`
+Run: `SWIFT_BUILD_DIR=".build-agent-projector"; swift test --build-path "$SWIFT_BUILD_DIR" --filter "DynamicViewProjector" > /tmp/luna350-task9b.log 2>&1; echo $?`
 Expected: signature mismatch.
 
 **Step 3: Write minimal implementation**
@@ -817,7 +937,7 @@ func filesystemSyncViaTopologyEvents() async {
 
 **Step 2: Run tests to verify failure**
 
-Run: `SWIFT_BUILD_DIR=".build-agent-hook-migration"; swift test --build-path "" --filter "PaneCoordinatorTests" > /tmp/luna350-task9c.log 2>&1; echo $?`
+Run: `SWIFT_BUILD_DIR=".build-agent-hook-migration"; swift test --build-path "$SWIFT_BUILD_DIR" --filter "PaneCoordinatorTests" > /tmp/luna350-task9c.log 2>&1; echo $?`
 Expected: failure on hook removal assertion.
 
 **Step 3: Write minimal implementation**
@@ -875,7 +995,7 @@ struct AppBootSequenceTests {
 
 **Step 2: Run tests to verify failure**
 
-Run: `SWIFT_BUILD_DIR=".build-agent-boot"; swift test --build-path "" --filter "AppBootSequenceTests" > /tmp/luna350-task9d.log 2>&1; echo $?`
+Run: `SWIFT_BUILD_DIR=".build-agent-boot"; swift test --build-path "$SWIFT_BUILD_DIR" --filter "AppBootSequenceTests" > /tmp/luna350-task9d.log 2>&1; echo $?`
 Expected: failure on missing boot sequence.
 
 **Step 3: Write minimal implementation**
@@ -926,7 +1046,7 @@ func sequentialEnrichmentPipeline() async throws { /* ... */ }
 
 **Step 2: Run tests to verify failure**
 
-Run: `SWIFT_BUILD_DIR=".build-agent-e2e-pipeline"; swift test --build-path "" --filter "FilesystemGitPipelineIntegrationTests|FilesystemSourceE2ETests|WorkspaceCacheCoordinatorE2ETests" > /tmp/luna350-task10.log 2>&1; echo $?`
+Run: `SWIFT_BUILD_DIR=".build-agent-e2e-pipeline"; swift test --build-path "$SWIFT_BUILD_DIR" --filter "FilesystemGitPipelineIntegrationTests|FilesystemSourceE2ETests|WorkspaceCacheCoordinatorE2ETests" > /tmp/luna350-task10.log 2>&1; echo $?`
 Expected: failing assertions on chain/enrichment behavior until implementation lands.
 
 **Step 3: Write minimal implementation adjustments**
@@ -973,7 +1093,7 @@ Expected: zero stale matches (pre-work should have eliminated these).
 **Step 2: Verify code samples match implemented types**
 
 After Tasks 1-3 land new Swift types, update any code samples in architecture docs that show old type names or missing fields. Focus on:
-- Contract 3 "Current" section - should match the actual `PaneEventEnvelope.swift`
+- Contract 3 examples should only reference `RuntimeEnvelope` tiered contracts (no legacy envelope examples in normative sections)
 - Contract 3 "Target" section - should match the actual `RuntimeEnvelope.swift`
 - EventBus design actor inventory — should match actual actor files
 
@@ -1049,6 +1169,9 @@ git commit -m "chore(luna-350): final verification pass and contract cleanup"
 - [ ] Topology events are `SystemEnvelope` and never require `repoId`.
 - [ ] Filesystem/git/forge events are `WorktreeEnvelope` with required `repoId`.
 - [ ] Bus replay policy (256 events/source) is documented and implemented consistently.
+- [ ] Legacy envelope path removed completely: no `PaneEventEnvelope`, `fromLegacy`, `toLegacy`, or dual-bus constructors.
+- [ ] `RuntimeEnvelope` contracts are split by responsibility (core, metadata, factories), not monolithic.
+- [ ] `NotificationReducer` handles `.system` envelopes with tested behavior (no silent discard).
 
 **Model & Persistence:**
 - [ ] `Repo`/`Worktree` structs split into canonical + enrichment tiers (no contamination).
@@ -1071,6 +1194,8 @@ git commit -m "chore(luna-350): final verification pass and contract cleanup"
 **Quality Gate:**
 - [ ] `mise run format`, `mise run lint`, and `mise run test` all pass.
 - [ ] No `TODO(LUNA-349)` or `TODO(LUNA-350)` markers remain in production source.
+- [ ] `EventBus` shutdown/deinit closes subscriber continuations deterministically.
+- [ ] Replay subscribe outcomes are checked and replay gaps are observable in logs/tests.
 
 ---
 

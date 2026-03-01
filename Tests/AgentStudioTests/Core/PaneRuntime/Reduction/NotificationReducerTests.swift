@@ -21,6 +21,23 @@ struct NotificationReducerTests {
         #expect(received?.seq == envelope.seq)
     }
 
+    @Test("runtime envelope critical submission emits through legacy stream")
+    func runtimeEnvelopeCriticalImmediate() async {
+        let reducer = NotificationReducer()
+        var iterator = reducer.criticalEvents.makeAsyncIterator()
+
+        let runtimeEnvelope = RuntimeEnvelope.fromLegacy(
+            makeEnvelope(
+                seq: 5,
+                event: .terminal(.bellRang)
+            )
+        )
+        reducer.submit(runtimeEnvelope)
+
+        let received = await iterator.next()
+        #expect(received?.seq == 5)
+    }
+
     @Test("lossy events coalesce by key and latest wins")
     func lossyCoalesces() async {
         let reducer = NotificationReducer()
@@ -145,6 +162,40 @@ struct NotificationReducerTests {
 
         #expect(first?.source == .system(.builtin(.filesystemWatcher)))
         #expect(second?.source == .pane(lowTierPaneId))
+    }
+
+    @Test("runtime system topology worktreeRegistered is bridged to legacy filesystem event")
+    func runtimeSystemTopologyBridgesToLegacyEvent() async {
+        let reducer = NotificationReducer()
+        var iterator = reducer.criticalEvents.makeAsyncIterator()
+        let worktreeId = UUID()
+        let repoId = UUID()
+        let rootPath = URL(fileURLWithPath: "/tmp/reducer-\(UUID().uuidString)")
+
+        reducer.submit(
+            .system(
+                SystemEnvelope.test(
+                    event: .topology(.worktreeRegistered(worktreeId: worktreeId, repoId: repoId, rootPath: rootPath)),
+                    source: .builtin(.filesystemWatcher),
+                    seq: 99
+                )
+            )
+        )
+
+        let received = await iterator.next()
+        guard let received else {
+            Issue.record("Expected bridged legacy envelope")
+            return
+        }
+        #expect(received.seq == 99)
+        #expect(received.source == .system(.builtin(.filesystemWatcher)))
+        guard case .filesystem(.worktreeRegistered(let mappedWorktreeId, let mappedRepoId, let mappedRootPath)) = received.event else {
+            Issue.record("Expected worktreeRegistered legacy event")
+            return
+        }
+        #expect(mappedWorktreeId == worktreeId)
+        #expect(mappedRepoId == repoId)
+        #expect(mappedRootPath == rootPath)
     }
 
     private func makeEnvelope(

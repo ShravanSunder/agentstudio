@@ -39,6 +39,13 @@ actor EventBus<Envelope: Sendable> {
         self.replayConfiguration = replayConfiguration
     }
 
+    isolated deinit {
+        for continuation in subscribers.values {
+            continuation.finish()
+        }
+        subscribers.removeAll(keepingCapacity: false)
+    }
+
     func subscribe(
         bufferingPolicy: AsyncStream<Envelope>.Continuation.BufferingPolicy = .unbounded
     ) -> AsyncStream<Envelope> {
@@ -49,8 +56,24 @@ actor EventBus<Envelope: Sendable> {
                 Task { await self?.removeSubscriber(subscriberID) }
             }
             self.subscribers[subscriberID] = continuation
-            for envelope in replaySnapshot {
-                _ = continuation.yield(envelope)
+            var replayDroppedCount = 0
+            replayLoop: for envelope in replaySnapshot {
+                switch continuation.yield(envelope) {
+                case .enqueued:
+                    continue replayLoop
+                case .dropped:
+                    replayDroppedCount += 1
+                case .terminated:
+                    break replayLoop
+                @unknown default:
+                    continue replayLoop
+                }
+            }
+            if replayDroppedCount > 0 {
+                self.droppedEventCount += UInt64(replayDroppedCount)
+                paneEventBusLogger.warning(
+                    "Dropped \(replayDroppedCount, privacy: .public) replay event(s) for subscriber due to buffering policy overflow"
+                )
             }
         }
         return stream

@@ -51,9 +51,7 @@ final class NotificationReducer {
         switch envelope.actionPolicy {
         case .critical:
             guard tierResolver != nil else {
-                if let legacyEnvelope = envelope.toLegacy() {
-                    criticalContinuation.yield(legacyEnvelope)
-                }
+                emitCriticalLegacyEnvelopeIfPossible(envelope)
                 return
             }
             let visibilityTier = tier(for: envelope)
@@ -115,9 +113,7 @@ final class NotificationReducer {
             let queued = (criticalBufferByTier[visibilityTier] ?? []).sorted(by: compareEnvelopes)
             guard !queued.isEmpty else { continue }
             for envelope in queued {
-                if let legacyEnvelope = envelope.toLegacy() {
-                    criticalContinuation.yield(legacyEnvelope)
-                }
+                emitCriticalLegacyEnvelopeIfPossible(envelope)
             }
         }
         criticalBufferByTier.removeAll(keepingCapacity: true)
@@ -128,10 +124,36 @@ final class NotificationReducer {
         var batch = Array(lossyBuffer.values)
         batch.sort(by: compareEnvelopes)
         lossyBuffer.removeAll(keepingCapacity: true)
-        let legacyBatch = batch.compactMap { $0.toLegacy() }
+        let legacyBatch = batch.compactMap { envelope -> PaneEventEnvelope? in
+            guard let legacyEnvelope = envelope.toLegacy() else {
+                Self.logger.debug(
+                    """
+                    Skipped lossy runtime envelope without legacy mapping; \
+                    source=\(String(describing: envelope.source), privacy: .public) \
+                    seq=\(envelope.seq, privacy: .public)
+                    """
+                )
+                return nil
+            }
+            return legacyEnvelope
+        }
         if !legacyBatch.isEmpty {
             batchContinuation.yield(legacyBatch)
         }
+    }
+
+    private func emitCriticalLegacyEnvelopeIfPossible(_ envelope: RuntimeEnvelope) {
+        guard let legacyEnvelope = envelope.toLegacy() else {
+            Self.logger.debug(
+                """
+                Skipped critical runtime envelope without legacy mapping; \
+                source=\(String(describing: envelope.source), privacy: .public) \
+                seq=\(envelope.seq, privacy: .public)
+                """
+            )
+            return
+        }
+        criticalContinuation.yield(legacyEnvelope)
     }
 
     private func compareEnvelopes(_ lhs: RuntimeEnvelope, _ rhs: RuntimeEnvelope) -> Bool {

@@ -1,4 +1,5 @@
 import Foundation
+import os
 
 /// Shared event channel for pane runtimes:
 /// - Tracks envelope sequence numbers
@@ -7,6 +8,7 @@ import Foundation
 /// - Posts envelopes to the app-wide pane event bus
 @MainActor
 final class PaneRuntimeEventChannel {
+    private static let logger = Logger(subsystem: "com.agentstudio", category: "PaneRuntimeEventChannel")
     private let clock: ContinuousClock
     private let replayBuffer: EventReplayBuffer
     private let paneEventBus: EventBus<RuntimeEnvelope>
@@ -112,7 +114,12 @@ final class PaneRuntimeEventChannel {
         // Ordering is guaranteed for local subscribers/replay (yield + append above),
         // while cross-runtime bus fanout is best-effort and eventually consistent.
         Task { [paneEventBus] in
-            await paneEventBus.post(RuntimeEnvelope.fromLegacy(envelope))
+            let postResult = await paneEventBus.post(RuntimeEnvelope.fromLegacy(envelope))
+            if postResult.droppedCount > 0 {
+                Self.logger.warning(
+                    "Dropped pane runtime bus event for \(postResult.droppedCount, privacy: .public) subscriber(s); seq=\(envelope.seq, privacy: .public)"
+                )
+            }
         }
     }
 }

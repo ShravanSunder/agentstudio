@@ -82,8 +82,7 @@ actor GitWorkingDirectoryProjector {
                 for await runtimeEnvelope in stream {
                     guard !Task.isCancelled else { break }
                     guard let self else { return }
-                    guard let legacyEnvelope = runtimeEnvelope.toLegacy() else { continue }
-                    await self.handleIncomingEnvelope(legacyEnvelope)
+                    await self.handleIncomingRuntimeEnvelope(runtimeEnvelope)
                 }
             }
             return
@@ -123,6 +122,45 @@ actor GitWorkingDirectoryProjector {
         pendingByWorktreeId.removeAll(keepingCapacity: false)
         suppressedWorktreeIds.removeAll(keepingCapacity: false)
         lastKnownBranchByWorktree.removeAll(keepingCapacity: false)
+    }
+
+    private func handleIncomingRuntimeEnvelope(_ envelope: RuntimeEnvelope) async {
+        switch envelope {
+        case .system(let systemEnvelope):
+            guard systemEnvelope.source == .builtin(.filesystemWatcher) else { return }
+            guard case .topology(let topologyEvent) = systemEnvelope.event else { return }
+            switch topologyEvent {
+            case .worktreeRegistered(let worktreeId, let repoId, let rootPath):
+                suppressedWorktreeIds.remove(worktreeId)
+                pendingByWorktreeId[worktreeId] = FileChangeset(
+                    worktreeId: worktreeId,
+                    repoId: repoId,
+                    rootPath: rootPath,
+                    paths: [],
+                    timestamp: systemEnvelope.timestamp,
+                    batchSeq: 0
+                )
+                spawnOrCoalesce(worktreeId: worktreeId)
+            case .worktreeUnregistered(let worktreeId, _):
+                suppressedWorktreeIds.insert(worktreeId)
+                pendingByWorktreeId.removeValue(forKey: worktreeId)
+                lastKnownBranchByWorktree.removeValue(forKey: worktreeId)
+                if let task = worktreeTasks.removeValue(forKey: worktreeId) {
+                    task.cancel()
+                }
+            case .repoDiscovered, .repoRemoved:
+                return
+            }
+        case .worktree(let worktreeEnvelope):
+            guard worktreeEnvelope.source == .system(.builtin(.filesystemWatcher)) else { return }
+            guard case .filesystem(.filesChanged(let changeset)) = worktreeEnvelope.event else { return }
+            let worktreeId = changeset.worktreeId
+            guard !suppressedWorktreeIds.contains(worktreeId) else { return }
+            pendingByWorktreeId[worktreeId] = changeset
+            spawnOrCoalesce(worktreeId: worktreeId)
+        case .pane:
+            return
+        }
     }
 
     private func handleIncomingEnvelope(_ envelope: PaneEventEnvelope) async {
@@ -189,9 +227,9 @@ actor GitWorkingDirectoryProjector {
                     return
                 } catch {
                     Self.logger.warning(
-                        "Unexpected projector sleep failure for worktree \(worktreeId.uuidString, privacy: .public): \(error.localizedDescription, privacy: .public)"
+                        "Unexpected projector sleep failure for worktree \(worktreeId.uuidString, privacy: .public): \(String(describing: error), privacy: .public)"
                     )
-                    return
+                    continue
                 }
                 guard !Task.isCancelled else { return }
                 if let newer = pendingByWorktreeId.removeValue(forKey: worktreeId) {
@@ -270,8 +308,18 @@ actor GitWorkingDirectoryProjector {
         let droppedCount: Int
         if let runtimeBus {
             droppedCount = (await runtimeBus.post(runtimeEnvelope)).droppedCount
-        } else if let legacyBus, let legacyEnvelope = runtimeEnvelope.toLegacy() {
-            droppedCount = (await legacyBus.post(legacyEnvelope)).droppedCount
+        } else if let legacyBus {
+            if let legacyEnvelope = runtimeEnvelope.toLegacy() {
+                droppedCount = (await legacyBus.post(legacyEnvelope)).droppedCount
+            } else {
+                Self.logger.warning(
+                    """
+                    Git projector event dropped after runtime-envelope adaptation; \
+                    event=\(String(describing: event), privacy: .public)
+                    """
+                )
+                droppedCount = 0
+            }
         } else {
             droppedCount = 0
         }

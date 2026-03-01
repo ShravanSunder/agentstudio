@@ -83,6 +83,26 @@ struct EventBusRuntimeEnvelopeTests {
         #expect(coolSeqs == [1, 2, 3])
     }
 
+    @Test("replay drops are counted when subscriber buffering is smaller than replay snapshot")
+    func replayDropsAreCountedForSmallSubscriberBuffer() async {
+        let bus = EventBus<RuntimeEnvelope>(
+            replayConfiguration: .init(
+                capacityPerSource: 8,
+                sourceKey: { envelope in
+                    envelope.source.description
+                }
+            )
+        )
+        let paneId = PaneId()
+        for seq in 1...8 {
+            _ = await bus.post(makePaneEnvelope(paneId: paneId, seq: UInt64(seq)))
+        }
+
+        _ = await bus.subscribe(bufferingPolicy: .bufferingNewest(1))
+        let dropped = await bus.totalDroppedEvents()
+        #expect(dropped > 0)
+    }
+
     private func makePaneEnvelope(paneId: PaneId, seq: UInt64) -> RuntimeEnvelope {
         .pane(
             PaneEnvelope.test(

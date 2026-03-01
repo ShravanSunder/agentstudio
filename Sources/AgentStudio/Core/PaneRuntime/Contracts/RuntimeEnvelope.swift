@@ -1,4 +1,5 @@
 import Foundation
+import os
 
 enum RuntimeEnvelope: Sendable {
     case system(SystemEnvelope)
@@ -20,6 +21,8 @@ enum SystemScopedEvent: Sendable {
 enum TopologyEvent: Sendable {
     case repoDiscovered(repoPath: URL, parentPath: URL)
     case repoRemoved(repoPath: URL)
+    case worktreeRegistered(worktreeId: UUID, repoId: UUID, rootPath: URL)
+    case worktreeUnregistered(worktreeId: UUID, repoId: UUID)
 }
 
 enum AppLifecycleEvent: Sendable {
@@ -271,6 +274,8 @@ extension PaneEnvelope {
 }
 
 extension RuntimeEnvelope {
+    private static let bridgeLogger = Logger(subsystem: "com.agentstudio", category: "RuntimeEnvelopeBridge")
+
     var source: EventSource {
         switch self {
         case .system(let envelope):
@@ -314,12 +319,29 @@ extension RuntimeEnvelope {
     }
 
     static func fromLegacy(_ legacy: PaneEventEnvelope) -> RuntimeEnvelope {
+        if let systemEnvelope = systemEnvelope(from: legacy) {
+            return .system(systemEnvelope)
+        }
+
         if let worktreeScopedEvent = worktreeScopedEvent(from: legacy.event) {
             let resolvedWorktreeId = legacy.sourceFacets.worktreeId ?? worktreeId(from: legacy.event)
-            let resolvedRepoId = legacy.sourceFacets.repoId
+            let resolvedRepoId: UUID
+            if let explicitRepoId = legacy.sourceFacets.repoId
                 ?? repoId(from: legacy.event)
                 ?? resolvedWorktreeId
-                ?? UUID()
+            {
+                resolvedRepoId = explicitRepoId
+            } else {
+                // Deterministic fallback preserves idempotency when source facts are incomplete.
+                resolvedRepoId = legacy.eventId
+                bridgeLogger.warning(
+                    """
+                    Missing repoId while adapting legacy pane envelope to WorktreeEnvelope; \
+                    fallbackRepoId=\(resolvedRepoId.uuidString, privacy: .public) \
+                    source=\(legacy.source.description, privacy: .public)
+                    """
+                )
+            }
             return .worktree(
                 WorktreeEnvelope(
                     eventId: legacy.eventId,
@@ -390,8 +412,61 @@ extension RuntimeEnvelope {
                 event: legacyEvent
             )
         case .system:
-            return nil
+            guard let legacyEvent = Self.legacyPaneRuntimeEvent(fromSystem: self) else {
+                return nil
+            }
+            guard case .system(let envelope) = self else { return nil }
+            return PaneEventEnvelope(
+                eventId: envelope.eventId,
+                source: .system(envelope.source),
+                sourceFacets: Self.legacySourceFacets(from: envelope),
+                paneKind: nil,
+                seq: envelope.seq,
+                schemaVersion: envelope.schemaVersion,
+                commandId: envelope.commandId,
+                correlationId: envelope.correlationId,
+                causationId: envelope.causationId,
+                timestamp: envelope.timestamp,
+                epoch: 0,
+                event: legacyEvent
+            )
         }
+    }
+
+    private static func systemEnvelope(from legacy: PaneEventEnvelope) -> SystemEnvelope? {
+        guard case .filesystem(let filesystemEvent) = legacy.event else { return nil }
+
+        let topologyEvent: TopologyEvent?
+        switch filesystemEvent {
+        case .worktreeRegistered(let worktreeId, let repoId, let rootPath):
+            topologyEvent = .worktreeRegistered(worktreeId: worktreeId, repoId: repoId, rootPath: rootPath)
+        case .worktreeUnregistered(let worktreeId, let repoId):
+            topologyEvent = .worktreeUnregistered(worktreeId: worktreeId, repoId: repoId)
+        case .filesChanged, .gitSnapshotChanged, .diffAvailable, .branchChanged:
+            topologyEvent = nil
+        }
+
+        guard let topologyEvent else { return nil }
+
+        let systemSource: SystemSource
+        switch legacy.source {
+        case .system(let source):
+            systemSource = source
+        case .pane, .worktree:
+            systemSource = .builtin(.coordinator)
+        }
+
+        return SystemEnvelope(
+            eventId: legacy.eventId,
+            source: systemSource,
+            seq: legacy.seq,
+            timestamp: legacy.timestamp,
+            schemaVersion: legacy.schemaVersion,
+            correlationId: legacy.correlationId,
+            causationId: legacy.causationId,
+            commandId: legacy.commandId,
+            event: .topology(topologyEvent)
+        )
     }
 
     private static func worktreeScopedEvent(from event: PaneRuntimeEvent) -> WorktreeScopedEvent? {
@@ -420,6 +495,27 @@ extension RuntimeEnvelope {
         case .security(let securityEvent):
             return .security(securityEvent)
         case .forge:
+            return nil
+        }
+    }
+
+    private static func legacyPaneRuntimeEvent(fromSystem envelope: RuntimeEnvelope) -> PaneRuntimeEvent? {
+        guard case .system(let systemEnvelope) = envelope else { return nil }
+        switch systemEnvelope.event {
+        case .topology(let topologyEvent):
+            switch topologyEvent {
+            case .worktreeRegistered(let worktreeId, let repoId, let rootPath):
+                return .filesystem(
+                    .worktreeRegistered(worktreeId: worktreeId, repoId: repoId, rootPath: rootPath)
+                )
+            case .worktreeUnregistered(let worktreeId, let repoId):
+                return .filesystem(
+                    .worktreeUnregistered(worktreeId: worktreeId, repoId: repoId)
+                )
+            case .repoDiscovered, .repoRemoved:
+                return nil
+            }
+        case .appLifecycle, .focusChanged, .configChanged:
             return nil
         }
     }
@@ -460,6 +556,24 @@ extension RuntimeEnvelope {
             return envelope.paneKind
         case .system, .worktree:
             return inferredPaneKind(from: envelope.event)
+        }
+    }
+
+    private static func legacySourceFacets(from envelope: SystemEnvelope) -> PaneContextFacets {
+        switch envelope.event {
+        case .topology(let topologyEvent):
+            switch topologyEvent {
+            case .worktreeRegistered(let worktreeId, let repoId, let rootPath):
+                return PaneContextFacets(repoId: repoId, worktreeId: worktreeId, cwd: rootPath)
+            case .worktreeUnregistered(let worktreeId, let repoId):
+                return PaneContextFacets(repoId: repoId, worktreeId: worktreeId)
+            case .repoDiscovered(let repoPath, _):
+                return PaneContextFacets(cwd: repoPath)
+            case .repoRemoved(let repoPath):
+                return PaneContextFacets(cwd: repoPath)
+            }
+        case .appLifecycle, .focusChanged, .configChanged:
+            return .empty
         }
     }
 
