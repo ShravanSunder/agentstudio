@@ -44,7 +44,7 @@ final class PaneCoordinator {
     let runtimeCommandClock: ContinuousClock
     let filesystemSource: any PaneCoordinatorFilesystemSourceManaging
     let paneFilesystemProjectionStore: PaneFilesystemProjectionStore
-    let workspaceGitStatusStore: WorkspaceGitStatusStore
+    let workspaceGitWorkingTreeStore: WorkspaceGitWorkingTreeStore
     lazy var sessionConfig = SessionConfiguration.detect()
     private var cwdChangesTask: Task<Void, Never>?
     private var paneEventIngressTask: Task<Void, Never>?
@@ -53,7 +53,7 @@ final class PaneCoordinator {
     private var batchedRuntimeEventsTask: Task<Void, Never>?
     var filesystemSyncTask: Task<Void, Never>?
     var filesystemSyncRequested = false
-    var filesystemRegisteredRootsByWorktreeId: [UUID: URL] = [:]
+    var filesystemRegisteredContextsByWorktreeId: [UUID: WorktreeFilesystemContext] = [:]
     var filesystemActivityByWorktreeId: [UUID: Bool] = [:]
     var filesystemLastActivePaneWorktreeId: UUID?
 
@@ -92,7 +92,7 @@ final class PaneCoordinator {
         runtimeCommandClock: ContinuousClock = ContinuousClock(),
         filesystemSource: (any PaneCoordinatorFilesystemSourceManaging)? = nil,
         paneFilesystemProjectionStore: PaneFilesystemProjectionStore = PaneFilesystemProjectionStore(),
-        workspaceGitStatusStore: WorkspaceGitStatusStore = WorkspaceGitStatusStore()
+        workspaceGitWorkingTreeStore: WorkspaceGitWorkingTreeStore = WorkspaceGitWorkingTreeStore()
     ) {
         let resolvedFilesystemSource =
             filesystemSource
@@ -111,7 +111,7 @@ final class PaneCoordinator {
         self.runtimeCommandClock = runtimeCommandClock
         self.filesystemSource = resolvedFilesystemSource
         self.paneFilesystemProjectionStore = paneFilesystemProjectionStore
-        self.workspaceGitStatusStore = workspaceGitStatusStore
+        self.workspaceGitWorkingTreeStore = workspaceGitWorkingTreeStore
         Ghostty.App.setRuntimeRegistry(runtimeRegistry)
         subscribeToCWDChanges()
         setupPrePersistHook()

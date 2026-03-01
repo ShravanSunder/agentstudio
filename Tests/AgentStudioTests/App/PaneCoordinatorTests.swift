@@ -345,7 +345,7 @@ struct PaneCoordinatorTests {
             runtimeRegistry: RuntimeRegistry(),
             filesystemSource: filesystemSource,
             paneFilesystemProjectionStore: PaneFilesystemProjectionStore(),
-            workspaceGitStatusStore: WorkspaceGitStatusStore()
+            workspaceGitWorkingTreeStore: WorkspaceGitWorkingTreeStore()
         )
 
         await waitUntilFilesystemState(
@@ -443,7 +443,7 @@ struct PaneCoordinatorTests {
             runtimeRegistry: RuntimeRegistry(),
             filesystemSource: filesystemSource,
             paneFilesystemProjectionStore: PaneFilesystemProjectionStore(),
-            workspaceGitStatusStore: WorkspaceGitStatusStore()
+            workspaceGitWorkingTreeStore: WorkspaceGitWorkingTreeStore()
         )
         _ = coordinator
 
@@ -522,7 +522,11 @@ private actor RecordingFilesystemSource: PaneCoordinatorFilesystemSourceManaging
     private(set) var activityByWorktreeId: [UUID: Bool] = [:]
     private(set) var activePaneWorktreeId: UUID?
 
-    func register(worktreeId: UUID, rootPath: URL) {
+    func start() async {}
+
+    func shutdown() async {}
+
+    func register(worktreeId: UUID, repoId: UUID, rootPath: URL) {
         registeredRoots[worktreeId] = rootPath
     }
 
@@ -561,7 +565,11 @@ private actor DelayingRecordingFilesystemSource: PaneCoordinatorFilesystemSource
         self.operationDelay = operationDelay
     }
 
-    func register(worktreeId: UUID, rootPath: URL) async {
+    func start() async {}
+
+    func shutdown() async {}
+
+    func register(worktreeId: UUID, repoId: UUID, rootPath: URL) async {
         try? await Task.sleep(for: operationDelay)
         registeredRoots[worktreeId] = rootPath
     }

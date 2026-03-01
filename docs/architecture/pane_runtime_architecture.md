@@ -2727,13 +2727,13 @@ struct PaneFilesystemContext: Sendable {
 /// Only includes changes within the pane's CWD subtree.
 enum PaneFilesystemContextEvent: PaneKindEvent {
     case cwdSubtreeChanged(paths: Set<String>, batchSeq: UInt64)
-    case gitStatusInCwd(staged: Int, unstaged: Int, untracked: Int)
+    case gitWorkingTreeInCwd(staged: Int, unstaged: Int, untracked: Int)
 
     var actionPolicy: ActionPolicy { .critical }
     var eventName: EventIdentifier {
         switch self {
         case .cwdSubtreeChanged: return .init("fs.cwdSubtreeChanged")
-        case .gitStatusInCwd:    return .init("fs.gitStatusInCwd")
+        case .gitWorkingTreeInCwd: return .init("fs.gitWorkingTreeInCwd")
         }
     }
 }

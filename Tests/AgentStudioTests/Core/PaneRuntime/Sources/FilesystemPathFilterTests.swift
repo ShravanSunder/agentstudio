@@ -55,6 +55,33 @@ struct FilesystemPathFilterTests {
         #expect(!filter.isIgnored(relativePath: "filea.txt"))
     }
 
+    @Test("missing .gitignore falls back to empty ignore policy")
+    func missingGitIgnoreFallsBackToEmptyPolicy() throws {
+        let rootPath = try makeEmptyRoot()
+        defer { try? FileManager.default.removeItem(at: rootPath) }
+
+        let filter = FilesystemPathFilter.load(forRootPath: rootPath)
+        #expect(filter.classify(relativePath: "Sources/App.swift") == .projected)
+        #expect(!filter.isIgnored(relativePath: "debug.log"))
+    }
+
+    @Test("empty/comment-only .gitignore does not ignore paths")
+    func commentOnlyGitIgnoreDoesNotIgnorePaths() throws {
+        let rootPath = try makeRootWithGitIgnore(
+            lines: [
+                "",
+                "   ",
+                "# generated files",
+                " # spaced comment",
+            ]
+        )
+        defer { try? FileManager.default.removeItem(at: rootPath) }
+
+        let filter = FilesystemPathFilter.load(forRootPath: rootPath)
+        #expect(filter.classify(relativePath: "build/output.o") == .projected)
+        #expect(!filter.isIgnored(relativePath: "Sources/App.swift"))
+    }
+
     private func makeRootWithGitIgnore(lines: [String]) throws -> URL {
         let fileManager = FileManager.default
         let rootPath = fileManager.temporaryDirectory.appending(path: "path-filter-\(UUID().uuidString)")
@@ -65,6 +92,13 @@ struct FilesystemPathFilterTests {
             atomically: true,
             encoding: .utf8
         )
+        return rootPath
+    }
+
+    private func makeEmptyRoot() throws -> URL {
+        let fileManager = FileManager.default
+        let rootPath = fileManager.temporaryDirectory.appending(path: "path-filter-empty-\(UUID().uuidString)")
+        try fileManager.createDirectory(at: rootPath, withIntermediateDirectories: true)
         return rootPath
     }
 }

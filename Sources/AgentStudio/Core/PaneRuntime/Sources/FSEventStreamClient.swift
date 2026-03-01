@@ -7,7 +7,7 @@ struct FSEventBatch: Sendable {
 
 protocol FSEventStreamClient: Sendable {
     func events() -> AsyncStream<FSEventBatch>
-    func register(worktreeId: UUID, rootPath: URL) async
+    func register(worktreeId: UUID, repoId: UUID, rootPath: URL) async
     func unregister(worktreeId: UUID) async
     func shutdown()
 }
@@ -20,7 +20,7 @@ struct NoopFSEventStreamClient: FSEventStreamClient {
         }
     }
 
-    func register(worktreeId _: UUID, rootPath _: URL) async {}
+    func register(worktreeId _: UUID, repoId _: UUID, rootPath _: URL) async {}
 
     func unregister(worktreeId _: UUID) async {}
 

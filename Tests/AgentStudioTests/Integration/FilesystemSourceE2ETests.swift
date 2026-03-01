@@ -39,10 +39,11 @@ extension E2ESerializedTests {
             let paneEventBus = EventBus<PaneEventEnvelope>()
             let filesystemSource = FilesystemGitPipeline(
                 bus: paneEventBus,
-                gitStatusProvider: ShellGitStatusProvider(processExecutor: DefaultProcessExecutor(timeout: 5))
+                gitWorkingTreeProvider: ShellGitWorkingTreeStatusProvider(
+                    processExecutor: DefaultProcessExecutor(timeout: 5))
             )
             let paneProjectionStore = PaneFilesystemProjectionStore()
-            let workspaceGitStatusStore = WorkspaceGitStatusStore()
+            let workspaceGitWorkingTreeStore = WorkspaceGitWorkingTreeStore()
 
             let coordinator = PaneCoordinator(
                 store: store,
@@ -53,11 +54,11 @@ extension E2ESerializedTests {
                 paneEventBus: paneEventBus,
                 filesystemSource: filesystemSource,
                 paneFilesystemProjectionStore: paneProjectionStore,
-                workspaceGitStatusStore: workspaceGitStatusStore
+                workspaceGitWorkingTreeStore: workspaceGitWorkingTreeStore
             )
 
             await eventually("filesystem root should be registered for worktree") {
-                coordinator.filesystemRegisteredRootsByWorktreeId[worktree.id] != nil
+                coordinator.filesystemRegisteredContextsByWorktreeId[worktree.id] != nil
             }
 
             await filesystemSource.enqueueRawPathsForTesting(
@@ -66,7 +67,9 @@ extension E2ESerializedTests {
             )
 
             await eventually("workspace git status snapshot should update") {
-                guard let snapshot = workspaceGitStatusStore.snapshotsByWorktreeId[worktree.id] else { return false }
+                guard let snapshot = workspaceGitWorkingTreeStore.snapshotsByWorktreeId[worktree.id] else {
+                    return false
+                }
                 return snapshot.summary.changed >= 1 && snapshot.summary.untracked >= 1
             }
 

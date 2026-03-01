@@ -14,18 +14,24 @@ struct FilesystemActorTests {
         var iterator = stream.makeAsyncIterator()
 
         let worktreeId = UUID()
+        let repoId = UUID()
         let rootPath = URL(fileURLWithPath: "/tmp/register-\(UUID().uuidString)")
-        await actor.register(worktreeId: worktreeId, rootPath: rootPath)
+        await actor.register(worktreeId: worktreeId, repoId: repoId, rootPath: rootPath)
 
         let envelope = try #require(await iterator.next())
-        guard case .filesystem(.worktreeRegistered(let registeredWorktreeId, let registeredRootPath)) = envelope.event
+        guard
+            case .filesystem(
+                .worktreeRegistered(let registeredWorktreeId, let registeredRepoId, let registeredRootPath)) = envelope
+                .event
         else {
             Issue.record("Expected worktreeRegistered filesystem event")
             return
         }
 
         #expect(registeredWorktreeId == worktreeId)
+        #expect(registeredRepoId == repoId)
         #expect(registeredRootPath == rootPath)
+        #expect(envelope.sourceFacets.repoId == repoId)
         #expect(envelope.sourceFacets.worktreeId == worktreeId)
 
         await actor.shutdown()
@@ -40,18 +46,23 @@ struct FilesystemActorTests {
         var iterator = stream.makeAsyncIterator()
 
         let worktreeId = UUID()
+        let repoId = UUID()
         let rootPath = URL(fileURLWithPath: "/tmp/unregister-\(UUID().uuidString)")
-        await actor.register(worktreeId: worktreeId, rootPath: rootPath)
+        await actor.register(worktreeId: worktreeId, repoId: repoId, rootPath: rootPath)
         _ = try #require(await iterator.next())  // worktreeRegistered
 
         await actor.unregister(worktreeId: worktreeId)
         let envelope = try #require(await iterator.next())
-        guard case .filesystem(.worktreeUnregistered(let unregisteredWorktreeId)) = envelope.event else {
+        guard
+            case .filesystem(.worktreeUnregistered(let unregisteredWorktreeId, let unregisteredRepoId)) = envelope.event
+        else {
             Issue.record("Expected worktreeUnregistered filesystem event")
             return
         }
 
         #expect(unregisteredWorktreeId == worktreeId)
+        #expect(unregisteredRepoId == repoId)
+        #expect(envelope.sourceFacets.repoId == repoId)
         #expect(envelope.sourceFacets.worktreeId == worktreeId)
 
         await actor.shutdown()
@@ -64,8 +75,8 @@ struct FilesystemActorTests {
 
         let parentId = UUID()
         let childId = UUID()
-        await actor.register(worktreeId: parentId, rootPath: URL(fileURLWithPath: "/tmp/repo"))
-        await actor.register(worktreeId: childId, rootPath: URL(fileURLWithPath: "/tmp/repo/nested"))
+        await actor.register(worktreeId: parentId, repoId: parentId, rootPath: URL(fileURLWithPath: "/tmp/repo"))
+        await actor.register(worktreeId: childId, repoId: childId, rootPath: URL(fileURLWithPath: "/tmp/repo/nested"))
 
         let stream = await bus.subscribe()
         var iterator = stream.makeAsyncIterator()
@@ -90,8 +101,8 @@ struct FilesystemActorTests {
 
         let parentId = UUID()
         let childId = UUID()
-        await actor.register(worktreeId: parentId, rootPath: URL(fileURLWithPath: "/tmp/repo"))
-        await actor.register(worktreeId: childId, rootPath: URL(fileURLWithPath: "/tmp/repo/nested"))
+        await actor.register(worktreeId: parentId, repoId: parentId, rootPath: URL(fileURLWithPath: "/tmp/repo"))
+        await actor.register(worktreeId: childId, repoId: childId, rootPath: URL(fileURLWithPath: "/tmp/repo/nested"))
 
         let stream = await bus.subscribe()
         var iterator = stream.makeAsyncIterator()
@@ -121,8 +132,11 @@ struct FilesystemActorTests {
 
         let sidebarOnlyWorktreeId = UUID()
         let activeWorktreeId = UUID()
-        await actor.register(worktreeId: sidebarOnlyWorktreeId, rootPath: URL(fileURLWithPath: "/tmp/sidebar"))
-        await actor.register(worktreeId: activeWorktreeId, rootPath: URL(fileURLWithPath: "/tmp/active"))
+        await actor.register(
+            worktreeId: sidebarOnlyWorktreeId, repoId: sidebarOnlyWorktreeId,
+            rootPath: URL(fileURLWithPath: "/tmp/sidebar"))
+        await actor.register(
+            worktreeId: activeWorktreeId, repoId: activeWorktreeId, rootPath: URL(fileURLWithPath: "/tmp/active"))
         await actor.setActivity(worktreeId: activeWorktreeId, isActiveInApp: true)
         await actor.setActivity(worktreeId: sidebarOnlyWorktreeId, isActiveInApp: false)
         await actor.setActivePaneWorktree(worktreeId: activeWorktreeId)
@@ -149,10 +163,16 @@ struct FilesystemActorTests {
         let sidebarWorktreeId = UUID()
         let activeWorktreeId = UUID()
         let focusedWorktreeId = UUID()
-        await actor.register(worktreeId: sidebarWorktreeId, rootPath: URL(fileURLWithPath: basePath))
-        await actor.register(worktreeId: activeWorktreeId, rootPath: URL(fileURLWithPath: "\(basePath)/active"))
         await actor.register(
-            worktreeId: focusedWorktreeId, rootPath: URL(fileURLWithPath: "\(basePath)/active/focused"))
+            worktreeId: sidebarWorktreeId, repoId: sidebarWorktreeId, rootPath: URL(fileURLWithPath: basePath))
+        await actor.register(
+            worktreeId: activeWorktreeId, repoId: activeWorktreeId, rootPath: URL(fileURLWithPath: "\(basePath)/active")
+        )
+        await actor.register(
+            worktreeId: focusedWorktreeId,
+            repoId: focusedWorktreeId,
+            rootPath: URL(fileURLWithPath: "\(basePath)/active/focused")
+        )
 
         await actor.setActivity(worktreeId: sidebarWorktreeId, isActiveInApp: false)
         await actor.setActivity(worktreeId: activeWorktreeId, isActiveInApp: true)
@@ -189,7 +209,8 @@ struct FilesystemActorTests {
         let actor = makeActor(bus: bus)
 
         let worktreeId = UUID()
-        await actor.register(worktreeId: worktreeId, rootPath: URL(fileURLWithPath: "/tmp/contract"))
+        await actor.register(
+            worktreeId: worktreeId, repoId: worktreeId, rootPath: URL(fileURLWithPath: "/tmp/contract"))
 
         let stream = await bus.subscribe()
         var iterator = stream.makeAsyncIterator()
@@ -213,7 +234,8 @@ struct FilesystemActorTests {
         let actor = makeActor(bus: bus)
 
         let worktreeId = UUID()
-        await actor.register(worktreeId: worktreeId, rootPath: URL(fileURLWithPath: "/tmp/large-batch"))
+        await actor.register(
+            worktreeId: worktreeId, repoId: worktreeId, rootPath: URL(fileURLWithPath: "/tmp/large-batch"))
 
         let stream = await bus.subscribe()
         var iterator = stream.makeAsyncIterator()
@@ -254,7 +276,7 @@ struct FilesystemActorTests {
 
         let worktreeId = UUID()
         let rootPath = URL(fileURLWithPath: "/tmp/git-internal-\(UUID().uuidString)")
-        await actor.register(worktreeId: worktreeId, rootPath: rootPath)
+        await actor.register(worktreeId: worktreeId, repoId: worktreeId, rootPath: rootPath)
 
         let stream = await bus.subscribe()
         var iterator = stream.makeAsyncIterator()
@@ -297,7 +319,7 @@ struct FilesystemActorTests {
         )
 
         let worktreeId = UUID()
-        await actor.register(worktreeId: worktreeId, rootPath: rootPath)
+        await actor.register(worktreeId: worktreeId, repoId: worktreeId, rootPath: rootPath)
 
         let stream = await bus.subscribe()
         var iterator = stream.makeAsyncIterator()
@@ -333,7 +355,7 @@ struct FilesystemActorTests {
         )
 
         let worktreeId = UUID()
-        await actor.register(worktreeId: worktreeId, rootPath: rootPath)
+        await actor.register(worktreeId: worktreeId, repoId: worktreeId, rootPath: rootPath)
 
         let stream = await bus.subscribe()
         var iterator = stream.makeAsyncIterator()
@@ -349,6 +371,50 @@ struct FilesystemActorTests {
         #expect(changeset.containsGitInternalChanges)
         #expect(changeset.suppressedIgnoredPathCount == 1)
         #expect(changeset.suppressedGitInternalPathCount == 1)
+
+        await actor.shutdown()
+    }
+
+    @Test("gitignore modification reloads filter for subsequent batches")
+    func gitignoreModificationReloadsFilterForSubsequentBatches() async throws {
+        let bus = EventBus<PaneEventEnvelope>()
+        let actor = makeActor(bus: bus)
+
+        let rootPath = FileManager.default.temporaryDirectory
+            .appending(path: "gitignore-reload-\(UUID().uuidString)")
+        try FileManager.default.createDirectory(at: rootPath, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: rootPath) }
+        try "*.tmp\n".write(
+            to: rootPath.appending(path: ".gitignore"),
+            atomically: true,
+            encoding: .utf8
+        )
+
+        let worktreeId = UUID()
+        await actor.register(worktreeId: worktreeId, repoId: worktreeId, rootPath: rootPath)
+
+        let stream = await bus.subscribe()
+        var iterator = stream.makeAsyncIterator()
+
+        await actor.enqueueRawPaths(worktreeId: worktreeId, paths: ["cache.tmp"])
+        let initialEnvelope = try #require(await iterator.next())
+        let initialChangeset = try #require(filesChangedChangeset(from: initialEnvelope))
+        #expect(initialChangeset.paths.isEmpty)
+        #expect(initialChangeset.suppressedIgnoredPathCount == 1)
+
+        try "# no ignore rules\n".write(
+            to: rootPath.appending(path: ".gitignore"),
+            atomically: true,
+            encoding: .utf8
+        )
+        await actor.enqueueRawPaths(worktreeId: worktreeId, paths: [".gitignore"])
+        _ = try #require(await iterator.next())  // reload-trigger batch
+
+        await actor.enqueueRawPaths(worktreeId: worktreeId, paths: ["cache.tmp"])
+        let postReloadEnvelope = try #require(await iterator.next())
+        let postReloadChangeset = try #require(filesChangedChangeset(from: postReloadEnvelope))
+        #expect(postReloadChangeset.paths == ["cache.tmp"])
+        #expect(postReloadChangeset.suppressedIgnoredPathCount == 0)
 
         await actor.shutdown()
     }
@@ -375,6 +441,7 @@ struct FilesystemActorTests {
         let worktreeId = UUID()
         await actor.register(
             worktreeId: worktreeId,
+            repoId: worktreeId,
             rootPath: URL(fileURLWithPath: "/tmp/debounce-\(UUID().uuidString)")
         )
 
@@ -414,6 +481,7 @@ struct FilesystemActorTests {
         let worktreeId = UUID()
         await actor.register(
             worktreeId: worktreeId,
+            repoId: worktreeId,
             rootPath: URL(fileURLWithPath: "/tmp/max-latency-\(UUID().uuidString)")
         )
 
@@ -450,6 +518,7 @@ struct FilesystemActorTests {
         let worktreeId = UUID()
         await actor.register(
             worktreeId: worktreeId,
+            repoId: worktreeId,
             rootPath: URL(fileURLWithPath: "/tmp/shutdown-drain-\(UUID().uuidString)")
         )
 
@@ -458,6 +527,40 @@ struct FilesystemActorTests {
         try await Task.sleep(for: .milliseconds(260))
 
         #expect(await observed.filesChangedCount(for: worktreeId) == 0)
+    }
+
+    @Test("unregister during debounce window prevents stale filesChanged emission")
+    func unregisterDuringDebouncePreventsStaleEmission() async throws {
+        let bus = EventBus<PaneEventEnvelope>()
+        let actor = FilesystemActor(
+            bus: bus,
+            debounceWindow: .milliseconds(200),
+            maxFlushLatency: .seconds(1)
+        )
+
+        let observed = ObservedFilesystemChanges()
+        let stream = await bus.subscribe()
+        let collectionTask = Task {
+            for await envelope in stream {
+                await observed.record(envelope)
+            }
+        }
+        defer { collectionTask.cancel() }
+
+        let worktreeId = UUID()
+        await actor.register(
+            worktreeId: worktreeId,
+            repoId: worktreeId,
+            rootPath: URL(fileURLWithPath: "/tmp/unregister-debounce-\(UUID().uuidString)")
+        )
+
+        await actor.enqueueRawPaths(worktreeId: worktreeId, paths: ["Sources/Stale.swift"])
+        try await Task.sleep(for: .milliseconds(25))
+        await actor.unregister(worktreeId: worktreeId)
+        try await Task.sleep(for: .milliseconds(260))
+
+        #expect(await observed.filesChangedCount(for: worktreeId) == 0)
+        await actor.shutdown()
     }
 
     private func filesChangedChangeset(from envelope: PaneEventEnvelope) -> FileChangeset? {

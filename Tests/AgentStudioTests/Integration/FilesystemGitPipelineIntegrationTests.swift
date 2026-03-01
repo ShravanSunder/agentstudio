@@ -11,9 +11,9 @@ struct FilesystemGitPipelineIntegrationTests {
         let bus = EventBus<PaneEventEnvelope>()
         let pipeline = FilesystemGitPipeline(
             bus: bus,
-            gitStatusProvider: .stub { _ in
-                GitStatusSnapshot(
-                    summary: GitStatusSummary(changed: 2, staged: 1, untracked: 1),
+            gitWorkingTreeProvider: .stub { _ in
+                GitWorkingTreeStatus(
+                    summary: GitWorkingTreeSummary(changed: 2, staged: 1, untracked: 1),
                     branch: "feature/pipeline"
                 )
             }
@@ -41,13 +41,13 @@ struct FilesystemGitPipelineIntegrationTests {
         let worktreeRootsByWorktreeId: [UUID: URL] = [worktreeId: rootPath]
 
         let paneProjectionStore = PaneFilesystemProjectionStore()
-        let workspaceGitStatusStore = WorkspaceGitStatusStore()
+        let workspaceGitWorkingTreeStore = WorkspaceGitWorkingTreeStore()
         let observed = ObservedFilesystemGitEvents()
 
         let stream = await bus.subscribe()
         let consumerTask = Task { @MainActor in
             for await envelope in stream {
-                workspaceGitStatusStore.consume(envelope)
+                workspaceGitWorkingTreeStore.consume(envelope)
                 paneProjectionStore.consume(
                     envelope,
                     panesById: panesById,
@@ -58,7 +58,7 @@ struct FilesystemGitPipelineIntegrationTests {
         }
         defer { consumerTask.cancel() }
 
-        await pipeline.register(worktreeId: worktreeId, rootPath: rootPath)
+        await pipeline.register(worktreeId: worktreeId, repoId: repoId, rootPath: rootPath)
         await pipeline.enqueueRawPathsForTesting(
             worktreeId: worktreeId,
             paths: ["Sources/Feature.swift"]
@@ -80,7 +80,7 @@ struct FilesystemGitPipelineIntegrationTests {
         #expect(projectionConverged)
 
         let gitStoreConverged = await eventually("workspace git snapshot should update") {
-            guard let snapshot = workspaceGitStatusStore.snapshotsByWorktreeId[worktreeId] else { return false }
+            guard let snapshot = workspaceGitWorkingTreeStore.snapshotsByWorktreeId[worktreeId] else { return false }
             return snapshot.summary.changed == 2
                 && snapshot.summary.staged == 1
                 && snapshot.summary.untracked == 1

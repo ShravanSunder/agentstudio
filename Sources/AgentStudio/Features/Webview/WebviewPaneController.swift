@@ -120,7 +120,15 @@ final class WebviewPaneController {
         let shouldReapplyAfterLoad = page.isLoading
 
         interactionApplyTask = Task { @MainActor in
-            _ = try? await page.callJavaScript(script)
+            do {
+                _ = try await page.callJavaScript(script)
+            } catch is CancellationError {
+                return
+            } catch {
+                Self.logger.debug(
+                    "Failed to apply interaction script for pane \(self.paneId.uuidString, privacy: .public): \(error.localizedDescription, privacy: .public)"
+                )
+            }
 
             guard shouldReapplyAfterLoad else { return }
 
@@ -131,7 +139,15 @@ final class WebviewPaneController {
             }
 
             if Task.isCancelled { return }
-            _ = try? await page.callJavaScript(script)
+            do {
+                _ = try await page.callJavaScript(script)
+            } catch is CancellationError {
+                return
+            } catch {
+                Self.logger.debug(
+                    "Failed to reapply interaction script for pane \(self.paneId.uuidString, privacy: .public): \(error.localizedDescription, privacy: .public)"
+                )
+            }
         }
     }
 

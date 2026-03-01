@@ -8,15 +8,15 @@ struct GitWorkingDirectoryProjectorTests {
     @Test("worktreeRegistered triggers eager initial git snapshot")
     func worktreeRegisteredTriggersEagerInitialGitSnapshot() async throws {
         let bus = EventBus<PaneEventEnvelope>()
-        let provider = StubGitStatusProvider { _ in
-            GitStatusSnapshot(
-                summary: GitStatusSummary(changed: 0, staged: 0, untracked: 0),
+        let provider = StubGitWorkingTreeStatusProvider { _ in
+            GitWorkingTreeStatus(
+                summary: GitWorkingTreeSummary(changed: 0, staged: 0, untracked: 0),
                 branch: "main"
             )
         }
         let actor = GitWorkingDirectoryProjector(
             bus: bus,
-            gitStatusProvider: provider,
+            gitWorkingTreeProvider: provider,
             coalescingWindow: .zero
         )
 
@@ -30,7 +30,7 @@ struct GitWorkingDirectoryProjectorTests {
             makeEnvelope(
                 seq: 1,
                 worktreeId: worktreeId,
-                event: .worktreeRegistered(worktreeId: worktreeId, rootPath: rootPath)
+                event: .worktreeRegistered(worktreeId: worktreeId, repoId: worktreeId, rootPath: rootPath)
             )
         )
 
@@ -49,15 +49,15 @@ struct GitWorkingDirectoryProjectorTests {
     @Test("filesChanged triggers git snapshot fact")
     func filesChangedTriggersGitSnapshotFact() async throws {
         let bus = EventBus<PaneEventEnvelope>()
-        let provider = StubGitStatusProvider { _ in
-            GitStatusSnapshot(
-                summary: GitStatusSummary(changed: 3, staged: 1, untracked: 2),
+        let provider = StubGitWorkingTreeStatusProvider { _ in
+            GitWorkingTreeStatus(
+                summary: GitWorkingTreeSummary(changed: 3, staged: 1, untracked: 2),
                 branch: "feature/projector"
             )
         }
         let actor = GitWorkingDirectoryProjector(
             bus: bus,
-            gitStatusProvider: provider,
+            gitWorkingTreeProvider: provider,
             coalescingWindow: .zero
         )
 
@@ -84,13 +84,48 @@ struct GitWorkingDirectoryProjectorTests {
         collectionTask.cancel()
     }
 
+    @Test("projector emits derived git facts with dedicated system source tag")
+    func projectorEmitsWithDedicatedSystemSource() async throws {
+        let bus = EventBus<PaneEventEnvelope>()
+        let provider = StubGitWorkingTreeStatusProvider { _ in
+            GitWorkingTreeStatus(
+                summary: GitWorkingTreeSummary(changed: 1, staged: 0, untracked: 0),
+                branch: "main"
+            )
+        }
+        let actor = GitWorkingDirectoryProjector(
+            bus: bus,
+            gitWorkingTreeProvider: provider,
+            coalescingWindow: .zero
+        )
+        await actor.start()
+
+        let stream = await bus.subscribe()
+        var iterator = stream.makeAsyncIterator()
+
+        let worktreeId = UUID()
+        let rootPath = URL(fileURLWithPath: "/tmp/source-tag-\(UUID().uuidString)")
+        await bus.post(makeFilesChangedEnvelope(seq: 1, worktreeId: worktreeId, rootPath: rootPath, batchSeq: 1))
+
+        var observedDerivedSource: EventSource?
+        for _ in 0..<20 {
+            guard let envelope = await iterator.next() else { break }
+            guard case .filesystem(.gitSnapshotChanged) = envelope.event else { continue }
+            observedDerivedSource = envelope.source
+            break
+        }
+
+        #expect(observedDerivedSource == .system(.builtin(.gitWorkingDirectoryProjector)))
+        await actor.shutdown()
+    }
+
     @Test("provider nil status emits no git snapshot facts")
     func providerNilStatusEmitsNoGitSnapshotFacts() async throws {
         let bus = EventBus<PaneEventEnvelope>()
-        let provider = StubGitStatusProvider { _ in nil }
+        let provider = StubGitWorkingTreeStatusProvider { _ in nil }
         let actor = GitWorkingDirectoryProjector(
             bus: bus,
-            gitStatusProvider: provider,
+            gitWorkingTreeProvider: provider,
             coalescingWindow: .zero
         )
 
@@ -119,17 +154,17 @@ struct GitWorkingDirectoryProjectorTests {
         let bus = EventBus<PaneEventEnvelope>()
         let gate = AsyncGate()
         let calls = CallCounter()
-        let provider = StubGitStatusProvider { _ in
+        let provider = StubGitWorkingTreeStatusProvider { _ in
             _ = await calls.increment()
             await gate.waitUntilOpen()
-            return GitStatusSnapshot(
-                summary: GitStatusSummary(changed: 1, staged: 0, untracked: 0),
+            return GitWorkingTreeStatus(
+                summary: GitWorkingTreeSummary(changed: 1, staged: 0, untracked: 0),
                 branch: "main"
             )
         }
         let actor = GitWorkingDirectoryProjector(
             bus: bus,
-            gitStatusProvider: provider,
+            gitWorkingTreeProvider: provider,
             coalescingWindow: .zero
         )
 
@@ -161,22 +196,61 @@ struct GitWorkingDirectoryProjectorTests {
         collectionTask.cancel()
     }
 
-    @Test("independent worktrees run independently")
-    func independentWorktreesRunIndependently() async throws {
+    @Test("non-zero coalescing window merges rapid same-worktree bursts into one compute")
+    func nonZeroCoalescingWindowMergesRapidBursts() async throws {
         let bus = EventBus<PaneEventEnvelope>()
-        let gate = AsyncGate()
         let calls = CallCounter()
-        let provider = StubGitStatusProvider { _ in
+        let provider = StubGitWorkingTreeStatusProvider { _ in
             _ = await calls.increment()
-            await gate.waitUntilOpen()
-            return GitStatusSnapshot(
-                summary: GitStatusSummary(changed: 2, staged: 1, untracked: 0),
+            return GitWorkingTreeStatus(
+                summary: GitWorkingTreeSummary(changed: 1, staged: 0, untracked: 0),
                 branch: "main"
             )
         }
         let actor = GitWorkingDirectoryProjector(
             bus: bus,
-            gitStatusProvider: provider,
+            gitWorkingTreeProvider: provider,
+            coalescingWindow: .milliseconds(60)
+        )
+
+        let observed = ObservedGitEvents()
+        let collectionTask = await startCollection(on: bus, observed: observed)
+        await actor.start()
+
+        let worktreeId = UUID()
+        let rootPath = URL(fileURLWithPath: "/tmp/window-\(UUID().uuidString)")
+        await bus.post(makeFilesChangedEnvelope(seq: 1, worktreeId: worktreeId, rootPath: rootPath, batchSeq: 1))
+        try await Task.sleep(for: .milliseconds(10))
+        await bus.post(makeFilesChangedEnvelope(seq: 2, worktreeId: worktreeId, rootPath: rootPath, batchSeq: 2))
+
+        let didEmitSnapshot = await waitUntil {
+            await observed.snapshotCount(for: worktreeId) >= 1
+        }
+        #expect(didEmitSnapshot)
+        try await Task.sleep(for: .milliseconds(90))
+        #expect(await calls.value() == 1)
+        #expect(await observed.snapshotCount(for: worktreeId) == 1)
+
+        await actor.shutdown()
+        collectionTask.cancel()
+    }
+
+    @Test("independent worktrees run independently")
+    func independentWorktreesRunIndependently() async throws {
+        let bus = EventBus<PaneEventEnvelope>()
+        let gate = AsyncGate()
+        let calls = CallCounter()
+        let provider = StubGitWorkingTreeStatusProvider { _ in
+            _ = await calls.increment()
+            await gate.waitUntilOpen()
+            return GitWorkingTreeStatus(
+                summary: GitWorkingTreeSummary(changed: 2, staged: 1, untracked: 0),
+                branch: "main"
+            )
+        }
+        let actor = GitWorkingDirectoryProjector(
+            bus: bus,
+            gitWorkingTreeProvider: provider,
             coalescingWindow: .zero
         )
 
@@ -223,17 +297,17 @@ struct GitWorkingDirectoryProjectorTests {
         let bus = EventBus<PaneEventEnvelope>()
         let gate = AsyncGate()
         let calls = CallCounter()
-        let provider = StubGitStatusProvider { _ in
+        let provider = StubGitWorkingTreeStatusProvider { _ in
             _ = await calls.increment()
             await gate.waitUntilOpen()
-            return GitStatusSnapshot(
-                summary: GitStatusSummary(changed: 4, staged: 0, untracked: 1),
+            return GitWorkingTreeStatus(
+                summary: GitWorkingTreeSummary(changed: 4, staged: 0, untracked: 1),
                 branch: "cleanup"
             )
         }
         let actor = GitWorkingDirectoryProjector(
             bus: bus,
-            gitStatusProvider: provider,
+            gitWorkingTreeProvider: provider,
             coalescingWindow: .zero
         )
 
@@ -251,7 +325,7 @@ struct GitWorkingDirectoryProjectorTests {
             makeEnvelope(
                 seq: 2,
                 worktreeId: worktreeId,
-                event: .worktreeUnregistered(worktreeId: worktreeId)
+                event: .worktreeUnregistered(worktreeId: worktreeId, repoId: worktreeId)
             )
         )
         await bus.post(makeFilesChangedEnvelope(seq: 3, worktreeId: worktreeId, rootPath: rootPath, batchSeq: 2))
@@ -269,21 +343,65 @@ struct GitWorkingDirectoryProjectorTests {
         collectionTask.cancel()
     }
 
+    @Test("shutdown while provider is in-flight does not emit stale snapshot")
+    func shutdownWhileProviderIsInFlightDoesNotEmitStaleSnapshot() async throws {
+        let bus = EventBus<PaneEventEnvelope>()
+        let gate = AsyncGate()
+        let calls = CallCounter()
+        let provider = StubGitWorkingTreeStatusProvider { _ in
+            _ = await calls.increment()
+            await gate.waitUntilOpen()
+            return GitWorkingTreeStatus(
+                summary: GitWorkingTreeSummary(changed: 1, staged: 0, untracked: 0),
+                branch: "main"
+            )
+        }
+        let actor = GitWorkingDirectoryProjector(
+            bus: bus,
+            gitWorkingTreeProvider: provider,
+            coalescingWindow: .zero
+        )
+
+        let observed = ObservedGitEvents()
+        let collectionTask = await startCollection(on: bus, observed: observed)
+        await actor.start()
+
+        let worktreeId = UUID()
+        let rootPath = URL(fileURLWithPath: "/tmp/shutdown-inflight-\(UUID().uuidString)")
+        await bus.post(makeFilesChangedEnvelope(seq: 1, worktreeId: worktreeId, rootPath: rootPath, batchSeq: 1))
+        let started = await waitUntil { await calls.value() >= 1 }
+        #expect(started)
+
+        let shutdownTask = Task {
+            await actor.shutdown()
+        }
+        await gate.open()
+        await shutdownTask.value
+
+        for _ in 0..<300 {
+            await Task.yield()
+        }
+        #expect(await observed.snapshotCount(for: worktreeId) == 0)
+        #expect(await observed.branchEventCount(for: worktreeId) == 0)
+
+        collectionTask.cancel()
+    }
+
     @Test("branchChanged emits when consecutive snapshots change branch")
     func branchChangedEmitsWhenConsecutiveSnapshotsChangeBranch() async throws {
         let bus = EventBus<PaneEventEnvelope>()
         let calls = CallCounter()
-        let provider = StubGitStatusProvider { _ in
+        let provider = StubGitWorkingTreeStatusProvider { _ in
             let callNumber = await calls.increment()
             let branch = callNumber == 1 ? "main" : "feature/split"
-            return GitStatusSnapshot(
-                summary: GitStatusSummary(changed: callNumber, staged: 0, untracked: 0),
+            return GitWorkingTreeStatus(
+                summary: GitWorkingTreeSummary(changed: callNumber, staged: 0, untracked: 0),
                 branch: branch
             )
         }
         let actor = GitWorkingDirectoryProjector(
             bus: bus,
-            gitStatusProvider: provider,
+            gitWorkingTreeProvider: provider,
             coalescingWindow: .zero
         )
 
@@ -318,15 +436,15 @@ struct GitWorkingDirectoryProjectorTests {
     @Test("git internal-only filesChanged event still triggers git snapshot projection")
     func gitInternalOnlyFilesChangedEventStillTriggersSnapshot() async throws {
         let bus = EventBus<PaneEventEnvelope>()
-        let provider = StubGitStatusProvider { _ in
-            GitStatusSnapshot(
-                summary: GitStatusSummary(changed: 1, staged: 0, untracked: 0),
+        let provider = StubGitWorkingTreeStatusProvider { _ in
+            GitWorkingTreeStatus(
+                summary: GitWorkingTreeSummary(changed: 1, staged: 0, untracked: 0),
                 branch: "main"
             )
         }
         let actor = GitWorkingDirectoryProjector(
             bus: bus,
-            gitStatusProvider: provider,
+            gitWorkingTreeProvider: provider,
             coalescingWindow: .zero
         )
 
@@ -446,7 +564,8 @@ private actor ObservedGitEvents {
         switch filesystemEvent {
         case .gitSnapshotChanged(let snapshot):
             snapshotsByWorktreeId[worktreeId, default: []].append(snapshot)
-        case .branchChanged(let from, let to):
+        case .branchChanged(let eventWorktreeId, _, let from, let to):
+            guard eventWorktreeId == worktreeId else { return }
             branchEventsByWorktreeId[worktreeId, default: []].append((from, to))
         case .worktreeRegistered, .worktreeUnregistered, .filesChanged, .diffAvailable:
             return

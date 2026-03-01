@@ -84,4 +84,19 @@ struct FilesystemRootOwnershipTests {
         #expect(owned?.worktreeId == worktreeId)
         #expect(owned?.relativePath == "src/main.swift")
     }
+
+    @Test("unknown source worktree returns nil route")
+    func unknownSourceWorktreeReturnsNilRoute() {
+        let worktreeId = UUID()
+        let ownership = FilesystemRootOwnership(
+            rootsByWorktree: [worktreeId: URL(fileURLWithPath: "/tmp/repo")]
+        )
+
+        let owned = ownership.route(
+            sourceWorktreeId: UUID(),
+            rawPath: "/tmp/repo/Sources/App.swift"
+        )
+
+        #expect(owned == nil)
+    }
 }

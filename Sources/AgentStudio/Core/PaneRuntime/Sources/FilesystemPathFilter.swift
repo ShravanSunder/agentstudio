@@ -18,7 +18,17 @@ struct FilesystemPathFilter: Sendable {
 
     static func load(forRootPath rootPath: URL) -> Self {
         let gitIgnorePath = rootPath.appending(path: ".gitignore")
-        guard let fileContents = try? String(contentsOf: gitIgnorePath, encoding: .utf8) else {
+        let fileContents: String
+        do {
+            fileContents = try String(contentsOf: gitIgnorePath, encoding: .utf8)
+        } catch {
+            let nsError = error as NSError
+            if nsError.domain == NSCocoaErrorDomain, nsError.code == NSFileReadNoSuchFileError {
+                return Self(ignoredRules: [])
+            }
+            logger.warning(
+                "Failed to load .gitignore at \(gitIgnorePath.path, privacy: .public): \(error.localizedDescription, privacy: .public)"
+            )
             return Self(ignoredRules: [])
         }
 
@@ -53,6 +63,8 @@ struct FilesystemPathFilter: Sendable {
     }
 
     static func isGitInternal(relativePath: String) -> Bool {
+        // v1 behavior: treat any path segment named ".git" as internal.
+        // This may over-classify certain nested/module layouts; refine if needed later.
         let normalizedPath = normalized(relativePath: relativePath)
         guard !normalizedPath.isEmpty else { return false }
         let pathComponents = normalizedPath.split(separator: "/")
@@ -72,6 +84,7 @@ struct FilesystemPathFilter: Sendable {
 }
 
 // NSRegularExpression is immutable and safe to share for matching after initialization.
+// @unchecked Sendable is required specifically because compiledRegex is a Foundation reference type.
 private struct GitIgnoreRule: @unchecked Sendable {
     let isNegated: Bool
     let anchoredToRoot: Bool

@@ -8,7 +8,7 @@ import SwiftUI
 @MainActor
 struct RepoSidebarContentView: View {
     let store: WorkspaceStore
-    let workspaceGitStatusStore: WorkspaceGitStatusStore
+    let workspaceGitWorkingTreeStore: WorkspaceGitWorkingTreeStore
 
     @State private var expandedGroups: Set<String> = Self.loadExpandedGroups()
     @State private var filterText: String = ""
@@ -31,10 +31,10 @@ struct RepoSidebarContentView: View {
 
     init(
         store: WorkspaceStore,
-        workspaceGitStatusStore: WorkspaceGitStatusStore = WorkspaceGitStatusStore()
+        workspaceGitWorkingTreeStore: WorkspaceGitWorkingTreeStore = WorkspaceGitWorkingTreeStore()
     ) {
         self.store = store
-        self.workspaceGitStatusStore = workspaceGitStatusStore
+        self.workspaceGitWorkingTreeStore = workspaceGitWorkingTreeStore
     }
 
     private var reposFingerprint: String {
@@ -56,7 +56,7 @@ struct RepoSidebarContentView: View {
 
     private var worktreeStatusById: [UUID: GitBranchStatus] {
         Self.mergeBranchStatuses(
-            localSnapshotsByWorktreeId: workspaceGitStatusStore.snapshotsByWorktreeId,
+            localSnapshotsByWorktreeId: workspaceGitWorkingTreeStore.snapshotsByWorktreeId,
             pullRequestCountsByWorktreeId: pullRequestCountByWorktreeId
         )
     }
@@ -1077,7 +1077,7 @@ struct GitBranchStatus: Equatable, Sendable {
 
 extension RepoSidebarContentView {
     static func mergeBranchStatuses(
-        localSnapshotsByWorktreeId: [UUID: WorkspaceGitStatusStore.WorktreeSnapshot],
+        localSnapshotsByWorktreeId: [UUID: WorkspaceGitWorkingTreeStore.WorktreeSnapshot],
         pullRequestCountsByWorktreeId: [UUID: Int]
     ) -> [UUID: GitBranchStatus] {
         let allWorktreeIds = Set(localSnapshotsByWorktreeId.keys).union(pullRequestCountsByWorktreeId.keys)
@@ -1097,7 +1097,7 @@ extension RepoSidebarContentView {
     }
 
     static func branchStatus(
-        localSnapshot: WorkspaceGitStatusStore.WorktreeSnapshot?,
+        localSnapshot: WorkspaceGitWorkingTreeStore.WorktreeSnapshot?,
         pullRequestCount: Int?
     ) -> GitBranchStatus {
         guard let localSnapshot else {

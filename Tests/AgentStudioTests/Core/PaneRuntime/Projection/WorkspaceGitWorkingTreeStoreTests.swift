@@ -4,11 +4,11 @@ import Testing
 @testable import AgentStudio
 
 @MainActor
-@Suite("WorkspaceGitStatusStore")
-struct WorkspaceGitStatusStoreTests {
+@Suite("WorkspaceGitWorkingTreeStore")
+struct WorkspaceGitWorkingTreeStoreTests {
     @Test("git snapshot + branch events merge into one worktree snapshot")
     func mergesSnapshotAndBranchEvents() {
-        let store = WorkspaceGitStatusStore()
+        let store = WorkspaceGitWorkingTreeStore()
         let worktreeId = UUID()
         let rootPath = URL(fileURLWithPath: "/tmp/worktree-\(UUID().uuidString)")
 
@@ -20,7 +20,7 @@ struct WorkspaceGitStatusStoreTests {
                     snapshot: GitWorkingTreeSnapshot(
                         worktreeId: worktreeId,
                         rootPath: rootPath,
-                        summary: GitStatusSummary(changed: 2, staged: 1, untracked: 3),
+                        summary: GitWorkingTreeSummary(changed: 2, staged: 1, untracked: 3),
                         branch: "main"
                     )
                 )
@@ -31,7 +31,12 @@ struct WorkspaceGitStatusStoreTests {
             makeFilesystemEnvelope(
                 seq: 2,
                 worktreeId: worktreeId,
-                event: .branchChanged(from: "main", to: "feature/filesystem")
+                event: .branchChanged(
+                    worktreeId: worktreeId,
+                    repoId: worktreeId,
+                    from: "main",
+                    to: "feature/filesystem"
+                )
             )
         )
 
@@ -49,14 +54,19 @@ struct WorkspaceGitStatusStoreTests {
 
     @Test("out-of-order events do not clobber latest snapshot")
     func ignoresOutOfOrderEnvelopes() {
-        let store = WorkspaceGitStatusStore()
+        let store = WorkspaceGitWorkingTreeStore()
         let worktreeId = UUID()
 
         store.consume(
             makeFilesystemEnvelope(
                 seq: 5,
                 worktreeId: worktreeId,
-                event: .branchChanged(from: "main", to: "feature/new")
+                event: .branchChanged(
+                    worktreeId: worktreeId,
+                    repoId: worktreeId,
+                    from: "main",
+                    to: "feature/new"
+                )
             )
         )
         store.consume(
@@ -67,7 +77,7 @@ struct WorkspaceGitStatusStoreTests {
                     snapshot: GitWorkingTreeSnapshot(
                         worktreeId: worktreeId,
                         rootPath: URL(fileURLWithPath: "/tmp/worktree-\(UUID().uuidString)"),
-                        summary: GitStatusSummary(changed: 9, staged: 9, untracked: 9),
+                        summary: GitWorkingTreeSummary(changed: 9, staged: 9, untracked: 9),
                         branch: "feature/new"
                     )
                 )
@@ -86,7 +96,7 @@ struct WorkspaceGitStatusStoreTests {
 
     @Test("prune removes snapshots for detached worktrees")
     func pruneRemovesStaleWorktreeSnapshots() {
-        let store = WorkspaceGitStatusStore()
+        let store = WorkspaceGitWorkingTreeStore()
         let keepWorktreeId = UUID()
         let dropWorktreeId = UUID()
 
@@ -98,7 +108,7 @@ struct WorkspaceGitStatusStoreTests {
                     snapshot: GitWorkingTreeSnapshot(
                         worktreeId: keepWorktreeId,
                         rootPath: URL(fileURLWithPath: "/tmp/worktree-\(UUID().uuidString)"),
-                        summary: GitStatusSummary(changed: 1, staged: 0, untracked: 0),
+                        summary: GitWorkingTreeSummary(changed: 1, staged: 0, untracked: 0),
                         branch: "main"
                     )
                 )
@@ -112,7 +122,7 @@ struct WorkspaceGitStatusStoreTests {
                     snapshot: GitWorkingTreeSnapshot(
                         worktreeId: dropWorktreeId,
                         rootPath: URL(fileURLWithPath: "/tmp/worktree-\(UUID().uuidString)"),
-                        summary: GitStatusSummary(changed: 0, staged: 1, untracked: 0),
+                        summary: GitWorkingTreeSummary(changed: 0, staged: 1, untracked: 0),
                         branch: "feature/drop"
                     )
                 )
@@ -125,6 +135,31 @@ struct WorkspaceGitStatusStoreTests {
         #expect(store.snapshotsByWorktreeId[dropWorktreeId] == nil)
     }
 
+    @Test("reset clears all materialized snapshots")
+    func resetClearsAllSnapshots() {
+        let store = WorkspaceGitWorkingTreeStore()
+        let worktreeId = UUID()
+
+        store.consume(
+            makeFilesystemEnvelope(
+                seq: 1,
+                worktreeId: worktreeId,
+                event: .gitSnapshotChanged(
+                    snapshot: GitWorkingTreeSnapshot(
+                        worktreeId: worktreeId,
+                        rootPath: URL(fileURLWithPath: "/tmp/worktree-\(UUID().uuidString)"),
+                        summary: GitWorkingTreeSummary(changed: 1, staged: 0, untracked: 0),
+                        branch: "main"
+                    )
+                )
+            )
+        )
+        #expect(store.snapshotsByWorktreeId[worktreeId] != nil)
+
+        store.reset()
+        #expect(store.snapshotsByWorktreeId.isEmpty)
+    }
+
     private func makeFilesystemEnvelope(
         seq: UInt64,
         worktreeId: UUID,
@@ -132,7 +167,7 @@ struct WorkspaceGitStatusStoreTests {
     ) -> PaneEventEnvelope {
         PaneEventEnvelope(
             source: .system(.builtin(.filesystemWatcher)),
-            sourceFacets: PaneContextFacets(worktreeId: worktreeId),
+            sourceFacets: PaneContextFacets(repoId: worktreeId, worktreeId: worktreeId),
             paneKind: nil,
             seq: seq,
             commandId: nil,

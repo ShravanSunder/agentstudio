@@ -107,6 +107,10 @@ final class PaneRuntimeEventChannel {
             continuation.yield(envelope)
         }
 
+        // Intentional fire-and-forget hop to keep runtime emit paths non-blocking.
+        // Tradeoff: global bus post does not participate in structured backpressure.
+        // Ordering is guaranteed for local subscribers/replay (yield + append above),
+        // while cross-runtime bus fanout is best-effort and eventually consistent.
         Task { [paneEventBus] in
             await paneEventBus.post(envelope)
         }

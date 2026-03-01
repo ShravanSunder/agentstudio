@@ -54,16 +54,17 @@ enum AttachError: Error, Sendable, Equatable {
 }
 
 enum FilesystemEvent: Sendable {
-    case worktreeRegistered(worktreeId: UUID, rootPath: URL)
-    case worktreeUnregistered(worktreeId: UUID)
+    case worktreeRegistered(worktreeId: UUID, repoId: UUID, rootPath: URL)
+    case worktreeUnregistered(worktreeId: UUID, repoId: UUID)
     case filesChanged(changeset: FileChangeset)
     case gitSnapshotChanged(snapshot: GitWorkingTreeSnapshot)
-    case diffAvailable(diffId: UUID)
-    case branchChanged(from: String, to: String)
+    case diffAvailable(diffId: UUID, worktreeId: UUID, repoId: UUID)
+    case branchChanged(worktreeId: UUID, repoId: UUID, from: String, to: String)
 }
 
 struct FileChangeset: Sendable {
     let worktreeId: WorktreeId
+    let repoId: UUID
     let rootPath: URL
     let paths: [String]
     let containsGitInternalChanges: Bool
@@ -74,6 +75,7 @@ struct FileChangeset: Sendable {
 
     init(
         worktreeId: WorktreeId,
+        repoId: UUID? = nil,
         rootPath: URL,
         paths: [String],
         containsGitInternalChanges: Bool = false,
@@ -83,6 +85,7 @@ struct FileChangeset: Sendable {
         batchSeq: UInt64
     ) {
         self.worktreeId = worktreeId
+        self.repoId = repoId ?? worktreeId
         self.rootPath = rootPath
         self.paths = paths
         self.containsGitInternalChanges = containsGitInternalChanges
@@ -93,7 +96,7 @@ struct FileChangeset: Sendable {
     }
 }
 
-struct GitStatusSummary: Sendable, Equatable {
+struct GitWorkingTreeSummary: Sendable, Equatable {
     let changed: Int
     let staged: Int
     let untracked: Int
@@ -101,9 +104,24 @@ struct GitStatusSummary: Sendable, Equatable {
 
 struct GitWorkingTreeSnapshot: Sendable, Equatable {
     let worktreeId: UUID
+    let repoId: UUID
     let rootPath: URL
-    let summary: GitStatusSummary
+    let summary: GitWorkingTreeSummary
     let branch: String?
+
+    init(
+        worktreeId: UUID,
+        repoId: UUID? = nil,
+        rootPath: URL,
+        summary: GitWorkingTreeSummary,
+        branch: String?
+    ) {
+        self.worktreeId = worktreeId
+        self.repoId = repoId ?? worktreeId
+        self.rootPath = rootPath
+        self.summary = summary
+        self.branch = branch
+    }
 }
 
 enum ArtifactEvent: Sendable {

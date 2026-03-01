@@ -618,3 +618,13 @@ git commit -m "docs: finalize detailed execution and verification plan for event
 3. `GitWorkingDirectoryProjector` default `coalescingWindow` is `.zero`; production wiring sets `.milliseconds(200)` in `FilesystemGitPipeline`.
 4. Cleanup is event-driven through `worktreeUnregistered` facts.
 5. Independent `envelope.seq` counters across FilesystemActor and GitWorkingDirectoryProjector are safe because stores do not perform cross-producer sequence comparisons.
+
+---
+
+## Task 10: Residual Runtime Comment Sweep
+
+1. `TerminalRuntime` unsupported command failures must report `envelope.command.requiredCapability` (not hardcoded `.input`) for accurate diagnostics.
+2. `PaneCoordinatorFilesystemSourceManaging` must require explicit `start()`/`shutdown()` implementations (remove default protocol no-ops).
+3. Bridge/Webview interaction-script JavaScript calls must avoid silent `try?`; failures log at `.debug`.
+4. `PaneRuntimeEventChannel.emit` fire-and-forget EventBus hop remains an intentional tradeoff:
+   pane-local replay/subscribers are ordered/synchronous; global bus bridge is best-effort to keep runtime command paths non-blocking.

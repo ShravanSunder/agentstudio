@@ -1,17 +1,17 @@
 import Foundation
 import os
 
-struct GitStatusSnapshot: Sendable, Equatable {
-    let summary: GitStatusSummary
+struct GitWorkingTreeStatus: Sendable, Equatable {
+    let summary: GitWorkingTreeSummary
     let branch: String?
 }
 
-protocol GitStatusProvider: Sendable {
-    func status(for rootPath: URL) async -> GitStatusSnapshot?
+protocol GitWorkingTreeStatusProvider: Sendable {
+    func status(for rootPath: URL) async -> GitWorkingTreeStatus?
 }
 
-struct ShellGitStatusProvider: GitStatusProvider {
-    private static let logger = Logger(subsystem: "com.agentstudio", category: "FilesystemGitStatus")
+struct ShellGitWorkingTreeStatusProvider: GitWorkingTreeStatusProvider {
+    private static let logger = Logger(subsystem: "com.agentstudio", category: "FilesystemGitWorkingTree")
 
     private let processExecutor: any ProcessExecutor
 
@@ -19,7 +19,7 @@ struct ShellGitStatusProvider: GitStatusProvider {
         self.processExecutor = processExecutor
     }
 
-    func status(for rootPath: URL) async -> GitStatusSnapshot? {
+    func status(for rootPath: URL) async -> GitWorkingTreeStatus? {
         await Self.computeStatus(rootPath: rootPath, processExecutor: processExecutor)
     }
 
@@ -27,7 +27,7 @@ struct ShellGitStatusProvider: GitStatusProvider {
     nonisolated private static func computeStatus(
         rootPath: URL,
         processExecutor: any ProcessExecutor
-    ) async -> GitStatusSnapshot? {
+    ) async -> GitWorkingTreeStatus? {
         do {
             let result = try await processExecutor.execute(
                 command: "git",
@@ -61,7 +61,7 @@ struct ShellGitStatusProvider: GitStatusProvider {
                 .map(String.init)
             let branch = parseBranch(lines: lines)
             let summary = parseSummary(lines: lines)
-            return GitStatusSnapshot(summary: summary, branch: branch)
+            return GitWorkingTreeStatus(summary: summary, branch: branch)
         } catch let processError as ProcessError {
             switch processError {
             case .timedOut(_, let seconds):
@@ -78,7 +78,7 @@ struct ShellGitStatusProvider: GitStatusProvider {
         }
     }
 
-    nonisolated private static func parseSummary(lines: [String]) -> GitStatusSummary {
+    nonisolated private static func parseSummary(lines: [String]) -> GitWorkingTreeSummary {
         var changed = 0
         var staged = 0
         var untracked = 0
@@ -102,7 +102,7 @@ struct ShellGitStatusProvider: GitStatusProvider {
             }
         }
 
-        return GitStatusSummary(changed: changed, staged: staged, untracked: untracked)
+        return GitWorkingTreeSummary(changed: changed, staged: staged, untracked: untracked)
     }
 
     nonisolated private static func parseBranch(lines: [String]) -> String? {
@@ -122,22 +122,22 @@ struct ShellGitStatusProvider: GitStatusProvider {
     }
 }
 
-struct StubGitStatusProvider: GitStatusProvider {
-    let handler: @Sendable (URL) async -> GitStatusSnapshot?
+struct StubGitWorkingTreeStatusProvider: GitWorkingTreeStatusProvider {
+    let handler: @Sendable (URL) async -> GitWorkingTreeStatus?
 
-    init(handler: @escaping @Sendable (URL) async -> GitStatusSnapshot? = { _ in nil }) {
+    init(handler: @escaping @Sendable (URL) async -> GitWorkingTreeStatus? = { _ in nil }) {
         self.handler = handler
     }
 
-    func status(for rootPath: URL) async -> GitStatusSnapshot? {
+    func status(for rootPath: URL) async -> GitWorkingTreeStatus? {
         await handler(rootPath)
     }
 }
 
-extension GitStatusProvider where Self == StubGitStatusProvider {
+extension GitWorkingTreeStatusProvider where Self == StubGitWorkingTreeStatusProvider {
     static func stub(
-        _ handler: @escaping @Sendable (URL) async -> GitStatusSnapshot? = { _ in nil }
-    ) -> StubGitStatusProvider {
-        StubGitStatusProvider(handler: handler)
+        _ handler: @escaping @Sendable (URL) async -> GitWorkingTreeStatus? = { _ in nil }
+    ) -> StubGitWorkingTreeStatusProvider {
+        StubGitWorkingTreeStatusProvider(handler: handler)
     }
 }

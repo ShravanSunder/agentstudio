@@ -396,6 +396,7 @@ SE-0461 changes the default isolation behavior for `nonisolated async` functions
 - **`@concurrent nonisolated`** explicitly runs on cooperative pool. `nonisolated` opts out of the enclosing actor's isolation; `@concurrent` opts into pool execution. This is the project's preferred pattern for offloading CPU-bound work, replacing most uses of `Task.detached`.
 - **NOT `nonisolated async` alone** — in Swift 6.2, `nonisolated async` means `nonisolated(nonsending)` by default: it inherits caller isolation. A `nonisolated async` method called from `@MainActor` runs ON MainActor in 6.2. This is a behavioral change from Swift 6.0.
 - **Prefer `@concurrent` over `Task.detached`** (project policy) — `Task.detached` strips task priority, task-locals, and structured concurrency. `@concurrent` preserves all of these. Exception: `Task.detached` remains appropriate when you explicitly need to escape structured concurrency (e.g., fire-and-forget background work that must outlive the calling scope) or when you need to strip inherited task-locals intentionally.
+- **PaneRuntimeEventChannel bus bridge is an explicit exception** — pane-local subscribers + replay are synchronous and ordered; global EventBus fanout uses a fire-and-forget `Task` so runtime emit paths stay non-blocking. This accepts best-effort cross-runtime fanout (no structured backpressure on that hop) in exchange for keeping pane command handling responsive.
 - **Avoid `MainActor.run` in this architecture** — in the typical pattern of awaiting a `@concurrent nonisolated` function from a `@MainActor` caller, the compiler handles the hop back automatically. `MainActor.run` is still valid Swift when you genuinely need to hop TO MainActor from a non-MainActor isolated context (e.g., inside a `nonisolated` actor method that needs a one-off MainActor call), but in our architecture's common paths it adds unnecessary noise.
 
 ### Pattern: Runtime offloads heavy work
@@ -430,7 +431,7 @@ final class TerminalRuntime {
 | `TerminalRuntime.performSearch()` | Regex across scrollback buffer | 1-50ms, would stall UI |
 | `TerminalRuntime.extractArtifacts()` | Parse terminal output for file paths, URLs, diffs | 1-10ms per extraction |
 | `TerminalRuntime.parseLogOutput()` | Structured log parsing from agent output | 1-20ms per batch |
-| `ShellGitStatusProvider.computeStatus()` | Shell to `git status`, parse output | 10-100ms |
+| `ShellGitWorkingTreeStatusProvider.computeStatus()` | Shell to `git status`, parse output | 10-100ms |
 | `BridgeRuntime.computeDiffHunks()` | Diff computation for bridge display | 10-50ms |
 | `BridgeRuntime.hashFileContent()` | SHA256 for file content dedup | 1-10ms per file |
 | Future: artifact extraction from any runtime | File path extraction, URL detection, code block parsing | 1-20ms |
@@ -854,7 +855,7 @@ PROJECTION (C16: filesystem context → view):
   PaneFilesystemContext (@MainActor, @Observable)
   ┌──────────────────────────────────────┐
   │  private(set) var changedFiles: ...  │◄─── updated from C6 events
-  │  private(set) var gitStatus: ...     │
+  │  private(set) var gitWorkingTree: ...│
   │  private(set) var lastDiff: ...      │
   └────────────┬─────────────────────────┘
                │  @Observable binding

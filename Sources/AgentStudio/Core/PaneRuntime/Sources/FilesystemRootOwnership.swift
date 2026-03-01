@@ -98,15 +98,13 @@ struct FilesystemRootOwnership: Sendable {
         canonicalPath: String,
         ownerRootCanonicalPath: String
     ) -> String {
-        let normalizedPath = normalizedComparisonKey(canonicalPath)
-        let normalizedOwnerRoot = normalizedComparisonKey(ownerRootCanonicalPath)
-        if normalizedPath == normalizedOwnerRoot {
+        if canonicalPath.compare(ownerRootCanonicalPath, options: [.caseInsensitive]) == .orderedSame {
             return "."
         }
 
-        let expectedPrefix = normalizedOwnerRoot == "/" ? "/" : normalizedOwnerRoot + "/"
-        if normalizedPath.hasPrefix(expectedPrefix) {
-            let suffix = String(canonicalPath.dropFirst(expectedPrefix.count))
+        let ownerPrefix = ownerRootCanonicalPath == "/" ? "/" : ownerRootCanonicalPath + "/"
+        if let ownerRange = canonicalPath.range(of: ownerPrefix, options: [.anchored, .caseInsensitive]) {
+            let suffix = String(canonicalPath[ownerRange.upperBound...])
             return suffix.isEmpty ? "." : suffix
         }
         return "."

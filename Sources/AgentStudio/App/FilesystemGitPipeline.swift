@@ -12,7 +12,7 @@ final class FilesystemGitPipeline: PaneCoordinatorFilesystemSourceManaging, Send
 
     init(
         bus: EventBus<PaneEventEnvelope> = PaneRuntimeEventBus.shared,
-        gitStatusProvider: any GitStatusProvider = ShellGitStatusProvider(),
+        gitWorkingTreeProvider: any GitWorkingTreeStatusProvider = ShellGitWorkingTreeStatusProvider(),
         fseventStreamClient: any FSEventStreamClient = NoopFSEventStreamClient(),
         gitCoalescingWindow: Duration = .milliseconds(200)
     ) {
@@ -30,7 +30,7 @@ final class FilesystemGitPipeline: PaneCoordinatorFilesystemSourceManaging, Send
         )
         self.gitWorkingDirectoryProjector = GitWorkingDirectoryProjector(
             bus: bus,
-            gitStatusProvider: gitStatusProvider,
+            gitWorkingTreeProvider: gitWorkingTreeProvider,
             coalescingWindow: gitCoalescingWindow
         )
     }
@@ -44,10 +44,10 @@ final class FilesystemGitPipeline: PaneCoordinatorFilesystemSourceManaging, Send
         await gitWorkingDirectoryProjector.shutdown()
     }
 
-    func register(worktreeId: UUID, rootPath: URL) async {
+    func register(worktreeId: UUID, repoId: UUID, rootPath: URL) async {
         // Ensure projector subscription is active before lifecycle facts are posted.
         await gitWorkingDirectoryProjector.start()
-        await filesystemActor.register(worktreeId: worktreeId, rootPath: rootPath)
+        await filesystemActor.register(worktreeId: worktreeId, repoId: repoId, rootPath: rootPath)
     }
 
     func unregister(worktreeId: UUID) async {

@@ -73,7 +73,12 @@ final class TerminalRuntime: BusPostingPaneRuntime {
 
             return dispatchTerminalCommand(terminalCommand, commandId: envelope.commandId)
         case .browser, .diff, .editor, .plugin:
-            return .failure(.unsupportedCommand(command: String(describing: envelope.command), required: .input))
+            return .failure(
+                .unsupportedCommand(
+                    command: String(describing: envelope.command),
+                    required: envelope.command.requiredCapability
+                )
+            )
         }
     }
 
