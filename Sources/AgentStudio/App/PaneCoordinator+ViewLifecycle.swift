@@ -41,16 +41,20 @@ extension PaneCoordinator {
             return view
 
         case .codeViewer(let state):
-            let codeViewerRuntime = registerCodeViewerRuntimeIfNeeded(for: pane)
-            if codeViewerRuntime.lifecycle == .created {
-                codeViewerRuntime.transitionToReady()
+            let initialText: String?
+            if let codeViewerRuntime = registerCodeViewerRuntimeIfNeeded(for: pane) {
+                if codeViewerRuntime.lifecycle == .created {
+                    codeViewerRuntime.transitionToReady()
+                }
+                initialText = codeViewerRuntime.displayedText.isEmpty ? nil : codeViewerRuntime.displayedText
+            } else {
+                initialText = nil
             }
-            _ = codeViewerRuntime.preloadFile(path: state.filePath.path)
 
             let view = CodeViewerPaneView(
                 paneId: pane.id,
                 state: state,
-                initialText: codeViewerRuntime.displayedText
+                initialText: initialText
             )
             viewRegistry.register(view, for: pane.id)
             Self.logger.info("Created code viewer pane \(pane.id)")
@@ -313,13 +317,12 @@ extension PaneCoordinator {
         registerRuntime(terminalRuntime)
     }
 
-    private func registerCodeViewerRuntimeIfNeeded(for pane: Pane) -> SwiftPaneRuntime {
+    private func registerCodeViewerRuntimeIfNeeded(for pane: Pane) -> SwiftPaneRuntime? {
         guard let runtimePaneId = runtimePaneId(for: pane.id) else {
-            let fallbackPaneId = PaneId()
-            return SwiftPaneRuntime(
-                paneId: fallbackPaneId,
-                metadata: pane.metadata.canonicalizedIdentity(paneId: fallbackPaneId, contentType: .codeViewer)
+            Self.logger.warning(
+                "Skipping code viewer runtime registration for non-v7 pane id \(pane.id.uuidString, privacy: .public)"
             )
+            return nil
         }
         let canonicalMetadata = pane.metadata.canonicalizedIdentity(
             paneId: runtimePaneId,

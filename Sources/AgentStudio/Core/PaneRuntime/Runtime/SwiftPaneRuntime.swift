@@ -15,12 +15,7 @@ final class SwiftPaneRuntime: BusPostingPaneRuntime {
     private(set) var displayedText: String
     private(set) var openedFilePath: String?
 
-    private let envelopeClock: ContinuousClock
-    private let replayBuffer: EventReplayBuffer
-    private let paneEventBus: EventBus<PaneEventEnvelope>
-    private var sequence: UInt64 = 0
-    private var nextSubscriberId: UInt64 = 0
-    private var subscribers: [UInt64: AsyncStream<PaneEventEnvelope>.Continuation] = [:]
+    private let eventChannel: PaneRuntimeEventChannel
 
     init(
         paneId: PaneId,
@@ -35,9 +30,11 @@ final class SwiftPaneRuntime: BusPostingPaneRuntime {
         self.capabilities = [.editorActions]
         self.displayedText = ""
         self.openedFilePath = nil
-        self.envelopeClock = clock
-        self.replayBuffer = replayBuffer ?? EventReplayBuffer()
-        self.paneEventBus = paneEventBus
+        self.eventChannel = PaneRuntimeEventChannel(
+            clock: clock,
+            replayBuffer: replayBuffer ?? EventReplayBuffer(),
+            paneEventBus: paneEventBus
+        )
     }
 
     func transitionToReady() {
@@ -66,7 +63,7 @@ final class SwiftPaneRuntime: BusPostingPaneRuntime {
         case .requestSnapshot:
             return .success(commandId: envelope.commandId)
         case .editor(let editorCommand):
-            return handleEditorCommand(
+            return await handleEditorCommand(
                 editorCommand,
                 commandId: envelope.commandId,
                 correlationId: envelope.correlationId
@@ -82,38 +79,20 @@ final class SwiftPaneRuntime: BusPostingPaneRuntime {
     }
 
     func subscribe() -> AsyncStream<PaneEventEnvelope> {
-        let (stream, continuation) = AsyncStream.makeStream(of: PaneEventEnvelope.self)
-        guard lifecycle != .terminated else {
-            continuation.finish()
-            return stream
-        }
-
-        let subscriberId = nextSubscriberId
-        nextSubscriberId += 1
-        subscribers[subscriberId] = continuation
-
-        continuation.onTermination = { [weak self] _ in
-            Task { @MainActor [weak self] in
-                self?.subscribers.removeValue(forKey: subscriberId)
-            }
-        }
-
-        return stream
+        eventChannel.subscribe(isTerminated: lifecycle == .terminated)
     }
 
     func snapshot() -> PaneRuntimeSnapshot {
-        PaneRuntimeSnapshot(
+        eventChannel.snapshot(
             paneId: paneId,
             metadata: metadata,
             lifecycle: lifecycle,
-            capabilities: capabilities,
-            lastSeq: sequence,
-            timestamp: Date()
+            capabilities: capabilities
         )
     }
 
     func eventsSince(seq: UInt64) async -> EventReplayBuffer.ReplayResult {
-        replayBuffer.eventsSince(seq: seq)
+        eventChannel.eventsSince(seq: seq)
     }
 
     func shutdown(timeout _: Duration) async -> [UUID] {
@@ -123,19 +102,20 @@ final class SwiftPaneRuntime: BusPostingPaneRuntime {
 
         lifecycle = .draining
         lifecycle = .terminated
-        let activeSubscribers = Array(subscribers.values)
-        subscribers.removeAll(keepingCapacity: true)
-        for continuation in activeSubscribers {
-            continuation.finish()
-        }
+        eventChannel.finishSubscribers()
         return []
     }
 
     @discardableResult
-    func preloadFile(path: String, correlationId: UUID? = nil) -> Bool {
-        guard lifecycle != .terminated else { return false }
+    func preloadFile(path: String, correlationId: UUID? = nil) async -> Bool {
+        guard lifecycle == .ready else {
+            Self.logger.debug(
+                "Ignored preloadFile for pane \(self.paneId.uuid.uuidString, privacy: .public): lifecycle=\(String(describing: self.lifecycle), privacy: .public)"
+            )
+            return false
+        }
         do {
-            try loadFile(path: path)
+            try await loadFile(path: path)
             emitEditorEvent(
                 .fileOpened(path: path, language: languageIdentifier(for: path)),
                 commandId: nil,
@@ -144,7 +124,7 @@ final class SwiftPaneRuntime: BusPostingPaneRuntime {
             return true
         } catch {
             Self.logger.warning(
-                "Failed preload open for pane \(self.paneId.uuid.uuidString, privacy: .public) path=\(path, privacy: .public)"
+                "Failed preload open for pane \(self.paneId.uuid.uuidString, privacy: .public) path=\(path, privacy: .public): \(error.localizedDescription, privacy: .public)"
             )
             return false
         }
@@ -154,10 +134,10 @@ final class SwiftPaneRuntime: BusPostingPaneRuntime {
         _ command: EditorCommand,
         commandId: UUID,
         correlationId: UUID?
-    ) -> ActionResult {
+    ) async -> ActionResult {
         switch command {
         case .openFile(let path, _, _):
-            guard preloadFile(path: path, correlationId: correlationId) else {
+            guard await preloadFile(path: path, correlationId: correlationId) else {
                 return .failure(.invalidPayload(description: "Failed to open file at path: \(path)"))
             }
             return .success(commandId: commandId)
@@ -177,7 +157,7 @@ final class SwiftPaneRuntime: BusPostingPaneRuntime {
             }
 
             do {
-                try loadFile(path: openedFilePath)
+                try await loadFile(path: openedFilePath)
                 emitEditorEvent(
                     .fileOpened(path: openedFilePath, language: languageIdentifier(for: openedFilePath)),
                     commandId: commandId,
@@ -185,18 +165,29 @@ final class SwiftPaneRuntime: BusPostingPaneRuntime {
                 )
                 return .success(commandId: commandId)
             } catch {
-                return .failure(.invalidPayload(description: "Failed to revert file at path: \(openedFilePath)"))
+                return .failure(
+                    .invalidPayload(
+                        description:
+                            "Failed to revert file at path: \(openedFilePath). Error: \(error.localizedDescription)"
+                    )
+                )
             }
         }
     }
 
-    private func loadFile(path: String) throws {
+    private func loadFile(path: String) async throws {
         let fileURL = URL(fileURLWithPath: path)
-        let text = try String(contentsOf: fileURL, encoding: .utf8)
+        let text = try await Self.readFileContents(path: path)
         displayedText = text
         openedFilePath = path
         metadata.updateTitle(fileURL.lastPathComponent)
         metadata.updateCWD(fileURL.deletingLastPathComponent())
+    }
+
+    // Swift 6.2: explicit off-actor file I/O boundary for large files.
+    @concurrent
+    nonisolated private static func readFileContents(path: String) async throws -> String {
+        try String(contentsOf: URL(fileURLWithPath: path), encoding: .utf8)
     }
 
     private func emitEditorEvent(
@@ -208,29 +199,14 @@ final class SwiftPaneRuntime: BusPostingPaneRuntime {
             return
         }
 
-        sequence += 1
-        let envelope = PaneEventEnvelope(
-            source: .pane(paneId),
-            sourceFacets: metadata.facets,
+        eventChannel.emit(
+            paneId: paneId,
+            metadata: metadata,
             paneKind: metadata.contentType,
-            seq: sequence,
             commandId: commandId,
             correlationId: correlationId,
-            timestamp: envelopeClock.now,
-            epoch: 0,
             event: .editor(editorEvent)
         )
-        replayBuffer.append(envelope)
-        broadcast(envelope)
-        Task { [paneEventBus] in
-            await paneEventBus.post(envelope)
-        }
-    }
-
-    private func broadcast(_ envelope: PaneEventEnvelope) {
-        for continuation in subscribers.values {
-            continuation.yield(envelope)
-        }
     }
 
     private func requiredCapability(for command: RuntimeCommand) -> PaneCapability {

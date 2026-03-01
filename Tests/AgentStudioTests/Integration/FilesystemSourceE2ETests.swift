@@ -37,7 +37,10 @@ extension E2ESerializedTests {
             store.setActiveTab(tab.id)
 
             let paneEventBus = EventBus<PaneEventEnvelope>()
-            let filesystemSource = FilesystemActor(bus: paneEventBus)
+            let filesystemSource = FilesystemGitPipeline(
+                bus: paneEventBus,
+                gitStatusProvider: ShellGitStatusProvider(processExecutor: DefaultProcessExecutor(timeout: 5))
+            )
             let paneProjectionStore = PaneFilesystemProjectionStore()
             let workspaceGitStatusStore = WorkspaceGitStatusStore()
 
@@ -57,7 +60,7 @@ extension E2ESerializedTests {
                 coordinator.filesystemRegisteredRootsByWorktreeId[worktree.id] != nil
             }
 
-            await filesystemSource.enqueueRawPaths(
+            await filesystemSource.enqueueRawPathsForTesting(
                 worktreeId: worktree.id,
                 paths: ["tracked.txt", "untracked.txt"]
             )

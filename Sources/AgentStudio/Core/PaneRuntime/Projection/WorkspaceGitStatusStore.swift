@@ -4,15 +4,13 @@ import Observation
 @Observable
 @MainActor
 final class WorkspaceGitStatusStore {
-    struct WorktreeSnapshot: Sendable {
+    struct WorktreeSnapshot: Sendable, Equatable {
         let worktreeId: UUID
-        var summary: GitStatusSummary
-        var branch: String?
-        var lastSequence: UInt64
-        var timestamp: ContinuousClock.Instant
+        let summary: GitStatusSummary
+        let branch: String?
+        let lastSequence: UInt64
+        let timestamp: ContinuousClock.Instant
     }
-
-    static let shared = WorkspaceGitStatusStore()
 
     private(set) var snapshotsByWorktreeId: [UUID: WorktreeSnapshot] = [:]
 
@@ -22,7 +20,7 @@ final class WorkspaceGitStatusStore {
             return
         }
 
-        var snapshot =
+        let existingSnapshot =
             snapshotsByWorktreeId[worktreeId]
             ?? WorktreeSnapshot(
                 worktreeId: worktreeId,
@@ -31,21 +29,28 @@ final class WorkspaceGitStatusStore {
                 lastSequence: 0,
                 timestamp: envelope.timestamp
             )
-        guard envelope.seq >= snapshot.lastSequence else { return }
+        guard envelope.seq >= existingSnapshot.lastSequence else { return }
 
+        let nextSummary: GitStatusSummary
+        let nextBranch: String?
         switch filesystemEvent {
         case .gitSnapshotChanged(let gitSnapshot):
-            snapshot.summary = gitSnapshot.summary
-            snapshot.branch = gitSnapshot.branch
-        case .branchChanged(_, let nextBranch):
-            snapshot.branch = nextBranch
+            nextSummary = gitSnapshot.summary
+            nextBranch = gitSnapshot.branch
+        case .branchChanged(_, let branchName):
+            nextSummary = existingSnapshot.summary
+            nextBranch = branchName
         case .worktreeRegistered, .worktreeUnregistered, .filesChanged, .diffAvailable:
             return
         }
 
-        snapshot.lastSequence = envelope.seq
-        snapshot.timestamp = envelope.timestamp
-        snapshotsByWorktreeId[worktreeId] = snapshot
+        snapshotsByWorktreeId[worktreeId] = WorktreeSnapshot(
+            worktreeId: worktreeId,
+            summary: nextSummary,
+            branch: nextBranch,
+            lastSequence: envelope.seq,
+            timestamp: envelope.timestamp
+        )
     }
 
     func prune(validWorktreeIds: Set<UUID>) {

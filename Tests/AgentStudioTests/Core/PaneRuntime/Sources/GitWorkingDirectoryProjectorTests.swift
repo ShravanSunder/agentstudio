@@ -3,8 +3,49 @@ import Testing
 
 @testable import AgentStudio
 
-@Suite("GitStatusActor")
-struct GitStatusActorTests {
+@Suite("GitWorkingDirectoryProjector")
+struct GitWorkingDirectoryProjectorTests {
+    @Test("worktreeRegistered triggers eager initial git snapshot")
+    func worktreeRegisteredTriggersEagerInitialGitSnapshot() async throws {
+        let bus = EventBus<PaneEventEnvelope>()
+        let provider = StubGitStatusProvider { _ in
+            GitStatusSnapshot(
+                summary: GitStatusSummary(changed: 0, staged: 0, untracked: 0),
+                branch: "main"
+            )
+        }
+        let actor = GitWorkingDirectoryProjector(
+            bus: bus,
+            gitStatusProvider: provider,
+            coalescingWindow: .zero
+        )
+
+        let observed = ObservedGitEvents()
+        let collectionTask = await startCollection(on: bus, observed: observed)
+        await actor.start()
+
+        let worktreeId = UUID()
+        let rootPath = URL(fileURLWithPath: "/tmp/eager-\(UUID().uuidString)")
+        await bus.post(
+            makeEnvelope(
+                seq: 1,
+                worktreeId: worktreeId,
+                event: .worktreeRegistered(worktreeId: worktreeId, rootPath: rootPath)
+            )
+        )
+
+        let didReceiveSnapshot = await waitUntil {
+            await observed.snapshotCount(for: worktreeId) >= 1
+        }
+        #expect(didReceiveSnapshot)
+        let snapshot = await observed.latestSnapshot(for: worktreeId)
+        #expect(snapshot?.rootPath == rootPath)
+        #expect(snapshot?.branch == "main")
+
+        await actor.shutdown()
+        collectionTask.cancel()
+    }
+
     @Test("filesChanged triggers git snapshot fact")
     func filesChangedTriggersGitSnapshotFact() async throws {
         let bus = EventBus<PaneEventEnvelope>()
@@ -14,7 +55,7 @@ struct GitStatusActorTests {
                 branch: "feature/projector"
             )
         }
-        let actor = GitStatusActor(
+        let actor = GitWorkingDirectoryProjector(
             bus: bus,
             gitStatusProvider: provider,
             coalescingWindow: .zero
@@ -56,7 +97,7 @@ struct GitStatusActorTests {
                 branch: "main"
             )
         }
-        let actor = GitStatusActor(
+        let actor = GitWorkingDirectoryProjector(
             bus: bus,
             gitStatusProvider: provider,
             coalescingWindow: .zero
@@ -103,7 +144,7 @@ struct GitStatusActorTests {
                 branch: "main"
             )
         }
-        let actor = GitStatusActor(
+        let actor = GitWorkingDirectoryProjector(
             bus: bus,
             gitStatusProvider: provider,
             coalescingWindow: .zero
@@ -160,7 +201,7 @@ struct GitStatusActorTests {
                 branch: "cleanup"
             )
         }
-        let actor = GitStatusActor(
+        let actor = GitWorkingDirectoryProjector(
             bus: bus,
             gitStatusProvider: provider,
             coalescingWindow: .zero
@@ -198,6 +239,97 @@ struct GitStatusActorTests {
         collectionTask.cancel()
     }
 
+    @Test("branchChanged emits when consecutive snapshots change branch")
+    func branchChangedEmitsWhenConsecutiveSnapshotsChangeBranch() async throws {
+        let bus = EventBus<PaneEventEnvelope>()
+        let calls = CallCounter()
+        let provider = StubGitStatusProvider { _ in
+            let callNumber = await calls.increment()
+            let branch = callNumber == 1 ? "main" : "feature/split"
+            return GitStatusSnapshot(
+                summary: GitStatusSummary(changed: callNumber, staged: 0, untracked: 0),
+                branch: branch
+            )
+        }
+        let actor = GitWorkingDirectoryProjector(
+            bus: bus,
+            gitStatusProvider: provider,
+            coalescingWindow: .zero
+        )
+
+        let observed = ObservedGitEvents()
+        let collectionTask = await startCollection(on: bus, observed: observed)
+        await actor.start()
+
+        let worktreeId = UUID()
+        let rootPath = URL(fileURLWithPath: "/tmp/branch-change-\(UUID().uuidString)")
+        await bus.post(makeFilesChangedEnvelope(seq: 1, worktreeId: worktreeId, rootPath: rootPath, batchSeq: 1))
+
+        let firstSnapshotObserved = await waitUntil {
+            await observed.snapshotCount(for: worktreeId) >= 1
+        }
+        #expect(firstSnapshotObserved)
+
+        await bus.post(makeFilesChangedEnvelope(seq: 2, worktreeId: worktreeId, rootPath: rootPath, batchSeq: 2))
+
+        let observedBranchChange = await waitUntil {
+            await observed.branchEventCount(for: worktreeId) >= 1
+        }
+        #expect(observedBranchChange)
+
+        let branchEvent = await observed.latestBranchEvent(for: worktreeId)
+        #expect(branchEvent?.0 == "main")
+        #expect(branchEvent?.1 == "feature/split")
+
+        await actor.shutdown()
+        collectionTask.cancel()
+    }
+
+    @Test("git internal-only filesChanged event still triggers git snapshot projection")
+    func gitInternalOnlyFilesChangedEventStillTriggersSnapshot() async throws {
+        let bus = EventBus<PaneEventEnvelope>()
+        let provider = StubGitStatusProvider { _ in
+            GitStatusSnapshot(
+                summary: GitStatusSummary(changed: 1, staged: 0, untracked: 0),
+                branch: "main"
+            )
+        }
+        let actor = GitWorkingDirectoryProjector(
+            bus: bus,
+            gitStatusProvider: provider,
+            coalescingWindow: .zero
+        )
+
+        let observed = ObservedGitEvents()
+        let collectionTask = await startCollection(on: bus, observed: observed)
+        await actor.start()
+
+        let worktreeId = UUID()
+        let rootPath = URL(fileURLWithPath: "/tmp/git-internal-only-\(UUID().uuidString)")
+        await bus.post(
+            makeFilesChangedEnvelope(
+                seq: 1,
+                worktreeId: worktreeId,
+                rootPath: rootPath,
+                batchSeq: 1,
+                paths: [],
+                containsGitInternalChanges: true,
+                suppressedGitInternalPathCount: 2
+            )
+        )
+
+        let didReceiveSnapshot = await waitUntil {
+            await observed.snapshotCount(for: worktreeId) >= 1
+        }
+        #expect(didReceiveSnapshot)
+        let snapshot = await observed.latestSnapshot(for: worktreeId)
+        #expect(snapshot?.worktreeId == worktreeId)
+        #expect(snapshot?.branch == "main")
+
+        await actor.shutdown()
+        collectionTask.cancel()
+    }
+
     private func startCollection(
         on bus: EventBus<PaneEventEnvelope>,
         observed: ObservedGitEvents
@@ -214,7 +346,11 @@ struct GitStatusActorTests {
         seq: UInt64,
         worktreeId: UUID,
         rootPath: URL,
-        batchSeq: UInt64
+        batchSeq: UInt64,
+        paths: [String] = ["Sources/File.swift"],
+        containsGitInternalChanges: Bool = false,
+        suppressedIgnoredPathCount: Int = 0,
+        suppressedGitInternalPathCount: Int = 0
     ) -> PaneEventEnvelope {
         makeEnvelope(
             seq: seq,
@@ -223,7 +359,10 @@ struct GitStatusActorTests {
                 changeset: FileChangeset(
                     worktreeId: worktreeId,
                     rootPath: rootPath,
-                    paths: ["Sources/File.swift"],
+                    paths: paths,
+                    containsGitInternalChanges: containsGitInternalChanges,
+                    suppressedIgnoredPathCount: suppressedIgnoredPathCount,
+                    suppressedGitInternalPathCount: suppressedGitInternalPathCount,
                     timestamp: ContinuousClock().now,
                     batchSeq: batchSeq
                 )
@@ -250,14 +389,17 @@ struct GitStatusActorTests {
     }
 
     private func waitUntil(
-        maxYields: Int = 2_000,
+        timeout: Duration = .seconds(2),
+        pollInterval: Duration = .milliseconds(1),
         condition: @escaping @Sendable () async -> Bool
     ) async -> Bool {
-        for _ in 0..<maxYields {
+        let clock = ContinuousClock()
+        let deadline = clock.now.advanced(by: timeout)
+        while clock.now < deadline {
             if await condition() {
                 return true
             }
-            await Task.yield()
+            try? await Task.sleep(for: pollInterval)
         }
         return await condition()
     }
@@ -291,6 +433,10 @@ private actor ObservedGitEvents {
 
     func branchEventCount(for worktreeId: UUID) -> Int {
         branchEventsByWorktreeId[worktreeId]?.count ?? 0
+    }
+
+    func latestBranchEvent(for worktreeId: UUID) -> (String, String)? {
+        branchEventsByWorktreeId[worktreeId]?.last
     }
 }
 

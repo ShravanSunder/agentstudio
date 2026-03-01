@@ -18,12 +18,7 @@ final class WebviewRuntime: BusPostingPaneRuntime {
     let capabilities: Set<PaneCapability>
     weak var commandHandler: (any WebviewRuntimeCommandHandling)?
 
-    private let envelopeClock: ContinuousClock
-    private let replayBuffer: EventReplayBuffer
-    private let paneEventBus: EventBus<PaneEventEnvelope>
-    private var sequence: UInt64 = 0
-    private var nextSubscriberId: UInt64 = 0
-    private var subscribers: [UInt64: AsyncStream<PaneEventEnvelope>.Continuation] = [:]
+    private let eventChannel: PaneRuntimeEventChannel
 
     init(
         paneId: PaneId,
@@ -38,9 +33,11 @@ final class WebviewRuntime: BusPostingPaneRuntime {
         self.lifecycle = .created
         self.capabilities = [.navigation]
         self.commandHandler = commandHandler
-        self.envelopeClock = clock
-        self.replayBuffer = replayBuffer ?? EventReplayBuffer()
-        self.paneEventBus = paneEventBus
+        self.eventChannel = PaneRuntimeEventChannel(
+            clock: clock,
+            replayBuffer: replayBuffer ?? EventReplayBuffer(),
+            paneEventBus: paneEventBus
+        )
     }
 
     func transitionToReady() {
@@ -95,38 +92,20 @@ final class WebviewRuntime: BusPostingPaneRuntime {
     }
 
     func subscribe() -> AsyncStream<PaneEventEnvelope> {
-        let (stream, continuation) = AsyncStream.makeStream(of: PaneEventEnvelope.self)
-        guard lifecycle != .terminated else {
-            continuation.finish()
-            return stream
-        }
-
-        let subscriberId = nextSubscriberId
-        nextSubscriberId += 1
-        subscribers[subscriberId] = continuation
-
-        continuation.onTermination = { [weak self] _ in
-            Task { @MainActor [weak self] in
-                self?.subscribers.removeValue(forKey: subscriberId)
-            }
-        }
-
-        return stream
+        eventChannel.subscribe(isTerminated: lifecycle == .terminated)
     }
 
     func snapshot() -> PaneRuntimeSnapshot {
-        PaneRuntimeSnapshot(
+        eventChannel.snapshot(
             paneId: paneId,
             metadata: metadata,
             lifecycle: lifecycle,
-            capabilities: capabilities,
-            lastSeq: sequence,
-            timestamp: Date()
+            capabilities: capabilities
         )
     }
 
     func eventsSince(seq: UInt64) async -> EventReplayBuffer.ReplayResult {
-        replayBuffer.eventsSince(seq: seq)
+        eventChannel.eventsSince(seq: seq)
     }
 
     func shutdown(timeout _: Duration) async -> [UUID] {
@@ -136,11 +115,7 @@ final class WebviewRuntime: BusPostingPaneRuntime {
 
         lifecycle = .draining
         lifecycle = .terminated
-        let activeSubscribers = Array(subscribers.values)
-        subscribers.removeAll(keepingCapacity: true)
-        for continuation in activeSubscribers {
-            continuation.finish()
-        }
+        eventChannel.finishSubscribers()
         return []
     }
 
@@ -156,29 +131,14 @@ final class WebviewRuntime: BusPostingPaneRuntime {
             return
         }
 
-        sequence += 1
-        let envelope = PaneEventEnvelope(
-            source: .pane(paneId),
-            sourceFacets: metadata.facets,
+        eventChannel.emit(
+            paneId: paneId,
+            metadata: metadata,
             paneKind: .browser,
-            seq: sequence,
             commandId: commandId,
             correlationId: correlationId,
-            timestamp: envelopeClock.now,
-            epoch: 0,
             event: .browser(event)
         )
-        replayBuffer.append(envelope)
-        broadcast(envelope)
-        Task { [paneEventBus] in
-            await paneEventBus.post(envelope)
-        }
-    }
-
-    private func broadcast(_ envelope: PaneEventEnvelope) {
-        for continuation in subscribers.values {
-            continuation.yield(envelope)
-        }
     }
 
     private func requiredCapability(for command: RuntimeCommand) -> PaneCapability {

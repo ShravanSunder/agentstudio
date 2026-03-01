@@ -23,12 +23,7 @@ final class BridgeRuntime: BusPostingPaneRuntime {
     let paneState = PaneDomainState()
     weak var commandHandler: (any BridgeRuntimeCommandHandling)?
 
-    private let envelopeClock: ContinuousClock
-    private let replayBuffer: EventReplayBuffer
-    private let paneEventBus: EventBus<PaneEventEnvelope>
-    private var sequence: UInt64 = 0
-    private var nextSubscriberId: UInt64 = 0
-    private var subscribers: [UInt64: AsyncStream<PaneEventEnvelope>.Continuation] = [:]
+    private let eventChannel: PaneRuntimeEventChannel
 
     init(
         paneId: PaneId,
@@ -43,9 +38,11 @@ final class BridgeRuntime: BusPostingPaneRuntime {
         self.lifecycle = .created
         self.capabilities = Self.capabilities(for: metadata.contentType)
         self.commandHandler = commandHandler
-        self.envelopeClock = clock
-        self.replayBuffer = replayBuffer ?? EventReplayBuffer()
-        self.paneEventBus = paneEventBus
+        self.eventChannel = PaneRuntimeEventChannel(
+            clock: clock,
+            replayBuffer: replayBuffer ?? EventReplayBuffer(),
+            paneEventBus: paneEventBus
+        )
     }
 
     func transitionToReady() {
@@ -101,38 +98,20 @@ final class BridgeRuntime: BusPostingPaneRuntime {
     }
 
     func subscribe() -> AsyncStream<PaneEventEnvelope> {
-        let (stream, continuation) = AsyncStream.makeStream(of: PaneEventEnvelope.self)
-        guard lifecycle != .terminated else {
-            continuation.finish()
-            return stream
-        }
-
-        let subscriberId = nextSubscriberId
-        nextSubscriberId += 1
-        subscribers[subscriberId] = continuation
-
-        continuation.onTermination = { [weak self] _ in
-            Task { @MainActor [weak self] in
-                self?.subscribers.removeValue(forKey: subscriberId)
-            }
-        }
-
-        return stream
+        eventChannel.subscribe(isTerminated: lifecycle == .terminated)
     }
 
     func snapshot() -> PaneRuntimeSnapshot {
-        PaneRuntimeSnapshot(
+        eventChannel.snapshot(
             paneId: paneId,
             metadata: metadata,
             lifecycle: lifecycle,
-            capabilities: capabilities,
-            lastSeq: sequence,
-            timestamp: Date()
+            capabilities: capabilities
         )
     }
 
     func eventsSince(seq: UInt64) async -> EventReplayBuffer.ReplayResult {
-        replayBuffer.eventsSince(seq: seq)
+        eventChannel.eventsSince(seq: seq)
     }
 
     func shutdown(timeout _: Duration) async -> [UUID] {
@@ -141,11 +120,7 @@ final class BridgeRuntime: BusPostingPaneRuntime {
         }
         lifecycle = .draining
         lifecycle = .terminated
-        let activeSubscribers = Array(subscribers.values)
-        subscribers.removeAll(keepingCapacity: true)
-        for continuation in activeSubscribers {
-            continuation.finish()
-        }
+        eventChannel.finishSubscribers()
         return []
     }
 
@@ -161,23 +136,14 @@ final class BridgeRuntime: BusPostingPaneRuntime {
             return
         }
 
-        sequence += 1
-        let envelope = PaneEventEnvelope(
-            source: .pane(paneId),
-            sourceFacets: metadata.facets,
+        eventChannel.emit(
+            paneId: paneId,
+            metadata: metadata,
             paneKind: metadata.contentType,
-            seq: sequence,
             commandId: commandId,
             correlationId: correlationId,
-            timestamp: envelopeClock.now,
-            epoch: 0,
             event: event
         )
-        replayBuffer.append(envelope)
-        broadcast(envelope)
-        Task { [paneEventBus] in
-            await paneEventBus.post(envelope)
-        }
     }
 
     func recordCommandAck(_ ack: CommandAck) {
@@ -190,21 +156,8 @@ final class BridgeRuntime: BusPostingPaneRuntime {
 
     func resetForControllerTeardown() {
         guard lifecycle != .terminated else { return }
-        let activeSubscribers = Array(subscribers.values)
-        subscribers.removeAll(keepingCapacity: true)
-        for continuation in activeSubscribers {
-            continuation.finish()
-        }
-        sequence = 0
-        nextSubscriberId = 0
-        lifecycle = .created
+        eventChannel.finishSubscribers()
         clearCommandAcks()
-    }
-
-    private func broadcast(_ envelope: PaneEventEnvelope) {
-        for continuation in subscribers.values {
-            continuation.yield(envelope)
-        }
     }
 
     private static func capabilities(for contentType: PaneContentType) -> Set<PaneCapability> {

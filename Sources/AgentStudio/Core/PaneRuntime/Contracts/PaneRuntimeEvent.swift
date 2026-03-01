@@ -66,17 +66,40 @@ struct FileChangeset: Sendable {
     let worktreeId: WorktreeId
     let rootPath: URL
     let paths: [String]
+    let containsGitInternalChanges: Bool
+    let suppressedIgnoredPathCount: Int
+    let suppressedGitInternalPathCount: Int
     let timestamp: ContinuousClock.Instant
     let batchSeq: UInt64
+
+    init(
+        worktreeId: WorktreeId,
+        rootPath: URL,
+        paths: [String],
+        containsGitInternalChanges: Bool = false,
+        suppressedIgnoredPathCount: Int = 0,
+        suppressedGitInternalPathCount: Int = 0,
+        timestamp: ContinuousClock.Instant,
+        batchSeq: UInt64
+    ) {
+        self.worktreeId = worktreeId
+        self.rootPath = rootPath
+        self.paths = paths
+        self.containsGitInternalChanges = containsGitInternalChanges
+        self.suppressedIgnoredPathCount = suppressedIgnoredPathCount
+        self.suppressedGitInternalPathCount = suppressedGitInternalPathCount
+        self.timestamp = timestamp
+        self.batchSeq = batchSeq
+    }
 }
 
-struct GitStatusSummary: Sendable {
+struct GitStatusSummary: Sendable, Equatable {
     let changed: Int
     let staged: Int
     let untracked: Int
 }
 
-struct GitWorkingTreeSnapshot: Sendable {
+struct GitWorkingTreeSnapshot: Sendable, Equatable {
     let worktreeId: UUID
     let rootPath: URL
     let summary: GitStatusSummary

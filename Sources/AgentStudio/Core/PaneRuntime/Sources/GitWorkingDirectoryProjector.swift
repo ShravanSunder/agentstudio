@@ -11,8 +11,8 @@ import os
 /// Output:
 /// - `.filesystem(.gitSnapshotChanged)`
 /// - `.filesystem(.branchChanged)` (optional derivative fact)
-actor GitStatusActor {
-    private static let logger = Logger(subsystem: "com.agentstudio", category: "GitStatusActor")
+actor GitWorkingDirectoryProjector {
+    private static let logger = Logger(subsystem: "com.agentstudio", category: "GitWorkingDirectoryProjector")
 
     private let bus: EventBus<PaneEventEnvelope>
     private let gitStatusProvider: any GitStatusProvider
@@ -52,16 +52,16 @@ actor GitStatusActor {
         worktreeTasks.removeAll(keepingCapacity: false)
     }
 
-    func start() {
+    func start() async {
         guard subscriptionTask == nil else { return }
+        let stream = await bus.subscribe(
+            bufferingPolicy: .bufferingNewest(subscriptionBufferLimit)
+        )
 
         subscriptionTask = Task { [weak self] in
-            guard let self else { return }
-            let stream = await self.bus.subscribe(
-                bufferingPolicy: .bufferingNewest(self.subscriptionBufferLimit)
-            )
             for await envelope in stream {
                 guard !Task.isCancelled else { break }
+                guard let self else { return }
                 await self.handleIncomingEnvelope(envelope)
             }
         }
@@ -148,6 +148,9 @@ actor GitStatusActor {
 
         // Provider contract: expensive git compute must run off actor isolation.
         guard let statusSnapshot = await gitStatusProvider.status(for: changeset.rootPath) else {
+            Self.logger.error(
+                "Git snapshot unavailable for worktree \(changeset.worktreeId.uuidString, privacy: .public) root=\(changeset.rootPath.path, privacy: .public)"
+            )
             return
         }
         guard !Task.isCancelled else { return }

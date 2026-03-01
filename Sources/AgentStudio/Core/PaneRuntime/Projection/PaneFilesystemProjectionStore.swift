@@ -12,8 +12,6 @@ final class PaneFilesystemProjectionStore {
         let timestamp: ContinuousClock.Instant
     }
 
-    static let shared = PaneFilesystemProjectionStore()
-
     private(set) var snapshotsByPaneId: [UUID: PaneSnapshot] = [:]
 
     func consume(

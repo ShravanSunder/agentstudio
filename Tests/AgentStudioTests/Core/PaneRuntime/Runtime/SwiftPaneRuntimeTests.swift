@@ -161,6 +161,44 @@ struct SwiftPaneRuntimeTests {
         #expect(result == .failure(.runtimeNotReady(lifecycle: .created)))
     }
 
+    @Test("prepareForClose transitions lifecycle to draining and rejects follow-up commands")
+    func prepareForCloseTransitionsLifecycleToDraining() async throws {
+        let tempFile = try makeTemporarySwiftFile(content: "print(\"hi\")\n")
+        defer { try? FileManager.default.removeItem(at: tempFile) }
+
+        let runtime = makeRuntime(fileDirectory: tempFile.deletingLastPathComponent())
+        runtime.transitionToReady()
+
+        let prepareEnvelope = makeEnvelope(command: .prepareForClose, paneId: runtime.paneId)
+        let prepareResult = await runtime.handleCommand(prepareEnvelope)
+        let followupResult = await runtime.handleCommand(
+            makeEnvelope(command: .activate, paneId: runtime.paneId)
+        )
+
+        #expect(prepareResult == .success(commandId: prepareEnvelope.commandId))
+        #expect(runtime.lifecycle == .draining)
+        #expect(followupResult == .failure(.runtimeNotReady(lifecycle: .draining)))
+    }
+
+    @Test("ingest after termination is dropped")
+    func ingestAfterTerminationIsDropped() async throws {
+        let tempFile = try makeTemporarySwiftFile(content: "print(\"hi\")\n")
+        defer { try? FileManager.default.removeItem(at: tempFile) }
+
+        let runtime = makeRuntime(fileDirectory: tempFile.deletingLastPathComponent())
+        runtime.transitionToReady()
+        _ = await runtime.shutdown(timeout: .seconds(1))
+
+        let sequenceBefore = runtime.snapshot().lastSeq
+        let didPreload = await runtime.preloadFile(path: tempFile.path)
+        let sequenceAfter = runtime.snapshot().lastSeq
+        let replay = await runtime.eventsSince(seq: 0)
+
+        #expect(!didPreload)
+        #expect(sequenceBefore == sequenceAfter)
+        #expect(replay.events.isEmpty)
+    }
+
     private func makeRuntime(
         fileDirectory: URL,
         paneEventBus: EventBus<PaneEventEnvelope> = PaneRuntimeEventBus.shared

@@ -31,7 +31,7 @@ struct RepoSidebarContentView: View {
 
     init(
         store: WorkspaceStore,
-        workspaceGitStatusStore: WorkspaceGitStatusStore = .shared
+        workspaceGitStatusStore: WorkspaceGitStatusStore = WorkspaceGitStatusStore()
     ) {
         self.store = store
         self.workspaceGitStatusStore = workspaceGitStatusStore

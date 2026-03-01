@@ -78,7 +78,7 @@ final class CodeViewerPaneView: PaneView {
                 scrollToLineNumber(scrollToLine)
             }
         } catch {
-            textView.string = "Unable to load file: \(state.filePath.path)"
+            textView.string = "Unable to load file: \(state.filePath.path)\n\(error.localizedDescription)"
         }
     }
 

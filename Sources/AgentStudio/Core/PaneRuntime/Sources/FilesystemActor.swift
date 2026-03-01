@@ -14,33 +14,69 @@ actor FilesystemActor {
         let canonicalRootPath: String
         var isActiveInApp: Bool
         var nextBatchSeq: UInt64
+        var pathFilter: FilesystemPathFilter
+    }
+
+    private struct PendingWorktreeChanges: Sendable {
+        var projectedPaths: Set<String> = []
+        var containsGitInternalChanges = false
+        var suppressedIgnoredPathCount = 0
+        var suppressedGitInternalPathCount = 0
+        var requiresPathFilterReload = false
+        var firstPendingTimestamp: ContinuousClock.Instant?
+        var lastPendingTimestamp: ContinuousClock.Instant?
+
+        var hasPendingChanges: Bool {
+            !projectedPaths.isEmpty || suppressedIgnoredPathCount > 0 || suppressedGitInternalPathCount > 0
+        }
+
+        mutating func recordPendingChange(at timestamp: ContinuousClock.Instant) {
+            if firstPendingTimestamp == nil {
+                firstPendingTimestamp = timestamp
+            }
+            lastPendingTimestamp = timestamp
+        }
     }
 
     private let bus: EventBus<PaneEventEnvelope>
     private let fseventStreamClient: any FSEventStreamClient
     private let envelopeClock = ContinuousClock()
+    private let sleepClock: any Clock<Duration>
+    private let debounceWindow: Duration
+    private let maxFlushLatency: Duration
 
     private var roots: [UUID: RootState] = [:]
-    private var pendingRelativePathsByWorktreeId: [UUID: Set<String>] = [:]
+    private var pendingChangesByWorktreeId: [UUID: PendingWorktreeChanges] = [:]
     private var activePaneWorktreeId: UUID?
     private var nextEnvelopeSequence: UInt64 = 0
 
     private var ingressTask: Task<Void, Never>?
     private var drainTask: Task<Void, Never>?
+    private var hasShutdown = false
 
     init(
         bus: EventBus<PaneEventEnvelope> = PaneRuntimeEventBus.shared,
-        fseventStreamClient: any FSEventStreamClient = NoopFSEventStreamClient()
+        fseventStreamClient: any FSEventStreamClient = NoopFSEventStreamClient(),
+        sleepClock: any Clock<Duration> = ContinuousClock(),
+        debounceWindow: Duration = .milliseconds(500),
+        maxFlushLatency: Duration = .seconds(2)
     ) {
         self.bus = bus
         self.fseventStreamClient = fseventStreamClient
+        self.sleepClock = sleepClock
+        self.debounceWindow = debounceWindow
+        self.maxFlushLatency = maxFlushLatency
+        if fseventStreamClient is NoopFSEventStreamClient {
+            Self.logger.notice(
+                "FilesystemActor initialized with NoopFSEventStreamClient; OS filesystem events are disabled")
+        }
     }
 
     isolated deinit {
         ingressTask?.cancel()
         drainTask?.cancel()
-        Task { [fseventStreamClient] in
-            await fseventStreamClient.shutdown()
+        if !hasShutdown {
+            Self.logger.debug("FilesystemActor deinitialized without explicit shutdown()")
         }
     }
 
@@ -54,9 +90,10 @@ actor FilesystemActor {
             rootPath: rootPath,
             canonicalRootPath: canonicalRootPath,
             isActiveInApp: existing?.isActiveInApp ?? false,
-            nextBatchSeq: existing?.nextBatchSeq ?? 0
+            nextBatchSeq: existing?.nextBatchSeq ?? 0,
+            pathFilter: FilesystemPathFilter.load(forRootPath: rootPath)
         )
-        pendingRelativePathsByWorktreeId[worktreeId] = pendingRelativePathsByWorktreeId[worktreeId] ?? []
+        pendingChangesByWorktreeId[worktreeId] = pendingChangesByWorktreeId[worktreeId] ?? PendingWorktreeChanges()
         await fseventStreamClient.register(worktreeId: worktreeId, rootPath: rootPath)
         await emitFilesystemEvent(
             worktreeId: worktreeId,
@@ -67,7 +104,7 @@ actor FilesystemActor {
 
     func unregister(worktreeId: UUID) async {
         let hadRoot = roots.removeValue(forKey: worktreeId) != nil
-        pendingRelativePathsByWorktreeId.removeValue(forKey: worktreeId)
+        pendingChangesByWorktreeId.removeValue(forKey: worktreeId)
         if activePaneWorktreeId == worktreeId {
             activePaneWorktreeId = nil
         }
@@ -86,7 +123,12 @@ actor FilesystemActor {
     }
 
     func setActivity(worktreeId: UUID, isActiveInApp: Bool) {
-        guard var root = roots[worktreeId] else { return }
+        guard var root = roots[worktreeId] else {
+            Self.logger.debug(
+                "Ignored setActivity for unregistered worktree \(worktreeId.uuidString, privacy: .public)"
+            )
+            return
+        }
         root.isActiveInApp = isActiveInApp
         roots[worktreeId] = root
     }
@@ -101,13 +143,19 @@ actor FilesystemActor {
         drainTask?.cancel()
         drainTask = nil
         roots.removeAll(keepingCapacity: false)
-        pendingRelativePathsByWorktreeId.removeAll(keepingCapacity: false)
+        pendingChangesByWorktreeId.removeAll(keepingCapacity: false)
         activePaneWorktreeId = nil
-        await fseventStreamClient.shutdown()
+        fseventStreamClient.shutdown()
+        hasShutdown = true
     }
 
     private func ingestRawPaths(worktreeId: UUID, paths: [String]) {
-        guard roots[worktreeId] != nil else { return }
+        guard roots[worktreeId] != nil else {
+            Self.logger.debug(
+                "Dropped filesystem path batch for unregistered worktree \(worktreeId.uuidString, privacy: .public)"
+            )
+            return
+        }
         guard !paths.isEmpty else { return }
 
         let ownership = FilesystemRootOwnership(
@@ -118,7 +166,24 @@ actor FilesystemActor {
             guard let ownedPath = ownership.route(sourceWorktreeId: worktreeId, rawPath: rawPath) else {
                 continue
             }
-            pendingRelativePathsByWorktreeId[ownedPath.worktreeId, default: []].insert(ownedPath.relativePath)
+
+            guard let root = roots[ownedPath.worktreeId] else { continue }
+
+            var pendingChanges = pendingChangesByWorktreeId[ownedPath.worktreeId] ?? PendingWorktreeChanges()
+            switch root.pathFilter.classify(relativePath: ownedPath.relativePath) {
+            case .projected:
+                pendingChanges.projectedPaths.insert(ownedPath.relativePath)
+                if ownedPath.relativePath == ".gitignore" {
+                    pendingChanges.requiresPathFilterReload = true
+                }
+            case .gitInternal:
+                pendingChanges.containsGitInternalChanges = true
+                pendingChanges.suppressedGitInternalPathCount += 1
+            case .ignoredByPolicy:
+                pendingChanges.suppressedIgnoredPathCount += 1
+            }
+            pendingChanges.recordPendingChange(at: envelopeClock.now)
+            pendingChangesByWorktreeId[ownedPath.worktreeId] = pendingChanges
         }
 
         scheduleDrainIfNeeded()
@@ -153,24 +218,41 @@ actor FilesystemActor {
         }
 
         while !Task.isCancelled {
-            await Task.yield()
-            guard let worktreeId = nextWorktreeToFlush() else {
+            let now = envelopeClock.now
+            if let worktreeId = nextWorktreeToFlush(now: now) {
+                await flush(worktreeId: worktreeId)
+                continue
+            }
+
+            guard hasPendingPaths else {
                 return
             }
-            await flush(worktreeId: worktreeId)
+
+            guard let nextDeadline = nextFlushDeadline(now: now) else {
+                await Task.yield()
+                continue
+            }
+
+            let sleepDuration = now.duration(to: nextDeadline)
+            if sleepDuration > .zero {
+                try? await sleepClock.sleep(for: sleepDuration)
+            } else {
+                await Task.yield()
+            }
         }
     }
 
     private var hasPendingPaths: Bool {
-        pendingRelativePathsByWorktreeId.values.contains(where: { !$0.isEmpty })
+        pendingChangesByWorktreeId.values.contains(where: \.hasPendingChanges)
     }
 
-    private func nextWorktreeToFlush() -> UUID? {
+    private func nextWorktreeToFlush(now: ContinuousClock.Instant) -> UUID? {
         let candidates =
-            pendingRelativePathsByWorktreeId
-            .compactMap { worktreeId, paths -> UUID? in
-                guard !paths.isEmpty else { return nil }
+            pendingChangesByWorktreeId
+            .compactMap { worktreeId, pendingChanges -> UUID? in
+                guard pendingChanges.hasPendingChanges else { return nil }
                 guard roots[worktreeId] != nil else { return nil }
+                guard isFlushDue(pendingChanges, now: now) else { return nil }
                 return worktreeId
             }
 
@@ -190,6 +272,17 @@ actor FilesystemActor {
         }
     }
 
+    private func nextFlushDeadline(now: ContinuousClock.Instant) -> ContinuousClock.Instant? {
+        pendingChangesByWorktreeId
+            .compactMap { worktreeId, pendingChanges -> ContinuousClock.Instant? in
+                guard pendingChanges.hasPendingChanges else { return nil }
+                guard roots[worktreeId] != nil else { return nil }
+                guard let deadline = flushDeadline(for: pendingChanges) else { return nil }
+                return deadline > now ? deadline : now
+            }
+            .min()
+    }
+
     private func priorityKey(for worktreeId: UUID) -> Int {
         guard let root = roots[worktreeId] else { return Int.max }
         if root.isActiveInApp {
@@ -201,22 +294,51 @@ actor FilesystemActor {
         return 2
     }
 
+    private func isFlushDue(_ pendingChanges: PendingWorktreeChanges, now: ContinuousClock.Instant) -> Bool {
+        guard let firstPendingTimestamp = pendingChanges.firstPendingTimestamp,
+            let lastPendingTimestamp = pendingChanges.lastPendingTimestamp
+        else {
+            return true
+        }
+
+        let debounceDeadline = lastPendingTimestamp.advanced(by: debounceWindow)
+        let maxLatencyDeadline = firstPendingTimestamp.advanced(by: maxFlushLatency)
+        return now >= debounceDeadline || now >= maxLatencyDeadline
+    }
+
+    private func flushDeadline(for pendingChanges: PendingWorktreeChanges) -> ContinuousClock.Instant? {
+        guard let firstPendingTimestamp = pendingChanges.firstPendingTimestamp,
+            let lastPendingTimestamp = pendingChanges.lastPendingTimestamp
+        else {
+            return nil
+        }
+        let debounceDeadline = lastPendingTimestamp.advanced(by: debounceWindow)
+        let maxLatencyDeadline = firstPendingTimestamp.advanced(by: maxFlushLatency)
+        return min(debounceDeadline, maxLatencyDeadline)
+    }
+
     private func flush(worktreeId: UUID) async {
         guard var root = roots[worktreeId] else {
-            pendingRelativePathsByWorktreeId.removeValue(forKey: worktreeId)
+            pendingChangesByWorktreeId.removeValue(forKey: worktreeId)
             return
         }
-        guard let pendingPaths = pendingRelativePathsByWorktreeId[worktreeId], !pendingPaths.isEmpty else {
+        guard let pendingChanges = pendingChangesByWorktreeId[worktreeId], pendingChanges.hasPendingChanges else {
             return
         }
 
-        pendingRelativePathsByWorktreeId[worktreeId] = []
+        if pendingChanges.requiresPathFilterReload {
+            root.pathFilter = FilesystemPathFilter.load(forRootPath: root.rootPath)
+        }
+        pendingChangesByWorktreeId[worktreeId] = PendingWorktreeChanges()
 
-        let orderedPaths = pendingPaths.sorted()
-        let pathChunks = Self.chunkPaths(
-            orderedPaths,
-            maxChunkSize: Self.maxPathsPerFilesChangedEvent
-        )
+        let orderedPaths = pendingChanges.projectedPaths.sorted()
+        let pathChunks =
+            orderedPaths.isEmpty
+            ? [[]]
+            : Self.chunkPaths(
+                orderedPaths,
+                maxChunkSize: Self.maxPathsPerFilesChangedEvent
+            )
         for pathChunk in pathChunks {
             root.nextBatchSeq += 1
             let batchSeq = root.nextBatchSeq
@@ -225,6 +347,9 @@ actor FilesystemActor {
                 worktreeId: worktreeId,
                 rootPath: root.rootPath,
                 paths: pathChunk,
+                containsGitInternalChanges: pendingChanges.containsGitInternalChanges,
+                suppressedIgnoredPathCount: pendingChanges.suppressedIgnoredPathCount,
+                suppressedGitInternalPathCount: pendingChanges.suppressedGitInternalPathCount,
                 timestamp: timestamp,
                 batchSeq: batchSeq
             )

@@ -53,6 +53,61 @@ struct BridgeRuntimeTests {
         #expect(nextEvent == nil)
     }
 
+    @Test("prepareForClose transitions lifecycle to draining and rejects follow-up commands")
+    func prepareForCloseTransitionsLifecycleToDraining() async {
+        let runtime = makeRuntime()
+        runtime.transitionToReady()
+
+        let prepareEnvelope = makeEnvelope(command: .prepareForClose, paneId: runtime.paneId)
+        let prepareResult = await runtime.handleCommand(prepareEnvelope)
+        let followupResult = await runtime.handleCommand(
+            makeEnvelope(command: .activate, paneId: runtime.paneId)
+        )
+
+        #expect(prepareResult == .success(commandId: prepareEnvelope.commandId))
+        #expect(runtime.lifecycle == .draining)
+        #expect(followupResult == .failure(.runtimeNotReady(lifecycle: .draining)))
+    }
+
+    @Test("resetForControllerTeardown preserves lifecycle and monotonic sequence")
+    func resetForControllerTeardownPreservesLifecycleAndSequence() async {
+        let runtime = makeRuntime()
+        runtime.transitionToReady()
+        runtime.ingestBridgeEvent(
+            .diff(.diffLoaded(stats: DiffStats(filesChanged: 1, insertions: 0, deletions: 0)))
+        )
+
+        let sequenceBeforeReset = runtime.snapshot().lastSeq
+        runtime.resetForControllerTeardown()
+        let sequenceAfterReset = runtime.snapshot().lastSeq
+
+        runtime.ingestBridgeEvent(
+            .diff(.diffLoaded(stats: DiffStats(filesChanged: 2, insertions: 1, deletions: 0)))
+        )
+        let sequenceAfterNewEvent = runtime.snapshot().lastSeq
+
+        #expect(runtime.lifecycle == .ready)
+        #expect(sequenceAfterReset == sequenceBeforeReset)
+        #expect(sequenceAfterNewEvent == sequenceBeforeReset + 1)
+    }
+
+    @Test("ingestBridgeEvent after termination is dropped")
+    func ingestBridgeEventAfterTerminationIsDropped() async {
+        let runtime = makeRuntime()
+        runtime.transitionToReady()
+
+        _ = await runtime.shutdown(timeout: .seconds(1))
+        let sequenceBefore = runtime.snapshot().lastSeq
+        runtime.ingestBridgeEvent(
+            .diff(.diffLoaded(stats: DiffStats(filesChanged: 1, insertions: 1, deletions: 1)))
+        )
+        let sequenceAfter = runtime.snapshot().lastSeq
+        let replay = await runtime.eventsSince(seq: 0)
+
+        #expect(sequenceBefore == sequenceAfter)
+        #expect(replay.events.isEmpty)
+    }
+
     @Test("handleCommand forwards diff commands to bridge controller handler")
     func handleCommandForwardsDiffCommands() async {
         let handler = BridgeRuntimeCommandHandlerSpy()

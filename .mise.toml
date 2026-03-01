@@ -180,6 +180,92 @@ else
 fi
 """
 
+[tasks.test-coverage]
+description = "Run test suite with code coverage and print coverage JSON path"
+depends = ["build"]
+run = """
+#!/usr/bin/env bash
+set -euo pipefail
+BUILD_PATH="${SWIFT_BUILD_DIR:-.build}"
+if [ "${SWIFT_TEST_PARALLEL:-1}" = "1" ]; then
+  SWIFT_TEST_WORKERS="${SWIFT_TEST_WORKERS:-$(( $(sysctl -n hw.ncpu) / 2 ))}"
+  if [ "$SWIFT_TEST_WORKERS" -lt 2 ]; then SWIFT_TEST_WORKERS=2; fi
+  if [ "$SWIFT_TEST_WORKERS" -gt 4 ]; then SWIFT_TEST_WORKERS=4; fi
+  AGENT_STUDIO_BENCHMARK_MODE=off swift test --enable-code-coverage --parallel --num-workers "$SWIFT_TEST_WORKERS" --skip WebKitSerializedTests --skip E2ESerializedTests --skip ZmxE2ETests --build-path "$BUILD_PATH"
+else
+  AGENT_STUDIO_BENCHMARK_MODE=off swift test --enable-code-coverage --skip WebKitSerializedTests --skip E2ESerializedTests --skip ZmxE2ETests --build-path "$BUILD_PATH"
+fi
+
+echo "--- WebView serialized tests (serial, coverage) ---"
+run_webkit_suite_with_retry() {
+  local filter="$1"
+  local attempt=1
+  local max_attempts=3
+  local backoff_seconds=1
+
+  while [ "$attempt" -le "$max_attempts" ]; do
+    echo "[webkit] running $filter (attempt $attempt/$max_attempts)"
+    set +e
+    local output
+    output=$(AGENT_STUDIO_BENCHMARK_MODE=off swift test --enable-code-coverage --filter "$filter" --build-path "$BUILD_PATH" 2>&1)
+    local status=$?
+    set -e
+    echo "$output"
+
+    if [ "$status" -eq 0 ]; then
+      return 0
+    fi
+
+    if echo "$output" | grep -Eq "unexpected signal code [0-9]+"; then
+      local signal_code
+      signal_code=$(echo "$output" | grep -Eo "unexpected signal code [0-9]+" | grep -Eo "[0-9]+" | tail -n 1)
+      if [ -z "$signal_code" ]; then
+        signal_code="unknown"
+      fi
+      if [ "$attempt" -lt "$max_attempts" ]; then
+        echo "[webkit] signal $signal_code in $filter; retrying after ${backoff_seconds}s"
+        sleep "$backoff_seconds"
+        backoff_seconds=$((backoff_seconds * 2))
+        attempt=$((attempt + 1))
+        continue
+      fi
+    fi
+
+    return "$status"
+  done
+}
+
+run_webkit_suite_with_retry "WebKitSerializedTests/BridgePaneControllerTests"
+run_webkit_suite_with_retry "WebKitSerializedTests/BridgeSchemeHandlerSpikeTests"
+run_webkit_suite_with_retry "WebKitSerializedTests/BridgeTransportIntegrationTests"
+run_webkit_suite_with_retry "WebKitSerializedTests/BridgeWebKitSpikeTests"
+
+echo "--- E2E serialized tests (serial, coverage) ---"
+if [ "${SWIFT_TEST_INCLUDE_E2E:-0}" = "1" ]; then
+  AGENT_STUDIO_BENCHMARK_MODE=off swift test --enable-code-coverage --filter E2ESerializedTests --build-path "$BUILD_PATH"
+else
+  echo "[test-coverage] skipping E2ESerializedTests (SWIFT_TEST_INCLUDE_E2E=${SWIFT_TEST_INCLUDE_E2E:-0})"
+fi
+
+echo "--- Zmx E2E tests (serial, coverage) ---"
+if [ "${SWIFT_TEST_INCLUDE_ZMX_E2E:-0}" = "1" ]; then
+  AGENT_STUDIO_BENCHMARK_MODE=off swift test --enable-code-coverage --filter ZmxE2ETests --build-path "$BUILD_PATH"
+else
+  echo "[test-coverage] skipping ZmxE2ETests (SWIFT_TEST_INCLUDE_ZMX_E2E=${SWIFT_TEST_INCLUDE_ZMX_E2E:-0})"
+fi
+
+COVERAGE_JSON_PATH=$(swift test --show-codecov-path --build-path "$BUILD_PATH")
+echo "[coverage] JSON: $COVERAGE_JSON_PATH"
+if [ -f "$COVERAGE_JSON_PATH" ] && command -v jq >/dev/null 2>&1; then
+  LINES_PERCENT=$(jq -r '.data[0].totals.lines.percent // empty' "$COVERAGE_JSON_PATH" || true)
+  FUNCTIONS_PERCENT=$(jq -r '.data[0].totals.functions.percent // empty' "$COVERAGE_JSON_PATH" || true)
+  REGIONS_PERCENT=$(jq -r '.data[0].totals.regions.percent // empty' "$COVERAGE_JSON_PATH" || true)
+  if [ -n "$LINES_PERCENT" ]; then
+    echo "[coverage] lines=%$LINES_PERCENT functions=%$FUNCTIONS_PERCENT regions=%$REGIONS_PERCENT"
+  fi
+fi
+"""
+
 [tasks.test-e2e]
 description = "Run E2E serialized tests only (opt-in; zmx E2E currently unstable)"
 depends = ["build"]

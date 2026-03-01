@@ -62,7 +62,7 @@ Each contract (C1-C16) has a specific relationship to the EventBus:
 
     C callback              FSEvents callback       gh CLI / HTTP         HTTP / Docker API
     → @Sendable trampoline  → FilesystemActor       → ForgeActor          → ContainerActor
-    → MainActor translate   → debounce + git status → poll PR / checks    → poll health
+    → MainActor translate   → batch facts + git projector → poll PR / checks    → poll health
     → runtime.emit()        → bus.post(envelope)    → bus.post(envelope)  → bus.post(envelope)
          │                        │                       │                     │
          │ bus.post(envelope)     │                       │                     │
@@ -179,14 +179,27 @@ Events from boundary actors. Real work (filesystem scanning, network I/O) justif
 
 | Event | Origin | Work Duration | Frequency | Bus |
 |-------|--------|---------------|-----------|-----|
-| `filesChanged` | FSEvents → `FilesystemActor` | 1-100ms (git status) | Batched, ~1/sec burst | Yes |
-| `gitStatusChanged` | `FilesystemActor` | 10-100ms (git diff) | After batch flush | Yes |
-| `branchChanged` | `FilesystemActor` | 1-10ms | Rare | Yes |
+| `filesChanged` | FSEvents → `FilesystemActor` | 1-100ms (ingest + route + batch) | Batched, ~1/sec burst | Yes |
+| `gitSnapshotChanged` | `GitWorkingDirectoryProjector` | 10-100ms (git status) | After filesystem batch | Yes |
+| `branchChanged` | `GitWorkingDirectoryProjector` | 1-10ms | Rare | Yes |
 | `diffAvailable` | `FilesystemActor` | 10-100ms (diff compute) | After git status | Yes |
 | `securityEvent` | Security backend | Varies | Rare | Yes |
 | Future: `prStatusChanged` | `ForgeActor` | 100ms-2s (`gh` CLI or HTTP) | Polling ~30-60s | Yes |
 | Future: `checksUpdated` | `ForgeActor` | 100ms-2s (`gh` CLI or HTTP) | Polling ~30-60s | Yes |
 | Future: `containerHealthChanged` | `ContainerActor` | 100ms+ (Docker API / HTTP) | Polling ~5-10s | Yes |
+
+### Filesystem → Git Projector Decision Tree
+
+1. **Need one app-wide filesystem source**
+   `FilesystemActor` owns ingestion, ownership routing, filtering, debounce, max-latency, and chunking.
+2. **Need local git state updates without overloading ingress**
+   `GitWorkingDirectoryProjector` subscribes to filesystem facts and computes derived git facts.
+3. **Need pane/worktree fan-out without duplicate subscriptions**
+   Both source and projector publish facts to the shared EventBus; stores/projectors subscribe as needed.
+4. **Need bounded behavior under bursts**
+   `FilesystemActor` batches by path, `GitWorkingDirectoryProjector` coalesces by `worktreeId` (latest wins).
+5. **Need clear ownership boundaries**
+   Local working-directory projection lives here; remote GitHub/forge status remains with forge services.
 
 ### Category 5: Lifecycle Events (bus — rare, benefit from fan-out)
 
@@ -248,48 +261,27 @@ actor EventBus<Envelope: Sendable> {
 
 **Why one bus, not per-pane:** Coordination consumers (reducer, coordinator, workflow engine) need events from ALL panes. Per-pane buses would require N subscriptions and a manual merge step — exactly the centralization problem the bus solves.
 
-### `actor FilesystemActor` (future — LUNA-349)
+### `actor FilesystemActor` (LUNA-349)
 
-App-wide singleton, keyed by worktree internally. Monitors all repos via FSEvents, owns debounce logic, git status computation, and diff production per worktree. Posts enriched `PaneEventEnvelope` to EventBus.
+App-wide singleton, keyed by worktree internally. Owns filesystem ingress only:
+FSEvents ingestion, deepest-root ownership routing, path filtering (`.git/**` + ignore policy), debounce/max-latency scheduling, and chunked `filesChanged` fact emission.
 
-**Why app-wide, not per-worktree:** One FSEvents stream can monitor multiple paths efficiently. Per-worktree actors would multiply actor hop overhead and complicate lifecycle management (create/destroy actors as worktrees appear/disappear). Internal keying gives the same isolation semantics without the actor overhead.
+### `actor GitWorkingDirectoryProjector` (LUNA-349)
 
-**Contention note:** The actor serializes entry, but the heavy git status/diff work runs via `@concurrent nonisolated static` functions. When the actor `await`s these calls, it suspends and releases its serial executor — other worktree work can enter the actor during the suspension. The actor only holds the lock for dedup/debounce logic (~microseconds), not for the 10-100ms of git work. With 5 agents across 3 worktrees, this means worktree B's git status can run concurrently with worktree A's. If profiling ever shows the dedup/debounce serialization itself becoming a bottleneck (unlikely — it's μs-scale), the escape hatch is per-worktree actors, but the lifecycle management cost makes this a last resort.
+App-wide projector actor keyed by worktree identity. Subscribes to filesystem facts and materializes local git working-directory state as facts (`gitSnapshotChanged`, optional `branchChanged`).
 
 ```swift
-/// App-wide filesystem observation, keyed by worktree internally.
-/// Owns the expensive work that justifies an actor boundary:
-/// FSEvents → debounce → git status → diff.
-///
-/// The actor boundary is justified because git status + diff compute
-/// takes 1-100ms — well above the ~20μs break-even for actor hop cost.
 actor FilesystemActor {
-    private var worktrees: [WorktreeId: WorktreeState] = [:]
-    private let bus: EventBus<PaneEventEnvelope>
-    private let clock: any Clock<Duration>
+    // Ingest + route + filter + batch only.
+    func register(worktreeId: WorktreeId, rootPath: URL) async { ... }
+    func unregister(worktreeId: WorktreeId) async { ... }
+    func enqueueRawPaths(worktreeId: WorktreeId, paths: [String]) { ... }
+}
 
-    func register(worktree: WorktreeId, path: URL) { ... }
-    func unregister(worktree: WorktreeId) { ... }
-
-    /// Heavy inner work runs on cooperative pool via @concurrent nonisolated.
-    /// nonisolated is required: actor methods inherit actor isolation by default,
-    /// and @concurrent is only valid on nonisolated declarations (SE-0461).
-    @concurrent
-    nonisolated private static func computeGitStatus(
-        worktreePath: URL
-    ) async -> GitStatusSummary {
-        // Shell out to git status, parse output
-        // 10-100ms of real work
-    }
-
-    @concurrent
-    nonisolated private static func computeDiff(
-        worktreePath: URL,
-        changeset: FileChangeset
-    ) async -> DiffResult {
-        // git diff computation
-        // 10-100ms of real work
-    }
+actor GitWorkingDirectoryProjector {
+    // Consume facts, coalesce by worktree, materialize git snapshot facts.
+    func start() async { ... }
+    func shutdown() { ... }
 }
 ```
 
@@ -438,8 +430,7 @@ final class TerminalRuntime {
 | `TerminalRuntime.performSearch()` | Regex across scrollback buffer | 1-50ms, would stall UI |
 | `TerminalRuntime.extractArtifacts()` | Parse terminal output for file paths, URLs, diffs | 1-10ms per extraction |
 | `TerminalRuntime.parseLogOutput()` | Structured log parsing from agent output | 1-20ms per batch |
-| `FilesystemActor.computeGitStatus()` | Shell to `git status`, parse output | 10-100ms |
-| `FilesystemActor.computeDiff()` | Shell to `git diff`, parse hunks | 10-100ms |
+| `ShellGitStatusProvider.computeStatus()` | Shell to `git status`, parse output | 10-100ms |
 | `BridgeRuntime.computeDiffHunks()` | Diff computation for bridge display | 10-50ms |
 | `BridgeRuntime.hashFileContent()` | SHA256 for file content dedup | 1-10ms per file |
 | Future: artifact extraction from any runtime | File path extraction, URL detection, code block parsing | 1-20ms |
@@ -453,10 +444,12 @@ EVENTS (one-way, producers → bus → consumers):
 
   Runtimes (@MainActor)          Domain actors                 Deferred sources
   ├── TerminalRuntime            ├── FilesystemActor          ├── ContainerActor
-  ├── BridgeRuntime              │   (app-wide, keyed by       │   (per-terminal)
-  ├── WebviewRuntime             │    worktree; FSEvents,      ├── Plugin actors
-  └── SwiftPaneRuntime           │    git status, diff)        │   (per-plugin, mediated)
-                                 ├── ForgeActor               └── SecurityBackend
+  ├── BridgeRuntime              │   (app-wide ingestion,      │   (per-terminal)
+  ├── WebviewRuntime             │    routing, batching)       ├── Plugin actors
+  └── SwiftPaneRuntime           ├── GitWorkingDirectoryProjector │   (per-plugin, mediated)
+                                 │   (local git projector       └── SecurityBackend
+                                 │    keyed by worktree)
+                                 ├── ForgeActor
                                  │   (app-wide, keyed by
                                  │    repo; PR, checks, reviews)
          │                              │                           │
@@ -575,14 +568,22 @@ Every edge in the architecture uses one of four patterns. The choice is mechanic
 
 Same pattern applies to BridgeRuntime, WebviewRuntime, SwiftPaneRuntime — transport differs but connection patterns are identical.
 
-#### FilesystemActor (app-wide singleton, future — LUNA-349)
+#### FilesystemActor (app-wide singleton, LUNA-349)
 
 | Direction | Connection | Pattern | Why |
 |-----------|-----------|---------|-----|
-| **In** | FSEvents callback → actor | **AsyncStream** | FSEvents fires rapid bursts (50 paths in 2s). Stream provides buffering, composes with `.debounce()`. |
+| **In** | FSEvents callback → actor | **AsyncStream** | FSEvents fires rapid bursts. Stream buffers ingress and isolates callback thread from actor processing. |
 | **In** | `register(worktree:path:)` / `unregister(worktree:)` | Direct call | Coordinator manages worktree registration lifecycle. |
-| **Internal** | Debounce → `@concurrent` git status/diff (per worktree key) | Direct call (await) | Structured concurrency inside actor. One batch in, one result out. |
-| **Out** | `await bus.post(enrichedEnvelope)` | Direct call to bus | Same as every other producer. |
+| **Internal** | Route → filter → debounce/max-latency → chunk | Direct actor state transitions | Keeps ingress, batching, and suppression metadata in one place. |
+| **Out** | `await bus.post(.filesystem(.filesChanged))` | Direct call to bus | Fact emission to shared stream. |
+
+#### GitWorkingDirectoryProjector (app-wide projector, LUNA-349)
+
+| Direction | Connection | Pattern | Why |
+|-----------|-----------|---------|-----|
+| **In** | `for await envelope in await bus.subscribe()` | **AsyncStream** | Consumes `.worktreeRegistered`/`.worktreeUnregistered`/`.filesChanged` facts. |
+| **Internal** | per-worktree coalescing + git compute | Direct call (`await`) to provider | Last-writer-wins by `worktreeId`; compute uses off-actor helper in provider. |
+| **Out** | `await bus.post(.filesystem(.gitSnapshotChanged))` | Direct call to bus | Publishes materialized local git state facts. |
 
 #### ForgeActor (app-wide singleton, future)
 
@@ -675,7 +676,7 @@ BUS OUTBOUND (fan-out to independent consumers):
      envelope   envelope      envelope
 
 
-BURSTY OS SOURCE (FSEvents → boundary actor):
+BURSTY OS SOURCE (FSEvents → FilesystemActor → GitWorkingDirectoryProjector):
 
   macOS FSEvents (arbitrary thread, 50 paths in 2s burst)
        │
@@ -686,15 +687,26 @@ BURSTY OS SOURCE (FSEvents → boundary actor):
   ║  (buffered pipe between OS callback and actor)║
   ╚═══════════════╤═══════════════════════════════╝
                    │
-                   │  for await paths in stream.debounce(500ms)
+                   │  for await paths in stream
                    ▼
   ┌─────────────────────────────────────┐
   │      actor FilesystemActor          │
   │                                     │
-  │  dedup → batch → @concurrent git    │
-  │  status → @concurrent diff          │
+  │  route → filter → debounce/max-lat │
+  │  → chunk filesChanged facts         │
   │                                     │
-  │  await bus.post(enrichedEnvelope)   │──── direct call to bus
+  │  await bus.post(.filesChanged)      │──── direct call to bus
+  └─────────────────────────────────────┘
+                   │
+                   ▼
+  ┌─────────────────────────────────────┐
+  │ actor GitWorkingDirectoryProjector  │
+  │                                     │
+  │ consume filesChanged facts          │
+  │ coalesce by worktreeId              │
+  │ await git provider status()         │
+  │                                     │
+  │ await bus.post(.gitSnapshotChanged) │──── direct call to bus
   └─────────────────────────────────────┘
 
 

@@ -1,7 +1,7 @@
 import Foundation
 import os
 
-struct GitStatusSnapshot: Sendable {
+struct GitStatusSnapshot: Sendable, Equatable {
     let summary: GitStatusSummary
     let branch: String?
 }
@@ -43,6 +43,16 @@ struct ShellGitStatusProvider: GitStatusProvider {
             )
 
             guard result.succeeded else {
+                let stderrPreview = result.stderr.isEmpty ? "<empty>" : result.stderr
+                let stdoutPreview = result.stdout.isEmpty ? "<empty>" : result.stdout
+                Self.logger.error(
+                    """
+                    git status failed for \(rootPath.path, privacy: .public) \
+                    exitCode=\(result.exitCode, privacy: .public) \
+                    stderr=\(stderrPreview, privacy: .public) \
+                    stdout=\(stdoutPreview, privacy: .public)
+                    """
+                )
                 return nil
             }
 

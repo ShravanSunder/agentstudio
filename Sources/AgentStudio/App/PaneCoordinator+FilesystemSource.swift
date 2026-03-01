@@ -1,6 +1,8 @@
 import Foundation
 
 protocol PaneCoordinatorFilesystemSourceManaging: AnyObject, Sendable {
+    func start() async
+    func shutdown() async
     func register(worktreeId: UUID, rootPath: URL) async
     func unregister(worktreeId: UUID) async
     func setActivity(worktreeId: UUID, isActiveInApp: Bool) async
@@ -8,6 +10,11 @@ protocol PaneCoordinatorFilesystemSourceManaging: AnyObject, Sendable {
 }
 
 extension FilesystemActor: PaneCoordinatorFilesystemSourceManaging {}
+
+extension PaneCoordinatorFilesystemSourceManaging {
+    func start() async {}
+    func shutdown() async {}
+}
 
 @MainActor
 extension PaneCoordinator {
@@ -35,54 +42,88 @@ extension PaneCoordinator {
     }
 
     private func scheduleFilesystemRootAndActivitySync() {
+        filesystemSyncRequested = true
+        guard filesystemSyncTask == nil else { return }
+
+        filesystemSyncTask = Task { @MainActor [weak self] in
+            guard let self else { return }
+            defer { self.filesystemSyncTask = nil }
+
+            while self.filesystemSyncRequested, !Task.isCancelled {
+                self.filesystemSyncRequested = false
+                await self.performFilesystemRootAndActivitySyncPass()
+            }
+        }
+    }
+
+    private func performFilesystemRootAndActivitySyncPass() async {
+        guard !Task.isCancelled else { return }
+
         let desiredRootsByWorktreeId = workspaceWorktreeRootPathsById()
         let activityByWorktreeId = desiredRootsByWorktreeId.keys.reduce(into: [UUID: Bool]()) { result, worktreeId in
             result[worktreeId] = store.paneCount(for: worktreeId) > 0
         }
         let activePaneWorktreeId = activePaneWorktree()
 
-        filesystemSyncTask?.cancel()
-        filesystemSyncTask = Task { @MainActor [weak self] in
-            guard let self else { return }
+        let existingRootsByWorktreeId = filesystemRegisteredRootsByWorktreeId
+        let existingWorktreeIds = Set(existingRootsByWorktreeId.keys)
+        let desiredWorktreeIds = Set(desiredRootsByWorktreeId.keys)
+        let removedWorktreeIds = existingWorktreeIds.subtracting(desiredWorktreeIds)
 
-            let existingRootsByWorktreeId = self.filesystemRegisteredRootsByWorktreeId
-            let existingWorktreeIds = Set(existingRootsByWorktreeId.keys)
-            let desiredWorktreeIds = Set(desiredRootsByWorktreeId.keys)
-            let removedWorktreeIds = existingWorktreeIds.subtracting(desiredWorktreeIds)
-
-            for worktreeId in removedWorktreeIds.sorted(by: Self.sortWorktreeIds) {
-                await self.filesystemSource.unregister(worktreeId: worktreeId)
+        for worktreeId in removedWorktreeIds.sorted(by: Self.sortWorktreeIds) {
+            guard !Task.isCancelled else { return }
+            await filesystemSource.unregister(worktreeId: worktreeId)
+            guard !Task.isCancelled else { return }
+            filesystemActivityByWorktreeId.removeValue(forKey: worktreeId)
+            if filesystemLastActivePaneWorktreeId == worktreeId {
+                filesystemLastActivePaneWorktreeId = nil
             }
-
-            let desiredRootEntries = desiredRootsByWorktreeId.sorted { lhs, rhs in
-                Self.sortWorktreeIds(lhs.key, rhs.key)
-            }
-            for (worktreeId, desiredRootPath) in desiredRootEntries {
-                let existingRootPath = existingRootsByWorktreeId[worktreeId]
-                guard existingRootPath != desiredRootPath else { continue }
-                if existingRootPath != nil {
-                    await self.filesystemSource.unregister(worktreeId: worktreeId)
-                }
-                await self.filesystemSource.register(worktreeId: worktreeId, rootPath: desiredRootPath)
-            }
-
-            let activityEntries = activityByWorktreeId.sorted { lhs, rhs in
-                Self.sortWorktreeIds(lhs.key, rhs.key)
-            }
-            for (worktreeId, isActiveInApp) in activityEntries {
-                await self.filesystemSource.setActivity(worktreeId: worktreeId, isActiveInApp: isActiveInApp)
-            }
-
-            await self.filesystemSource.setActivePaneWorktree(worktreeId: activePaneWorktreeId)
-
-            self.filesystemRegisteredRootsByWorktreeId = desiredRootsByWorktreeId
-            let validWorktreeIds = Set(desiredRootsByWorktreeId.keys)
-            self.workspaceGitStatusStore.prune(validWorktreeIds: validWorktreeIds)
-            self.paneFilesystemProjectionStore.prune(
-                validPaneIds: Set(self.store.panes.keys),
-                validWorktreeIds: validWorktreeIds
-            )
         }
+
+        let desiredRootEntries = desiredRootsByWorktreeId.sorted { lhs, rhs in
+            Self.sortWorktreeIds(lhs.key, rhs.key)
+        }
+        for (worktreeId, desiredRootPath) in desiredRootEntries {
+            guard !Task.isCancelled else { return }
+            let existingRootPath = existingRootsByWorktreeId[worktreeId]
+            guard existingRootPath != desiredRootPath else { continue }
+            if existingRootPath != nil {
+                await filesystemSource.unregister(worktreeId: worktreeId)
+                guard !Task.isCancelled else { return }
+            }
+            await filesystemSource.register(worktreeId: worktreeId, rootPath: desiredRootPath)
+            guard !Task.isCancelled else { return }
+        }
+
+        let activityEntries = activityByWorktreeId.sorted { lhs, rhs in
+            Self.sortWorktreeIds(lhs.key, rhs.key)
+        }
+        for (worktreeId, isActiveInApp) in activityEntries {
+            let previousActivity = filesystemActivityByWorktreeId[worktreeId]
+            guard previousActivity != isActiveInApp else { continue }
+            guard !Task.isCancelled else { return }
+            await filesystemSource.setActivity(worktreeId: worktreeId, isActiveInApp: isActiveInApp)
+            guard !Task.isCancelled else { return }
+            filesystemActivityByWorktreeId[worktreeId] = isActiveInApp
+        }
+
+        if filesystemLastActivePaneWorktreeId != activePaneWorktreeId {
+            guard !Task.isCancelled else { return }
+            await filesystemSource.setActivePaneWorktree(worktreeId: activePaneWorktreeId)
+            guard !Task.isCancelled else { return }
+            filesystemLastActivePaneWorktreeId = activePaneWorktreeId
+        }
+
+        guard !Task.isCancelled else { return }
+        filesystemRegisteredRootsByWorktreeId = desiredRootsByWorktreeId
+        filesystemActivityByWorktreeId = activityByWorktreeId
+        filesystemLastActivePaneWorktreeId = activePaneWorktreeId
+        let validWorktreeIds = Set(desiredRootsByWorktreeId.keys)
+        workspaceGitStatusStore.prune(validWorktreeIds: validWorktreeIds)
+        paneFilesystemProjectionStore.prune(
+            validPaneIds: Set(store.panes.keys),
+            validWorktreeIds: validWorktreeIds
+        )
     }
 
     private func activePaneWorktree() -> UUID? {
