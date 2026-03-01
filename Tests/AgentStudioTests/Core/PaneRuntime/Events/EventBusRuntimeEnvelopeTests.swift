@@ -23,7 +23,7 @@ struct EventBusRuntimeEnvelopeTests {
             _ = await bus.post(makePaneEnvelope(paneId: paneB, seq: UInt64(seq)))
         }
 
-        let stream = await bus.subscribe()
+        let stream = await bus.subscribe(bufferingPolicy: .unbounded)
         var iterator = stream.makeAsyncIterator()
         var replayed: [RuntimeEnvelope] = []
         for _ in 0..<(256 * 2) {
@@ -64,7 +64,7 @@ struct EventBusRuntimeEnvelopeTests {
             _ = await bus.post(makePaneEnvelope(paneId: coolPane, seq: UInt64(seq)))
         }
 
-        let stream = await bus.subscribe()
+        let stream = await bus.subscribe(bufferingPolicy: .unbounded)
         var iterator = stream.makeAsyncIterator()
         var replayed: [RuntimeEnvelope] = []
         for _ in 0..<(256 + 3) {

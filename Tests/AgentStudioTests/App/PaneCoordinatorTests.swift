@@ -311,12 +311,10 @@ struct PaneCoordinatorTests {
         store.restore()
 
         let repo = store.addRepo(at: URL(fileURLWithPath: "/tmp/repo-sync-roots-\(UUID().uuidString)"))
-        let primaryWorktree = Worktree(
-            name: "main",
-            path: repo.repoPath,
-            branch: "main",
-            isMainWorktree: true
-        )
+        guard let primaryWorktree = store.repo(repo.id)?.worktrees.first(where: \.isMainWorktree) else {
+            Issue.record("Expected addRepo to create a main worktree")
+            return
+        }
         let secondaryWorktree = Worktree(
             name: "feature-a",
             path: repo.repoPath.appending(path: "feature-a"),
@@ -423,12 +421,10 @@ struct PaneCoordinatorTests {
         store.restore()
 
         let repo = store.addRepo(at: URL(fileURLWithPath: "/tmp/repo-sync-converge-\(UUID().uuidString)"))
-        let mainWorktree = Worktree(
-            name: "main",
-            path: repo.repoPath,
-            branch: "main",
-            isMainWorktree: true
-        )
+        guard let mainWorktree = store.repo(repo.id)?.worktrees.first(where: \.isMainWorktree) else {
+            Issue.record("Expected addRepo to create a main worktree")
+            return
+        }
         let staleWorktree = Worktree(
             name: "stale-branch",
             path: repo.repoPath.appending(path: "stale-branch"),

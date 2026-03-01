@@ -290,9 +290,12 @@ class AppDelegate: NSObject, NSApplicationDelegate {
                 case .signInRequested(let providerName):
                     guard let provider = OAuthProvider(rawValue: providerName) else { continue }
                     self.handleSignInRequested(provider: provider)
+                case .addRepoRequested:
+                    await self.handleAddRepoRequested()
+                case .addFolderRequested:
+                    await self.handleAddFolderRequested()
                 case .addRepoAtPathRequested(let path):
-                    _ = self.store.addRepo(at: path)
-                    self.paneCoordinator.syncFilesystemRootsAndActivity()
+                    self.addRepoIfNeeded(path)
                 case .removeRepoRequested(let repoId):
                     self.store.removeRepo(repoId)
                     self.paneCoordinator.syncFilesystemRootsAndActivity()
@@ -690,6 +693,108 @@ class AppDelegate: NSObject, NSApplicationDelegate {
 
     @objc private func addFolder() {
         postAppEvent(.addFolderRequested)
+    }
+
+    // MARK: - Repo/Folder Intake
+
+    private func handleAddRepoRequested() async {
+        var initialDirectory: URL?
+
+        while true {
+            let panel = NSOpenPanel()
+            panel.canChooseFiles = false
+            panel.canChooseDirectories = true
+            panel.allowsMultipleSelection = false
+            panel.message = "Choose a Git repository folder."
+            panel.prompt = "Add Repository"
+            panel.directoryURL = initialDirectory
+
+            guard panel.runModal() == .OK, let selectedURL = panel.url else {
+                return
+            }
+
+            let normalizedURL = selectedURL.standardizedFileURL
+            if isGitRepositoryFolder(normalizedURL) {
+                postAppEvent(.addRepoAtPathRequested(path: normalizedURL))
+                return
+            }
+
+            let alert = NSAlert()
+            alert.messageText = "Not a Git Repository"
+            alert.informativeText =
+                "The selected folder is not a Git repo. You can choose another folder or scan this folder for repos."
+            alert.alertStyle = .warning
+            alert.addButton(withTitle: "Choose Another Folder")
+            alert.addButton(withTitle: "Scan This Folder")
+            alert.addButton(withTitle: "Cancel")
+
+            switch alert.runModal() {
+            case .alertFirstButtonReturn:
+                initialDirectory = normalizedURL.deletingLastPathComponent()
+            case .alertSecondButtonReturn:
+                await handleAddFolderRequested(startingAt: normalizedURL)
+                return
+            default:
+                return
+            }
+        }
+    }
+
+    private func handleAddFolderRequested(startingAt initialURL: URL? = nil) async {
+        let rootURL: URL
+        if let initialURL {
+            rootURL = initialURL.standardizedFileURL
+        } else {
+            let panel = NSOpenPanel()
+            panel.canChooseFiles = false
+            panel.canChooseDirectories = true
+            panel.allowsMultipleSelection = false
+            panel.message = "Choose a folder to scan for Git repositories."
+            panel.prompt = "Scan Folder"
+
+            guard panel.runModal() == .OK, let selectedURL = panel.url else {
+                return
+            }
+            rootURL = selectedURL.standardizedFileURL
+        }
+
+        let repoPaths = await Task(priority: .userInitiated) {
+            RepoScanner().scanForGitRepos(in: rootURL, maxDepth: 3)
+        }.value
+
+        guard !repoPaths.isEmpty else {
+            let alert = NSAlert()
+            alert.messageText = "No Git Repositories Found"
+            alert.informativeText = "No folders with a Git repository were found under \(rootURL.lastPathComponent)."
+            alert.alertStyle = .informational
+            alert.addButton(withTitle: "OK")
+            alert.runModal()
+            return
+        }
+
+        for repoPath in repoPaths {
+            postAppEvent(.addRepoAtPathRequested(path: repoPath.standardizedFileURL))
+        }
+    }
+
+    private func addRepoIfNeeded(_ path: URL) {
+        let normalizedPath = path.standardizedFileURL.path
+
+        for repo in store.repos {
+            if repo.repoPath.standardizedFileURL.path == normalizedPath {
+                return
+            }
+            if repo.worktrees.contains(where: { $0.path.standardizedFileURL.path == normalizedPath }) {
+                return
+            }
+        }
+
+        _ = store.addRepo(at: path.standardizedFileURL)
+        paneCoordinator.syncFilesystemRootsAndActivity()
+    }
+
+    private func isGitRepositoryFolder(_ url: URL) -> Bool {
+        FileManager.default.fileExists(atPath: url.appending(path: ".git").path)
     }
 
     @objc private func toggleSidebar() {

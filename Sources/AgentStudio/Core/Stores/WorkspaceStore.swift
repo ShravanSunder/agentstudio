@@ -1208,11 +1208,24 @@ final class WorkspaceStore {
 
     @discardableResult
     func addRepo(at path: URL) -> Repo {
-        if let existing = repos.first(where: { $0.repoPath == path }) {
+        let normalizedPath = path.standardizedFileURL
+        if let existing = repos.first(where: { $0.repoPath.standardizedFileURL == normalizedPath }) {
             unavailableRepoIds.remove(existing.id)
             return existing
         }
-        let repo = Repo(name: path.lastPathComponent, repoPath: path)
+
+        let mainWorktree = Worktree(
+            name: normalizedPath.lastPathComponent,
+            path: normalizedPath,
+            branch: "",
+            status: .idle,
+            isMainWorktree: true
+        )
+        let repo = Repo(
+            name: normalizedPath.lastPathComponent,
+            repoPath: normalizedPath,
+            worktrees: [mainWorktree]
+        )
         repos.append(repo)
         unavailableRepoIds.remove(repo.id)
         markDirty()

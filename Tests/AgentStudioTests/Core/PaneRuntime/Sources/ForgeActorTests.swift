@@ -176,15 +176,16 @@ struct ForgeActorTests {
         }
         defer { observeTask.cancel() }
 
+        await actor.register(repo: repoId, remote: "git@github.com:askluna/agent-studio.git")
         await bus.post(
             .worktree(
                 WorktreeEnvelope.test(
                     event: .gitWorkingDirectory(
-                        .worktreeDiscovered(
+                        .branchChanged(
+                            worktreeId: UUID(),
                             repoId: repoId,
-                            worktreePath: URL(fileURLWithPath: "/tmp/repo"),
-                            branch: "feature/runtime",
-                            isMain: false
+                            from: "main",
+                            to: "feature/runtime"
                         )
                     ),
                     repoId: repoId,
@@ -192,8 +193,6 @@ struct ForgeActorTests {
                 )
             )
         )
-
-        await actor.register(repo: repoId, remote: "git@github.com:askluna/agent-studio.git")
         let registered = await eventually("command-plane register should emit counts") {
             await observer.lastPullRequestCounts(for: repoId)?["feature/runtime"] == 2
         }

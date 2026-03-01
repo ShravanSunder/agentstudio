@@ -118,10 +118,6 @@ struct RepoSidebarContentView: View {
             let stream = await AppEventBus.shared.subscribe()
             for await event in stream {
                 switch event {
-                case .addRepoRequested:
-                    await addRepo()
-                case .addFolderRequested:
-                    await addFolder()
                 case .refreshWorktreesRequested:
                     continue
                 case .filterSidebarRequested:
@@ -412,119 +408,6 @@ struct RepoSidebarContentView: View {
         uiStore.setFilterText("")
         uiStore.setFilterVisible(false)
         postAppEvent(.refocusTerminalRequested)
-    }
-
-    private func addRepo() async {
-        var initialDirectory: URL?
-
-        while true {
-            let panel = NSOpenPanel()
-            panel.canChooseFiles = false
-            panel.canChooseDirectories = true
-            panel.allowsMultipleSelection = false
-            panel.message = "Choose one Git repository folder (.git required)."
-            panel.prompt = "Add Repo"
-            panel.directoryURL = initialDirectory
-
-            guard panel.runModal() == .OK, let url = panel.url else {
-                return
-            }
-
-            if isGitRepositoryFolder(url) {
-                addRepoAndRefreshWorktrees(at: url)
-                return
-            }
-
-            let alert = NSAlert()
-            alert.messageText = "Not a Git Repository"
-            alert.informativeText =
-                "The selected folder is not a Git repo. You can choose another folder or scan this folder for repos."
-            alert.alertStyle = .warning
-            alert.addButton(withTitle: "Choose Another Folder")
-            alert.addButton(withTitle: "Scan This Folder")
-            alert.addButton(withTitle: "Cancel")
-
-            switch alert.runModal() {
-            case .alertFirstButtonReturn:
-                initialDirectory = url.deletingLastPathComponent()
-            case .alertSecondButtonReturn:
-                await addFolder(startingAt: url)
-                return
-            default:
-                return
-            }
-        }
-    }
-
-    private func addFolder(startingAt initialURL: URL? = nil) async {
-        let rootURL: URL
-
-        if let initialURL {
-            rootURL = initialURL
-        } else {
-            let panel = NSOpenPanel()
-            panel.canChooseFiles = false
-            panel.canChooseDirectories = true
-            panel.allowsMultipleSelection = false
-            panel.message = "Choose a folder to scan for Git repositories."
-            panel.prompt = "Scan Folder"
-
-            guard panel.runModal() == .OK, let url = panel.url else {
-                return
-            }
-            rootURL = url
-        }
-
-        let repoPaths = await Self.scanForGitReposInBackground(rootURL: rootURL, maxDepth: 3)
-
-        guard !repoPaths.isEmpty else {
-            let alert = NSAlert()
-            alert.messageText = "No Git Repositories Found"
-            alert.informativeText = "No folders with a Git repository were found under \(rootURL.lastPathComponent)."
-            alert.alertStyle = .informational
-            alert.addButton(withTitle: "OK")
-            alert.runModal()
-            return
-        }
-
-        for repoPath in repoPaths {
-            addRepoAndRefreshWorktrees(at: repoPath)
-        }
-    }
-
-    private func addRepoAndRefreshWorktrees(at path: URL) {
-        guard !hasExistingCheckout(at: path) else { return }
-        postAppEvent(.addRepoAtPathRequested(path: path))
-    }
-
-    private func hasExistingCheckout(at path: URL) -> Bool {
-        let normalizedTarget = normalizedCwdPath(path)
-
-        for repo in store.repos {
-            if normalizedCwdPath(repo.repoPath) == normalizedTarget {
-                return true
-            }
-            if repo.worktrees.contains(where: { normalizedCwdPath($0.path) == normalizedTarget }) {
-                return true
-            }
-        }
-
-        return false
-    }
-
-    private func normalizedCwdPath(_ url: URL) -> String {
-        url.standardizedFileURL.path
-    }
-
-    private func isGitRepositoryFolder(_ url: URL) -> Bool {
-        let dotGitPath = url.appending(path: ".git").path
-        return FileManager.default.fileExists(atPath: dotGitPath)
-    }
-
-    private nonisolated static func scanForGitReposInBackground(rootURL: URL, maxDepth: Int) async -> [URL] {
-        await Task(priority: .userInitiated) {
-            RepoScanner().scanForGitRepos(in: rootURL, maxDepth: maxDepth)
-        }.value
     }
 
 }

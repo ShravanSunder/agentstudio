@@ -1552,6 +1552,9 @@ final class WorkspaceStoreTests {
         #expect(store.repos.count == 1)
         #expect(store.repos[0].id == repo.id)
         #expect(store.repos[0].name == "new-repo")
+        #expect(store.repos[0].worktrees.count == 1)
+        #expect(store.repos[0].worktrees[0].isMainWorktree)
+        #expect(store.repos[0].worktrees[0].path == URL(fileURLWithPath: "/tmp/new-repo"))
     }
 
     @Test
@@ -1567,6 +1570,7 @@ final class WorkspaceStoreTests {
         // Assert — same repo returned, not duplicated
         #expect(store.repos.count == 1)
         #expect(first.id == second.id)
+        #expect(store.repos[0].worktrees.count == 1)
     }
 
     @Test

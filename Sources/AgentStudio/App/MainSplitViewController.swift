@@ -110,6 +110,10 @@ class MainSplitViewController: NSSplitViewController {
                         self.handleSelectTab(index: index)
                     case .toggleSidebarRequested:
                         self.handleToggleSidebar()
+                    case .addRepoRequested, .addFolderRequested:
+                        self.expandSidebar()
+                    case .addRepoAtPathRequested:
+                        self.expandSidebar()
                     case .openNewTerminalRequested(let worktreeId):
                         self.handleOpenNewTerminal(worktreeId: worktreeId)
                     case .openWorktreeInPaneRequested(let worktreeId):
