@@ -105,6 +105,12 @@ class PaneTabViewController: NSViewController, CommandHandler {
         tabBarHostingView.configure(adapter: tabBarAdapter) { [weak self] fromId, toIndex in
             self?.handleTabReorder(fromId: fromId, toIndex: toIndex)
         }
+        tabBarHostingView.canPreviewPaneDropAtIndex = { [weak self] payload, targetTabIndex in
+            self?.canPreviewTabBarPaneDrop(payload: payload, targetTabIndex: targetTabIndex) ?? false
+        }
+        tabBarHostingView.commitPaneDropAtIndex = { [weak self] payload, targetTabIndex in
+            self?.commitTabBarPaneDrop(payload: payload, targetTabIndex: targetTabIndex) ?? false
+        }
         tabBarHostingView.dragPayloadProvider = { [weak self] tabId in
             self?.createDragPayload(for: tabId)
         }
@@ -375,6 +381,31 @@ class PaneTabViewController: NSViewController, CommandHandler {
         executeDropCommitPlan(plan)
     }
 
+    private func canPreviewTabBarPaneDrop(payload: PaneDragPayload, targetTabIndex: Int) -> Bool {
+        let snapshot = dragDropSnapshot()
+        return Self.tabBarDropCommitPlan(
+            payload: payload,
+            targetTabIndex: targetTabIndex,
+            state: snapshot
+        ) != nil
+    }
+
+    private func commitTabBarPaneDrop(payload: PaneDragPayload, targetTabIndex: Int) -> Bool {
+        let snapshot = dragDropSnapshot()
+        guard
+            let plan = Self.tabBarDropCommitPlan(
+                payload: payload,
+                targetTabIndex: targetTabIndex,
+                state: snapshot
+            )
+        else {
+            return false
+        }
+
+        executeDropCommitPlan(plan)
+        return true
+    }
+
     private func dragDropSnapshot() -> ActionStateSnapshot {
         let drawerParentByPaneId = store.panes.values.reduce(into: [UUID: UUID]()) { result, pane in
             guard let parentPaneId = pane.parentPaneId else { return }
@@ -395,8 +426,7 @@ class PaneTabViewController: NSViewController, CommandHandler {
         case .paneAction(let action):
             dispatchAction(action)
         case .moveTab(let tabId, let toIndex):
-            store.moveTab(fromId: tabId, toIndex: toIndex)
-            store.setActiveTab(tabId)
+            moveTabThroughActionPipeline(tabId: tabId, toIndex: toIndex)
         case .extractPaneToTabThenMove(let paneId, let sourceTabId, let toIndex):
             let tabCountBefore = store.tabs.count
             dispatchAction(.extractPaneToTab(tabId: sourceTabId, paneId: paneId))
@@ -406,9 +436,23 @@ class PaneTabViewController: NSViewController, CommandHandler {
             else {
                 return
             }
-            store.moveTab(fromId: extractedTabId, toIndex: toIndex)
-            store.setActiveTab(extractedTabId)
+            moveTabThroughActionPipeline(tabId: extractedTabId, toIndex: toIndex)
         }
+    }
+
+    private func moveTabThroughActionPipeline(tabId: UUID, toIndex: Int) {
+        guard let fromIndex = store.tabs.firstIndex(where: { $0.id == tabId }) else {
+            return
+        }
+
+        let adjustedIndex = toIndex > fromIndex ? toIndex - 1 : toIndex
+        let clampedIndex = max(0, min(adjustedIndex, max(store.tabs.count - 1, 0)))
+        let delta = clampedIndex - fromIndex
+
+        if delta != 0 {
+            dispatchAction(.moveTab(tabId: tabId, delta: delta))
+        }
+        dispatchAction(.selectTab(tabId: tabId))
     }
 
     nonisolated static func splitDropCommitPlan(
@@ -639,7 +683,7 @@ class PaneTabViewController: NSViewController, CommandHandler {
     // MARK: - Tab Reordering
 
     private func handleTabReorder(fromId: UUID, toIndex: Int) {
-        store.moveTab(fromId: fromId, toIndex: toIndex)
+        moveTabThroughActionPipeline(tabId: fromId, toIndex: toIndex)
     }
 
     // MARK: - Drag Payload
@@ -657,31 +701,13 @@ class PaneTabViewController: NSViewController, CommandHandler {
     }
 
     private func handleExtractPaneRequested(tabId: UUID, paneId: UUID, targetTabIndex: Int?) {
-        // Single-pane tabs cannot extract; treat tab-bar pane drag as tab reorder
-        // so "single pane move ability" still works.
-        if let sourceTab = store.tab(tabId),
-            sourceTab.paneIds.count == 1
-        {
-            if let targetTabIndex {
-                store.moveTab(fromId: tabId, toIndex: targetTabIndex)
-                store.setActiveTab(tabId)
-            }
-            return
-        }
-
-        let tabCountBefore = store.tabs.count
-        dispatchAction(.extractPaneToTab(tabId: tabId, paneId: paneId))
-
-        // For tab-bar drops, place the newly extracted tab at the drop insertion index.
-        guard let targetTabIndex,
-            store.tabs.count == tabCountBefore + 1,
-            let extractedTabId = store.activeTabId
-        else {
-            return
-        }
-
-        store.moveTab(fromId: extractedTabId, toIndex: targetTabIndex)
-        store.setActiveTab(extractedTabId)
+        guard let targetTabIndex else { return }
+        let payload = PaneDragPayload(
+            paneId: paneId,
+            tabId: tabId,
+            drawerParentPaneId: store.pane(paneId)?.parentPaneId
+        )
+        _ = commitTabBarPaneDrop(payload: payload, targetTabIndex: targetTabIndex)
     }
 
     private func handleMovePaneToTabRequested(paneId: UUID, sourceTabId: UUID?, targetTabId: UUID) {

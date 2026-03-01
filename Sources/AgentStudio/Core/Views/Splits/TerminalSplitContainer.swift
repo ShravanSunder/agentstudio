@@ -37,6 +37,31 @@ struct TerminalSplitContainer: View {
     @State private var dropTargetWatchdogTask: Task<Void, Never>?
     @Bindable private var managementMode = ManagementModeMonitor.shared
 
+    private var expandedDrawerParentPaneIdInActiveTab: UUID? {
+        guard let tab = store.tab(tabId) else { return nil }
+        return tab.paneIds.first { paneId in
+            store.pane(paneId)?.drawer?.isExpanded == true
+        }
+    }
+
+    private var isDrawerModalActiveInActiveTab: Bool {
+        expandedDrawerParentPaneIdInActiveTab != nil
+    }
+
+    private var isTabLevelSplitDropCaptureEnabled: Bool {
+        Self.shouldEnableTabLevelSplitDropCapture(
+            isManagementModeActive: managementMode.isActive,
+            expandedDrawerParentPaneId: expandedDrawerParentPaneIdInActiveTab
+        )
+    }
+
+    nonisolated static func shouldEnableTabLevelSplitDropCapture(
+        isManagementModeActive: Bool,
+        expandedDrawerParentPaneId: UUID?
+    ) -> Bool {
+        isManagementModeActive && expandedDrawerParentPaneId == nil
+    }
+
     /// Content shown when all panes in the tab are minimized.
     /// Collapsed bars aligned left, remaining space empty.
     @ViewBuilder
@@ -60,56 +85,59 @@ struct TerminalSplitContainer: View {
         GeometryReader { tabGeometry in
             let containerBounds = CGRect(origin: .zero, size: tabGeometry.size)
             ZStack {
-                if let node = tree.root {
-                    if let zoomedPaneId,
-                        let zoomedView = tree.allViews.first(where: { $0.id == zoomedPaneId })
-                    {
-                        // Zoomed: render single pane at full size
-                        ZStack(alignment: .topTrailing) {
-                            PaneLeafContainer(
-                                paneView: zoomedView,
+                Group {
+                    if let node = tree.root {
+                        if let zoomedPaneId,
+                            let zoomedView = tree.allViews.first(where: { $0.id == zoomedPaneId })
+                        {
+                            // Zoomed: render single pane at full size
+                            ZStack(alignment: .topTrailing) {
+                                PaneLeafContainer(
+                                    paneView: zoomedView,
+                                    tabId: tabId,
+                                    isActive: true,
+                                    isSplit: false,
+                                    store: store,
+                                    action: action
+                                )
+                                // Zoom indicator badge
+                                Text("ZOOM")
+                                    .font(.system(size: AppStyle.textSm, weight: .medium, design: .monospaced))
+                                    .foregroundStyle(.white.opacity(AppStyle.foregroundSecondary))
+                                    .padding(.horizontal, AppStyle.spacingStandard)
+                                    .padding(.vertical, AppStyle.paneGap)
+                                    .background(Capsule().fill(.white.opacity(AppStyle.strokeMuted)))
+                                    .padding(AppStyle.spacingLoose)
+                                    .allowsHitTesting(false)
+                            }
+                        } else if splitRenderInfo.allMinimized {
+                            // All panes minimized — show bars + empty content
+                            allMinimizedContent
+                        } else {
+                            // Normal split rendering
+                            SplitSubtreeView(
+                                node: node,
                                 tabId: tabId,
-                                isActive: true,
-                                isSplit: false,
-                                store: store,
-                                action: action
+                                isSplit: tree.isSplit,
+                                activePaneId: activePaneId,
+                                minimizedPaneIds: minimizedPaneIds,
+                                splitRenderInfo: splitRenderInfo,
+                                action: action,
+                                onPersist: onPersist,
+                                store: store
                             )
-                            // Zoom indicator badge
-                            Text("ZOOM")
-                                .font(.system(size: AppStyle.textSm, weight: .medium, design: .monospaced))
-                                .foregroundStyle(.white.opacity(AppStyle.foregroundSecondary))
-                                .padding(.horizontal, AppStyle.spacingStandard)
-                                .padding(.vertical, AppStyle.paneGap)
-                                .background(Capsule().fill(.white.opacity(AppStyle.strokeMuted)))
-                                .padding(AppStyle.spacingLoose)
-                                .allowsHitTesting(false)
+                            .id(node.structuralIdentity)  // Prevents view recreation on ratio changes
                         }
-                    } else if splitRenderInfo.allMinimized {
-                        // All panes minimized — show bars + empty content
-                        allMinimizedContent
                     } else {
-                        // Normal split rendering
-                        SplitSubtreeView(
-                            node: node,
-                            tabId: tabId,
-                            isSplit: tree.isSplit,
-                            activePaneId: activePaneId,
-                            minimizedPaneIds: minimizedPaneIds,
-                            splitRenderInfo: splitRenderInfo,
-                            action: action,
-                            onPersist: onPersist,
-                            store: store
+                        // Empty tree - show placeholder
+                        ContentUnavailableView(
+                            "No Terminal",
+                            systemImage: "terminal",
+                            description: Text("Drag a tab here to create a split")
                         )
-                        .id(node.structuralIdentity)  // Prevents view recreation on ratio changes
                     }
-                } else {
-                    // Empty tree - show placeholder
-                    ContentUnavailableView(
-                        "No Terminal",
-                        systemImage: "terminal",
-                        description: Text("Drag a tab here to create a split")
-                    )
                 }
+                .allowsHitTesting(!isDrawerModalActiveInActiveTab)
 
                 // Tab-level drawer panel overlay (renders on top of all panes)
                 DrawerPanelOverlay(
@@ -122,7 +150,7 @@ struct TerminalSplitContainer: View {
                     action: action
                 )
 
-                if managementMode.isActive {
+                if isTabLevelSplitDropCaptureEnabled {
                     PaneDropTargetOverlay(target: dropTarget, paneFrames: paneFrames)
                         .allowsHitTesting(false)
                 }
@@ -131,7 +159,7 @@ struct TerminalSplitContainer: View {
                     paneFrames: paneFrames,
                     containerBounds: containerBounds,
                     target: $dropTarget,
-                    isManagementModeActive: managementMode.isActive,
+                    isManagementModeActive: isTabLevelSplitDropCaptureEnabled,
                     shouldAcceptDrop: shouldAcceptDrop,
                     onDrop: onDrop
                 )
@@ -140,6 +168,11 @@ struct TerminalSplitContainer: View {
             .onPreferenceChange(DrawerIconBarFrameKey.self) { iconBarFrame = $0 }
             .onChange(of: managementMode.isActive) { _, isActive in
                 if !isActive {
+                    dropTarget = nil
+                }
+            }
+            .onChange(of: isTabLevelSplitDropCaptureEnabled) { _, isEnabled in
+                if !isEnabled {
                     dropTarget = nil
                 }
             }

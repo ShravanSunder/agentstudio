@@ -114,10 +114,6 @@ struct CollapsedPaneBar: View {
                                 key: DrawerPaneFramePreferenceKey.self,
                                 value: [paneId: frame]
                             )
-                            .preference(
-                                key: PaneFramePreferenceKey.self,
-                                value: [paneId: geo.frame(in: .named("tabContainer"))]
-                            )
                     } else {
                         Color.clear.preference(
                             key: PaneFramePreferenceKey.self,

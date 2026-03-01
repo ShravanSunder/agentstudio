@@ -208,7 +208,7 @@ Manages `NSTabViewItems` containing pane views. Handles focus, layout, tab switc
 
 ### PaneLeafContainer + Split Drop Components → `Core/Views/Splits/`
 
-`PaneLeafContainer`, `PaneDragCoordinator`, `SplitContainerDropDelegate`, and `PaneDropTargetOverlay`
+`PaneLeafContainer`, `PaneDragCoordinator`, `SplitContainerDropCaptureOverlay`, and `PaneDropTargetOverlay`
 belong in `Core/Views/Splits/` because they are pane-type-agnostic split-system primitives:
 
 - They operate on pane IDs and frame geometry, not terminal/webview/bridge-specific APIs.

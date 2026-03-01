@@ -4,6 +4,8 @@
 
 State is distributed across independent `@Observable` stores (Jotai-style atomic stores) with `private(set)` for unidirectional flow (Valtio-style). `WorkspaceStore` owns workspace structure, `SurfaceManager` owns Ghostty surfaces, `SessionRuntime` owns backends. A coordinator sequences cross-store operations. `Pane` is the primary identity — referenced by UUID across every layer. Layouts are immutable value-type trees where leaves point to pane IDs. `@Observable` drives SwiftUI re-renders; persistence is debounced. Twelve invariants are enforced at all times.
 
+Pane drag/drop validation contracts and movement matrices are defined in [Pane Validation Spec](pane_validation_spec.md).
+
 ---
 
 ## 1. Overview
@@ -370,7 +372,7 @@ There is no standalone `ViewResolver` type in code; this behavior is owned by th
 - `PaneTabViewController` observes app state and renders the active view arrangement.
 - `ViewRegistry` provides pane-to-view mapping used by split rendering.
 - `TerminalSplitContainer` handles split-drop routing in management mode using:
-  - `SplitContainerDropDelegate` (single drop input surface)
+  - `SplitContainerDropCaptureOverlay` (single AppKit drop-capture surface per active pointer context)
   - `PaneDragCoordinator` (pure drag target resolution)
   - `PaneDropTargetOverlay` (single target visualization layer)
   - `PaneLeafContainer` (pane-type-agnostic leaf wrapper)

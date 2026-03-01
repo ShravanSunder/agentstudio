@@ -62,7 +62,7 @@ WorkspaceStore
 
 ```
 User Action → PaneAction → ActionResolver → ActionValidator
-  → PaneCoordinator → Store.mutate()
+  → ActionExecutor → PaneCoordinator → Store.mutate()
     → @Observable tracks → SwiftUI re-renders
     → markDirty() → debounced save (500ms)
 
@@ -75,6 +75,7 @@ Command Bar → CommandDispatcher.dispatch() → CommandHandler
 | Document | Covers |
 |----------|--------|
 | [Component Architecture](component_architecture.md) | Data model, service layer, command bar, data flow, persistence, invariants |
+| [Pane Validation Spec](pane_validation_spec.md) | Validator ownership, movement matrix, drawer modal interaction contract, preview/commit parity |
 | [Pane Runtime Architecture](pane_runtime_architecture.md) | Pane runtime contracts (1-16), event taxonomy, priority system, adapter/runtime/coordinator layers, filesystem batching, attach readiness (5a), restart reconcile (5b), visibility-tier scheduling (12a), Ghostty action coverage (7a), RuntimeCommand dispatch (10), source/sink/projection vocabulary, agent harness model, directory placement, migration path |
 | [Pane Runtime EventBus Design](pane_runtime_eventbus_design.md) | EventBus coordination: actor fan-out, boundary actors (filesystem/forge/container) plus plugin context mediation, `@concurrent nonisolated` for per-pane work, multiplexed `@Observable` + event stream, connection patterns (AsyncStream vs direct call vs @Observable), data flow per contract, Swift 6.2 threading model |
 | [Window System Design](window_system_design.md) | Window/tab/pane/drawer data model, dynamic views, arrangements, orphaned pane pool, ownership invariants |

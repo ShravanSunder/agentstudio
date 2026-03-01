@@ -226,4 +226,115 @@ struct PaneTabViewControllerDropRoutingTests {
 
         #expect(commitPlan == nil)
     }
+
+    @Test
+    func tabBarDropCommitPlan_returnsMoveTab_forSinglePaneSourceTab() {
+        let sourceTabId = UUIDv7.generate()
+        let targetTabId = UUIDv7.generate()
+        let sourcePaneId = UUIDv7.generate()
+        let targetPaneId = UUIDv7.generate()
+        let state = makeSnapshot(
+            tabs: [
+                TabSnapshot(id: sourceTabId, paneIds: [sourcePaneId], activePaneId: sourcePaneId),
+                TabSnapshot(id: targetTabId, paneIds: [targetPaneId], activePaneId: targetPaneId),
+            ],
+            activeTabId: sourceTabId
+        )
+        let payload = PaneDragPayload(paneId: sourcePaneId, tabId: sourceTabId, drawerParentPaneId: nil)
+
+        let commitPlan = PaneTabViewController.tabBarDropCommitPlan(
+            payload: payload,
+            targetTabIndex: 1,
+            state: state
+        )
+
+        #expect(commitPlan == .moveTab(tabId: sourceTabId, toIndex: 1))
+    }
+
+    @Test
+    func tabBarDropCommitPlan_returnsExtractThenMove_forMultiPaneSourceTab() {
+        let sourceTabId = UUIDv7.generate()
+        let targetTabId = UUIDv7.generate()
+        let sourcePaneId = UUIDv7.generate()
+        let siblingPaneId = UUIDv7.generate()
+        let targetPaneId = UUIDv7.generate()
+        let state = makeSnapshot(
+            tabs: [
+                TabSnapshot(id: sourceTabId, paneIds: [sourcePaneId, siblingPaneId], activePaneId: sourcePaneId),
+                TabSnapshot(id: targetTabId, paneIds: [targetPaneId], activePaneId: targetPaneId),
+            ],
+            activeTabId: sourceTabId
+        )
+        let payload = PaneDragPayload(paneId: sourcePaneId, tabId: sourceTabId, drawerParentPaneId: nil)
+
+        let commitPlan = PaneTabViewController.tabBarDropCommitPlan(
+            payload: payload,
+            targetTabIndex: 1,
+            state: state
+        )
+
+        #expect(
+            commitPlan
+                == .extractPaneToTabThenMove(
+                    paneId: sourcePaneId,
+                    sourceTabId: sourceTabId,
+                    toIndex: 1
+                )
+        )
+    }
+
+    @Test
+    func tabBarDropCommitPlan_returnsNil_forDrawerChildPayload() {
+        let sourceTabId = UUIDv7.generate()
+        let targetTabId = UUIDv7.generate()
+        let sourcePaneId = UUIDv7.generate()
+        let targetPaneId = UUIDv7.generate()
+        let parentPaneId = UUIDv7.generate()
+        let state = makeSnapshot(
+            tabs: [
+                TabSnapshot(id: sourceTabId, paneIds: [parentPaneId, sourcePaneId], activePaneId: parentPaneId),
+                TabSnapshot(id: targetTabId, paneIds: [targetPaneId], activePaneId: targetPaneId),
+            ],
+            activeTabId: sourceTabId,
+            drawerParentByPaneId: [sourcePaneId: parentPaneId]
+        )
+        let payload = PaneDragPayload(
+            paneId: sourcePaneId,
+            tabId: sourceTabId,
+            drawerParentPaneId: parentPaneId
+        )
+
+        let commitPlan = PaneTabViewController.tabBarDropCommitPlan(
+            payload: payload,
+            targetTabIndex: 1,
+            state: state
+        )
+
+        #expect(commitPlan == nil)
+    }
+
+    @Test
+    func tabBarDropCommitPlan_returnsNil_whenManagementModeInactive() {
+        let sourceTabId = UUIDv7.generate()
+        let targetTabId = UUIDv7.generate()
+        let sourcePaneId = UUIDv7.generate()
+        let targetPaneId = UUIDv7.generate()
+        let state = makeSnapshot(
+            tabs: [
+                TabSnapshot(id: sourceTabId, paneIds: [sourcePaneId], activePaneId: sourcePaneId),
+                TabSnapshot(id: targetTabId, paneIds: [targetPaneId], activePaneId: targetPaneId),
+            ],
+            activeTabId: sourceTabId,
+            isManagementModeActive: false
+        )
+        let payload = PaneDragPayload(paneId: sourcePaneId, tabId: sourceTabId, drawerParentPaneId: nil)
+
+        let commitPlan = PaneTabViewController.tabBarDropCommitPlan(
+            payload: payload,
+            targetTabIndex: 1,
+            state: state
+        )
+
+        #expect(commitPlan == nil)
+    }
 }

@@ -22,6 +22,12 @@ class DraggableTabBarHostingView: NSView, NSDraggingSource {
     /// Provides drag payload data (worktreeId, repoId, title) for a tab ID.
     /// Injected by the view controller to decouple from WorkspaceStore.
     var dragPayloadProvider: ((_ tabId: UUID) -> TabDragPayload?)?
+    /// Planner-backed preview gate for pane drops onto the tab bar insertion row.
+    /// When set, preview visibility must come from shared planner semantics.
+    var canPreviewPaneDropAtIndex: ((_ payload: PaneDragPayload, _ targetTabIndex: Int) -> Bool)?
+    /// Planner-backed commit hook for pane drops onto the tab bar insertion row.
+    /// Returns true only when the drop was accepted and executed.
+    var commitPaneDropAtIndex: ((_ payload: PaneDragPayload, _ targetTabIndex: Int) -> Bool)?
 
     /// Tab frames reported from SwiftUI, in SwiftUI coordinate space
     private var tabFrames: [UUID: CGRect] = [:]
@@ -343,8 +349,9 @@ class DraggableTabBarHostingView: NSView, NSDraggingSource {
             return []
         }
 
+        let dropPoint = convert(sender.draggingLocation, from: nil)
         if types.contains(.agentStudioPaneDrop),
-            !paneDropIsAllowedInTabBar(sender.draggingPasteboard)
+            !paneDropIsAllowedInTabBar(sender.draggingPasteboard, at: dropPoint)
         {
             clearDropTargetIndicator()
             return []
@@ -365,8 +372,9 @@ class DraggableTabBarHostingView: NSView, NSDraggingSource {
     override func draggingUpdated(_ sender: NSDraggingInfo) -> NSDragOperation {
         let types = sender.draggingPasteboard.types ?? []
 
+        let dropPoint = convert(sender.draggingLocation, from: nil)
         if types.contains(.agentStudioPaneDrop),
-            !paneDropIsAllowedInTabBar(sender.draggingPasteboard)
+            !paneDropIsAllowedInTabBar(sender.draggingPasteboard, at: dropPoint)
         {
             clearDropTargetIndicator()
             return []
@@ -383,8 +391,7 @@ class DraggableTabBarHostingView: NSView, NSDraggingSource {
         }
 
         if types.contains(.agentStudioPaneDrop) {
-            let point = convert(sender.draggingLocation, from: nil)
-            if let hoveredTabId = tabAtPoint(point),
+            if let hoveredTabId = tabAtPoint(dropPoint),
                 hoveredTabId != lastAutoSelectedTabIdForPaneDrag
             {
                 lastAutoSelectedTabIdForPaneDrag = hoveredTabId
@@ -420,16 +427,22 @@ class DraggableTabBarHostingView: NSView, NSDraggingSource {
         if let paneData = pasteboard.data(forType: .agentStudioPaneDrop),
             let payload = try? JSONDecoder().decode(PaneDragPayload.self, from: paneData)
         {
-            if !Self.allowsTabBarInsertion(for: payload) {
-                return false
-            }
-
             let dropPoint = convert(sender.draggingLocation, from: nil)
             let targetTabIndex = dropIndexAtPoint(dropPoint)
             guard let targetTabIndex else {
                 return false
             }
 
+            // Planner-backed path when the controller provides hooks.
+            if let commitPaneDropAtIndex {
+                return commitPaneDropAtIndex(payload, targetTabIndex)
+            }
+
+            // Backwards-compatible fallback for call sites that have not yet
+            // migrated to planner-backed callbacks.
+            if !Self.allowsTabBarInsertion(for: payload) {
+                return false
+            }
             postAppEvent(
                 .extractPaneRequested(
                     tabId: payload.tabId,
@@ -443,12 +456,21 @@ class DraggableTabBarHostingView: NSView, NSDraggingSource {
         return false
     }
 
-    private func paneDropIsAllowedInTabBar(_ pasteboard: NSPasteboard) -> Bool {
+    private func paneDropIsAllowedInTabBar(_ pasteboard: NSPasteboard, at dropPoint: NSPoint) -> Bool {
         guard let paneData = pasteboard.data(forType: .agentStudioPaneDrop),
             let payload = try? JSONDecoder().decode(PaneDragPayload.self, from: paneData)
         else {
             return false
         }
+
+        guard let targetTabIndex = dropIndexAtPoint(dropPoint) else {
+            return false
+        }
+
+        if let canPreviewPaneDropAtIndex {
+            return canPreviewPaneDropAtIndex(payload, targetTabIndex)
+        }
+
         return Self.allowsTabBarInsertion(for: payload)
     }
 

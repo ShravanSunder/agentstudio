@@ -56,15 +56,55 @@ struct PaneLeafContainer: View {
         store.pane(paneView.id)?.parentPaneId
     }
 
+    /// Parent layout pane that currently owns the expanded drawer in this tab.
+    private var expandedDrawerParentPaneIdInTab: UUID? {
+        guard let tab = store.tab(tabId) else { return nil }
+        return tab.paneIds.first { paneId in
+            store.pane(paneId)?.drawer?.isExpanded == true
+        }
+    }
+
+    /// True when this pane belongs to the active modal drawer content region.
+    private var isPaneInActiveDrawerModal: Bool {
+        guard let expandedDrawerParentPaneIdInTab else { return false }
+        return useDrawerFramePreference && drawerParentPaneId == expandedDrawerParentPaneIdInTab
+    }
+
+    /// Blocks management interactions for background panes when an expanded drawer
+    /// is acting as the active modal surface.
+    private var isBackgroundInteractionBlocked: Bool {
+        Self.shouldSuppressBackgroundManagementInteractions(
+            isManagementModeActive: managementMode.isActive,
+            expandedDrawerParentPaneId: expandedDrawerParentPaneIdInTab,
+            paneDrawerParentPaneId: drawerParentPaneId,
+            useDrawerFramePreference: useDrawerFramePreference
+        )
+    }
+
+    nonisolated static func shouldSuppressBackgroundManagementInteractions(
+        isManagementModeActive: Bool,
+        expandedDrawerParentPaneId: UUID?,
+        paneDrawerParentPaneId: UUID?,
+        useDrawerFramePreference: Bool
+    ) -> Bool {
+        guard isManagementModeActive else { return false }
+        guard let expandedDrawerParentPaneId else { return false }
+        guard useDrawerFramePreference else { return true }
+        return paneDrawerParentPaneId != expandedDrawerParentPaneId
+    }
+
     /// True when hover is active either via tracking events or by direct pointer query.
     /// The direct pointer query fixes the Cmd+E case where management mode toggles
     /// while the pointer is already inside the pane and no hover transition fires.
     private var isManagementHovered: Bool {
-        isHovered || isPointerInsidePaneView
+        guard managementMode.isActive else { return false }
+        guard !isBackgroundInteractionBlocked else { return false }
+        return isHovered || isPointerInsidePaneView
     }
 
     private var isPointerInsidePaneView: Bool {
         guard managementMode.isActive else { return false }
+        guard !isBackgroundInteractionBlocked else { return false }
         guard let window = paneView.window else { return false }
         let pointInWindow = window.mouseLocationOutsideOfEventStream
         let pointInPane = paneView.convert(pointInWindow, from: nil)
@@ -316,15 +356,17 @@ struct PaneLeafContainer: View {
                         isIconBarVisible: true,
                         action: action
                     )
+                    .allowsHitTesting(!isBackgroundInteractionBlocked || isPaneInActiveDrawerModal)
                 }
             }
             .contentShape(Rectangle())
             .onHover { isHovered = $0 }
             .onTapGesture {
+                guard !isBackgroundInteractionBlocked else { return }
                 action(.focusPane(tabId: tabId, paneId: paneView.id))
             }
             .contextMenu {
-                if managementMode.isActive && !isDrawerChild {
+                if managementMode.isActive && !isDrawerChild && !isBackgroundInteractionBlocked {
                     Button("Extract Pane to New Tab") {
                         action(.extractPaneToTab(tabId: tabId, paneId: paneView.id))
                     }
@@ -356,15 +398,9 @@ struct PaneLeafContainer: View {
                         let rawFrame = geo.frame(in: .named(dropTargetCoordinateSpace))
                         let measuredFrame = normalizedMeasuredFrame(from: rawFrame)
                         if useDrawerFramePreference {
-                            let tabRawFrame = geo.frame(in: .named("tabContainer"))
-                            let tabMeasuredFrame = normalizedMeasuredFrame(from: tabRawFrame)
                             Color.clear.preference(
                                 key: DrawerPaneFramePreferenceKey.self,
                                 value: [paneView.id: measuredFrame]
-                            )
-                            .preference(
-                                key: PaneFramePreferenceKey.self,
-                                value: [paneView.id: tabMeasuredFrame]
                             )
                         } else {
                             Color.clear.preference(

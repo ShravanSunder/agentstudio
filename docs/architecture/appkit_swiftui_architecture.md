@@ -111,8 +111,9 @@ Management-mode split insertion is coordinated at the tab container level:
 
 - `PaneLeafContainer` renders pane content and controls uniformly for all pane kinds.
 - `PaneFramePreferenceKey` reports pane frames in `tabContainer` coordinates.
-- `SplitContainerDropDelegate` resolves drag location using `PaneDragCoordinator` and submits validated drop actions through existing `PaneAction` flow.
+- `SplitContainerDropCaptureOverlay` is the AppKit drop-capture owner for split targeting. It uses `PaneDragCoordinator` for target resolution and forwards to planner/validator-backed acceptance and commit handlers.
 - `PaneDropTargetOverlay` renders the active destination marker from `PaneDropTarget` + `DropZone`.
+- Cross-layer validation ownership, preview/commit parity, and drawer-modal interaction rules are canonicalized in [Pane Validation Spec](pane_validation_spec.md).
 
 This keeps split targeting pane-type-agnostic (terminal/webview/bridge/future panes).
 
