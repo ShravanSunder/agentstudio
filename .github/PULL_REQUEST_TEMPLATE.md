@@ -4,19 +4,6 @@
 
 Closes #<!-- REQUIRED: Add the issue number here. e.g., Closes #123 -->
 
-**User pain point / why this matters:**
-
-<!-- What problem does the user actually experience? Be specific. -->
-
-**Goal / OKR this addresses:**
-
-<!-- Which product or project goal does this move forward? -->
-
----
-
-## What Changed
-
-<!-- Describe the key changes in this PR. What does it do? -->
 
 ---
 
@@ -24,13 +11,12 @@ Closes #<!-- REQUIRED: Add the issue number here. e.g., Closes #123 -->
 
 <!-- Most contributors use AI agents. Describe your approach: -->
 
-**Prompt / agent used:**
+**Prompt used:**
 
 <!-- e.g. "Claude Code with the following prompt: ..." or "Implemented manually" -->
 
 **Key decisions made:**
 
-<!-- Any notable tradeoffs, alternatives considered, or design choices -->
 
 ---
 
