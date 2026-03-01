@@ -5,33 +5,42 @@ import Foundation
 /// Routing identity is carried in `source`; domain payload is carried in `event`.
 /// Ordering, idempotency, and replay are handled by `(seq, epoch, timestamp)`.
 struct PaneEventEnvelope: Sendable {
+    let eventId: UUID
     let source: EventSource
     let sourceFacets: PaneContextFacets
     let paneKind: PaneContentType?
     let seq: UInt64
+    let schemaVersion: UInt16
     let commandId: UUID?
     let correlationId: UUID?
+    let causationId: UUID?
     let timestamp: ContinuousClock.Instant
     let epoch: UInt64
     let event: PaneRuntimeEvent
 
     init(
+        eventId: UUID = UUID(),
         source: EventSource,
         sourceFacets: PaneContextFacets = .empty,
         paneKind: PaneContentType?,
         seq: UInt64,
+        schemaVersion: UInt16 = RuntimeEnvelopeSchema.current,
         commandId: UUID?,
         correlationId: UUID?,
+        causationId: UUID? = nil,
         timestamp: ContinuousClock.Instant,
         epoch: UInt64,
         event: PaneRuntimeEvent
     ) {
+        self.eventId = eventId
         self.source = source
         self.sourceFacets = sourceFacets
         self.paneKind = paneKind
         self.seq = seq
+        self.schemaVersion = schemaVersion
         self.commandId = commandId
         self.correlationId = correlationId
+        self.causationId = causationId
         self.timestamp = timestamp
         self.epoch = epoch
         self.event = event

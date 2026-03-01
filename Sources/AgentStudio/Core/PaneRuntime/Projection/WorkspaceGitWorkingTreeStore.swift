@@ -20,6 +20,8 @@ final class WorkspaceGitWorkingTreeStore {
 
     func consume(_ envelope: PaneEventEnvelope) {
         guard case .filesystem(let filesystemEvent) = envelope.event else { return }
+        guard let worktreeScopedEvent = filesystemEvent.compatibilityWorktreeScopedEvent else { return }
+        guard case .gitWorkingDirectory(let gitWorkingDirectoryEvent) = worktreeScopedEvent else { return }
         guard let worktreeId = resolveWorktreeId(envelope: envelope, filesystemEvent: filesystemEvent) else {
             return
         }
@@ -40,8 +42,8 @@ final class WorkspaceGitWorkingTreeStore {
                 timestamp: envelope.timestamp
             )
         // Sequence ordering is per GitWorkingDirectoryProjector producer stream.
-        // This store only materializes `.gitSnapshotChanged`/`.branchChanged`, so
-        // cross-producer sequence comparisons do not apply here.
+        // This store only materializes compatibility-mapped
+        // `WorktreeScopedEvent.gitWorkingDirectory` payloads.
         guard envelope.seq >= baselineSnapshot.lastSequence else { return }
         if baselineSnapshot.lastSequence > 0, envelope.seq > baselineSnapshot.lastSequence + 1 {
             Self.logger.warning(
@@ -51,14 +53,14 @@ final class WorkspaceGitWorkingTreeStore {
 
         let nextSummary: GitWorkingTreeSummary
         let nextBranch: String?
-        switch filesystemEvent {
-        case .gitSnapshotChanged(let gitSnapshot):
+        switch gitWorkingDirectoryEvent {
+        case .snapshotChanged(let gitSnapshot):
             nextSummary = gitSnapshot.summary
             nextBranch = gitSnapshot.branch
         case .branchChanged(_, _, _, let branchName):
             nextSummary = baselineSnapshot.summary
             nextBranch = branchName
-        case .worktreeRegistered, .worktreeUnregistered, .filesChanged, .diffAvailable:
+        case .originChanged, .worktreeDiscovered, .worktreeRemoved, .diffAvailable:
             return
         }
 

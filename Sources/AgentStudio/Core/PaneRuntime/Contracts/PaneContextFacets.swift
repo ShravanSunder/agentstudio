@@ -58,4 +58,16 @@ struct PaneContextFacets: Codable, Hashable, Sendable {
             tags: tags.isEmpty ? defaults.tags : tags
         )
     }
+
+    /// Returns facets with explicit worktree scope overlaid for envelope migration.
+    func withWorktreeScope(repoId: UUID, worktreeId: UUID?) -> Self {
+        var updated = self
+        updated.repoId = repoId
+        updated.worktreeId = worktreeId
+        return updated
+    }
+
+    static func from(worktreeEnvelope: WorktreeEnvelope) -> Self {
+        Self(repoId: worktreeEnvelope.repoId, worktreeId: worktreeEnvelope.worktreeId)
+    }
 }

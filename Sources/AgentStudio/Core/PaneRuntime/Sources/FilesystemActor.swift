@@ -428,6 +428,9 @@ actor FilesystemActor {
         timestamp: ContinuousClock.Instant,
         event: FilesystemEvent
     ) async {
+        // Task 2 compatibility-only bridge: keep legacy payloads, expose explicit
+        // old -> new namespace mapping for future RuntimeEnvelope bus migration.
+        let compatibilityScope = event.compatibilityScope
         nextEnvelopeSequence += 1
         let envelope = PaneEventEnvelope(
             source: .system(.builtin(.filesystemWatcher)),
@@ -446,6 +449,11 @@ actor FilesystemActor {
                 "Filesystem event delivery dropped for \(postResult.droppedCount, privacy: .public) subscriber(s); seq=\(self.nextEnvelopeSequence, privacy: .public)"
             )
         }
-        Self.logger.debug("Posted filesystem event for worktree \(worktreeId.uuidString, privacy: .public)")
+        Self.logger.debug(
+            """
+            Posted filesystem event for worktree \(worktreeId.uuidString, privacy: .public); \
+            scope=\(compatibilityScope.description, privacy: .public)
+            """
+        )
     }
 }

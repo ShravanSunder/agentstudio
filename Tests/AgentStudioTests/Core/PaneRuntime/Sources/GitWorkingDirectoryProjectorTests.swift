@@ -108,14 +108,29 @@ struct GitWorkingDirectoryProjectorTests {
         await bus.post(makeFilesChangedEnvelope(seq: 1, worktreeId: worktreeId, rootPath: rootPath, batchSeq: 1))
 
         var observedDerivedSource: EventSource?
+        var observedDerivedFilesystemEvent: FilesystemEvent?
         for _ in 0..<20 {
             guard let envelope = await iterator.next() else { break }
-            guard case .filesystem(.gitSnapshotChanged) = envelope.event else { continue }
+            guard case .filesystem(let filesystemEvent) = envelope.event else { continue }
+            guard case .gitSnapshotChanged = filesystemEvent else { continue }
             observedDerivedSource = envelope.source
+            observedDerivedFilesystemEvent = filesystemEvent
             break
         }
 
         #expect(observedDerivedSource == .system(.builtin(.gitWorkingDirectoryProjector)))
+        let compatibilityEvent = try #require(observedDerivedFilesystemEvent)
+        #expect(compatibilityEvent.compatibilityScope == .worktreeGitWorkingDirectory)
+        guard
+            case .gitWorkingDirectory(.snapshotChanged(let mappedSnapshot))? =
+            compatibilityEvent.compatibilityWorktreeScopedEvent
+        else {
+            Issue.record("Expected gitSnapshotChanged compatibility mapping")
+            await actor.shutdown()
+            return
+        }
+        #expect(mappedSnapshot.worktreeId == worktreeId)
+        #expect(mappedSnapshot.branch == "main")
         await actor.shutdown()
     }
 
@@ -428,6 +443,21 @@ struct GitWorkingDirectoryProjectorTests {
         let branchEvent = await observed.latestBranchEvent(for: worktreeId)
         #expect(branchEvent?.0 == "main")
         #expect(branchEvent?.1 == "feature/split")
+        let compatibilityEvent = try #require(await observed.latestBranchFilesystemEvent(for: worktreeId))
+        #expect(compatibilityEvent.compatibilityScope == .worktreeGitWorkingDirectory)
+        guard
+            case .gitWorkingDirectory(.branchChanged(let mappedWorktreeId, let mappedRepoId, let from, let to))? =
+            compatibilityEvent.compatibilityWorktreeScopedEvent
+        else {
+            Issue.record("Expected branchChanged compatibility mapping")
+            await actor.shutdown()
+            collectionTask.cancel()
+            return
+        }
+        #expect(mappedWorktreeId == worktreeId)
+        #expect(mappedRepoId == worktreeId)
+        #expect(from == "main")
+        #expect(to == "feature/split")
 
         await actor.shutdown()
         collectionTask.cancel()
@@ -556,6 +586,7 @@ struct GitWorkingDirectoryProjectorTests {
 private actor ObservedGitEvents {
     private var snapshotsByWorktreeId: [UUID: [GitWorkingTreeSnapshot]] = [:]
     private var branchEventsByWorktreeId: [UUID: [(String, String)]] = [:]
+    private var branchFilesystemEventByWorktreeId: [UUID: FilesystemEvent] = [:]
 
     func record(_ envelope: PaneEventEnvelope) {
         guard case .filesystem(let filesystemEvent) = envelope.event else { return }
@@ -567,6 +598,7 @@ private actor ObservedGitEvents {
         case .branchChanged(let eventWorktreeId, _, let from, let to):
             guard eventWorktreeId == worktreeId else { return }
             branchEventsByWorktreeId[worktreeId, default: []].append((from, to))
+            branchFilesystemEventByWorktreeId[worktreeId] = filesystemEvent
         case .worktreeRegistered, .worktreeUnregistered, .filesChanged, .diffAvailable:
             return
         }
@@ -586,6 +618,10 @@ private actor ObservedGitEvents {
 
     func latestBranchEvent(for worktreeId: UUID) -> (String, String)? {
         branchEventsByWorktreeId[worktreeId]?.last
+    }
+
+    func latestBranchFilesystemEvent(for worktreeId: UUID) -> FilesystemEvent? {
+        branchFilesystemEventByWorktreeId[worktreeId]
     }
 }
 

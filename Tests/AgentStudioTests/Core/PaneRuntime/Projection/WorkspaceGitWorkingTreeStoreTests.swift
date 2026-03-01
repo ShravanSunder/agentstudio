@@ -160,6 +160,80 @@ struct WorkspaceGitWorkingTreeStoreTests {
         #expect(store.snapshotsByWorktreeId.isEmpty)
     }
 
+    @Test("filesChanged compatibility maps to worktree filesystem namespace and is ignored by git snapshot store")
+    func filesChangedCompatibilityMappingIsIgnoredByStore() {
+        let store = WorkspaceGitWorkingTreeStore()
+        let worktreeId = UUID()
+        let rootPath = URL(fileURLWithPath: "/tmp/worktree-\(UUID().uuidString)")
+        let filesystemEvent = FilesystemEvent.filesChanged(
+            changeset: FileChangeset(
+                worktreeId: worktreeId,
+                rootPath: rootPath,
+                paths: ["Sources/OnlyFilesystem.swift"],
+                timestamp: ContinuousClock().now,
+                batchSeq: 1
+            )
+        )
+
+        #expect(filesystemEvent.compatibilityScope == .worktreeFilesystem)
+        guard case .filesystem(.filesChanged)? = filesystemEvent.compatibilityWorktreeScopedEvent else {
+            Issue.record("Expected filesChanged compatibility worktree mapping")
+            return
+        }
+
+        store.consume(
+            makeFilesystemEnvelope(
+                seq: 1,
+                worktreeId: worktreeId,
+                event: filesystemEvent
+            )
+        )
+
+        #expect(store.snapshotsByWorktreeId[worktreeId] == nil)
+    }
+
+    @Test("git snapshot and branch compatibility map to git working directory namespace")
+    func gitSnapshotAndBranchCompatibilityMapping() {
+        let worktreeId = UUID()
+        let rootPath = URL(fileURLWithPath: "/tmp/worktree-\(UUID().uuidString)")
+        let snapshotEvent = FilesystemEvent.gitSnapshotChanged(
+            snapshot: GitWorkingTreeSnapshot(
+                worktreeId: worktreeId,
+                rootPath: rootPath,
+                summary: GitWorkingTreeSummary(changed: 1, staged: 0, untracked: 0),
+                branch: "main"
+            )
+        )
+        let branchEvent = FilesystemEvent.branchChanged(
+            worktreeId: worktreeId,
+            repoId: worktreeId,
+            from: "main",
+            to: "feature/mapped"
+        )
+
+        #expect(snapshotEvent.compatibilityScope == .worktreeGitWorkingDirectory)
+        #expect(branchEvent.compatibilityScope == .worktreeGitWorkingDirectory)
+
+        guard case .gitWorkingDirectory(.snapshotChanged(let mappedSnapshot))? = snapshotEvent.compatibilityWorktreeScopedEvent else {
+            Issue.record("Expected gitSnapshotChanged compatibility mapping")
+            return
+        }
+        #expect(mappedSnapshot.worktreeId == worktreeId)
+        #expect(mappedSnapshot.branch == "main")
+
+        guard
+            case .gitWorkingDirectory(.branchChanged(let mappedWorktreeId, let mappedRepoId, let from, let to))? =
+            branchEvent.compatibilityWorktreeScopedEvent
+        else {
+            Issue.record("Expected branchChanged compatibility mapping")
+            return
+        }
+        #expect(mappedWorktreeId == worktreeId)
+        #expect(mappedRepoId == worktreeId)
+        #expect(from == "main")
+        #expect(to == "feature/mapped")
+    }
+
     private func makeFilesystemEnvelope(
         seq: UInt64,
         worktreeId: UUID,

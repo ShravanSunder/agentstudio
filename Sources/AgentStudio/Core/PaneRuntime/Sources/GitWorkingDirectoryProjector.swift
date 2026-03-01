@@ -94,35 +94,39 @@ actor GitWorkingDirectoryProjector {
         guard envelope.source == .system(.builtin(.filesystemWatcher)) else { return }
         guard case .filesystem(let filesystemEvent) = envelope.event else { return }
 
-        switch filesystemEvent {
-        case .worktreeRegistered(let worktreeId, let repoId, let rootPath):
-            suppressedWorktreeIds.remove(worktreeId)
-            // Eager materialization: publish initial snapshot before any path diff events.
-            pendingByWorktreeId[worktreeId] = FileChangeset(
-                worktreeId: worktreeId,
-                repoId: repoId,
-                rootPath: rootPath,
-                paths: [],
-                timestamp: envelope.timestamp,
-                batchSeq: 0
-            )
-            spawnOrCoalesce(worktreeId: worktreeId)
-
-        case .worktreeUnregistered(let worktreeId, _):
-            suppressedWorktreeIds.insert(worktreeId)
-            pendingByWorktreeId.removeValue(forKey: worktreeId)
-            lastKnownBranchByWorktree.removeValue(forKey: worktreeId)
-            if let task = worktreeTasks.removeValue(forKey: worktreeId) {
-                task.cancel()
+        switch filesystemEvent.compatibilityScope {
+        case .systemTopology:
+            switch filesystemEvent {
+            case .worktreeRegistered(let worktreeId, let repoId, let rootPath):
+                suppressedWorktreeIds.remove(worktreeId)
+                // Eager materialization: publish initial snapshot before any path diff events.
+                pendingByWorktreeId[worktreeId] = FileChangeset(
+                    worktreeId: worktreeId,
+                    repoId: repoId,
+                    rootPath: rootPath,
+                    paths: [],
+                    timestamp: envelope.timestamp,
+                    batchSeq: 0
+                )
+                spawnOrCoalesce(worktreeId: worktreeId)
+            case .worktreeUnregistered(let worktreeId, _):
+                suppressedWorktreeIds.insert(worktreeId)
+                pendingByWorktreeId.removeValue(forKey: worktreeId)
+                lastKnownBranchByWorktree.removeValue(forKey: worktreeId)
+                if let task = worktreeTasks.removeValue(forKey: worktreeId) {
+                    task.cancel()
+                }
+            case .filesChanged, .gitSnapshotChanged, .branchChanged, .diffAvailable:
+                return
             }
-
-        case .filesChanged(let changeset):
+        case .worktreeFilesystem:
+            guard case .filesChanged(let changeset) = filesystemEvent else { return }
             let worktreeId = changeset.worktreeId
             guard !suppressedWorktreeIds.contains(worktreeId) else { return }
             pendingByWorktreeId[worktreeId] = changeset
             spawnOrCoalesce(worktreeId: worktreeId)
-
-        case .gitSnapshotChanged, .branchChanged, .diffAvailable:
+        case .worktreeGitWorkingDirectory:
+            // Ignore projector output events to prevent feedback loops.
             return
         }
     }

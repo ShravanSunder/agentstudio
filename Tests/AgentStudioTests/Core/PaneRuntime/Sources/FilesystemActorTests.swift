@@ -19,10 +19,13 @@ struct FilesystemActorTests {
         await actor.register(worktreeId: worktreeId, repoId: repoId, rootPath: rootPath)
 
         let envelope = try #require(await iterator.next())
+        guard case .filesystem(let filesystemEvent) = envelope.event else {
+            Issue.record("Expected filesystem event")
+            return
+        }
         guard
-            case .filesystem(
-                .worktreeRegistered(let registeredWorktreeId, let registeredRepoId, let registeredRootPath)) = envelope
-                .event
+            case .worktreeRegistered(let registeredWorktreeId, let registeredRepoId, let registeredRootPath) =
+            filesystemEvent
         else {
             Issue.record("Expected worktreeRegistered filesystem event")
             return
@@ -33,6 +36,18 @@ struct FilesystemActorTests {
         #expect(registeredRootPath == rootPath)
         #expect(envelope.sourceFacets.repoId == repoId)
         #expect(envelope.sourceFacets.worktreeId == worktreeId)
+        #expect(filesystemEvent.compatibilityScope == .systemTopology)
+
+        guard case .repoDiscovered(let mappedRepoPath, let mappedParentPath) = filesystemEvent.compatibilityTopologyEvent()
+        else {
+            Issue.record("Expected compatibility topology mapping for registration")
+            return
+        }
+        #expect(mappedRepoPath == rootPath)
+        #expect(mappedParentPath == rootPath.deletingLastPathComponent())
+        if filesystemEvent.compatibilityWorktreeScopedEvent != nil {
+            Issue.record("Expected register compatibility mapping to exclude worktree-scoped payload")
+        }
 
         await actor.shutdown()
     }
@@ -53,8 +68,12 @@ struct FilesystemActorTests {
 
         await actor.unregister(worktreeId: worktreeId)
         let envelope = try #require(await iterator.next())
+        guard case .filesystem(let filesystemEvent) = envelope.event else {
+            Issue.record("Expected filesystem event")
+            return
+        }
         guard
-            case .filesystem(.worktreeUnregistered(let unregisteredWorktreeId, let unregisteredRepoId)) = envelope.event
+            case .worktreeUnregistered(let unregisteredWorktreeId, let unregisteredRepoId) = filesystemEvent
         else {
             Issue.record("Expected worktreeUnregistered filesystem event")
             return
@@ -64,6 +83,18 @@ struct FilesystemActorTests {
         #expect(unregisteredRepoId == repoId)
         #expect(envelope.sourceFacets.repoId == repoId)
         #expect(envelope.sourceFacets.worktreeId == worktreeId)
+        #expect(filesystemEvent.compatibilityScope == .systemTopology)
+
+        guard
+            case .repoRemoved(let mappedRepoPath) = filesystemEvent.compatibilityTopologyEvent(unregisterRootPath: rootPath)
+        else {
+            Issue.record("Expected compatibility topology mapping for unregistration")
+            return
+        }
+        #expect(mappedRepoPath == rootPath)
+        if filesystemEvent.compatibilityWorktreeScopedEvent != nil {
+            Issue.record("Expected unregister compatibility mapping to exclude worktree-scoped payload")
+        }
 
         await actor.shutdown()
     }
@@ -220,10 +251,23 @@ struct FilesystemActorTests {
         let envelope = try #require(await iterator.next())
         #expect(envelope.source == .system(.builtin(.filesystemWatcher)))
         #expect(envelope.sourceFacets.worktreeId == worktreeId)
+        guard case .filesystem(let filesystemEvent) = envelope.event else {
+            Issue.record("Expected filesystem event")
+            return
+        }
+        #expect(filesystemEvent.compatibilityScope == .worktreeFilesystem)
+        guard
+            case .filesystem(.filesChanged(let compatibilityChangeset))? = filesystemEvent.compatibilityWorktreeScopedEvent
+        else {
+            Issue.record("Expected compatibility worktree filesystem mapping")
+            return
+        }
 
         let changeset = try #require(filesChangedChangeset(from: envelope))
         #expect(changeset.worktreeId == worktreeId)
         #expect(changeset.paths == ["Sources/App.swift"])
+        #expect(compatibilityChangeset.worktreeId == changeset.worktreeId)
+        #expect(compatibilityChangeset.paths == changeset.paths)
 
         await actor.shutdown()
     }

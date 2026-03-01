@@ -52,7 +52,10 @@ This plan replaces and consolidates:
 
 - Use `@superpowers/executing-plans` for task-by-task execution.
 - Use `@superpowers/verification-before-completion` before completion claims.
-- Keep commits frequent: one commit per task.
+- Set one session build path once and reuse it for all filtered runs:
+  `export SWIFT_BUILD_DIR=".build-agent-$(uuidgen | tr -dc 'a-z0-9' | head -c 8)"`.
+- Use explicit command timeouts in tool execution (`60000` for test commands, `30000` for build commands).
+- Do not commit unless explicitly requested by the user.
 - Keep tests deterministic: no sleeps for ordering tests unless required by API contract.
 
 ### Task 1: Introduce `RuntimeEnvelope` 3-Tier Contract
@@ -71,15 +74,19 @@ struct RuntimeEnvelopeContractsTests {
     @Test("topology events use SystemEnvelope")
     func topologyRequiresSystemEnvelope() {
         let event = SystemScopedEvent.topology(.repoDiscovered(repoPath: URL(fileURLWithPath: "/tmp/repo"), parentPath: URL(fileURLWithPath: "/tmp")))
-        let envelope = RuntimeEnvelope.system(SystemEnvelope.makeForTest(event: event))
-        #expect(envelope.systemEnvelope != nil)
+        let envelope = RuntimeEnvelope.system(SystemEnvelope.test(event: event))
+        if case .system = envelope {
+            #expect(Bool(true))
+        } else {
+            #expect(Bool(false))
+        }
     }
 }
 ```
 
 **Step 2: Run test to verify it fails**
 
-Run: `SWIFT_BUILD_DIR=".build-agent-runtime-envelope" swift test --build-path "$SWIFT_BUILD_DIR" --filter "RuntimeEnvelopeContractsTests" > /tmp/luna350-task1.log 2>&1; echo $?`
+Run: `SWIFT_BUILD_DIR=".build-agent-runtime-envelope"; swift test --build-path "$SWIFT_BUILD_DIR" --filter "RuntimeEnvelopeContractsTests" > /tmp/luna350-task1.log 2>&1; echo $?`
 Expected: non-zero exit, missing `RuntimeEnvelope`/`SystemEnvelope` symbols.
 
 **Step 3: Write minimal implementation**
@@ -96,27 +103,31 @@ Add concrete structs (`SystemEnvelope`, `WorktreeEnvelope`, `PaneEnvelope`) with
 
 **Step 4: Run test to verify it passes**
 
-Run: `SWIFT_BUILD_DIR=".build-agent-runtime-envelope" swift test --build-path "$SWIFT_BUILD_DIR" --filter "RuntimeEnvelopeContractsTests" > /tmp/luna350-task1.log 2>&1; echo $?`
+Run: `SWIFT_BUILD_DIR=".build-agent-runtime-envelope"; swift test --build-path "$SWIFT_BUILD_DIR" --filter "RuntimeEnvelopeContractsTests" > /tmp/luna350-task1.log 2>&1; echo $?`
 Expected: exit code `0`.
 
-**Step 5: Commit**
+**Step 5: Checkpoint**
 
 ```bash
 git add Sources/AgentStudio/Core/PaneRuntime/Contracts/RuntimeEnvelope.swift \
   Sources/AgentStudio/Core/PaneRuntime/Contracts/PaneEventEnvelope.swift \
   Sources/AgentStudio/Core/PaneRuntime/Contracts/PaneContextFacets.swift \
   Tests/AgentStudioTests/Core/PaneRuntime/Contracts/RuntimeEnvelopeContractsTests.swift
-git commit -m "feat(runtime): add 3-tier RuntimeEnvelope contracts"
+git status --short
+# Commit only if explicitly requested:
+# git commit -m "feat(runtime): add 3-tier RuntimeEnvelope contracts"
 ```
 
-### Task 2: Split Event Namespaces by Producer Boundary
+### Task 2: Define Event Namespaces + Compatibility Mapping (Pre-Bus-Migration)
 
 **Files:**
 - Modify: `Sources/AgentStudio/Core/PaneRuntime/Contracts/PaneRuntimeEvent.swift`
 - Modify: `Sources/AgentStudio/Core/PaneRuntime/Sources/FilesystemActor.swift`
 - Modify: `Sources/AgentStudio/Core/PaneRuntime/Sources/GitWorkingDirectoryProjector.swift`
+- Modify: `Sources/AgentStudio/Core/PaneRuntime/Projection/WorkspaceGitWorkingTreeStore.swift`
 - Test: `Tests/AgentStudioTests/Core/PaneRuntime/Sources/FilesystemActorTests.swift`
 - Test: `Tests/AgentStudioTests/Core/PaneRuntime/Sources/GitWorkingDirectoryProjectorTests.swift`
+- Test: `Tests/AgentStudioTests/Core/PaneRuntime/Projection/WorkspaceGitWorkingTreeStoreTests.swift`
 
 **Step 1: Write the failing tests**
 
@@ -130,7 +141,7 @@ func emitsGitNamespace() async { /* ... */ }
 
 **Step 2: Run tests to verify failure**
 
-Run: `SWIFT_BUILD_DIR=".build-agent-namespace-split" swift test --build-path "$SWIFT_BUILD_DIR" --filter "FilesystemActorTests|GitWorkingDirectoryProjectorTests" > /tmp/luna350-task2.log 2>&1; echo $?`
+Run: `SWIFT_BUILD_DIR=".build-agent-namespace-split"; swift test --build-path "$SWIFT_BUILD_DIR" --filter "FilesystemActorTests|GitWorkingDirectoryProjectorTests|WorkspaceGitWorkingTreeStoreTests" > /tmp/luna350-task2.log 2>&1; echo $?`
 Expected: assertions fail on old namespace routing.
 
 **Step 3: Write minimal implementation**
@@ -140,25 +151,32 @@ enum SystemScopedEvent: Sendable { case topology(TopologyEvent), appLifecycle(Ap
 enum WorktreeScopedEvent: Sendable { case filesystem(FilesystemEvent), gitWorkingDirectory(GitWorkingDirectoryEvent), forge(ForgeEvent), security(SecurityEvent) }
 ```
 
-Route:
-- `.repoDiscovered/.repoRemoved` -> `SystemEnvelope(.topology(...))`
-- `.filesChanged` -> `WorktreeEnvelope(.filesystem(...))`
-- `.snapshotChanged/.branchChanged/.originChanged/.worktreeDiscovered/.worktreeRemoved` -> `WorktreeEnvelope(.gitWorkingDirectory(...))`
+Add explicit old-to-new case mapping in code comments/tests without changing bus payload type yet:
+- `FilesystemEvent.worktreeRegistered` -> future `SystemScopedEvent.topology(.repoDiscovered/.worktreeDiscovered)`
+- `FilesystemEvent.worktreeUnregistered` -> future `SystemScopedEvent.topology(.repoRemoved/.worktreeRemoved)`
+- `FilesystemEvent.filesChanged` -> future `WorktreeScopedEvent.filesystem(.filesChanged)`
+- `FilesystemEvent.gitSnapshotChanged/.branchChanged` -> future `WorktreeScopedEvent.gitWorkingDirectory(...)`
+
+Keep producers emitting `PaneEventEnvelope` in this task. Envelope routing changes land in Task 3.
 
 **Step 4: Run tests to verify pass**
 
 Run: same command from Step 2.
 Expected: exit code `0`.
 
-**Step 5: Commit**
+**Step 5: Checkpoint**
 
 ```bash
 git add Sources/AgentStudio/Core/PaneRuntime/Contracts/PaneRuntimeEvent.swift \
   Sources/AgentStudio/Core/PaneRuntime/Sources/FilesystemActor.swift \
   Sources/AgentStudio/Core/PaneRuntime/Sources/GitWorkingDirectoryProjector.swift \
+  Sources/AgentStudio/Core/PaneRuntime/Projection/WorkspaceGitWorkingTreeStore.swift \
   Tests/AgentStudioTests/Core/PaneRuntime/Sources/FilesystemActorTests.swift \
-  Tests/AgentStudioTests/Core/PaneRuntime/Sources/GitWorkingDirectoryProjectorTests.swift
-git commit -m "feat(events): split topology filesystem git namespaces"
+  Tests/AgentStudioTests/Core/PaneRuntime/Sources/GitWorkingDirectoryProjectorTests.swift \
+  Tests/AgentStudioTests/Core/PaneRuntime/Projection/WorkspaceGitWorkingTreeStoreTests.swift
+git status --short
+# Commit only if explicitly requested:
+# git commit -m "feat(events): define scoped event namespaces and compatibility mappings"
 ```
 
 ### Task 3: Migrate Bus to `EventBus<RuntimeEnvelope>` + Bus Replay Contract
@@ -168,6 +186,12 @@ git commit -m "feat(events): split topology filesystem git namespaces"
 - Modify: `Sources/AgentStudio/Core/PaneRuntime/Events/EventChannels.swift`
 - Modify: `Sources/AgentStudio/Core/PaneRuntime/Reduction/NotificationReducer.swift`
 - Modify: `Sources/AgentStudio/Core/PaneRuntime/Runtime/PaneRuntimeEventChannel.swift`
+- Modify: `Sources/AgentStudio/Core/PaneRuntime/Contracts/PaneRuntime.swift`
+- Modify: `Sources/AgentStudio/App/PaneCoordinator.swift`
+- Modify: `Sources/AgentStudio/App/FilesystemGitPipeline.swift`
+- Modify: `Sources/AgentStudio/Features/Terminal/Runtime/TerminalRuntime.swift`
+- Modify: `Sources/AgentStudio/Features/Webview/Runtime/WebviewRuntime.swift`
+- Modify: `Sources/AgentStudio/Features/Bridge/Runtime/BridgeRuntime.swift`
 - Create: `Tests/AgentStudioTests/Core/PaneRuntime/Events/EventBusRuntimeEnvelopeTests.swift`
 
 **Step 1: Write failing tests**
@@ -182,7 +206,7 @@ func notificationReducerOrdering() async { /* ... */ }
 
 **Step 2: Run tests to verify failure**
 
-Run: `SWIFT_BUILD_DIR=".build-agent-bus-migration" swift test --build-path "$SWIFT_BUILD_DIR" --filter "EventBusRuntimeEnvelopeTests|NotificationReducerTests" > /tmp/luna350-task3.log 2>&1; echo $?`
+Run: `SWIFT_BUILD_DIR=".build-agent-bus-migration"; swift test --build-path "$SWIFT_BUILD_DIR" --filter "EventBusRuntimeEnvelopeTests|NotificationReducerTests|PaneCoordinatorTests|TerminalRuntimeTests|WebviewRuntimeTests|BridgeRuntimeTests" > /tmp/luna350-task3.log 2>&1; echo $?`
 Expected: failure on missing bus replay behavior and envelope type mismatch.
 
 **Step 3: Write minimal implementation**
@@ -193,22 +217,30 @@ enum PaneRuntimeEventBus {
 }
 ```
 
-Add bus replay buffer keyed by `EventSource` with cap `256`, and adapt reducer consumption to `RuntimeEnvelope` classification.
+Add bus replay buffer keyed by `EventSource` with cap `256`, adapt reducer consumption to `RuntimeEnvelope` classification, and migrate all runtime bus callsites listed above from `PaneEventEnvelope` to `RuntimeEnvelope`.
 
 **Step 4: Run tests to verify pass**
 
 Run: same command from Step 2.
 Expected: exit code `0`.
 
-**Step 5: Commit**
+**Step 5: Checkpoint**
 
 ```bash
 git add Sources/AgentStudio/Core/PaneRuntime/Events/EventBus.swift \
   Sources/AgentStudio/Core/PaneRuntime/Events/EventChannels.swift \
   Sources/AgentStudio/Core/PaneRuntime/Reduction/NotificationReducer.swift \
   Sources/AgentStudio/Core/PaneRuntime/Runtime/PaneRuntimeEventChannel.swift \
+  Sources/AgentStudio/Core/PaneRuntime/Contracts/PaneRuntime.swift \
+  Sources/AgentStudio/App/PaneCoordinator.swift \
+  Sources/AgentStudio/App/FilesystemGitPipeline.swift \
+  Sources/AgentStudio/Features/Terminal/Runtime/TerminalRuntime.swift \
+  Sources/AgentStudio/Features/Webview/Runtime/WebviewRuntime.swift \
+  Sources/AgentStudio/Features/Bridge/Runtime/BridgeRuntime.swift \
   Tests/AgentStudioTests/Core/PaneRuntime/Events/EventBusRuntimeEnvelopeTests.swift
-git commit -m "feat(eventbus): migrate to RuntimeEnvelope and add bounded bus replay"
+git status --short
+# Commit only if explicitly requested:
+# git commit -m "feat(eventbus): migrate to RuntimeEnvelope and add bounded bus replay"
 ```
 
 ### Task 3a: Split Contaminated Repo/Worktree Model Structs
@@ -248,7 +280,7 @@ struct CanonicalModelTests {
 
 **Step 2: Run tests to verify failure**
 
-Run: `SWIFT_BUILD_DIR=".build-agent-model-split" swift test --build-path "$SWIFT_BUILD_DIR" --filter "CanonicalModelTests" > /tmp/luna350-task3a.log 2>&1; echo $?`
+Run: `SWIFT_BUILD_DIR=".build-agent-model-split"; swift test --build-path "" --filter "CanonicalModelTests" > /tmp/luna350-task3a.log 2>&1; echo $?`
 Expected: missing `CanonicalRepo`, `WorktreeEnrichment` symbols.
 
 **Step 3: Write minimal implementation**
@@ -276,7 +308,7 @@ Keep existing `Repo`/`Worktree` structs temporarily as compatibility aliases (ty
 Run: same command from Step 2.
 Expected: exit code `0`.
 
-**Step 5: Commit**
+**Step 5: Checkpoint**
 
 ```bash
 git add Sources/AgentStudio/Core/Models/CanonicalRepo.swift \
@@ -310,7 +342,7 @@ func persistsThreeTierState() throws { /* ... */ }
 
 **Step 2: Run tests to verify failure**
 
-Run: `SWIFT_BUILD_DIR=".build-agent-persistence-split" swift test --build-path "$SWIFT_BUILD_DIR" --filter "WorkspacePersistorTests|WorkspaceCacheStoreTests" > /tmp/luna350-task4.log 2>&1; echo $?`
+Run: `SWIFT_BUILD_DIR=".build-agent-persistence-split"; swift test --build-path "" --filter "WorkspacePersistorTests|WorkspaceCacheStoreTests" > /tmp/luna350-task4.log 2>&1; echo $?`
 Expected: failure due to missing cache/UI stores and file split.
 
 **Step 3: Write minimal implementation**
@@ -326,7 +358,7 @@ Implement load/save APIs for all three files and keep existing workspace restore
 Run: same command from Step 2.
 Expected: exit code `0`.
 
-**Step 5: Commit**
+**Step 5: Checkpoint**
 
 ```bash
 git add Sources/AgentStudio/Core/Stores/WorkspaceCacheStore.swift \
@@ -358,7 +390,7 @@ func routesMutationsByMethodGroup() async { /* ... */ }
 
 **Step 2: Run tests to verify failure**
 
-Run: `SWIFT_BUILD_DIR=".build-agent-cache-coordinator" swift test --build-path "$SWIFT_BUILD_DIR" --filter "WorkspaceCacheCoordinatorTests" > /tmp/luna350-task5.log 2>&1; echo $?`
+Run: `SWIFT_BUILD_DIR=".build-agent-cache-coordinator"; swift test --build-path "" --filter "WorkspaceCacheCoordinatorTests" > /tmp/luna350-task5.log 2>&1; echo $?`
 Expected: missing coordinator symbols/handlers.
 
 **Step 3: Write minimal implementation**
@@ -378,7 +410,7 @@ final class WorkspaceCacheCoordinator {
 Run: same command from Step 2.
 Expected: exit code `0`.
 
-**Step 5: Commit**
+**Step 5: Checkpoint**
 
 ```bash
 git add Sources/AgentStudio/App/WorkspaceCacheCoordinator.swift \
@@ -409,7 +441,7 @@ func emitsRepoDiscoveredTopology() async { /* ... */ }
 
 **Step 2: Run tests to verify failure**
 
-Run: `SWIFT_BUILD_DIR=".build-agent-discovery" swift test --build-path "$SWIFT_BUILD_DIR" --filter "RepoScannerTests|FilesystemActorTests" > /tmp/luna350-task6.log 2>&1; echo $?`
+Run: `SWIFT_BUILD_DIR=".build-agent-discovery"; swift test --build-path "" --filter "RepoScannerTests|FilesystemActorTests" > /tmp/luna350-task6.log 2>&1; echo $?`
 Expected: failure on discovery semantics and envelope category.
 
 **Step 3: Write minimal implementation**
@@ -426,7 +458,7 @@ Implement trigger-based parent scanning and deep worktree watch registration sep
 Run: same command from Step 2.
 Expected: exit code `0`.
 
-**Step 5: Commit**
+**Step 5: Checkpoint**
 
 ```bash
 git add Sources/AgentStudio/Infrastructure/RepoScanner.swift \
@@ -457,7 +489,7 @@ func pollingFallbackErrorPath() async { /* ... */ }
 
 **Step 2: Run tests to verify failure**
 
-Run: `SWIFT_BUILD_DIR=".build-agent-forge" swift test --build-path "$SWIFT_BUILD_DIR" --filter "ForgeActorTests" > /tmp/luna350-task7.log 2>&1; echo $?`
+Run: `SWIFT_BUILD_DIR=".build-agent-forge"; swift test --build-path "" --filter "ForgeActorTests" > /tmp/luna350-task7.log 2>&1; echo $?`
 Expected: missing `ForgeActor` implementation.
 
 **Step 3: Write minimal implementation**
@@ -477,7 +509,7 @@ Emit `WorktreeEnvelope(.forge(.pullRequestCountsChanged/...))`; do not scan file
 Run: same command from Step 2.
 Expected: exit code `0`.
 
-**Step 5: Commit**
+**Step 5: Checkpoint**
 
 ```bash
 git add Sources/AgentStudio/Core/PaneRuntime/Sources/ForgeActor.swift \
@@ -522,7 +554,7 @@ struct DarwinFSEventStreamClientTests {
 
 **Step 2: Run tests to verify failure**
 
-Run: `SWIFT_BUILD_DIR=".build-agent-fsevents" swift test --build-path "$SWIFT_BUILD_DIR" --filter "DarwinFSEventStreamClientTests" > /tmp/luna350-task7a.log 2>&1; echo $?`
+Run: `SWIFT_BUILD_DIR=".build-agent-fsevents"; swift test --build-path "" --filter "DarwinFSEventStreamClientTests" > /tmp/luna350-task7a.log 2>&1; echo $?`
 Expected: missing `DarwinFSEventStreamClient` symbol.
 
 **Step 3: Write minimal implementation**
@@ -545,7 +577,7 @@ Remove the `TODO(LUNA-349)` warning log from `FilesystemActor.init`.
 Run: same command from Step 2.
 Expected: exit code `0`.
 
-**Step 5: Commit**
+**Step 5: Checkpoint**
 
 ```bash
 git add Sources/AgentStudio/Core/PaneRuntime/Sources/DarwinFSEventStreamClient.swift \
@@ -575,7 +607,7 @@ func relocateRepoPreservesIdentity() async { /* ... */ }
 
 **Step 2: Run tests to verify failure**
 
-Run: `SWIFT_BUILD_DIR=".build-agent-repo-move" swift test --build-path "$SWIFT_BUILD_DIR" --filter "WorkspaceStoreOrphanPoolTests|WorkspaceCacheCoordinatorRepoMoveTests" > /tmp/luna350-task8.log 2>&1; echo $?`
+Run: `SWIFT_BUILD_DIR=".build-agent-repo-move"; swift test --build-path "" --filter "WorkspaceStoreOrphanPoolTests|WorkspaceCacheCoordinatorRepoMoveTests" > /tmp/luna350-task8.log 2>&1; echo $?`
 Expected: failure due to missing move/relink lifecycle behavior.
 
 **Step 3: Write minimal implementation**
@@ -592,7 +624,7 @@ Include `git worktree list --porcelain -z` and `git worktree repair` handling in
 Run: same command from Step 2.
 Expected: exit code `0`.
 
-**Step 5: Commit**
+**Step 5: Checkpoint**
 
 ```bash
 git add Sources/AgentStudio/Core/Stores/WorkspaceStore.swift \
@@ -624,7 +656,7 @@ func sidebarProjectionUsesStores() { /* ... */ }
 
 **Step 2: Run tests to verify failure**
 
-Run: `SWIFT_BUILD_DIR=".build-agent-sidebar-rewire" swift test --build-path "$SWIFT_BUILD_DIR" --filter "RepoSidebarContentViewTests|SidebarRepoGroupingTests|PaneCoordinatorTests" > /tmp/luna350-task9.log 2>&1; echo $?`
+Run: `SWIFT_BUILD_DIR=".build-agent-sidebar-rewire"; swift test --build-path "" --filter "RepoSidebarContentViewTests|SidebarRepoGroupingTests|PaneCoordinatorTests" > /tmp/luna350-task9.log 2>&1; echo $?`
 Expected: failure on direct mutation expectations.
 
 **Step 3: Write minimal implementation**
@@ -643,7 +675,7 @@ All sidebar operations become intent dispatches; coordinator/event pipeline does
 Run: same command from Step 2.
 Expected: exit code `0`.
 
-**Step 5: Commit**
+**Step 5: Checkpoint**
 
 ```bash
 git add Sources/AgentStudio/App/MainSplitViewController.swift \
@@ -677,7 +709,7 @@ func sidebarUsesNewCacheStore() {
 
 **Step 2: Run tests to verify failure**
 
-Run: `SWIFT_BUILD_DIR=".build-agent-store-migration" swift test --build-path "$SWIFT_BUILD_DIR" --filter "RepoSidebarContentViewTests" > /tmp/luna350-task9a.log 2>&1; echo $?`
+Run: `SWIFT_BUILD_DIR=".build-agent-store-migration"; swift test --build-path "" --filter "RepoSidebarContentViewTests" > /tmp/luna350-task9a.log 2>&1; echo $?`
 Expected: assertion failure on old dependency.
 
 **Step 3: Write minimal implementation**
@@ -692,7 +724,7 @@ Expected: assertion failure on old dependency.
 Run: same command from Step 2.
 Expected: exit code `0`.
 
-**Step 5: Commit**
+**Step 5: Checkpoint**
 
 ```bash
 git add Sources/AgentStudio/App/PaneCoordinator.swift \
@@ -731,7 +763,7 @@ func projectByRepoUsesCanonicalModels() {
 
 **Step 2: Run tests to verify failure**
 
-Run: `SWIFT_BUILD_DIR=".build-agent-projector" swift test --build-path "$SWIFT_BUILD_DIR" --filter "DynamicViewProjector" > /tmp/luna350-task9b.log 2>&1; echo $?`
+Run: `SWIFT_BUILD_DIR=".build-agent-projector"; swift test --build-path "" --filter "DynamicViewProjector" > /tmp/luna350-task9b.log 2>&1; echo $?`
 Expected: signature mismatch.
 
 **Step 3: Write minimal implementation**
@@ -755,7 +787,7 @@ Update grouping logic to join canonical + enrichment data. Update all callsites.
 Run: same command from Step 2.
 Expected: exit code `0`.
 
-**Step 5: Commit**
+**Step 5: Checkpoint**
 
 ```bash
 git add Sources/AgentStudio/Core/Stores/DynamicViewProjector.swift \
@@ -785,7 +817,7 @@ func filesystemSyncViaTopologyEvents() async {
 
 **Step 2: Run tests to verify failure**
 
-Run: `SWIFT_BUILD_DIR=".build-agent-hook-migration" swift test --build-path "$SWIFT_BUILD_DIR" --filter "PaneCoordinatorTests" > /tmp/luna350-task9c.log 2>&1; echo $?`
+Run: `SWIFT_BUILD_DIR=".build-agent-hook-migration"; swift test --build-path "" --filter "PaneCoordinatorTests" > /tmp/luna350-task9c.log 2>&1; echo $?`
 Expected: failure on hook removal assertion.
 
 **Step 3: Write minimal implementation**
@@ -799,7 +831,7 @@ Expected: failure on hook removal assertion.
 Run: same command from Step 2.
 Expected: exit code `0`.
 
-**Step 5: Commit**
+**Step 5: Checkpoint**
 
 ```bash
 git add Sources/AgentStudio/App/PaneCoordinator+FilesystemSource.swift \
@@ -843,7 +875,7 @@ struct AppBootSequenceTests {
 
 **Step 2: Run tests to verify failure**
 
-Run: `SWIFT_BUILD_DIR=".build-agent-boot" swift test --build-path "$SWIFT_BUILD_DIR" --filter "AppBootSequenceTests" > /tmp/luna350-task9d.log 2>&1; echo $?`
+Run: `SWIFT_BUILD_DIR=".build-agent-boot"; swift test --build-path "" --filter "AppBootSequenceTests" > /tmp/luna350-task9d.log 2>&1; echo $?`
 Expected: failure on missing boot sequence.
 
 **Step 3: Write minimal implementation**
@@ -869,7 +901,7 @@ Wire the 10-step boot sequence from the architecture spec:
 Run: same command from Step 2.
 Expected: exit code `0`.
 
-**Step 5: Commit**
+**Step 5: Checkpoint**
 
 ```bash
 git add Sources/AgentStudio/App/AppDelegate.swift \
@@ -894,7 +926,7 @@ func sequentialEnrichmentPipeline() async throws { /* ... */ }
 
 **Step 2: Run tests to verify failure**
 
-Run: `SWIFT_BUILD_DIR=".build-agent-e2e-pipeline" swift test --build-path "$SWIFT_BUILD_DIR" --filter "FilesystemGitPipelineIntegrationTests|FilesystemSourceE2ETests|WorkspaceCacheCoordinatorE2ETests" > /tmp/luna350-task10.log 2>&1; echo $?`
+Run: `SWIFT_BUILD_DIR=".build-agent-e2e-pipeline"; swift test --build-path "" --filter "FilesystemGitPipelineIntegrationTests|FilesystemSourceE2ETests|WorkspaceCacheCoordinatorE2ETests" > /tmp/luna350-task10.log 2>&1; echo $?`
 Expected: failing assertions on chain/enrichment behavior until implementation lands.
 
 **Step 3: Write minimal implementation adjustments**
@@ -906,7 +938,7 @@ Adjust fixtures and helpers to emit/consume `RuntimeEnvelope` and new stores.
 Run: same command from Step 2.
 Expected: exit code `0`.
 
-**Step 5: Commit**
+**Step 5: Checkpoint**
 
 ```bash
 git add Tests/AgentStudioTests/Integration/FilesystemGitPipelineIntegrationTests.swift \
@@ -935,19 +967,19 @@ git commit -m "test(integration): verify sequential enrichment and cache/sidebar
 
 **Step 1: Run consistency check for remaining stale references**
 
-Run: `rg -n “EventBus<PaneEventEnvelope>|FilesystemActor.*git status|SUBSCRIBES TO: ALL WorktreeEnvelope events” docs/architecture/*.md`
+Run: `rg -n "EventBus<PaneEventEnvelope>|FilesystemActor.*git status|SUBSCRIBES TO: ALL WorktreeEnvelope events" docs/architecture/*.md`
 Expected: zero stale matches (pre-work should have eliminated these).
 
 **Step 2: Verify code samples match implemented types**
 
 After Tasks 1-3 land new Swift types, update any code samples in architecture docs that show old type names or missing fields. Focus on:
-- Contract 3 “Current” section — should match the actual `PaneEventEnvelope.swift`
-- Contract 3 “Target” section — should match the actual `RuntimeEnvelope.swift`
+- Contract 3 "Current" section - should match the actual `PaneEventEnvelope.swift`
+- Contract 3 "Target" section - should match the actual `RuntimeEnvelope.swift`
 - EventBus design actor inventory — should match actual actor files
 
 **Step 3: Run markdown sanity check**
 
-Run: `rg -n “TODO\\(LUNA-350\\)|TBD|NEEDS SPEC” docs/architecture/*.md docs/plans/*.md`
+Run: `rg -n "TODO\(LUNA-350\)|TBD|NEEDS SPEC" docs/architecture/*.md docs/plans/*.md`
 Expected: no unresolved placeholders for this scope.
 
 **Step 4: Commit**
@@ -957,7 +989,7 @@ git add docs/architecture/pane_runtime_architecture.md \
   docs/architecture/pane_runtime_eventbus_design.md \
   docs/architecture/workspace_data_architecture.md \
   docs/architecture/component_architecture.md
-git commit -m “docs(architecture): final sync after runtime envelope implementation”
+git commit -m "docs(architecture): final sync after runtime envelope implementation"
 ```
 
 ### Task 12: Full Verification Gate
@@ -978,7 +1010,7 @@ Expected: exit code `0`.
 **Step 3: Full test suite**
 
 Run: `mise run test`
-Expected: exit code `0` with all test suites passing.
+Expected: exit code `0` with the default test suite passing. Run `mise run test-e2e` and `mise run test-zmx-e2e` for full-surface verification.
 
 **Step 4: Final architecture invariants check**
 
@@ -1001,7 +1033,7 @@ rg -n "repos: \[Repo\]" Sources/AgentStudio/Core/Stores/DynamicViewProjector.swi
 ```
 Expected: zero matches for all checks.
 
-**Step 5: Commit**
+**Step 5: Checkpoint**
 
 ```bash
 git add -A
@@ -1049,6 +1081,6 @@ Plan complete and saved to `docs/plans/2026-03-01-luna-350-runtime-envelope-work
 Two execution options:
 
 1. Subagent-Driven (this session) - I dispatch a fresh subagent per task, review between tasks, and keep fast iteration loops.
-2. Parallel Session (separate) - Open a new session with `superpowers:executing-plans` and run the plan with checkpointed batch execution.
+2. Separate Session (not parallel) - Open a new session with `superpowers:executing-plans` after stopping this session's Swift commands.
 
 Which approach?
