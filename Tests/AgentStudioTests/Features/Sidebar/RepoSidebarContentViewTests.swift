@@ -9,17 +9,22 @@ struct RepoSidebarContentViewTests {
     @Test("branchStatus maps centralized local-git summary + PR count")
     func branchStatusMapsLocalSummaryAndPRCount() {
         let worktreeId = UUID()
-        let snapshot = WorkspaceGitWorkingTreeStore.WorktreeSnapshot(
+        let repoId = UUID()
+        let rootPath = URL(fileURLWithPath: "/tmp/repo-\(UUID().uuidString)")
+        let enrichment = WorktreeEnrichment(
             worktreeId: worktreeId,
-            repoId: UUID(),
-            summary: GitWorkingTreeSummary(changed: 1, staged: 0, untracked: 2),
+            repoId: repoId,
             branch: "feature/sidebar",
-            lastSequence: 5,
-            timestamp: ContinuousClock().now
+            snapshot: GitWorkingTreeSnapshot(
+                worktreeId: worktreeId,
+                rootPath: rootPath,
+                summary: GitWorkingTreeSummary(changed: 1, staged: 0, untracked: 2),
+                branch: "feature/sidebar"
+            )
         )
 
         let status = RepoSidebarContentView.branchStatus(
-            localSnapshot: snapshot,
+            enrichment: enrichment,
             pullRequestCount: 3
         )
 
@@ -33,7 +38,7 @@ struct RepoSidebarContentViewTests {
     @Test("branchStatus keeps unknown local state when snapshot missing")
     func branchStatusFallsBackToUnknownWithoutLocalSnapshot() {
         let status = RepoSidebarContentView.branchStatus(
-            localSnapshot: nil,
+            enrichment: nil,
             pullRequestCount: 7
         )
 
@@ -46,16 +51,20 @@ struct RepoSidebarContentViewTests {
     func mergeBranchStatusesMergesSources() {
         let localOnlyWorktreeId = UUID()
         let prOnlyWorktreeId = UUID()
+        let repoId = UUID()
 
         let merged = RepoSidebarContentView.mergeBranchStatuses(
-            localSnapshotsByWorktreeId: [
-                localOnlyWorktreeId: WorkspaceGitWorkingTreeStore.WorktreeSnapshot(
+            worktreeEnrichmentsByWorktreeId: [
+                localOnlyWorktreeId: WorktreeEnrichment(
                     worktreeId: localOnlyWorktreeId,
-                    repoId: UUID(),
-                    summary: GitWorkingTreeSummary(changed: 0, staged: 1, untracked: 0),
-                    branch: nil,
-                    lastSequence: 1,
-                    timestamp: ContinuousClock().now
+                    repoId: repoId,
+                    branch: "",
+                    snapshot: GitWorkingTreeSnapshot(
+                        worktreeId: localOnlyWorktreeId,
+                        rootPath: URL(fileURLWithPath: "/tmp/repo-\(UUID().uuidString)"),
+                        summary: GitWorkingTreeSummary(changed: 0, staged: 1, untracked: 0),
+                        branch: nil
+                    )
                 )
             ],
             pullRequestCountsByWorktreeId: [prOnlyWorktreeId: 2]
@@ -67,63 +76,29 @@ struct RepoSidebarContentViewTests {
         #expect(merged[prOnlyWorktreeId]?.syncState == .unknown)
     }
 
-    @Test("sidebar branch status derives from centralized workspace git snapshot ingestion")
-    func sidebarBranchStatusDerivesFromWorkspaceGitWorkingTreeStoreSnapshots() {
+    @Test("sidebar branch status derives from worktree enrichment snapshots")
+    func sidebarBranchStatusDerivesFromWorktreeEnrichmentSnapshots() {
         let worktreeId = UUID()
-        let gitWorkingTreeStore = WorkspaceGitWorkingTreeStore()
-
-        gitWorkingTreeStore.consume(
-            makeFilesystemEnvelope(
-                seq: 1,
+        let repoId = UUID()
+        let enrichment = WorktreeEnrichment(
+            worktreeId: worktreeId,
+            repoId: repoId,
+            branch: "feature/sidebar-pipeline",
+            snapshot: GitWorkingTreeSnapshot(
                 worktreeId: worktreeId,
-                event: .gitSnapshotChanged(
-                    snapshot: GitWorkingTreeSnapshot(
-                        worktreeId: worktreeId,
-                        rootPath: URL(fileURLWithPath: "/tmp/repo-\(UUID().uuidString)"),
-                        summary: GitWorkingTreeSummary(changed: 2, staged: 1, untracked: 0),
-                        branch: "main"
-                    )
-                )
-            )
-        )
-        gitWorkingTreeStore.consume(
-            makeFilesystemEnvelope(
-                seq: 2,
-                worktreeId: worktreeId,
-                event: .branchChanged(
-                    worktreeId: worktreeId,
-                    repoId: worktreeId,
-                    from: "main",
-                    to: "feature/sidebar-pipeline"
-                )
+                rootPath: URL(fileURLWithPath: "/tmp/repo-\(UUID().uuidString)"),
+                summary: GitWorkingTreeSummary(changed: 2, staged: 1, untracked: 0),
+                branch: "feature/sidebar-pipeline"
             )
         )
 
         let merged = RepoSidebarContentView.mergeBranchStatuses(
-            localSnapshotsByWorktreeId: gitWorkingTreeStore.snapshotsByWorktreeId,
+            worktreeEnrichmentsByWorktreeId: [worktreeId: enrichment],
             pullRequestCountsByWorktreeId: [worktreeId: 5]
         )
 
         #expect(merged[worktreeId]?.isDirty == true)
         #expect(merged[worktreeId]?.prCount == 5)
         #expect(merged[worktreeId]?.syncState == .unknown)
-    }
-
-    private func makeFilesystemEnvelope(
-        seq: UInt64,
-        worktreeId: UUID,
-        event: FilesystemEvent
-    ) -> PaneEventEnvelope {
-        PaneEventEnvelope(
-            source: .system(.builtin(.filesystemWatcher)),
-            sourceFacets: PaneContextFacets(repoId: worktreeId, worktreeId: worktreeId),
-            paneKind: nil,
-            seq: seq,
-            commandId: nil,
-            correlationId: nil,
-            timestamp: ContinuousClock().now,
-            epoch: 0,
-            event: .filesystem(event)
-        )
     }
 }

@@ -19,7 +19,7 @@ protocol PaneRuntime: AnyObject {
     func handleCommand(_ envelope: RuntimeCommandEnvelope) async -> ActionResult
     /// Subscribe to the live event stream emitted by this runtime.
     /// Each call returns an independent stream for that subscriber.
-    func subscribe() -> AsyncStream<PaneEventEnvelope>
+    func subscribe() -> AsyncStream<RuntimeEnvelope>
     /// Capture an instant runtime state snapshot.
     func snapshot() -> PaneRuntimeSnapshot
     /// Fetch replayable events strictly after `seq`.

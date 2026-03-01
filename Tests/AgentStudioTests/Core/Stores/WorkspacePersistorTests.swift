@@ -289,4 +289,63 @@ final class WorkspacePersistorTests {
             try readOnlyPersistor.save(state)
         }
     }
+
+    @Test
+    func test_saveAndLoad_cacheState() throws {
+        let workspaceId = UUID()
+        let repoId = UUID()
+        let worktreeId = UUID()
+        let cacheState = WorkspacePersistor.PersistableCacheState(
+            workspaceId: workspaceId,
+            repoEnrichmentByRepoId: [
+                repoId: RepoEnrichment(
+                    repoId: repoId,
+                    organizationName: "askluna",
+                    origin: "git@github.com:askluna/agent-studio.git"
+                )
+            ],
+            worktreeEnrichmentByWorktreeId: [
+                worktreeId: WorktreeEnrichment(
+                    worktreeId: worktreeId,
+                    repoId: repoId,
+                    branch: "main"
+                )
+            ],
+            pullRequestCountByWorktreeId: [worktreeId: 2],
+            notificationCountByWorktreeId: [worktreeId: 7],
+            sourceRevision: 10,
+            lastRebuiltAt: Date(timeIntervalSince1970: 1_700_000_000)
+        )
+
+        try persistor.saveCache(cacheState)
+        let loaded = persistor.loadCache(for: workspaceId)
+
+        #expect(loaded?.workspaceId == workspaceId)
+        #expect(loaded?.repoEnrichmentByRepoId[repoId]?.organizationName == "askluna")
+        #expect(loaded?.worktreeEnrichmentByWorktreeId[worktreeId]?.branch == "main")
+        #expect(loaded?.pullRequestCountByWorktreeId[worktreeId] == 2)
+        #expect(loaded?.notificationCountByWorktreeId[worktreeId] == 7)
+        #expect(loaded?.sourceRevision == 10)
+    }
+
+    @Test
+    func test_saveAndLoad_uiState() throws {
+        let workspaceId = UUID()
+        let uiState = WorkspacePersistor.PersistableUIState(
+            workspaceId: workspaceId,
+            expandedGroups: ["askluna", "personal"],
+            checkoutColors: ["repoA": "#22cc88"],
+            filterText: "forge",
+            isFilterVisible: true
+        )
+
+        try persistor.saveUI(uiState)
+        let loaded = persistor.loadUI(for: workspaceId)
+
+        #expect(loaded?.workspaceId == workspaceId)
+        #expect(loaded?.expandedGroups == ["askluna", "personal"])
+        #expect(loaded?.checkoutColors["repoA"] == "#22cc88")
+        #expect(loaded?.filterText == "forge")
+        #expect(loaded?.isFilterVisible == true)
+    }
 }

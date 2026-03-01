@@ -16,7 +16,7 @@ struct WebviewRuntimeTests {
         var busIterator = busStream.makeAsyncIterator()
         runtime.ingestBrowserEvent(.pageLoaded(url: URL(string: "https://example.com")!))
 
-        let busEnvelope = await busIterator.next()?.toLegacy()
+        let busEnvelope = await busIterator.next()
         let replay = await runtime.eventsSince(seq: 0)
 
         #expect(busEnvelope?.source == .pane(runtime.paneId))

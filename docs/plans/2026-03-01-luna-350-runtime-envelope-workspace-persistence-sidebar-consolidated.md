@@ -8,6 +8,24 @@
 
 **Tech Stack:** Swift 6.2, AppKit + SwiftUI, `@Observable`, `AsyncStream`, Swift Testing (`@Suite`, `@Test`), `mise` tasks, `gh`/GitHub API integration via actor boundary.
 
+## Execution Status (2026-03-01)
+
+- Runtime hard cutover is in place: no `PaneEventEnvelope`, no legacy bridge shims, no dual-bus compatibility constructors.
+- Runtime contracts are split by responsibility (`RuntimeEnvelopeCore`, `RuntimeEnvelopeMetadata`, `RuntimeEnvelopeFactories`, `RuntimeEnvelopeSources`).
+- Canonical/cache/UI persistence split is wired end-to-end (`WorkspaceStore`, `WorkspaceCacheStore`, `WorkspaceUIStore` + `WorkspacePersistor` 3-file IO).
+- Sidebar is rewired to read `WorkspaceCacheStore`/`WorkspaceUIStore` and no longer mutates repo worktrees directly.
+- `WorkspaceGitWorkingTreeStore` is removed; git sidebar state flows through `WorkspaceCacheCoordinator` + `WorktreeEnrichment`.
+- Concrete FSEvents client wiring is in app composition (`DarwinFSEventStreamClient`).
+- `ForgeActor` is implemented as an event-bus consumer/producer and emits `WorktreeEnvelope(.forge(...))`.
+- Review-blocker closures are implemented:
+  - system topology is routed via `SystemEnvelope`,
+  - reducer ingests system tier,
+  - replay/loss/drop paths are surfaced,
+  - runtime envelope ingestion is covered by dedicated tests.
+- Sidebar grouping/filtering now runs through `SidebarRepo` (canonical identity + worktree payload) and `SidebarFilterableRepository`; sidebar no longer types repo collections as `[Repo]`.
+- Discovery mutation API has been renamed to `reconcileDiscoveredWorktrees` to align with event-driven topology reconciliation (and remove stale `updateRepoWorktrees` callsites).
+- Architecture docs are synced for the RuntimeEnvelope cutover in key normative sections (`pane_runtime_architecture.md`, `pane_runtime_eventbus_design.md`, `component_architecture.md`), and Task 11 stale-reference grep is clean.
+
 ---
 
 ## Architecture References (Authoritative)
@@ -1099,7 +1117,7 @@ After Tasks 1-3 land new Swift types, update any code samples in architecture do
 
 **Step 3: Run markdown sanity check**
 
-Run: `rg -n "TODO\(LUNA-350\)|TBD|NEEDS SPEC" docs/architecture/*.md docs/plans/*.md`
+Run: `rg -n "TODO\(LUNA-350\)|\\bTBD\\b|NEEDS SPEC" docs/architecture/*.md docs/plans/*.md`
 Expected: no unresolved placeholders for this scope.
 
 **Step 4: Commit**
@@ -1165,37 +1183,37 @@ git commit -m "chore(luna-350): final verification pass and contract cleanup"
 ## Acceptance Checklist
 
 **Event Architecture:**
-- [ ] All event-plane producers emit `RuntimeEnvelope` with correct tier scoping.
-- [ ] Topology events are `SystemEnvelope` and never require `repoId`.
-- [ ] Filesystem/git/forge events are `WorktreeEnvelope` with required `repoId`.
-- [ ] Bus replay policy (256 events/source) is documented and implemented consistently.
-- [ ] Legacy envelope path removed completely: no `PaneEventEnvelope`, `fromLegacy`, `toLegacy`, or dual-bus constructors.
-- [ ] `RuntimeEnvelope` contracts are split by responsibility (core, metadata, factories), not monolithic.
-- [ ] `NotificationReducer` handles `.system` envelopes with tested behavior (no silent discard).
+- [x] All event-plane producers emit `RuntimeEnvelope` with correct tier scoping.
+- [x] Topology events are `SystemEnvelope` and never require `repoId`.
+- [x] Filesystem/git/forge events are `WorktreeEnvelope` with required `repoId`.
+- [x] Bus replay policy (256 events/source) is documented and implemented consistently.
+- [x] Legacy envelope path removed completely: no `PaneEventEnvelope`, `fromLegacy`, `toLegacy`, or dual-bus constructors.
+- [x] `RuntimeEnvelope` contracts are split by responsibility (core, metadata, factories), not monolithic.
+- [x] `NotificationReducer` handles `.system` envelopes with tested behavior (no silent discard).
 
 **Model & Persistence:**
 - [ ] `Repo`/`Worktree` structs split into canonical + enrichment tiers (no contamination).
-- [ ] Persistence writes to three files: `workspace.state.json`, `workspace.cache.json`, `workspace.ui.json`.
-- [ ] `WorkspaceCacheCoordinator` is sole event-driven mutator for canonical/cache split.
+- [x] Persistence writes to three files: `workspace.state.json`, `workspace.cache.json`, `workspace.ui.json`.
+- [x] `WorkspaceCacheCoordinator` is sole event-driven mutator for canonical/cache split.
 
 **Production Pipeline:**
-- [ ] Concrete `DarwinFSEventStreamClient` wired in production composition root (no more `NoopFSEventStreamClient` in production).
+- [x] Concrete `DarwinFSEventStreamClient` wired in production composition root (no more `NoopFSEventStreamClient` in production).
 - [ ] Boot sequence follows the 10-step order from architecture spec.
-- [ ] `repoWorktreesDidChangeHook` removed; filesystem sync driven by bus topology events.
+- [x] `repoWorktreesDidChangeHook` removed; filesystem sync driven by bus topology events.
 
 **Sidebar & Consumers:**
-- [ ] Sidebar is pure reader; direct `updateRepoWorktrees` mutations removed from all UI callsites.
-- [ ] `WorkspaceGitWorkingTreeStore` removed; sidebar reads from `WorkspaceCacheStore`.
-- [ ] `DynamicViewProjector` reads from canonical + enrichment models, not contaminated `Repo`.
+- [x] Sidebar is pure reader; direct `updateRepoWorktrees` mutations removed from all UI callsites.
+- [x] `WorkspaceGitWorkingTreeStore` removed; sidebar reads from `WorkspaceCacheStore`.
+- [x] `DynamicViewProjector` reads from canonical + enrichment models, not contaminated `Repo`.
 
 **Lifecycle:**
 - [ ] Repo-move/orphan/relink lifecycle works with stable UUID identity semantics.
 
 **Quality Gate:**
-- [ ] `mise run format`, `mise run lint`, and `mise run test` all pass.
-- [ ] No `TODO(LUNA-349)` or `TODO(LUNA-350)` markers remain in production source.
-- [ ] `EventBus` shutdown/deinit closes subscriber continuations deterministically.
-- [ ] Replay subscribe outcomes are checked and replay gaps are observable in logs/tests.
+- [x] `mise run format`, `mise run lint`, and `mise run test` all pass.
+- [x] No `TODO(LUNA-349)` or `TODO(LUNA-350)` markers remain in production source.
+- [x] `EventBus` shutdown/deinit closes subscriber continuations deterministically.
+- [x] Replay subscribe outcomes are checked and replay gaps are observable in logs/tests.
 
 ---
 

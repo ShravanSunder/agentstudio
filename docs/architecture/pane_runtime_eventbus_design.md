@@ -223,7 +223,7 @@ Pane/tab lifecycle transitions. Originate on MainActor, rare, but multiple consu
 
 Cooperative pool actor. Fan-out only — no domain logic, no filtering, no transformation. The bus is a dumb pipe with subscriber management.
 
-> **Type parameter migration:** The bus is generic over `Envelope`. Currently instantiated as `EventBus<PaneEventEnvelope>`. LUNA-350 migrates to `EventBus<RuntimeEnvelope>` where `RuntimeEnvelope` is a 3-tier discriminated union (`SystemEnvelope`, `WorktreeEnvelope`, `PaneEnvelope`). The bus itself is unchanged — only the payload type widens. Code examples in this section show BOTH current state (`PaneEventEnvelope`) and target state (`RuntimeEnvelope`); the ForgeActor example below uses the target type. See [Workspace Data Architecture](workspace_data_architecture.md) for the `RuntimeEnvelope` spec.
+> **Type parameter:** The bus is generic over `Envelope` and is now instantiated as `EventBus<RuntimeEnvelope>`, where `RuntimeEnvelope` is the 3-tier discriminated union (`SystemEnvelope`, `WorktreeEnvelope`, `PaneEnvelope`). The bus itself remains unchanged — only the payload type widened.
 
 ```swift
 /// Central fan-out for pane/system events.
@@ -384,7 +384,7 @@ User action → PaneCoordinator → ProcessExecutor → git commit → result
 
 No ongoing state = no actor. ProcessExecutor already offloads to `DispatchQueue.global()`. The feedback loop is natural:
 
-- **Local mutations** (commit, stash, checkout): FSEvents fires → FilesystemActor picks up → recomputes git status → `bus.post()` → consumers see updated state.
+- **Local mutations** (commit, stash, checkout): FSEvents fires → FilesystemActor picks up → GitWorkingDirectoryProjector emits updated local snapshot events → `bus.post()` → consumers see updated state.
 - **Remote mutations** (push): Coordinator signals `ForgeActor.refresh(repo:)` → ForgeActor re-polls PR status → `bus.post()` if changed.
 
 The command doesn't post to the bus directly — the reactive system handles fanout.
@@ -398,7 +398,7 @@ These consume from EventBus via `for await`:
 ```swift
 @MainActor
 final class NotificationReducer {
-    private let bus: EventBus<PaneEventEnvelope>
+    private let bus: EventBus<RuntimeEnvelope>
 
     func startConsuming() {
         Task { @MainActor in
@@ -1112,7 +1112,7 @@ Incremental, each step independently shippable:
 
 1. **Multi-subscriber fan-out on existing runtimes.** Replace single `AsyncStream.Continuation` with array of continuations. Runtime's `subscribe()` returns independent stream per caller. This is a prerequisite for the bus — it proves fan-out semantics work at the runtime level.
 
-2. **Introduce `actor EventBus<PaneEventEnvelope>`.** Central merge point. Runtimes post to bus after `@Observable` mutation. Reducer and coordinator subscribe from bus instead of per-runtime streams.
+2. **Introduce `actor EventBus<RuntimeEnvelope>`.** Central merge point. Runtimes and boundary actors post to bus after mutation/enrichment. Reducer and coordinator subscribe from bus instead of per-runtime streams.
 
 3. **Migrate consumers to bus subscriptions.** `NotificationReducer`, `PaneCoordinator`, and any future consumers subscribe to the bus. Per-runtime subscriptions become an implementation detail (runtime → bus posting).
 

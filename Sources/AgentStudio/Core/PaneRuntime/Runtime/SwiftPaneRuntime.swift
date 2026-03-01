@@ -80,7 +80,7 @@ final class SwiftPaneRuntime: BusPostingPaneRuntime {
         }
     }
 
-    func subscribe() -> AsyncStream<PaneEventEnvelope> {
+    func subscribe() -> AsyncStream<RuntimeEnvelope> {
         eventChannel.subscribe(isTerminated: lifecycle == .terminated)
     }
 

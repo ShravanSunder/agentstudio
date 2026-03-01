@@ -75,16 +75,17 @@ struct EventReplayBufferTests {
         seq: UInt64,
         timestamp: ContinuousClock.Instant = ContinuousClock().now,
         event: PaneRuntimeEvent
-    ) -> PaneEventEnvelope {
-        PaneEventEnvelope(
-            source: .pane(PaneId()),
-            paneKind: .terminal,
-            seq: seq,
-            commandId: nil,
-            correlationId: nil,
-            timestamp: timestamp,
-            epoch: 0,
-            event: event
+    ) -> RuntimeEnvelope {
+        let paneId = PaneId()
+        return .pane(
+            PaneEnvelope(
+                source: .pane(paneId),
+                seq: seq,
+                timestamp: timestamp,
+                paneId: paneId,
+                paneKind: .terminal,
+                event: event
+            )
         )
     }
 }

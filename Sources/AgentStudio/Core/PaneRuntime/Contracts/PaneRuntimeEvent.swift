@@ -1,6 +1,6 @@
 import Foundation
 
-/// Discriminated union for all runtime-plane events carried on `PaneEventEnvelope`.
+/// Discriminated union for all pane-scoped runtime-plane events carried on `RuntimeEnvelope.pane`.
 ///
 /// Each case defines its own domain payload and participates in self-classifying
 /// `actionPolicy` routing through `NotificationReducer`.
@@ -60,77 +60,6 @@ enum FilesystemEvent: Sendable {
     case gitSnapshotChanged(snapshot: GitWorkingTreeSnapshot)
     case diffAvailable(diffId: UUID, worktreeId: UUID, repoId: UUID)
     case branchChanged(worktreeId: UUID, repoId: UUID, from: String, to: String)
-}
-
-/// Compatibility namespace mapping used during staged migration from
-/// `PaneEventEnvelope` to scoped `RuntimeEnvelope` event routing.
-enum FilesystemCompatibilityScope: Sendable, Equatable {
-    case systemTopology
-    case worktreeFilesystem
-    case worktreeGitWorkingDirectory
-}
-
-extension FilesystemCompatibilityScope: CustomStringConvertible {
-    var description: String {
-        switch self {
-        case .systemTopology: return "system.topology"
-        case .worktreeFilesystem: return "worktree.filesystem"
-        case .worktreeGitWorkingDirectory: return "worktree.gitWorkingDirectory"
-        }
-    }
-}
-
-extension FilesystemEvent {
-    /// Returns the scoped RuntimeEnvelope namespace this legacy event will target.
-    var compatibilityScope: FilesystemCompatibilityScope {
-        switch self {
-        case .worktreeRegistered, .worktreeUnregistered:
-            return .systemTopology
-        case .filesChanged:
-            return .worktreeFilesystem
-        case .gitSnapshotChanged, .diffAvailable, .branchChanged:
-            return .worktreeGitWorkingDirectory
-        }
-    }
-
-    /// Returns a compatibility worktree-scoped event when old/new payloads are shape-compatible.
-    var compatibilityWorktreeScopedEvent: WorktreeScopedEvent? {
-        switch self {
-        case .filesChanged(let changeset):
-            return .filesystem(.filesChanged(changeset: changeset))
-        case .gitSnapshotChanged(let snapshot):
-            return .gitWorkingDirectory(.snapshotChanged(snapshot: snapshot))
-        case .diffAvailable(let diffId, let worktreeId, let repoId):
-            return .gitWorkingDirectory(
-                .diffAvailable(diffId: diffId, worktreeId: worktreeId, repoId: repoId)
-            )
-        case .branchChanged(let worktreeId, let repoId, let from, let to):
-            return .gitWorkingDirectory(
-                .branchChanged(worktreeId: worktreeId, repoId: repoId, from: from, to: to)
-            )
-        case .worktreeRegistered, .worktreeUnregistered:
-            return nil
-        }
-    }
-
-    /// Returns a compatibility topology event for legacy register/unregister facts.
-    ///
-    /// `worktreeUnregistered` does not carry path context in the legacy payload;
-    /// callers may pass `unregisterRootPath` from retained registration state.
-    func compatibilityTopologyEvent(unregisterRootPath: URL? = nil) -> TopologyEvent? {
-        switch self {
-        case .worktreeRegistered(_, _, let rootPath):
-            return .repoDiscovered(
-                repoPath: rootPath,
-                parentPath: rootPath.deletingLastPathComponent()
-            )
-        case .worktreeUnregistered:
-            guard let unregisterRootPath else { return nil }
-            return .repoRemoved(repoPath: unregisterRootPath)
-        case .filesChanged, .gitSnapshotChanged, .diffAvailable, .branchChanged:
-            return nil
-        }
-    }
 }
 
 struct FileChangeset: Sendable {

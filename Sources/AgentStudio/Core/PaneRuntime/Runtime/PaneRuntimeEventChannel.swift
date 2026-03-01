@@ -15,7 +15,7 @@ final class PaneRuntimeEventChannel {
 
     private var sequence: UInt64 = 0
     private var nextSubscriberId: UInt64 = 0
-    private var subscribers: [UInt64: AsyncStream<PaneEventEnvelope>.Continuation] = [:]
+    private var subscribers: [UInt64: AsyncStream<RuntimeEnvelope>.Continuation] = [:]
 
     init(
         clock: ContinuousClock = ContinuousClock(),
@@ -31,8 +31,8 @@ final class PaneRuntimeEventChannel {
         sequence
     }
 
-    func subscribe(isTerminated: Bool) -> AsyncStream<PaneEventEnvelope> {
-        let (stream, continuation) = AsyncStream.makeStream(of: PaneEventEnvelope.self)
+    func subscribe(isTerminated: Bool) -> AsyncStream<RuntimeEnvelope> {
+        let (stream, continuation) = AsyncStream.makeStream(of: RuntimeEnvelope.self)
         guard !isTerminated else {
             continuation.finish()
             return stream
@@ -89,16 +89,17 @@ final class PaneRuntimeEventChannel {
         persistForReplay: Bool = true
     ) {
         sequence += 1
-        let envelope = PaneEventEnvelope(
-            source: .pane(paneId),
-            sourceFacets: metadata.facets,
-            paneKind: paneKind,
-            seq: sequence,
-            commandId: commandId,
-            correlationId: correlationId,
-            timestamp: clock.now,
-            epoch: 0,
-            event: event
+        let envelope = RuntimeEnvelope.pane(
+            PaneEnvelope(
+                source: .pane(paneId),
+                seq: sequence,
+                timestamp: clock.now,
+                correlationId: correlationId,
+                commandId: commandId,
+                paneId: paneId,
+                paneKind: paneKind,
+                event: event
+            )
         )
 
         if persistForReplay {
@@ -114,12 +115,14 @@ final class PaneRuntimeEventChannel {
         // Ordering is guaranteed for local subscribers/replay (yield + append above),
         // while cross-runtime bus fanout is best-effort and eventually consistent.
         Task { [paneEventBus] in
-            let postResult = await paneEventBus.post(RuntimeEnvelope.fromLegacy(envelope))
+            let postResult = await paneEventBus.post(envelope)
             if postResult.droppedCount > 0 {
                 Self.logger.warning(
                     "Dropped pane runtime bus event for \(postResult.droppedCount, privacy: .public) subscriber(s); seq=\(envelope.seq, privacy: .public)"
                 )
             }
         }
+
+        _ = metadata
     }
 }

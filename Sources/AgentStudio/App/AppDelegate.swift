@@ -55,6 +55,9 @@ class AppDelegate: NSObject, NSApplicationDelegate {
     // MARK: - Shared Services (created once at launch)
 
     private var store: WorkspaceStore!
+    private var workspaceCacheStore: WorkspaceCacheStore!
+    private var workspaceUIStore: WorkspaceUIStore!
+    private var workspaceCacheCoordinator: WorkspaceCacheCoordinator!
     private var viewRegistry: ViewRegistry!
     private var paneCoordinator: PaneCoordinator!
     private var executor: ActionExecutor!
@@ -70,6 +73,7 @@ class AppDelegate: NSObject, NSApplicationDelegate {
     private var oauthService: OAuthService!
     private var appEventTask: Task<Void, Never>?
 
+    // swiftlint:disable:next function_body_length
     func applicationDidFinishLaunching(_ notification: Notification) {
         RestoreTrace.log("appDidFinishLaunching: begin")
         // Set GHOSTTY_RESOURCES_DIR before any GhosttyKit initialization.
@@ -103,13 +107,62 @@ class AppDelegate: NSObject, NSApplicationDelegate {
             "store.restore complete tabs=\(store.tabs.count) panes=\(store.panes.count) activeTab=\(store.activeTabId?.uuidString ?? "nil")"
         )
 
+        workspaceCacheStore = WorkspaceCacheStore()
+        workspaceUIStore = WorkspaceUIStore()
+        let persistor = WorkspacePersistor()
+        if let cacheState = persistor.loadCache(for: store.workspaceId) {
+            for enrichment in cacheState.repoEnrichmentByRepoId.values {
+                workspaceCacheStore.setRepoEnrichment(enrichment)
+            }
+            for enrichment in cacheState.worktreeEnrichmentByWorktreeId.values {
+                workspaceCacheStore.setWorktreeEnrichment(enrichment)
+            }
+            for (worktreeId, count) in cacheState.pullRequestCountByWorktreeId {
+                workspaceCacheStore.setPullRequestCount(count, for: worktreeId)
+            }
+            for (worktreeId, count) in cacheState.notificationCountByWorktreeId {
+                workspaceCacheStore.setNotificationCount(count, for: worktreeId)
+            }
+            workspaceCacheStore.markRebuilt(
+                sourceRevision: cacheState.sourceRevision,
+                at: cacheState.lastRebuiltAt ?? Date()
+            )
+        }
+        if let uiState = persistor.loadUI(for: store.workspaceId) {
+            workspaceUIStore.setExpandedGroups(uiState.expandedGroups)
+            for (stableKey, colorHex) in uiState.checkoutColors {
+                workspaceUIStore.setCheckoutColor(colorHex, for: stableKey)
+            }
+            workspaceUIStore.setFilterText(uiState.filterText)
+            workspaceUIStore.setFilterVisible(uiState.isFilterVisible)
+        }
+
         runtime = SessionRuntime(store: store)
 
         // Clean up orphan zmx daemons from previous launches
         cleanupOrphanZmxSessions()
 
         viewRegistry = ViewRegistry()
-        paneCoordinator = PaneCoordinator(store: store, viewRegistry: viewRegistry, runtime: runtime)
+        let paneRuntimeBus = PaneRuntimeEventBus.shared
+        let filesystemSource = FilesystemGitPipeline(
+            bus: paneRuntimeBus,
+            fseventStreamClient: DarwinFSEventStreamClient()
+        )
+        paneCoordinator = PaneCoordinator(
+            store: store,
+            viewRegistry: viewRegistry,
+            runtime: runtime,
+            surfaceManager: SurfaceManager.shared,
+            runtimeRegistry: .shared,
+            paneEventBus: paneRuntimeBus,
+            filesystemSource: filesystemSource
+        )
+        workspaceCacheCoordinator = WorkspaceCacheCoordinator(
+            bus: paneRuntimeBus,
+            workspaceStore: store,
+            cacheStore: workspaceCacheStore
+        )
+        workspaceCacheCoordinator.startConsuming()
         executor = ActionExecutor(coordinator: paneCoordinator, store: store)
         tabBarAdapter = TabBarAdapter(store: store)
         commandBarController = CommandBarPanelController(store: store, dispatcher: .shared)
@@ -118,6 +171,8 @@ class AppDelegate: NSObject, NSApplicationDelegate {
         // Create main window
         mainWindowController = MainWindowController(
             store: store,
+            cacheStore: workspaceCacheStore,
+            uiStore: workspaceUIStore,
             actionExecutor: executor,
             tabBarAdapter: tabBarAdapter,
             viewRegistry: viewRegistry
@@ -319,6 +374,8 @@ class AppDelegate: NSObject, NSApplicationDelegate {
         } else {
             mainWindowController = MainWindowController(
                 store: store,
+                cacheStore: workspaceCacheStore,
+                uiStore: workspaceUIStore,
                 actionExecutor: executor,
                 tabBarAdapter: tabBarAdapter,
                 viewRegistry: viewRegistry
@@ -329,6 +386,38 @@ class AppDelegate: NSObject, NSApplicationDelegate {
 
     func applicationShouldTerminate(_ sender: NSApplication) -> NSApplication.TerminateReply {
         guard let store else { return .terminateNow }
+        let persistor = WorkspacePersistor()
+
+        do {
+            try persistor.saveCache(
+                .init(
+                    workspaceId: store.workspaceId,
+                    repoEnrichmentByRepoId: workspaceCacheStore.repoEnrichmentByRepoId,
+                    worktreeEnrichmentByWorktreeId: workspaceCacheStore.worktreeEnrichmentByWorktreeId,
+                    pullRequestCountByWorktreeId: workspaceCacheStore.pullRequestCountByWorktreeId,
+                    notificationCountByWorktreeId: workspaceCacheStore.notificationCountByWorktreeId,
+                    sourceRevision: workspaceCacheStore.sourceRevision,
+                    lastRebuiltAt: workspaceCacheStore.lastRebuiltAt
+                )
+            )
+        } catch {
+            appLogger.warning("Workspace cache flush failed at termination: \(error.localizedDescription)")
+        }
+
+        do {
+            try persistor.saveUI(
+                .init(
+                    workspaceId: store.workspaceId,
+                    expandedGroups: workspaceUIStore.expandedGroups,
+                    checkoutColors: workspaceUIStore.checkoutColors,
+                    filterText: workspaceUIStore.filterText,
+                    isFilterVisible: workspaceUIStore.isFilterVisible
+                )
+            )
+        } catch {
+            appLogger.warning("Workspace UI flush failed at termination: \(error.localizedDescription)")
+        }
+
         // Always flush on quit — the pre-persist hook syncs runtime webview state
         // back to the pane model, so this must run even when isDirty == false.
         if !store.flush() {

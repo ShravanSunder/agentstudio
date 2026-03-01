@@ -22,10 +22,18 @@ extension PaneCoordinator {
         scheduleFilesystemRootAndActivitySync()
     }
 
-    func handleFilesystemEnvelopeIfNeeded(_ envelope: PaneEventEnvelope) -> Bool {
-        guard case .filesystem = envelope.event else { return false }
+    func handleFilesystemEnvelopeIfNeeded(_ envelope: RuntimeEnvelope) -> Bool {
+        switch envelope {
+        case .system(let systemEnvelope):
+            guard case .topology = systemEnvelope.event else { return false }
+            scheduleFilesystemRootAndActivitySync()
+            return true
+        case .worktree:
+            break
+        case .pane:
+            return false
+        }
 
-        workspaceGitWorkingTreeStore.consume(envelope)
         paneFilesystemProjectionStore.consume(
             envelope,
             panesById: store.panes,
@@ -35,9 +43,6 @@ extension PaneCoordinator {
     }
 
     func setupFilesystemSourceSync() {
-        store.repoWorktreesDidChangeHook = { [weak self] in
-            self?.scheduleFilesystemRootAndActivitySync()
-        }
         scheduleFilesystemRootAndActivitySync()
     }
 
@@ -123,7 +128,6 @@ extension PaneCoordinator {
         filesystemActivityByWorktreeId = activityByWorktreeId
         filesystemLastActivePaneWorktreeId = activePaneWorktreeId
         let validWorktreeIds = Set(desiredContextsByWorktreeId.keys)
-        workspaceGitWorkingTreeStore.prune(validWorktreeIds: validWorktreeIds)
         paneFilesystemProjectionStore.prune(
             validPaneIds: Set(store.panes.keys),
             validWorktreeIds: validWorktreeIds

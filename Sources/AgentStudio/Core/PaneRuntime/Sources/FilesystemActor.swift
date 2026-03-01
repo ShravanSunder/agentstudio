@@ -39,8 +39,7 @@ actor FilesystemActor {
         }
     }
 
-    private let runtimeBus: EventBus<RuntimeEnvelope>?
-    private let legacyBus: EventBus<PaneEventEnvelope>?
+    private let runtimeBus: EventBus<RuntimeEnvelope>
     private let fseventStreamClient: any FSEventStreamClient
     private let envelopeClock = ContinuousClock()
     private let sleepClock: any Clock<Duration>
@@ -58,48 +57,16 @@ actor FilesystemActor {
 
     init(
         bus: EventBus<RuntimeEnvelope> = PaneRuntimeEventBus.shared,
-        fseventStreamClient: any FSEventStreamClient = NoopFSEventStreamClient(),
+        fseventStreamClient: any FSEventStreamClient = DarwinFSEventStreamClient(),
         sleepClock: any Clock<Duration> = ContinuousClock(),
         debounceWindow: Duration = .milliseconds(500),
         maxFlushLatency: Duration = .seconds(2)
     ) {
         self.runtimeBus = bus
-        self.legacyBus = nil
         self.fseventStreamClient = fseventStreamClient
         self.sleepClock = sleepClock
         self.debounceWindow = debounceWindow
         self.maxFlushLatency = maxFlushLatency
-        if fseventStreamClient is NoopFSEventStreamClient {
-            Self.logger.warning(
-                """
-                FilesystemActor initialized with NoopFSEventStreamClient; OS filesystem events are disabled. \
-                TODO(LUNA-349): wire concrete FSEventStreamClient in production composition root.
-                """
-            )
-        }
-    }
-
-    init(
-        bus: EventBus<PaneEventEnvelope>,
-        fseventStreamClient: any FSEventStreamClient = NoopFSEventStreamClient(),
-        sleepClock: any Clock<Duration> = ContinuousClock(),
-        debounceWindow: Duration = .milliseconds(500),
-        maxFlushLatency: Duration = .seconds(2)
-    ) {
-        self.runtimeBus = nil
-        self.legacyBus = bus
-        self.fseventStreamClient = fseventStreamClient
-        self.sleepClock = sleepClock
-        self.debounceWindow = debounceWindow
-        self.maxFlushLatency = maxFlushLatency
-        if fseventStreamClient is NoopFSEventStreamClient {
-            Self.logger.warning(
-                """
-                FilesystemActor initialized with NoopFSEventStreamClient; OS filesystem events are disabled. \
-                TODO(LUNA-349): wire concrete FSEventStreamClient in production composition root.
-                """
-            )
-        }
     }
 
     isolated deinit {
@@ -125,7 +92,7 @@ actor FilesystemActor {
             pathFilter: FilesystemPathFilter.load(forRootPath: rootPath)
         )
         pendingChangesByWorktreeId[worktreeId] = pendingChangesByWorktreeId[worktreeId] ?? PendingWorktreeChanges()
-        await fseventStreamClient.register(worktreeId: worktreeId, repoId: repoId, rootPath: rootPath)
+        fseventStreamClient.register(worktreeId: worktreeId, repoId: repoId, rootPath: rootPath)
         await emitFilesystemEvent(
             worktreeId: worktreeId,
             repoId: repoId,
@@ -141,7 +108,7 @@ actor FilesystemActor {
         if activePaneWorktreeId == worktreeId {
             activePaneWorktreeId = nil
         }
-        await fseventStreamClient.unregister(worktreeId: worktreeId)
+        fseventStreamClient.unregister(worktreeId: worktreeId)
         guard let removedRoot else { return }
         await emitFilesystemEvent(
             worktreeId: worktreeId,
@@ -457,36 +424,63 @@ actor FilesystemActor {
         rootPathHint: URL? = nil,
         event: FilesystemEvent
     ) async {
-        // Task 2 compatibility-only bridge: keep legacy payloads, expose explicit
-        // old -> new namespace mapping for future RuntimeEnvelope bus migration.
-        let compatibilityScope = event.compatibilityScope
         nextEnvelopeSequence += 1
-        let envelope = PaneEventEnvelope(
-            source: .system(.builtin(.filesystemWatcher)),
-            sourceFacets: PaneContextFacets(repoId: repoId, worktreeId: worktreeId, cwd: rootPathHint),
-            paneKind: nil,
-            seq: nextEnvelopeSequence,
-            commandId: nil,
-            correlationId: nil,
-            timestamp: timestamp,
-            epoch: 0,
-            event: .filesystem(event)
-        )
-        let runtimeEnvelope = RuntimeEnvelope.fromLegacy(envelope)
-        let droppedCount: Int
-        if let runtimeBus {
-            droppedCount = (await runtimeBus.post(runtimeEnvelope)).droppedCount
-        } else if let legacyBus, let legacyEnvelope = runtimeEnvelope.toLegacy() {
-            droppedCount = (await legacyBus.post(legacyEnvelope)).droppedCount
-        } else {
-            Self.logger.warning(
-                """
-                Filesystem event dropped after runtime-envelope adaptation; \
-                event=\(String(describing: event), privacy: .public)
-                """
+        let runtimeEnvelope: RuntimeEnvelope
+        switch event {
+        case .worktreeRegistered(let registeredWorktreeId, let registeredRepoId, let rootPath):
+            runtimeEnvelope = .system(
+                SystemEnvelope(
+                    source: .builtin(.filesystemWatcher),
+                    seq: nextEnvelopeSequence,
+                    timestamp: timestamp,
+                    event: .topology(
+                        .worktreeRegistered(
+                            worktreeId: registeredWorktreeId,
+                            repoId: registeredRepoId,
+                            rootPath: rootPath
+                        )
+                    )
+                )
             )
-            droppedCount = 0
+        case .worktreeUnregistered(let unregisteredWorktreeId, let unregisteredRepoId):
+            runtimeEnvelope = .system(
+                SystemEnvelope(
+                    source: .builtin(.filesystemWatcher),
+                    seq: nextEnvelopeSequence,
+                    timestamp: timestamp,
+                    event: .topology(
+                        .worktreeUnregistered(
+                            worktreeId: unregisteredWorktreeId,
+                            repoId: unregisteredRepoId
+                        )
+                    )
+                )
+            )
+        case .filesChanged:
+            runtimeEnvelope = .worktree(
+                WorktreeEnvelope(
+                    source: .system(.builtin(.filesystemWatcher)),
+                    seq: nextEnvelopeSequence,
+                    timestamp: timestamp,
+                    repoId: repoId,
+                    worktreeId: worktreeId,
+                    event: .filesystem(event)
+                )
+            )
+        case .gitSnapshotChanged, .diffAvailable, .branchChanged:
+            runtimeEnvelope = .worktree(
+                WorktreeEnvelope(
+                    source: .system(.builtin(.filesystemWatcher)),
+                    seq: nextEnvelopeSequence,
+                    timestamp: timestamp,
+                    repoId: repoId,
+                    worktreeId: worktreeId,
+                    event: .gitWorkingDirectory(gitWorkingDirectoryEvent(from: event))
+                )
+            )
         }
+
+        let droppedCount = (await runtimeBus.post(runtimeEnvelope)).droppedCount
         if droppedCount > 0 {
             Self.logger.warning(
                 "Filesystem event delivery dropped for \(droppedCount, privacy: .public) subscriber(s); seq=\(self.nextEnvelopeSequence, privacy: .public)"
@@ -495,8 +489,22 @@ actor FilesystemActor {
         Self.logger.debug(
             """
             Posted filesystem event for worktree \(worktreeId.uuidString, privacy: .public); \
-            scope=\(compatibilityScope.description, privacy: .public)
+            event=\(String(describing: event), privacy: .public)
             """
         )
+        _ = rootPathHint
+    }
+
+    private func gitWorkingDirectoryEvent(from event: FilesystemEvent) -> GitWorkingDirectoryEvent {
+        switch event {
+        case .gitSnapshotChanged(let snapshot):
+            return .snapshotChanged(snapshot: snapshot)
+        case .branchChanged(let worktreeId, let repoId, let from, let to):
+            return .branchChanged(worktreeId: worktreeId, repoId: repoId, from: from, to: to)
+        case .diffAvailable(let diffId, let worktreeId, let repoId):
+            return .diffAvailable(diffId: diffId, worktreeId: worktreeId, repoId: repoId)
+        case .worktreeRegistered, .worktreeUnregistered, .filesChanged:
+            preconditionFailure("Unsupported filesystem event for git working directory projection")
+        }
     }
 }

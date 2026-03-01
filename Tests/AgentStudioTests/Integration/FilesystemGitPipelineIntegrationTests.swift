@@ -8,7 +8,7 @@ import Testing
 struct FilesystemGitPipelineIntegrationTests {
     @Test("pipeline emits filesystem and git snapshot facts that converge projection stores")
     func pipelineEmitsFilesystemAndGitSnapshotFacts() async throws {
-        let bus = EventBus<PaneEventEnvelope>()
+        let bus = EventBus<RuntimeEnvelope>()
         let pipeline = FilesystemGitPipeline(
             bus: bus,
             gitWorkingTreeProvider: .stub { _ in
@@ -41,13 +41,18 @@ struct FilesystemGitPipelineIntegrationTests {
         let worktreeRootsByWorktreeId: [UUID: URL] = [worktreeId: rootPath]
 
         let paneProjectionStore = PaneFilesystemProjectionStore()
-        let workspaceGitWorkingTreeStore = WorkspaceGitWorkingTreeStore()
+        let cacheStore = WorkspaceCacheStore()
+        let cacheCoordinator = WorkspaceCacheCoordinator(
+            bus: bus,
+            workspaceStore: store,
+            cacheStore: cacheStore
+        )
         let observed = ObservedFilesystemGitEvents()
 
         let stream = await bus.subscribe()
         let consumerTask = Task { @MainActor in
             for await envelope in stream {
-                workspaceGitWorkingTreeStore.consume(envelope)
+                cacheCoordinator.consume(envelope)
                 paneProjectionStore.consume(
                     envelope,
                     panesById: panesById,
@@ -79,8 +84,8 @@ struct FilesystemGitPipelineIntegrationTests {
         }
         #expect(projectionConverged)
 
-        let gitStoreConverged = await eventually("workspace git snapshot should update") {
-            guard let snapshot = workspaceGitWorkingTreeStore.snapshotsByWorktreeId[worktreeId] else { return false }
+        let gitStoreConverged = await eventually("workspace cache enrichment should update") {
+            guard let snapshot = cacheStore.worktreeEnrichmentByWorktreeId[worktreeId]?.snapshot else { return false }
             return snapshot.summary.changed == 2
                 && snapshot.summary.staged == 1
                 && snapshot.summary.untracked == 1
@@ -113,14 +118,15 @@ private actor ObservedFilesystemGitEvents {
     private var filesChangedCountsByWorktreeId: [UUID: Int] = [:]
     private var gitSnapshotCountsByWorktreeId: [UUID: Int] = [:]
 
-    func record(_ envelope: PaneEventEnvelope) {
-        guard case .filesystem(let filesystemEvent) = envelope.event else { return }
-        switch filesystemEvent {
-        case .filesChanged(let changeset):
+    func record(_ envelope: RuntimeEnvelope) {
+        guard case .worktree(let worktreeEnvelope) = envelope else { return }
+
+        switch worktreeEnvelope.event {
+        case .filesystem(.filesChanged(let changeset)):
             filesChangedCountsByWorktreeId[changeset.worktreeId, default: 0] += 1
-        case .gitSnapshotChanged(let snapshot):
+        case .gitWorkingDirectory(.snapshotChanged(let snapshot)):
             gitSnapshotCountsByWorktreeId[snapshot.worktreeId, default: 0] += 1
-        case .worktreeRegistered, .worktreeUnregistered, .diffAvailable, .branchChanged:
+        case .filesystem, .gitWorkingDirectory, .forge, .security:
             return
         }
     }

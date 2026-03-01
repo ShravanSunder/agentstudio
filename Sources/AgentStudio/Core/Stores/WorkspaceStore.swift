@@ -1210,7 +1210,6 @@ final class WorkspaceStore {
         let repo = Repo(name: path.lastPathComponent, repoPath: path)
         repos.append(repo)
         markDirty()
-        notifyRepoWorktreesChanged()
         return repo
     }
 
@@ -1219,10 +1218,9 @@ final class WorkspaceStore {
         repos.removeAll { $0.id == repoId }
         guard repos.count != previousCount else { return }
         markDirty()
-        notifyRepoWorktreesChanged()
     }
 
-    func updateRepoWorktrees(_ repoId: UUID, worktrees: [Worktree]) {
+    func reconcileDiscoveredWorktrees(_ repoId: UUID, worktrees: [Worktree]) {
         guard let index = repos.firstIndex(where: { $0.id == repoId }) else { return }
         let existing = repos[index].worktrees
 
@@ -1247,7 +1245,6 @@ final class WorkspaceStore {
         repos[index].worktrees = merged
         repos[index].updatedAt = Date()
         markDirty()
-        notifyRepoWorktreesChanged()
     }
 
     // MARK: - Persistence
@@ -1347,10 +1344,6 @@ final class WorkspaceStore {
     /// back to the pane model before serialization.
     var prePersistHook: (() -> Void)?
 
-    /// Hook called when repository/worktree topology changes.
-    /// Used by coordinators to resync external lifecycle owners (filesystem, indexing, etc).
-    var repoWorktreesDidChangeHook: (() -> Void)?
-
     @discardableResult
     private func persistNow() -> Bool {
         prePersistHook?()
@@ -1396,10 +1389,6 @@ final class WorkspaceStore {
             storeLogger.error("Failed to persist workspace: \(error.localizedDescription)")
             return false
         }
-    }
-
-    private func notifyRepoWorktreesChanged() {
-        repoWorktreesDidChangeHook?()
     }
 
     // MARK: - UI State

@@ -14,8 +14,7 @@ import os
 actor GitWorkingDirectoryProjector {
     private static let logger = Logger(subsystem: "com.agentstudio", category: "GitWorkingDirectoryProjector")
 
-    private let runtimeBus: EventBus<RuntimeEnvelope>?
-    private let legacyBus: EventBus<PaneEventEnvelope>?
+    private let runtimeBus: EventBus<RuntimeEnvelope>
     private let gitWorkingTreeProvider: any GitWorkingTreeStatusProvider
     private let envelopeClock: ContinuousClock
     private let coalescingWindow: Duration
@@ -38,24 +37,6 @@ actor GitWorkingDirectoryProjector {
         subscriptionBufferLimit: Int = 256
     ) {
         self.runtimeBus = bus
-        self.legacyBus = nil
-        self.gitWorkingTreeProvider = gitWorkingTreeProvider
-        self.envelopeClock = envelopeClock
-        self.coalescingWindow = coalescingWindow
-        self.sleepClock = sleepClock
-        self.subscriptionBufferLimit = subscriptionBufferLimit
-    }
-
-    init(
-        bus: EventBus<PaneEventEnvelope>,
-        gitWorkingTreeProvider: any GitWorkingTreeStatusProvider = ShellGitWorkingTreeStatusProvider(),
-        envelopeClock: ContinuousClock = ContinuousClock(),
-        coalescingWindow: Duration = .zero,
-        sleepClock: any Clock<Duration> = ContinuousClock(),
-        subscriptionBufferLimit: Int = 256
-    ) {
-        self.runtimeBus = nil
-        self.legacyBus = bus
         self.gitWorkingTreeProvider = gitWorkingTreeProvider
         self.envelopeClock = envelopeClock
         self.coalescingWindow = coalescingWindow
@@ -73,30 +54,14 @@ actor GitWorkingDirectoryProjector {
 
     func start() async {
         guard subscriptionTask == nil else { return }
-        if let runtimeBus {
-            let stream = await runtimeBus.subscribe(
-                bufferingPolicy: .bufferingNewest(subscriptionBufferLimit)
-            )
-
-            subscriptionTask = Task { [weak self] in
-                for await runtimeEnvelope in stream {
-                    guard !Task.isCancelled else { break }
-                    guard let self else { return }
-                    await self.handleIncomingRuntimeEnvelope(runtimeEnvelope)
-                }
-            }
-            return
-        }
-
-        guard let legacyBus else { return }
-        let stream = await legacyBus.subscribe(
+        let stream = await runtimeBus.subscribe(
             bufferingPolicy: .bufferingNewest(subscriptionBufferLimit)
         )
         subscriptionTask = Task { [weak self] in
-            for await envelope in stream {
+            for await runtimeEnvelope in stream {
                 guard !Task.isCancelled else { break }
                 guard let self else { return }
-                await self.handleIncomingEnvelope(envelope)
+                await self.handleIncomingRuntimeEnvelope(runtimeEnvelope)
             }
         }
     }
@@ -163,47 +128,6 @@ actor GitWorkingDirectoryProjector {
         }
     }
 
-    private func handleIncomingEnvelope(_ envelope: PaneEventEnvelope) async {
-        guard envelope.source == .system(.builtin(.filesystemWatcher)) else { return }
-        guard case .filesystem(let filesystemEvent) = envelope.event else { return }
-
-        switch filesystemEvent.compatibilityScope {
-        case .systemTopology:
-            switch filesystemEvent {
-            case .worktreeRegistered(let worktreeId, let repoId, let rootPath):
-                suppressedWorktreeIds.remove(worktreeId)
-                // Eager materialization: publish initial snapshot before any path diff events.
-                pendingByWorktreeId[worktreeId] = FileChangeset(
-                    worktreeId: worktreeId,
-                    repoId: repoId,
-                    rootPath: rootPath,
-                    paths: [],
-                    timestamp: envelope.timestamp,
-                    batchSeq: 0
-                )
-                spawnOrCoalesce(worktreeId: worktreeId)
-            case .worktreeUnregistered(let worktreeId, _):
-                suppressedWorktreeIds.insert(worktreeId)
-                pendingByWorktreeId.removeValue(forKey: worktreeId)
-                lastKnownBranchByWorktree.removeValue(forKey: worktreeId)
-                if let task = worktreeTasks.removeValue(forKey: worktreeId) {
-                    task.cancel()
-                }
-            case .filesChanged, .gitSnapshotChanged, .branchChanged, .diffAvailable:
-                return
-            }
-        case .worktreeFilesystem:
-            guard case .filesChanged(let changeset) = filesystemEvent else { return }
-            let worktreeId = changeset.worktreeId
-            guard !suppressedWorktreeIds.contains(worktreeId) else { return }
-            pendingByWorktreeId[worktreeId] = changeset
-            spawnOrCoalesce(worktreeId: worktreeId)
-        case .worktreeGitWorkingDirectory:
-            // Ignore projector output events to prevent feedback loops.
-            return
-        }
-    }
-
     private func spawnOrCoalesce(worktreeId: UUID) {
         guard worktreeTasks[worktreeId] == nil else { return }
 
@@ -259,10 +183,10 @@ actor GitWorkingDirectoryProjector {
         guard !Task.isCancelled else { return }
         guard !suppressedWorktreeIds.contains(changeset.worktreeId) else { return }
 
-        await emitFilesystemEvent(
+        await emitGitWorkingDirectoryEvent(
             worktreeId: changeset.worktreeId,
             repoId: changeset.repoId,
-            event: .gitSnapshotChanged(
+            event: .snapshotChanged(
                 snapshot: GitWorkingTreeSnapshot(
                     worktreeId: changeset.worktreeId,
                     repoId: changeset.repoId,
@@ -277,7 +201,7 @@ actor GitWorkingDirectoryProjector {
             let nextBranch = statusSnapshot.branch,
             previousBranch != nextBranch
         {
-            await emitFilesystemEvent(
+            await emitGitWorkingDirectoryEvent(
                 worktreeId: changeset.worktreeId,
                 repoId: changeset.repoId,
                 event: .branchChanged(
@@ -291,38 +215,24 @@ actor GitWorkingDirectoryProjector {
         lastKnownBranchByWorktree[changeset.worktreeId] = statusSnapshot.branch
     }
 
-    private func emitFilesystemEvent(worktreeId: UUID, repoId: UUID, event: FilesystemEvent) async {
+    private func emitGitWorkingDirectoryEvent(
+        worktreeId: UUID,
+        repoId: UUID,
+        event: GitWorkingDirectoryEvent
+    ) async {
         nextEnvelopeSequence += 1
-        let envelope = PaneEventEnvelope(
-            source: .system(.builtin(.gitWorkingDirectoryProjector)),
-            sourceFacets: PaneContextFacets(repoId: repoId, worktreeId: worktreeId),
-            paneKind: nil,
-            seq: nextEnvelopeSequence,
-            commandId: nil,
-            correlationId: nil,
-            timestamp: envelopeClock.now,
-            epoch: 0,
-            event: .filesystem(event)
+        let envelope = RuntimeEnvelope.worktree(
+            WorktreeEnvelope(
+                source: .system(.builtin(.gitWorkingDirectoryProjector)),
+                seq: nextEnvelopeSequence,
+                timestamp: envelopeClock.now,
+                repoId: repoId,
+                worktreeId: worktreeId,
+                event: .gitWorkingDirectory(event)
+            )
         )
-        let runtimeEnvelope = RuntimeEnvelope.fromLegacy(envelope)
-        let droppedCount: Int
-        if let runtimeBus {
-            droppedCount = (await runtimeBus.post(runtimeEnvelope)).droppedCount
-        } else if let legacyBus {
-            if let legacyEnvelope = runtimeEnvelope.toLegacy() {
-                droppedCount = (await legacyBus.post(legacyEnvelope)).droppedCount
-            } else {
-                Self.logger.warning(
-                    """
-                    Git projector event dropped after runtime-envelope adaptation; \
-                    event=\(String(describing: event), privacy: .public)
-                    """
-                )
-                droppedCount = 0
-            }
-        } else {
-            droppedCount = 0
-        }
+
+        let droppedCount = (await runtimeBus.post(envelope)).droppedCount
         if droppedCount > 0 {
             Self.logger.warning(
                 "Git projector event delivery dropped for \(droppedCount, privacy: .public) subscriber(s); seq=\(self.nextEnvelopeSequence, privacy: .public)"

@@ -13,11 +13,11 @@ final class NotificationReducer {
     private let clock: any Clock<Duration>
     private let tierResolver: (any VisibilityTierResolver)?
 
-    private let criticalContinuation: AsyncStream<PaneEventEnvelope>.Continuation
-    let criticalEvents: AsyncStream<PaneEventEnvelope>
+    private let criticalContinuation: AsyncStream<RuntimeEnvelope>.Continuation
+    let criticalEvents: AsyncStream<RuntimeEnvelope>
 
-    private let batchContinuation: AsyncStream<[PaneEventEnvelope]>.Continuation
-    let batchedEvents: AsyncStream<[PaneEventEnvelope]>
+    private let batchContinuation: AsyncStream<[RuntimeEnvelope]>.Continuation
+    let batchedEvents: AsyncStream<[RuntimeEnvelope]>
 
     private var criticalBufferByTier: [VisibilityTier: [RuntimeEnvelope]] = [:]
     private var criticalFlushTask: Task<Void, Never>?
@@ -31,11 +31,11 @@ final class NotificationReducer {
         self.clock = clock
         self.tierResolver = tierResolver
 
-        let (criticalEvents, criticalContinuation) = AsyncStream.makeStream(of: PaneEventEnvelope.self)
+        let (criticalEvents, criticalContinuation) = AsyncStream.makeStream(of: RuntimeEnvelope.self)
         self.criticalEvents = criticalEvents
         self.criticalContinuation = criticalContinuation
 
-        let (batchedEvents, batchContinuation) = AsyncStream.makeStream(of: [PaneEventEnvelope].self)
+        let (batchedEvents, batchContinuation) = AsyncStream.makeStream(of: [RuntimeEnvelope].self)
         self.batchedEvents = batchedEvents
         self.batchContinuation = batchContinuation
     }
@@ -51,7 +51,7 @@ final class NotificationReducer {
         switch envelope.actionPolicy {
         case .critical:
             guard tierResolver != nil else {
-                emitCriticalLegacyEnvelopeIfPossible(envelope)
+                criticalContinuation.yield(envelope)
                 return
             }
             let visibilityTier = tier(for: envelope)
@@ -70,10 +70,6 @@ final class NotificationReducer {
             }
             ensureFrameTimer()
         }
-    }
-
-    func submit(_ envelope: PaneEventEnvelope) {
-        submit(RuntimeEnvelope.fromLegacy(envelope))
     }
 
     private func ensureCriticalFlushTask() {
@@ -113,7 +109,7 @@ final class NotificationReducer {
             let queued = (criticalBufferByTier[visibilityTier] ?? []).sorted(by: compareEnvelopes)
             guard !queued.isEmpty else { continue }
             for envelope in queued {
-                emitCriticalLegacyEnvelopeIfPossible(envelope)
+                criticalContinuation.yield(envelope)
             }
         }
         criticalBufferByTier.removeAll(keepingCapacity: true)
@@ -124,36 +120,9 @@ final class NotificationReducer {
         var batch = Array(lossyBuffer.values)
         batch.sort(by: compareEnvelopes)
         lossyBuffer.removeAll(keepingCapacity: true)
-        let legacyBatch = batch.compactMap { envelope -> PaneEventEnvelope? in
-            guard let legacyEnvelope = envelope.toLegacy() else {
-                Self.logger.debug(
-                    """
-                    Skipped lossy runtime envelope without legacy mapping; \
-                    source=\(String(describing: envelope.source), privacy: .public) \
-                    seq=\(envelope.seq, privacy: .public)
-                    """
-                )
-                return nil
-            }
-            return legacyEnvelope
+        if !batch.isEmpty {
+            batchContinuation.yield(batch)
         }
-        if !legacyBatch.isEmpty {
-            batchContinuation.yield(legacyBatch)
-        }
-    }
-
-    private func emitCriticalLegacyEnvelopeIfPossible(_ envelope: RuntimeEnvelope) {
-        guard let legacyEnvelope = envelope.toLegacy() else {
-            Self.logger.debug(
-                """
-                Skipped critical runtime envelope without legacy mapping; \
-                source=\(String(describing: envelope.source), privacy: .public) \
-                seq=\(envelope.seq, privacy: .public)
-                """
-            )
-            return
-        }
-        criticalContinuation.yield(legacyEnvelope)
     }
 
     private func compareEnvelopes(_ lhs: RuntimeEnvelope, _ rhs: RuntimeEnvelope) -> Bool {

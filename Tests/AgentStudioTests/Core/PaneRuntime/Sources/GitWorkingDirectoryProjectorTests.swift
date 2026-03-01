@@ -7,7 +7,7 @@ import Testing
 struct GitWorkingDirectoryProjectorTests {
     @Test("worktreeRegistered triggers eager initial git snapshot")
     func worktreeRegisteredTriggersEagerInitialGitSnapshot() async throws {
-        let bus = EventBus<PaneEventEnvelope>()
+        let bus = EventBus<RuntimeEnvelope>()
         let provider = StubGitWorkingTreeStatusProvider { _ in
             GitWorkingTreeStatus(
                 summary: GitWorkingTreeSummary(changed: 0, staged: 0, untracked: 0),
@@ -48,7 +48,7 @@ struct GitWorkingDirectoryProjectorTests {
 
     @Test("filesChanged triggers git snapshot fact")
     func filesChangedTriggersGitSnapshotFact() async throws {
-        let bus = EventBus<PaneEventEnvelope>()
+        let bus = EventBus<RuntimeEnvelope>()
         let provider = StubGitWorkingTreeStatusProvider { _ in
             GitWorkingTreeStatus(
                 summary: GitWorkingTreeSummary(changed: 3, staged: 1, untracked: 2),
@@ -86,7 +86,7 @@ struct GitWorkingDirectoryProjectorTests {
 
     @Test("projector emits derived git facts with dedicated system source tag")
     func projectorEmitsWithDedicatedSystemSource() async throws {
-        let bus = EventBus<PaneEventEnvelope>()
+        let bus = EventBus<RuntimeEnvelope>()
         let provider = StubGitWorkingTreeStatusProvider { _ in
             GitWorkingTreeStatus(
                 summary: GitWorkingTreeSummary(changed: 1, staged: 0, untracked: 0),
@@ -108,35 +108,26 @@ struct GitWorkingDirectoryProjectorTests {
         await bus.post(makeFilesChangedEnvelope(seq: 1, worktreeId: worktreeId, rootPath: rootPath, batchSeq: 1))
 
         var observedDerivedSource: EventSource?
-        var observedDerivedFilesystemEvent: FilesystemEvent?
+        var observedDerivedSnapshot: GitWorkingTreeSnapshot?
         for _ in 0..<20 {
             guard let envelope = await iterator.next() else { break }
-            guard case .filesystem(let filesystemEvent) = envelope.event else { continue }
-            guard case .gitSnapshotChanged = filesystemEvent else { continue }
-            observedDerivedSource = envelope.source
-            observedDerivedFilesystemEvent = filesystemEvent
+            guard case .worktree(let worktreeEnvelope) = envelope else { continue }
+            guard case .gitWorkingDirectory(.snapshotChanged(let snapshot)) = worktreeEnvelope.event else { continue }
+            observedDerivedSource = worktreeEnvelope.source
+            observedDerivedSnapshot = snapshot
             break
         }
 
         #expect(observedDerivedSource == .system(.builtin(.gitWorkingDirectoryProjector)))
-        let compatibilityEvent = try #require(observedDerivedFilesystemEvent)
-        #expect(compatibilityEvent.compatibilityScope == .worktreeGitWorkingDirectory)
-        guard
-            case .gitWorkingDirectory(.snapshotChanged(let mappedSnapshot))? =
-            compatibilityEvent.compatibilityWorktreeScopedEvent
-        else {
-            Issue.record("Expected gitSnapshotChanged compatibility mapping")
-            await actor.shutdown()
-            return
-        }
-        #expect(mappedSnapshot.worktreeId == worktreeId)
-        #expect(mappedSnapshot.branch == "main")
+        let derivedSnapshot = try #require(observedDerivedSnapshot)
+        #expect(derivedSnapshot.worktreeId == worktreeId)
+        #expect(derivedSnapshot.branch == "main")
         await actor.shutdown()
     }
 
     @Test("provider nil status emits no git snapshot facts")
     func providerNilStatusEmitsNoGitSnapshotFacts() async throws {
-        let bus = EventBus<PaneEventEnvelope>()
+        let bus = EventBus<RuntimeEnvelope>()
         let provider = StubGitWorkingTreeStatusProvider { _ in nil }
         let actor = GitWorkingDirectoryProjector(
             bus: bus,
@@ -166,7 +157,7 @@ struct GitWorkingDirectoryProjectorTests {
 
     @Test("coalesces same worktree to latest while compute in-flight")
     func coalescesSameWorktreeToLatest() async throws {
-        let bus = EventBus<PaneEventEnvelope>()
+        let bus = EventBus<RuntimeEnvelope>()
         let gate = AsyncGate()
         let calls = CallCounter()
         let provider = StubGitWorkingTreeStatusProvider { _ in
@@ -213,7 +204,7 @@ struct GitWorkingDirectoryProjectorTests {
 
     @Test("non-zero coalescing window merges rapid same-worktree bursts into one compute")
     func nonZeroCoalescingWindowMergesRapidBursts() async throws {
-        let bus = EventBus<PaneEventEnvelope>()
+        let bus = EventBus<RuntimeEnvelope>()
         let calls = CallCounter()
         let provider = StubGitWorkingTreeStatusProvider { _ in
             _ = await calls.increment()
@@ -252,7 +243,7 @@ struct GitWorkingDirectoryProjectorTests {
 
     @Test("independent worktrees run independently")
     func independentWorktreesRunIndependently() async throws {
-        let bus = EventBus<PaneEventEnvelope>()
+        let bus = EventBus<RuntimeEnvelope>()
         let gate = AsyncGate()
         let calls = CallCounter()
         let provider = StubGitWorkingTreeStatusProvider { _ in
@@ -309,7 +300,7 @@ struct GitWorkingDirectoryProjectorTests {
 
     @Test("worktree unregistration cancels and clears state")
     func worktreeUnregistrationCancelsAndClearsState() async throws {
-        let bus = EventBus<PaneEventEnvelope>()
+        let bus = EventBus<RuntimeEnvelope>()
         let gate = AsyncGate()
         let calls = CallCounter()
         let provider = StubGitWorkingTreeStatusProvider { _ in
@@ -360,7 +351,7 @@ struct GitWorkingDirectoryProjectorTests {
 
     @Test("shutdown while provider is in-flight does not emit stale snapshot")
     func shutdownWhileProviderIsInFlightDoesNotEmitStaleSnapshot() async throws {
-        let bus = EventBus<PaneEventEnvelope>()
+        let bus = EventBus<RuntimeEnvelope>()
         let gate = AsyncGate()
         let calls = CallCounter()
         let provider = StubGitWorkingTreeStatusProvider { _ in
@@ -404,7 +395,7 @@ struct GitWorkingDirectoryProjectorTests {
 
     @Test("branchChanged emits when consecutive snapshots change branch")
     func branchChangedEmitsWhenConsecutiveSnapshotsChangeBranch() async throws {
-        let bus = EventBus<PaneEventEnvelope>()
+        let bus = EventBus<RuntimeEnvelope>()
         let calls = CallCounter()
         let provider = StubGitWorkingTreeStatusProvider { _ in
             let callNumber = await calls.increment()
@@ -443,21 +434,6 @@ struct GitWorkingDirectoryProjectorTests {
         let branchEvent = await observed.latestBranchEvent(for: worktreeId)
         #expect(branchEvent?.0 == "main")
         #expect(branchEvent?.1 == "feature/split")
-        let compatibilityEvent = try #require(await observed.latestBranchFilesystemEvent(for: worktreeId))
-        #expect(compatibilityEvent.compatibilityScope == .worktreeGitWorkingDirectory)
-        guard
-            case .gitWorkingDirectory(.branchChanged(let mappedWorktreeId, let mappedRepoId, let from, let to))? =
-            compatibilityEvent.compatibilityWorktreeScopedEvent
-        else {
-            Issue.record("Expected branchChanged compatibility mapping")
-            await actor.shutdown()
-            collectionTask.cancel()
-            return
-        }
-        #expect(mappedWorktreeId == worktreeId)
-        #expect(mappedRepoId == worktreeId)
-        #expect(from == "main")
-        #expect(to == "feature/split")
 
         await actor.shutdown()
         collectionTask.cancel()
@@ -465,7 +441,7 @@ struct GitWorkingDirectoryProjectorTests {
 
     @Test("git internal-only filesChanged event still triggers git snapshot projection")
     func gitInternalOnlyFilesChangedEventStillTriggersSnapshot() async throws {
-        let bus = EventBus<PaneEventEnvelope>()
+        let bus = EventBus<RuntimeEnvelope>()
         let provider = StubGitWorkingTreeStatusProvider { _ in
             GitWorkingTreeStatus(
                 summary: GitWorkingTreeSummary(changed: 1, staged: 0, untracked: 0),
@@ -509,7 +485,7 @@ struct GitWorkingDirectoryProjectorTests {
     }
 
     private func startCollection(
-        on bus: EventBus<PaneEventEnvelope>,
+        on bus: EventBus<RuntimeEnvelope>,
         observed: ObservedGitEvents
     ) async -> Task<Void, Never> {
         let stream = await bus.subscribe()
@@ -529,7 +505,7 @@ struct GitWorkingDirectoryProjectorTests {
         containsGitInternalChanges: Bool = false,
         suppressedIgnoredPathCount: Int = 0,
         suppressedGitInternalPathCount: Int = 0
-    ) -> PaneEventEnvelope {
+    ) -> RuntimeEnvelope {
         makeEnvelope(
             seq: seq,
             worktreeId: worktreeId,
@@ -552,18 +528,89 @@ struct GitWorkingDirectoryProjectorTests {
         seq: UInt64,
         worktreeId: UUID,
         event: FilesystemEvent
-    ) -> PaneEventEnvelope {
-        PaneEventEnvelope(
-            source: .system(.builtin(.filesystemWatcher)),
-            sourceFacets: PaneContextFacets(worktreeId: worktreeId),
-            paneKind: nil,
-            seq: seq,
-            commandId: nil,
-            correlationId: nil,
-            timestamp: ContinuousClock().now,
-            epoch: 0,
-            event: .filesystem(event)
-        )
+    ) -> RuntimeEnvelope {
+        switch event {
+        case .worktreeRegistered(let registeredWorktreeId, let repoId, let rootPath):
+            return .system(
+                SystemEnvelope.test(
+                    event: .topology(
+                        .worktreeRegistered(
+                            worktreeId: registeredWorktreeId,
+                            repoId: repoId,
+                            rootPath: rootPath
+                        )
+                    ),
+                    source: .builtin(.filesystemWatcher),
+                    seq: seq
+                )
+            )
+        case .worktreeUnregistered(let unregisteredWorktreeId, let repoId):
+            return .system(
+                SystemEnvelope.test(
+                    event: .topology(
+                        .worktreeUnregistered(
+                            worktreeId: unregisteredWorktreeId,
+                            repoId: repoId
+                        )
+                    ),
+                    source: .builtin(.filesystemWatcher),
+                    seq: seq
+                )
+            )
+        case .filesChanged(let changeset):
+            return .worktree(
+                WorktreeEnvelope.test(
+                    event: .filesystem(.filesChanged(changeset: changeset)),
+                    repoId: changeset.repoId,
+                    worktreeId: changeset.worktreeId,
+                    source: .system(.builtin(.filesystemWatcher)),
+                    seq: seq
+                )
+            )
+        case .gitSnapshotChanged(let snapshot):
+            return .worktree(
+                WorktreeEnvelope.test(
+                    event: .gitWorkingDirectory(.snapshotChanged(snapshot: snapshot)),
+                    repoId: snapshot.repoId,
+                    worktreeId: snapshot.worktreeId,
+                    source: .system(.builtin(.filesystemWatcher)),
+                    seq: seq
+                )
+            )
+        case .diffAvailable(let diffId, let changedWorktreeId, let repoId):
+            return .worktree(
+                WorktreeEnvelope.test(
+                    event: .gitWorkingDirectory(
+                        .diffAvailable(
+                            diffId: diffId,
+                            worktreeId: changedWorktreeId,
+                            repoId: repoId
+                        )
+                    ),
+                    repoId: repoId,
+                    worktreeId: changedWorktreeId,
+                    source: .system(.builtin(.filesystemWatcher)),
+                    seq: seq
+                )
+            )
+        case .branchChanged(let changedWorktreeId, let repoId, let from, let to):
+            return .worktree(
+                WorktreeEnvelope.test(
+                    event: .gitWorkingDirectory(
+                        .branchChanged(
+                            worktreeId: changedWorktreeId,
+                            repoId: repoId,
+                            from: from,
+                            to: to
+                        )
+                    ),
+                    repoId: repoId,
+                    worktreeId: changedWorktreeId,
+                    source: .system(.builtin(.filesystemWatcher)),
+                    seq: seq
+                )
+            )
+        }
     }
 
     private func waitUntil(
@@ -586,20 +633,19 @@ struct GitWorkingDirectoryProjectorTests {
 private actor ObservedGitEvents {
     private var snapshotsByWorktreeId: [UUID: [GitWorkingTreeSnapshot]] = [:]
     private var branchEventsByWorktreeId: [UUID: [(String, String)]] = [:]
-    private var branchFilesystemEventByWorktreeId: [UUID: FilesystemEvent] = [:]
 
-    func record(_ envelope: PaneEventEnvelope) {
-        guard case .filesystem(let filesystemEvent) = envelope.event else { return }
-        guard let worktreeId = envelope.sourceFacets.worktreeId else { return }
+    func record(_ envelope: RuntimeEnvelope) {
+        guard case .worktree(let worktreeEnvelope) = envelope else { return }
+        guard case .gitWorkingDirectory(let gitEvent) = worktreeEnvelope.event else { return }
+        guard let worktreeId = worktreeEnvelope.worktreeId else { return }
 
-        switch filesystemEvent {
-        case .gitSnapshotChanged(let snapshot):
+        switch gitEvent {
+        case .snapshotChanged(let snapshot):
             snapshotsByWorktreeId[worktreeId, default: []].append(snapshot)
         case .branchChanged(let eventWorktreeId, _, let from, let to):
             guard eventWorktreeId == worktreeId else { return }
             branchEventsByWorktreeId[worktreeId, default: []].append((from, to))
-            branchFilesystemEventByWorktreeId[worktreeId] = filesystemEvent
-        case .worktreeRegistered, .worktreeUnregistered, .filesChanged, .diffAvailable:
+        case .originChanged, .worktreeDiscovered, .worktreeRemoved, .diffAvailable:
             return
         }
     }
@@ -618,10 +664,6 @@ private actor ObservedGitEvents {
 
     func latestBranchEvent(for worktreeId: UUID) -> (String, String)? {
         branchEventsByWorktreeId[worktreeId]?.last
-    }
-
-    func latestBranchFilesystemEvent(for worktreeId: UUID) -> FilesystemEvent? {
-        branchFilesystemEventByWorktreeId[worktreeId]
     }
 }
 

@@ -30,7 +30,7 @@ struct SwiftPaneRuntimeTests {
             )
         )
 
-        let busEnvelope = await busIterator.next()?.toLegacy()
+        let busEnvelope = await busIterator.next()
         let replay = await runtime.eventsSince(seq: 0)
 
         #expect(commandResult == .success(commandId: openCommandId))
@@ -38,14 +38,18 @@ struct SwiftPaneRuntimeTests {
         #expect(runtime.displayedText == "print(\"hi\")\n")
 
         #expect(busEnvelope?.source == .pane(runtime.paneId))
-        #expect(busEnvelope?.paneKind == .codeViewer)
         #expect(busEnvelope?.seq == 1)
 
         guard let busEnvelope else {
             Issue.record("Expected fileOpened envelope on pane event bus")
             return
         }
-        guard case .editor(.fileOpened(let openedPath, let language)) = busEnvelope.event else {
+        guard case .pane(let paneEnvelope) = busEnvelope else {
+            Issue.record("Expected pane envelope")
+            return
+        }
+        #expect(paneEnvelope.paneKind == .codeViewer)
+        guard case .editor(.fileOpened(let openedPath, let language)) = paneEnvelope.event else {
             Issue.record("Expected editor.fileOpened event for openFile command")
             return
         }
@@ -89,7 +93,10 @@ struct SwiftPaneRuntimeTests {
             Issue.record("Expected replay envelope for save command")
             return
         }
-        guard case .editor(.contentSaved(let savedPath)) = replayEnvelope.event else {
+        guard
+            case .pane(let paneEnvelope) = replayEnvelope,
+            case .editor(.contentSaved(let savedPath)) = paneEnvelope.event
+        else {
             Issue.record("Expected editor.contentSaved event for save command")
             return
         }
@@ -128,7 +135,7 @@ struct SwiftPaneRuntimeTests {
             )
         )
 
-        let busEnvelope = await busIterator.next()?.toLegacy()
+        let busEnvelope = await busIterator.next()
 
         #expect(revertResult == .success(commandId: revertCommandId))
         #expect(runtime.displayedText == "print(\"after\")\n")
@@ -137,7 +144,11 @@ struct SwiftPaneRuntimeTests {
             Issue.record("Expected fileOpened envelope on pane event bus for revert")
             return
         }
-        guard case .editor(.fileOpened(let openedPath, let language)) = busEnvelope.event else {
+        guard case .pane(let paneEnvelope) = busEnvelope else {
+            Issue.record("Expected pane envelope")
+            return
+        }
+        guard case .editor(.fileOpened(let openedPath, let language)) = paneEnvelope.event else {
             Issue.record("Expected editor.fileOpened event for revert command")
             return
         }

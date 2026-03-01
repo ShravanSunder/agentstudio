@@ -20,7 +20,7 @@ struct BridgeRuntimeTests {
             .diff(.diffLoaded(stats: DiffStats(filesChanged: 1, insertions: 2, deletions: 0)))
         )
 
-        let busEnvelope = await busIterator.next()?.toLegacy()
+        let busEnvelope = await busIterator.next()
         let replay = await runtime.eventsSince(seq: 0)
 
         #expect(busEnvelope?.source == .pane(runtime.paneId))

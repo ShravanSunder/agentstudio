@@ -2223,14 +2223,14 @@ The `RuntimeRegistry` + `PaneRuntime.subscribe()` infrastructure makes cross-pan
 ```swift
 /// Subscribe to events from multiple panes matching a predicate.
 /// Built on existing RuntimeRegistry lookup + per-runtime subscribe().
-func subscribe(matching: @Sendable (PaneMetadata) -> Bool) -> AsyncStream<PaneEventEnvelope>
+func subscribe(matching: @Sendable (PaneMetadata) -> Bool) -> AsyncStream<RuntimeEnvelope>
 ```
 
 This enables use cases like "show all events from panes in worktree X" or "aggregate agent completion signals across repos." No existing contracts need to change — the subscription merges existing per-runtime streams. Deferred until dynamic view or multi-agent orchestration features require it.
 
 ### Contract 12: NotificationReducer
 
-> **Role:** Sink. Subscribes to `EventBus<PaneEventEnvelope>`, classifies envelopes by self-declared priority, and delivers to consumers via critical/lossy output streams. Terminal consumer — does not produce events back onto the bus.
+> **Role:** Sink. Subscribes to `EventBus<RuntimeEnvelope>`, classifies envelopes by self-declared priority, and delivers to consumers via critical/lossy output streams. Terminal consumer — does not produce events back onto the bus.
 
 ```swift
 /// Routes events through priority-aware processing.

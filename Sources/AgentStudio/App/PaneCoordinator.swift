@@ -44,7 +44,6 @@ final class PaneCoordinator {
     let runtimeCommandClock: ContinuousClock
     let filesystemSource: any PaneCoordinatorFilesystemSourceManaging
     let paneFilesystemProjectionStore: PaneFilesystemProjectionStore
-    let workspaceGitWorkingTreeStore: WorkspaceGitWorkingTreeStore
     lazy var sessionConfig = SessionConfiguration.detect()
     private var cwdChangesTask: Task<Void, Never>?
     private var paneEventIngressTask: Task<Void, Never>?
@@ -91,8 +90,7 @@ final class PaneCoordinator {
         paneEventBus: EventBus<RuntimeEnvelope> = PaneRuntimeEventBus.shared,
         runtimeCommandClock: ContinuousClock = ContinuousClock(),
         filesystemSource: (any PaneCoordinatorFilesystemSourceManaging)? = nil,
-        paneFilesystemProjectionStore: PaneFilesystemProjectionStore = PaneFilesystemProjectionStore(),
-        workspaceGitWorkingTreeStore: WorkspaceGitWorkingTreeStore = WorkspaceGitWorkingTreeStore()
+        paneFilesystemProjectionStore: PaneFilesystemProjectionStore = PaneFilesystemProjectionStore()
     ) {
         let resolvedFilesystemSource =
             filesystemSource
@@ -111,7 +109,6 @@ final class PaneCoordinator {
         self.runtimeCommandClock = runtimeCommandClock
         self.filesystemSource = resolvedFilesystemSource
         self.paneFilesystemProjectionStore = paneFilesystemProjectionStore
-        self.workspaceGitWorkingTreeStore = workspaceGitWorkingTreeStore
         Ghostty.App.setRuntimeRegistry(runtimeRegistry)
         subscribeToCWDChanges()
         setupPrePersistHook()
@@ -225,7 +222,7 @@ final class PaneCoordinator {
             guard let self else { return }
             for await envelope in stream {
                 if Task.isCancelled { break }
-                await self.paneEventBus.post(RuntimeEnvelope.fromLegacy(envelope))
+                await self.paneEventBus.post(envelope)
             }
             self.runtimeEventBridgeTasks.removeValue(forKey: runtimePaneId)
         }
@@ -258,14 +255,15 @@ final class PaneCoordinator {
         }
     }
 
-    private func handleRuntimeEnvelope(_ envelope: PaneEventEnvelope) {
+    private func handleRuntimeEnvelope(_ envelope: RuntimeEnvelope) {
         if handleFilesystemEnvelopeIfNeeded(envelope) {
             return
         }
 
-        switch envelope.source {
-        case .pane(let sourcePaneId):
-            switch envelope.event {
+        switch envelope {
+        case .pane(let paneEnvelope):
+            let sourcePaneId = paneEnvelope.paneId
+            switch paneEnvelope.event {
             case .terminal(let event):
                 handleTerminalRuntimeEvent(event, sourcePaneId: sourcePaneId)
             case .error(let errorEvent):
@@ -274,16 +272,16 @@ final class PaneCoordinator {
                 )
             case .lifecycle, .browser, .diff, .editor, .plugin, .artifact, .security, .filesystem:
                 Self.logger.debug(
-                    "Runtime event family ignored by coordinator for pane \(sourcePaneId.uuid.uuidString, privacy: .public): \(String(describing: envelope.event), privacy: .public)"
+                    "Runtime event family ignored by coordinator for pane \(sourcePaneId.uuid.uuidString, privacy: .public): \(String(describing: paneEnvelope.event), privacy: .public)"
                 )
             }
-        case .system(let systemSource):
+        case .system(let systemEnvelope):
             Self.logger.debug(
-                "Runtime event ignored for system source \(String(describing: systemSource), privacy: .public) facets=\(String(describing: envelope.sourceFacets), privacy: .public): \(String(describing: envelope.event), privacy: .public)"
+                "Runtime event ignored for system source \(String(describing: systemEnvelope.source), privacy: .public): \(String(describing: systemEnvelope.event), privacy: .public)"
             )
-        case .worktree(let worktreeId):
+        case .worktree(let worktreeEnvelope):
             Self.logger.debug(
-                "Runtime event ignored for worktree source \(worktreeId.uuidString, privacy: .public) facets=\(String(describing: envelope.sourceFacets), privacy: .public): \(String(describing: envelope.event), privacy: .public)"
+                "Runtime event ignored for worktree source \(String(describing: worktreeEnvelope.worktreeId), privacy: .public): \(String(describing: worktreeEnvelope.event), privacy: .public)"
             )
         }
     }

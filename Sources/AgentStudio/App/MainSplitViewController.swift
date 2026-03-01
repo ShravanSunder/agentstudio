@@ -14,15 +14,22 @@ class MainSplitViewController: NSSplitViewController {
     // MARK: - Dependencies (injected)
 
     private let store: WorkspaceStore
+    private let cacheStore: WorkspaceCacheStore
+    private let uiStore: WorkspaceUIStore
     private let actionExecutor: ActionExecutor
     private let tabBarAdapter: TabBarAdapter
     private let viewRegistry: ViewRegistry
 
     init(
-        store: WorkspaceStore, actionExecutor: ActionExecutor,
+        store: WorkspaceStore,
+        cacheStore: WorkspaceCacheStore,
+        uiStore: WorkspaceUIStore,
+        actionExecutor: ActionExecutor,
         tabBarAdapter: TabBarAdapter, viewRegistry: ViewRegistry
     ) {
         self.store = store
+        self.cacheStore = cacheStore
+        self.uiStore = uiStore
         self.actionExecutor = actionExecutor
         self.tabBarAdapter = tabBarAdapter
         self.viewRegistry = viewRegistry
@@ -44,7 +51,11 @@ class MainSplitViewController: NSSplitViewController {
         splitView.autosaveName = "MainSplitView"  // Persists divider position
 
         // Create sidebar (SwiftUI via NSHostingController)
-        let sidebarView = SidebarViewWrapper(store: store)
+        let sidebarView = SidebarViewWrapper(
+            store: store,
+            cacheStore: cacheStore,
+            uiStore: uiStore
+        )
         let sidebarHosting = NSHostingController(rootView: AnyView(sidebarView))
         self.sidebarHostingController = sidebarHosting
 
@@ -224,9 +235,15 @@ class MainSplitViewController: NSSplitViewController {
 /// Uses WorkspaceStore instead of SessionManager.
 struct SidebarViewWrapper: View {
     let store: WorkspaceStore
+    let cacheStore: WorkspaceCacheStore
+    let uiStore: WorkspaceUIStore
 
     var body: some View {
-        RepoSidebarContentView(store: store)
+        RepoSidebarContentView(
+            store: store,
+            cacheStore: cacheStore,
+            uiStore: uiStore
+        )
     }
 }
 
@@ -363,9 +380,7 @@ struct SidebarContentView: View {
                             RepoRowView(
                                 repo: repo,
                                 onRefresh: {
-                                    let worktrees = WorktrunkService.shared.discoverWorktrees(
-                                        for: repo.repoPath)
-                                    store.updateRepoWorktrees(repo.id, worktrees: worktrees)
+                                    requestWorktreeRefresh()
                                 },
                                 onRemove: {
                                     store.removeRepo(repo.id)
@@ -391,7 +406,7 @@ struct SidebarContentView: View {
                 case .addRepoRequested:
                     addRepo()
                 case .refreshWorktreesRequested:
-                    refreshWorktrees()
+                    continue
                 case .filterSidebarRequested:
                     withAnimation(.easeOut(duration: 0.15)) {
                         if isFilterVisible {
@@ -477,30 +492,23 @@ struct SidebarContentView: View {
 
             if repoPaths.isEmpty {
                 // Fallback: treat the selected folder itself as a repo
-                let repo = store.addRepo(at: url)
-                let worktrees = WorktrunkService.shared.discoverWorktrees(for: repo.repoPath)
-                store.updateRepoWorktrees(repo.id, worktrees: worktrees)
+                _ = store.addRepo(at: url)
+                requestWorktreeRefresh()
             } else {
                 for repoPath in repoPaths {
                     // Skip if repo already exists (by path)
                     guard !store.repos.contains(where: { $0.repoPath == repoPath }) else {
                         continue
                     }
-                    let repo = store.addRepo(at: repoPath)
-                    let worktrees = WorktrunkService.shared.discoverWorktrees(
-                        for: repo.repoPath)
-                    store.updateRepoWorktrees(repo.id, worktrees: worktrees)
+                    _ = store.addRepo(at: repoPath)
                 }
+                requestWorktreeRefresh()
             }
         }
     }
 
-    private func refreshWorktrees() {
-        // Refresh worktrees using WorktrunkService
-        for repo in store.repos {
-            let worktrees = WorktrunkService.shared.discoverWorktrees(for: repo.repoPath)
-            store.updateRepoWorktrees(repo.id, worktrees: worktrees)
-        }
+    private func requestWorktreeRefresh() {
+        postAppEvent(.refreshWorktreesRequested)
     }
 }
 

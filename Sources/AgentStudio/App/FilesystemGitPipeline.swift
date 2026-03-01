@@ -1,29 +1,21 @@
 import Foundation
-import os
 
 /// Composition root for app-wide filesystem facts + derived local git facts.
 ///
 /// `FilesystemActor` owns filesystem ingestion/routing and emits filesystem facts.
 /// `GitWorkingDirectoryProjector` subscribes to those facts and emits git snapshot projections.
 final class FilesystemGitPipeline: PaneCoordinatorFilesystemSourceManaging, Sendable {
-    private static let logger = Logger(subsystem: "com.agentstudio", category: "FilesystemGitPipeline")
     private let filesystemActor: FilesystemActor
     private let gitWorkingDirectoryProjector: GitWorkingDirectoryProjector
+    private let forgeActor: ForgeActor
 
     init(
         bus: EventBus<RuntimeEnvelope> = PaneRuntimeEventBus.shared,
         gitWorkingTreeProvider: any GitWorkingTreeStatusProvider = ShellGitWorkingTreeStatusProvider(),
-        fseventStreamClient: any FSEventStreamClient = NoopFSEventStreamClient(),
+        forgeStatusProvider: any ForgeStatusProvider = NoopForgeStatusProvider(),
+        fseventStreamClient: any FSEventStreamClient = DarwinFSEventStreamClient(),
         gitCoalescingWindow: Duration = .milliseconds(200)
     ) {
-        if fseventStreamClient is NoopFSEventStreamClient {
-            Self.logger.warning(
-                """
-                FilesystemGitPipeline defaulted to NoopFSEventStreamClient; live filesystem events are disabled. \
-                TODO(LUNA-349): replace with concrete FSEventStreamClient for production wiring.
-                """
-            )
-        }
         self.filesystemActor = FilesystemActor(
             bus: bus,
             fseventStreamClient: fseventStreamClient
@@ -33,45 +25,27 @@ final class FilesystemGitPipeline: PaneCoordinatorFilesystemSourceManaging, Send
             gitWorkingTreeProvider: gitWorkingTreeProvider,
             coalescingWindow: gitCoalescingWindow
         )
-    }
-
-    init(
-        bus: EventBus<PaneEventEnvelope>,
-        gitWorkingTreeProvider: any GitWorkingTreeStatusProvider = ShellGitWorkingTreeStatusProvider(),
-        fseventStreamClient: any FSEventStreamClient = NoopFSEventStreamClient(),
-        gitCoalescingWindow: Duration = .milliseconds(200)
-    ) {
-        if fseventStreamClient is NoopFSEventStreamClient {
-            Self.logger.warning(
-                """
-                FilesystemGitPipeline defaulted to NoopFSEventStreamClient; live filesystem events are disabled. \
-                TODO(LUNA-349): replace with concrete FSEventStreamClient for production wiring.
-                """
-            )
-        }
-        self.filesystemActor = FilesystemActor(
+        self.forgeActor = ForgeActor(
             bus: bus,
-            fseventStreamClient: fseventStreamClient
-        )
-        self.gitWorkingDirectoryProjector = GitWorkingDirectoryProjector(
-            bus: bus,
-            gitWorkingTreeProvider: gitWorkingTreeProvider,
-            coalescingWindow: gitCoalescingWindow
+            statusProvider: forgeStatusProvider
         )
     }
 
     func start() async {
         await gitWorkingDirectoryProjector.start()
+        await forgeActor.start()
     }
 
     func shutdown() async {
         await filesystemActor.shutdown()
         await gitWorkingDirectoryProjector.shutdown()
+        await forgeActor.shutdown()
     }
 
     func register(worktreeId: UUID, repoId: UUID, rootPath: URL) async {
         // Ensure projector subscription is active before lifecycle facts are posted.
         await gitWorkingDirectoryProjector.start()
+        await forgeActor.start()
         await filesystemActor.register(worktreeId: worktreeId, repoId: repoId, rootPath: rootPath)
     }
 
