@@ -211,7 +211,87 @@ git add Sources/AgentStudio/Core/PaneRuntime/Events/EventBus.swift \
 git commit -m "feat(eventbus): migrate to RuntimeEnvelope and add bounded bus replay"
 ```
 
+### Task 3a: Split Contaminated Repo/Worktree Model Structs
+
+> **Prerequisite for Task 4.** The current `Repo` and `Worktree` structs mix canonical identity, discovered state, and runtime state. This task splits them into tier-appropriate models before persistence can be segregated.
+
+**Files:**
+- Create: `Sources/AgentStudio/Core/Models/CanonicalRepo.swift`
+- Create: `Sources/AgentStudio/Core/Models/CanonicalWorktree.swift`
+- Create: `Sources/AgentStudio/Core/Models/RepoEnrichment.swift`
+- Create: `Sources/AgentStudio/Core/Models/WorktreeEnrichment.swift`
+- Modify: `Sources/AgentStudio/Core/Models/Repo.swift`
+- Modify: `Sources/AgentStudio/Core/Models/Worktree.swift`
+- Test: `Tests/AgentStudioTests/Core/Models/CanonicalModelTests.swift`
+
+**Step 1: Write failing tests**
+
+```swift
+@Suite("Canonical model tier separation")
+struct CanonicalModelTests {
+    @Test("CanonicalRepo contains only identity and user-intent fields")
+    func repoHasNoEnrichmentFields() {
+        let repo = CanonicalRepo(id: UUID(), name: "test", repoPath: URL(fileURLWithPath: "/tmp"), createdAt: Date())
+        // These fields must NOT exist on CanonicalRepo:
+        // organizationName, origin, upstream, updatedAt, worktrees
+        #expect(repo.id != UUID())  // identity is stable
+    }
+
+    @Test("WorktreeEnrichment holds all git-derived fields")
+    func enrichmentHoldsDerivedData() {
+        let enrichment = WorktreeEnrichment(worktreeId: UUID(), repoId: UUID(), branch: "main")
+        #expect(enrichment.branch == "main")
+        // agent and status are runtime-only — not in enrichment
+    }
+}
+```
+
+**Step 2: Run tests to verify failure**
+
+Run: `SWIFT_BUILD_DIR=".build-agent-model-split" swift test --build-path "$SWIFT_BUILD_DIR" --filter "CanonicalModelTests" > /tmp/luna350-task3a.log 2>&1; echo $?`
+Expected: missing `CanonicalRepo`, `WorktreeEnrichment` symbols.
+
+**Step 3: Write minimal implementation**
+
+Split per the [contamination table](../architecture/component_architecture.md#22-repo--worktree):
+
+```
+CanonicalRepo: id, name, repoPath, createdAt
+  (removed: organizationName, origin, upstream → RepoEnrichment)
+  (removed: worktrees → CanonicalWorktree is a separate collection)
+  (removed: updatedAt → was bumped by derived data)
+
+CanonicalWorktree: id, name, path, isMainWorktree
+  (removed: branch → WorktreeEnrichment)
+  (removed: agent, status → derived from pane state at query time)
+
+RepoEnrichment: repoId, organizationName?, origin?, upstream?, stableKey
+WorktreeEnrichment: worktreeId, repoId, branch, stableKey
+```
+
+Keep existing `Repo`/`Worktree` structs temporarily as compatibility aliases (typealiases or adapter extensions) until all consumers are migrated. Hard cutover within this task — no shim layer persists.
+
+**Step 4: Run tests to verify pass**
+
+Run: same command from Step 2.
+Expected: exit code `0`.
+
+**Step 5: Commit**
+
+```bash
+git add Sources/AgentStudio/Core/Models/CanonicalRepo.swift \
+  Sources/AgentStudio/Core/Models/CanonicalWorktree.swift \
+  Sources/AgentStudio/Core/Models/RepoEnrichment.swift \
+  Sources/AgentStudio/Core/Models/WorktreeEnrichment.swift \
+  Sources/AgentStudio/Core/Models/Repo.swift \
+  Sources/AgentStudio/Core/Models/Worktree.swift \
+  Tests/AgentStudioTests/Core/Models/CanonicalModelTests.swift
+git commit -m "refactor(models): split contaminated Repo/Worktree into canonical + enrichment tiers"
+```
+
 ### Task 4: Add Cache/UI Stores and Persistence Segregation
+
+> **Depends on Task 3a.** Uses `CanonicalRepo`, `CanonicalWorktree`, `RepoEnrichment`, `WorktreeEnrichment` models from the model split. `WorkspaceCacheStore` stores enrichment models. `WorkspaceUIStore` stores sidebar/UI preferences. `WorkspacePersistor` writes three separate JSON files.
 
 **Files:**
 - Create: `Sources/AgentStudio/Core/Stores/WorkspaceCacheStore.swift`
@@ -407,6 +487,74 @@ git add Sources/AgentStudio/Core/PaneRuntime/Sources/ForgeActor.swift \
 git commit -m "feat(forge): add event-driven forge actor with polling fallback"
 ```
 
+### Task 7a: Wire Concrete FSEventStreamClient in Production
+
+> **Closes the LUNA-349 gap.** `FilesystemActor` and `FilesystemGitPipeline` default to `NoopFSEventStreamClient`. Without production wiring, the entire enrichment pipeline (filesystem → git → forge) cannot trigger from real OS events. Tests use `enqueueRawPathsForTesting` seams, but the app runs with live events disabled.
+
+**Files:**
+- Create: `Sources/AgentStudio/Core/PaneRuntime/Sources/DarwinFSEventStreamClient.swift`
+- Modify: `Sources/AgentStudio/App/FilesystemGitPipeline.swift`
+- Modify: `Sources/AgentStudio/App/AppDelegate.swift` (composition root)
+- Test: `Tests/AgentStudioTests/Core/PaneRuntime/Sources/DarwinFSEventStreamClientTests.swift`
+
+**Step 1: Write failing tests**
+
+```swift
+@Suite("DarwinFSEventStreamClient")
+struct DarwinFSEventStreamClientTests {
+    @Test("conforms to FSEventStreamClient protocol")
+    func conformsToProtocol() {
+        let client = DarwinFSEventStreamClient()
+        #expect(client is any FSEventStreamClient)
+    }
+
+    @Test("start/stop lifecycle is idempotent")
+    func lifecycleIdempotent() async {
+        let client = DarwinFSEventStreamClient()
+        // Double-start, double-stop should not crash
+        await client.start(paths: ["/tmp"], callback: { _ in })
+        await client.start(paths: ["/tmp"], callback: { _ in })
+        await client.stop()
+        await client.stop()
+    }
+}
+```
+
+**Step 2: Run tests to verify failure**
+
+Run: `SWIFT_BUILD_DIR=".build-agent-fsevents" swift test --build-path "$SWIFT_BUILD_DIR" --filter "DarwinFSEventStreamClientTests" > /tmp/luna350-task7a.log 2>&1; echo $?`
+Expected: missing `DarwinFSEventStreamClient` symbol.
+
+**Step 3: Write minimal implementation**
+
+Implement `DarwinFSEventStreamClient` wrapping macOS `FSEventStream` C API. Wire in `FilesystemGitPipeline` and `AppDelegate` composition root:
+
+```swift
+// AppDelegate or composition root:
+let fsClient = DarwinFSEventStreamClient()
+let pipeline = FilesystemGitPipeline(
+    bus: PaneRuntimeEventBus.shared,
+    fseventStreamClient: fsClient  // replaces NoopFSEventStreamClient
+)
+```
+
+Remove the `TODO(LUNA-349)` warning log from `FilesystemActor.init`.
+
+**Step 4: Run tests to verify pass**
+
+Run: same command from Step 2.
+Expected: exit code `0`.
+
+**Step 5: Commit**
+
+```bash
+git add Sources/AgentStudio/Core/PaneRuntime/Sources/DarwinFSEventStreamClient.swift \
+  Sources/AgentStudio/App/FilesystemGitPipeline.swift \
+  Sources/AgentStudio/App/AppDelegate.swift \
+  Tests/AgentStudioTests/Core/PaneRuntime/Sources/DarwinFSEventStreamClientTests.swift
+git commit -m "feat(filesystem): wire DarwinFSEventStreamClient for live OS events"
+```
+
 ### Task 8: Repo Move Lifecycle + Orphan/Relink Behavior
 
 **Files:**
@@ -505,6 +653,229 @@ git add Sources/AgentStudio/App/MainSplitViewController.swift \
   Tests/AgentStudioTests/Features/Sidebar/SidebarRepoGroupingTests.swift \
   Tests/AgentStudioTests/App/PaneCoordinatorTests.swift
 git commit -m "refactor(sidebar): remove direct store mutations and route intents through coordinator"
+```
+
+### Task 9a: Migrate WorkspaceGitWorkingTreeStore → WorkspaceCacheStore
+
+> **Removes LUNA-349 interim projection store.** `WorkspaceGitWorkingTreeStore` was a temporary projection store for sidebar git status. `WorkspaceCacheStore` (Task 4) supersedes it. All consumers must migrate.
+
+**Files:**
+- Remove: `Sources/AgentStudio/Core/PaneRuntime/Projection/WorkspaceGitWorkingTreeStore.swift`
+- Modify: `Sources/AgentStudio/App/PaneCoordinator.swift` (remove `workspaceGitWorkingTreeStore` property)
+- Modify: `Sources/AgentStudio/Features/Sidebar/RepoSidebarContentView.swift` (read from `WorkspaceCacheStore` instead)
+- Test: `Tests/AgentStudioTests/Features/Sidebar/RepoSidebarContentViewTests.swift`
+
+**Step 1: Write failing tests**
+
+```swift
+@Test("sidebar reads git status from WorkspaceCacheStore, not WorkspaceGitWorkingTreeStore")
+func sidebarUsesNewCacheStore() {
+    // Assert RepoSidebarContentView has no dependency on WorkspaceGitWorkingTreeStore
+    // Assert it reads WorktreeEnrichment.branch from WorkspaceCacheStore
+}
+```
+
+**Step 2: Run tests to verify failure**
+
+Run: `SWIFT_BUILD_DIR=".build-agent-store-migration" swift test --build-path "$SWIFT_BUILD_DIR" --filter "RepoSidebarContentViewTests" > /tmp/luna350-task9a.log 2>&1; echo $?`
+Expected: assertion failure on old dependency.
+
+**Step 3: Write minimal implementation**
+
+- Replace `workspaceGitWorkingTreeStore: WorkspaceGitWorkingTreeStore` with `cacheStore: WorkspaceCacheStore` in `RepoSidebarContentView`
+- Replace `WorktreeSnapshot` reads with `WorktreeEnrichment` reads from cache store
+- Remove `WorkspaceGitWorkingTreeStore` from `PaneCoordinator` constructor
+- Delete `WorkspaceGitWorkingTreeStore.swift`
+
+**Step 4: Run tests to verify pass**
+
+Run: same command from Step 2.
+Expected: exit code `0`.
+
+**Step 5: Commit**
+
+```bash
+git add Sources/AgentStudio/App/PaneCoordinator.swift \
+  Sources/AgentStudio/Features/Sidebar/RepoSidebarContentView.swift \
+  Tests/AgentStudioTests/Features/Sidebar/RepoSidebarContentViewTests.swift
+git rm Sources/AgentStudio/Core/PaneRuntime/Projection/WorkspaceGitWorkingTreeStore.swift
+git commit -m "refactor(sidebar): migrate from WorkspaceGitWorkingTreeStore to WorkspaceCacheStore"
+```
+
+### Task 9b: Update DynamicViewProjector Input Types
+
+> **Adapts projector to canonical + cache models.** `DynamicViewProjector.project()` currently takes `repos: [Repo]` (contaminated). After model split, it must read from canonical repos + enrichment cache.
+
+**Files:**
+- Modify: `Sources/AgentStudio/Core/Stores/DynamicViewProjector.swift`
+- Modify: callers of `DynamicViewProjector.project()` (grep for callsites)
+- Test: existing `DynamicViewProjectorTests.swift`
+
+**Step 1: Write failing tests**
+
+```swift
+@Test("projector groups by repo using CanonicalRepo + RepoEnrichment")
+func projectByRepoUsesCanonicalModels() {
+    let repo = CanonicalRepo(id: UUID(), name: "test", repoPath: URL(fileURLWithPath: "/tmp"), createdAt: Date())
+    let enrichment = RepoEnrichment(repoId: repo.id, organizationName: "org")
+    let projection = DynamicViewProjector.project(
+        viewType: .byRepo,
+        panes: [:],
+        tabs: [],
+        repos: [repo],
+        repoEnrichments: [repo.id: enrichment]
+    )
+    #expect(projection.groups.isEmpty)  // no panes → no groups
+}
+```
+
+**Step 2: Run tests to verify failure**
+
+Run: `SWIFT_BUILD_DIR=".build-agent-projector" swift test --build-path "$SWIFT_BUILD_DIR" --filter "DynamicViewProjector" > /tmp/luna350-task9b.log 2>&1; echo $?`
+Expected: signature mismatch.
+
+**Step 3: Write minimal implementation**
+
+Update `DynamicViewProjector.project()` signature:
+```swift
+static func project(
+    viewType: DynamicViewType,
+    panes: [UUID: Pane],
+    tabs: [Tab],
+    repos: [CanonicalRepo],
+    repoEnrichments: [UUID: RepoEnrichment],
+    worktreeEnrichments: [UUID: WorktreeEnrichment]
+) -> DynamicViewProjection
+```
+
+Update grouping logic to join canonical + enrichment data. Update all callsites.
+
+**Step 4: Run tests to verify pass**
+
+Run: same command from Step 2.
+Expected: exit code `0`.
+
+**Step 5: Commit**
+
+```bash
+git add Sources/AgentStudio/Core/Stores/DynamicViewProjector.swift \
+  Tests/AgentStudioTests/Core/Stores/DynamicViewProjectorTests.swift
+git commit -m "refactor(projector): update DynamicViewProjector to use canonical + enrichment models"
+```
+
+### Task 9c: Migrate repoWorktreesDidChangeHook → Bus Subscription
+
+> **Removes imperative hook.** `PaneCoordinator+FilesystemSource.swift` uses `store.repoWorktreesDidChangeHook` to sync filesystem roots when repos change. After the event bus migration, this should be driven by topology events on the bus, not a store hook.
+
+**Files:**
+- Modify: `Sources/AgentStudio/App/PaneCoordinator+FilesystemSource.swift`
+- Modify: `Sources/AgentStudio/Core/Stores/WorkspaceStore.swift` (remove hook property)
+- Test: `Tests/AgentStudioTests/App/PaneCoordinatorTests.swift`
+
+**Step 1: Write failing tests**
+
+```swift
+@Test("filesystem source sync reacts to topology events, not store hook")
+func filesystemSyncViaTopologyEvents() async {
+    // Post a SystemEnvelope(.topology(.repoDiscovered(...)))
+    // Assert FilesystemActor.register() was called
+    // Assert store.repoWorktreesDidChangeHook is nil / removed
+}
+```
+
+**Step 2: Run tests to verify failure**
+
+Run: `SWIFT_BUILD_DIR=".build-agent-hook-migration" swift test --build-path "$SWIFT_BUILD_DIR" --filter "PaneCoordinatorTests" > /tmp/luna350-task9c.log 2>&1; echo $?`
+Expected: failure on hook removal assertion.
+
+**Step 3: Write minimal implementation**
+
+- Remove `repoWorktreesDidChangeHook` property from `WorkspaceStore`
+- In `PaneCoordinator+FilesystemSource.swift`, replace `setupFilesystemSourceSync()` hook installation with a bus subscription that listens for topology events
+- `WorkspaceCacheCoordinator` already handles topology → canonical mutations (Task 5). The coordinator's `syncScope_*` methods handle actor registration. Verify no duplicate registration path.
+
+**Step 4: Run tests to verify pass**
+
+Run: same command from Step 2.
+Expected: exit code `0`.
+
+**Step 5: Commit**
+
+```bash
+git add Sources/AgentStudio/App/PaneCoordinator+FilesystemSource.swift \
+  Sources/AgentStudio/Core/Stores/WorkspaceStore.swift \
+  Tests/AgentStudioTests/App/PaneCoordinatorTests.swift
+git commit -m "refactor(coordinator): replace repoWorktreesDidChangeHook with bus topology subscription"
+```
+
+### Task 9d: Wire App Boot Sequence
+
+> **Composes the full startup pipeline.** The [architecture spec](../architecture/workspace_data_architecture.md#app-boot) defines a 10-step boot sequence. This task wires it in `AppDelegate`.
+
+**Files:**
+- Modify: `Sources/AgentStudio/App/AppDelegate.swift`
+- Modify: `Sources/AgentStudio/App/PaneCoordinator.swift`
+- Test: `Tests/AgentStudioTests/App/AppBootSequenceTests.swift`
+
+**Step 1: Write failing tests**
+
+```swift
+@Suite("App boot sequence")
+struct AppBootSequenceTests {
+    @Test("boot loads canonical, cache, and UI state in order")
+    func loadsThreeTiers() async {
+        // Assert WorkspaceStore loaded from workspace.state.json
+        // Assert WorkspaceCacheStore loaded from workspace.cache.json
+        // Assert WorkspaceUIStore loaded from workspace.ui.json
+    }
+
+    @Test("boot starts actors and coordinator after stores are loaded")
+    func startsActorsAfterStores() async {
+        // Assert EventBus started
+        // Assert FilesystemActor started
+        // Assert GitWorkingDirectoryProjector started
+        // Assert ForgeActor started
+        // Assert WorkspaceCacheCoordinator consuming
+        // Assert FilesystemActor triggers initial parent folder rescan
+    }
+}
+```
+
+**Step 2: Run tests to verify failure**
+
+Run: `SWIFT_BUILD_DIR=".build-agent-boot" swift test --build-path "$SWIFT_BUILD_DIR" --filter "AppBootSequenceTests" > /tmp/luna350-task9d.log 2>&1; echo $?`
+Expected: failure on missing boot sequence.
+
+**Step 3: Write minimal implementation**
+
+Wire the 10-step boot sequence from the architecture spec:
+
+```swift
+// In AppDelegate or a dedicated BootComposer:
+// 1. Load config → WorkspaceStore
+// 2. Load cache → WorkspaceCacheStore (sidebar renders immediately if valid)
+// 3. Load UI state → WorkspaceUIStore
+// 4. Start EventBus
+// 5. Start FilesystemActor → reads watchedPaths
+// 6. Start GitWorkingDirectoryProjector → subscribes to bus
+// 7. Start ForgeActor → subscribes to bus
+// 8. Start WorkspaceCacheCoordinator → subscribes to bus
+// 9. FilesystemActor triggers initial rescan of parent folders
+// 10. Pipeline fills cache → sidebar updates reactively
+```
+
+**Step 4: Run tests to verify pass**
+
+Run: same command from Step 2.
+Expected: exit code `0`.
+
+**Step 5: Commit**
+
+```bash
+git add Sources/AgentStudio/App/AppDelegate.swift \
+  Sources/AgentStudio/App/PaneCoordinator.swift \
+  Tests/AgentStudioTests/App/AppBootSequenceTests.swift
+git commit -m "feat(app): wire 10-step boot sequence for event-driven workspace pipeline"
 ```
 
 ### Task 10: End-to-End Pipeline and Regression Verification
@@ -611,8 +982,24 @@ Expected: exit code `0` with all test suites passing.
 
 **Step 4: Final architecture invariants check**
 
-Run: `rg -n "updateRepoWorktrees\\(|repoWorktreesDidChangeHook" Sources/AgentStudio`
-Expected: no direct sidebar/controller mutation callsites remain in active flow.
+Run the following checks (all should return zero matches):
+```bash
+# No direct store mutations from sidebar/controller
+rg -n "updateRepoWorktrees\(|repoWorktreesDidChangeHook" Sources/AgentStudio
+
+# No stale projection store references
+rg -n "WorkspaceGitWorkingTreeStore" Sources/AgentStudio
+
+# No NoopFSEventStreamClient in production composition (test files OK)
+rg -n "NoopFSEventStreamClient" Sources/AgentStudio --glob '!*Tests*' --glob '!*Test*'
+
+# No TODO markers for this scope
+rg -n "TODO\(LUNA-349\)|TODO\(LUNA-350\)" Sources/AgentStudio
+
+# No contaminated model usage in new code (DynamicViewProjector, sidebar should use CanonicalRepo)
+rg -n "repos: \[Repo\]" Sources/AgentStudio/Core/Stores/DynamicViewProjector.swift Sources/AgentStudio/Features/Sidebar/
+```
+Expected: zero matches for all checks.
 
 **Step 5: Commit**
 
@@ -625,14 +1012,33 @@ git commit -m "chore(luna-350): final verification pass and contract cleanup"
 
 ## Acceptance Checklist
 
+**Event Architecture:**
 - [ ] All event-plane producers emit `RuntimeEnvelope` with correct tier scoping.
 - [ ] Topology events are `SystemEnvelope` and never require `repoId`.
 - [ ] Filesystem/git/forge events are `WorktreeEnvelope` with required `repoId`.
-- [ ] Bus replay policy is documented and implemented consistently.
+- [ ] Bus replay policy (256 events/source) is documented and implemented consistently.
+
+**Model & Persistence:**
+- [ ] `Repo`/`Worktree` structs split into canonical + enrichment tiers (no contamination).
+- [ ] Persistence writes to three files: `workspace.state.json`, `workspace.cache.json`, `workspace.ui.json`.
 - [ ] `WorkspaceCacheCoordinator` is sole event-driven mutator for canonical/cache split.
-- [ ] Sidebar is pure reader; direct `updateRepoWorktrees` mutations removed from UI callsites.
+
+**Production Pipeline:**
+- [ ] Concrete `DarwinFSEventStreamClient` wired in production composition root (no more `NoopFSEventStreamClient` in production).
+- [ ] Boot sequence follows the 10-step order from architecture spec.
+- [ ] `repoWorktreesDidChangeHook` removed; filesystem sync driven by bus topology events.
+
+**Sidebar & Consumers:**
+- [ ] Sidebar is pure reader; direct `updateRepoWorktrees` mutations removed from all UI callsites.
+- [ ] `WorkspaceGitWorkingTreeStore` removed; sidebar reads from `WorkspaceCacheStore`.
+- [ ] `DynamicViewProjector` reads from canonical + enrichment models, not contaminated `Repo`.
+
+**Lifecycle:**
 - [ ] Repo-move/orphan/relink lifecycle works with stable UUID identity semantics.
+
+**Quality Gate:**
 - [ ] `mise run format`, `mise run lint`, and `mise run test` all pass.
+- [ ] No `TODO(LUNA-349)` or `TODO(LUNA-350)` markers remain in production source.
 
 ---
 
