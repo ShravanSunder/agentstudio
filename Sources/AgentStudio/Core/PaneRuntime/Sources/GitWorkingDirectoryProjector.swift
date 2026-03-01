@@ -14,7 +14,8 @@ import os
 actor GitWorkingDirectoryProjector {
     private static let logger = Logger(subsystem: "com.agentstudio", category: "GitWorkingDirectoryProjector")
 
-    private let bus: EventBus<PaneEventEnvelope>
+    private let runtimeBus: EventBus<RuntimeEnvelope>?
+    private let legacyBus: EventBus<PaneEventEnvelope>?
     private let gitWorkingTreeProvider: any GitWorkingTreeStatusProvider
     private let envelopeClock: ContinuousClock
     private let coalescingWindow: Duration
@@ -29,14 +30,32 @@ actor GitWorkingDirectoryProjector {
     private var nextEnvelopeSequence: UInt64 = 0
 
     init(
-        bus: EventBus<PaneEventEnvelope> = PaneRuntimeEventBus.shared,
+        bus: EventBus<RuntimeEnvelope> = PaneRuntimeEventBus.shared,
         gitWorkingTreeProvider: any GitWorkingTreeStatusProvider = ShellGitWorkingTreeStatusProvider(),
         envelopeClock: ContinuousClock = ContinuousClock(),
         coalescingWindow: Duration = .zero,
         sleepClock: any Clock<Duration> = ContinuousClock(),
         subscriptionBufferLimit: Int = 256
     ) {
-        self.bus = bus
+        self.runtimeBus = bus
+        self.legacyBus = nil
+        self.gitWorkingTreeProvider = gitWorkingTreeProvider
+        self.envelopeClock = envelopeClock
+        self.coalescingWindow = coalescingWindow
+        self.sleepClock = sleepClock
+        self.subscriptionBufferLimit = subscriptionBufferLimit
+    }
+
+    init(
+        bus: EventBus<PaneEventEnvelope>,
+        gitWorkingTreeProvider: any GitWorkingTreeStatusProvider = ShellGitWorkingTreeStatusProvider(),
+        envelopeClock: ContinuousClock = ContinuousClock(),
+        coalescingWindow: Duration = .zero,
+        sleepClock: any Clock<Duration> = ContinuousClock(),
+        subscriptionBufferLimit: Int = 256
+    ) {
+        self.runtimeBus = nil
+        self.legacyBus = bus
         self.gitWorkingTreeProvider = gitWorkingTreeProvider
         self.envelopeClock = envelopeClock
         self.coalescingWindow = coalescingWindow
@@ -54,10 +73,26 @@ actor GitWorkingDirectoryProjector {
 
     func start() async {
         guard subscriptionTask == nil else { return }
-        let stream = await bus.subscribe(
+        if let runtimeBus {
+            let stream = await runtimeBus.subscribe(
+                bufferingPolicy: .bufferingNewest(subscriptionBufferLimit)
+            )
+
+            subscriptionTask = Task { [weak self] in
+                for await runtimeEnvelope in stream {
+                    guard !Task.isCancelled else { break }
+                    guard let self else { return }
+                    guard let legacyEnvelope = runtimeEnvelope.toLegacy() else { continue }
+                    await self.handleIncomingEnvelope(legacyEnvelope)
+                }
+            }
+            return
+        }
+
+        guard let legacyBus else { return }
+        let stream = await legacyBus.subscribe(
             bufferingPolicy: .bufferingNewest(subscriptionBufferLimit)
         )
-
         subscriptionTask = Task { [weak self] in
             for await envelope in stream {
                 guard !Task.isCancelled else { break }
@@ -231,10 +266,18 @@ actor GitWorkingDirectoryProjector {
             epoch: 0,
             event: .filesystem(event)
         )
-        let postResult = await bus.post(envelope)
-        if postResult.droppedCount > 0 {
+        let runtimeEnvelope = RuntimeEnvelope.fromLegacy(envelope)
+        let droppedCount: Int
+        if let runtimeBus {
+            droppedCount = (await runtimeBus.post(runtimeEnvelope)).droppedCount
+        } else if let legacyBus, let legacyEnvelope = runtimeEnvelope.toLegacy() {
+            droppedCount = (await legacyBus.post(legacyEnvelope)).droppedCount
+        } else {
+            droppedCount = 0
+        }
+        if droppedCount > 0 {
             Self.logger.warning(
-                "Git projector event delivery dropped for \(postResult.droppedCount, privacy: .public) subscriber(s); seq=\(self.nextEnvelopeSequence, privacy: .public)"
+                "Git projector event delivery dropped for \(droppedCount, privacy: .public) subscriber(s); seq=\(self.nextEnvelopeSequence, privacy: .public)"
             )
         }
         Self.logger.debug("Posted git projector event for worktree \(worktreeId.uuidString, privacy: .public)")

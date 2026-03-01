@@ -9,7 +9,7 @@ import Foundation
 final class PaneRuntimeEventChannel {
     private let clock: ContinuousClock
     private let replayBuffer: EventReplayBuffer
-    private let paneEventBus: EventBus<PaneEventEnvelope>
+    private let paneEventBus: EventBus<RuntimeEnvelope>
 
     private var sequence: UInt64 = 0
     private var nextSubscriberId: UInt64 = 0
@@ -18,7 +18,7 @@ final class PaneRuntimeEventChannel {
     init(
         clock: ContinuousClock = ContinuousClock(),
         replayBuffer: EventReplayBuffer = EventReplayBuffer(),
-        paneEventBus: EventBus<PaneEventEnvelope> = PaneRuntimeEventBus.shared
+        paneEventBus: EventBus<RuntimeEnvelope> = PaneRuntimeEventBus.shared
     ) {
         self.clock = clock
         self.replayBuffer = replayBuffer
@@ -112,7 +112,7 @@ final class PaneRuntimeEventChannel {
         // Ordering is guaranteed for local subscribers/replay (yield + append above),
         // while cross-runtime bus fanout is best-effort and eventually consistent.
         Task { [paneEventBus] in
-            await paneEventBus.post(envelope)
+            await paneEventBus.post(RuntimeEnvelope.fromLegacy(envelope))
         }
     }
 }

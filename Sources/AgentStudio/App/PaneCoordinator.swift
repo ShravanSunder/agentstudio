@@ -39,7 +39,7 @@ final class PaneCoordinator {
     let surfaceManager: PaneCoordinatorSurfaceManaging
     let runtimeRegistry: RuntimeRegistry
     let runtimeEventReducer: NotificationReducer
-    let paneEventBus: EventBus<PaneEventEnvelope>
+    let paneEventBus: EventBus<RuntimeEnvelope>
     let runtimeTargetResolver: RuntimeTargetResolver
     let runtimeCommandClock: ContinuousClock
     let filesystemSource: any PaneCoordinatorFilesystemSourceManaging
@@ -88,7 +88,7 @@ final class PaneCoordinator {
         runtime: SessionRuntime,
         surfaceManager: PaneCoordinatorSurfaceManaging,
         runtimeRegistry: RuntimeRegistry,
-        paneEventBus: EventBus<PaneEventEnvelope> = PaneRuntimeEventBus.shared,
+        paneEventBus: EventBus<RuntimeEnvelope> = PaneRuntimeEventBus.shared,
         runtimeCommandClock: ContinuousClock = ContinuousClock(),
         filesystemSource: (any PaneCoordinatorFilesystemSourceManaging)? = nil,
         paneFilesystemProjectionStore: PaneFilesystemProjectionStore = PaneFilesystemProjectionStore(),
@@ -225,7 +225,7 @@ final class PaneCoordinator {
             guard let self else { return }
             for await envelope in stream {
                 if Task.isCancelled { break }
-                await self.paneEventBus.post(envelope)
+                await self.paneEventBus.post(RuntimeEnvelope.fromLegacy(envelope))
             }
             self.runtimeEventBridgeTasks.removeValue(forKey: runtimePaneId)
         }

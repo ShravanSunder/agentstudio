@@ -19,9 +19,9 @@ final class NotificationReducer {
     private let batchContinuation: AsyncStream<[PaneEventEnvelope]>.Continuation
     let batchedEvents: AsyncStream<[PaneEventEnvelope]>
 
-    private var criticalBufferByTier: [VisibilityTier: [PaneEventEnvelope]] = [:]
+    private var criticalBufferByTier: [VisibilityTier: [RuntimeEnvelope]] = [:]
     private var criticalFlushTask: Task<Void, Never>?
-    private var lossyBuffer: [String: PaneEventEnvelope] = [:]
+    private var lossyBuffer: [String: RuntimeEnvelope] = [:]
     private var frameTimer: Task<Void, Never>?
 
     init(
@@ -47,11 +47,13 @@ final class NotificationReducer {
         batchContinuation.finish()
     }
 
-    func submit(_ envelope: PaneEventEnvelope) {
-        switch envelope.event.actionPolicy {
+    func submit(_ envelope: RuntimeEnvelope) {
+        switch envelope.actionPolicy {
         case .critical:
             guard tierResolver != nil else {
-                criticalContinuation.yield(envelope)
+                if let legacyEnvelope = envelope.toLegacy() {
+                    criticalContinuation.yield(legacyEnvelope)
+                }
                 return
             }
             let visibilityTier = tier(for: envelope)
@@ -70,6 +72,10 @@ final class NotificationReducer {
             }
             ensureFrameTimer()
         }
+    }
+
+    func submit(_ envelope: PaneEventEnvelope) {
+        submit(RuntimeEnvelope.fromLegacy(envelope))
     }
 
     private func ensureCriticalFlushTask() {
@@ -109,7 +115,9 @@ final class NotificationReducer {
             let queued = (criticalBufferByTier[visibilityTier] ?? []).sorted(by: compareEnvelopes)
             guard !queued.isEmpty else { continue }
             for envelope in queued {
-                criticalContinuation.yield(envelope)
+                if let legacyEnvelope = envelope.toLegacy() {
+                    criticalContinuation.yield(legacyEnvelope)
+                }
             }
         }
         criticalBufferByTier.removeAll(keepingCapacity: true)
@@ -120,10 +128,13 @@ final class NotificationReducer {
         var batch = Array(lossyBuffer.values)
         batch.sort(by: compareEnvelopes)
         lossyBuffer.removeAll(keepingCapacity: true)
-        batchContinuation.yield(batch)
+        let legacyBatch = batch.compactMap { $0.toLegacy() }
+        if !legacyBatch.isEmpty {
+            batchContinuation.yield(legacyBatch)
+        }
     }
 
-    private func compareEnvelopes(_ lhs: PaneEventEnvelope, _ rhs: PaneEventEnvelope) -> Bool {
+    private func compareEnvelopes(_ lhs: RuntimeEnvelope, _ rhs: RuntimeEnvelope) -> Bool {
         let lhsTier = tier(for: lhs)
         let rhsTier = tier(for: rhs)
         if lhsTier != rhsTier {
@@ -135,7 +146,7 @@ final class NotificationReducer {
         return lhs.timestamp < rhs.timestamp
     }
 
-    private func tier(for envelope: PaneEventEnvelope) -> VisibilityTier {
+    private func tier(for envelope: RuntimeEnvelope) -> VisibilityTier {
         if case .system = envelope.source {
             // Contract 12a: system events are always highest visibility priority.
             return .p0ActivePane

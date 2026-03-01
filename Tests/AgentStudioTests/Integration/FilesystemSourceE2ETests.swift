@@ -36,7 +36,7 @@ extension E2ESerializedTests {
             store.appendTab(tab)
             store.setActiveTab(tab.id)
 
-            let paneEventBus = EventBus<PaneEventEnvelope>()
+            let paneEventBus = EventBus<RuntimeEnvelope>()
             let filesystemSource = FilesystemGitPipeline(
                 bus: paneEventBus,
                 gitWorkingTreeProvider: ShellGitWorkingTreeStatusProvider(

@@ -22,7 +22,7 @@ final class SwiftPaneRuntime: BusPostingPaneRuntime {
         metadata: PaneMetadata,
         clock: ContinuousClock = ContinuousClock(),
         replayBuffer: EventReplayBuffer? = nil,
-        paneEventBus: EventBus<PaneEventEnvelope> = PaneRuntimeEventBus.shared
+        paneEventBus: EventBus<RuntimeEnvelope> = PaneRuntimeEventBus.shared
     ) {
         self.paneId = paneId
         self.metadata = metadata

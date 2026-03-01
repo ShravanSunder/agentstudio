@@ -269,3 +269,274 @@ extension PaneEnvelope {
         )
     }
 }
+
+extension RuntimeEnvelope {
+    var source: EventSource {
+        switch self {
+        case .system(let envelope):
+            return .system(envelope.source)
+        case .worktree(let envelope):
+            return envelope.source
+        case .pane(let envelope):
+            return envelope.source
+        }
+    }
+
+    var seq: UInt64 {
+        switch self {
+        case .system(let envelope):
+            return envelope.seq
+        case .worktree(let envelope):
+            return envelope.seq
+        case .pane(let envelope):
+            return envelope.seq
+        }
+    }
+
+    var timestamp: ContinuousClock.Instant {
+        switch self {
+        case .system(let envelope):
+            return envelope.timestamp
+        case .worktree(let envelope):
+            return envelope.timestamp
+        case .pane(let envelope):
+            return envelope.timestamp
+        }
+    }
+
+    var actionPolicy: ActionPolicy {
+        switch self {
+        case .pane(let envelope):
+            return envelope.event.actionPolicy
+        case .system, .worktree:
+            return .critical
+        }
+    }
+
+    static func fromLegacy(_ legacy: PaneEventEnvelope) -> RuntimeEnvelope {
+        if let worktreeScopedEvent = worktreeScopedEvent(from: legacy.event) {
+            let resolvedWorktreeId = legacy.sourceFacets.worktreeId ?? worktreeId(from: legacy.event)
+            let resolvedRepoId = legacy.sourceFacets.repoId
+                ?? repoId(from: legacy.event)
+                ?? resolvedWorktreeId
+                ?? UUID()
+            return .worktree(
+                WorktreeEnvelope(
+                    eventId: legacy.eventId,
+                    source: legacy.source,
+                    seq: legacy.seq,
+                    timestamp: legacy.timestamp,
+                    schemaVersion: legacy.schemaVersion,
+                    correlationId: legacy.correlationId,
+                    causationId: legacy.causationId,
+                    commandId: legacy.commandId,
+                    repoId: resolvedRepoId,
+                    worktreeId: resolvedWorktreeId,
+                    event: worktreeScopedEvent
+                )
+            )
+        }
+
+        return .pane(
+            PaneEnvelope(
+                eventId: legacy.eventId,
+                source: legacy.source,
+                seq: legacy.seq,
+                timestamp: legacy.timestamp,
+                schemaVersion: legacy.schemaVersion,
+                correlationId: legacy.correlationId,
+                causationId: legacy.causationId,
+                commandId: legacy.commandId,
+                paneId: resolvePaneId(from: legacy),
+                paneKind: legacy.paneKind ?? inferredPaneKind(from: legacy.event) ?? .agent,
+                event: legacy.event
+            )
+        )
+    }
+
+    func toLegacy() -> PaneEventEnvelope? {
+        switch self {
+        case .pane(let envelope):
+            return PaneEventEnvelope(
+                eventId: envelope.eventId,
+                source: envelope.source,
+                sourceFacets: Self.legacySourceFacets(from: envelope),
+                paneKind: Self.legacyPaneKind(from: envelope),
+                seq: envelope.seq,
+                schemaVersion: envelope.schemaVersion,
+                commandId: envelope.commandId,
+                correlationId: envelope.correlationId,
+                causationId: envelope.causationId,
+                timestamp: envelope.timestamp,
+                epoch: 0,
+                event: envelope.event
+            )
+        case .worktree(let envelope):
+            guard let legacyEvent = Self.legacyPaneRuntimeEvent(from: envelope.event) else {
+                return nil
+            }
+            return PaneEventEnvelope(
+                eventId: envelope.eventId,
+                source: envelope.source,
+                sourceFacets: PaneContextFacets.from(worktreeEnvelope: envelope),
+                paneKind: Self.inferredPaneKind(from: legacyEvent),
+                seq: envelope.seq,
+                schemaVersion: envelope.schemaVersion,
+                commandId: envelope.commandId,
+                correlationId: envelope.correlationId,
+                causationId: envelope.causationId,
+                timestamp: envelope.timestamp,
+                epoch: 0,
+                event: legacyEvent
+            )
+        case .system:
+            return nil
+        }
+    }
+
+    private static func worktreeScopedEvent(from event: PaneRuntimeEvent) -> WorktreeScopedEvent? {
+        switch event {
+        case .filesystem(let filesystemEvent):
+            if let compatibilityEvent = filesystemEvent.compatibilityWorktreeScopedEvent {
+                return compatibilityEvent
+            }
+            return nil
+        case .security(let securityEvent):
+            return .security(securityEvent)
+        case .lifecycle, .terminal, .browser, .diff, .editor, .plugin, .artifact, .error:
+            return nil
+        }
+    }
+
+    private static func legacyPaneRuntimeEvent(from event: WorktreeScopedEvent) -> PaneRuntimeEvent? {
+        switch event {
+        case .filesystem(let filesystemEvent):
+            return .filesystem(filesystemEvent)
+        case .gitWorkingDirectory(let gitEvent):
+            guard let filesystemEvent = gitEvent.compatibilityFilesystemEvent else {
+                return nil
+            }
+            return .filesystem(filesystemEvent)
+        case .security(let securityEvent):
+            return .security(securityEvent)
+        case .forge:
+            return nil
+        }
+    }
+
+    private static func legacySourceFacets(from envelope: PaneEnvelope) -> PaneContextFacets {
+        var sourceFacets = PaneContextFacets.empty
+        switch envelope.source {
+        case .worktree(let worktreeId):
+            sourceFacets.worktreeId = worktreeId
+        case .pane, .system:
+            break
+        }
+
+        switch envelope.event {
+        case .filesystem(let filesystemEvent):
+            sourceFacets.repoId = repoId(from: .filesystem(filesystemEvent)) ?? sourceFacets.repoId
+            sourceFacets.worktreeId = worktreeId(from: .filesystem(filesystemEvent)) ?? sourceFacets.worktreeId
+            switch filesystemEvent {
+            case .worktreeRegistered(_, _, let rootPath):
+                sourceFacets.cwd = rootPath
+            case .filesChanged(let changeset):
+                sourceFacets.cwd = changeset.rootPath
+            case .worktreeUnregistered, .gitSnapshotChanged, .diffAvailable, .branchChanged:
+                break
+            }
+        case .terminal(.cwdChanged(let cwdPath)):
+            sourceFacets.cwd = URL(fileURLWithPath: cwdPath)
+        case .lifecycle, .terminal, .browser, .diff, .editor, .plugin, .artifact, .security, .error:
+            break
+        }
+
+        return sourceFacets
+    }
+
+    private static func legacyPaneKind(from envelope: PaneEnvelope) -> PaneContentType? {
+        switch envelope.source {
+        case .pane:
+            return envelope.paneKind
+        case .system, .worktree:
+            return inferredPaneKind(from: envelope.event)
+        }
+    }
+
+    private static func resolvePaneId(from legacy: PaneEventEnvelope) -> PaneId {
+        switch legacy.source {
+        case .pane(let paneId):
+            return paneId
+        case .worktree, .system:
+            return PaneId()
+        }
+    }
+
+    private static func inferredPaneKind(from event: PaneRuntimeEvent) -> PaneContentType? {
+        switch event {
+        case .lifecycle, .terminal:
+            return .terminal
+        case .browser:
+            return .browser
+        case .diff:
+            return .diff
+        case .editor:
+            return .editor
+        case .plugin(let kind, _):
+            return kind
+        case .filesystem, .artifact, .security, .error:
+            return nil
+        }
+    }
+
+    private static func worktreeId(from event: PaneRuntimeEvent) -> UUID? {
+        guard case .filesystem(let filesystemEvent) = event else { return nil }
+        switch filesystemEvent {
+        case .worktreeRegistered(let worktreeId, _, _):
+            return worktreeId
+        case .worktreeUnregistered(let worktreeId, _):
+            return worktreeId
+        case .filesChanged(let changeset):
+            return changeset.worktreeId
+        case .gitSnapshotChanged(let snapshot):
+            return snapshot.worktreeId
+        case .diffAvailable(_, let worktreeId, _):
+            return worktreeId
+        case .branchChanged(let worktreeId, _, _, _):
+            return worktreeId
+        }
+    }
+
+    private static func repoId(from event: PaneRuntimeEvent) -> UUID? {
+        guard case .filesystem(let filesystemEvent) = event else { return nil }
+        switch filesystemEvent {
+        case .worktreeRegistered(_, let repoId, _):
+            return repoId
+        case .worktreeUnregistered(_, let repoId):
+            return repoId
+        case .filesChanged(let changeset):
+            return changeset.repoId
+        case .gitSnapshotChanged(let snapshot):
+            return snapshot.repoId
+        case .diffAvailable(_, _, let repoId):
+            return repoId
+        case .branchChanged(_, let repoId, _, _):
+            return repoId
+        }
+    }
+}
+
+private extension GitWorkingDirectoryEvent {
+    var compatibilityFilesystemEvent: FilesystemEvent? {
+        switch self {
+        case .snapshotChanged(let snapshot):
+            return .gitSnapshotChanged(snapshot: snapshot)
+        case .branchChanged(let worktreeId, let repoId, let from, let to):
+            return .branchChanged(worktreeId: worktreeId, repoId: repoId, from: from, to: to)
+        case .diffAvailable(let diffId, let worktreeId, let repoId):
+            return .diffAvailable(diffId: diffId, worktreeId: worktreeId, repoId: repoId)
+        case .originChanged, .worktreeDiscovered, .worktreeRemoved:
+            return nil
+        }
+    }
+}

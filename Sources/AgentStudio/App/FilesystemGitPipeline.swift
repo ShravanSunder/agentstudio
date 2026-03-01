@@ -11,7 +11,32 @@ final class FilesystemGitPipeline: PaneCoordinatorFilesystemSourceManaging, Send
     private let gitWorkingDirectoryProjector: GitWorkingDirectoryProjector
 
     init(
-        bus: EventBus<PaneEventEnvelope> = PaneRuntimeEventBus.shared,
+        bus: EventBus<RuntimeEnvelope> = PaneRuntimeEventBus.shared,
+        gitWorkingTreeProvider: any GitWorkingTreeStatusProvider = ShellGitWorkingTreeStatusProvider(),
+        fseventStreamClient: any FSEventStreamClient = NoopFSEventStreamClient(),
+        gitCoalescingWindow: Duration = .milliseconds(200)
+    ) {
+        if fseventStreamClient is NoopFSEventStreamClient {
+            Self.logger.warning(
+                """
+                FilesystemGitPipeline defaulted to NoopFSEventStreamClient; live filesystem events are disabled. \
+                TODO(LUNA-349): replace with concrete FSEventStreamClient for production wiring.
+                """
+            )
+        }
+        self.filesystemActor = FilesystemActor(
+            bus: bus,
+            fseventStreamClient: fseventStreamClient
+        )
+        self.gitWorkingDirectoryProjector = GitWorkingDirectoryProjector(
+            bus: bus,
+            gitWorkingTreeProvider: gitWorkingTreeProvider,
+            coalescingWindow: gitCoalescingWindow
+        )
+    }
+
+    init(
+        bus: EventBus<PaneEventEnvelope>,
         gitWorkingTreeProvider: any GitWorkingTreeStatusProvider = ShellGitWorkingTreeStatusProvider(),
         fseventStreamClient: any FSEventStreamClient = NoopFSEventStreamClient(),
         gitCoalescingWindow: Duration = .milliseconds(200)

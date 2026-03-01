@@ -39,7 +39,8 @@ actor FilesystemActor {
         }
     }
 
-    private let bus: EventBus<PaneEventEnvelope>
+    private let runtimeBus: EventBus<RuntimeEnvelope>?
+    private let legacyBus: EventBus<PaneEventEnvelope>?
     private let fseventStreamClient: any FSEventStreamClient
     private let envelopeClock = ContinuousClock()
     private let sleepClock: any Clock<Duration>
@@ -56,13 +57,37 @@ actor FilesystemActor {
     private var hasShutdown = false
 
     init(
-        bus: EventBus<PaneEventEnvelope> = PaneRuntimeEventBus.shared,
+        bus: EventBus<RuntimeEnvelope> = PaneRuntimeEventBus.shared,
         fseventStreamClient: any FSEventStreamClient = NoopFSEventStreamClient(),
         sleepClock: any Clock<Duration> = ContinuousClock(),
         debounceWindow: Duration = .milliseconds(500),
         maxFlushLatency: Duration = .seconds(2)
     ) {
-        self.bus = bus
+        self.runtimeBus = bus
+        self.legacyBus = nil
+        self.fseventStreamClient = fseventStreamClient
+        self.sleepClock = sleepClock
+        self.debounceWindow = debounceWindow
+        self.maxFlushLatency = maxFlushLatency
+        if fseventStreamClient is NoopFSEventStreamClient {
+            Self.logger.warning(
+                """
+                FilesystemActor initialized with NoopFSEventStreamClient; OS filesystem events are disabled. \
+                TODO(LUNA-349): wire concrete FSEventStreamClient in production composition root.
+                """
+            )
+        }
+    }
+
+    init(
+        bus: EventBus<PaneEventEnvelope>,
+        fseventStreamClient: any FSEventStreamClient = NoopFSEventStreamClient(),
+        sleepClock: any Clock<Duration> = ContinuousClock(),
+        debounceWindow: Duration = .milliseconds(500),
+        maxFlushLatency: Duration = .seconds(2)
+    ) {
+        self.runtimeBus = nil
+        self.legacyBus = bus
         self.fseventStreamClient = fseventStreamClient
         self.sleepClock = sleepClock
         self.debounceWindow = debounceWindow
@@ -105,6 +130,7 @@ actor FilesystemActor {
             worktreeId: worktreeId,
             repoId: repoId,
             timestamp: envelopeClock.now,
+            rootPathHint: rootPath,
             event: .worktreeRegistered(worktreeId: worktreeId, repoId: repoId, rootPath: rootPath)
         )
     }
@@ -121,6 +147,7 @@ actor FilesystemActor {
             worktreeId: worktreeId,
             repoId: removedRoot.repoId,
             timestamp: envelopeClock.now,
+            rootPathHint: removedRoot.rootPath,
             event: .worktreeUnregistered(worktreeId: worktreeId, repoId: removedRoot.repoId)
         )
     }
@@ -396,6 +423,7 @@ actor FilesystemActor {
                 worktreeId: worktreeId,
                 repoId: root.repoId,
                 timestamp: timestamp,
+                rootPathHint: root.rootPath,
                 event: .filesChanged(changeset: changeset)
             )
         }
@@ -426,6 +454,7 @@ actor FilesystemActor {
         worktreeId: UUID,
         repoId: UUID,
         timestamp: ContinuousClock.Instant,
+        rootPathHint: URL? = nil,
         event: FilesystemEvent
     ) async {
         // Task 2 compatibility-only bridge: keep legacy payloads, expose explicit
@@ -434,7 +463,7 @@ actor FilesystemActor {
         nextEnvelopeSequence += 1
         let envelope = PaneEventEnvelope(
             source: .system(.builtin(.filesystemWatcher)),
-            sourceFacets: PaneContextFacets(repoId: repoId, worktreeId: worktreeId),
+            sourceFacets: PaneContextFacets(repoId: repoId, worktreeId: worktreeId, cwd: rootPathHint),
             paneKind: nil,
             seq: nextEnvelopeSequence,
             commandId: nil,
@@ -443,10 +472,24 @@ actor FilesystemActor {
             epoch: 0,
             event: .filesystem(event)
         )
-        let postResult = await bus.post(envelope)
-        if postResult.droppedCount > 0 {
+        let runtimeEnvelope = RuntimeEnvelope.fromLegacy(envelope)
+        let droppedCount: Int
+        if let runtimeBus {
+            droppedCount = (await runtimeBus.post(runtimeEnvelope)).droppedCount
+        } else if let legacyBus, let legacyEnvelope = runtimeEnvelope.toLegacy() {
+            droppedCount = (await legacyBus.post(legacyEnvelope)).droppedCount
+        } else {
             Self.logger.warning(
-                "Filesystem event delivery dropped for \(postResult.droppedCount, privacy: .public) subscriber(s); seq=\(self.nextEnvelopeSequence, privacy: .public)"
+                """
+                Filesystem event dropped after runtime-envelope adaptation; \
+                event=\(String(describing: event), privacy: .public)
+                """
+            )
+            droppedCount = 0
+        }
+        if droppedCount > 0 {
+            Self.logger.warning(
+                "Filesystem event delivery dropped for \(droppedCount, privacy: .public) subscriber(s); seq=\(self.nextEnvelopeSequence, privacy: .public)"
             )
         }
         Self.logger.debug(

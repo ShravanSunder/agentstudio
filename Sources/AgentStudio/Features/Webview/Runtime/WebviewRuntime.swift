@@ -26,7 +26,7 @@ final class WebviewRuntime: BusPostingPaneRuntime {
         commandHandler: (any WebviewRuntimeCommandHandling)? = nil,
         clock: ContinuousClock = ContinuousClock(),
         replayBuffer: EventReplayBuffer? = nil,
-        paneEventBus: EventBus<PaneEventEnvelope> = PaneRuntimeEventBus.shared
+        paneEventBus: EventBus<RuntimeEnvelope> = PaneRuntimeEventBus.shared
     ) {
         self.paneId = paneId
         self.metadata = metadata

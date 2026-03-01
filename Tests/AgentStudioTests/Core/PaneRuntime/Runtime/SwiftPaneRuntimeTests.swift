@@ -11,7 +11,7 @@ struct SwiftPaneRuntimeTests {
         let tempFile = try makeTemporarySwiftFile(content: "print(\"hi\")\n")
         defer { try? FileManager.default.removeItem(at: tempFile) }
 
-        let paneEventBus = EventBus<PaneEventEnvelope>()
+        let paneEventBus = EventBus<RuntimeEnvelope>()
         let runtime = makeRuntime(
             fileDirectory: tempFile.deletingLastPathComponent(),
             paneEventBus: paneEventBus
@@ -30,7 +30,7 @@ struct SwiftPaneRuntimeTests {
             )
         )
 
-        let busEnvelope = await busIterator.next()
+        let busEnvelope = await busIterator.next()?.toLegacy()
         let replay = await runtime.eventsSince(seq: 0)
 
         #expect(commandResult == .success(commandId: openCommandId))
@@ -101,7 +101,7 @@ struct SwiftPaneRuntimeTests {
         let tempFile = try makeTemporarySwiftFile(content: "print(\"before\")\n")
         defer { try? FileManager.default.removeItem(at: tempFile) }
 
-        let paneEventBus = EventBus<PaneEventEnvelope>()
+        let paneEventBus = EventBus<RuntimeEnvelope>()
         let runtime = makeRuntime(
             fileDirectory: tempFile.deletingLastPathComponent(),
             paneEventBus: paneEventBus
@@ -128,7 +128,7 @@ struct SwiftPaneRuntimeTests {
             )
         )
 
-        let busEnvelope = await busIterator.next()
+        let busEnvelope = await busIterator.next()?.toLegacy()
 
         #expect(revertResult == .success(commandId: revertCommandId))
         #expect(runtime.displayedText == "print(\"after\")\n")
@@ -201,7 +201,7 @@ struct SwiftPaneRuntimeTests {
 
     private func makeRuntime(
         fileDirectory: URL,
-        paneEventBus: EventBus<PaneEventEnvelope> = PaneRuntimeEventBus.shared
+        paneEventBus: EventBus<RuntimeEnvelope> = PaneRuntimeEventBus.shared
     ) -> SwiftPaneRuntime {
         let paneId = PaneId()
         let metadata = PaneMetadata(
