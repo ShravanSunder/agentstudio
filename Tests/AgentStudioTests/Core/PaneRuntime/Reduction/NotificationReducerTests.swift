@@ -102,9 +102,10 @@ struct NotificationReducerTests {
         #expect(batch?.last?.source == .pane(lowTierPaneId))
     }
 
-    @Test("critical system events are treated as p0 and emitted ahead of background pane events")
-    func criticalSystemEventsPrioritizedAsP0() async {
+    @Test("filesystem watcher system-source events are treated as p0 and emitted ahead of background pane events")
+    func filesystemSystemEventsPrioritizedAsP0() async {
         let lowTierPaneId = PaneId()
+        let worktreeId = UUID()
         let resolver = TestVisibilityTierResolver(
             mapping: [
                 lowTierPaneId: .p3Background
@@ -123,27 +124,39 @@ struct NotificationReducerTests {
         reducer.submit(
             makeEnvelope(
                 seq: 2,
-                source: .system(.builtin(.coordinator)),
-                event: .lifecycle(.activePaneChanged)
+                source: .system(.builtin(.filesystemWatcher)),
+                paneKind: nil,
+                event: .filesystem(
+                    .filesChanged(
+                        changeset: FileChangeset(
+                            worktreeId: worktreeId,
+                            rootPath: URL(fileURLWithPath: "/tmp/worktree-\(UUID().uuidString)"),
+                            paths: ["Sources/AgentStudio/App/PaneCoordinator.swift"],
+                            timestamp: ContinuousClock().now,
+                            batchSeq: 7
+                        )
+                    )
+                )
             )
         )
 
         let first = await iterator.next()
         let second = await iterator.next()
 
-        #expect(first?.source == .system(.builtin(.coordinator)))
+        #expect(first?.source == .system(.builtin(.filesystemWatcher)))
         #expect(second?.source == .pane(lowTierPaneId))
     }
 
     private func makeEnvelope(
         seq: UInt64,
         source: EventSource = .pane(PaneId()),
+        paneKind: PaneContentType? = .terminal,
         event: PaneRuntimeEvent
     ) -> PaneEventEnvelope {
         let clock = ContinuousClock()
         return PaneEventEnvelope(
             source: source,
-            paneKind: .terminal,
+            paneKind: paneKind,
             seq: seq,
             commandId: nil,
             correlationId: nil,

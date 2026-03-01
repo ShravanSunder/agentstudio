@@ -83,4 +83,34 @@ struct PaneRuntimeContractsTests {
         let pluginWithSlash = EventSource.system(.plugin("mcp/weather"))
         #expect(pluginWithSlash.description == "system:plugin/mcp/weather")
     }
+
+    @Test("filesystem source identity is system builtin watcher with worktree in facets")
+    func filesystemSourceIdentityContract() {
+        let worktreeId = UUID()
+        let now = ContinuousClock().now
+        let envelope = PaneEventEnvelope(
+            source: .system(.builtin(.filesystemWatcher)),
+            sourceFacets: PaneContextFacets(worktreeId: worktreeId),
+            paneKind: nil,
+            seq: 1,
+            commandId: nil,
+            correlationId: nil,
+            timestamp: now,
+            epoch: 0,
+            event: .filesystem(
+                .filesChanged(
+                    changeset: FileChangeset(
+                        worktreeId: worktreeId,
+                        rootPath: URL(fileURLWithPath: "/tmp/worktree-\(UUID().uuidString)"),
+                        paths: ["README.md"],
+                        timestamp: now,
+                        batchSeq: 1
+                    )
+                )
+            )
+        )
+
+        #expect(envelope.source == .system(.builtin(.filesystemWatcher)))
+        #expect(envelope.sourceFacets.worktreeId == worktreeId)
+    }
 }

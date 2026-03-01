@@ -81,12 +81,14 @@ enum SystemSource: Hashable, Sendable, CustomStringConvertible {
 /// Core-implemented system sources. Closed set.
 enum BuiltinSource: Hashable, Sendable, CustomStringConvertible {
     case filesystemWatcher
+    case gitWorkingDirectoryProjector
     case securityBackend
     case coordinator
 
     var description: String {
         switch self {
         case .filesystemWatcher: return "filesystemWatcher"
+        case .gitWorkingDirectoryProjector: return "gitWorkingDirectoryProjector"
         case .securityBackend: return "securityBackend"
         case .coordinator: return "coordinator"
         }

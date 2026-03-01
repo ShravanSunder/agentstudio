@@ -64,7 +64,7 @@ struct TerminalRuntimeTests {
         switch result {
         case .failure(.unsupportedCommand(let command, let requiredCapability)):
             #expect(command.contains("browser"))
-            #expect(requiredCapability == .input)
+            #expect(requiredCapability == browserCommand.command.requiredCapability)
         default:
             Issue.record("Expected unsupported command failure for browser command")
         }

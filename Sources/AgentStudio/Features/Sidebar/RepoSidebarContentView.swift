@@ -8,6 +8,7 @@ import SwiftUI
 @MainActor
 struct RepoSidebarContentView: View {
     let store: WorkspaceStore
+    let workspaceGitWorkingTreeStore: WorkspaceGitWorkingTreeStore
 
     @State private var expandedGroups: Set<String> = Self.loadExpandedGroups()
     @State private var filterText: String = ""
@@ -16,7 +17,7 @@ struct RepoSidebarContentView: View {
     @FocusState private var isFilterFocused: Bool
 
     @State private var repoMetadataById: [UUID: RepoIdentityMetadata] = [:]
-    @State private var worktreeStatusById: [UUID: GitBranchStatus] = [:]
+    @State private var pullRequestCountByWorktreeId: [UUID: Int] = [:]
     @State private var checkoutColorByRepoId: [String: String] = Self.loadCheckoutColors()
     @State private var notificationCountsByWorktreeId: [UUID: Int] = [:]
 
@@ -27,6 +28,14 @@ struct RepoSidebarContentView: View {
     private static let expandedGroupsKey = "sidebarExpandedRepoGroups"
     private static let checkoutColorsKey = "sidebarCheckoutIconColors"
     private static let initialMetadataReloadDelay: Duration = .milliseconds(120)
+
+    init(
+        store: WorkspaceStore,
+        workspaceGitWorkingTreeStore: WorkspaceGitWorkingTreeStore = WorkspaceGitWorkingTreeStore()
+    ) {
+        self.store = store
+        self.workspaceGitWorkingTreeStore = workspaceGitWorkingTreeStore
+    }
 
     private var reposFingerprint: String {
         store.repos.map { "\($0.id.uuidString):\($0.updatedAt.timeIntervalSinceReferenceDate)" }
@@ -43,6 +52,13 @@ struct RepoSidebarContentView: View {
 
     private var isFiltering: Bool {
         !debouncedQuery.isEmpty
+    }
+
+    private var worktreeStatusById: [UUID: GitBranchStatus] {
+        Self.mergeBranchStatuses(
+            localSnapshotsByWorktreeId: workspaceGitWorkingTreeStore.snapshotsByWorktreeId,
+            pullRequestCountsByWorktreeId: pullRequestCountByWorktreeId
+        )
     }
 
     var body: some View {
@@ -503,7 +519,7 @@ struct RepoSidebarContentView: View {
         // so branch labels and worktree mappings reflect current git state.
         refreshWorktrees()
         let reposSnapshot = store.repos
-        let loadInput = SidebarStatusLoadInput(
+        let metadataLoadInput = SidebarStatusLoadInput(
             repos: reposSnapshot.map { repo in
                 RepoStatusInput(
                     repoId: repo.id,
@@ -512,16 +528,17 @@ struct RepoSidebarContentView: View {
                     worktreePaths: repo.worktrees.map(\.path)
                 )
             },
-            worktrees: reposSnapshot.flatMap { repo in
-                repo.worktrees.map { worktree in
-                    WorktreeStatusInput(
-                        worktreeId: worktree.id,
-                        path: worktree.path,
-                        branch: worktree.branch
-                    )
-                }
-            }
+            worktrees: []
         )
+        let worktreeInputs = reposSnapshot.flatMap { repo in
+            repo.worktrees.map { worktree in
+                WorktreeStatusInput(
+                    worktreeId: worktree.id,
+                    path: worktree.path,
+                    branch: worktree.branch
+                )
+            }
+        }
 
         metadataReloadTask = Task {
             // Defer initial sidebar metadata refresh until after the first List
@@ -529,7 +546,7 @@ struct RepoSidebarContentView: View {
             try? await Task.sleep(for: Self.initialMetadataReloadDelay)
             guard !Task.isCancelled else { return }
 
-            let initialSnapshot = await GitRepositoryInspector.metadataAndStatus(for: loadInput)
+            let metadataSnapshot = await GitRepositoryInspector.metadataAndStatus(for: metadataLoadInput)
             guard !Task.isCancelled else { return }
 
             // Avoid mutating SwiftUI List-backed state in the same turn as
@@ -537,28 +554,17 @@ struct RepoSidebarContentView: View {
             await Task.yield()
             guard !Task.isCancelled else { return }
 
-            repoMetadataById = initialSnapshot.metadataByRepoId
-            worktreeStatusById = initialSnapshot.statusByWorktreeId
+            repoMetadataById = metadataSnapshot.metadataByRepoId
 
             // Stage PR metadata after first paint so startup remains responsive.
-            let prCounts = await GitRepositoryInspector.prCounts(for: loadInput.worktrees)
+            let prCounts = await GitRepositoryInspector.prCounts(for: worktreeInputs)
             guard !Task.isCancelled else { return }
-            guard !prCounts.isEmpty else { return }
 
             // Same reentrancy guard for incremental row updates.
             await Task.yield()
             guard !Task.isCancelled else { return }
 
-            for (worktreeId, prCount) in prCounts {
-                guard let status = worktreeStatusById[worktreeId] else { continue }
-                worktreeStatusById[worktreeId] = GitBranchStatus(
-                    isDirty: status.isDirty,
-                    syncState: status.syncState,
-                    prCount: prCount,
-                    linesAdded: status.linesAdded,
-                    linesDeleted: status.linesDeleted
-                )
-            }
+            pullRequestCountByWorktreeId = prCounts
         }
     }
 }
@@ -1067,6 +1073,53 @@ struct GitBranchStatus: Equatable, Sendable {
     let linesDeleted: Int
 
     static let unknown = Self(isDirty: false, syncState: .unknown, prCount: nil, linesAdded: 0, linesDeleted: 0)
+}
+
+extension RepoSidebarContentView {
+    static func mergeBranchStatuses(
+        localSnapshotsByWorktreeId: [UUID: WorkspaceGitWorkingTreeStore.WorktreeSnapshot],
+        pullRequestCountsByWorktreeId: [UUID: Int]
+    ) -> [UUID: GitBranchStatus] {
+        let allWorktreeIds = Set(localSnapshotsByWorktreeId.keys).union(pullRequestCountsByWorktreeId.keys)
+        var mergedByWorktreeId: [UUID: GitBranchStatus] = [:]
+        mergedByWorktreeId.reserveCapacity(allWorktreeIds.count)
+
+        for worktreeId in allWorktreeIds {
+            let localSnapshot = localSnapshotsByWorktreeId[worktreeId]
+            let pullRequestCount = pullRequestCountsByWorktreeId[worktreeId]
+            mergedByWorktreeId[worktreeId] = branchStatus(
+                localSnapshot: localSnapshot,
+                pullRequestCount: pullRequestCount
+            )
+        }
+
+        return mergedByWorktreeId
+    }
+
+    static func branchStatus(
+        localSnapshot: WorkspaceGitWorkingTreeStore.WorktreeSnapshot?,
+        pullRequestCount: Int?
+    ) -> GitBranchStatus {
+        guard let localSnapshot else {
+            return GitBranchStatus(
+                isDirty: GitBranchStatus.unknown.isDirty,
+                syncState: GitBranchStatus.unknown.syncState,
+                prCount: pullRequestCount,
+                linesAdded: GitBranchStatus.unknown.linesAdded,
+                linesDeleted: GitBranchStatus.unknown.linesDeleted
+            )
+        }
+
+        let summary = localSnapshot.summary
+        let isDirty = summary.changed > 0 || summary.staged > 0 || summary.untracked > 0
+        return GitBranchStatus(
+            isDirty: isDirty,
+            syncState: .unknown,
+            prCount: pullRequestCount,
+            linesAdded: 0,
+            linesDeleted: 0
+        )
+    }
 }
 
 enum SidebarRepoGrouping {

@@ -42,12 +42,20 @@ final class PaneCoordinator {
     let paneEventBus: EventBus<PaneEventEnvelope>
     let runtimeTargetResolver: RuntimeTargetResolver
     let runtimeCommandClock: ContinuousClock
+    let filesystemSource: any PaneCoordinatorFilesystemSourceManaging
+    let paneFilesystemProjectionStore: PaneFilesystemProjectionStore
+    let workspaceGitWorkingTreeStore: WorkspaceGitWorkingTreeStore
     lazy var sessionConfig = SessionConfiguration.detect()
     private var cwdChangesTask: Task<Void, Never>?
     private var paneEventIngressTask: Task<Void, Never>?
     private var runtimeEventBridgeTasks: [PaneId: Task<Void, Never>] = [:]
     private var criticalRuntimeEventsTask: Task<Void, Never>?
     private var batchedRuntimeEventsTask: Task<Void, Never>?
+    var filesystemSyncTask: Task<Void, Never>?
+    var filesystemSyncRequested = false
+    var filesystemRegisteredContextsByWorktreeId: [UUID: WorktreeFilesystemContext] = [:]
+    var filesystemActivityByWorktreeId: [UUID: Bool] = [:]
+    var filesystemLastActivePaneWorktreeId: UUID?
 
     /// Unified undo stack — holds both tab and pane close entries, chronologically ordered.
     /// NOTE: Undo stack owned here (not in a store) because undo is fundamentally
@@ -81,8 +89,17 @@ final class PaneCoordinator {
         surfaceManager: PaneCoordinatorSurfaceManaging,
         runtimeRegistry: RuntimeRegistry,
         paneEventBus: EventBus<PaneEventEnvelope> = PaneRuntimeEventBus.shared,
-        runtimeCommandClock: ContinuousClock = ContinuousClock()
+        runtimeCommandClock: ContinuousClock = ContinuousClock(),
+        filesystemSource: (any PaneCoordinatorFilesystemSourceManaging)? = nil,
+        paneFilesystemProjectionStore: PaneFilesystemProjectionStore = PaneFilesystemProjectionStore(),
+        workspaceGitWorkingTreeStore: WorkspaceGitWorkingTreeStore = WorkspaceGitWorkingTreeStore()
     ) {
+        let resolvedFilesystemSource =
+            filesystemSource
+            ?? FilesystemGitPipeline(
+                bus: paneEventBus,
+                gitCoalescingWindow: .milliseconds(200)
+            )
         self.store = store
         self.viewRegistry = viewRegistry
         self.runtime = runtime
@@ -92,9 +109,13 @@ final class PaneCoordinator {
         self.paneEventBus = paneEventBus
         self.runtimeTargetResolver = RuntimeTargetResolver(workspaceStore: store)
         self.runtimeCommandClock = runtimeCommandClock
+        self.filesystemSource = resolvedFilesystemSource
+        self.paneFilesystemProjectionStore = paneFilesystemProjectionStore
+        self.workspaceGitWorkingTreeStore = workspaceGitWorkingTreeStore
         Ghostty.App.setRuntimeRegistry(runtimeRegistry)
         subscribeToCWDChanges()
         setupPrePersistHook()
+        setupFilesystemSourceSync()
         startPaneEventIngress()
         startRuntimeReducerConsumers()
     }
@@ -108,6 +129,11 @@ final class PaneCoordinator {
         runtimeEventBridgeTasks.removeAll()
         criticalRuntimeEventsTask?.cancel()
         batchedRuntimeEventsTask?.cancel()
+        filesystemSyncTask?.cancel()
+        let filesystemSource = filesystemSource
+        Task {
+            await filesystemSource.shutdown()
+        }
     }
 
     func appendUndoEntry(_ entry: WorkspaceStore.CloseEntry) {
@@ -233,6 +259,10 @@ final class PaneCoordinator {
     }
 
     private func handleRuntimeEnvelope(_ envelope: PaneEventEnvelope) {
+        if handleFilesystemEnvelopeIfNeeded(envelope) {
+            return
+        }
+
         switch envelope.source {
         case .pane(let sourcePaneId):
             switch envelope.event {
@@ -242,7 +272,7 @@ final class PaneCoordinator {
                 Self.logger.warning(
                     "Runtime error event received from pane \(sourcePaneId.uuid.uuidString, privacy: .public): \(String(describing: errorEvent), privacy: .public)"
                 )
-            case .lifecycle, .browser, .diff, .editor, .plugin, .filesystem, .artifact, .security:
+            case .lifecycle, .browser, .diff, .editor, .plugin, .artifact, .security, .filesystem:
                 Self.logger.debug(
                     "Runtime event family ignored by coordinator for pane \(sourcePaneId.uuid.uuidString, privacy: .public): \(String(describing: envelope.event), privacy: .public)"
                 )

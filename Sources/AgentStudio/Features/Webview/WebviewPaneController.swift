@@ -1,6 +1,7 @@
 import Foundation
 import Observation
 import WebKit
+import os
 
 /// Per-pane browser controller. Each webview pane owns one controller
 /// that manages a single WebPage and exposes observable navigation state
@@ -8,10 +9,12 @@ import WebKit
 @Observable
 @MainActor
 final class WebviewPaneController {
+    private static let logger = Logger(subsystem: "com.agentstudio", category: "WebviewPaneController")
 
     // MARK: - State
 
     let paneId: UUID
+    let runtime: WebviewRuntime
     private(set) var page: WebPage
     var showNavigation: Bool
     var isFindPresented: Bool = false
@@ -48,6 +51,15 @@ final class WebviewPaneController {
 
     init(paneId: UUID, state: WebviewState) {
         self.paneId = paneId
+        let runtimePaneId = PaneId(uuid: paneId)
+        let runtimeMetadata = Self.makeDefaultRuntimeMetadata(
+            paneId: runtimePaneId,
+            state: state
+        )
+        self.runtime = WebviewRuntime(
+            paneId: runtimePaneId,
+            metadata: runtimeMetadata
+        )
         self.showNavigation = state.showNavigation
         let blockInteraction = ManagementModeMonitor.shared.isActive
         let initialManagementScript = WebInteractionManagementScript.makeUserScript(
@@ -66,6 +78,12 @@ final class WebviewPaneController {
             navigationDecider: WebviewNavigationDecider(),
             dialogPresenter: WebviewDialogHandler()
         )
+        runtime.commandHandler = self
+        if !runtime.transitionToReady() {
+            Self.logger.error(
+                "Failed to transition webview runtime to ready for pane \(paneId.uuidString, privacy: .public)"
+            )
+        }
         if state.url.scheme != "about" {
             _ = page.load(state.url)
         }
@@ -102,7 +120,15 @@ final class WebviewPaneController {
         let shouldReapplyAfterLoad = page.isLoading
 
         interactionApplyTask = Task { @MainActor in
-            _ = try? await page.callJavaScript(script)
+            do {
+                _ = try await page.callJavaScript(script)
+            } catch is CancellationError {
+                return
+            } catch {
+                Self.logger.debug(
+                    "Failed to apply interaction script for pane \(self.paneId.uuidString, privacy: .public): \(error.localizedDescription, privacy: .public)"
+                )
+            }
 
             guard shouldReapplyAfterLoad else { return }
 
@@ -113,7 +139,15 @@ final class WebviewPaneController {
             }
 
             if Task.isCancelled { return }
-            _ = try? await page.callJavaScript(script)
+            do {
+                _ = try await page.callJavaScript(script)
+            } catch is CancellationError {
+                return
+            } catch {
+                Self.logger.debug(
+                    "Failed to reapply interaction script for pane \(self.paneId.uuidString, privacy: .public): \(error.localizedDescription, privacy: .public)"
+                )
+            }
         }
     }
 
@@ -171,6 +205,12 @@ final class WebviewPaneController {
         let displayTitle = page.title.isEmpty ? (url.host() ?? "Web") : page.title
         URLHistoryService.shared.record(url: url, title: displayTitle)
         onTitleChange?(displayTitle)
+        runtime.ingestBrowserEvent(
+            .navigationCompleted(url: url, statusCode: nil)
+        )
+        runtime.ingestBrowserEvent(
+            .pageLoaded(url: url)
+        )
     }
 
     // MARK: - URL Normalization
@@ -184,5 +224,34 @@ final class WebviewPaneController {
             return "http://\(trimmed)"
         }
         return "https://\(trimmed)"
+    }
+
+    private static func makeDefaultRuntimeMetadata(
+        paneId: PaneId,
+        state: WebviewState
+    ) -> PaneMetadata {
+        let title = state.title.isEmpty ? "Web" : state.title
+        return PaneMetadata(
+            paneId: paneId,
+            contentType: .browser,
+            source: .floating(workingDirectory: nil, title: title),
+            title: title
+        )
+    }
+}
+
+extension WebviewPaneController: WebviewRuntimeCommandHandling {
+    func handleBrowserCommand(_ command: BrowserCommand) -> Bool {
+        switch command {
+        case .navigate(let url):
+            _ = page.load(url)
+            return true
+        case .reload:
+            _ = page.reload()
+            return true
+        case .stop:
+            page.stopLoading()
+            return true
+        }
     }
 }

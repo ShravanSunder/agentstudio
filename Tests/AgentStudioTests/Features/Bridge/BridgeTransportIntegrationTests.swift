@@ -27,7 +27,7 @@ extension WebKitSerializedTests {
         @Test
         func test_bridgeReady_gatesAndIsIdempotent() async {
             // Arrange — create a controller with default bridge pane state
-            let paneId = UUID()
+            let paneId = UUIDv7.generate()
             let state = BridgePaneState(panelKind: .diffViewer, source: nil)
             let controller = BridgePaneController(paneId: paneId, state: state)
 
@@ -56,7 +56,7 @@ extension WebKitSerializedTests {
         @Test
         func test_teardown_resetsBridgeReady() async {
             // Arrange — create controller and trigger handshake
-            let paneId = UUID()
+            let paneId = UUIDv7.generate()
             let state = BridgePaneState(panelKind: .diffViewer, source: nil)
             let controller = BridgePaneController(paneId: paneId, state: state)
             controller.handleBridgeReady()
@@ -73,7 +73,7 @@ extension WebKitSerializedTests {
         /// when JavaScript transport is unavailable.
         @Test
         func test_pushJSON_transportFailure_setsConnectionHealthError() async throws {
-            let paneId = UUID()
+            let paneId = UUIDv7.generate()
             let state = BridgePaneState(panelKind: .diffViewer, source: nil)
             let controller = BridgePaneController(paneId: paneId, state: state)
 
@@ -128,7 +128,7 @@ extension WebKitSerializedTests {
                 }
             }
 
-            let paneId = UUID()
+            let paneId = UUIDv7.generate()
             let state = BridgePaneState(panelKind: .diffViewer, source: nil)
             let controller = BridgePaneController(paneId: paneId, state: state)
             let capturedResponse = ResponseCaptureBox()
@@ -171,7 +171,7 @@ extension WebKitSerializedTests {
         @Test
         func test_schemeHandler_servesAppHtml() async throws {
             // Arrange — create controller and load the app
-            let paneId = UUID()
+            let paneId = UUIDv7.generate()
             let state = BridgePaneState(panelKind: .diffViewer, source: nil)
             let controller = BridgePaneController(paneId: paneId, state: state)
 
@@ -214,7 +214,7 @@ extension WebKitSerializedTests {
         @Test
         func test_pageWorld_cannotAccessBridgeInternal() async throws {
             // Arrange — build the same configuration as BridgePaneController, plus a page-world probe
-            let paneId = UUID()
+            let paneId = UUIDv7.generate()
             let bridgeWorld = WKContentWorld.world(name: "agentStudioBridge")
             let pageProbe = IntegrationTestMessageHandler()
 

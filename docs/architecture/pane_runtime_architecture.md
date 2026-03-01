@@ -113,7 +113,7 @@ RUNTIMES (per-pane, registered in RuntimeRegistry):
 
 **Why not three planes (control/state/data):** Separate streams create an ordering hazard: if control events ("diff generated") and state events ("diff pane loaded") travel on separate streams, a late-joining consumer can observe inconsistent state — seeing a loaded diff without knowing which terminal produced it. Single stream with per-source ordering eliminates this within a pane. Cross-source ordering relies on timestamps — sufficient for UI rendering and workflow matching, not for strict causal ordering.
 
-**Cross-source workflow example:** Terminal agent finishes (`source: .pane(agentA)`, `GhosttyEvent.commandFinished`) → filesystem watcher detects changes (`source: .worktree(wt1)`, `FilesystemEvent.filesChanged`) → coordinator creates diff pane. These events come from different sources, so `seq` is independent. The coordinator uses `correlationId` to link the workflow chain and `timestamp` to order them. This is sufficient: the coordinator doesn't need strict causal ordering — it only needs "commandFinished happened, then files changed" which timestamps guarantee within clock precision.
+**Cross-source workflow example:** Terminal agent finishes (`source: .pane(agentA)`, `GhosttyEvent.commandFinished`) → filesystem watcher detects changes (`source: .system(.builtin(.filesystemWatcher))` with `sourceFacets.worktreeId = wt1`, `FilesystemEvent.filesChanged`) → coordinator creates diff pane. These events come from different sources, so `seq` is independent. The coordinator uses `correlationId` to link the workflow chain and `timestamp` to order them. This is sufficient: the coordinator doesn't need strict causal ordering — it only needs "commandFinished happened, then files changed" which timestamps guarantee within clock precision.
 
 **Clarification:** `@Observable` state for UI binding remains separate from the event stream. Terminal views bind directly to `runtime.searchState` or `runtime.scrollbarState` via `@Observable`. The event stream carries coordination events only — things the workspace or other panes need to react to.
 
@@ -180,7 +180,21 @@ SwiftPaneView           (direct Swift)             SwiftPaneRuntime             
 
 **User problem:** Agents edit 50 files in 2 seconds. The workspace needs to know "agent produced a changeset" without drowning in per-file events (JTBD 5, JTBD 6, P6).
 
-**Decision:** Worktree-scoped `FSEvents` watcher → debounce window (500ms settle) → deduped batch → git status recompute. Max latency cap of 2 seconds ensures batches during sustained writes. Events flow on the same coordination stream as `FilesystemEvent` cases.
+**Decision:** Worktree-scoped filesystem watcher ingestion (`FilesystemActor`) emits filesystem facts only. A separate `GitWorkingDirectoryProjector` subscribes to `.filesChanged` facts and emits derived git facts (`.gitSnapshotChanged`, optional `.branchChanged`). `FilesystemActor` enforces debounce (500ms settle) and max latency (2s) so sustained writes still flush bounded batches. Events flow on the same coordination stream as `FilesystemEvent` cases.
+
+**Decision tree (what we considered):**
+1. **Single actor for filesystem + git compute**
+   Keeps fewer types, but long-running git compute occupies the same actor that ingests filesystem bursts.
+2. **Split producer/projector (chosen)**
+   `FilesystemActor` stays focused on ingestion, routing, filtering, and batching; `GitWorkingDirectoryProjector` materializes git state from facts on the bus.
+3. **Per-pane watchers**
+   Rejected for duplication and churn. Watchers are app-wide per worktree, projections are pane-scoped.
+
+**Why the split is the stable shape:**
+1. Preserves one app-wide ingestion path and one watcher set.
+2. Keeps filesystem batching logic in one place (`FilesystemActor`).
+3. Makes git state a derived projection that can coalesce by `worktreeId` and publish stable materialized snapshots.
+4. Keeps remote git/forge concerns out of local working-directory projection.
 
 ### D8: Execution backend as pane configuration, not pane type (JTBD 7, JTBD 8)
 
@@ -208,7 +222,7 @@ SwiftPaneView           (direct Swift)             SwiftPaneRuntime             
 
 | Tier | Service | Scope | Event types | Backend model |
 |------|---------|-------|-------------|---------------|
-| **Built-in** | FSEvents watcher (Contract 6) | Per-worktree | `FilesystemEvent` (filesChanged, gitStatusChanged, diffAvailable, branchChanged) | Core, one watcher per worktree |
+| **Built-in** | FSEvents watcher (Contract 6) | Per-worktree | `FilesystemEvent` (worktreeRegistered, worktreeUnregistered, filesChanged, gitSnapshotChanged, branchChanged, diffAvailable) | Core, one watcher per worktree |
 | **Built-in** | Security backend | Per-worktree | `SecurityEvent` (future) | Core |
 | **Built-in** | PaneCoordinator | App-wide | `LifecycleEvent` (tabSwitched, etc.) | Core |
 | **Service** | Git forge | App-wide | `ForgeEvent` (future: prStatusChanged, reviewRequested, ciCompleted) | Plugin backends (GitHub, GitLab, Bitbucket) |
@@ -227,36 +241,38 @@ All system sources produce `PaneRuntimeEvent` envelopes on the same coordination
 The filesystem watcher is the first system-level source to implement. It's a prerequisite for Contract 16 (pane filesystem context stream, LUNA-344).
 
 ```
-┌─────────────────────────────────────────────────────────────────┐
-│         FSEventsWatcher (app-wide actor keyed by worktree)       │
-│                                                                  │
-│  Input:   macOS FSEvents stream for worktree root path           │
-│  Output:  PaneEventEnvelope with source = .system(.builtin(.filesystemWatcher)) │
-│                                                                  │
-│  Pipeline (inside FilesystemActor — see EventBus design):        │
-│    FSEvents callback (arbitrary thread)                          │
-│      → FilesystemActor (boundary actor, cooperative pool)        │
-│        → path dedup (Set<String>)                                │
-│          → debounce 500ms settle window                          │
-│            → max latency 2s cap                                  │
-│              → FileChangeset batch                               │
-│                → @concurrent nonisolated git status recompute    │
-│                  → GitStatusSummary                              │
-│                    → bus.post(PaneEventEnvelope)                 │
-│                                                                  │
-│  Lifecycle: Created when worktree added to workspace.            │
-│             Destroyed when worktree removed.                     │
-│             Independent of pane lifecycle.                        │
-│                                                                  │
-│  Location: Core/PaneRuntime/Sources/FSEventsWatcher.swift        │
-│  (system-level, not feature-specific)                            │
-└─────────────────────────────────────────────────────────────────┘
+┌──────────────────────────────────────────────────────────────────────────────┐
+│ FilesystemActor + GitWorkingDirectoryProjector (app-wide, keyed by worktree)             │
+│                                                                              │
+│ Input:  macOS FSEvents stream for worktree root path                        │
+│ Output: PaneEventEnvelope with source = .system(.builtin(.filesystemWatcher)) │
+│                                                                              │
+│ Pipeline (split actors, same bus):                                          │
+│   FSEvents callback (arbitrary thread)                                      │
+│     → FilesystemActor (boundary actor, cooperative pool)                    │
+│       → root ownership routing + path filtering (.git + ignore policy)      │
+│         → debounce 500ms settle window                                      │
+│           → max latency 2s cap                                              │
+│             → FileChangeset batch                                           │
+│               → bus.post(.filesystem(.filesChanged))                        │
+│                 → GitWorkingDirectoryProjector subscriber                                 │
+│                   → @concurrent nonisolated git status compute              │
+│                     → bus.post(.filesystem(.gitSnapshotChanged))            │
+│                                                                              │
+│ Lifecycle: Created when worktree added to workspace.                        │
+│            Removed when worktree removed.                                   │
+│            Independent of pane lifecycle.                                   │
+│                                                                              │
+│ Location:                                                                    │
+│   Core/PaneRuntime/Sources/FilesystemActor.swift                            │
+│   Core/PaneRuntime/Sources/GitWorkingDirectoryProjector.swift                             │
+└──────────────────────────────────────────────────────────────────────────────┘
 ```
 
 - One watcher per worktree. Multiple panes sharing a worktree share one watcher.
 - Uses `AsyncStream` continuation for event delivery — same pattern as pane runtimes.
 - Independent `seq` counter per watcher instance (Invariant A4).
-- `FileChangeset.worktreeId` is a denormalized copy of `envelope.source` for convenience — envelope is authoritative (Contract 3, Invariant A1).
+- `FileChangeset.worktreeId` is a denormalized copy of `envelope.sourceFacets.worktreeId` for convenience — envelope source + facets are authoritative (Contract 3, Invariant A1).
 - Debounce uses injectable `Clock<Duration>` for testability (Swift 6 Invariant #5).
 
 #### Git Forge Service Pattern (future, plugin-provided)
@@ -923,7 +939,7 @@ enum EventIdentifier: Hashable, Sendable, CustomStringConvertible {
 ///   PANE-SCOPED: terminal, browser, diff, editor, plugin
 ///     (envelope.source = .pane(id))
 ///   CROSS-CUTTING: lifecycle, filesystem, artifact, security, error
-///     (envelope.source = .worktree(id) or .system(...))
+///     (envelope.source = .system(...) for system producers, .pane(...) for pane producers)
 enum PaneRuntimeEvent: Sendable {
     // ── Lifecycle — all pane types ──────────────────────
     case lifecycle(PaneLifecycleEvent)
@@ -974,10 +990,12 @@ extension PaneRuntimeEvent {
 ///   WORKSPACE-SCOPED: envelope.source = .system(.builtin(.coordinator))
 ///     Tab switch. The activeTabId IS domain data (which tab), not routing.
 ///
-///   WORKTREE-SCOPED: envelope.source = .worktree(id)
-///     Filesystem changes, security events. No worktreeId in event cases.
-///     Exception: FileChangeset.worktreeId is a DENORMALIZED COPY of
-///     envelope.source for convenience — envelope.source is authoritative.
+///   FILESYSTEM-SCOPED: envelope.source = .system(.builtin(.filesystemWatcher))
+///     Routing worktree identity is carried in sourceFacets.worktreeId.
+///     FileChangeset.worktreeId is a DENORMALIZED COPY for convenience.
+///
+///   SECURITY-SCOPED: envelope.source = .system(.builtin(.securityBackend))
+///     Security events are system-produced; pane/worktree association lives in facets.
 ///
 ///   AGENT-SCOPED: envelope.source = .pane(agentPaneId)
 ///     Artifact events. The producing agent is routing identity.
@@ -1013,11 +1031,13 @@ enum AttachError: Error, Sendable {
     case timeout
 }
 
-/// Filesystem events. envelope.source = .worktree(id) — routing identity.
-/// No worktreeId in event payloads (it's on the envelope).
+/// Filesystem events. envelope.source = .system(.builtin(.filesystemWatcher)).
+/// Routing worktree identity lives in sourceFacets.worktreeId.
 enum FilesystemEvent: Sendable {
+    case worktreeRegistered(worktreeId: UUID, rootPath: URL)
+    case worktreeUnregistered(worktreeId: UUID)
     case filesChanged(changeset: FileChangeset)
-    case gitStatusChanged(summary: GitStatusSummary)
+    case gitSnapshotChanged(snapshot: GitWorkingTreeSnapshot)
     case diffAvailable(diffId: UUID)
     case branchChanged(from: String, to: String)
 }
@@ -1034,8 +1054,8 @@ enum ArtifactEvent: Sendable {
 // Deferred (not in current implementation): prCreated(prUrl: String)
 
 /// Security events from execution backends (Gondolin, Docker, etc.).
-/// envelope.source = .worktree(id) — one sandbox may back multiple panes.
-/// No worktreeId in event payloads (it's on the envelope).
+/// envelope.source = .system(.builtin(.securityBackend)).
+/// Routing worktree/pane association is carried by sourceFacets.
 /// All cases are critical priority (user must know immediately).
 enum SecurityEvent: Sendable {
     // Policy enforcement
@@ -1080,7 +1100,7 @@ enum RuntimeErrorEvent: Error, Sendable {
 ///
 /// ROUTING IDENTITY LIVES HERE — not in event payloads.
 /// Pane-scoped events: source = .pane(id), paneKind = .terminal/.browser/etc.
-/// Cross-cutting events: source = .worktree(id) or .system(...), paneKind = nil.
+/// Cross-cutting events: source is system or pane producer identity, paneKind = nil.
 ///
 /// Priority is NOT cached on the envelope. The event self-classifies via
 /// event.actionPolicy (PaneKindEvent protocol). NotificationReducer reads
@@ -1163,7 +1183,8 @@ Additional routing kinds (`.editor`, `.review`, `.agent`) are reserved for futur
 2. Monotonicity: `seq` is strictly increasing per `EventSource`. Gaps are allowed only due to bounded replay eviction.
 3. Source/payload compatibility:
 - Pane-scoped payloads (`.terminal`, `.browser`, `.diff`, `.editor`, `.plugin`) require `source = .pane(id)`.
-- Filesystem and security payloads require `source = .worktree(id)` or explicit system producer.
+- Filesystem payloads require `source = .system(.builtin(.filesystemWatcher))` and `sourceFacets.worktreeId`.
+- Security payloads require `source = .system(.builtin(.securityBackend))`.
 - Workspace lifecycle events that are not pane-scoped require `source = .system(.builtin(.coordinator))`.
 - Typed service events require `source = .system(.service(...))` with provider identity.
 - Plugin system events require `source = .system(.plugin(kind))`.
@@ -1492,52 +1513,49 @@ struct OrphanCleanupPolicy: Sendable {
 
 ### Contract 6: Filesystem Batching
 
-> **Role:** Source. Produces `FilesystemEvent` on the coordination stream with `source = .worktree(id)`. One watcher instance per worktree — shared across all panes in that worktree. Contract 16 is a projection of this source.
+> **Role:** Source. Produces `FilesystemEvent` on the coordination stream with `source = .system(.builtin(.filesystemWatcher))` and `sourceFacets.worktreeId = <watcher worktree>`. One watcher instance per worktree — shared across all panes in that worktree. Contract 16 is a projection of this source.
 
 ```swift
 /// Worktree-scoped filesystem observation contract.
 ///
 /// Rules:
-///   1. Debounce window: 500ms (wait for agent to finish writing)
-///   2. Max latency cap: 2 seconds (emit at least one batch during sustained writes)
-///   3. Dedupe key: file path within worktree (same file modified 5× → 1 event)
-///   4. Max batch size: 500 paths (split into multiple batches if larger)
-///   5. Settle detection: no new events for debounce window → flush
-///   6. Git status recompute: only after batch flush, not per-file
-///   7. Git status recomputes are SEQUENTIAL per worktree. If two batches
-///      flush back-to-back for the same worktree, the second git status
-///      waits for the first to complete. This prevents race conditions
-///      where concurrent git status calls produce inconsistent diff state.
-///      Cross-worktree git status calls are independent (different repos).
-///   8. Identity: every batch carries worktreeId for routing
-///   9. gitignore-aware exclusion: paths matching the worktree's
-///      .gitignore rules are excluded BEFORE entering the batch.
-///      This includes nested .gitignore files. The watcher reads
-///      gitignore state from the same git context used for git status.
-///      Excluded paths never appear in FileChangeset.paths —
-///      downstream consumers (Contract 16, diff viewer) never see them.
-///      This prevents .build/, node_modules/, .git/objects/ noise
-///      from reaching the coordination stream.
+///   1. Debounce window: 500ms (wait for burst settle before flush)
+///   2. Max latency cap: 2 seconds (force bounded flush during sustained writes)
+///   3. Dedupe key: normalized relative path within worktree
+///   4. Max batch size: 256 projected paths per `filesChanged` envelope
+///   5. Priority order for due flushes:
+///      - focused active-pane worktree
+///      - active-in-app worktrees
+///      - background/sidebar worktrees
+///   6. `.git/**` internals are suppressed from projection-facing path payloads
+///   7. Root-level `.gitignore` policy is applied before projection payload emission
+///   8. If only suppressed paths changed, emit `filesChanged` with empty `paths`
+///      and suppression metadata so downstream projectors can still refresh state
+///   9. Identity: each changeset carries `worktreeId` + `rootPath` for self-describing payloads
 
 /// Standalone data structure — may be serialized/stored independently.
 /// worktreeId denormalized here for self-documenting data. Canonical
-/// source is envelope.source = .worktree(id).
+/// source identity is envelope.source + envelope.sourceFacets.
 /// IDENTITY vs DOMAIN DATA clarification:
 ///
-/// FileChangeset.worktreeId is a DENORMALIZED COPY of envelope.source's
-/// WorktreeId. It exists for convenience — consumers can access worktreeId
-/// without unwrapping the envelope. Routing decisions use envelope.source;
+/// FileChangeset.worktreeId is a DENORMALIZED COPY of envelope.sourceFacets.worktreeId.
+/// It exists for convenience — consumers can access worktreeId
+/// without unwrapping facets. Routing decisions use envelope.source + facets;
 /// this field is a read-through copy, not a separate source of truth.
 ///
 /// Same pattern as ArtifactEvent.diffProduced(worktreeId:) — worktreeId
 /// in the payload is DOMAIN DATA ("which worktree this changeset covers"),
-/// while envelope.source = .worktree(id) is ROUTING IDENTITY.
+/// while envelope source + facets carry ROUTING IDENTITY.
 ///
 /// In practice, FileChangeset.worktreeId == envelope.source.worktreeId
 /// always. If they ever diverge, envelope.source is authoritative.
 struct FileChangeset: Sendable {
     let worktreeId: WorktreeId       // denormalized from envelope.source (domain data)
-    let paths: Set<String>           // deduped relative paths
+    let rootPath: URL
+    let paths: [String]              // deduped + ordered relative paths
+    let containsGitInternalChanges: Bool
+    let suppressedIgnoredPathCount: Int
+    let suppressedGitInternalPathCount: Int
     let timestamp: ContinuousClock.Instant
     let batchSeq: UInt64             // monotonic per worktree
 }
@@ -2709,13 +2727,13 @@ struct PaneFilesystemContext: Sendable {
 /// Only includes changes within the pane's CWD subtree.
 enum PaneFilesystemContextEvent: PaneKindEvent {
     case cwdSubtreeChanged(paths: Set<String>, batchSeq: UInt64)
-    case gitStatusInCwd(staged: Int, unstaged: Int, untracked: Int)
+    case gitWorkingTreeInCwd(staged: Int, unstaged: Int, untracked: Int)
 
     var actionPolicy: ActionPolicy { .critical }
     var eventName: EventIdentifier {
         switch self {
         case .cwdSubtreeChanged: return .init("fs.cwdSubtreeChanged")
-        case .gitStatusInCwd:    return .init("fs.gitStatusInCwd")
+        case .gitWorkingTreeInCwd: return .init("fs.gitWorkingTreeInCwd")
         }
     }
 }
@@ -2726,7 +2744,7 @@ enum PaneFilesystemContextEvent: PaneKindEvent {
 1. **Filesystem context stream is derived, never primary.** Source of truth is the worktree watcher (Contract 6). Per-pane context is a filtered projection.
 2. **One watcher per worktree, not per pane.** Multiple panes in the same worktree share the same watcher. Per-pane filtering happens at the stream level.
 3. **CWD change re-scopes the filter.** When a pane's CWD changes (from CWD propagation), its filesystem context stream automatically re-filters.
-4. **Batched events only.** Inherits Contract 6 batching (500ms debounce, 2s max latency). No per-file spam on the per-pane stream.
+4. **Batched events only.** Inherits Contract 6 batching (500ms debounce, 2s max latency, 256-path chunks). No per-file spam on the per-pane stream.
 
 ---
 
@@ -2752,7 +2770,7 @@ enum PaneFilesystemContextEvent: PaneKindEvent {
 | **Editor** | **File ops** | contentSaved, contentReverted, fileOpened/Closed, languageDetected, diagnostics* | `critical` | never |
 | **Editor** | **Cursor** | cursorMoved, selectionChanged, visibleRangeChanged | `lossy` | key: `cursor` |
 | **Editor** | **Edits** | contentModified | `lossy` | key: `edit` |
-| **Cross** | **Filesystem** | filesChanged, gitStatusChanged, diffAvailable, branchChanged | `critical` | pre-batched by watcher |
+| **Cross** | **Filesystem** | worktreeRegistered, worktreeUnregistered, filesChanged, gitSnapshotChanged, diffAvailable, branchChanged | `critical` | pre-batched by watcher |
 | **Cross** | **Artifacts** | diffProduced, approvalRequested, approvalDecided | `critical` | never |
 | **Cross** | **Security** | all SecurityEvent cases | `critical` | never |
 | **Cross** | **Errors** | all RuntimeErrorEvent cases | `critical` | never |
@@ -2775,9 +2793,9 @@ enum PaneFilesystemContextEvent: PaneKindEvent {
 
 ### 3. Event storm from filesystem watchers
 
-**Risk:** Agent writes 500 files → FSEvents fires 500+ raw events → git status recomputes 500 times.
+**Risk:** Agent writes 500 files → FSEvents fires 500+ raw events → local git projection thrashes.
 
-**Mitigation:** Worktree-scoped debounce (500ms settle window) + deduped path set + max batch size (500 paths) + max latency cap (2 seconds). Git status/diff recompute only after batch flush. Multiple worktrees have independent watchers — one noisy worktree doesn't delay another.
+**Mitigation:** Worktree-scoped debounce (500ms settle window) + deduped path set + 256-path chunking + max latency cap (2 seconds). `GitWorkingDirectoryProjector` coalesces by `worktreeId` (latest wins), so one noisy burst converges to bounded recompute work. Multiple worktrees remain independent.
 
 ### 4. Replay buffer memory growth
 
@@ -2933,7 +2951,7 @@ Structural guarantees that hold across all contracts. Each invariant is enforced
 
 ### Event Scoping
 
-**A15. Source/payload compatibility is a contract invariant.** Pane-scoped payloads (`.terminal`, `.browser`, `.diff`, `.editor`, `.plugin`) require `source = .pane(id)`. Filesystem/security payloads require `source = .worktree(id)`. Workspace lifecycle events not pane-scoped require `source = .system(.builtin(.coordinator))`. Typed service events require `source = .system(.service(...))` with provider identity. Plugin system events require `source = .system(.plugin(kind))`. Invalid combinations are contract violations — runtime emits `RuntimeErrorEvent` rather than silently misrouting.
+**A15. Source/payload compatibility is a contract invariant.** Pane-scoped payloads (`.terminal`, `.browser`, `.diff`, `.editor`, `.plugin`) require `source = .pane(id)`. Filesystem payloads require `source = .system(.builtin(.filesystemWatcher))` and `sourceFacets.worktreeId`. Security payloads require `source = .system(.builtin(.securityBackend))`. Workspace lifecycle events not pane-scoped require `source = .system(.builtin(.coordinator))`. Typed service events require `source = .system(.service(...))` with provider identity. Plugin system events require `source = .system(.plugin(kind))`. Invalid combinations are contract violations — runtime emits `RuntimeErrorEvent` rather than silently misrouting.
 
 *Enforced by:* Envelope invariant #3 and #4 (Contract 3). Validated at envelope creation in runtime.
 

@@ -9,10 +9,13 @@ import SwiftUI
 /// Controller lifetime is tied to this NSView's lifetime in the AppKit layout hierarchy.
 final class WebviewPaneView: PaneView {
     let controller: WebviewPaneController
+    let runtime: WebviewRuntime
     private var hostingView: NSHostingView<WebviewPaneContentView>?
 
     init(paneId: UUID, state: WebviewState) {
-        self.controller = WebviewPaneController(paneId: paneId, state: state)
+        let controller = WebviewPaneController(paneId: paneId, state: state)
+        self.controller = controller
+        self.runtime = controller.runtime
         super.init(paneId: paneId)
         setupHostingView()
     }
