@@ -30,8 +30,8 @@ final class DynamicViewProjectorTests {
         let wtB1 = makeWorktree(name: "main", path: "/Users/dev/projects/askluna/main")
 
         let repoEnrichments: [UUID: RepoEnrichment] = [
-            repoA.id: RepoEnrichment(repoId: repoA.id),
-            repoB.id: RepoEnrichment(repoId: repoB.id),
+            repoA.id: .unresolved(repoId: repoA.id),
+            repoB.id: .unresolved(repoId: repoB.id),
         ]
         let worktreeEnrichments: [UUID: WorktreeEnrichment] = [
             wtA1.id: WorktreeEnrichment(worktreeId: wtA1.id, repoId: repoA.id, branch: wtA1.name),

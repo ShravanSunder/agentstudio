@@ -184,6 +184,15 @@ SwiftPaneView           (direct Swift)             SwiftPaneRuntime             
 
 **Enrichment pipeline context:** This filesystem observation is part of a sequential enrichment pipeline: `FilesystemActor → GitWorkingDirectoryProjector → ForgeActor → WorkspaceCacheCoordinator`. Each stage subscribes to the bus and produces enriched events. The full pipeline spec is in [Workspace Data Architecture](workspace_data_architecture.md).
 
+**Primary sidebar identity contract (implemented):**
+1. `GitWorkingDirectoryProjector` is the only origin producer. It emits `.originChanged(repoId:from:to:)` on worktree registration and `.git/config` changes.
+2. `WorkspaceCacheCoordinator` derives typed repo identity from origin and writes `RepoEnrichment` as a discriminated union:
+   - `.unresolved(repoId:)` for not-yet-derived identity.
+   - `.resolved(repoId:raw:identity:updatedAt:)` for derived identity.
+   - `raw` contains git facts (`origin`, `upstream`), `identity` contains projection fields (`groupKey`, `remoteSlug`, `organizationName`, `displayName`).
+3. `RepoSidebarContentView` primary grouping uses `identity.groupKey` only when enrichment is `.resolved`; unresolved repos are grouped into deterministic pending buckets; missing cache entries fall back to path grouping.
+4. `ForgeEvent.pullRequestCountsChanged(repoId:countsByBranch:)` is mapped by `(repoId, branch)` in `WorkspaceCacheCoordinator` to prevent cross-repo branch-name contamination (for example, two unrelated `main` branches).
+
 **Decision tree (what we considered):**
 1. **Single actor for filesystem + git compute**
    Keeps fewer types, but long-running git compute occupies the same actor that ingests filesystem bursts.

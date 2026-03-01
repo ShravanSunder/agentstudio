@@ -2,33 +2,70 @@ import Foundation
 
 /// Derived repo metadata computed from local/remote git facts.
 /// Rebuildable cache data; not canonical workspace identity.
-struct RepoEnrichment: Codable, Hashable, Sendable {
-    let repoId: UUID
-    var organizationName: String?
-    var origin: String?
-    var upstream: String?
-    var remoteSlug: String?
-    var groupKey: String?
-    var displayName: String?
-    var updatedAt: Date
+struct RawRepoOrigin: Codable, Hashable, Sendable {
+    let origin: String?
+    let upstream: String?
+}
 
-    init(
-        repoId: UUID,
-        organizationName: String? = nil,
-        origin: String? = nil,
-        upstream: String? = nil,
-        remoteSlug: String? = nil,
-        groupKey: String? = nil,
-        displayName: String? = nil,
-        updatedAt: Date = Date()
-    ) {
-        self.repoId = repoId
-        self.organizationName = organizationName
-        self.origin = origin
-        self.upstream = upstream
-        self.remoteSlug = remoteSlug
-        self.groupKey = groupKey
-        self.displayName = displayName
-        self.updatedAt = updatedAt
+struct RepoIdentity: Codable, Hashable, Sendable {
+    let groupKey: String
+    let remoteSlug: String?
+    let organizationName: String?
+    let displayName: String
+}
+
+enum RepoEnrichment: Codable, Hashable, Sendable {
+    case unresolved(repoId: UUID)
+    case resolved(repoId: UUID, raw: RawRepoOrigin, identity: RepoIdentity, updatedAt: Date)
+
+    var repoId: UUID {
+        switch self {
+        case .unresolved(let repoId):
+            repoId
+        case .resolved(let repoId, _, _, _):
+            repoId
+        }
+    }
+
+    var raw: RawRepoOrigin? {
+        switch self {
+        case .unresolved:
+            nil
+        case .resolved(_, let raw, _, _):
+            raw
+        }
+    }
+
+    var identity: RepoIdentity? {
+        switch self {
+        case .unresolved:
+            nil
+        case .resolved(_, _, let identity, _):
+            identity
+        }
+    }
+
+    var origin: String? {
+        raw?.origin
+    }
+
+    var upstream: String? {
+        raw?.upstream
+    }
+
+    var groupKey: String? {
+        identity?.groupKey
+    }
+
+    var remoteSlug: String? {
+        identity?.remoteSlug
+    }
+
+    var organizationName: String? {
+        identity?.organizationName
+    }
+
+    var displayName: String? {
+        identity?.displayName
     }
 }

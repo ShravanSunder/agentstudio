@@ -299,10 +299,16 @@ final class WorkspacePersistorTests {
         let cacheState = WorkspacePersistor.PersistableCacheState(
             workspaceId: workspaceId,
             repoEnrichmentByRepoId: [
-                repoId: RepoEnrichment(
+                repoId: .resolved(
                     repoId: repoId,
-                    organizationName: "askluna",
-                    origin: "git@github.com:askluna/agent-studio.git"
+                    raw: RawRepoOrigin(origin: "git@github.com:askluna/agent-studio.git", upstream: nil),
+                    identity: RepoIdentity(
+                        groupKey: "remote:askluna/agent-studio",
+                        remoteSlug: "askluna/agent-studio",
+                        organizationName: "askluna",
+                        displayName: "agent-studio"
+                    ),
+                    updatedAt: Date()
                 )
             ],
             worktreeEnrichmentByWorktreeId: [

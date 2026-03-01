@@ -45,20 +45,25 @@ final class CanonicalModelTests {
     @Test
     func repoEnrichment_holdsDerivedRepoMetadata() {
         let repoId = UUID()
-        let enrichment = RepoEnrichment(
+        let enrichment = RepoEnrichment.resolved(
             repoId: repoId,
-            organizationName: "askluna",
-            origin: "git@github.com:askluna/agent-studio.git",
-            upstream: "git@github.com:upstream/agent-studio.git",
-            remoteSlug: "askluna/agent-studio",
-            groupKey: "askluna",
-            displayName: "askluna/agent-studio"
+            raw: RawRepoOrigin(
+                origin: "git@github.com:askluna/agent-studio.git",
+                upstream: "git@github.com:upstream/agent-studio.git"
+            ),
+            identity: RepoIdentity(
+                groupKey: "remote:askluna/agent-studio",
+                remoteSlug: "askluna/agent-studio",
+                organizationName: "askluna",
+                displayName: "agent-studio"
+            ),
+            updatedAt: Date()
         )
 
         #expect(enrichment.repoId == repoId)
         #expect(enrichment.organizationName == "askluna")
         #expect(enrichment.remoteSlug == "askluna/agent-studio")
-        #expect(enrichment.groupKey == "askluna")
+        #expect(enrichment.groupKey == "remote:askluna/agent-studio")
     }
 
     @Test

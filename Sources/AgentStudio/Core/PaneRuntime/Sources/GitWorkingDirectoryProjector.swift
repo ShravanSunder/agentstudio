@@ -26,6 +26,8 @@ actor GitWorkingDirectoryProjector {
     private var pendingByWorktreeId: [UUID: FileChangeset] = [:]
     private var suppressedWorktreeIds: Set<UUID> = []
     private var lastKnownBranchByWorktree: [UUID: String] = [:]
+    private var repoIdByWorktreeId: [UUID: UUID] = [:]
+    private var lastKnownOriginByRepoId: [UUID: String] = [:]
     private var nextEnvelopeSequence: UInt64 = 0
 
     init(
@@ -87,6 +89,8 @@ actor GitWorkingDirectoryProjector {
         pendingByWorktreeId.removeAll(keepingCapacity: false)
         suppressedWorktreeIds.removeAll(keepingCapacity: false)
         lastKnownBranchByWorktree.removeAll(keepingCapacity: false)
+        repoIdByWorktreeId.removeAll(keepingCapacity: false)
+        lastKnownOriginByRepoId.removeAll(keepingCapacity: false)
     }
 
     private func handleIncomingRuntimeEnvelope(_ envelope: RuntimeEnvelope) async {
@@ -97,6 +101,7 @@ actor GitWorkingDirectoryProjector {
             switch topologyEvent {
             case .worktreeRegistered(let worktreeId, let repoId, let rootPath):
                 suppressedWorktreeIds.remove(worktreeId)
+                repoIdByWorktreeId[worktreeId] = repoId
                 pendingByWorktreeId[worktreeId] = FileChangeset(
                     worktreeId: worktreeId,
                     repoId: repoId,
@@ -106,10 +111,14 @@ actor GitWorkingDirectoryProjector {
                     batchSeq: 0
                 )
                 spawnOrCoalesce(worktreeId: worktreeId)
-            case .worktreeUnregistered(let worktreeId, _):
+            case .worktreeUnregistered(let worktreeId, let repoId):
                 suppressedWorktreeIds.insert(worktreeId)
                 pendingByWorktreeId.removeValue(forKey: worktreeId)
                 lastKnownBranchByWorktree.removeValue(forKey: worktreeId)
+                repoIdByWorktreeId.removeValue(forKey: worktreeId)
+                if !repoIdByWorktreeId.values.contains(repoId) {
+                    lastKnownOriginByRepoId.removeValue(forKey: repoId)
+                }
                 if let task = worktreeTasks.removeValue(forKey: worktreeId) {
                     task.cancel()
                 }
@@ -121,6 +130,7 @@ actor GitWorkingDirectoryProjector {
             guard case .filesystem(.filesChanged(let changeset)) = worktreeEnvelope.event else { return }
             let worktreeId = changeset.worktreeId
             guard !suppressedWorktreeIds.contains(worktreeId) else { return }
+            repoIdByWorktreeId[worktreeId] = changeset.repoId
             pendingByWorktreeId[worktreeId] = changeset
             spawnOrCoalesce(worktreeId: worktreeId)
         case .pane:
@@ -213,6 +223,39 @@ actor GitWorkingDirectoryProjector {
             )
         }
         lastKnownBranchByWorktree[changeset.worktreeId] = statusSnapshot.branch
+
+        guard shouldCheckOrigin(for: changeset) else { return }
+
+        let currentOrigin = (statusSnapshot.origin ?? "").trimmingCharacters(in: .whitespacesAndNewlines)
+        let previousOrigin = lastKnownOriginByRepoId[changeset.repoId]
+        if previousOrigin != currentOrigin {
+            await emitGitWorkingDirectoryEvent(
+                worktreeId: changeset.worktreeId,
+                repoId: changeset.repoId,
+                event: .originChanged(
+                    repoId: changeset.repoId,
+                    from: previousOrigin ?? "",
+                    to: currentOrigin
+                )
+            )
+            lastKnownOriginByRepoId[changeset.repoId] = currentOrigin
+        }
+    }
+
+    private func shouldCheckOrigin(for changeset: FileChangeset) -> Bool {
+        if changeset.paths.isEmpty {
+            return true
+        }
+        return changeset.paths.contains(where: Self.isGitConfigPath)
+    }
+
+    nonisolated private static func isGitConfigPath(_ relativePath: String) -> Bool {
+        let normalizedPath =
+            relativePath
+            .trimmingCharacters(in: .whitespacesAndNewlines)
+            .replacingOccurrences(of: "\\", with: "/")
+            .trimmingCharacters(in: CharacterSet(charactersIn: "/"))
+        return normalizedPath == ".git/config" || normalizedPath.hasSuffix("/.git/config")
     }
 
     private func emitGitWorkingDirectoryEvent(

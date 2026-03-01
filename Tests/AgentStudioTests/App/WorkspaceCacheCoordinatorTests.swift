@@ -194,10 +194,19 @@ final class WorkspaceCacheCoordinatorTests {
 
         let repoId = UUID()
         let worktreeId = UUID()
+        let otherRepoId = UUID()
+        let otherWorktreeId = UUID()
         cacheStore.setWorktreeEnrichment(
             WorktreeEnrichment(
                 worktreeId: worktreeId,
                 repoId: repoId,
+                branch: "feature/runtime"
+            )
+        )
+        cacheStore.setWorktreeEnrichment(
+            WorktreeEnrichment(
+                worktreeId: otherWorktreeId,
+                repoId: otherRepoId,
                 branch: "feature/runtime"
             )
         )
@@ -212,6 +221,79 @@ final class WorkspaceCacheCoordinatorTests {
         coordinator.handleEnrichment(envelope)
 
         #expect(cacheStore.pullRequestCountByWorktreeId[worktreeId] == 3)
+        #expect(cacheStore.pullRequestCountByWorktreeId[otherWorktreeId] == nil)
+    }
+
+    @Test
+    func enrichment_originChanged_validRemoteDerivesResolvedIdentity() {
+        let workspaceStore = makeWorkspaceStore()
+        let cacheStore = WorkspaceCacheStore()
+        let coordinator = WorkspaceCacheCoordinator(
+            bus: EventBus<RuntimeEnvelope>(),
+            workspaceStore: workspaceStore,
+            cacheStore: cacheStore
+        )
+
+        let repo = workspaceStore.addRepo(at: URL(fileURLWithPath: "/tmp/luna-origin-identity"))
+
+        coordinator.handleEnrichment(
+            WorktreeEnvelope.test(
+                event: .gitWorkingDirectory(
+                    .originChanged(
+                        repoId: repo.id,
+                        from: "",
+                        to: "git@github.com:askluna/agent-studio.git"
+                    )
+                ),
+                repoId: repo.id,
+                source: .system(.builtin(.gitWorkingDirectoryProjector))
+            )
+        )
+
+        guard case .some(.resolved(_, let raw, let identity, _)) = cacheStore.repoEnrichmentByRepoId[repo.id] else {
+            Issue.record("Expected resolved enrichment")
+            return
+        }
+        #expect(raw.origin == "git@github.com:askluna/agent-studio.git")
+        #expect(identity.groupKey == "remote:askluna/agent-studio")
+        #expect(identity.remoteSlug == "askluna/agent-studio")
+        #expect(identity.organizationName == "askluna")
+        #expect(identity.displayName == "agent-studio")
+    }
+
+    @Test
+    func enrichment_originChanged_emptyOriginDerivesLocalIdentity() {
+        let workspaceStore = makeWorkspaceStore()
+        let cacheStore = WorkspaceCacheStore()
+        let coordinator = WorkspaceCacheCoordinator(
+            bus: EventBus<RuntimeEnvelope>(),
+            workspaceStore: workspaceStore,
+            cacheStore: cacheStore
+        )
+
+        let repo = workspaceStore.addRepo(at: URL(fileURLWithPath: "/tmp/MyProject"))
+
+        coordinator.handleEnrichment(
+            WorktreeEnvelope.test(
+                event: .gitWorkingDirectory(
+                    .originChanged(
+                        repoId: repo.id,
+                        from: "",
+                        to: ""
+                    )
+                ),
+                repoId: repo.id,
+                source: .system(.builtin(.gitWorkingDirectoryProjector))
+            )
+        )
+
+        guard case .some(.resolved(_, let raw, let identity, _)) = cacheStore.repoEnrichmentByRepoId[repo.id] else {
+            Issue.record("Expected resolved local enrichment")
+            return
+        }
+        #expect(raw.origin == nil)
+        #expect(identity.groupKey == "local:MyProject")
+        #expect(identity.remoteSlug == nil)
     }
 
     @Test
@@ -277,6 +359,144 @@ final class WorkspaceCacheCoordinatorTests {
                 return false
             }
         )
+    }
+
+    @Test
+    func integration_addFolderTopologyConvergesToResolvedRemoteIdentity() async {
+        let bus = EventBus<RuntimeEnvelope>()
+        let workspaceStore = makeWorkspaceStore()
+        let cacheStore = WorkspaceCacheStore()
+        let recordedScopeChanges = RecordedScopeChanges()
+        let coordinator = WorkspaceCacheCoordinator(
+            bus: bus,
+            workspaceStore: workspaceStore,
+            cacheStore: cacheStore,
+            scopeSyncHandler: { change in
+                await recordedScopeChanges.record(change)
+            }
+        )
+        let projector = GitWorkingDirectoryProjector(
+            bus: bus,
+            gitWorkingTreeProvider: .stub { _ in
+                GitWorkingTreeStatus(
+                    summary: GitWorkingTreeSummary(changed: 0, staged: 0, untracked: 0),
+                    branch: "main",
+                    origin: "git@github.com:askluna/agent-studio.git"
+                )
+            },
+            coalescingWindow: .zero
+        )
+
+        coordinator.startConsuming()
+        await projector.start()
+        defer {
+            coordinator.stopConsuming()
+        }
+
+        let repoPath = URL(fileURLWithPath: "/tmp/luna-converge-remote")
+        let repo = workspaceStore.addRepo(at: repoPath)
+        let worktreeId = UUID()
+        let posted = await bus.post(
+            .system(
+                SystemEnvelope.test(
+                    event: .topology(
+                        .worktreeRegistered(worktreeId: worktreeId, repoId: repo.id, rootPath: repoPath)
+                    ),
+                    source: .builtin(.filesystemWatcher)
+                )
+            )
+        )
+        #expect(posted.subscriberCount > 0)
+
+        let resolved = await eventually("repo enrichment should resolve from projector origin") {
+            guard case .some(.resolved(_, _, let identity, _)) = cacheStore.repoEnrichmentByRepoId[repo.id] else {
+                return false
+            }
+            return identity.groupKey == "remote:askluna/agent-studio"
+        }
+        #expect(resolved)
+
+        let scopeSynced = await eventually("scope sync should register forge repo") {
+            let changes = await recordedScopeChanges.values
+            return changes.contains {
+                if case .registerForgeRepo(let repoId, let remote) = $0 {
+                    return repoId == repo.id && remote == "git@github.com:askluna/agent-studio.git"
+                }
+                return false
+            }
+        }
+        #expect(scopeSynced)
+
+        await projector.shutdown()
+    }
+
+    @Test
+    func integration_addFolderTopologyConvergesToResolvedLocalIdentityWhenRemoteMissing() async {
+        let bus = EventBus<RuntimeEnvelope>()
+        let workspaceStore = makeWorkspaceStore()
+        let cacheStore = WorkspaceCacheStore()
+        let recordedScopeChanges = RecordedScopeChanges()
+        let coordinator = WorkspaceCacheCoordinator(
+            bus: bus,
+            workspaceStore: workspaceStore,
+            cacheStore: cacheStore,
+            scopeSyncHandler: { change in
+                await recordedScopeChanges.record(change)
+            }
+        )
+        let projector = GitWorkingDirectoryProjector(
+            bus: bus,
+            gitWorkingTreeProvider: .stub { _ in
+                GitWorkingTreeStatus(
+                    summary: GitWorkingTreeSummary(changed: 0, staged: 0, untracked: 0),
+                    branch: "main",
+                    origin: nil
+                )
+            },
+            coalescingWindow: .zero
+        )
+
+        coordinator.startConsuming()
+        await projector.start()
+        defer {
+            coordinator.stopConsuming()
+        }
+
+        let repoPath = URL(fileURLWithPath: "/tmp/luna-converge-local")
+        let repo = workspaceStore.addRepo(at: repoPath)
+        let worktreeId = UUID()
+        _ = await bus.post(
+            .system(
+                SystemEnvelope.test(
+                    event: .topology(
+                        .worktreeRegistered(worktreeId: worktreeId, repoId: repo.id, rootPath: repoPath)
+                    ),
+                    source: .builtin(.filesystemWatcher)
+                )
+            )
+        )
+
+        let resolved = await eventually("local-only repo enrichment should resolve") {
+            guard case .some(.resolved(_, let raw, let identity, _)) = cacheStore.repoEnrichmentByRepoId[repo.id]
+            else {
+                return false
+            }
+            return raw.origin == nil && identity.groupKey == "local:\(repo.name)"
+        }
+        #expect(resolved)
+
+        let scopeSynced = await eventually("scope sync should unregister forge repo for local-only repo") {
+            let changes = await recordedScopeChanges.values
+            return changes.contains {
+                if case .unregisterForgeRepo(let repoId) = $0 {
+                    return repoId == repo.id
+                }
+                return false
+            }
+        }
+        #expect(scopeSynced)
+
+        await projector.shutdown()
     }
 
     private func eventually(

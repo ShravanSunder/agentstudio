@@ -14,7 +14,8 @@ struct FilesystemGitPipelineIntegrationTests {
             gitWorkingTreeProvider: .stub { _ in
                 GitWorkingTreeStatus(
                     summary: GitWorkingTreeSummary(changed: 2, staged: 1, untracked: 1),
-                    branch: "feature/pipeline"
+                    branch: "feature/pipeline",
+                    origin: nil
                 )
             }
         )

@@ -57,21 +57,52 @@ struct RepoSidebarContentView: View {
         for repo in sidebarRepos {
             let enrichment = cacheStore.repoEnrichmentByRepoId[repo.id]
             let normalizedRepoPath = repo.repoPath.standardizedFileURL.path
-            let repoName = enrichment?.displayName ?? repo.name
+
+            let groupKey: String
+            let displayName: String
+            let organizationName: String?
+            let originRemote: String?
+            let upstreamRemote: String?
+            let remoteSlug: String?
+
+            switch enrichment {
+            case .resolved(_, let raw, let identity, _):
+                groupKey = identity.groupKey
+                displayName = identity.displayName
+                organizationName = identity.organizationName
+                originRemote = raw.origin
+                upstreamRemote = raw.upstream
+                remoteSlug = identity.remoteSlug
+            case .unresolved:
+                groupKey = "pending:\(repo.id.uuidString)"
+                displayName = repo.name
+                organizationName = nil
+                originRemote = nil
+                upstreamRemote = nil
+                remoteSlug = nil
+            case nil:
+                groupKey = "path:\(normalizedRepoPath)"
+                displayName = repo.name
+                organizationName = nil
+                originRemote = nil
+                upstreamRemote = nil
+                remoteSlug = nil
+            }
+
             metadataByRepoId[repo.id] = RepoIdentityMetadata(
-                groupKey: enrichment?.groupKey ?? "path:\(normalizedRepoPath)",
-                displayName: repoName,
-                repoName: repoName,
+                groupKey: groupKey,
+                displayName: displayName,
+                repoName: displayName,
                 worktreeCommonDirectory: nil,
                 folderCwd: normalizedRepoPath,
                 parentFolder: repo.repoPath.deletingLastPathComponent().lastPathComponent,
-                organizationName: enrichment?.organizationName,
-                originRemote: enrichment?.origin,
-                upstreamRemote: enrichment?.upstream,
+                organizationName: organizationName,
+                originRemote: originRemote,
+                upstreamRemote: upstreamRemote,
                 lastPathComponent: repo.repoPath.lastPathComponent,
                 worktreeCwds: repo.worktrees.map { $0.path.standardizedFileURL.path },
-                remoteFingerprint: enrichment?.origin,
-                remoteSlug: enrichment?.remoteSlug
+                remoteFingerprint: originRemote,
+                remoteSlug: remoteSlug
             )
         }
         return metadataByRepoId

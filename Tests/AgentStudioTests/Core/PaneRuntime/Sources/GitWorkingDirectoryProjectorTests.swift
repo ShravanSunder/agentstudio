@@ -11,7 +11,8 @@ struct GitWorkingDirectoryProjectorTests {
         let provider = StubGitWorkingTreeStatusProvider { _ in
             GitWorkingTreeStatus(
                 summary: GitWorkingTreeSummary(changed: 0, staged: 0, untracked: 0),
-                branch: "main"
+                branch: "main",
+                origin: nil
             )
         }
         let actor = GitWorkingDirectoryProjector(
@@ -52,7 +53,8 @@ struct GitWorkingDirectoryProjectorTests {
         let provider = StubGitWorkingTreeStatusProvider { _ in
             GitWorkingTreeStatus(
                 summary: GitWorkingTreeSummary(changed: 3, staged: 1, untracked: 2),
-                branch: "feature/projector"
+                branch: "feature/projector",
+                origin: nil
             )
         }
         let actor = GitWorkingDirectoryProjector(
@@ -90,7 +92,8 @@ struct GitWorkingDirectoryProjectorTests {
         let provider = StubGitWorkingTreeStatusProvider { _ in
             GitWorkingTreeStatus(
                 summary: GitWorkingTreeSummary(changed: 1, staged: 0, untracked: 0),
-                branch: "main"
+                branch: "main",
+                origin: nil
             )
         }
         let actor = GitWorkingDirectoryProjector(
@@ -165,7 +168,8 @@ struct GitWorkingDirectoryProjectorTests {
             await gate.waitUntilOpen()
             return GitWorkingTreeStatus(
                 summary: GitWorkingTreeSummary(changed: 1, staged: 0, untracked: 0),
-                branch: "main"
+                branch: "main",
+                origin: nil
             )
         }
         let actor = GitWorkingDirectoryProjector(
@@ -210,7 +214,8 @@ struct GitWorkingDirectoryProjectorTests {
             _ = await calls.increment()
             return GitWorkingTreeStatus(
                 summary: GitWorkingTreeSummary(changed: 1, staged: 0, untracked: 0),
-                branch: "main"
+                branch: "main",
+                origin: nil
             )
         }
         let actor = GitWorkingDirectoryProjector(
@@ -251,7 +256,8 @@ struct GitWorkingDirectoryProjectorTests {
             await gate.waitUntilOpen()
             return GitWorkingTreeStatus(
                 summary: GitWorkingTreeSummary(changed: 2, staged: 1, untracked: 0),
-                branch: "main"
+                branch: "main",
+                origin: nil
             )
         }
         let actor = GitWorkingDirectoryProjector(
@@ -308,7 +314,8 @@ struct GitWorkingDirectoryProjectorTests {
             await gate.waitUntilOpen()
             return GitWorkingTreeStatus(
                 summary: GitWorkingTreeSummary(changed: 4, staged: 0, untracked: 1),
-                branch: "cleanup"
+                branch: "cleanup",
+                origin: nil
             )
         }
         let actor = GitWorkingDirectoryProjector(
@@ -359,7 +366,8 @@ struct GitWorkingDirectoryProjectorTests {
             await gate.waitUntilOpen()
             return GitWorkingTreeStatus(
                 summary: GitWorkingTreeSummary(changed: 1, staged: 0, untracked: 0),
-                branch: "main"
+                branch: "main",
+                origin: nil
             )
         }
         let actor = GitWorkingDirectoryProjector(
@@ -402,7 +410,8 @@ struct GitWorkingDirectoryProjectorTests {
             let branch = callNumber == 1 ? "main" : "feature/split"
             return GitWorkingTreeStatus(
                 summary: GitWorkingTreeSummary(changed: callNumber, staged: 0, untracked: 0),
-                branch: branch
+                branch: branch,
+                origin: nil
             )
         }
         let actor = GitWorkingDirectoryProjector(
@@ -439,13 +448,244 @@ struct GitWorkingDirectoryProjectorTests {
         collectionTask.cancel()
     }
 
+    @Test("projector emits originChanged when origin differs from last known repo origin")
+    func emitsOriginChangedWhenOriginChanges() async throws {
+        let bus = EventBus<RuntimeEnvelope>()
+        let repoId = UUID()
+        let worktreeId = UUID()
+        let rootPath = URL(fileURLWithPath: "/tmp/origin-change-\(UUID().uuidString)")
+        let calls = CallCounter()
+        let provider = StubGitWorkingTreeStatusProvider { _ in
+            let call = await calls.increment()
+            let origin = call == 1 ? "git@github.com:acme/repo.git" : "git@github.com:acme/repo-2.git"
+            return GitWorkingTreeStatus(
+                summary: GitWorkingTreeSummary(changed: 0, staged: 0, untracked: 0),
+                branch: "main",
+                origin: origin
+            )
+        }
+        let actor = GitWorkingDirectoryProjector(
+            bus: bus,
+            gitWorkingTreeProvider: provider,
+            coalescingWindow: .zero
+        )
+
+        let observed = ObservedGitEvents()
+        let collectionTask = await startCollection(on: bus, observed: observed)
+        await actor.start()
+
+        await bus.post(
+            makeEnvelope(
+                seq: 1,
+                worktreeId: worktreeId,
+                event: .worktreeRegistered(worktreeId: worktreeId, repoId: repoId, rootPath: rootPath)
+            )
+        )
+
+        let firstOriginEvent = await waitUntil {
+            await observed.originEventCount(for: repoId) == 1
+        }
+        #expect(firstOriginEvent)
+
+        await bus.post(
+            makeFilesChangedEnvelope(
+                seq: 2,
+                worktreeId: worktreeId,
+                repoId: repoId,
+                rootPath: rootPath,
+                batchSeq: 1,
+                paths: [".git/config"]
+            )
+        )
+
+        let emittedTwoOriginEvents = await waitUntil {
+            await observed.originEventCount(for: repoId) >= 2
+        }
+        #expect(emittedTwoOriginEvents)
+        let latestOrigin = await observed.latestOriginEvent(for: repoId)
+        #expect(latestOrigin?.0 == "git@github.com:acme/repo.git")
+        #expect(latestOrigin?.1 == "git@github.com:acme/repo-2.git")
+
+        await actor.shutdown()
+        collectionTask.cancel()
+    }
+
+    @Test("projector tracks origin per repo and suppresses duplicates across worktrees")
+    func suppressesDuplicateOriginEventsAcrossWorktreesInSameRepo() async throws {
+        let bus = EventBus<RuntimeEnvelope>()
+        let repoId = UUID()
+        let firstWorktreeId = UUID()
+        let secondWorktreeId = UUID()
+        let provider = StubGitWorkingTreeStatusProvider { _ in
+            GitWorkingTreeStatus(
+                summary: GitWorkingTreeSummary(changed: 0, staged: 0, untracked: 0),
+                branch: "main",
+                origin: "git@github.com:acme/repo.git"
+            )
+        }
+        let actor = GitWorkingDirectoryProjector(
+            bus: bus,
+            gitWorkingTreeProvider: provider,
+            coalescingWindow: .zero
+        )
+
+        let observed = ObservedGitEvents()
+        let collectionTask = await startCollection(on: bus, observed: observed)
+        await actor.start()
+
+        await bus.post(
+            makeEnvelope(
+                seq: 1,
+                worktreeId: firstWorktreeId,
+                event: .worktreeRegistered(
+                    worktreeId: firstWorktreeId,
+                    repoId: repoId,
+                    rootPath: URL(fileURLWithPath: "/tmp/repo-\(UUID().uuidString)-a")
+                )
+            )
+        )
+        await bus.post(
+            makeEnvelope(
+                seq: 2,
+                worktreeId: secondWorktreeId,
+                event: .worktreeRegistered(
+                    worktreeId: secondWorktreeId,
+                    repoId: repoId,
+                    rootPath: URL(fileURLWithPath: "/tmp/repo-\(UUID().uuidString)-b")
+                )
+            )
+        )
+
+        let emittedSingleOriginEvent = await waitUntil {
+            await observed.originEventCount(for: repoId) == 1
+        }
+        #expect(emittedSingleOriginEvent)
+
+        await actor.shutdown()
+        collectionTask.cancel()
+    }
+
+    @Test("projector only emits originChanged for registration and git config changes")
+    func onlyEmitsOriginChangedForRegistrationAndGitConfigChanges() async throws {
+        let bus = EventBus<RuntimeEnvelope>()
+        let repoId = UUID()
+        let worktreeId = UUID()
+        let rootPath = URL(fileURLWithPath: "/tmp/origin-filter-\(UUID().uuidString)")
+        let calls = CallCounter()
+        let provider = StubGitWorkingTreeStatusProvider { _ in
+            let call = await calls.increment()
+            let origin = call == 1 ? "git@github.com:acme/repo.git" : "git@github.com:acme/repo-2.git"
+            return GitWorkingTreeStatus(
+                summary: GitWorkingTreeSummary(changed: 0, staged: 0, untracked: 0),
+                branch: "main",
+                origin: origin
+            )
+        }
+        let actor = GitWorkingDirectoryProjector(
+            bus: bus,
+            gitWorkingTreeProvider: provider,
+            coalescingWindow: .zero
+        )
+
+        let observed = ObservedGitEvents()
+        let collectionTask = await startCollection(on: bus, observed: observed)
+        await actor.start()
+
+        await bus.post(
+            makeEnvelope(
+                seq: 1,
+                worktreeId: worktreeId,
+                event: .worktreeRegistered(worktreeId: worktreeId, repoId: repoId, rootPath: rootPath)
+            )
+        )
+        let firstOriginEvent = await waitUntil {
+            await observed.originEventCount(for: repoId) == 1
+        }
+        #expect(firstOriginEvent)
+
+        await bus.post(
+            makeFilesChangedEnvelope(
+                seq: 2,
+                worktreeId: worktreeId,
+                repoId: repoId,
+                rootPath: rootPath,
+                batchSeq: 1,
+                paths: ["Sources/File.swift"]
+            )
+        )
+        try? await Task.sleep(for: .milliseconds(60))
+        #expect(await observed.originEventCount(for: repoId) == 1)
+
+        await bus.post(
+            makeFilesChangedEnvelope(
+                seq: 3,
+                worktreeId: worktreeId,
+                repoId: repoId,
+                rootPath: rootPath,
+                batchSeq: 2,
+                paths: [".git/config"]
+            )
+        )
+        let secondOriginEvent = await waitUntil {
+            await observed.originEventCount(for: repoId) == 2
+        }
+        #expect(secondOriginEvent)
+
+        await actor.shutdown()
+        collectionTask.cancel()
+    }
+
+    @Test("projector emits local-only originChanged on first registration without remote")
+    func emitsLocalOnlyOriginChangedOnFirstRegistration() async throws {
+        let bus = EventBus<RuntimeEnvelope>()
+        let repoId = UUID()
+        let worktreeId = UUID()
+        let rootPath = URL(fileURLWithPath: "/tmp/origin-none-\(UUID().uuidString)")
+        let provider = StubGitWorkingTreeStatusProvider { _ in
+            GitWorkingTreeStatus(
+                summary: GitWorkingTreeSummary(changed: 0, staged: 0, untracked: 0),
+                branch: "main",
+                origin: nil
+            )
+        }
+        let actor = GitWorkingDirectoryProjector(
+            bus: bus,
+            gitWorkingTreeProvider: provider,
+            coalescingWindow: .zero
+        )
+
+        let observed = ObservedGitEvents()
+        let collectionTask = await startCollection(on: bus, observed: observed)
+        await actor.start()
+
+        await bus.post(
+            makeEnvelope(
+                seq: 1,
+                worktreeId: worktreeId,
+                event: .worktreeRegistered(worktreeId: worktreeId, repoId: repoId, rootPath: rootPath)
+            )
+        )
+
+        let emittedLocalOriginEvent = await waitUntil {
+            await observed.originEventCount(for: repoId) == 1
+        }
+        #expect(emittedLocalOriginEvent)
+        let event = await observed.latestOriginEvent(for: repoId)
+        #expect(event?.0 == "")
+        #expect(event?.1 == "")
+
+        await actor.shutdown()
+        collectionTask.cancel()
+    }
+
     @Test("git internal-only filesChanged event still triggers git snapshot projection")
     func gitInternalOnlyFilesChangedEventStillTriggersSnapshot() async throws {
         let bus = EventBus<RuntimeEnvelope>()
         let provider = StubGitWorkingTreeStatusProvider { _ in
             GitWorkingTreeStatus(
                 summary: GitWorkingTreeSummary(changed: 1, staged: 0, untracked: 0),
-                branch: "main"
+                branch: "main",
+                origin: nil
             )
         }
         let actor = GitWorkingDirectoryProjector(
@@ -499,6 +739,7 @@ struct GitWorkingDirectoryProjectorTests {
     private func makeFilesChangedEnvelope(
         seq: UInt64,
         worktreeId: UUID,
+        repoId: UUID? = nil,
         rootPath: URL,
         batchSeq: UInt64,
         paths: [String] = ["Sources/File.swift"],
@@ -512,6 +753,7 @@ struct GitWorkingDirectoryProjectorTests {
             event: .filesChanged(
                 changeset: FileChangeset(
                     worktreeId: worktreeId,
+                    repoId: repoId ?? worktreeId,
                     rootPath: rootPath,
                     paths: paths,
                     containsGitInternalChanges: containsGitInternalChanges,
@@ -633,6 +875,7 @@ struct GitWorkingDirectoryProjectorTests {
 private actor ObservedGitEvents {
     private var snapshotsByWorktreeId: [UUID: [GitWorkingTreeSnapshot]] = [:]
     private var branchEventsByWorktreeId: [UUID: [(String, String)]] = [:]
+    private var originEventsByRepoId: [UUID: [(String, String)]] = [:]
 
     func record(_ envelope: RuntimeEnvelope) {
         guard case .worktree(let worktreeEnvelope) = envelope else { return }
@@ -645,7 +888,9 @@ private actor ObservedGitEvents {
         case .branchChanged(let eventWorktreeId, _, let from, let to):
             guard eventWorktreeId == worktreeId else { return }
             branchEventsByWorktreeId[worktreeId, default: []].append((from, to))
-        case .originChanged, .worktreeDiscovered, .worktreeRemoved, .diffAvailable:
+        case .originChanged(let repoId, let from, let to):
+            originEventsByRepoId[repoId, default: []].append((from, to))
+        case .worktreeDiscovered, .worktreeRemoved, .diffAvailable:
             return
         }
     }
@@ -664,6 +909,14 @@ private actor ObservedGitEvents {
 
     func latestBranchEvent(for worktreeId: UUID) -> (String, String)? {
         branchEventsByWorktreeId[worktreeId]?.last
+    }
+
+    func originEventCount(for repoId: UUID) -> Int {
+        originEventsByRepoId[repoId]?.count ?? 0
+    }
+
+    func latestOriginEvent(for repoId: UUID) -> (String, String)? {
+        originEventsByRepoId[repoId]?.last
     }
 }
 

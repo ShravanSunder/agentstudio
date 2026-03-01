@@ -143,15 +143,44 @@ final class WorkspaceCacheCoordinator {
                     )
                 }
             case .originChanged(let repoId, _, let to):
-                var existing = cacheStore.repoEnrichmentByRepoId[repoId] ?? RepoEnrichment(repoId: repoId)
-                existing.origin = to
-                cacheStore.setRepoEnrichment(existing)
+                let trimmedOrigin = to.trimmingCharacters(in: .whitespacesAndNewlines)
+                let upstream = cacheStore.repoEnrichmentByRepoId[repoId]?.upstream
+                let enrichment: RepoEnrichment
+                if trimmedOrigin.isEmpty {
+                    let repoName = workspaceStore.repos.first(where: { $0.id == repoId })?.name ?? repoId.uuidString
+                    enrichment = .resolved(
+                        repoId: repoId,
+                        raw: RawRepoOrigin(origin: nil, upstream: upstream),
+                        identity: RemoteIdentityNormalizer.localIdentity(repoName: repoName),
+                        updatedAt: Date()
+                    )
+                } else if let identity = RemoteIdentityNormalizer.normalize(trimmedOrigin) {
+                    enrichment = .resolved(
+                        repoId: repoId,
+                        raw: RawRepoOrigin(origin: trimmedOrigin, upstream: upstream),
+                        identity: identity,
+                        updatedAt: Date()
+                    )
+                } else {
+                    enrichment = .resolved(
+                        repoId: repoId,
+                        raw: RawRepoOrigin(origin: trimmedOrigin, upstream: upstream),
+                        identity: RepoIdentity(
+                            groupKey: "remote:\(trimmedOrigin)",
+                            remoteSlug: nil,
+                            organizationName: nil,
+                            displayName: Self.fallbackDisplayName(for: trimmedOrigin)
+                        ),
+                        updatedAt: Date()
+                    )
+                }
+                cacheStore.setRepoEnrichment(enrichment)
                 Task { [weak self] in
                     guard let self else { return }
-                    if to.isEmpty {
+                    if trimmedOrigin.isEmpty {
                         await self.syncScope(.unregisterForgeRepo(repoId: repoId))
                     } else {
-                        await self.syncScope(.registerForgeRepo(repoId: repoId, remote: to))
+                        await self.syncScope(.registerForgeRepo(repoId: repoId, remote: trimmedOrigin))
                     }
                 }
             case .worktreeDiscovered, .worktreeRemoved, .diffAvailable:
@@ -159,9 +188,10 @@ final class WorkspaceCacheCoordinator {
             }
         case .forge(let forgeEvent):
             switch forgeEvent {
-            case .pullRequestCountsChanged(_, let countsByBranch):
+            case .pullRequestCountsChanged(let repoId, let countsByBranch):
                 // Branch-to-worktree mapping is resolved through current enrichment branch values.
-                for (worktreeId, enrichment) in cacheStore.worktreeEnrichmentByWorktreeId {
+                for (worktreeId, enrichment) in cacheStore.worktreeEnrichmentByWorktreeId
+                where enrichment.repoId == repoId {
                     if let count = countsByBranch[enrichment.branch] {
                         cacheStore.setPullRequestCount(count, for: worktreeId)
                     }
@@ -182,6 +212,21 @@ final class WorkspaceCacheCoordinator {
         case .filesystem, .security:
             break
         }
+    }
+
+    private static func fallbackDisplayName(for remote: String) -> String {
+        if let parsedURL = URL(string: remote), !parsedURL.lastPathComponent.isEmpty {
+            let name = parsedURL.lastPathComponent
+            return name.hasSuffix(".git") ? String(name.dropLast(4)) : name
+        }
+
+        let cleanedRemote = remote.trimmingCharacters(in: CharacterSet(charactersIn: "/"))
+        let components = cleanedRemote.split(separator: "/")
+        guard let last = components.last else {
+            return cleanedRemote.isEmpty ? remote : cleanedRemote
+        }
+        let name = String(last)
+        return name.hasSuffix(".git") ? String(name.dropLast(4)) : name
     }
 
     func syncScope(_ change: ScopeChange) async {

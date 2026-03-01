@@ -39,7 +39,19 @@ struct WorkspaceCacheCoordinatorRepoMoveTests {
             source: .worktree(worktreeId: persistedMainWorktreeId, repoId: repo.id)
         )
 
-        cacheStore.setRepoEnrichment(RepoEnrichment(repoId: repo.id, origin: "git@github.com:acme/repo.git"))
+        cacheStore.setRepoEnrichment(
+            .resolved(
+                repoId: repo.id,
+                raw: RawRepoOrigin(origin: "git@github.com:acme/repo.git", upstream: nil),
+                identity: RepoIdentity(
+                    groupKey: "remote:acme/repo",
+                    remoteSlug: "acme/repo",
+                    organizationName: "acme",
+                    displayName: "repo"
+                ),
+                updatedAt: Date()
+            )
+        )
         cacheStore.setWorktreeEnrichment(
             WorktreeEnrichment(
                 worktreeId: persistedMainWorktreeId,

@@ -13,10 +13,16 @@ final class WorkspaceCacheStoreTests {
         let repoId = UUID()
         let worktreeId = UUID()
 
-        let repoEnrichment = RepoEnrichment(
+        let repoEnrichment = RepoEnrichment.resolved(
             repoId: repoId,
-            organizationName: "askluna",
-            origin: "git@github.com:askluna/agent-studio.git"
+            raw: RawRepoOrigin(origin: "git@github.com:askluna/agent-studio.git", upstream: nil),
+            identity: RepoIdentity(
+                groupKey: "remote:askluna/agent-studio",
+                remoteSlug: "askluna/agent-studio",
+                organizationName: "askluna",
+                displayName: "agent-studio"
+            ),
+            updatedAt: Date()
         )
         let worktreeEnrichment = WorktreeEnrichment(
             worktreeId: worktreeId,
@@ -37,7 +43,7 @@ final class WorkspaceCacheStoreTests {
         let repoId = UUID()
         let worktreeId = UUID()
 
-        store.setRepoEnrichment(.init(repoId: repoId))
+        store.setRepoEnrichment(.unresolved(repoId: repoId))
         store.setWorktreeEnrichment(.init(worktreeId: worktreeId, repoId: repoId, branch: "feature"))
         store.setPullRequestCount(2, for: worktreeId)
         store.setNotificationCount(5, for: worktreeId)

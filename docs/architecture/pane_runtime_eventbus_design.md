@@ -193,6 +193,15 @@ Events from boundary actors. Real work (filesystem scanning, network I/O) justif
 | `refreshFailed` | `ForgeActor` | `WorktreeEnvelope` | <1ms | On failure | Yes |
 | Future: `containerHealthChanged` | `ContainerActor` | `WorktreeEnvelope` | 100ms+ (Docker API / HTTP) | Polling ~5-10s | Yes |
 
+### Primary Sidebar Event/Data Invariants (LUNA-350)
+
+These invariants are required for correct primary sidebar grouping and chip rendering:
+
+1. **Origin event ownership:** `GitWorkingDirectoryProjector` is the sole producer of `.originChanged`. It emits on worktree registration and `.git/config` changes.
+2. **Typed cache identity:** `WorkspaceCacheCoordinator` materializes repo cache entries as `RepoEnrichment` DU (`.unresolved` / `.resolved(raw, identity)`), not optional-field bags.
+3. **Group-key source of truth:** Sidebar primary groups use `RepoIdentity.groupKey` from resolved cache identity.
+4. **Repo-scoped forge mapping:** `ForgeEvent.pullRequestCountsChanged(repoId:countsByBranch:)` must be applied only to worktrees where `worktreeEnrichment.repoId == repoId`, then keyed by branch within that repo.
+
 ### Filesystem → Git Projector Decision Tree
 
 1. **Need one app-wide filesystem source**

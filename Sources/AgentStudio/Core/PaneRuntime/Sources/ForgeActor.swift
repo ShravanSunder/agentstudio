@@ -26,7 +26,7 @@ struct GitHubCLIForgeStatusProvider: ForgeStatusProvider {
         let trackedBranches = Set(branches.filter { !$0.isEmpty })
         guard !trackedBranches.isEmpty else { return [:] }
 
-        guard let repoSlug = Self.extractGitHubRepoSlug(from: origin) else {
+        guard let repoSlug = RemoteIdentityNormalizer.extractSlug(origin) else {
             throw ForgeStatusProviderError.unsupportedRemote(origin)
         }
 
@@ -59,34 +59,6 @@ struct GitHubCLIForgeStatusProvider: ForgeStatusProvider {
             counts[pullRequest.headRefName, default: 0] += 1
         }
         return counts
-    }
-
-    private static func extractGitHubRepoSlug(from remote: String) -> String? {
-        let normalized = remote.trimmingCharacters(in: .whitespacesAndNewlines)
-        guard !normalized.isEmpty else { return nil }
-
-        if normalized.hasPrefix("git@github.com:") {
-            return stripGitSuffix(from: String(normalized.dropFirst("git@github.com:".count)))
-        }
-        if normalized.hasPrefix("ssh://git@github.com/") {
-            return stripGitSuffix(from: String(normalized.dropFirst("ssh://git@github.com/".count)))
-        }
-        if normalized.hasPrefix("https://github.com/") {
-            return stripGitSuffix(from: String(normalized.dropFirst("https://github.com/".count)))
-        }
-        if normalized.hasPrefix("http://github.com/") {
-            return stripGitSuffix(from: String(normalized.dropFirst("http://github.com/".count)))
-        }
-        return nil
-    }
-
-    private static func stripGitSuffix(from slug: String) -> String? {
-        let trimmed = slug.trimmingCharacters(in: CharacterSet(charactersIn: "/"))
-        guard !trimmed.isEmpty else { return nil }
-        if trimmed.hasSuffix(".git") {
-            return String(trimmed.dropLast(4))
-        }
-        return trimmed
     }
 }
 
