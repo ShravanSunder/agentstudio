@@ -51,7 +51,7 @@ struct PaneCoordinatorHardeningTests {
 
         let repo = store.addRepo(at: repoPath)
         let worktree = Worktree(name: "wt-main", path: worktreePath, branch: "main")
-        store.updateRepoWorktrees(repo.id, worktrees: [worktree])
+        store.reconcileDiscoveredWorktrees(repo.id, worktrees: [worktree])
         return (repo, worktree)
     }
 

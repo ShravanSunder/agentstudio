@@ -52,8 +52,9 @@ struct SidebarRepoGroupingTests {
         )
 
         let repos = [ownerRepo, duplicateRepo]
+        let sidebarRepos = repos.map(SidebarRepo.init(repo:))
         let groups = SidebarRepoGrouping.buildGroups(
-            repos: repos,
+            repos: sidebarRepos,
             metadataByRepoId: SidebarRepoGroupingMocks.metadata(for: repos)
         )
 
@@ -99,8 +100,9 @@ struct SidebarRepoGroupingTests {
         )
 
         let repos = [repoA, repoB]
+        let sidebarRepos = repos.map(SidebarRepo.init(repo:))
         let groups = SidebarRepoGrouping.buildGroups(
-            repos: repos,
+            repos: sidebarRepos,
             metadataByRepoId: SidebarRepoGroupingMocks.metadata(for: repos)
         )
 
@@ -143,8 +145,9 @@ struct SidebarRepoGroupingTests {
         )
 
         let repos = [repoA, repoB]
+        let sidebarRepos = repos.map(SidebarRepo.init(repo:))
         let groups = SidebarRepoGrouping.buildGroups(
-            repos: repos,
+            repos: sidebarRepos,
             metadataByRepoId: SidebarRepoGroupingMocks.metadata(for: repos)
         )
 
@@ -178,8 +181,9 @@ struct SidebarRepoGroupingTests {
         )
 
         let repos = [emptyRepo, activeRepo]
+        let sidebarRepos = repos.map(SidebarRepo.init(repo:))
         let groups = SidebarRepoGrouping.buildGroups(
-            repos: repos,
+            repos: sidebarRepos,
             metadataByRepoId: SidebarRepoGroupingMocks.metadata(for: repos)
         )
 
@@ -212,7 +216,7 @@ struct SidebarRepoGroupingTests {
         )
 
         let groups = SidebarRepoGrouping.buildGroups(
-            repos: [repo],
+            repos: [repo].map(SidebarRepo.init(repo:)),
             metadataByRepoId: SidebarRepoGroupingMocks.metadata(for: [repo])
         )
 
@@ -254,8 +258,9 @@ struct SidebarRepoGroupingTests {
         )
 
         let repos = [repoA, repoB]
+        let sidebarRepos = repos.map(SidebarRepo.init(repo:))
         let groups = SidebarRepoGrouping.buildGroups(
-            repos: repos,
+            repos: sidebarRepos,
             metadataByRepoId: SidebarRepoGroupingMocks.metadata(for: repos)
         )
 

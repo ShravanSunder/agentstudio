@@ -7,7 +7,7 @@ import Testing
 struct FilesystemActorTests {
     @Test("register emits worktreeRegistered fact")
     func registerEmitsWorktreeRegisteredFact() async throws {
-        let bus = EventBus<PaneEventEnvelope>()
+        let bus = EventBus<RuntimeEnvelope>()
         let actor = makeActor(bus: bus)
 
         let stream = await bus.subscribe()
@@ -19,27 +19,30 @@ struct FilesystemActorTests {
         await actor.register(worktreeId: worktreeId, repoId: repoId, rootPath: rootPath)
 
         let envelope = try #require(await iterator.next())
+        guard case .system(let systemEnvelope) = envelope else {
+            Issue.record("Expected system envelope")
+            return
+        }
         guard
-            case .filesystem(
-                .worktreeRegistered(let registeredWorktreeId, let registeredRepoId, let registeredRootPath)) = envelope
-                .event
+            case .topology(
+                .worktreeRegistered(let registeredWorktreeId, let registeredRepoId, let registeredRootPath)) =
+                systemEnvelope.event
         else {
-            Issue.record("Expected worktreeRegistered filesystem event")
+            Issue.record("Expected worktreeRegistered topology event")
             return
         }
 
         #expect(registeredWorktreeId == worktreeId)
         #expect(registeredRepoId == repoId)
         #expect(registeredRootPath == rootPath)
-        #expect(envelope.sourceFacets.repoId == repoId)
-        #expect(envelope.sourceFacets.worktreeId == worktreeId)
+        #expect(systemEnvelope.source == .builtin(.filesystemWatcher))
 
         await actor.shutdown()
     }
 
     @Test("unregister emits worktreeUnregistered fact")
     func unregisterEmitsWorktreeUnregisteredFact() async throws {
-        let bus = EventBus<PaneEventEnvelope>()
+        let bus = EventBus<RuntimeEnvelope>()
         let actor = makeActor(bus: bus)
 
         let stream = await bus.subscribe()
@@ -53,24 +56,28 @@ struct FilesystemActorTests {
 
         await actor.unregister(worktreeId: worktreeId)
         let envelope = try #require(await iterator.next())
+        guard case .system(let systemEnvelope) = envelope else {
+            Issue.record("Expected system envelope")
+            return
+        }
         guard
-            case .filesystem(.worktreeUnregistered(let unregisteredWorktreeId, let unregisteredRepoId)) = envelope.event
+            case .topology(.worktreeUnregistered(let unregisteredWorktreeId, let unregisteredRepoId)) = systemEnvelope
+                .event
         else {
-            Issue.record("Expected worktreeUnregistered filesystem event")
+            Issue.record("Expected worktreeUnregistered topology event")
             return
         }
 
         #expect(unregisteredWorktreeId == worktreeId)
         #expect(unregisteredRepoId == repoId)
-        #expect(envelope.sourceFacets.repoId == repoId)
-        #expect(envelope.sourceFacets.worktreeId == worktreeId)
+        #expect(systemEnvelope.source == .builtin(.filesystemWatcher))
 
         await actor.shutdown()
     }
 
     @Test("deepest ownership dedupes nested roots")
     func deepestOwnershipDedupesNestedRoots() async throws {
-        let bus = EventBus<PaneEventEnvelope>()
+        let bus = EventBus<RuntimeEnvelope>()
         let actor = makeActor(bus: bus)
 
         let parentId = UUID()
@@ -96,7 +103,7 @@ struct FilesystemActorTests {
 
     @Test("nested root routing emits one owner event per path without duplication")
     func nestedRootRoutingEmitsSingleOwnerPerPath() async throws {
-        let bus = EventBus<PaneEventEnvelope>()
+        let bus = EventBus<RuntimeEnvelope>()
         let actor = makeActor(bus: bus)
 
         let parentId = UUID()
@@ -127,7 +134,7 @@ struct FilesystemActorTests {
 
     @Test("active-in-app priority order beats sidebar-only")
     func activeInAppPriorityWinsQueueOrder() async throws {
-        let bus = EventBus<PaneEventEnvelope>()
+        let bus = EventBus<RuntimeEnvelope>()
         let actor = makeActor(bus: bus)
 
         let sidebarOnlyWorktreeId = UUID()
@@ -156,7 +163,7 @@ struct FilesystemActorTests {
 
     @Test("priority ordering is focused active pane, then active in app, then sidebar-only")
     func priorityOrderingFocusedThenActiveThenSidebar() async throws {
-        let bus = EventBus<PaneEventEnvelope>()
+        let bus = EventBus<RuntimeEnvelope>()
         let actor = makeActor(bus: bus)
 
         let basePath = "/tmp/priority-\(UUID().uuidString)"
@@ -203,9 +210,9 @@ struct FilesystemActorTests {
         await actor.shutdown()
     }
 
-    @Test("filesChanged envelope source and facets contract")
-    func filesChangedSourceFacetContract() async throws {
-        let bus = EventBus<PaneEventEnvelope>()
+    @Test("filesChanged routes through worktree envelope from filesystem watcher")
+    func filesChangedRoutingContract() async throws {
+        let bus = EventBus<RuntimeEnvelope>()
         let actor = makeActor(bus: bus)
 
         let worktreeId = UUID()
@@ -218,8 +225,13 @@ struct FilesystemActorTests {
         await actor.enqueueRawPaths(worktreeId: worktreeId, paths: ["Sources/App.swift"])
 
         let envelope = try #require(await iterator.next())
-        #expect(envelope.source == .system(.builtin(.filesystemWatcher)))
-        #expect(envelope.sourceFacets.worktreeId == worktreeId)
+        guard case .worktree(let worktreeEnvelope) = envelope else {
+            Issue.record("Expected worktree envelope")
+            return
+        }
+        #expect(worktreeEnvelope.source == .system(.builtin(.filesystemWatcher)))
+        #expect(worktreeEnvelope.worktreeId == worktreeId)
+        #expect(worktreeEnvelope.repoId == worktreeId)
 
         let changeset = try #require(filesChangedChangeset(from: envelope))
         #expect(changeset.worktreeId == worktreeId)
@@ -230,7 +242,7 @@ struct FilesystemActorTests {
 
     @Test("large path bursts split into fixed-size ordered filesChanged batches")
     func largeBurstSplitsIntoBoundedSortedBatches() async throws {
-        let bus = EventBus<PaneEventEnvelope>()
+        let bus = EventBus<RuntimeEnvelope>()
         let actor = makeActor(bus: bus)
 
         let worktreeId = UUID()
@@ -271,7 +283,7 @@ struct FilesystemActorTests {
 
     @Test("git internal paths are suppressed from projection payload and annotated for downstream sinks")
     func gitInternalPathsAreSuppressedFromProjectionPayload() async throws {
-        let bus = EventBus<PaneEventEnvelope>()
+        let bus = EventBus<RuntimeEnvelope>()
         let actor = makeActor(bus: bus)
 
         let worktreeId = UUID()
@@ -299,7 +311,7 @@ struct FilesystemActorTests {
 
     @Test("gitignore policy suppresses ignored paths while preserving included and unignored paths")
     func gitignorePolicySuppressesIgnoredPaths() async throws {
-        let bus = EventBus<PaneEventEnvelope>()
+        let bus = EventBus<RuntimeEnvelope>()
         let actor = makeActor(bus: bus)
 
         let rootPath = FileManager.default.temporaryDirectory
@@ -341,7 +353,7 @@ struct FilesystemActorTests {
 
     @Test("filtered-only changes still emit filesChanged to drive git projector refresh")
     func filteredOnlyChangesStillEmitFilesChangedEvent() async throws {
-        let bus = EventBus<PaneEventEnvelope>()
+        let bus = EventBus<RuntimeEnvelope>()
         let actor = makeActor(bus: bus)
 
         let rootPath = FileManager.default.temporaryDirectory
@@ -377,7 +389,7 @@ struct FilesystemActorTests {
 
     @Test("gitignore modification reloads filter for subsequent batches")
     func gitignoreModificationReloadsFilterForSubsequentBatches() async throws {
-        let bus = EventBus<PaneEventEnvelope>()
+        let bus = EventBus<RuntimeEnvelope>()
         let actor = makeActor(bus: bus)
 
         let rootPath = FileManager.default.temporaryDirectory
@@ -421,7 +433,7 @@ struct FilesystemActorTests {
 
     @Test("debounce coalesces bursts and flushes once after debounce window")
     func debounceCoalescesBursts() async throws {
-        let bus = EventBus<PaneEventEnvelope>()
+        let bus = EventBus<RuntimeEnvelope>()
         let actor = FilesystemActor(
             bus: bus,
             debounceWindow: .milliseconds(60),
@@ -461,7 +473,7 @@ struct FilesystemActorTests {
 
     @Test("max latency flushes pending changes even when debounce keeps extending")
     func maxLatencyFlushesPendingChanges() async throws {
-        let bus = EventBus<PaneEventEnvelope>()
+        let bus = EventBus<RuntimeEnvelope>()
         let actor = FilesystemActor(
             bus: bus,
             debounceWindow: .milliseconds(250),
@@ -499,7 +511,7 @@ struct FilesystemActorTests {
 
     @Test("shutdown cancels pending debounce drain and prevents delayed filesChanged emission")
     func shutdownCancelsPendingDrain() async throws {
-        let bus = EventBus<PaneEventEnvelope>()
+        let bus = EventBus<RuntimeEnvelope>()
         let actor = FilesystemActor(
             bus: bus,
             debounceWindow: .milliseconds(200),
@@ -531,7 +543,7 @@ struct FilesystemActorTests {
 
     @Test("unregister during debounce window prevents stale filesChanged emission")
     func unregisterDuringDebouncePreventsStaleEmission() async throws {
-        let bus = EventBus<PaneEventEnvelope>()
+        let bus = EventBus<RuntimeEnvelope>()
         let actor = FilesystemActor(
             bus: bus,
             debounceWindow: .milliseconds(200),
@@ -563,8 +575,9 @@ struct FilesystemActorTests {
         await actor.shutdown()
     }
 
-    private func filesChangedChangeset(from envelope: PaneEventEnvelope) -> FileChangeset? {
-        guard case .filesystem(.filesChanged(let changeset)) = envelope.event else {
+    private func filesChangedChangeset(from envelope: RuntimeEnvelope) -> FileChangeset? {
+        guard case .worktree(let worktreeEnvelope) = envelope else { return nil }
+        guard case .filesystem(.filesChanged(let changeset)) = worktreeEnvelope.event else {
             return nil
         }
         return changeset
@@ -581,7 +594,7 @@ struct FilesystemActorTests {
         return normalizedPath
     }
 
-    private func makeActor(bus: EventBus<PaneEventEnvelope>) -> FilesystemActor {
+    private func makeActor(bus: EventBus<RuntimeEnvelope>) -> FilesystemActor {
         FilesystemActor(
             bus: bus,
             debounceWindow: .zero,
@@ -593,8 +606,9 @@ struct FilesystemActorTests {
 private actor ObservedFilesystemChanges {
     private var changesetsByWorktreeId: [UUID: [FileChangeset]] = [:]
 
-    func record(_ envelope: PaneEventEnvelope) {
-        guard case .filesystem(.filesChanged(let changeset)) = envelope.event else { return }
+    func record(_ envelope: RuntimeEnvelope) {
+        guard case .worktree(let worktreeEnvelope) = envelope else { return }
+        guard case .filesystem(.filesChanged(let changeset)) = worktreeEnvelope.event else { return }
         changesetsByWorktreeId[changeset.worktreeId, default: []].append(changeset)
     }
 

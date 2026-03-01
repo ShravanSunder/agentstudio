@@ -15,11 +15,12 @@ final class PaneFilesystemProjectionStore {
     private(set) var snapshotsByPaneId: [UUID: PaneSnapshot] = [:]
 
     func consume(
-        _ envelope: PaneEventEnvelope,
+        _ envelope: RuntimeEnvelope,
         panesById: [UUID: Pane],
         worktreeRootsByWorktreeId: [UUID: URL]
     ) {
-        guard case .filesystem(.filesChanged(let changeset)) = envelope.event else { return }
+        guard case .worktree(let worktreeEnvelope) = envelope else { return }
+        guard case .filesystem(.filesChanged(let changeset)) = worktreeEnvelope.event else { return }
         guard let worktreeRootPath = worktreeRootsByWorktreeId[changeset.worktreeId] else { return }
 
         let panes = panesById.values.filter { $0.worktreeId == changeset.worktreeId }

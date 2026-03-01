@@ -13,15 +13,15 @@ final class NotificationReducer {
     private let clock: any Clock<Duration>
     private let tierResolver: (any VisibilityTierResolver)?
 
-    private let criticalContinuation: AsyncStream<PaneEventEnvelope>.Continuation
-    let criticalEvents: AsyncStream<PaneEventEnvelope>
+    private let criticalContinuation: AsyncStream<RuntimeEnvelope>.Continuation
+    let criticalEvents: AsyncStream<RuntimeEnvelope>
 
-    private let batchContinuation: AsyncStream<[PaneEventEnvelope]>.Continuation
-    let batchedEvents: AsyncStream<[PaneEventEnvelope]>
+    private let batchContinuation: AsyncStream<[RuntimeEnvelope]>.Continuation
+    let batchedEvents: AsyncStream<[RuntimeEnvelope]>
 
-    private var criticalBufferByTier: [VisibilityTier: [PaneEventEnvelope]] = [:]
+    private var criticalBufferByTier: [VisibilityTier: [RuntimeEnvelope]] = [:]
     private var criticalFlushTask: Task<Void, Never>?
-    private var lossyBuffer: [String: PaneEventEnvelope] = [:]
+    private var lossyBuffer: [String: RuntimeEnvelope] = [:]
     private var frameTimer: Task<Void, Never>?
 
     init(
@@ -31,11 +31,11 @@ final class NotificationReducer {
         self.clock = clock
         self.tierResolver = tierResolver
 
-        let (criticalEvents, criticalContinuation) = AsyncStream.makeStream(of: PaneEventEnvelope.self)
+        let (criticalEvents, criticalContinuation) = AsyncStream.makeStream(of: RuntimeEnvelope.self)
         self.criticalEvents = criticalEvents
         self.criticalContinuation = criticalContinuation
 
-        let (batchedEvents, batchContinuation) = AsyncStream.makeStream(of: [PaneEventEnvelope].self)
+        let (batchedEvents, batchContinuation) = AsyncStream.makeStream(of: [RuntimeEnvelope].self)
         self.batchedEvents = batchedEvents
         self.batchContinuation = batchContinuation
     }
@@ -47,8 +47,8 @@ final class NotificationReducer {
         batchContinuation.finish()
     }
 
-    func submit(_ envelope: PaneEventEnvelope) {
-        switch envelope.event.actionPolicy {
+    func submit(_ envelope: RuntimeEnvelope) {
+        switch envelope.actionPolicy {
         case .critical:
             guard tierResolver != nil else {
                 criticalContinuation.yield(envelope)
@@ -120,10 +120,12 @@ final class NotificationReducer {
         var batch = Array(lossyBuffer.values)
         batch.sort(by: compareEnvelopes)
         lossyBuffer.removeAll(keepingCapacity: true)
-        batchContinuation.yield(batch)
+        if !batch.isEmpty {
+            batchContinuation.yield(batch)
+        }
     }
 
-    private func compareEnvelopes(_ lhs: PaneEventEnvelope, _ rhs: PaneEventEnvelope) -> Bool {
+    private func compareEnvelopes(_ lhs: RuntimeEnvelope, _ rhs: RuntimeEnvelope) -> Bool {
         let lhsTier = tier(for: lhs)
         let rhsTier = tier(for: rhs)
         if lhsTier != rhsTier {
@@ -135,7 +137,7 @@ final class NotificationReducer {
         return lhs.timestamp < rhs.timestamp
     }
 
-    private func tier(for envelope: PaneEventEnvelope) -> VisibilityTier {
+    private func tier(for envelope: RuntimeEnvelope) -> VisibilityTier {
         if case .system = envelope.source {
             // Contract 12a: system events are always highest visibility priority.
             return .p0ActivePane

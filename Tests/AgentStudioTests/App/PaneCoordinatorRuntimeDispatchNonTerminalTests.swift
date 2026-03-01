@@ -89,8 +89,8 @@ private final class FakePaneRuntimeNonTerminal: PaneRuntime {
     var metadata: PaneMetadata
     var lifecycle: PaneRuntimeLifecycle = .ready
     var capabilities: Set<PaneCapability>
-    private let stream: AsyncStream<PaneEventEnvelope>
-    private let continuation: AsyncStream<PaneEventEnvelope>.Continuation
+    private let stream: AsyncStream<RuntimeEnvelope>
+    private let continuation: AsyncStream<RuntimeEnvelope>.Continuation
 
     private(set) var receivedCommands: [RuntimeCommandEnvelope] = []
     private(set) var receivedCommandIds: [UUID] = []
@@ -108,7 +108,7 @@ private final class FakePaneRuntimeNonTerminal: PaneRuntime {
             title: "Fake"
         )
         self.capabilities = capabilities
-        let (stream, continuation) = AsyncStream.makeStream(of: PaneEventEnvelope.self)
+        let (stream, continuation) = AsyncStream.makeStream(of: RuntimeEnvelope.self)
         self.stream = stream
         self.continuation = continuation
     }
@@ -119,7 +119,7 @@ private final class FakePaneRuntimeNonTerminal: PaneRuntime {
         return .success(commandId: envelope.commandId)
     }
 
-    func subscribe() -> AsyncStream<PaneEventEnvelope> { stream }
+    func subscribe() -> AsyncStream<RuntimeEnvelope> { stream }
 
     func snapshot() -> PaneRuntimeSnapshot {
         PaneRuntimeSnapshot(

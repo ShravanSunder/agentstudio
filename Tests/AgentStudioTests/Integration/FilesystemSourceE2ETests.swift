@@ -26,7 +26,7 @@ extension E2ESerializedTests {
                 branch: "main",
                 isMainWorktree: true
             )
-            store.updateRepoWorktrees(repo.id, worktrees: [worktree])
+            store.reconcileDiscoveredWorktrees(repo.id, worktrees: [worktree])
 
             let pane = store.createPane(
                 source: .worktree(worktreeId: worktree.id, repoId: repo.id),
@@ -36,14 +36,20 @@ extension E2ESerializedTests {
             store.appendTab(tab)
             store.setActiveTab(tab.id)
 
-            let paneEventBus = EventBus<PaneEventEnvelope>()
+            let paneEventBus = EventBus<RuntimeEnvelope>()
             let filesystemSource = FilesystemGitPipeline(
                 bus: paneEventBus,
                 gitWorkingTreeProvider: ShellGitWorkingTreeStatusProvider(
                     processExecutor: DefaultProcessExecutor(timeout: 5))
             )
             let paneProjectionStore = PaneFilesystemProjectionStore()
-            let workspaceGitWorkingTreeStore = WorkspaceGitWorkingTreeStore()
+            let cacheStore = WorkspaceCacheStore()
+            let cacheCoordinator = WorkspaceCacheCoordinator(
+                bus: paneEventBus,
+                workspaceStore: store,
+                cacheStore: cacheStore
+            )
+            cacheCoordinator.startConsuming()
 
             let coordinator = PaneCoordinator(
                 store: store,
@@ -53,8 +59,7 @@ extension E2ESerializedTests {
                 runtimeRegistry: RuntimeRegistry(),
                 paneEventBus: paneEventBus,
                 filesystemSource: filesystemSource,
-                paneFilesystemProjectionStore: paneProjectionStore,
-                workspaceGitWorkingTreeStore: workspaceGitWorkingTreeStore
+                paneFilesystemProjectionStore: paneProjectionStore
             )
 
             await eventually("filesystem root should be registered for worktree") {
@@ -66,8 +71,8 @@ extension E2ESerializedTests {
                 paths: ["tracked.txt", "untracked.txt"]
             )
 
-            await eventually("workspace git status snapshot should update") {
-                guard let snapshot = workspaceGitWorkingTreeStore.snapshotsByWorktreeId[worktree.id] else {
+            await eventually("workspace cache git snapshot should update") {
+                guard let snapshot = cacheStore.worktreeEnrichmentByWorktreeId[worktree.id]?.snapshot else {
                     return false
                 }
                 return snapshot.summary.changed >= 1 && snapshot.summary.untracked >= 1

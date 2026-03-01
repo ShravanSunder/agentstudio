@@ -8,7 +8,7 @@ import Testing
 struct WebviewRuntimeTests {
     @Test("webview runtime posts browser events to EventBus and replay")
     func webviewRuntimePostsEvents() async {
-        let paneEventBus = EventBus<PaneEventEnvelope>()
+        let paneEventBus = EventBus<RuntimeEnvelope>()
         let runtime = makeRuntime(paneEventBus: paneEventBus)
         runtime.transitionToReady()
 
@@ -113,7 +113,7 @@ struct WebviewRuntimeTests {
 
     private func makeRuntime(
         commandHandler: (any WebviewRuntimeCommandHandling)? = nil,
-        paneEventBus: EventBus<PaneEventEnvelope> = PaneRuntimeEventBus.shared
+        paneEventBus: EventBus<RuntimeEnvelope> = PaneRuntimeEventBus.shared
     ) -> WebviewRuntime {
         let paneId = PaneId()
         let metadata = PaneMetadata(

@@ -1,6 +1,6 @@
 import Foundation
 
-/// Per-runtime replay buffer for `PaneEventEnvelope` with bounded memory and TTL eviction.
+/// Per-runtime replay buffer for `RuntimeEnvelope` with bounded memory and TTL eviction.
 ///
 /// Uses a ring buffer to preserve append order and supports gap-aware replay queries
 /// via `eventsSince(seq:)`.
@@ -19,7 +19,7 @@ final class EventReplayBuffer {
     }
 
     struct ReplayResult: Sendable {
-        let events: [PaneEventEnvelope]
+        let events: [RuntimeEnvelope]
         let nextSeq: UInt64
         let gapDetected: Bool
     }
@@ -32,7 +32,7 @@ final class EventReplayBuffer {
     }
 
     private struct Entry {
-        let envelope: PaneEventEnvelope
+        let envelope: RuntimeEnvelope
         let estimatedBytes: Int
     }
 
@@ -61,7 +61,7 @@ final class EventReplayBuffer {
         )
     }
 
-    func append(_ envelope: PaneEventEnvelope) {
+    func append(_ envelope: RuntimeEnvelope) {
         evictStale(now: clock.now)
 
         let envelopeSize = Self.estimateSize(envelope)
@@ -80,7 +80,7 @@ final class EventReplayBuffer {
         countValue
     }
 
-    func events() -> [PaneEventEnvelope] {
+    func events() -> [RuntimeEnvelope] {
         evictStale(now: clock.now)
         return orderedEntries().map(\.envelope)
     }
@@ -157,29 +157,30 @@ final class EventReplayBuffer {
         return entries
     }
 
-    private static func estimateSize(_ envelope: PaneEventEnvelope) -> Int {
+    private static func estimateSize(_ envelope: RuntimeEnvelope) -> Int {
         var bytes = 128
         bytes += envelope.source.description.utf8.count
-        bytes += estimateSize(of: envelope.sourceFacets)
-        bytes += envelope.paneKind.map { String(describing: $0).utf8.count } ?? 0
-        bytes += envelope.commandId == nil ? 0 : 16
-        bytes += envelope.correlationId == nil ? 0 : 16
-        bytes += estimateSize(of: envelope.event)
-        return bytes
-    }
 
-    private static func estimateSize(of facets: PaneContextFacets) -> Int {
-        var bytes = 32
-        bytes += facets.repoName?.utf8.count ?? 0
-        bytes += facets.worktreeName?.utf8.count ?? 0
-        bytes += facets.cwd?.path.utf8.count ?? 0
-        bytes += facets.parentFolder?.utf8.count ?? 0
-        bytes += facets.organizationName?.utf8.count ?? 0
-        bytes += facets.origin?.utf8.count ?? 0
-        bytes += facets.upstream?.utf8.count ?? 0
-        bytes += facets.tags.reduce(into: 0) { partial, tag in
-            partial += tag.utf8.count
+        switch envelope {
+        case .pane(let paneEnvelope):
+            bytes += paneEnvelope.commandId == nil ? 0 : 16
+            bytes += paneEnvelope.correlationId == nil ? 0 : 16
+            bytes += paneEnvelope.causationId == nil ? 0 : 16
+            bytes += String(describing: paneEnvelope.paneKind).utf8.count
+            bytes += estimateSize(of: paneEnvelope.event)
+        case .worktree(let worktreeEnvelope):
+            bytes += worktreeEnvelope.commandId == nil ? 0 : 16
+            bytes += worktreeEnvelope.correlationId == nil ? 0 : 16
+            bytes += worktreeEnvelope.causationId == nil ? 0 : 16
+            bytes += 32
+            bytes += estimateSize(of: worktreeEnvelope.event)
+        case .system(let systemEnvelope):
+            bytes += systemEnvelope.commandId == nil ? 0 : 16
+            bytes += systemEnvelope.correlationId == nil ? 0 : 16
+            bytes += systemEnvelope.causationId == nil ? 0 : 16
+            bytes += estimateSize(of: systemEnvelope.event)
         }
+
         return bytes
     }
 
@@ -205,6 +206,86 @@ final class EventReplayBuffer {
             return estimateSize(of: securityEvent)
         case .error(let errorEvent):
             return 24 + String(describing: errorEvent).utf8.count
+        }
+    }
+
+    private static func estimateSize(of event: WorktreeScopedEvent) -> Int {
+        switch event {
+        case .filesystem(let filesystemEvent):
+            return estimateSize(of: filesystemEvent)
+        case .gitWorkingDirectory(let gitEvent):
+            return estimateSize(of: gitEvent)
+        case .forge(let forgeEvent):
+            return estimateSize(of: forgeEvent)
+        case .security(let securityEvent):
+            return estimateSize(of: securityEvent)
+        }
+    }
+
+    private static func estimateSize(of event: SystemScopedEvent) -> Int {
+        switch event {
+        case .topology(let topologyEvent):
+            return estimateSize(of: topologyEvent)
+        case .appLifecycle:
+            return 24
+        case .focusChanged:
+            return 24
+        case .configChanged(let configEvent):
+            switch configEvent {
+            case .watchedPathsUpdated(let paths):
+                return 24
+                    + paths.reduce(into: 0) { partial, path in
+                        partial += path.path.utf8.count
+                    }
+            case .workspacePersistenceUpdated:
+                return 24
+            }
+        }
+    }
+
+    private static func estimateSize(of event: TopologyEvent) -> Int {
+        switch event {
+        case .repoDiscovered(let repoPath, let parentPath):
+            return 24 + repoPath.path.utf8.count + parentPath.path.utf8.count
+        case .repoRemoved(let repoPath):
+            return 24 + repoPath.path.utf8.count
+        case .worktreeRegistered(_, _, let rootPath):
+            return 24 + rootPath.path.utf8.count
+        case .worktreeUnregistered:
+            return 24
+        }
+    }
+
+    private static func estimateSize(of event: GitWorkingDirectoryEvent) -> Int {
+        switch event {
+        case .snapshotChanged(let snapshot):
+            return 56 + snapshot.rootPath.path.utf8.count + (snapshot.branch?.utf8.count ?? 0)
+        case .branchChanged(_, _, let from, let to):
+            return 24 + from.utf8.count + to.utf8.count
+        case .originChanged(_, let from, let to):
+            return 24 + from.utf8.count + to.utf8.count
+        case .worktreeDiscovered(_, let worktreePath, let branch, _):
+            return 24 + worktreePath.path.utf8.count + branch.utf8.count
+        case .worktreeRemoved(_, let worktreePath):
+            return 24 + worktreePath.path.utf8.count
+        case .diffAvailable:
+            return 24
+        }
+    }
+
+    private static func estimateSize(of event: ForgeEvent) -> Int {
+        switch event {
+        case .pullRequestCountsChanged(_, let countsByBranch):
+            return 24
+                + countsByBranch.keys.reduce(into: 0) { partial, key in
+                    partial += key.utf8.count
+                }
+        case .checksUpdated:
+            return 32
+        case .refreshFailed(_, let error):
+            return 24 + error.utf8.count
+        case .rateLimited:
+            return 24
         }
     }
 

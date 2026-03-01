@@ -214,7 +214,7 @@ struct SidebarFilterTests {
     @Test
     func test_filter_emptyRepoList_returnsEmpty() {
         // Act
-        let result = SidebarFilter.filter(repos: [], query: "anything")
+        let result = SidebarFilter.filter(repos: [Repo](), query: "anything")
 
         // Assert
         #expect(result.isEmpty)

@@ -92,7 +92,9 @@ erDiagram
 
 ### 2.2 Repo & Worktree
 
-**`Repo`** — A git repository on disk. Contains discovered worktrees.
+> **Target model:** The current `Repo` and `Worktree` models mix canonical config with inferred/derived data (see "contamination" below). The target architecture splits these into canonical models (`CanonicalRepo`, `CanonicalWorktree`) and enrichment models (`RepoEnrichment`, `WorktreeEnrichment`) across separate persistence tiers. See [Workspace Data Architecture](workspace_data_architecture.md) for the full spec.
+
+**`Repo`** (current, contaminated) — A git repository on disk. Contains discovered worktrees.
 
 | Field | Type | Notes |
 |-------|------|-------|
@@ -101,10 +103,10 @@ erDiagram
 | `repoPath` | `URL` | Filesystem path |
 | `worktrees` | `[Worktree]` | Discovered git worktrees |
 | `createdAt` | `Date` | When the repo was added |
-| `updatedAt` | `Date` | Last modification timestamp |
+| `updatedAt` | `Date` | Last modification timestamp — **contaminated**: bumped by derived data, causes sidebar re-render loops |
 | `stableKey` | `String` | SHA-256 of path (16 hex chars), deterministic across reinstalls |
 
-**`Worktree`** — A git worktree within a repo.
+**`Worktree`** (current, contaminated) — A git worktree within a repo.
 
 | Field | Type | Notes |
 |-------|------|-------|
@@ -117,6 +119,29 @@ erDiagram
 | `stableKey` | `String` | SHA-256 of path (16 hex chars) |
 
 > **File:** `Core/Models/Repo.swift`, `Core/Models/Worktree.swift`
+
+**Complete field migration map:**
+
+| Current field | Target model | Target tier | Notes |
+|---------------|-------------|-------------|-------|
+| `Repo.id` | `CanonicalRepo.id` | Canonical | Preserved (UUID, primary identity) |
+| `Repo.name` | `CanonicalRepo.name` | Canonical | Folder name from path (stable) |
+| `Repo.repoPath` | `CanonicalRepo.repoPath` | Canonical | Filesystem path |
+| `Repo.stableKey` | `CanonicalRepo.stableKey` | Canonical | SHA-256(path), secondary rebuild index. Recomputed on move. |
+| `Repo.createdAt` | `CanonicalRepo.addedAt` | Canonical | Renamed for clarity |
+| `Repo.updatedAt` | **Removed** | — | Was bumped by derived data, caused sidebar re-render loops |
+| `Repo.worktrees` | `CanonicalWorktree[]` (flat, separate) | Canonical | No longer nested in repo. Discovered by actors. |
+| `Repo.organizationName` | `RepoEnrichment.organizationName` | Cache | Inferred from git remote, not user intent |
+| `Repo.origin` | `RepoEnrichment.origin` | Cache | Inferred from git remote |
+| `Repo.upstream` | `RepoEnrichment.upstream` | Cache | Inferred from git remote |
+| `Worktree.id` | `CanonicalWorktree.id` | Canonical | Preserved (UUID, primary identity) |
+| `Worktree.path` | `CanonicalWorktree.path` | Canonical | Filesystem path |
+| `Worktree.stableKey` | `CanonicalWorktree.stableKey` | Canonical | SHA-256(path), recomputed on move |
+| `Worktree.name` | `WorktreeEnrichment.displayName` (derived) | Cache | Derived from branch name by GitWorkingDirectoryProjector |
+| `Worktree.branch` | `WorktreeEnrichment.branch` | Cache | Discovered by GitWorkingDirectoryProjector |
+| `Worktree.isMainWorktree` | `WorktreeEnrichment.isMainWorktree` | Cache | Discovered by GitWorkingDirectoryProjector |
+| `Worktree.agent` | Derived from pane state at query time | Runtime | Not persisted. "Is agent running?" = derived from pane states in that worktree. |
+| `Worktree.status` | Derived from pane state at query time | Runtime | Not persisted. Resets naturally on app restart. |
 
 ### 2.3 TerminalSession
 
@@ -298,7 +323,7 @@ Singletons:
 └── Ghostty.shared           ← Ghostty C API wrapper
 ```
 
-> **Testability note on singletons:** These `static let shared` singletons are `@MainActor` (inferred or explicit). Under Swift 6.2, `static var` on `@MainActor` types is also MainActor-isolated (enforced since Swift 5.10). This is fine for production — they don't cross actor boundaries. However, `static let` cannot be swapped for testing. When boundary actors need these services (e.g., `FilesystemActor` needing `WorktrunkService` for worktree path resolution, or `ForgeActor` needing `ProcessExecutor` for git CLI), **inject via constructor parameter**, not via `.shared` access from inside the actor. The EventBus design already follows this pattern: `private let bus: EventBus<PaneEventEnvelope>` is constructor-injected. Apply the same to any singleton that a non-MainActor component needs.
+> **Testability note on singletons:** These `static let shared` singletons are `@MainActor` (inferred or explicit). Under Swift 6.2, `static var` on `@MainActor` types is also MainActor-isolated (enforced since Swift 5.10). This is fine for production — they don't cross actor boundaries. However, `static let` cannot be swapped for testing. When boundary actors need these services (e.g., `FilesystemActor` needing `WorktrunkService` for worktree path resolution, or `ForgeActor` needing `ProcessExecutor` for git CLI), **inject via constructor parameter**, not via `.shared` access from inside the actor. The EventBus design already follows this pattern: `private let bus: EventBus<RuntimeEnvelope>` is constructor-injected. Apply the same to any singleton that a non-MainActor component needs.
 
 ### 3.2 WorkspaceStore
 
@@ -429,11 +454,13 @@ Owned by `WorkspaceStore` as a `private let` member. Pure persistence I/O. No bu
 
 ### 3.9.1 Persistence Domain Segregation (Target)
 
+> **Authoritative spec:** [Workspace Data Architecture](workspace_data_architecture.md) defines the complete three-tier model including canonical models (`CanonicalRepo`, `CanonicalWorktree`), enrichment models (`RepoEnrichment`, `WorktreeEnrichment`), and the event-driven enrichment pipeline. This section summarizes the persistence split; the workspace data doc is the source of truth for model shapes and lifecycle flows.
+
 To keep Jotai-style store boundaries and Valtio-style source-of-truth guarantees intact, persistence is split by domain responsibility:
 
-- Canonical workspace model (`WorkspaceStore`) stays in `workspace.state.json`
-- Derived/stale-prone lookup data (git/wt/gh metadata, branch/sync/PR/diff status) moves to `workspace.cache.json`
-- Workspace-scoped UI preferences move to `workspace.ui.json`
+- Canonical workspace model (`WorkspaceStore`) stays in `workspace.state.json` — contains `watchedPaths`, `CanonicalRepo[]`, `CanonicalWorktree[]`, panes, tabs, layouts
+- Derived enrichment data (`WorkspaceCacheStore`) in `workspace.cache.json` — contains `RepoEnrichment`, `WorktreeEnrichment`, PR/notification counts. Written exclusively by `WorkspaceCacheCoordinator` via enrichment pipeline events.
+- Workspace-scoped UI preferences (`WorkspaceUIStore`) in `workspace.ui.json`
 - Global app preferences and keybindings are stored separately from workspace state
 
 This prevents derived data from silently becoming canonical truth and aligns each persisted file with exactly one reason to change.
@@ -584,6 +611,8 @@ Git worktree management via the `wt` CLI tool. Singleton.
 - `createWorktree()` / `removeWorktree()` — Lifecycle
 
 > **File:** `Infrastructure/WorktrunkService.swift`
+>
+> **Migration note:** Worktree discovery currently drives sidebar data directly. In the target architecture, discovery is owned by the enrichment pipeline: `FilesystemActor` detects `.git` directories → `WorkspaceCacheCoordinator` runs `git worktree list --porcelain -z` via `WorktrunkService` → registers canonical worktrees in `WorkspaceStore` and enrichment in `WorkspaceCacheStore`. See [Workspace Data Architecture — Discovery Lifecycle](workspace_data_architecture.md).
 
 ### 3.12 Command Bar System
 

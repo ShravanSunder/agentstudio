@@ -4,6 +4,7 @@ import os
 struct GitWorkingTreeStatus: Sendable, Equatable {
     let summary: GitWorkingTreeSummary
     let branch: String?
+    let origin: String?
 }
 
 protocol GitWorkingTreeStatusProvider: Sendable {
@@ -61,7 +62,8 @@ struct ShellGitWorkingTreeStatusProvider: GitWorkingTreeStatusProvider {
                 .map(String.init)
             let branch = parseBranch(lines: lines)
             let summary = parseSummary(lines: lines)
-            return GitWorkingTreeStatus(summary: summary, branch: branch)
+            let origin = await parseOrigin(rootPath: rootPath, processExecutor: processExecutor)
+            return GitWorkingTreeStatus(summary: summary, branch: branch, origin: origin)
         } catch let processError as ProcessError {
             switch processError {
             case .timedOut(_, let seconds):
@@ -119,6 +121,35 @@ struct ShellGitWorkingTreeStatusProvider: GitWorkingTreeStatusProvider {
             return String(raw[..<suffixRange.lowerBound])
         }
         return raw
+    }
+
+    @concurrent
+    nonisolated private static func parseOrigin(
+        rootPath: URL,
+        processExecutor: any ProcessExecutor
+    ) async -> String? {
+        do {
+            let result = try await processExecutor.execute(
+                command: "git",
+                args: [
+                    "-C", rootPath.path,
+                    "config",
+                    "--get",
+                    "remote.origin.url",
+                ],
+                cwd: nil,
+                environment: nil
+            )
+
+            guard result.succeeded else {
+                return nil
+            }
+
+            let origin = result.stdout.trimmingCharacters(in: .whitespacesAndNewlines)
+            return origin.isEmpty ? nil : origin
+        } catch {
+            return nil
+        }
     }
 }
 

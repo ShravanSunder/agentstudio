@@ -11,7 +11,7 @@ struct SwiftPaneRuntimeTests {
         let tempFile = try makeTemporarySwiftFile(content: "print(\"hi\")\n")
         defer { try? FileManager.default.removeItem(at: tempFile) }
 
-        let paneEventBus = EventBus<PaneEventEnvelope>()
+        let paneEventBus = EventBus<RuntimeEnvelope>()
         let runtime = makeRuntime(
             fileDirectory: tempFile.deletingLastPathComponent(),
             paneEventBus: paneEventBus
@@ -38,14 +38,18 @@ struct SwiftPaneRuntimeTests {
         #expect(runtime.displayedText == "print(\"hi\")\n")
 
         #expect(busEnvelope?.source == .pane(runtime.paneId))
-        #expect(busEnvelope?.paneKind == .codeViewer)
         #expect(busEnvelope?.seq == 1)
 
         guard let busEnvelope else {
             Issue.record("Expected fileOpened envelope on pane event bus")
             return
         }
-        guard case .editor(.fileOpened(let openedPath, let language)) = busEnvelope.event else {
+        guard case .pane(let paneEnvelope) = busEnvelope else {
+            Issue.record("Expected pane envelope")
+            return
+        }
+        #expect(paneEnvelope.paneKind == .codeViewer)
+        guard case .editor(.fileOpened(let openedPath, let language)) = paneEnvelope.event else {
             Issue.record("Expected editor.fileOpened event for openFile command")
             return
         }
@@ -89,7 +93,10 @@ struct SwiftPaneRuntimeTests {
             Issue.record("Expected replay envelope for save command")
             return
         }
-        guard case .editor(.contentSaved(let savedPath)) = replayEnvelope.event else {
+        guard
+            case .pane(let paneEnvelope) = replayEnvelope,
+            case .editor(.contentSaved(let savedPath)) = paneEnvelope.event
+        else {
             Issue.record("Expected editor.contentSaved event for save command")
             return
         }
@@ -101,7 +108,7 @@ struct SwiftPaneRuntimeTests {
         let tempFile = try makeTemporarySwiftFile(content: "print(\"before\")\n")
         defer { try? FileManager.default.removeItem(at: tempFile) }
 
-        let paneEventBus = EventBus<PaneEventEnvelope>()
+        let paneEventBus = EventBus<RuntimeEnvelope>()
         let runtime = makeRuntime(
             fileDirectory: tempFile.deletingLastPathComponent(),
             paneEventBus: paneEventBus
@@ -137,7 +144,11 @@ struct SwiftPaneRuntimeTests {
             Issue.record("Expected fileOpened envelope on pane event bus for revert")
             return
         }
-        guard case .editor(.fileOpened(let openedPath, let language)) = busEnvelope.event else {
+        guard case .pane(let paneEnvelope) = busEnvelope else {
+            Issue.record("Expected pane envelope")
+            return
+        }
+        guard case .editor(.fileOpened(let openedPath, let language)) = paneEnvelope.event else {
             Issue.record("Expected editor.fileOpened event for revert command")
             return
         }
@@ -201,7 +212,7 @@ struct SwiftPaneRuntimeTests {
 
     private func makeRuntime(
         fileDirectory: URL,
-        paneEventBus: EventBus<PaneEventEnvelope> = PaneRuntimeEventBus.shared
+        paneEventBus: EventBus<RuntimeEnvelope> = PaneRuntimeEventBus.shared
     ) -> SwiftPaneRuntime {
         let paneId = PaneId()
         let metadata = PaneMetadata(

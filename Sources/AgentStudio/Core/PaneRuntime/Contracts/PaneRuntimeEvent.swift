@@ -1,6 +1,6 @@
 import Foundation
 
-/// Discriminated union for all runtime-plane events carried on `PaneEventEnvelope`.
+/// Discriminated union for all pane-scoped runtime-plane events carried on `RuntimeEnvelope.pane`.
 ///
 /// Each case defines its own domain payload and participates in self-classifying
 /// `actionPolicy` routing through `NotificationReducer`.

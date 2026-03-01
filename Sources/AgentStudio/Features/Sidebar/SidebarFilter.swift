@@ -10,20 +10,37 @@ enum SidebarFilter {
     /// - If a repo's name matches, all its worktrees are included.
     /// - If only some worktrees match, only those are included under the parent repo.
     /// - Repos with no matches are excluded entirely.
-    static func filter(repos: [Repo], query: String) -> [Repo] {
+    static func filter<Repository: SidebarFilterableRepository>(
+        repos: [Repository],
+        query: String
+    ) -> [Repository] {
         guard !query.isEmpty else { return repos }
 
         return repos.compactMap { repo in
-            if repo.name.localizedCaseInsensitiveContains(query) {
+            if repo.sidebarRepoName.localizedCaseInsensitiveContains(query) {
                 return repo
             }
-            let matchingWorktrees = repo.worktrees.filter {
+            let matchingWorktrees = repo.sidebarWorktrees.filter {
                 $0.name.localizedCaseInsensitiveContains(query)
             }
             guard !matchingWorktrees.isEmpty else { return nil }
             var filtered = repo
-            filtered.worktrees = matchingWorktrees
+            filtered.sidebarWorktrees = matchingWorktrees
             return filtered
         }
+    }
+}
+
+protocol SidebarFilterableRepository {
+    var sidebarRepoName: String { get }
+    var sidebarWorktrees: [Worktree] { get set }
+}
+
+extension Repo: SidebarFilterableRepository {
+    var sidebarRepoName: String { name }
+
+    var sidebarWorktrees: [Worktree] {
+        get { worktrees }
+        set { worktrees = newValue }
     }
 }

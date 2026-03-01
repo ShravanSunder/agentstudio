@@ -102,11 +102,33 @@ run = "echo 'Setup complete. Run mise run build or mise run test.'"
 
 [tasks.build]
 description = "Debug build (run mise run setup first time)"
-run = "swift build"
+run = """
+#!/usr/bin/env bash
+set -euo pipefail
+RUN_ID="${AGENT_RUN_ID:-}"
+if [ -z "$RUN_ID" ]; then
+  echo "[build] ERROR: AGENT_RUN_ID is required (example: AGENT_RUN_ID=abc123 mise run build)"
+  exit 2
+fi
+BUILD_PATH="${SWIFT_BUILD_DIR:-.build-agent-$RUN_ID}"
+echo "[build] BUILD_PATH=$BUILD_PATH"
+swift build --build-path "$BUILD_PATH"
+"""
 
 [tasks.build-release]
 description = "Release build (run mise run setup first time)"
-run = "swift build -c release"
+run = """
+#!/usr/bin/env bash
+set -euo pipefail
+RUN_ID="${AGENT_RUN_ID:-}"
+if [ -z "$RUN_ID" ]; then
+  echo "[build-release] ERROR: AGENT_RUN_ID is required (example: AGENT_RUN_ID=abc123 mise run build-release)"
+  exit 2
+fi
+BUILD_PATH="${SWIFT_BUILD_DIR:-.build-release-agent-$RUN_ID}"
+echo "[build-release] BUILD_PATH=$BUILD_PATH"
+swift build -c release --build-path "$BUILD_PATH"
+"""
 
 [tasks.test]
 description = "Run default test suite (excludes E2E + ZmxE2E by default)"
@@ -114,15 +136,83 @@ depends = ["build"]
 run = """
 #!/usr/bin/env bash
 set -euo pipefail
-BUILD_PATH="${SWIFT_BUILD_DIR:-.build}"
+RUN_ID="${AGENT_RUN_ID:-}"
+if [ -z "$RUN_ID" ]; then
+  echo "[test] ERROR: AGENT_RUN_ID is required (example: AGENT_RUN_ID=abc123 mise run test)"
+  exit 2
+fi
+BUILD_PATH="${SWIFT_BUILD_DIR:-.build-agent-$RUN_ID}"
+TIMEOUT_SECONDS="${SWIFT_TEST_TIMEOUT_SECONDS:-60}"
+echo "[test] BUILD_PATH=$BUILD_PATH"
+echo "[test] TIMEOUT_SECONDS=$TIMEOUT_SECONDS"
+
+run_swift_with_timeout() {
+  local label="$1"
+  shift
+  local timeout_seconds="$1"
+  shift
+
+  echo "[test] >>> $label (timeout=${timeout_seconds}s)"
+  local start_epoch
+  start_epoch=$(date +%s)
+  local last_heartbeat="$start_epoch"
+  local timed_out=0
+
+  "$@" &
+  local command_pid=$!
+
+  while kill -0 "$command_pid" 2>/dev/null; do
+    sleep 1
+    local now_epoch
+    now_epoch=$(date +%s)
+    local elapsed_seconds=$((now_epoch - start_epoch))
+
+    if [ "$elapsed_seconds" -ge "$timeout_seconds" ]; then
+      timed_out=1
+      break
+    fi
+
+    if [ $((now_epoch - last_heartbeat)) -ge 20 ]; then
+      echo "[test] ... $label still running (${elapsed_seconds}s)"
+      last_heartbeat="$now_epoch"
+    fi
+  done
+
+  if [ "$timed_out" -eq 1 ]; then
+    echo "[test] ERROR: timeout while running '$label' after ${timeout_seconds}s"
+    kill -TERM "$command_pid" 2>/dev/null || true
+    sleep 2
+    kill -KILL "$command_pid" 2>/dev/null || true
+    pkill -9 -f "swiftpm-testing-helper|swift test|swift-build|AgentStudioPackageTests" || true
+    wait "$command_pid" 2>/dev/null || true
+    return 124
+  fi
+
+  set +e
+  wait "$command_pid"
+  local command_status=$?
+  set -e
+
+  return "$command_status"
+}
+
 if [ "${SWIFT_TEST_PARALLEL:-1}" = "1" ]; then
   SWIFT_TEST_WORKERS="${SWIFT_TEST_WORKERS:-$(( $(sysctl -n hw.ncpu) / 2 ))}"
   if [ "$SWIFT_TEST_WORKERS" -lt 2 ]; then SWIFT_TEST_WORKERS=2; fi
   if [ "$SWIFT_TEST_WORKERS" -gt 4 ]; then SWIFT_TEST_WORKERS=4; fi
-  AGENT_STUDIO_BENCHMARK_MODE=off swift test --parallel --num-workers "$SWIFT_TEST_WORKERS" --skip WebKitSerializedTests --skip E2ESerializedTests --skip ZmxE2ETests --build-path "$BUILD_PATH"
+  run_swift_with_timeout \
+    "parallel non-serialized suites" \
+    "$TIMEOUT_SECONDS" \
+    env AGENT_STUDIO_BENCHMARK_MODE=off swift test --parallel --num-workers "$SWIFT_TEST_WORKERS" \
+    --skip WebKitSerializedTests --skip E2ESerializedTests --skip ZmxE2ETests --build-path "$BUILD_PATH"
 else
-  AGENT_STUDIO_BENCHMARK_MODE=off swift test --skip WebKitSerializedTests --skip E2ESerializedTests --skip ZmxE2ETests --build-path "$BUILD_PATH"
+  run_swift_with_timeout \
+    "serial non-serialized suites" \
+    "$TIMEOUT_SECONDS" \
+    env AGENT_STUDIO_BENCHMARK_MODE=off swift test \
+    --skip WebKitSerializedTests --skip E2ESerializedTests --skip ZmxE2ETests --build-path "$BUILD_PATH"
 fi
+
 echo "--- WebView serialized tests (serial) ---"
 run_webkit_suite_with_retry() {
   local filter="$1"
@@ -134,16 +224,19 @@ run_webkit_suite_with_retry() {
     echo "[webkit] running $filter (attempt $attempt/$max_attempts)"
     set +e
     local output
-    output=$(AGENT_STUDIO_BENCHMARK_MODE=off swift test --filter "$filter" --build-path "$BUILD_PATH" 2>&1)
-    local status=$?
+    output=$(run_swift_with_timeout "$filter" "$TIMEOUT_SECONDS" env AGENT_STUDIO_BENCHMARK_MODE=off swift test --filter "$filter" --build-path "$BUILD_PATH" 2>&1)
+    local command_status=$?
     set -e
     echo "$output"
 
-    if [ "$status" -eq 0 ]; then
+    if [ "$command_status" -eq 0 ]; then
       return 0
     fi
+    if [ "$command_status" -eq 124 ]; then
+      return 124
+    fi
 
-    if echo "$output" | grep -Eq "unexpected signal code [0-9]+"; then
+    if [ "$command_status" -ne 124 ] && echo "$output" | grep -Eq "unexpected signal code [0-9]+"; then
       local signal_code
       signal_code=$(echo "$output" | grep -Eo "unexpected signal code [0-9]+" | grep -Eo "[0-9]+" | tail -n 1)
       if [ -z "$signal_code" ]; then
@@ -158,7 +251,7 @@ run_webkit_suite_with_retry() {
       fi
     fi
 
-    return "$status"
+    return "$command_status"
   done
 }
 
@@ -168,13 +261,19 @@ run_webkit_suite_with_retry "WebKitSerializedTests/BridgeTransportIntegrationTes
 run_webkit_suite_with_retry "WebKitSerializedTests/BridgeWebKitSpikeTests"
 echo "--- E2E serialized tests (serial) ---"
 if [ "${SWIFT_TEST_INCLUDE_E2E:-0}" = "1" ]; then
-  AGENT_STUDIO_BENCHMARK_MODE=off swift test --filter E2ESerializedTests --build-path "$BUILD_PATH"
+  run_swift_with_timeout \
+    "E2ESerializedTests" \
+    "$TIMEOUT_SECONDS" \
+    env AGENT_STUDIO_BENCHMARK_MODE=off swift test --filter E2ESerializedTests --build-path "$BUILD_PATH"
 else
   echo "[test] skipping E2ESerializedTests (SWIFT_TEST_INCLUDE_E2E=${SWIFT_TEST_INCLUDE_E2E:-0})"
 fi
 echo "--- Zmx E2E tests (serial) ---"
 if [ "${SWIFT_TEST_INCLUDE_ZMX_E2E:-0}" = "1" ]; then
-  AGENT_STUDIO_BENCHMARK_MODE=off swift test --filter ZmxE2ETests --build-path "$BUILD_PATH"
+  run_swift_with_timeout \
+    "ZmxE2ETests" \
+    "$TIMEOUT_SECONDS" \
+    env AGENT_STUDIO_BENCHMARK_MODE=off swift test --filter ZmxE2ETests --build-path "$BUILD_PATH"
 else
   echo "[test] skipping ZmxE2ETests (SWIFT_TEST_INCLUDE_ZMX_E2E=${SWIFT_TEST_INCLUDE_ZMX_E2E:-0})"
 fi
@@ -186,14 +285,81 @@ depends = ["build"]
 run = """
 #!/usr/bin/env bash
 set -euo pipefail
-BUILD_PATH="${SWIFT_BUILD_DIR:-.build}"
+RUN_ID="${AGENT_RUN_ID:-}"
+if [ -z "$RUN_ID" ]; then
+  echo "[test-coverage] ERROR: AGENT_RUN_ID is required (example: AGENT_RUN_ID=abc123 mise run test-coverage)"
+  exit 2
+fi
+BUILD_PATH="${SWIFT_BUILD_DIR:-.build-agent-$RUN_ID}"
+TIMEOUT_SECONDS="${SWIFT_TEST_TIMEOUT_SECONDS:-60}"
+echo "[test-coverage] BUILD_PATH=$BUILD_PATH"
+echo "[test-coverage] TIMEOUT_SECONDS=$TIMEOUT_SECONDS"
+
+run_swift_with_timeout() {
+  local label="$1"
+  shift
+  local timeout_seconds="$1"
+  shift
+
+  echo "[test-coverage] >>> $label (timeout=${timeout_seconds}s)"
+  local start_epoch
+  start_epoch=$(date +%s)
+  local last_heartbeat="$start_epoch"
+  local timed_out=0
+
+  "$@" &
+  local command_pid=$!
+
+  while kill -0 "$command_pid" 2>/dev/null; do
+    sleep 1
+    local now_epoch
+    now_epoch=$(date +%s)
+    local elapsed_seconds=$((now_epoch - start_epoch))
+
+    if [ "$elapsed_seconds" -ge "$timeout_seconds" ]; then
+      timed_out=1
+      break
+    fi
+
+    if [ $((now_epoch - last_heartbeat)) -ge 20 ]; then
+      echo "[test-coverage] ... $label still running (${elapsed_seconds}s)"
+      last_heartbeat="$now_epoch"
+    fi
+  done
+
+  if [ "$timed_out" -eq 1 ]; then
+    echo "[test-coverage] ERROR: timeout while running '$label' after ${timeout_seconds}s"
+    kill -TERM "$command_pid" 2>/dev/null || true
+    sleep 2
+    kill -KILL "$command_pid" 2>/dev/null || true
+    pkill -9 -f "swiftpm-testing-helper|swift test|swift-build|AgentStudioPackageTests" || true
+    wait "$command_pid" 2>/dev/null || true
+    return 124
+  fi
+
+  set +e
+  wait "$command_pid"
+  local command_status=$?
+  set -e
+
+  return "$command_status"
+}
+
 if [ "${SWIFT_TEST_PARALLEL:-1}" = "1" ]; then
   SWIFT_TEST_WORKERS="${SWIFT_TEST_WORKERS:-$(( $(sysctl -n hw.ncpu) / 2 ))}"
   if [ "$SWIFT_TEST_WORKERS" -lt 2 ]; then SWIFT_TEST_WORKERS=2; fi
   if [ "$SWIFT_TEST_WORKERS" -gt 4 ]; then SWIFT_TEST_WORKERS=4; fi
-  AGENT_STUDIO_BENCHMARK_MODE=off swift test --enable-code-coverage --parallel --num-workers "$SWIFT_TEST_WORKERS" --skip WebKitSerializedTests --skip E2ESerializedTests --skip ZmxE2ETests --build-path "$BUILD_PATH"
+  run_swift_with_timeout \
+    "parallel non-serialized suites (coverage)" \
+    "$TIMEOUT_SECONDS" \
+    env AGENT_STUDIO_BENCHMARK_MODE=off swift test --enable-code-coverage --parallel --num-workers "$SWIFT_TEST_WORKERS" \
+    --skip WebKitSerializedTests --skip E2ESerializedTests --skip ZmxE2ETests --build-path "$BUILD_PATH"
 else
-  AGENT_STUDIO_BENCHMARK_MODE=off swift test --enable-code-coverage --skip WebKitSerializedTests --skip E2ESerializedTests --skip ZmxE2ETests --build-path "$BUILD_PATH"
+  run_swift_with_timeout \
+    "serial non-serialized suites (coverage)" \
+    "$TIMEOUT_SECONDS" \
+    env AGENT_STUDIO_BENCHMARK_MODE=off swift test --enable-code-coverage \
+    --skip WebKitSerializedTests --skip E2ESerializedTests --skip ZmxE2ETests --build-path "$BUILD_PATH"
 fi
 
 echo "--- WebView serialized tests (serial, coverage) ---"
@@ -207,16 +373,19 @@ run_webkit_suite_with_retry() {
     echo "[webkit] running $filter (attempt $attempt/$max_attempts)"
     set +e
     local output
-    output=$(AGENT_STUDIO_BENCHMARK_MODE=off swift test --enable-code-coverage --filter "$filter" --build-path "$BUILD_PATH" 2>&1)
-    local status=$?
+    output=$(run_swift_with_timeout "$filter (coverage)" "$TIMEOUT_SECONDS" env AGENT_STUDIO_BENCHMARK_MODE=off swift test --enable-code-coverage --filter "$filter" --build-path "$BUILD_PATH" 2>&1)
+    local command_status=$?
     set -e
     echo "$output"
 
-    if [ "$status" -eq 0 ]; then
+    if [ "$command_status" -eq 0 ]; then
       return 0
     fi
+    if [ "$command_status" -eq 124 ]; then
+      return 124
+    fi
 
-    if echo "$output" | grep -Eq "unexpected signal code [0-9]+"; then
+    if [ "$command_status" -ne 124 ] && echo "$output" | grep -Eq "unexpected signal code [0-9]+"; then
       local signal_code
       signal_code=$(echo "$output" | grep -Eo "unexpected signal code [0-9]+" | grep -Eo "[0-9]+" | tail -n 1)
       if [ -z "$signal_code" ]; then
@@ -231,7 +400,7 @@ run_webkit_suite_with_retry() {
       fi
     fi
 
-    return "$status"
+    return "$command_status"
   done
 }
 
@@ -242,19 +411,25 @@ run_webkit_suite_with_retry "WebKitSerializedTests/BridgeWebKitSpikeTests"
 
 echo "--- E2E serialized tests (serial, coverage) ---"
 if [ "${SWIFT_TEST_INCLUDE_E2E:-0}" = "1" ]; then
-  AGENT_STUDIO_BENCHMARK_MODE=off swift test --enable-code-coverage --filter E2ESerializedTests --build-path "$BUILD_PATH"
+  run_swift_with_timeout \
+    "E2ESerializedTests (coverage)" \
+    "$TIMEOUT_SECONDS" \
+    env AGENT_STUDIO_BENCHMARK_MODE=off swift test --enable-code-coverage --filter E2ESerializedTests --build-path "$BUILD_PATH"
 else
   echo "[test-coverage] skipping E2ESerializedTests (SWIFT_TEST_INCLUDE_E2E=${SWIFT_TEST_INCLUDE_E2E:-0})"
 fi
 
 echo "--- Zmx E2E tests (serial, coverage) ---"
 if [ "${SWIFT_TEST_INCLUDE_ZMX_E2E:-0}" = "1" ]; then
-  AGENT_STUDIO_BENCHMARK_MODE=off swift test --enable-code-coverage --filter ZmxE2ETests --build-path "$BUILD_PATH"
+  run_swift_with_timeout \
+    "ZmxE2ETests (coverage)" \
+    "$TIMEOUT_SECONDS" \
+    env AGENT_STUDIO_BENCHMARK_MODE=off swift test --enable-code-coverage --filter ZmxE2ETests --build-path "$BUILD_PATH"
 else
   echo "[test-coverage] skipping ZmxE2ETests (SWIFT_TEST_INCLUDE_ZMX_E2E=${SWIFT_TEST_INCLUDE_ZMX_E2E:-0})"
 fi
 
-COVERAGE_JSON_PATH=$(swift test --show-codecov-path --build-path "$BUILD_PATH")
+COVERAGE_JSON_PATH=$(perl -e 'alarm shift; exec @ARGV' "$TIMEOUT_SECONDS" swift test --show-codecov-path --build-path "$BUILD_PATH")
 echo "[coverage] JSON: $COVERAGE_JSON_PATH"
 if [ -f "$COVERAGE_JSON_PATH" ] && command -v jq >/dev/null 2>&1; then
   LINES_PERCENT=$(jq -r '.data[0].totals.lines.percent // empty' "$COVERAGE_JSON_PATH" || true)

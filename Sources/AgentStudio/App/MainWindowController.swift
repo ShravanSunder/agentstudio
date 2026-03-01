@@ -10,7 +10,10 @@ class MainWindowController: NSWindowController, NSWindowDelegate {
     private static let estimatedTitlebarHeight: CGFloat = 40
 
     convenience init(
-        store: WorkspaceStore, actionExecutor: ActionExecutor,
+        store: WorkspaceStore,
+        cacheStore: WorkspaceCacheStore,
+        uiStore: WorkspaceUIStore,
+        actionExecutor: ActionExecutor,
         tabBarAdapter: TabBarAdapter, viewRegistry: ViewRegistry
     ) {
         let window = NSWindow(
@@ -37,6 +40,8 @@ class MainWindowController: NSWindowController, NSWindowDelegate {
         // Create and set content view controller
         let splitVC = MainSplitViewController(
             store: store,
+            cacheStore: cacheStore,
+            uiStore: uiStore,
             actionExecutor: actionExecutor,
             tabBarAdapter: tabBarAdapter,
             viewRegistry: viewRegistry

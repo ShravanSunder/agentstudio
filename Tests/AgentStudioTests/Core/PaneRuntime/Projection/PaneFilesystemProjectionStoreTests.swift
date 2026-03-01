@@ -178,24 +178,23 @@ struct PaneFilesystemProjectionStoreTests {
         seq: UInt64,
         worktreeId: UUID,
         paths: [String]
-    ) -> PaneEventEnvelope {
-        PaneEventEnvelope(
-            source: .system(.builtin(.filesystemWatcher)),
-            sourceFacets: PaneContextFacets(worktreeId: worktreeId),
-            paneKind: nil,
-            seq: seq,
-            commandId: nil,
-            correlationId: nil,
-            timestamp: ContinuousClock().now,
-            epoch: 0,
-            event: .filesystem(
-                .filesChanged(
-                    changeset: FileChangeset(
-                        worktreeId: worktreeId,
-                        rootPath: URL(fileURLWithPath: "/tmp/worktree-\(UUID().uuidString)"),
-                        paths: paths,
-                        timestamp: ContinuousClock().now,
-                        batchSeq: seq
+    ) -> RuntimeEnvelope {
+        .worktree(
+            WorktreeEnvelope(
+                source: .system(.builtin(.filesystemWatcher)),
+                seq: seq,
+                timestamp: ContinuousClock().now,
+                repoId: worktreeId,
+                worktreeId: worktreeId,
+                event: .filesystem(
+                    .filesChanged(
+                        changeset: FileChangeset(
+                            worktreeId: worktreeId,
+                            rootPath: URL(fileURLWithPath: "/tmp/worktree-\(UUID().uuidString)"),
+                            paths: paths,
+                            timestamp: ContinuousClock().now,
+                            batchSeq: seq
+                        )
                     )
                 )
             )

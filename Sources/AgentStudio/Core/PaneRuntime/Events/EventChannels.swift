@@ -1,7 +1,14 @@
 import Foundation
 
 enum PaneRuntimeEventBus {
-    static let shared = EventBus<PaneEventEnvelope>()
+    static let shared = EventBus<RuntimeEnvelope>(
+        replayConfiguration: .init(
+            capacityPerSource: 256,
+            sourceKey: { envelope in
+                envelope.source.description
+            }
+        )
+    )
 }
 
 enum AppEvent: Sendable {
@@ -12,6 +19,8 @@ enum AppEvent: Sendable {
     case selectTabById(tabId: UUID, paneId: UUID?)
     case addRepoRequested
     case addFolderRequested
+    case addRepoAtPathRequested(path: URL)
+    case removeRepoRequested(repoId: UUID)
     case refreshWorktreesRequested
     case openWorktreeRequested(worktreeId: UUID)
     case terminalProcessTerminated(worktreeId: UUID?, exitCode: Int32?)

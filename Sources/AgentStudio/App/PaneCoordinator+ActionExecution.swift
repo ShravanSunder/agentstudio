@@ -354,10 +354,7 @@ extension PaneCoordinator {
             worktreeId: worktree.id,
             worktreeName: worktree.name,
             cwd: worktree.path,
-            parentFolder: repo.repoPath.deletingLastPathComponent().path,
-            organizationName: repo.organizationName,
-            origin: repo.origin,
-            upstream: repo.upstream
+            parentFolder: repo.repoPath.deletingLastPathComponent().path
         )
         let pane = store.createPane(
             source: .worktree(worktreeId: worktree.id, repoId: repo.id),

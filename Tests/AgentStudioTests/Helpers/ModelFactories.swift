@@ -31,16 +31,14 @@ func makeRepo(
     name: String = "test-repo",
     repoPath: String = "/tmp/test-repo",
     worktrees: [Worktree] = [],
-    createdAt: Date = Date(timeIntervalSince1970: 1_000_000),
-    updatedAt: Date = Date(timeIntervalSince1970: 1_000_000)
+    createdAt: Date = Date(timeIntervalSince1970: 1_000_000)
 ) -> Repo {
     Repo(
         id: id,
         name: name,
         repoPath: URL(fileURLWithPath: repoPath),
         worktrees: worktrees,
-        createdAt: createdAt,
-        updatedAt: updatedAt
+        createdAt: createdAt
     )
 }
 

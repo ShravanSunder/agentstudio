@@ -72,19 +72,22 @@ Command Bar → CommandDispatcher.dispatch() → CommandHandler
 
 ## Document Index
 
-| Document | Covers |
-|----------|--------|
-| [Component Architecture](component_architecture.md) | Data model, service layer, command bar, data flow, persistence, invariants |
-| [Pane Runtime Architecture](pane_runtime_architecture.md) | Pane runtime contracts (1-16), event taxonomy, priority system, adapter/runtime/coordinator layers, filesystem batching, attach readiness (5a), restart reconcile (5b), visibility-tier scheduling (12a), Ghostty action coverage (7a), RuntimeCommand dispatch (10), source/sink/projection vocabulary, agent harness model, directory placement, migration path |
-| [Pane Runtime EventBus Design](pane_runtime_eventbus_design.md) | EventBus coordination: actor fan-out, boundary actors (filesystem/forge/container) plus plugin context mediation, `@concurrent nonisolated` for per-pane work, multiplexed `@Observable` + event stream, connection patterns (AsyncStream vs direct call vs @Observable), data flow per contract, Swift 6.2 threading model |
-| [Window System Design](window_system_design.md) | Window/tab/pane/drawer data model, dynamic views, arrangements, orphaned pane pool, ownership invariants |
-| [Session Lifecycle](session_lifecycle.md) | Pane identity contract, creation, close, undo, restore, runtime status, zmx backend |
-| [Zmx Restore and Sizing](zmx_restore_and_sizing.md) | Deferred attach sequencing, geometry readiness, restart reconcile policy, and zmx restore/sizing test coverage |
-| [Surface Architecture](ghostty_surface_architecture.md) | Ghostty surface ownership, state machine, health monitoring, crash isolation, CWD propagation |
-| [App Architecture](appkit_swiftui_architecture.md) | AppKit+SwiftUI hybrid shell, controllers, command bar panel, event handling |
-| [Directory Structure](directory_structure.md) | Module boundaries, Core vs Features decision process, import rule, component placement |
-| [Swift-React Bridge](swift_react_bridge_design.md) | Three-stream bridge architecture, push pipeline, JSON-RPC command channel, content world isolation |
-| [JTBD & Requirements](jtbd_and_requirements.md) | Jobs to be done, pain points, and requirements for the dynamic window system |
+Each document owns a specific concern. No two documents are authoritative for the same topic. When in doubt about where something belongs, the ownership column determines the home.
+
+| Document | Ownership | Covers |
+|----------|-----------|--------|
+| [Component Architecture](component_architecture.md) | Structural overview — how components compose | Data model (pane, tab, layout, session), service layer, command bar, persistence format, store boundaries, coordinator role, invariants |
+| [Workspace Data Architecture](workspace_data_architecture.md) | Workspace-level data — repos, worktrees, enrichment | Three-tier persistence (canonical/cache/UI), canonical vs enrichment models, enrichment pipeline (FilesystemActor → GitWorkingDirectoryProjector → ForgeActor → CacheCoordinator), topology/discovery lifecycle, sidebar data flow, ordering/replay contracts |
+| [Pane Runtime Architecture](pane_runtime_architecture.md) | Pane-level runtime contracts | Pane runtime contracts (C1-C16), event envelope (RuntimeEnvelope), per-pane event taxonomy, priority system, adapter/runtime/coordinator layers, filesystem batching, attach readiness (5a), restart reconcile (5b), visibility-tier scheduling (12a), Ghostty action coverage (7a), RuntimeCommand dispatch (10), source/sink/projection vocabulary, agent harness model, directory placement, migration path |
+| [Pane Runtime EventBus Design](pane_runtime_eventbus_design.md) | EventBus threading and coordination | Actor fan-out, boundary actors (FilesystemActor, ForgeActor, ContainerActor) plus plugin context mediation, `@concurrent nonisolated` for per-pane work, multiplexed `@Observable` + event stream, connection patterns (AsyncStream vs direct call vs @Observable), data flow per contract, Swift 6.2 threading model |
+| [Window System Design](window_system_design.md) | Window/tab/pane structural model | Window/tab/pane/drawer data model, dynamic views, arrangements, orphaned pane pool, ownership invariants |
+| [Session Lifecycle](session_lifecycle.md) | Pane identity and session backend lifecycle | Pane identity contract, creation, close, undo, restore, runtime status, zmx backend |
+| [Zmx Restore and Sizing](zmx_restore_and_sizing.md) | Zmx-specific attach and sizing | Deferred attach sequencing, geometry readiness, restart reconcile policy, zmx restore/sizing test coverage |
+| [Surface Architecture](ghostty_surface_architecture.md) | Ghostty surface management | Surface ownership, state machine, health monitoring, crash isolation, CWD propagation |
+| [App Architecture](appkit_swiftui_architecture.md) | AppKit+SwiftUI hybrid shell | AppKit hosting model, controllers, command bar panel, event handling |
+| [Directory Structure](directory_structure.md) | Module boundaries and file placement | Core vs Features decision process, import rule, component → slice map, placement rationale |
+| [Swift-React Bridge](swift_react_bridge_design.md) | Bridge transport for React panes | Three-stream bridge architecture, push pipeline, JSON-RPC command channel, content world isolation |
+| [JTBD & Requirements](jtbd_and_requirements.md) | Product requirements | Jobs to be done, pain points, and requirements for the dynamic window system |
 
 ## Related
 

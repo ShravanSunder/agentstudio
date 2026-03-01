@@ -104,7 +104,7 @@ private final class TestPaneRuntime: PaneRuntime {
     var lifecycle: PaneRuntimeLifecycle
     var capabilities: Set<PaneCapability>
 
-    private let stream: AsyncStream<PaneEventEnvelope>
+    private let stream: AsyncStream<RuntimeEnvelope>
 
     init(
         paneId: PaneId,
@@ -120,7 +120,7 @@ private final class TestPaneRuntime: PaneRuntime {
         )
         self.lifecycle = .ready
         self.capabilities = []
-        self.stream = AsyncStream<PaneEventEnvelope> { continuation in
+        self.stream = AsyncStream<RuntimeEnvelope> { continuation in
             continuation.finish()
         }
     }
@@ -129,7 +129,7 @@ private final class TestPaneRuntime: PaneRuntime {
         .success(commandId: envelope.commandId)
     }
 
-    func subscribe() -> AsyncStream<PaneEventEnvelope> {
+    func subscribe() -> AsyncStream<RuntimeEnvelope> {
         stream
     }
 

@@ -55,6 +55,9 @@ class AppDelegate: NSObject, NSApplicationDelegate {
     // MARK: - Shared Services (created once at launch)
 
     private var store: WorkspaceStore!
+    private var workspaceCacheStore: WorkspaceCacheStore!
+    private var workspaceUIStore: WorkspaceUIStore!
+    private var workspaceCacheCoordinator: WorkspaceCacheCoordinator!
     private var viewRegistry: ViewRegistry!
     private var paneCoordinator: PaneCoordinator!
     private var executor: ActionExecutor!
@@ -69,6 +72,134 @@ class AppDelegate: NSObject, NSApplicationDelegate {
 
     private var oauthService: OAuthService!
     private var appEventTask: Task<Void, Never>?
+    private var filesystemPipelineBootTask: Task<Void, Never>?
+
+    private func recordBootStep(_ step: WorkspaceBootStep) {
+        RestoreTrace.log("workspace.boot.step=\(step.rawValue)")
+    }
+
+    // swiftlint:disable:next function_body_length
+    private func executeBootStep(
+        _ step: WorkspaceBootStep,
+        persistor: WorkspacePersistor,
+        paneRuntimeBus: EventBus<RuntimeEnvelope>,
+        filesystemSource: inout FilesystemGitPipeline?
+    ) {
+        switch step {
+        case .loadCanonicalStore:
+            store = WorkspaceStore()
+            store.restore()
+            RestoreTrace.log(
+                "store.restore complete tabs=\(store.tabs.count) panes=\(store.panes.count) activeTab=\(store.activeTabId?.uuidString ?? "nil")"
+            )
+        case .loadCacheStore:
+            workspaceCacheStore = WorkspaceCacheStore()
+            if let cacheState = persistor.loadCache(for: store.workspaceId) {
+                for enrichment in cacheState.repoEnrichmentByRepoId.values {
+                    workspaceCacheStore.setRepoEnrichment(enrichment)
+                }
+                for enrichment in cacheState.worktreeEnrichmentByWorktreeId.values {
+                    workspaceCacheStore.setWorktreeEnrichment(enrichment)
+                }
+                for (worktreeId, count) in cacheState.pullRequestCountByWorktreeId {
+                    workspaceCacheStore.setPullRequestCount(count, for: worktreeId)
+                }
+                for (worktreeId, count) in cacheState.notificationCountByWorktreeId {
+                    workspaceCacheStore.setNotificationCount(count, for: worktreeId)
+                }
+                workspaceCacheStore.markRebuilt(
+                    sourceRevision: cacheState.sourceRevision,
+                    at: cacheState.lastRebuiltAt ?? Date()
+                )
+            }
+        case .loadUIStore:
+            workspaceUIStore = WorkspaceUIStore()
+            if let uiState = persistor.loadUI(for: store.workspaceId) {
+                workspaceUIStore.setExpandedGroups(uiState.expandedGroups)
+                for (stableKey, colorHex) in uiState.checkoutColors {
+                    workspaceUIStore.setCheckoutColor(colorHex, for: stableKey)
+                }
+                workspaceUIStore.setFilterText(uiState.filterText)
+                workspaceUIStore.setFilterVisible(uiState.isFilterVisible)
+            }
+        case .establishRuntimeBus:
+            runtime = SessionRuntime(store: store)
+            cleanupOrphanZmxSessions()
+            viewRegistry = ViewRegistry()
+            let pipeline = FilesystemGitPipeline(
+                bus: paneRuntimeBus,
+                fseventStreamClient: DarwinFSEventStreamClient()
+            )
+            filesystemSource = pipeline
+            paneCoordinator = PaneCoordinator(
+                store: store,
+                viewRegistry: viewRegistry,
+                runtime: runtime,
+                surfaceManager: SurfaceManager.shared,
+                runtimeRegistry: .shared,
+                paneEventBus: paneRuntimeBus,
+                filesystemSource: pipeline
+            )
+            workspaceCacheCoordinator = WorkspaceCacheCoordinator(
+                bus: paneRuntimeBus,
+                workspaceStore: store,
+                cacheStore: workspaceCacheStore,
+                scopeSyncHandler: { [weak pipeline] change in
+                    guard let pipeline else { return }
+                    await pipeline.applyScopeChange(change)
+                }
+            )
+            executor = ActionExecutor(coordinator: paneCoordinator, store: store)
+            tabBarAdapter = TabBarAdapter(store: store)
+            commandBarController = CommandBarPanelController(store: store, dispatcher: .shared)
+            oauthService = OAuthService()
+        case .startFilesystemActor:
+            if let filesystemSource {
+                let previousTask = filesystemPipelineBootTask
+                filesystemPipelineBootTask = Task {
+                    if let previousTask {
+                        await previousTask.value
+                    }
+                    await filesystemSource.startFilesystemActor()
+                }
+            }
+        case .startGitProjector:
+            if let filesystemSource {
+                let previousTask = filesystemPipelineBootTask
+                filesystemPipelineBootTask = Task {
+                    if let previousTask {
+                        await previousTask.value
+                    }
+                    await filesystemSource.startGitProjector()
+                }
+            }
+        case .startForgeActor:
+            if let filesystemSource {
+                let previousTask = filesystemPipelineBootTask
+                filesystemPipelineBootTask = Task {
+                    if let previousTask {
+                        await previousTask.value
+                    }
+                    await filesystemSource.startForgeActor()
+                }
+            }
+        case .startCacheCoordinator:
+            workspaceCacheCoordinator.startConsuming()
+        case .triggerInitialTopologySync:
+            if let filesystemPipelineBootTask {
+                Task { [weak self] in
+                    await filesystemPipelineBootTask.value
+                    await MainActor.run {
+                        self?.paneCoordinator.syncFilesystemRootsAndActivity()
+                    }
+                }
+            } else {
+                paneCoordinator.syncFilesystemRootsAndActivity()
+            }
+        case .readyForReactiveSidebar:
+            break
+        }
+    }
 
     func applicationDidFinishLaunching(_ notification: Notification) {
         RestoreTrace.log("appDidFinishLaunching: begin")
@@ -96,28 +227,26 @@ class AppDelegate: NSObject, NSApplicationDelegate {
         // Set up main menu (doesn't depend on zmx restore)
         setupMainMenu()
 
-        // Create new services
-        store = WorkspaceStore()
-        store.restore()
-        RestoreTrace.log(
-            "store.restore complete tabs=\(store.tabs.count) panes=\(store.panes.count) activeTab=\(store.activeTabId?.uuidString ?? "nil")"
-        )
+        // Create new services following the 10-step workspace boot contract.
+        let persistor = WorkspacePersistor()
+        let paneRuntimeBus = PaneRuntimeEventBus.shared
+        var filesystemSource: FilesystemGitPipeline?
 
-        runtime = SessionRuntime(store: store)
-
-        // Clean up orphan zmx daemons from previous launches
-        cleanupOrphanZmxSessions()
-
-        viewRegistry = ViewRegistry()
-        paneCoordinator = PaneCoordinator(store: store, viewRegistry: viewRegistry, runtime: runtime)
-        executor = ActionExecutor(coordinator: paneCoordinator, store: store)
-        tabBarAdapter = TabBarAdapter(store: store)
-        commandBarController = CommandBarPanelController(store: store, dispatcher: .shared)
-        oauthService = OAuthService()
+        WorkspaceBootSequence.run { [self] step in
+            recordBootStep(step)
+            executeBootStep(
+                step,
+                persistor: persistor,
+                paneRuntimeBus: paneRuntimeBus,
+                filesystemSource: &filesystemSource
+            )
+        }
 
         // Create main window
         mainWindowController = MainWindowController(
             store: store,
+            cacheStore: workspaceCacheStore,
+            uiStore: workspaceUIStore,
             actionExecutor: executor,
             tabBarAdapter: tabBarAdapter,
             viewRegistry: viewRegistry
@@ -161,6 +290,15 @@ class AppDelegate: NSObject, NSApplicationDelegate {
                 case .signInRequested(let providerName):
                     guard let provider = OAuthProvider(rawValue: providerName) else { continue }
                     self.handleSignInRequested(provider: provider)
+                case .addRepoRequested:
+                    await self.handleAddRepoRequested()
+                case .addFolderRequested:
+                    await self.handleAddFolderRequested()
+                case .addRepoAtPathRequested(let path):
+                    self.addRepoIfNeeded(path)
+                case .removeRepoRequested(let repoId):
+                    self.store.removeRepo(repoId)
+                    self.paneCoordinator.syncFilesystemRootsAndActivity()
                 default:
                     continue
                 }
@@ -171,6 +309,7 @@ class AppDelegate: NSObject, NSApplicationDelegate {
 
     isolated deinit {
         appEventTask?.cancel()
+        filesystemPipelineBootTask?.cancel()
     }
 
     // MARK: - Dependency Check
@@ -319,6 +458,8 @@ class AppDelegate: NSObject, NSApplicationDelegate {
         } else {
             mainWindowController = MainWindowController(
                 store: store,
+                cacheStore: workspaceCacheStore,
+                uiStore: workspaceUIStore,
                 actionExecutor: executor,
                 tabBarAdapter: tabBarAdapter,
                 viewRegistry: viewRegistry
@@ -329,6 +470,38 @@ class AppDelegate: NSObject, NSApplicationDelegate {
 
     func applicationShouldTerminate(_ sender: NSApplication) -> NSApplication.TerminateReply {
         guard let store else { return .terminateNow }
+        let persistor = WorkspacePersistor()
+
+        do {
+            try persistor.saveCache(
+                .init(
+                    workspaceId: store.workspaceId,
+                    repoEnrichmentByRepoId: workspaceCacheStore.repoEnrichmentByRepoId,
+                    worktreeEnrichmentByWorktreeId: workspaceCacheStore.worktreeEnrichmentByWorktreeId,
+                    pullRequestCountByWorktreeId: workspaceCacheStore.pullRequestCountByWorktreeId,
+                    notificationCountByWorktreeId: workspaceCacheStore.notificationCountByWorktreeId,
+                    sourceRevision: workspaceCacheStore.sourceRevision,
+                    lastRebuiltAt: workspaceCacheStore.lastRebuiltAt
+                )
+            )
+        } catch {
+            appLogger.warning("Workspace cache flush failed at termination: \(error.localizedDescription)")
+        }
+
+        do {
+            try persistor.saveUI(
+                .init(
+                    workspaceId: store.workspaceId,
+                    expandedGroups: workspaceUIStore.expandedGroups,
+                    checkoutColors: workspaceUIStore.checkoutColors,
+                    filterText: workspaceUIStore.filterText,
+                    isFilterVisible: workspaceUIStore.isFilterVisible
+                )
+            )
+        } catch {
+            appLogger.warning("Workspace UI flush failed at termination: \(error.localizedDescription)")
+        }
+
         // Always flush on quit — the pre-persist hook syncs runtime webview state
         // back to the pane model, so this must run even when isDirty == false.
         if !store.flush() {
@@ -520,6 +693,108 @@ class AppDelegate: NSObject, NSApplicationDelegate {
 
     @objc private func addFolder() {
         postAppEvent(.addFolderRequested)
+    }
+
+    // MARK: - Repo/Folder Intake
+
+    private func handleAddRepoRequested() async {
+        var initialDirectory: URL?
+
+        while true {
+            let panel = NSOpenPanel()
+            panel.canChooseFiles = false
+            panel.canChooseDirectories = true
+            panel.allowsMultipleSelection = false
+            panel.message = "Choose a Git repository folder."
+            panel.prompt = "Add Repository"
+            panel.directoryURL = initialDirectory
+
+            guard panel.runModal() == .OK, let selectedURL = panel.url else {
+                return
+            }
+
+            let normalizedURL = selectedURL.standardizedFileURL
+            if isGitRepositoryFolder(normalizedURL) {
+                postAppEvent(.addRepoAtPathRequested(path: normalizedURL))
+                return
+            }
+
+            let alert = NSAlert()
+            alert.messageText = "Not a Git Repository"
+            alert.informativeText =
+                "The selected folder is not a Git repo. You can choose another folder or scan this folder for repos."
+            alert.alertStyle = .warning
+            alert.addButton(withTitle: "Choose Another Folder")
+            alert.addButton(withTitle: "Scan This Folder")
+            alert.addButton(withTitle: "Cancel")
+
+            switch alert.runModal() {
+            case .alertFirstButtonReturn:
+                initialDirectory = normalizedURL.deletingLastPathComponent()
+            case .alertSecondButtonReturn:
+                await handleAddFolderRequested(startingAt: normalizedURL)
+                return
+            default:
+                return
+            }
+        }
+    }
+
+    private func handleAddFolderRequested(startingAt initialURL: URL? = nil) async {
+        let rootURL: URL
+        if let initialURL {
+            rootURL = initialURL.standardizedFileURL
+        } else {
+            let panel = NSOpenPanel()
+            panel.canChooseFiles = false
+            panel.canChooseDirectories = true
+            panel.allowsMultipleSelection = false
+            panel.message = "Choose a folder to scan for Git repositories."
+            panel.prompt = "Scan Folder"
+
+            guard panel.runModal() == .OK, let selectedURL = panel.url else {
+                return
+            }
+            rootURL = selectedURL.standardizedFileURL
+        }
+
+        let repoPaths = await Task(priority: .userInitiated) {
+            RepoScanner().scanForGitRepos(in: rootURL, maxDepth: 3)
+        }.value
+
+        guard !repoPaths.isEmpty else {
+            let alert = NSAlert()
+            alert.messageText = "No Git Repositories Found"
+            alert.informativeText = "No folders with a Git repository were found under \(rootURL.lastPathComponent)."
+            alert.alertStyle = .informational
+            alert.addButton(withTitle: "OK")
+            alert.runModal()
+            return
+        }
+
+        for repoPath in repoPaths {
+            postAppEvent(.addRepoAtPathRequested(path: repoPath.standardizedFileURL))
+        }
+    }
+
+    private func addRepoIfNeeded(_ path: URL) {
+        let normalizedPath = path.standardizedFileURL.path
+
+        for repo in store.repos {
+            if repo.repoPath.standardizedFileURL.path == normalizedPath {
+                return
+            }
+            if repo.worktrees.contains(where: { $0.path.standardizedFileURL.path == normalizedPath }) {
+                return
+            }
+        }
+
+        _ = store.addRepo(at: path.standardizedFileURL)
+        paneCoordinator.syncFilesystemRootsAndActivity()
+    }
+
+    private func isGitRepositoryFolder(_ url: URL) -> Bool {
+        FileManager.default.fileExists(atPath: url.appending(path: ".git").path)
     }
 
     @objc private func toggleSidebar() {
