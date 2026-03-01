@@ -29,6 +29,9 @@ final class WorkspaceGitStatusStore {
                 lastSequence: 0,
                 timestamp: envelope.timestamp
             )
+        // Sequence ordering is per GitWorkingDirectoryProjector producer stream.
+        // This store only materializes `.gitSnapshotChanged`/`.branchChanged`, so
+        // cross-producer sequence comparisons do not apply here.
         guard envelope.seq >= existingSnapshot.lastSequence else { return }
 
         let nextSummary: GitStatusSummary

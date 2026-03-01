@@ -22,6 +22,25 @@ enum RuntimeCommand: Sendable {
     case plugin(any RuntimeKindCommand)
 }
 
+extension RuntimeCommand {
+    var requiredCapability: PaneCapability {
+        switch self {
+        case .terminal:
+            return .input
+        case .browser:
+            return .navigation
+        case .diff:
+            return .diffReview
+        case .editor:
+            return .editorActions
+        case .plugin(let pluginCommand):
+            return .plugin(String(describing: type(of: pluginCommand)))
+        case .activate, .deactivate, .prepareForClose, .requestSnapshot:
+            return .input
+        }
+    }
+}
+
 enum TerminalCommand: Sendable {
     case sendInput(String)
     case resize(cols: Int, rows: Int)

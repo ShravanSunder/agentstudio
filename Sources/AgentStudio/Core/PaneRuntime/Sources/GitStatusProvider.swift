@@ -62,9 +62,17 @@ struct ShellGitStatusProvider: GitStatusProvider {
             let branch = parseBranch(lines: lines)
             let summary = parseSummary(lines: lines)
             return GitStatusSnapshot(summary: summary, branch: branch)
+        } catch let processError as ProcessError {
+            switch processError {
+            case .timedOut(_, let seconds):
+                Self.logger.error(
+                    "git status timed out for \(rootPath.path, privacy: .public) after \(seconds, privacy: .public)s"
+                )
+            }
+            return nil
         } catch {
             Self.logger.error(
-                "git status execution failed for \(rootPath.path, privacy: .public): \(error.localizedDescription, privacy: .public)"
+                "git status launch/processing failed for \(rootPath.path, privacy: .public): \(error.localizedDescription, privacy: .public)"
             )
             return nil
         }

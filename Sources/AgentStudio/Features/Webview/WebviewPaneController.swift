@@ -1,6 +1,7 @@
 import Foundation
 import Observation
 import WebKit
+import os
 
 /// Per-pane browser controller. Each webview pane owns one controller
 /// that manages a single WebPage and exposes observable navigation state
@@ -8,6 +9,7 @@ import WebKit
 @Observable
 @MainActor
 final class WebviewPaneController {
+    private static let logger = Logger(subsystem: "com.agentstudio", category: "WebviewPaneController")
 
     // MARK: - State
 
@@ -77,7 +79,11 @@ final class WebviewPaneController {
             dialogPresenter: WebviewDialogHandler()
         )
         runtime.commandHandler = self
-        runtime.transitionToReady()
+        if !runtime.transitionToReady() {
+            Self.logger.error(
+                "Failed to transition webview runtime to ready for pane \(paneId.uuidString, privacy: .public)"
+            )
+        }
         if state.url.scheme != "about" {
             _ = page.load(state.url)
         }

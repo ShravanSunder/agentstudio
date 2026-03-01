@@ -37,14 +37,16 @@ final class SwiftPaneRuntime: BusPostingPaneRuntime {
         )
     }
 
-    func transitionToReady() {
+    @discardableResult
+    func transitionToReady() -> Bool {
         guard lifecycle == .created else {
             Self.logger.warning(
                 "Rejected transitionToReady for pane \(self.paneId.uuid.uuidString, privacy: .public): lifecycle=\(String(describing: self.lifecycle), privacy: .public)"
             )
-            return
+            return false
         }
         lifecycle = .ready
+        return true
     }
 
     func handleCommand(_ envelope: RuntimeCommandEnvelope) async -> ActionResult {
@@ -72,7 +74,7 @@ final class SwiftPaneRuntime: BusPostingPaneRuntime {
             return .failure(
                 .unsupportedCommand(
                     command: String(describing: envelope.command),
-                    required: requiredCapability(for: envelope.command)
+                    required: envelope.command.requiredCapability
                 )
             )
         }
@@ -208,24 +210,6 @@ final class SwiftPaneRuntime: BusPostingPaneRuntime {
             event: .editor(editorEvent)
         )
     }
-
-    private func requiredCapability(for command: RuntimeCommand) -> PaneCapability {
-        switch command {
-        case .terminal:
-            return .input
-        case .browser:
-            return .navigation
-        case .diff:
-            return .diffReview
-        case .editor:
-            return .editorActions
-        case .plugin(let pluginCommand):
-            return .plugin(String(describing: type(of: pluginCommand)))
-        case .activate, .deactivate, .prepareForClose, .requestSnapshot:
-            return .editorActions
-        }
-    }
-
     private func languageIdentifier(for path: String) -> String? {
         let fileExtension = URL(fileURLWithPath: path).pathExtension.lowercased()
         return fileExtension.isEmpty ? nil : fileExtension

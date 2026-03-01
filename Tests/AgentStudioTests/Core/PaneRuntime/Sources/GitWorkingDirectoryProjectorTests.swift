@@ -84,6 +84,36 @@ struct GitWorkingDirectoryProjectorTests {
         collectionTask.cancel()
     }
 
+    @Test("provider nil status emits no git snapshot facts")
+    func providerNilStatusEmitsNoGitSnapshotFacts() async throws {
+        let bus = EventBus<PaneEventEnvelope>()
+        let provider = StubGitStatusProvider { _ in nil }
+        let actor = GitWorkingDirectoryProjector(
+            bus: bus,
+            gitStatusProvider: provider,
+            coalescingWindow: .zero
+        )
+
+        let observed = ObservedGitEvents()
+        let collectionTask = await startCollection(on: bus, observed: observed)
+        await actor.start()
+
+        let worktreeId = UUID()
+        let rootPath = URL(fileURLWithPath: "/tmp/provider-nil-\(UUID().uuidString)")
+        await bus.post(makeFilesChangedEnvelope(seq: 1, worktreeId: worktreeId, rootPath: rootPath, batchSeq: 1))
+
+        // Give the projector enough turns to process the request path.
+        for _ in 0..<300 {
+            await Task.yield()
+        }
+
+        #expect(await observed.snapshotCount(for: worktreeId) == 0)
+        #expect(await observed.branchEventCount(for: worktreeId) == 0)
+
+        await actor.shutdown()
+        collectionTask.cancel()
+    }
+
     @Test("coalesces same worktree to latest while compute in-flight")
     func coalescesSameWorktreeToLatest() async throws {
         let bus = EventBus<PaneEventEnvelope>()

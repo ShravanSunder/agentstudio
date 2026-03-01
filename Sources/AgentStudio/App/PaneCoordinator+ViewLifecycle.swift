@@ -44,7 +44,12 @@ extension PaneCoordinator {
             let initialText: String?
             if let codeViewerRuntime = registerCodeViewerRuntimeIfNeeded(for: pane) {
                 if codeViewerRuntime.lifecycle == .created {
-                    codeViewerRuntime.transitionToReady()
+                    let transitioned = codeViewerRuntime.transitionToReady()
+                    if !transitioned {
+                        Self.logger.warning(
+                            "Code viewer runtime for pane \(pane.id.uuidString, privacy: .public) failed ready transition"
+                        )
+                    }
                 }
                 initialText = codeViewerRuntime.displayedText.isEmpty ? nil : codeViewerRuntime.displayedText
             } else {
@@ -307,8 +312,7 @@ extension PaneCoordinator {
             paneId: runtimePaneId,
             metadata: pane.metadata
         )
-        terminalRuntime.transitionToReady()
-        guard terminalRuntime.lifecycle == .ready else {
+        guard terminalRuntime.transitionToReady() else {
             Self.logger.warning(
                 "Terminal runtime for pane \(pane.id.uuidString, privacy: .public) failed ready transition; skipping runtime registration"
             )

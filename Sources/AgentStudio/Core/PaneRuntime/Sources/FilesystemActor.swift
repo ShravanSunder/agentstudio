@@ -67,8 +67,12 @@ actor FilesystemActor {
         self.debounceWindow = debounceWindow
         self.maxFlushLatency = maxFlushLatency
         if fseventStreamClient is NoopFSEventStreamClient {
-            Self.logger.notice(
-                "FilesystemActor initialized with NoopFSEventStreamClient; OS filesystem events are disabled")
+            Self.logger.warning(
+                """
+                FilesystemActor initialized with NoopFSEventStreamClient; OS filesystem events are disabled. \
+                TODO(LUNA-349): wire concrete FSEventStreamClient in production composition root.
+                """
+            )
         }
     }
 
@@ -236,6 +240,7 @@ actor FilesystemActor {
             let sleepDuration = now.duration(to: nextDeadline)
             if sleepDuration > .zero {
                 try? await sleepClock.sleep(for: sleepDuration)
+                guard !Task.isCancelled else { return }
             } else {
                 await Task.yield()
             }

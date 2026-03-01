@@ -113,9 +113,6 @@ final class PaneCoordinator {
         self.paneFilesystemProjectionStore = paneFilesystemProjectionStore
         self.workspaceGitStatusStore = workspaceGitStatusStore
         Ghostty.App.setRuntimeRegistry(runtimeRegistry)
-        Task {
-            await resolvedFilesystemSource.start()
-        }
         subscribeToCWDChanges()
         setupPrePersistHook()
         setupFilesystemSourceSync()

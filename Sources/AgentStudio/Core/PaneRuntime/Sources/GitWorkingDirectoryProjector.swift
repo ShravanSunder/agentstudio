@@ -133,6 +133,7 @@ actor GitWorkingDirectoryProjector {
             }
             if coalescingWindow > .zero {
                 try? await sleepClock.sleep(for: coalescingWindow)
+                guard !Task.isCancelled else { return }
                 if let newer = pendingByWorktreeId.removeValue(forKey: worktreeId) {
                     nextChangeset = newer
                 }
@@ -149,7 +150,11 @@ actor GitWorkingDirectoryProjector {
         // Provider contract: expensive git compute must run off actor isolation.
         guard let statusSnapshot = await gitStatusProvider.status(for: changeset.rootPath) else {
             Self.logger.error(
-                "Git snapshot unavailable for worktree \(changeset.worktreeId.uuidString, privacy: .public) root=\(changeset.rootPath.path, privacy: .public)"
+                """
+                Git snapshot unavailable for worktree \(changeset.worktreeId.uuidString, privacy: .public) \
+                root=\(changeset.rootPath.path, privacy: .public). \
+                See FilesystemGitStatus logs for failure category.
+                """
             )
             return
         }

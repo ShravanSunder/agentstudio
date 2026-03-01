@@ -32,14 +32,16 @@ final class TerminalRuntime: BusPostingPaneRuntime {
         )
     }
 
-    func transitionToReady() {
+    @discardableResult
+    func transitionToReady() -> Bool {
         guard lifecycle == .created else {
             Self.logger.warning(
                 "Rejected transitionToReady for pane \(self.paneId.uuid.uuidString, privacy: .public): lifecycle=\(String(describing: self.lifecycle), privacy: .public)"
             )
-            return
+            return false
         }
         lifecycle = .ready
+        return true
     }
 
     func handleCommand(_ envelope: RuntimeCommandEnvelope) async -> ActionResult {

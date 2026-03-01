@@ -1,10 +1,12 @@
 import Foundation
+import os
 
 /// Composition root for app-wide filesystem facts + derived local git facts.
 ///
 /// `FilesystemActor` owns filesystem ingestion/routing and emits filesystem facts.
 /// `GitWorkingDirectoryProjector` subscribes to those facts and emits git snapshot projections.
 final class FilesystemGitPipeline: PaneCoordinatorFilesystemSourceManaging, Sendable {
+    private static let logger = Logger(subsystem: "com.agentstudio", category: "FilesystemGitPipeline")
     private let filesystemActor: FilesystemActor
     private let gitWorkingDirectoryProjector: GitWorkingDirectoryProjector
 
@@ -14,6 +16,14 @@ final class FilesystemGitPipeline: PaneCoordinatorFilesystemSourceManaging, Send
         fseventStreamClient: any FSEventStreamClient = NoopFSEventStreamClient(),
         gitCoalescingWindow: Duration = .milliseconds(200)
     ) {
+        if fseventStreamClient is NoopFSEventStreamClient {
+            Self.logger.warning(
+                """
+                FilesystemGitPipeline defaulted to NoopFSEventStreamClient; live filesystem events are disabled. \
+                TODO(LUNA-349): replace with concrete FSEventStreamClient for production wiring.
+                """
+            )
+        }
         self.filesystemActor = FilesystemActor(
             bus: bus,
             fseventStreamClient: fseventStreamClient

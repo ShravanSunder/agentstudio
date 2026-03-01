@@ -1,4 +1,7 @@
 import Foundation
+import os
+
+private let paneEventBusLogger = Logger(subsystem: "com.agentstudio", category: "PaneEventBus")
 
 /// Typed async fan-out bus.
 ///
@@ -21,8 +24,30 @@ actor EventBus<Envelope: Sendable> {
     }
 
     func post(_ envelope: Envelope) {
-        for continuation in subscribers.values {
-            continuation.yield(envelope)
+        var droppedCount = 0
+        var terminatedSubscriberIds: [UUID] = []
+
+        for (subscriberId, continuation) in subscribers {
+            switch continuation.yield(envelope) {
+            case .enqueued:
+                continue
+            case .dropped:
+                droppedCount += 1
+            case .terminated:
+                terminatedSubscriberIds.append(subscriberId)
+            @unknown default:
+                continue
+            }
+        }
+
+        if droppedCount > 0 {
+            paneEventBusLogger.warning(
+                "Dropped pane event for \(droppedCount, privacy: .public) subscriber(s) due to buffering policy overflow"
+            )
+        }
+
+        for subscriberId in terminatedSubscriberIds {
+            subscribers.removeValue(forKey: subscriberId)
         }
     }
 

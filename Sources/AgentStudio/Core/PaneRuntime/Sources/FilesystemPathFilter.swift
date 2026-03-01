@@ -1,4 +1,5 @@
 import Foundation
+import os
 
 enum FilesystemPathDisposition: Sendable, Equatable {
     case projected
@@ -12,6 +13,7 @@ enum FilesystemPathDisposition: Sendable, Equatable {
 /// - suppress `.git` internals from projection-facing changed-path payloads
 /// - apply root-level `.gitignore` rules for projection payload suppression
 struct FilesystemPathFilter: Sendable {
+    fileprivate static let logger = Logger(subsystem: "com.agentstudio", category: "FilesystemPathFilter")
     private let ignoredRules: [GitIgnoreRule]
 
     static func load(forRootPath rootPath: URL) -> Self {
@@ -69,12 +71,13 @@ struct FilesystemPathFilter: Sendable {
     }
 }
 
-private struct GitIgnoreRule: Sendable {
+// NSRegularExpression is immutable and safe to share for matching after initialization.
+private struct GitIgnoreRule: @unchecked Sendable {
     let isNegated: Bool
     let anchoredToRoot: Bool
     let directoryOnly: Bool
     let originalPattern: String
-    let regex: String
+    let compiledRegex: NSRegularExpression
 
     init?(rawLine: String) {
         let trimmed = rawLine.trimmingCharacters(in: .whitespacesAndNewlines)
@@ -103,16 +106,24 @@ private struct GitIgnoreRule: Sendable {
             anchoredToRoot: anchoredToRoot,
             directoryOnly: directoryOnly
         )
+        let compiledRegex: NSRegularExpression
+        do {
+            compiledRegex = try NSRegularExpression(pattern: regexPattern)
+        } catch {
+            FilesystemPathFilter.logger.warning(
+                "Dropped invalid .gitignore rule '\(workingLine, privacy: .public)': \(error.localizedDescription, privacy: .public)"
+            )
+            return nil
+        }
 
         self.isNegated = isNegated
         self.anchoredToRoot = anchoredToRoot
         self.directoryOnly = directoryOnly
         self.originalPattern = workingLine
-        self.regex = regexPattern
+        self.compiledRegex = compiledRegex
     }
 
     func matches(relativePath: String) -> Bool {
-        guard let compiledRegex = try? NSRegularExpression(pattern: self.regex) else { return false }
         let pathRange = NSRange(relativePath.startIndex..<relativePath.endIndex, in: relativePath)
         return compiledRegex.firstMatch(in: relativePath, options: [], range: pathRange) != nil
     }
