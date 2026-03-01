@@ -219,43 +219,35 @@ struct DrawerPanel: View {
         guard let drawer = store.pane(parentPaneId)?.drawer else { return false }
         guard drawer.layout.contains(destPaneId) else { return false }
 
-        guard case .existingPane(let sourcePaneId, _) = payload.kind else { return false }
-        guard sourcePaneId != destPaneId else { return false }
-        guard let sourcePane = store.pane(sourcePaneId) else { return false }
-        guard sourcePane.parentPaneId == parentPaneId else { return false }
-
-        let snapshot = ActionResolver.snapshot(
-            from: store.tabs,
-            activeTabId: store.activeTabId,
-            isManagementModeActive: managementMode.isActive,
-            knownWorktreeIds: Set(store.repos.flatMap(\.worktrees).map(\.id))
-        )
-        let action = PaneAction.moveDrawerPane(
-            parentPaneId: parentPaneId,
-            drawerPaneId: sourcePaneId,
-            targetDrawerPaneId: destPaneId,
-            direction: splitDirection(for: zone)
-        )
-        if case .success = ActionValidator.validate(action, state: snapshot) {
-            return true
+        guard
+            let plan = drawerDropCommitPlan(payload: payload, destPaneId: destPaneId, zone: zone),
+            case .paneAction(let plannedAction) = plan,
+            case .moveDrawerPane(
+                let plannedParentPaneId,
+                let drawerPaneId,
+                let targetDrawerPaneId,
+                let direction
+            ) = plannedAction
+        else {
+            return false
         }
-        return false
+
+        return plannedParentPaneId == parentPaneId
+            && drawerPaneId != destPaneId
+            && targetDrawerPaneId == destPaneId
+            && direction == splitDirection(for: zone)
     }
 
     private func handleDrawerDrop(payload: SplitDropPayload, destPaneId: UUID, zone: DropZone) {
-        guard case .existingPane(let sourcePaneId, _) = payload.kind else { return }
-        guard sourcePaneId != destPaneId else { return }
-        guard let sourcePane = store.pane(sourcePaneId) else { return }
-        guard sourcePane.parentPaneId == parentPaneId else { return }
+        guard
+            let plan = drawerDropCommitPlan(payload: payload, destPaneId: destPaneId, zone: zone),
+            case .paneAction(let plannedAction) = plan,
+            case .moveDrawerPane = plannedAction
+        else {
+            return
+        }
 
-        action(
-            .moveDrawerPane(
-                parentPaneId: parentPaneId,
-                drawerPaneId: sourcePaneId,
-                targetDrawerPaneId: destPaneId,
-                direction: splitDirection(for: zone)
-            )
-        )
+        action(plannedAction)
     }
 
     private func splitDirection(for zone: DropZone) -> SplitNewDirection {
@@ -263,6 +255,42 @@ struct DrawerPanel: View {
         case .left: return .left
         case .right: return .right
         }
+    }
+
+    private func drawerDropCommitPlan(
+        payload: SplitDropPayload,
+        destPaneId: UUID,
+        zone: DropZone
+    ) -> DropCommitPlan? {
+        let destination = PaneDropDestination.split(
+            targetPaneId: destPaneId,
+            targetTabId: tabId,
+            direction: splitDirection(for: zone),
+            targetDrawerParentPaneId: parentPaneId
+        )
+        let decision = PaneDropPlanner.previewDecision(
+            payload: payload,
+            destination: destination,
+            state: drawerDropSnapshot()
+        )
+        if case .eligible(let plan) = decision {
+            return plan
+        }
+        return nil
+    }
+
+    private func drawerDropSnapshot() -> ActionStateSnapshot {
+        let drawerParentByPaneId = store.panes.values.reduce(into: [UUID: UUID]()) { result, pane in
+            guard let parentPaneId = pane.parentPaneId else { return }
+            result[pane.id] = parentPaneId
+        }
+        return ActionResolver.snapshot(
+            from: store.tabs,
+            activeTabId: store.activeTabId,
+            isManagementModeActive: managementMode.isActive,
+            knownWorktreeIds: Set(store.repos.flatMap(\.worktrees).map(\.id)),
+            drawerParentByPaneId: drawerParentByPaneId
+        )
     }
 
     private func startDropTargetWatchdog() {

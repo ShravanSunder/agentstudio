@@ -390,7 +390,7 @@ The `PaneCoordinator` is the canonical orchestration boundary for action executi
 > **Expansion (LUNA-325):** The coordinator gains event consumption and runtime command dispatch responsibilities: it will own the `RuntimeRegistry`, subscribe to the `EventBus` (not per-runtime streams — runtimes post to the bus, coordinator consumes from bus fan-out), feed the `NotificationReducer` (priority-aware delivery), maintain per-source replay buffers, and dispatch `RuntimeCommand`s to individual runtimes via `RuntimeCommandEnvelope`. The coordinator event loop processes critical events at `.userInitiated` priority and lossy batches at `.utility`. See [Pane Runtime Architecture — Coordinator Event Loop](pane_runtime_architecture.md#coordinator-event-loop-how-it-connects) for the target design.
 
 **Two action layers flow through the coordinator:**
-- **Workspace actions** (`PaneAction` from `Core/Actions/`): workspace structure mutations (selectTab, closePane, insertPane, etc.) → resolved by `ActionResolver`, validated by `ActionValidator`, executed against `WorkspaceStore`.
+- **Workspace actions** (`PaneAction` from `Core/Actions/`): workspace structure mutations (selectTab, closePane, insertPane, etc.) → optionally resolved by `ActionResolver`, validated by `ActionValidator`, executed by `ActionExecutor`, sequenced by `PaneCoordinator`, and applied via `WorkspaceStore` mutation APIs.
 - **Runtime commands** (`RuntimeCommand` from `Core/PaneRuntime/Contracts/`): commands to individual runtimes (sendInput, navigate, approveHunk, etc.) → dispatched via `RuntimeRegistry.runtime(for:).handleCommand(envelope)`.
 
 **Key operations:**
@@ -723,12 +723,12 @@ CommandBarView.executeItem(item)
 ├─ .dispatch(command)
 │   └─ onDismiss() → CommandDispatcher.dispatch(command)
 │       → CommandHandler.execute(command)
-│         → ActionResolver → ActionValidator → PaneCoordinator → WorkspaceStore
+│         → ActionResolver → ActionValidator → ActionExecutor → PaneCoordinator → WorkspaceStore
 │
 ├─ .dispatchTargeted(command, target: UUID, targetType)
 │   └─ onDismiss() → CommandDispatcher.dispatch(command, target, targetType)
 │       → CommandHandler.execute(command, target, targetType)
-│         → ActionResolver (with explicit target) → ActionValidator → PaneCoordinator
+│         → ActionResolver (with explicit target) → ActionValidator → ActionExecutor → PaneCoordinator
 │
 ├─ .navigate(level)
 │   └─ state.pushLevel(level) — drill into nested target picker

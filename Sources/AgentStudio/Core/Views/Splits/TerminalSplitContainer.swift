@@ -45,7 +45,7 @@ struct TerminalSplitContainer: View {
     }
 
     private var isDrawerModalActiveInActiveTab: Bool {
-        expandedDrawerParentPaneIdInActiveTab != nil
+        managementMode.isActive && expandedDrawerParentPaneIdInActiveTab != nil
     }
 
     private var isTabLevelSplitDropCaptureEnabled: Bool {

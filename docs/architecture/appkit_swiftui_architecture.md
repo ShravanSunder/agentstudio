@@ -341,8 +341,8 @@ The command bar never mutates `WorkspaceStore` directly. All actions flow throug
 
 ```
 CommandBarView.executeItem()
-  ├── .dispatch(command)         → CommandDispatcher.dispatch() → full pipeline
-  ├── .dispatchTargeted(cmd,id)  → CommandDispatcher.dispatch(_:target:targetType:)
+  ├── .dispatch(command)         → CommandDispatcher.dispatch() → ActionResolver → ActionValidator → ActionExecutor → PaneCoordinator
+  ├── .dispatchTargeted(cmd,id)  → CommandDispatcher.dispatch(_:target:targetType:) → ActionResolver → ActionValidator → ActionExecutor → PaneCoordinator
   ├── .navigate(level)           → state.pushLevel() (nested drill-in)
   └── .custom(closure)           → Direct execution (e.g., tab switching via Notification)
 ```

@@ -72,4 +72,24 @@ final class TabBarPaneDropContractTests {
 
         #expect(!DraggableTabBarHostingView.allowsTabBarInsertion(for: payload))
     }
+
+    @Test
+    func test_shouldClearDragPreviewStateOnManagementModeExit_whenDropTargetExists_returnsTrue() {
+        let shouldClear = DraggableTabBarHostingView.shouldClearDragPreviewStateOnManagementModeExit(
+            draggingTabId: nil,
+            dropTargetIndex: 1
+        )
+
+        #expect(shouldClear)
+    }
+
+    @Test
+    func test_shouldClearDragPreviewStateOnManagementModeExit_whenNoDragPreviewState_returnsFalse() {
+        let shouldClear = DraggableTabBarHostingView.shouldClearDragPreviewStateOnManagementModeExit(
+            draggingTabId: nil,
+            dropTargetIndex: nil
+        )
+
+        #expect(!shouldClear)
+    }
 }

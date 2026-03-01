@@ -103,13 +103,21 @@ class DraggableTabBarHostingView: NSView, NSDraggingSource {
     private func updateManagementModeState() {
         panGesture.isEnabled = ManagementModeMonitor.shared.isActive
         if !ManagementModeMonitor.shared.isActive {
+            let previousDraggingTabId = draggingTabId
+            let previousDropTargetIndex = tabBarAdapter?.dropTargetIndex
+
             // Clean up any in-flight drag state when leaving management mode
             panStartTabId = nil
             panStartEvent = nil
-            if draggingTabId != nil {
+            if previousDraggingTabId != nil {
                 draggingTabId = nil
                 tabBarAdapter?.draggingTabId = nil
-                tabBarAdapter?.dropTargetIndex = nil
+            }
+            if Self.shouldClearDragPreviewStateOnManagementModeExit(
+                draggingTabId: previousDraggingTabId,
+                dropTargetIndex: previousDropTargetIndex
+            ) {
+                clearDropTargetIndicator()
             }
         }
     }
@@ -362,6 +370,7 @@ class DraggableTabBarHostingView: NSView, NSDraggingSource {
         if (types.contains(.agentStudioTabInternal) || types.contains(.agentStudioPaneDrop))
             && !ManagementModeMonitor.shared.isActive
         {
+            clearDropTargetIndicator()
             return []
         }
 
@@ -384,9 +393,7 @@ class DraggableTabBarHostingView: NSView, NSDraggingSource {
         if (types.contains(.agentStudioTabInternal) || types.contains(.agentStudioPaneDrop))
             && !ManagementModeMonitor.shared.isActive
         {
-            Task { @MainActor [weak self] in
-                self?.tabBarAdapter?.dropTargetIndex = nil
-            }
+            clearDropTargetIndicator()
             return []
         }
 
@@ -478,6 +485,13 @@ class DraggableTabBarHostingView: NSView, NSDraggingSource {
         // Drawer child panes are constrained to their parent drawer and cannot
         // be moved into top-level tabs.
         payload.drawerParentPaneId == nil
+    }
+
+    nonisolated static func shouldClearDragPreviewStateOnManagementModeExit(
+        draggingTabId: UUID?,
+        dropTargetIndex: Int?
+    ) -> Bool {
+        draggingTabId != nil || dropTargetIndex != nil
     }
 
     private func updateDropTarget(for sender: NSDraggingInfo) {

@@ -61,13 +61,13 @@ WorkspaceStore
 ## Mutation Flow (Summary)
 
 ```
-User Action → PaneAction → ActionResolver → ActionValidator
+User Action → (optional) ActionResolver → PaneAction → ActionValidator
   → ActionExecutor → PaneCoordinator → Store.mutate()
     → @Observable tracks → SwiftUI re-renders
     → markDirty() → debounced save (500ms)
 
 Command Bar → CommandDispatcher.dispatch() → CommandHandler
-  → ActionResolver → ActionValidator → PaneCoordinator
+  → ActionResolver → ActionValidator → ActionExecutor → PaneCoordinator
 ```
 
 ## Document Index
