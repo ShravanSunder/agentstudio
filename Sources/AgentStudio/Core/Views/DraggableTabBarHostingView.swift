@@ -1,4 +1,5 @@
 import AppKit
+import OSLog
 import Observation
 import SwiftUI
 import UniformTypeIdentifiers
@@ -9,6 +10,8 @@ import UniformTypeIdentifiers
 /// Uses NSPanGestureRecognizer to detect drags while letting SwiftUI handle all other
 /// interactions (clicks, close buttons, right-clicks, hover).
 class DraggableTabBarHostingView: NSView, NSDraggingSource {
+    private static let logger = Logger(subsystem: "com.agentstudio", category: "TabBarDragDrop")
+    private static let payloadDecodeLogThrottleSeconds: CFAbsoluteTime = 2
 
     // MARK: - Properties
 
@@ -42,6 +45,7 @@ class DraggableTabBarHostingView: NSView, NSDraggingSource {
     private var panStartTabId: UUID?
     private var panStartEvent: NSEvent?
     private var lastAutoSelectedTabIdForPaneDrag: UUID?
+    private var lastPayloadDecodeFailureLogAt: CFAbsoluteTime = 0
 
     private var managementModeObservation: Task<Void, Never>?
 
@@ -432,7 +436,7 @@ class DraggableTabBarHostingView: NSView, NSDraggingSource {
         // - Always use insertion index semantics on the tab row
         // - Create/move to a new tab at the insertion target
         if let paneData = pasteboard.data(forType: .agentStudioPaneDrop),
-            let payload = try? JSONDecoder().decode(PaneDragPayload.self, from: paneData)
+            let payload = decodePaneDragPayload(from: paneData)
         {
             let dropPoint = convert(sender.draggingLocation, from: nil)
             let targetTabIndex = dropIndexAtPoint(dropPoint)
@@ -465,7 +469,7 @@ class DraggableTabBarHostingView: NSView, NSDraggingSource {
 
     private func paneDropIsAllowedInTabBar(_ pasteboard: NSPasteboard, at dropPoint: NSPoint) -> Bool {
         guard let paneData = pasteboard.data(forType: .agentStudioPaneDrop),
-            let payload = try? JSONDecoder().decode(PaneDragPayload.self, from: paneData)
+            let payload = decodePaneDragPayload(from: paneData)
         else {
             return false
         }
@@ -492,6 +496,22 @@ class DraggableTabBarHostingView: NSView, NSDraggingSource {
         dropTargetIndex: Int?
     ) -> Bool {
         draggingTabId != nil || dropTargetIndex != nil
+    }
+
+    private func decodePaneDragPayload(from data: Data) -> PaneDragPayload? {
+        do {
+            return try JSONDecoder().decode(PaneDragPayload.self, from: data)
+        } catch {
+            let now = CFAbsoluteTimeGetCurrent()
+            let elapsed = now - lastPayloadDecodeFailureLogAt
+            if elapsed >= Self.payloadDecodeLogThrottleSeconds {
+                lastPayloadDecodeFailureLogAt = now
+                Self.logger.debug(
+                    "Failed to decode pane drag payload from pasteboard; throttling repeated logs for \(Self.payloadDecodeLogThrottleSeconds, privacy: .public)s: \(error.localizedDescription, privacy: .public)"
+                )
+            }
+            return nil
+        }
     }
 
     private func updateDropTarget(for sender: NSDraggingInfo) {

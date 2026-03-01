@@ -376,6 +376,9 @@ class PaneTabViewController: NSViewController, CommandHandler {
                 state: snapshot
             )
         else {
+            ghosttyLogger.debug(
+                "Split drop rejected at commit: destPaneId=\(destPaneId.uuidString, privacy: .public) zone=\(String(describing: zone), privacy: .public) payload=\(String(describing: payload.kind), privacy: .public)"
+            )
             return
         }
         executeDropCommitPlan(plan)
@@ -399,6 +402,9 @@ class PaneTabViewController: NSViewController, CommandHandler {
                 state: snapshot
             )
         else {
+            ghosttyLogger.debug(
+                "Tab bar pane drop rejected at commit: paneId=\(payload.paneId.uuidString, privacy: .public) sourceTabId=\(payload.tabId.uuidString, privacy: .public) targetTabIndex=\(targetTabIndex)"
+            )
             return false
         }
 
@@ -434,6 +440,9 @@ class PaneTabViewController: NSViewController, CommandHandler {
                 store.tabs.count == tabCountBefore + 1,
                 let extractedTabId = store.activeTabId
             else {
+                ghosttyLogger.warning(
+                    "extractPaneToTabThenMove post-condition failed: tabCountBefore=\(tabCountBefore) tabCountAfter=\(self.store.tabs.count) activeTabId=\(self.store.activeTabId?.uuidString ?? "nil")"
+                )
                 return
             }
             moveTabThroughActionPipeline(tabId: extractedTabId, toIndex: toIndex)

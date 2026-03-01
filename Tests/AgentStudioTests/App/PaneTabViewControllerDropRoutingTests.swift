@@ -316,6 +316,75 @@ struct PaneTabViewControllerDropRoutingTests {
     }
 
     @Test
+    func splitDropCommitPlan_returnsNil_whenActiveTabIdIsNil() {
+        let sourcePaneId = UUIDv7.generate()
+        let targetPaneId = UUIDv7.generate()
+        let tabId = UUIDv7.generate()
+
+        let state = makeSnapshot(
+            tabs: [
+                TabSnapshot(id: tabId, paneIds: [sourcePaneId, targetPaneId], activePaneId: sourcePaneId)
+            ],
+            activeTabId: nil
+        )
+        let payload = SplitDropPayload(kind: .existingPane(paneId: sourcePaneId, sourceTabId: tabId))
+        let destinationPane = makePane(id: targetPaneId)
+
+        let commitPlan = PaneTabViewController.splitDropCommitPlan(
+            payload: payload,
+            destinationPane: destinationPane,
+            destinationPaneId: targetPaneId,
+            zone: .right,
+            activeTabId: nil,
+            state: state
+        )
+
+        #expect(commitPlan == nil)
+    }
+
+    @Test
+    func tabBarDropCommitPlan_returnsNil_forNegativeTargetTabIndex() {
+        let sourceTabId = UUIDv7.generate()
+        let sourcePaneId = UUIDv7.generate()
+        let state = makeSnapshot(
+            tabs: [
+                TabSnapshot(id: sourceTabId, paneIds: [sourcePaneId], activePaneId: sourcePaneId)
+            ],
+            activeTabId: sourceTabId
+        )
+        let payload = PaneDragPayload(paneId: sourcePaneId, tabId: sourceTabId, drawerParentPaneId: nil)
+
+        let commitPlan = PaneTabViewController.tabBarDropCommitPlan(
+            payload: payload,
+            targetTabIndex: -1,
+            state: state
+        )
+
+        #expect(commitPlan == nil)
+    }
+
+    @Test
+    func tabBarDropCommitPlan_returnsNil_forOverflowTargetTabIndex() {
+        let sourceTabId = UUIDv7.generate()
+        let sourcePaneId = UUIDv7.generate()
+        let state = makeSnapshot(
+            tabs: [
+                TabSnapshot(id: sourceTabId, paneIds: [sourcePaneId], activePaneId: sourcePaneId)
+            ],
+            activeTabId: sourceTabId
+        )
+        let payload = PaneDragPayload(paneId: sourcePaneId, tabId: sourceTabId, drawerParentPaneId: nil)
+
+        let commitPlan = PaneTabViewController.tabBarDropCommitPlan(
+            payload: payload,
+            targetTabIndex: state.tabCount + 1,
+            state: state
+        )
+
+        #expect(commitPlan == nil)
+    }
+
+    @Test
     func tabBarDropCommitPlan_returnsNil_whenManagementModeInactive() {
         let sourceTabId = UUIDv7.generate()
         let targetTabId = UUIDv7.generate()

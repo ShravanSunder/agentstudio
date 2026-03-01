@@ -17,10 +17,12 @@ enum PaneValidationMatrixFixture {
         drawerChildToTabBarIneligible,
         drawerChildSameParentDrawerSplitMove,
         drawerChildDifferentParentDrawerSplitIneligible,
+        drawerChildToLayoutSplitIneligible,
         layoutPaneToSplitLayoutInsert,
         existingTabToSplitLayoutMerge,
         newTerminalToSplitLayoutInsert,
         managementModeOffAlwaysIneligible,
+        managementModeOffTabBarIneligible,
     ]
 
     private static let layoutSinglePaneToTabBarMoveTab: PaneValidationMatrixCase = {
@@ -176,6 +178,37 @@ enum PaneValidationMatrixFixture {
         )
     }()
 
+    private static let drawerChildToLayoutSplitIneligible: PaneValidationMatrixCase = {
+        let tabId = UUIDv7.generate()
+        let parentPaneId = UUIDv7.generate()
+        let drawerPaneId = UUIDv7.generate()
+        let layoutTargetPaneId = UUIDv7.generate()
+        let state = snapshot(
+            tabs: [
+                TabSnapshot(
+                    id: tabId,
+                    paneIds: [parentPaneId, drawerPaneId, layoutTargetPaneId],
+                    activePaneId: parentPaneId
+                )
+            ],
+            activeTabId: tabId,
+            drawerParentByPaneId: [drawerPaneId: parentPaneId]
+        )
+
+        return PaneValidationMatrixCase(
+            name: "drawer child -> layout split target (no drawer parent)",
+            payload: SplitDropPayload(kind: .existingPane(paneId: drawerPaneId, sourceTabId: tabId)),
+            destination: .split(
+                targetPaneId: layoutTargetPaneId,
+                targetTabId: tabId,
+                direction: .right,
+                targetDrawerParentPaneId: nil
+            ),
+            state: state,
+            expectedDecision: .ineligible
+        )
+    }()
+
     private static let layoutPaneToSplitLayoutInsert: PaneValidationMatrixCase = {
         let sourceTabId = UUIDv7.generate()
         let targetTabId = UUIDv7.generate()
@@ -305,6 +338,29 @@ enum PaneValidationMatrixFixture {
                 direction: .left,
                 targetDrawerParentPaneId: nil
             ),
+            state: state,
+            expectedDecision: .ineligible
+        )
+    }()
+
+    private static let managementModeOffTabBarIneligible: PaneValidationMatrixCase = {
+        let sourceTabId = UUIDv7.generate()
+        let targetTabId = UUIDv7.generate()
+        let sourcePaneId = UUIDv7.generate()
+        let targetPaneId = UUIDv7.generate()
+        let state = snapshot(
+            tabs: [
+                TabSnapshot(id: sourceTabId, paneIds: [sourcePaneId], activePaneId: sourcePaneId),
+                TabSnapshot(id: targetTabId, paneIds: [targetPaneId], activePaneId: targetPaneId),
+            ],
+            activeTabId: sourceTabId,
+            isManagementModeActive: false
+        )
+
+        return PaneValidationMatrixCase(
+            name: "management mode off -> tab bar insertion ineligible",
+            payload: SplitDropPayload(kind: .existingPane(paneId: sourcePaneId, sourceTabId: sourceTabId)),
+            destination: .tabBarInsertion(targetTabIndex: 1),
             state: state,
             expectedDecision: .ineligible
         )

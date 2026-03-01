@@ -7,7 +7,7 @@ struct PaneDropPlannerMatrixTests {
     @Test("fixture covers movement matrix rows")
     func fixtureCoversMovementMatrixRows() {
         #expect(!PaneValidationMatrixFixture.cases.isEmpty)
-        #expect(PaneValidationMatrixFixture.cases.count >= 9)
+        #expect(PaneValidationMatrixFixture.cases.count >= 11)
     }
 
     @Test("planner matrix cases enforce expected decisions")
