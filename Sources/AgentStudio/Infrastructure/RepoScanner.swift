@@ -3,10 +3,15 @@ import Foundation
 /// Scans a directory tree for git repositories up to a configurable depth.
 struct RepoScanner {
 
+    /// Default scan depth for parent folder discovery.
+    /// Depth 4 supports layouts like ~/projects/org/suborg/repo/.git.
+    /// Scanning stops at the first .git boundary (no deeper).
+    static let defaultMaxDepth = 4
+
     /// Scans `rootURL` for directories containing a `.git` subdirectory.
     /// Stops descending into a directory once a `.git` is found (no nested repos).
     /// Skips hidden directories and symlinks.
-    func scanForGitRepos(in rootURL: URL, maxDepth: Int = 3) -> [URL] {
+    func scanForGitRepos(in rootURL: URL, maxDepth: Int = Self.defaultMaxDepth) -> [URL] {
         var repos: [URL] = []
         scanDirectory(rootURL, currentDepth: 0, maxDepth: maxDepth, results: &repos)
         return repos.sorted {

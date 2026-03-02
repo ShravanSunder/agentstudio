@@ -245,7 +245,7 @@ Method naming convention makes responsibility explicit. If coordinator grows too
 
 ### Discovery — Repo Scanning
 
-`RepoScanner` walks the filesystem from a root URL, stops at the first `.git` boundary (file or directory), caps depth at 3 levels, skips hidden directories and symlinks, validates with `git rev-parse --is-inside-work-tree`, and excludes submodules via `--show-superproject-working-tree`.
+`RepoScanner` walks the filesystem from a root URL, stops at the first `.git` boundary (file or directory), caps depth at `RepoScanner.defaultMaxDepth` (4 levels), skips hidden directories and symlinks, validates with `git rev-parse --is-inside-work-tree`, and excludes submodules via `--show-superproject-working-tree`.
 
 Currently used as a one-shot scan when the user clicks "Add Folder." A planned enhancement will persist the folder path as a `WatchedPath` and rescan periodically — see `docs/plans/2026-03-02-persistent-watched-path-folder-watching.md`.
 
@@ -254,9 +254,11 @@ Currently used as a one-shot scan when the user clicks "Add Folder." A planned e
 ### Event Namespaces
 
 ```
-TopologyEvent (producer: FilesystemActor, envelope: SystemEnvelope)
-  .repoDiscovered(repoPath:, parentPath:)
-  .repoRemoved(repoPath:)
+TopologyEvent (envelope: SystemEnvelope, all via bus)
+  .repoDiscovered(repoPath:, parentPath:)   — producer: AppDelegate (boot replay), FilesystemActor (watched folder rescan)
+  .repoRemoved(repoPath:)                   — producer: AppDelegate
+  .worktreeRegistered(worktreeId:, repoId:, rootPath:) — producer: FilesystemActor
+  .worktreeUnregistered(worktreeId:, repoId:)          — producer: FilesystemActor
 
 FilesystemEvent (producer: FilesystemActor, envelope: WorktreeEnvelope)
   .filesChanged(changeset:)
@@ -328,7 +330,7 @@ Boot replay uses the same `.repoDiscovered` event and same coordinator code path
 
 ```
 1. User: File → Add Folder → selects /projects
-2. RepoScanner().scanForGitRepos(in: /projects, maxDepth: 3)
+2. RepoScanner().scanForGitRepos(in: /projects)
    - Walks filesystem, stops at .git boundary, skips submodules
 3. For each discovered repo path:
    → AppDelegate posts .addRepoAtPathRequested(path:) via AppEventBus
@@ -426,22 +428,32 @@ The event bus is a **notification mechanism** — runtime actors produce facts, 
 
 ```swift
 // 1. User clicks Add Folder → AppDelegate receives path
-func addRepoIfNeeded(_ path: URL) {
-    let normalizedPath = path.standardizedFileURL
+func handleAddFolderRequested(path: URL) async {
+    let rootURL = path.standardizedFileURL
 
-    // 2. Direct store mutation (NOT via bus)
-    let repo = store.addRepo(at: normalizedPath)
+    // 2. Persist the watched path (direct store mutation)
+    store.addWatchedPath(rootURL)
 
-    // 3. Emit topology event so the rest of the system learns
-    workspaceCacheCoordinator.consume(
-        Self.makeTopologyEnvelope(repoPath: normalizedPath, source: .builtin(.coordinator))
+    // 3. Tell FilesystemActor to start watching (via scopeSyncHandler)
+    await workspaceCacheCoordinator.syncScope(
+        .updateWatchedFolders(paths: store.watchedPaths.map(\.path))
     )
 
-    // 4. Sync filesystem roots so actors start watching
+    // 4. One-shot scan for immediate feedback
+    let repoPaths = RepoScanner().scanForGitRepos(in: rootURL)
+
+    // 5. Post topology facts via bus (unified pathway)
+    let bus = PaneRuntimeEventBus.shared
+    for repoPath in repoPaths {
+        await bus.post(
+            Self.makeTopologyEnvelope(repoPath: repoPath, source: .builtin(.coordinator))
+        )
+    }
+
     paneCoordinator.syncFilesystemRootsAndActivity()
 }
 
-// 5. WorkspaceCacheCoordinator handles the event:
+// 6. WorkspaceCacheCoordinator's bus subscription picks up .repoDiscovered:
 func handleTopology(_ event: TopologyEvent) {
     switch event {
     case .repoDiscovered(let repoPath, _):
@@ -450,21 +462,64 @@ func handleTopology(_ event: TopologyEvent) {
             $0.repoPath == repoPath || $0.stableKey == incomingStableKey
         }
         if let repo = existingRepo {
-            // Idempotent: seed enrichment only if missing
             if repoCache.repoEnrichmentByRepoId[repo.id] == nil {
                 repoCache.setRepoEnrichment(.unresolved(repoId: repo.id))
             }
+        } else {
+            let repo = workspaceStore.addRepo(at: repoPath)
+            repoCache.setRepoEnrichment(.unresolved(repoId: repo.id))
         }
-        // ... FilesystemActor/GitProjector start producing enrichment events
     }
 }
 
-// 6. Later, GitProjector emits .snapshotChanged, .branchChanged
-// 7. WorkspaceCacheCoordinator writes enrichment to WorkspaceRepoCache
-// 8. Sidebar re-renders via @Observable
+// 7. Later, GitProjector emits .snapshotChanged, .branchChanged
+// 8. WorkspaceCacheCoordinator writes enrichment to WorkspaceRepoCache
+// 9. Sidebar re-renders via @Observable
 ```
 
-The pattern is always: **mutate the store directly → emit a fact on the bus → coordinator updates the other store**.
+The pattern is: **persist user intent → notify actors via scope sync → scan and post facts via bus → coordinator processes all topology uniformly**.
+
+### Topology Intake: Single Bus Pathway
+
+All `.repoDiscovered` events flow through the `EventBus`. The coordinator's bus subscription is the single intake for all topology facts. There are no direct `coordinator.consume()` calls for topology.
+
+**Authority model:** The user authorizes a scope (by clicking Add Folder → `store.addWatchedPath()`). The actor executes within that authorized scope (rescans only persisted watched folders). The bus carries the results.
+
+```
+User: "Watch /projects"
+         │
+         ▼
+AppDelegate ──► store.addWatchedPath(/projects)     [authority persisted]
+         │
+         ▼
+scopeSyncHandler ──► FilesystemActor                [delegation]
+         │
+         ▼
+FilesystemActor ──► bus.post(.repoDiscovered)       [reports results]
+         │
+         ▼
+Bus ──► WorkspaceCacheCoordinator                   [single intake]
+         │
+         ├── idempotent upsert (dedup by stableKey)
+         ├── seed enrichment in WorkspaceRepoCache
+         └── sidebar re-renders via @Observable
+```
+
+Boot replay follows the same bus path:
+
+```
+Boot: restore() loads watchedPaths + repos
+         │
+         ├── AppDelegate posts .repoDiscovered on bus for each persisted repo
+         ├── scopeSyncHandler(.updateWatchedFolders) → actor starts watching
+         │         │
+         │         └── actor rescans → posts .repoDiscovered for anything new
+         │
+         ▼
+Bus ──► Coordinator (single intake, dedup by stableKey)
+```
+
+**Constraint:** FilesystemActor may emit `.repoDiscovered` only for paths under a persisted watched scope (`store.watchedPaths`). This is structurally enforced — `rescanAllWatchedFolders()` scans only `watchedFolderIds` paths. The `parentPath` field on the event provides traceability back to the watched scope without coupling the event type to `WatchedPath.id`.
 
 ### What NOT to Do
 
@@ -472,7 +527,7 @@ The pattern is always: **mutate the store directly → emit a fact on the bus �
 - **Do not route store mutations through the bus.** The bus carries facts, not instructions.
 - **Do not create separate command/event types for the same action.** One event type per fact.
 - **Do not build CQRS-style read/write segregation.** Both stores are read/write via their own methods.
-- **Do not make actors emit canonical topology events.** Only `AppDelegate` (user actions + boot replay) emits `.repoDiscovered`/`.repoRemoved`. Runtime actors emit observation events only (`.worktreeRegistered`, `.snapshotChanged`, etc.).
+- **Actors may emit `.repoDiscovered` only within user-authorized watched-folder scopes.** `FilesystemActor` rescans persisted `WatchedPath` folders and posts discoveries on the bus. This is not autonomous discovery — the user delegated authority via Add Folder. All topology events flow through the unified bus pathway.
 
 ### Idempotency Contract
 
@@ -489,7 +544,7 @@ Ordering tolerance: `.worktreeRegistered` arriving before `.repoDiscovered` is a
 
 ### Writing Integration Tests with Events
 
-Test the full event flow: emit an event → coordinator processes it → assert both stores updated.
+Test the full event flow: emit an event → coordinator processes it → assert both stores updated. Tests call `coordinator.consume(_:)` directly — this is a deliberate test seam. App code must always flow through the bus; tests bypass it to verify coordinator logic in isolation.
 
 ```swift
 @Suite struct WorkspaceCacheCoordinatorTests {

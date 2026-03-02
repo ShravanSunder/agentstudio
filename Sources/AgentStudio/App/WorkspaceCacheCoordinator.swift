@@ -270,6 +270,7 @@ enum ScopeChange: Sendable {
     case registerForgeRepo(repoId: UUID, remote: String)
     case unregisterForgeRepo(repoId: UUID)
     case refreshForgeRepo(repoId: UUID, correlationId: UUID?)
+    case updateWatchedFolders(paths: [URL])
 }
 
 extension ScopeChange: CustomStringConvertible {
@@ -282,6 +283,8 @@ extension ScopeChange: CustomStringConvertible {
         case .refreshForgeRepo(let repoId, let correlationId):
             return
                 "refreshForgeRepo(repoId: \(repoId.uuidString), correlationId: \(correlationId?.uuidString ?? "nil"))"
+        case .updateWatchedFolders(let paths):
+            return "updateWatchedFolders(count: \(paths.count))"
         }
     }
 }

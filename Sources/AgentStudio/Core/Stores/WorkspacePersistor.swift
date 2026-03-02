@@ -32,8 +32,15 @@ struct WorkspacePersistor {
         var activeTabId: UUID?
         var sidebarWidth: CGFloat
         var windowFrame: CGRect?
+        var watchedPaths: [WatchedPath]
         var createdAt: Date
         var updatedAt: Date
+
+        enum CodingKeys: String, CodingKey {
+            case schemaVersion, id, name, repos, worktrees, unavailableRepoIds
+            case panes, tabs, activeTabId, sidebarWidth, windowFrame
+            case watchedPaths, createdAt, updatedAt
+        }
 
         init(
             id: UUID = UUID(),
@@ -46,6 +53,7 @@ struct WorkspacePersistor {
             activeTabId: UUID? = nil,
             sidebarWidth: CGFloat = 250,
             windowFrame: CGRect? = nil,
+            watchedPaths: [WatchedPath] = [],
             createdAt: Date = Date(),
             updatedAt: Date = Date()
         ) {
@@ -60,6 +68,7 @@ struct WorkspacePersistor {
             self.activeTabId = activeTabId
             self.sidebarWidth = sidebarWidth
             self.windowFrame = windowFrame
+            self.watchedPaths = watchedPaths
             self.createdAt = createdAt
             self.updatedAt = updatedAt
         }

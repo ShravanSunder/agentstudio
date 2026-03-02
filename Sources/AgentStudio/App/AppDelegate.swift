@@ -214,16 +214,13 @@ class AppDelegate: NSObject, NSApplicationDelegate {
     }
 
     private func bootTriggerInitialTopologySync() {
-        replayBootTopology(store: store, coordinator: workspaceCacheCoordinator)
-        if let filesystemPipelineBootTask {
-            Task { [weak self] in
+        Task { @MainActor [weak self] in
+            guard let self else { return }
+            await self.replayBootTopology(store: self.store, coordinator: self.workspaceCacheCoordinator)
+            if let filesystemPipelineBootTask = self.filesystemPipelineBootTask {
                 await filesystemPipelineBootTask.value
-                await MainActor.run {
-                    self?.paneCoordinator.syncFilesystemRootsAndActivity()
-                }
             }
-        } else {
-            paneCoordinator.syncFilesystemRootsAndActivity()
+            self.paneCoordinator.syncFilesystemRootsAndActivity()
         }
     }
 
@@ -241,7 +238,7 @@ class AppDelegate: NSObject, NSApplicationDelegate {
         }
     }
 
-    private func replayBootTopology(store: WorkspaceStore, coordinator: WorkspaceCacheCoordinator) {
+    private func replayBootTopology(store: WorkspaceStore, coordinator: WorkspaceCacheCoordinator) async {
         let activePaneRepoIds: Set<UUID> = {
             guard let activeTab = store.activeTab else { return [] }
             let repoIds = activeTab.paneIds.compactMap { store.panes[$0]?.repoId }
@@ -253,24 +250,34 @@ class AppDelegate: NSObject, NSApplicationDelegate {
             if aActive != bActive { return aActive }
             return false
         }
+        let bus = PaneRuntimeEventBus.shared
         for repo in prioritizedRepos {
-            coordinator.consume(
+            await bus.post(
                 Self.makeTopologyEnvelope(
                     repoPath: repo.repoPath,
                     source: .builtin(.coordinator)
                 )
             )
         }
+
+        if !store.watchedPaths.isEmpty {
+            await coordinator.syncScope(
+                .updateWatchedFolders(paths: store.watchedPaths.map(\.path))
+            )
+        }
     }
+
+    private static var nextTopologySeq: UInt64 = 0
 
     /// Build a canonical `.repoDiscovered` topology envelope.
     /// Coordinator-originated events use `.builtin(.coordinator)`;
     /// filesystem-originated events use `.builtin(.filesystemWatcher)`.
     static func makeTopologyEnvelope(repoPath: URL, source: SystemSource) -> RuntimeEnvelope {
-        .system(
+        nextTopologySeq += 1
+        return .system(
             SystemEnvelope(
                 source: source,
-                seq: 0,
+                seq: nextTopologySeq,
                 timestamp: .now,
                 event: .topology(
                     .repoDiscovered(
@@ -375,7 +382,7 @@ class AppDelegate: NSObject, NSApplicationDelegate {
                 case .addFolderRequested:
                     await self.handleAddFolderRequested()
                 case .addRepoAtPathRequested(let path):
-                    self.addRepoIfNeeded(path)
+                    await self.addRepoIfNeeded(path)
                 case .removeRepoRequested(let repoId):
                     self.workspaceCacheCoordinator.handleRepoRemoval(repoId: repoId)
                     self.paneCoordinator.syncFilesystemRootsAndActivity()
@@ -838,26 +845,44 @@ class AppDelegate: NSObject, NSApplicationDelegate {
             rootURL = selectedURL.standardizedFileURL
         }
 
+        // 1. Persist the watched path (direct store mutation)
+        store.addWatchedPath(rootURL)
+
+        // 2. Tell FilesystemActor to start watching (via scopeSyncHandler)
+        await workspaceCacheCoordinator.syncScope(
+            .updateWatchedFolders(paths: store.watchedPaths.map(\.path))
+        )
+
+        // 3. One-shot scan for immediate feedback (kept for responsiveness)
         let repoPaths = await Task(priority: .userInitiated) {
-            RepoScanner().scanForGitRepos(in: rootURL, maxDepth: 3)
+            RepoScanner().scanForGitRepos(in: rootURL)
         }.value
 
         guard !repoPaths.isEmpty else {
             let alert = NSAlert()
             alert.messageText = "No Git Repositories Found"
-            alert.informativeText = "No folders with a Git repository were found under \(rootURL.lastPathComponent)."
+            alert.informativeText =
+                "No folders with a Git repository were found under \(rootURL.lastPathComponent). The folder will still be watched for future repos."
             alert.alertStyle = .informational
             alert.addButton(withTitle: "OK")
             alert.runModal()
             return
         }
 
+        // 4. Post topology facts via bus (unified pathway)
+        let bus = PaneRuntimeEventBus.shared
         for repoPath in repoPaths {
-            postAppEvent(.addRepoAtPathRequested(path: repoPath.standardizedFileURL))
+            await bus.post(
+                Self.makeTopologyEnvelope(
+                    repoPath: repoPath.standardizedFileURL,
+                    source: .builtin(.coordinator)
+                )
+            )
         }
+        paneCoordinator.syncFilesystemRootsAndActivity()
     }
 
-    private func addRepoIfNeeded(_ path: URL) {
+    private func addRepoIfNeeded(_ path: URL) async {
         let normalizedPath = path.standardizedFileURL
 
         // Skip if the path is already a known worktree of an available repo.
@@ -868,9 +893,9 @@ class AppDelegate: NSObject, NSApplicationDelegate {
         }
         if isKnownWorktree { return }
 
-        // Emit topology event — the idempotent coordinator handles repo-level dedup,
-        // enrichment seeding, and scope sync in one place.
-        workspaceCacheCoordinator.consume(
+        // Post topology fact on the bus — coordinator's subscription handles dedup,
+        // enrichment seeding, and scope sync.
+        await PaneRuntimeEventBus.shared.post(
             Self.makeTopologyEnvelope(repoPath: normalizedPath, source: .builtin(.coordinator))
         )
         paneCoordinator.syncFilesystemRootsAndActivity()

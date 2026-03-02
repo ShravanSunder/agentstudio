@@ -62,8 +62,8 @@ struct WorktrunkServiceParsingTests {
         #expect(worktrees.isEmpty)
     }
 
-    @Test("isMainWorktree defaults to false when decoding legacy data")
-    func legacyDecodingDefaultsFalse() throws {
+    @Test("missing isMainWorktree throws DecodingError")
+    func missingIsMainWorktreeThrows() throws {
         // Arrange — JSON with repoId but without isMainWorktree key
         let json = """
             {
@@ -75,10 +75,9 @@ struct WorktrunkServiceParsingTests {
             """
         let data = json.data(using: .utf8)!
 
-        // Act
-        let worktree = try JSONDecoder().decode(Worktree.self, from: data)
-
-        // Assert
-        #expect(worktree.isMainWorktree == false)
+        // Act & Assert — strict decode rejects missing isMainWorktree
+        #expect(throws: DecodingError.self) {
+            _ = try JSONDecoder().decode(Worktree.self, from: data)
+        }
     }
 }

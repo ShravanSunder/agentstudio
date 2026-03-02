@@ -839,7 +839,7 @@ These rules are enforced by `WorkspaceStore` and model types at all times:
 | **Core/PaneRuntime/** (LUNA-325) | |
 | `Core/PaneRuntime/Contracts/PaneRuntime.swift` | Per-pane runtime protocol |
 | `Core/PaneRuntime/Contracts/PaneRuntimeEvent.swift` | Typed event discriminated union + per-kind enums |
-| `Core/PaneRuntime/Contracts/PaneEventEnvelope.swift` | Outbound event envelope with routing/ordering metadata |
+| `Core/PaneRuntime/Contracts/RuntimeEnvelopeCore.swift` | 3-tier event envelope (SystemEnvelope, WorktreeEnvelope, PaneEnvelope) |
 | `Core/PaneRuntime/Contracts/RuntimeCommand.swift` | Runtime-level command enum + per-kind command enums |
 | `Core/PaneRuntime/Contracts/RuntimeCommandEnvelope.swift` | Inbound command envelope with idempotency/correlation |
 | `Core/PaneRuntime/Contracts/PaneMetadata.swift` | Rich pane identity (contentType, source, execution backend) |

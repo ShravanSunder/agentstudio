@@ -180,7 +180,7 @@ SwiftPaneView           (direct Swift)             SwiftPaneRuntime             
 
 **User problem:** Agents edit 50 files in 2 seconds. The workspace needs to know "agent produced a changeset" without drowning in per-file events (JTBD 5, JTBD 6, P6).
 
-**Decision:** Worktree-scoped filesystem watcher ingestion (`FilesystemActor`) emits filesystem facts only. A separate `GitWorkingDirectoryProjector` subscribes to `.filesChanged` facts and emits derived git facts (`.snapshotChanged`, `.branchChanged`, `.originChanged`). `FilesystemActor` also emits topology events (`.repoDiscovered`, `.repoRemoved`) via `SystemEnvelope` for repo discovery/removal. `FilesystemActor` enforces debounce (500ms settle) and max latency (2s) so sustained writes still flush bounded batches. Events flow on the same coordination stream.
+**Decision:** `FilesystemActor` emits filesystem facts (`.filesChanged`) and worktree topology (`.worktreeRegistered`/`.worktreeUnregistered`). A separate `GitWorkingDirectoryProjector` subscribes to `.filesChanged` and emits derived git facts (`.snapshotChanged`, `.branchChanged`, `.originChanged`). Repo-level topology events (`.repoDiscovered`, `.repoRemoved`) are produced by `AppDelegate` (for user "Add Folder" and boot replay) and fed directly to `WorkspaceCacheCoordinator.consume()` — they do not go through bus fanout. `FilesystemActor` enforces debounce (500ms settle) and max latency (2s) so sustained writes still flush bounded batches.
 
 **Enrichment pipeline context:** This filesystem observation is part of a sequential enrichment pipeline: `FilesystemActor → GitWorkingDirectoryProjector → ForgeActor → WorkspaceCacheCoordinator`. Each stage subscribes to the bus and produces enriched events. The full pipeline spec is in [Workspace Data Architecture](workspace_data_architecture.md).
 
@@ -234,7 +234,8 @@ SwiftPaneView           (direct Swift)             SwiftPaneRuntime             
 | Tier | Service | Scope | Event types | Envelope | Backend model |
 |------|---------|-------|-------------|----------|---------------|
 | **Built-in** | FilesystemActor | Per-worktree | `FilesystemEvent` (filesChanged, worktreeRegistered, worktreeUnregistered) | `WorktreeEnvelope` | Core, one watcher per worktree |
-| **Built-in** | FilesystemActor | App-wide | `TopologyEvent` (repoDiscovered, repoRemoved) | `SystemEnvelope` | Core (no entity yet at discovery time) |
+| **Built-in** | AppDelegate | App-wide | `TopologyEvent` (.repoDiscovered — boot replay, .repoRemoved) | `SystemEnvelope` | Core (via bus) |
+| **Built-in** | FilesystemActor | App-wide | `TopologyEvent` (.repoDiscovered — watched folder rescan, .worktreeRegistered, .worktreeUnregistered) | `SystemEnvelope` | Core (via bus) |
 | **Built-in** | GitWorkingDirectoryProjector | Per-worktree | `GitWorkingDirectoryEvent` (snapshotChanged, branchChanged, originChanged, worktreeDiscovered, worktreeRemoved) | `WorktreeEnvelope` | Core projector |
 | **Built-in** | Security backend | Per-worktree | `SecurityEvent` (future) | `WorktreeEnvelope` | Core |
 | **Built-in** | PaneCoordinator | App-wide | `LifecycleEvent` (tabSwitched, etc.) | `SystemEnvelope` | Core |
@@ -712,7 +713,8 @@ Sources are categorized by scope. Topology sources use `SystemEnvelope`; worktre
 | **Pane** | BridgeRuntime | — | `PaneEnvelope` | `.diff(...)`, `.editor(...)`, `.review(...)`, `.agent(...)`, `.plugin(...)` | Future (LUNA-349) |
 | **Pane** | WebviewRuntime | — | `PaneEnvelope` | `.browser(BrowserEvent)` | Future (LUNA-349) |
 | **Pane** | SwiftPaneRuntime | — | `PaneEnvelope` | Content-dependent | Future (LUNA-349) |
-| **App** | FilesystemActor | Built-in | `SystemEnvelope` | `TopologyEvent` (.repoDiscovered, .repoRemoved) | Future (LUNA-350) |
+| **App** | AppDelegate | Built-in | `SystemEnvelope` | `TopologyEvent` (.repoDiscovered — boot, .repoRemoved) | Via bus |
+| **App** | FilesystemActor | Built-in | `SystemEnvelope` | `TopologyEvent` (.repoDiscovered — rescan, .worktreeRegistered, .worktreeUnregistered) | Via bus |
 | **Worktree** | FilesystemActor | Built-in | `WorktreeEnvelope` | `FilesystemEvent` (.filesChanged, .worktreeRegistered, .worktreeUnregistered) | Future (LUNA-349, Contract 6) |
 | **Worktree** | GitWorkingDirectoryProjector | Built-in | `WorktreeEnvelope` | `GitWorkingDirectoryEvent` (.snapshotChanged, .branchChanged, .originChanged, .worktreeDiscovered, .worktreeRemoved) | Future (LUNA-349) |
 | **App** | PaneCoordinator | Built-in | `SystemEnvelope` | `.lifecycle(.tabSwitched)` | ✅ Implemented |
@@ -807,7 +809,6 @@ struct PaneMetadata: Sendable {
     var title: String
     var facets: PaneContextFacets
     var checkoutRef: String?
-    var agentType: AgentType?
 }
 
 struct PaneContextFacets: Sendable {
@@ -1069,16 +1070,15 @@ enum AttachError: Error, Sendable {
     case timeout
 }
 
-/// Filesystem events. envelope.source = .system(.builtin(.filesystemWatcher)).
-/// Routing worktree identity lives in sourceFacets.worktreeId.
+/// Filesystem events. Carried in WorktreeEnvelope.
+/// Routing worktree identity lives in envelope.worktreeId.
 enum FilesystemEvent: Sendable {
-    case worktreeRegistered(worktreeId: UUID, rootPath: URL)
-    case worktreeUnregistered(worktreeId: UUID)
     case filesChanged(changeset: FileChangeset)
-    case gitSnapshotChanged(snapshot: GitWorkingTreeSnapshot)
-    case diffAvailable(diffId: UUID)
-    case branchChanged(from: String, to: String)
 }
+
+/// Note: worktreeRegistered/worktreeUnregistered are TopologyEvents
+/// (in SystemEnvelope), not FilesystemEvents. Git snapshot, branch,
+/// and diff events are in GitWorkingDirectoryEvent (WorktreeEnvelope).
 
 /// Artifact events. envelope.source = .pane(producerPaneId) — who produced it.
 /// worktreeId in payload = which worktree the artifact covers (domain data,
@@ -1131,32 +1131,14 @@ enum RuntimeErrorEvent: Error, Sendable {
 
 > **Role:** Structural (envelope shape). Carried by all sources, projections, and sinks.
 
-> **Migration:** The flat `PaneEventEnvelope` (current code) evolves into a 3-tier `RuntimeEnvelope` discriminated union. Both are shown below. The target model is authoritative for new design work. See [Workspace Data Architecture](workspace_data_architecture.md) for the full envelope hierarchy spec.
+> **File:** `Core/PaneRuntime/Contracts/RuntimeEnvelopeCore.swift`
 
 > **Extensibility:** `SystemSource` uses a three-tier hierarchy: `BuiltinSource` (closed, core-only), `ServiceSource` (discriminated union — new categories need a core code change with typed event protocol, new providers are a String), and `.plugin(String)` (fully open, schema-free). Per-source isolation guarantees (A4: independent `seq`, A10: independent replay buffer) mean new sources at any tier cannot break ordering or replay for existing sources. No shared state to corrupt.
 
-#### Current: PaneEventEnvelope (in code)
+#### RuntimeEnvelope (3-tier discriminated union)
 
 ```swift
-/// Flat envelope — current implementation.
-/// Will be replaced by RuntimeEnvelope (see target model below).
-struct PaneEventEnvelope: Sendable {
-    let source: EventSource
-    let sourceFacets: PaneContextFacets
-    let paneKind: PaneContentType?
-    let seq: UInt64
-    let commandId: UUID?
-    let correlationId: UUID?
-    let timestamp: ContinuousClock.Instant
-    let epoch: UInt64                        // reserved, 0 until runtime restart/reconnect
-    let event: PaneRuntimeEvent
-}
-```
-
-#### Target: RuntimeEnvelope (LUNA-350)
-
-```swift
-/// 3-tier discriminated union — replaces flat PaneEventEnvelope.
+/// 3-tier discriminated union. PaneEnvelope is the pane-scoped tier.
 /// Tier determines scope: system-wide, per-repo/worktree, or per-pane.
 enum RuntimeEnvelope: Sendable {
     case system(SystemEnvelope)
@@ -1283,7 +1265,7 @@ Additional routing kinds (`.editor`, `.review`, `.agent`) are reserved for futur
 
 #### Envelope Invariants (normative)
 
-> **Envelope migration:** The flat `PaneEventEnvelope` evolves into a 3-tier `RuntimeEnvelope` discriminated union (`SystemEnvelope`, `WorktreeEnvelope`, `PaneEnvelope`). The invariants below apply to the target model. See [Workspace Data Architecture](workspace_data_architecture.md) for the full envelope hierarchy spec.
+> **Envelope model:** `RuntimeEnvelope` is a 3-tier discriminated union (`SystemEnvelope`, `WorktreeEnvelope`, `PaneEnvelope`). Pane-scoped events use `PaneEnvelope`. The invariants below apply to this model. See [Workspace Data Architecture](workspace_data_architecture.md) for the full hierarchy spec.
 
 1. Sequence ownership: each runtime (or system producer) is the sole writer of `seq` for its own `EventSource`.
 2. Monotonicity: `seq` is strictly increasing per `EventSource`. Gaps are allowed only due to bounded replay eviction.

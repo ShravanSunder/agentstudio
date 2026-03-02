@@ -192,6 +192,36 @@ final class WorkspacePersistorTests {
     }
 
     @Test
+    func test_load_canonicalState_missingWatchedPaths_returnsCorrupt() throws {
+        // Arrange — valid JSON but without the watchedPaths field
+        let workspaceId = UUID()
+        let json: [String: Any] = [
+            "schemaVersion": 1,
+            "id": workspaceId.uuidString,
+            "name": "Test Workspace",
+            "repos": [] as [Any],
+            "worktrees": [] as [Any],
+            "unavailableRepoIds": [] as [Any],
+            "panes": [] as [Any],
+            "tabs": [] as [Any],
+            "sidebarWidth": 250,
+            "createdAt": ISO8601DateFormatter().string(from: Date()),
+            "updatedAt": ISO8601DateFormatter().string(from: Date()),
+        ]
+        let data = try JSONSerialization.data(withJSONObject: json)
+        let stateURL = tempDir.appending(
+            path: "\(workspaceId.uuidString).workspace.state.json"
+        )
+        try data.write(to: stateURL, options: .atomic)
+
+        // Act
+        let result = persistor.load()
+
+        // Assert — strict decode means missing required field → corrupt
+        #expect(result.isCorrupt)
+    }
+
+    @Test
     func test_load_ignoresCacheAndUIFiles() throws {
         // Arrange — write only cache and UI files, no canonical state
         let workspaceId = UUID()

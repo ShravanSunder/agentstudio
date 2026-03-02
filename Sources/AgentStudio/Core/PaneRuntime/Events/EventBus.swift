@@ -117,6 +117,10 @@ actor EventBus<Envelope: Sendable> {
         )
     }
 
+    var subscriberCount: Int {
+        subscribers.count
+    }
+
     func totalDroppedEvents() -> UInt64 {
         droppedEventCount
     }

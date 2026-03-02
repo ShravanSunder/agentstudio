@@ -21,7 +21,7 @@ Four problems drive this design:
 
 3. **One-way data flow.** Events flow producers → bus → subscribers. Commands flow user/system → coordinator → runtime. These never share the same channel. The bus carries events only.
 
-4. **Consistent pattern.** All producers `await bus.post(envelope)`, all consumers `for await envelope in bus.subscribe()`. Whether the event originates from a Ghostty C callback, an FSEvents watcher, or a future MCP plugin — same interface.
+4. **Consistent pattern.** All producers `await bus.post(envelope)`, all consumers `for await envelope in bus.subscribe()`. Topology events (`.repoDiscovered`) and enrichment events (`.snapshotChanged`, `.branchChanged`) all flow through the same bus. The coordinator's bus subscription is the single intake for all facts.
 
 ## Relationship to Pane Runtime Architecture
 
@@ -89,6 +89,21 @@ Each contract (C1-C16) has a specific relationship to the EventBus:
 ```
 
 **Actor inventory:** 5 named actors (EventBus, FilesystemActor, GitWorkingDirectoryProjector, ForgeActor, ContainerActor) plus `@MainActor`. No core actor calls another core actor for event-plane data — all event-plane communication flows through the EventBus. ForgeActor subscribes to the bus for `.branchChanged`/`.originChanged` events rather than being directly triggered by the coordinator (bus fan-out eliminates duplicate triggers). Command-plane request-response calls (e.g., `forgeActor.refresh(repo:)`) are direct. Ghostty C callback translation does NOT need its own actor — the work is ~100ns (enum match + struct init), far below the actor hop cost threshold. Git CLI write commands (commit, push, stash) are stateless request-response via ProcessExecutor — no actor needed. Shared infrastructure (URLSession, ProcessExecutor) is injected utilities, not actors.
+
+## Two Event Systems
+
+The app has two separate event buses. They serve different purposes and carry different types:
+
+| Bus | Type | Purpose | Producers | Consumers |
+|-----|------|---------|-----------|-----------|
+| `PaneRuntimeEventBus` | `EventBus<RuntimeEnvelope>` | Runtime facts: filesystem changes, git status, forge data, topology | FilesystemActor, GitProjector, ForgeActor, AppDelegate (topology) | WorkspaceCacheCoordinator, ForgeActor (fan-out) |
+| `AppEventBus` | `EventBus<AppEvent>` | User intent: menu clicks, keyboard shortcuts | Menu items, keyboard handlers | AppDelegate (imperative dispatch) |
+
+**These are not redundant.** `AppEventBus` carries user intent (`.addRepoRequested`, `.addFolderRequested`, `.signInRequested`). `PaneRuntimeEventBus` carries system facts (`.repoDiscovered`, `.snapshotChanged`, `.pullRequestCountsChanged`). A user intent on `AppEventBus` may RESULT in a fact on `PaneRuntimeEventBus`, but they are different events with different semantics.
+
+All topology events (`.repoDiscovered`) and enrichment events (`.snapshotChanged`, `.branchChanged`) flow through `PaneRuntimeEventBus`. The coordinator's bus subscription is the single intake. AppDelegate posts `.repoDiscovered` on the bus for boot replay; `FilesystemActor` posts `.repoDiscovered` on the bus when rescanning watched folders.
+
+> **Files:** `Core/PaneRuntime/Events/EventChannels.swift` defines both buses.
 
 ## The Multiplexing Rule
 
@@ -996,7 +1011,7 @@ Concrete list of what runs where, with Swift 6.2 keywords:
 2. **`nonisolated async` means `nonisolated(nonsending)` in Swift 6.2** (SE-0461). It inherits caller isolation. Do NOT use this expecting pool execution — it will run on MainActor if called from MainActor.
 3. **Prefer `@concurrent` over `Task.detached`** (project policy) — `Task.detached` strips priority and task-locals; `@concurrent` preserves structured concurrency. Exception: `Task.detached` remains appropriate when you need to escape structured concurrency scope or intentionally strip task-locals.
 4. **Avoid `MainActor.run` in this architecture's common paths** — the compiler handles actor hops when returning from `@concurrent nonisolated` to `@MainActor`. `MainActor.run` is still valid when genuinely needed (hopping TO MainActor from a non-main context), but our typical pattern doesn't require it.
-5. **All cross-boundary data is `Sendable`.** `PaneEventEnvelope`, all event types, all command types — `Sendable` is required for data that crosses actor boundaries.
+5. **All cross-boundary data is `Sendable`.** `RuntimeEnvelope`, all event types, all command types — `Sendable` is required for data that crosses actor boundaries.
 6. **C callbacks use `@Sendable` trampolines** + `MainActor.assumeIsolated` for synchronous hops or `Task { @MainActor in }` for async work. No `DispatchQueue.main.async`.
 
 ### Swift 6.2 Gotchas (quick reference)

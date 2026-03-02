@@ -20,6 +20,7 @@ final class WorkspaceStore {
     // MARK: - Persisted State
 
     private(set) var repos: [Repo] = []
+    private(set) var watchedPaths: [WatchedPath] = []
     private(set) var panes: [UUID: Pane] = [:]
     private(set) var tabs: [Tab] = []
     private(set) var activeTabId: UUID?
@@ -1252,6 +1253,27 @@ final class WorkspaceStore {
         unavailableRepoIds.contains(repoId)
     }
 
+    // MARK: - WatchedPath Mutations
+
+    /// Add a watched path. Deduplicates by stableKey.
+    @discardableResult
+    func addWatchedPath(_ path: URL) -> WatchedPath? {
+        let normalizedPath = path.standardizedFileURL
+        let key = StableKey.fromPath(normalizedPath)
+        guard !watchedPaths.contains(where: { $0.stableKey == key }) else {
+            return watchedPaths.first { $0.stableKey == key }
+        }
+        let watchedPath = WatchedPath(path: normalizedPath)
+        watchedPaths.append(watchedPath)
+        markDirty()
+        return watchedPath
+    }
+
+    func removeWatchedPath(_ id: UUID) {
+        watchedPaths.removeAll { $0.id == id }
+        markDirty()
+    }
+
     @discardableResult
     func orphanPanesForRepo(_ repoId: UUID) -> [UUID] {
         guard let repo = repos.first(where: { $0.id == repoId }) else { return [] }
@@ -1367,6 +1389,7 @@ final class WorkspaceStore {
             activeTabId = state.activeTabId
             sidebarWidth = state.sidebarWidth
             windowFrame = state.windowFrame
+            watchedPaths = state.watchedPaths
             createdAt = state.createdAt
             updatedAt = state.updatedAt
             storeLogger.info(
@@ -1484,6 +1507,7 @@ final class WorkspaceStore {
             activeTabId: prunedActiveTabId,
             sidebarWidth: sidebarWidth,
             windowFrame: windowFrame,
+            watchedPaths: watchedPaths,
             createdAt: createdAt,
             updatedAt: updatedAt
         )

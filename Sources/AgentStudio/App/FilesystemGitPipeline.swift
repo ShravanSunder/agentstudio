@@ -89,6 +89,8 @@ final class FilesystemGitPipeline: PaneCoordinatorFilesystemSourceManaging, Send
             await forgeActor.unregister(repo: repoId)
         case .refreshForgeRepo(let repoId, let correlationId):
             await forgeActor.refresh(repo: repoId, correlationId: correlationId)
+        case .updateWatchedFolders(let paths):
+            await filesystemActor.updateWatchedFolders(paths)
         }
     }
 }

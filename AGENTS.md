@@ -218,10 +218,12 @@ Where each key component lives — use this to decide where new files go. Apply 
 Target: Swift 6.2 / macOS 26. `@MainActor` for all stores, coordinators, and UI mutations.
 
 1. **Isolation first** — `@MainActor` for UI/stores, `actor` for boundary work
-2. **`@concurrent nonisolated`** for work that must run off actor isolation
+2. **`@concurrent nonisolated` for blocking I/O** — In Swift 6.2 (SE-0461), plain `nonisolated async` inherits the caller's actor executor. Without `@concurrent`, blocking I/O called from inside an actor blocks that actor's serial executor. `@concurrent` forces escape to the global concurrent executor. **This is a correctness requirement in 6.2, not a style choice.**
 3. **Structured concurrency** preferred; `Task.detached` only when isolation inheritance must be broken
 4. **C callback bridging** — capture stable IDs synchronously, never defer pointer dereference across async hops
 5. **AsyncStream standard** — `AsyncStream.makeStream(of:)`, explicit buffering policy, always cancel on shutdown
+
+See [EventBus Design — Swift 6.2 concurrency rules](docs/architecture/pane_runtime_eventbus_design.md#swift-62-concurrency-rules-se-0461) for the full gotchas table and threading model.
 
 ---
 

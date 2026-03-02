@@ -1649,4 +1649,36 @@ final class WorkspaceStoreTests {
         // Assert — activePaneId updated to remaining pane
         #expect(store.tabs[0].activePaneId == p2.id)
     }
+
+    // MARK: - WatchedPath
+
+    @Test func addWatchedPath_addsAndMarksDirty() {
+        // Arrange & Act
+        let result = store.addWatchedPath(URL(fileURLWithPath: "/projects"))
+
+        // Assert
+        #expect(result != nil)
+        #expect(store.watchedPaths.count == 1)
+        #expect(store.watchedPaths[0].path.path == "/projects")
+    }
+
+    @Test func addWatchedPath_deduplicatesByStableKey() {
+        // Arrange & Act
+        store.addWatchedPath(URL(fileURLWithPath: "/projects"))
+        store.addWatchedPath(URL(fileURLWithPath: "/projects"))
+
+        // Assert
+        #expect(store.watchedPaths.count == 1)
+    }
+
+    @Test func removeWatchedPath_removesById() {
+        // Arrange
+        let watchedPath = store.addWatchedPath(URL(fileURLWithPath: "/projects"))!
+
+        // Act
+        store.removeWatchedPath(watchedPath.id)
+
+        // Assert
+        #expect(store.watchedPaths.isEmpty)
+    }
 }

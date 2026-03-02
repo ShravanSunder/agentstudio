@@ -4,9 +4,9 @@
 
 **Goal:** "Add Folder" persists the folder path. FilesystemActor watches it with FSEvents and rescans for new repos automatically — so cloning a repo under a watched folder appears in the sidebar within seconds.
 
-**Architecture:** A `WatchedPath` model is persisted in `workspace.state.json` via `WorkspaceStore`. When watched paths change (Add Folder or boot), `FilesystemActor` registers each parent folder with `DarwinFSEventStreamClient` for FSEvents monitoring. When FSEvents fires (new `.git` directory appears), FilesystemActor rescans using `RepoScanner` and emits `.repoDiscovered` on the `EventBus`. The existing idempotent `WorkspaceCacheCoordinator` handles dedup. A lazy fallback timer (5 minutes) rescans for robustness. No UI changes — the only entry point is the existing "Add Folder" menu item.
+**Architecture:** A `WatchedPath` model is persisted in `workspace.state.json` via `WorkspaceStore`. When watched paths change (Add Folder or boot), `FilesystemActor` registers each parent folder with `DarwinFSEventStreamClient` for FSEvents monitoring. When FSEvents fires (new `.git` directory appears), FilesystemActor rescans using `RepoScanner` and emits `.repoDiscovered` via `bus.post()`. All topology events — boot replay, Add Folder one-shot, and FSEvents rescan — flow through the unified `RuntimeEventBus` pathway. The existing idempotent `WorkspaceCacheCoordinator` bus subscription is the single intake for all topology. A lazy fallback timer (5 minutes) rescans for robustness. No UI changes — the only entry point is the existing "Add Folder" menu item.
 
-**Tech Stack:** Swift 6, @Observable stores, DarwinFSEventStreamClient (FSEvents), AsyncStream (RuntimeEventBus), Swift Testing framework
+**Tech Stack:** Swift 6.2 (SE-0461 `NonisolatedNonsendingByDefault`), @Observable stores, DarwinFSEventStreamClient (FSEvents), AsyncStream (RuntimeEventBus), Swift Testing framework
 
 ---
 
@@ -17,11 +17,41 @@
 1. **CLAUDE.md** — State management patterns (especially patterns 2 and 4). Store boundaries are architectural decisions — ask the user before changing them.
 2. **[Event System Design](docs/architecture/workspace_data_architecture.md#event-system-design-what-it-is-and-isnt)** — This is NOT CQRS. Pattern: mutate store directly → emit fact on bus → coordinator updates other store.
 3. **`Sources/AgentStudio/Core/PaneRuntime/Sources/DarwinFSEventStreamClient.swift`** — Production FSEvents client. Registers paths, creates `FSEventStream` with `kFSEventStreamCreateFlagFileEvents`, pumps `FSEventBatch` through `AsyncStream`. You will reuse this for parent folder watching.
-4. **`Sources/AgentStudio/Core/PaneRuntime/Sources/FilesystemActor.swift`** — Currently registers worktree roots with `DarwinFSEventStreamClient`. You will extend it to also register parent folders. Key: `register(worktreeId:, repoId:, rootPath:)` creates one FSEvent stream per path.
+4. **`Sources/AgentStudio/Core/PaneRuntime/Sources/FilesystemActor.swift`** — Currently registers worktree roots with `DarwinFSEventStreamClient`. You will extend it to also register parent folders. Key: `register(worktreeId:, repoId:, rootPath:)` creates one FSEvent stream per path. **Critical:** `ingestRawPaths()` at line 170 has `guard roots[worktreeId] != nil` — watched-folder batches will be DROPPED if routed through this path. You must branch BEFORE `enqueueRawPaths` in the ingress loop.
 5. **`Sources/AgentStudio/Infrastructure/RepoScanner.swift`** — Centralized scanner: `scanForGitRepos(in:maxDepth:)`. Walks filesystem, stops at `.git` boundary, skips submodules. All scanning MUST go through this — no ad-hoc `.git` detection.
-6. **`Sources/AgentStudio/App/AppDelegate.swift`** — `handleAddFolderRequested()` (line ~823) uses `RepoScanner`. `addRepoIfNeeded()` (line ~860) emits `.repoDiscovered`. `replayBootTopology()` (line ~244) replays events on boot.
-7. **`Sources/AgentStudio/App/WorkspaceCacheCoordinator.swift`** — Uses `scopeSyncHandler` closure (not direct actor references) to communicate with `FilesystemGitPipeline`. Init: `bus`, `workspaceStore`, `repoCache`, `scopeSyncHandler`.
+6. **`Sources/AgentStudio/App/AppDelegate.swift`** — `handleAddFolderRequested()` (line ~823) uses `RepoScanner`. `addRepoIfNeeded()` (line ~860) currently calls `coordinator.consume()` directly — this MUST change to `bus.post()`. `replayBootTopology()` (line ~244) also calls `coordinator.consume()` directly — this MUST change to `bus.post()`.
+7. **`Sources/AgentStudio/App/WorkspaceCacheCoordinator.swift`** — Uses `scopeSyncHandler` closure (not direct actor references) to communicate with `FilesystemGitPipeline`. The `startConsuming()` bus subscription becomes the single intake for ALL topology events. Init: `bus`, `workspaceStore`, `repoCache`, `scopeSyncHandler`.
 8. **`Sources/AgentStudio/App/FilesystemGitPipeline.swift`** — Composition root. `applyScopeChange()` forwards `ScopeChange` to actors.
+
+### Unified Bus Pathway (Critical Design Decision)
+
+**All `.repoDiscovered` events flow through `RuntimeEventBus` → coordinator bus subscription.** There is no direct `coordinator.consume()` for topology. One event type, one intake pathway.
+
+```
+AppDelegate (boot replay)     ──► bus.post(.repoDiscovered) ──┐
+AppDelegate (Add Folder)      ──► bus.post(.repoDiscovered) ──┤
+FilesystemActor (FSEvents)    ──► bus.post(.repoDiscovered) ──┤──► EventBus ──► coordinator.startConsuming()
+                                                               │                        │
+                                                               │                 handleTopology()
+                                                               │                   (idempotent)
+```
+
+**Why unified:** Before this feature, topology had one producer (AppDelegate) and one consumer (coordinator), so direct `consume()` was acceptable. Now FilesystemActor also produces `.repoDiscovered`, creating two producers. The bus gives a single intake with source traceability via `SystemEnvelope.source`.
+
+**What changes:**
+- `AppDelegate.addRepoIfNeeded()`: replace `coordinator.consume(envelope)` with `await bus.post(envelope)` (or emit via `PaneRuntimeEventBus.shared`)
+- `AppDelegate.replayBootTopology()`: replace `coordinator.consume(envelope)` with `await bus.post(envelope)` — method becomes `async`
+- `FilesystemActor.emitRepoDiscovered()`: already posts to `runtimeBus.post()` (no change)
+- `coordinator.consume()` remains public for testability but is no longer called directly from app code
+
+### Topology Authority Model
+
+Workspace topology (which repos exist) is a **user decision**. Actors are executors within user-authorized scope, not autonomous topology owners.
+
+- **Add Folder** = user authorizes watching a folder path
+- **FilesystemActor** discovers repos only within persisted `WatchedPath` scopes
+- **Coordinator** is the single canonical mutator of workspace topology (via `handleTopology()`)
+- Actor may emit `.repoDiscovered` **only** when `repoPath` is under a registered watched folder scope — this is structurally enforced by `rescanAllWatchedFolders()` iterating only over `watchedFolderIds`
 
 ### Dependency Wiring Pattern
 
@@ -49,7 +79,7 @@ AGENT_RUN_ID=watch-$(date +%s) mise run lint
 
 ---
 
-### Task 1: WatchedPath Model + RepoScanner Constant
+### Task 1: WatchedPath Model + RepoScanner Constant ✅ DONE
 
 **Files:**
 - Create: `Sources/AgentStudio/Core/Models/WatchedPath.swift`
@@ -105,6 +135,7 @@ No `kind` enum — all watched paths are parent folders. Direct repo adds use th
 
 ```swift
 // Tests/AgentStudioTests/Core/Models/WatchedPathTests.swift
+import Foundation
 import Testing
 @testable import AgentStudio
 
@@ -141,16 +172,9 @@ Search for `maxDepth: 3` across the codebase. Replace with `RepoScanner.defaultM
 AGENT_RUN_ID=watch-$(date +%s) mise run build
 ```
 
-**Step 6: Commit**
-
-```bash
-git add -A
-git commit -m "feat: add WatchedPath model, centralize RepoScanner.defaultMaxDepth to 4"
-```
-
 ---
 
-### Task 2: WatchedPath in WorkspaceStore + Persistence
+### Task 2: WatchedPath in WorkspaceStore + Persistence ✅ DONE
 
 **Files:**
 - Modify: `Sources/AgentStudio/Core/Stores/WorkspaceStore.swift`
@@ -221,13 +245,6 @@ AGENT_RUN_ID=watch-$(date +%s) mise run build
 AGENT_RUN_ID=watch-$(date +%s) mise run test
 ```
 
-**Step 5: Commit**
-
-```bash
-git add -A
-git commit -m "feat: persist watchedPaths in WorkspaceStore and workspace.state.json"
-```
-
 ---
 
 ### Task 3: Extend ScopeChange + FilesystemActor FSEvents Registration
@@ -242,6 +259,8 @@ This is the core task. FilesystemActor gains FSEvents-based parent folder watchi
 **Step 1: Read FilesystemActor fully**
 
 Understand how `register()` creates FSEvent streams via `fseventStreamClient.register()`. How the ingress task processes `FSEventBatch`. How `ingestRawPaths()` filters and batches changes. You're adding a parallel path for parent folders.
+
+**Critical:** `ingestRawPaths()` at line 170 has `guard roots[worktreeId] != nil else { return }`. Watched-folder synthetic UUIDs are NOT in `roots`, so batches from watched folders will be silently dropped if routed through `enqueueRawPaths`. The ingress loop must branch BEFORE that call.
 
 **Step 2: Add ScopeChange case**
 
@@ -259,6 +278,8 @@ Update the `CustomStringConvertible` extension.
 **Step 3: Add parent folder tracking to FilesystemActor**
 
 Key design: parent folder FSEvent registrations are keyed by a synthetic UUID (derived from folder stableKey, NOT a real worktreeId). When FSEvents fires under a parent folder, the actor runs `RepoScanner` on that folder and emits `.repoDiscovered` for each repo found. The existing idempotent coordinator handles dedup.
+
+**Scope constraint:** The actor may only emit `.repoDiscovered` for paths discovered under a registered watched folder. This is structurally enforced — `rescanAllWatchedFolders()` iterates only over `watchedFolderIds` keys, and `handleWatchedFolderFSEvent()` checks `watchedFolderIds.values.contains(worktreeId)`.
 
 ```swift
 // New state in FilesystemActor
@@ -291,26 +312,68 @@ func updateWatchedFolders(_ paths: [URL]) async {
 }
 ```
 
-**Step 4: Handle FSEvents from parent folders**
+**Step 4: Branch ingress for watched-folder batches**
 
-The existing ingress task receives `FSEventBatch` with a `worktreeId`. For parent folder batches, the worktreeId will be the synthetic UUID. Detect this and trigger a rescan instead of the normal worktree-level processing:
+The existing `startIngressTaskIfNeeded()` routes all `FSEventBatch` into `enqueueRawPaths()` → `ingestRawPaths()`. But `ingestRawPaths()` guards on `roots[worktreeId]` at line 170 — synthetic watched-folder UUIDs are NOT in `roots`, so those batches would be silently dropped.
+
+**Fix:** Branch in the ingress loop BEFORE calling `enqueueRawPaths`:
 
 ```swift
-// In the ingress processing loop, check if the batch is from a parent folder
+private func startIngressTaskIfNeeded() {
+    guard ingressTask == nil else { return }
+    let stream = fseventStreamClient.events()
+    ingressTask = Task { [weak self] in
+        for await batch in stream {
+            guard !Task.isCancelled else { break }
+            // Branch: watched-folder batches go to rescan, not worktree ingress
+            if let self, await self.isWatchedFolderBatch(batch.worktreeId) {
+                await self.handleWatchedFolderFSEvent(batch)
+            } else {
+                await self?.enqueueRawPaths(worktreeId: batch.worktreeId, paths: batch.paths)
+            }
+        }
+    }
+}
+
 private func isWatchedFolderBatch(_ worktreeId: UUID) -> Bool {
     watchedFolderIds.values.contains(worktreeId)
 }
-```
 
-When a batch arrives from a watched folder, filter for `.git` path changes (e.g., path contains `/.git`). If found, rescan that specific watched folder using `RepoScanner`.
+private func handleWatchedFolderFSEvent(_ batch: FSEventBatch) async {
+    // Check if any path contains /.git — signals a new repo may have appeared
+    let hasGitChange = batch.paths.contains { $0.contains("/.git") }
+    guard hasGitChange else { return }
+
+    // Find which watched folder owns this synthetic ID
+    guard let folderPath = watchedFolderIds.first(where: { $0.value == batch.worktreeId })?.key else {
+        return
+    }
+
+    // Rescan just that folder
+    let repoPaths = await scanFolder(folderPath)
+    for repoPath in repoPaths {
+        await emitRepoDiscovered(repoPath: repoPath, parentPath: folderPath)
+    }
+}
+```
 
 **Step 5: Implement rescan + event emission**
 
+**Swift 6.2 concurrency context (SE-0461):** In Swift 6.2 with `NonisolatedNonsendingByDefault`, a plain `nonisolated async` function called from inside an actor **inherits the actor's executor** — it no longer escapes to the global pool. This means blocking I/O in a `nonisolated` method would block the actor's serial executor. `@concurrent nonisolated` is the explicit opt-out: it guarantees the function runs on the global concurrent executor regardless of caller context. For blocking filesystem walks, this is a **correctness requirement**, not a stylistic choice.
+
 ```swift
+/// Blocking filesystem scan — MUST run off the actor's executor.
+/// Under SE-0461, plain nonisolated async inherits actor isolation.
+/// @concurrent ensures this escapes to the global executor.
+@concurrent nonisolated private func scanFolder(_ folderPath: URL) -> [URL] {
+    RepoScanner().scanForGitRepos(in: folderPath)
+}
+
+/// Actor-isolated coordinator: reads actor state, dispatches scans off-executor,
+/// hops back to emit events on the actor.
 private func rescanAllWatchedFolders() async {
-    let scanner = RepoScanner()
     for (folderPath, _) in watchedFolderIds {
-        let repoPaths = scanner.scanForGitRepos(in: folderPath)
+        let repoPaths = await scanFolder(folderPath)
         for repoPath in repoPaths {
             await emitRepoDiscovered(repoPath: repoPath, parentPath: folderPath)
         }
@@ -318,10 +381,11 @@ private func rescanAllWatchedFolders() async {
 }
 
 private func emitRepoDiscovered(repoPath: URL, parentPath: URL) async {
+    nextEnvelopeSequence += 1
     let envelope = RuntimeEnvelope.system(
         SystemEnvelope(
             source: .builtin(.filesystemWatcher),
-            seq: nextSystemSeq(),
+            seq: nextEnvelopeSequence,
             timestamp: envelopeClock.now,
             event: .topology(.repoDiscovered(repoPath: repoPath, parentPath: parentPath))
         )
@@ -330,21 +394,24 @@ private func emitRepoDiscovered(repoPath: URL, parentPath: URL) async {
 }
 ```
 
-Use the actor's existing monotonic sequence counter pattern (`nextSystemSeq()` or equivalent). Do NOT hardcode `seq: 0`. Read how the actor generates seq numbers for its other events and follow the same pattern.
+Use the actor's existing `nextEnvelopeSequence` monotonic counter. Do NOT hardcode `seq: 0`.
 
-`RepoScanner.scanForGitRepos()` is blocking I/O. Since `FilesystemActor` is an `actor`, this runs on its serial executor. If performance is a concern, wrap in `@concurrent nonisolated` per project conventions. But for an initial implementation, the actor's executor is fine.
+The `scanFolder` → `rescanAllWatchedFolders` split is the key pattern: `scanFolder` is `@concurrent nonisolated` so the blocking `RepoScanner` walk runs on the global executor. `rescanAllWatchedFolders` stays actor-isolated so it can safely read `watchedFolderIds` and call `emitRepoDiscovered`. The `await` on `scanFolder` is the hop boundary between the two executors.
 
-**Step 6: Fallback timer**
+**Step 6: Fallback timer (with injectable clock)**
+
+The actor already has `sleepClock: any Clock<Duration>` injected at init (line 45). Use it — not `Task.sleep` — so the timer is testable.
 
 ```swift
 private func startFallbackRescan() {
     fallbackRescanTask?.cancel()
     guard !watchedFolderIds.isEmpty else { return }
     fallbackRescanTask = Task { [weak self] in
+        guard let self else { return }
         while !Task.isCancelled {
-            try? await Task.sleep(for: .seconds(300))  // 5 minutes
+            try? await self.sleepClock.sleep(for: .seconds(300))  // 5 minutes
             guard !Task.isCancelled else { break }
-            await self?.rescanAllWatchedFolders()
+            await self.rescanAllWatchedFolders()
         }
     }
 }
@@ -367,23 +434,73 @@ case .updateWatchedFolders(let paths):
 AGENT_RUN_ID=watch-$(date +%s) mise run build
 ```
 
-**Step 9: Commit**
-
-```bash
-git add -A
-git commit -m "feat: FSEvents-based parent folder watching in FilesystemActor"
-```
-
 ---
 
-### Task 4: Wire AppDelegate — Add Folder Persists + Triggers Watch
+### Task 4: Unify Topology Bus Pathway + Wire AppDelegate
+
+This task has two parts: (A) migrate all topology events to the unified bus pathway, and (B) wire Add Folder + boot to persist WatchedPaths and trigger FSEvents watching.
 
 **Files:**
 - Modify: `Sources/AgentStudio/App/AppDelegate.swift`
+- Modify: `docs/architecture/workspace_data_architecture.md`
 
-**Step 1: Modify handleAddFolderRequested**
+**Step 1: Migrate `addRepoIfNeeded()` to bus pathway**
 
-Add `store.addWatchedPath(rootURL)` before the existing scan. Then trigger scope sync so FilesystemActor starts watching:
+Currently `addRepoIfNeeded()` at line ~860 calls `coordinator.consume()` directly. Change to `bus.post()`:
+
+```swift
+private func addRepoIfNeeded(_ path: URL) async {
+    let normalizedPath = path.standardizedFileURL
+
+    // Skip if the path is already a known worktree of an available repo.
+    let isKnownWorktree = store.repos.contains { repo in
+        !store.isRepoUnavailable(repo.id)
+            && repo.worktrees.contains { $0.path.standardizedFileURL == normalizedPath }
+    }
+    if isKnownWorktree { return }
+
+    // Post topology fact on the bus — coordinator's subscription handles it.
+    let envelope = Self.makeTopologyEnvelope(repoPath: normalizedPath, source: .builtin(.coordinator))
+    await PaneRuntimeEventBus.shared.post(envelope)
+    paneCoordinator.syncFilesystemRootsAndActivity()
+}
+```
+
+Note: `addRepoIfNeeded` becomes `async` because `bus.post()` is async. Update its call sites (the `.addRepoAtPathRequested` handler) accordingly — it's already called from an async context.
+
+**Step 2: Migrate `replayBootTopology()` to bus pathway**
+
+Currently calls `coordinator.consume()` directly in a for-loop. Change to `bus.post()`:
+
+```swift
+private func replayBootTopology(store: WorkspaceStore) async {
+    let activePaneRepoIds: Set<UUID> = {
+        guard let activeTab = store.activeTab else { return [] }
+        let repoIds = activeTab.paneIds.compactMap { store.panes[$0]?.repoId }
+        return Set(repoIds)
+    }()
+    let prioritizedRepos = store.repos.sorted { a, b in
+        let aActive = activePaneRepoIds.contains(a.id)
+        let bActive = activePaneRepoIds.contains(b.id)
+        if aActive != bActive { return aActive }
+        return false
+    }
+    for repo in prioritizedRepos {
+        await PaneRuntimeEventBus.shared.post(
+            Self.makeTopologyEnvelope(
+                repoPath: repo.repoPath,
+                source: .builtin(.coordinator)
+            )
+        )
+    }
+}
+```
+
+The method becomes `async`. Update its call site in `applicationDidFinishLaunching` accordingly. The coordinator must have `startConsuming()` called BEFORE `replayBootTopology()` so the bus subscription is active.
+
+**Step 3: Modify handleAddFolderRequested**
+
+Add `store.addWatchedPath(rootURL)` before the existing scan. Trigger scope sync so FilesystemActor starts watching. One-shot scan results also go through `bus.post()`:
 
 ```swift
 private func handleAddFolderRequested(startingAt initialURL: URL? = nil) async {
@@ -412,41 +529,65 @@ private func handleAddFolderRequested(startingAt initialURL: URL? = nil) async {
         return
     }
 
+    // 4. Post topology facts via bus (not postAppEvent → addRepoIfNeeded → consume)
     for repoPath in repoPaths {
-        postAppEvent(.addRepoAtPathRequested(path: repoPath.standardizedFileURL))
+        await PaneRuntimeEventBus.shared.post(
+            Self.makeTopologyEnvelope(
+                repoPath: repoPath.standardizedFileURL,
+                source: .builtin(.coordinator)
+            )
+        )
     }
+    paneCoordinator.syncFilesystemRootsAndActivity()
 }
 ```
 
-Note: Step 3 is the existing scan — kept because it provides immediate results. The FSEvents watch (step 2) handles future discoveries.
+**Step 4: Sync watched folders on boot**
 
-**Step 2: Sync watched folders on boot**
-
-At the end of `replayBootTopology()`:
+At the end of `replayBootTopology()`, add:
 
 ```swift
 if !store.watchedPaths.isEmpty {
-    await coordinator.syncScope(
+    await workspaceCacheCoordinator.syncScope(
         .updateWatchedFolders(paths: store.watchedPaths.map(\.path))
     )
 }
 ```
 
-**Step 3: Remove hardcoded maxDepth: 3 from handleAddFolderRequested**
+**Step 5: Ensure coordinator subscription starts before boot replay**
 
-The call `RepoScanner().scanForGitRepos(in: rootURL, maxDepth: 3)` should become `RepoScanner().scanForGitRepos(in: rootURL)` — using the new default of 4.
+In `applicationDidFinishLaunching`, verify that `workspaceCacheCoordinator.startConsuming()` is called BEFORE `replayBootTopology()`. If it's not already in this order, reorder. The bus subscription must be active to receive the replayed topology events.
 
-**Step 4: Verify**
+**Step 6: Update architecture docs**
+
+In `docs/architecture/workspace_data_architecture.md`, update the "Topology Intake Seam" section (~line 469-480) and the "What NOT to Do" section (~line 482-488):
+
+**Replace the "Topology Intake Seam" section** with:
+
+```markdown
+### Topology Intake: Unified Bus Pathway
+
+All topology events (`.repoDiscovered`, `.repoRemoved`) flow through `RuntimeEventBus` → `WorkspaceCacheCoordinator.startConsuming()`. There is no direct `coordinator.consume()` for topology in app code. One event type, one intake pathway.
+
+Producers:
+- **AppDelegate** — boot replay and Add Folder one-shot scan
+- **FilesystemActor** — FSEvents-triggered rescan of watched folders
+
+The coordinator's `handleTopology()` is idempotent (dedup by stableKey). Boot replay + FSEvents rescans posting the same path is a no-op on the second call.
+
+`coordinator.consume()` remains public for testability but is not called directly from app code.
+```
+
+**Update the "What NOT to Do" bullet** from:
+> "Do not make actors emit canonical topology events. Only AppDelegate (user actions + boot replay) emits `.repoDiscovered`/`.repoRemoved`."
+
+To:
+> "Actors may emit `.repoDiscovered` only within user-authorized watched-folder scopes. `FilesystemActor` rescans persisted `WatchedPath` folders and posts discoveries on the bus. This is not autonomous discovery — the user delegated authority via Add Folder."
+
+**Step 7: Verify**
 
 ```bash
 AGENT_RUN_ID=watch-$(date +%s) mise run build
-```
-
-**Step 5: Commit**
-
-```bash
-git add Sources/AgentStudio/App/AppDelegate.swift
-git commit -m "feat: Add Folder persists WatchedPath and triggers FSEvents watch on boot"
 ```
 
 ---
@@ -482,7 +623,46 @@ git commit -m "feat: Add Folder persists WatchedPath and triggers FSEvents watch
 }
 ```
 
-**Step 2: Test rescan dedup via coordinator**
+**Step 2: Test topology via bus (not direct consume)**
+
+Verify that topology events posted on the bus are received by the coordinator's subscription:
+
+```swift
+@Test func topologyEvent_receivedViaBusSubscription() async throws {
+    let bus = EventBus<RuntimeEnvelope>()
+    let workspaceStore = WorkspaceStore()
+    let repoCache = WorkspaceRepoCache()
+    let coordinator = WorkspaceCacheCoordinator(
+        bus: bus,
+        workspaceStore: workspaceStore,
+        repoCache: repoCache,
+        scopeSyncHandler: { _ in }
+    )
+    coordinator.startConsuming()
+
+    let repoPath = URL(fileURLWithPath: "/projects/my-repo")
+    let envelope = RuntimeEnvelope.system(
+        SystemEnvelope(
+            source: .builtin(.filesystemWatcher),
+            seq: 1,
+            timestamp: .now,
+            event: .topology(.repoDiscovered(
+                repoPath: repoPath,
+                parentPath: URL(fileURLWithPath: "/projects")
+            ))
+        )
+    )
+    await bus.post(envelope)
+
+    // Give the async subscription time to process
+    try await Task.sleep(for: .milliseconds(50))
+
+    #expect(workspaceStore.repos.count == 1)
+    #expect(workspaceStore.repos.first?.repoPath == repoPath)
+}
+```
+
+**Step 3: Test rescan dedup via coordinator (idempotency)**
 
 ```swift
 @Test func rescan_repoDiscovered_idempotent() async {
@@ -496,7 +676,7 @@ git commit -m "feat: Add Folder persists WatchedPath and triggers FSEvents watch
     let repoPath = URL(fileURLWithPath: "/projects/my-repo")
     workspaceStore.addRepo(at: repoPath)
 
-    // Simulate two rescans finding the same repo
+    // Simulate two rescans finding the same repo (boot replay + FSEvents rescan)
     let envelope = RuntimeEnvelope.system(
         SystemEnvelope(
             source: .builtin(.filesystemWatcher),
@@ -515,17 +695,10 @@ git commit -m "feat: Add Folder persists WatchedPath and triggers FSEvents watch
 }
 ```
 
-**Step 3: Verify**
+**Step 4: Verify**
 
 ```bash
 AGENT_RUN_ID=watch-$(date +%s) mise run test
-```
-
-**Step 4: Commit**
-
-```bash
-git add -A
-git commit -m "test: watched folder scope change forwarding and rescan dedup"
 ```
 
 ---
@@ -551,6 +724,9 @@ AGENT_RUN_ID=watch-$(date +%s) mise run test
 # No scattered maxDepth: 3 (should all use defaultMaxDepth or no param)
 grep -rn "maxDepth: 3" Sources/ --include="*.swift"
 
+# No direct coordinator.consume() in app code (only in tests)
+grep -rn "coordinator.consume" Sources/AgentStudio/App/ --include="*.swift"
+
 # WatchedPath in persistence
 grep -rn "watchedPaths" Sources/AgentStudio/Core/Stores/WorkspacePersistor.swift
 
@@ -562,16 +738,12 @@ grep -rn "watchedFolderIds\|updateWatchedFolders\|rescanAllWatchedFolders" Sourc
 
 # Pipeline forwards it
 grep -rn "updateWatchedFolders" Sources/AgentStudio/App/FilesystemGitPipeline.swift
+
+# Bus pathway in AppDelegate (should see bus.post, NOT coordinator.consume)
+grep -rn "bus.post\|PaneRuntimeEventBus.shared.post" Sources/AgentStudio/App/AppDelegate.swift
 ```
 
-Expected: zero `maxDepth: 3` matches. All other greps return results.
-
-**Step 4: Commit**
-
-```bash
-git add -A
-git commit -m "chore: verification pass for persistent WatchedPath feature"
-```
+Expected: zero `maxDepth: 3` matches. Zero `coordinator.consume` in `Sources/AgentStudio/App/`. All other greps return results.
 
 ---
 
@@ -579,21 +751,28 @@ git commit -m "chore: verification pass for persistent WatchedPath feature"
 
 | Task | What | Files |
 |------|------|-------|
-| 1 | WatchedPath model + centralize maxDepth=4 | `WatchedPath.swift`, `RepoScanner.swift` |
-| 2 | Store + persistence | `WorkspaceStore.swift`, `WorkspacePersistor.swift` |
-| 3 | ScopeChange + FSEvents parent folder watching | `WorkspaceCacheCoordinator.swift`, `FilesystemActor.swift`, `FilesystemGitPipeline.swift` |
-| 4 | Wire AppDelegate (Add Folder + boot) | `AppDelegate.swift` |
-| 5 | Tests | `WorkspaceCacheCoordinatorTests.swift` |
+| 1 ✅ | WatchedPath model + centralize maxDepth=4 | `WatchedPath.swift`, `RepoScanner.swift` |
+| 2 ✅ | Store + persistence | `WorkspaceStore.swift`, `WorkspacePersistor.swift` |
+| 3 | ScopeChange + FSEvents parent folder watching + ingress branching | `WorkspaceCacheCoordinator.swift`, `FilesystemActor.swift`, `FilesystemGitPipeline.swift` |
+| 4 | Unify topology bus pathway + wire AppDelegate (Add Folder + boot) | `AppDelegate.swift`, `workspace_data_architecture.md` |
+| 5 | Tests (bus pathway + idempotency) | `WorkspaceCacheCoordinatorTests.swift` |
 | 6 | Verification | All |
 
 ## Key Design Decisions
 
 | Decision | Rationale |
 |----------|-----------|
+| Unified bus pathway for all topology | Two producers (AppDelegate + FilesystemActor) → one intake (bus subscription). Eliminates direct `coordinator.consume()` from app code. Source traceability via `SystemEnvelope.source`. |
 | FSEvents, not polling | Near-instant detection. No wasted I/O. Uses existing `DarwinFSEventStreamClient`. |
-| 5-min fallback timer | Robustness for edge cases where FSEvents misses something. Not the primary mechanism. |
+| 5-min fallback timer (injectable clock) | Robustness for edge cases where FSEvents misses something. Uses `sleepClock.sleep(for:)` not `Task.sleep` — testable via injected clock. |
 | maxDepth: 4 (centralized) | Supports `~/projects/org/suborg/repo/.git`. Scanner stops at `.git` — deeper nesting is safe. |
 | No `WatchedPathKind` enum | All watched paths are parent folders. Direct repos use `addRepoIfNeeded()`. YAGNI. |
 | No UI changes | Entry point is existing "Add Folder" menu item. No new UI surfaces. |
-| `ScopeChange`, not bus event | `ConfigChangeEvent.watchedPathsUpdated` exists but has no consumers. YAGNI. Don't delete it — emit when a consumer exists. |
+| `ScopeChange`, not bus event for config | `ConfigChangeEvent.watchedPathsUpdated` exists but has no consumers. YAGNI. Don't delete it — emit when a consumer exists. |
 | Synthetic UUIDs for FSEvent registration | Parent folders aren't worktrees. Use a synthetic UUID keyed by folder path so `DarwinFSEventStreamClient` can manage the stream lifecycle. |
+| Ingress branching before `enqueueRawPaths` | `ingestRawPaths()` guards on `roots[worktreeId]` — synthetic watched-folder UUIDs are not in `roots`. Must branch in the ingress loop to route watched-folder batches to rescan, not worktree-level processing. |
+| Actor topology scope constraint | Actor may emit `.repoDiscovered` only for paths under registered watched folders. Structurally enforced — `rescanAllWatchedFolders()` iterates only `watchedFolderIds`. User delegates authority via Add Folder; actor executes within that scope. |
+| `@concurrent nonisolated` for blocking scan | SE-0461 flips `nonisolated async` to inherit caller's actor in 6.2. Without `@concurrent`, `RepoScanner.scanForGitRepos()` would block `FilesystemActor`'s serial executor. `@concurrent` guarantees escape to the global executor — correctness, not style. |
+| `Task { [weak self] }` for periodic timer | Existing codebase pattern for long-lived tasks stored as actor properties. Prevents retain cycles. `[weak self]` works correctly with actors in Swift 6.2. |
+| `parentPath` traceability (not WatchedPath.id) | `.repoDiscovered` carries `parentPath` for traceability. Adding `WatchedPath.id` would couple topology events to watched-path identity. Coordinator can derive scope membership from `store.watchedPaths` if needed. |
+| `decodeIfPresent ?? []` for schema evolution | Old workspace files lack `watchedPaths`. Default `[]` gives correct initial state. Field written on next save. Not backward compat ceremony. |

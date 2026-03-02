@@ -143,6 +143,8 @@ struct PrimarySidebarPipelineIntegrationTests {
                     await forgeActor.unregister(repo: repoId)
                 case .refreshForgeRepo(let repoId, let correlationId):
                     await forgeActor.refresh(repo: repoId, correlationId: correlationId)
+                case .updateWatchedFolders:
+                    break
                 }
             }
         )
@@ -366,6 +368,8 @@ struct PrimarySidebarPipelineIntegrationTests {
                     await forgeActor.unregister(repo: repoId)
                 case .refreshForgeRepo(let repoId, let correlationId):
                     await forgeActor.refresh(repo: repoId, correlationId: correlationId)
+                case .updateWatchedFolders:
+                    break
                 }
             }
         )
