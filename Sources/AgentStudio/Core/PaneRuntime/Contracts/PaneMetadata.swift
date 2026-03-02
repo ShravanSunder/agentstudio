@@ -57,7 +57,6 @@ struct PaneMetadata: Codable, Hashable, Sendable {
     private(set) var title: String
     private(set) var facets: PaneContextFacets
     private(set) var checkoutRef: String?
-    private(set) var agentType: AgentType?
 
     init(
         paneId: PaneId = PaneId(),
@@ -67,8 +66,7 @@ struct PaneMetadata: Codable, Hashable, Sendable {
         createdAt: Date = Date(),
         title: String = "Terminal",
         facets: PaneContextFacets = .empty,
-        checkoutRef: String? = nil,
-        agentType: AgentType? = nil
+        checkoutRef: String? = nil
     ) {
         self.paneId = paneId
         self.contentType = contentType
@@ -83,7 +81,6 @@ struct PaneMetadata: Codable, Hashable, Sendable {
         )
         self.facets = facets.fillingNilFields(from: sourceFacets)
         self.checkoutRef = checkoutRef
-        self.agentType = agentType
     }
 
     var terminalSource: TerminalSource {
@@ -100,10 +97,6 @@ struct PaneMetadata: Codable, Hashable, Sendable {
 
     mutating func updateCWD(_ newCWD: URL?) {
         facets.cwd = newCWD
-    }
-
-    mutating func updateAgentType(_ newAgentType: AgentType?) {
-        agentType = newAgentType
     }
 
     mutating func updateCheckoutRef(_ newCheckoutRef: String?) {
@@ -126,8 +119,7 @@ struct PaneMetadata: Codable, Hashable, Sendable {
             createdAt: createdAt,
             title: title,
             facets: facets,
-            checkoutRef: checkoutRef,
-            agentType: agentType
+            checkoutRef: checkoutRef
         )
     }
 
@@ -162,7 +154,6 @@ struct PaneMetadata: Codable, Hashable, Sendable {
         case title
         case facets
         case checkoutRef
-        case agentType
     }
 
     init(from decoder: Decoder) throws {
@@ -176,6 +167,5 @@ struct PaneMetadata: Codable, Hashable, Sendable {
         self.title = try container.decode(String.self, forKey: .title)
         self.facets = try container.decode(PaneContextFacets.self, forKey: .facets)
         self.checkoutRef = try container.decodeIfPresent(String.self, forKey: .checkoutRef)
-        self.agentType = try container.decodeIfPresent(AgentType.self, forKey: .agentType)
     }
 }

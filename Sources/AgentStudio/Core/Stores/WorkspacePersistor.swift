@@ -7,43 +7,133 @@ private let persistorLogger = Logger(subsystem: "com.agentstudio", category: "Wo
 /// Collaborator of WorkspaceStore — not a public peer.
 struct WorkspacePersistor {
 
+    /// Distinguishes "no file found" from "file exists but is corrupt" on load.
+    enum LoadResult<T> {
+        case loaded(T)
+        case missing
+        case corrupt(Error)
+    }
+
+    static let currentSchemaVersion = 1
+    private static let canonicalSuffix = ".workspace.state.json"
+
+    // MARK: - Persistable Structs
+
     /// On-disk representation of workspace state.
     struct PersistableState: Codable {
+        var schemaVersion: Int
         var id: UUID
         var name: String
-        var repos: [Repo]
+        var repos: [CanonicalRepo]
+        var worktrees: [CanonicalWorktree]
+        var unavailableRepoIds: Set<UUID>
         var panes: [Pane]
         var tabs: [Tab]
         var activeTabId: UUID?
         var sidebarWidth: CGFloat
         var windowFrame: CGRect?
+        var watchedPaths: [WatchedPath]
         var createdAt: Date
         var updatedAt: Date
+
+        enum CodingKeys: String, CodingKey {
+            case schemaVersion, id, name, repos, worktrees, unavailableRepoIds
+            case panes, tabs, activeTabId, sidebarWidth, windowFrame
+            case watchedPaths, createdAt, updatedAt
+        }
 
         init(
             id: UUID = UUID(),
             name: String = "Default Workspace",
-            repos: [Repo] = [],
+            repos: [CanonicalRepo] = [],
+            worktrees: [CanonicalWorktree] = [],
+            unavailableRepoIds: Set<UUID> = [],
             panes: [Pane] = [],
             tabs: [Tab] = [],
             activeTabId: UUID? = nil,
             sidebarWidth: CGFloat = 250,
             windowFrame: CGRect? = nil,
+            watchedPaths: [WatchedPath] = [],
             createdAt: Date = Date(),
             updatedAt: Date = Date()
         ) {
+            self.schemaVersion = WorkspacePersistor.currentSchemaVersion
             self.id = id
             self.name = name
             self.repos = repos
+            self.worktrees = worktrees
+            self.unavailableRepoIds = unavailableRepoIds
             self.panes = panes
             self.tabs = tabs
             self.activeTabId = activeTabId
             self.sidebarWidth = sidebarWidth
             self.windowFrame = windowFrame
+            self.watchedPaths = watchedPaths
             self.createdAt = createdAt
             self.updatedAt = updatedAt
         }
+
     }
+
+    /// Rebuildable cache snapshot persisted separately from canonical state.
+    struct PersistableCacheState: Codable {
+        var schemaVersion: Int
+        var workspaceId: UUID
+        var repoEnrichmentByRepoId: [UUID: RepoEnrichment]
+        var worktreeEnrichmentByWorktreeId: [UUID: WorktreeEnrichment]
+        var pullRequestCountByWorktreeId: [UUID: Int]
+        var notificationCountByWorktreeId: [UUID: Int]
+        var sourceRevision: UInt64
+        var lastRebuiltAt: Date?
+
+        init(
+            workspaceId: UUID,
+            repoEnrichmentByRepoId: [UUID: RepoEnrichment] = [:],
+            worktreeEnrichmentByWorktreeId: [UUID: WorktreeEnrichment] = [:],
+            pullRequestCountByWorktreeId: [UUID: Int] = [:],
+            notificationCountByWorktreeId: [UUID: Int] = [:],
+            sourceRevision: UInt64 = 0,
+            lastRebuiltAt: Date? = nil
+        ) {
+            self.schemaVersion = WorkspacePersistor.currentSchemaVersion
+            self.workspaceId = workspaceId
+            self.repoEnrichmentByRepoId = repoEnrichmentByRepoId
+            self.worktreeEnrichmentByWorktreeId = worktreeEnrichmentByWorktreeId
+            self.pullRequestCountByWorktreeId = pullRequestCountByWorktreeId
+            self.notificationCountByWorktreeId = notificationCountByWorktreeId
+            self.sourceRevision = sourceRevision
+            self.lastRebuiltAt = lastRebuiltAt
+        }
+
+    }
+
+    /// UI preference snapshot persisted separately from canonical and cache state.
+    struct PersistableUIState: Codable {
+        var schemaVersion: Int
+        var workspaceId: UUID
+        var expandedGroups: Set<String>
+        var checkoutColors: [String: String]
+        var filterText: String
+        var isFilterVisible: Bool
+
+        init(
+            workspaceId: UUID,
+            expandedGroups: Set<String> = [],
+            checkoutColors: [String: String] = [:],
+            filterText: String = "",
+            isFilterVisible: Bool = false
+        ) {
+            self.schemaVersion = WorkspacePersistor.currentSchemaVersion
+            self.workspaceId = workspaceId
+            self.expandedGroups = expandedGroups
+            self.checkoutColors = checkoutColors
+            self.filterText = filterText
+            self.isFilterVisible = isFilterVisible
+        }
+
+    }
+
+    // MARK: - Properties
 
     let workspacesDir: URL
 
@@ -65,14 +155,18 @@ struct WorkspacePersistor {
                 withIntermediateDirectories: true
             )
         } catch {
-            persistorLogger.error("Failed to create workspaces directory \(self.workspacesDir.path): \(error)")
+            persistorLogger.error(
+                "Failed to create workspaces directory \(self.workspacesDir.path): \(error)"
+            )
         }
     }
+
+    // MARK: - Save
 
     /// Save state to disk. Immediate write with atomic option.
     /// Throws on encoding or write failure so callers can handle.
     func save(_ state: PersistableState) throws {
-        let url = fileURL(for: state.id)
+        let url = canonicalFileURL(for: state.id)
         let encoder = JSONEncoder()
         encoder.outputFormatting = [.prettyPrinted, .sortedKeys]
 
@@ -80,8 +174,27 @@ struct WorkspacePersistor {
         try data.write(to: url, options: .atomic)
     }
 
-    /// Load state from disk. Returns nil if no workspace file exists or schema is incompatible.
-    func load() -> PersistableState? {
+    func saveCache(_ state: PersistableCacheState) throws {
+        let url = cacheFileURL(for: state.workspaceId)
+        let encoder = JSONEncoder()
+        encoder.outputFormatting = [.prettyPrinted, .sortedKeys]
+        let data = try encoder.encode(state)
+        try data.write(to: url, options: .atomic)
+    }
+
+    func saveUI(_ state: PersistableUIState) throws {
+        let url = uiFileURL(for: state.workspaceId)
+        let encoder = JSONEncoder()
+        encoder.outputFormatting = [.prettyPrinted, .sortedKeys]
+        let data = try encoder.encode(state)
+        try data.write(to: url, options: .atomic)
+    }
+
+    // MARK: - Load
+
+    /// Load canonical workspace state from disk.
+    /// Scans for files matching the `*.workspace.state.json` suffix convention.
+    func load() -> LoadResult<PersistableState> {
         let contents: [URL]
         do {
             contents = try FileManager.default.contentsOfDirectory(
@@ -91,70 +204,82 @@ struct WorkspacePersistor {
             )
         } catch {
             // Directory doesn't exist yet — fresh install
-            return nil
+            return .missing
         }
 
-        let workspaceFiles = contents.filter { $0.pathExtension == "json" }
-
-        // Single workspace — load the first one found
-        for fileURL in workspaceFiles {
-            if let state = decodePersistedState(from: fileURL) {
-                return state
-            }
+        let canonicalFiles = contents.filter {
+            $0.lastPathComponent.hasSuffix(Self.canonicalSuffix)
         }
 
-        return nil
-    }
-
-    /// Load state from a specific file URL (for testing).
-    func load(from url: URL) -> PersistableState? {
-        decodePersistedState(from: url)
-    }
-
-    /// Decode canonical persisted workspace state.
-    private func decodePersistedState(from url: URL) -> PersistableState? {
-        let data: Data
-        do {
-            data = try Data(contentsOf: url)
-        } catch {
-            persistorLogger.error("Failed to read workspace file \(url.lastPathComponent): \(error)")
-            return nil
+        guard let fileURL = canonicalFiles.first else {
+            return .missing
         }
 
-        do {
-            return try JSONDecoder().decode(PersistableState.self, from: data)
-        } catch {
-            persistorLogger.error("Failed to load workspace file \(url.lastPathComponent): \(error)")
-            return nil
-        }
+        return decodeFromFile(fileURL, as: PersistableState.self)
     }
 
-    /// Check if any workspace files exist on disk (distinguishes first-launch from load-failure).
-    func hasWorkspaceFiles() -> Bool {
-        guard
-            let contents = try? FileManager.default.contentsOfDirectory(
-                at: workspacesDir,
-                includingPropertiesForKeys: nil,
-                options: .skipsHiddenFiles
-            )
-        else { return false }
-        return contents.contains { $0.pathExtension == "json" }
+    func loadCache(for workspaceId: UUID) -> LoadResult<PersistableCacheState> {
+        decodeFromFile(cacheFileURL(for: workspaceId), as: PersistableCacheState.self)
     }
 
-    /// Delete workspace file.
+    func loadUI(for workspaceId: UUID) -> LoadResult<PersistableUIState> {
+        decodeFromFile(uiFileURL(for: workspaceId), as: PersistableUIState.self)
+    }
+
+    // MARK: - Delete
+
+    /// Delete all workspace files for the given workspace ID.
     func delete(id: UUID) {
-        let url = fileURL(for: id)
-        do {
-            try FileManager.default.removeItem(at: url)
-        } catch {
-            persistorLogger.error("Failed to delete workspace file \(url.lastPathComponent): \(error)")
+        let urls = [
+            canonicalFileURL(for: id),
+            cacheFileURL(for: id),
+            uiFileURL(for: id),
+        ]
+        for url in urls {
+            do {
+                try FileManager.default.removeItem(at: url)
+            } catch {
+                persistorLogger.error(
+                    "Failed to delete workspace file \(url.lastPathComponent): \(error)"
+                )
+            }
         }
     }
 
     // MARK: - Private
 
-    private func fileURL(for id: UUID) -> URL {
-        workspacesDir.appending(path: "\(id.uuidString).json")
+    private func decodeFromFile<T: Decodable>(
+        _ url: URL,
+        as type: T.Type
+    ) -> LoadResult<T> {
+        let data: Data
+        do {
+            data = try Data(contentsOf: url)
+        } catch {
+            // File doesn't exist or can't be read — treat as missing.
+            return .missing
+        }
+
+        do {
+            let decoded = try JSONDecoder().decode(type, from: data)
+            return .loaded(decoded)
+        } catch {
+            persistorLogger.error(
+                "Failed to decode workspace file \(url.lastPathComponent): \(error)"
+            )
+            return .corrupt(error)
+        }
     }
 
+    private func canonicalFileURL(for id: UUID) -> URL {
+        workspacesDir.appending(path: "\(id.uuidString)\(Self.canonicalSuffix)")
+    }
+
+    private func cacheFileURL(for id: UUID) -> URL {
+        workspacesDir.appending(path: "\(id.uuidString).workspace.cache.json")
+    }
+
+    private func uiFileURL(for id: UUID) -> URL {
+        workspacesDir.appending(path: "\(id.uuidString).workspace.ui.json")
+    }
 }

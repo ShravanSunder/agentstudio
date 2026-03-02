@@ -6,20 +6,16 @@ import Foundation
 
 func makeWorktree(
     id: UUID = UUID(),
+    repoId: UUID = UUID(),
     name: String = "feature-branch",
     path: String = "/tmp/test-repo/feature-branch",
-    branch: String = "feature-branch",
-    agent: AgentType? = nil,
-    status: WorktreeStatus = .idle,
     isMainWorktree: Bool = false
 ) -> Worktree {
     Worktree(
         id: id,
+        repoId: repoId,
         name: name,
         path: URL(fileURLWithPath: path),
-        branch: branch,
-        agent: agent,
-        status: status,
         isMainWorktree: isMainWorktree
     )
 }
@@ -31,16 +27,14 @@ func makeRepo(
     name: String = "test-repo",
     repoPath: String = "/tmp/test-repo",
     worktrees: [Worktree] = [],
-    createdAt: Date = Date(timeIntervalSince1970: 1_000_000),
-    updatedAt: Date = Date(timeIntervalSince1970: 1_000_000)
+    createdAt: Date = Date(timeIntervalSince1970: 1_000_000)
 ) -> Repo {
     Repo(
         id: id,
         name: name,
         repoPath: URL(fileURLWithPath: repoPath),
         worktrees: worktrees,
-        createdAt: createdAt,
-        updatedAt: updatedAt
+        createdAt: createdAt
     )
 }
 
@@ -50,7 +44,6 @@ func makePane(
     id: UUID = UUIDv7.generate(),
     source: TerminalSource = .floating(workingDirectory: nil, title: nil),
     title: String = "Terminal",
-    agent: AgentType? = nil,
     provider: SessionProvider = .zmx,
     lifetime: SessionLifetime = .persistent,
     residency: SessionResidency = .active
@@ -58,7 +51,7 @@ func makePane(
     Pane(
         id: id,
         content: .terminal(TerminalState(provider: provider, lifetime: lifetime)),
-        metadata: PaneMetadata(source: .init(source), title: title, agentType: agent),
+        metadata: PaneMetadata(source: .init(source), title: title),
         residency: residency
     )
 }

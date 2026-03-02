@@ -39,7 +39,7 @@ actor FilesystemActor {
         }
     }
 
-    private let bus: EventBus<PaneEventEnvelope>
+    private let runtimeBus: EventBus<RuntimeEnvelope>
     private let fseventStreamClient: any FSEventStreamClient
     private let envelopeClock = ContinuousClock()
     private let sleepClock: any Clock<Duration>
@@ -51,30 +51,25 @@ actor FilesystemActor {
     private var activePaneWorktreeId: UUID?
     private var nextEnvelopeSequence: UInt64 = 0
 
+    private var watchedFolderIds: [URL: UUID] = [:]
+    private var fallbackRescanTask: Task<Void, Never>?
+
     private var ingressTask: Task<Void, Never>?
     private var drainTask: Task<Void, Never>?
     private var hasShutdown = false
 
     init(
-        bus: EventBus<PaneEventEnvelope> = PaneRuntimeEventBus.shared,
-        fseventStreamClient: any FSEventStreamClient = NoopFSEventStreamClient(),
+        bus: EventBus<RuntimeEnvelope> = PaneRuntimeEventBus.shared,
+        fseventStreamClient: any FSEventStreamClient = DarwinFSEventStreamClient(),
         sleepClock: any Clock<Duration> = ContinuousClock(),
         debounceWindow: Duration = .milliseconds(500),
         maxFlushLatency: Duration = .seconds(2)
     ) {
-        self.bus = bus
+        self.runtimeBus = bus
         self.fseventStreamClient = fseventStreamClient
         self.sleepClock = sleepClock
         self.debounceWindow = debounceWindow
         self.maxFlushLatency = maxFlushLatency
-        if fseventStreamClient is NoopFSEventStreamClient {
-            Self.logger.warning(
-                """
-                FilesystemActor initialized with NoopFSEventStreamClient; OS filesystem events are disabled. \
-                TODO(LUNA-349): wire concrete FSEventStreamClient in production composition root.
-                """
-            )
-        }
     }
 
     isolated deinit {
@@ -100,11 +95,12 @@ actor FilesystemActor {
             pathFilter: FilesystemPathFilter.load(forRootPath: rootPath)
         )
         pendingChangesByWorktreeId[worktreeId] = pendingChangesByWorktreeId[worktreeId] ?? PendingWorktreeChanges()
-        await fseventStreamClient.register(worktreeId: worktreeId, repoId: repoId, rootPath: rootPath)
+        fseventStreamClient.register(worktreeId: worktreeId, repoId: repoId, rootPath: rootPath)
         await emitFilesystemEvent(
             worktreeId: worktreeId,
             repoId: repoId,
             timestamp: envelopeClock.now,
+            rootPathHint: rootPath,
             event: .worktreeRegistered(worktreeId: worktreeId, repoId: repoId, rootPath: rootPath)
         )
     }
@@ -115,12 +111,13 @@ actor FilesystemActor {
         if activePaneWorktreeId == worktreeId {
             activePaneWorktreeId = nil
         }
-        await fseventStreamClient.unregister(worktreeId: worktreeId)
+        fseventStreamClient.unregister(worktreeId: worktreeId)
         guard let removedRoot else { return }
         await emitFilesystemEvent(
             worktreeId: worktreeId,
             repoId: removedRoot.repoId,
             timestamp: envelopeClock.now,
+            rootPathHint: removedRoot.rootPath,
             event: .worktreeUnregistered(worktreeId: worktreeId, repoId: removedRoot.repoId)
         )
     }
@@ -153,11 +150,14 @@ actor FilesystemActor {
     func shutdown() async {
         let activeIngressTask = ingressTask
         let activeDrainTask = drainTask
+        let activeFallbackTask = fallbackRescanTask
 
         ingressTask?.cancel()
         ingressTask = nil
         drainTask?.cancel()
         drainTask = nil
+        fallbackRescanTask?.cancel()
+        fallbackRescanTask = nil
 
         if let activeIngressTask {
             await activeIngressTask.value
@@ -165,9 +165,13 @@ actor FilesystemActor {
         if let activeDrainTask {
             await activeDrainTask.value
         }
+        if let activeFallbackTask {
+            await activeFallbackTask.value
+        }
 
         roots.removeAll(keepingCapacity: false)
         pendingChangesByWorktreeId.removeAll(keepingCapacity: false)
+        watchedFolderIds.removeAll(keepingCapacity: false)
         activePaneWorktreeId = nil
         fseventStreamClient.shutdown()
         hasShutdown = true
@@ -222,7 +226,12 @@ actor FilesystemActor {
         ingressTask = Task { [weak self] in
             for await batch in stream {
                 guard !Task.isCancelled else { break }
-                await self?.enqueueRawPaths(worktreeId: batch.worktreeId, paths: batch.paths)
+                guard let self else { break }
+                if await self.isWatchedFolderBatch(batch.worktreeId) {
+                    await self.handleWatchedFolderFSEvent(batch)
+                } else {
+                    await self.enqueueRawPaths(worktreeId: batch.worktreeId, paths: batch.paths)
+                }
             }
         }
     }
@@ -268,9 +277,9 @@ actor FilesystemActor {
                     return
                 } catch {
                     Self.logger.warning(
-                        "Unexpected filesystem drain sleep failure: \(error.localizedDescription, privacy: .public)"
+                        "Unexpected filesystem drain sleep failure: \(String(describing: error), privacy: .public)"
                     )
-                    return
+                    continue
                 }
                 guard !Task.isCancelled else { return }
             } else {
@@ -396,6 +405,7 @@ actor FilesystemActor {
                 worktreeId: worktreeId,
                 repoId: root.repoId,
                 timestamp: timestamp,
+                rootPathHint: root.rootPath,
                 event: .filesChanged(changeset: changeset)
             )
         }
@@ -426,26 +436,183 @@ actor FilesystemActor {
         worktreeId: UUID,
         repoId: UUID,
         timestamp: ContinuousClock.Instant,
+        rootPathHint: URL? = nil,
         event: FilesystemEvent
     ) async {
         nextEnvelopeSequence += 1
-        let envelope = PaneEventEnvelope(
-            source: .system(.builtin(.filesystemWatcher)),
-            sourceFacets: PaneContextFacets(repoId: repoId, worktreeId: worktreeId),
-            paneKind: nil,
-            seq: nextEnvelopeSequence,
-            commandId: nil,
-            correlationId: nil,
-            timestamp: timestamp,
-            epoch: 0,
-            event: .filesystem(event)
-        )
-        let postResult = await bus.post(envelope)
-        if postResult.droppedCount > 0 {
-            Self.logger.warning(
-                "Filesystem event delivery dropped for \(postResult.droppedCount, privacy: .public) subscriber(s); seq=\(self.nextEnvelopeSequence, privacy: .public)"
+        let runtimeEnvelope: RuntimeEnvelope
+        switch event {
+        case .worktreeRegistered(let registeredWorktreeId, let registeredRepoId, let rootPath):
+            runtimeEnvelope = .system(
+                SystemEnvelope(
+                    source: .builtin(.filesystemWatcher),
+                    seq: nextEnvelopeSequence,
+                    timestamp: timestamp,
+                    event: .topology(
+                        .worktreeRegistered(
+                            worktreeId: registeredWorktreeId,
+                            repoId: registeredRepoId,
+                            rootPath: rootPath
+                        )
+                    )
+                )
+            )
+        case .worktreeUnregistered(let unregisteredWorktreeId, let unregisteredRepoId):
+            runtimeEnvelope = .system(
+                SystemEnvelope(
+                    source: .builtin(.filesystemWatcher),
+                    seq: nextEnvelopeSequence,
+                    timestamp: timestamp,
+                    event: .topology(
+                        .worktreeUnregistered(
+                            worktreeId: unregisteredWorktreeId,
+                            repoId: unregisteredRepoId
+                        )
+                    )
+                )
+            )
+        case .filesChanged:
+            runtimeEnvelope = .worktree(
+                WorktreeEnvelope(
+                    source: .system(.builtin(.filesystemWatcher)),
+                    seq: nextEnvelopeSequence,
+                    timestamp: timestamp,
+                    repoId: repoId,
+                    worktreeId: worktreeId,
+                    event: .filesystem(event)
+                )
+            )
+        case .gitSnapshotChanged, .diffAvailable, .branchChanged:
+            runtimeEnvelope = .worktree(
+                WorktreeEnvelope(
+                    source: .system(.builtin(.filesystemWatcher)),
+                    seq: nextEnvelopeSequence,
+                    timestamp: timestamp,
+                    repoId: repoId,
+                    worktreeId: worktreeId,
+                    event: .gitWorkingDirectory(gitWorkingDirectoryEvent(from: event))
+                )
             )
         }
-        Self.logger.debug("Posted filesystem event for worktree \(worktreeId.uuidString, privacy: .public)")
+
+        let droppedCount = (await runtimeBus.post(runtimeEnvelope)).droppedCount
+        if droppedCount > 0 {
+            Self.logger.warning(
+                "Filesystem event delivery dropped for \(droppedCount, privacy: .public) subscriber(s); seq=\(self.nextEnvelopeSequence, privacy: .public)"
+            )
+        }
+        Self.logger.debug(
+            """
+            Posted filesystem event for worktree \(worktreeId.uuidString, privacy: .public); \
+            event=\(String(describing: event), privacy: .public)
+            """
+        )
+        _ = rootPathHint
+    }
+
+    // MARK: - Watched Folder Scanning
+
+    func updateWatchedFolders(_ paths: [URL]) async {
+        startIngressTaskIfNeeded()
+
+        let newPaths = Set(paths.map { $0.standardizedFileURL })
+        let oldPaths = Set(watchedFolderIds.keys)
+
+        for removed in oldPaths.subtracting(newPaths) {
+            if let syntheticId = watchedFolderIds.removeValue(forKey: removed) {
+                fseventStreamClient.unregister(worktreeId: syntheticId)
+            }
+        }
+
+        for added in newPaths.subtracting(oldPaths) {
+            let syntheticId = UUID()
+            watchedFolderIds[added] = syntheticId
+            fseventStreamClient.register(worktreeId: syntheticId, repoId: syntheticId, rootPath: added)
+        }
+
+        await rescanAllWatchedFolders()
+        startFallbackRescan()
+    }
+
+    private func isWatchedFolderBatch(_ worktreeId: UUID) -> Bool {
+        watchedFolderIds.values.contains(worktreeId)
+    }
+
+    private func handleWatchedFolderFSEvent(_ batch: FSEventBatch) async {
+        let hasGitChange = batch.paths.contains { path in
+            path.contains("/.git/") || path.hasSuffix("/.git")
+        }
+        guard hasGitChange else { return }
+
+        guard let folderPath = watchedFolderIds.first(where: { $0.value == batch.worktreeId })?.key else {
+            return
+        }
+
+        let repoPaths = await scanFolder(folderPath)
+        for repoPath in repoPaths {
+            await emitRepoDiscovered(repoPath: repoPath, parentPath: folderPath)
+        }
+    }
+
+    /// Blocking filesystem scan — MUST run off the actor's executor.
+    /// Under SE-0461, plain nonisolated async inherits actor isolation.
+    /// @concurrent ensures this escapes to the global executor.
+    @concurrent nonisolated private func scanFolder(_ folderPath: URL) async -> [URL] {
+        RepoScanner().scanForGitRepos(in: folderPath)
+    }
+
+    private func rescanAllWatchedFolders() async {
+        for (folderPath, _) in watchedFolderIds {
+            let repoPaths = await scanFolder(folderPath)
+            for repoPath in repoPaths {
+                await emitRepoDiscovered(repoPath: repoPath, parentPath: folderPath)
+            }
+        }
+    }
+
+    private func emitRepoDiscovered(repoPath: URL, parentPath: URL) async {
+        nextEnvelopeSequence += 1
+        let envelope = RuntimeEnvelope.system(
+            SystemEnvelope(
+                source: .builtin(.filesystemWatcher),
+                seq: nextEnvelopeSequence,
+                timestamp: envelopeClock.now,
+                event: .topology(.repoDiscovered(repoPath: repoPath, parentPath: parentPath))
+            )
+        )
+        let droppedCount = (await runtimeBus.post(envelope)).droppedCount
+        if droppedCount > 0 {
+            Self.logger.warning(
+                "Repo discovered event delivery dropped for \(droppedCount, privacy: .public) subscriber(s); repoPath=\(repoPath.path, privacy: .public)"
+            )
+        }
+    }
+
+    private func startFallbackRescan() {
+        fallbackRescanTask?.cancel()
+        guard !watchedFolderIds.isEmpty else { return }
+        fallbackRescanTask = Task { [weak self] in
+            guard let self else { return }
+            while !Task.isCancelled {
+                try? await self.sleepClock.sleep(for: .seconds(300))
+                guard !Task.isCancelled else { break }
+                await self.rescanAllWatchedFolders()
+            }
+        }
+    }
+
+    // MARK: - Git Event Projection
+
+    private func gitWorkingDirectoryEvent(from event: FilesystemEvent) -> GitWorkingDirectoryEvent {
+        switch event {
+        case .gitSnapshotChanged(let snapshot):
+            return .snapshotChanged(snapshot: snapshot)
+        case .branchChanged(let worktreeId, let repoId, let from, let to):
+            return .branchChanged(worktreeId: worktreeId, repoId: repoId, from: from, to: to)
+        case .diffAvailable(let diffId, let worktreeId, let repoId):
+            return .diffAvailable(diffId: diffId, worktreeId: worktreeId, repoId: repoId)
+        case .worktreeRegistered, .worktreeUnregistered, .filesChanged:
+            preconditionFailure("Unsupported filesystem event for git working directory projection")
+        }
     }
 }

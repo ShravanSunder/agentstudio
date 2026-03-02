@@ -125,7 +125,15 @@ struct TerminalRuntimeTests {
         #expect(replay.events.count == 2)
         #expect(replay.events.allSatisfy { $0.commandId == commandId })
         #expect(replay.events.allSatisfy { $0.correlationId == correlationId })
-        #expect(replay.events.last?.sourceFacets.cwd == URL(fileURLWithPath: "/tmp"))
+        guard
+            let lastEvent = replay.events.last,
+            case .pane(let paneEnvelope) = lastEvent,
+            case .terminal(.cwdChanged(let cwdPath)) = paneEnvelope.event
+        else {
+            Issue.record("Expected replay to include terminal cwdChanged event")
+            return
+        }
+        #expect(URL(fileURLWithPath: cwdPath) == URL(fileURLWithPath: "/tmp"))
     }
 
     @Test("eventsSince reports gap after replay eviction")
@@ -164,7 +172,10 @@ struct TerminalRuntimeTests {
             Issue.record("Expected streamed envelope for action event")
             return
         }
-        guard case .terminal(.newTab) = streamedEnvelope.event else {
+        guard
+            case .pane(let paneEnvelope) = streamedEnvelope,
+            case .terminal(.newTab) = paneEnvelope.event
+        else {
             Issue.record("Expected streamed newTab runtime event")
             return
         }
@@ -199,11 +210,17 @@ struct TerminalRuntimeTests {
             return
         }
 
-        guard case .terminal(.bellRang) = firstEvent.event else {
+        guard
+            case .pane(let firstPaneEnvelope) = firstEvent,
+            case .terminal(.bellRang) = firstPaneEnvelope.event
+        else {
             Issue.record("Expected bellRang terminal event for first subscriber")
             return
         }
-        guard case .terminal(.bellRang) = secondEvent.event else {
+        guard
+            case .pane(let secondPaneEnvelope) = secondEvent,
+            case .terminal(.bellRang) = secondPaneEnvelope.event
+        else {
             Issue.record("Expected bellRang terminal event for second subscriber")
             return
         }

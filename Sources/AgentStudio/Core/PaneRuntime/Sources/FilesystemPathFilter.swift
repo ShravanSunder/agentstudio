@@ -40,6 +40,9 @@ struct FilesystemPathFilter: Sendable {
     }
 
     func classify(relativePath: String) -> FilesystemPathDisposition {
+        if Self.isOriginConfigPath(relativePath: relativePath) {
+            return .projected
+        }
         if Self.isGitInternal(relativePath: relativePath) {
             return .gitInternal
         }
@@ -69,6 +72,10 @@ struct FilesystemPathFilter: Sendable {
         guard !normalizedPath.isEmpty else { return false }
         let pathComponents = normalizedPath.split(separator: "/")
         return pathComponents.contains(".git")
+    }
+
+    static func isOriginConfigPath(relativePath: String) -> Bool {
+        normalized(relativePath: relativePath) == ".git/config"
     }
 
     private static func normalized(relativePath: String) -> String {

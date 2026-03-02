@@ -31,11 +31,11 @@ All data flow in the pane runtime architecture follows one of three planes. Ever
 
 | Plane | Direction | Mechanism | Invariant |
 |-------|-----------|-----------|-----------|
-| **Event plane** | Producers → EventBus → consumers | Runtimes (`@MainActor`) and boundary actors (FilesystemActor, ForgeActor, ContainerActor) post `PaneEventEnvelope`s to `EventBus`. Coordinator, `NotificationReducer`, and future analytics subscribe from the bus independently. | One-way. Events never flow backward. Bus is dumb fan-out (`post()` + `subscribe()` only). See [EventBus Design](pane_runtime_eventbus_design.md). |
+| **Event plane** | Producers → EventBus → consumers | Runtimes (`@MainActor`) and boundary actors (FilesystemActor, GitWorkingDirectoryProjector, ForgeActor, ContainerActor) post `RuntimeEnvelope`s (3-tier: `SystemEnvelope`, `WorktreeEnvelope`, `PaneEnvelope`) to `EventBus`. `WorkspaceCacheCoordinator`, `NotificationReducer`, and future analytics subscribe from the bus independently. | One-way. Events never flow backward. Bus is dumb fan-out (`post()` + `subscribe()` only). See [EventBus Design](pane_runtime_eventbus_design.md) and [Workspace Data Architecture](workspace_data_architecture.md). |
 | **Command plane** | User/system → coordinator → runtime | Coordinator dispatches `RuntimeCommand`s directly via `RuntimeRegistry` (`runtime.handleCommand(envelope)`). Command-plane calls to boundary actors (e.g., `forgeActor.refresh(repo:)`) are also direct. | Request-response. Commands never flow through the EventBus. |
 | **UI plane** | Runtime → SwiftUI view | `@Observable` properties on each runtime, views bind directly. `@Observable` mutation happens synchronously on `@MainActor` **before** any bus post. | Synchronous, zero-overhead. UI is never stale relative to coordination consumers. Bus is for coordination, not UI state transport. |
 
-**The multiplexing rule:** When a runtime processes a domain event (e.g., `titleChanged`), it writes `@Observable` state first (UI plane), then posts to the bus (event plane). Both happen, in that order. The test for whether an event needs the bus: "Would any other component in the system care?" If yes → bus. If only the bound view cares → `@Observable` only.
+**The multiplexing rule:** When a runtime processes a domain event (e.g., `titleChanged`), it writes `@Observable` state first (UI plane), then posts to the bus (event plane). Both happen, in that order. **Why this ordering is critical:** `@Observable` mutation is synchronous on `@MainActor` — SwiftUI views see the new state immediately on the current frame. The bus post is async (`await bus.post()`), meaning coordination consumers may process the event one or more frames later. If the bus post happened first, a coordination consumer could react to the event (e.g., update a tab bar label) before the runtime's own `@Observable` state reflected the change, creating a visible inconsistency. `@Observable` first guarantees the source-of-truth view is never stale relative to downstream consumers. The test for whether an event needs the bus: "Would any other component in the system care?" If yes → bus. If only the bound view cares → `@Observable` only.
 
 **Why not three separate streams:** These three planes are **logical roles**, not three separate data structures. Separate control/state/data streams create an ordering hazard: a late-joining consumer can observe inconsistent state (e.g., seeing a loaded diff without knowing which terminal produced it). The event plane uses a single `AsyncStream` per runtime (posted to one `EventBus`) — not three separate streams. The planes describe what each data path *does*; the implementation shares infrastructure where ordering matters. See [D2](#d2-single-typed-event-stream-not-three-separate-planes) for the full rationale.
 
@@ -180,7 +180,18 @@ SwiftPaneView           (direct Swift)             SwiftPaneRuntime             
 
 **User problem:** Agents edit 50 files in 2 seconds. The workspace needs to know "agent produced a changeset" without drowning in per-file events (JTBD 5, JTBD 6, P6).
 
-**Decision:** Worktree-scoped filesystem watcher ingestion (`FilesystemActor`) emits filesystem facts only. A separate `GitWorkingDirectoryProjector` subscribes to `.filesChanged` facts and emits derived git facts (`.gitSnapshotChanged`, optional `.branchChanged`). `FilesystemActor` enforces debounce (500ms settle) and max latency (2s) so sustained writes still flush bounded batches. Events flow on the same coordination stream as `FilesystemEvent` cases.
+**Decision:** `FilesystemActor` emits filesystem facts (`.filesChanged`) and worktree topology (`.worktreeRegistered`/`.worktreeUnregistered`). A separate `GitWorkingDirectoryProjector` subscribes to `.filesChanged` and emits derived git facts (`.snapshotChanged`, `.branchChanged`, `.originChanged`). Repo-level topology events (`.repoDiscovered`, `.repoRemoved`) are produced by `AppDelegate` (for user "Add Folder" and boot replay) and fed directly to `WorkspaceCacheCoordinator.consume()` — they do not go through bus fanout. `FilesystemActor` enforces debounce (500ms settle) and max latency (2s) so sustained writes still flush bounded batches.
+
+**Enrichment pipeline context:** This filesystem observation is part of a sequential enrichment pipeline: `FilesystemActor → GitWorkingDirectoryProjector → ForgeActor → WorkspaceCacheCoordinator`. Each stage subscribes to the bus and produces enriched events. The full pipeline spec is in [Workspace Data Architecture](workspace_data_architecture.md).
+
+**Primary sidebar identity contract (implemented):**
+1. `GitWorkingDirectoryProjector` is the only origin producer. It emits `.originChanged(repoId:from:to:)` on worktree registration and `.git/config` changes.
+2. `WorkspaceCacheCoordinator` derives typed repo identity from origin and writes `RepoEnrichment` as a discriminated union:
+   - `.unresolved(repoId:)` for not-yet-derived identity.
+   - `.resolved(repoId:raw:identity:updatedAt:)` for derived identity.
+   - `raw` contains git facts (`origin`, `upstream`), `identity` contains projection fields (`groupKey`, `remoteSlug`, `organizationName`, `displayName`).
+3. `RepoSidebarContentView` primary grouping uses `identity.groupKey` only when enrichment is `.resolved`; unresolved repos are grouped into deterministic pending buckets; missing cache entries fall back to path grouping.
+4. `ForgeEvent.pullRequestCountsChanged(repoId:countsByBranch:)` is mapped by `(repoId, branch)` in `WorkspaceCacheCoordinator` to prevent cross-repo branch-name contamination (for example, two unrelated `main` branches).
 
 **Decision tree (what we considered):**
 1. **Single actor for filesystem + git compute**
@@ -220,16 +231,19 @@ SwiftPaneView           (direct Swift)             SwiftPaneRuntime             
 
 **System source inventory:**
 
-| Tier | Service | Scope | Event types | Backend model |
-|------|---------|-------|-------------|---------------|
-| **Built-in** | FSEvents watcher (Contract 6) | Per-worktree | `FilesystemEvent` (worktreeRegistered, worktreeUnregistered, filesChanged, gitSnapshotChanged, branchChanged, diffAvailable) | Core, one watcher per worktree |
-| **Built-in** | Security backend | Per-worktree | `SecurityEvent` (future) | Core |
-| **Built-in** | PaneCoordinator | App-wide | `LifecycleEvent` (tabSwitched, etc.) | Core |
-| **Service** | Git forge | App-wide | `ForgeEvent` (future: prStatusChanged, reviewRequested, ciCompleted) | Plugin backends (GitHub, GitLab, Bitbucket) |
-| **Service** | Container service | App-wide | `ContainerEvent` (future: containerStarted, healthChanged, logOutput) | Plugin backends (Docker, Podman, cloud) |
-| **Plugin** | _(open)_ | Varies | `any PaneKindEvent` via `.plugin(kind:event:)` | Plugin-defined |
+| Tier | Service | Scope | Event types | Envelope | Backend model |
+|------|---------|-------|-------------|----------|---------------|
+| **Built-in** | FilesystemActor | Per-worktree | `FilesystemEvent` (filesChanged, worktreeRegistered, worktreeUnregistered) | `WorktreeEnvelope` | Core, one watcher per worktree |
+| **Built-in** | AppDelegate | App-wide | `TopologyEvent` (.repoDiscovered — boot replay, .repoRemoved) | `SystemEnvelope` | Core (via bus) |
+| **Built-in** | FilesystemActor | App-wide | `TopologyEvent` (.repoDiscovered — watched folder rescan, .worktreeRegistered, .worktreeUnregistered) | `SystemEnvelope` | Core (via bus) |
+| **Built-in** | GitWorkingDirectoryProjector | Per-worktree | `GitWorkingDirectoryEvent` (snapshotChanged, branchChanged, originChanged, worktreeDiscovered, worktreeRemoved) | `WorktreeEnvelope` | Core projector |
+| **Built-in** | Security backend | Per-worktree | `SecurityEvent` (future) | `WorktreeEnvelope` | Core |
+| **Built-in** | PaneCoordinator | App-wide | `LifecycleEvent` (tabSwitched, etc.) | `SystemEnvelope` | Core |
+| **Service** | ForgeActor | Per-repo | `ForgeEvent` (pullRequestCountsChanged, checksUpdated, refreshFailed) | `WorktreeEnvelope` | Bus-subscriber + self-polling (GitHub, GitLab, Bitbucket) |
+| **Service** | Container service | App-wide | `ContainerEvent` (future: containerStarted, healthChanged, logOutput) | `WorktreeEnvelope` | Plugin backends (Docker, Podman, cloud) |
+| **Plugin** | _(open)_ | Varies | `any PaneKindEvent` via `.plugin(kind:event:)` | Varies | Plugin-defined |
 
-All system sources produce `PaneRuntimeEvent` envelopes on the same coordination stream as pane events. They have no pane identity — they're shared infrastructure that any pane can subscribe to.
+All system sources produce `RuntimeEnvelope` events (3-tier: `SystemEnvelope`, `WorktreeEnvelope`, `PaneEnvelope`) on the same `EventBus`. Topology events use `SystemEnvelope` because no canonical entity exists at discovery time. Enrichment events use `WorktreeEnvelope` scoped to known repos/worktrees. See [Workspace Data Architecture](workspace_data_architecture.md) for the full pipeline and event namespace spec.
 
 **Service tier pattern:** A protocol defines the event vocabulary and command interface. Plugin-provided backends conform to the protocol for specific providers. The service manages authentication, polling/webhook state, and event production. This is analogous to how `GhosttyAdapter` translates C API events — the forge adapter translates GitHub API events. Each service source carries `provider: String` identity because multiple backends of the same category can be active simultaneously (GitHub for repo A, GitLab for repo B). `ServiceSource` is a discriminated union — each case will grow service-specific associated values as the service matures (e.g., forge gains `account`, container gains `socket`).
 
@@ -238,14 +252,15 @@ All system sources produce `PaneRuntimeEvent` envelopes on the same coordination
 
 #### FSEvents Watcher Implementation (Contract 6, LUNA-349)
 
-The filesystem watcher is the first system-level source to implement. It's a prerequisite for Contract 16 (pane filesystem context stream, LUNA-344).
+The filesystem watcher is the first system-level source to implement. It's a prerequisite for Contract 16 (pane filesystem context stream, LUNA-344) and the enrichment pipeline (LUNA-350).
 
 ```
 ┌──────────────────────────────────────────────────────────────────────────────┐
-│ FilesystemActor + GitWorkingDirectoryProjector (app-wide, keyed by worktree)             │
+│ FilesystemActor + GitWorkingDirectoryProjector (app-wide, keyed by worktree)│
 │                                                                              │
 │ Input:  macOS FSEvents stream for worktree root path                        │
-│ Output: PaneEventEnvelope with source = .system(.builtin(.filesystemWatcher)) │
+│ Output: RuntimeEnvelope (WorktreeEnvelope for filesystem/git events,        │
+│         SystemEnvelope for topology events)                                 │
 │                                                                              │
 │ Pipeline (split actors, same bus):                                          │
 │   FSEvents callback (arbitrary thread)                                      │
@@ -254,10 +269,17 @@ The filesystem watcher is the first system-level source to implement. It's a pre
 │         → debounce 500ms settle window                                      │
 │           → max latency 2s cap                                              │
 │             → FileChangeset batch                                           │
-│               → bus.post(.filesystem(.filesChanged))                        │
-│                 → GitWorkingDirectoryProjector subscriber                                 │
+│               → bus.post(WorktreeEnvelope(.filesystem(.filesChanged)))      │
+│                 → GitWorkingDirectoryProjector subscriber                   │
 │                   → @concurrent nonisolated git status compute              │
-│                     → bus.post(.filesystem(.gitSnapshotChanged))            │
+│                     → bus.post(WorktreeEnvelope(.gitWorkingDirectory(       │
+│                         .snapshotChanged)))                                 │
+│                                                                              │
+│   Parent folder scan (triggered rescan, 3-level max):                       │
+│     → FilesystemActor detects .git directory                                │
+│       → bus.post(SystemEnvelope(.topology(.repoDiscovered)))               │
+│     → .git directory removed                                                │
+│       → bus.post(SystemEnvelope(.topology(.repoRemoved)))                  │
 │                                                                              │
 │ Lifecycle: Created when worktree added to workspace.                        │
 │            Removed when worktree removed.                                   │
@@ -265,7 +287,7 @@ The filesystem watcher is the first system-level source to implement. It's a pre
 │                                                                              │
 │ Location:                                                                    │
 │   Core/PaneRuntime/Sources/FilesystemActor.swift                            │
-│   Core/PaneRuntime/Sources/GitWorkingDirectoryProjector.swift                             │
+│   Core/PaneRuntime/Sources/GitWorkingDirectoryProjector.swift               │
 └──────────────────────────────────────────────────────────────────────────────┘
 ```
 
@@ -275,7 +297,22 @@ The filesystem watcher is the first system-level source to implement. It's a pre
 - `FileChangeset.worktreeId` is a denormalized copy of `envelope.sourceFacets.worktreeId` for convenience — envelope source + facets are authoritative (Contract 3, Invariant A1).
 - Debounce uses injectable `Clock<Duration>` for testability (Swift 6 Invariant #5).
 
-#### Git Forge Service Pattern (future, plugin-provided)
+#### Git Forge Service Pattern (LUNA-350)
+
+> **Authoritative spec:** [Workspace Data Architecture](workspace_data_architecture.md) defines the full ForgeActor design including event-driven triggers, polling fallback, and enrichment flow.
+
+ForgeActor is NOT an independent poller. It subscribes to the EventBus for `.branchChanged` and `.originChanged` events from `GitWorkingDirectoryProjector`, triggering targeted forge API queries. A self-driven polling timer (30-60s) serves as fallback for events that don't originate from local git changes (e.g., CI checks completing remotely).
+
+**ForgeActor triggers:**
+- `.branchChanged` → immediate PR status refresh for the affected branch
+- `.originChanged` → scope update + full refresh
+- Self-driven polling timer (30-60s) → fallback for remote-only events
+- Command-plane: `forgeActor.refresh(repo:)` after explicit git push
+
+**ForgeActor does NOT:**
+- Scan the filesystem
+- Discover worktrees
+- Read git config directly (receives enrichment via bus events)
 
 ```swift
 // Conceptual — protocol shape for typed system services
@@ -668,19 +705,22 @@ Contracts without a role keyword are **structural** — they define types, proto
 
 #### Source Inventory
 
-Sources are categorized by scope:
+Sources are categorized by scope. Topology sources use `SystemEnvelope`; worktree-scoped sources use `WorktreeEnvelope`; pane-scoped sources use `PaneEnvelope`.
 
-| Scope | Source | Tier | EventSource value | Events produced | Status |
-|-------|--------|------|------------------|-----------------|--------|
-| **Pane** | TerminalRuntime | — | `.pane(paneId)` | `.terminal(GhosttyEvent)` | ✅ Implemented |
-| **Pane** | BridgeRuntime | — | `.pane(paneId)` | `.diff(...)`, `.editor(...)`, `.review(...)`, `.agent(...)`, `.plugin(...)` | Future (LUNA-349) |
-| **Pane** | WebviewRuntime | — | `.pane(paneId)` | `.browser(BrowserEvent)` | Future (LUNA-349) |
-| **Pane** | SwiftPaneRuntime | — | `.pane(paneId)` | Content-dependent | Future (LUNA-349) |
-| **Worktree** | FSEvents watcher | Built-in | `.system(.builtin(.filesystemWatcher))` | `.filesystem(FilesystemEvent)` | Future (LUNA-349, Contract 6) |
-| **App** | PaneCoordinator | Built-in | `.system(.builtin(.coordinator))` | `.lifecycle(.tabSwitched)` | ✅ Implemented |
-| **App** | Git forge service | Service | `.system(.service(.gitForge(provider:)))` | Future: `ForgeEvent` | Future (plugin-based) |
-| **App** | Container service | Service | `.system(.service(.containerService(provider:)))` | Future: `ContainerEvent` | Future (plugin-based) |
-| **Pane** | Agent RPC channel | — | `.pane(agentPaneId)` | Future: Contract 15 events | Deferred (LUNA-344) |
+| Scope | Source | Tier | Envelope | Events produced | Status |
+|-------|--------|------|----------|-----------------|--------|
+| **Pane** | TerminalRuntime | — | `PaneEnvelope` | `.terminal(GhosttyEvent)` | ✅ Implemented |
+| **Pane** | BridgeRuntime | — | `PaneEnvelope` | `.diff(...)`, `.editor(...)`, `.review(...)`, `.agent(...)`, `.plugin(...)` | Future (LUNA-349) |
+| **Pane** | WebviewRuntime | — | `PaneEnvelope` | `.browser(BrowserEvent)` | Future (LUNA-349) |
+| **Pane** | SwiftPaneRuntime | — | `PaneEnvelope` | Content-dependent | Future (LUNA-349) |
+| **App** | AppDelegate | Built-in | `SystemEnvelope` | `TopologyEvent` (.repoDiscovered — boot, .repoRemoved) | Via bus |
+| **App** | FilesystemActor | Built-in | `SystemEnvelope` | `TopologyEvent` (.repoDiscovered — rescan, .worktreeRegistered, .worktreeUnregistered) | Via bus |
+| **Worktree** | FilesystemActor | Built-in | `WorktreeEnvelope` | `FilesystemEvent` (.filesChanged, .worktreeRegistered, .worktreeUnregistered) | Future (LUNA-349, Contract 6) |
+| **Worktree** | GitWorkingDirectoryProjector | Built-in | `WorktreeEnvelope` | `GitWorkingDirectoryEvent` (.snapshotChanged, .branchChanged, .originChanged, .worktreeDiscovered, .worktreeRemoved) | Future (LUNA-349) |
+| **App** | PaneCoordinator | Built-in | `SystemEnvelope` | `.lifecycle(.tabSwitched)` | ✅ Implemented |
+| **Repo** | ForgeActor | Service | `WorktreeEnvelope` | `ForgeEvent` (.pullRequestCountsChanged, .checksUpdated, .refreshFailed) | Future (LUNA-350) |
+| **App** | Container service | Service | `WorktreeEnvelope` | Future: `ContainerEvent` | Future (plugin-based) |
+| **Pane** | Agent RPC channel | — | `PaneEnvelope` | Future: Contract 15 events | Deferred (LUNA-344) |
 
 ### Contract 1: PaneRuntime Protocol
 
@@ -769,7 +809,6 @@ struct PaneMetadata: Sendable {
     var title: String
     var facets: PaneContextFacets
     var checkoutRef: String?
-    var agentType: AgentType?
 }
 
 struct PaneContextFacets: Sendable {
@@ -1031,16 +1070,15 @@ enum AttachError: Error, Sendable {
     case timeout
 }
 
-/// Filesystem events. envelope.source = .system(.builtin(.filesystemWatcher)).
-/// Routing worktree identity lives in sourceFacets.worktreeId.
+/// Filesystem events. Carried in WorktreeEnvelope.
+/// Routing worktree identity lives in envelope.worktreeId.
 enum FilesystemEvent: Sendable {
-    case worktreeRegistered(worktreeId: UUID, rootPath: URL)
-    case worktreeUnregistered(worktreeId: UUID)
     case filesChanged(changeset: FileChangeset)
-    case gitSnapshotChanged(snapshot: GitWorkingTreeSnapshot)
-    case diffAvailable(diffId: UUID)
-    case branchChanged(from: String, to: String)
 }
+
+/// Note: worktreeRegistered/worktreeUnregistered are TopologyEvents
+/// (in SystemEnvelope), not FilesystemEvents. Git snapshot, branch,
+/// and diff events are in GitWorkingDirectoryEvent (WorktreeEnvelope).
 
 /// Artifact events. envelope.source = .pane(producerPaneId) — who produced it.
 /// worktreeId in payload = which worktree the artifact covers (domain data,
@@ -1089,31 +1127,79 @@ enum RuntimeErrorEvent: Error, Sendable {
 }
 ```
 
-### Contract 3: PaneEventEnvelope
+### Contract 3: Event Envelope
 
 > **Role:** Structural (envelope shape). Carried by all sources, projections, and sinks.
 
+> **File:** `Core/PaneRuntime/Contracts/RuntimeEnvelopeCore.swift`
+
 > **Extensibility:** `SystemSource` uses a three-tier hierarchy: `BuiltinSource` (closed, core-only), `ServiceSource` (discriminated union — new categories need a core code change with typed event protocol, new providers are a String), and `.plugin(String)` (fully open, schema-free). Per-source isolation guarantees (A4: independent `seq`, A10: independent replay buffer) mean new sources at any tier cannot break ordering or replay for existing sources. No shared state to corrupt.
 
+#### RuntimeEnvelope (3-tier discriminated union)
+
 ```swift
-/// Metadata wrapper on every event for routing, ordering, and idempotency.
+/// 3-tier discriminated union. PaneEnvelope is the pane-scoped tier.
+/// Tier determines scope: system-wide, per-repo/worktree, or per-pane.
+enum RuntimeEnvelope: Sendable {
+    case system(SystemEnvelope)
+    case worktree(WorktreeEnvelope)
+    case pane(PaneEnvelope)
+}
+
+/// Base fields present on ALL envelope tiers.
+/// NOT a protocol — duplicated in each struct for value-type semantics.
 ///
-/// ROUTING IDENTITY LIVES HERE — not in event payloads.
-/// Pane-scoped events: source = .pane(id), paneKind = .terminal/.browser/etc.
-/// Cross-cutting events: source is system or pane producer identity, paneKind = nil.
+/// eventId:        Globally unique. One per event emission. Never reused.
+/// source:         Who produced this event (builtin, service, plugin, pane).
+/// seq:            Monotonic counter PER SOURCE. Resets if source restarts.
+/// timestamp:      ContinuousClock.Instant for cross-source ordering.
+/// schemaVersion:  For forward-compatible replay/deserialization.
 ///
-/// Priority is NOT cached on the envelope. The event self-classifies via
-/// event.actionPolicy (PaneKindEvent protocol). NotificationReducer reads
-/// this directly. One classification authority, no drift.
-struct PaneEventEnvelope: Sendable {
-    let source: EventSource                  // who produced this event
-    let sourceFacets: PaneContextFacets      // denormalized source context for projection/grouping
-    let paneKind: PaneContentType?           // nil for cross-cutting (filesystem, security)
-    let seq: UInt64                          // monotonic per source, ordering guarantee
-    let commandId: UUID?                     // idempotency for command-triggered events; nil for spontaneous
-    let correlationId: UUID?                 // links workflow steps (agent finish → diff → approval)
+/// Optional on all:
+/// correlationId:  Groups events in the same causal chain (filesystem→git→forge).
+/// causationId:    The eventId of the PARENT event that directly caused this one.
+/// commandId:      If this event was triggered by a user command dispatch.
+
+/// System-scoped events — no entity correlation.
+struct SystemEnvelope: Sendable {
+    let eventId: UUID
+    let source: SystemSource
+    let seq: UInt64
     let timestamp: ContinuousClock.Instant
-    let epoch: UInt64                        // reserved, 0 until runtime restart/reconnect
+    let schemaVersion: UInt16
+    let correlationId: UUID?
+    let causationId: UUID?
+    let commandId: UUID?
+    let event: SystemScopedEvent
+}
+
+/// Worktree-scoped events — correlated to a repo, optionally a worktree.
+struct WorktreeEnvelope: Sendable {
+    let eventId: UUID
+    let source: EventSource
+    let seq: UInt64
+    let timestamp: ContinuousClock.Instant
+    let schemaVersion: UInt16
+    let correlationId: UUID?
+    let causationId: UUID?
+    let commandId: UUID?
+    let repoId: UUID                         // ALWAYS present — every worktree event belongs to a known repo
+    let worktreeId: UUID?                    // optional — repo-wide forge events have no single worktree
+    let event: WorktreeScopedEvent
+}
+
+/// Pane-scoped events — correlated to a specific pane.
+struct PaneEnvelope: Sendable {
+    let eventId: UUID
+    let source: EventSource
+    let seq: UInt64
+    let timestamp: ContinuousClock.Instant
+    let schemaVersion: UInt16
+    let correlationId: UUID?
+    let causationId: UUID?
+    let commandId: UUID?
+    let paneId: UUID                         // ALWAYS present
+    let paneKind: PaneContentType            // .terminal, .browser, .diff, etc.
     let event: PaneRuntimeEvent
 }
 
@@ -1179,17 +1265,24 @@ Additional routing kinds (`.editor`, `.review`, `.agent`) are reserved for futur
 
 #### Envelope Invariants (normative)
 
+> **Envelope model:** `RuntimeEnvelope` is a 3-tier discriminated union (`SystemEnvelope`, `WorktreeEnvelope`, `PaneEnvelope`). Pane-scoped events use `PaneEnvelope`. The invariants below apply to this model. See [Workspace Data Architecture](workspace_data_architecture.md) for the full hierarchy spec.
+
 1. Sequence ownership: each runtime (or system producer) is the sole writer of `seq` for its own `EventSource`.
 2. Monotonicity: `seq` is strictly increasing per `EventSource`. Gaps are allowed only due to bounded replay eviction.
-3. Source/payload compatibility:
-- Pane-scoped payloads (`.terminal`, `.browser`, `.diff`, `.editor`, `.plugin`) require `source = .pane(id)`.
-- Filesystem payloads require `source = .system(.builtin(.filesystemWatcher))` and `sourceFacets.worktreeId`.
-- Security payloads require `source = .system(.builtin(.securityBackend))`.
-- Workspace lifecycle events that are not pane-scoped require `source = .system(.builtin(.coordinator))`.
-- Typed service events require `source = .system(.service(...))` with provider identity.
-- Plugin system events require `source = .system(.plugin(kind))`.
-4. Invalid source/payload combinations are contract violations and must emit a typed runtime error event.
+3. Envelope/payload compatibility:
+- **SystemEnvelope:** Topology events (`.repoDiscovered`, `.repoRemoved`) — no entity correlation (repo doesn't exist in canonical store yet). App lifecycle (`.tabSwitched`, focus, config changes). Workspace-scoped lifecycle events that are not pane-scoped or worktree-scoped.
+- **WorktreeEnvelope:** `repoId` is ALWAYS present — every worktree event belongs to a known canonical repo. `worktreeId` is optional (repo-wide forge events have no single worktree). Filesystem, git working directory, forge, and security events.
+- **PaneEnvelope:** `paneId` is ALWAYS present. Terminal, browser, diff, editor, plugin events.
+- Pane-scoped payloads (`.terminal`, `.browser`, `.diff`, `.editor`, `.plugin`) require `PaneEnvelope`.
+- Filesystem payloads require `WorktreeEnvelope` with `repoId` and `worktreeId`.
+- Forge payloads require `WorktreeEnvelope` with `repoId` (worktreeId optional — PR counts are per-branch, not per-worktree).
+- Security payloads require `WorktreeEnvelope` with `repoId` and `worktreeId` (security events are always scoped to a specific worktree sandbox, never app-wide).
+- Lifecycle events: pane lifecycle (`.paneClosed`, attach/detach) → `PaneEnvelope`. Workspace lifecycle (`.tabSwitched`, focus) → `SystemEnvelope`. Worktree lifecycle (`.worktreeDiscovered`, `.worktreeRemoved`) → `WorktreeEnvelope`.
+- Typed service events require `WorktreeEnvelope` with provider identity on the event.
+- Plugin system events use the appropriate envelope tier based on their scope (pane-scoped → `PaneEnvelope`, worktree-scoped → `WorktreeEnvelope`, app-scoped → `SystemEnvelope`).
+4. Invalid envelope/payload combinations are contract violations and must emit a typed runtime error event.
 5. `commandId` is optional and only present for command-correlated events.
+6. **Two replay layers:** Bus-level replay (bounded buffer per source, 256 events) serves workspace coordination consumers. Pane-level replay (Contract 14) serves UI consumers joining mid-stream. These are complementary, not conflicting.
 
 ### Contract 4: ActionPolicy (self-classifying priority)
 
@@ -2121,14 +2214,14 @@ The `RuntimeRegistry` + `PaneRuntime.subscribe()` infrastructure makes cross-pan
 ```swift
 /// Subscribe to events from multiple panes matching a predicate.
 /// Built on existing RuntimeRegistry lookup + per-runtime subscribe().
-func subscribe(matching: @Sendable (PaneMetadata) -> Bool) -> AsyncStream<PaneEventEnvelope>
+func subscribe(matching: @Sendable (PaneMetadata) -> Bool) -> AsyncStream<RuntimeEnvelope>
 ```
 
 This enables use cases like "show all events from panes in worktree X" or "aggregate agent completion signals across repos." No existing contracts need to change — the subscription merges existing per-runtime streams. Deferred until dynamic view or multi-agent orchestration features require it.
 
 ### Contract 12: NotificationReducer
 
-> **Role:** Sink. Subscribes to `EventBus<PaneEventEnvelope>`, classifies envelopes by self-declared priority, and delivers to consumers via critical/lossy output streams. Terminal consumer — does not produce events back onto the bus.
+> **Role:** Sink. Subscribes to `EventBus<RuntimeEnvelope>`, classifies envelopes by self-declared priority, and delivers to consumers via critical/lossy output streams. Terminal consumer — does not produce events back onto the bus.
 
 ```swift
 /// Routes events through priority-aware processing.
@@ -2925,7 +3018,7 @@ Structural guarantees that hold across all contracts. Each invariant is enforced
 
 *Enforced by:* Documentation. Implementation will add `precondition(epoch > 0)` guard when epoch is activated.
 
-**A10. Replay buffer is bounded per `EventSource`.** Each source gets its own ring buffer (default: 1000 events, 1MB, 5-minute TTL). One noisy source cannot starve replay for others. Eviction is oldest-first. Gap detection via `ReplayResult.gapDetected` tells the consumer to fall back to `snapshot()`.
+**A10. Replay buffer is bounded per `EventSource`.** Each source gets its own ring buffer (default: 256 events). One noisy source cannot starve replay for others. Eviction is oldest-first. Gap detection via `ReplayResult.gapDetected` tells the consumer to fall back to `snapshot()`. This is the bus-level replay buffer; pane-level replay (Contract 14) is a separate concern with its own bounds.
 
 *Enforced by:* `EventReplayBuffer.Config` bounds. Buffer constructor validates config.
 

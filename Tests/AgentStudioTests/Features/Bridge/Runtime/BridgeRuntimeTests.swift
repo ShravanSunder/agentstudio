@@ -8,7 +8,7 @@ import Testing
 struct BridgeRuntimeTests {
     @Test("bridge runtime posts diff events to EventBus and replay")
     func bridgeRuntimePostsEvents() async {
-        let paneEventBus = EventBus<PaneEventEnvelope>()
+        let paneEventBus = EventBus<RuntimeEnvelope>()
         let runtime = makeRuntime(
             paneEventBus: paneEventBus
         )
@@ -139,7 +139,7 @@ struct BridgeRuntimeTests {
 
     private func makeRuntime(
         commandHandler: (any BridgeRuntimeCommandHandling)? = nil,
-        paneEventBus: EventBus<PaneEventEnvelope> = PaneRuntimeEventBus.shared
+        paneEventBus: EventBus<RuntimeEnvelope> = PaneRuntimeEventBus.shared
     ) -> BridgeRuntime {
         let paneId = PaneId()
         let metadata = PaneMetadata(

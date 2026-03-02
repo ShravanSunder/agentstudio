@@ -7,6 +7,7 @@ import Testing
 struct WorktrunkParsingTests {
 
     private let service = WorktrunkService.shared
+    private let testRepoId = UUID()
 
     // MARK: - parseGitWorktreeList
 
@@ -16,12 +17,12 @@ struct WorktrunkParsingTests {
         let output = "worktree /Users/dev/project/main\nHEAD abc123\nbranch refs/heads/main\n\n"
 
         // Act
-        let result = service.parseGitWorktreeList(output)
+        let result = service.parseGitWorktreeList(output, repoId: testRepoId)
 
         // Assert
         #expect(result.count == 1)
         #expect(result[0].name == "main")
-        #expect(result[0].branch == "main")
+        #expect(result[0].repoId == testRepoId)
         #expect(result[0].path == URL(fileURLWithPath: "/Users/dev/project/main"))
     }
 
@@ -40,14 +41,14 @@ struct WorktrunkParsingTests {
             """
 
         // Act
-        let result = service.parseGitWorktreeList(output)
+        let result = service.parseGitWorktreeList(output, repoId: testRepoId)
 
         // Assert
         #expect(result.count == 2)
         #expect(result[0].name == "main")
-        #expect(result[0].branch == "main")
+        #expect(result[0].repoId == testRepoId)
         #expect(result[1].name == "feature-x")
-        #expect(result[1].branch == "feature/feature-x")
+        #expect(result[1].repoId == testRepoId)
     }
 
     @Test
@@ -56,18 +57,17 @@ struct WorktrunkParsingTests {
         let output = "worktree /Users/dev/project/detached-head\nHEAD abc123\n\n"
 
         // Act
-        let result = service.parseGitWorktreeList(output)
+        let result = service.parseGitWorktreeList(output, repoId: testRepoId)
 
         // Assert
         #expect(result.count == 1)
         #expect(result[0].name == "detached-head")
-        #expect(result[0].branch == "detached-head")
     }
 
     @Test
     func test_parse_emptyString_returnsEmpty() {
         // Act
-        let result = service.parseGitWorktreeList("")
+        let result = service.parseGitWorktreeList("", repoId: testRepoId)
 
         // Assert
         #expect(result.isEmpty)
@@ -76,22 +76,10 @@ struct WorktrunkParsingTests {
     @Test
     func test_parse_trailingNewlinesOnly_returnsEmpty() {
         // Act
-        let result = service.parseGitWorktreeList("\n\n\n")
+        let result = service.parseGitWorktreeList("\n\n\n", repoId: testRepoId)
 
         // Assert
         #expect(result.isEmpty)
-    }
-
-    @Test
-    func test_parse_nestedBranch_stripsRefsHeads() {
-        // Arrange
-        let output = "worktree /Users/dev/project/sub-name\nbranch refs/heads/feature/sub/name\n\n"
-
-        // Act
-        let result = service.parseGitWorktreeList(output)
-
-        // Assert
-        #expect(result[0].branch == "feature/sub/name")
     }
 
     // MARK: - WorktrunkEntry JSON Parsing
@@ -143,12 +131,13 @@ struct WorktrunkParsingTests {
         ]
         let gitWorktrees: [Worktree] = [
             Worktree(
-                name: "main", path: URL(fileURLWithPath: "/tmp/askluna-finance/main"), branch: "main",
+                repoId: testRepoId,
+                name: "main", path: URL(fileURLWithPath: "/tmp/askluna-finance/main"),
                 isMainWorktree: true),
             Worktree(
+                repoId: testRepoId,
                 name: "feature-a",
                 path: URL(fileURLWithPath: "/tmp/askluna-finance/feature-a"),
-                branch: "feature-a",
                 isMainWorktree: false
             ),
         ]
@@ -159,9 +148,9 @@ struct WorktrunkParsingTests {
         // Assert
         #expect(merged.count == 2)
         #expect(merged[0].path.path == "/tmp/askluna-finance/main")
-        #expect(merged[0].branch == "main")
+        #expect(merged[0].name == "main")
         #expect(merged[1].path.path == "/tmp/askluna-finance/feature-a")
-        #expect(merged[1].branch == "feature-a")
+        #expect(merged[1].name == "feature-a")
     }
 
     @Test
@@ -171,8 +160,14 @@ struct WorktrunkParsingTests {
             .init(path: "/tmp/repo/feature-b", branch: "refs/heads/feature-b", head: nil, status: nil)
         ]
         let gitWorktrees: [Worktree] = [
-            Worktree(name: "main", path: URL(fileURLWithPath: "/tmp/repo/main"), branch: "main", isMainWorktree: true),
-            Worktree(name: "feature-b", path: URL(fileURLWithPath: "/tmp/repo/feature-b"), branch: "feature-b"),
+            Worktree(
+                repoId: testRepoId, name: "main",
+                path: URL(fileURLWithPath: "/tmp/repo/main"), isMainWorktree: true
+            ),
+            Worktree(
+                repoId: testRepoId, name: "feature-b",
+                path: URL(fileURLWithPath: "/tmp/repo/feature-b")
+            ),
         ]
 
         // Act
@@ -181,10 +176,8 @@ struct WorktrunkParsingTests {
         // Assert
         #expect(merged.count == 2)
         #expect(merged[0].name == "main")
-        #expect(merged[0].branch == "main")
         #expect(merged[0].isMainWorktree == true)
         #expect(merged[1].name == "feature-b")
-        #expect(merged[1].branch == "feature-b")
         #expect(merged[1].isMainWorktree == false)
     }
 

@@ -50,8 +50,8 @@ struct PaneCoordinatorHardeningTests {
         try? FileManager.default.createDirectory(at: worktreePath, withIntermediateDirectories: true)
 
         let repo = store.addRepo(at: repoPath)
-        let worktree = Worktree(name: "wt-main", path: worktreePath, branch: "main")
-        store.updateRepoWorktrees(repo.id, worktrees: [worktree])
+        let worktree = Worktree(repoId: repo.id, name: "wt-main", path: worktreePath)
+        store.reconcileDiscoveredWorktrees(repo.id, worktrees: [worktree])
         return (repo, worktree)
     }
 
