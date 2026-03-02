@@ -92,56 +92,33 @@ erDiagram
 
 ### 2.2 Repo & Worktree
 
-> **Target model:** The current `Repo` and `Worktree` models mix canonical config with inferred/derived data (see "contamination" below). The target architecture splits these into canonical models (`CanonicalRepo`, `CanonicalWorktree`) and enrichment models (`RepoEnrichment`, `WorktreeEnrichment`) across separate persistence tiers. See [Workspace Data Architecture](workspace_data_architecture.md) for the full spec.
+Models are split across two stores. See [Workspace Data Architecture](workspace_data_architecture.md) for the full persistence tier spec and enrichment pipeline.
 
-**`Repo`** (current, contaminated) — A git repository on disk. Contains discovered worktrees.
+**`Repo`** — A git repository on disk. Structure-only — no enrichment data.
 
 | Field | Type | Notes |
 |-------|------|-------|
 | `id` | `UUID` | Primary key |
 | `name` | `String` | Directory name |
 | `repoPath` | `URL` | Filesystem path |
-| `worktrees` | `[Worktree]` | Discovered git worktrees |
+| `worktrees` | `[Worktree]` | Git worktrees (each has explicit repoId FK) |
 | `createdAt` | `Date` | When the repo was added |
-| `updatedAt` | `Date` | Last modification timestamp — **contaminated**: bumped by derived data, causes sidebar re-render loops |
-| `stableKey` | `String` | SHA-256 of path (16 hex chars), deterministic across reinstalls |
+| `stableKey` | `String` | SHA-256 of path, derived, deterministic across reinstalls |
 
-**`Worktree`** (current, contaminated) — A git worktree within a repo.
+**`Worktree`** — A git worktree within a repo. Structure-only.
 
 | Field | Type | Notes |
 |-------|------|-------|
 | `id` | `UUID` | Primary key |
-| `name` | `String` | Branch-derived display name |
+| `repoId` | `UUID` | FK to parent Repo |
+| `name` | `String` | Display name |
 | `path` | `URL` | Filesystem path |
-| `branch` | `String` | Git branch name |
-| `agent` | `AgentType?` | Which AI agent is assigned (claude, codex, gemini, aider, custom) |
-| `status` | `WorktreeStatus` | Agent status (idle, running, pendingReview, error) |
-| `stableKey` | `String` | SHA-256 of path (16 hex chars) |
+| `isMainWorktree` | `Bool` | Whether this is the main checkout |
+| `stableKey` | `String` | SHA-256 of path, derived |
 
-> **File:** `Core/Models/Repo.swift`, `Core/Models/Worktree.swift`
+All enrichment (branch, git status, origin, PR counts) lives in `WorkspaceRepoCache`, populated by the event bus. See the "Three Persistence Tiers" section in workspace_data_architecture.md.
 
-**Complete field migration map:**
-
-| Current field | Target model | Target tier | Notes |
-|---------------|-------------|-------------|-------|
-| `Repo.id` | `CanonicalRepo.id` | Canonical | Preserved (UUID, primary identity) |
-| `Repo.name` | `CanonicalRepo.name` | Canonical | Folder name from path (stable) |
-| `Repo.repoPath` | `CanonicalRepo.repoPath` | Canonical | Filesystem path |
-| `Repo.stableKey` | `CanonicalRepo.stableKey` | Canonical | SHA-256(path), secondary rebuild index. Recomputed on move. |
-| `Repo.createdAt` | `CanonicalRepo.addedAt` | Canonical | Renamed for clarity |
-| `Repo.updatedAt` | **Removed** | — | Was bumped by derived data, caused sidebar re-render loops |
-| `Repo.worktrees` | `CanonicalWorktree[]` (flat, separate) | Canonical | No longer nested in repo. Discovered by actors. |
-| `Repo.organizationName` | `RepoEnrichment.organizationName` | Cache | Inferred from git remote, not user intent |
-| `Repo.origin` | `RepoEnrichment.origin` | Cache | Inferred from git remote |
-| `Repo.upstream` | `RepoEnrichment.upstream` | Cache | Inferred from git remote |
-| `Worktree.id` | `CanonicalWorktree.id` | Canonical | Preserved (UUID, primary identity) |
-| `Worktree.path` | `CanonicalWorktree.path` | Canonical | Filesystem path |
-| `Worktree.stableKey` | `CanonicalWorktree.stableKey` | Canonical | SHA-256(path), recomputed on move |
-| `Worktree.name` | `WorktreeEnrichment.displayName` (derived) | Cache | Derived from branch name by GitWorkingDirectoryProjector |
-| `Worktree.branch` | `WorktreeEnrichment.branch` | Cache | Discovered by GitWorkingDirectoryProjector |
-| `Worktree.isMainWorktree` | `WorktreeEnrichment.isMainWorktree` | Cache | Discovered by GitWorkingDirectoryProjector |
-| `Worktree.agent` | Derived from pane state at query time | Runtime | Not persisted. "Is agent running?" = derived from pane states in that worktree. |
-| `Worktree.status` | Derived from pane state at query time | Runtime | Not persisted. Resets naturally on app restart. |
+> **Files:** `Core/Models/Repo.swift`, `Core/Models/Worktree.swift`
 
 ### 2.3 TerminalSession
 
@@ -152,7 +129,7 @@ The **primary entity**. Stable identity for a terminal, independent of layout po
 | `id` | `UUID` | Immutable primary key, never changes |
 | `source` | `TerminalSource` | What this terminal is for |
 | `title` | `String` | Display title (updated from shell) |
-| `agent` | `AgentType?` | AI agent running in this terminal |
+| `content` | `PaneContent` | What this pane displays (terminal, bridge, webview) |
 | `provider` | `SessionProvider` | Backend type |
 | `lifetime` | `SessionLifetime` | Persistence behavior |
 | `residency` | `SessionResidency` | Lifecycle position |
@@ -213,7 +190,7 @@ A **named arrangement** of sessions into tabs. Multiple views can reference the 
 
 **`DynamicViewRule`** — Rules for dynamic views:
 - `.byRepo(repoId: UUID)` — All sessions for a repo
-- `.byAgent(AgentType)` — All sessions running a specific agent
+- `.byCWD` — All panes grouped by working directory
 - `.custom(name: String)` — Future: user-defined filter
 
 > **File:** `Core/Models/DynamicView.swift`
@@ -459,7 +436,7 @@ Owned by `WorkspaceStore` as a `private let` member. Pure persistence I/O. No bu
 To keep Jotai-style store boundaries and Valtio-style source-of-truth guarantees intact, persistence is split by domain responsibility:
 
 - Canonical workspace model (`WorkspaceStore`) stays in `workspace.state.json` — contains `watchedPaths`, `CanonicalRepo[]`, `CanonicalWorktree[]`, panes, tabs, layouts
-- Derived enrichment data (`WorkspaceCacheStore`) in `workspace.cache.json` — contains `RepoEnrichment`, `WorktreeEnrichment`, PR/notification counts. Written exclusively by `WorkspaceCacheCoordinator` via enrichment pipeline events.
+- Derived enrichment data (`WorkspaceRepoCache`) in `workspace.cache.json` — contains `RepoEnrichment`, `WorktreeEnrichment`, PR/notification counts. Written exclusively by `WorkspaceCacheCoordinator` via enrichment pipeline events.
 - Workspace-scoped UI preferences (`WorkspaceUIStore`) in `workspace.ui.json`
 - Global app preferences and keybindings are stored separately from workspace state
 
@@ -483,7 +460,7 @@ This prevents derived data from silently becoming canonical truth and aligns eac
 #### Store Ownership
 
 - `WorkspaceStore` → canonical workspace model in `workspace.state.json`
-- `WorkspaceCacheStore` → derived git/wt/gh metadata + status in `workspace.cache.json`
+- `WorkspaceRepoCache` → derived git/wt/gh metadata + status in `workspace.cache.json`
 - `WorkspaceUIStore` → workspace-scoped UI preferences in `workspace.ui.json`
 - `PreferencesStore` → global app preferences in `preferences.global.json`
 - `KeybindingsStore` → command-to-shortcut overrides in `keybindings.json`
@@ -561,7 +538,7 @@ Required cache validity fields:
 2. Load `workspace.ui.json` into `WorkspaceUIStore`
 3. Load global preferences and keybindings into their stores
 4. Load `workspace.cache.json` only if cache revision matches canonical workspace revision
-5. Trigger async refresh pipeline (`wt`, `git`, `gh`) and patch `WorkspaceCacheStore`
+5. Trigger async refresh pipeline (`wt`, `git`, `gh`) and patch `WorkspaceRepoCache`
 
 Coordinator owns sequencing, not domain decisions:
 
@@ -612,7 +589,7 @@ Git worktree management via the `wt` CLI tool. Singleton.
 
 > **File:** `Infrastructure/WorktrunkService.swift`
 >
-> **Migration note:** Worktree discovery currently drives sidebar data directly. In the target architecture, discovery is owned by the enrichment pipeline: `FilesystemActor` detects `.git` directories → `WorkspaceCacheCoordinator` runs `git worktree list --porcelain -z` via `WorktrunkService` → registers canonical worktrees in `WorkspaceStore` and enrichment in `WorkspaceCacheStore`. See [Workspace Data Architecture — Discovery Lifecycle](workspace_data_architecture.md).
+> Worktree discovery flows through the enrichment pipeline: `RepoScanner` finds repos → `AppDelegate` emits `.repoDiscovered` → `WorkspaceCacheCoordinator` registers canonical entries in `WorkspaceStore` and seeds enrichment in `WorkspaceRepoCache`. See [Workspace Data Architecture](workspace_data_architecture.md) for the full pipeline.
 
 ### 3.12 Command Bar System
 
@@ -835,7 +812,7 @@ These rules are enforced by `WorkspaceStore` and model types at all times:
 | `Core/Models/Tab.swift` | Tab with layout and active session |
 | `Core/Models/DynamicView.swift` | `DynamicView`, `ViewKind`, `DynamicViewRule` |
 | `Core/Models/Repo.swift` | `Repo` entity |
-| `Core/Models/Worktree.swift` | `Worktree`, `WorktreeStatus`, `AgentType` |
+| `Core/Models/Worktree.swift` | `Worktree` (structure-only: id, repoId, name, path, isMainWorktree) |
 | `Core/Models/Templates.swift` | `WorktreeTemplate`, `TerminalTemplate`, `CreatePolicy` |
 | `Core/Models/StableKey.swift` | SHA-256 path hashing for deterministic IDs |
 | `Infrastructure/StateMachine/StateMachine.swift` | Generic state machine with effect handling |

@@ -20,7 +20,7 @@ agent-studio/
 │   │   └── PaneCoordinator.swift         # Cross-feature sequencing and orchestration
 │   ├── Core/                         # Shared domain — models, stores, pane system
 │   │   ├── Models/                   # Layout, Tab, Pane, PaneView, SessionStatus
-│   │   ├── Stores/                   # WorkspaceStore, SessionRuntime, WorkspacePersistor
+│   │   ├── Stores/                   # WorkspaceStore, WorkspaceRepoCache, SessionRuntime, WorkspacePersistor
 │   │   ├── Actions/                  # PaneAction, ActionResolver, ActionValidator
 │   │   ├── Views/                    # Tab bar, splits, drawer, arrangement
 │   │   │   ├── Splits/              # SplitTree, SplitView, TerminalPaneLeaf
@@ -72,9 +72,11 @@ Where each key component lives and why — use this to decide where new files go
 | `MainSplitViewController` | `App/` | Top-level sidebar/content split | App layout |
 | `MainWindowController` | `App/` | Window creation, toolbar, state restore | Window management |
 | `PaneCoordinator` | `App/` | Dispatches PaneActions to stores and manages model↔view↔surface orchestration | Cross-store sequencing |
-| `WorkspaceStore` | `Core/Stores/` | Tabs, layouts, views, pane metadata | Workspace structure |
+| `WorkspaceStore` | `Core/Stores/` | Repos, worktrees, tabs, panes, layouts | Workspace structure |
+| `WorkspaceRepoCache` | `Core/Stores/` | Repo enrichment, branches, git status, PR counts | Enrichment data |
 | `SessionRuntime` | `Core/Stores/` | Session status, health checks, zmx backend | Session backends |
 | `WorkspacePersistor` | `Core/Stores/` | Disk persistence for workspace state | Persistence format |
+| `WorkspaceCacheCoordinator` | `App/` | Consumes event bus, updates WorkspaceStore + cache | Event-driven enrichment |
 | `DynamicViewProjector` | `Core/Stores/` | Projects dynamic views into workspace | View projection |
 | `PaneTabViewController` | `App/` | NSTabView container for any pane type | Tab management |
 | `ViewRegistry` | `App/` | PaneId → NSView mapping (type-agnostic) | Pane registration |
@@ -264,9 +266,7 @@ A ticket has: a title, a rough scope description, links to the architecture doc 
 
 ## State Management Mental Model
 
-Agent Studio's state architecture draws from two JavaScript patterns adapted for Swift's type system and concurrency model. These are the governing principles for **all new code** and the target for incremental refactoring of existing code.
-
-> **Implementation status:** These patterns are the TARGET architecture in this worktree: `PaneCoordinator` is the canonical cross-feature coordinator (consolidated action dispatch + surface orchestration), and domain state is owned by `@Observable` stores with `private(set)` where state is mutable.
+Agent Studio's state architecture uses four patterns: atomic stores, unidirectional flow, coordinator sequencing, and event-driven enrichment. These are the governing principles for all code.
 
 ### Valtio-style: `private(set)` for Unidirectional Flow
 
@@ -288,13 +288,17 @@ final class WorkspaceStore {
 
 Each domain has its own `@Observable` store. No god-store. Stores are independent atoms — each owns one domain, has one reason to change, and can be tested in isolation.
 
-| Store | Domain | Owns |
-|-------|--------|------|
-| `WorkspaceStore` | Workspace structure | tabs, layouts, views, pane metadata |
-| `SurfaceManager` | Ghostty surfaces | surface lifecycle, health, undo stack |
-| `SessionRuntime` | Session backends | runtime status, health checks, zmx |
+| Store | Domain | Owns | Persisted |
+|-------|--------|------|-----------|
+| `WorkspaceStore` | Workspace structure | repos, worktrees, tabs, panes, layouts | `workspace.state.json` |
+| `WorkspaceRepoCache` | Derived enrichment | repo identity, branches, git status, PR counts | `workspace.cache.json` (rebuildable) |
+| `WorkspaceUIStore` | Presentation prefs | expanded groups, colors, filter | `workspace.ui.json` |
+| `SurfaceManager` | Ghostty surfaces | surface lifecycle, health, undo stack | — |
+| `SessionRuntime` | Session backends | runtime status, health checks, zmx | — |
 
 Stores never call each other's mutation methods directly. Cross-store coordination flows through a coordinator.
+
+**Repo/Worktree model:** `Worktree` is structure-only — `id`, `repoId` (FK), `name`, `path`, `isMainWorktree`. No branch, no status, no agent. All enrichment (branch, git status, PR counts) lives in `WorkspaceRepoCache`, populated by the event bus.
 
 ### Coordinator Pattern: Sequences, Doesn't Own
 
@@ -321,6 +325,48 @@ final class PaneCoordinator {
 ```
 
 **The test:** If a coordinator method contains an `if` that decides *what* to do with domain data, that logic belongs in a store. The coordinator only decides *which stores to call and in what order*.
+
+### Event-Driven Enrichment: Bus → Coordinator → Stores
+
+Runtime actors (FilesystemActor, GitWorkingDirectoryProjector, ForgeActor) produce facts about the world. These flow through a single `EventBus<RuntimeEnvelope>` to `WorkspaceCacheCoordinator`, which updates both `WorkspaceStore` (canonical topology) and `WorkspaceRepoCache` (derived enrichment).
+
+```
+FilesystemActor ──► .repoDiscovered ──┐
+GitProjector    ──► .snapshotChanged ─┤──► EventBus ──► WorkspaceCacheCoordinator
+ForgeActor      ──► .prCountsChanged ─┘        │               │
+                                                │        ┌──────┴──────┐
+                                                │        ▼             ▼
+                                                │  WorkspaceStore  WorkspaceRepoCache
+                                                │  (associations)  (enrichment)
+                                                │
+                                                └──► Sidebar observes both via @Observable
+```
+
+**This is NOT CQRS.** There is no command bus, no command/event segregation, no command handlers. The bus carries **facts** ("a repo exists at this path", "branch changed to X"). Stores are mutated by their own methods, called by the coordinator. The bus is a notification mechanism.
+
+**How user actions work (example: Add Folder):**
+1. User clicks Add Folder → `AppDelegate.addRepoIfNeeded(path)`
+2. AppDelegate calls `store.addRepo(at: path)` — direct store method call
+3. AppDelegate emits `.repoDiscovered(repoPath:)` on the bus
+4. `WorkspaceCacheCoordinator` consumes the event, seeds `.unresolved` enrichment in cache
+5. Runtime actors start producing enrichment events (branch, origin, PR counts)
+6. Coordinator writes enrichment to `WorkspaceRepoCache`
+7. Sidebar re-renders via `@Observable`
+
+Step 2 is a **direct method call**, not a command on the bus. Step 3 notifies the rest of the system. This is the pattern everywhere: **mutate directly, notify via bus**.
+
+**Do NOT:**
+- Add command enums or command handlers
+- Route store mutations through the bus (stores mutate via their own methods)
+- Create separate command/event types for the same action
+- Build CQRS-style read/write segregation
+
+**Do:**
+- Emit topology events after canonical mutations (so the cache stays in sync)
+- Make event handlers idempotent (dedup by stableKey/worktreeId, upsert semantics)
+- Use the bus for inter-component notification, not for commanding mutations
+
+See [Workspace Data Architecture](docs/architecture/workspace_data_architecture.md) for the full enrichment pipeline, lifecycle flows, and event namespace reference.
 
 ### Bridge-per-Surface Pattern
 
@@ -425,6 +471,7 @@ system design, data model, and document index. Target: macOS 26 only.
 
 - **Architecture Overview**: [README](docs/architecture/README.md) — system overview, principles, document index
 - **Component Architecture**: [Component Architecture](docs/architecture/component_architecture.md) — data model, services, data flow, persistence, invariants
+- **Workspace Data Architecture**: [Workspace Data](docs/architecture/workspace_data_architecture.md) — three-tier persistence, enrichment pipeline, event bus contracts, sidebar data flow
 - **Session Lifecycle**: [Session Lifecycle](docs/architecture/session_lifecycle.md) — creation, close, undo, restore, zmx backend
 - **Surface Architecture**: [Surface Management](docs/architecture/ghostty_surface_architecture.md) — ownership, state machine, health, crash isolation
 - **App Architecture**: [App Architecture](docs/architecture/appkit_swiftui_architecture.md) — AppKit+SwiftUI hybrid, controllers, events

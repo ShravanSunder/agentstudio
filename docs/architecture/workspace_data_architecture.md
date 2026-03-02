@@ -19,11 +19,11 @@ TIER A: CANONICAL CONFIG (source of truth, user intent)
   File: ~/.agentstudio/workspaces/<id>/workspace.state.json
   Owner: WorkspaceStore (@MainActor, @Observable)
   Mutated by: explicit user actions + topology consumer (discovery events)
-  Contains: watchedPaths, canonical repos, canonical worktrees, panes, tabs, layouts
+  Contains: canonical repos, canonical worktrees, panes, tabs, layouts
 
 TIER B: DERIVED CACHE (rebuildable from Tier A + actors)
   File: ~/.agentstudio/workspaces/<id>/workspace.cache.json
-  Owner: WorkspaceCacheStore (@MainActor, @Observable)
+  Owner: WorkspaceRepoCache (@MainActor, @Observable)
   Mutated by: WorkspaceCacheCoordinator only (event-driven)
   Contains: repo enrichment, worktree enrichment, PR counts, notification counts
 
@@ -36,46 +36,43 @@ TIER C: UI STATE (preferences, non-structural)
 
 ### Tier A: Canonical Models
 
+> **Files:** `Core/Models/CanonicalRepo.swift`, `Core/Models/CanonicalWorktree.swift`
+
 ```swift
-/// User-added path to watch. Either a direct repo or a parent folder.
-struct WatchedPath: Codable, Identifiable, Hashable {
-    let id: UUID
-    var path: URL
-    var kind: WatchedPathKind
-    var addedAt: Date
-}
-
-enum WatchedPathKind: String, Codable {
-    case parentFolder   // scan for repos up to 3 levels, stop at .git
-    case directRepo     // single git repo, watch directly
-}
-
-/// Canonical repo identity. Only stable, user-facing data.
-/// No inferred fields (org, remote, upstream — those are cache).
 struct CanonicalRepo: Codable, Identifiable, Hashable {
     let id: UUID
-    var repoPath: URL              // filesystem path (user-added or discovered)
-    var name: String               // folder name from path (stable, not inferred)
-    var stableKey: String          // SHA-256(path), secondary index for rebuild
-    var watchedPathId: UUID?       // which watched path discovered this (nil = direct add)
-    var addedAt: Date
+    var name: String               // folder name from path
+    var repoPath: URL              // filesystem path
+    var createdAt: Date
+    var stableKey: String { StableKey.fromPath(repoPath) }  // derived, SHA-256
 }
 
-/// Canonical worktree identity. Stable relationship to parent repo.
-/// No branch, no status, no agent — those are derived/runtime.
 struct CanonicalWorktree: Codable, Identifiable, Hashable {
     let id: UUID
-    var path: URL                  // filesystem path
-    var repoId: UUID               // relationship to parent CanonicalRepo
-    var stableKey: String          // SHA-256(path), secondary index for rebuild
+    let repoId: UUID               // FK to CanonicalRepo.id
+    var name: String
+    var path: URL
+    var isMainWorktree: Bool
+    var stableKey: String { StableKey.fromPath(path) }  // derived, SHA-256
 }
 ```
 
-**What is NOT canonical:**
-- `organizationName`, `origin`, `upstream` → RepoEnrichment (cache)
-- `branch`, `isMainWorktree` → WorktreeEnrichment (cache)
-- `agent`, `status` → derived from pane state at query time
-- `updatedAt` on repo → removed (was the sidebar loop trigger)
+The runtime `Worktree` model mirrors `CanonicalWorktree` — structure-only, no enrichment:
+
+```swift
+struct Worktree: Codable, Identifiable, Hashable {
+    let id: UUID
+    let repoId: UUID               // explicit FK (not implicit array containment)
+    var name: String
+    var path: URL
+    var isMainWorktree: Bool
+}
+```
+
+**What is NOT canonical** (lives in cache, populated by event bus):
+- `organizationName`, `origin`, `upstream` → `RepoEnrichment`
+- `branch`, git snapshot → `WorktreeEnrichment`
+- PR counts, notification counts → `WorkspaceRepoCache` dictionaries
 
 ### Identity Semantics
 
@@ -142,13 +139,12 @@ struct WorkspaceUIState: Codable {
 Sequential enrichment via EventBus. Each stage subscribes to the bus and produces enriched events back to the bus. The bus fans out — the coordinator gets intermediate events directly (no latency blocking).
 
 ```
-CONFIG FILE (watchedPaths, canonical repos/worktrees, panes/tabs)
+WORKSPACE STATE (canonical repos/worktrees, panes/tabs)
       │
-      │ read at boot + on mutation
+      │ restored at boot → topology events replayed on bus
       ▼
 FilesystemActor (raw filesystem I/O)
-  .parentFolder → triggered rescan (maxDepth 3, stop at .git)
-  .directRepo / worktree roots → deep FSEvents watch
+  worktree roots → deep FSEvents watch (DarwinFSEventStreamClient)
   emits: SystemEnvelope(.topology(..))     ← repo discovery/removal
          WorktreeEnvelope(.filesystem(..)) ← file change facts
       │
@@ -171,7 +167,7 @@ ForgeActor (remote forge enrichment)
       ▼
 WorkspaceCacheCoordinator (@MainActor, consolidation consumer)
   .topology(.repoDiscovered) → register canonical repo+worktrees in WorkspaceStore
-                              → compute enrichment → write to WorkspaceCacheStore
+                              → compute enrichment → write to WorkspaceRepoCache
                               → register with FilesystemActor (deep watch)
                               → register with ForgeActor (if has remote)
   .topology(.repoRemoved) → unregister actors → mark panes orphaned → prune cache
@@ -180,11 +176,11 @@ WorkspaceCacheCoordinator (@MainActor, consolidation consumer)
   .pullRequestCountsChanged → map branch→worktreeId → write to cache
       │
       ▼
-WorkspaceCacheStore (@Observable, passive)
+WorkspaceRepoCache (@Observable, passive)
   → persisted to cache file on debounced schedule
       │
       ▼
-SIDEBAR (pure reader of WorkspaceStore + CacheStore + UIStore)
+SIDEBAR (pure reader of WorkspaceStore + WorkspaceRepoCache + WorkspaceUIStore)
 ```
 
 ### Actor Responsibilities
@@ -193,9 +189,9 @@ SIDEBAR (pure reader of WorkspaceStore + CacheStore + UIStore)
 
 | Aspect | Detail |
 |--------|--------|
-| **Owns** | FSEvents ingestion, path filtering, debounce, batching |
-| **Scope** | Parent folder paths (triggered rescan) + worktree root paths (deep watch) |
-| **Reads** | Config (watched paths) |
+| **Owns** | FSEvents ingestion via DarwinFSEventStreamClient, path filtering, debounce, batching |
+| **Scope** | Worktree root paths (deep FSEvents watch) |
+| **Reads** | Registered worktree paths from PaneCoordinator sync |
 | **Produces** | `SystemEnvelope(.topology(.repoDiscovered/.repoRemoved))` — discovery events |
 | | `WorktreeEnvelope(.filesystem(.filesChanged))` — file change facts |
 | **Does not** | Run git commands, access network, mutate canonical store |
@@ -235,10 +231,10 @@ handleTopology_*    — CANONICAL mutations (WorkspaceStore)
           .worktreeDiscovered, .worktreeRemoved
   Touches: WorkspaceStore (register/unregister repos+worktrees)
 
-handleEnrichment_*  — DERIVED cache writes (WorkspaceCacheStore only)
+handleEnrichment_*  — DERIVED cache writes (WorkspaceRepoCache only)
   Events: .snapshotChanged, .branchChanged, .originChanged,
           .pullRequestCountsChanged, .checksUpdated
-  Touches: WorkspaceCacheStore only
+  Touches: WorkspaceRepoCache only
 
 syncScope_*         — ACTOR registration management
   Operations: register/unregister worktrees with FilesystemActor, ForgeActor
@@ -247,9 +243,13 @@ syncScope_*         — ACTOR registration management
 
 Method naming convention makes responsibility explicit. If coordinator grows too large, method groups become natural extraction points. Does not run git/network commands or access filesystem directly.
 
-### Discovery — Parent Folder Scanning
+### Discovery — Repo Scanning
 
-Smart scanning: walk filesystem, stop at first `.git` boundary. 3-level max depth cap. Avoids scanning into submodules. `RepoScanner` already implements this correctly. Trigger-based rescan (not continuous FSEvents on parent folders). Triggers: explicit refresh, git topology change, lazy timer.
+`RepoScanner` walks the filesystem from a root URL, stops at the first `.git` boundary (file or directory), caps depth at 3 levels, skips hidden directories and symlinks, validates with `git rev-parse --is-inside-work-tree`, and excludes submodules via `--show-superproject-working-tree`.
+
+Currently used as a one-shot scan when the user clicks "Add Folder." A planned enhancement will persist the folder path as a `WatchedPath` and rescan periodically — see `docs/plans/2026-03-02-persistent-watched-path-folder-watching.md`.
+
+> **File:** `Infrastructure/RepoScanner.swift`
 
 ### Event Namespaces
 
@@ -284,94 +284,76 @@ Discovery events (`.repoDiscovered`, `.repoRemoved`) live in `SystemEnvelope` be
 
 ## Sidebar Data Flow
 
-The sidebar is a pure reader. It does not fetch, compute, or mutate any workspace state.
+The sidebar is a pure reader. It reads structure from one store, display data from another.
 
 ```
-WorkspaceStore.repos                → canonical repo identity, structure
-WorkspaceStore.worktreeAssignments  → canonical worktree-to-repo mapping
-WorkspaceCacheStore.repoEnrichment  → org name, display name, grouping
-WorkspaceCacheStore.worktreeEnrichment → branch, git status
-WorkspaceCacheStore.pullRequestCounts → PR badges
-WorkspaceUIStore                    → expanded groups, filter, colors
+WorkspaceStore.repos                → canonical repo/worktree structure (what exists)
+WorkspaceRepoCache.repoEnrichment  → org name, display name, groupKey (how to group)
+WorkspaceRepoCache.worktreeEnrichment → branch, git status (how to display)
+WorkspaceRepoCache.pullRequestCounts → PR badges
+WorkspaceRepoCache.notificationCounts → notification bells
+WorkspaceUIStore                    → expanded groups, filter, colors (user prefs)
 
 ZERO imperative fetches. ZERO mutations. Pure @Observable binding.
 ```
 
-This eliminates the sidebar self-trigger loop in the current code: `.task(id: reposFingerprint)` → `refreshWorktrees()` → canonical mutation → fingerprint change → re-trigger. With the new architecture, the sidebar observes store changes reactively and never triggers mutations.
+This is not a "join" problem — each store has one clear job. The bus ensures both are in sync. The sidebar does not do complex data merging; it reads structure from one, display data from the other.
+
+Branch display: `WorktreeEnrichment.branch` from cache, falling back to `"detached HEAD"`. No branch field on the `Worktree` model itself.
 
 ---
 
 ## Lifecycle Flows
 
-### App Boot
+### App Boot (implemented)
 
 ```
-1. Load config file → WorkspaceStore (watchedPaths, repos, worktrees, panes, tabs)
-2. Load cache file → WorkspaceCacheStore (enrichment, PR counts)
-   - If cache exists and valid: sidebar renders immediately with cached data
-   - If cache missing/stale: sidebar renders structural skeleton
-3. Load UI state → WorkspaceUIStore (expanded groups, filter)
-4. Start EventBus
-5. Start FilesystemActor → reads watchedPaths, begins watching
-6. Start GitWorkingDirectoryProjector → subscribes to bus
-7. Start ForgeActor → subscribes to bus
-8. Start WorkspaceCacheCoordinator → subscribes to bus
-9. FilesystemActor triggers initial rescan of parent folders
-10. Pipeline fills cache → sidebar updates reactively
+1. WorkspaceStore.restore() → load repos, worktrees, panes, tabs from workspace.state.json
+2. WorkspaceRepoCache.loadCache() → warm-start from workspace.cache.json
+   - Sidebar renders immediately with cached enrichment data
+3. WorkspaceUIStore.load() → expanded groups, filter, colors from workspace.ui.json
+4. Start runtime actors (FilesystemActor, GitProjector, ForgeActor)
+5. Start WorkspaceCacheCoordinator → subscribes to bus
+6. replayBootTopology() — emit .repoDiscovered for each persisted repo
+   - Phase A: active-pane repos first (priority)
+   - Phase B: remaining repos
+7. Prune stale cache entries (IDs not in restored store)
+8. Actors process topology events → produce enrichment events
+9. Cache converges → sidebar updates reactively
 ```
 
-### User Adds Parent Folder
+Boot replay uses the same `.repoDiscovered` event and same coordinator code path as live discovery. The cached data provides instant display; the replay validates and refreshes everything.
+
+### User Adds a Folder (implemented)
 
 ```
 1. User: File → Add Folder → selects /projects
-2. WorkspaceStore.addWatchedPath(.parentFolder, /projects)
-3. Config file saved (debounced)
-4. repoWorktreesDidChangeHook fires
-5. PaneCoordinator → FilesystemActor.registerParentFolder(/projects)
-6. FilesystemActor runs rescan (maxDepth 3, stop at .git)
-7. For each discovered repo:
-   → emits SystemEnvelope(.topology(.repoDiscovered(repoPath, parentPath=/projects)))
-8. CacheCoordinator receives .topology(.repoDiscovered):
-   a. WorkspaceStore.registerDiscoveredRepo → CanonicalRepo (UUID assigned)
-   b. GitWorkingDirectoryProjector runs git worktree list
-   c. emits .worktreeDiscovered for each (repoId now known)
-9. CacheCoordinator receives .worktreeDiscovered:
-   a. WorkspaceStore.registerWorktree → CanonicalWorktree
-   b. FilesystemActor.register(worktreeId:, rootPath:) for deep watch
-   c. ForgeActor.register(repoId:, remoteURL:)
-10. GitWorkingDirectoryProjector emits .snapshotChanged, .branchChanged
-11. ForgeActor emits .pullRequestCountsChanged
-12. CacheCoordinator writes all enrichment to cache store
-13. Sidebar reactively shows new repos with full enrichment
+2. RepoScanner().scanForGitRepos(in: /projects, maxDepth: 3)
+   - Walks filesystem, stops at .git boundary, skips submodules
+3. For each discovered repo path:
+   → AppDelegate posts .addRepoAtPathRequested(path:) via AppEventBus
+4. addRepoIfNeeded(path) for each:
+   a. Dedup check (skip if path matches existing worktree)
+   b. Emit .repoDiscovered on RuntimeEventBus via makeTopologyEnvelope()
+5. WorkspaceCacheCoordinator.handleTopology(.repoDiscovered):
+   a. Idempotent check by stableKey — skip if repo already exists
+   b. Seed enrichment to .unresolved in WorkspaceRepoCache
+6. PaneCoordinator.syncFilesystemRootsAndActivity() — register with actors
+7. Actors start producing enrichment events → cache updates → sidebar renders
 ```
 
-### Repo Moved
+> **Planned enhancement:** Persist the folder as a `WatchedPath` so FilesystemActor can rescan periodically for newly cloned repos. See `docs/plans/2026-03-02-persistent-watched-path-folder-watching.md`.
+
+### User Adds a Repo (implemented)
 
 ```
-1. User moves /projects/my-repo to /archive/my-repo
-2. FilesystemActor shallow watch (on next rescan) detects repo gone
-   → emits SystemEnvelope(.topology(.repoRemoved(repoPath: /projects/my-repo)))
-3. CacheCoordinator receives .topology(.repoRemoved):
-   a. Finds canonical repo by path
-   b. All panes referencing worktrees of that repo:
-      pane.residency = .orphaned(.worktreeNotFound)
-   c. Unregister from FilesystemActor + ForgeActor
-   d. Prune from WorkspaceCacheStore
-   e. Keep CanonicalRepo + CanonicalWorktree entries (for re-association)
-4. Sidebar shows orphaned pane: "Worktree not found" + "Locate" / "Close"
-
-5. User clicks "Locate repo" → selects /archive/my-repo
-6. Coordinator:
-   a. Updates CanonicalRepo.repoPath → /archive/my-repo
-   b. Recomputes CanonicalRepo.stableKey = SHA-256(new path)
-   c. Runs `git worktree repair` to fix worktree metadata for new location
-   d. Runs `git worktree list --porcelain -z` → updates CanonicalWorktree paths + stableKeys
-   e. Re-registers with FilesystemActor + ForgeActor
-   f. Full enrichment pipeline runs
-   g. Pane residency = .active (UUIDs unchanged, pane links survive)
+1. User: File → Add Repo → selects /projects/my-repo
+2. AppDelegate validates it has a .git directory
+3. If path is a child of a repo (not the repo root), offers to add the parent folder instead
+4. addRepoIfNeeded(path) → same flow as step 4 above
 ```
 
-### Branch Change → Forge Refresh
+### Branch Change → Forge Refresh (implemented)
 
 ```
 1. User runs `git checkout feat-2` in worktree wt-1
@@ -390,6 +372,13 @@ This eliminates the sidebar self-trigger loop in the current code: `.task(id: re
 ```
 
 Note: ForgeActor gets `.branchChanged` directly from the bus fan-out. The coordinator does NOT additionally trigger ForgeActor — this prevents duplicate network refreshes.
+
+### Repo Moved (planned, not yet implemented)
+
+When a repo directory moves on disk, the plan is:
+1. FilesystemActor detects repo gone on rescan → emits `.repoRemoved`
+2. Coordinator marks panes orphaned, prunes cache, keeps canonical entries for re-association
+3. User can "Locate" the repo at its new path → coordinator updates path, recomputes stableKey, re-registers with actors
 
 ---
 
@@ -421,51 +410,154 @@ Cache coordinator uses value-equality check: if the incoming snapshot matches wh
 
 ---
 
-## Migration from Current Models
+## Event System Design: What It Is (and Isn't)
 
-The current `Repo` and `Worktree` models are contaminated — they mix canonical config, inferred data, discovered state, and runtime state in single structs:
+The event bus is a **notification mechanism** — runtime actors produce facts, the coordinator consumes them and calls store methods. This is NOT CQRS. There is no command bus, no command/event segregation, no command handlers.
 
+### How It Works
+
+**Events are facts about the world.** "A repo exists at this path." "Branch changed to X." "PR count is 3." Events carry data, not instructions.
+
+**Stores are mutated by their own methods.** `WorkspaceStore.addRepo(at:)` is a direct method call, not a command dispatched through the bus. The bus does not route mutations.
+
+**The coordinator bridges events to store methods.** `WorkspaceCacheCoordinator` subscribes to the bus, pattern-matches on events, and calls the appropriate store methods. It contains no domain logic — just "when I see X, call Y."
+
+### Concrete Flow: User Adds a Folder
+
+```swift
+// 1. User clicks Add Folder → AppDelegate receives path
+func addRepoIfNeeded(_ path: URL) {
+    let normalizedPath = path.standardizedFileURL
+
+    // 2. Direct store mutation (NOT via bus)
+    let repo = store.addRepo(at: normalizedPath)
+
+    // 3. Emit topology event so the rest of the system learns
+    workspaceCacheCoordinator.consume(
+        Self.makeTopologyEnvelope(repoPath: normalizedPath, source: .builtin(.coordinator))
+    )
+
+    // 4. Sync filesystem roots so actors start watching
+    paneCoordinator.syncFilesystemRootsAndActivity()
+}
+
+// 5. WorkspaceCacheCoordinator handles the event:
+func handleTopology(_ event: TopologyEvent) {
+    switch event {
+    case .repoDiscovered(let repoPath, _):
+        let incomingStableKey = StableKey.fromPath(repoPath)
+        let existingRepo = workspaceStore.repos.first {
+            $0.repoPath == repoPath || $0.stableKey == incomingStableKey
+        }
+        if let repo = existingRepo {
+            // Idempotent: seed enrichment only if missing
+            if repoCache.repoEnrichmentByRepoId[repo.id] == nil {
+                repoCache.setRepoEnrichment(.unresolved(repoId: repo.id))
+            }
+        }
+        // ... FilesystemActor/GitProjector start producing enrichment events
+    }
+}
+
+// 6. Later, GitProjector emits .snapshotChanged, .branchChanged
+// 7. WorkspaceCacheCoordinator writes enrichment to WorkspaceRepoCache
+// 8. Sidebar re-renders via @Observable
 ```
-CURRENT Repo (contaminated):
-  id, name, repoPath, createdAt         ← CONFIG → CanonicalRepo
-  organizationName, origin, upstream    ← INFERRED → RepoEnrichment (cache)
-  worktrees: [Worktree]                 ← DISCOVERED → CanonicalWorktree (canonical)
-  updatedAt                              ← BUMPED BY DERIVED → REMOVED
 
-CURRENT Worktree (contaminated):
-  id, name, path, branch, isMainWorktree ← DISCOVERED → split across canonical + cache
-  agent, status                           ← APP STATE → derived from pane state
+The pattern is always: **mutate the store directly → emit a fact on the bus → coordinator updates the other store**.
 
-PaneContextFacets (all optional, no type enforcement):
-  repoId?, repoName?, worktreeId?, worktreeName?
-  cwd?, parentFolder?, organizationName?, origin?, upstream?
+### What NOT to Do
+
+- **Do not add command enums or command handlers.** Store methods ARE the commands.
+- **Do not route store mutations through the bus.** The bus carries facts, not instructions.
+- **Do not create separate command/event types for the same action.** One event type per fact.
+- **Do not build CQRS-style read/write segregation.** Both stores are read/write via their own methods.
+- **Do not make actors emit canonical topology events.** Only `AppDelegate` (user actions + boot replay) emits `.repoDiscovered`/`.repoRemoved`. Runtime actors emit observation events only (`.worktreeRegistered`, `.snapshotChanged`, etc.).
+
+### Idempotency Contract
+
+All topology handlers in `WorkspaceCacheCoordinator` are idempotent:
+
+| Event | Dedup key | Behavior |
+|-------|-----------|----------|
+| `.repoDiscovered` | `stableKey` (SHA-256 of path) | Upsert: skip if exists, seed enrichment if missing |
+| `.worktreeRegistered` | `worktreeId` (UUID) | Upsert: skip if exists |
+| `.snapshotChanged` | `worktreeId` | Overwrite: latest wins |
+| `.branchChanged` | `worktreeId` | Overwrite: latest wins |
+
+Ordering tolerance: `.worktreeRegistered` arriving before `.repoDiscovered` is a safe no-op (guard + return). No crash, no queue.
+
+### Writing Integration Tests with Events
+
+Test the full event flow: emit an event → coordinator processes it → assert both stores updated.
+
+```swift
+@Suite struct WorkspaceCacheCoordinatorTests {
+    @Test func repoDiscovered_seedsEnrichmentInCache() async {
+        // Arrange
+        let store = WorkspaceStore()
+        let repoCache = WorkspaceRepoCache()
+        let coordinator = WorkspaceCacheCoordinator(
+            workspaceStore: store,
+            repoCache: repoCache
+        )
+        let repoPath = URL(fileURLWithPath: "/tmp/test-repo")
+        store.addRepo(at: repoPath)
+
+        // Act — emit the topology event
+        let envelope = AppDelegate.makeTopologyEnvelope(
+            repoPath: repoPath,
+            source: .builtin(.coordinator)
+        )
+        coordinator.consume(envelope)
+
+        // Assert — cache has unresolved enrichment for the repo
+        let repo = store.repos.first!
+        let enrichment = repoCache.repoEnrichmentByRepoId[repo.id]
+        #expect(enrichment != nil)
+    }
+
+    @Test func repoDiscovered_idempotent_doesNotDuplicate() async {
+        // Arrange
+        let store = WorkspaceStore()
+        let repoCache = WorkspaceRepoCache()
+        let coordinator = WorkspaceCacheCoordinator(
+            workspaceStore: store,
+            repoCache: repoCache
+        )
+        let repoPath = URL(fileURLWithPath: "/tmp/test-repo")
+        store.addRepo(at: repoPath)
+
+        // Act — emit the same event twice
+        let envelope = AppDelegate.makeTopologyEnvelope(
+            repoPath: repoPath,
+            source: .builtin(.coordinator)
+        )
+        coordinator.consume(envelope)
+        coordinator.consume(envelope)
+
+        // Assert — still only one repo, one enrichment entry
+        #expect(store.repos.count == 1)
+        #expect(repoCache.repoEnrichmentByRepoId.count == 1)
+    }
+}
 ```
 
-The migration splits each field to its correct tier. The canonical store holds only user intent and stable identity. The cache store holds everything that can be rebuilt from actors. Runtime state is queried, not stored.
-
-### Direct Store Mutation Callsites (12 total)
-
-All callsites that bypass the coordinator must be routed through coordinator commands:
-
-**MainSplitViewController.swift** — 7 callsites (lines 368, 371, 480, 482, 489, 492, 502)
-**RepoSidebarContentView.swift** — 5 callsites (lines 294, 301, 479, 481, 512)
-
-All follow the same anti-pattern: `WorktrunkService.shared.discoverWorktrees(for:)` → `store.updateRepoWorktrees()`. In the new design, sidebar views dispatch user intents as commands to the coordinator. The coordinator translates commands into the event flow.
-
----
-
-## Prerequisite: FSEvents Noop
-
-`FilesystemActor` and `FilesystemGitPipeline` now use concrete `DarwinFSEventStreamClient` wiring in production composition. The prerequisite is closed and the enrichment pipeline can consume real filesystem ingress.
+Key testing principles:
+- **Test the event path, not the store in isolation.** The coordinator IS the glue — test it with real stores.
+- **Assert on both stores.** A topology event should update both `WorkspaceStore` (canonical) and `WorkspaceRepoCache` (enrichment).
+- **Test idempotency.** Emit the same event twice. Assert no duplicates.
+- **Test ordering tolerance.** Emit events in wrong order. Assert no crash.
 
 ---
 
 ## Cross-References
 
-- **Event envelope hierarchy:** [Pane Runtime Architecture — Contract 3](pane_runtime_architecture.md#contract-3-event-envelope) defines the envelope contract — current `PaneEventEnvelope` and target `RuntimeEnvelope` 3-tier discriminated union
-- **Actor threading model:** [EventBus Design](pane_runtime_eventbus_design.md) defines connection patterns and `@concurrent` helpers
+- **Event envelope hierarchy:** [Pane Runtime Architecture — Contract 3](pane_runtime_architecture.md#contract-3-paneeventenvelope) — `RuntimeEnvelope` 3-tier discriminated union (`SystemEnvelope`, `WorktreeEnvelope`, `PaneEnvelope`)
+- **Actor threading model:** [EventBus Design](pane_runtime_eventbus_design.md) — connection patterns, `@concurrent` helpers, multiplexing rule
 - **Pane-level replay:** [Pane Runtime Architecture — Contract 14](pane_runtime_architecture.md#contract-14-replay-buffer)
-- **Filesystem batching:** [Pane Runtime Architecture — Contract 6](pane_runtime_architecture.md#contract-6-filesystem-batching) defines debounce/max-latency
-- **Component overview:** [Component Architecture](component_architecture.md) — data model, service layer, persistence
-- **Pane identity and restore:** [Session Lifecycle](session_lifecycle.md) — pane identity contract (`PaneId` as cross-feature identity), restore sequencing, undo/residency states. Pane references (`facets.worktreeId`) link to `CanonicalWorktree.id` (UUID) defined here.
-- **Surface lifecycle:** [Surface Architecture](ghostty_surface_architecture.md) — Ghostty surface ownership, health monitoring. Surface attach/detach depends on pane residency (`.active`, `.pendingUndo`, `.backgrounded`) which is tracked in `WorkspaceStore`.
+- **Filesystem batching:** [Pane Runtime Architecture — Contract 6](pane_runtime_architecture.md#contract-6-filesystem-batching) — debounce/max-latency
+- **Component overview:** [Component Architecture](component_architecture.md) — data model, store boundaries, coordinator role
+- **Pane identity and restore:** [Session Lifecycle](session_lifecycle.md) — pane identity contract, restore sequencing, undo/residency states
+- **Surface lifecycle:** [Surface Architecture](ghostty_surface_architecture.md) — Ghostty surface ownership, health monitoring
+- **Planned: persistent folder watching:** `docs/plans/2026-03-02-persistent-watched-path-folder-watching.md` — `WatchedPath` model, periodic rescan

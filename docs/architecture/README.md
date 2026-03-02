@@ -7,32 +7,44 @@ Agent Studio is a macOS terminal application that embeds Ghostty terminal surfac
 ## System Overview
 
 ```
-┌───────────────────────────────────────────────────────────────┐
-│                        AppDelegate                            │
-│                                                               │
-│  ┌───────────────┐  ┌───────────────┐  ┌──────────────────┐  │
-│  │WorkspaceStore │  │SessionRuntime │  │SurfaceManager    │  │
-│  │ (workspace)   │  │(backends)     │  │(surfaces)        │  │
-│  └───────┬───────┘  └───────┬───────┘  └────────┬─────────┘  │
-│          │                  │                    │             │
-│  ┌───────┴──────────────────┴────────────────────┴──────────┐ │
-│  │              PaneCoordinator                              │ │
-│  │     (sequences cross-store ops, owns no domain state)     │ │
-│  └──────────────────────────┬───────────────────────────────┘ │
-│                             │                                 │
-│  ┌──────────────┐  ┌───────┴──────┐  ┌──────────────────────┐│
-│  │ ViewRegistry │  │ TabBarAdapter│  │CommandBarPanel       ││
-│  │(paneId→View) │  │(derived UI)  │  │Controller (⌘P)      ││
-│  └──────────────┘  └──────────────┘  └──────────────────────┘│
-└───────────────────────────────────────────────────────────────┘
-  * WorkspacePersistor is internal to WorkspaceStore (JSON I/O)
-  * Each store is @Observable with private(set) for unidirectional flow
+┌────────────────────────────────────────────────────────────────────────┐
+│                            AppDelegate                                  │
+│                                                                        │
+│  STORES (each @Observable, private(set))                               │
+│  ┌───────────────┐  ┌─────────────────┐  ┌───────────────┐            │
+│  │WorkspaceStore │  │WorkspaceRepo    │  │WorkspaceUI    │            │
+│  │ (canonical)   │  │Cache (enrichment)│  │Store (prefs)  │            │
+│  └───────┬───────┘  └────────┬────────┘  └───────────────┘            │
+│          │                   │                                         │
+│          │    ┌──────────────┴──────────────────┐                      │
+│          │    │   WorkspaceCacheCoordinator      │                      │
+│          │    │   (event bus → store mutations)  │                      │
+│          │    └──────────────┬──────────────────┘                      │
+│          │                   │ consumes                                 │
+│  ┌───────┴───────────────────┴─────────────────────────────────┐       │
+│  │                    EventBus<RuntimeEnvelope>                  │       │
+│  └──────┬────────────────┬─────────────────┬───────────────────┘       │
+│         │                │                 │                           │
+│  ┌──────┴──────┐  ┌──────┴──────┐  ┌──────┴──────┐                    │
+│  │Filesystem   │  │GitProjector │  │ForgeActor   │                    │
+│  │Actor        │  │(git status) │  │(PR counts)  │                    │
+│  └─────────────┘  └─────────────┘  └─────────────┘                    │
+│                                                                        │
+│  ┌───────────────┐  ┌───────────────┐                                  │
+│  │SessionRuntime │  │SurfaceManager │                                  │
+│  │(backends)     │  │(surfaces)     │                                  │
+│  └───────┬───────┘  └────────┬──────┘                                  │
+│  ┌───────┴───────────────────┴──────────────────────────────────┐      │
+│  │              PaneCoordinator                                  │      │
+│  │     (sequences cross-store ops, owns no domain state)         │      │
+│  └───────────────────────────────────────────────────────────────┘      │
+└────────────────────────────────────────────────────────────────────────┘
 ```
 
 ## Architecture Principles
 
 - **Pane as primary entity** — `Pane` is the stable identity across model, runtime, view registry, surface metadata, and restore flows
-- **Atomic stores (Jotai-style)** — Each domain has its own `@Observable` store: `WorkspaceStore` (workspace structure), `SurfaceManager` (Ghostty surfaces), `SessionRuntime` (backends). No god-store. Each store owns one domain and has one reason to change.
+- **Atomic stores (Jotai-style)** — Each domain has its own `@Observable` store: `WorkspaceStore` (canonical associations), `WorkspaceRepoCache` (derived enrichment), `WorkspaceUIStore` (presentation prefs), `SurfaceManager` (Ghostty surfaces), `SessionRuntime` (backends). No god-store. Each store owns one domain and has one reason to change.
 - **Unidirectional flow (Valtio-style)** — All store state is `private(set)`. External code reads freely, mutates only through store methods. No action enums, no reducers.
 - **Coordinator for cross-store sequencing** — A coordinator sequences operations across stores for a single user action. Owns no state, contains no domain logic.
 - **Immutable layout tree** — `Layout` is a pure value type; operations return new instances, never mutate
@@ -43,19 +55,26 @@ Agent Studio is a macOS terminal application that embeds Ghostty terminal surfac
 ## Data Model at a Glance
 
 ```
-WorkspaceStore
+WorkspaceStore (canonical associations — workspace.state.json)
 ├── repos: [Repo]
-│   └── worktrees: [Worktree]          ← git branches on disk
+│   └── worktrees: [Worktree]          ← structure-only: id, repoId, name, path, isMainWorktree
 ├── panes: [Pane]                       ← primary pane identities
 │   ├── source: .worktree | .floating
 │   ├── provider: .ghostty | .zmx
 │   ├── lifetime: .persistent | .temporary
 │   └── residency: .active | .pendingUndo | .backgrounded
-└── views: [ViewDefinition]             ← named pane arrangements
-    ├── kind: .main | .saved | .worktree | .dynamic
-    └── tabs: [Tab]
-        └── layout: Layout              ← pure value-type split tree
-            └── Node: .leaf(paneId) | .split(Split)
+└── tabs: [Tab]
+    └── layout: Layout                  ← pure value-type split tree
+        └── Node: .leaf(paneId) | .split(Split)
+
+WorkspaceRepoCache (derived enrichment — workspace.cache.json, rebuildable)
+├── repoEnrichmentByRepoId             ← origin, identity, groupKey, displayName
+├── worktreeEnrichmentByWorktreeId     ← branch, git snapshot
+├── pullRequestCountByWorktreeId       ← PR badges
+└── notificationCountByWorktreeId      ← notification bells
+
+WorkspaceUIStore (presentation prefs — workspace.ui.json)
+├── expandedGroups, checkoutColors, filterText, isFilterVisible
 ```
 
 ## Mutation Flow (Summary)

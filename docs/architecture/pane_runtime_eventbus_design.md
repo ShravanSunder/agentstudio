@@ -400,7 +400,7 @@ The command doesn't post to the bus directly — the reactive system handles fan
 
 ### `@MainActor` (existing, extended)
 
-All runtimes (`TerminalRuntime`, future `BridgeRuntime`, `WebviewRuntime`, `SwiftPaneRuntime`), all stores (`WorkspaceStore`, `WorkspaceCacheStore`, `WorkspaceUIStore`, `SurfaceManager`, `SessionRuntime`), `PaneCoordinator`, `WorkspaceCacheCoordinator`, `NotificationReducer`, views, `ViewRegistry`.
+All runtimes (`TerminalRuntime`, future `BridgeRuntime`, `WebviewRuntime`, `SwiftPaneRuntime`), all stores (`WorkspaceStore`, `WorkspaceRepoCache`, `WorkspaceUIStore`, `SurfaceManager`, `SessionRuntime`), `PaneCoordinator`, `WorkspaceCacheCoordinator`, `NotificationReducer`, views, `ViewRegistry`.
 
 These consume from EventBus via `for await`:
 
