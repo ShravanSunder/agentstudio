@@ -18,7 +18,6 @@ enum CreatePolicy: String, Codable, Hashable {
 struct TerminalTemplate: Codable, Identifiable, Hashable {
     let id: UUID
     var title: String
-    var agent: AgentType?
     var provider: SessionProvider
     /// Working directory relative to the worktree root.
     var relativeWorkingDir: String?
@@ -26,13 +25,11 @@ struct TerminalTemplate: Codable, Identifiable, Hashable {
     init(
         id: UUID = UUID(),
         title: String = "Terminal",
-        agent: AgentType? = nil,
         provider: SessionProvider = .zmx,
         relativeWorkingDir: String? = nil
     ) {
         self.id = id
         self.title = title
-        self.agent = agent
         self.provider = provider
         self.relativeWorkingDir = relativeWorkingDir
     }
@@ -47,8 +44,7 @@ struct TerminalTemplate: Codable, Identifiable, Hashable {
                 )),
             metadata: PaneMetadata(
                 source: .worktree(worktreeId: worktreeId, repoId: repoId),
-                title: title,
-                agentType: agent
+                title: title
             )
         )
     }

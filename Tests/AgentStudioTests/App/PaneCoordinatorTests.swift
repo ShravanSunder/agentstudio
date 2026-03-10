@@ -311,18 +311,16 @@ struct PaneCoordinatorTests {
         store.restore()
 
         let repo = store.addRepo(at: URL(fileURLWithPath: "/tmp/repo-sync-roots-\(UUID().uuidString)"))
-        let primaryWorktree = Worktree(
-            name: "main",
-            path: repo.repoPath,
-            branch: "main",
-            isMainWorktree: true
-        )
+        guard let primaryWorktree = store.repo(repo.id)?.worktrees.first(where: \.isMainWorktree) else {
+            Issue.record("Expected addRepo to create a main worktree")
+            return
+        }
         let secondaryWorktree = Worktree(
+            repoId: repo.id,
             name: "feature-a",
-            path: repo.repoPath.appending(path: "feature-a"),
-            branch: "feature-a"
+            path: repo.repoPath.appending(path: "feature-a")
         )
-        store.updateRepoWorktrees(repo.id, worktrees: [primaryWorktree, secondaryWorktree])
+        store.reconcileDiscoveredWorktrees(repo.id, worktrees: [primaryWorktree, secondaryWorktree])
 
         let primaryPane = store.createPane(
             source: .worktree(worktreeId: primaryWorktree.id, repoId: repo.id),
@@ -337,15 +335,16 @@ struct PaneCoordinatorTests {
         store.setActiveTab(primaryTab.id)
 
         let filesystemSource = RecordingFilesystemSource()
+        let paneEventBus = EventBus<RuntimeEnvelope>()
         let coordinator = PaneCoordinator(
             store: store,
             viewRegistry: ViewRegistry(),
             runtime: SessionRuntime(store: store),
             surfaceManager: MockPaneCoordinatorSurfaceManager(),
             runtimeRegistry: RuntimeRegistry(),
+            paneEventBus: paneEventBus,
             filesystemSource: filesystemSource,
-            paneFilesystemProjectionStore: PaneFilesystemProjectionStore(),
-            workspaceGitWorkingTreeStore: WorkspaceGitWorkingTreeStore()
+            paneFilesystemProjectionStore: PaneFilesystemProjectionStore()
         )
 
         await waitUntilFilesystemState(
@@ -359,11 +358,24 @@ struct PaneCoordinatorTests {
         }
 
         let tertiaryWorktree = Worktree(
+            repoId: repo.id,
             name: "feature-b",
-            path: repo.repoPath.appending(path: "feature-b"),
-            branch: "feature-b"
+            path: repo.repoPath.appending(path: "feature-b")
         )
-        store.updateRepoWorktrees(repo.id, worktrees: [primaryWorktree, tertiaryWorktree])
+        store.reconcileDiscoveredWorktrees(repo.id, worktrees: [primaryWorktree, tertiaryWorktree])
+        await paneEventBus.post(
+            .system(
+                SystemEnvelope.test(
+                    event: .topology(
+                        .worktreeRegistered(
+                            worktreeId: tertiaryWorktree.id,
+                            repoId: repo.id,
+                            rootPath: tertiaryWorktree.path
+                        )
+                    )
+                )
+            )
+        )
 
         await waitUntilFilesystemState(
             source: filesystemSource,
@@ -385,7 +397,7 @@ struct PaneCoordinatorTests {
         )
         let tertiaryTab = Tab(paneId: tertiaryPane.id)
         store.appendTab(tertiaryTab)
-        coordinator.execute(.selectTab(tabId: tertiaryTab.id))
+        coordinator.execute(PaneAction.selectTab(tabId: tertiaryTab.id))
 
         await waitUntilFilesystemState(
             source: filesystemSource,
@@ -393,6 +405,44 @@ struct PaneCoordinatorTests {
         ) { snapshot in
             snapshot.activityByWorktreeId[tertiaryWorktree.id] == true
                 && snapshot.activePaneWorktreeId == tertiaryWorktree.id
+        }
+
+        _ = coordinator
+    }
+
+    @Test("syncRootsAndActivity excludes unavailable repos from filesystem registration")
+    func syncRootsAndActivityExcludesUnavailableRepos() async {
+        let tempDir = FileManager.default.temporaryDirectory
+            .appending(path: "agentstudio-pane-coordinator-sync-unavailable-\(UUID().uuidString)")
+        defer { try? FileManager.default.removeItem(at: tempDir) }
+
+        let persistor = WorkspacePersistor(workspacesDir: tempDir)
+        let store = WorkspaceStore(persistor: persistor)
+        store.restore()
+
+        let repo = store.addRepo(at: URL(fileURLWithPath: "/tmp/repo-sync-unavailable-\(UUID().uuidString)"))
+        store.markRepoUnavailable(repo.id)
+
+        let filesystemSource = RecordingFilesystemSource()
+        let paneEventBus = EventBus<RuntimeEnvelope>()
+        let coordinator = PaneCoordinator(
+            store: store,
+            viewRegistry: ViewRegistry(),
+            runtime: SessionRuntime(store: store),
+            surfaceManager: MockPaneCoordinatorSurfaceManager(),
+            runtimeRegistry: RuntimeRegistry(),
+            paneEventBus: paneEventBus,
+            filesystemSource: filesystemSource,
+            paneFilesystemProjectionStore: PaneFilesystemProjectionStore()
+        )
+
+        await waitUntilFilesystemState(
+            source: filesystemSource,
+            timeout: .milliseconds(600)
+        ) { snapshot in
+            snapshot.registeredRoots.isEmpty
+                && snapshot.activityByWorktreeId.isEmpty
+                && snapshot.activePaneWorktreeId == nil
         }
 
         _ = coordinator
@@ -409,18 +459,16 @@ struct PaneCoordinatorTests {
         store.restore()
 
         let repo = store.addRepo(at: URL(fileURLWithPath: "/tmp/repo-sync-converge-\(UUID().uuidString)"))
-        let mainWorktree = Worktree(
-            name: "main",
-            path: repo.repoPath,
-            branch: "main",
-            isMainWorktree: true
-        )
+        guard let mainWorktree = store.repo(repo.id)?.worktrees.first(where: \.isMainWorktree) else {
+            Issue.record("Expected addRepo to create a main worktree")
+            return
+        }
         let staleWorktree = Worktree(
+            repoId: repo.id,
             name: "stale-branch",
-            path: repo.repoPath.appending(path: "stale-branch"),
-            branch: "stale-branch"
+            path: repo.repoPath.appending(path: "stale-branch")
         )
-        store.updateRepoWorktrees(repo.id, worktrees: [mainWorktree, staleWorktree])
+        store.reconcileDiscoveredWorktrees(repo.id, worktrees: [mainWorktree, staleWorktree])
 
         let primaryPane = store.createPane(
             source: .worktree(worktreeId: mainWorktree.id, repoId: repo.id),
@@ -435,25 +483,39 @@ struct PaneCoordinatorTests {
         store.setActiveTab(primaryTab.id)
 
         let filesystemSource = DelayingRecordingFilesystemSource(operationDelay: .milliseconds(40))
+        let paneEventBus = EventBus<RuntimeEnvelope>()
         let coordinator = PaneCoordinator(
             store: store,
             viewRegistry: ViewRegistry(),
             runtime: SessionRuntime(store: store),
             surfaceManager: MockPaneCoordinatorSurfaceManager(),
             runtimeRegistry: RuntimeRegistry(),
+            paneEventBus: paneEventBus,
             filesystemSource: filesystemSource,
-            paneFilesystemProjectionStore: PaneFilesystemProjectionStore(),
-            workspaceGitWorkingTreeStore: WorkspaceGitWorkingTreeStore()
+            paneFilesystemProjectionStore: PaneFilesystemProjectionStore()
         )
         _ = coordinator
 
         // Trigger a second desired state while the initial sync pass is still executing.
         let latestWorktree = Worktree(
+            repoId: repo.id,
             name: "latest-branch",
-            path: repo.repoPath.appending(path: "latest-branch"),
-            branch: "latest-branch"
+            path: repo.repoPath.appending(path: "latest-branch")
         )
-        store.updateRepoWorktrees(repo.id, worktrees: [mainWorktree, latestWorktree])
+        store.reconcileDiscoveredWorktrees(repo.id, worktrees: [mainWorktree, latestWorktree])
+        await paneEventBus.post(
+            .system(
+                SystemEnvelope.test(
+                    event: .topology(
+                        .worktreeRegistered(
+                            worktreeId: latestWorktree.id,
+                            repoId: repo.id,
+                            rootPath: latestWorktree.path
+                        )
+                    )
+                )
+            )
+        )
 
         await waitUntilFilesystemState(
             source: filesystemSource,

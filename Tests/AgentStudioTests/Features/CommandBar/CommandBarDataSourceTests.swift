@@ -349,19 +349,19 @@ struct CommandBarDataSourceTests {
         // Arrange
         let store = makeStore()
         let repo = store.addRepo(at: URL(filePath: "/tmp/test-repo"))
-        store.updateRepoWorktrees(
+        store.reconcileDiscoveredWorktrees(
             repo.id,
             worktrees: [
                 Worktree(
+                    repoId: repo.id,
                     name: "main",
                     path: URL(filePath: "/tmp/test-repo"),
-                    branch: "main",
                     isMainWorktree: true
                 ),
                 Worktree(
+                    repoId: repo.id,
                     name: "feat-branch",
                     path: URL(filePath: "/tmp/test-repo-feat"),
-                    branch: "feat/branch",
                     isMainWorktree: false
                 ),
             ])

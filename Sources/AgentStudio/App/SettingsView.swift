@@ -22,11 +22,6 @@ struct SettingsView: View {
                 Label("Terminal", systemImage: "terminal")
             }
 
-            AgentSettingsView()
-                .tabItem {
-                    Label("Agents", systemImage: "cpu")
-                }
-
             WebviewSettingsView()
                 .tabItem {
                     Label("Webview", systemImage: "globe")
@@ -104,65 +99,6 @@ struct TerminalSettingsView: View {
         }
         .formStyle(.grouped)
         .padding()
-    }
-}
-
-// MARK: - Agent Settings
-
-struct AgentSettingsView: View {
-    var body: some View {
-        Form {
-            Section("Installed Agents") {
-                ForEach(AgentType.allCases, id: \.self) { agent in
-                    HStack {
-                        Circle()
-                            .fill(agent.color)
-                            .frame(width: 8, height: 8)
-
-                        Text(agent.displayName)
-
-                        Spacer()
-
-                        if isAgentInstalled(agent) {
-                            Label("Installed", systemImage: "checkmark.circle.fill")
-                                .foregroundStyle(.green)
-                                .font(.system(size: AppStyle.textXs))
-                        } else {
-                            Label("Not Found", systemImage: "xmark.circle")
-                                .foregroundStyle(.secondary)
-                                .font(.system(size: AppStyle.textXs))
-                        }
-                    }
-                }
-            }
-
-            Section {
-                Text("Agents are discovered from your PATH. Install them using their respective installers.")
-                    .font(.system(size: AppStyle.textXs))
-                    .foregroundStyle(.secondary)
-            }
-        }
-        .formStyle(.grouped)
-        .padding()
-    }
-
-    private func isAgentInstalled(_ agent: AgentType) -> Bool {
-        guard agent != .custom else { return true }
-
-        let searchPaths = [
-            "/opt/homebrew/bin",
-            "/usr/local/bin",
-            "/usr/bin",
-        ]
-
-        for path in searchPaths {
-            let fullPath = "\(path)/\(agent.command)"
-            if FileManager.default.isExecutableFile(atPath: fullPath) {
-                return true
-            }
-        }
-
-        return false
     }
 }
 

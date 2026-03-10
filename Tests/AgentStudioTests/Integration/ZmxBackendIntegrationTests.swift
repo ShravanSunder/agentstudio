@@ -39,8 +39,7 @@ extension E2ESerializedTests {
                 // Arrange
                 let worktree = makeWorktree(
                     name: "integ-test",
-                    path: "/tmp",
-                    branch: "integ-test"
+                    path: "/tmp"
                 )
                 let repo = makeRepo()
 
@@ -60,7 +59,7 @@ extension E2ESerializedTests {
         func test_attachCommand_containsAttachAndSessionId() async throws {
             try await withBackend { _, backend in
                 // Arrange
-                let worktree = makeWorktree(name: "attach-test", path: "/tmp", branch: "attach-test")
+                let worktree = makeWorktree(name: "attach-test", path: "/tmp")
                 let repo = makeRepo()
                 let handle = try await backend.createPaneSession(repo: repo, worktree: worktree, paneId: UUID())
 
@@ -82,7 +81,7 @@ extension E2ESerializedTests {
         func test_zmxDir_isolatesFromDefaultDir() async throws {
             try await withBackend { harness, backend in
                 // Arrange — create a session in test-isolated dir
-                let worktree = makeWorktree(name: "isolation-test", path: "/tmp", branch: "isolation-test")
+                let worktree = makeWorktree(name: "isolation-test", path: "/tmp")
                 let repo = makeRepo()
 
                 // Act

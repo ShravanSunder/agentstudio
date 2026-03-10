@@ -46,6 +46,19 @@ final class SessionResidencyTests {
         #expect(!(SessionResidency.backgrounded.isPendingUndo))
     }
 
+    @Test
+
+    func test_isOrphaned_orphanedCase_returnsTrue() {
+        let residency = SessionResidency.orphaned(reason: .worktreeNotFound(path: "/tmp/repo"))
+        #expect(residency.isOrphaned)
+    }
+
+    @Test
+
+    func test_isOrphaned_activeCase_returnsFalse() {
+        #expect(!(SessionResidency.active.isOrphaned))
+    }
+
     // MARK: - Equatable
 
     @Test
@@ -87,6 +100,14 @@ final class SessionResidencyTests {
         #expect(SessionResidency.active != SessionResidency.backgrounded)
     }
 
+    @Test
+
+    func test_equatable_sameOrphanedReason_areEqual() {
+        let expected = SessionResidency.orphaned(reason: .worktreeNotFound(path: "/tmp/repo"))
+        let actual = SessionResidency.orphaned(reason: .worktreeNotFound(path: "/tmp/repo"))
+        #expect(actual == expected)
+    }
+
     // MARK: - Codable Round-Trip
 
     @Test
@@ -110,6 +131,15 @@ final class SessionResidencyTests {
     func test_codable_pendingUndo_roundTrips() throws {
         let expiresAt = Date(timeIntervalSince1970: 1_500_000)
         let residency = SessionResidency.pendingUndo(expiresAt: expiresAt)
+        let data = try JSONEncoder().encode(residency)
+        let decoded = try JSONDecoder().decode(SessionResidency.self, from: data)
+        #expect(decoded == residency)
+    }
+
+    @Test
+
+    func test_codable_orphaned_roundTrips() throws {
+        let residency = SessionResidency.orphaned(reason: .worktreeNotFound(path: "/tmp/repo"))
         let data = try JSONEncoder().encode(residency)
         let decoded = try JSONDecoder().decode(SessionResidency.self, from: data)
         #expect(decoded == residency)

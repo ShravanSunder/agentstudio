@@ -7,47 +7,70 @@ import SwiftUI
 /// Redesigned sidebar content grouped by repository identity (worktree family / remote).
 @MainActor
 struct RepoSidebarContentView: View {
-    let store: WorkspaceStore
-    let workspaceGitWorkingTreeStore: WorkspaceGitWorkingTreeStore
+    struct SidebarProjection {
+        let resolvedGroups: [SidebarRepoGroup]
+        let loadingRepos: [SidebarRepo]
+        let showsNoResults: Bool
+    }
 
-    @State private var expandedGroups: Set<String> = Self.loadExpandedGroups()
+    let store: WorkspaceStore
+    let repoCache: WorkspaceRepoCache
+    let uiStore: WorkspaceUIStore
+
+    @State private var expandedGroups: Set<String> = []
     @State private var filterText: String = ""
     @State private var debouncedQuery: String = ""
     @State private var isFilterVisible: Bool = false
     @FocusState private var isFilterFocused: Bool
 
-    @State private var repoMetadataById: [UUID: RepoIdentityMetadata] = [:]
-    @State private var pullRequestCountByWorktreeId: [UUID: Int] = [:]
-    @State private var checkoutColorByRepoId: [String: String] = Self.loadCheckoutColors()
+    @State private var checkoutColorByRepoId: [String: String] = [:]
     @State private var notificationCountsByWorktreeId: [UUID: Int] = [:]
 
     @State private var debounceTask: Task<Void, Never>?
-    @State private var metadataReloadTask: Task<Void, Never>?
 
     private static let filterDebounceMilliseconds = 25
-    private static let expandedGroupsKey = "sidebarExpandedRepoGroups"
-    private static let checkoutColorsKey = "sidebarCheckoutIconColors"
-    private static let initialMetadataReloadDelay: Duration = .milliseconds(120)
 
     init(
         store: WorkspaceStore,
-        workspaceGitWorkingTreeStore: WorkspaceGitWorkingTreeStore = WorkspaceGitWorkingTreeStore()
+        repoCache: WorkspaceRepoCache = WorkspaceRepoCache(),
+        uiStore: WorkspaceUIStore = WorkspaceUIStore()
     ) {
         self.store = store
-        self.workspaceGitWorkingTreeStore = workspaceGitWorkingTreeStore
+        self.repoCache = repoCache
+        self.uiStore = uiStore
     }
 
-    private var reposFingerprint: String {
-        store.repos.map { "\($0.id.uuidString):\($0.updatedAt.timeIntervalSinceReferenceDate)" }
-            .joined(separator: "|")
+    private var sidebarRepos: [SidebarRepo] {
+        store.repos.map(SidebarRepo.init(repo:))
     }
 
-    private var filteredRepos: [Repo] {
-        SidebarFilter.filter(repos: store.repos, query: debouncedQuery)
+    private var sidebarProjectionFingerprint: String {
+        Self.projectionFingerprint(for: sidebarProjection)
+    }
+
+    private var sidebarProjection: SidebarProjection {
+        Self.projectSidebar(
+            repos: sidebarRepos,
+            repoEnrichmentByRepoId: repoCache.repoEnrichmentByRepoId,
+            query: debouncedQuery
+        )
     }
 
     private var groups: [SidebarRepoGroup] {
-        SidebarRepoGrouping.buildGroups(repos: filteredRepos, metadataByRepoId: repoMetadataById)
+        sidebarProjection.resolvedGroups
+    }
+
+    private var loadingReposList: [SidebarRepo] {
+        sidebarProjection.loadingRepos
+    }
+
+    private var listEntries: [SidebarListEntry] {
+        Self.buildListEntries(
+            groups: groups,
+            loadingRepos: loadingReposList,
+            expandedGroupIds: expandedGroups,
+            isFiltering: isFiltering
+        )
     }
 
     private var isFiltering: Bool {
@@ -56,8 +79,8 @@ struct RepoSidebarContentView: View {
 
     private var worktreeStatusById: [UUID: GitBranchStatus] {
         Self.mergeBranchStatuses(
-            localSnapshotsByWorktreeId: workspaceGitWorkingTreeStore.snapshotsByWorktreeId,
-            pullRequestCountsByWorktreeId: pullRequestCountByWorktreeId
+            worktreeEnrichmentsByWorktreeId: repoCache.worktreeEnrichmentByWorktreeId,
+            pullRequestCountsByWorktreeId: repoCache.pullRequestCountByWorktreeId
         )
     }
 
@@ -67,7 +90,7 @@ struct RepoSidebarContentView: View {
                 filterBar
             }
 
-            if isFiltering && groups.isEmpty {
+            if sidebarProjection.showsNoResults {
                 noResultsView
             } else {
                 groupList
@@ -76,25 +99,26 @@ struct RepoSidebarContentView: View {
         .frame(minWidth: 200)
         .background(Color(nsColor: .windowBackgroundColor))
         .shadow(color: .black.opacity(0.2), radius: 4, x: 2, y: 0)
-        .task(id: reposFingerprint) {
-            reloadMetadataAndStatus()
+        .task {
+            expandedGroups = uiStore.expandedGroups
+            filterText = uiStore.filterText
+            debouncedQuery = uiStore.filterText
+            checkoutColorByRepoId = uiStore.checkoutColors
+            notificationCountsByWorktreeId = repoCache.notificationCountByWorktreeId
         }
         .task {
             let stream = await AppEventBus.shared.subscribe()
             for await event in stream {
                 switch event {
-                case .addRepoRequested:
-                    await addRepo()
-                case .addFolderRequested:
-                    await addFolder()
                 case .refreshWorktreesRequested:
-                    refreshWorktrees()
+                    continue
                 case .filterSidebarRequested:
                     withAnimation(.easeOut(duration: 0.15)) {
                         if isFilterVisible {
                             hideFilter()
                         } else {
                             isFilterVisible = true
+                            uiStore.setFilterVisible(true)
                         }
                     }
                     Task { @MainActor in
@@ -114,10 +138,10 @@ struct RepoSidebarContentView: View {
         }
         .onDisappear {
             debounceTask?.cancel()
-            metadataReloadTask?.cancel()
         }
         .onChange(of: filterText) { _, newValue in
             let trimmed = newValue.trimmingCharacters(in: .whitespaces)
+            uiStore.setFilterText(trimmed)
             debounceTask?.cancel()
             if trimmed.isEmpty {
                 withAnimation(.easeOut(duration: 0.12)) {
@@ -199,134 +223,145 @@ struct RepoSidebarContentView: View {
 
     private var groupList: some View {
         List {
-            ForEach(groups) { group in
-                DisclosureGroup(
-                    isExpanded: Binding(
-                        get: { isFiltering || expandedGroups.contains(group.id) },
-                        set: { expanded in
-                            if expanded {
-                                expandedGroups.insert(group.id)
-                            } else {
-                                expandedGroups.remove(group.id)
-                            }
-                            saveExpandedGroups()
-                        }
-                    )
-                ) {
-                    VStack(spacing: AppStyle.sidebarGroupChildrenSpacing) {
-                        ForEach(group.repos) { repo in
-                            let sortedWorktrees = sortedWorktrees(for: repo)
-                            ForEach(sortedWorktrees) { worktree in
-                                SidebarWorktreeRow(
-                                    worktree: worktree,
-                                    checkoutTitle: checkoutTitle(for: worktree, in: repo),
-                                    branchName: worktree.branch.isEmpty ? "detached HEAD" : worktree.branch,
-                                    checkoutIconKind: checkoutIconKind(for: worktree, in: repo),
-                                    iconColor: colorForCheckout(repo: repo, in: group),
-                                    branchStatus: worktreeStatusById[worktree.id] ?? .unknown,
-                                    notificationCount: notificationCountsByWorktreeId[worktree.id, default: 0],
-                                    onOpen: {
-                                        clearNotifications(for: worktree.id)
-                                        CommandDispatcher.shared.dispatch(
-                                            .openWorktree,
-                                            target: worktree.id,
-                                            targetType: .worktree
-                                        )
-                                    },
-                                    onOpenNew: {
-                                        clearNotifications(for: worktree.id)
-                                        CommandDispatcher.shared.dispatch(
-                                            .openNewTerminalInTab,
-                                            target: worktree.id,
-                                            targetType: .worktree
-                                        )
-                                    },
-                                    onOpenInPane: {
-                                        clearNotifications(for: worktree.id)
-                                        CommandDispatcher.shared.dispatch(
-                                            .openWorktreeInPane,
-                                            target: worktree.id,
-                                            targetType: .worktree
-                                        )
-                                    },
-                                    onSetIconColor: { colorHex in
-                                        let key = repo.id.uuidString
-                                        if let colorHex {
-                                            checkoutColorByRepoId[key] = colorHex
-                                        } else {
-                                            checkoutColorByRepoId.removeValue(forKey: key)
-                                        }
-                                        saveCheckoutColors()
-                                    }
-                                )
-                                .listRowInsets(
-                                    EdgeInsets(
-                                        top: 0,
-                                        leading: AppStyle.sidebarListRowLeadingInset,
-                                        bottom: 0,
-                                        trailing: 0
-                                    )
-                                )
-                            }
-                        }
+            ForEach(listEntries) { entry in
+                switch entry {
+                case .resolvedGroupHeader(let group):
+                    Button {
+                        toggleGroupExpansion(group.id)
+                    } label: {
+                        SidebarResolvedGroupHeaderRow(
+                            isExpanded: isGroupExpanded(group.id),
+                            repoTitle: group.repoTitle,
+                            organizationName: group.organizationName
+                        )
                     }
-                    .padding(.leading, -AppStyle.sidebarGroupChildLeadingReduction)
-                } label: {
-                    SidebarGroupRow(
-                        repoTitle: group.repoTitle,
-                        organizationName: group.organizationName
+                    .buttonStyle(.plain)
+                    .contentShape(Rectangle())
+                    .listRowInsets(
+                        EdgeInsets(
+                            top: 0,
+                            leading: AppStyle.sidebarListRowLeadingInset,
+                            bottom: 0,
+                            trailing: 0
+                        )
                     )
-                }
-                .listRowInsets(
-                    EdgeInsets(
-                        top: 0,
-                        leading: AppStyle.sidebarListRowLeadingInset,
-                        bottom: 0,
-                        trailing: 0
-                    )
-                )
-                .contextMenu {
-                    Divider()
+                    .contextMenu {
+                        Divider()
 
-                    Button("Refresh Worktrees") {
-                        for repo in group.repos {
-                            let worktrees = WorktrunkService.shared.discoverWorktrees(for: repo.repoPath)
-                            store.updateRepoWorktrees(repo.id, worktrees: worktrees)
+                        if let primaryRepo = Self.primaryRepoForGroup(group) {
+                            Button("Open in Finder") {
+                                openRepoInFinder(primaryRepo.repoPath)
+                            }
+                        }
+
+                        Button("Refresh Worktrees") {
+                            postAppEvent(.refreshWorktreesRequested)
                         }
                     }
 
-                    Menu("Remove Checkout") {
-                        ForEach(group.repos) { repo in
-                            Button(repo.name, role: .destructive) {
-                                store.removeRepo(repo.id)
+                case .resolvedWorktreeRow(let groupId, let repoId, let worktreeId):
+                    if let resolvedWorktreeContext = resolvedWorktreeContext(
+                        groupId: groupId,
+                        repoId: repoId,
+                        worktreeId: worktreeId
+                    ) {
+                        SidebarWorktreeRow(
+                            worktree: resolvedWorktreeContext.worktree,
+                            checkoutTitle: checkoutTitle(
+                                for: resolvedWorktreeContext.worktree,
+                                in: resolvedWorktreeContext.repo
+                            ),
+                            branchName: branchName(for: resolvedWorktreeContext.worktree),
+                            checkoutIconKind: checkoutIconKind(
+                                for: resolvedWorktreeContext.worktree,
+                                in: resolvedWorktreeContext.repo
+                            ),
+                            iconColor: colorForCheckout(
+                                repo: resolvedWorktreeContext.repo,
+                                in: resolvedWorktreeContext.group
+                            ),
+                            branchStatus: worktreeStatusById[resolvedWorktreeContext.worktree.id] ?? .unknown,
+                            notificationCount: notificationCountsByWorktreeId[
+                                resolvedWorktreeContext.worktree.id,
+                                default: 0
+                            ],
+                            onOpen: {
+                                clearNotifications(for: resolvedWorktreeContext.worktree.id)
+                                CommandDispatcher.shared.dispatch(
+                                    .openWorktree,
+                                    target: resolvedWorktreeContext.worktree.id,
+                                    targetType: .worktree
+                                )
+                            },
+                            onOpenNew: {
+                                clearNotifications(for: resolvedWorktreeContext.worktree.id)
+                                CommandDispatcher.shared.dispatch(
+                                    .openNewTerminalInTab,
+                                    target: resolvedWorktreeContext.worktree.id,
+                                    targetType: .worktree
+                                )
+                            },
+                            onOpenInPane: {
+                                clearNotifications(for: resolvedWorktreeContext.worktree.id)
+                                CommandDispatcher.shared.dispatch(
+                                    .openWorktreeInPane,
+                                    target: resolvedWorktreeContext.worktree.id,
+                                    targetType: .worktree
+                                )
+                            },
+                            onSetIconColor: { colorHex in
+                                let key = resolvedWorktreeContext.repo.id.uuidString
+                                if let colorHex {
+                                    checkoutColorByRepoId[key] = colorHex
+                                } else {
+                                    checkoutColorByRepoId.removeValue(forKey: key)
+                                }
+                                uiStore.setCheckoutColor(colorHex, for: key)
                             }
-                        }
+                        )
+                        .listRowInsets(
+                            EdgeInsets(
+                                top: 0,
+                                leading: AppStyle.sidebarGroupChildRowLeadingInset,
+                                bottom: 0,
+                                trailing: 0
+                            )
+                        )
+                    }
+
+                case .loadingHeader:
+                    SidebarLoadingSectionHeaderRow()
+                        .listRowInsets(
+                            EdgeInsets(
+                                top: 4,
+                                leading: AppStyle.sidebarListRowLeadingInset,
+                                bottom: 2,
+                                trailing: 0
+                            )
+                        )
+
+                case .loadingRepoRow(let repoId):
+                    if let loadingRepo = loadingReposList.first(where: { $0.id == repoId }) {
+                        SidebarLoadingRepoRow(repoName: loadingRepo.name)
+                            .listRowInsets(
+                                EdgeInsets(
+                                    top: 0,
+                                    leading: AppStyle.sidebarGroupChildRowLeadingInset,
+                                    bottom: 0,
+                                    trailing: 0
+                                )
+                            )
+                            .disabled(true)
                     }
                 }
             }
         }
         .listStyle(.sidebar)
+        .id(sidebarProjectionFingerprint)
         .transition(.opacity.animation(.easeOut(duration: 0.12)))
     }
 
-    private static func loadExpandedGroups() -> Set<String> {
-        guard let keys = UserDefaults.standard.stringArray(forKey: expandedGroupsKey) else { return [] }
-        return Set(keys)
-    }
-
-    private func saveExpandedGroups() {
-        UserDefaults.standard.set(Array(expandedGroups), forKey: Self.expandedGroupsKey)
-    }
-
-    private static func loadCheckoutColors() -> [String: String] {
-        UserDefaults.standard.dictionary(forKey: checkoutColorsKey) as? [String: String] ?? [:]
-    }
-
-    private func saveCheckoutColors() {
-        UserDefaults.standard.set(checkoutColorByRepoId, forKey: Self.checkoutColorsKey)
-    }
-
-    private func colorForCheckout(repo: Repo, in group: SidebarRepoGroup) -> Color {
+    private func colorForCheckout(repo: SidebarRepo, in group: SidebarRepoGroup) -> Color {
         let overrideKey = repo.id.uuidString
         if let hex = checkoutColorByRepoId[overrideKey],
             let nsColor = NSColor(hex: hex)
@@ -353,20 +388,37 @@ struct RepoSidebarContentView: View {
         return Color(nsColor: NSColor(hex: colorHex) ?? .controlAccentColor)
     }
 
-    private func sortedWorktrees(for repo: Repo) -> [Worktree] {
-        repo.worktrees.sorted { lhs, rhs in
-            if lhs.isMainWorktree != rhs.isMainWorktree {
-                return lhs.isMainWorktree
-            }
-            return lhs.name.localizedCaseInsensitiveCompare(rhs.name) == .orderedAscending
+    private func isGroupExpanded(_ groupId: String) -> Bool {
+        isFiltering || expandedGroups.contains(groupId)
+    }
+
+    private func toggleGroupExpansion(_ groupId: String) {
+        guard !isFiltering else { return }
+
+        if expandedGroups.contains(groupId) {
+            expandedGroups.remove(groupId)
+        } else {
+            expandedGroups.insert(groupId)
         }
+        uiStore.setExpandedGroups(expandedGroups)
+    }
+
+    private func resolvedWorktreeContext(
+        groupId: String,
+        repoId: UUID,
+        worktreeId: UUID
+    ) -> (group: SidebarRepoGroup, repo: SidebarRepo, worktree: Worktree)? {
+        guard let group = groups.first(where: { $0.id == groupId }) else { return nil }
+        guard let repo = group.repos.first(where: { $0.id == repoId }) else { return nil }
+        guard let worktree = repo.worktrees.first(where: { $0.id == worktreeId }) else { return nil }
+        return (group, repo, worktree)
     }
 
     private func clearNotifications(for worktreeId: UUID) {
         notificationCountsByWorktreeId[worktreeId] = 0
     }
 
-    private func checkoutTitle(for worktree: Worktree, in repo: Repo) -> String {
+    private func checkoutTitle(for worktree: Worktree, in repo: SidebarRepo) -> String {
         let folderName = worktree.path.lastPathComponent
         if !folderName.isEmpty {
             return folderName
@@ -374,7 +426,7 @@ struct RepoSidebarContentView: View {
         return repo.name
     }
 
-    private func checkoutIconKind(for worktree: Worktree, in repo: Repo) -> SidebarCheckoutIconKind {
+    private func checkoutIconKind(for worktree: Worktree, in repo: SidebarRepo) -> SidebarCheckoutIconKind {
         let isMainCheckout =
             worktree.isMainWorktree
             || worktree.path.standardizedFileURL.path == repo.repoPath.standardizedFileURL.path
@@ -386,6 +438,13 @@ struct RepoSidebarContentView: View {
         return repo.worktrees.count > 1 ? .mainCheckout : .standaloneCheckout
     }
 
+    private func branchName(for worktree: Worktree) -> String {
+        Self.resolvedBranchName(
+            worktree: worktree,
+            enrichment: repoCache.worktreeEnrichmentByWorktreeId[worktree.id]
+        )
+    }
+
     private func hideFilter() {
         filterText = ""
         debouncedQuery = ""
@@ -393,178 +452,33 @@ struct RepoSidebarContentView: View {
         withAnimation(.easeOut(duration: 0.15)) {
             isFilterVisible = false
         }
+        uiStore.setFilterText("")
+        uiStore.setFilterVisible(false)
         postAppEvent(.refocusTerminalRequested)
     }
 
-    private func addRepo() async {
-        var initialDirectory: URL?
-
-        while true {
-            let panel = NSOpenPanel()
-            panel.canChooseFiles = false
-            panel.canChooseDirectories = true
-            panel.allowsMultipleSelection = false
-            panel.message = "Choose one Git repository folder (.git required)."
-            panel.prompt = "Add Repo"
-            panel.directoryURL = initialDirectory
-
-            guard panel.runModal() == .OK, let url = panel.url else {
-                return
-            }
-
-            if await GitRepositoryInspector.isGitRepository(at: url) {
-                addRepoAndRefreshWorktrees(at: url)
-                return
-            }
-
-            let alert = NSAlert()
-            alert.messageText = "Not a Git Repository"
-            alert.informativeText =
-                "The selected folder is not a Git repo. You can choose another folder or scan this folder for repos."
-            alert.alertStyle = .warning
-            alert.addButton(withTitle: "Choose Another Folder")
-            alert.addButton(withTitle: "Scan This Folder")
-            alert.addButton(withTitle: "Cancel")
-
-            switch alert.runModal() {
-            case .alertFirstButtonReturn:
-                initialDirectory = url.deletingLastPathComponent()
-            case .alertSecondButtonReturn:
-                await addFolder(startingAt: url)
-                return
-            default:
-                return
-            }
-        }
+    private func openRepoInFinder(_ path: URL) {
+        NSWorkspace.shared.selectFile(nil, inFileViewerRootedAtPath: path.path)
     }
 
-    private func addFolder(startingAt initialURL: URL? = nil) async {
-        let rootURL: URL
+}
 
-        if let initialURL {
-            rootURL = initialURL
-        } else {
-            let panel = NSOpenPanel()
-            panel.canChooseFiles = false
-            panel.canChooseDirectories = true
-            panel.allowsMultipleSelection = false
-            panel.message = "Choose a folder to scan for Git repositories."
-            panel.prompt = "Scan Folder"
+enum SidebarListEntry: Identifiable {
+    case resolvedGroupHeader(SidebarRepoGroup)
+    case resolvedWorktreeRow(groupId: String, repoId: UUID, worktreeId: UUID)
+    case loadingHeader
+    case loadingRepoRow(UUID)
 
-            guard panel.runModal() == .OK, let url = panel.url else {
-                return
-            }
-            rootURL = url
-        }
-
-        let repoPaths = await Self.scanForGitReposInBackground(rootURL: rootURL, maxDepth: 3)
-
-        guard !repoPaths.isEmpty else {
-            let alert = NSAlert()
-            alert.messageText = "No Git Repositories Found"
-            alert.informativeText = "No folders with a Git repository were found under \(rootURL.lastPathComponent)."
-            alert.alertStyle = .informational
-            alert.addButton(withTitle: "OK")
-            alert.runModal()
-            return
-        }
-
-        for repoPath in repoPaths {
-            addRepoAndRefreshWorktrees(at: repoPath)
-        }
-    }
-
-    private func addRepoAndRefreshWorktrees(at path: URL) {
-        guard !hasExistingCheckout(at: path) else { return }
-        let repo = store.addRepo(at: path)
-        let worktrees = WorktrunkService.shared.discoverWorktrees(for: repo.repoPath)
-        store.updateRepoWorktrees(repo.id, worktrees: worktrees)
-    }
-
-    private func hasExistingCheckout(at path: URL) -> Bool {
-        let normalizedTarget = normalizedCwdPath(path)
-
-        for repo in store.repos {
-            if normalizedCwdPath(repo.repoPath) == normalizedTarget {
-                return true
-            }
-            if repo.worktrees.contains(where: { normalizedCwdPath($0.path) == normalizedTarget }) {
-                return true
-            }
-        }
-
-        return false
-    }
-
-    private func normalizedCwdPath(_ url: URL) -> String {
-        url.standardizedFileURL.path
-    }
-
-    private nonisolated static func scanForGitReposInBackground(rootURL: URL, maxDepth: Int) async -> [URL] {
-        await Task(priority: .userInitiated) {
-            RepoScanner().scanForGitRepos(in: rootURL, maxDepth: maxDepth)
-        }.value
-    }
-
-    private func refreshWorktrees() {
-        for repo in store.repos {
-            let worktrees = WorktrunkService.shared.discoverWorktrees(for: repo.repoPath)
-            store.updateRepoWorktrees(repo.id, worktrees: worktrees)
-        }
-    }
-
-    private func reloadMetadataAndStatus() {
-        metadataReloadTask?.cancel()
-        // Patch behavior: whenever sidebar status reloads, refresh worktree discovery first
-        // so branch labels and worktree mappings reflect current git state.
-        refreshWorktrees()
-        let reposSnapshot = store.repos
-        let metadataLoadInput = SidebarStatusLoadInput(
-            repos: reposSnapshot.map { repo in
-                RepoStatusInput(
-                    repoId: repo.id,
-                    repoName: repo.name,
-                    repoPath: repo.repoPath,
-                    worktreePaths: repo.worktrees.map(\.path)
-                )
-            },
-            worktrees: []
-        )
-        let worktreeInputs = reposSnapshot.flatMap { repo in
-            repo.worktrees.map { worktree in
-                WorktreeStatusInput(
-                    worktreeId: worktree.id,
-                    path: worktree.path,
-                    branch: worktree.branch
-                )
-            }
-        }
-
-        metadataReloadTask = Task {
-            // Defer initial sidebar metadata refresh until after the first List
-            // layout pass to avoid NSTableView delegate reentrancy during startup.
-            try? await Task.sleep(for: Self.initialMetadataReloadDelay)
-            guard !Task.isCancelled else { return }
-
-            let metadataSnapshot = await GitRepositoryInspector.metadataAndStatus(for: metadataLoadInput)
-            guard !Task.isCancelled else { return }
-
-            // Avoid mutating SwiftUI List-backed state in the same turn as
-            // AppKit table delegate callbacks (can trigger reentrant warnings).
-            await Task.yield()
-            guard !Task.isCancelled else { return }
-
-            repoMetadataById = metadataSnapshot.metadataByRepoId
-
-            // Stage PR metadata after first paint so startup remains responsive.
-            let prCounts = await GitRepositoryInspector.prCounts(for: worktreeInputs)
-            guard !Task.isCancelled else { return }
-
-            // Same reentrancy guard for incremental row updates.
-            await Task.yield()
-            guard !Task.isCancelled else { return }
-
-            pullRequestCountByWorktreeId = prCounts
+    var id: String {
+        switch self {
+        case .resolvedGroupHeader(let group):
+            return "group:\(group.id)"
+        case .resolvedWorktreeRow(let groupId, let repoId, let worktreeId):
+            return "worktree:\(groupId):\(repoId.uuidString):\(worktreeId.uuidString)"
+        case .loadingHeader:
+            return "loading-header"
+        case .loadingRepoRow(let repoId):
+            return "loading:\(repoId.uuidString)"
         }
     }
 }
@@ -603,6 +517,27 @@ private struct SidebarGroupRow: View {
         }
         .padding(.vertical, AppStyle.sidebarGroupRowVerticalPadding)
         .contentShape(Rectangle())
+    }
+}
+
+private struct SidebarResolvedGroupHeaderRow: View {
+    let isExpanded: Bool
+    let repoTitle: String
+    let organizationName: String?
+
+    var body: some View {
+        HStack(spacing: AppStyle.spacingTight) {
+            Image(systemName: isExpanded ? "chevron.down" : "chevron.right")
+                .font(.system(size: AppStyle.textXs, weight: .semibold))
+                .foregroundStyle(.secondary)
+                .frame(width: AppStyle.textBase, alignment: .center)
+
+            SidebarGroupRow(
+                repoTitle: repoTitle,
+                organizationName: organizationName
+            )
+        }
+        .frame(maxWidth: .infinity, alignment: .leading)
     }
 }
 
@@ -808,6 +743,47 @@ private struct SidebarWorktreeRow: View {
             OcticonImage(name: "octicon-git-merge", size: checkoutTypeSize)
                 .foregroundStyle(iconColor)
         }
+    }
+}
+
+private struct SidebarLoadingSectionHeaderRow: View {
+    var body: some View {
+        HStack(spacing: AppStyle.spacingStandard) {
+            Rectangle()
+                .fill(Color.primary.opacity(0.12))
+                .frame(height: 1)
+
+            HStack(spacing: AppStyle.spacingTight) {
+                ProgressView()
+                    .controlSize(.small)
+
+                Text("Scanning...")
+                    .font(.system(size: AppStyle.textXs, weight: .medium))
+                    .foregroundStyle(.secondary)
+            }
+            .fixedSize(horizontal: true, vertical: false)
+
+            Rectangle()
+                .fill(Color.primary.opacity(0.12))
+                .frame(height: 1)
+        }
+        .frame(maxWidth: .infinity, alignment: .leading)
+    }
+}
+
+private struct SidebarLoadingRepoRow: View {
+    let repoName: String
+
+    var body: some View {
+        HStack(spacing: AppStyle.spacingStandard) {
+            Text(repoName)
+                .font(.system(size: AppStyle.textBase))
+                .lineLimit(1)
+                .truncationMode(.tail)
+                .foregroundStyle(.secondary)
+        }
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .opacity(0.55)
     }
 }
 
@@ -1033,10 +1009,49 @@ struct SidebarRepoGroup: Identifiable {
     let id: String
     let repoTitle: String
     let organizationName: String?
-    let repos: [Repo]
+    let repos: [SidebarRepo]
 
     var checkoutCount: Int {
         repos.reduce(0) { $0 + $1.worktrees.count }
+    }
+}
+
+struct SidebarRepo: Identifiable, Hashable, SidebarFilterableRepository {
+    let id: UUID
+    let name: String
+    let repoPath: URL
+    let stableKey: String
+    var worktrees: [Worktree]
+
+    init(
+        id: UUID,
+        name: String,
+        repoPath: URL,
+        stableKey: String,
+        worktrees: [Worktree]
+    ) {
+        self.id = id
+        self.name = name
+        self.repoPath = repoPath
+        self.stableKey = stableKey
+        self.worktrees = worktrees
+    }
+
+    init(repo: Repo) {
+        self.init(
+            id: repo.id,
+            name: repo.name,
+            repoPath: repo.repoPath,
+            stableKey: repo.stableKey,
+            worktrees: repo.worktrees
+        )
+    }
+
+    var sidebarRepoName: String { name }
+
+    var sidebarWorktrees: [Worktree] {
+        get { worktrees }
+        set { worktrees = newValue }
     }
 }
 
@@ -1076,19 +1091,239 @@ struct GitBranchStatus: Equatable, Sendable {
 }
 
 extension RepoSidebarContentView {
+    static func buildListEntries(
+        groups: [SidebarRepoGroup],
+        loadingRepos: [SidebarRepo],
+        expandedGroupIds: Set<String>,
+        isFiltering: Bool
+    ) -> [SidebarListEntry] {
+        var entries: [SidebarListEntry] = []
+
+        for group in groups {
+            entries.append(.resolvedGroupHeader(group))
+
+            let shouldExpandGroup = isFiltering || expandedGroupIds.contains(group.id)
+            guard shouldExpandGroup else { continue }
+
+            for repo in group.repos {
+                for worktree in sortedWorktrees(for: repo) {
+                    entries.append(
+                        .resolvedWorktreeRow(
+                            groupId: group.id,
+                            repoId: repo.id,
+                            worktreeId: worktree.id
+                        )
+                    )
+                }
+            }
+        }
+
+        if !loadingRepos.isEmpty {
+            entries.append(.loadingHeader)
+            entries.append(contentsOf: loadingRepos.map { .loadingRepoRow($0.id) })
+        }
+
+        return entries
+    }
+
+    static func projectionFingerprint(for projection: SidebarProjection) -> String {
+        let resolvedGroupsFingerprint = projection.resolvedGroups.map { group in
+            let repoIds = group.repos.map(\.id.uuidString).joined(separator: ",")
+            return "\(group.id):\(repoIds)"
+        }
+        .joined(separator: "|")
+
+        let loadingFingerprint = projection.loadingRepos
+            .map { "\($0.id.uuidString):\($0.name)" }
+            .joined(separator: "|")
+
+        return """
+        resolved[\(resolvedGroupsFingerprint)]\
+        /loading[\(loadingFingerprint)]\
+        /noResults[\(projection.showsNoResults)]
+        """
+    }
+
+    static func projectSidebar(
+        repos: [SidebarRepo],
+        repoEnrichmentByRepoId: [UUID: RepoEnrichment],
+        query: String
+    ) -> SidebarProjection {
+        let resolvedRepos = resolvedRepos(repos, enrichmentByRepoId: repoEnrichmentByRepoId)
+        let loadingRepos = loadingRepos(repos, enrichmentByRepoId: repoEnrichmentByRepoId)
+        let filteredResolvedRepos = SidebarFilter.filter(repos: resolvedRepos, query: query)
+        let filteredLoadingRepos = filterLoadingRepos(loadingRepos, query: query)
+        let repoMetadataById = buildRepoMetadata(
+            repos: filteredResolvedRepos,
+            repoEnrichmentByRepoId: repoEnrichmentByRepoId
+        )
+        let resolvedGroups = SidebarRepoGrouping.buildGroups(
+            repos: filteredResolvedRepos,
+            metadataByRepoId: repoMetadataById
+        )
+
+        return SidebarProjection(
+            resolvedGroups: resolvedGroups,
+            loadingRepos: filteredLoadingRepos,
+            showsNoResults: !query.isEmpty && resolvedGroups.isEmpty && filteredLoadingRepos.isEmpty
+        )
+    }
+
+    static func resolvedRepos(
+        _ repos: [SidebarRepo],
+        enrichmentByRepoId: [UUID: RepoEnrichment]
+    ) -> [SidebarRepo] {
+        repos.filter { repo in
+            switch enrichmentByRepoId[repo.id] {
+            case .resolvedLocal, .resolvedRemote:
+                return true
+            case .awaitingOrigin, .none:
+                return false
+            }
+        }
+    }
+
+    static func loadingRepos(
+        _ repos: [SidebarRepo],
+        enrichmentByRepoId: [UUID: RepoEnrichment]
+    ) -> [SidebarRepo] {
+        repos.filter { repo in
+            switch enrichmentByRepoId[repo.id] {
+            case .resolvedLocal, .resolvedRemote:
+                return false
+            case .awaitingOrigin, .none:
+                return true
+            }
+        }
+    }
+
+    private static func filterLoadingRepos(
+        _ repos: [SidebarRepo],
+        query: String
+    ) -> [SidebarRepo] {
+        let filteredRepos: [SidebarRepo]
+        if query.isEmpty {
+            filteredRepos = repos
+        } else {
+            filteredRepos = repos.filter { repo in
+                repo.name.localizedCaseInsensitiveContains(query)
+            }
+        }
+
+        return filteredRepos.sorted {
+            $0.name.localizedCaseInsensitiveCompare($1.name) == .orderedAscending
+        }
+    }
+
+    static func primaryRepoForGroup(_ group: SidebarRepoGroup) -> SidebarRepo? {
+        group.repos.max { lhs, rhs in
+            let lhsScore = primaryRepoScore(lhs)
+            let rhsScore = primaryRepoScore(rhs)
+            if lhsScore != rhsScore {
+                return lhsScore < rhsScore
+            }
+            return lhs.name.localizedCaseInsensitiveCompare(rhs.name) == .orderedDescending
+        }
+    }
+
+    private static func primaryRepoScore(_ repo: SidebarRepo) -> Int {
+        let normalizedRepoPath = repo.repoPath.standardizedFileURL.path
+        if repo.worktrees.contains(where: { $0.path.standardizedFileURL.path == normalizedRepoPath }) {
+            return 2
+        }
+        if repo.worktrees.contains(where: \.isMainWorktree) {
+            return 1
+        }
+        return 0
+    }
+
+    static func buildRepoMetadata(
+        repos: [SidebarRepo],
+        repoEnrichmentByRepoId: [UUID: RepoEnrichment]
+    ) -> [UUID: RepoIdentityMetadata] {
+        var metadataByRepoId: [UUID: RepoIdentityMetadata] = [:]
+        metadataByRepoId.reserveCapacity(repos.count)
+
+        for repo in repos {
+            let enrichment = repoEnrichmentByRepoId[repo.id]
+            let normalizedRepoPath = repo.repoPath.standardizedFileURL.path
+
+            let groupKey: String
+            let displayName: String
+            let organizationName: String?
+            let originRemote: String?
+            let upstreamRemote: String?
+            let remoteSlug: String?
+
+            switch enrichment {
+            case .resolvedRemote(_, let raw, let identity, _):
+                groupKey = identity.groupKey
+                displayName = identity.displayName
+                organizationName = identity.organizationName
+                originRemote = raw.origin
+                upstreamRemote = raw.upstream
+                remoteSlug = identity.remoteSlug
+            case .resolvedLocal(_, let identity, _):
+                groupKey = identity.groupKey
+                displayName = identity.displayName
+                organizationName = identity.organizationName
+                originRemote = nil
+                upstreamRemote = nil
+                remoteSlug = identity.remoteSlug
+            case .awaitingOrigin, nil:
+                groupKey = "path:\(normalizedRepoPath)"
+                displayName = repo.name
+                organizationName = nil
+                originRemote = nil
+                upstreamRemote = nil
+                remoteSlug = nil
+            }
+
+            metadataByRepoId[repo.id] = RepoIdentityMetadata(
+                groupKey: groupKey,
+                displayName: displayName,
+                repoName: displayName,
+                worktreeCommonDirectory: nil,
+                folderCwd: normalizedRepoPath,
+                parentFolder: repo.repoPath.deletingLastPathComponent().lastPathComponent,
+                organizationName: organizationName,
+                originRemote: originRemote,
+                upstreamRemote: upstreamRemote,
+                lastPathComponent: repo.repoPath.lastPathComponent,
+                worktreeCwds: repo.worktrees.map { $0.path.standardizedFileURL.path },
+                remoteFingerprint: originRemote,
+                remoteSlug: remoteSlug
+            )
+        }
+
+        return metadataByRepoId
+    }
+
+    static func resolvedBranchName(
+        worktree: Worktree,
+        enrichment: WorktreeEnrichment?
+    ) -> String {
+        let cachedBranch = enrichment?.branch.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+        if !cachedBranch.isEmpty {
+            return cachedBranch
+        }
+
+        return "detached HEAD"
+    }
+
     static func mergeBranchStatuses(
-        localSnapshotsByWorktreeId: [UUID: WorkspaceGitWorkingTreeStore.WorktreeSnapshot],
+        worktreeEnrichmentsByWorktreeId: [UUID: WorktreeEnrichment],
         pullRequestCountsByWorktreeId: [UUID: Int]
     ) -> [UUID: GitBranchStatus] {
-        let allWorktreeIds = Set(localSnapshotsByWorktreeId.keys).union(pullRequestCountsByWorktreeId.keys)
+        let allWorktreeIds = Set(worktreeEnrichmentsByWorktreeId.keys).union(pullRequestCountsByWorktreeId.keys)
         var mergedByWorktreeId: [UUID: GitBranchStatus] = [:]
         mergedByWorktreeId.reserveCapacity(allWorktreeIds.count)
 
         for worktreeId in allWorktreeIds {
-            let localSnapshot = localSnapshotsByWorktreeId[worktreeId]
+            let enrichment = worktreeEnrichmentsByWorktreeId[worktreeId]
             let pullRequestCount = pullRequestCountsByWorktreeId[worktreeId]
             mergedByWorktreeId[worktreeId] = branchStatus(
-                localSnapshot: localSnapshot,
+                enrichment: enrichment,
                 pullRequestCount: pullRequestCount
             )
         }
@@ -1097,10 +1332,10 @@ extension RepoSidebarContentView {
     }
 
     static func branchStatus(
-        localSnapshot: WorkspaceGitWorkingTreeStore.WorktreeSnapshot?,
+        enrichment: WorktreeEnrichment?,
         pullRequestCount: Int?
     ) -> GitBranchStatus {
-        guard let localSnapshot else {
+        guard let enrichment else {
             return GitBranchStatus(
                 isDirty: GitBranchStatus.unknown.isDirty,
                 syncState: GitBranchStatus.unknown.syncState,
@@ -1110,15 +1345,55 @@ extension RepoSidebarContentView {
             )
         }
 
-        let summary = localSnapshot.summary
-        let isDirty = summary.changed > 0 || summary.staged > 0 || summary.untracked > 0
+        let summary = enrichment.snapshot?.summary
+        let isDirty: Bool
+        if let summary {
+            isDirty = summary.changed > 0 || summary.staged > 0 || summary.untracked > 0
+        } else {
+            isDirty = false
+        }
+
+        let syncState: GitBranchStatus.SyncState
+        if let summary {
+            switch summary.hasUpstream {
+            case .some(false):
+                syncState = .noUpstream
+            case .some(true):
+                let ahead = summary.aheadCount ?? 0
+                let behind = summary.behindCount ?? 0
+                if ahead > 0 && behind > 0 {
+                    syncState = .diverged(ahead: ahead, behind: behind)
+                } else if ahead > 0 {
+                    syncState = .ahead(ahead)
+                } else if behind > 0 {
+                    syncState = .behind(behind)
+                } else if summary.aheadCount != nil || summary.behindCount != nil {
+                    syncState = .synced
+                } else {
+                    syncState = .unknown
+                }
+            case .none:
+                syncState = .unknown
+            }
+        } else {
+            syncState = .unknown
+        }
         return GitBranchStatus(
             isDirty: isDirty,
-            syncState: .unknown,
+            syncState: syncState,
             prCount: pullRequestCount,
-            linesAdded: 0,
-            linesDeleted: 0
+            linesAdded: summary?.linesAdded ?? 0,
+            linesDeleted: summary?.linesDeleted ?? 0
         )
+    }
+
+    static func sortedWorktrees(for repo: SidebarRepo) -> [Worktree] {
+        repo.worktrees.sorted { lhs, rhs in
+            if lhs.isMainWorktree != rhs.isMainWorktree {
+                return lhs.isMainWorktree
+            }
+            return lhs.name.localizedCaseInsensitiveCompare(rhs.name) == .orderedAscending
+        }
     }
 }
 
@@ -1173,7 +1448,7 @@ enum SidebarRepoGrouping {
     }
 
     static func buildGroups(
-        repos: [Repo],
+        repos: [SidebarRepo],
         metadataByRepoId: [UUID: RepoIdentityMetadata]
     ) -> [SidebarRepoGroup] {
         let grouped = Dictionary(grouping: repos) { repo in
@@ -1207,7 +1482,7 @@ enum SidebarRepoGrouping {
         }
     }
 
-    private static func dedupeReposByCheckoutCwd(_ repos: [Repo]) -> [Repo] {
+    private static func dedupeReposByCheckoutCwd(_ repos: [SidebarRepo]) -> [SidebarRepo] {
         var ownerByCwd: [String: OwnerCandidate] = [:]
 
         for repo in repos {
@@ -1231,7 +1506,7 @@ enum SidebarRepoGrouping {
             }
         }
 
-        var deduplicatedRepos: [Repo] = []
+        var deduplicatedRepos: [SidebarRepo] = []
         for repo in repos {
             guard !repo.worktrees.isEmpty else { continue }
 

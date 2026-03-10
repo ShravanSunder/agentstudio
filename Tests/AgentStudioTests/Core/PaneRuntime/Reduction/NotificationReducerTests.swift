@@ -11,7 +11,7 @@ struct NotificationReducerTests {
         let reducer = NotificationReducer()
         var iterator = reducer.criticalEvents.makeAsyncIterator()
 
-        let envelope = makeEnvelope(
+        let envelope = makePaneEnvelope(
             seq: 1,
             event: .terminal(.bellRang)
         )
@@ -27,12 +27,12 @@ struct NotificationReducerTests {
         var iterator = reducer.batchedEvents.makeAsyncIterator()
         let source = EventSource.pane(PaneId())
 
-        let first = makeEnvelope(
+        let first = makePaneEnvelope(
             seq: 1,
             source: source,
             event: .terminal(.scrollbarChanged(ScrollbarState(top: 1, bottom: 10, total: 100)))
         )
-        let second = makeEnvelope(
+        let second = makePaneEnvelope(
             seq: 2,
             source: source,
             event: .terminal(.scrollbarChanged(ScrollbarState(top: 2, bottom: 11, total: 100)))
@@ -58,8 +58,8 @@ struct NotificationReducerTests {
         let reducer = NotificationReducer(tierResolver: resolver)
         var iterator = reducer.criticalEvents.makeAsyncIterator()
 
-        reducer.submit(makeEnvelope(seq: 1, source: .pane(lowTierPaneId), event: .terminal(.bellRang)))
-        reducer.submit(makeEnvelope(seq: 2, source: .pane(highTierPaneId), event: .terminal(.bellRang)))
+        reducer.submit(makePaneEnvelope(seq: 1, source: .pane(lowTierPaneId), event: .terminal(.bellRang)))
+        reducer.submit(makePaneEnvelope(seq: 2, source: .pane(highTierPaneId), event: .terminal(.bellRang)))
 
         let first = await iterator.next()
         let second = await iterator.next()
@@ -82,14 +82,14 @@ struct NotificationReducerTests {
         var iterator = reducer.batchedEvents.makeAsyncIterator()
 
         reducer.submit(
-            makeEnvelope(
+            makePaneEnvelope(
                 seq: 1,
                 source: .pane(lowTierPaneId),
                 event: .terminal(.scrollbarChanged(ScrollbarState(top: 1, bottom: 10, total: 100)))
             )
         )
         reducer.submit(
-            makeEnvelope(
+            makePaneEnvelope(
                 seq: 2,
                 source: .pane(highTierPaneId),
                 event: .terminal(.scrollbarChanged(ScrollbarState(top: 1, bottom: 10, total: 100)))
@@ -102,10 +102,11 @@ struct NotificationReducerTests {
         #expect(batch?.last?.source == .pane(lowTierPaneId))
     }
 
-    @Test("filesystem watcher system-source events are treated as p0 and emitted ahead of background pane events")
-    func filesystemSystemEventsPrioritizedAsP0() async {
+    @Test("system-source events are treated as p0 and emitted ahead of background pane events")
+    func systemEventsPrioritizedAsP0() async {
         let lowTierPaneId = PaneId()
         let worktreeId = UUID()
+        let repoId = UUID()
         let resolver = TestVisibilityTierResolver(
             mapping: [
                 lowTierPaneId: .p3Background
@@ -115,27 +116,21 @@ struct NotificationReducerTests {
         var iterator = reducer.criticalEvents.makeAsyncIterator()
 
         reducer.submit(
-            makeEnvelope(
+            makePaneEnvelope(
                 seq: 1,
                 source: .pane(lowTierPaneId),
                 event: .terminal(.bellRang)
             )
         )
         reducer.submit(
-            makeEnvelope(
-                seq: 2,
-                source: .system(.builtin(.filesystemWatcher)),
-                paneKind: nil,
-                event: .filesystem(
-                    .filesChanged(
-                        changeset: FileChangeset(
-                            worktreeId: worktreeId,
-                            rootPath: URL(fileURLWithPath: "/tmp/worktree-\(UUID().uuidString)"),
-                            paths: ["Sources/AgentStudio/App/PaneCoordinator.swift"],
-                            timestamp: ContinuousClock().now,
-                            batchSeq: 7
-                        )
-                    )
+            .system(
+                SystemEnvelope.test(
+                    event: .topology(
+                        .worktreeRegistered(
+                            worktreeId: worktreeId, repoId: repoId,
+                            rootPath: URL(fileURLWithPath: "/tmp/worktree-\(UUID().uuidString)"))),
+                    source: .builtin(.filesystemWatcher),
+                    seq: 2
                 )
             )
         )
@@ -147,22 +142,68 @@ struct NotificationReducerTests {
         #expect(second?.source == .pane(lowTierPaneId))
     }
 
-    private func makeEnvelope(
+    @Test("system topology stays system-scoped with no legacy bridge conversion")
+    func systemTopologyStaysSystemScoped() async {
+        let reducer = NotificationReducer()
+        var iterator = reducer.criticalEvents.makeAsyncIterator()
+        let worktreeId = UUID()
+        let repoId = UUID()
+        let rootPath = URL(fileURLWithPath: "/tmp/reducer-\(UUID().uuidString)")
+
+        reducer.submit(
+            .system(
+                SystemEnvelope.test(
+                    event: .topology(.worktreeRegistered(worktreeId: worktreeId, repoId: repoId, rootPath: rootPath)),
+                    source: .builtin(.filesystemWatcher),
+                    seq: 99
+                )
+            )
+        )
+
+        let received = await iterator.next()
+        guard case .system(let systemEnvelope) = received else {
+            Issue.record("Expected system envelope")
+            return
+        }
+
+        #expect(systemEnvelope.seq == 99)
+        #expect(systemEnvelope.source == .builtin(.filesystemWatcher))
+        guard
+            case .topology(.worktreeRegistered(let mappedWorktreeId, let mappedRepoId, let mappedRootPath)) =
+                systemEnvelope.event
+        else {
+            Issue.record("Expected system topology worktreeRegistered event")
+            return
+        }
+        #expect(mappedWorktreeId == worktreeId)
+        #expect(mappedRepoId == repoId)
+        #expect(mappedRootPath == rootPath)
+    }
+
+    private func makePaneEnvelope(
         seq: UInt64,
         source: EventSource = .pane(PaneId()),
-        paneKind: PaneContentType? = .terminal,
+        paneKind: PaneContentType = .terminal,
         event: PaneRuntimeEvent
-    ) -> PaneEventEnvelope {
+    ) -> RuntimeEnvelope {
         let clock = ContinuousClock()
-        return PaneEventEnvelope(
-            source: source,
-            paneKind: paneKind,
-            seq: seq,
-            commandId: nil,
-            correlationId: nil,
-            timestamp: clock.now,
-            epoch: 0,
-            event: event
+        let resolvedPaneId: PaneId
+        switch source {
+        case .pane(let paneId):
+            resolvedPaneId = paneId
+        case .worktree, .system:
+            resolvedPaneId = PaneId()
+        }
+
+        return .pane(
+            PaneEnvelope(
+                source: source,
+                seq: seq,
+                timestamp: clock.now,
+                paneId: resolvedPaneId,
+                paneKind: paneKind,
+                event: event
+            )
         )
     }
 }

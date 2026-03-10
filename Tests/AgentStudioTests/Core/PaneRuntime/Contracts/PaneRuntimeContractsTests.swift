@@ -84,33 +84,36 @@ struct PaneRuntimeContractsTests {
         #expect(pluginWithSlash.description == "system:plugin/mcp/weather")
     }
 
-    @Test("filesystem source identity is system builtin watcher with worktree in facets")
+    @Test("filesystem source identity uses worktree envelope scoped to builtin watcher")
     func filesystemSourceIdentityContract() {
         let worktreeId = UUID()
         let now = ContinuousClock().now
-        let envelope = PaneEventEnvelope(
-            source: .system(.builtin(.filesystemWatcher)),
-            sourceFacets: PaneContextFacets(worktreeId: worktreeId),
-            paneKind: nil,
-            seq: 1,
-            commandId: nil,
-            correlationId: nil,
-            timestamp: now,
-            epoch: 0,
-            event: .filesystem(
-                .filesChanged(
-                    changeset: FileChangeset(
-                        worktreeId: worktreeId,
-                        rootPath: URL(fileURLWithPath: "/tmp/worktree-\(UUID().uuidString)"),
-                        paths: ["README.md"],
-                        timestamp: now,
-                        batchSeq: 1
+        let envelope = RuntimeEnvelope.worktree(
+            WorktreeEnvelope(
+                source: .system(.builtin(.filesystemWatcher)),
+                seq: 1,
+                timestamp: now,
+                repoId: worktreeId,
+                worktreeId: worktreeId,
+                event: .filesystem(
+                    .filesChanged(
+                        changeset: FileChangeset(
+                            worktreeId: worktreeId,
+                            rootPath: URL(fileURLWithPath: "/tmp/worktree-\(UUID().uuidString)"),
+                            paths: ["README.md"],
+                            timestamp: now,
+                            batchSeq: 1
+                        )
                     )
                 )
             )
         )
 
         #expect(envelope.source == .system(.builtin(.filesystemWatcher)))
-        #expect(envelope.sourceFacets.worktreeId == worktreeId)
+        guard case .worktree(let worktreeEnvelope) = envelope else {
+            Issue.record("Expected worktree envelope")
+            return
+        }
+        #expect(worktreeEnvelope.worktreeId == worktreeId)
     }
 }

@@ -132,7 +132,7 @@ enum CommandBarDataSource {
                         title: pane.title,
                         subtitle: "Tab \(tabIndex + 1)" + (isActive ? " · Active" : ""),
                         icon: iconForPane(pane),
-                        iconColor: pane.agent?.color,
+                        iconColor: nil,
                         group: Group.panes,
                         groupPriority: Priority.panes,
                         keywords: keywordsForPane(pane, store: store),
@@ -188,7 +188,7 @@ enum CommandBarDataSource {
                         title: pane.title,
                         subtitle: isActive ? "Active Pane" : nil,
                         icon: iconForPane(pane),
-                        iconColor: pane.agent?.color,
+                        iconColor: nil,
                         group: tabGroupName,
                         groupPriority: tabIndex,
                         keywords: keywordsForPane(pane, store: store),
@@ -357,7 +357,7 @@ enum CommandBarDataSource {
                             title: pane.title,
                             subtitle: "Tab \(tabIndex + 1)",
                             icon: iconForPane(pane),
-                            iconColor: pane.agent?.color,
+                            iconColor: nil,
                             group: "Panes",
                             groupPriority: 1,
                             action: .dispatchTargeted(def.command, target: pane.id, targetType: targetType)
@@ -373,7 +373,7 @@ enum CommandBarDataSource {
                         CommandBarItem(
                             id: "target-worktree-\(worktree.id.uuidString)",
                             title: worktree.name,
-                            subtitle: "\(repo.name) · \(worktree.branch)",
+                            subtitle: repo.name,
                             icon: worktree.isMainWorktree ? "star.fill" : "arrow.triangle.branch",
                             group: "Worktrees",
                             groupPriority: 2 + repoIndex,
@@ -411,7 +411,7 @@ enum CommandBarDataSource {
                     title: pane.title,
                     subtitle: "Tab \(tabIndex + 1)",
                     icon: iconForPane(pane),
-                    iconColor: pane.agent?.color,
+                    iconColor: nil,
                     group: "Panes",
                     groupPriority: 0,
                     action: .navigate(destinationLevel),
@@ -546,11 +546,11 @@ enum CommandBarDataSource {
                     CommandBarItem(
                         id: "repo-wt-\(worktree.id.uuidString)",
                         title: "\(prefix)\(worktree.name)",
-                        subtitle: worktree.branch,
+                        subtitle: worktree.name,
                         icon: worktree.isMainWorktree ? "star.fill" : "arrow.triangle.branch",
                         group: repo.name,
                         groupPriority: repoIndex,
-                        keywords: ["repo", "worktree", "branch", worktree.branch, repo.name, worktree.name],
+                        keywords: ["repo", "worktree", repo.name, worktree.name],
                         action: .dispatchTargeted(.openWorktree, target: worktree.id, targetType: .worktree),
                         command: .openWorktree
                     ))
@@ -567,12 +567,11 @@ enum CommandBarDataSource {
                 CommandBarItem(
                     id: "wt-\(worktree.id.uuidString)",
                     title: worktree.name,
-                    subtitle: "\(repo.name) · \(worktree.branch)",
+                    subtitle: repo.name,
                     icon: "arrow.triangle.branch",
-                    iconColor: worktree.agent?.color,
                     group: Group.worktrees,
                     groupPriority: Priority.worktrees,
-                    keywords: ["worktree", "branch", worktree.branch, repo.name],
+                    keywords: ["worktree", repo.name, worktree.name],
                     action: .dispatchTargeted(.openWorktree, target: worktree.id, targetType: .worktree),
                     command: .openWorktree
                 )
@@ -605,10 +604,7 @@ enum CommandBarDataSource {
             keywords.append("terminal")
         }
         if let worktreeId = pane.worktreeId, let wt = store.worktree(worktreeId) {
-            keywords.append(contentsOf: [wt.name, wt.branch])
-        }
-        if let agent = pane.agent {
-            keywords.append(agent.displayName)
+            keywords.append(wt.name)
         }
         return keywords
     }

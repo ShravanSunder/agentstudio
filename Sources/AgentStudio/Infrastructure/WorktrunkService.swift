@@ -25,11 +25,11 @@ final class WorktrunkService: Sendable {
     // MARK: - Worktree Discovery
 
     /// Discovers all worktrees for a repository using worktrunk
-    func discoverWorktrees(for projectPath: URL) -> [Worktree] {
-        let gitWorktrees = discoverWithGit(projectPath: projectPath)
+    func discoverWorktrees(for projectPath: URL, repoId: UUID) -> [Worktree] {
+        let gitWorktrees = discoverWithGit(projectPath: projectPath, repoId: repoId)
 
         // Try worktrunk first (preferred)
-        if let worktrees = discoverWithWorktrunk(projectPath: projectPath, gitWorktrees: gitWorktrees) {
+        if let worktrees = discoverWithWorktrunk(projectPath: projectPath, repoId: repoId, gitWorktrees: gitWorktrees) {
             return worktrees
         }
 
@@ -38,7 +38,7 @@ final class WorktrunkService: Sendable {
     }
 
     /// Discover worktrees using `wt list --format=json`
-    private func discoverWithWorktrunk(projectPath: URL, gitWorktrees: [Worktree]) -> [Worktree]? {
+    private func discoverWithWorktrunk(projectPath: URL, repoId: UUID, gitWorktrees: [Worktree]) -> [Worktree]? {
         let result = shell("wt", args: ["list", "--format=json"], cwd: projectPath)
 
         guard result.exitCode == 0, !result.output.isEmpty else {
@@ -60,6 +60,7 @@ final class WorktrunkService: Sendable {
 
     func mergeWorktrunkEntries(_ entries: [WorktrunkEntry], orderedBy gitWorktrees: [Worktree]) -> [Worktree] {
         guard !gitWorktrees.isEmpty else { return [] }
+        guard let repoId = gitWorktrees.first?.repoId else { return [] }
 
         var entryByCanonicalPath: [String: WorktrunkEntry] = [:]
         entryByCanonicalPath.reserveCapacity(entries.count)
@@ -77,9 +78,9 @@ final class WorktrunkService: Sendable {
             guard let entry = entryByCanonicalPath[canonicalGitPath] else {
                 merged.append(
                     Worktree(
+                        repoId: repoId,
                         name: gitWorktree.name,
                         path: gitWorktree.path,
-                        branch: gitWorktree.branch,
                         isMainWorktree: index == 0
                     ))
                 continue
@@ -87,13 +88,13 @@ final class WorktrunkService: Sendable {
 
             matchedEntries += 1
             let normalizedBranch = normalizeBranch(entry.branch)
-            let branchName = normalizedBranch.isEmpty ? gitWorktree.branch : normalizedBranch
+            let branchName = normalizedBranch.isEmpty ? gitWorktree.name : normalizedBranch
             let worktreeName = branchName.components(separatedBy: "/").last ?? gitWorktree.name
             merged.append(
                 Worktree(
+                    repoId: repoId,
                     name: worktreeName.isEmpty ? gitWorktree.name : worktreeName,
                     path: URL(fileURLWithPath: entry.path),
-                    branch: branchName,
                     isMainWorktree: index == 0
                 ))
         }
@@ -101,9 +102,9 @@ final class WorktrunkService: Sendable {
         if matchedEntries == 0 {
             return gitWorktrees.enumerated().map { index, worktree in
                 Worktree(
+                    repoId: repoId,
                     name: worktree.name,
                     path: worktree.path,
-                    branch: worktree.branch,
                     isMainWorktree: index == 0
                 )
             }
@@ -123,21 +124,20 @@ final class WorktrunkService: Sendable {
     }
 
     /// Fallback: discover worktrees using raw git command
-    private func discoverWithGit(projectPath: URL) -> [Worktree] {
+    private func discoverWithGit(projectPath: URL, repoId: UUID) -> [Worktree] {
         let result = shell("git", args: ["-C", projectPath.path, "worktree", "list", "--porcelain"])
 
         guard result.exitCode == 0 else {
             return []
         }
 
-        return parseGitWorktreeList(result.output)
+        return parseGitWorktreeList(result.output, repoId: repoId)
     }
 
     /// Parse `git worktree list --porcelain` output
-    func parseGitWorktreeList(_ output: String) -> [Worktree] {
+    func parseGitWorktreeList(_ output: String, repoId: UUID) -> [Worktree] {
         var worktrees: [Worktree] = []
         var currentPath: String?
-        var currentBranch: String?
 
         for line in output.components(separatedBy: "\n") {
             if line.hasPrefix("worktree ") {
@@ -145,22 +145,20 @@ final class WorktrunkService: Sendable {
                 if let path = currentPath {
                     let pathURL = URL(fileURLWithPath: path)
                     let name = pathURL.lastPathComponent
-                    let branch = currentBranch ?? name
 
                     worktrees.append(
                         Worktree(
+                            repoId: repoId,
                             name: name,
                             path: pathURL,
-                            branch: branch,
                             isMainWorktree: worktrees.isEmpty
                         ))
                 }
 
                 currentPath = String(line.dropFirst(9))
-                currentBranch = nil
             } else if line.hasPrefix("branch ") {
-                currentBranch = String(line.dropFirst(7))
-                    .replacingOccurrences(of: "refs/heads/", with: "")
+                // Branch data parsed but not stored on Worktree model;
+                // enrichment pipeline provides it via GitProjector → bus → cache.
             }
         }
 
@@ -168,13 +166,12 @@ final class WorktrunkService: Sendable {
         if let path = currentPath {
             let pathURL = URL(fileURLWithPath: path)
             let name = pathURL.lastPathComponent
-            let branch = currentBranch ?? name
 
             worktrees.append(
                 Worktree(
+                    repoId: repoId,
                     name: name,
                     path: pathURL,
-                    branch: branch,
                     isMainWorktree: worktrees.isEmpty
                 ))
         }
@@ -185,7 +182,7 @@ final class WorktrunkService: Sendable {
     // MARK: - Worktree Management
 
     /// Create a new worktree using worktrunk
-    func createWorktree(name: String, in projectPath: URL, baseBranch: String? = nil) -> Result<
+    func createWorktree(name: String, in projectPath: URL, repoId: UUID, baseBranch: String? = nil) -> Result<
         Worktree, WorktrunkError
     > {
         var args = ["switch", "-c", name]
@@ -200,8 +197,8 @@ final class WorktrunkService: Sendable {
         }
 
         // Discover the newly created worktree
-        let worktrees = discoverWorktrees(for: projectPath)
-        if let newWorktree = worktrees.first(where: { $0.name == name || $0.branch.hasSuffix(name) }) {
+        let worktrees = discoverWorktrees(for: projectPath, repoId: repoId)
+        if let newWorktree = worktrees.first(where: { $0.name == name }) {
             return .success(newWorktree)
         }
 

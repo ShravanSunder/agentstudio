@@ -189,7 +189,6 @@ CodeViewerState {
 PaneMetadata {
   source: .worktree(id, repoId) | .floating(dir, title)
   cwd: String                          // live, propagated from shell
-  agentType: AgentType?                // agent running in this pane
   tags: [String]                       // user or system labels for grouping
 }
 ```

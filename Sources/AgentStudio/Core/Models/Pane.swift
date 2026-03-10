@@ -114,12 +114,6 @@ struct Pane: Codable, Identifiable, Hashable {
         set { metadata.updateTitle(newValue) }
     }
 
-    /// Agent type from metadata.
-    var agent: AgentType? {
-        get { metadata.agentType }
-        set { metadata.updateAgentType(newValue) }
-    }
-
     /// Provider from terminal state, if terminal content.
     var provider: SessionProvider? { terminalState?.provider }
 

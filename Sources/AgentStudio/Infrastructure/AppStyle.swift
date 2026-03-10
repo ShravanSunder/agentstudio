@@ -130,17 +130,14 @@ enum AppStyle {
 
     // MARK: - Sidebar Metrics
 
-    /// Vertical gap between a repo group header and its first checkout row.
-    static let sidebarGroupChildrenSpacing: CGFloat = 2
-
     /// Internal vertical spacing between checkout title and chip row.
     static let sidebarRowContentSpacing: CGFloat = 4
 
     /// Vertical inset around each checkout row container.
     static let sidebarRowVerticalInset: CGFloat = 6
 
-    /// Reduces default DisclosureGroup child indentation to keep tree rows tighter.
-    static let sidebarGroupChildLeadingReduction: CGFloat = 10
+    /// Leading inset for child checkout rows under a resolved group header.
+    static let sidebarGroupChildRowLeadingInset: CGFloat = 12
 
     /// Leading inset used for sidebar list rows.
     static let sidebarListRowLeadingInset: CGFloat = 2
