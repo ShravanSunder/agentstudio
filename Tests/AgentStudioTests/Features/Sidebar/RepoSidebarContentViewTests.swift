@@ -6,6 +6,134 @@ import Testing
 @MainActor
 @Suite("RepoSidebarContentView")
 struct RepoSidebarContentViewTests {
+    @Test("flat list entries expand a resolved group into header and child rows")
+    func flatListEntriesExpandResolvedGroupIntoHeaderAndChildRows() {
+        let repoId = UUID()
+        let worktree = Worktree(
+            repoId: repoId,
+            name: "main",
+            path: URL(fileURLWithPath: "/tmp/agent-studio"),
+            isMainWorktree: true
+        )
+        let repo = SidebarRepo(
+            id: repoId,
+            name: "agent-studio",
+            repoPath: URL(fileURLWithPath: "/tmp/agent-studio"),
+            stableKey: "agent-studio",
+            worktrees: [worktree]
+        )
+        let group = SidebarRepoGroup(
+            id: "remote:askluna/agent-studio",
+            repoTitle: "agent-studio",
+            organizationName: "askluna",
+            repos: [repo]
+        )
+
+        let entries = RepoSidebarContentView.buildListEntries(
+            groups: [group],
+            loadingRepos: [],
+            expandedGroupIds: [group.id],
+            isFiltering: false
+        )
+
+        #expect(entries.count == 2)
+        guard
+            case .resolvedGroupHeader(let headerGroup) = entries[0],
+            case .resolvedWorktreeRow(let childGroupId, let childRepoId, let childWorktreeId) = entries[1]
+        else {
+            Issue.record("Expected flat resolved header followed by child row")
+            return
+        }
+
+        #expect(headerGroup.id == group.id)
+        #expect(childGroupId == group.id)
+        #expect(childRepoId == repo.id)
+        #expect(childWorktreeId == worktree.id)
+    }
+
+    @Test("flat list entries keep collapsed groups flat with header only")
+    func flatListEntriesKeepCollapsedGroupsFlatWithHeaderOnly() {
+        let repoId = UUID()
+        let repo = SidebarRepo(
+            id: repoId,
+            name: "agent-studio",
+            repoPath: URL(fileURLWithPath: "/tmp/agent-studio"),
+            stableKey: "agent-studio",
+            worktrees: [Worktree(repoId: repoId, name: "main", path: URL(fileURLWithPath: "/tmp/agent-studio"))]
+        )
+        let group = SidebarRepoGroup(
+            id: "remote:askluna/agent-studio",
+            repoTitle: "agent-studio",
+            organizationName: "askluna",
+            repos: [repo]
+        )
+
+        let entries = RepoSidebarContentView.buildListEntries(
+            groups: [group],
+            loadingRepos: [],
+            expandedGroupIds: [],
+            isFiltering: false
+        )
+
+        #expect(entries.count == 1)
+        guard case .resolvedGroupHeader(let headerGroup) = entries[0] else {
+            Issue.record("Expected collapsed group to render header only")
+            return
+        }
+        #expect(headerGroup.id == group.id)
+    }
+
+    @Test("flat list entries append loading header and loading rows after resolved groups")
+    func flatListEntriesAppendLoadingHeaderAndRowsAfterResolvedGroups() {
+        let resolvedRepoId = UUID()
+        let loadingRepo = SidebarRepo(
+            id: UUID(),
+            name: "loading-repo",
+            repoPath: URL(fileURLWithPath: "/tmp/loading-repo"),
+            stableKey: "loading-repo",
+            worktrees: [Worktree(repoId: UUID(), name: "main", path: URL(fileURLWithPath: "/tmp/loading-repo"))]
+        )
+        let resolvedGroup = SidebarRepoGroup(
+            id: "remote:askluna/agent-studio",
+            repoTitle: "agent-studio",
+            organizationName: "askluna",
+            repos: [
+                SidebarRepo(
+                    id: resolvedRepoId,
+                    name: "agent-studio",
+                    repoPath: URL(fileURLWithPath: "/tmp/agent-studio"),
+                    stableKey: "agent-studio",
+                    worktrees: [
+                        Worktree(
+                            repoId: resolvedRepoId,
+                            name: "main",
+                            path: URL(fileURLWithPath: "/tmp/agent-studio")
+                        )
+                    ]
+                )
+            ]
+        )
+
+        let entries = RepoSidebarContentView.buildListEntries(
+            groups: [resolvedGroup],
+            loadingRepos: [loadingRepo],
+            expandedGroupIds: [],
+            isFiltering: false
+        )
+
+        #expect(entries.count == 3)
+        guard
+            case .resolvedGroupHeader = entries[0],
+            case .loadingHeader = entries[1],
+            case .loadingRepoRow(let loadingRepoId) = entries[2]
+        else {
+            Issue.record("Expected flat resolved header, loading header, and loading row")
+            return
+        }
+
+        #expect(loadingRepoId == loadingRepo.id)
+    }
+
     @Test("sidebar projection separates resolved groups from loading repos")
     func sidebarProjectionSeparatesResolvedGroupsFromLoadingRepos() {
         let resolvedId = UUID()

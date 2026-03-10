@@ -431,6 +431,45 @@ struct FilesystemActorTests {
         await actor.shutdown()
     }
 
+    @Test("gitignore reload batch does not leak .gitignore into projected paths when coalesced")
+    func gitignoreReloadBatchDoesNotLeakGitignoreIntoProjectedPathsWhenCoalesced() async throws {
+        let bus = EventBus<RuntimeEnvelope>()
+        let actor = makeActor(bus: bus)
+
+        let rootPath = FileManager.default.temporaryDirectory
+            .appending(path: "gitignore-coalesced-\(UUID().uuidString)")
+        try FileManager.default.createDirectory(at: rootPath, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: rootPath) }
+        try "*.tmp\n".write(
+            to: rootPath.appending(path: ".gitignore"),
+            atomically: true,
+            encoding: .utf8
+        )
+
+        let worktreeId = UUID()
+        await actor.register(worktreeId: worktreeId, repoId: worktreeId, rootPath: rootPath)
+
+        let stream = await bus.subscribe()
+        var iterator = stream.makeAsyncIterator()
+
+        await actor.enqueueRawPaths(worktreeId: worktreeId, paths: ["cache.tmp"])
+        _ = try #require(await iterator.next())
+
+        try "# no ignore rules\n".write(
+            to: rootPath.appending(path: ".gitignore"),
+            atomically: true,
+            encoding: .utf8
+        )
+        await actor.enqueueRawPaths(worktreeId: worktreeId, paths: [".gitignore", "cache.tmp"])
+
+        let postReloadEnvelope = try #require(await iterator.next())
+        let postReloadChangeset = try #require(filesChangedChangeset(from: postReloadEnvelope))
+        #expect(postReloadChangeset.paths == ["cache.tmp"])
+        #expect(postReloadChangeset.suppressedIgnoredPathCount == 0)
+
+        await actor.shutdown()
+    }
+
     @Test("debounce coalesces bursts and flushes once after debounce window")
     func debounceCoalescesBursts() async throws {
         let bus = EventBus<RuntimeEnvelope>()

@@ -64,6 +64,15 @@ struct RepoSidebarContentView: View {
         sidebarProjection.loadingRepos
     }
 
+    private var listEntries: [SidebarListEntry] {
+        Self.buildListEntries(
+            groups: groups,
+            loadingRepos: loadingReposList,
+            expandedGroupIds: expandedGroups,
+            isFiltering: isFiltering
+        )
+    }
+
     private var isFiltering: Bool {
         !debouncedQuery.isEmpty
     }
@@ -214,134 +223,137 @@ struct RepoSidebarContentView: View {
 
     private var groupList: some View {
         List {
-            ForEach(groups) { group in
-                DisclosureGroup(
-                    isExpanded: Binding(
-                        get: { isFiltering || expandedGroups.contains(group.id) },
-                        set: { expanded in
-                            if expanded {
-                                expandedGroups.insert(group.id)
-                            } else {
-                                expandedGroups.remove(group.id)
-                            }
-                            uiStore.setExpandedGroups(expandedGroups)
-                        }
+            ForEach(listEntries) { entry in
+                switch entry {
+                case .resolvedGroupHeader(let group):
+                    Button {
+                        toggleGroupExpansion(group.id)
+                    } label: {
+                        SidebarResolvedGroupHeaderRow(
+                            isExpanded: isGroupExpanded(group.id),
+                            repoTitle: group.repoTitle,
+                            organizationName: group.organizationName
+                        )
+                    }
+                    .buttonStyle(.plain)
+                    .contentShape(Rectangle())
+                    .listRowInsets(
+                        EdgeInsets(
+                            top: 0,
+                            leading: AppStyle.sidebarListRowLeadingInset,
+                            bottom: 0,
+                            trailing: 0
+                        )
                     )
-                ) {
-                    VStack(spacing: AppStyle.sidebarGroupChildrenSpacing) {
-                        ForEach(group.repos) { repo in
-                            let sortedWorktrees = sortedWorktrees(for: repo)
-                            ForEach(sortedWorktrees) { worktree in
-                                SidebarWorktreeRow(
-                                    worktree: worktree,
-                                    checkoutTitle: checkoutTitle(for: worktree, in: repo),
-                                    branchName: branchName(for: worktree),
-                                    checkoutIconKind: checkoutIconKind(for: worktree, in: repo),
-                                    iconColor: colorForCheckout(repo: repo, in: group),
-                                    branchStatus: worktreeStatusById[worktree.id] ?? .unknown,
-                                    notificationCount: notificationCountsByWorktreeId[worktree.id, default: 0],
-                                    onOpen: {
-                                        clearNotifications(for: worktree.id)
-                                        CommandDispatcher.shared.dispatch(
-                                            .openWorktree,
-                                            target: worktree.id,
-                                            targetType: .worktree
-                                        )
-                                    },
-                                    onOpenNew: {
-                                        clearNotifications(for: worktree.id)
-                                        CommandDispatcher.shared.dispatch(
-                                            .openNewTerminalInTab,
-                                            target: worktree.id,
-                                            targetType: .worktree
-                                        )
-                                    },
-                                    onOpenInPane: {
-                                        clearNotifications(for: worktree.id)
-                                        CommandDispatcher.shared.dispatch(
-                                            .openWorktreeInPane,
-                                            target: worktree.id,
-                                            targetType: .worktree
-                                        )
-                                    },
-                                    onSetIconColor: { colorHex in
-                                        let key = repo.id.uuidString
-                                        if let colorHex {
-                                            checkoutColorByRepoId[key] = colorHex
-                                        } else {
-                                            checkoutColorByRepoId.removeValue(forKey: key)
-                                        }
-                                        uiStore.setCheckoutColor(colorHex, for: key)
-                                    }
-                                )
-                                .listRowInsets(
-                                    EdgeInsets(
-                                        top: 0,
-                                        leading: AppStyle.sidebarListRowLeadingInset,
-                                        bottom: 0,
-                                        trailing: 0
-                                    )
-                                )
+                    .contextMenu {
+                        Divider()
+
+                        if let primaryRepo = Self.primaryRepoForGroup(group) {
+                            Button("Open in Finder") {
+                                openRepoInFinder(primaryRepo.repoPath)
                             }
                         }
-                    }
-                    .padding(.leading, -AppStyle.sidebarGroupChildLeadingReduction)
-                } label: {
-                    SidebarGroupRow(
-                        repoTitle: group.repoTitle,
-                        organizationName: group.organizationName
-                    )
-                }
-                .listRowInsets(
-                    EdgeInsets(
-                        top: 0,
-                        leading: AppStyle.sidebarListRowLeadingInset,
-                        bottom: 0,
-                        trailing: 0
-                    )
-                )
-                .contextMenu {
-                    Divider()
 
-                    if let primaryRepo = Self.primaryRepoForGroup(group) {
-                        Button("Open in Finder") {
-                            openRepoInFinder(primaryRepo.repoPath)
+                        Button("Refresh Worktrees") {
+                            postAppEvent(.refreshWorktreesRequested)
                         }
                     }
 
-                    Button("Refresh Worktrees") {
-                        postAppEvent(.refreshWorktreesRequested)
-                    }
-                }
-            }
-
-            if !loadingReposList.isEmpty {
-                Section {
-                    ForEach(loadingReposList) { repo in
-                        HStack(spacing: AppStyle.spacingStandard) {
-                            Text(repo.name)
-                                .font(.system(size: AppStyle.textBase))
-                                .lineLimit(1)
-                                .truncationMode(.tail)
-                        }
+                case .resolvedWorktreeRow(let groupId, let repoId, let worktreeId):
+                    if let resolvedWorktreeContext = resolvedWorktreeContext(
+                        groupId: groupId,
+                        repoId: repoId,
+                        worktreeId: worktreeId
+                    ) {
+                        SidebarWorktreeRow(
+                            worktree: resolvedWorktreeContext.worktree,
+                            checkoutTitle: checkoutTitle(
+                                for: resolvedWorktreeContext.worktree,
+                                in: resolvedWorktreeContext.repo
+                            ),
+                            branchName: branchName(for: resolvedWorktreeContext.worktree),
+                            checkoutIconKind: checkoutIconKind(
+                                for: resolvedWorktreeContext.worktree,
+                                in: resolvedWorktreeContext.repo
+                            ),
+                            iconColor: colorForCheckout(
+                                repo: resolvedWorktreeContext.repo,
+                                in: resolvedWorktreeContext.group
+                            ),
+                            branchStatus: worktreeStatusById[resolvedWorktreeContext.worktree.id] ?? .unknown,
+                            notificationCount: notificationCountsByWorktreeId[
+                                resolvedWorktreeContext.worktree.id,
+                                default: 0
+                            ],
+                            onOpen: {
+                                clearNotifications(for: resolvedWorktreeContext.worktree.id)
+                                CommandDispatcher.shared.dispatch(
+                                    .openWorktree,
+                                    target: resolvedWorktreeContext.worktree.id,
+                                    targetType: .worktree
+                                )
+                            },
+                            onOpenNew: {
+                                clearNotifications(for: resolvedWorktreeContext.worktree.id)
+                                CommandDispatcher.shared.dispatch(
+                                    .openNewTerminalInTab,
+                                    target: resolvedWorktreeContext.worktree.id,
+                                    targetType: .worktree
+                                )
+                            },
+                            onOpenInPane: {
+                                clearNotifications(for: resolvedWorktreeContext.worktree.id)
+                                CommandDispatcher.shared.dispatch(
+                                    .openWorktreeInPane,
+                                    target: resolvedWorktreeContext.worktree.id,
+                                    targetType: .worktree
+                                )
+                            },
+                            onSetIconColor: { colorHex in
+                                let key = resolvedWorktreeContext.repo.id.uuidString
+                                if let colorHex {
+                                    checkoutColorByRepoId[key] = colorHex
+                                } else {
+                                    checkoutColorByRepoId.removeValue(forKey: key)
+                                }
+                                uiStore.setCheckoutColor(colorHex, for: key)
+                            }
+                        )
                         .listRowInsets(
                             EdgeInsets(
                                 top: 0,
-                                leading: AppStyle.sidebarListRowLeadingInset,
+                                leading: AppStyle.sidebarGroupChildRowLeadingInset,
                                 bottom: 0,
                                 trailing: 0
                             )
                         )
                     }
-                } header: {
-                    HStack(spacing: AppStyle.spacingTight) {
-                        ProgressView()
-                            .controlSize(.small)
-                        Text("Scanning...")
-                            .font(.system(size: AppStyle.textXs, weight: .medium))
+
+                case .loadingHeader:
+                    SidebarLoadingSectionHeaderRow()
+                        .listRowInsets(
+                            EdgeInsets(
+                                top: 4,
+                                leading: AppStyle.sidebarListRowLeadingInset,
+                                bottom: 2,
+                                trailing: 0
+                            )
+                        )
+
+                case .loadingRepoRow(let repoId):
+                    if let loadingRepo = loadingReposList.first(where: { $0.id == repoId }) {
+                        SidebarLoadingRepoRow(repoName: loadingRepo.name)
+                            .listRowInsets(
+                                EdgeInsets(
+                                    top: 0,
+                                    leading: AppStyle.sidebarGroupChildRowLeadingInset,
+                                    bottom: 0,
+                                    trailing: 0
+                                )
+                            )
+                            .disabled(true)
                     }
                 }
-                .disabled(true)
             }
         }
         .listStyle(.sidebar)
@@ -376,13 +388,30 @@ struct RepoSidebarContentView: View {
         return Color(nsColor: NSColor(hex: colorHex) ?? .controlAccentColor)
     }
 
-    private func sortedWorktrees(for repo: SidebarRepo) -> [Worktree] {
-        repo.worktrees.sorted { lhs, rhs in
-            if lhs.isMainWorktree != rhs.isMainWorktree {
-                return lhs.isMainWorktree
-            }
-            return lhs.name.localizedCaseInsensitiveCompare(rhs.name) == .orderedAscending
+    private func isGroupExpanded(_ groupId: String) -> Bool {
+        isFiltering || expandedGroups.contains(groupId)
+    }
+
+    private func toggleGroupExpansion(_ groupId: String) {
+        guard !isFiltering else { return }
+
+        if expandedGroups.contains(groupId) {
+            expandedGroups.remove(groupId)
+        } else {
+            expandedGroups.insert(groupId)
         }
+        uiStore.setExpandedGroups(expandedGroups)
+    }
+
+    private func resolvedWorktreeContext(
+        groupId: String,
+        repoId: UUID,
+        worktreeId: UUID
+    ) -> (group: SidebarRepoGroup, repo: SidebarRepo, worktree: Worktree)? {
+        guard let group = groups.first(where: { $0.id == groupId }) else { return nil }
+        guard let repo = group.repos.first(where: { $0.id == repoId }) else { return nil }
+        guard let worktree = repo.worktrees.first(where: { $0.id == worktreeId }) else { return nil }
+        return (group, repo, worktree)
     }
 
     private func clearNotifications(for worktreeId: UUID) {
@@ -434,6 +463,26 @@ struct RepoSidebarContentView: View {
 
 }
 
+enum SidebarListEntry: Identifiable {
+    case resolvedGroupHeader(SidebarRepoGroup)
+    case resolvedWorktreeRow(groupId: String, repoId: UUID, worktreeId: UUID)
+    case loadingHeader
+    case loadingRepoRow(UUID)
+
+    var id: String {
+        switch self {
+        case .resolvedGroupHeader(let group):
+            return "group:\(group.id)"
+        case .resolvedWorktreeRow(let groupId, let repoId, let worktreeId):
+            return "worktree:\(groupId):\(repoId.uuidString):\(worktreeId.uuidString)"
+        case .loadingHeader:
+            return "loading-header"
+        case .loadingRepoRow(let repoId):
+            return "loading:\(repoId.uuidString)"
+        }
+    }
+}
+
 private struct SidebarGroupRow: View {
     let repoTitle: String
     let organizationName: String?
@@ -468,6 +517,27 @@ private struct SidebarGroupRow: View {
         }
         .padding(.vertical, AppStyle.sidebarGroupRowVerticalPadding)
         .contentShape(Rectangle())
+    }
+}
+
+private struct SidebarResolvedGroupHeaderRow: View {
+    let isExpanded: Bool
+    let repoTitle: String
+    let organizationName: String?
+
+    var body: some View {
+        HStack(spacing: AppStyle.spacingTight) {
+            Image(systemName: isExpanded ? "chevron.down" : "chevron.right")
+                .font(.system(size: AppStyle.textXs, weight: .semibold))
+                .foregroundStyle(.secondary)
+                .frame(width: AppStyle.textBase, alignment: .center)
+
+            SidebarGroupRow(
+                repoTitle: repoTitle,
+                organizationName: organizationName
+            )
+        }
+        .frame(maxWidth: .infinity, alignment: .leading)
     }
 }
 
@@ -673,6 +743,47 @@ private struct SidebarWorktreeRow: View {
             OcticonImage(name: "octicon-git-merge", size: checkoutTypeSize)
                 .foregroundStyle(iconColor)
         }
+    }
+}
+
+private struct SidebarLoadingSectionHeaderRow: View {
+    var body: some View {
+        HStack(spacing: AppStyle.spacingStandard) {
+            Rectangle()
+                .fill(Color.primary.opacity(0.12))
+                .frame(height: 1)
+
+            HStack(spacing: AppStyle.spacingTight) {
+                ProgressView()
+                    .controlSize(.small)
+
+                Text("Scanning...")
+                    .font(.system(size: AppStyle.textXs, weight: .medium))
+                    .foregroundStyle(.secondary)
+            }
+            .fixedSize(horizontal: true, vertical: false)
+
+            Rectangle()
+                .fill(Color.primary.opacity(0.12))
+                .frame(height: 1)
+        }
+        .frame(maxWidth: .infinity, alignment: .leading)
+    }
+}
+
+private struct SidebarLoadingRepoRow: View {
+    let repoName: String
+
+    var body: some View {
+        HStack(spacing: AppStyle.spacingStandard) {
+            Text(repoName)
+                .font(.system(size: AppStyle.textBase))
+                .lineLimit(1)
+                .truncationMode(.tail)
+                .foregroundStyle(.secondary)
+        }
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .opacity(0.55)
     }
 }
 
@@ -980,6 +1091,41 @@ struct GitBranchStatus: Equatable, Sendable {
 }
 
 extension RepoSidebarContentView {
+    static func buildListEntries(
+        groups: [SidebarRepoGroup],
+        loadingRepos: [SidebarRepo],
+        expandedGroupIds: Set<String>,
+        isFiltering: Bool
+    ) -> [SidebarListEntry] {
+        var entries: [SidebarListEntry] = []
+
+        for group in groups {
+            entries.append(.resolvedGroupHeader(group))
+
+            let shouldExpandGroup = isFiltering || expandedGroupIds.contains(group.id)
+            guard shouldExpandGroup else { continue }
+
+            for repo in group.repos {
+                for worktree in sortedWorktrees(for: repo) {
+                    entries.append(
+                        .resolvedWorktreeRow(
+                            groupId: group.id,
+                            repoId: repo.id,
+                            worktreeId: worktree.id
+                        )
+                    )
+                }
+            }
+        }
+
+        if !loadingRepos.isEmpty {
+            entries.append(.loadingHeader)
+            entries.append(contentsOf: loadingRepos.map { .loadingRepoRow($0.id) })
+        }
+
+        return entries
+    }
+
     static func projectionFingerprint(for projection: SidebarProjection) -> String {
         let resolvedGroupsFingerprint = projection.resolvedGroups.map { group in
             let repoIds = group.repos.map(\.id.uuidString).joined(separator: ",")
@@ -1239,6 +1385,15 @@ extension RepoSidebarContentView {
             linesAdded: summary?.linesAdded ?? 0,
             linesDeleted: summary?.linesDeleted ?? 0
         )
+    }
+
+    static func sortedWorktrees(for repo: SidebarRepo) -> [Worktree] {
+        repo.worktrees.sorted { lhs, rhs in
+            if lhs.isMainWorktree != rhs.isMainWorktree {
+                return lhs.isMainWorktree
+            }
+            return lhs.name.localizedCaseInsensitiveCompare(rhs.name) == .orderedAscending
+        }
     }
 }
 
