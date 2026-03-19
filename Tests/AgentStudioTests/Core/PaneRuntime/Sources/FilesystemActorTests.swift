@@ -526,8 +526,8 @@ struct FilesystemActorTests {
         await actor.enqueueRawPaths(worktreeId: worktreeId, paths: ["Sources/A.swift"])
         await actor.enqueueRawPaths(worktreeId: worktreeId, paths: ["Sources/B.swift"])
 
-        try await Task.sleep(for: .milliseconds(20))
-        #expect(await observed.filesChangedCount(for: worktreeId) == 0)
+        let emittedBeforeDebounceWindow = await observed.next(timeout: .milliseconds(20))
+        #expect(emittedBeforeDebounceWindow == nil)
 
         let emittedSingleDebouncedBatch = await waitUntil {
             await observed.filesChangedCount(for: worktreeId) == 1
@@ -566,7 +566,8 @@ struct FilesystemActorTests {
         )
 
         await actor.enqueueRawPaths(worktreeId: worktreeId, paths: ["Sources/First.swift"])
-        try await Task.sleep(for: .milliseconds(70))
+        let emittedBeforeMaxLatency = await observed.next(timeout: .milliseconds(70))
+        #expect(emittedBeforeMaxLatency == nil)
         await actor.enqueueRawPaths(worktreeId: worktreeId, paths: ["Sources/Second.swift"])
 
         let maxLatencyFlushObserved = await waitUntil {
@@ -606,9 +607,8 @@ struct FilesystemActorTests {
 
         await actor.enqueueRawPaths(worktreeId: worktreeId, paths: ["Sources/Cancelled.swift"])
         await actor.shutdown()
-        try await Task.sleep(for: .milliseconds(260))
-
-        #expect(await observed.filesChangedCount(for: worktreeId) == 0)
+        let emittedAfterShutdown = await observed.next(timeout: .milliseconds(300))
+        #expect(emittedAfterShutdown == nil)
     }
 
     @Test("unregister during debounce window prevents stale filesChanged emission")
@@ -637,11 +637,9 @@ struct FilesystemActorTests {
         )
 
         await actor.enqueueRawPaths(worktreeId: worktreeId, paths: ["Sources/Stale.swift"])
-        try await Task.sleep(for: .milliseconds(25))
         await actor.unregister(worktreeId: worktreeId)
-        try await Task.sleep(for: .milliseconds(260))
-
-        #expect(await observed.filesChangedCount(for: worktreeId) == 0)
+        let emittedAfterUnregister = await observed.next(timeout: .milliseconds(300))
+        #expect(emittedAfterUnregister == nil)
         await actor.shutdown()
     }
 

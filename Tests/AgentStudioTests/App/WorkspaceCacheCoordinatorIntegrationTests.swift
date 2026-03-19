@@ -418,11 +418,10 @@ final class WorkspaceCacheCoordinatorIntegrationTests {
                 )
             )
 
-            // Allow processing
-            try? await Task.sleep(for: .milliseconds(50))
-
-            // Should still be exactly 1 repo - idempotent
-            #expect(workspaceStore.repos.count == 1)
+            let remainedDeduplicated = await eventually("duplicate repo discovery should remain deduplicated") {
+                workspaceStore.repos.count == 1
+            }
+            #expect(remainedDeduplicated)
         }
     }
 

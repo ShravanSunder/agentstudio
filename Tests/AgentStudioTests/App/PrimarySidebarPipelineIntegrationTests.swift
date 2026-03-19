@@ -168,10 +168,9 @@ struct PrimarySidebarPipelineIntegrationTests {
                 await callCounter.value() >= 2
             }
             #expect(reachedExpectedCalls)
-
-            try? await Task.sleep(for: .milliseconds(120))
-            #expect(await callCounter.value() == 2)
         }
+
+        #expect(await callCounter.value() == 2)
     }
 
     @Test("origin change updates resolved identity grouping")

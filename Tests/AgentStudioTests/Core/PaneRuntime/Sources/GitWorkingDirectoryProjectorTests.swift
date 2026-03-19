@@ -234,19 +234,19 @@ struct GitWorkingDirectoryProjectorTests {
         let worktreeId = UUID()
         let rootPath = URL(fileURLWithPath: "/tmp/window-\(UUID().uuidString)")
         await bus.post(makeFilesChangedEnvelope(seq: 1, worktreeId: worktreeId, rootPath: rootPath, batchSeq: 1))
-        try await Task.sleep(for: .milliseconds(10))
         await bus.post(makeFilesChangedEnvelope(seq: 2, worktreeId: worktreeId, rootPath: rootPath, batchSeq: 2))
 
         let didEmitSnapshot = await waitUntil {
             await observed.snapshotCount(for: worktreeId) >= 1
         }
         #expect(didEmitSnapshot)
-        try await Task.sleep(for: .milliseconds(90))
-        #expect(await calls.value() == 1)
-        #expect(await observed.snapshotCount(for: worktreeId) == 1)
 
         await actor.shutdown()
         collectionTask.cancel()
+        await collectionTask.value
+
+        #expect(await calls.value() == 1)
+        #expect(await observed.snapshotCount(for: worktreeId) == 1)
     }
 
     @Test("independent worktrees run independently")
@@ -616,7 +616,12 @@ struct GitWorkingDirectoryProjectorTests {
                 paths: ["Sources/File.swift"]
             )
         )
-        try? await Task.sleep(for: .milliseconds(60))
+        let nonConfigBatchProcessedWithoutOriginChange = await waitUntil {
+            let snapshotCount = await observed.snapshotCount(for: worktreeId)
+            let originCount = await observed.originEventCount(for: repoId)
+            return snapshotCount >= 2 && originCount == 1
+        }
+        #expect(nonConfigBatchProcessedWithoutOriginChange)
         #expect(await observed.originEventCount(for: repoId) == 1)
 
         await bus.post(

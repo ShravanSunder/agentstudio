@@ -271,8 +271,31 @@ struct ForgeActorTests {
             )
         )
 
-        try? await Task.sleep(nanoseconds: 100_000_000)
-        #expect(await observer.lastPullRequestCounts(for: repoId) == nil)
+        let emittedAfterShutdown = await waitUntil(
+            timeout: .milliseconds(150),
+            pollInterval: .milliseconds(10)
+        ) {
+            await observer.lastPullRequestCounts(for: repoId) != nil
+        }
+        #expect(!emittedAfterShutdown)
+    }
+
+    private func waitUntil(
+        timeout: Duration = .seconds(2),
+        pollInterval: Duration = .milliseconds(10),
+        condition: @escaping @MainActor () async -> Bool
+    ) async -> Bool {
+        let clock = ContinuousClock()
+        let deadline = clock.now.advanced(by: timeout)
+
+        while clock.now < deadline {
+            if await condition() {
+                return true
+            }
+            try? await Task.sleep(for: pollInterval)
+        }
+
+        return await condition()
     }
 
     private func eventually(

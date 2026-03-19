@@ -99,11 +99,8 @@ struct FilesystemActorWatchedFolderTests {
                 ]
             ))
 
-        // Give the actor time to process
-        try await Task.sleep(for: .milliseconds(100))
-
         // Drain bus — no .repoDiscovered should appear from the non-.git batch
-        let eventsAfterNonGitBatch = await drainTopologyEvents(from: stream, timeout: .milliseconds(50))
+        let eventsAfterNonGitBatch = await drainTopologyEvents(from: stream, timeout: .milliseconds(150))
         #expect(
             eventsAfterNonGitBatch.discovered.isEmpty && eventsAfterNonGitBatch.removed.isEmpty,
             ".gitignore/.github paths should not trigger watched folder rescan"
@@ -119,8 +116,6 @@ struct FilesystemActorWatchedFolderTests {
                     "\(watchedFolder.path)/newrepo/.git/HEAD"
                 ]
             ))
-
-        try await Task.sleep(for: .milliseconds(100))
 
         await actor.shutdown()
     }
@@ -159,11 +154,9 @@ struct FilesystemActorWatchedFolderTests {
                 paths: ["\(watchedFolder.path)/cloned-repo/.git/HEAD"]
             ))
 
-        try await Task.sleep(for: .milliseconds(100))
-
         // Drain bus: no worktree envelopes for the syntheticId should exist
         var sawWorktreeEnvelopeForSyntheticId = false
-        let events = await drainAllEnvelopes(from: stream, timeout: .milliseconds(50))
+        let events = await drainAllEnvelopes(from: stream, timeout: .milliseconds(150))
         for envelope in events {
             if case .worktree(let wt) = envelope, wt.worktreeId == syntheticId {
                 sawWorktreeEnvelopeForSyntheticId = true

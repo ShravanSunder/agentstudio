@@ -308,7 +308,10 @@ struct CommandBarDataSourceTests {
         defer { captureTask.cancel() }
 
         action()
-        try? await Task.sleep(for: .milliseconds(20))
+        let didPostMoveEvent = await waitUntil {
+            eventBox.get() != nil
+        }
+        #expect(didPostMoveEvent)
 
         guard let postedEvent = eventBox.get() else {
             Issue.record("Expected movePaneToTabRequested event to be posted")
@@ -328,6 +331,24 @@ struct CommandBarDataSourceTests {
         #expect(paneId == paneA.id)
         #expect(sourceTabId == tabA.id)
         #expect(targetTabId == tabB.id)
+    }
+
+    private func waitUntil(
+        timeout: Duration = .seconds(1),
+        pollInterval: Duration = .milliseconds(5),
+        condition: @escaping @Sendable () -> Bool
+    ) async -> Bool {
+        let clock = ContinuousClock()
+        let deadline = clock.now.advanced(by: timeout)
+
+        while clock.now < deadline {
+            if condition() {
+                return true
+            }
+            try? await Task.sleep(for: pollInterval)
+        }
+
+        return condition()
     }
 
     // MARK: - Repos Scope
