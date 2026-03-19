@@ -94,9 +94,9 @@ struct RuntimeEnvelopeMemoryFootprintTests {
         }
 
         #expect(topology.approxBytesPerEnvelope > 0)
-        #expect(paneBell.approxBytesPerEnvelope > 0)
         #expect(filesChangedSmall.approxBytesPerEnvelope > 0)
         #expect(filesChangedLarge.approxBytesPerEnvelope > filesChangedSmall.approxBytesPerEnvelope)
+        #expect(paneBell.totalDeltaBytes <= topology.totalDeltaBytes)
     }
 }
 
