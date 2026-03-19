@@ -55,6 +55,19 @@ jobs:
           echo "ghostty_sha=$GHOSTTY_SHA" >> "$GITHUB_OUTPUT"
           echo "zmx_sha=$ZMX_SHA" >> "$GITHUB_OUTPUT"
 
+      # --- Zig compilation cache (speeds up builds on artifact cache miss) ---
+
+      - name: Cache Zig compilation
+        uses: actions/cache@v4
+        with:
+          path: |
+            ~/.cache/zig
+            vendor/ghostty/.zig-cache
+            vendor/zmx/.zig-cache
+          key: zig-compile-${{ runner.os }}-${{ steps.submodules.outputs.ghostty_sha }}-${{ steps.submodules.outputs.zmx_sha }}
+          restore-keys: |
+            zig-compile-${{ runner.os }}-
+
       # --- Cache/build Ghostty ---
 
       - name: Cache Ghostty artifacts
