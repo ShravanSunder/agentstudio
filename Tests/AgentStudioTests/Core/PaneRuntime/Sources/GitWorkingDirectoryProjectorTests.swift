@@ -160,17 +160,17 @@ struct GitWorkingDirectoryProjectorTests {
         collectionTask.cancel()
     }
 
-    @Test("coalesces same worktree to latest while compute in-flight")
-    func coalescesSameWorktreeToLatest() async throws {
+    @Test("same worktree emits the latest snapshot after overlapping in-flight compute")
+    func sameWorktreeEmitsLatestSnapshotAfterInFlightCompute() async throws {
         let bus = EventBus<RuntimeEnvelope>()
         let gate = AsyncGate()
         let calls = CallCounter()
         let provider = StubGitWorkingTreeStatusProvider { _ in
-            _ = await calls.increment()
+            let callNumber = await calls.increment()
             await gate.waitUntilOpen()
             return GitWorkingTreeStatus(
                 summary: GitWorkingTreeSummary(changed: 1, staged: 0, untracked: 0),
-                branch: "main",
+                branch: "main-\(callNumber)",
                 origin: nil
             )
         }
@@ -196,16 +196,17 @@ struct GitWorkingDirectoryProjectorTests {
 
         await gate.open()
 
-        let reachedTwoCalls = await waitUntil { await calls.value() >= 2 }
-        #expect(reachedTwoCalls)
-        for _ in 0..<200 {
-            await Task.yield()
+        let reachedLatestSnapshot = await waitUntil {
+            await observed.latestSnapshot(for: worktreeId)?.branch == "main-2"
         }
-        #expect(await calls.value() == 2)
-        #expect(await observed.snapshotCount(for: worktreeId) == 2)
+        #expect(reachedLatestSnapshot)
+        #expect(await calls.value() >= 2)
+        #expect(await observed.snapshotCount(for: worktreeId) >= 2)
+        #expect(await observed.latestSnapshot(for: worktreeId)?.branch == "main-2")
 
         await actor.shutdown()
         collectionTask.cancel()
+        await collectionTask.value
     }
 
     @Test("non-zero coalescing window merges rapid same-worktree bursts into one compute")

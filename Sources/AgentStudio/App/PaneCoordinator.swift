@@ -133,6 +133,53 @@ final class PaneCoordinator {
         }
     }
 
+    func shutdown() async {
+        let activeCWDTask = cwdChangesTask
+        let activePaneEventIngressTask = paneEventIngressTask
+        let activeCriticalRuntimeEventsTask = criticalRuntimeEventsTask
+        let activeBatchedRuntimeEventsTask = batchedRuntimeEventsTask
+        let activeFilesystemSyncTask = filesystemSyncTask
+        let activeRuntimeBridgeTasks = Array(runtimeEventBridgeTasks.values)
+
+        cwdChangesTask?.cancel()
+        cwdChangesTask = nil
+        paneEventIngressTask?.cancel()
+        paneEventIngressTask = nil
+        criticalRuntimeEventsTask?.cancel()
+        criticalRuntimeEventsTask = nil
+        batchedRuntimeEventsTask?.cancel()
+        batchedRuntimeEventsTask = nil
+        filesystemSyncTask?.cancel()
+        filesystemSyncTask = nil
+        filesystemSyncRequested = false
+
+        for task in activeRuntimeBridgeTasks {
+            task.cancel()
+        }
+        runtimeEventBridgeTasks.removeAll()
+
+        if let activeCWDTask {
+            await activeCWDTask.value
+        }
+        if let activePaneEventIngressTask {
+            await activePaneEventIngressTask.value
+        }
+        if let activeCriticalRuntimeEventsTask {
+            await activeCriticalRuntimeEventsTask.value
+        }
+        if let activeBatchedRuntimeEventsTask {
+            await activeBatchedRuntimeEventsTask.value
+        }
+        if let activeFilesystemSyncTask {
+            await activeFilesystemSyncTask.value
+        }
+        for task in activeRuntimeBridgeTasks {
+            await task.value
+        }
+
+        await filesystemSource.shutdown()
+    }
+
     func appendUndoEntry(_ entry: WorkspaceStore.CloseEntry) {
         undoStack.append(entry)
     }

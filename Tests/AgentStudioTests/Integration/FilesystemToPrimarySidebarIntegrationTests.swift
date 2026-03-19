@@ -17,82 +17,80 @@ struct FilesystemToPrimarySidebarIntegrationTests {
         let financeRemote = "git@github.com:askluna/askluna-finance.git"
         let statusByRootPath = makeStatusByRootPath(root: fixtureRoot, financeRemote: financeRemote)
         let testSystem = makeIntegratedTestSystem(statusByRootPath: statusByRootPath)
-        await testSystem.pipeline.start()
-        defer { Task { await testSystem.pipeline.shutdown() } }
-        testSystem.coordinator.startConsuming()
-        defer { testSystem.coordinator.stopConsuming() }
+        await withStartedIntegratedTestSystem(testSystem) {
+            let intake = await registerDiscoveredRepos(
+                discoveredRepoPaths: discoveredRepoPaths,
+                workspaceStore: testSystem.workspaceStore,
+                pipeline: testSystem.pipeline,
+                statusByRootPath: statusByRootPath,
+                financeRemote: financeRemote
+            )
 
-        let intake = await registerDiscoveredRepos(
-            discoveredRepoPaths: discoveredRepoPaths,
-            workspaceStore: testSystem.workspaceStore,
-            pipeline: testSystem.pipeline,
-            statusByRootPath: statusByRootPath,
-            financeRemote: financeRemote
-        )
+            let enrichmentConverged = await eventually("remote identity enrichment should converge for finance repos") {
+                guard !intake.financeRepoIds.isEmpty else { return false }
+                for repoId in intake.financeRepoIds {
+                    guard
+                        case .some(.resolvedRemote(_, _, let identity, _)) = testSystem.repoCache.repoEnrichmentByRepoId[
+                            repoId]
+                    else {
+                        return false
+                    }
+                    guard identity.groupKey == "remote:askluna/askluna-finance" else { return false }
+                }
+                return true
+            }
+            #expect(enrichmentConverged)
 
-        let enrichmentConverged = await eventually("remote identity enrichment should converge for finance repos") {
-            guard !intake.financeRepoIds.isEmpty else { return false }
-            for repoId in intake.financeRepoIds {
-                guard
-                    case .some(.resolvedRemote(_, _, let identity, _)) = testSystem.repoCache.repoEnrichmentByRepoId[
-                        repoId]
+            let prCountsConverged = await eventually("forge PR counts should converge for known finance branches") {
+                guard let primaryBranchId = intake.financeWorktreeIdByBranch["master"],
+                    let transactionTableId = intake.financeWorktreeIdByBranch["transaction-table-3"],
+                    let rlvrForkingId = intake.financeWorktreeIdByBranch["rlvr-forking"]
                 else {
                     return false
                 }
-                guard identity.groupKey == "remote:askluna/askluna-finance" else { return false }
+                return
+                    testSystem.repoCache.pullRequestCountByWorktreeId[primaryBranchId] == 1
+                    && testSystem.repoCache.pullRequestCountByWorktreeId[transactionTableId] == 2
+                    && testSystem.repoCache.pullRequestCountByWorktreeId[rlvrForkingId] == 3
             }
-            return true
-        }
-        #expect(enrichmentConverged)
+            #expect(prCountsConverged)
 
-        let prCountsConverged = await eventually("forge PR counts should converge for known finance branches") {
-            guard let primaryBranchId = intake.financeWorktreeIdByBranch["master"],
-                let transactionTableId = intake.financeWorktreeIdByBranch["transaction-table-3"],
-                let rlvrForkingId = intake.financeWorktreeIdByBranch["rlvr-forking"]
-            else {
-                return false
+            let sidebarRepos = testSystem.workspaceStore.repos.map(SidebarRepo.init(repo:))
+            let metadataByRepoId = RepoSidebarContentView.buildRepoMetadata(
+                repos: sidebarRepos,
+                repoEnrichmentByRepoId: testSystem.repoCache.repoEnrichmentByRepoId
+            )
+            let groups = SidebarRepoGrouping.buildGroups(
+                repos: sidebarRepos,
+                metadataByRepoId: metadataByRepoId
+            )
+
+            let financeGroup = groups.first { $0.id == "remote:askluna/askluna-finance" }
+            #expect(financeGroup != nil)
+            #expect((financeGroup?.repos.count ?? 0) >= 3)
+
+            // Branch labels should be sourced from enrichment/canonical branch data, not detached fallback.
+            if let financeGroup {
+                let allFinanceWorktrees = financeGroup.repos.flatMap(\.worktrees)
+                let visibleBranchLabels = allFinanceWorktrees.map {
+                    RepoSidebarContentView.resolvedBranchName(
+                        worktree: $0,
+                        enrichment: testSystem.repoCache.worktreeEnrichmentByWorktreeId[$0.id]
+                    )
+                }
+                #expect(visibleBranchLabels.contains("master"))
+                #expect(visibleBranchLabels.contains("transaction-table-3"))
+                #expect(visibleBranchLabels.contains("rlvr-forking"))
             }
-            return
-                testSystem.repoCache.pullRequestCountByWorktreeId[primaryBranchId] == 1
-                && testSystem.repoCache.pullRequestCountByWorktreeId[transactionTableId] == 2
-                && testSystem.repoCache.pullRequestCountByWorktreeId[rlvrForkingId] == 3
+
+            // Search model should still find grouped finance checkouts.
+            let filtered = SidebarFilter.filter(repos: sidebarRepos, query: "rlvr")
+            #expect(!filtered.isEmpty)
         }
-        #expect(prCountsConverged)
-
-        let sidebarRepos = testSystem.workspaceStore.repos.map(SidebarRepo.init(repo:))
-        let metadataByRepoId = RepoSidebarContentView.buildRepoMetadata(
-            repos: sidebarRepos,
-            repoEnrichmentByRepoId: testSystem.repoCache.repoEnrichmentByRepoId
-        )
-        let groups = SidebarRepoGrouping.buildGroups(
-            repos: sidebarRepos,
-            metadataByRepoId: metadataByRepoId
-        )
-
-        let financeGroup = groups.first { $0.id == "remote:askluna/askluna-finance" }
-        #expect(financeGroup != nil)
-        #expect((financeGroup?.repos.count ?? 0) >= 3)
-
-        // Branch labels should be sourced from enrichment/canonical branch data, not detached fallback.
-        if let financeGroup {
-            let allFinanceWorktrees = financeGroup.repos.flatMap(\.worktrees)
-            let visibleBranchLabels = allFinanceWorktrees.map {
-                RepoSidebarContentView.resolvedBranchName(
-                    worktree: $0,
-                    enrichment: testSystem.repoCache.worktreeEnrichmentByWorktreeId[$0.id]
-                )
-            }
-            #expect(visibleBranchLabels.contains("master"))
-            #expect(visibleBranchLabels.contains("transaction-table-3"))
-            #expect(visibleBranchLabels.contains("rlvr-forking"))
-        }
-
-        // Search model should still find grouped finance checkouts.
-        let filtered = SidebarFilter.filter(repos: sidebarRepos, query: "rlvr")
-        #expect(!filtered.isEmpty)
     }
 
     private struct IntegratedTestSystem {
+        let bus: EventBus<RuntimeEnvelope>
         let workspaceStore: WorkspaceStore
         let repoCache: WorkspaceRepoCache
         let coordinator: WorkspaceCacheCoordinator
@@ -148,6 +146,7 @@ struct FilesystemToPrimarySidebarIntegrationTests {
             }
         )
         return IntegratedTestSystem(
+            bus: bus,
             workspaceStore: workspaceStore,
             repoCache: repoCache,
             coordinator: coordinator,
@@ -290,5 +289,26 @@ struct FilesystemToPrimarySidebarIntegrationTests {
         }
         Issue.record("\(description) timed out")
         return false
+    }
+
+    private func withStartedIntegratedTestSystem(
+        _ testSystem: IntegratedTestSystem,
+        operation: @MainActor () async throws -> Void
+    ) async rethrows {
+        await testSystem.pipeline.start()
+        testSystem.coordinator.startConsuming()
+        do {
+            try await operation()
+            await testSystem.pipeline.shutdown()
+            await testSystem.coordinator.shutdown()
+            let busDrained = await eventually("filesystem-to-sidebar world should leave no subscribers behind") {
+                await testSystem.bus.subscriberCount == 0
+            }
+            #expect(busDrained)
+        } catch {
+            await testSystem.pipeline.shutdown()
+            await testSystem.coordinator.shutdown()
+            throw error
+        }
     }
 }

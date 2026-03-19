@@ -17,43 +17,43 @@ struct PrimarySidebarPipelineIntegrationTests {
             repoCache: repoCache
         )
 
-        coordinator.startConsuming()
-        await projector.start()
-        await forgeActor.start()
-        defer { coordinator.stopConsuming() }
+        await withStartedPipelineActors(
+            bus: bus,
+            coordinator: coordinator,
+            projector: projector,
+            forgeActor: forgeActor
+        ) {
+            let repoA = workspaceStore.addRepo(at: URL(fileURLWithPath: "/tmp/pipeline-repo-a"))
+            let repoB = workspaceStore.addRepo(at: URL(fileURLWithPath: "/tmp/pipeline-repo-b"))
+            let worktreeA = UUID()
+            let worktreeB = UUID()
 
-        let repoA = workspaceStore.addRepo(at: URL(fileURLWithPath: "/tmp/pipeline-repo-a"))
-        let repoB = workspaceStore.addRepo(at: URL(fileURLWithPath: "/tmp/pipeline-repo-b"))
-        let worktreeA = UUID()
-        let worktreeB = UUID()
+            await postWorktreeRegistered(bus: bus, worktreeId: worktreeA, repoId: repoA.id, rootPath: repoA.repoPath)
+            await postWorktreeRegistered(bus: bus, worktreeId: worktreeB, repoId: repoB.id, rootPath: repoB.repoPath)
 
-        await postWorktreeRegistered(bus: bus, worktreeId: worktreeA, repoId: repoA.id, rootPath: repoA.repoPath)
-        await postWorktreeRegistered(bus: bus, worktreeId: worktreeB, repoId: repoB.id, rootPath: repoB.repoPath)
+            await postBranchChanged(bus: bus, worktreeId: worktreeA, repoId: repoA.id, from: "seed", to: "main")
+            await postBranchChanged(bus: bus, worktreeId: worktreeB, repoId: repoB.id, from: "seed", to: "main")
 
-        await postBranchChanged(bus: bus, worktreeId: worktreeA, repoId: repoA.id, from: "seed", to: "main")
-        await postBranchChanged(bus: bus, worktreeId: worktreeB, repoId: repoB.id, from: "seed", to: "main")
-
-        let identityConverged = await eventually("repo identity should resolve for both repos") {
-            guard case .some(.resolvedRemote(_, _, let identityA, _)) = repoCache.repoEnrichmentByRepoId[repoA.id]
-            else {
-                return false
+            let identityConverged = await eventually("repo identity should resolve for both repos") {
+                guard case .some(.resolvedRemote(_, _, let identityA, _)) = repoCache.repoEnrichmentByRepoId[repoA.id]
+                else {
+                    return false
+                }
+                guard case .some(.resolvedRemote(_, _, let identityB, _)) = repoCache.repoEnrichmentByRepoId[repoB.id]
+                else {
+                    return false
+                }
+                return identityA.groupKey == "remote:askluna/agent-studio" && identityA.groupKey == identityB.groupKey
             }
-            guard case .some(.resolvedRemote(_, _, let identityB, _)) = repoCache.repoEnrichmentByRepoId[repoB.id]
-            else {
-                return false
+            #expect(identityConverged)
+
+            let pullRequestCountsConverged = await eventually("forge pull request counts should map to both worktrees")
+            {
+                repoCache.pullRequestCountByWorktreeId[worktreeA] == 1
+                    && repoCache.pullRequestCountByWorktreeId[worktreeB] == 1
             }
-            return identityA.groupKey == "remote:askluna/agent-studio" && identityA.groupKey == identityB.groupKey
+            #expect(pullRequestCountsConverged)
         }
-        #expect(identityConverged)
-
-        let pullRequestCountsConverged = await eventually("forge pull request counts should map to both worktrees") {
-            repoCache.pullRequestCountByWorktreeId[worktreeA] == 1
-                && repoCache.pullRequestCountByWorktreeId[worktreeB] == 1
-        }
-        #expect(pullRequestCountsConverged)
-
-        await projector.shutdown()
-        await forgeActor.shutdown()
     }
 
     @Test("message-driven repo discovery seeds unresolved enrichment before origin resolves")
@@ -67,51 +67,50 @@ struct PrimarySidebarPipelineIntegrationTests {
             repoCache: repoCache
         )
 
-        coordinator.startConsuming()
-        await projector.start()
-        await forgeActor.start()
-        defer { coordinator.stopConsuming() }
-
-        let repoPath = URL(fileURLWithPath: "/tmp/pipeline-discovered-\(UUID().uuidString)")
-        await postRepoDiscovered(bus: bus, repoPath: repoPath)
-
-        let unresolvedSeeded = await eventually("repo discovery should seed unresolved enrichment") {
-            guard let repo = workspaceStore.repos.first(where: { $0.repoPath == repoPath }) else {
-                return false
-            }
-            return repoCache.repoEnrichmentByRepoId[repo.id] == .awaitingOrigin(repoId: repo.id)
-        }
-        #expect(unresolvedSeeded)
-
-        guard let repo = workspaceStore.repos.first(where: { $0.repoPath == repoPath }),
-            let worktreeId = repo.worktrees.first?.id
-        else {
-            Issue.record("Expected discovered repo with a main worktree")
-            await projector.shutdown()
-            await forgeActor.shutdown()
-            return
-        }
-
-        await postWorktreeRegistered(
+        await withStartedPipelineActors(
             bus: bus,
-            worktreeId: worktreeId,
-            repoId: repo.id,
-            rootPath: repoPath
-        )
+            coordinator: coordinator,
+            projector: projector,
+            forgeActor: forgeActor
+        ) {
+            let repoPath = URL(fileURLWithPath: "/tmp/pipeline-discovered-\(UUID().uuidString)")
+            await postRepoDiscovered(bus: bus, repoPath: repoPath)
 
-        let resolvedIdentity = await eventually("worktree registration should converge unresolved to resolved identity")
-        {
-            guard case .some(.resolvedRemote(_, let raw, let identity, _)) = repoCache.repoEnrichmentByRepoId[repo.id]
-            else {
-                return false
+            let unresolvedSeeded = await eventually("repo discovery should seed unresolved enrichment") {
+                guard let repo = workspaceStore.repos.first(where: { $0.repoPath == repoPath }) else {
+                    return false
+                }
+                return repoCache.repoEnrichmentByRepoId[repo.id] == .awaitingOrigin(repoId: repo.id)
             }
-            return raw.origin == "git@github.com:askluna/agent-studio.git"
-                && identity.groupKey == "remote:askluna/agent-studio"
-        }
-        #expect(resolvedIdentity)
+            #expect(unresolvedSeeded)
 
-        await projector.shutdown()
-        await forgeActor.shutdown()
+            guard let repo = workspaceStore.repos.first(where: { $0.repoPath == repoPath }),
+                let worktreeId = repo.worktrees.first?.id
+            else {
+                Issue.record("Expected discovered repo with a main worktree")
+                return
+            }
+
+            await postWorktreeRegistered(
+                bus: bus,
+                worktreeId: worktreeId,
+                repoId: repo.id,
+                rootPath: repoPath
+            )
+
+            let resolvedIdentity = await eventually(
+                "worktree registration should converge unresolved to resolved identity"
+            ) {
+                guard case .some(.resolvedRemote(_, let raw, let identity, _)) = repoCache.repoEnrichmentByRepoId[
+                    repo.id]
+                else {
+                    return false
+                }
+                return raw.origin == "git@github.com:askluna/agent-studio.git"
+                    && identity.groupKey == "remote:askluna/agent-studio"
+            }
+            #expect(resolvedIdentity)
+        }
     }
 
     @Test("message-driven origin and branch events trigger a single forge path per event")
@@ -151,30 +150,27 @@ struct PrimarySidebarPipelineIntegrationTests {
             }
         )
 
-        coordinator.startConsuming()
-        await forgeActor.start()
-        defer { coordinator.stopConsuming() }
+        await withStartedForgeScopeCoordinator(bus: bus, coordinator: coordinator, forgeActor: forgeActor) {
+            let repo = workspaceStore.addRepo(at: URL(fileURLWithPath: "/tmp/pipeline-forge-dedupe"))
+            let worktreeId = UUID()
+            await postOriginChanged(
+                bus: bus,
+                repoId: repo.id,
+                worktreeId: worktreeId,
+                from: "",
+                to: "git@github.com:askluna/agent-studio.git"
+            )
+            await postBranchChanged(bus: bus, worktreeId: worktreeId, repoId: repo.id, from: "seed", to: "main")
 
-        let repo = workspaceStore.addRepo(at: URL(fileURLWithPath: "/tmp/pipeline-forge-dedupe"))
-        let worktreeId = UUID()
-        await postOriginChanged(
-            bus: bus,
-            repoId: repo.id,
-            worktreeId: worktreeId,
-            from: "",
-            to: "git@github.com:askluna/agent-studio.git"
-        )
-        await postBranchChanged(bus: bus, worktreeId: worktreeId, repoId: repo.id, from: "seed", to: "main")
+            let reachedExpectedCalls = await eventually("forge provider should be invoked for origin+branch once each")
+            {
+                await callCounter.value() >= 2
+            }
+            #expect(reachedExpectedCalls)
 
-        let reachedExpectedCalls = await eventually("forge provider should be invoked for origin+branch once each") {
-            await callCounter.value() >= 2
+            try? await Task.sleep(for: .milliseconds(120))
+            #expect(await callCounter.value() == 2)
         }
-        #expect(reachedExpectedCalls)
-
-        try? await Task.sleep(for: .milliseconds(120))
-        #expect(await callCounter.value() == 2)
-
-        await forgeActor.shutdown()
     }
 
     @Test("origin change updates resolved identity grouping")
@@ -258,70 +254,67 @@ struct PrimarySidebarPipelineIntegrationTests {
             gitStatusByRootPath: pathStatusByRootPath
         )
 
-        coordinator.startConsuming()
-        await projector.start()
-        await forgeActor.start()
-        defer {
-            coordinator.stopConsuming()
-        }
-
-        var financeWorktreeIdByBranch: [String: UUID] = [:]
-        var financeRepoIds: [UUID] = []
-        for repoPath in discoveredRepoPaths {
-            let repo = workspaceStore.addRepo(at: repoPath)
-            guard let worktree = repo.worktrees.first else { continue }
-            let normalizedPath = repoPath.standardizedFileURL.path
-            if pathStatusByRootPath[normalizedPath]?.origin == financeRemote {
-                financeRepoIds.append(repo.id)
-                if let branch = pathStatusByRootPath[normalizedPath]?.branch {
-                    financeWorktreeIdByBranch[branch] = worktree.id
+        await withStartedPipelineActors(
+            bus: bus,
+            coordinator: coordinator,
+            projector: projector,
+            forgeActor: forgeActor
+        ) {
+            var financeWorktreeIdByBranch: [String: UUID] = [:]
+            var financeRepoIds: [UUID] = []
+            for repoPath in discoveredRepoPaths {
+                let repo = workspaceStore.addRepo(at: repoPath)
+                guard let worktree = repo.worktrees.first else { continue }
+                let normalizedPath = repoPath.standardizedFileURL.path
+                if pathStatusByRootPath[normalizedPath]?.origin == financeRemote {
+                    financeRepoIds.append(repo.id)
+                    if let branch = pathStatusByRootPath[normalizedPath]?.branch {
+                        financeWorktreeIdByBranch[branch] = worktree.id
+                    }
                 }
+                await postWorktreeRegistered(bus: bus, worktreeId: worktree.id, repoId: repo.id, rootPath: repoPath)
             }
-            await postWorktreeRegistered(bus: bus, worktreeId: worktree.id, repoId: repo.id, rootPath: repoPath)
-        }
 
-        let identityConverged = await eventually("all finance repos should share one remote group key") {
-            guard !financeRepoIds.isEmpty else { return false }
-            for repoId in financeRepoIds {
-                guard case .some(.resolvedRemote(_, _, let identity, _)) = repoCache.repoEnrichmentByRepoId[repoId]
+            let identityConverged = await eventually("all finance repos should share one remote group key") {
+                guard !financeRepoIds.isEmpty else { return false }
+                for repoId in financeRepoIds {
+                    guard case .some(.resolvedRemote(_, _, let identity, _)) = repoCache.repoEnrichmentByRepoId[repoId]
+                    else {
+                        return false
+                    }
+                    guard identity.groupKey == "remote:askluna/askluna-finance" else { return false }
+                }
+                return true
+            }
+            #expect(identityConverged)
+
+            let pullRequestCountsConverged = await eventually("finance branches should receive forge PR counts") {
+                guard let primaryBranchId = financeWorktreeIdByBranch["master"],
+                    let transactionTableId = financeWorktreeIdByBranch["transaction-table-3"],
+                    let rlvrForkingId = financeWorktreeIdByBranch["rlvr-forking"]
                 else {
                     return false
                 }
-                guard identity.groupKey == "remote:askluna/askluna-finance" else { return false }
+                return
+                    repoCache.pullRequestCountByWorktreeId[primaryBranchId] == 1
+                    && repoCache.pullRequestCountByWorktreeId[transactionTableId] == 2
+                    && repoCache.pullRequestCountByWorktreeId[rlvrForkingId] == 3
             }
-            return true
+            #expect(pullRequestCountsConverged)
+
+            let sidebarRepos = workspaceStore.repos.map(SidebarRepo.init(repo:))
+            let metadata = RepoSidebarContentView.buildRepoMetadata(
+                repos: sidebarRepos,
+                repoEnrichmentByRepoId: repoCache.repoEnrichmentByRepoId
+            )
+            let groups = SidebarRepoGrouping.buildGroups(
+                repos: sidebarRepos,
+                metadataByRepoId: metadata
+            )
+            let financeGroup = groups.first { $0.id == "remote:askluna/askluna-finance" }
+            #expect(financeGroup != nil)
+            #expect((financeGroup?.repos.count ?? 0) >= 3)
         }
-        #expect(identityConverged)
-
-        let pullRequestCountsConverged = await eventually("finance branches should receive forge PR counts") {
-            guard let primaryBranchId = financeWorktreeIdByBranch["master"],
-                let transactionTableId = financeWorktreeIdByBranch["transaction-table-3"],
-                let rlvrForkingId = financeWorktreeIdByBranch["rlvr-forking"]
-            else {
-                return false
-            }
-            return
-                repoCache.pullRequestCountByWorktreeId[primaryBranchId] == 1
-                && repoCache.pullRequestCountByWorktreeId[transactionTableId] == 2
-                && repoCache.pullRequestCountByWorktreeId[rlvrForkingId] == 3
-        }
-        #expect(pullRequestCountsConverged)
-
-        let sidebarRepos = workspaceStore.repos.map(SidebarRepo.init(repo:))
-        let metadata = RepoSidebarContentView.buildRepoMetadata(
-            repos: sidebarRepos,
-            repoEnrichmentByRepoId: repoCache.repoEnrichmentByRepoId
-        )
-        let groups = SidebarRepoGrouping.buildGroups(
-            repos: sidebarRepos,
-            metadataByRepoId: metadata
-        )
-        let financeGroup = groups.first { $0.id == "remote:askluna/askluna-finance" }
-        #expect(financeGroup != nil)
-        #expect((financeGroup?.repos.count ?? 0) >= 3)
-
-        await projector.shutdown()
-        await forgeActor.shutdown()
     }
 
     private func makeWorkspaceStore() -> WorkspaceStore {
@@ -554,6 +547,56 @@ struct PrimarySidebarPipelineIntegrationTests {
         }
         Issue.record("\(description) timed out")
         return false
+    }
+
+    private func withStartedPipelineActors(
+        bus: EventBus<RuntimeEnvelope>,
+        coordinator: WorkspaceCacheCoordinator,
+        projector: GitWorkingDirectoryProjector,
+        forgeActor: ForgeActor,
+        operation: @MainActor () async throws -> Void
+    ) async rethrows {
+        coordinator.startConsuming()
+        await projector.start()
+        await forgeActor.start()
+        do {
+            try await operation()
+            await projector.shutdown()
+            await forgeActor.shutdown()
+            await coordinator.shutdown()
+            let busDrained = await eventually("primary sidebar pipeline world should leave no subscribers behind") {
+                await bus.subscriberCount == 0
+            }
+            #expect(busDrained)
+        } catch {
+            await projector.shutdown()
+            await forgeActor.shutdown()
+            await coordinator.shutdown()
+            throw error
+        }
+    }
+
+    private func withStartedForgeScopeCoordinator(
+        bus: EventBus<RuntimeEnvelope>,
+        coordinator: WorkspaceCacheCoordinator,
+        forgeActor: ForgeActor,
+        operation: @MainActor () async throws -> Void
+    ) async rethrows {
+        coordinator.startConsuming()
+        await forgeActor.start()
+        do {
+            try await operation()
+            await forgeActor.shutdown()
+            await coordinator.shutdown()
+            let busDrained = await eventually("forge scope test world should leave no subscribers behind") {
+                await bus.subscriberCount == 0
+            }
+            #expect(busDrained)
+        } catch {
+            await forgeActor.shutdown()
+            await coordinator.shutdown()
+            throw error
+        }
     }
 }
 

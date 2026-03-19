@@ -44,6 +44,15 @@ final class WorkspaceCacheCoordinator {
         consumeTask = nil
     }
 
+    func shutdown() async {
+        let activeTask = consumeTask
+        consumeTask?.cancel()
+        consumeTask = nil
+        if let activeTask {
+            await activeTask.value
+        }
+    }
+
     func consume(_ envelope: RuntimeEnvelope) {
         switch envelope {
         case .system(let systemEnvelope):

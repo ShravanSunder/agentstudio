@@ -62,6 +62,7 @@ extension E2ESerializedTests {
                 filesystemSource: filesystemSource,
                 paneFilesystemProjectionStore: paneProjectionStore
             )
+            coordinator.syncFilesystemRootsAndActivity()
 
             await eventually("filesystem root should be registered for worktree") {
                 coordinator.filesystemRegisteredContextsByWorktreeId[worktree.id] != nil
@@ -85,23 +86,28 @@ extension E2ESerializedTests {
                     && snapshot.changedPaths.contains("untracked.txt")
             }
 
-            await filesystemSource.shutdown()
+            await coordinator.shutdown()
+            await cacheCoordinator.shutdown()
+
+            await eventually("filesystem source E2E should leave no subscribers behind") {
+                await paneEventBus.subscriberCount == 0
+            }
         }
 
         private func eventually(
             _ description: String,
             maxAttempts: Int = 200,
             pollIntervalNanoseconds: UInt64 = 20_000_000,
-            condition: @escaping @MainActor () -> Bool
+            condition: @escaping @MainActor () async -> Bool
         ) async {
             for _ in 0..<maxAttempts {
-                if condition() {
+                if await condition() {
                     return
                 }
                 await Task.yield()
                 try? await Task.sleep(nanoseconds: pollIntervalNanoseconds)
             }
-            #expect(condition(), "\(description) timed out")
+            #expect(await condition(), "\(description) timed out")
         }
     }
 }

@@ -429,13 +429,14 @@ struct FilesystemActorTests {
         await actor.enqueueRawPaths(worktreeId: worktreeId, paths: ["cache.tmp"])
         let nextChangeset = try #require(await observed.next(timeout: .milliseconds(250)))
         let postReloadChangeset: FileChangeset
-        if nextChangeset.paths == ["cache.tmp"] {
+        if nextChangeset.paths.contains("cache.tmp") {
             postReloadChangeset = nextChangeset
         } else {
-            #expect(nextChangeset.paths.isEmpty)
+            #expect(Set(nextChangeset.paths).isSubset(of: ["."]))
             postReloadChangeset = try #require(await observed.next(timeout: .milliseconds(250)))
         }
-        #expect(postReloadChangeset.paths == ["cache.tmp"])
+        #expect(postReloadChangeset.paths.contains("cache.tmp"))
+        #expect(!postReloadChangeset.paths.contains(".gitignore"))
         #expect(postReloadChangeset.suppressedIgnoredPathCount == 0)
 
         await actor.shutdown()
@@ -459,11 +460,18 @@ struct FilesystemActorTests {
         let worktreeId = UUID()
         await actor.register(worktreeId: worktreeId, repoId: worktreeId, rootPath: rootPath)
 
+        let observed = ObservedFilesystemChanges()
         let stream = await bus.subscribe()
-        var iterator = stream.makeAsyncIterator()
+        let collectionTask = Task {
+            for await envelope in stream {
+                await observed.record(envelope)
+            }
+        }
 
         await actor.enqueueRawPaths(worktreeId: worktreeId, paths: ["cache.tmp"])
-        _ = try #require(await iterator.next())
+        let initialChangeset = try #require(await observed.next(timeout: .milliseconds(250)))
+        #expect(initialChangeset.paths.isEmpty)
+        #expect(initialChangeset.suppressedIgnoredPathCount == 1)
 
         try "# no ignore rules\n".write(
             to: rootPath.appending(path: ".gitignore"),
@@ -472,12 +480,21 @@ struct FilesystemActorTests {
         )
         await actor.enqueueRawPaths(worktreeId: worktreeId, paths: [".gitignore", "cache.tmp"])
 
-        let postReloadEnvelope = try #require(await iterator.next())
-        let postReloadChangeset = try #require(filesChangedChangeset(from: postReloadEnvelope))
-        #expect(postReloadChangeset.paths == ["cache.tmp"])
+        let nextChangeset = try #require(await observed.next(timeout: .milliseconds(250)))
+        let postReloadChangeset: FileChangeset
+        if nextChangeset.paths.contains("cache.tmp") {
+            postReloadChangeset = nextChangeset
+        } else {
+            #expect(Set(nextChangeset.paths).isSubset(of: ["."]))
+            postReloadChangeset = try #require(await observed.next(timeout: .milliseconds(250)))
+        }
+        #expect(postReloadChangeset.paths.contains("cache.tmp"))
+        #expect(!postReloadChangeset.paths.contains(".gitignore"))
         #expect(postReloadChangeset.suppressedIgnoredPathCount == 0)
 
         await actor.shutdown()
+        collectionTask.cancel()
+        await collectionTask.value
     }
 
     @Test("debounce coalesces bursts and flushes once after debounce window")

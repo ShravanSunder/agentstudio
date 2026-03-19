@@ -43,42 +43,37 @@ final class WorkspaceCacheCoordinatorIntegrationTests {
             coalescingWindow: .zero
         )
 
-        coordinator.startConsuming()
-        await projector.start()
-        defer {
-            coordinator.stopConsuming()
-        }
-
-        let repoPath = URL(fileURLWithPath: "/tmp/luna-converge-remote")
-        let repo = workspaceStore.addRepo(at: repoPath)
-        let worktreeId = UUID()
-        let posted = await bus.post(
-            .system(
-                SystemEnvelope.test(
-                    event: .topology(
-                        .worktreeRegistered(worktreeId: worktreeId, repoId: repo.id, rootPath: repoPath)
-                    ),
-                    source: .builtin(.filesystemWatcher)
+        await withStartedCoordinatorAndProjector(bus: bus, coordinator: coordinator, projector: projector) {
+            let repoPath = URL(fileURLWithPath: "/tmp/luna-converge-remote")
+            let repo = workspaceStore.addRepo(at: repoPath)
+            let worktreeId = UUID()
+            let posted = await bus.post(
+                .system(
+                    SystemEnvelope.test(
+                        event: .topology(
+                            .worktreeRegistered(worktreeId: worktreeId, repoId: repo.id, rootPath: repoPath)
+                        ),
+                        source: .builtin(.filesystemWatcher)
+                    )
                 )
             )
-        )
-        #expect(posted.subscriberCount > 0)
+            #expect(posted.subscriberCount > 0)
 
-        let resolved = await eventually("repo enrichment should resolve from projector origin") {
-            guard case .some(.resolvedRemote(_, _, let identity, _)) = repoCache.repoEnrichmentByRepoId[repo.id] else {
-                return false
+            let resolved = await eventually("repo enrichment should resolve from projector origin") {
+                guard case .some(.resolvedRemote(_, _, let identity, _)) = repoCache.repoEnrichmentByRepoId[repo.id]
+                else {
+                    return false
+                }
+                return identity.groupKey == "remote:askluna/agent-studio"
             }
-            return identity.groupKey == "remote:askluna/agent-studio"
-        }
-        #expect(resolved)
+            #expect(resolved)
 
-        let scopeSynced = await eventually("scope sync should not register forge repo for origin event path") {
-            let changes = await recordedScopeChanges.values
-            return changes.isEmpty
+            let scopeSynced = await eventually("scope sync should not register forge repo for origin event path") {
+                let changes = await recordedScopeChanges.values
+                return changes.isEmpty
+            }
+            #expect(scopeSynced)
         }
-        #expect(scopeSynced)
-
-        await projector.shutdown()
     }
 
     @Test
@@ -107,42 +102,36 @@ final class WorkspaceCacheCoordinatorIntegrationTests {
             coalescingWindow: .zero
         )
 
-        coordinator.startConsuming()
-        await projector.start()
-        defer {
-            coordinator.stopConsuming()
-        }
-
-        let repoPath = URL(fileURLWithPath: "/tmp/luna-converge-local")
-        let repo = workspaceStore.addRepo(at: repoPath)
-        let worktreeId = UUID()
-        _ = await bus.post(
-            .system(
-                SystemEnvelope.test(
-                    event: .topology(
-                        .worktreeRegistered(worktreeId: worktreeId, repoId: repo.id, rootPath: repoPath)
-                    ),
-                    source: .builtin(.filesystemWatcher)
+        await withStartedCoordinatorAndProjector(bus: bus, coordinator: coordinator, projector: projector) {
+            let repoPath = URL(fileURLWithPath: "/tmp/luna-converge-local")
+            let repo = workspaceStore.addRepo(at: repoPath)
+            let worktreeId = UUID()
+            _ = await bus.post(
+                .system(
+                    SystemEnvelope.test(
+                        event: .topology(
+                            .worktreeRegistered(worktreeId: worktreeId, repoId: repo.id, rootPath: repoPath)
+                        ),
+                        source: .builtin(.filesystemWatcher)
+                    )
                 )
             )
-        )
 
-        let resolved = await eventually("local-only repo enrichment should resolve") {
-            guard case .some(.resolvedLocal(_, let identity, _)) = repoCache.repoEnrichmentByRepoId[repo.id]
-            else {
-                return false
+            let resolved = await eventually("local-only repo enrichment should resolve") {
+                guard case .some(.resolvedLocal(_, let identity, _)) = repoCache.repoEnrichmentByRepoId[repo.id]
+                else {
+                    return false
+                }
+                return identity.groupKey == "local:\(repo.name)"
             }
-            return identity.groupKey == "local:\(repo.name)"
-        }
-        #expect(resolved)
+            #expect(resolved)
 
-        let scopeSynced = await eventually("scope sync should remain empty for local-only origin event path") {
-            let changes = await recordedScopeChanges.values
-            return changes.isEmpty
+            let scopeSynced = await eventually("scope sync should remain empty for local-only origin event path") {
+                let changes = await recordedScopeChanges.values
+                return changes.isEmpty
+            }
+            #expect(scopeSynced)
         }
-        #expect(scopeSynced)
-
-        await projector.shutdown()
     }
 
     // MARK: - User-Initiated Repo Removal
@@ -222,67 +211,62 @@ final class WorkspaceCacheCoordinatorIntegrationTests {
             coalescingWindow: .zero
         )
 
-        coordinator.startConsuming()
-        await projector.start()
-        defer {
-            coordinator.stopConsuming()
-        }
-
-        // Phase 1: Discover repo
-        let repoPath = URL(fileURLWithPath: "/tmp/lifecycle-test-repo")
-        coordinator.handleTopology(
-            SystemEnvelope.test(
-                event: .topology(
-                    .repoDiscovered(repoPath: repoPath, parentPath: repoPath.deletingLastPathComponent())
-                )
-            )
-        )
-        #expect(workspaceStore.repos.count == 1)
-        let repo = workspaceStore.repos[0]
-
-        // Phase 2: Register worktree → triggers enrichment via projector
-        let worktreeId = UUID()
-        _ = await bus.post(
-            .system(
+        await withStartedCoordinatorAndProjector(bus: bus, coordinator: coordinator, projector: projector) {
+            // Phase 1: Discover repo
+            let repoPath = URL(fileURLWithPath: "/tmp/lifecycle-test-repo")
+            coordinator.handleTopology(
                 SystemEnvelope.test(
                     event: .topology(
-                        .worktreeRegistered(worktreeId: worktreeId, repoId: repo.id, rootPath: repoPath)
-                    ),
-                    source: .builtin(.filesystemWatcher)
+                        .repoDiscovered(repoPath: repoPath, parentPath: repoPath.deletingLastPathComponent())
+                    )
                 )
             )
-        )
+            #expect(workspaceStore.repos.count == 1)
+            let repo = workspaceStore.repos[0]
 
-        let enriched = await eventually("enrichment should resolve") {
-            guard case .some(.resolvedRemote(_, _, let identity, _)) = repoCache.repoEnrichmentByRepoId[repo.id] else {
-                return false
+            // Phase 2: Register worktree -> triggers enrichment via projector
+            let worktreeId = UUID()
+            _ = await bus.post(
+                .system(
+                    SystemEnvelope.test(
+                        event: .topology(
+                            .worktreeRegistered(worktreeId: worktreeId, repoId: repo.id, rootPath: repoPath)
+                        ),
+                        source: .builtin(.filesystemWatcher)
+                    ),
+                )
+            )
+
+            let enriched = await eventually("enrichment should resolve") {
+                guard case .some(.resolvedRemote(_, _, let identity, _)) = repoCache.repoEnrichmentByRepoId[repo.id]
+                else {
+                    return false
+                }
+                return identity.groupKey == "remote:askluna/agent-studio"
             }
-            return identity.groupKey == "remote:askluna/agent-studio"
-        }
-        #expect(enriched)
-        #expect(repoCache.worktreeEnrichmentByWorktreeId[worktreeId]?.branch == "main")
+            #expect(enriched)
+            #expect(repoCache.worktreeEnrichmentByWorktreeId[worktreeId]?.branch == "main")
 
-        // Phase 3: User removes repo
-        coordinator.handleRepoRemoval(repoId: repo.id)
+            // Phase 3: User removes repo
+            coordinator.handleRepoRemoval(repoId: repo.id)
 
-        // Repo gone
-        #expect(workspaceStore.repos.isEmpty)
+            // Repo gone
+            #expect(workspaceStore.repos.isEmpty)
 
-        // Cache fully pruned
-        #expect(repoCache.repoEnrichmentByRepoId[repo.id] == nil)
-        #expect(repoCache.worktreeEnrichmentByWorktreeId[worktreeId] == nil)
+            // Cache fully pruned
+            #expect(repoCache.repoEnrichmentByRepoId[repo.id] == nil)
+            #expect(repoCache.worktreeEnrichmentByWorktreeId[worktreeId] == nil)
 
-        // Forge unregistered
-        let unregistered = await eventually("forge unregister should fire") {
-            let changes = await recordedScopeChanges.values
-            return changes.contains {
-                if case .unregisterForgeRepo(let id) = $0 { return id == repo.id }
-                return false
+            // Forge unregistered
+            let unregistered = await eventually("forge unregister should fire") {
+                let changes = await recordedScopeChanges.values
+                return changes.contains {
+                    if case .unregisterForgeRepo(let id) = $0 { return id == repo.id }
+                    return false
+                }
             }
+            #expect(unregistered)
         }
-        #expect(unregistered)
-
-        await projector.shutdown()
     }
 
     @Test
@@ -361,33 +345,31 @@ final class WorkspaceCacheCoordinatorIntegrationTests {
             repoCache: repoCache,
             scopeSyncHandler: { _ in }
         )
-        coordinator.startConsuming()
-        defer { coordinator.stopConsuming() }
+        await withStartedCoordinator(bus: bus, coordinator: coordinator) {
+            // Wait for subscription Task to actually subscribe to the bus
+            await waitForSubscriber(bus: bus)
 
-        // Wait for subscription Task to actually subscribe to the bus
-        await waitForSubscriber(bus: bus)
-
-        let repoPath = URL(fileURLWithPath: "/tmp/bus-topology-test")
-        let postResult = await bus.post(
-            .system(
-                SystemEnvelope.test(
-                    event: .topology(
-                        .repoDiscovered(
-                            repoPath: repoPath,
-                            parentPath: repoPath.deletingLastPathComponent()
+            let repoPath = URL(fileURLWithPath: "/tmp/bus-topology-test")
+            let postResult = await bus.post(
+                .system(
+                    SystemEnvelope.test(
+                        event: .topology(
+                            .repoDiscovered(
+                                repoPath: repoPath,
+                                parentPath: repoPath.deletingLastPathComponent()
+                            )
                         )
-                    ),
-                    source: .builtin(.filesystemWatcher)
+                    )
                 )
             )
-        )
-        #expect(postResult.subscriberCount > 0)
+            #expect(postResult.subscriberCount > 0)
 
-        let converged = await eventually("repo should appear via bus subscription") {
-            workspaceStore.repos.contains { $0.repoPath == repoPath }
+            let converged = await eventually("repo should appear via bus subscription") {
+                workspaceStore.repos.contains { $0.repoPath == repoPath }
+            }
+            #expect(converged)
+            #expect(workspaceStore.repos.count == 1)
         }
-        #expect(converged)
-        #expect(workspaceStore.repos.count == 1)
     }
 
     @Test
@@ -401,48 +383,66 @@ final class WorkspaceCacheCoordinatorIntegrationTests {
             repoCache: repoCache,
             scopeSyncHandler: { _ in }
         )
-        coordinator.startConsuming()
-        defer { coordinator.stopConsuming() }
+        await withStartedCoordinator(bus: bus, coordinator: coordinator) {
+            // Wait for subscription Task to actually subscribe to the bus
+            await waitForSubscriber(bus: bus)
 
-        // Wait for subscription Task to actually subscribe to the bus
-        await waitForSubscriber(bus: bus)
+            let repoPath = URL(fileURLWithPath: "/tmp/boot-rescan-dedup")
 
-        let repoPath = URL(fileURLWithPath: "/tmp/boot-rescan-dedup")
-
-        // Simulate boot replay posting .repoDiscovered
-        await bus.post(
-            .system(
-                SystemEnvelope.test(
-                    event: .topology(
-                        .repoDiscovered(repoPath: repoPath, parentPath: repoPath.deletingLastPathComponent())
+            // Simulate boot replay posting .repoDiscovered
+            await bus.post(
+                .system(
+                    SystemEnvelope.test(
+                        event: .topology(
+                            .repoDiscovered(repoPath: repoPath, parentPath: repoPath.deletingLastPathComponent())
+                        ),
+                        source: .builtin(.coordinator)
                     ),
-                    source: .builtin(.coordinator)
                 )
             )
-        )
 
-        let bootConverged = await eventually("boot replay should add repo") {
-            workspaceStore.repos.count == 1
+            let bootConverged = await eventually("boot replay should add repo") {
+                workspaceStore.repos.count == 1
+            }
+            #expect(bootConverged)
+
+            // Simulate FSEvents rescan posting the same .repoDiscovered
+            await bus.post(
+                .system(
+                    SystemEnvelope.test(
+                        event: .topology(
+                            .repoDiscovered(repoPath: repoPath, parentPath: repoPath.deletingLastPathComponent())
+                        ),
+                        source: .builtin(.filesystemWatcher)
+                    ),
+                )
+            )
+
+            // Allow processing
+            try? await Task.sleep(for: .milliseconds(50))
+
+            // Should still be exactly 1 repo - idempotent
+            #expect(workspaceStore.repos.count == 1)
         }
-        #expect(bootConverged)
+    }
 
-        // Simulate FSEvents rescan posting the same .repoDiscovered
-        await bus.post(
-            .system(
-                SystemEnvelope.test(
-                    event: .topology(
-                        .repoDiscovered(repoPath: repoPath, parentPath: repoPath.deletingLastPathComponent())
-                    ),
-                    source: .builtin(.filesystemWatcher)
-                )
-            )
+    @Test
+    func shutdown_removesBusSubscriberBeforeReturning() async {
+        let bus = EventBus<RuntimeEnvelope>()
+        let coordinator = WorkspaceCacheCoordinator(
+            bus: bus,
+            workspaceStore: makeWorkspaceStore(),
+            repoCache: WorkspaceRepoCache(),
+            scopeSyncHandler: { _ in }
         )
 
-        // Allow processing
-        try? await Task.sleep(for: .milliseconds(50))
+        coordinator.startConsuming()
+        await waitForSubscriber(bus: bus)
+        #expect(await bus.subscriberCount == 1)
 
-        // Should still be exactly 1 repo — idempotent
-        #expect(workspaceStore.repos.count == 1)
+        await coordinator.shutdown()
+
+        #expect(await bus.subscriberCount == 0)
     }
 
     // MARK: - Helpers
@@ -472,6 +472,48 @@ final class WorkspaceCacheCoordinatorIntegrationTests {
         }
         Issue.record("\(description) timed out")
         return false
+    }
+
+    private func withStartedCoordinator(
+        bus: EventBus<RuntimeEnvelope>,
+        coordinator: WorkspaceCacheCoordinator,
+        operation: @MainActor () async throws -> Void
+    ) async rethrows {
+        coordinator.startConsuming()
+        do {
+            try await operation()
+            await coordinator.shutdown()
+            let busDrained = await eventually("coordinator test world should leave no subscribers behind") {
+                await bus.subscriberCount == 0
+            }
+            #expect(busDrained)
+        } catch {
+            await coordinator.shutdown()
+            throw error
+        }
+    }
+
+    private func withStartedCoordinatorAndProjector(
+        bus: EventBus<RuntimeEnvelope>,
+        coordinator: WorkspaceCacheCoordinator,
+        projector: GitWorkingDirectoryProjector,
+        operation: @MainActor () async throws -> Void
+    ) async rethrows {
+        coordinator.startConsuming()
+        await projector.start()
+        do {
+            try await operation()
+            await projector.shutdown()
+            await coordinator.shutdown()
+            let busDrained = await eventually("coordinator/projector test world should leave no subscribers behind") {
+                await bus.subscriberCount == 0
+            }
+            #expect(busDrained)
+        } catch {
+            await projector.shutdown()
+            await coordinator.shutdown()
+            throw error
+        }
     }
 }
 

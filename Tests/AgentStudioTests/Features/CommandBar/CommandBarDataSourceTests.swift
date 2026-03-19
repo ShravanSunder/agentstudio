@@ -297,8 +297,8 @@ struct CommandBarDataSourceTests {
         }
 
         let eventBox = AppEventBox()
+        let stream = await AppEventBus.shared.subscribe()
         let captureTask = Task {
-            let stream = await AppEventBus.shared.subscribe()
             for await event in stream {
                 guard case .movePaneToTabRequested = event else { continue }
                 eventBox.set(event)
@@ -306,7 +306,6 @@ struct CommandBarDataSourceTests {
             }
         }
         defer { captureTask.cancel() }
-        try? await Task.sleep(for: .milliseconds(10))
 
         action()
         try? await Task.sleep(for: .milliseconds(20))

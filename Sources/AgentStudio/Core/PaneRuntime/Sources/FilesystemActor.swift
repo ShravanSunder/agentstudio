@@ -205,7 +205,7 @@ actor FilesystemActor {
             guard var root = roots[ownedPath.worktreeId] else { continue }
 
             var pendingChanges = pendingChangesByWorktreeId[ownedPath.worktreeId] ?? PendingWorktreeChanges()
-            if ownedPath.relativePath == ".gitignore" {
+            if Self.isGitIgnoreReloadPath(rawPath: rawPath, relativePath: ownedPath.relativePath) {
                 root.pathFilter = FilesystemPathFilter.load(forRootPath: root.rootPath)
                 roots[ownedPath.worktreeId] = root
                 pendingChanges.recordPendingChange(at: envelopeClock.now)
@@ -299,6 +299,22 @@ actor FilesystemActor {
 
     private var hasPendingPaths: Bool {
         pendingChangesByWorktreeId.values.contains(where: \.hasPendingChanges)
+    }
+
+    nonisolated private static func isGitIgnoreReloadPath(rawPath: String, relativePath: String) -> Bool {
+        if relativePath == ".gitignore" {
+            return true
+        }
+
+        guard relativePath == "." else {
+            return false
+        }
+
+        let normalizedRawPath =
+            rawPath
+            .trimmingCharacters(in: .whitespacesAndNewlines)
+            .replacingOccurrences(of: "\\", with: "/")
+        return normalizedRawPath == ".gitignore" || normalizedRawPath.hasSuffix("/.gitignore")
     }
 
     private func nextWorktreeToFlush(now: ContinuousClock.Instant) -> UUID? {

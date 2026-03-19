@@ -63,8 +63,6 @@ struct FilesystemGitPipelineIntegrationTests {
                 await observed.record(envelope)
             }
         }
-        defer { consumerTask.cancel() }
-
         await pipeline.register(worktreeId: worktreeId, repoId: repoId, rootPath: rootPath)
         await pipeline.enqueueRawPathsForTesting(
             worktreeId: worktreeId,
@@ -95,7 +93,11 @@ struct FilesystemGitPipelineIntegrationTests {
         }
         #expect(gitStoreConverged)
 
-        await pipeline.shutdown()
+        await shutdownWorld(
+            pipeline: pipeline,
+            observerTasks: [consumerTask],
+            bus: bus
+        )
     }
 
     @Test("periodic git refresh updates cache sync state without filesystem ingress")
@@ -152,8 +154,6 @@ struct FilesystemGitPipelineIntegrationTests {
                 cacheCoordinator.consume(envelope)
             }
         }
-        defer { coordinatorTask.cancel() }
-
         await pipeline.register(worktreeId: worktreeId, repoId: repoId, rootPath: rootPath)
 
         let initialSnapshotArrived = await eventually("initial periodic snapshot should arrive") {
@@ -206,7 +206,11 @@ struct FilesystemGitPipelineIntegrationTests {
         }
         #expect(behindUpdateArrived)
 
-        await pipeline.shutdown()
+        await shutdownWorld(
+            pipeline: pipeline,
+            observerTasks: [coordinatorTask],
+            bus: bus
+        )
     }
 
     @Test("pipeline retries origin discovery after initial empty origin and converges to remote identity")
@@ -260,8 +264,6 @@ struct FilesystemGitPipelineIntegrationTests {
                 coordinator.consume(envelope)
             }
         }
-        defer { coordinatorTask.cancel() }
-
         await pipeline.register(worktreeId: worktreeId, repoId: repo.id, rootPath: rootPath)
 
         let initialSnapshotConverged = await eventually(
@@ -288,7 +290,11 @@ struct FilesystemGitPipelineIntegrationTests {
         }
         #expect(remoteIdentityConverged)
 
-        await pipeline.shutdown()
+        await shutdownWorld(
+            pipeline: pipeline,
+            observerTasks: [coordinatorTask],
+            bus: bus
+        )
     }
 
     private func eventually(
@@ -306,6 +312,22 @@ struct FilesystemGitPipelineIntegrationTests {
         }
         Issue.record("\(description) timed out")
         return false
+    }
+
+    private func shutdownWorld(
+        pipeline: FilesystemGitPipeline,
+        observerTasks: [Task<Void, Never>],
+        bus: EventBus<RuntimeEnvelope>
+    ) async {
+        await pipeline.shutdown()
+        for observerTask in observerTasks {
+            observerTask.cancel()
+            await observerTask.value
+        }
+        let busDrained = await eventually("integration test world should leave no subscribers behind") {
+            await bus.subscriberCount == 0
+        }
+        #expect(busDrained)
     }
 
 }
