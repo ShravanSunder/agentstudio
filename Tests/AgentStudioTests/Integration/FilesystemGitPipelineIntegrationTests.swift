@@ -17,7 +17,9 @@ struct FilesystemGitPipelineIntegrationTests {
                     branch: "feature/pipeline",
                     origin: nil
                 )
-            }
+            },
+            filesystemDebounceWindow: .zero,
+            filesystemMaxFlushLatency: .zero
         )
         await pipeline.start()
 
@@ -33,15 +35,6 @@ struct FilesystemGitPipelineIntegrationTests {
         defer { try? FileManager.default.removeItem(at: workspaceDir) }
         let store = WorkspaceStore(persistor: WorkspacePersistor(workspacesDir: workspaceDir))
         store.restore()
-        let pane = store.createPane(
-            source: .worktree(worktreeId: worktreeId, repoId: repoId),
-            title: "Pipeline Pane",
-            facets: PaneContextFacets(repoId: repoId, worktreeId: worktreeId, cwd: rootPath)
-        )
-        let panesById: [UUID: Pane] = [pane.id: pane]
-        let worktreeRootsByWorktreeId: [UUID: URL] = [worktreeId: rootPath]
-
-        let paneProjectionStore = PaneFilesystemProjectionStore()
         let repoCache = WorkspaceRepoCache()
         let cacheCoordinator = WorkspaceCacheCoordinator(
             bus: bus,
@@ -55,14 +48,10 @@ struct FilesystemGitPipelineIntegrationTests {
         let consumerTask = Task { @MainActor in
             for await envelope in stream {
                 cacheCoordinator.consume(envelope)
-                paneProjectionStore.consume(
-                    envelope,
-                    panesById: panesById,
-                    worktreeRootsByWorktreeId: worktreeRootsByWorktreeId
-                )
                 await observed.record(envelope)
             }
         }
+        await waitForSubscriberCount(bus: bus, atLeast: 3)
         await pipeline.register(worktreeId: worktreeId, repoId: repoId, rootPath: rootPath)
         await pipeline.enqueueRawPathsForTesting(
             worktreeId: worktreeId,
@@ -73,16 +62,15 @@ struct FilesystemGitPipelineIntegrationTests {
             await observed.filesChangedCount(for: worktreeId) >= 1
         }
         #expect(receivedFilesChanged)
+        let filesChangedPayloadConverged = await eventually("filesChanged payload should retain projected path") {
+            await observed.latestFilesChangedPaths(for: worktreeId)?.contains("Sources/Feature.swift") == true
+        }
+        #expect(filesChangedPayloadConverged)
 
         let receivedGitSnapshot = await eventually("gitSnapshotChanged fact should be posted") {
             await observed.gitSnapshotCount(for: worktreeId) >= 1
         }
         #expect(receivedGitSnapshot)
-
-        let projectionConverged = await eventually("pane filesystem projection should update") {
-            paneProjectionStore.snapshotsByPaneId[pane.id]?.changedPaths.contains("Sources/Feature.swift") == true
-        }
-        #expect(projectionConverged)
 
         let gitStoreConverged = await eventually("workspace cache enrichment should update") {
             guard let snapshot = repoCache.worktreeEnrichmentByWorktreeId[worktreeId]?.snapshot else { return false }
@@ -103,28 +91,19 @@ struct FilesystemGitPipelineIntegrationTests {
     @Test("periodic git refresh updates cache sync state without filesystem ingress")
     func periodicGitRefreshUpdatesCacheWithoutFilesystemIngress() async throws {
         let bus = EventBus<RuntimeEnvelope>()
+        let gitClock = TestPushClock()
         let provider = MutableGitWorkingTreeStatusProvider(
-            status: GitWorkingTreeStatus(
-                summary: GitWorkingTreeSummary(
-                    changed: 0,
-                    staged: 0,
-                    untracked: 0,
-                    linesAdded: 0,
-                    linesDeleted: 0,
-                    aheadCount: 0,
-                    behindCount: 0,
-                    hasUpstream: true
-                ),
-                branch: "main",
-                origin: "git@github.com:askluna/agent-studio.git"
-            )
+            status: makeTrackedStatus()
         )
         let pipeline = FilesystemGitPipeline(
             bus: bus,
             gitWorkingTreeProvider: provider,
             fseventStreamClient: SilentFSEventStreamClient(),
+            filesystemDebounceWindow: .zero,
+            filesystemMaxFlushLatency: .zero,
             gitCoalescingWindow: .zero,
-            gitPeriodicRefreshInterval: .milliseconds(120)
+            gitPeriodicRefreshInterval: .milliseconds(120),
+            gitSleepClock: gitClock
         )
         await pipeline.start()
 
@@ -154,6 +133,7 @@ struct FilesystemGitPipelineIntegrationTests {
                 cacheCoordinator.consume(envelope)
             }
         }
+        await waitForSubscriberCount(bus: bus, atLeast: 3)
         await pipeline.register(worktreeId: worktreeId, repoId: repoId, rootPath: rootPath)
 
         let initialSnapshotArrived = await eventually("initial periodic snapshot should arrive") {
@@ -161,45 +141,25 @@ struct FilesystemGitPipelineIntegrationTests {
             return snapshot.summary.aheadCount == 0 && snapshot.summary.behindCount == 0
         }
         #expect(initialSnapshotArrived)
+        let firstRefreshSleepScheduled = await waitUntilYielding {
+            gitClock.pendingSleepCount > 0
+        }
+        #expect(firstRefreshSleepScheduled)
 
-        await provider.setStatus(
-            GitWorkingTreeStatus(
-                summary: GitWorkingTreeSummary(
-                    changed: 0,
-                    staged: 0,
-                    untracked: 0,
-                    linesAdded: 0,
-                    linesDeleted: 0,
-                    aheadCount: 1,
-                    behindCount: 0,
-                    hasUpstream: true
-                ),
-                branch: "main",
-                origin: "git@github.com:askluna/agent-studio.git"
-            )
-        )
+        await provider.setStatus(makeTrackedStatus(aheadCount: 1))
+        gitClock.advance(by: .milliseconds(120))
 
         let aheadUpdateArrived = await eventually("periodic refresh should update ahead count") {
             repoCache.worktreeEnrichmentByWorktreeId[worktreeId]?.snapshot?.summary.aheadCount == 1
         }
         #expect(aheadUpdateArrived)
+        let secondRefreshSleepScheduled = await waitUntilYielding {
+            gitClock.pendingSleepCount > 0
+        }
+        #expect(secondRefreshSleepScheduled)
 
-        await provider.setStatus(
-            GitWorkingTreeStatus(
-                summary: GitWorkingTreeSummary(
-                    changed: 0,
-                    staged: 0,
-                    untracked: 0,
-                    linesAdded: 0,
-                    linesDeleted: 0,
-                    aheadCount: 0,
-                    behindCount: 2,
-                    hasUpstream: true
-                ),
-                branch: "main",
-                origin: "git@github.com:askluna/agent-studio.git"
-            )
-        )
+        await provider.setStatus(makeTrackedStatus(behindCount: 2))
+        gitClock.advance(by: .milliseconds(120))
 
         let behindUpdateArrived = await eventually("periodic refresh should update behind count") {
             repoCache.worktreeEnrichmentByWorktreeId[worktreeId]?.snapshot?.summary.behindCount == 2
@@ -210,6 +170,28 @@ struct FilesystemGitPipelineIntegrationTests {
             pipeline: pipeline,
             observerTasks: [coordinatorTask],
             bus: bus
+        )
+    }
+
+    private func makeTrackedStatus(
+        aheadCount: Int = 0,
+        behindCount: Int = 0,
+        branch: String = "main",
+        origin: String = "git@github.com:askluna/agent-studio.git"
+    ) -> GitWorkingTreeStatus {
+        GitWorkingTreeStatus(
+            summary: GitWorkingTreeSummary(
+                changed: 0,
+                staged: 0,
+                untracked: 0,
+                linesAdded: 0,
+                linesDeleted: 0,
+                aheadCount: aheadCount,
+                behindCount: behindCount,
+                hasUpstream: true
+            ),
+            branch: branch,
+            origin: origin
         )
     }
 
@@ -229,6 +211,8 @@ struct FilesystemGitPipelineIntegrationTests {
             bus: bus,
             gitWorkingTreeProvider: provider,
             fseventStreamClient: SilentFSEventStreamClient(),
+            filesystemDebounceWindow: .zero,
+            filesystemMaxFlushLatency: .zero,
             gitCoalescingWindow: .zero,
             gitPeriodicRefreshInterval: nil
         )
@@ -264,11 +248,12 @@ struct FilesystemGitPipelineIntegrationTests {
                 coordinator.consume(envelope)
             }
         }
+        await waitForSubscriberCount(bus: bus, atLeast: 3)
         await pipeline.register(worktreeId: worktreeId, repoId: repo.id, rootPath: rootPath)
 
         let initialSnapshotConverged = await eventually(
             "initial registration should produce a git snapshot before origin retry",
-            maxAttempts: 1200
+            maxTurns: 20_000
         ) {
             repoCache.worktreeEnrichmentByWorktreeId[worktreeId]?.branch == "main"
         }
@@ -279,7 +264,7 @@ struct FilesystemGitPipelineIntegrationTests {
 
         let remoteIdentityConverged = await eventually(
             "git config change should trigger origin retry and remote identity",
-            maxAttempts: 1200
+            maxTurns: 20_000
         ) {
             guard case .some(.resolvedRemote(_, let raw, let identity, _)) = repoCache.repoEnrichmentByRepoId[repo.id]
             else {
@@ -299,19 +284,41 @@ struct FilesystemGitPipelineIntegrationTests {
 
     private func eventually(
         _ description: String,
-        maxAttempts: Int = 200,
-        pollIntervalNanoseconds: UInt64 = 10_000_000,
+        maxTurns: Int = 50_000,
         condition: @escaping @MainActor () async -> Bool
     ) async -> Bool {
-        for _ in 0..<maxAttempts {
+        for _ in 0..<maxTurns {
             if await condition() {
                 return true
             }
             await Task.yield()
-            try? await Task.sleep(nanoseconds: pollIntervalNanoseconds)
         }
         Issue.record("\(description) timed out")
         return false
+    }
+
+    private func waitUntilYielding(
+        maxTurns: Int = 2000,
+        condition: @escaping @Sendable () -> Bool
+    ) async -> Bool {
+        for _ in 0..<maxTurns {
+            if condition() {
+                return true
+            }
+            await Task.yield()
+        }
+        return condition()
+    }
+
+    private func waitForSubscriberCount(
+        bus: EventBus<RuntimeEnvelope>,
+        atLeast expectedCount: Int,
+        maxTurns: Int = 2000
+    ) async {
+        let subscribed = await eventually("bus subscriber count should reach \(expectedCount)", maxTurns: maxTurns) {
+            await bus.subscriberCount >= expectedCount
+        }
+        #expect(subscribed)
     }
 
     private func shutdownWorld(
@@ -374,6 +381,7 @@ private final class SilentFSEventStreamClient: FSEventStreamClient, @unchecked S
 private actor ObservedFilesystemGitEvents {
     private var filesChangedCountsByWorktreeId: [UUID: Int] = [:]
     private var gitSnapshotCountsByWorktreeId: [UUID: Int] = [:]
+    private var latestFilesChangedPathsByWorktreeId: [UUID: [String]] = [:]
 
     func record(_ envelope: RuntimeEnvelope) {
         guard case .worktree(let worktreeEnvelope) = envelope else { return }
@@ -381,6 +389,7 @@ private actor ObservedFilesystemGitEvents {
         switch worktreeEnvelope.event {
         case .filesystem(.filesChanged(let changeset)):
             filesChangedCountsByWorktreeId[changeset.worktreeId, default: 0] += 1
+            latestFilesChangedPathsByWorktreeId[changeset.worktreeId] = changeset.paths
         case .gitWorkingDirectory(.snapshotChanged(let snapshot)):
             gitSnapshotCountsByWorktreeId[snapshot.worktreeId, default: 0] += 1
         case .filesystem, .gitWorkingDirectory, .forge, .security:
@@ -394,5 +403,9 @@ private actor ObservedFilesystemGitEvents {
 
     func gitSnapshotCount(for worktreeId: UUID) -> Int {
         gitSnapshotCountsByWorktreeId[worktreeId, default: 0]
+    }
+
+    func latestFilesChangedPaths(for worktreeId: UUID) -> [String]? {
+        latestFilesChangedPathsByWorktreeId[worktreeId]
     }
 }

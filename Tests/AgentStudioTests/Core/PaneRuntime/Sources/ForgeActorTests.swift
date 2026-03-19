@@ -281,18 +281,16 @@ struct ForgeActorTests {
     }
 
     private func waitUntil(
-        timeout: Duration = .seconds(2),
-        pollInterval: Duration = .milliseconds(10),
+        timeout _: Duration = .seconds(2),
+        pollInterval _: Duration = .milliseconds(10),
+        maxTurns: Int = 400,
         condition: @escaping @MainActor () async -> Bool
     ) async -> Bool {
-        let clock = ContinuousClock()
-        let deadline = clock.now.advanced(by: timeout)
-
-        while clock.now < deadline {
+        for _ in 0..<maxTurns {
             if await condition() {
                 return true
             }
-            try? await Task.sleep(for: pollInterval)
+            await Task.yield()
         }
 
         return await condition()
@@ -300,16 +298,14 @@ struct ForgeActorTests {
 
     private func eventually(
         _ description: String,
-        maxAttempts: Int = 200,
-        pollIntervalNanoseconds: UInt64 = 10_000_000,
+        maxTurns: Int = 200,
         condition: @escaping @MainActor () async -> Bool
     ) async -> Bool {
-        for _ in 0..<maxAttempts {
+        for _ in 0..<maxTurns {
             if await condition() {
                 return true
             }
             await Task.yield()
-            try? await Task.sleep(nanoseconds: pollIntervalNanoseconds)
         }
         Issue.record("\(description) timed out")
         return false

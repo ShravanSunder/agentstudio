@@ -26,7 +26,7 @@ struct FilesystemActorWatchedFolderTests {
         scanner.setResults([watchedFolder: [repoA, repoB]])
         let initialStream = await bus.subscribe()
         let initialSummary = await actor.refreshWatchedFolders([watchedFolder])
-        let initialEvents = await drainTopologyEvents(from: initialStream, timeout: .milliseconds(50))
+        let initialEvents = await drainTopologyEvents(from: initialStream, settleTurns: 50)
 
         #expect(
             Set(initialSummary.repoPaths(in: watchedFolder))
@@ -36,7 +36,7 @@ struct FilesystemActorWatchedFolderTests {
 
         let repeatStream = await bus.subscribe()
         let repeatSummary = await actor.refreshWatchedFolders([watchedFolder])
-        let repeatEvents = await drainTopologyEvents(from: repeatStream, timeout: .milliseconds(50))
+        let repeatEvents = await drainTopologyEvents(from: repeatStream, settleTurns: 50)
 
         #expect(
             Set(repeatSummary.repoPaths(in: watchedFolder))
@@ -47,7 +47,7 @@ struct FilesystemActorWatchedFolderTests {
         scanner.setResults([watchedFolder: [repoB]])
         let removalStream = await bus.subscribe()
         let removalSummary = await actor.refreshWatchedFolders([watchedFolder])
-        let removalEvents = await drainTopologyEvents(from: removalStream, timeout: .milliseconds(50))
+        let removalEvents = await drainTopologyEvents(from: removalStream, settleTurns: 50)
 
         #expect(Set(removalSummary.repoPaths(in: watchedFolder)) == Set([repoB.standardizedFileURL]))
         #expect(removalEvents.discovered.isEmpty)
@@ -56,7 +56,7 @@ struct FilesystemActorWatchedFolderTests {
         scanner.setResults([watchedFolder: [repoA, repoB]])
         let rediscoveredStream = await bus.subscribe()
         let rediscoveredSummary = await actor.refreshWatchedFolders([watchedFolder])
-        let rediscoveredEvents = await drainTopologyEvents(from: rediscoveredStream, timeout: .milliseconds(50))
+        let rediscoveredEvents = await drainTopologyEvents(from: rediscoveredStream, settleTurns: 50)
 
         #expect(
             Set(rediscoveredSummary.repoPaths(in: watchedFolder))
@@ -100,7 +100,7 @@ struct FilesystemActorWatchedFolderTests {
             ))
 
         // Drain bus — no .repoDiscovered should appear from the non-.git batch
-        let eventsAfterNonGitBatch = await drainTopologyEvents(from: stream, timeout: .milliseconds(150))
+        let eventsAfterNonGitBatch = await drainTopologyEvents(from: stream, settleTurns: 150)
         #expect(
             eventsAfterNonGitBatch.discovered.isEmpty && eventsAfterNonGitBatch.removed.isEmpty,
             ".gitignore/.github paths should not trigger watched folder rescan"
@@ -156,7 +156,7 @@ struct FilesystemActorWatchedFolderTests {
 
         // Drain bus: no worktree envelopes for the syntheticId should exist
         var sawWorktreeEnvelopeForSyntheticId = false
-        let events = await drainAllEnvelopes(from: stream, timeout: .milliseconds(150))
+        let events = await drainAllEnvelopes(from: stream, settleTurns: 150)
         for envelope in events {
             if case .worktree(let wt) = envelope, wt.worktreeId == syntheticId {
                 sawWorktreeEnvelopeForSyntheticId = true
@@ -209,10 +209,10 @@ struct FilesystemActorWatchedFolderTests {
 
     private func drainTopologyEvents(
         from stream: AsyncStream<RuntimeEnvelope>,
-        timeout: Duration
+        settleTurns: Int
     ) async -> TopologyEventSet {
         var events = TopologyEventSet()
-        let envelopes = await drainAllEnvelopes(from: stream, timeout: timeout)
+        let envelopes = await drainAllEnvelopes(from: stream, settleTurns: settleTurns)
         for envelope in envelopes {
             if case .system(let sys) = envelope,
                 case .topology(let topology) = sys.event
@@ -232,7 +232,7 @@ struct FilesystemActorWatchedFolderTests {
 
     private func drainAllEnvelopes(
         from stream: AsyncStream<RuntimeEnvelope>,
-        timeout: Duration
+        settleTurns: Int
     ) async -> [RuntimeEnvelope] {
         let collectTask = Task {
             var results: [RuntimeEnvelope] = []
@@ -241,7 +241,9 @@ struct FilesystemActorWatchedFolderTests {
             }
             return results
         }
-        try? await Task.sleep(for: timeout)
+        for _ in 0..<settleTurns {
+            await Task.yield()
+        }
         collectTask.cancel()
         return await collectTask.value
     }

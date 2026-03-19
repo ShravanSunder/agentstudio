@@ -212,6 +212,7 @@ struct GitWorkingDirectoryProjectorTests {
     @Test("non-zero coalescing window merges rapid same-worktree bursts into one compute")
     func nonZeroCoalescingWindowMergesRapidBursts() async throws {
         let bus = EventBus<RuntimeEnvelope>()
+        let clock = TestPushClock()
         let calls = CallCounter()
         let provider = StubGitWorkingTreeStatusProvider { _ in
             _ = await calls.increment()
@@ -224,7 +225,8 @@ struct GitWorkingDirectoryProjectorTests {
         let actor = GitWorkingDirectoryProjector(
             bus: bus,
             gitWorkingTreeProvider: provider,
-            coalescingWindow: .milliseconds(60)
+            coalescingWindow: .milliseconds(60),
+            sleepClock: clock
         )
 
         let observed = ObservedGitEvents()
@@ -235,6 +237,11 @@ struct GitWorkingDirectoryProjectorTests {
         let rootPath = URL(fileURLWithPath: "/tmp/window-\(UUID().uuidString)")
         await bus.post(makeFilesChangedEnvelope(seq: 1, worktreeId: worktreeId, rootPath: rootPath, batchSeq: 1))
         await bus.post(makeFilesChangedEnvelope(seq: 2, worktreeId: worktreeId, rootPath: rootPath, batchSeq: 2))
+        let coalescingSleepScheduled = await waitUntilYielding {
+            clock.pendingSleepCount > 0
+        }
+        #expect(coalescingSleepScheduled)
+        clock.advance(by: .milliseconds(60))
 
         let didEmitSnapshot = await waitUntil {
             await observed.snapshotCount(for: worktreeId) >= 1
@@ -933,19 +940,29 @@ struct GitWorkingDirectoryProjectorTests {
     }
 
     private func waitUntil(
-        timeout: Duration = .seconds(2),
-        pollInterval: Duration = .milliseconds(1),
+        maxTurns: Int = 2000,
         condition: @escaping @Sendable () async -> Bool
     ) async -> Bool {
-        let clock = ContinuousClock()
-        let deadline = clock.now.advanced(by: timeout)
-        while clock.now < deadline {
+        for _ in 0..<maxTurns {
             if await condition() {
                 return true
             }
-            try? await Task.sleep(for: pollInterval)
+            await Task.yield()
         }
         return await condition()
+    }
+
+    private func waitUntilYielding(
+        maxTurns: Int = 2000,
+        condition: @escaping @Sendable () -> Bool
+    ) async -> Bool {
+        for _ in 0..<maxTurns {
+            if condition() {
+                return true
+            }
+            await Task.yield()
+        }
+        return condition()
     }
 }
 

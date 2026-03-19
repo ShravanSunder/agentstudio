@@ -482,7 +482,7 @@ struct PaneCoordinatorTests {
         store.appendTab(primaryTab)
         store.setActiveTab(primaryTab.id)
 
-        let filesystemSource = DelayingRecordingFilesystemSource(operationDelay: .milliseconds(40))
+        let filesystemSource = DelayingRecordingFilesystemSource(operationDelayTurns: 32)
         let paneEventBus = EventBus<RuntimeEnvelope>()
         let coordinator = PaneCoordinator(
             store: store,
@@ -531,16 +531,15 @@ struct PaneCoordinatorTests {
 
     private func waitUntilFilesystemState(
         source: RecordingFilesystemSource,
-        timeout: Duration,
+        timeout _: Duration,
         condition: @escaping @Sendable (FilesystemSourceSnapshot) -> Bool
     ) async {
-        let deadline = ContinuousClock().now.advanced(by: timeout)
-        while ContinuousClock().now < deadline {
+        for _ in 0..<200 {
             let snapshot = await source.snapshot()
             if condition(snapshot) {
                 return
             }
-            try? await Task.sleep(for: .milliseconds(10))
+            await Task.yield()
         }
 
         let finalSnapshot = await source.snapshot()
@@ -549,16 +548,15 @@ struct PaneCoordinatorTests {
 
     private func waitUntilFilesystemState(
         source: DelayingRecordingFilesystemSource,
-        timeout: Duration,
+        timeout _: Duration,
         condition: @escaping @Sendable (FilesystemSourceSnapshot) -> Bool
     ) async {
-        let deadline = ContinuousClock().now.advanced(by: timeout)
-        while ContinuousClock().now < deadline {
+        for _ in 0..<200 {
             let snapshot = await source.snapshot()
             if condition(snapshot) {
                 return
             }
-            try? await Task.sleep(for: .milliseconds(10))
+            await Task.yield()
         }
 
         let finalSnapshot = await source.snapshot()
@@ -618,13 +616,13 @@ private actor RecordingFilesystemSource: PaneCoordinatorFilesystemSourceManaging
 }
 
 private actor DelayingRecordingFilesystemSource: PaneCoordinatorFilesystemSourceManaging {
-    private let operationDelay: Duration
+    private let operationDelayTurns: Int
     private(set) var registeredRoots: [UUID: URL] = [:]
     private(set) var activityByWorktreeId: [UUID: Bool] = [:]
     private(set) var activePaneWorktreeId: UUID?
 
-    init(operationDelay: Duration) {
-        self.operationDelay = operationDelay
+    init(operationDelayTurns: Int) {
+        self.operationDelayTurns = operationDelayTurns
     }
 
     func start() async {}
@@ -632,12 +630,12 @@ private actor DelayingRecordingFilesystemSource: PaneCoordinatorFilesystemSource
     func shutdown() async {}
 
     func register(worktreeId: UUID, repoId: UUID, rootPath: URL) async {
-        try? await Task.sleep(for: operationDelay)
+        await settleDelay()
         registeredRoots[worktreeId] = rootPath
     }
 
     func unregister(worktreeId: UUID) async {
-        try? await Task.sleep(for: operationDelay)
+        await settleDelay()
         registeredRoots.removeValue(forKey: worktreeId)
         activityByWorktreeId.removeValue(forKey: worktreeId)
         if activePaneWorktreeId == worktreeId {
@@ -646,12 +644,12 @@ private actor DelayingRecordingFilesystemSource: PaneCoordinatorFilesystemSource
     }
 
     func setActivity(worktreeId: UUID, isActiveInApp: Bool) async {
-        try? await Task.sleep(for: operationDelay)
+        await settleDelay()
         activityByWorktreeId[worktreeId] = isActiveInApp
     }
 
     func setActivePaneWorktree(worktreeId: UUID?) async {
-        try? await Task.sleep(for: operationDelay)
+        await settleDelay()
         activePaneWorktreeId = worktreeId
     }
 
@@ -661,6 +659,12 @@ private actor DelayingRecordingFilesystemSource: PaneCoordinatorFilesystemSource
             activityByWorktreeId: activityByWorktreeId,
             activePaneWorktreeId: activePaneWorktreeId
         )
+    }
+
+    private func settleDelay() async {
+        for _ in 0..<operationDelayTurns {
+            await Task.yield()
+        }
     }
 }
 

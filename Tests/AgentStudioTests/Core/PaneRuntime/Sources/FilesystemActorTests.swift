@@ -500,8 +500,10 @@ struct FilesystemActorTests {
     @Test("debounce coalesces bursts and flushes once after debounce window")
     func debounceCoalescesBursts() async throws {
         let bus = EventBus<RuntimeEnvelope>()
+        let clock = TestPushClock()
         let actor = FilesystemActor(
             bus: bus,
+            sleepClock: clock,
             debounceWindow: .milliseconds(60),
             maxFlushLatency: .seconds(1)
         )
@@ -526,9 +528,15 @@ struct FilesystemActorTests {
         await actor.enqueueRawPaths(worktreeId: worktreeId, paths: ["Sources/A.swift"])
         await actor.enqueueRawPaths(worktreeId: worktreeId, paths: ["Sources/B.swift"])
 
-        let emittedBeforeDebounceWindow = await observed.next(timeout: .milliseconds(20))
-        #expect(emittedBeforeDebounceWindow == nil)
+        let debounceSleepScheduled = await waitUntilYielding {
+            clock.pendingSleepCount > 0
+        }
+        #expect(debounceSleepScheduled)
+        clock.advance(by: .milliseconds(20))
+        await Task.yield()
+        #expect(await observed.filesChangedCount(for: worktreeId) == 0)
 
+        clock.advance(by: .milliseconds(40))
         let emittedSingleDebouncedBatch = await waitUntil {
             await observed.filesChangedCount(for: worktreeId) == 1
         }
@@ -542,8 +550,10 @@ struct FilesystemActorTests {
     @Test("max latency flushes pending changes even when debounce keeps extending")
     func maxLatencyFlushesPendingChanges() async throws {
         let bus = EventBus<RuntimeEnvelope>()
+        let clock = TestPushClock()
         let actor = FilesystemActor(
             bus: bus,
+            sleepClock: clock,
             debounceWindow: .milliseconds(250),
             maxFlushLatency: .milliseconds(120)
         )
@@ -566,10 +576,17 @@ struct FilesystemActorTests {
         )
 
         await actor.enqueueRawPaths(worktreeId: worktreeId, paths: ["Sources/First.swift"])
-        let emittedBeforeMaxLatency = await observed.next(timeout: .milliseconds(70))
-        #expect(emittedBeforeMaxLatency == nil)
+        let maxLatencySleepScheduled = await waitUntilYielding {
+            clock.pendingSleepCount > 0
+        }
+        #expect(maxLatencySleepScheduled)
+        clock.advance(by: .milliseconds(70))
+        await Task.yield()
+        #expect(await observed.filesChangedCount(for: worktreeId) == 0)
         await actor.enqueueRawPaths(worktreeId: worktreeId, paths: ["Sources/Second.swift"])
 
+        await Task.yield()
+        clock.advance(by: .milliseconds(50))
         let maxLatencyFlushObserved = await waitUntil {
             await observed.filesChangedCount(for: worktreeId) >= 1
         }
@@ -583,8 +600,10 @@ struct FilesystemActorTests {
     @Test("shutdown cancels pending debounce drain and prevents delayed filesChanged emission")
     func shutdownCancelsPendingDrain() async throws {
         let bus = EventBus<RuntimeEnvelope>()
+        let clock = TestPushClock()
         let actor = FilesystemActor(
             bus: bus,
+            sleepClock: clock,
             debounceWindow: .milliseconds(200),
             maxFlushLatency: .seconds(1)
         )
@@ -606,16 +625,20 @@ struct FilesystemActorTests {
         )
 
         await actor.enqueueRawPaths(worktreeId: worktreeId, paths: ["Sources/Cancelled.swift"])
+        await Task.yield()
         await actor.shutdown()
-        let emittedAfterShutdown = await observed.next(timeout: .milliseconds(300))
-        #expect(emittedAfterShutdown == nil)
+        clock.advance(by: .milliseconds(300))
+        await Task.yield()
+        #expect(await observed.filesChangedCount(for: worktreeId) == 0)
     }
 
     @Test("unregister during debounce window prevents stale filesChanged emission")
     func unregisterDuringDebouncePreventsStaleEmission() async throws {
         let bus = EventBus<RuntimeEnvelope>()
+        let clock = TestPushClock()
         let actor = FilesystemActor(
             bus: bus,
+            sleepClock: clock,
             debounceWindow: .milliseconds(200),
             maxFlushLatency: .seconds(1)
         )
@@ -637,9 +660,13 @@ struct FilesystemActorTests {
         )
 
         await actor.enqueueRawPaths(worktreeId: worktreeId, paths: ["Sources/Stale.swift"])
+        await Task.yield()
+        clock.advance(by: .milliseconds(25))
+        await Task.yield()
         await actor.unregister(worktreeId: worktreeId)
-        let emittedAfterUnregister = await observed.next(timeout: .milliseconds(300))
-        #expect(emittedAfterUnregister == nil)
+        clock.advance(by: .milliseconds(300))
+        await Task.yield()
+        #expect(await observed.filesChangedCount(for: worktreeId) == 0)
         await actor.shutdown()
     }
 
@@ -663,21 +690,32 @@ struct FilesystemActorTests {
     }
 
     private func waitUntil(
-        timeout: Duration = .seconds(1),
-        pollInterval: Duration = .milliseconds(5),
+        timeout _: Duration = .seconds(1),
+        pollInterval _: Duration = .milliseconds(5),
         condition: @escaping @Sendable () async -> Bool
     ) async -> Bool {
-        let clock = ContinuousClock()
-        let deadline = clock.now.advanced(by: timeout)
-
-        while clock.now < deadline {
+        for _ in 0..<200 {
             if await condition() {
                 return true
             }
-            try? await Task.sleep(for: pollInterval)
+            await Task.yield()
         }
 
         return await condition()
+    }
+
+    private func waitUntilYielding(
+        maxIterations: Int = 200,
+        condition: @escaping @Sendable () -> Bool
+    ) async -> Bool {
+        for _ in 0..<maxIterations {
+            if condition() {
+                return true
+            }
+            await Task.yield()
+        }
+
+        return condition()
     }
 
     private func makeActor(bus: EventBus<RuntimeEnvelope>) -> FilesystemActor {
@@ -708,18 +746,13 @@ private actor ObservedFilesystemChanges {
         changesetsByWorktreeId[worktreeId]?.last
     }
 
-    func next(timeout: Duration) async -> FileChangeset? {
-        let pollInterval: Duration = .milliseconds(5)
-        var remaining = timeout
-
-        while remaining > .zero {
+    func next(timeout _: Duration) async -> FileChangeset? {
+        for _ in 0..<5000 {
             if !pendingChangesets.isEmpty {
                 return pendingChangesets.removeFirst()
             }
 
             await Task.yield()
-            try? await Task.sleep(for: pollInterval)
-            remaining -= pollInterval
         }
 
         return nil

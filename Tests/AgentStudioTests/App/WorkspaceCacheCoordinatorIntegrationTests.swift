@@ -448,26 +448,23 @@ final class WorkspaceCacheCoordinatorIntegrationTests {
 
     /// Polls the bus until at least one subscriber is registered, ensuring the
     /// coordinator's `startConsuming()` Task has completed its `subscribe()` call.
-    private func waitForSubscriber(bus: EventBus<RuntimeEnvelope>, maxAttempts: Int = 50) async {
-        for _ in 0..<maxAttempts {
+    private func waitForSubscriber(bus: EventBus<RuntimeEnvelope>, maxTurns: Int = 50) async {
+        for _ in 0..<maxTurns {
             if await bus.subscriberCount > 0 { return }
             await Task.yield()
-            try? await Task.sleep(nanoseconds: 5_000_000)
         }
     }
 
     private func eventually(
         _ description: String,
-        maxAttempts: Int = 100,
-        pollIntervalNanoseconds: UInt64 = 10_000_000,
+        maxTurns: Int = 100,
         condition: @escaping @MainActor () async -> Bool
     ) async -> Bool {
-        for _ in 0..<maxAttempts {
+        for _ in 0..<maxTurns {
             if await condition() {
                 return true
             }
             await Task.yield()
-            try? await Task.sleep(nanoseconds: pollIntervalNanoseconds)
         }
         Issue.record("\(description) timed out")
         return false

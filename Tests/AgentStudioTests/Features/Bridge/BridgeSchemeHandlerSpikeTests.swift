@@ -87,8 +87,7 @@ extension WebKitSerializedTests {
         }
 
         private func waitForPageLoad(_ page: WebPage) async throws {
-            let deadline = ContinuousClock.now + .seconds(5)
-            while ContinuousClock.now < deadline {
+            for _ in 0..<5000 {
                 if !page.isLoading { break }
                 await Task.yield()
             }
@@ -100,8 +99,7 @@ extension WebKitSerializedTests {
             equals expectedTitle: String,
             timeout: Duration = .seconds(2)
         ) async -> Bool {
-            let deadline = ContinuousClock.now + timeout
-            while ContinuousClock.now < deadline {
+            for _ in 0..<2000 {
                 if page.title == expectedTitle {
                     return true
                 }

@@ -277,16 +277,14 @@ struct FilesystemToPrimarySidebarIntegrationTests {
 
     private func eventually(
         _ description: String,
-        maxAttempts: Int = 200,
-        pollIntervalNanoseconds: UInt64 = 10_000_000,
+        maxTurns: Int = 200,
         condition: @escaping @MainActor () async -> Bool
     ) async -> Bool {
-        for _ in 0..<maxAttempts {
+        for _ in 0..<maxTurns {
             if await condition() {
                 return true
             }
             await Task.yield()
-            try? await Task.sleep(nanoseconds: pollIntervalNanoseconds)
         }
         Issue.record("\(description) timed out")
         return false

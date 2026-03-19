@@ -334,18 +334,14 @@ struct CommandBarDataSourceTests {
     }
 
     private func waitUntil(
-        timeout: Duration = .seconds(1),
-        pollInterval: Duration = .milliseconds(5),
+        maxTurns: Int = 200,
         condition: @escaping @Sendable () -> Bool
     ) async -> Bool {
-        let clock = ContinuousClock()
-        let deadline = clock.now.advanced(by: timeout)
-
-        while clock.now < deadline {
+        for _ in 0..<maxTurns {
             if condition() {
                 return true
             }
-            try? await Task.sleep(for: pollInterval)
+            await Task.yield()
         }
 
         return condition()

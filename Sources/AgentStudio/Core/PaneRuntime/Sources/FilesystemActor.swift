@@ -9,6 +9,25 @@ actor FilesystemActor {
     private static let logger = Logger(subsystem: "com.agentstudio", category: "FilesystemActor")
     static let maxPathsPerFilesChangedEvent = 256
 
+    private struct SchedulingClock: Sendable {
+        let now: @Sendable () -> Duration
+        let sleep: @Sendable (Duration) async throws -> Void
+
+        static func continuous() -> Self {
+            make(clock: ContinuousClock())
+        }
+
+        static func make<C: Clock>(clock: C) -> Self where C.Duration == Duration, C: Sendable {
+            let origin = clock.now
+            return Self(
+                now: { origin.duration(to: clock.now) },
+                sleep: { duration in
+                    try await clock.sleep(for: duration)
+                }
+            )
+        }
+    }
+
     private struct RootState: Sendable {
         let repoId: UUID
         let rootPath: URL
@@ -23,14 +42,14 @@ actor FilesystemActor {
         var containsGitInternalChanges = false
         var suppressedIgnoredPathCount = 0
         var suppressedGitInternalPathCount = 0
-        var firstPendingTimestamp: ContinuousClock.Instant?
-        var lastPendingTimestamp: ContinuousClock.Instant?
+        var firstPendingTimestamp: Duration?
+        var lastPendingTimestamp: Duration?
 
         var hasPendingChanges: Bool {
             !projectedPaths.isEmpty || suppressedIgnoredPathCount > 0 || suppressedGitInternalPathCount > 0
         }
 
-        mutating func recordPendingChange(at timestamp: ContinuousClock.Instant) {
+        mutating func recordPendingChange(at timestamp: Duration) {
             if firstPendingTimestamp == nil {
                 firstPendingTimestamp = timestamp
             }
@@ -41,7 +60,7 @@ actor FilesystemActor {
     private let runtimeBus: EventBus<RuntimeEnvelope>
     private let fseventStreamClient: any FSEventStreamClient
     private let envelopeClock = ContinuousClock()
-    private let sleepClock: any Clock<Duration>
+    private let schedulingClock: SchedulingClock
     private let watchedFolderScanner: @Sendable (URL) -> [URL]
     private let debounceWindow: Duration
     private let maxFlushLatency: Duration
@@ -63,14 +82,29 @@ actor FilesystemActor {
         bus: EventBus<RuntimeEnvelope> = PaneRuntimeEventBus.shared,
         fseventStreamClient: any FSEventStreamClient = DarwinFSEventStreamClient(),
         watchedFolderScanner: @escaping @Sendable (URL) -> [URL] = { RepoScanner().scanForGitRepos(in: $0) },
-        sleepClock: any Clock<Duration> = ContinuousClock(),
         debounceWindow: Duration = .milliseconds(500),
         maxFlushLatency: Duration = .seconds(2)
     ) {
         self.runtimeBus = bus
         self.fseventStreamClient = fseventStreamClient
         self.watchedFolderScanner = watchedFolderScanner
-        self.sleepClock = sleepClock
+        schedulingClock = .continuous()
+        self.debounceWindow = debounceWindow
+        self.maxFlushLatency = maxFlushLatency
+    }
+
+    init<C: Clock>(
+        bus: EventBus<RuntimeEnvelope> = PaneRuntimeEventBus.shared,
+        fseventStreamClient: any FSEventStreamClient = DarwinFSEventStreamClient(),
+        watchedFolderScanner: @escaping @Sendable (URL) -> [URL] = { RepoScanner().scanForGitRepos(in: $0) },
+        sleepClock: C,
+        debounceWindow: Duration = .milliseconds(500),
+        maxFlushLatency: Duration = .seconds(2)
+    ) where C.Duration == Duration, C: Sendable {
+        self.runtimeBus = bus
+        self.fseventStreamClient = fseventStreamClient
+        self.watchedFolderScanner = watchedFolderScanner
+        schedulingClock = .make(clock: sleepClock)
         self.debounceWindow = debounceWindow
         self.maxFlushLatency = maxFlushLatency
     }
@@ -208,7 +242,7 @@ actor FilesystemActor {
             if Self.isGitIgnoreReloadPath(rawPath: rawPath, relativePath: ownedPath.relativePath) {
                 root.pathFilter = FilesystemPathFilter.load(forRootPath: root.rootPath)
                 roots[ownedPath.worktreeId] = root
-                pendingChanges.recordPendingChange(at: envelopeClock.now)
+                pendingChanges.recordPendingChange(at: schedulingClock.now())
                 pendingChangesByWorktreeId[ownedPath.worktreeId] = pendingChanges
                 continue
             }
@@ -222,7 +256,7 @@ actor FilesystemActor {
             case .ignoredByPolicy:
                 pendingChanges.suppressedIgnoredPathCount += 1
             }
-            pendingChanges.recordPendingChange(at: envelopeClock.now)
+            pendingChanges.recordPendingChange(at: schedulingClock.now())
             pendingChangesByWorktreeId[ownedPath.worktreeId] = pendingChanges
         }
 
@@ -263,7 +297,7 @@ actor FilesystemActor {
         }
 
         while !Task.isCancelled {
-            let now = envelopeClock.now
+            let now = schedulingClock.now()
             if let worktreeId = nextWorktreeToFlush(now: now) {
                 await flush(worktreeId: worktreeId)
                 continue
@@ -278,10 +312,10 @@ actor FilesystemActor {
                 continue
             }
 
-            let sleepDuration = now.duration(to: nextDeadline)
+            let sleepDuration = nextDeadline - now
             if sleepDuration > .zero {
                 do {
-                    try await sleepClock.sleep(for: sleepDuration)
+                    try await schedulingClock.sleep(sleepDuration)
                 } catch is CancellationError {
                     return
                 } catch {
@@ -317,7 +351,7 @@ actor FilesystemActor {
         return normalizedRawPath == ".gitignore" || normalizedRawPath.hasSuffix("/.gitignore")
     }
 
-    private func nextWorktreeToFlush(now: ContinuousClock.Instant) -> UUID? {
+    private func nextWorktreeToFlush(now: Duration) -> UUID? {
         let candidates =
             pendingChangesByWorktreeId
             .compactMap { worktreeId, pendingChanges -> UUID? in
@@ -343,9 +377,9 @@ actor FilesystemActor {
         }
     }
 
-    private func nextFlushDeadline(now: ContinuousClock.Instant) -> ContinuousClock.Instant? {
+    private func nextFlushDeadline(now: Duration) -> Duration? {
         pendingChangesByWorktreeId
-            .compactMap { worktreeId, pendingChanges -> ContinuousClock.Instant? in
+            .compactMap { worktreeId, pendingChanges -> Duration? in
                 guard pendingChanges.hasPendingChanges else { return nil }
                 guard roots[worktreeId] != nil else { return nil }
                 guard let deadline = flushDeadline(for: pendingChanges) else { return nil }
@@ -365,26 +399,26 @@ actor FilesystemActor {
         return 2
     }
 
-    private func isFlushDue(_ pendingChanges: PendingWorktreeChanges, now: ContinuousClock.Instant) -> Bool {
+    private func isFlushDue(_ pendingChanges: PendingWorktreeChanges, now: Duration) -> Bool {
         guard let firstPendingTimestamp = pendingChanges.firstPendingTimestamp,
             let lastPendingTimestamp = pendingChanges.lastPendingTimestamp
         else {
             return true
         }
 
-        let debounceDeadline = lastPendingTimestamp.advanced(by: debounceWindow)
-        let maxLatencyDeadline = firstPendingTimestamp.advanced(by: maxFlushLatency)
+        let debounceDeadline = lastPendingTimestamp + debounceWindow
+        let maxLatencyDeadline = firstPendingTimestamp + maxFlushLatency
         return now >= debounceDeadline || now >= maxLatencyDeadline
     }
 
-    private func flushDeadline(for pendingChanges: PendingWorktreeChanges) -> ContinuousClock.Instant? {
+    private func flushDeadline(for pendingChanges: PendingWorktreeChanges) -> Duration? {
         guard let firstPendingTimestamp = pendingChanges.firstPendingTimestamp,
             let lastPendingTimestamp = pendingChanges.lastPendingTimestamp
         else {
             return nil
         }
-        let debounceDeadline = lastPendingTimestamp.advanced(by: debounceWindow)
-        let maxLatencyDeadline = firstPendingTimestamp.advanced(by: maxFlushLatency)
+        let debounceDeadline = lastPendingTimestamp + debounceWindow
+        let maxLatencyDeadline = firstPendingTimestamp + maxFlushLatency
         return min(debounceDeadline, maxLatencyDeadline)
     }
 
@@ -662,7 +696,7 @@ actor FilesystemActor {
         fallbackRescanTask = Task { [weak self] in
             guard let self else { return }
             while !Task.isCancelled {
-                try? await self.sleepClock.sleep(for: .seconds(300))
+                try? await self.schedulingClock.sleep(.seconds(300))
                 guard !Task.isCancelled else { break }
                 _ = await self.rescanAllWatchedFolders()
             }

@@ -26,18 +26,24 @@ final class FilesystemGitPipeline: PaneCoordinatorFilesystemSourceManaging, Watc
         gitWorkingTreeProvider: any GitWorkingTreeStatusProvider = ShellGitWorkingTreeStatusProvider(),
         forgeStatusProvider: any ForgeStatusProvider = GitHubCLIForgeStatusProvider(),
         fseventStreamClient: any FSEventStreamClient = DarwinFSEventStreamClient(),
+        filesystemDebounceWindow: Duration = .milliseconds(500),
+        filesystemMaxFlushLatency: Duration = .seconds(2),
         gitCoalescingWindow: Duration = .milliseconds(200),
-        gitPeriodicRefreshInterval: Duration? = .seconds(2)
+        gitPeriodicRefreshInterval: Duration? = .seconds(2),
+        gitSleepClock: any Clock<Duration> = ContinuousClock()
     ) {
         self.filesystemActor = FilesystemActor(
             bus: bus,
-            fseventStreamClient: fseventStreamClient
+            fseventStreamClient: fseventStreamClient,
+            debounceWindow: filesystemDebounceWindow,
+            maxFlushLatency: filesystemMaxFlushLatency
         )
         self.gitWorkingDirectoryProjector = GitWorkingDirectoryProjector(
             bus: bus,
             gitWorkingTreeProvider: gitWorkingTreeProvider,
             coalescingWindow: gitCoalescingWindow,
-            periodicRefreshInterval: gitPeriodicRefreshInterval
+            periodicRefreshInterval: gitPeriodicRefreshInterval,
+            sleepClock: gitSleepClock
         )
         self.forgeActor = ForgeActor(
             bus: bus,
