@@ -9,6 +9,12 @@
 # Optional variables:
 #   EXTRA_SWIFT_TEST_ARGS - Additional swift test flags (e.g. "--enable-code-coverage")
 
+prebuild_swift_tests() {
+  echo "[$LOG_PREFIX] >>> prebuild test bundles"
+  # shellcheck disable=SC2086
+  swift build --build-tests ${EXTRA_SWIFT_TEST_ARGS:-} --build-path "$BUILD_PATH"
+}
+
 run_swift_with_timeout() {
   local label="$1"
   shift
@@ -72,7 +78,7 @@ run_webkit_suite_with_retry() {
     # shellcheck disable=SC2086
     output=$(run_swift_with_timeout "$filter" "$TIMEOUT_SECONDS" \
       env AGENT_STUDIO_BENCHMARK_MODE=off swift test ${EXTRA_SWIFT_TEST_ARGS:-} \
-      --filter "$filter" --build-path "$BUILD_PATH" 2>&1)
+      --skip-build --filter "$filter" --build-path "$BUILD_PATH" 2>&1)
     local command_status=$?
     set -e
     echo "$output"
