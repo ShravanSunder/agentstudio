@@ -95,8 +95,19 @@ bash scripts/check-core-boundary-imports.sh
 
 [tasks.setup]
 description = "First-time setup: build zig deps, copy frameworks and resources"
-depends = ["copy-xcframework", "setup-dev-resources", "build-zmx"]
+depends = ["copy-xcframework", "setup-dev-resources", "build-zmx", "install-hooks"]
 run = "echo 'Setup complete. Run mise run build or mise run test.'"
+
+[tasks.install-hooks]
+description = "Configure git to use repo-managed hooks"
+run = """
+#!/usr/bin/env bash
+set -euo pipefail
+git config core.hooksPath .githooks
+chmod +x .githooks/pre-commit
+echo "Configured git hooks path: .githooks"
+echo "Installed pre-commit hook: .githooks/pre-commit"
+"""
 
 # --- Composite build tasks ---
 

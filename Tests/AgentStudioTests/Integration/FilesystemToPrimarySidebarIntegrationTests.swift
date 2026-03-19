@@ -30,8 +30,9 @@ struct FilesystemToPrimarySidebarIntegrationTests {
                 guard !intake.financeRepoIds.isEmpty else { return false }
                 for repoId in intake.financeRepoIds {
                     guard
-                        case .some(.resolvedRemote(_, _, let identity, _)) = testSystem.repoCache.repoEnrichmentByRepoId[
-                            repoId]
+                        case .some(.resolvedRemote(_, _, let identity, _)) = testSystem.repoCache
+                            .repoEnrichmentByRepoId[
+                                repoId]
                     else {
                         return false
                     }

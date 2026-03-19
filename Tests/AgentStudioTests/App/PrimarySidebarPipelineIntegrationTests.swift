@@ -101,8 +101,9 @@ struct PrimarySidebarPipelineIntegrationTests {
             let resolvedIdentity = await eventually(
                 "worktree registration should converge unresolved to resolved identity"
             ) {
-                guard case .some(.resolvedRemote(_, let raw, let identity, _)) = repoCache.repoEnrichmentByRepoId[
-                    repo.id]
+                guard
+                    case .some(.resolvedRemote(_, let raw, let identity, _)) = repoCache.repoEnrichmentByRepoId[
+                        repo.id]
                 else {
                     return false
                 }
