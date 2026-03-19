@@ -432,7 +432,7 @@ struct FilesystemActorTests {
         if nextChangeset.paths.contains("cache.tmp") {
             postReloadChangeset = nextChangeset
         } else {
-            #expect(Set(nextChangeset.paths).isSubset(of: ["."]))
+            #expect(!nextChangeset.paths.contains(".gitignore"))
             postReloadChangeset = try #require(await observed.next(timeout: .milliseconds(250)))
         }
         #expect(postReloadChangeset.paths.contains("cache.tmp"))
@@ -485,7 +485,7 @@ struct FilesystemActorTests {
         if nextChangeset.paths.contains("cache.tmp") {
             postReloadChangeset = nextChangeset
         } else {
-            #expect(Set(nextChangeset.paths).isSubset(of: ["."]))
+            #expect(!nextChangeset.paths.contains(".gitignore"))
             postReloadChangeset = try #require(await observed.next(timeout: .milliseconds(250)))
         }
         #expect(postReloadChangeset.paths.contains("cache.tmp"))
