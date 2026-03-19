@@ -19,6 +19,20 @@ First-time setup: `git submodule update --init --recursive && mise install && mi
 
 Testing: Swift 6 `Testing` only — `@Suite`, `@Test`, `#expect`. No XCTest. A PostToolUse hook (`.claude/hooks/check.sh`) runs swift-format and swiftlint automatically after every Edit/Write on `.swift` files.
 
+### No Wall-Clock Tests
+
+Wall-clock sleeps make tests flaky. CI machines run at different speeds, so "sleep 50ms and expect X" is not a contract.
+
+Do not:
+- use `Task.sleep(...)` in test bodies to wait for async work
+- assert intermediate state after an arbitrary delay
+- rely on suite serialization to hide leaked async work
+
+Instead:
+- wait for the exact event or state you care about, with a bounded timeout
+- use injected clocks for debounce/timer behavior
+- fully shut down tasks, streams, actors, and observers before the test returns
+
 ## Architecture at a Glance
 
 AppKit-main architecture hosting SwiftUI views. Five `@Observable` stores with `private(set)` for unidirectional flow. Two coordinators for cross-store sequencing. An `EventBus<RuntimeEnvelope>` connects runtime actors to stores.
