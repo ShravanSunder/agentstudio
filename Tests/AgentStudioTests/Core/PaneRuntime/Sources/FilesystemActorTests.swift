@@ -529,8 +529,10 @@ struct FilesystemActorTests {
         try await Task.sleep(for: .milliseconds(20))
         #expect(await observed.filesChangedCount(for: worktreeId) == 0)
 
-        try await Task.sleep(for: .milliseconds(80))
-        #expect(await observed.filesChangedCount(for: worktreeId) == 1)
+        let emittedSingleDebouncedBatch = await waitUntil {
+            await observed.filesChangedCount(for: worktreeId) == 1
+        }
+        #expect(emittedSingleDebouncedBatch)
         let changeset = await observed.latestChangeset(for: worktreeId)
         #expect(Set(changeset?.paths ?? []) == Set(["Sources/A.swift", "Sources/B.swift"]))
 
@@ -567,8 +569,10 @@ struct FilesystemActorTests {
         try await Task.sleep(for: .milliseconds(70))
         await actor.enqueueRawPaths(worktreeId: worktreeId, paths: ["Sources/Second.swift"])
 
-        try await Task.sleep(for: .milliseconds(120))
-        #expect(await observed.filesChangedCount(for: worktreeId) >= 1)
+        let maxLatencyFlushObserved = await waitUntil {
+            await observed.filesChangedCount(for: worktreeId) >= 1
+        }
+        #expect(maxLatencyFlushObserved)
         let changeset = await observed.latestChangeset(for: worktreeId)
         #expect(Set(changeset?.paths ?? []) == Set(["Sources/First.swift", "Sources/Second.swift"]))
 
@@ -658,6 +662,24 @@ struct FilesystemActorTests {
             normalizedPath.removeFirst()
         }
         return normalizedPath
+    }
+
+    private func waitUntil(
+        timeout: Duration = .seconds(1),
+        pollInterval: Duration = .milliseconds(5),
+        condition: @escaping @Sendable () async -> Bool
+    ) async -> Bool {
+        let clock = ContinuousClock()
+        let deadline = clock.now.advanced(by: timeout)
+
+        while clock.now < deadline {
+            if await condition() {
+                return true
+            }
+            try? await Task.sleep(for: pollInterval)
+        }
+
+        return await condition()
     }
 
     private func makeActor(bus: EventBus<RuntimeEnvelope>) -> FilesystemActor {
