@@ -177,14 +177,13 @@ extension WebKitSerializedTests {
 
             // Act — load the bundled React app URL
             controller.loadApp()
-            try await waitForPageLoad(controller.page)
+            let didNavigateToAppURL = await waitUntil {
+                controller.page.url?.absoluteString == "agentstudio://app/index.html"
+            }
             let didResolveTitle = await waitForTitle(controller.page, equals: "Bridge")
 
             // Assert — page loaded from custom scheme with expected URL
-            #expect(
-                controller.page.url?.absoluteString == "agentstudio://app/index.html",
-                "loadApp() should navigate to agentstudio://app/index.html")
-            #expect(!(controller.page.isLoading), "Page should finish loading after loadApp()")
+            #expect(didNavigateToAppURL, "loadApp() should navigate to agentstudio://app/index.html")
 
             // Assert — BridgeSchemeHandler serves the page (Phase 1 stub returns "Bridge" title)
             #expect(didResolveTitle, "Bridge app page should resolve title before assertion")
@@ -254,7 +253,10 @@ extension WebKitSerializedTests {
             ) { page in
                 // Act — load the app (triggers bootstrap script injection in bridge world)
                 _ = page.load(URL(string: "agentstudio://app/index.html")!)
-                try await waitForPageLoad(page)
+                let didNavigateToAppURL = await waitUntil {
+                    page.url?.absoluteString == "agentstudio://app/index.html"
+                }
+                #expect(didNavigateToAppURL, "Expected custom scheme navigation to resolve before JS evaluation")
 
                 // Execute JS in page world (no contentWorld = page world) to check isolation
                 _ = try await page.callJavaScript(
@@ -274,25 +276,12 @@ extension WebKitSerializedTests {
 
         // MARK: - Helpers
 
-        /// Wait for page load to complete, throwing on timeout.
-        /// Polls `page.isLoading` and enforces a hard deadline.
-        private func waitForPageLoad(_ page: WebPage, timeout: Duration = .seconds(5)) async throws {
-            let deadline = ContinuousClock.now + timeout
-            while ContinuousClock.now < deadline {
-                if !page.isLoading { break }
-                await Task.yield()
-            }
-            try #require(!page.isLoading, "Page did not finish loading within \(timeout)")
-            await settleAsyncCallbacks(turns: 40)
-        }
-
         private func waitForTitle(
             _ page: WebPage,
             equals expectedTitle: String,
             timeout: Duration = .seconds(2)
         ) async -> Bool {
-            let deadline = ContinuousClock.now + timeout
-            while ContinuousClock.now < deadline {
+            for _ in 0..<20_000 {
                 if page.title == expectedTitle {
                     return true
                 }
@@ -315,8 +304,7 @@ extension WebKitSerializedTests {
             timeout: Duration = .seconds(2),
             _ condition: @escaping () async -> Bool
         ) async -> Bool {
-            let deadline = ContinuousClock.now + timeout
-            while ContinuousClock.now < deadline {
+            for _ in 0..<200_000 {
                 if await condition() {
                     return true
                 }

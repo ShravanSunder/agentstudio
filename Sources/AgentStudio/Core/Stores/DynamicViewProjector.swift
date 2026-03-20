@@ -12,7 +12,9 @@ enum DynamicViewProjector {
         viewType: DynamicViewType,
         panes: [UUID: Pane],
         tabs: [Tab],
-        repos: [Repo]
+        repos: [CanonicalRepo],
+        repoEnrichments: [UUID: RepoEnrichment],
+        worktreeEnrichments: [UUID: WorktreeEnrichment]
     ) -> DynamicViewProjection {
         // Collect only active panes that are in a tab layout
         let layoutPaneIds = Set(tabs.flatMap(\.panes))
@@ -22,13 +24,18 @@ enum DynamicViewProjector {
 
         switch viewType {
         case .byRepo:
-            grouped = groupByRepo(panes: activePanes, repos: repos)
+            grouped = groupByRepo(
+                panes: activePanes,
+                repos: repos,
+                repoEnrichments: repoEnrichments
+            )
         case .byWorktree:
-            grouped = groupByWorktree(panes: activePanes, repos: repos)
+            grouped = groupByWorktree(
+                panes: activePanes,
+                worktreeEnrichments: worktreeEnrichments
+            )
         case .byCWD:
             grouped = groupByCWD(panes: activePanes)
-        case .byAgentType:
-            grouped = groupByAgentType(panes: activePanes)
         case .byParentFolder:
             grouped = groupByParentFolder(panes: activePanes, repos: repos)
         }
@@ -54,15 +61,25 @@ enum DynamicViewProjector {
 
     private static func groupByRepo(
         panes: [Pane],
-        repos: [Repo]
+        repos: [CanonicalRepo],
+        repoEnrichments: [UUID: RepoEnrichment]
     ) -> [(key: String, name: String, paneIds: [UUID])] {
-        let repoLookup = Dictionary(uniqueKeysWithValues: repos.map { ($0.id, $0) })
+        let repoNameLookup: [UUID: String] = repos.reduce(into: [:]) { namesByRepoId, repo in
+            let enrichedDisplayName = repoEnrichments[repo.id]?.displayName
+            namesByRepoId[repo.id] = enrichedDisplayName ?? repo.name
+        }
         var groups: [UUID: (name: String, paneIds: [UUID])] = [:]
         var ungrouped: [UUID] = []
 
         for pane in panes {
-            if let repoId = pane.metadata.facets.repoId, let repo = repoLookup[repoId] {
-                groups[repoId, default: (name: repo.name, paneIds: [])].paneIds.append(pane.id)
+            guard let repoId = pane.metadata.facets.repoId else {
+                ungrouped.append(pane.id)
+                continue
+            }
+
+            let groupName = pane.metadata.facets.repoName ?? repoNameLookup[repoId]
+            if let groupName {
+                groups[repoId, default: (name: groupName, paneIds: [])].paneIds.append(pane.id)
             } else {
                 ungrouped.append(pane.id)
             }
@@ -77,21 +94,20 @@ enum DynamicViewProjector {
 
     private static func groupByWorktree(
         panes: [Pane],
-        repos: [Repo]
+        worktreeEnrichments: [UUID: WorktreeEnrichment]
     ) -> [(key: String, name: String, paneIds: [UUID])] {
-        // Build worktree lookup from repos
-        let worktreeLookup: [UUID: Worktree] = repos.reduce(into: [:]) { dict, repo in
-            for wt in repo.worktrees {
-                dict[wt.id] = wt
-            }
-        }
-
         var groups: [UUID: (name: String, paneIds: [UUID])] = [:]
         var ungrouped: [UUID] = []
 
         for pane in panes {
-            if let wtId = pane.metadata.facets.worktreeId, let wt = worktreeLookup[wtId] {
-                groups[wtId, default: (name: wt.name, paneIds: [])].paneIds.append(pane.id)
+            guard let worktreeId = pane.metadata.facets.worktreeId else {
+                ungrouped.append(pane.id)
+                continue
+            }
+
+            let groupName = pane.metadata.facets.worktreeName ?? worktreeEnrichments[worktreeId]?.branch
+            if let groupName {
+                groups[worktreeId, default: (name: groupName, paneIds: [])].paneIds.append(pane.id)
             } else {
                 ungrouped.append(pane.id)
             }
@@ -127,30 +143,9 @@ enum DynamicViewProjector {
         return result
     }
 
-    private static func groupByAgentType(
-        panes: [Pane]
-    ) -> [(key: String, name: String, paneIds: [UUID])] {
-        var groups: [String: (name: String, paneIds: [UUID])] = [:]
-        var ungrouped: [UUID] = []
-
-        for pane in panes {
-            if let agent = pane.agent {
-                groups[agent.rawValue, default: (name: agent.displayName, paneIds: [])].paneIds.append(pane.id)
-            } else {
-                ungrouped.append(pane.id)
-            }
-        }
-
-        var result = groups.map { (key: $0.key, name: $0.value.name, paneIds: $0.value.paneIds) }
-        if !ungrouped.isEmpty {
-            result.append((key: "ungrouped", name: "No Agent", paneIds: ungrouped))
-        }
-        return result
-    }
-
     private static func groupByParentFolder(
         panes: [Pane],
-        repos: [Repo]
+        repos: [CanonicalRepo]
     ) -> [(key: String, name: String, paneIds: [UUID])] {
         // Build repo → parent folder lookup
         let repoParentFolder: [UUID: URL] = Dictionary(

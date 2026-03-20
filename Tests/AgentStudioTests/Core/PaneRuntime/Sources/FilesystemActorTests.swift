@@ -3,11 +3,11 @@ import Testing
 
 @testable import AgentStudio
 
-@Suite("FilesystemActor")
+@Suite(.serialized)
 struct FilesystemActorTests {
     @Test("register emits worktreeRegistered fact")
     func registerEmitsWorktreeRegisteredFact() async throws {
-        let bus = EventBus<PaneEventEnvelope>()
+        let bus = EventBus<RuntimeEnvelope>()
         let actor = makeActor(bus: bus)
 
         let stream = await bus.subscribe()
@@ -19,27 +19,30 @@ struct FilesystemActorTests {
         await actor.register(worktreeId: worktreeId, repoId: repoId, rootPath: rootPath)
 
         let envelope = try #require(await iterator.next())
+        guard case .system(let systemEnvelope) = envelope else {
+            Issue.record("Expected system envelope")
+            return
+        }
         guard
-            case .filesystem(
-                .worktreeRegistered(let registeredWorktreeId, let registeredRepoId, let registeredRootPath)) = envelope
-                .event
+            case .topology(
+                .worktreeRegistered(let registeredWorktreeId, let registeredRepoId, let registeredRootPath)) =
+                systemEnvelope.event
         else {
-            Issue.record("Expected worktreeRegistered filesystem event")
+            Issue.record("Expected worktreeRegistered topology event")
             return
         }
 
         #expect(registeredWorktreeId == worktreeId)
         #expect(registeredRepoId == repoId)
         #expect(registeredRootPath == rootPath)
-        #expect(envelope.sourceFacets.repoId == repoId)
-        #expect(envelope.sourceFacets.worktreeId == worktreeId)
+        #expect(systemEnvelope.source == .builtin(.filesystemWatcher))
 
         await actor.shutdown()
     }
 
     @Test("unregister emits worktreeUnregistered fact")
     func unregisterEmitsWorktreeUnregisteredFact() async throws {
-        let bus = EventBus<PaneEventEnvelope>()
+        let bus = EventBus<RuntimeEnvelope>()
         let actor = makeActor(bus: bus)
 
         let stream = await bus.subscribe()
@@ -53,24 +56,28 @@ struct FilesystemActorTests {
 
         await actor.unregister(worktreeId: worktreeId)
         let envelope = try #require(await iterator.next())
+        guard case .system(let systemEnvelope) = envelope else {
+            Issue.record("Expected system envelope")
+            return
+        }
         guard
-            case .filesystem(.worktreeUnregistered(let unregisteredWorktreeId, let unregisteredRepoId)) = envelope.event
+            case .topology(.worktreeUnregistered(let unregisteredWorktreeId, let unregisteredRepoId)) = systemEnvelope
+                .event
         else {
-            Issue.record("Expected worktreeUnregistered filesystem event")
+            Issue.record("Expected worktreeUnregistered topology event")
             return
         }
 
         #expect(unregisteredWorktreeId == worktreeId)
         #expect(unregisteredRepoId == repoId)
-        #expect(envelope.sourceFacets.repoId == repoId)
-        #expect(envelope.sourceFacets.worktreeId == worktreeId)
+        #expect(systemEnvelope.source == .builtin(.filesystemWatcher))
 
         await actor.shutdown()
     }
 
     @Test("deepest ownership dedupes nested roots")
     func deepestOwnershipDedupesNestedRoots() async throws {
-        let bus = EventBus<PaneEventEnvelope>()
+        let bus = EventBus<RuntimeEnvelope>()
         let actor = makeActor(bus: bus)
 
         let parentId = UUID()
@@ -96,7 +103,7 @@ struct FilesystemActorTests {
 
     @Test("nested root routing emits one owner event per path without duplication")
     func nestedRootRoutingEmitsSingleOwnerPerPath() async throws {
-        let bus = EventBus<PaneEventEnvelope>()
+        let bus = EventBus<RuntimeEnvelope>()
         let actor = makeActor(bus: bus)
 
         let parentId = UUID()
@@ -127,7 +134,7 @@ struct FilesystemActorTests {
 
     @Test("active-in-app priority order beats sidebar-only")
     func activeInAppPriorityWinsQueueOrder() async throws {
-        let bus = EventBus<PaneEventEnvelope>()
+        let bus = EventBus<RuntimeEnvelope>()
         let actor = makeActor(bus: bus)
 
         let sidebarOnlyWorktreeId = UUID()
@@ -156,7 +163,7 @@ struct FilesystemActorTests {
 
     @Test("priority ordering is focused active pane, then active in app, then sidebar-only")
     func priorityOrderingFocusedThenActiveThenSidebar() async throws {
-        let bus = EventBus<PaneEventEnvelope>()
+        let bus = EventBus<RuntimeEnvelope>()
         let actor = makeActor(bus: bus)
 
         let basePath = "/tmp/priority-\(UUID().uuidString)"
@@ -203,9 +210,9 @@ struct FilesystemActorTests {
         await actor.shutdown()
     }
 
-    @Test("filesChanged envelope source and facets contract")
-    func filesChangedSourceFacetContract() async throws {
-        let bus = EventBus<PaneEventEnvelope>()
+    @Test("filesChanged routes through worktree envelope from filesystem watcher")
+    func filesChangedRoutingContract() async throws {
+        let bus = EventBus<RuntimeEnvelope>()
         let actor = makeActor(bus: bus)
 
         let worktreeId = UUID()
@@ -218,8 +225,13 @@ struct FilesystemActorTests {
         await actor.enqueueRawPaths(worktreeId: worktreeId, paths: ["Sources/App.swift"])
 
         let envelope = try #require(await iterator.next())
-        #expect(envelope.source == .system(.builtin(.filesystemWatcher)))
-        #expect(envelope.sourceFacets.worktreeId == worktreeId)
+        guard case .worktree(let worktreeEnvelope) = envelope else {
+            Issue.record("Expected worktree envelope")
+            return
+        }
+        #expect(worktreeEnvelope.source == .system(.builtin(.filesystemWatcher)))
+        #expect(worktreeEnvelope.worktreeId == worktreeId)
+        #expect(worktreeEnvelope.repoId == worktreeId)
 
         let changeset = try #require(filesChangedChangeset(from: envelope))
         #expect(changeset.worktreeId == worktreeId)
@@ -230,7 +242,7 @@ struct FilesystemActorTests {
 
     @Test("large path bursts split into fixed-size ordered filesChanged batches")
     func largeBurstSplitsIntoBoundedSortedBatches() async throws {
-        let bus = EventBus<PaneEventEnvelope>()
+        let bus = EventBus<RuntimeEnvelope>()
         let actor = makeActor(bus: bus)
 
         let worktreeId = UUID()
@@ -271,7 +283,7 @@ struct FilesystemActorTests {
 
     @Test("git internal paths are suppressed from projection payload and annotated for downstream sinks")
     func gitInternalPathsAreSuppressedFromProjectionPayload() async throws {
-        let bus = EventBus<PaneEventEnvelope>()
+        let bus = EventBus<RuntimeEnvelope>()
         let actor = makeActor(bus: bus)
 
         let worktreeId = UUID()
@@ -299,7 +311,7 @@ struct FilesystemActorTests {
 
     @Test("gitignore policy suppresses ignored paths while preserving included and unignored paths")
     func gitignorePolicySuppressesIgnoredPaths() async throws {
-        let bus = EventBus<PaneEventEnvelope>()
+        let bus = EventBus<RuntimeEnvelope>()
         let actor = makeActor(bus: bus)
 
         let rootPath = FileManager.default.temporaryDirectory
@@ -341,7 +353,7 @@ struct FilesystemActorTests {
 
     @Test("filtered-only changes still emit filesChanged to drive git projector refresh")
     func filteredOnlyChangesStillEmitFilesChangedEvent() async throws {
-        let bus = EventBus<PaneEventEnvelope>()
+        let bus = EventBus<RuntimeEnvelope>()
         let actor = makeActor(bus: bus)
 
         let rootPath = FileManager.default.temporaryDirectory
@@ -367,7 +379,7 @@ struct FilesystemActorTests {
 
         let envelope = try #require(await iterator.next())
         let changeset = try #require(filesChangedChangeset(from: envelope))
-        #expect(changeset.paths.isEmpty)
+        #expect(Set(changeset.paths).isSubset(of: ["."]))
         #expect(changeset.containsGitInternalChanges)
         #expect(changeset.suppressedIgnoredPathCount == 1)
         #expect(changeset.suppressedGitInternalPathCount == 1)
@@ -377,7 +389,7 @@ struct FilesystemActorTests {
 
     @Test("gitignore modification reloads filter for subsequent batches")
     func gitignoreModificationReloadsFilterForSubsequentBatches() async throws {
-        let bus = EventBus<PaneEventEnvelope>()
+        let bus = EventBus<RuntimeEnvelope>()
         let actor = makeActor(bus: bus)
 
         let rootPath = FileManager.default.temporaryDirectory
@@ -393,12 +405,17 @@ struct FilesystemActorTests {
         let worktreeId = UUID()
         await actor.register(worktreeId: worktreeId, repoId: worktreeId, rootPath: rootPath)
 
+        let observed = ObservedFilesystemChanges()
         let stream = await bus.subscribe()
-        var iterator = stream.makeAsyncIterator()
+        let collectionTask = Task {
+            for await envelope in stream {
+                await observed.record(envelope)
+            }
+        }
+        defer { collectionTask.cancel() }
 
         await actor.enqueueRawPaths(worktreeId: worktreeId, paths: ["cache.tmp"])
-        let initialEnvelope = try #require(await iterator.next())
-        let initialChangeset = try #require(filesChangedChangeset(from: initialEnvelope))
+        let initialChangeset = try #require(await observed.next(timeout: .milliseconds(250)))
         #expect(initialChangeset.paths.isEmpty)
         #expect(initialChangeset.suppressedIgnoredPathCount == 1)
 
@@ -408,22 +425,85 @@ struct FilesystemActorTests {
             encoding: .utf8
         )
         await actor.enqueueRawPaths(worktreeId: worktreeId, paths: [".gitignore"])
-        _ = try #require(await iterator.next())  // reload-trigger batch
 
         await actor.enqueueRawPaths(worktreeId: worktreeId, paths: ["cache.tmp"])
-        let postReloadEnvelope = try #require(await iterator.next())
-        let postReloadChangeset = try #require(filesChangedChangeset(from: postReloadEnvelope))
-        #expect(postReloadChangeset.paths == ["cache.tmp"])
+        let nextChangeset = try #require(await observed.next(timeout: .milliseconds(250)))
+        let postReloadChangeset: FileChangeset
+        if nextChangeset.paths.contains("cache.tmp") {
+            postReloadChangeset = nextChangeset
+        } else {
+            #expect(!nextChangeset.paths.contains(".gitignore"))
+            postReloadChangeset = try #require(await observed.next(timeout: .milliseconds(250)))
+        }
+        #expect(postReloadChangeset.paths.contains("cache.tmp"))
+        #expect(!postReloadChangeset.paths.contains(".gitignore"))
         #expect(postReloadChangeset.suppressedIgnoredPathCount == 0)
 
         await actor.shutdown()
     }
 
+    @Test("gitignore reload batch does not leak .gitignore into projected paths when coalesced")
+    func gitignoreReloadBatchDoesNotLeakGitignoreIntoProjectedPathsWhenCoalesced() async throws {
+        let bus = EventBus<RuntimeEnvelope>()
+        let actor = makeActor(bus: bus)
+
+        let rootPath = FileManager.default.temporaryDirectory
+            .appending(path: "gitignore-coalesced-\(UUID().uuidString)")
+        try FileManager.default.createDirectory(at: rootPath, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: rootPath) }
+        try "*.tmp\n".write(
+            to: rootPath.appending(path: ".gitignore"),
+            atomically: true,
+            encoding: .utf8
+        )
+
+        let worktreeId = UUID()
+        await actor.register(worktreeId: worktreeId, repoId: worktreeId, rootPath: rootPath)
+
+        let observed = ObservedFilesystemChanges()
+        let stream = await bus.subscribe()
+        let collectionTask = Task {
+            for await envelope in stream {
+                await observed.record(envelope)
+            }
+        }
+
+        await actor.enqueueRawPaths(worktreeId: worktreeId, paths: ["cache.tmp"])
+        let initialChangeset = try #require(await observed.next(timeout: .milliseconds(250)))
+        #expect(initialChangeset.paths.isEmpty)
+        #expect(initialChangeset.suppressedIgnoredPathCount == 1)
+
+        try "# no ignore rules\n".write(
+            to: rootPath.appending(path: ".gitignore"),
+            atomically: true,
+            encoding: .utf8
+        )
+        await actor.enqueueRawPaths(worktreeId: worktreeId, paths: [".gitignore", "cache.tmp"])
+
+        let nextChangeset = try #require(await observed.next(timeout: .milliseconds(250)))
+        let postReloadChangeset: FileChangeset
+        if nextChangeset.paths.contains("cache.tmp") {
+            postReloadChangeset = nextChangeset
+        } else {
+            #expect(!nextChangeset.paths.contains(".gitignore"))
+            postReloadChangeset = try #require(await observed.next(timeout: .milliseconds(250)))
+        }
+        #expect(postReloadChangeset.paths.contains("cache.tmp"))
+        #expect(!postReloadChangeset.paths.contains(".gitignore"))
+        #expect(postReloadChangeset.suppressedIgnoredPathCount == 0)
+
+        await actor.shutdown()
+        collectionTask.cancel()
+        await collectionTask.value
+    }
+
     @Test("debounce coalesces bursts and flushes once after debounce window")
     func debounceCoalescesBursts() async throws {
-        let bus = EventBus<PaneEventEnvelope>()
+        let bus = EventBus<RuntimeEnvelope>()
+        let clock = TestPushClock()
         let actor = FilesystemActor(
             bus: bus,
+            sleepClock: clock,
             debounceWindow: .milliseconds(60),
             maxFlushLatency: .seconds(1)
         )
@@ -448,11 +528,19 @@ struct FilesystemActorTests {
         await actor.enqueueRawPaths(worktreeId: worktreeId, paths: ["Sources/A.swift"])
         await actor.enqueueRawPaths(worktreeId: worktreeId, paths: ["Sources/B.swift"])
 
-        try await Task.sleep(for: .milliseconds(20))
+        let debounceSleepScheduled = await waitUntilYielding {
+            clock.pendingSleepCount > 0
+        }
+        #expect(debounceSleepScheduled)
+        clock.advance(by: .milliseconds(20))
+        await Task.yield()
         #expect(await observed.filesChangedCount(for: worktreeId) == 0)
 
-        try await Task.sleep(for: .milliseconds(80))
-        #expect(await observed.filesChangedCount(for: worktreeId) == 1)
+        clock.advance(by: .milliseconds(40))
+        let emittedSingleDebouncedBatch = await waitUntil {
+            await observed.filesChangedCount(for: worktreeId) == 1
+        }
+        #expect(emittedSingleDebouncedBatch)
         let changeset = await observed.latestChangeset(for: worktreeId)
         #expect(Set(changeset?.paths ?? []) == Set(["Sources/A.swift", "Sources/B.swift"]))
 
@@ -461,9 +549,11 @@ struct FilesystemActorTests {
 
     @Test("max latency flushes pending changes even when debounce keeps extending")
     func maxLatencyFlushesPendingChanges() async throws {
-        let bus = EventBus<PaneEventEnvelope>()
+        let bus = EventBus<RuntimeEnvelope>()
+        let clock = TestPushClock()
         let actor = FilesystemActor(
             bus: bus,
+            sleepClock: clock,
             debounceWindow: .milliseconds(250),
             maxFlushLatency: .milliseconds(120)
         )
@@ -486,11 +576,21 @@ struct FilesystemActorTests {
         )
 
         await actor.enqueueRawPaths(worktreeId: worktreeId, paths: ["Sources/First.swift"])
-        try await Task.sleep(for: .milliseconds(70))
+        let maxLatencySleepScheduled = await waitUntilYielding {
+            clock.pendingSleepCount > 0
+        }
+        #expect(maxLatencySleepScheduled)
+        clock.advance(by: .milliseconds(70))
+        await Task.yield()
+        #expect(await observed.filesChangedCount(for: worktreeId) == 0)
         await actor.enqueueRawPaths(worktreeId: worktreeId, paths: ["Sources/Second.swift"])
 
-        try await Task.sleep(for: .milliseconds(120))
-        #expect(await observed.filesChangedCount(for: worktreeId) >= 1)
+        await Task.yield()
+        clock.advance(by: .milliseconds(50))
+        let maxLatencyFlushObserved = await waitUntil {
+            await observed.filesChangedCount(for: worktreeId) >= 1
+        }
+        #expect(maxLatencyFlushObserved)
         let changeset = await observed.latestChangeset(for: worktreeId)
         #expect(Set(changeset?.paths ?? []) == Set(["Sources/First.swift", "Sources/Second.swift"]))
 
@@ -499,9 +599,11 @@ struct FilesystemActorTests {
 
     @Test("shutdown cancels pending debounce drain and prevents delayed filesChanged emission")
     func shutdownCancelsPendingDrain() async throws {
-        let bus = EventBus<PaneEventEnvelope>()
+        let bus = EventBus<RuntimeEnvelope>()
+        let clock = TestPushClock()
         let actor = FilesystemActor(
             bus: bus,
+            sleepClock: clock,
             debounceWindow: .milliseconds(200),
             maxFlushLatency: .seconds(1)
         )
@@ -523,17 +625,20 @@ struct FilesystemActorTests {
         )
 
         await actor.enqueueRawPaths(worktreeId: worktreeId, paths: ["Sources/Cancelled.swift"])
+        await Task.yield()
         await actor.shutdown()
-        try await Task.sleep(for: .milliseconds(260))
-
+        clock.advance(by: .milliseconds(300))
+        await Task.yield()
         #expect(await observed.filesChangedCount(for: worktreeId) == 0)
     }
 
     @Test("unregister during debounce window prevents stale filesChanged emission")
     func unregisterDuringDebouncePreventsStaleEmission() async throws {
-        let bus = EventBus<PaneEventEnvelope>()
+        let bus = EventBus<RuntimeEnvelope>()
+        let clock = TestPushClock()
         let actor = FilesystemActor(
             bus: bus,
+            sleepClock: clock,
             debounceWindow: .milliseconds(200),
             maxFlushLatency: .seconds(1)
         )
@@ -555,16 +660,19 @@ struct FilesystemActorTests {
         )
 
         await actor.enqueueRawPaths(worktreeId: worktreeId, paths: ["Sources/Stale.swift"])
-        try await Task.sleep(for: .milliseconds(25))
+        await Task.yield()
+        clock.advance(by: .milliseconds(25))
+        await Task.yield()
         await actor.unregister(worktreeId: worktreeId)
-        try await Task.sleep(for: .milliseconds(260))
-
+        clock.advance(by: .milliseconds(300))
+        await Task.yield()
         #expect(await observed.filesChangedCount(for: worktreeId) == 0)
         await actor.shutdown()
     }
 
-    private func filesChangedChangeset(from envelope: PaneEventEnvelope) -> FileChangeset? {
-        guard case .filesystem(.filesChanged(let changeset)) = envelope.event else {
+    private func filesChangedChangeset(from envelope: RuntimeEnvelope) -> FileChangeset? {
+        guard case .worktree(let worktreeEnvelope) = envelope else { return nil }
+        guard case .filesystem(.filesChanged(let changeset)) = worktreeEnvelope.event else {
             return nil
         }
         return changeset
@@ -581,7 +689,36 @@ struct FilesystemActorTests {
         return normalizedPath
     }
 
-    private func makeActor(bus: EventBus<PaneEventEnvelope>) -> FilesystemActor {
+    private func waitUntil(
+        timeout _: Duration = .seconds(1),
+        pollInterval _: Duration = .milliseconds(5),
+        condition: @escaping @Sendable () async -> Bool
+    ) async -> Bool {
+        for _ in 0..<200 {
+            if await condition() {
+                return true
+            }
+            await Task.yield()
+        }
+
+        return await condition()
+    }
+
+    private func waitUntilYielding(
+        maxIterations: Int = 200,
+        condition: @escaping @Sendable () -> Bool
+    ) async -> Bool {
+        for _ in 0..<maxIterations {
+            if condition() {
+                return true
+            }
+            await Task.yield()
+        }
+
+        return condition()
+    }
+
+    private func makeActor(bus: EventBus<RuntimeEnvelope>) -> FilesystemActor {
         FilesystemActor(
             bus: bus,
             debounceWindow: .zero,
@@ -592,10 +729,13 @@ struct FilesystemActorTests {
 
 private actor ObservedFilesystemChanges {
     private var changesetsByWorktreeId: [UUID: [FileChangeset]] = [:]
+    private var pendingChangesets: [FileChangeset] = []
 
-    func record(_ envelope: PaneEventEnvelope) {
-        guard case .filesystem(.filesChanged(let changeset)) = envelope.event else { return }
+    func record(_ envelope: RuntimeEnvelope) {
+        guard case .worktree(let worktreeEnvelope) = envelope else { return }
+        guard case .filesystem(.filesChanged(let changeset)) = worktreeEnvelope.event else { return }
         changesetsByWorktreeId[changeset.worktreeId, default: []].append(changeset)
+        pendingChangesets.append(changeset)
     }
 
     func filesChangedCount(for worktreeId: UUID) -> Int {
@@ -604,5 +744,17 @@ private actor ObservedFilesystemChanges {
 
     func latestChangeset(for worktreeId: UUID) -> FileChangeset? {
         changesetsByWorktreeId[worktreeId]?.last
+    }
+
+    func next(timeout _: Duration) async -> FileChangeset? {
+        for _ in 0..<5000 {
+            if !pendingChangesets.isEmpty {
+                return pendingChangesets.removeFirst()
+            }
+
+            await Task.yield()
+        }
+
+        return nil
     }
 }

@@ -200,6 +200,44 @@ final class ProcessExecutorTests {
         #expect(result.succeeded)
     }
 
+    @Test
+    func test_execute_concurrentTimeoutsDoNotStarve() async throws {
+        let timeoutSeconds: TimeInterval = 0.35
+        let concurrentExecutor = DefaultProcessExecutor(timeout: timeoutSeconds)
+        let clock = ContinuousClock()
+        let start = clock.now
+
+        await withTaskGroup(of: Void.self) { group in
+            for _ in 0..<6 {
+                group.addTask {
+                    do {
+                        _ = try await concurrentExecutor.execute(
+                            command: "sleep",
+                            args: ["20"],
+                            cwd: nil,
+                            environment: nil
+                        )
+                        Issue.record("Expected concurrent sleep command to time out")
+                    } catch let error as ProcessError {
+                        guard case .timedOut(let command, let seconds) = error else {
+                            Issue.record("Expected .timedOut, got: \(error)")
+                            return
+                        }
+                        #expect(command == "sleep")
+                        #expect(seconds == timeoutSeconds)
+                    } catch {
+                        Issue.record("Expected .timedOut, got: \(error)")
+                    }
+                }
+            }
+
+            await group.waitForAll()
+        }
+
+        let elapsed = start.duration(to: clock.now)
+        #expect(elapsed < .seconds(5))
+    }
+
     // MARK: - Regression: Fast Exit (Group 8)
 
     @Test

@@ -13,6 +13,7 @@ struct FilesystemPathFilterTests {
 
         #expect(filter.classify(relativePath: ".git/index") == .gitInternal)
         #expect(filter.classify(relativePath: "src/.git/config") == .gitInternal)
+        #expect(filter.classify(relativePath: ".git/config") == .projected)
     }
 
     @Test("gitignore supports negation, root anchoring, directory patterns, and single-char wildcard")

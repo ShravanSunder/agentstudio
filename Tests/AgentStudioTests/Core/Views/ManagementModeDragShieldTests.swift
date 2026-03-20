@@ -6,7 +6,7 @@ import UniformTypeIdentifiers
 
 /// Minimal stub conforming to NSDraggingInfo for unit testing drag shield behavior.
 /// Uses a custom pasteboard to control available types without polluting the system drag pasteboard.
-private final class MockDraggingInfo: NSObject, @preconcurrency NSDraggingInfo {
+private final class MockDraggingInfo: NSObject, NSDraggingInfo {
     nonisolated let draggingPasteboard: NSPasteboard
 
     @MainActor

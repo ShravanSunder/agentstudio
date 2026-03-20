@@ -1,0 +1,45 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+repo_root="$(git rev-parse --show-toplevel)"
+cd "$repo_root"
+
+if ! command -v swift-format >/dev/null 2>&1; then
+  echo "pre-commit: swift-format is required but not installed." >&2
+  exit 1
+fi
+
+if ! command -v swiftlint >/dev/null 2>&1; then
+  echo "pre-commit: swiftlint is required but not installed." >&2
+  exit 1
+fi
+
+mapfile -t staged_swift_files < <(git diff --cached --name-only --diff-filter=ACMR -- '*.swift')
+
+if [ "${#staged_swift_files[@]}" -eq 0 ]; then
+  exit 0
+fi
+
+mapfile -t unstaged_swift_files < <(git diff --name-only -- '*.swift')
+for staged_file in "${staged_swift_files[@]}"; do
+  for unstaged_file in "${unstaged_swift_files[@]}"; do
+    if [ "$staged_file" = "$unstaged_file" ]; then
+      echo "pre-commit: '$staged_file' has unstaged Swift changes." >&2
+      echo "pre-commit: stage or stash all Swift edits before committing so auto-fix can safely re-stage files." >&2
+      exit 1
+    fi
+  done
+done
+
+echo "pre-commit: formatting staged Swift files"
+swift-format format --in-place "${staged_swift_files[@]}"
+
+echo "pre-commit: auto-fixing SwiftLint violations on staged Swift files"
+swiftlint lint --fix --force-exclude --quiet "${staged_swift_files[@]}"
+
+git add -- "${staged_swift_files[@]}"
+
+echo "pre-commit: verifying SwiftLint on staged Swift files"
+swiftlint lint --strict --force-exclude --quiet "${staged_swift_files[@]}"
+
+echo "pre-commit: Swift format/lint checks passed"

@@ -1,4 +1,5 @@
 import Foundation
+import os
 
 /// Shared event channel for pane runtimes:
 /// - Tracks envelope sequence numbers
@@ -7,18 +8,19 @@ import Foundation
 /// - Posts envelopes to the app-wide pane event bus
 @MainActor
 final class PaneRuntimeEventChannel {
+    private static let logger = Logger(subsystem: "com.agentstudio", category: "PaneRuntimeEventChannel")
     private let clock: ContinuousClock
     private let replayBuffer: EventReplayBuffer
-    private let paneEventBus: EventBus<PaneEventEnvelope>
+    private let paneEventBus: EventBus<RuntimeEnvelope>
 
     private var sequence: UInt64 = 0
     private var nextSubscriberId: UInt64 = 0
-    private var subscribers: [UInt64: AsyncStream<PaneEventEnvelope>.Continuation] = [:]
+    private var subscribers: [UInt64: AsyncStream<RuntimeEnvelope>.Continuation] = [:]
 
     init(
         clock: ContinuousClock = ContinuousClock(),
         replayBuffer: EventReplayBuffer = EventReplayBuffer(),
-        paneEventBus: EventBus<PaneEventEnvelope> = PaneRuntimeEventBus.shared
+        paneEventBus: EventBus<RuntimeEnvelope> = PaneRuntimeEventBus.shared
     ) {
         self.clock = clock
         self.replayBuffer = replayBuffer
@@ -29,8 +31,8 @@ final class PaneRuntimeEventChannel {
         sequence
     }
 
-    func subscribe(isTerminated: Bool) -> AsyncStream<PaneEventEnvelope> {
-        let (stream, continuation) = AsyncStream.makeStream(of: PaneEventEnvelope.self)
+    func subscribe(isTerminated: Bool) -> AsyncStream<RuntimeEnvelope> {
+        let (stream, continuation) = AsyncStream.makeStream(of: RuntimeEnvelope.self)
         guard !isTerminated else {
             continuation.finish()
             return stream
@@ -87,24 +89,38 @@ final class PaneRuntimeEventChannel {
         persistForReplay: Bool = true
     ) {
         sequence += 1
-        let envelope = PaneEventEnvelope(
-            source: .pane(paneId),
-            sourceFacets: metadata.facets,
-            paneKind: paneKind,
-            seq: sequence,
-            commandId: commandId,
-            correlationId: correlationId,
-            timestamp: clock.now,
-            epoch: 0,
-            event: event
+        let envelope = RuntimeEnvelope.pane(
+            PaneEnvelope(
+                source: .pane(paneId),
+                seq: sequence,
+                timestamp: clock.now,
+                correlationId: correlationId,
+                commandId: commandId,
+                paneId: paneId,
+                paneKind: paneKind,
+                event: event
+            )
         )
 
         if persistForReplay {
             replayBuffer.append(envelope)
         }
 
-        for continuation in subscribers.values {
-            continuation.yield(envelope)
+        for (subscriberId, continuation) in subscribers {
+            switch continuation.yield(envelope) {
+            case .enqueued:
+                continue
+            case .dropped:
+                Self.logger.warning(
+                    "Dropped local runtime envelope for subscriberId=\(subscriberId, privacy: .public) seq=\(envelope.seq, privacy: .public)"
+                )
+            case .terminated:
+                Self.logger.debug(
+                    "Skipped terminated subscriberId=\(subscriberId, privacy: .public) seq=\(envelope.seq, privacy: .public)"
+                )
+            @unknown default:
+                continue
+            }
         }
 
         // Intentional fire-and-forget hop to keep runtime emit paths non-blocking.
@@ -112,7 +128,14 @@ final class PaneRuntimeEventChannel {
         // Ordering is guaranteed for local subscribers/replay (yield + append above),
         // while cross-runtime bus fanout is best-effort and eventually consistent.
         Task { [paneEventBus] in
-            await paneEventBus.post(envelope)
+            let postResult = await paneEventBus.post(envelope)
+            if postResult.droppedCount > 0 {
+                Self.logger.warning(
+                    "Dropped pane runtime bus event for \(postResult.droppedCount, privacy: .public) subscriber(s); seq=\(envelope.seq, privacy: .public)"
+                )
+            }
         }
+
+        _ = metadata
     }
 }

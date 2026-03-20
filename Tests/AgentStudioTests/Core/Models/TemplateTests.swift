@@ -13,7 +13,6 @@ final class TemplateTests {
     func test_terminalTemplate_defaults() {
         let template = TerminalTemplate()
         #expect(template.title == "Terminal")
-        #expect((template.agent) == nil)
         #expect(template.provider == .zmx)
         #expect((template.relativeWorkingDir) == nil)
     }
@@ -25,14 +24,12 @@ final class TemplateTests {
         let repoId = UUID()
         let template = TerminalTemplate(
             title: "Claude Agent",
-            agent: .claude,
             provider: .zmx
         )
 
         let pane = template.instantiate(worktreeId: worktreeId, repoId: repoId)
 
         #expect(pane.title == "Claude Agent")
-        #expect(pane.agent == .claude)
         #expect(pane.provider == .zmx)
         #expect(pane.worktreeId == worktreeId)
         #expect(pane.repoId == repoId)
@@ -43,7 +40,6 @@ final class TemplateTests {
     func test_terminalTemplate_codable_roundTrip() throws {
         let template = TerminalTemplate(
             title: "Dev",
-            agent: .claude,
             provider: .ghostty,
             relativeWorkingDir: "src"
         )
@@ -53,7 +49,6 @@ final class TemplateTests {
 
         #expect(decoded.id == template.id)
         #expect(decoded.title == "Dev")
-        #expect(decoded.agent == .claude)
         #expect(decoded.relativeWorkingDir == "src")
     }
 
@@ -121,8 +116,8 @@ final class TemplateTests {
         let template = WorktreeTemplate(
             name: "Full Stack",
             terminals: [
-                TerminalTemplate(title: "Frontend", agent: nil),
-                TerminalTemplate(title: "Backend", agent: .claude),
+                TerminalTemplate(title: "Frontend"),
+                TerminalTemplate(title: "Backend"),
             ],
             createPolicy: .onCreate,
             splitDirection: .vertical

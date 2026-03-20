@@ -19,20 +19,17 @@ struct SidebarRepoGroupingTests {
                     id: UUID(uuidString: "00000000-0000-0000-0000-000000000201")!,
                     name: "main",
                     path: "/tmp/acme/main",
-                    branch: "main",
                     isMainWorktree: true
                 ),
                 makeWorktree(
                     id: UUID(uuidString: "00000000-0000-0000-0000-000000000202")!,
                     name: "feature-x",
-                    path: sharedPath,
-                    branch: "feature-x"
+                    path: sharedPath
                 ),
                 makeWorktree(
                     id: UUID(uuidString: "00000000-0000-0000-0000-000000000203")!,
                     name: "hotfix",
-                    path: "/tmp/acme/hotfix",
-                    branch: "hotfix"
+                    path: "/tmp/acme/hotfix"
                 ),
             ]
         )
@@ -45,15 +42,15 @@ struct SidebarRepoGroupingTests {
                 makeWorktree(
                     id: UUID(uuidString: "00000000-0000-0000-0000-000000000204")!,
                     name: "feature-x",
-                    path: sharedPath,
-                    branch: "feature-x"
+                    path: sharedPath
                 )
             ]
         )
 
         let repos = [ownerRepo, duplicateRepo]
+        let sidebarRepos = repos.map(SidebarRepo.init(repo:))
         let groups = SidebarRepoGrouping.buildGroups(
-            repos: repos,
+            repos: sidebarRepos,
             metadataByRepoId: SidebarRepoGroupingMocks.metadata(for: repos)
         )
 
@@ -78,8 +75,7 @@ struct SidebarRepoGroupingTests {
                 makeWorktree(
                     id: UUID(uuidString: "00000000-0000-0000-0000-000000000211")!,
                     name: "feature-y",
-                    path: sharedPath,
-                    branch: "feature-y"
+                    path: sharedPath
                 )
             ]
         )
@@ -92,15 +88,15 @@ struct SidebarRepoGroupingTests {
                 makeWorktree(
                     id: UUID(uuidString: "00000000-0000-0000-0000-000000000212")!,
                     name: "feature-y",
-                    path: sharedPath,
-                    branch: "feature-y"
+                    path: sharedPath
                 )
             ]
         )
 
         let repos = [repoA, repoB]
+        let sidebarRepos = repos.map(SidebarRepo.init(repo:))
         let groups = SidebarRepoGrouping.buildGroups(
-            repos: repos,
+            repos: sidebarRepos,
             metadataByRepoId: SidebarRepoGroupingMocks.metadata(for: repos)
         )
 
@@ -122,8 +118,7 @@ struct SidebarRepoGroupingTests {
                 makeWorktree(
                     id: UUID(uuidString: "00000000-0000-0000-0000-000000000221")!,
                     name: "worktree-a",
-                    path: canonical,
-                    branch: "worktree-a"
+                    path: canonical
                 )
             ]
         )
@@ -136,15 +131,15 @@ struct SidebarRepoGroupingTests {
                 makeWorktree(
                     id: UUID(uuidString: "00000000-0000-0000-0000-000000000222")!,
                     name: "worktree-a",
-                    path: variant,
-                    branch: "worktree-a"
+                    path: variant
                 )
             ]
         )
 
         let repos = [repoA, repoB]
+        let sidebarRepos = repos.map(SidebarRepo.init(repo:))
         let groups = SidebarRepoGrouping.buildGroups(
-            repos: repos,
+            repos: sidebarRepos,
             metadataByRepoId: SidebarRepoGroupingMocks.metadata(for: repos)
         )
 
@@ -171,15 +166,15 @@ struct SidebarRepoGroupingTests {
                     id: UUID(uuidString: "00000000-0000-0000-0000-000000000231")!,
                     name: "main",
                     path: "/tmp/active-repo",
-                    branch: "main",
                     isMainWorktree: true
                 )
             ]
         )
 
         let repos = [emptyRepo, activeRepo]
+        let sidebarRepos = repos.map(SidebarRepo.init(repo:))
         let groups = SidebarRepoGrouping.buildGroups(
-            repos: repos,
+            repos: sidebarRepos,
             metadataByRepoId: SidebarRepoGroupingMocks.metadata(for: repos)
         )
 
@@ -199,20 +194,18 @@ struct SidebarRepoGroupingTests {
                     id: UUID(uuidString: "00000000-0000-0000-0000-000000000241")!,
                     name: "main",
                     path: "/tmp/count-repo",
-                    branch: "main",
                     isMainWorktree: true
                 ),
                 makeWorktree(
                     id: UUID(uuidString: "00000000-0000-0000-0000-000000000242")!,
                     name: "feature-z",
-                    path: "/tmp/count-repo-feature-z",
-                    branch: "feature-z"
+                    path: "/tmp/count-repo-feature-z"
                 ),
             ]
         )
 
         let groups = SidebarRepoGrouping.buildGroups(
-            repos: [repo],
+            repos: [repo].map(SidebarRepo.init(repo:)),
             metadataByRepoId: SidebarRepoGroupingMocks.metadata(for: [repo])
         )
 
@@ -232,7 +225,6 @@ struct SidebarRepoGroupingTests {
                     id: UUID(uuidString: "00000000-0000-0000-0000-000000000251")!,
                     name: "a-main",
                     path: "/tmp/repo-a",
-                    branch: "main",
                     isMainWorktree: true
                 )
             ]
@@ -247,15 +239,15 @@ struct SidebarRepoGroupingTests {
                     id: UUID(uuidString: "00000000-0000-0000-0000-000000000252")!,
                     name: "b-main",
                     path: "/tmp/repo-b",
-                    branch: "main",
                     isMainWorktree: true
                 )
             ]
         )
 
         let repos = [repoA, repoB]
+        let sidebarRepos = repos.map(SidebarRepo.init(repo:))
         let groups = SidebarRepoGrouping.buildGroups(
-            repos: repos,
+            repos: sidebarRepos,
             metadataByRepoId: SidebarRepoGroupingMocks.metadata(for: repos)
         )
 

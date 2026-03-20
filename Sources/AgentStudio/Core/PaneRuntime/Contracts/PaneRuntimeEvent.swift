@@ -1,6 +1,6 @@
 import Foundation
 
-/// Discriminated union for all runtime-plane events carried on `PaneEventEnvelope`.
+/// Discriminated union for all pane-scoped runtime-plane events carried on `RuntimeEnvelope.pane`.
 ///
 /// Each case defines its own domain payload and participates in self-classifying
 /// `actionPolicy` routing through `NotificationReducer`.
@@ -100,6 +100,31 @@ struct GitWorkingTreeSummary: Sendable, Equatable {
     let changed: Int
     let staged: Int
     let untracked: Int
+    let linesAdded: Int
+    let linesDeleted: Int
+    let aheadCount: Int?
+    let behindCount: Int?
+    let hasUpstream: Bool?
+
+    init(
+        changed: Int,
+        staged: Int,
+        untracked: Int,
+        linesAdded: Int = 0,
+        linesDeleted: Int = 0,
+        aheadCount: Int? = nil,
+        behindCount: Int? = nil,
+        hasUpstream: Bool? = nil
+    ) {
+        self.changed = changed
+        self.staged = staged
+        self.untracked = untracked
+        self.linesAdded = linesAdded
+        self.linesDeleted = linesDeleted
+        self.aheadCount = aheadCount
+        self.behindCount = behindCount
+        self.hasUpstream = hasUpstream
+    }
 }
 
 struct GitWorkingTreeSnapshot: Sendable, Equatable {

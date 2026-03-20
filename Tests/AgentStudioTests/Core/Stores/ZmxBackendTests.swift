@@ -252,7 +252,7 @@ final class ZmxBackendTests {
 
     func test_createPaneSession_returnsHandleWithoutCLICall() async throws {
         // Arrange
-        let worktree = makeWorktree(name: "feature-x", path: "/tmp/feature-x", branch: "feature-x")
+        let worktree = makeWorktree(name: "feature-x", path: "/tmp/feature-x")
         let repo = makeRepo()
         // Use a real temp dir so createDirectory succeeds
         let tempZmxDir = FileManager.default.temporaryDirectory

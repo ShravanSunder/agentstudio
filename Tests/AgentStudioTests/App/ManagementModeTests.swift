@@ -10,12 +10,13 @@ struct ManagementModeTests {
 
     private func waitForFlag(
         _ flag: LockedFlag,
-        timeout: Duration = .seconds(2)
+        maxTurns: Int = 400
     ) async -> Bool {
-        let clock = ContinuousClock()
-        let deadline = clock.now.advanced(by: timeout)
-        while !flag.value, clock.now < deadline {
-            try? await Task.sleep(for: .milliseconds(5))
+        for _ in 0..<maxTurns {
+            if flag.value {
+                return true
+            }
+            await Task.yield()
         }
         return flag.value
     }

@@ -297,8 +297,8 @@ struct CommandBarDataSourceTests {
         }
 
         let eventBox = AppEventBox()
+        let stream = await AppEventBus.shared.subscribe()
         let captureTask = Task {
-            let stream = await AppEventBus.shared.subscribe()
             for await event in stream {
                 guard case .movePaneToTabRequested = event else { continue }
                 eventBox.set(event)
@@ -306,10 +306,12 @@ struct CommandBarDataSourceTests {
             }
         }
         defer { captureTask.cancel() }
-        try? await Task.sleep(for: .milliseconds(10))
 
         action()
-        try? await Task.sleep(for: .milliseconds(20))
+        let didPostMoveEvent = await waitUntil {
+            eventBox.get() != nil
+        }
+        #expect(didPostMoveEvent)
 
         guard let postedEvent = eventBox.get() else {
             Issue.record("Expected movePaneToTabRequested event to be posted")
@@ -331,6 +333,20 @@ struct CommandBarDataSourceTests {
         #expect(targetTabId == tabB.id)
     }
 
+    private func waitUntil(
+        maxTurns: Int = 200,
+        condition: @escaping @Sendable () -> Bool
+    ) async -> Bool {
+        for _ in 0..<maxTurns {
+            if condition() {
+                return true
+            }
+            await Task.yield()
+        }
+
+        return condition()
+    }
+
     // MARK: - Repos Scope
 
     @Test
@@ -349,19 +365,19 @@ struct CommandBarDataSourceTests {
         // Arrange
         let store = makeStore()
         let repo = store.addRepo(at: URL(filePath: "/tmp/test-repo"))
-        store.updateRepoWorktrees(
+        store.reconcileDiscoveredWorktrees(
             repo.id,
             worktrees: [
                 Worktree(
+                    repoId: repo.id,
                     name: "main",
                     path: URL(filePath: "/tmp/test-repo"),
-                    branch: "main",
                     isMainWorktree: true
                 ),
                 Worktree(
+                    repoId: repo.id,
                     name: "feat-branch",
                     path: URL(filePath: "/tmp/test-repo-feat"),
-                    branch: "feat/branch",
                     isMainWorktree: false
                 ),
             ])

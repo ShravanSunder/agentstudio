@@ -18,5 +18,7 @@ struct FilesystemActorShellGitIntegrationTests {
         #expect(snapshot.branch != nil)
         #expect(summary.changed >= 1)
         #expect(summary.untracked >= 1)
+        #expect(summary.linesAdded + summary.linesDeleted >= 1)
+        #expect(summary.hasUpstream == false)
     }
 }

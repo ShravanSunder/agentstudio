@@ -31,7 +31,7 @@ final class BridgeRuntime: BusPostingPaneRuntime {
         commandHandler: (any BridgeRuntimeCommandHandling)? = nil,
         clock: ContinuousClock = ContinuousClock(),
         replayBuffer: EventReplayBuffer? = nil,
-        paneEventBus: EventBus<PaneEventEnvelope> = PaneRuntimeEventBus.shared
+        paneEventBus: EventBus<RuntimeEnvelope> = PaneRuntimeEventBus.shared
     ) {
         self.paneId = paneId
         self.metadata = metadata
@@ -99,7 +99,7 @@ final class BridgeRuntime: BusPostingPaneRuntime {
         }
     }
 
-    func subscribe() -> AsyncStream<PaneEventEnvelope> {
+    func subscribe() -> AsyncStream<RuntimeEnvelope> {
         eventChannel.subscribe(isTerminated: lifecycle == .terminated)
     }
 

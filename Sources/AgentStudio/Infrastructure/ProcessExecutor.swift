@@ -101,6 +101,40 @@ struct DefaultProcessExecutor: ProcessExecutor {
         process.standardOutput = stdoutPipe
         process.standardError = stderrPipe
 
+        let stdoutBuffer = LockedDataBuffer()
+        let stderrBuffer = LockedDataBuffer()
+
+        let (terminationStream, terminationContinuation) = AsyncStream.makeStream(of: Int32.self)
+        let (stdoutEOFStream, stdoutEOFContinuation) = AsyncStream.makeStream(of: Void.self)
+        let (stderrEOFStream, stderrEOFContinuation) = AsyncStream.makeStream(of: Void.self)
+
+        stdoutPipe.fileHandleForReading.readabilityHandler = { handle in
+            let chunk = handle.availableData
+            guard !chunk.isEmpty else {
+                handle.readabilityHandler = nil
+                stdoutEOFContinuation.yield(())
+                stdoutEOFContinuation.finish()
+                return
+            }
+            stdoutBuffer.append(chunk)
+        }
+
+        stderrPipe.fileHandleForReading.readabilityHandler = { handle in
+            let chunk = handle.availableData
+            guard !chunk.isEmpty else {
+                handle.readabilityHandler = nil
+                stderrEOFContinuation.yield(())
+                stderrEOFContinuation.finish()
+                return
+            }
+            stderrBuffer.append(chunk)
+        }
+
+        process.terminationHandler = { terminatedProcess in
+            terminationContinuation.yield(terminatedProcess.terminationStatus)
+            terminationContinuation.finish()
+        }
+
         try process.run()
 
         // Track whether our timeout killed the process (vs. normal exit/other signal).
@@ -109,62 +143,60 @@ struct DefaultProcessExecutor: ProcessExecutor {
         // Schedule a timeout that terminates the process if it hangs.
         let timeoutSeconds = timeout
         let hardKillGraceSeconds: TimeInterval = 0.2
-        let timeoutWork = DispatchWorkItem { [process] in
+        let timeoutTask = Task { [process] in
+            do {
+                try await Task.sleep(for: .seconds(timeoutSeconds))
+            } catch {
+                return
+            }
+
             guard process.isRunning else { return }
             processLogger.warning("Process '\(command)' exceeded \(Int(timeoutSeconds))s timeout — terminating")
             timedOut.set()
             process.terminate()
 
-            DispatchQueue.global().asyncAfter(deadline: .now() + hardKillGraceSeconds) {
-                guard process.isRunning else { return }
-                processLogger.warning(
-                    "Process '\(command)' ignored terminate() after \(hardKillGraceSeconds, privacy: .public)s — forcing SIGKILL"
-                )
-                let pid = process.processIdentifier
-                if pid > 0 {
-                    _ = kill(pid, SIGKILL)
-                }
+            do {
+                try await Task.sleep(for: .seconds(hardKillGraceSeconds))
+            } catch {
+                return
+            }
+
+            guard process.isRunning else { return }
+            processLogger.warning(
+                "Process '\(command)' ignored terminate() after \(hardKillGraceSeconds, privacy: .public)s — forcing SIGKILL"
+            )
+            let pid = process.processIdentifier
+            if pid > 0 {
+                _ = kill(pid, SIGKILL)
             }
         }
-        DispatchQueue.global().asyncAfter(
-            deadline: .now() + timeoutSeconds,
-            execute: timeoutWork
+
+        var terminationIterator = terminationStream.makeAsyncIterator()
+        var stdoutEOFIterator = stdoutEOFStream.makeAsyncIterator()
+        var stderrEOFIterator = stderrEOFStream.makeAsyncIterator()
+
+        let terminationStatus = await terminationIterator.next()
+        timeoutTask.cancel()
+
+        _ = await stdoutEOFIterator.next()
+        _ = await stderrEOFIterator.next()
+
+        stdoutPipe.fileHandleForReading.readabilityHandler = nil
+        stderrPipe.fileHandleForReading.readabilityHandler = nil
+
+        guard let terminationStatus else {
+            throw ProcessError.timedOut(command: command, seconds: timeoutSeconds)
+        }
+
+        if timedOut.value {
+            throw ProcessError.timedOut(command: command, seconds: timeoutSeconds)
+        }
+
+        return ProcessResult(
+            exitCode: Int(terminationStatus),
+            stdout: stdoutBuffer.utf8String,
+            stderr: stderrBuffer.utf8String
         )
-
-        // Offload blocking I/O to a background thread so the MainActor is never blocked.
-        let result: ProcessResult = try await withCheckedThrowingContinuation { continuation in
-            DispatchQueue.global(qos: .userInitiated).async {
-                // Read pipes FIRST to prevent buffer deadlock.
-                let stdoutData = stdoutPipe.fileHandleForReading.readDataToEndOfFile()
-                let stderrData = stderrPipe.fileHandleForReading.readDataToEndOfFile()
-
-                // Safe to call waitUntilExit() now — pipes are fully drained.
-                process.waitUntilExit()
-
-                // Cancel the timeout since the process exited.
-                timeoutWork.cancel()
-
-                // Use our flag to detect timeout (more reliable than exit code matching).
-                if timedOut.value {
-                    continuation.resume(
-                        throwing: ProcessError.timedOut(
-                            command: command, seconds: timeoutSeconds
-                        ))
-                    return
-                }
-
-                continuation.resume(
-                    returning: ProcessResult(
-                        exitCode: Int(process.terminationStatus),
-                        stdout: String(data: stdoutData, encoding: .utf8)?
-                            .trimmingCharacters(in: .whitespacesAndNewlines) ?? "",
-                        stderr: String(data: stderrData, encoding: .utf8)?
-                            .trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
-                    ))
-            }
-        }
-
-        return result
     }
 }
 
@@ -185,5 +217,24 @@ final class LockedFlag: @unchecked Sendable {
         lock.lock()
         _value = true
         lock.unlock()
+    }
+}
+
+final class LockedDataBuffer: @unchecked Sendable {
+    private var data = Data()
+    private let lock = NSLock()
+
+    func append(_ chunk: Data) {
+        lock.lock()
+        data.append(chunk)
+        lock.unlock()
+    }
+
+    var utf8String: String {
+        lock.lock()
+        let snapshot = data
+        lock.unlock()
+        return String(data: snapshot, encoding: .utf8)?
+            .trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
     }
 }

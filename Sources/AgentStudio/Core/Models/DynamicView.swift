@@ -8,8 +8,6 @@ enum DynamicViewType: String, Codable, CaseIterable, Hashable {
     case byWorktree
     /// One tab per distinct CWD.
     case byCWD
-    /// One tab per agent type.
-    case byAgentType
     /// One tab per parent folder of repos.
     case byParentFolder
 
@@ -18,7 +16,6 @@ enum DynamicViewType: String, Codable, CaseIterable, Hashable {
         case .byRepo: return "By Repo"
         case .byWorktree: return "By Worktree"
         case .byCWD: return "By CWD"
-        case .byAgentType: return "By Agent Type"
         case .byParentFolder: return "By Parent Folder"
         }
     }

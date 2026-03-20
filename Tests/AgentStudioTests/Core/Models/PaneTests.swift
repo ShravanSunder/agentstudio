@@ -108,23 +108,6 @@ final class PaneTests {
 
     @Test
 
-    func test_agent_readsFromMetadata() {
-        let pane = makePane(agent: .claude)
-        #expect(pane.agent == .claude)
-    }
-
-    @Test
-
-    func test_agent_writesToMetadata() {
-        var pane = makePane()
-        #expect((pane.agent) == nil)
-        pane.agent = .claude
-        #expect(pane.agent == .claude)
-        #expect(pane.metadata.agentType == .claude)
-    }
-
-    @Test
-
     func test_source_delegatesToMetadata() {
         let source = TerminalSource.floating(workingDirectory: URL(fileURLWithPath: "/tmp"), title: "Float")
         let pane = makePane(source: source)
@@ -157,7 +140,6 @@ final class PaneTests {
         let pane = makePane(
             source: .floating(workingDirectory: URL(fileURLWithPath: "/tmp"), title: "Float"),
             title: "My Term",
-            agent: .claude,
             provider: .zmx,
             lifetime: .persistent,
             residency: .active
@@ -169,7 +151,6 @@ final class PaneTests {
         #expect(decoded.id == pane.id)
         #expect(decoded.content == pane.content)
         #expect(decoded.metadata.title == "My Term")
-        #expect(decoded.metadata.agentType == .claude)
         #expect(decoded.residency == SessionResidency.active)
         // Layout panes always have a drawer (empty by default)
         #expect((decoded.drawer) != nil)
@@ -399,7 +380,6 @@ final class PaneTests {
 
         #expect(metadata.title == "Terminal")
         #expect((metadata.cwd) == nil)
-        #expect((metadata.agentType) == nil)
         #expect(metadata.tags.isEmpty)
     }
 
@@ -412,8 +392,7 @@ final class PaneTests {
             facets: PaneContextFacets(
                 cwd: URL(fileURLWithPath: "/home/user"),
                 tags: ["focus", "dev"]
-            ),
-            agentType: .claude,
+            )
         )
 
         let encoder = JSONEncoder()
@@ -422,7 +401,6 @@ final class PaneTests {
 
         #expect(decoded.title == "Tagged")
         #expect(decoded.tags == ["focus", "dev"])
-        #expect(decoded.agentType == .claude)
         #expect(decoded.cwd == URL(fileURLWithPath: "/home/user"))
     }
 

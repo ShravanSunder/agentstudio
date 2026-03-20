@@ -22,10 +22,18 @@ extension PaneCoordinator {
         scheduleFilesystemRootAndActivitySync()
     }
 
-    func handleFilesystemEnvelopeIfNeeded(_ envelope: PaneEventEnvelope) -> Bool {
-        guard case .filesystem = envelope.event else { return false }
+    func handleFilesystemEnvelopeIfNeeded(_ envelope: RuntimeEnvelope) -> Bool {
+        switch envelope {
+        case .system(let systemEnvelope):
+            guard case .topology = systemEnvelope.event else { return false }
+            scheduleFilesystemRootAndActivitySync()
+            return true
+        case .worktree:
+            break
+        case .pane:
+            return false
+        }
 
-        workspaceGitWorkingTreeStore.consume(envelope)
         paneFilesystemProjectionStore.consume(
             envelope,
             panesById: store.panes,
@@ -35,9 +43,6 @@ extension PaneCoordinator {
     }
 
     func setupFilesystemSourceSync() {
-        store.repoWorktreesDidChangeHook = { [weak self] in
-            self?.scheduleFilesystemRootAndActivitySync()
-        }
         scheduleFilesystemRootAndActivitySync()
     }
 
@@ -81,7 +86,7 @@ extension PaneCoordinator {
         }
 
         let desiredContextEntries = desiredContextsByWorktreeId.sorted { lhs, rhs in
-            Self.sortWorktreeIds(lhs.key, rhs.key)
+            Self.sortWorktreeByPriority(lhs.key, rhs.key, activePaneWorktreeId: activePaneWorktreeId)
         }
         for (worktreeId, desiredContext) in desiredContextEntries {
             guard !Task.isCancelled else { return }
@@ -100,7 +105,7 @@ extension PaneCoordinator {
         }
 
         let activityEntries = activityByWorktreeId.sorted { lhs, rhs in
-            Self.sortWorktreeIds(lhs.key, rhs.key)
+            Self.sortWorktreeByPriority(lhs.key, rhs.key, activePaneWorktreeId: activePaneWorktreeId)
         }
         for (worktreeId, isActiveInApp) in activityEntries {
             let previousActivity = filesystemActivityByWorktreeId[worktreeId]
@@ -123,7 +128,6 @@ extension PaneCoordinator {
         filesystemActivityByWorktreeId = activityByWorktreeId
         filesystemLastActivePaneWorktreeId = activePaneWorktreeId
         let validWorktreeIds = Set(desiredContextsByWorktreeId.keys)
-        workspaceGitWorkingTreeStore.prune(validWorktreeIds: validWorktreeIds)
         paneFilesystemProjectionStore.prune(
             validPaneIds: Set(store.panes.keys),
             validWorktreeIds: validWorktreeIds
@@ -137,7 +141,7 @@ extension PaneCoordinator {
 
     private func workspaceWorktreeContextsById() -> [UUID: WorktreeFilesystemContext] {
         var contextsByWorktreeId: [UUID: WorktreeFilesystemContext] = [:]
-        for repo in store.repos {
+        for repo in store.repos where !store.isRepoUnavailable(repo.id) {
             for worktree in repo.worktrees {
                 contextsByWorktreeId[worktree.id] = WorktreeFilesystemContext(
                     repoId: repo.id,
@@ -150,5 +154,14 @@ extension PaneCoordinator {
 
     nonisolated private static func sortWorktreeIds(_ lhs: UUID, _ rhs: UUID) -> Bool {
         lhs.uuidString < rhs.uuidString
+    }
+
+    nonisolated private static func sortWorktreeByPriority(
+        _ lhs: UUID, _ rhs: UUID, activePaneWorktreeId: UUID?
+    ) -> Bool {
+        let lhsActive = lhs == activePaneWorktreeId
+        let rhsActive = rhs == activePaneWorktreeId
+        if lhsActive != rhsActive { return lhsActive }
+        return lhs.uuidString < rhs.uuidString
     }
 }

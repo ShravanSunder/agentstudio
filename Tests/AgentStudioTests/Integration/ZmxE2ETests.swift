@@ -20,7 +20,7 @@ extension E2ESerializedTests {
         func test_fullLifecycle_create_healthCheck_kill_verify() async throws {
             try await withRealBackend { harness, backend in
                 // Arrange — create a handle
-                let worktree = makeWorktree(name: "e2e-lifecycle", path: "/tmp", branch: "e2e-lifecycle")
+                let worktree = makeWorktree(name: "e2e-lifecycle", path: "/tmp")
                 let repo = makeRepo()
                 let paneId = UUID()
                 let handle = try await backend.createPaneSession(repo: repo, worktree: worktree, paneId: paneId)
@@ -85,8 +85,8 @@ extension E2ESerializedTests {
         func test_orphanDiscovery_findsUntrackedSession() async throws {
             try await withRealBackend { harness, backend in
                 // Arrange — spawn two sessions, only one is "known"
-                let worktree1 = makeWorktree(name: "e2e-known", path: "/tmp", branch: "e2e-known")
-                let worktree2 = makeWorktree(name: "e2e-orphan", path: "/tmp", branch: "e2e-orphan")
+                let worktree1 = makeWorktree(name: "e2e-known", path: "/tmp")
+                let worktree2 = makeWorktree(name: "e2e-orphan", path: "/tmp")
                 let repo = makeRepo()
                 let zmxPath = try #require(harness.zmxPath, "Expected zmx path to be available")
 
@@ -132,7 +132,7 @@ extension E2ESerializedTests {
         func test_destroySessionById_killsLiveSession() async throws {
             try await withRealBackend { harness, backend in
                 // Arrange
-                let worktree = makeWorktree(name: "e2e-destroy", path: "/tmp", branch: "e2e-destroy")
+                let worktree = makeWorktree(name: "e2e-destroy", path: "/tmp")
                 let repo = makeRepo()
                 let handle = try await backend.createPaneSession(repo: repo, worktree: worktree, paneId: UUID())
                 let zmxPath = try #require(harness.zmxPath, "Expected zmx path to be available")
@@ -169,7 +169,7 @@ extension E2ESerializedTests {
         func test_restoreAcrossBackendRecreation_detectsAndKillsExistingSession() async throws {
             try await withRealBackend { harness, backend in
                 // Arrange — create a session and spawn a live daemon
-                let worktree = makeWorktree(name: "e2e-restore", path: "/tmp", branch: "e2e-restore")
+                let worktree = makeWorktree(name: "e2e-restore", path: "/tmp")
                 let repo = makeRepo()
                 let handle = try await backend.createPaneSession(repo: repo, worktree: worktree, paneId: UUID())
                 let zmxPath = try #require(harness.zmxPath, "Expected zmx path to be available")
@@ -215,7 +215,7 @@ extension E2ESerializedTests {
         func test_socketExists_afterDaemonStarts() async throws {
             try await withRealBackend { harness, backend in
                 // Arrange
-                let worktree = makeWorktree(name: "e2e-socket", path: "/tmp", branch: "e2e-socket")
+                let worktree = makeWorktree(name: "e2e-socket", path: "/tmp")
                 let repo = makeRepo()
                 let handle = try await backend.createPaneSession(repo: repo, worktree: worktree, paneId: UUID())
                 let zmxPath = try #require(harness.zmxPath, "Expected zmx path to be available")

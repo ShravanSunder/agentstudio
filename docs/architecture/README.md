@@ -7,32 +7,44 @@ Agent Studio is a macOS terminal application that embeds Ghostty terminal surfac
 ## System Overview
 
 ```
-┌───────────────────────────────────────────────────────────────┐
-│                        AppDelegate                            │
-│                                                               │
-│  ┌───────────────┐  ┌───────────────┐  ┌──────────────────┐  │
-│  │WorkspaceStore │  │SessionRuntime │  │SurfaceManager    │  │
-│  │ (workspace)   │  │(backends)     │  │(surfaces)        │  │
-│  └───────┬───────┘  └───────┬───────┘  └────────┬─────────┘  │
-│          │                  │                    │             │
-│  ┌───────┴──────────────────┴────────────────────┴──────────┐ │
-│  │              PaneCoordinator                              │ │
-│  │     (sequences cross-store ops, owns no domain state)     │ │
-│  └──────────────────────────┬───────────────────────────────┘ │
-│                             │                                 │
-│  ┌──────────────┐  ┌───────┴──────┐  ┌──────────────────────┐│
-│  │ ViewRegistry │  │ TabBarAdapter│  │CommandBarPanel       ││
-│  │(paneId→View) │  │(derived UI)  │  │Controller (⌘P)      ││
-│  └──────────────┘  └──────────────┘  └──────────────────────┘│
-└───────────────────────────────────────────────────────────────┘
-  * WorkspacePersistor is internal to WorkspaceStore (JSON I/O)
-  * Each store is @Observable with private(set) for unidirectional flow
+┌────────────────────────────────────────────────────────────────────────┐
+│                            AppDelegate                                  │
+│                                                                        │
+│  STORES (each @Observable, private(set))                               │
+│  ┌───────────────┐  ┌─────────────────┐  ┌───────────────┐            │
+│  │WorkspaceStore │  │WorkspaceRepo    │  │WorkspaceUI    │            │
+│  │ (canonical)   │  │Cache (enrichment)│  │Store (prefs)  │            │
+│  └───────┬───────┘  └────────┬────────┘  └───────────────┘            │
+│          │                   │                                         │
+│          │    ┌──────────────┴──────────────────┐                      │
+│          │    │   WorkspaceCacheCoordinator      │                      │
+│          │    │   (event bus → store mutations)  │                      │
+│          │    └──────────────┬──────────────────┘                      │
+│          │                   │ consumes                                 │
+│  ┌───────┴───────────────────┴─────────────────────────────────┐       │
+│  │                    EventBus<RuntimeEnvelope>                  │       │
+│  └──────┬────────────────┬─────────────────┬───────────────────┘       │
+│         │                │                 │                           │
+│  ┌──────┴──────┐  ┌──────┴──────┐  ┌──────┴──────┐                    │
+│  │Filesystem   │  │GitProjector │  │ForgeActor   │                    │
+│  │Actor        │  │(git status) │  │(PR counts)  │                    │
+│  └─────────────┘  └─────────────┘  └─────────────┘                    │
+│                                                                        │
+│  ┌───────────────┐  ┌───────────────┐                                  │
+│  │SessionRuntime │  │SurfaceManager │                                  │
+│  │(backends)     │  │(surfaces)     │                                  │
+│  └───────┬───────┘  └────────┬──────┘                                  │
+│  ┌───────┴───────────────────┴──────────────────────────────────┐      │
+│  │              PaneCoordinator                                  │      │
+│  │     (sequences cross-store ops, owns no domain state)         │      │
+│  └───────────────────────────────────────────────────────────────┘      │
+└────────────────────────────────────────────────────────────────────────┘
 ```
 
 ## Architecture Principles
 
 - **Pane as primary entity** — `Pane` is the stable identity across model, runtime, view registry, surface metadata, and restore flows
-- **Atomic stores (Jotai-style)** — Each domain has its own `@Observable` store: `WorkspaceStore` (workspace structure), `SurfaceManager` (Ghostty surfaces), `SessionRuntime` (backends). No god-store. Each store owns one domain and has one reason to change.
+- **Atomic stores (Jotai-style)** — Each domain has its own `@Observable` store: `WorkspaceStore` (canonical associations), `WorkspaceRepoCache` (derived enrichment), `WorkspaceUIStore` (presentation prefs), `SurfaceManager` (Ghostty surfaces), `SessionRuntime` (backends). No god-store. Each store owns one domain and has one reason to change.
 - **Unidirectional flow (Valtio-style)** — All store state is `private(set)`. External code reads freely, mutates only through store methods. No action enums, no reducers.
 - **Coordinator for cross-store sequencing** — A coordinator sequences operations across stores for a single user action. Owns no state, contains no domain logic.
 - **Immutable layout tree** — `Layout` is a pure value type; operations return new instances, never mutate
@@ -43,19 +55,26 @@ Agent Studio is a macOS terminal application that embeds Ghostty terminal surfac
 ## Data Model at a Glance
 
 ```
-WorkspaceStore
+WorkspaceStore (canonical associations — workspace.state.json)
 ├── repos: [Repo]
-│   └── worktrees: [Worktree]          ← git branches on disk
+│   └── worktrees: [Worktree]          ← structure-only: id, repoId, name, path, isMainWorktree
 ├── panes: [Pane]                       ← primary pane identities
 │   ├── source: .worktree | .floating
 │   ├── provider: .ghostty | .zmx
 │   ├── lifetime: .persistent | .temporary
 │   └── residency: .active | .pendingUndo | .backgrounded
-└── views: [ViewDefinition]             ← named pane arrangements
-    ├── kind: .main | .saved | .worktree | .dynamic
-    └── tabs: [Tab]
-        └── layout: Layout              ← pure value-type split tree
-            └── Node: .leaf(paneId) | .split(Split)
+└── tabs: [Tab]
+    └── layout: Layout                  ← pure value-type split tree
+        └── Node: .leaf(paneId) | .split(Split)
+
+WorkspaceRepoCache (derived enrichment — workspace.cache.json, rebuildable)
+├── repoEnrichmentByRepoId             ← origin, identity, groupKey, displayName
+├── worktreeEnrichmentByWorktreeId     ← branch, git snapshot
+├── pullRequestCountByWorktreeId       ← PR badges
+└── notificationCountByWorktreeId      ← notification bells
+
+WorkspaceUIStore (presentation prefs — workspace.ui.json)
+├── expandedGroups, checkoutColors, filterText, isFilterVisible
 ```
 
 ## Mutation Flow (Summary)
@@ -72,19 +91,22 @@ Command Bar → CommandDispatcher.dispatch() → CommandHandler
 
 ## Document Index
 
-| Document | Covers |
-|----------|--------|
-| [Component Architecture](component_architecture.md) | Data model, service layer, command bar, data flow, persistence, invariants |
-| [Pane Runtime Architecture](pane_runtime_architecture.md) | Pane runtime contracts (1-16), event taxonomy, priority system, adapter/runtime/coordinator layers, filesystem batching, attach readiness (5a), restart reconcile (5b), visibility-tier scheduling (12a), Ghostty action coverage (7a), RuntimeCommand dispatch (10), source/sink/projection vocabulary, agent harness model, directory placement, migration path |
-| [Pane Runtime EventBus Design](pane_runtime_eventbus_design.md) | EventBus coordination: actor fan-out, boundary actors (filesystem/forge/container) plus plugin context mediation, `@concurrent nonisolated` for per-pane work, multiplexed `@Observable` + event stream, connection patterns (AsyncStream vs direct call vs @Observable), data flow per contract, Swift 6.2 threading model |
-| [Window System Design](window_system_design.md) | Window/tab/pane/drawer data model, dynamic views, arrangements, orphaned pane pool, ownership invariants |
-| [Session Lifecycle](session_lifecycle.md) | Pane identity contract, creation, close, undo, restore, runtime status, zmx backend |
-| [Zmx Restore and Sizing](zmx_restore_and_sizing.md) | Deferred attach sequencing, geometry readiness, restart reconcile policy, and zmx restore/sizing test coverage |
-| [Surface Architecture](ghostty_surface_architecture.md) | Ghostty surface ownership, state machine, health monitoring, crash isolation, CWD propagation |
-| [App Architecture](appkit_swiftui_architecture.md) | AppKit+SwiftUI hybrid shell, controllers, command bar panel, event handling |
-| [Directory Structure](directory_structure.md) | Module boundaries, Core vs Features decision process, import rule, component placement |
-| [Swift-React Bridge](swift_react_bridge_design.md) | Three-stream bridge architecture, push pipeline, JSON-RPC command channel, content world isolation |
-| [JTBD & Requirements](jtbd_and_requirements.md) | Jobs to be done, pain points, and requirements for the dynamic window system |
+Each document owns a specific concern. No two documents are authoritative for the same topic. When in doubt about where something belongs, the ownership column determines the home.
+
+| Document | Ownership | Covers |
+|----------|-----------|--------|
+| [Component Architecture](component_architecture.md) | Structural overview — how components compose | Data model (pane, tab, layout, session), service layer, command bar, persistence format, store boundaries, coordinator role, invariants |
+| [Workspace Data Architecture](workspace_data_architecture.md) | Workspace-level data — repos, worktrees, enrichment | Three-tier persistence (canonical/cache/UI), canonical vs enrichment models, enrichment pipeline (FilesystemActor → GitWorkingDirectoryProjector → ForgeActor → CacheCoordinator), topology/discovery lifecycle, sidebar data flow, ordering/replay contracts |
+| [Pane Runtime Architecture](pane_runtime_architecture.md) | Pane-level runtime contracts | Pane runtime contracts (C1-C16), event envelope (RuntimeEnvelope), per-pane event taxonomy, priority system, adapter/runtime/coordinator layers, filesystem batching, attach readiness (5a), restart reconcile (5b), visibility-tier scheduling (12a), Ghostty action coverage (7a), RuntimeCommand dispatch (10), source/sink/projection vocabulary, agent harness model, directory placement, migration path |
+| [Pane Runtime EventBus Design](pane_runtime_eventbus_design.md) | EventBus threading and coordination | Actor fan-out, boundary actors (FilesystemActor, ForgeActor, ContainerActor) plus plugin context mediation, `@concurrent nonisolated` for per-pane work, multiplexed `@Observable` + event stream, connection patterns (AsyncStream vs direct call vs @Observable), data flow per contract, Swift 6.2 threading model |
+| [Window System Design](window_system_design.md) | Window/tab/pane structural model | Window/tab/pane/drawer data model, dynamic views, arrangements, orphaned pane pool, ownership invariants |
+| [Session Lifecycle](session_lifecycle.md) | Pane identity and session backend lifecycle | Pane identity contract, creation, close, undo, restore, runtime status, zmx backend |
+| [Zmx Restore and Sizing](zmx_restore_and_sizing.md) | Zmx-specific attach and sizing | Deferred attach sequencing, geometry readiness, restart reconcile policy, zmx restore/sizing test coverage |
+| [Surface Architecture](ghostty_surface_architecture.md) | Ghostty surface management | Surface ownership, state machine, health monitoring, crash isolation, CWD propagation |
+| [App Architecture](appkit_swiftui_architecture.md) | AppKit+SwiftUI hybrid shell | AppKit hosting model, controllers, command bar panel, event handling |
+| [Directory Structure](directory_structure.md) | Module boundaries and file placement | Core vs Features decision process, import rule, component → slice map, placement rationale |
+| [Swift-React Bridge](swift_react_bridge_design.md) | Bridge transport for React panes | Three-stream bridge architecture, push pipeline, JSON-RPC command channel, content world isolation |
+| [JTBD & Requirements](jtbd_and_requirements.md) | Product requirements | Jobs to be done, pain points, and requirements for the dynamic window system |
 
 ## Related
 

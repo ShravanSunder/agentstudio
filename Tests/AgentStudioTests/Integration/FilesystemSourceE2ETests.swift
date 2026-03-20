@@ -21,12 +21,12 @@ extension E2ESerializedTests {
 
             let repo = store.addRepo(at: repoURL)
             let worktree = Worktree(
+                repoId: repo.id,
                 name: "main",
                 path: repoURL,
-                branch: "main",
                 isMainWorktree: true
             )
-            store.updateRepoWorktrees(repo.id, worktrees: [worktree])
+            store.reconcileDiscoveredWorktrees(repo.id, worktrees: [worktree])
 
             let pane = store.createPane(
                 source: .worktree(worktreeId: worktree.id, repoId: repo.id),
@@ -36,14 +36,21 @@ extension E2ESerializedTests {
             store.appendTab(tab)
             store.setActiveTab(tab.id)
 
-            let paneEventBus = EventBus<PaneEventEnvelope>()
+            let paneEventBus = EventBus<RuntimeEnvelope>()
             let filesystemSource = FilesystemGitPipeline(
                 bus: paneEventBus,
                 gitWorkingTreeProvider: ShellGitWorkingTreeStatusProvider(
                     processExecutor: DefaultProcessExecutor(timeout: 5))
             )
             let paneProjectionStore = PaneFilesystemProjectionStore()
-            let workspaceGitWorkingTreeStore = WorkspaceGitWorkingTreeStore()
+            let repoCache = WorkspaceRepoCache()
+            let cacheCoordinator = WorkspaceCacheCoordinator(
+                bus: paneEventBus,
+                workspaceStore: store,
+                repoCache: repoCache,
+                scopeSyncHandler: { _ in }
+            )
+            cacheCoordinator.startConsuming()
 
             let coordinator = PaneCoordinator(
                 store: store,
@@ -53,9 +60,9 @@ extension E2ESerializedTests {
                 runtimeRegistry: RuntimeRegistry(),
                 paneEventBus: paneEventBus,
                 filesystemSource: filesystemSource,
-                paneFilesystemProjectionStore: paneProjectionStore,
-                workspaceGitWorkingTreeStore: workspaceGitWorkingTreeStore
+                paneFilesystemProjectionStore: paneProjectionStore
             )
+            coordinator.syncFilesystemRootsAndActivity()
 
             await eventually("filesystem root should be registered for worktree") {
                 coordinator.filesystemRegisteredContextsByWorktreeId[worktree.id] != nil
@@ -66,8 +73,8 @@ extension E2ESerializedTests {
                 paths: ["tracked.txt", "untracked.txt"]
             )
 
-            await eventually("workspace git status snapshot should update") {
-                guard let snapshot = workspaceGitWorkingTreeStore.snapshotsByWorktreeId[worktree.id] else {
+            await eventually("workspace cache git snapshot should update") {
+                guard let snapshot = repoCache.worktreeEnrichmentByWorktreeId[worktree.id]?.snapshot else {
                     return false
                 }
                 return snapshot.summary.changed >= 1 && snapshot.summary.untracked >= 1
@@ -79,23 +86,26 @@ extension E2ESerializedTests {
                     && snapshot.changedPaths.contains("untracked.txt")
             }
 
-            await filesystemSource.shutdown()
+            await coordinator.shutdown()
+            await cacheCoordinator.shutdown()
+
+            await eventually("filesystem source E2E should leave no subscribers behind") {
+                await paneEventBus.subscriberCount == 0
+            }
         }
 
         private func eventually(
             _ description: String,
-            maxAttempts: Int = 200,
-            pollIntervalNanoseconds: UInt64 = 20_000_000,
-            condition: @escaping @MainActor () -> Bool
+            maxTurns: Int = 200,
+            condition: @escaping @MainActor () async -> Bool
         ) async {
-            for _ in 0..<maxAttempts {
-                if condition() {
+            for _ in 0..<maxTurns {
+                if await condition() {
                     return
                 }
                 await Task.yield()
-                try? await Task.sleep(nanoseconds: pollIntervalNanoseconds)
             }
-            #expect(condition(), "\(description) timed out")
+            #expect(await condition(), "\(description) timed out")
         }
     }
 }

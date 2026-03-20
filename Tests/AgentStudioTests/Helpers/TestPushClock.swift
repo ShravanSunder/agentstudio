@@ -116,6 +116,10 @@ struct TestPushClock: Clock {
         }
     }
 
+    var pendingSleepCount: Int {
+        state.withCriticalRegion { $0.pending.count }
+    }
+
     private func cancel(_ generation: Int) {
         let continuation = state.withCriticalRegion { st -> UnsafeContinuation<Void, Error>? in
             guard let index = st.pending.firstIndex(where: { $0.generation == generation }) else {
