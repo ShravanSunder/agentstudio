@@ -109,6 +109,32 @@ final class ZmxBackend: SessionBackend {
             .appendingPathComponent(".agentstudio/zmx").path
     }()
 
+    /// Extract a session identifier from `zmx list` output.
+    ///
+    /// Supports:
+    /// - legacy key/value lines: `session_name=<id>\t...`
+    /// - current key/value lines: `name=<id>\t...`
+    /// - short output: `<id>`
+    static func extractSessionName(from line: String) -> String? {
+        let trimmed = line.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !trimmed.isEmpty else { return nil }
+
+        let tokens = trimmed.split(whereSeparator: \.isWhitespace)
+        for token in tokens {
+            if token.hasPrefix("session_name=") {
+                let value = token.dropFirst("session_name=".count)
+                return value.isEmpty ? nil : String(value)
+            }
+            if token.hasPrefix("name=") {
+                let value = token.dropFirst("name=".count)
+                return value.isEmpty ? nil : String(value)
+            }
+        }
+
+        guard let first = tokens.first, !first.contains("=") else { return nil }
+        return String(first)
+    }
+
     private let executor: ProcessExecutor
     private let zmxPath: String
     private let zmxDir: String
@@ -298,23 +324,7 @@ final class ZmxBackend: SessionBackend {
             return result.stdout
                 .components(separatedBy: "\n")
                 .filter { !$0.isEmpty }
-                .compactMap { line -> String? in
-                    // Parse zmx list output by session_name= key (matches ZmxTestHarness.extractSessionName).
-                    // Handles both long format (session_name=<id>\tpid=...) and short format (<id>).
-                    let trimmed = line.trimmingCharacters(in: .whitespacesAndNewlines)
-                    guard !trimmed.isEmpty else { return nil }
-
-                    let tokens = trimmed.split(whereSeparator: \.isWhitespace)
-                    for token in tokens {
-                        if token.hasPrefix("session_name=") {
-                            let value = token.dropFirst("session_name=".count)
-                            return value.isEmpty ? nil : String(value)
-                        }
-                    }
-                    // Fallback for short output: first token is the raw session id
-                    guard let first = tokens.first, !first.contains("=") else { return nil }
-                    return String(first)
-                }
+                .compactMap(Self.extractSessionName(from:))
                 .filter { $0.hasPrefix(Self.sessionPrefix) || $0.hasPrefix("agentstudio-d--") }
                 .filter { !knownIds.contains($0) }
         } catch {

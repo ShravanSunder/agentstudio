@@ -35,6 +35,14 @@ struct ZmxTestHarnessTests {
     }
 
     @Test
+    func testExtractSessionNameFromZmx042ListFormat() {
+        let line =
+            "name=agentstudio--a1b2c3d4e5f6a7b8--00112233aabbccdd--aabbccdd11223344\tpid=12345\tclients=0\tcreated=1774059493\tstart_dir=/tmp\tcmd=/bin/sleep 300"
+        let name = ZmxTestHarness.extractSessionName(from: line)
+        #expect(name == "agentstudio--a1b2c3d4e5f6a7b8--00112233aabbccdd--aabbccdd11223344")
+    }
+
+    @Test
     func testExtractSessionNameReturnsNilForEmptyLine() {
         #expect(ZmxTestHarness.extractSessionName(from: "") == nil)
         #expect(ZmxTestHarness.extractSessionName(from: "  \t  ") == nil)

@@ -415,7 +415,7 @@ struct FilesystemActorTests {
         defer { collectionTask.cancel() }
 
         await actor.enqueueRawPaths(worktreeId: worktreeId, paths: ["cache.tmp"])
-        let initialChangeset = try #require(await observed.next(timeout: .milliseconds(250)))
+        let initialChangeset = await observed.next()
         #expect(initialChangeset.paths.isEmpty)
         #expect(initialChangeset.suppressedIgnoredPathCount == 1)
 
@@ -427,13 +427,13 @@ struct FilesystemActorTests {
         await actor.enqueueRawPaths(worktreeId: worktreeId, paths: [".gitignore"])
 
         await actor.enqueueRawPaths(worktreeId: worktreeId, paths: ["cache.tmp"])
-        let nextChangeset = try #require(await observed.next(timeout: .milliseconds(250)))
+        let nextChangeset = await observed.next()
         let postReloadChangeset: FileChangeset
         if nextChangeset.paths.contains("cache.tmp") {
             postReloadChangeset = nextChangeset
         } else {
             #expect(!nextChangeset.paths.contains(".gitignore"))
-            postReloadChangeset = try #require(await observed.next(timeout: .milliseconds(250)))
+            postReloadChangeset = await observed.next()
         }
         #expect(postReloadChangeset.paths.contains("cache.tmp"))
         #expect(!postReloadChangeset.paths.contains(".gitignore"))
@@ -469,7 +469,7 @@ struct FilesystemActorTests {
         }
 
         await actor.enqueueRawPaths(worktreeId: worktreeId, paths: ["cache.tmp"])
-        let initialChangeset = try #require(await observed.next(timeout: .milliseconds(250)))
+        let initialChangeset = await observed.next()
         #expect(initialChangeset.paths.isEmpty)
         #expect(initialChangeset.suppressedIgnoredPathCount == 1)
 
@@ -480,13 +480,13 @@ struct FilesystemActorTests {
         )
         await actor.enqueueRawPaths(worktreeId: worktreeId, paths: [".gitignore", "cache.tmp"])
 
-        let nextChangeset = try #require(await observed.next(timeout: .milliseconds(250)))
+        let nextChangeset = await observed.next()
         let postReloadChangeset: FileChangeset
         if nextChangeset.paths.contains("cache.tmp") {
             postReloadChangeset = nextChangeset
         } else {
             #expect(!nextChangeset.paths.contains(".gitignore"))
-            postReloadChangeset = try #require(await observed.next(timeout: .milliseconds(250)))
+            postReloadChangeset = await observed.next()
         }
         #expect(postReloadChangeset.paths.contains("cache.tmp"))
         #expect(!postReloadChangeset.paths.contains(".gitignore"))
@@ -503,6 +503,7 @@ struct FilesystemActorTests {
         let clock = TestPushClock()
         let actor = FilesystemActor(
             bus: bus,
+            fseventStreamClient: ControllableFSEventStreamClient(),
             sleepClock: clock,
             debounceWindow: .milliseconds(60),
             maxFlushLatency: .seconds(1)
@@ -528,21 +529,15 @@ struct FilesystemActorTests {
         await actor.enqueueRawPaths(worktreeId: worktreeId, paths: ["Sources/A.swift"])
         await actor.enqueueRawPaths(worktreeId: worktreeId, paths: ["Sources/B.swift"])
 
-        let debounceSleepScheduled = await waitUntilYielding {
-            clock.pendingSleepCount > 0
-        }
-        #expect(debounceSleepScheduled)
+        await clock.waitForPendingSleepCount()
         clock.advance(by: .milliseconds(20))
         await Task.yield()
         #expect(await observed.filesChangedCount(for: worktreeId) == 0)
 
         clock.advance(by: .milliseconds(40))
-        let emittedSingleDebouncedBatch = await waitUntil {
-            await observed.filesChangedCount(for: worktreeId) == 1
-        }
-        #expect(emittedSingleDebouncedBatch)
-        let changeset = await observed.latestChangeset(for: worktreeId)
-        #expect(Set(changeset?.paths ?? []) == Set(["Sources/A.swift", "Sources/B.swift"]))
+        let changeset = await observed.next()
+        #expect(changeset.worktreeId == worktreeId)
+        #expect(Set(changeset.paths) == Set(["Sources/A.swift", "Sources/B.swift"]))
 
         await actor.shutdown()
     }
@@ -553,6 +548,7 @@ struct FilesystemActorTests {
         let clock = TestPushClock()
         let actor = FilesystemActor(
             bus: bus,
+            fseventStreamClient: ControllableFSEventStreamClient(),
             sleepClock: clock,
             debounceWindow: .milliseconds(250),
             maxFlushLatency: .milliseconds(120)
@@ -576,10 +572,7 @@ struct FilesystemActorTests {
         )
 
         await actor.enqueueRawPaths(worktreeId: worktreeId, paths: ["Sources/First.swift"])
-        let maxLatencySleepScheduled = await waitUntilYielding {
-            clock.pendingSleepCount > 0
-        }
-        #expect(maxLatencySleepScheduled)
+        await clock.waitForPendingSleepCount()
         clock.advance(by: .milliseconds(70))
         await Task.yield()
         #expect(await observed.filesChangedCount(for: worktreeId) == 0)
@@ -587,12 +580,9 @@ struct FilesystemActorTests {
 
         await Task.yield()
         clock.advance(by: .milliseconds(50))
-        let maxLatencyFlushObserved = await waitUntil {
-            await observed.filesChangedCount(for: worktreeId) >= 1
-        }
-        #expect(maxLatencyFlushObserved)
-        let changeset = await observed.latestChangeset(for: worktreeId)
-        #expect(Set(changeset?.paths ?? []) == Set(["Sources/First.swift", "Sources/Second.swift"]))
+        let changeset = await observed.next()
+        #expect(changeset.worktreeId == worktreeId)
+        #expect(Set(changeset.paths) == Set(["Sources/First.swift", "Sources/Second.swift"]))
 
         await actor.shutdown()
     }
@@ -603,6 +593,7 @@ struct FilesystemActorTests {
         let clock = TestPushClock()
         let actor = FilesystemActor(
             bus: bus,
+            fseventStreamClient: ControllableFSEventStreamClient(),
             sleepClock: clock,
             debounceWindow: .milliseconds(200),
             maxFlushLatency: .seconds(1)
@@ -638,6 +629,7 @@ struct FilesystemActorTests {
         let clock = TestPushClock()
         let actor = FilesystemActor(
             bus: bus,
+            fseventStreamClient: ControllableFSEventStreamClient(),
             sleepClock: clock,
             debounceWindow: .milliseconds(200),
             maxFlushLatency: .seconds(1)
@@ -689,38 +681,10 @@ struct FilesystemActorTests {
         return normalizedPath
     }
 
-    private func waitUntil(
-        timeout _: Duration = .seconds(1),
-        pollInterval _: Duration = .milliseconds(5),
-        condition: @escaping @Sendable () async -> Bool
-    ) async -> Bool {
-        for _ in 0..<200 {
-            if await condition() {
-                return true
-            }
-            await Task.yield()
-        }
-
-        return await condition()
-    }
-
-    private func waitUntilYielding(
-        maxIterations: Int = 200,
-        condition: @escaping @Sendable () -> Bool
-    ) async -> Bool {
-        for _ in 0..<maxIterations {
-            if condition() {
-                return true
-            }
-            await Task.yield()
-        }
-
-        return condition()
-    }
-
     private func makeActor(bus: EventBus<RuntimeEnvelope>) -> FilesystemActor {
         FilesystemActor(
             bus: bus,
+            fseventStreamClient: ControllableFSEventStreamClient(),
             debounceWindow: .zero,
             maxFlushLatency: .zero
         )
@@ -730,12 +694,19 @@ struct FilesystemActorTests {
 private actor ObservedFilesystemChanges {
     private var changesetsByWorktreeId: [UUID: [FileChangeset]] = [:]
     private var pendingChangesets: [FileChangeset] = []
+    private var nextWaiters: [CheckedContinuation<FileChangeset, Never>] = []
 
     func record(_ envelope: RuntimeEnvelope) {
         guard case .worktree(let worktreeEnvelope) = envelope else { return }
         guard case .filesystem(.filesChanged(let changeset)) = worktreeEnvelope.event else { return }
         changesetsByWorktreeId[changeset.worktreeId, default: []].append(changeset)
-        pendingChangesets.append(changeset)
+        if nextWaiters.isEmpty {
+            pendingChangesets.append(changeset)
+            return
+        }
+
+        let waiter = nextWaiters.removeFirst()
+        waiter.resume(returning: changeset)
     }
 
     func filesChangedCount(for worktreeId: UUID) -> Int {
@@ -746,15 +717,13 @@ private actor ObservedFilesystemChanges {
         changesetsByWorktreeId[worktreeId]?.last
     }
 
-    func next(timeout _: Duration) async -> FileChangeset? {
-        for _ in 0..<5000 {
-            if !pendingChangesets.isEmpty {
-                return pendingChangesets.removeFirst()
-            }
-
-            await Task.yield()
+    func next() async -> FileChangeset {
+        if !pendingChangesets.isEmpty {
+            return pendingChangesets.removeFirst()
         }
 
-        return nil
+        return await withCheckedContinuation { continuation in
+            nextWaiters.append(continuation)
+        }
     }
 }

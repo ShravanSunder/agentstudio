@@ -535,6 +535,26 @@ final class ZmxBackendTests {
     }
 
     @Test
+    func test_discoverOrphanSessions_parsesZmx042KeyValueFormat() async {
+        // Arrange
+        executor.enqueue(
+            ProcessResult(
+                exitCode: 0,
+                stdout:
+                    "name=agentstudio--abc--111--222\tpid=123\tclients=0\tcreated=1774059493\tstart_dir=/tmp\tcmd=/bin/sleep 300\nname=agentstudio-d--aabb--ccdd\tpid=456\tclients=0\tcreated=1774059494\tstart_dir=/tmp\tcmd=/bin/sleep 300\nname=user-session\tpid=789\tclients=0",
+                stderr: ""
+            ))
+
+        // Act
+        let orphans = await backend.discoverOrphanSessions(excluding: ["agentstudio--abc--111--222"])
+
+        // Assert
+        #expect(orphans.count == 1)
+        #expect(orphans.contains("agentstudio-d--aabb--ccdd"))
+        #expect(!(orphans.contains("user-session")))
+    }
+
+    @Test
 
     func test_discoverOrphanSessions_passesZmxDirEnv() async {
         // Arrange

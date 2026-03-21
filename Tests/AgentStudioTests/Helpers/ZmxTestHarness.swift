@@ -154,20 +154,7 @@ final class ZmxTestHarness: @unchecked Sendable {
     }
 
     static func extractSessionName(from line: String) -> String? {
-        let trimmed = line.trimmingCharacters(in: .whitespacesAndNewlines)
-        guard !trimmed.isEmpty else { return nil }
-
-        let tokens = trimmed.split(whereSeparator: \.isWhitespace)
-        for token in tokens {
-            if token.hasPrefix("session_name=") {
-                let value = token.dropFirst("session_name=".count)
-                return value.isEmpty ? nil : String(value)
-            }
-        }
-
-        // Fallback for short output: first token is the raw session id.
-        guard let first = tokens.first, !first.contains("=") else { return nil }
-        return String(first)
+        ZmxBackend.extractSessionName(from: line)
     }
 
     private func terminateSpawnedProcesses() {
