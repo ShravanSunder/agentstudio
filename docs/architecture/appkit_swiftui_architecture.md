@@ -111,7 +111,7 @@ Management-mode split insertion is coordinated at the tab container level:
 
 - `PaneLeafContainer` renders pane content and controls uniformly for all pane kinds.
 - `PaneFramePreferenceKey` reports pane frames in `tabContainer` coordinates.
-- `SplitContainerDropDelegate` resolves drag location using `PaneDragCoordinator` and submits validated drop actions through existing `PaneAction` flow.
+- `SplitContainerDropDelegate` resolves drag location using `PaneDragCoordinator` and submits validated drop actions through existing `PaneActionCommand` flow.
 - `PaneDropTargetOverlay` renders the active destination marker from `PaneDropTarget` + `DropZone`.
 
 This keeps split targeting pane-type-agnostic (terminal/webview/bridge/future panes).

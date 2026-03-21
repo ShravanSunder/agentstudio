@@ -4,9 +4,9 @@ import Foundation
 /// Wrapper that proves an action has passed validation.
 /// Only ActionValidator can create instances (fileprivate init).
 struct ValidatedAction: Equatable {
-    let action: PaneAction
+    let action: PaneActionCommand
 
-    fileprivate init(_ action: PaneAction) {
+    fileprivate init(_ action: PaneActionCommand) {
         self.action = action
     }
 }
@@ -32,7 +32,7 @@ enum ActionValidationError: Error, Equatable {
 enum ActionValidator {
 
     static func validate(
-        _ action: PaneAction,
+        _ action: PaneActionCommand,
         state: ActionStateSnapshot
     ) -> Result<ValidatedAction, ActionValidationError> {
         switch action {

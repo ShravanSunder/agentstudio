@@ -127,8 +127,8 @@ extension PaneCoordinator {
     }
 
     // swiftlint:disable cyclomatic_complexity function_body_length
-    /// Execute a resolved PaneAction.
-    func execute(_ action: PaneAction) {
+    /// Execute a resolved PaneActionCommand.
+    func execute(_ action: PaneActionCommand) {
         Self.logger.debug("Executing: \(String(describing: action))")
 
         switch action {

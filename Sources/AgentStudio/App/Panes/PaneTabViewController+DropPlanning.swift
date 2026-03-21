@@ -7,7 +7,7 @@ extension PaneTabViewController {
         destinationPane: Pane?,
         sourcePane: Pane?,
         zone: DropZone
-    ) -> PaneAction? {
+    ) -> PaneActionCommand? {
         guard case .existingPane(let sourcePaneId, _) = payload.kind else { return nil }
         guard let destinationPane, let destinationParentPaneId = destinationPane.parentPaneId else { return nil }
         guard destinationPane.id != sourcePaneId else { return nil }

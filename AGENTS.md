@@ -148,7 +148,7 @@ ForgeActor      ──► .prCountsChanged ─┘        │               │
 ```
 
 **This is NOT CQRS.** The event bus carries facts, not commands. Stores are mutated by their own methods. Typed command planes still exist, but they do **not** run through the bus:
-- `PaneAction` for workspace mutations (`CommandDispatcher` → `ActionResolver` → `ActionValidator` → `PaneCoordinator`)
+- `PaneActionCommand` for workspace mutations (`CommandDispatcher` → `ActionResolver` → `ActionValidator` → `PaneCoordinator`)
 - `RuntimeCommand` for pane-runtime commands (`PaneCoordinator` → `RuntimeRegistry` → `runtime.handleCommand(...)`)
 - `AppEventBus` for app-level notifications/facts that do not fit either command plane
 - `ApplicationLifecycleMonitor` for AppKit/macOS lifecycle ingress into the lifecycle stores
@@ -165,14 +165,14 @@ Use the narrowest plane that still preserves the architecture boundary.
 
 | If the change is... | Use | Notes |
 |---------------------|-----|-------|
-| Workspace mutation | `PaneAction` | Validator-gated, then sequenced by `PaneCoordinator` into stores. |
+| Workspace mutation | `PaneActionCommand` | Validator-gated, then sequenced by `PaneCoordinator` into stores. |
 | Runtime command | `RuntimeCommand` | Direct `PaneCoordinator -> RuntimeRegistry -> runtime.handleCommand(...)`. |
 | Runtime fact | `PaneRuntimeEventBus` | Fact fan-out only; never route commands through it. |
 | App-level notification that is not a command | `AppEventBus` | Notification fan-out only. Not a workspace command boundary. |
 | AppKit/macOS lifecycle ingress | `ApplicationLifecycleMonitor` | Owns AppKit ingress and writes `AppLifecycleStore` / `WindowLifecycleStore`. |
 | UI-only local state | Local `@Observable` state | Keep it in the owning view/controller. Do not bounce it through a bus or `NotificationCenter`. |
 
-The old `AppCommand -> AppEventBus -> controller -> PaneAction` chain has been removed. User-triggered workspace work now enters through validated `PaneAction` routing directly.
+The old `AppCommand -> AppEventBus -> controller -> PaneActionCommand` chain has been removed. User-triggered workspace work now enters through validated `PaneActionCommand` routing directly.
 
 For full detail:
 - [Event namespaces](docs/architecture/workspace_data_architecture.md#event-namespaces) — which events exist and who produces them
@@ -186,10 +186,10 @@ For full detail:
 **AsyncStream over Combine/NotificationCenter** — All new event plumbing uses `AsyncStream` + `swift-async-algorithms`. No new Combine subscriptions. No new NotificationCenter observers.
 
 **Choose the right coordination plane**:
-- Asking the workspace to change shape: `PaneAction`
+- Asking the workspace to change shape: `PaneActionCommand`
 - Asking one runtime to do work: `RuntimeCommand`
 - Reporting that something already happened: `PaneRuntimeEventBus`
-- Broadcasting app-level UI intent that genuinely needs fan-out: `AppEventBus`
+- Broadcasting an app-level fact/notification that does not belong on the command planes: `AppEventBus`
 - Handling AppKit/macOS lifecycle ingress: `ApplicationLifecycleMonitor`
 
 **Injectable Clock** — All store-level time-dependent logic accepts `any Clock<Duration>` as a constructor parameter. This makes undo TTLs, health checks, and debounce timers testable.
@@ -216,7 +216,7 @@ agent-studio/
 │   ├── Core/                         # Shared domain — models, stores, pane system
 │   │   ├── Models/                   # Layout, Tab, Pane, Repo, Worktree
 │   │   ├── Stores/                   # WorkspaceStore, WorkspaceRepoCache, SessionRuntime
-│   │   ├── Actions/                  # PaneAction, ActionResolver, ActionValidator
+│   │   ├── Actions/                  # PaneActionCommand, ActionResolver, ActionValidator
 │   │   └── Views/                    # Tab bar, splits, drawer, arrangement
 │   ├── Features/
 │   │   ├── Terminal/                 # Ghostty C API bridge, SurfaceManager, views
@@ -248,7 +248,7 @@ Where each key component lives — use this to decide where new files go. Apply 
 | `WorkspaceRepoCache` | `Core/Stores/` | Derived enrichment (branches, git status, PR counts) |
 | `SessionRuntime` | `Core/Stores/` | Session backends, health checks, zmx |
 | `SurfaceManager` | `Features/Terminal/` | Ghostty surface lifecycle, health, undo |
-| `ActionResolver` | `Core/Actions/` | Resolves PaneAction to mutations |
+| `ActionResolver` | `Core/Actions/` | Resolves PaneActionCommand to mutations |
 | `BridgePaneController` | `Features/Bridge/` | WKWebView lifecycle for React panes |
 | `RPCRouter` | `Features/Bridge/Transport/` | JSON-RPC dispatch for bridge messages |
 | `CommandBarState` | `Features/CommandBar/` | Command palette state machine |

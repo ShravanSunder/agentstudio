@@ -64,14 +64,14 @@ Use the smallest boundary that still matches the kind of work being done.
 
 | Change shape | Boundary | Notes |
 |--------------|----------|-------|
-| Workspace mutation | `PaneAction` | Validator-gated, then sequenced into stores by `PaneCoordinator`. |
+| Workspace mutation | `PaneActionCommand` | Validator-gated, then sequenced into stores by `PaneCoordinator`. |
 | Runtime command | `RuntimeCommand` | Direct command routing to a single runtime via `RuntimeRegistry`. |
 | Runtime fact | `PaneRuntimeEventBus` | Fan-out for runtime/system facts only. Never route commands through it. |
 | App-level notification that is not a command | `AppEventBus` | Notification fan-out only. |
 | AppKit/macOS lifecycle ingress | `ApplicationLifecycleMonitor` | Owns AppKit callbacks and writes lifecycle stores. |
 | UI-only local state | Local `@Observable` view/controller state | Keep it local; do not bounce it through a bus or `NotificationCenter`. |
 
-The old `AppCommand -> AppEventBus -> controller -> PaneAction` chain is retired. Workspace work now enters through validated `PaneAction` routing directly, and AppKit lifecycle state lives in the lifecycle stores.
+The old `AppCommand -> AppEventBus -> controller -> PaneActionCommand` chain is retired. Workspace work now enters through validated `PaneActionCommand` routing directly, and AppKit lifecycle state lives in the lifecycle stores.
 
 ## Data Model at a Glance
 
@@ -101,7 +101,7 @@ WorkspaceUIStore (presentation prefs — workspace.ui.json)
 ## Mutation Flow (Summary)
 
 ```
-User Action → PaneAction → ActionResolver → ActionValidator
+User Action → PaneActionCommand → ActionResolver → ActionValidator
   → PaneCoordinator → Store.mutate()
     → @Observable tracks → SwiftUI re-renders
     → markDirty() → debounced save (500ms)

@@ -437,7 +437,7 @@ class PaneTabViewController: NSViewController, CommandHandler {
         payload: SplitDropPayload,
         destPaneId: UUID,
         zone: DropZone
-    ) -> PaneAction? {
+    ) -> PaneActionCommand? {
         let destinationPane = store.pane(destPaneId)
         let sourcePane: Pane? =
             if case .existingPane(let sourcePaneId, _) = payload.kind {
@@ -576,9 +576,9 @@ class PaneTabViewController: NSViewController, CommandHandler {
 
     // MARK: - Validated Action Pipeline
 
-    /// Central entry point: validates a PaneAction and executes it if valid.
+    /// Central entry point: validates a PaneActionCommand and executes it if valid.
     /// All input sources (keyboard, menu, drag-drop, commands) converge here.
-    private func dispatchAction(_ action: PaneAction) {
+    private func dispatchAction(_ action: PaneActionCommand) {
         let snapshot = ActionResolver.snapshot(
             from: store.tabs,
             activeTabId: store.activeTabId,
@@ -598,7 +598,7 @@ class PaneTabViewController: NSViewController, CommandHandler {
 
     /// Route tab context menu commands through the validated pipeline.
     private func handleTabCommand(_ command: AppCommand, tabId: UUID) {
-        let action: PaneAction?
+        let action: PaneActionCommand?
 
         switch command {
         case .closeTab:
@@ -712,7 +712,7 @@ class PaneTabViewController: NSViewController, CommandHandler {
         sourcePaneId: UUID,
         sourceTabId: UUID?,
         targetTabId: UUID
-    ) -> PaneAction? {
+    ) -> PaneActionCommand? {
         let resolvedSourceTabId: UUID? =
             if let sourceTabId, store.tab(sourceTabId)?.paneIds.contains(sourcePaneId) == true {
                 sourceTabId
@@ -891,7 +891,7 @@ class PaneTabViewController: NSViewController, CommandHandler {
         command: AppCommand,
         target: UUID,
         targetType: SearchItemType
-    ) -> PaneAction? {
+    ) -> PaneActionCommand? {
         switch (command, targetType) {
         case (.selectTab, .tab):
             return .selectTab(tabId: target)

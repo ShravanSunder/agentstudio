@@ -103,7 +103,7 @@ struct DrawerPanelOverlay: View {
     let paneFrames: [UUID: CGRect]
     let tabSize: CGSize
     let iconBarFrame: CGRect
-    let action: (PaneAction) -> Void
+    let action: (PaneActionCommand) -> Void
 
     @AppStorage("drawerHeightRatio") private var heightRatio: Double = DrawerLayout.heightRatioMax
 

@@ -11,7 +11,7 @@ struct PaneLeafContainer: View {
     let isSplit: Bool
     let store: WorkspaceStore
     let repoCache: WorkspaceRepoCache
-    let action: (PaneAction) -> Void
+    let action: (PaneActionCommand) -> Void
     let dropTargetCoordinateSpace: String?
     let useDrawerFramePreference: Bool
 
@@ -28,7 +28,7 @@ struct PaneLeafContainer: View {
         isSplit: Bool,
         store: WorkspaceStore,
         repoCache: WorkspaceRepoCache,
-        action: @escaping (PaneAction) -> Void,
+        action: @escaping (PaneActionCommand) -> Void,
         dropTargetCoordinateSpace: String? = "tabContainer",
         useDrawerFramePreference: Bool = false
     ) {

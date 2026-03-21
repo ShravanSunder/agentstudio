@@ -99,7 +99,7 @@ enum DragSessionState: Equatable {
 }
 
 struct DragCandidateAction: Equatable {
-    let paneAction: PaneAction
+    let paneAction: PaneActionCommand
     let target: PaneDropTarget
 }
 ```

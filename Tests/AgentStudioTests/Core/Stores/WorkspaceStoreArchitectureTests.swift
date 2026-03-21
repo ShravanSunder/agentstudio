@@ -11,6 +11,6 @@ struct WorkspaceStoreArchitectureTests {
 
         #expect(!source.contains("ActionResolver"))
         #expect(!source.contains("ActionValidator"))
-        #expect(!source.contains("PaneAction"))
+        #expect(!source.contains("PaneActionCommand"))
     }
 }

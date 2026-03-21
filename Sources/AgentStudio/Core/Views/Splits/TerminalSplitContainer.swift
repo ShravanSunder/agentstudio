@@ -23,7 +23,7 @@ struct TerminalSplitContainer: View {
     let zoomedPaneId: UUID?
     let minimizedPaneIds: Set<UUID>
     let splitRenderInfo: SplitRenderInfo
-    let action: (PaneAction) -> Void
+    let action: (PaneActionCommand) -> Void
     /// Called when a resize drag ends to persist the current split tree state.
     let onPersist: (() -> Void)?
     let shouldAcceptDrop: (SplitDropPayload, UUID, DropZone) -> Bool
@@ -201,7 +201,7 @@ struct SplitSubtreeView: View {
     let activePaneId: UUID?
     let minimizedPaneIds: Set<UUID>
     let splitRenderInfo: SplitRenderInfo
-    let action: (PaneAction) -> Void
+    let action: (PaneActionCommand) -> Void
     let onPersist: (() -> Void)?
     let store: WorkspaceStore
     let repoCache: WorkspaceRepoCache
@@ -215,7 +215,7 @@ struct SplitSubtreeView: View {
         activePaneId: UUID?,
         minimizedPaneIds: Set<UUID>,
         splitRenderInfo: SplitRenderInfo,
-        action: @escaping (PaneAction) -> Void,
+        action: @escaping (PaneActionCommand) -> Void,
         onPersist: (() -> Void)?,
         store: WorkspaceStore,
         repoCache: WorkspaceRepoCache,

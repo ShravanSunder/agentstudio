@@ -60,8 +60,8 @@ final class ActionExecutor {
         coordinator.undoCloseTab()
     }
 
-    /// Validate/canonicalize a PaneAction against current state, then execute it.
-    func execute(_ action: PaneAction) {
+    /// Validate/canonicalize a PaneActionCommand against current state, then execute it.
+    func execute(_ action: PaneActionCommand) {
         let snapshot = ActionResolver.snapshot(
             from: store.tabs,
             activeTabId: store.activeTabId,

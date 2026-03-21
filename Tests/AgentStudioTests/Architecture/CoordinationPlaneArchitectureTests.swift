@@ -304,7 +304,7 @@ struct CoordinationPlaneArchitectureTests {
         #expect(agentsSource.contains("Runtime fact"))
         #expect(agentsSource.contains("AppKit/macOS lifecycle ingress"))
         #expect(agentsSource.contains("UI-only local state"))
-        #expect(agentsSource.contains("AppCommand -> AppEventBus -> controller -> PaneAction"))
+        #expect(agentsSource.contains("AppCommand -> AppEventBus -> controller -> PaneActionCommand"))
 
         #expect(readmeSource.contains("Coordination Planes"))
         #expect(readmeSource.contains("ApplicationLifecycleMonitor"))
@@ -312,14 +312,14 @@ struct CoordinationPlaneArchitectureTests {
         #expect(readmeSource.contains("WindowLifecycleStore"))
         #expect(readmeSource.contains("@Observable"))
         #expect(readmeSource.contains("private(set)"))
-        #expect(readmeSource.contains("AppCommand -> AppEventBus -> controller -> PaneAction"))
+        #expect(readmeSource.contains("AppCommand -> AppEventBus -> controller -> PaneActionCommand"))
         #expect(!readmeSource.contains("App-level UI intent fan-out → AppEventBus"))
         #expect(!readmeSource.contains("AppKit/macOS lifecycle only → NotificationCenter"))
 
         #expect(runtimeArchitectureSource.contains("ApplicationLifecycleMonitor"))
         #expect(runtimeArchitectureSource.contains("AppLifecycleStore"))
         #expect(runtimeArchitectureSource.contains("WindowLifecycleStore"))
-        #expect(runtimeArchitectureSource.contains("AppCommand -> AppEventBus -> controller -> PaneAction"))
+        #expect(runtimeArchitectureSource.contains("AppCommand -> AppEventBus -> controller -> PaneActionCommand"))
         #expect(!runtimeArchitectureSource.contains("two `NotificationCenter.post` calls remain in `Ghostty.App`"))
 
         #expect(eventBusDesignSource.contains("AppEventBus` carries app-level notifications"))

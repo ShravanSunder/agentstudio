@@ -8,7 +8,7 @@ enum PaneDropPreviewDecision: Equatable {
 enum DropCommitPlan: Equatable {
     case moveTab(tabId: UUID, toIndex: Int)
     case extractPaneToTabThenMove(paneId: UUID, sourceTabId: UUID, toIndex: Int)
-    case paneAction(PaneAction)
+    case paneAction(PaneActionCommand)
 }
 
 enum PaneDropDestination: Equatable {
@@ -66,14 +66,14 @@ enum PaneDropPlanner {
         }
 
         if sourceTab.paneCount == 1 {
-            let action = PaneAction.moveTab(tabId: sourceTabId, delta: 0)
+            let action = PaneActionCommand.moveTab(tabId: sourceTabId, delta: 0)
             guard isActionValid(action, state: state) else {
                 return .ineligible
             }
             return .eligible(.moveTab(tabId: sourceTabId, toIndex: targetTabIndex))
         }
 
-        let extractAction = PaneAction.extractPaneToTab(tabId: sourceTabId, paneId: paneId)
+        let extractAction = PaneActionCommand.extractPaneToTab(tabId: sourceTabId, paneId: paneId)
         guard isActionValid(extractAction, state: state) else {
             return .ineligible
         }
@@ -105,7 +105,7 @@ enum PaneDropPlanner {
             guard state.drawerParentPaneId(of: sourcePaneId) == drawerParentPaneId else {
                 return .ineligible
             }
-            let action = PaneAction.moveDrawerPane(
+            let action = PaneActionCommand.moveDrawerPane(
                 parentPaneId: drawerParentPaneId,
                 drawerPaneId: sourcePaneId,
                 targetDrawerPaneId: targetPaneId,
@@ -136,7 +136,7 @@ enum PaneDropPlanner {
     }
 
     private static func eligiblePaneAction(
-        _ action: PaneAction,
+        _ action: PaneActionCommand,
         state: ActionStateSnapshot
     ) -> PaneDropPreviewDecision {
         guard isActionValid(action, state: state) else {
@@ -146,7 +146,7 @@ enum PaneDropPlanner {
     }
 
     private static func isActionValid(
-        _ action: PaneAction,
+        _ action: PaneActionCommand,
         state: ActionStateSnapshot
     ) -> Bool {
         if case .success = ActionValidator.validate(action, state: state) {

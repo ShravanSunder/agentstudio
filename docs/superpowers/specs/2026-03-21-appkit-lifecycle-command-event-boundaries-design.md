@@ -25,7 +25,7 @@ This work is not complete if only one of those categories ships.
 The current architecture docs already define distinct planes:
 
 - `AppCommand` for user-facing trigger vocabulary
-- `PaneAction` for workspace mutation commands
+- `PaneActionCommand` for workspace mutation commands
 - `RuntimeCommand` for runtime-targeted commands
 - `PaneRuntimeEventBus` for facts
 - `AppEventBus` for app-level notifications that do not belong on the command planes
@@ -66,10 +66,10 @@ AppCommand
   -> postAppEvent(...)
   -> AppEventBus
   -> controller subscriber
-  -> PaneCoordinator / PaneAction
+  -> PaneCoordinator / PaneActionCommand
 ```
 
-   The target architecture should cut that indirection so commands route directly to `PaneAction` or `RuntimeCommand` instead of bouncing through an app-level event channel.
+   The target architecture should cut that indirection so commands route directly to `PaneActionCommand` or `RuntimeCommand` instead of bouncing through an app-level event channel.
 
 ## Design Principles
 
@@ -153,7 +153,7 @@ The command/event split remains:
 ```text
 User trigger
   -> AppCommand
-  -> PaneAction or RuntimeCommand
+  -> PaneActionCommand or RuntimeCommand
   -> validation / dispatch
   -> mutation or runtime effect
 
@@ -169,10 +169,10 @@ Plane responsibilities:
 
   All user-triggered actions from menus, keyboard shortcuts, clicks, overlays, drawer controls, arrangement controls, and command-bar selections start here.
 
-- `PaneAction`
+- `PaneActionCommand`
   Workspace mutation commands only
 
-  Any user-triggered action that changes workspace structure must terminate in a validated `PaneAction` path.
+  Any user-triggered action that changes workspace structure must terminate in a validated `PaneActionCommand` path.
 
 - `RuntimeCommand`
   Runtime-targeted commands only
@@ -284,7 +284,7 @@ Why:
 
 These should remain where they are unless the implementation finds a stronger reason to move them:
 
-- `Core/Actions/PaneAction.swift`
+- `Core/Actions/PaneActionCommand.swift`
 - `Core/Actions/ActionResolver.swift`
 - `Core/Actions/ActionValidator.swift`
 - `Core/PaneRuntime/Contracts/RuntimeCommand.swift`
@@ -524,7 +524,7 @@ Expected outcomes:
 
 Inventory every remaining `AppEvent` case and classify it as:
 
-- `PaneAction`
+- `PaneActionCommand`
 - `RuntimeCommand`
 - true app-level event/notification
 - stale and removable
@@ -556,7 +556,7 @@ At minimum, review:
 - where lifecycle ingress types live
 - whether command vocabularies are placed and named clearly enough to distinguish:
   - `AppCommand`
-  - `PaneAction`
+  - `PaneActionCommand`
   - `RuntimeCommand`
 
 This review does not require a large directory restructure by default. It does require one of two outcomes for each confusing placement:
@@ -573,7 +573,7 @@ Mechanical guardrails should fail when:
 - `NotificationCenter` is used outside the lifecycle ingress allowlist during migration
 - `NotificationCenter` remains outside `ApplicationLifecycleMonitor` after migration completes
 - `postAppEvent(...)` / `postGhosttyEvent(...)` survive or reappear outside approved boundaries
-- workspace mutations bypass validated `PaneAction`
+- workspace mutations bypass validated `PaneActionCommand`
 - runtime commands are routed through event infrastructure
 - user-triggered workspace actions bypass `ActionValidator`
 
@@ -608,7 +608,7 @@ Required documentation outcomes:
 - a short "how to read this architecture" map for future agents
 - lifecycle ingress ownership documented in one obvious place
 - directory placement rationale for lifecycle ingress and app-level events
-- explicit explanation of the current bad `AppCommand -> AppEventBus -> controller -> PaneAction` conversion chain and the target replacement
+- explicit explanation of the current bad `AppCommand -> AppEventBus -> controller -> PaneActionCommand` conversion chain and the target replacement
 - explicit explanation of lifecycle stores as `@Observable` atomic stores with `private(set)`
 - command vs event semantics documented in terms of intent vs fact, not timing folklore
 - any retained exceptions called out explicitly instead of left implicit
@@ -620,7 +620,7 @@ The docs should do two jobs:
 
 Required guidance for future agents:
 
-- Asking the workspace to change -> `PaneAction`
+- Asking the workspace to change -> `PaneActionCommand`
 - Asking a runtime to do work -> `RuntimeCommand`
 - Reporting a runtime/system fact -> `PaneRuntimeEventBus`
 - Reporting an app-level notification that is not a command -> `AppEventBus`
@@ -635,7 +635,7 @@ This design is complete only when all of the following are true:
 1. AppKit lifecycle enters the app through one owned boundary.
 2. UI/runtime surfaces no longer subscribe directly to lifecycle notifications.
 3. Command-shaped `AppEventBus` payloads have been removed or migrated.
-4. Workspace mutations remain validator-gated through `PaneAction`.
+4. Workspace mutations remain validator-gated through `PaneActionCommand`.
 5. Runtime commands remain direct through `RuntimeCommand`.
 6. `NotificationCenter` cannot be reintroduced for app-domain coordination without failing guard tests.
 7. `AGENTS.md` and `docs/architecture/README.md` contain a coordination-plane decision table covering at least:
@@ -656,6 +656,6 @@ This design is complete only when all of the following are true:
 
 These items are intentionally excluded from this design:
 
-- renaming `PaneAction` to a new type name
+- further renaming of `PaneActionCommand` beyond this cleanup
 - broader store-boundary refactors unrelated to lifecycle or command/event separation
 - changing the underlying workspace/event architecture away from the documented command and event planes

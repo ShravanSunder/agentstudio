@@ -4,9 +4,9 @@
 
 **Goal:** Centralize AppKit lifecycle ingress behind typed lifecycle stores, remove command/event boundary drift, and make the coordination architecture obvious from code structure, tests, and docs.
 
-**Architecture:** Add a thin `ApplicationLifecycleMonitor` in `App/Lifecycle/` that translates AppKit ingress into two atomic `@Observable` stores: `AppLifecycleStore` and `WindowLifecycleStore`. Split app-level events out of pane-runtime hosting, remove global bus-post helpers, route user-triggered workspace changes through validated `PaneAction`, route runtime work through `RuntimeCommand`, and move Ghostty runtime outputs onto the correct fact/command boundaries.
+**Architecture:** Add a thin `ApplicationLifecycleMonitor` in `App/Lifecycle/` that translates AppKit ingress into two atomic `@Observable` stores: `AppLifecycleStore` and `WindowLifecycleStore`. Split app-level events out of pane-runtime hosting, remove global bus-post helpers, route user-triggered workspace changes through validated `PaneActionCommand`, route runtime work through `RuntimeCommand`, and move Ghostty runtime outputs onto the correct fact/command boundaries.
 
-**Tech Stack:** Swift 6.2, AppKit, SwiftUI `@Observable`, Swift Testing, existing `PaneAction` + `ActionValidator` pipeline, `RuntimeCommand`, `PaneRuntimeEventBus`, `mise`
+**Tech Stack:** Swift 6.2, AppKit, SwiftUI `@Observable`, Swift Testing, existing `PaneActionCommand` + `ActionValidator` pipeline, `RuntimeCommand`, `PaneRuntimeEventBus`, `mise`
 
 ---
 
@@ -42,7 +42,7 @@
 - `Sources/AgentStudio/App/AppCommand.swift`
   Add any missing explicit command surface needed to eliminate command-shaped `AppEventBus` usage.
 - `Sources/AgentStudio/Core/Actions/ActionResolver.swift`
-  Resolve any new `AppCommand` cases into validated `PaneAction`s.
+  Resolve any new `AppCommand` cases into validated `PaneActionCommand`s.
 - `Sources/AgentStudio/Core/PaneRuntime/Events/EventChannels.swift`
   Leave `PaneRuntimeEventBus` here; remove `AppEvent`, `AppEventBus`, `GhosttyEventBus`, and global post helpers from this file.
 - `Sources/AgentStudio/Features/CommandBar/CommandBarDataSource.swift`
@@ -453,7 +453,7 @@ Constraint:
 Replace `postAppEvent(...)` for command-shaped user actions with:
 - `CommandDispatcher.shared.dispatch(...)`
 - targeted command dispatch
-- or direct validated `PaneAction` execution only where that is already the established command boundary
+- or direct validated `PaneActionCommand` execution only where that is already the established command boundary
 
 - [ ] **Step 5: Keep only true facts or justified app-intent notifications on AppEventBus**
 
@@ -492,7 +492,7 @@ Add/extend tests so they assert:
 - `AGENTS.md` includes a coordination-plane decision table or equivalent explicit guidance
 - `docs/architecture/README.md` includes the same plane split
 - lifecycle stores are documented as `@Observable` atomic stores
-- the old `AppCommand -> AppEventBus -> controller -> PaneAction` chain is documented as the thing being removed
+- the old `AppCommand -> AppEventBus -> controller -> PaneActionCommand` chain is documented as the thing being removed
 
 - [ ] **Step 2: Run the guard tests to verify they fail**
 
@@ -503,7 +503,7 @@ Expected: FAIL until the docs are updated to match the implemented architecture.
 - [ ] **Step 3: Update docs with the final architecture**
 
 Required content:
-- workspace mutation -> `PaneAction`
+- workspace mutation -> `PaneActionCommand`
 - runtime command -> `RuntimeCommand`
 - runtime/system fact -> `PaneRuntimeEventBus`
 - app-level notification that is not a command -> `AppEventBus`

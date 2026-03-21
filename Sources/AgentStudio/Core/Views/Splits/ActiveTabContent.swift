@@ -13,7 +13,7 @@ struct ActiveTabContent: View {
     let repoCache: WorkspaceRepoCache
     let viewRegistry: ViewRegistry
     let appLifecycleStore: AppLifecycleStore
-    let action: (PaneAction) -> Void
+    let action: (PaneActionCommand) -> Void
     let shouldAcceptDrop: (SplitDropPayload, UUID, DropZone) -> Bool
     let onDrop: (SplitDropPayload, UUID, DropZone) -> Void
 

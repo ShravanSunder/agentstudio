@@ -54,7 +54,7 @@ struct DrawerPanel: View {
     let height: CGFloat
     let store: WorkspaceStore
     let repoCache: WorkspaceRepoCache
-    let action: (PaneAction) -> Void
+    let action: (PaneActionCommand) -> Void
     let onResize: (CGFloat) -> Void
     let onDismiss: () -> Void
     let appLifecycleStore: AppLifecycleStore
@@ -85,7 +85,7 @@ struct DrawerPanel: View {
         .help("Add a drawer terminal")
     }
 
-    private var drawerAction: (PaneAction) -> Void {
+    private var drawerAction: (PaneActionCommand) -> Void {
         { paneAction in
             switch paneAction {
             case .resizePane(_, let splitId, let ratio):
@@ -235,7 +235,7 @@ struct DrawerPanel: View {
             isManagementModeActive: managementMode.isActive,
             knownWorktreeIds: Set(store.repos.flatMap(\.worktrees).map(\.id))
         )
-        let action = PaneAction.moveDrawerPane(
+        let action = PaneActionCommand.moveDrawerPane(
             parentPaneId: parentPaneId,
             drawerPaneId: sourcePaneId,
             targetDrawerPaneId: destPaneId,

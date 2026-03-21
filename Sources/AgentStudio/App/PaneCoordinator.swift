@@ -448,7 +448,7 @@ final class PaneCoordinator {
         let tabs = store.tabs
         guard !tabs.isEmpty else { return }
 
-        let action: PaneAction?
+        let action: PaneActionCommand?
         switch target {
         case .previous:
             action = ActionResolver.resolve(command: .prevTab, tabs: tabs, activeTabId: sourceTabId)

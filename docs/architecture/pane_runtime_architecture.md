@@ -1376,7 +1376,7 @@ Application/window lifecycle is separate from pane runtime lifecycle. AppKit ing
 - `AppLifecycleStore` for app-wide active/terminating state
 - `WindowLifecycleStore` for key/focused window identity and registration
 
-Those stores are lifecycle ingress state, not runtime coordination state. The old `AppCommand -> AppEventBus -> controller -> PaneAction` chain has been removed; user-triggered workspace work now enters the validated `PaneAction` pipeline directly.
+Those stores are lifecycle ingress state, not runtime coordination state. The old `AppCommand -> AppEventBus -> controller -> PaneActionCommand` chain has been removed; user-triggered workspace work now enters the validated `PaneActionCommand` pipeline directly.
 
 ### Contract 5a: Attach Readiness Policy (LUNA-295)
 
@@ -1789,11 +1789,11 @@ Every `ghostty_action_tag_e` case has a defined handling policy. The adapter's s
 | `childExited` | Runtime → Coordinator | Lifecycle transition to draining | critical | Shell/process exit |
 | `closeSurface` | Runtime → Coordinator | Pane close flow (with undo) | critical | User Cmd+W or process-initiated |
 | **Tab/split requests (coordinator routes)** | | | | |
-| `newTab` | Coordinator | Creates new tab via PaneAction | critical | Keyboard shortcut passthrough |
-| `closeTab` | Coordinator | Closes tab via PaneAction (with undo) | critical | Keyboard shortcut passthrough |
+| `newTab` | Coordinator | Creates new tab via PaneActionCommand | critical | Keyboard shortcut passthrough |
+| `closeTab` | Coordinator | Closes tab via PaneActionCommand (with undo) | critical | Keyboard shortcut passthrough |
 | `gotoTab` | Coordinator | Tab navigation | critical | |
 | `moveTab` | Coordinator | Tab reorder | critical | |
-| `newSplit` | Coordinator | Creates split via PaneAction | critical | |
+| `newSplit` | Coordinator | Creates split via PaneActionCommand | critical | |
 | `gotoSplit` | Coordinator | Focus navigation between splits | critical | |
 | `resizeSplit` | Coordinator | Split resize | critical | |
 | `equalizeSplits` | Coordinator | Reset split ratios | critical | |
@@ -2038,9 +2038,9 @@ enum TunnelType: String, Sendable { case ssh, zmx }
 /// Mirror of PaneEventEnvelope (outbound from runtime → coordinator).
 ///
 /// NOTE: "RuntimeCommand" is the runtime-level command vocabulary —
-/// distinct from the workspace-level `PaneAction` in `Core/Actions/`
+/// distinct from the workspace-level `PaneActionCommand` in `Core/Actions/`
 /// which handles tab/layout/arrangement mutations. RuntimeCommand tells
-/// a runtime what to DO; PaneAction tells the workspace what to CHANGE.
+/// a runtime what to DO; PaneActionCommand tells the workspace what to CHANGE.
 struct RuntimeCommandEnvelope: Sendable {
     let commandId: UUID                     // idempotency
     let correlationId: UUID?                // links workflow steps
@@ -3180,16 +3180,16 @@ See [Directory Structure](directory_structure.md) for the full decision process 
 
 `GhosttyEvent`, `BrowserEvent`, `DiffEvent`, `EditorEvent` are cases in the `PaneRuntimeEvent` discriminated union (Contract 2). Since `PaneRuntimeEvent` is in `Core/PaneRuntime/Contracts/` and Core cannot import Features, all per-kind event enums must also be in Core. These enums define the **domain event vocabulary** — what the system says about terminal/browser/diff/editor events. The adapters that *produce* these events from platform APIs live in Features.
 
-### Naming: RuntimeCommand vs PaneAction
+### Naming: RuntimeCommand vs PaneActionCommand
 
 Two distinct action layers exist with different scopes:
 
 | Layer | Type | Location | Purpose |
 |-------|------|----------|---------|
-| **Workspace** | `PaneAction` | `Core/Actions/` | Workspace structure mutations — selectTab, closePane, insertPane, toggleDrawer |
+| **Workspace** | `PaneActionCommand` | `Core/Actions/` | Workspace structure mutations — selectTab, closePane, insertPane, toggleDrawer |
 | **Runtime** | `RuntimeCommand` | `Core/PaneRuntime/Contracts/` | Commands to individual runtimes — sendInput, navigate, approveHunk |
 
-`PaneAction` flows: User → ActionResolver → ActionValidator → PaneCoordinator → WorkspaceStore.
+`PaneActionCommand` flows: User → ActionResolver → ActionValidator → PaneCoordinator → WorkspaceStore.
 `RuntimeCommand` flows: PaneCoordinator → RuntimeRegistry → `runtime.handleCommand(envelope)`.
 
 `AppEventBus` is reserved for app-level notifications that are not commands. `ApplicationLifecycleMonitor` owns AppKit/macOS lifecycle ingress and writes the lifecycle stores; it does not route workspace commands.

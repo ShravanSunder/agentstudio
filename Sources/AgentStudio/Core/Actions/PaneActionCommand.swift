@@ -41,7 +41,7 @@ enum PaneSource: Equatable, Hashable {
 ///
 /// "Resolved" means no "active tab" or "current pane" references —
 /// all targets are concrete UUIDs computed during the resolution step.
-enum PaneAction: Equatable, Hashable {
+enum PaneActionCommand: Equatable, Hashable {
     // Tab lifecycle
     case selectTab(tabId: UUID)
     case closeTab(tabId: UUID)

@@ -6,7 +6,7 @@
 
 **Architecture:** Introduce one pure, shared drop-planning layer that computes eligibility + commit plan from current state (`ActionStateSnapshot`), and wire both preview (target rendering) and commit (drop execution) to that same planner. Remove policy drift between split/drawer validation and tab-bar marker logic by routing all drag target decisions through validator-backed planning. Preserve current domain rules: drawer child panes stay within parent drawer, layout panes can move/split/merge according to existing action contracts.
 
-**Tech Stack:** Swift 6, AppKit + SwiftUI hybrid, `@Observable`, `PaneAction` + `ActionResolver` + `ActionValidator`, Swift Testing (`import Testing`), Peekaboo for visual verification
+**Tech Stack:** Swift 6, AppKit + SwiftUI hybrid, `@Observable`, `PaneActionCommand` + `ActionResolver` + `ActionValidator`, Swift Testing (`import Testing`), Peekaboo for visual verification
 
 ---
 
@@ -91,7 +91,7 @@ Create:
 - `enum DropCommitPlan` with typed plans for:
   - `.moveTab(tabId: UUID, toIndex: Int)`
   - `.extractPaneToTabThenMove(paneId: UUID, sourceTabId: UUID, toIndex: Int)`
-  - `.paneAction(PaneAction)`
+  - `.paneAction(PaneActionCommand)`
 
 Planner API:
 ```swift
@@ -144,7 +144,7 @@ swift test --filter "PaneDropPlannerTests" --build-path .build-agent-planner
 
 **Step 3: Implement validator coupling**
 
-- Resolve candidate `PaneAction` through `ActionResolver` where appropriate.
+- Resolve candidate `PaneActionCommand` through `ActionResolver` where appropriate.
 - Validate candidate through `ActionValidator.validate(...)`.
 - Return `.eligible` only on `.success`.
 - Keep planner pure (no store mutation, no NotificationCenter).
