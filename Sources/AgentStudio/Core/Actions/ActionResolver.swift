@@ -21,6 +21,8 @@ enum ActionResolver {
     ) -> PaneAction? {
         switch command {
         // Tab lifecycle
+        case .selectTab:
+            return nil
         case .closeTab:
             guard let tabId = activeTabId else { return nil }
             return .closeTab(tabId: tabId)
@@ -60,6 +62,8 @@ enum ActionResolver {
             }
             return .closePane(tabId: tab.id, paneId: paneId)
 
+        case .focusPane:
+            return nil
         case .extractPaneToTab:
             guard let (tab, paneId) = activeTabAndPane(tabs: tabs, activeTabId: activeTabId)
             else { return nil }
@@ -123,7 +127,7 @@ enum ActionResolver {
             return .duplicatePane(tabId: tab.id, paneId: PaneId(uuid: paneId), direction: .right)
 
         // Non-pane commands: not resolved to PaneAction
-        case .addRepo, .addFolder, .removeRepo, .refreshWorktrees,
+        case .addRepo, .addFolder, .removeRepo,
             .toggleSidebar, .newFloatingTerminal,
             .newTerminalInTab, .newTab, .undoCloseTab,
             .newWindow, .closeWindow,

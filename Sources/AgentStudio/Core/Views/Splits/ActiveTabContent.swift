@@ -12,6 +12,7 @@ struct ActiveTabContent: View {
     let store: WorkspaceStore
     let repoCache: WorkspaceRepoCache
     let viewRegistry: ViewRegistry
+    let appLifecycleStore: AppLifecycleStore
     let action: (PaneAction) -> Void
     let shouldAcceptDrop: (SplitDropPayload, UUID, DropZone) -> Bool
     let onDrop: (SplitDropPayload, UUID, DropZone) -> Void
@@ -42,7 +43,8 @@ struct ActiveTabContent: View {
                 onDrop: onDrop,
                 store: store,
                 repoCache: repoCache,
-                viewRegistry: viewRegistry
+                viewRegistry: viewRegistry,
+                appLifecycleStore: appLifecycleStore
             )
         }
         // Empty/no-tab state handled by AppKit (PaneTabViewController toggles NSView visibility)

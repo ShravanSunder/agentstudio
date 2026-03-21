@@ -393,7 +393,7 @@ final class PaneCoordinator {
                 "Terminal control event received for pane \(sourcePaneUUID.uuidString, privacy: .public): \(String(describing: event), privacy: .public)"
             )
         case .bellRang:
-            postAppEvent(.worktreeBellRang(paneId: sourcePaneUUID))
+            AppEventBus.post(.worktreeBellRang(paneId: sourcePaneUUID))
             Self.logger.debug(
                 "Terminal bell event received for pane \(sourcePaneUUID.uuidString, privacy: .public)"
             )

@@ -35,19 +35,21 @@ Instead:
 
 ## Architecture at a Glance
 
-AppKit-main architecture hosting SwiftUI views. Five `@Observable` stores with `private(set)` for unidirectional flow. Two coordinators for cross-store sequencing. An `EventBus<RuntimeEnvelope>` connects runtime actors to stores.
+AppKit-main architecture hosting SwiftUI views. Seven `@Observable` atomic stores with `private(set)` for unidirectional flow. Two coordinators for cross-store sequencing. An `EventBus<RuntimeEnvelope>` connects runtime actors to stores, and a separate app lifecycle monitor owns AppKit ingress.
 
 | Store | Owns | File |
 |-------|------|------|
 | `WorkspaceStore` | repos, worktrees, tabs, panes, layouts | `workspace.state.json` |
 | `WorkspaceRepoCache` | repo enrichment, branches, git status, PR counts | `workspace.cache.json` |
 | `WorkspaceUIStore` | expanded groups, colors, filter | `workspace.ui.json` |
+| `AppLifecycleStore` | application active/terminating state | in-memory |
+| `WindowLifecycleStore` | key/focused window identity and registration | in-memory |
 | `SurfaceManager` | Ghostty surface lifecycle, health, undo | — |
 | `SessionRuntime` | runtime status, health checks, zmx | — |
 
 **Worktree model is structure-only:** `id`, `repoId` (FK), `name`, `path`, `isMainWorktree`. No branch, no status. All enrichment lives in `WorkspaceRepoCache`, populated by the event bus.
 
-**Event bus pattern:** Mutate the store directly → emit a fact on the bus → coordinator updates the other store. This is NOT CQRS — no command bus, no command handlers. See [State Management Patterns](#state-management-patterns) below and [Event System Design](docs/architecture/workspace_data_architecture.md#event-system-design-what-it-is-and-isnt) for full detail.
+**Event bus pattern:** Mutate the store directly → emit a fact on the bus → coordinator updates the other store. This is NOT CQRS — no command bus, no command handlers. `ApplicationLifecycleMonitor` is ingress-only and mutates lifecycle stores directly from AppKit callbacks. See [State Management Patterns](#state-management-patterns) below and [Event System Design](docs/architecture/workspace_data_architecture.md#event-system-design-what-it-is-and-isnt) for full detail.
 
 ### Architecture Docs
 
@@ -145,13 +147,32 @@ ForgeActor      ──► .prCountsChanged ─┘        │               │
                                                 └──► Sidebar observes both via @Observable
 ```
 
-**This is NOT CQRS.** The bus carries facts, not commands. Stores are mutated by their own methods.
+**This is NOT CQRS.** The event bus carries facts, not commands. Stores are mutated by their own methods. Typed command planes still exist, but they do **not** run through the bus:
+- `PaneAction` for workspace mutations (`CommandDispatcher` → `ActionResolver` → `ActionValidator` → `PaneCoordinator`)
+- `RuntimeCommand` for pane-runtime commands (`PaneCoordinator` → `RuntimeRegistry` → `runtime.handleCommand(...)`)
+- `AppEventBus` for app-level intent fan-out that does not fit either command plane
+- `NotificationCenter` only for real AppKit/macOS lifecycle hooks
 
 **The pattern:** mutate store directly → emit fact on bus → coordinator updates other store.
 
 **Do NOT:** add command enums, route mutations through the bus, create command/event type pairs, build read/write segregation.
 
 **Do:** emit topology events after canonical mutations, make handlers idempotent (dedup by stableKey/worktreeId), use the bus for notification only.
+
+### Coordination Plane Decision Table
+
+Use the narrowest plane that still preserves the architecture boundary.
+
+| If the change is... | Use | Notes |
+|---------------------|-----|-------|
+| Workspace mutation | `PaneAction` | Validator-gated, then sequenced by `PaneCoordinator` into stores. |
+| Runtime command | `RuntimeCommand` | Direct `PaneCoordinator -> RuntimeRegistry -> runtime.handleCommand(...)`. |
+| Runtime fact | `PaneRuntimeEventBus` | Fact fan-out only; never route commands through it. |
+| App-level notification that is not a command | `AppEventBus` | Notification fan-out only. Not a workspace command boundary. |
+| AppKit/macOS lifecycle ingress | `ApplicationLifecycleMonitor` | Owns AppKit ingress and writes `AppLifecycleStore` / `WindowLifecycleStore`. |
+| UI-only local state | Local `@Observable` state | Keep it in the owning view/controller. Do not bounce it through a bus or `NotificationCenter`. |
+
+The old `AppCommand -> AppEventBus -> controller -> PaneAction` chain is the thing being removed. User-triggered workspace work now enters through validated `PaneAction` routing directly.
 
 For full detail:
 - [Event namespaces](docs/architecture/workspace_data_architecture.md#event-namespaces) — which events exist and who produces them
@@ -164,11 +185,18 @@ For full detail:
 
 **AsyncStream over Combine/NotificationCenter** — All new event plumbing uses `AsyncStream` + `swift-async-algorithms`. No new Combine subscriptions. No new NotificationCenter observers.
 
+**Choose the right coordination plane**:
+- Asking the workspace to change shape: `PaneAction`
+- Asking one runtime to do work: `RuntimeCommand`
+- Reporting that something already happened: `PaneRuntimeEventBus`
+- Broadcasting app-level UI intent that genuinely needs fan-out: `AppEventBus`
+- Handling AppKit/macOS lifecycle only: `NotificationCenter`
+
 **Injectable Clock** — All store-level time-dependent logic accepts `any Clock<Duration>` as a constructor parameter. This makes undo TTLs, health checks, and debounce timers testable.
 
 **Bridge-per-Surface** — Each Ghostty surface gets a typed bridge conforming to `PaneBridge` with its own observable state. See [Surface Architecture](docs/architecture/ghostty_surface_architecture.md).
 
-**What we don't do:** No god-store. No Combine for new code. No NotificationCenter for new events. No `ObservableObject/@Published`. No `DispatchQueue.main.async` from C callbacks.
+**What we don't do:** No god-store. No Combine for new code. No NotificationCenter for new app-domain coordination. No `ObservableObject/@Published`. No `DispatchQueue.main.async` from C callbacks.
 
 ---
 

@@ -1369,6 +1369,15 @@ enum PaneRuntimeLifecycle: Sendable {
 ///   7. Unfinished command IDs returned from shutdown() for logging/recovery
 ```
 
+#### App Shell Lifecycle Boundary
+
+Application/window lifecycle is separate from pane runtime lifecycle. AppKit ingress is owned by `ApplicationLifecycleMonitor`, which mutates two `@Observable` atomic stores with `private(set)` surfaces:
+
+- `AppLifecycleStore` for app-wide active/terminating state
+- `WindowLifecycleStore` for key/focused window identity and registration
+
+Those stores are lifecycle ingress state, not runtime coordination state. The old `AppCommand -> AppEventBus -> controller -> PaneAction` chain has been removed; user-triggered workspace work now enters the validated `PaneAction` pipeline directly.
+
 ### Contract 5a: Attach Readiness Policy (LUNA-295)
 
 Terminal panes require a readiness gate before zmx attach. This contract defines two normative policies based on pane visibility at attach time. Both policies implement the `sizePending → sizeReady → attaching → attached/failed` sub-states from the LUNA-295 attach lifecycle diagram above.
@@ -3182,6 +3191,8 @@ Two distinct action layers exist with different scopes:
 
 `PaneAction` flows: User → ActionResolver → ActionValidator → PaneCoordinator → WorkspaceStore.
 `RuntimeCommand` flows: PaneCoordinator → RuntimeRegistry → `runtime.handleCommand(envelope)`.
+
+`AppEventBus` is reserved for app-level notifications that are not commands. `ApplicationLifecycleMonitor` owns AppKit/macOS lifecycle ingress and writes the lifecycle stores; it does not route workspace commands.
 
 ---
 

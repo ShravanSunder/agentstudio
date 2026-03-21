@@ -31,6 +31,7 @@ struct TerminalSplitContainer: View {
     let store: WorkspaceStore
     let repoCache: WorkspaceRepoCache
     let viewRegistry: ViewRegistry
+    let appLifecycleStore: AppLifecycleStore
 
     @State private var paneFrames: [UUID: CGRect] = [:]
     @State private var iconBarFrame: CGRect = .zero
@@ -119,6 +120,7 @@ struct TerminalSplitContainer: View {
                     store: store,
                     repoCache: repoCache,
                     viewRegistry: viewRegistry,
+                    appLifecycleStore: appLifecycleStore,
                     tabId: tabId,
                     paneFrames: paneFrames,
                     tabSize: tabGeometry.size,
@@ -147,6 +149,11 @@ struct TerminalSplitContainer: View {
                     dropTarget = nil
                 }
             }
+            .onChange(of: appLifecycleStore.isActive) { _, isActive in
+                if !isActive {
+                    dropTarget = nil
+                }
+            }
             .onChange(of: dropTarget) { _, target in
                 if target == nil {
                     stopDropTargetWatchdog()
@@ -156,13 +163,6 @@ struct TerminalSplitContainer: View {
             }
             .onDisappear {
                 stopDropTargetWatchdog()
-            }
-            .task {
-                for await _ in NotificationCenter.default.notifications(
-                    named: NSApplication.didResignActiveNotification
-                ) {
-                    dropTarget = nil
-                }
             }
         }
         .coordinateSpace(name: "tabContainer")
@@ -174,7 +174,7 @@ struct TerminalSplitContainer: View {
         dropTargetWatchdogTask = Task { @MainActor in
             while !Task.isCancelled {
                 if DropTargetLatchState.shouldClearTarget(
-                    appIsActive: NSApplication.shared.isActive,
+                    appIsActive: appLifecycleStore.isActive,
                     pressedMouseButtons: NSEvent.pressedMouseButtons
                 ) {
                     dropTarget = nil

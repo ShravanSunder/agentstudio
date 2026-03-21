@@ -113,9 +113,8 @@ enum CommandBarDataSource {
                 group: Group.tabs,
                 groupPriority: Priority.tabs,
                 keywords: ["tab", "switch"],
-                action: .custom {
-                    postAppEvent(.selectTabById(tabId: tabId, paneId: nil))
-                }
+                action: .dispatchTargeted(.selectTab, target: tabId, targetType: .tab),
+                command: .selectTab
             )
         }
     }
@@ -133,7 +132,12 @@ enum CommandBarDataSource {
                 let isActive = tab.activePaneId == paneId
 
                 let capturedPaneId = pane.id
-                let parentTabId = tab.id
+                let targetType: SearchItemType = {
+                    switch pane.source {
+                    case .floating: return .floatingTerminal
+                    case .worktree: return .pane
+                    }
+                }()
                 items.append(
                     CommandBarItem(
                         id: "pane-\(pane.id.uuidString)",
@@ -144,10 +148,8 @@ enum CommandBarDataSource {
                         group: Group.panes,
                         groupPriority: Priority.panes,
                         keywords: keywordsForPane(pane, store: store, repoCache: repoCache),
-                        action: .custom {
-                            // Select the parent tab and focus the specific pane
-                            postAppEvent(.selectTabById(tabId: parentTabId, paneId: capturedPaneId))
-                        }
+                        action: .dispatchTargeted(.focusPane, target: capturedPaneId, targetType: targetType),
+                        command: .focusPane
                     ))
             }
         }
@@ -177,9 +179,8 @@ enum CommandBarDataSource {
                     group: tabGroupName,
                     groupPriority: tabIndex,
                     keywords: ["tab", "switch"],
-                    action: .custom {
-                        postAppEvent(.selectTabById(tabId: tabId, paneId: nil))
-                    }
+                    action: .dispatchTargeted(.selectTab, target: tabId, targetType: .tab),
+                    command: .selectTab
                 ))
 
             // Panes within this tab
@@ -187,8 +188,13 @@ enum CommandBarDataSource {
                 guard let pane = store.pane(paneId) else { continue }
                 let isActive = tab.activePaneId == paneId
 
-                let capturedTabId = tab.id
                 let capturedPaneId = pane.id
+                let targetType: SearchItemType = {
+                    switch pane.source {
+                    case .floating: return .floatingTerminal
+                    case .worktree: return .pane
+                    }
+                }()
                 items.append(
                     CommandBarItem(
                         id: "pane-\(pane.id.uuidString)",
@@ -199,9 +205,8 @@ enum CommandBarDataSource {
                         group: tabGroupName,
                         groupPriority: tabIndex,
                         keywords: keywordsForPane(pane, store: store, repoCache: repoCache),
-                        action: .custom {
-                            postAppEvent(.selectTabById(tabId: capturedTabId, paneId: capturedPaneId))
-                        }
+                        action: .dispatchTargeted(.focusPane, target: capturedPaneId, targetType: targetType),
+                        command: .focusPane
                     ))
             }
         }
@@ -476,13 +481,13 @@ enum CommandBarDataSource {
                 group: "Tabs",
                 groupPriority: 0,
                 action: .custom {
-                    postAppEvent(
-                        .movePaneToTabRequested(
-                            paneId: sourcePaneId,
+                    Task { @MainActor in
+                        CommandDispatcher.shared.dispatchMovePaneToTab(
+                            sourcePaneId: sourcePaneId,
                             sourceTabId: sourceTabId,
                             targetTabId: targetTabId
                         )
-                    )
+                    }
                 },
                 command: def.command
             )
@@ -656,10 +661,12 @@ enum CommandBarDataSource {
 
     private static func isHiddenCommand(_ command: AppCommand) -> Bool {
         switch command {
+        case .selectTab, .focusPane:
+            return true
         case .selectTab1, .selectTab2, .selectTab3, .selectTab4, .selectTab5,
             .selectTab6, .selectTab7, .selectTab8, .selectTab9,
             .quickFind, .commandBar,
-            .newWindow, .closeWindow, .refreshWorktrees,
+            .newWindow, .closeWindow,
             // OAuth sign-in commands hidden until real client IDs are configured.
             // These will use ASWebAuthenticationSession to authenticate in Safari
             // (where 1Password works), then inject session cookies into WKWebView.
@@ -682,8 +689,7 @@ enum CommandBarDataSource {
         case .closeTab, .breakUpTab, .newTerminalInTab, .nextTab, .prevTab,
             .switchArrangement, .saveArrangement, .deleteArrangement, .renameArrangement:
             return (Group.tabCommands, 2)
-        case .addRepo, .addFolder, .removeRepo, .refreshWorktrees,
-            .openWorktree, .openWorktreeInPane, .openNewTerminalInTab:
+        case .addRepo, .addFolder, .removeRepo, .openWorktree, .openWorktreeInPane, .openNewTerminalInTab:
             return (Group.repoCommands, 3)
         case .toggleSidebar, .newFloatingTerminal, .filterSidebar:
             return (Group.windowCommands, 4)

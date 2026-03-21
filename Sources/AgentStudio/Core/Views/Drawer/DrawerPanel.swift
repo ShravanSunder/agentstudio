@@ -57,6 +57,7 @@ struct DrawerPanel: View {
     let action: (PaneAction) -> Void
     let onResize: (CGFloat) -> Void
     let onDismiss: () -> Void
+    let appLifecycleStore: AppLifecycleStore
 
     @State private var drawerPaneFrames: [UUID: CGRect] = [:]
     @State private var dropTarget: PaneDropTarget?
@@ -191,6 +192,11 @@ struct DrawerPanel: View {
                     dropTarget = nil
                 }
             }
+            .onChange(of: appLifecycleStore.isActive) { _, isActive in
+                if !isActive {
+                    dropTarget = nil
+                }
+            }
             .onChange(of: dropTarget) { _, target in
                 if target == nil {
                     stopDropTargetWatchdog()
@@ -200,13 +206,6 @@ struct DrawerPanel: View {
             }
             .onDisappear {
                 stopDropTargetWatchdog()
-            }
-            .task {
-                for await _ in NotificationCenter.default.notifications(
-                    named: NSApplication.didResignActiveNotification
-                ) {
-                    dropTarget = nil
-                }
             }
         }
         .frame(height: height)
@@ -277,7 +276,7 @@ struct DrawerPanel: View {
         dropTargetWatchdogTask = Task { @MainActor in
             while !Task.isCancelled {
                 if DropTargetLatchState.shouldClearTarget(
-                    appIsActive: NSApplication.shared.isActive,
+                    appIsActive: appLifecycleStore.isActive,
                     pressedMouseButtons: NSEvent.pressedMouseButtons
                 ) {
                     dropTarget = nil
@@ -318,7 +317,8 @@ struct DrawerPanel: View {
                     repoCache: WorkspaceRepoCache(),
                     action: { _ in },
                     onResize: { _ in },
-                    onDismiss: {}
+                    onDismiss: {},
+                    appLifecycleStore: AppLifecycleStore()
                 )
                 Spacer()
             }

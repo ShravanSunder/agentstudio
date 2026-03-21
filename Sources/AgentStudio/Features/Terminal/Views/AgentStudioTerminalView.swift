@@ -16,7 +16,6 @@ final class AgentStudioTerminalView: PaneView, SurfaceHealthDelegate {
     private(set) var isProcessRunning = false
     private var errorOverlay: SurfaceErrorOverlayView?
     private let fallbackTitle: String
-    private var surfaceCloseTask: Task<Void, Never>?
 
     /// The current terminal title
     var title: String {
@@ -57,8 +56,6 @@ final class AgentStudioTerminalView: PaneView, SurfaceHealthDelegate {
     }
 
     isolated deinit {
-        surfaceCloseTask?.cancel()
-
         // Safety net: coordinator.teardownView() should have detached before dealloc.
         // If surfaceId is still set, the normal teardown path was missed.
         if let surfaceId {
@@ -88,6 +85,7 @@ final class AgentStudioTerminalView: PaneView, SurfaceHealthDelegate {
 
     func displaySurface(_ surfaceView: Ghostty.SurfaceView) {
         // Remove existing surface if any
+        ghosttySurface?.onCloseRequested = nil
         ghosttySurface?.removeFromSuperview()
         RestoreTrace.log(
             "AgentStudioTerminalView.displaySurface pane=\(paneId) surface=\(surfaceId?.uuidString ?? "nil") hostBounds=\(NSStringFromRect(bounds)) incomingSurfaceFrame=\(NSStringFromRect(surfaceView.frame))"
@@ -112,25 +110,13 @@ final class AgentStudioTerminalView: PaneView, SurfaceHealthDelegate {
         // Make this view layer-backed AFTER the surface is created
         self.wantsLayer = true
         self.layer?.backgroundColor = NSColor.clear.cgColor
-
-        // Listen for surface close
-        surfaceCloseTask?.cancel()
-        let surfaceViewId = ObjectIdentifier(surfaceView)
-        surfaceCloseTask = Task { @MainActor [weak self] in
-            let stream = await GhosttyEventBus.shared.subscribe()
-            for await event in stream {
-                guard !Task.isCancelled else { break }
-                guard let self else { return }
-                if case .closeSurface(let closedSurfaceViewId, _) = event,
-                    closedSurfaceViewId == surfaceViewId
-                {
-                    self.handleSurfaceClose()
-                }
-            }
+        surfaceView.onCloseRequested = { [weak self] processAlive in
+            self?.handleSurfaceClose(processAlive: processAlive)
         }
     }
 
     func removeSurface() {
+        ghosttySurface?.onCloseRequested = nil
         ghosttySurface?.removeFromSuperview()
         ghosttySurface = nil
         surfaceId = nil
@@ -201,17 +187,17 @@ final class AgentStudioTerminalView: PaneView, SurfaceHealthDelegate {
         removeSurface()
 
         // Request coordinator to recreate the surface
-        postAppEvent(.repairSurfaceRequested(paneId: paneId))
+        AppEventBus.post(.repairSurfaceRequested(paneId: paneId))
         hideErrorOverlay()
     }
 
     // MARK: - Surface Close Handling
 
-    private func handleSurfaceClose() {
+    private func handleSurfaceClose(processAlive: Bool) {
         guard isProcessRunning else { return }
         isProcessRunning = false
         RestoreTrace.log(
-            "AgentStudioTerminalView.handleSurfaceClose pane=\(paneId) surface=\(surfaceId?.uuidString ?? "nil")"
+            "AgentStudioTerminalView.handleSurfaceClose pane=\(paneId) surface=\(surfaceId?.uuidString ?? "nil") processAlive=\(processAlive)"
         )
         handleProcessTerminated(exitCode: nil)
     }
@@ -222,7 +208,7 @@ final class AgentStudioTerminalView: PaneView, SurfaceHealthDelegate {
     /// code (e.g. surface-level close callback / force-destroy path).
     func handleProcessTerminated(exitCode: Int32?) {
         isProcessRunning = false
-        postAppEvent(
+        AppEventBus.post(
             .terminalProcessTerminated(
                 worktreeId: worktree?.id,
                 exitCode: exitCode

@@ -335,11 +335,17 @@ struct PaneLeafContainer: View {
                     Menu("Move Pane to Tab") {
                         ForEach(movePaneDestinations, id: \.tabId) { destination in
                             Button(destination.title) {
-                                postAppEvent(
-                                    .movePaneToTabRequested(
-                                        paneId: paneView.id,
-                                        sourceTabId: tabId,
-                                        targetTabId: destination.tabId
+                                guard
+                                    let targetTab = store.tab(destination.tabId),
+                                    let targetPaneId = targetTab.activePaneId ?? targetTab.paneIds.first
+                                else { return }
+
+                                action(
+                                    .insertPane(
+                                        source: .existingPane(paneId: paneView.id, sourceTabId: tabId),
+                                        targetTabId: destination.tabId,
+                                        targetPaneId: targetPaneId,
+                                        direction: .right
                                     )
                                 )
                             }

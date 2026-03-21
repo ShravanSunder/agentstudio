@@ -97,9 +97,9 @@ The app has two separate event buses. They serve different purposes and carry di
 | Bus | Type | Purpose | Producers | Consumers |
 |-----|------|---------|-----------|-----------|
 | `PaneRuntimeEventBus` | `EventBus<RuntimeEnvelope>` | Runtime facts: filesystem changes, git status, forge data, topology | FilesystemActor, GitProjector, ForgeActor, AppDelegate (boot topology replay) | WorkspaceCacheCoordinator, ForgeActor (fan-out) |
-| `AppEventBus` | `EventBus<AppEvent>` | User intent: menu clicks, keyboard shortcuts | Menu items, keyboard handlers | AppDelegate (imperative dispatch) |
+| `AppEventBus` | `EventBus<AppEvent>` | App-level notifications that are not commands | App shell coordinators, terminal/viewport notifications | AppDelegate and small app-shell consumers |
 
-**These are not redundant.** `AppEventBus` carries user intent (`.addRepoRequested`, `.addFolderRequested`, `.signInRequested`). `PaneRuntimeEventBus` carries system facts (`.repoDiscovered`, `.snapshotChanged`, `.pullRequestCountsChanged`). A user intent on `AppEventBus` may RESULT in a fact on `PaneRuntimeEventBus`, but they are different events with different semantics.
+**These are not redundant.** `AppEventBus` carries app-level notifications such as `.repairSurfaceRequested`, `.worktreeBellRang`, and other app-shell fan-out that is not itself a workspace command. `PaneRuntimeEventBus` carries system facts (`.repoDiscovered`, `.snapshotChanged`, `.pullRequestCountsChanged`). Workspace work does **not** route through `AppEventBus`; it uses `PaneAction` and the validated coordinator pipeline directly. AppKit/macOS lifecycle ingress uses `ApplicationLifecycleMonitor` plus lifecycle stores, not either bus. A notification on `AppEventBus` may RESULT in a runtime fact on `PaneRuntimeEventBus`, but they are different events with different semantics.
 
 All topology events (`.repoDiscovered`, `.repoRemoved`) and enrichment events (`.snapshotChanged`, `.branchChanged`) flow through `PaneRuntimeEventBus`. The coordinator's bus subscription is the single intake. AppDelegate posts `.repoDiscovered` on the bus for boot replay; `FilesystemActor` posts `.repoDiscovered` and `.repoRemoved` on the bus when diffing watched-folder refreshes.
 
@@ -310,6 +310,8 @@ Pane/tab lifecycle transitions. Originate on MainActor, rare, but multiple consu
 | `attachStarted` / `attachSucceeded` | `SurfaceManager` | Rare | Yes |
 | `paneClosed` | `PaneCoordinator` | Rare | Yes |
 | `tabSwitched` | `WorkspaceStore` | Low | Yes |
+
+App shell lifecycle is intentionally separate from this bus. Application active/resign/terminate and window key/focus events are translated by `ApplicationLifecycleMonitor` into `AppLifecycleStore` and `WindowLifecycleStore` state instead of being published here.
 
 ## Actor Inventory
 

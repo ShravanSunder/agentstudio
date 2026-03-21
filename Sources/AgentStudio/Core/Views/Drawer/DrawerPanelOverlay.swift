@@ -98,6 +98,7 @@ struct DrawerPanelOverlay: View {
     let store: WorkspaceStore
     let repoCache: WorkspaceRepoCache
     let viewRegistry: ViewRegistry
+    let appLifecycleStore: AppLifecycleStore
     let tabId: UUID
     let paneFrames: [UUID: CGRect]
     let tabSize: CGSize
@@ -218,7 +219,8 @@ struct DrawerPanelOverlay: View {
                             },
                             onDismiss: {
                                 action(.toggleDrawer(paneId: info.paneId))
-                            }
+                            },
+                            appLifecycleStore: appLifecycleStore
                         )
                         .frame(width: panelWidth)
 

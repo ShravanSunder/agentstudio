@@ -150,7 +150,19 @@ class MainWindowController: NSWindowController, NSWindowDelegate {
     // MARK: - Actions
 
     func toggleSidebar() {
-        splitViewController?.toggleSidebar(nil)
+        splitViewController?.toggleSidebarFromCommand()
+    }
+
+    func showSidebarFilter() {
+        splitViewController?.showSidebarFilter()
+    }
+
+    func expandSidebar() {
+        splitViewController?.expandSidebar()
+    }
+
+    func refocusActivePane() {
+        splitViewController?.refocusActivePane()
     }
 
     @objc private func toggleSidebarAction() {
@@ -158,7 +170,7 @@ class MainWindowController: NSWindowController, NSWindowDelegate {
     }
 
     @objc private func filterSidebarAction() {
-        postAppEvent(.filterSidebarRequested)
+        CommandDispatcher.shared.dispatch(.filterSidebar)
     }
 }
 
@@ -228,11 +240,11 @@ extension MainWindowController: NSToolbarDelegate {
     }
 
     @objc private func addRepoAction() {
-        postAppEvent(.addRepoRequested)
+        CommandDispatcher.shared.dispatch(.addRepo)
     }
 
     @objc private func addFolderAction() {
-        postAppEvent(.addFolderRequested)
+        CommandDispatcher.shared.dispatch(.addFolder)
     }
 }
 
