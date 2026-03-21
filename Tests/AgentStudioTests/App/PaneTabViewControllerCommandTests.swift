@@ -36,8 +36,9 @@ struct PaneTabViewControllerCommandTests {
         let executor = ActionExecutor(coordinator: coordinator, store: store)
         let controller = PaneTabViewController(
             store: store,
+            repoCache: WorkspaceRepoCache(),
             executor: executor,
-            tabBarAdapter: TabBarAdapter(store: store),
+            tabBarAdapter: TabBarAdapter(store: store, repoCache: WorkspaceRepoCache()),
             viewRegistry: viewRegistry
         )
         return Harness(

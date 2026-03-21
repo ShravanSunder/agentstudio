@@ -66,6 +66,7 @@ final class ActionExecutor {
             from: store.tabs,
             activeTabId: store.activeTabId,
             isManagementModeActive: ManagementModeMonitor.shared.isActive,
+            knownRepoIds: Set(store.repos.map(\.id)),
             knownWorktreeIds: Set(store.repos.flatMap(\.worktrees).map(\.id))
         )
         switch ActionValidator.validate(action, state: snapshot) {

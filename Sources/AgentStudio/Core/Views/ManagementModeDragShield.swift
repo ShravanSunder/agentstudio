@@ -1,4 +1,5 @@
 import AppKit
+import Observation
 
 /// Transparent overlay that suppresses file/media drag types during management mode,
 /// preventing WKWebView-backed panes from showing "Drop files to upload."
@@ -21,8 +22,8 @@ import AppKit
 /// ## Dynamic registration
 ///
 /// Registers/unregisters file/media drag types when management mode toggles
-/// via typed `AppEventBus` events from ``ManagementModeMonitor``.
-/// Also notifies the parent ``PaneView`` to apply content-level interaction changes
+/// by observing ``ManagementModeMonitor`` directly. Also notifies the parent
+/// ``PaneView`` to apply content-level interaction changes
 /// (e.g., CSS `pointer-events: none` for WKWebView).
 @MainActor
 final class ManagementModeDragShield: NSView {
@@ -60,21 +61,15 @@ final class ManagementModeDragShield: NSView {
         ]
     }
 
-    private var managementModeTask: Task<Void, Never>?
-
     override init(frame frameRect: NSRect) {
         super.init(frame: frameRect)
-        subscribeToManagementModeEvents()
+        observeManagementMode()
         updateRegistration()
     }
 
     @available(*, unavailable)
     required init?(coder: NSCoder) {
         fatalError("init(coder:) not supported")
-    }
-
-    isolated deinit {
-        managementModeTask?.cancel()
     }
 
     override func viewDidMoveToSuperview() {
@@ -119,15 +114,14 @@ final class ManagementModeDragShield: NSView {
 
     // MARK: - Management Mode Events
 
-    private func subscribeToManagementModeEvents() {
-        managementModeTask?.cancel()
-        managementModeTask = Task { @MainActor [weak self] in
-            guard let self else { return }
-            let stream = await AppEventBus.shared.subscribe()
-            for await event in stream {
-                if Task.isCancelled { break }
-                guard case .managementModeChanged = event else { continue }
+    private func observeManagementMode() {
+        withObservationTracking {
+            _ = ManagementModeMonitor.shared.isActive
+        } onChange: { [weak self] in
+            Task { @MainActor [weak self] in
+                guard let self else { return }
                 self.updateRegistration()
+                self.observeManagementMode()
             }
         }
     }

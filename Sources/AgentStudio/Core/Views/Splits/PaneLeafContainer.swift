@@ -10,6 +10,7 @@ struct PaneLeafContainer: View {
     let isActive: Bool
     let isSplit: Bool
     let store: WorkspaceStore
+    let repoCache: WorkspaceRepoCache
     let action: (PaneAction) -> Void
     let dropTargetCoordinateSpace: String?
     let useDrawerFramePreference: Bool
@@ -26,6 +27,7 @@ struct PaneLeafContainer: View {
         isActive: Bool,
         isSplit: Bool,
         store: WorkspaceStore,
+        repoCache: WorkspaceRepoCache,
         action: @escaping (PaneAction) -> Void,
         dropTargetCoordinateSpace: String? = "tabContainer",
         useDrawerFramePreference: Bool = false
@@ -35,6 +37,7 @@ struct PaneLeafContainer: View {
         self.isActive = isActive
         self.isSplit = isSplit
         self.store = store
+        self.repoCache = repoCache
         self.action = action
         self.dropTargetCoordinateSpace = dropTargetCoordinateSpace
         self.useDrawerFramePreference = useDrawerFramePreference
@@ -332,11 +335,17 @@ struct PaneLeafContainer: View {
                     Menu("Move Pane to Tab") {
                         ForEach(movePaneDestinations, id: \.tabId) { destination in
                             Button(destination.title) {
-                                postAppEvent(
-                                    .movePaneToTabRequested(
-                                        paneId: paneView.id,
-                                        sourceTabId: tabId,
-                                        targetTabId: destination.tabId
+                                guard
+                                    let targetTab = store.tab(destination.tabId),
+                                    let targetPaneId = targetTab.activePaneId ?? targetTab.paneIds.first
+                                else { return }
+
+                                action(
+                                    .insertPane(
+                                        source: .existingPane(paneId: paneView.id, sourceTabId: tabId),
+                                        targetTabId: destination.tabId,
+                                        targetPaneId: targetPaneId,
+                                        direction: .right
                                     )
                                 )
                             }
@@ -381,28 +390,11 @@ struct PaneLeafContainer: View {
     }
 
     private func tabDisplayTitle(tab: Tab) -> String {
-        let paneTitles = tab.paneIds.map(paneDisplayTitle)
-        if paneTitles.count > 1 {
-            return paneTitles.joined(separator: " | ")
-        }
-        return paneTitles.first ?? "Terminal"
+        PaneDisplayProjector.tabDisplayLabel(for: tab, store: store, repoCache: repoCache)
     }
 
     private func paneDisplayTitle(_ paneId: UUID) -> String {
-        guard let pane = store.pane(paneId) else { return "Terminal" }
-        let rawTitle = pane.title.trimmingCharacters(in: .whitespacesAndNewlines)
-        let isGenericTitle =
-            rawTitle.isEmpty || rawTitle.localizedCaseInsensitiveCompare("Terminal") == .orderedSame
-            || rawTitle.localizedCaseInsensitiveCompare("Drawer") == .orderedSame
-
-        if isGenericTitle,
-            let cwdName = pane.metadata.cwd?.lastPathComponent,
-            !cwdName.isEmpty
-        {
-            return cwdName
-        }
-
-        return rawTitle.isEmpty ? "Terminal" : rawTitle
+        PaneDisplayProjector.displayLabel(for: paneId, store: store, repoCache: repoCache)
     }
 }
 

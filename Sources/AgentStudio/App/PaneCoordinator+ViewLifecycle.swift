@@ -165,6 +165,9 @@ extension PaneCoordinator {
                 restoredSurfaceId: managed.id,
                 paneId: pane.id
             )
+            view.onRepairRequested = { [weak self] paneId in
+                self?.execute(.repair(.recreateSurface(paneId: paneId)))
+            }
             view.displaySurface(managed.surface)
 
             viewRegistry.register(view, for: pane.id)
@@ -247,6 +250,9 @@ extension PaneCoordinator {
                 paneId: pane.id,
                 title: pane.metadata.title
             )
+            view.onRepairRequested = { [weak self] paneId in
+                self?.execute(.repair(.recreateSurface(paneId: paneId)))
+            }
             view.displaySurface(managed.surface)
 
             viewRegistry.register(view, for: pane.id)

@@ -508,7 +508,7 @@ struct RepoSidebarContentViewTests {
             snapshot: nil
         )
 
-        let label = RepoSidebarContentView.resolvedBranchName(
+        let label = PaneDisplayProjector.resolvedBranchName(
             worktree: worktree,
             enrichment: enrichment
         )
@@ -525,7 +525,7 @@ struct RepoSidebarContentViewTests {
             isMainWorktree: false
         )
 
-        let label = RepoSidebarContentView.resolvedBranchName(
+        let label = PaneDisplayProjector.resolvedBranchName(
             worktree: worktree,
             enrichment: nil
         )

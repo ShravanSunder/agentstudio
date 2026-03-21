@@ -97,13 +97,13 @@ The app has two separate event buses. They serve different purposes and carry di
 | Bus | Type | Purpose | Producers | Consumers |
 |-----|------|---------|-----------|-----------|
 | `PaneRuntimeEventBus` | `EventBus<RuntimeEnvelope>` | Runtime facts: filesystem changes, git status, forge data, topology | FilesystemActor, GitProjector, ForgeActor, AppDelegate (boot topology replay) | WorkspaceCacheCoordinator, ForgeActor (fan-out) |
-| `AppEventBus` | `EventBus<AppEvent>` | User intent: menu clicks, keyboard shortcuts | Menu items, keyboard handlers | AppDelegate (imperative dispatch) |
+| `AppEventBus` | `EventBus<AppEvent>` | App-level notifications that are not commands | App shell coordinators, terminal/viewport notifications | AppDelegate and small app-shell consumers |
 
-**These are not redundant.** `AppEventBus` carries user intent (`.addRepoRequested`, `.addFolderRequested`, `.signInRequested`). `PaneRuntimeEventBus` carries system facts (`.repoDiscovered`, `.snapshotChanged`, `.pullRequestCountsChanged`). A user intent on `AppEventBus` may RESULT in a fact on `PaneRuntimeEventBus`, but they are different events with different semantics.
+**These are not redundant.** `AppEventBus` carries app-level notifications such as `.worktreeBellRang` and other app-shell fan-out that is not itself a workspace command. `PaneRuntimeEventBus` carries system facts (`.repoDiscovered`, `.snapshotChanged`, `.pullRequestCountsChanged`). Workspace work does **not** route through `AppEventBus`; it uses `PaneAction` and the validated coordinator pipeline directly. AppKit/macOS lifecycle ingress uses `ApplicationLifecycleMonitor` plus lifecycle stores, not either bus. A notification on `AppEventBus` may RESULT in a runtime fact on `PaneRuntimeEventBus`, but they are different events with different semantics.
 
 All topology events (`.repoDiscovered`, `.repoRemoved`) and enrichment events (`.snapshotChanged`, `.branchChanged`) flow through `PaneRuntimeEventBus`. The coordinator's bus subscription is the single intake. AppDelegate posts `.repoDiscovered` on the bus for boot replay; `FilesystemActor` posts `.repoDiscovered` and `.repoRemoved` on the bus when diffing watched-folder refreshes.
 
-> **Files:** `Core/PaneRuntime/Events/EventChannels.swift` defines both buses.
+> **Files:** `Core/PaneRuntime/Events/EventChannels.swift` defines `PaneRuntimeEventBus`. `App/Events/` defines `AppEvent` and `AppEventBus`.
 
 ## Direct Commands Use Capability Protocols
 
@@ -310,6 +310,8 @@ Pane/tab lifecycle transitions. Originate on MainActor, rare, but multiple consu
 | `attachStarted` / `attachSucceeded` | `SurfaceManager` | Rare | Yes |
 | `paneClosed` | `PaneCoordinator` | Rare | Yes |
 | `tabSwitched` | `WorkspaceStore` | Low | Yes |
+
+App shell lifecycle is intentionally separate from this bus. Application active/resign/terminate and window key/focus events are translated by `ApplicationLifecycleMonitor` into `AppLifecycleStore` and `WindowLifecycleStore` state instead of being published here.
 
 ## Actor Inventory
 
@@ -1313,7 +1315,7 @@ Current codebase patterns that need migration to align with this design. Audited
 
 **~38 NotificationCenter calls** across the codebase form the current command/event dispatch system. These are the primary migration target.
 
-| File | Pattern | Events | Severity |
+| Historical File | Historical Pattern | Historical Events | Severity |
 |------|---------|--------|----------|
 | `App/Panes/PaneTabViewController.swift` | 8 `for await` consumers, 3 `.post()` producers | selectTabById, extractPane, repairSurface, processTerminated, undoClose, refocusTerminal, webviewOpen, addRepo, filterSidebar, signIn | HIGH |
 | `App/MainSplitViewController.swift` | 6 `for await` consumers, 1 `addObserver` | openWorktree, tabClose, selectTab, sidebarToggle, newTerminal, sidebarFilter, willTerminate | HIGH |
@@ -1325,7 +1327,9 @@ Current codebase patterns that need migration to align with this design. Audited
 | `App/AppDelegate.swift` | 1 `addObserver` | signIn OAuth callback | LOW |
 | `Features/Terminal/Ghostty/SurfaceManager.swift` | 1 `addObserver`, 1 `removeObserver` | Health notifications | LOW |
 
-**Target pattern:**
+This table is a historical inventory from the pre-hardening state. The current codebase has already removed the Ghostty mixed bus and the command-shaped `repairSurfaceRequested` app event path.
+
+**Historical target pattern:**
 ```swift
 // Before: untyped, stringly-keyed
 NotificationCenter.default.post(name: .selectTabById, userInfo: ["tabId": tabId])
@@ -1359,7 +1363,7 @@ These methods don't need MainActor isolation — they take immutable input and r
 | Pattern | Location | Why it's fine |
 |---------|----------|---------------|
 | `DispatchQueue.global()` | ProcessExecutor.swift | Correct: offloads blocking pipe I/O |
-| `NotificationCenter.notifications(named: .didBecomeActive)` | Ghostty.swift | System notification — stays as-is |
+| AppKit lifecycle ingress via `ApplicationLifecycleMonitor` | App shell lifecycle boundary | Current production path |
 | `FileManager` operations | WorkspacePersistor | Already not `@MainActor` |
 | `@concurrent` on plain structs | Slice.swift, EntitySlice.swift | No actor isolation to opt out of — `nonisolated` implicit |
 

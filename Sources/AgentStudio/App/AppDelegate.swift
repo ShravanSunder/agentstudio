@@ -8,7 +8,6 @@ struct ZmxOrphanCleanupPlan: Equatable {
     let knownSessionIds: Set<String>
     let shouldSkipCleanup: Bool
 }
-
 enum ZmxOrphanCleanupCandidate: Equatable {
     case drawer(parentPaneId: UUID, paneId: UUID)
     case main(paneId: UUID, repoStableKey: String?, worktreeStableKey: String?)
@@ -19,13 +18,10 @@ enum ZmxOrphanCleanupPlanner {
         var hasUnresolvableMainPane = false
         var knownSessionIds: Set<String> = []
         knownSessionIds.reserveCapacity(candidates.count)
-
         for candidate in candidates {
             switch candidate {
             case .drawer(let parentPaneId, let paneId):
-                knownSessionIds.insert(
-                    ZmxBackend.drawerSessionId(parentPaneId: parentPaneId, drawerPaneId: paneId)
-                )
+                knownSessionIds.insert(ZmxBackend.drawerSessionId(parentPaneId: parentPaneId, drawerPaneId: paneId))
             case .main(let paneId, let repoStableKey, let worktreeStableKey):
                 guard let repoStableKey, let worktreeStableKey else {
                     hasUnresolvableMainPane = true
@@ -33,52 +29,38 @@ enum ZmxOrphanCleanupPlanner {
                 }
                 knownSessionIds.insert(
                     ZmxBackend.sessionId(
-                        repoStableKey: repoStableKey,
-                        worktreeStableKey: worktreeStableKey,
-                        paneId: paneId
-                    )
-                )
+                        repoStableKey: repoStableKey, worktreeStableKey: worktreeStableKey, paneId: paneId))
             }
         }
-
-        return ZmxOrphanCleanupPlan(
-            knownSessionIds: knownSessionIds,
-            shouldSkipCleanup: hasUnresolvableMainPane
-        )
+        return ZmxOrphanCleanupPlan(knownSessionIds: knownSessionIds, shouldSkipCleanup: hasUnresolvableMainPane)
     }
 }
-
 @MainActor
 class AppDelegate: NSObject, NSApplicationDelegate {
     var mainWindowController: MainWindowController?
-
     // MARK: - Shared Services (created once at launch)
-
-    private var store: WorkspaceStore!
+    // Module-internal to support focused same-type AppDelegate extensions.
+    var store: WorkspaceStore!
     private var workspaceRepoCache: WorkspaceRepoCache!
     private var workspaceUIStore: WorkspaceUIStore!
     private var workspaceCacheCoordinator: WorkspaceCacheCoordinator!
-    private var watchedFolderCommands: (any WatchedFolderCommandHandling)!
+    var watchedFolderCommands: (any WatchedFolderCommandHandling)!
     private var viewRegistry: ViewRegistry!
-    private var paneCoordinator: PaneCoordinator!
+    var paneCoordinator: PaneCoordinator!
     private var executor: ActionExecutor!
     private var tabBarAdapter: TabBarAdapter!
     private var runtime: SessionRuntime!
-
+    var appLifecycleStore: AppLifecycleStore!
+    private var windowLifecycleStore: WindowLifecycleStore!
+    var applicationLifecycleMonitor: ApplicationLifecycleMonitor!
     // MARK: - Command Bar
-
     private(set) var commandBarController: CommandBarPanelController!
-
     // MARK: - OAuth
-
     private var oauthService: OAuthService!
-    private var appEventTask: Task<Void, Never>?
     private var filesystemPipelineBootTask: Task<Void, Never>?
-
     private func recordBootStep(_ step: WorkspaceBootStep) {
         RestoreTrace.log("workspace.boot.step=\(step.rawValue)")
     }
-
     private func executeBootStep(
         _ step: WorkspaceBootStep,
         persistor: WorkspacePersistor,
@@ -114,6 +96,12 @@ class AppDelegate: NSObject, NSApplicationDelegate {
     private func bootLoadCanonicalStore() {
         store = WorkspaceStore()
         store.restore()
+        appLifecycleStore = AppLifecycleStore()
+        windowLifecycleStore = WindowLifecycleStore()
+        applicationLifecycleMonitor = ApplicationLifecycleMonitor(
+            appLifecycleStore: appLifecycleStore,
+            windowLifecycleStore: windowLifecycleStore
+        )
         RestoreTrace.log(
             "store.restore complete tabs=\(store.tabs.count) panes=\(store.panes.count) activeTab=\(store.activeTabId?.uuidString ?? "nil")"
         )
@@ -195,9 +183,18 @@ class AppDelegate: NSObject, NSApplicationDelegate {
                 await pipeline.applyScopeChange(change)
             }
         )
+        paneCoordinator.removeRepoHandler = { [weak self] repoId in
+            self?.workspaceCacheCoordinator.handleRepoRemoval(repoId: repoId)
+            self?.paneCoordinator.syncFilesystemRootsAndActivity()
+        }
         executor = ActionExecutor(coordinator: paneCoordinator, store: store)
-        tabBarAdapter = TabBarAdapter(store: store)
-        commandBarController = CommandBarPanelController(store: store, dispatcher: .shared)
+        tabBarAdapter = TabBarAdapter(store: store, repoCache: workspaceRepoCache)
+        commandBarController = CommandBarPanelController(
+            store: store,
+            repoCache: workspaceRepoCache,
+            dispatcher: .shared
+        )
+        CommandDispatcher.shared.appCommandRouter = self
         oauthService = OAuthService()
     }
 
@@ -337,10 +334,12 @@ class AppDelegate: NSObject, NSApplicationDelegate {
             repoCache: workspaceRepoCache,
             uiStore: workspaceUIStore,
             actionExecutor: executor,
+            applicationLifecycleMonitor: applicationLifecycleMonitor,
             tabBarAdapter: tabBarAdapter,
             viewRegistry: viewRegistry
         )
         mainWindowController?.showWindow(nil)
+        wireLifecycleConsumers()
         if let window = mainWindowController?.window {
             RestoreTrace.log(
                 "mainWindow showWindow frame=\(NSStringFromRect(window.frame)) content=\(NSStringFromRect(window.contentLayoutRect))"
@@ -367,37 +366,10 @@ class AppDelegate: NSObject, NSApplicationDelegate {
             RestoreTrace.log("restoreAllViews: end registeredViews=\(self.viewRegistry.registeredPaneIds.count)")
         }
 
-        appEventTask?.cancel()
-        appEventTask = Task { @MainActor [weak self] in
-            guard let self else { return }
-            let stream = await AppEventBus.shared.subscribe()
-            for await event in stream {
-                guard !Task.isCancelled else { break }
-                switch event {
-                case .showCommandBarRepos:
-                    self.showCommandBarRepos()
-                case .signInRequested(let providerName):
-                    guard let provider = OAuthProvider(rawValue: providerName) else { continue }
-                    self.handleSignInRequested(provider: provider)
-                case .addRepoRequested:
-                    await self.handleAddRepoRequested()
-                case .addFolderRequested:
-                    await self.handleAddFolderRequested()
-                case .addRepoAtPathRequested(let path):
-                    await self.addRepoIfNeeded(path)
-                case .removeRepoRequested(let repoId):
-                    self.workspaceCacheCoordinator.handleRepoRemoval(repoId: repoId)
-                    self.paneCoordinator.syncFilesystemRootsAndActivity()
-                default:
-                    continue
-                }
-            }
-        }
         RestoreTrace.log("appDidFinishLaunching: end")
     }
 
     isolated deinit {
-        appEventTask?.cancel()
         filesystemPipelineBootTask?.cancel()
     }
 
@@ -553,10 +525,12 @@ class AppDelegate: NSObject, NSApplicationDelegate {
                 repoCache: workspaceRepoCache,
                 uiStore: workspaceUIStore,
                 actionExecutor: executor,
+                applicationLifecycleMonitor: applicationLifecycleMonitor,
                 tabBarAdapter: tabBarAdapter,
                 viewRegistry: viewRegistry
             )
             mainWindowController?.showWindow(nil)
+            wireLifecycleConsumers()
         }
     }
 
@@ -768,11 +742,11 @@ class AppDelegate: NSObject, NSApplicationDelegate {
     }
 
     @objc private func closeTab() {
-        postAppEvent(.closeTabRequested)
+        CommandDispatcher.shared.dispatch(.closeTab)
     }
 
     @objc private func undoCloseTab() {
-        postAppEvent(.undoCloseTabRequested)
+        CommandDispatcher.shared.dispatch(.undoCloseTab)
     }
 
     @objc private func closeWindow() {
@@ -780,11 +754,11 @@ class AppDelegate: NSObject, NSApplicationDelegate {
     }
 
     @objc private func addRepo() {
-        postAppEvent(.addRepoRequested)
+        CommandDispatcher.shared.dispatch(.addRepo)
     }
 
     @objc private func addFolder() {
-        postAppEvent(.addFolderRequested)
+        CommandDispatcher.shared.dispatch(.addFolder)
     }
 
     // MARK: - Repo/Folder Intake
@@ -807,7 +781,8 @@ class AppDelegate: NSObject, NSApplicationDelegate {
 
             let normalizedURL = selectedURL.standardizedFileURL
             if isGitRepositoryFolder(normalizedURL) {
-                postAppEvent(.addRepoAtPathRequested(path: normalizedURL))
+                mainWindowController?.expandSidebar()
+                await addRepoIfNeeded(normalizedURL)
                 return
             }
 
@@ -901,17 +876,18 @@ class AppDelegate: NSObject, NSApplicationDelegate {
     }
 
     @objc private func filterSidebar() {
-        postAppEvent(.filterSidebarRequested)
+        CommandDispatcher.shared.dispatch(.filterSidebar)
     }
 
     @objc private func selectTab(_ sender: NSMenuItem) {
-        postAppEvent(.selectTabAtIndex(index: sender.tag))
+        guard sender.tag >= 0, sender.tag < AppCommand.selectTabCommands.count else { return }
+        CommandDispatcher.shared.dispatch(AppCommand.selectTabCommands[sender.tag])
     }
 
     // MARK: - Webview Actions
 
     @objc private func openWebviewAction() {
-        postAppEvent(.openWebviewRequested)
+        CommandDispatcher.shared.dispatch(.openWebview)
     }
 
     private func handleSignInRequested(provider: OAuthProvider) {
@@ -963,12 +939,47 @@ class AppDelegate: NSObject, NSApplicationDelegate {
         commandBarController.show(prefix: "@", parentWindow: window)
     }
 
-    @objc private func showCommandBarRepos() {
-        appLogger.info("showCommandBarRepos triggered")
-        guard let window = NSApp.keyWindow ?? mainWindowController?.window else {
-            appLogger.warning("No window available for command bar (repos)")
-            return
+}
+// MARK: - AppCommandRouting
+
+extension AppDelegate: AppCommandRouting {
+    func canExecute(_ command: AppCommand) -> Bool {
+        switch command {
+        case .addRepo, .addFolder, .toggleSidebar, .filterSidebar, .signInGitHub, .signInGoogle: true
+        default: false
         }
-        commandBarController.show(prefix: "#", parentWindow: window)
     }
+
+    func execute(_ command: AppCommand) -> Bool {
+        switch command {
+        case .addRepo:
+            mainWindowController?.expandSidebar()
+            Task { await handleAddRepoRequested() }
+            return true
+        case .addFolder:
+            mainWindowController?.expandSidebar()
+            Task { await handleAddFolderRequested() }
+            return true
+        case .toggleSidebar:
+            mainWindowController?.toggleSidebar()
+            return true
+        case .filterSidebar:
+            mainWindowController?.showSidebarFilter()
+            return true
+        case .signInGitHub:
+            handleSignInRequested(provider: .github)
+            return true
+        case .signInGoogle:
+            handleSignInRequested(provider: .google)
+            return true
+        default: return false
+        }
+    }
+
+    func execute(_ command: AppCommand, target: UUID, targetType: SearchItemType) -> Bool {
+        switch (command, targetType) {
+        default: return false
+        }
+    }
+
 }

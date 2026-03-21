@@ -15,6 +15,7 @@ enum AppCommand: String, CaseIterable {
     case newTerminalInTab
     case newTab
     case undoCloseTab
+    case selectTab
     case nextTab
     case prevTab
     case selectTab1, selectTab2, selectTab3, selectTab4, selectTab5
@@ -24,6 +25,7 @@ enum AppCommand: String, CaseIterable {
     case closePane
     case extractPaneToTab
     case movePaneToTab
+    case focusPane
     case splitRight, splitBelow, splitLeft, splitAbove
     case equalizePanes
     case focusPaneLeft, focusPaneRight, focusPaneUp, focusPaneDown
@@ -46,7 +48,7 @@ enum AppCommand: String, CaseIterable {
     case closeDrawerPane
 
     // Repo commands
-    case addRepo, addFolder, removeRepo, refreshWorktrees
+    case addRepo, addFolder, removeRepo
     case openWorktree
     case openWorktreeInPane
 
@@ -165,6 +167,29 @@ protocol CommandHandler: AnyObject {
 
     /// Query whether a command is currently available
     func canExecute(_ command: AppCommand) -> Bool
+
+    /// Execute a direct pane extraction request that carries drag/drop placement details.
+    func executeExtractPaneToTab(tabId: UUID, paneId: UUID, targetTabIndex: Int?)
+
+    /// Execute a direct move-pane request with explicit source and destination identities.
+    func executeMovePaneToTab(sourcePaneId: UUID, sourceTabId: UUID?, targetTabId: UUID)
+}
+
+/// Routes app-level commands that do not belong to the pane command handler.
+@MainActor
+protocol AppCommandRouting: AnyObject {
+    func canExecute(_ command: AppCommand) -> Bool
+    func execute(_ command: AppCommand) -> Bool
+    func execute(_ command: AppCommand, target: UUID, targetType: SearchItemType) -> Bool
+
+    /// Show the repo-scoped command bar for "open repo in tab" affordances.
+    func showRepoCommandBar()
+
+    /// Refresh watched folders / worktree discovery from an app-level UI entry point.
+    func refreshWorktrees()
+
+    /// Restore focus to the active pane after transient sidebar/management UI work.
+    func refocusActivePane()
 }
 
 // MARK: - CommandDispatcher
@@ -182,6 +207,7 @@ final class CommandDispatcher {
 
     /// Active command handler (typically the tab/pane controller)
     weak var handler: CommandHandler?
+    weak var appCommandRouter: AppCommandRouting?
 
     private init() {
         registerDefaults()
@@ -192,13 +218,35 @@ final class CommandDispatcher {
     /// Execute a contextual command (operates on active element)
     func dispatch(_ command: AppCommand) {
         guard canDispatch(command) else { return }
+        if appCommandRouter?.execute(command) == true {
+            return
+        }
         handler?.execute(command)
     }
 
     /// Execute a targeted command (operates on a specific element)
     func dispatch(_ command: AppCommand, target: UUID, targetType: SearchItemType) {
         guard canDispatch(command) else { return }
+        if appCommandRouter?.execute(command, target: target, targetType: targetType) == true {
+            return
+        }
         handler?.execute(command, target: target, targetType: targetType)
+    }
+
+    /// Execute a drag/drop extract-pane request through the active command handler.
+    func dispatchExtractPaneToTab(tabId: UUID, paneId: UUID, targetTabIndex: Int?) {
+        guard canDispatch(.extractPaneToTab) else { return }
+        handler?.executeExtractPaneToTab(tabId: tabId, paneId: paneId, targetTabIndex: targetTabIndex)
+    }
+
+    /// Execute a move-pane request with explicit source and destination identifiers.
+    func dispatchMovePaneToTab(sourcePaneId: UUID, sourceTabId: UUID?, targetTabId: UUID) {
+        guard canDispatch(.movePaneToTab) else { return }
+        handler?.executeMovePaneToTab(
+            sourcePaneId: sourcePaneId,
+            sourceTabId: sourceTabId,
+            targetTabId: targetTabId
+        )
     }
 
     /// Check if a command can currently be executed
@@ -209,7 +257,9 @@ final class CommandDispatcher {
         {
             return false
         }
-        return handler?.canExecute(command) ?? false
+        let appCanExecute = appCommandRouter?.canExecute(command) ?? false
+        let handlerCanExecute = handler?.canExecute(command) ?? false
+        return appCanExecute || handlerCanExecute
     }
 
     // MARK: - Lookup
@@ -249,6 +299,12 @@ final class CommandDispatcher {
                 appliesTo: [.tab]
             ),
             CommandDefinition(
+                command: .selectTab,
+                label: "Select Tab",
+                icon: "rectangle.stack",
+                appliesTo: [.tab]
+            ),
+            CommandDefinition(
                 command: .nextTab,
                 keyBinding: KeyBinding(key: "]", modifiers: [.command, .shift]),
                 label: "Next Tab",
@@ -281,6 +337,12 @@ final class CommandDispatcher {
                 icon: "arrow.left.and.right.square",
                 appliesTo: [.pane],
                 requiresManagementMode: true
+            ),
+            CommandDefinition(
+                command: .focusPane,
+                label: "Focus Pane",
+                icon: "scope",
+                appliesTo: [.pane, .floatingTerminal]
             ),
             CommandDefinition(
                 command: .splitRight,
@@ -416,12 +478,6 @@ final class CommandDispatcher {
                 command: .removeRepo,
                 label: "Remove Repo",
                 icon: "folder.badge.minus",
-                appliesTo: [.repo]
-            ),
-            CommandDefinition(
-                command: .refreshWorktrees,
-                label: "Refresh Worktrees",
-                icon: "arrow.clockwise",
                 appliesTo: [.repo]
             ),
             CommandDefinition(

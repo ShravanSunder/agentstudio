@@ -96,7 +96,9 @@ private struct OutsideDismissShape: Shape {
 /// hit-testing, so only clicks genuinely outside the drawer dismiss it.
 struct DrawerPanelOverlay: View {
     let store: WorkspaceStore
+    let repoCache: WorkspaceRepoCache
     let viewRegistry: ViewRegistry
+    let appLifecycleStore: AppLifecycleStore
     let tabId: UUID
     let paneFrames: [UUID: CGRect]
     let tabSize: CGSize
@@ -207,6 +209,7 @@ struct DrawerPanelOverlay: View {
                             splitRenderInfo: drawerRenderInfo,
                             height: panelHeight,
                             store: store,
+                            repoCache: repoCache,
                             action: action,
                             onResize: { delta in
                                 let newRatio = min(
@@ -216,7 +219,8 @@ struct DrawerPanelOverlay: View {
                             },
                             onDismiss: {
                                 action(.toggleDrawer(paneId: info.paneId))
-                            }
+                            },
+                            appLifecycleStore: appLifecycleStore
                         )
                         .frame(width: panelWidth)
 

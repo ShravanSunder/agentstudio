@@ -13,6 +13,7 @@ struct ValidatedAction: Equatable {
 
 /// Validation errors for rejected actions.
 enum ActionValidationError: Error, Equatable {
+    case repoNotFound(repoId: UUID)
     case tabNotFound(tabId: UUID)
     case paneNotFound(paneId: UUID, tabId: UUID)
     case worktreeNotFound(worktreeId: UUID)
@@ -152,6 +153,12 @@ enum ActionValidator {
             }
             guard tab.paneIds.contains(paneId.uuid) else {
                 return .failure(.paneNotFound(paneId: paneId.uuid, tabId: tabId))
+            }
+            return .success(ValidatedAction(action))
+
+        case .removeRepo(let repoId):
+            guard state.knownRepoIds.contains(repoId) else {
+                return .failure(.repoNotFound(repoId: repoId))
             }
             return .success(ValidatedAction(action))
 

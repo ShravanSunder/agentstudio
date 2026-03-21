@@ -156,6 +156,9 @@ extension PaneCoordinator {
         case .openFloatingTerminal(let cwd, let title):
             _ = openFloatingTerminal(cwd: cwd, title: title)
 
+        case .removeRepo(let repoId):
+            removeRepoHandler(repoId)
+
         case .selectTab(let tabId):
             store.setActiveTab(tabId)
 

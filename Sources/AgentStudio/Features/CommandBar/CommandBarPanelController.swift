@@ -19,6 +19,7 @@ final class CommandBarPanelController {
     // MARK: - Dependencies
 
     private let store: WorkspaceStore
+    private let repoCache: WorkspaceRepoCache
     private let dispatcher: CommandDispatcher
 
     // MARK: - Panel
@@ -31,8 +32,13 @@ final class CommandBarPanelController {
 
     // MARK: - Initialization
 
-    init(store: WorkspaceStore, dispatcher: CommandDispatcher) {
+    init(
+        store: WorkspaceStore,
+        repoCache: WorkspaceRepoCache = WorkspaceRepoCache(),
+        dispatcher: CommandDispatcher
+    ) {
         self.store = store
+        self.repoCache = repoCache
         self.dispatcher = dispatcher
         state.loadRecents()
     }
@@ -86,6 +92,7 @@ final class CommandBarPanelController {
         let contentView = CommandBarView(
             state: state,
             store: store,
+            repoCache: repoCache,
             dispatcher: dispatcher,
             onDismiss: { [weak self] in
                 self?.dismiss()

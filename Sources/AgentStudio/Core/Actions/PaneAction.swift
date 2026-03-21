@@ -99,6 +99,7 @@ enum PaneAction: Equatable, Hashable {
     case openNewTerminalInTab(worktreeId: UUID, cwd: URL?, title: String?)
     case openWorktreeInPane(worktreeId: UUID)
     case openFloatingTerminal(cwd: URL?, title: String?)
+    case removeRepo(repoId: UUID)
 
     // Minimize / Expand
     case minimizePane(tabId: UUID, paneId: UUID)
