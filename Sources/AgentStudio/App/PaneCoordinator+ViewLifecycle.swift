@@ -4,6 +4,20 @@ import GhosttyKit
 
 @MainActor
 extension PaneCoordinator {
+    static func floatingZmxRestoreSessionId(for pane: Pane, workingDirectory: URL) -> String {
+        if let parentPaneId = pane.parentPaneId {
+            return ZmxBackend.drawerSessionId(
+                parentPaneId: parentPaneId,
+                drawerPaneId: pane.id
+            )
+        }
+
+        return ZmxBackend.floatingSessionId(
+            workingDirectory: workingDirectory,
+            paneId: pane.id
+        )
+    }
+
     /// Create a view for any pane content type. Dispatches to the appropriate factory.
     /// Returns the created PaneView, or nil on failure.
     func createViewForContent(pane: Pane) -> PaneView? {
@@ -177,20 +191,43 @@ extension PaneCoordinator {
     @discardableResult
     private func createFloatingTerminalView(for pane: Pane) -> AgentStudioTerminalView? {
         let workingDir = pane.metadata.facets.cwd ?? FileManager.default.homeDirectoryForCurrentUser
-        let cmd = "\(getDefaultShell()) -i -l"
+        let shellCommand = "\(getDefaultShell()) -i -l"
+        let startupStrategy: Ghostty.SurfaceStartupStrategy
+        var environmentVariables: [String: String] = [:]
+
+        if pane.provider == .zmx, let zmxPath = sessionConfig.zmxPath {
+            let sessionId = Self.floatingZmxRestoreSessionId(
+                for: pane,
+                workingDirectory: workingDir
+            )
+            startupStrategy = .deferredInShell(
+                command: ZmxBackend.buildAttachCommand(
+                    zmxPath: zmxPath,
+                    sessionId: sessionId,
+                    shell: getDefaultShell()
+                )
+            )
+            environmentVariables["ZMX_DIR"] = sessionConfig.zmxDir
+            RestoreTrace.log(
+                "createFloatingView zmx pane=\(pane.id) session=\(sessionId) cwd=\(workingDir.path)"
+            )
+        } else {
+            startupStrategy = .surfaceCommand(shellCommand)
+        }
 
         RestoreTrace.log(
-            "createFloatingView pane=\(pane.id) cwd=\(workingDir.path) cmd=\(cmd)"
+            "createFloatingView pane=\(pane.id) cwd=\(workingDir.path) cmd=\(shellCommand)"
         )
 
         let config = Ghostty.SurfaceConfiguration(
             workingDirectory: workingDir.path,
-            startupStrategy: .surfaceCommand(cmd)
+            startupStrategy: startupStrategy,
+            environmentVariables: environmentVariables
         )
 
         let metadata = SurfaceMetadata(
             workingDirectory: workingDir,
-            command: cmd,
+            command: shellCommand,
             title: pane.metadata.title,
             contextFacets: pane.metadata.facets,
             paneId: pane.id

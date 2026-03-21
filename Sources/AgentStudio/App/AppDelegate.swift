@@ -468,6 +468,9 @@ class AppDelegate: NSObject, NSApplicationDelegate {
                     let worktree = store.worktree(worktreeId)
                 {
                     resolvedKeys = (repo.stableKey, worktree.stableKey)
+                } else if let cwd = pane.metadata.facets.cwd {
+                    let stableKey = StableKey.fromPath(cwd)
+                    resolvedKeys = (stableKey, stableKey)
                 } else {
                     resolvedKeys = (nil, nil)
                 }

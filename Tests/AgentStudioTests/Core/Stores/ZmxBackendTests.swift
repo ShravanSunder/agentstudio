@@ -135,6 +135,20 @@ final class ZmxBackendTests {
         #expect(id == "agentstudio--abcdef0123456789--fedcba9876543210--5566778899001122")
     }
 
+    @Test
+    func test_floatingSessionId_duplicatesCwdStableKey() {
+        // Arrange
+        let workingDirectory = URL(fileURLWithPath: "/Users/test/dev/project")
+        let paneId = UUID(uuidString: "AABBCCDD-1122-3344-5566-778899001122")!
+
+        // Act
+        let id = ZmxBackend.floatingSessionId(workingDirectory: workingDirectory, paneId: paneId)
+
+        // Assert
+        let stableKey = StableKey.fromPath(workingDirectory)
+        #expect(id == "agentstudio--\(stableKey)--\(stableKey)--5566778899001122")
+    }
+
     // MARK: - Drawer Session ID Generation
 
     @Test

@@ -172,4 +172,26 @@ struct PaneCoordinatorViewFactoryTests {
         #expect(viewRegistry.view(for: pane.id) == nil)
         #expect(viewRegistry.registeredPaneIds.isEmpty)
     }
+
+    @Test("floating zmx restore uses drawer session IDs for drawer panes")
+    func floatingZmxRestoreSessionId_drawerPane_usesDrawerSessionId() {
+        let parentPaneId = UUIDv7.generate()
+        let drawerPaneId = UUIDv7.generate()
+        let pane = Pane(
+            id: drawerPaneId,
+            content: .terminal(TerminalState(provider: .zmx, lifetime: .persistent)),
+            metadata: PaneMetadata(
+                source: .floating(workingDirectory: URL(fileURLWithPath: "/Users/test"), title: "Drawer"),
+                title: "Drawer"
+            ),
+            kind: .drawerChild(parentPaneId: parentPaneId)
+        )
+
+        let sessionId = PaneCoordinator.floatingZmxRestoreSessionId(
+            for: pane,
+            workingDirectory: URL(fileURLWithPath: "/Users/test")
+        )
+
+        #expect(sessionId == ZmxBackend.drawerSessionId(parentPaneId: parentPaneId, drawerPaneId: drawerPaneId))
+    }
 }

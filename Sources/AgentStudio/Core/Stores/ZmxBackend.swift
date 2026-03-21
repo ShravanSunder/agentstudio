@@ -168,6 +168,17 @@ final class ZmxBackend: SessionBackend {
         return "\(sessionPrefix)\(repoStableKey)--\(worktreeStableKey)--\(paneSegment)"
     }
 
+    /// Floating top-level session ID: derive a stable key from the pane cwd and
+    /// reuse it for both repo/worktree segments so restart attach stays deterministic.
+    static func floatingSessionId(workingDirectory: URL, paneId: UUID) -> String {
+        let stableKey = StableKey.fromPath(workingDirectory)
+        return sessionId(
+            repoStableKey: stableKey,
+            worktreeStableKey: stableKey,
+            paneId: paneId
+        )
+    }
+
     /// Drawer session ID: `agentstudio-d--<parentPaneId16>--<drawerPaneId16>`
     /// Uses pane UUIDs (not worktree stable keys) since drawer identity
     /// flows through the parent pane relationship, not worktree association.
