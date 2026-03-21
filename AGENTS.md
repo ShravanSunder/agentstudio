@@ -150,8 +150,8 @@ ForgeActor      ──► .prCountsChanged ─┘        │               │
 **This is NOT CQRS.** The event bus carries facts, not commands. Stores are mutated by their own methods. Typed command planes still exist, but they do **not** run through the bus:
 - `PaneAction` for workspace mutations (`CommandDispatcher` → `ActionResolver` → `ActionValidator` → `PaneCoordinator`)
 - `RuntimeCommand` for pane-runtime commands (`PaneCoordinator` → `RuntimeRegistry` → `runtime.handleCommand(...)`)
-- `AppEventBus` for app-level intent fan-out that does not fit either command plane
-- `NotificationCenter` only for real AppKit/macOS lifecycle hooks
+- `AppEventBus` for app-level notifications/facts that do not fit either command plane
+- `ApplicationLifecycleMonitor` for AppKit/macOS lifecycle ingress into the lifecycle stores
 
 **The pattern:** mutate store directly → emit fact on bus → coordinator updates other store.
 
@@ -172,7 +172,7 @@ Use the narrowest plane that still preserves the architecture boundary.
 | AppKit/macOS lifecycle ingress | `ApplicationLifecycleMonitor` | Owns AppKit ingress and writes `AppLifecycleStore` / `WindowLifecycleStore`. |
 | UI-only local state | Local `@Observable` state | Keep it in the owning view/controller. Do not bounce it through a bus or `NotificationCenter`. |
 
-The old `AppCommand -> AppEventBus -> controller -> PaneAction` chain is the thing being removed. User-triggered workspace work now enters through validated `PaneAction` routing directly.
+The old `AppCommand -> AppEventBus -> controller -> PaneAction` chain has been removed. User-triggered workspace work now enters through validated `PaneAction` routing directly.
 
 For full detail:
 - [Event namespaces](docs/architecture/workspace_data_architecture.md#event-namespaces) — which events exist and who produces them
@@ -190,7 +190,7 @@ For full detail:
 - Asking one runtime to do work: `RuntimeCommand`
 - Reporting that something already happened: `PaneRuntimeEventBus`
 - Broadcasting app-level UI intent that genuinely needs fan-out: `AppEventBus`
-- Handling AppKit/macOS lifecycle only: `NotificationCenter`
+- Handling AppKit/macOS lifecycle ingress: `ApplicationLifecycleMonitor`
 
 **Injectable Clock** — All store-level time-dependent logic accepts `any Clock<Duration>` as a constructor parameter. This makes undo TTLs, health checks, and debounce timers testable.
 
