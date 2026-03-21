@@ -764,7 +764,7 @@ class AppDelegate: NSObject, NSApplicationDelegate {
     }
 
     @objc private func newTab() {
-        postAppEvent(.newTabRequested)
+        CommandDispatcher.shared.dispatch(.newTab)
     }
 
     @objc private func closeTab() {

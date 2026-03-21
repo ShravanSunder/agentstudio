@@ -102,7 +102,7 @@ extension PaneCoordinator {
         worktree: Worktree,
         repo: Repo
     ) -> AgentStudioTerminalView? {
-        let workingDir = worktree.path
+        let workingDir = pane.metadata.facets.cwd ?? worktree.path
 
         let shellCommand = "\(getDefaultShell()) -i -l"
         let startupStrategy: Ghostty.SurfaceStartupStrategy

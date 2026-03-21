@@ -156,11 +156,14 @@ enum ActionValidator {
             return .success(ValidatedAction(action))
 
         case .openWorktree(let worktreeId),
-            .openNewTerminalInTab(let worktreeId),
+            .openNewTerminalInTab(let worktreeId, _, _),
             .openWorktreeInPane(let worktreeId):
             guard state.knownWorktreeIds.contains(worktreeId) else {
                 return .failure(.worktreeNotFound(worktreeId: worktreeId))
             }
+            return .success(ValidatedAction(action))
+
+        case .openFloatingTerminal:
             return .success(ValidatedAction(action))
 
         case .toggleSplitZoom(let tabId, let paneId),

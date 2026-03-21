@@ -494,22 +494,41 @@ class PaneTabViewController: NSViewController, CommandHandler {
         if let activeTabId = store.activeTabId,
             let tab = store.tab(activeTabId),
             let activePaneId = tab.activePaneId,
-            let pane = store.pane(activePaneId),
-            let worktreeId = pane.worktreeId,
-            let repoId = pane.repoId,
-            let worktree = store.worktree(worktreeId),
-            let repo = store.repo(repoId)
+            let pane = store.pane(activePaneId)
         {
-            executor.openNewTerminal(for: worktree, in: repo)
+            if let worktreeId = pane.worktreeId {
+                dispatchAction(
+                    .openNewTerminalInTab(
+                        worktreeId: worktreeId,
+                        cwd: pane.metadata.facets.cwd,
+                        title: pane.metadata.title
+                    )
+                )
+                return
+            }
+
+            if let resolved = store.repoAndWorktree(containing: pane.metadata.facets.cwd) {
+                dispatchAction(
+                    .openNewTerminalInTab(
+                        worktreeId: resolved.worktree.id,
+                        cwd: pane.metadata.facets.cwd,
+                        title: pane.metadata.title
+                    )
+                )
+                return
+            }
+
+            dispatchAction(.openFloatingTerminal(cwd: pane.metadata.facets.cwd, title: pane.metadata.title))
             return
         }
 
         // Fallback: use the first worktree from the first repo
-        if let repo = store.repos.first,
-            let worktree = repo.worktrees.first
-        {
-            executor.openNewTerminal(for: worktree, in: repo)
+        if let worktree = store.repos.first?.worktrees.first {
+            dispatchAction(.openNewTerminalInTab(worktreeId: worktree.id, cwd: nil, title: nil))
+            return
         }
+
+        dispatchAction(.openFloatingTerminal(cwd: nil, title: nil))
     }
 
     // MARK: - Terminal Management
@@ -519,7 +538,7 @@ class PaneTabViewController: NSViewController, CommandHandler {
     }
 
     func openNewTerminal(for worktree: Worktree, in _: Repo) {
-        dispatchAction(.openNewTerminalInTab(worktreeId: worktree.id))
+        dispatchAction(.openNewTerminalInTab(worktreeId: worktree.id, cwd: nil, title: nil))
     }
 
     func openWorktreeInPane(for worktree: Worktree, in _: Repo) {
@@ -781,10 +800,15 @@ class PaneTabViewController: NSViewController, CommandHandler {
         case .toggleManagementMode:
             ManagementModeMonitor.shared.toggle()
 
+        case .newTab:
+            addNewTab()
+
         case .addRepo:
             postAppEvent(.addRepoRequested)
         case .addFolder:
             postAppEvent(.addFolderRequested)
+        case .toggleSidebar:
+            postAppEvent(.toggleSidebarRequested)
         case .filterSidebar:
             postAppEvent(.filterSidebarRequested)
         case .addDrawerPane:
@@ -821,15 +845,31 @@ class PaneTabViewController: NSViewController, CommandHandler {
                     tabId: tabId, name: name, paneIds: Set(tab.paneIds)
                 ))
 
+        case .newTerminalInTab:
+            guard let activeTabId = store.activeTabId,
+                let tab = store.tab(activeTabId),
+                let targetPaneId = tab.activePaneId
+            else { break }
+            dispatchAction(
+                .insertPane(
+                    source: .newTerminal,
+                    targetTabId: activeTabId,
+                    targetPaneId: targetPaneId,
+                    direction: .right
+                ))
+        case .newFloatingTerminal:
+            let activePaneCwd = store.activeTabId
+                .flatMap { store.tab($0)?.activePaneId }
+                .flatMap { store.pane($0)?.metadata.facets.cwd }
+            dispatchAction(.openFloatingTerminal(cwd: activePaneCwd, title: nil))
         case .openWebview:
             executor.openWebview()
         case .signInGitHub:
             postAppEvent(.signInRequested(provider: OAuthProvider.github.rawValue))
         case .signInGoogle:
             postAppEvent(.signInRequested(provider: OAuthProvider.google.rawValue))
-        case .newTerminalInTab, .newFloatingTerminal,
-            .removeRepo, .refreshWorktrees,
-            .toggleSidebar, .quickFind, .commandBar,
+        case .refreshWorktrees,
+            .quickFind, .commandBar,
             .openNewTerminalInTab, .openWorktree, .openWorktreeInPane,
             .switchArrangement, .deleteArrangement, .renameArrangement,
             .navigateDrawerPane, .movePaneToTab:
@@ -879,10 +919,18 @@ class PaneTabViewController: NSViewController, CommandHandler {
                     let paneId = tab.activePaneId
                 else { return nil }
                 return .setActiveDrawerPane(parentPaneId: paneId, drawerPaneId: target)
+            case (.newTerminalInTab, .tab):
+                guard let tab = store.tab(target), let targetPaneId = tab.activePaneId else { return nil }
+                return .insertPane(
+                    source: .newTerminal,
+                    targetTabId: tab.id,
+                    targetPaneId: targetPaneId,
+                    direction: .right
+                )
             case (.openWorktree, .worktree):
                 return .openWorktree(worktreeId: target)
             case (.openNewTerminalInTab, .worktree):
-                return .openNewTerminalInTab(worktreeId: target)
+                return .openNewTerminalInTab(worktreeId: target, cwd: nil, title: nil)
             case (.openWorktreeInPane, .worktree):
                 return .openWorktreeInPane(worktreeId: target)
             default:
@@ -897,6 +945,10 @@ class PaneTabViewController: NSViewController, CommandHandler {
 
         // Targeted non-pane commands (e.g. from command bar)
         switch (command, targetType) {
+        case (.removeRepo, .repo):
+            postAppEvent(.removeRepoRequested(repoId: target))
+        case (.refreshWorktrees, .repo):
+            postAppEvent(.refreshWorktreesRequested)
         default:
             execute(command)
         }

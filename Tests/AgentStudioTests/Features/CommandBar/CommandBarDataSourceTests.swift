@@ -86,6 +86,18 @@ struct CommandBarDataSourceTests {
     }
 
     @Test
+    func test_commandsScope_hidesUnsupportedWindowAndMaintenanceCommands() {
+        let store = makeStore()
+
+        let items = CommandBarDataSource.items(scope: .commands, store: store, dispatcher: dispatcher)
+        let ids = Set(items.map(\.id))
+
+        #expect(!ids.contains("cmd-newWindow"))
+        #expect(!ids.contains("cmd-closeWindow"))
+        #expect(!ids.contains("cmd-refreshWorktrees"))
+    }
+
+    @Test
     func test_commandsScope_hasCorrectSubgroups() {
         let store = makeStore()
 
@@ -240,6 +252,44 @@ struct CommandBarDataSourceTests {
         #expect((deleteItem?.hasChildren ?? false) == true)
         #expect((renameItem?.hasChildren ?? false) == true)
         #expect((saveItem?.hasChildren ?? true) == false)
+    }
+
+    @Test
+    func test_commandsScope_newTerminalInTabHasDrillIn() {
+        let store = makeStore()
+        let pane = store.createPane(source: .floating(workingDirectory: nil, title: "Pane A"))
+        let tab = Tab(paneId: pane.id)
+        store.appendTab(tab)
+        store.setActiveTab(tab.id)
+
+        let items = CommandBarDataSource.items(scope: .commands, store: store, dispatcher: dispatcher)
+        let newTerminalInTab = items.first { $0.id == "cmd-newTerminalInTab" }
+
+        #expect(newTerminalInTab != nil)
+        #expect((newTerminalInTab?.hasChildren ?? false) == true)
+    }
+
+    @Test
+    func test_commandsScope_removeRepoHasDrillIn() {
+        let store = makeStore()
+        let repo = store.addRepo(at: URL(filePath: "/tmp/remove-repo-command"))
+        store.reconcileDiscoveredWorktrees(
+            repo.id,
+            worktrees: [
+                Worktree(
+                    repoId: repo.id,
+                    name: "main",
+                    path: URL(filePath: "/tmp/remove-repo-command"),
+                    isMainWorktree: true
+                )
+            ]
+        )
+
+        let items = CommandBarDataSource.items(scope: .commands, store: store, dispatcher: dispatcher)
+        let removeRepo = items.first { $0.id == "cmd-removeRepo" }
+
+        #expect(removeRepo != nil)
+        #expect((removeRepo?.hasChildren ?? false) == true)
     }
 
     // MARK: - Move Pane Command

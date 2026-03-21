@@ -290,7 +290,8 @@ enum CommandBarDataSource {
         case .closeTab, .closePane, .extractPaneToTab, .movePaneToTab, .focusPaneLeft, .focusPaneRight,
             .focusPaneUp, .focusPaneDown, .focusNextPane, .focusPrevPane,
             .switchArrangement, .deleteArrangement, .renameArrangement,
-            .navigateDrawerPane, .openWorktree, .openWorktreeInPane, .openNewTerminalInTab:
+            .navigateDrawerPane, .openWorktree, .openWorktreeInPane, .openNewTerminalInTab,
+            .newTerminalInTab, .removeRepo:
             return true
         default:
             return false
@@ -622,6 +623,7 @@ enum CommandBarDataSource {
         case .selectTab1, .selectTab2, .selectTab3, .selectTab4, .selectTab5,
             .selectTab6, .selectTab7, .selectTab8, .selectTab9,
             .quickFind, .commandBar,
+            .newWindow, .closeWindow, .refreshWorktrees,
             // OAuth sign-in commands hidden until real client IDs are configured.
             // These will use ASWebAuthenticationSession to authenticate in Safari
             // (where 1Password works), then inject session cookies into WKWebView.

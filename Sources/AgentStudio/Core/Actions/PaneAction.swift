@@ -96,8 +96,9 @@ enum PaneAction: Equatable, Hashable {
 
     // Worktree actions (routed through command pipeline for validation)
     case openWorktree(worktreeId: UUID)
-    case openNewTerminalInTab(worktreeId: UUID)
+    case openNewTerminalInTab(worktreeId: UUID, cwd: URL?, title: String?)
     case openWorktreeInPane(worktreeId: UUID)
+    case openFloatingTerminal(cwd: URL?, title: String?)
 
     // Minimize / Expand
     case minimizePane(tabId: UUID, paneId: UUID)
