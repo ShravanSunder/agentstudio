@@ -194,4 +194,25 @@ struct PaneCoordinatorViewFactoryTests {
 
         #expect(sessionId == ZmxBackend.drawerSessionId(parentPaneId: parentPaneId, drawerPaneId: drawerPaneId))
     }
+
+    @Test("floating zmx restore uses floating session IDs for top-level floating panes")
+    func floatingZmxRestoreSessionId_topLevelFloatingPane_usesFloatingSessionId() {
+        let paneId = UUIDv7.generate()
+        let workingDirectory = URL(fileURLWithPath: "/Users/test/project")
+        let pane = Pane(
+            id: paneId,
+            content: .terminal(TerminalState(provider: .zmx, lifetime: .persistent)),
+            metadata: PaneMetadata(
+                source: .floating(workingDirectory: workingDirectory, title: "Floating"),
+                title: "Floating"
+            )
+        )
+
+        let sessionId = PaneCoordinator.floatingZmxRestoreSessionId(
+            for: pane,
+            workingDirectory: workingDirectory
+        )
+
+        #expect(sessionId == ZmxBackend.floatingSessionId(workingDirectory: workingDirectory, paneId: paneId))
+    }
 }
