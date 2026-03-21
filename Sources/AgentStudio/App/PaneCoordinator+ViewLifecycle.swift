@@ -95,14 +95,12 @@ extension PaneCoordinator {
         var environmentVariables: [String: String] = [:]
         switch pane.provider {
         case .zmx:
-            if let zmxPath = sessionConfig.zmxPath {
-                let attachCommand = buildZmxAttachCommand(
-                    pane: pane,
-                    worktree: worktree,
-                    repo: repo,
-                    zmxPath: zmxPath
-                )
-                startupStrategy = .deferredInShell(command: attachCommand)
+            if let attachCommand = terminalRestoreRuntime.zmxAttachCommand(
+                pane: pane,
+                worktree: worktree,
+                repo: repo
+            ) {
+                startupStrategy = .surfaceCommand(attachCommand)
                 environmentVariables["ZMX_DIR"] = sessionConfig.zmxDir
             } else {
                 Self.logger.error(
@@ -538,27 +536,6 @@ extension PaneCoordinator {
     private static func orderedUniquePaneIds(_ paneIds: [UUID]) -> [UUID] {
         var seen: Set<UUID> = []
         return paneIds.filter { seen.insert($0).inserted }
-    }
-
-    private func buildZmxAttachCommand(pane: Pane, worktree: Worktree, repo: Repo, zmxPath: String) -> String {
-        let zmxSessionName: String
-        if let parentPaneId = pane.parentPaneId {
-            zmxSessionName = ZmxBackend.drawerSessionId(parentPaneId: parentPaneId, drawerPaneId: pane.id)
-        } else {
-            zmxSessionName = ZmxBackend.sessionId(
-                repoStableKey: repo.stableKey,
-                worktreeStableKey: worktree.stableKey,
-                paneId: pane.id
-            )
-        }
-        RestoreTrace.log(
-            "buildZmxAttachCommand pane=\(pane.id) session=\(zmxSessionName) zmxPath=\(zmxPath) zmxDir=\(sessionConfig.zmxDir)"
-        )
-        return ZmxBackend.buildAttachCommand(
-            zmxPath: zmxPath,
-            sessionId: zmxSessionName,
-            shell: getDefaultShell()
-        )
     }
 
     private func getDefaultShell() -> String {

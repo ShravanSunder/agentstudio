@@ -134,6 +134,14 @@ final class SessionConfigurationTests {
         #expect(config.healthCheckInterval == 30.0)
     }
 
+    @Test
+
+    func test_backgroundRestorePolicy_defaultsToExistingSessionsOnly() {
+        let config = SessionConfiguration.detect(environment: [:])
+
+        #expect(config.backgroundRestorePolicy == .existingSessionsOnly)
+    }
+
     // MARK: - zmxDir
 
     @Test

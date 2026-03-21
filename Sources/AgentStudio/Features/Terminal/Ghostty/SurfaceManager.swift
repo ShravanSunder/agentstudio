@@ -289,6 +289,7 @@ final class SurfaceManager {
 
         // Pause rendering
         setOcclusion(surfaceId, visible: false)
+        setFocus(surfaceId, focused: false)
 
         let previousPaneAttachmentId: UUID?
         if case .active(let cid) = managed.state {
@@ -799,11 +800,11 @@ extension SurfaceManager {
 
     /// Set focus state for a surface
     func setFocus(_ surfaceId: UUID, focused: Bool) {
-        guard let managed = activeSurfaces[surfaceId],
+        guard let managed = activeSurfaces[surfaceId] ?? hiddenSurfaces[surfaceId],
             let surface = managed.surface.surface
         else {
             RestoreTrace.log(
-                "SurfaceManager.setFocus skipped surface=\(surfaceId) focused=\(focused) active=\(activeSurfaces[surfaceId] != nil)"
+                "SurfaceManager.setFocus skipped surface=\(surfaceId) focused=\(focused) known=\((activeSurfaces[surfaceId] != nil) || (hiddenSurfaces[surfaceId] != nil))"
             )
             return
         }

@@ -45,6 +45,7 @@ final class PaneCoordinator {
     let filesystemSource: any PaneCoordinatorFilesystemSourceManaging
     let paneFilesystemProjectionStore: PaneFilesystemProjectionStore
     lazy var sessionConfig = SessionConfiguration.detect()
+    lazy var terminalRestoreRuntime = TerminalRestoreRuntime(sessionConfiguration: sessionConfig)
     private var cwdChangesTask: Task<Void, Never>?
     private var paneEventIngressTask: Task<Void, Never>?
     private var runtimeEventBridgeTasks: [PaneId: Task<Void, Never>] = [:]

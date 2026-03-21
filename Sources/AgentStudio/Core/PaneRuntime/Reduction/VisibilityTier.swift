@@ -9,6 +9,9 @@ enum VisibilityTier: Int, Comparable, Sendable {
     static func < (lhs: Self, rhs: Self) -> Bool {
         lhs.rawValue < rhs.rawValue
     }
+
+    static var p0Visible: Self { .p0ActivePane }
+    static var p1Hidden: Self { .p3Background }
 }
 
 protocol VisibilityTierResolver: Sendable {

@@ -4,6 +4,8 @@ struct SettingsView: View {
     @AppStorage("terminalFontSize") private var terminalFontSize: Double = 13
     @AppStorage("autoRefreshWorktrees") private var autoRefreshWorktrees: Bool = true
     @AppStorage("detachOnClose") private var detachOnClose: Bool = true
+    @AppStorage("backgroundRestorePolicy") private var backgroundRestorePolicyRawValue: String =
+        BackgroundRestorePolicy.existingSessionsOnly.rawValue
 
     var body: some View {
         TabView {
@@ -16,7 +18,8 @@ struct SettingsView: View {
             }
 
             TerminalSettingsView(
-                fontSize: $terminalFontSize
+                fontSize: $terminalFontSize,
+                backgroundRestorePolicyRawValue: $backgroundRestorePolicyRawValue
             )
             .tabItem {
                 Label("Terminal", systemImage: "terminal")
@@ -67,6 +70,7 @@ struct GeneralSettingsView: View {
 
 struct TerminalSettingsView: View {
     @Binding var fontSize: Double
+    @Binding var backgroundRestorePolicyRawValue: String
 
     var body: some View {
         Form {
@@ -81,6 +85,22 @@ struct TerminalSettingsView: View {
                             .foregroundStyle(.secondary)
                     }
                 }
+            }
+
+            Section("Restore") {
+                Picker(
+                    "Background Restore",
+                    selection: $backgroundRestorePolicyRawValue
+                ) {
+                    Text("Off").tag(BackgroundRestorePolicy.off.rawValue)
+                    Text("Existing Sessions Only").tag(BackgroundRestorePolicy.existingSessionsOnly.rawValue)
+                    Text("All Terminal Panes").tag(BackgroundRestorePolicy.allTerminalPanes.rawValue)
+                }
+                .pickerStyle(.menu)
+
+                Text("Default restores hidden panes only when they already have an existing zmx session.")
+                    .font(.system(size: AppStyle.textXs))
+                    .foregroundStyle(.secondary)
             }
 
             Section("Zellij") {

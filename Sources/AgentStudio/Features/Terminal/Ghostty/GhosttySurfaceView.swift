@@ -48,17 +48,20 @@ extension Ghostty {
     struct SurfaceConfiguration {
         var workingDirectory: String?
         var startupStrategy: SurfaceStartupStrategy
+        var initialFrame: NSRect?
         var fontSize: Float?
         var environmentVariables: [String: String]
 
         init(
             workingDirectory: String? = nil,
             startupStrategy: SurfaceStartupStrategy = .surfaceCommand(nil),
+            initialFrame: NSRect? = nil,
             fontSize: Float? = nil,
             environmentVariables: [String: String] = [:]
         ) {
             self.workingDirectory = workingDirectory
             self.startupStrategy = startupStrategy
+            self.initialFrame = initialFrame
             self.fontSize = fontSize
             self.environmentVariables = environmentVariables
         }
@@ -128,7 +131,7 @@ extension Ghostty {
         init(app: App, config: SurfaceConfiguration? = nil) {
             self.ghosttyApp = app
             self.deferredStartupCommand = config?.startupStrategy.deferredStartupCommand
-            super.init(frame: NSRect(x: 0, y: 0, width: 800, height: 600))
+            super.init(frame: config?.initialFrame ?? NSRect(x: 0, y: 0, width: 800, height: 600))
             let startupCommandForSurface = config?.startupStrategy.startupCommandForSurface
             RestoreTrace.log(
                 "Ghostty.SurfaceView.init placeholderFrame=\(NSStringFromRect(frame)) cwd=\(config?.workingDirectory ?? "nil") hasCommand=\(startupCommandForSurface != nil) hasDeferred=\(self.deferredStartupCommand != nil)"
