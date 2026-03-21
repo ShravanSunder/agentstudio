@@ -37,6 +37,10 @@ class PaneTabViewController: NSViewController, CommandHandler {
     private var lastFocusedTabId: UUID?
     private var lastFocusedPaneId: UUID?
 
+    var terminalContainerBounds: CGRect {
+        terminalContainer?.bounds ?? .zero
+    }
+
     // MARK: - Init
 
     init(
@@ -271,8 +275,14 @@ class PaneTabViewController: NSViewController, CommandHandler {
         // Focus management: only refocus when active tab or pane actually changes
         let currentTabId = store.activeTabId
         let currentPaneId = currentTabId.flatMap { store.tab($0) }?.activePaneId
+        let selectionChanged = currentTabId != lastFocusedTabId || currentPaneId != lastFocusedPaneId
+        let activePaneViewMissing = currentPaneId.map { viewRegistry.view(for: $0) == nil } ?? false
 
-        if currentTabId != lastFocusedTabId || currentPaneId != lastFocusedPaneId {
+        if selectionChanged || activePaneViewMissing {
+            executor.restoreVisibleViewsForActiveTabIfNeeded()
+        }
+
+        if selectionChanged {
             lastFocusedTabId = currentTabId
             lastFocusedPaneId = currentPaneId
             focusActivePane()

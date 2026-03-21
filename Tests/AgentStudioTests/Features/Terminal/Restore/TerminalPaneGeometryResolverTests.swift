@@ -7,7 +7,7 @@ import Testing
 @Suite(.serialized)
 struct TerminalPaneGeometryResolverTests {
     @Test
-    func geometryResolver_derivesExactPaneFrames_fromWindowAndLayout() throws {
+    func geometryResolver_derivesExactPaneFrames_fromWindowAndLayout() {
         let paneA = UUID()
         let paneB = UUID()
         let layout = Layout(
@@ -21,22 +21,22 @@ struct TerminalPaneGeometryResolverTests {
             )
         )
 
-        let resolved = try TerminalPaneGeometryResolver.resolveFrames(
+        let resolved = TerminalPaneGeometryResolver.resolveFrames(
             for: layout,
             in: CGRect(x: 0, y: 0, width: 1000, height: 600),
             dividerThickness: 1
         )
 
-        #expect(resolved[paneA] == CGRect(x: 0, y: 0, width: 499.5, height: 600))
-        #expect(resolved[paneB] == CGRect(x: 500.5, y: 0, width: 499.5, height: 600))
+        #expect(resolved[paneA] == CGRect(x: 2, y: 2, width: 495.5, height: 596))
+        #expect(resolved[paneB] == CGRect(x: 502.5, y: 2, width: 495.5, height: 596))
     }
 
     @Test
-    func geometryResolver_neverReturnsPlaceholder800x600() throws {
+    func geometryResolver_neverReturnsPlaceholder800x600() {
         let pane = UUID()
         let layout = Layout(paneId: pane)
 
-        let resolved = try TerminalPaneGeometryResolver.resolveFrames(
+        let resolved = TerminalPaneGeometryResolver.resolveFrames(
             for: layout,
             in: CGRect(x: 0, y: 0, width: 1200, height: 700),
             dividerThickness: 1

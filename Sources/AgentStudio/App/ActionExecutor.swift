@@ -60,6 +60,10 @@ final class ActionExecutor {
         coordinator.undoCloseTab()
     }
 
+    func restoreVisibleViewsForActiveTabIfNeeded() {
+        coordinator.restoreViewsForActiveTabIfNeeded()
+    }
+
     /// Validate/canonicalize a PaneAction against current state, then execute it.
     func execute(_ action: PaneAction) {
         let snapshot = ActionResolver.snapshot(

@@ -20,6 +20,10 @@ class MainSplitViewController: NSSplitViewController {
     private let tabBarAdapter: TabBarAdapter
     private let viewRegistry: ViewRegistry
 
+    var terminalContainerBounds: CGRect? {
+        paneTabViewController?.terminalContainerBounds
+    }
+
     init(
         store: WorkspaceStore,
         repoCache: WorkspaceRepoCache,

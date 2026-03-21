@@ -9,6 +9,10 @@ class MainWindowController: NSWindowController, NSWindowDelegate {
     private static let windowFrameKey = "windowFrame"
     private static let estimatedTitlebarHeight: CGFloat = 40
 
+    var terminalContainerBounds: CGRect? {
+        splitViewController?.terminalContainerBounds
+    }
+
     convenience init(
         store: WorkspaceStore,
         repoCache: WorkspaceRepoCache,

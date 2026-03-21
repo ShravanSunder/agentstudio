@@ -340,6 +340,9 @@ class AppDelegate: NSObject, NSApplicationDelegate {
             tabBarAdapter: tabBarAdapter,
             viewRegistry: viewRegistry
         )
+        paneCoordinator.terminalContainerBoundsProvider = { [weak self] in
+            self?.mainWindowController?.terminalContainerBounds
+        }
         mainWindowController?.showWindow(nil)
         if let window = mainWindowController?.window {
             RestoreTrace.log(
@@ -362,8 +365,10 @@ class AppDelegate: NSObject, NSApplicationDelegate {
         Task { @MainActor [weak self] in
             guard let self else { return }
             await Task.yield()
+            self.mainWindowController?.window?.contentView?.layoutSubtreeIfNeeded()
+            let terminalContainerBounds = self.mainWindowController?.terminalContainerBounds
             RestoreTrace.log("restoreAllViews: start")
-            await self.paneCoordinator.restoreAllViews()
+            await self.paneCoordinator.restoreAllViews(in: terminalContainerBounds)
             RestoreTrace.log("restoreAllViews: end registeredViews=\(self.viewRegistry.registeredPaneIds.count)")
         }
 

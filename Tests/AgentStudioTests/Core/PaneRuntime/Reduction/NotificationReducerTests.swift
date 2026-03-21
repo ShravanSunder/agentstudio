@@ -51,8 +51,8 @@ struct NotificationReducerTests {
         let lowTierPaneId = PaneId()
         let resolver = TestVisibilityTierResolver(
             mapping: [
-                highTierPaneId: .p0ActivePane,
-                lowTierPaneId: .p3Background,
+                highTierPaneId: .p0Visible,
+                lowTierPaneId: .p1Hidden,
             ]
         )
         let reducer = NotificationReducer(tierResolver: resolver)
@@ -74,8 +74,8 @@ struct NotificationReducerTests {
         let lowTierPaneId = PaneId()
         let resolver = TestVisibilityTierResolver(
             mapping: [
-                highTierPaneId: .p0ActivePane,
-                lowTierPaneId: .p3Background,
+                highTierPaneId: .p0Visible,
+                lowTierPaneId: .p1Hidden,
             ]
         )
         let reducer = NotificationReducer(tierResolver: resolver)
@@ -109,7 +109,7 @@ struct NotificationReducerTests {
         let repoId = UUID()
         let resolver = TestVisibilityTierResolver(
             mapping: [
-                lowTierPaneId: .p3Background
+                lowTierPaneId: .p1Hidden
             ]
         )
         let reducer = NotificationReducer(tierResolver: resolver)
@@ -217,6 +217,6 @@ private final class TestVisibilityTierResolver: VisibilityTierResolver {
     }
 
     func tier(for paneId: PaneId) -> VisibilityTier {
-        mapping[paneId] ?? .p3Background
+        mapping[paneId] ?? .p1Hidden
     }
 }

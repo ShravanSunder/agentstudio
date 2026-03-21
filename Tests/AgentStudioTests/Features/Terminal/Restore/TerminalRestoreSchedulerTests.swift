@@ -47,6 +47,30 @@ struct TerminalRestoreSchedulerTests {
     }
 
     @Test
+    func scheduler_restores_allExpandedDrawerPanes_asVisibleWork() {
+        let activePane = PaneId()
+        let firstVisibleDrawerPane = PaneId()
+        let secondVisibleDrawerPane = PaneId()
+        let hiddenPane = PaneId()
+        let resolver = TestTerminalRestoreVisibilityResolver(
+            mapping: [
+                activePane: .p0Visible,
+                firstVisibleDrawerPane: .p0Visible,
+                secondVisibleDrawerPane: .p0Visible,
+                hiddenPane: .p1Hidden,
+            ],
+            activePane: activePane
+        )
+
+        let ordered = TerminalRestoreScheduler.order(
+            [hiddenPane, secondVisibleDrawerPane, firstVisibleDrawerPane, activePane],
+            resolver: resolver
+        )
+
+        #expect(ordered == [activePane, secondVisibleDrawerPane, firstVisibleDrawerPane, hiddenPane])
+    }
+
+    @Test
     func scheduler_startsEligibleHiddenExistingSession_beforeReveal() {
         #expect(
             TerminalRestoreScheduler.shouldStartHiddenRestore(

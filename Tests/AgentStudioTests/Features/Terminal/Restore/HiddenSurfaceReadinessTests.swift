@@ -22,7 +22,6 @@ struct HiddenSurfaceReadinessTests {
             "/usr/local/bin/zmx attach session /bin/zsh -i -l"
         )
 
-        #expect(strategy.deferredStartupCommand == nil)
         #expect(strategy.startupCommandForSurface != nil)
     }
 
