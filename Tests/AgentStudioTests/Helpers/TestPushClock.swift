@@ -46,10 +46,16 @@ struct TestPushClock: Clock {
         let continuation: UnsafeContinuation<Void, Error>
     }
 
+    struct PendingSleepWaiter {
+        let count: Int
+        let continuation: UnsafeContinuation<Void, Never>
+    }
+
     struct State {
         var generation: Int = 0
         var now: Int64 = 0
         var pending: [ScheduledSleep] = []
+        var pendingSleepWaiters: [PendingSleepWaiter] = []
     }
 
     private let state = StateBox()
@@ -71,6 +77,7 @@ struct TestPushClock: Clock {
         let _: Void = try await withTaskCancellationHandler(
             operation: {
                 try await withUnsafeThrowingContinuation { (continuation: UnsafeContinuation<Void, Error>) in
+                    var resumedWaiters: [UnsafeContinuation<Void, Never>] = []
                     let shouldResume = state.withCriticalRegion { st in
                         if deadline.nanoseconds <= st.now {
                             return true
@@ -82,7 +89,11 @@ struct TestPushClock: Clock {
                                 deadline: deadline.nanoseconds,
                                 continuation: continuation
                             ))
+                        resumedWaiters = Self.dequeueSatisfiedPendingSleepWaiters(state: &st)
                         return false
+                    }
+                    for waiter in resumedWaiters {
+                        waiter.resume()
                     }
                     if shouldResume {
                         continuation.resume()
@@ -120,6 +131,32 @@ struct TestPushClock: Clock {
         state.withCriticalRegion { $0.pending.count }
     }
 
+    func waitForPendingSleepCount(atLeast count: Int = 1) async {
+        let shouldResumeImmediately = state.withCriticalRegion { st in
+            st.pending.count >= count
+        }
+        if shouldResumeImmediately {
+            return
+        }
+
+        await withUnsafeContinuation { (continuation: UnsafeContinuation<Void, Never>) in
+            let shouldResume = state.withCriticalRegion { st in
+                if st.pending.count >= count {
+                    return true
+                }
+
+                st.pendingSleepWaiters.append(
+                    PendingSleepWaiter(count: count, continuation: continuation)
+                )
+                return false
+            }
+
+            if shouldResume {
+                continuation.resume()
+            }
+        }
+    }
+
     private func cancel(_ generation: Int) {
         let continuation = state.withCriticalRegion { st -> UnsafeContinuation<Void, Error>? in
             guard let index = st.pending.firstIndex(where: { $0.generation == generation }) else {
@@ -128,6 +165,26 @@ struct TestPushClock: Clock {
             return st.pending.remove(at: index).continuation
         }
         continuation?.resume(throwing: CancellationError())
+    }
+
+    private static func dequeueSatisfiedPendingSleepWaiters(
+        state: inout State
+    ) -> [UnsafeContinuation<Void, Never>] {
+        guard !state.pendingSleepWaiters.isEmpty else { return [] }
+
+        var remainingWaiters: [PendingSleepWaiter] = []
+        var resumedWaiters: [UnsafeContinuation<Void, Never>] = []
+
+        for waiter in state.pendingSleepWaiters {
+            if state.pending.count >= waiter.count {
+                resumedWaiters.append(waiter.continuation)
+            } else {
+                remainingWaiters.append(waiter)
+            }
+        }
+
+        state.pendingSleepWaiters = remainingWaiters
+        return resumedWaiters
     }
 
     private static func nanoseconds(for duration: Duration) -> Int64 {
