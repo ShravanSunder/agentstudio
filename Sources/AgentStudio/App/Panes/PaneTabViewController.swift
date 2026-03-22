@@ -56,7 +56,7 @@ class PaneTabViewController: NSViewController, CommandHandler {
     private let executor: ActionExecutor
     private let tabBarAdapter: TabBarAdapter
     private let viewRegistry: ViewRegistry
-    private var appLifecycleStore: AppLifecycleStore?
+    private var appLifecycleStore = AppLifecycleStore()
 
     // MARK: - View State
 
@@ -400,8 +400,6 @@ class PaneTabViewController: NSViewController, CommandHandler {
 
     /// Create the NSHostingView for ActiveTabContent once. @Observable handles all re-renders.
     private func setupSplitContentView() {
-        guard let appLifecycleStore else { return }
-
         let contentView = ActiveTabContent(
             store: store,
             repoCache: repoCache,

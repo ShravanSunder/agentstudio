@@ -319,32 +319,10 @@ extension Ghostty {
                     target: target
                 )
             case .initialSize:
-                if target.tag == GHOSTTY_TARGET_SURFACE, let surface = target.target.surface,
-                    let resolvedSurfaceView = surfaceView(from: surface)
-                {
-                    let size = NSSize(
-                        width: Double(action.action.initial_size.width),
-                        height: Double(action.action.initial_size.height)
-                    )
-                    Task { @MainActor [weak resolvedSurfaceView] in
-                        resolvedSurfaceView?.updateReportedInitialSize(size)
-                    }
-                }
+                updateReportedSurfaceSize(target: target, action: action, kind: .initial)
                 return routeUnhandledAction(actionTag: rawActionTag, target: target)
             case .cellSize:
-                if target.tag == GHOSTTY_TARGET_SURFACE, let surface = target.target.surface,
-                    let resolvedSurfaceView = surfaceView(from: surface)
-                {
-                    let backingSize = NSSize(
-                        width: Double(action.action.cell_size.width),
-                        height: Double(action.action.cell_size.height)
-                    )
-                    Task { @MainActor [weak resolvedSurfaceView] in
-                        guard let resolvedSurfaceView else { return }
-                        let logicalSize = resolvedSurfaceView.convertFromBacking(backingSize)
-                        resolvedSurfaceView.updateReportedCellSize(logicalSize)
-                    }
-                }
+                updateReportedSurfaceSize(target: target, action: action, kind: .cell)
                 return routeUnhandledAction(actionTag: rawActionTag, target: target)
             case .closeAllWindows, .toggleMaximize, .toggleFullscreen, .toggleTabOverview,
                 .toggleWindowDecorations, .toggleQuickTerminal, .toggleCommandPalette, .toggleVisibility,
@@ -363,6 +341,43 @@ extension Ghostty {
         @MainActor
         static func setRuntimeRegistry(_ runtimeRegistry: RuntimeRegistry) {
             runtimeRegistryOverride = runtimeRegistry
+        }
+
+        private enum ReportedSurfaceSizeKind {
+            case initial
+            case cell
+        }
+
+        private static func updateReportedSurfaceSize(
+            target: ghostty_target_s,
+            action: ghostty_action_s,
+            kind: ReportedSurfaceSizeKind
+        ) {
+            guard target.tag == GHOSTTY_TARGET_SURFACE,
+                let surface = target.target.surface,
+                let resolvedSurfaceView = surfaceView(from: surface)
+            else { return }
+
+            switch kind {
+            case .initial:
+                let size = NSSize(
+                    width: Double(action.action.initial_size.width),
+                    height: Double(action.action.initial_size.height)
+                )
+                Task { @MainActor [weak resolvedSurfaceView] in
+                    resolvedSurfaceView?.updateReportedInitialSize(size)
+                }
+            case .cell:
+                let backingSize = NSSize(
+                    width: Double(action.action.cell_size.width),
+                    height: Double(action.action.cell_size.height)
+                )
+                Task { @MainActor [weak resolvedSurfaceView] in
+                    guard let resolvedSurfaceView else { return }
+                    let logicalSize = resolvedSurfaceView.convertFromBacking(backingSize)
+                    resolvedSurfaceView.updateReportedCellSize(logicalSize)
+                }
+            }
         }
 
         @MainActor
