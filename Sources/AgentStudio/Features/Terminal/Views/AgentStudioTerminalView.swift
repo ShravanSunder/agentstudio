@@ -38,7 +38,7 @@ final class AgentStudioTerminalView: PaneView, SurfaceHealthDelegate {
         restoredSurfaceId: UUID,
         paneId: UUID,
         showsRestorePresentationDuringStartup: Bool = false,
-        startupGraceDuration: Duration = .milliseconds(500)
+        startupGraceDuration: Duration = .milliseconds(100)
     ) {
         self.worktree = worktree
         self.repo = repo
@@ -60,7 +60,7 @@ final class AgentStudioTerminalView: PaneView, SurfaceHealthDelegate {
         paneId: UUID,
         title: String = "Terminal",
         showsRestorePresentationDuringStartup: Bool = false,
-        startupGraceDuration: Duration = .milliseconds(500)
+        startupGraceDuration: Duration = .milliseconds(100)
     ) {
         self.worktree = nil
         self.repo = nil
