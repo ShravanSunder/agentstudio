@@ -4,7 +4,7 @@
 
 **Goal:** Fix pane editor interaction issues, redesign sidebar repo management with recursive discovery and worktree badges, add duplicate/open-in actions through the validated action pipeline, and enhance new pane/tab creation with repo/worktree picker options.
 
-**Architecture:** All new user actions route through `PaneAction` → `ActionResolver` → `ActionValidator` → `PaneCoordinator` → `WorkspaceStore`. New `PaneAction` cases use `PaneId` (not raw `UUID`) for pane identity. All pane creation flows populate `PaneMetadata` with full dynamic view fields (`repoId`, `worktreeId`, `checkoutRef`, `parentFolder`, `agentType`, `tags`) to support dynamic views and window restoration. Deduplication queries `RuntimeRegistry` + `PaneMetadata.worktreeId`. Sidebar changes modify `SidebarContentView` (vertical slice in `App/`). New `CommandBarScope.repos` reuses existing `Features/CommandBar/`. Every change is unit-testable.
+**Architecture:** All new user actions route through `PaneActionCommand` → `ActionResolver` → `ActionValidator` → `PaneCoordinator` → `WorkspaceStore`. New `PaneActionCommand` cases use `PaneId` (not raw `UUID`) for pane identity. All pane creation flows populate `PaneMetadata` with full dynamic view fields (`repoId`, `worktreeId`, `checkoutRef`, `parentFolder`, `agentType`, `tags`) to support dynamic views and window restoration. Deduplication queries `RuntimeRegistry` + `PaneMetadata.worktreeId`. Sidebar changes modify `SidebarContentView` (vertical slice in `App/`). New `CommandBarScope.repos` reuses existing `Features/CommandBar/`. Every change is unit-testable.
 
 **Tech Stack:** Swift 6, SwiftUI, AppKit (NSSplitViewController), `@Observable` stores, `PaneId` (UUIDv7), `PaneMetadata`, `RuntimeRegistry`, `WorktrunkService` (git CLI wrapper)
 
@@ -18,7 +18,7 @@
 - `PaneId` struct (UUIDv7 for new panes, UUID compat for legacy) — already exists in `Core/PaneRuntime/Contracts/PaneId.swift`
 - `PaneMetadata` with rich identity — already exists in `Core/PaneRuntime/Contracts/PaneMetadata.swift`
 - `RuntimeRegistry` keyed by `PaneId` — already exists in `Core/PaneRuntime/Registry/RuntimeRegistry.swift`
-- New `PaneAction` cases MUST use `PaneId` for pane identity (existing cases still use `UUID` pending full migration)
+- New `PaneActionCommand` cases MUST use `PaneId` for pane identity (existing cases still use `UUID` pending full migration)
 - All pane creation flows MUST populate `PaneMetadata.source` with `.worktree(worktreeId:, repoId:)` and set live fields (`repoId`, `worktreeId`, `checkoutRef`, `parentFolder`) for dynamic view projection
 
 ---
@@ -676,7 +676,7 @@ git commit -m "feat: sidebar redesign with main worktree badge and repo action b
 ### Task 8: Double-Click Deduplication + Open-in-Pane Action
 
 **Files:**
-- Modify: `Sources/AgentStudio/Core/Actions/PaneAction.swift`
+- Modify: `Sources/AgentStudio/Core/Actions/PaneActionCommand.swift`
 - Modify: `Sources/AgentStudio/App/PaneCoordinator.swift`
 - Modify: `Sources/AgentStudio/Core/PaneRuntime/Registry/RuntimeRegistry.swift` (add worktree query)
 - Modify: `Sources/AgentStudio/App/MainSplitViewController.swift` (sidebar handlers)
@@ -834,18 +834,18 @@ git commit -m "feat: double-click deduplication via RuntimeRegistry + open-in-pa
 ### Task 9: Add Duplicate PaneActions (using PaneId)
 
 **Files:**
-- Modify: `Sources/AgentStudio/Core/Actions/PaneAction.swift`
+- Modify: `Sources/AgentStudio/Core/Actions/PaneActionCommand.swift`
 - Modify: `Sources/AgentStudio/Core/Actions/ActionResolver.swift`
 - Modify: `Sources/AgentStudio/Core/Actions/ActionValidator.swift`
 - Modify: `Sources/AgentStudio/App/PaneCoordinator.swift`
 - Test: `Tests/AgentStudioTests/Core/Actions/ActionValidator_test.swift`
 
-**Context:** New actions for duplicating tabs and panes. These are the first `PaneAction` cases to use `PaneId` (not raw `UUID`) for pane identity. "Duplicate tab" creates a new tab with the same split layout, spawning new sessions with fully-populated `PaneMetadata`. "Duplicate pane" splits the focused pane and creates a new session with the same source and metadata.
+**Context:** New actions for duplicating tabs and panes. These are the first `PaneActionCommand` cases to use `PaneId` (not raw `UUID`) for pane identity. "Duplicate tab" creates a new tab with the same split layout, spawning new sessions with fully-populated `PaneMetadata`. "Duplicate pane" splits the focused pane and creates a new session with the same source and metadata.
 
-**Step 1: Add PaneAction cases with `PaneId`**
+**Step 1: Add PaneActionCommand cases with `PaneId`**
 
 ```swift
-// In PaneAction enum:
+// In PaneActionCommand enum:
 /// Duplicate an entire tab's layout with new sessions for each pane.
 /// Each new pane gets a fresh PaneId and PaneMetadata cloned from the source.
 case duplicateTab(tabId: UUID)
@@ -958,7 +958,7 @@ Expected: PASS.
 **Step 7: Commit**
 
 ```bash
-git add Sources/AgentStudio/Core/Actions/PaneAction.swift \
+git add Sources/AgentStudio/Core/Actions/PaneActionCommand.swift \
        Sources/AgentStudio/Core/Actions/ActionResolver.swift \
        Sources/AgentStudio/Core/Actions/ActionValidator.swift \
        Sources/AgentStudio/App/PaneCoordinator.swift \
@@ -1187,8 +1187,8 @@ git commit -m "feat: new tab/pane button options with CommandBar repos scope"
 | **4. Tab Bar** | 9-11 | Duplicate actions, duplicate button, + button options + CommandBar scope |
 
 **Key architectural constraints:**
-- All user actions flow through `PaneAction` → `ActionResolver` → `ActionValidator` → `PaneCoordinator` → `WorkspaceStore`
-- **New `PaneAction` cases use `PaneId`** (struct, UUIDv7) for pane identity — first cases to use the pane runtime contract
+- All user actions flow through `PaneActionCommand` → `ActionResolver` → `ActionValidator` → `PaneCoordinator` → `WorkspaceStore`
+- **New `PaneActionCommand` cases use `PaneId`** (struct, UUIDv7) for pane identity — first cases to use the pane runtime contract
 - **All pane creation populates full `PaneMetadata`** — `repoId`, `worktreeId`, `checkoutRef`, `parentFolder`, `agentType`, `tags` — for dynamic views and window restoration
 - **Deduplication queries `RuntimeRegistry`** via `PaneMetadata.worktreeId` — not session models
 - New `RepoScanner` lives in `Infrastructure/` (no feature imports)

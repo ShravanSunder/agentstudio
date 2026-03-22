@@ -2,7 +2,7 @@
 
 ## TL;DR
 
-Agent Studio is a macOS terminal application that embeds Ghostty terminal surfaces within a project/worktree management shell. The app uses an **AppKit-main** architecture hosting SwiftUI views for declarative UI. State is distributed across independent `@Observable` stores (Jotai-style atomic stores) with `private(set)` for unidirectional flow (Valtio-style). A coordinator pattern (`PaneCoordinator`) sequences cross-store operations. Panes are the primary identity — they exist independently of layout, view, or surface. Actions flow through a validated pipeline, and persistence is debounced.
+Agent Studio is a macOS terminal application that embeds Ghostty terminal surfaces within a project/worktree management shell. The app uses an **AppKit-main** architecture hosting SwiftUI views for declarative UI. State is distributed across independent `@Observable` stores (Jotai-style atomic stores) with `private(set)` for unidirectional flow (Valtio-style), including app/window lifecycle stores owned by a thin AppKit ingress monitor. A coordinator pattern (`PaneCoordinator`) sequences cross-store operations. Panes are the primary identity — they exist independently of layout, view, or surface. Actions flow through a validated pipeline, and persistence is debounced.
 
 ## System Overview
 
@@ -15,6 +15,11 @@ Agent Studio is a macOS terminal application that embeds Ghostty terminal surfac
 │  │WorkspaceStore │  │WorkspaceRepo    │  │WorkspaceUI    │            │
 │  │ (canonical)   │  │Cache (enrichment)│  │Store (prefs)  │            │
 │  └───────┬───────┘  └────────┬────────┘  └───────────────┘            │
+│          │                   │                                         │
+│  ┌───────┴──────────┐  ┌─────┴────────────┐                           │
+│  │AppLifecycleStore │  │WindowLifecycleStore│                         │
+│  │(active/terminate)│  │(focus/key)        │                          │
+│  └───────┬──────────┘  └─────┬────────────┘                           │
 │          │                   │                                         │
 │          │    ┌──────────────┴──────────────────┐                      │
 │          │    │   WorkspaceCacheCoordinator      │                      │
@@ -47,10 +52,26 @@ Agent Studio is a macOS terminal application that embeds Ghostty terminal surfac
 - **Atomic stores (Jotai-style)** — Each domain has its own `@Observable` store: `WorkspaceStore` (canonical associations), `WorkspaceRepoCache` (derived enrichment), `WorkspaceUIStore` (presentation prefs), `SurfaceManager` (Ghostty surfaces), `SessionRuntime` (backends). No god-store. Each store owns one domain and has one reason to change.
 - **Unidirectional flow (Valtio-style)** — All store state is `private(set)`. External code reads freely, mutates only through store methods. No action enums, no reducers.
 - **Coordinator for cross-store sequencing** — A coordinator sequences operations across stores for a single user action. Owns no state, contains no domain logic.
+- **Lifecycle ingress stays separate** — `ApplicationLifecycleMonitor` owns AppKit ingress only. It mutates `AppLifecycleStore` and `WindowLifecycleStore`, both `@Observable` atomic stores with `private(set)` mutation surfaces.
 - **Immutable layout tree** — `Layout` is a pure value type; operations return new instances, never mutate
 - **Surface independence** — Ghostty surfaces are ephemeral runtime resources; the model layer never holds `NSView` references
 - **@MainActor everywhere** — Thread safety enforced at compile time, no runtime races
 - **AsyncStream over Combine/NotificationCenter** — All new event plumbing uses `AsyncStream` + `swift-async-algorithms`. Existing Combine/NotificationCenter migrated incrementally.
+
+## Coordination Planes
+
+Use the smallest boundary that still matches the kind of work being done.
+
+| Change shape | Boundary | Notes |
+|--------------|----------|-------|
+| Workspace mutation | `PaneActionCommand` | Validator-gated, then sequenced into stores by `PaneCoordinator`. |
+| Runtime command | `RuntimeCommand` | Direct command routing to a single runtime via `RuntimeRegistry`. |
+| Runtime fact | `PaneRuntimeEventBus` | Fan-out for runtime/system facts only. Never route commands through it. |
+| App-level notification that is not a command | `AppEventBus` | Notification fan-out only. |
+| AppKit/macOS lifecycle ingress | `ApplicationLifecycleMonitor` | Owns AppKit callbacks and writes lifecycle stores. |
+| UI-only local state | Local `@Observable` view/controller state | Keep it local; do not bounce it through a bus or `NotificationCenter`. |
+
+The old `AppCommand -> AppEventBus -> controller -> PaneActionCommand` chain is retired. Workspace work now enters through validated `PaneActionCommand` routing directly, and AppKit lifecycle state lives in the lifecycle stores.
 
 ## Data Model at a Glance
 
@@ -80,13 +101,22 @@ WorkspaceUIStore (presentation prefs — workspace.ui.json)
 ## Mutation Flow (Summary)
 
 ```
-User Action → PaneAction → ActionResolver → ActionValidator
+User Action → PaneActionCommand → ActionResolver → ActionValidator
   → PaneCoordinator → Store.mutate()
     → @Observable tracks → SwiftUI re-renders
     → markDirty() → debounced save (500ms)
 
 Command Bar → CommandDispatcher.dispatch() → CommandHandler
   → ActionResolver → ActionValidator → PaneCoordinator
+
+Runtime command → PaneCoordinator.dispatchRuntimeCommand()
+  → RuntimeRegistry.runtime(for:) → runtime.handleCommand(envelope)
+
+Runtime fact → PaneRuntimeEventBus.post(envelope)
+  → WorkspaceCacheCoordinator / other consumers subscribe independently
+
+App-level notification that is not a command → AppEventBus
+AppKit/macOS lifecycle ingress → ApplicationLifecycleMonitor → AppLifecycleStore / WindowLifecycleStore
 ```
 
 ## Document Index

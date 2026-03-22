@@ -20,7 +20,6 @@ struct RepoSidebarContentView: View {
     @State private var expandedGroups: Set<String> = []
     @State private var filterText: String = ""
     @State private var debouncedQuery: String = ""
-    @State private var isFilterVisible: Bool = false
     @FocusState private var isFilterFocused: Bool
 
     @State private var checkoutColorByRepoId: [String: String] = [:]
@@ -85,7 +84,7 @@ struct RepoSidebarContentView: View {
 
     var body: some View {
         VStack(spacing: 0) {
-            if isFilterVisible {
+            if uiStore.isFilterVisible {
                 filterBar
             }
 
@@ -98,6 +97,7 @@ struct RepoSidebarContentView: View {
         .frame(minWidth: 200)
         .background(Color(nsColor: .windowBackgroundColor))
         .shadow(color: .black.opacity(0.2), radius: 4, x: 2, y: 0)
+        .animation(.easeOut(duration: 0.15), value: uiStore.isFilterVisible)
         .task {
             expandedGroups = uiStore.expandedGroups
             filterText = uiStore.filterText
@@ -109,21 +109,6 @@ struct RepoSidebarContentView: View {
             let stream = await AppEventBus.shared.subscribe()
             for await event in stream {
                 switch event {
-                case .refreshWorktreesRequested:
-                    continue
-                case .filterSidebarRequested:
-                    withAnimation(.easeOut(duration: 0.15)) {
-                        if isFilterVisible {
-                            hideFilter()
-                        } else {
-                            isFilterVisible = true
-                            uiStore.setFilterVisible(true)
-                        }
-                    }
-                    Task { @MainActor in
-                        try? await Task.sleep(for: .milliseconds(50))
-                        isFilterFocused = true
-                    }
                 case .worktreeBellRang(let paneId):
                     guard
                         let pane = store.pane(paneId),
@@ -137,6 +122,21 @@ struct RepoSidebarContentView: View {
         }
         .onDisappear {
             debounceTask?.cancel()
+        }
+        .onChange(of: uiStore.isFilterVisible) { _, isVisible in
+            if isVisible {
+                Task { @MainActor in
+                    await Task.yield()
+                    isFilterFocused = true
+                }
+            } else {
+                isFilterFocused = false
+                if !filterText.isEmpty || !debouncedQuery.isEmpty {
+                    filterText = ""
+                    debouncedQuery = ""
+                    uiStore.setFilterText("")
+                }
+            }
         }
         .onChange(of: filterText) { _, newValue in
             let trimmed = newValue.trimmingCharacters(in: .whitespaces)
@@ -254,7 +254,7 @@ struct RepoSidebarContentView: View {
                         }
 
                         Button("Refresh Worktrees") {
-                            postAppEvent(.refreshWorktreesRequested)
+                            CommandDispatcher.shared.appCommandRouter?.refreshWorktrees()
                         }
                     }
 
@@ -435,7 +435,7 @@ struct RepoSidebarContentView: View {
     }
 
     private func branchName(for worktree: Worktree) -> String {
-        Self.resolvedBranchName(
+        PaneDisplayProjector.resolvedBranchName(
             worktree: worktree,
             enrichment: repoCache.worktreeEnrichmentByWorktreeId[worktree.id]
         )
@@ -445,12 +445,9 @@ struct RepoSidebarContentView: View {
         filterText = ""
         debouncedQuery = ""
         isFilterFocused = false
-        withAnimation(.easeOut(duration: 0.15)) {
-            isFilterVisible = false
-        }
         uiStore.setFilterText("")
         uiStore.setFilterVisible(false)
-        postAppEvent(.refocusTerminalRequested)
+        CommandDispatcher.shared.appCommandRouter?.refocusActivePane()
     }
 
     private func openRepoInFinder(_ path: URL) {
@@ -1288,19 +1285,6 @@ extension RepoSidebarContentView {
 
         return metadataByRepoId
     }
-
-    static func resolvedBranchName(
-        worktree: Worktree,
-        enrichment: WorktreeEnrichment?
-    ) -> String {
-        let cachedBranch = enrichment?.branch.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
-        if !cachedBranch.isEmpty {
-            return cachedBranch
-        }
-
-        return "detached HEAD"
-    }
-
     static func mergeBranchStatuses(
         worktreeEnrichmentsByWorktreeId: [UUID: WorktreeEnrichment],
         pullRequestCountsByWorktreeId: [UUID: Int]
@@ -1385,6 +1369,7 @@ extension RepoSidebarContentView {
             return lhs.name.localizedCaseInsensitiveCompare(rhs.name) == .orderedAscending
         }
     }
+
 }
 
 enum SidebarRepoGrouping {

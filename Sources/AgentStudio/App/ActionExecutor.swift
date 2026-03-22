@@ -60,12 +60,13 @@ final class ActionExecutor {
         coordinator.undoCloseTab()
     }
 
-    /// Validate/canonicalize a PaneAction against current state, then execute it.
-    func execute(_ action: PaneAction) {
+    /// Validate/canonicalize a PaneActionCommand against current state, then execute it.
+    func execute(_ action: PaneActionCommand) {
         let snapshot = ActionResolver.snapshot(
             from: store.tabs,
             activeTabId: store.activeTabId,
             isManagementModeActive: ManagementModeMonitor.shared.isActive,
+            knownRepoIds: Set(store.repos.map(\.id)),
             knownWorktreeIds: Set(store.repos.flatMap(\.worktrees).map(\.id))
         )
         switch ActionValidator.validate(action, state: snapshot) {

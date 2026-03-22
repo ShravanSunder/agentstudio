@@ -229,6 +229,66 @@ final class WorkspaceStore {
         }
     }
 
+    func repoAndWorktree(containing cwd: URL?) -> (repo: Repo, worktree: Worktree)? {
+        guard let cwd else { return nil }
+
+        struct MatchCandidate {
+            let repo: Repo
+            let worktree: Worktree
+            let normalizedWorktreePath: String
+            let repoWorktreeCount: Int
+            let repoPathMatchesWorktree: Bool
+            let isMainWorktree: Bool
+            let stableTieBreaker: String
+        }
+
+        let normalizedCwdPath = cwd.standardizedFileURL.resolvingSymlinksInPath().path
+        let candidates = repos.flatMap { repo in
+            repo.worktrees.compactMap { worktree -> MatchCandidate? in
+                let normalizedWorktreePath = worktree.path.standardizedFileURL.resolvingSymlinksInPath().path
+                let isMatch =
+                    normalizedCwdPath == normalizedWorktreePath
+                    || normalizedCwdPath.hasPrefix(normalizedWorktreePath + "/")
+                guard isMatch else { return nil }
+
+                return MatchCandidate(
+                    repo: repo,
+                    worktree: worktree,
+                    normalizedWorktreePath: normalizedWorktreePath,
+                    repoWorktreeCount: repo.worktrees.count,
+                    repoPathMatchesWorktree: repo.repoPath.standardizedFileURL.resolvingSymlinksInPath().path
+                        == normalizedWorktreePath,
+                    isMainWorktree: worktree.isMainWorktree,
+                    stableTieBreaker: "\(repo.id.uuidString)|\(worktree.id.uuidString)"
+                )
+            }
+        }
+
+        guard
+            let winner = candidates.max(by: { lhs, rhs in
+                if lhs.normalizedWorktreePath.count != rhs.normalizedWorktreePath.count {
+                    return lhs.normalizedWorktreePath.count < rhs.normalizedWorktreePath.count
+                }
+                // When two repos claim the same checkout path, prefer the repo with the
+                // larger worktree family so cwd routing matches sidebar ownership dedup.
+                if lhs.repoWorktreeCount != rhs.repoWorktreeCount {
+                    return lhs.repoWorktreeCount < rhs.repoWorktreeCount
+                }
+                if lhs.repoPathMatchesWorktree != rhs.repoPathMatchesWorktree {
+                    return !lhs.repoPathMatchesWorktree
+                }
+                if lhs.isMainWorktree != rhs.isMainWorktree {
+                    return !lhs.isMainWorktree
+                }
+                return lhs.stableTieBreaker.localizedCaseInsensitiveCompare(rhs.stableTieBreaker) == .orderedDescending
+            })
+        else {
+            return nil
+        }
+
+        return (winner.repo, winner.worktree)
+    }
+
     func panes(for worktreeId: UUID) -> [Pane] {
         panes.values.filter { $0.worktreeId == worktreeId }
     }

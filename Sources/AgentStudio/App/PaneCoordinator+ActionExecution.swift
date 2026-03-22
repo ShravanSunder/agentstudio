@@ -102,9 +102,33 @@ extension PaneCoordinator {
         return pane
     }
 
+    @discardableResult
+    func openFloatingTerminal(cwd: URL?, title: String?) -> Pane? {
+        let resolvedTitle = title?.trimmingCharacters(in: .whitespacesAndNewlines)
+        let pane = store.createPane(
+            source: .floating(workingDirectory: cwd, title: resolvedTitle),
+            title: (resolvedTitle?.isEmpty == false) ? resolvedTitle! : "Terminal",
+            provider: .zmx,
+            facets: PaneContextFacets(cwd: cwd)
+        )
+
+        guard createViewForContent(pane: pane) != nil else {
+            Self.logger.error("Floating terminal creation failed — rolling back pane \(pane.id)")
+            store.removePane(pane.id)
+            return nil
+        }
+
+        let tab = Tab(paneId: pane.id)
+        store.appendTab(tab)
+        store.setActiveTab(tab.id)
+
+        Self.logger.info("Opened floating terminal pane \(pane.id)")
+        return pane
+    }
+
     // swiftlint:disable cyclomatic_complexity function_body_length
-    /// Execute a resolved PaneAction.
-    func execute(_ action: PaneAction) {
+    /// Execute a resolved PaneActionCommand.
+    func execute(_ action: PaneActionCommand) {
         Self.logger.debug("Executing: \(String(describing: action))")
 
         switch action {
@@ -115,12 +139,12 @@ extension PaneCoordinator {
             }
             _ = openTerminal(for: worktree, in: repo)
 
-        case .openNewTerminalInTab(let worktreeId):
+        case .openNewTerminalInTab(let worktreeId, let cwd, let title):
             guard let worktree = store.worktree(worktreeId), let repo = store.repo(containing: worktreeId) else {
                 Self.logger.warning("openNewTerminalInTab: worktree \(worktreeId) not found")
                 return
             }
-            _ = openNewTerminal(for: worktree, in: repo)
+            _ = createTerminalTab(for: worktree, in: repo, cwdOverride: cwd, titleOverride: title)
 
         case .openWorktreeInPane(let worktreeId):
             guard let worktree = store.worktree(worktreeId), let repo = store.repo(containing: worktreeId) else {
@@ -128,6 +152,12 @@ extension PaneCoordinator {
                 return
             }
             _ = openWorktreeInPane(for: worktree, in: repo)
+
+        case .openFloatingTerminal(let cwd, let title):
+            _ = openFloatingTerminal(cwd: cwd, title: title)
+
+        case .removeRepo(let repoId):
+            removeRepoHandler(repoId)
 
         case .selectTab(let tabId):
             store.setActiveTab(tabId)
@@ -347,18 +377,25 @@ extension PaneCoordinator {
     // swiftlint:enable cyclomatic_complexity function_body_length
 
     /// Common path: create pane + view + tab for a worktree.
-    private func createTerminalTab(for worktree: Worktree, in repo: Repo) -> Pane? {
+    private func createTerminalTab(
+        for worktree: Worktree,
+        in repo: Repo,
+        cwdOverride: URL? = nil,
+        titleOverride: String? = nil
+    ) -> Pane? {
+        let resolvedCwd = cwdOverride ?? worktree.path
+        let resolvedTitle = titleOverride?.trimmingCharacters(in: .whitespacesAndNewlines)
         let paneFacets = PaneContextFacets(
             repoId: repo.id,
             repoName: repo.name,
             worktreeId: worktree.id,
             worktreeName: worktree.name,
-            cwd: worktree.path,
+            cwd: resolvedCwd,
             parentFolder: repo.repoPath.deletingLastPathComponent().path
         )
         let pane = store.createPane(
             source: .worktree(worktreeId: worktree.id, repoId: repo.id),
-            title: worktree.name,
+            title: (resolvedTitle?.isEmpty == false) ? resolvedTitle! : worktree.name,
             provider: .zmx,
             lifetime: .persistent,
             residency: .active,
@@ -513,24 +550,34 @@ extension PaneCoordinator {
 
         case .newTerminal:
             let targetPane = store.pane(targetPaneId)
-            guard let worktreeId = targetPane?.worktreeId,
-                let repoId = targetPane?.repoId,
-                let worktree = store.worktree(worktreeId),
-                let repo = store.repo(repoId)
-            else {
-                Self.logger.warning(
-                    "Cannot insert new terminal pane — target pane has no worktree/repo context")
+            if let resolved = resolvedWorktreeContext(for: targetPane) {
+                let pane = store.createPane(
+                    source: .worktree(worktreeId: resolved.worktree.id, repoId: resolved.repo.id),
+                    provider: .zmx,
+                    facets: targetPane?.metadata.facets ?? .empty
+                )
+
+                guard createView(for: pane, worktree: resolved.worktree, repo: resolved.repo) != nil else {
+                    Self.logger.error("Surface creation failed for new pane — rolling back pane \(pane.id)")
+                    store.removePane(pane.id)
+                    return
+                }
+
+                store.insertPane(
+                    pane.id, inTab: targetTabId, at: targetPaneId,
+                    direction: layoutDirection, position: position
+                )
                 return
             }
 
             let pane = store.createPane(
-                source: .worktree(worktreeId: worktreeId, repoId: repoId),
+                source: .floating(workingDirectory: targetPane?.metadata.facets.cwd, title: nil),
                 provider: .zmx,
                 facets: targetPane?.metadata.facets ?? .empty
             )
 
-            guard createView(for: pane, worktree: worktree, repo: repo) != nil else {
-                Self.logger.error("Surface creation failed for new pane — rolling back pane \(pane.id)")
+            guard createViewForContent(pane: pane) != nil else {
+                Self.logger.error("Floating split creation failed — rolling back pane \(pane.id)")
                 store.removePane(pane.id)
                 return
             }
@@ -540,6 +587,20 @@ extension PaneCoordinator {
                 direction: layoutDirection, position: position
             )
         }
+    }
+
+    private func resolvedWorktreeContext(
+        for targetPane: Pane?
+    ) -> (repo: Repo, worktree: Worktree)? {
+        if let worktreeId = targetPane?.worktreeId,
+            let repoId = targetPane?.repoId,
+            let worktree = store.worktree(worktreeId),
+            let repo = store.repo(repoId)
+        {
+            return (repo, worktree)
+        }
+
+        return store.repoAndWorktree(containing: targetPane?.metadata.facets.cwd)
     }
 
     private func executeInsertDrawerPane(

@@ -8,6 +8,8 @@ import Testing
 final class MockCommandHandler: CommandHandler {
     var executedCommands: [(AppCommand, UUID?, SearchItemType?)] = []
     var canExecuteResult: Bool = true
+    var extractedPaneRequests: [(tabId: UUID, paneId: UUID, targetTabIndex: Int?)] = []
+    var movePaneRequests: [(sourcePaneId: UUID, sourceTabId: UUID?, targetTabId: UUID)] = []
 
     func execute(_ command: AppCommand) {
         executedCommands.append((command, nil, nil))
@@ -20,6 +22,43 @@ final class MockCommandHandler: CommandHandler {
     func canExecute(_ command: AppCommand) -> Bool {
         canExecuteResult
     }
+
+    func executeExtractPaneToTab(tabId: UUID, paneId: UUID, targetTabIndex: Int?) {
+        extractedPaneRequests.append((tabId, paneId, targetTabIndex))
+    }
+
+    func executeMovePaneToTab(sourcePaneId: UUID, sourceTabId: UUID?, targetTabId: UUID) {
+        movePaneRequests.append((sourcePaneId, sourceTabId, targetTabId))
+    }
+}
+
+@MainActor
+final class MockAppCommandRouter: AppCommandRouting {
+    var handledCommands: [AppCommand] = []
+    var handledTargets: [(AppCommand, UUID, SearchItemType)] = []
+    var appCommands: Set<AppCommand> = []
+
+    func canExecute(_ command: AppCommand) -> Bool {
+        appCommands.contains(command)
+    }
+
+    func execute(_ command: AppCommand) -> Bool {
+        guard appCommands.contains(command) else { return false }
+        handledCommands.append(command)
+        return true
+    }
+
+    func execute(_ command: AppCommand, target: UUID, targetType: SearchItemType) -> Bool {
+        guard appCommands.contains(command) else { return false }
+        handledTargets.append((command, target, targetType))
+        return true
+    }
+
+    func showRepoCommandBar() {}
+
+    func refreshWorktrees() {}
+
+    func refocusActivePane() {}
 }
 
 // MARK: - AppCommand Tests
@@ -212,7 +251,7 @@ final class AppCommandTests {
         let commandNames = repoCommands.map(\.command)
         #expect(commandNames.contains(.addRepo))
         #expect(commandNames.contains(.removeRepo))
-        #expect(commandNames.contains(.refreshWorktrees))
+        #expect(!commandNames.contains(.openWorktree))
     }
 
     @MainActor
@@ -250,6 +289,7 @@ final class AppCommandTests {
         let dispatcher = CommandDispatcher.shared
         let handler = MockCommandHandler()
         dispatcher.handler = handler
+        dispatcher.appCommandRouter = nil
 
         // Act
         dispatcher.dispatch(.closeTab)
@@ -271,6 +311,7 @@ final class AppCommandTests {
         let dispatcher = CommandDispatcher.shared
         let handler = MockCommandHandler()
         dispatcher.handler = handler
+        dispatcher.appCommandRouter = nil
         let targetId = UUID()
 
         // Act
@@ -284,6 +325,101 @@ final class AppCommandTests {
 
         // Cleanup
         dispatcher.handler = nil
+    }
+
+    @MainActor
+
+    @Test
+    func test_dispatcher_dispatch_routesAppCommandToAppRouterBeforeHandler() {
+        let dispatcher = CommandDispatcher.shared
+        let handler = MockCommandHandler()
+        let appRouter = MockAppCommandRouter()
+        appRouter.appCommands = [.addRepo]
+        dispatcher.handler = handler
+        dispatcher.appCommandRouter = appRouter
+
+        dispatcher.dispatch(.addRepo)
+
+        #expect(appRouter.handledCommands == [.addRepo])
+        #expect(handler.executedCommands.isEmpty)
+
+        dispatcher.handler = nil
+        dispatcher.appCommandRouter = nil
+    }
+
+    @MainActor
+
+    @Test
+    func test_dispatcher_dispatchTargeted_routesAppCommandToAppRouterBeforeHandler() {
+        let dispatcher = CommandDispatcher.shared
+        let handler = MockCommandHandler()
+        let appRouter = MockAppCommandRouter()
+        appRouter.appCommands = [.removeRepo]
+        dispatcher.handler = handler
+        dispatcher.appCommandRouter = appRouter
+        let repoId = UUID()
+
+        dispatcher.dispatch(.removeRepo, target: repoId, targetType: .repo)
+
+        #expect(appRouter.handledTargets.count == 1)
+        #expect(appRouter.handledTargets[0].0 == .removeRepo)
+        #expect(appRouter.handledTargets[0].1 == repoId)
+        #expect(appRouter.handledTargets[0].2 == .repo)
+        #expect(handler.executedCommands.isEmpty)
+
+        dispatcher.handler = nil
+        dispatcher.appCommandRouter = nil
+    }
+
+    @MainActor
+
+    @Test
+    func test_dispatcher_dispatchExtractPaneToTab_callsHandlerSurface() {
+        let dispatcher = CommandDispatcher.shared
+        let handler = MockCommandHandler()
+        dispatcher.handler = handler
+        dispatcher.appCommandRouter = nil
+
+        let tabId = UUID()
+        let paneId = UUID()
+        dispatcher.dispatchExtractPaneToTab(tabId: tabId, paneId: paneId, targetTabIndex: 2)
+
+        #expect(handler.extractedPaneRequests.count == 1)
+        #expect(handler.extractedPaneRequests[0].tabId == tabId)
+        #expect(handler.extractedPaneRequests[0].paneId == paneId)
+        #expect(handler.extractedPaneRequests[0].targetTabIndex == 2)
+
+        dispatcher.handler = nil
+    }
+
+    @MainActor
+
+    @Test
+    func test_dispatcher_dispatchMovePaneToTab_callsHandlerSurface() {
+        let dispatcher = CommandDispatcher.shared
+        let handler = MockCommandHandler()
+        dispatcher.handler = handler
+        dispatcher.appCommandRouter = nil
+        ManagementModeMonitor.shared.deactivate()
+        ManagementModeMonitor.shared.toggle()
+        defer {
+            dispatcher.handler = nil
+            ManagementModeMonitor.shared.deactivate()
+        }
+
+        let sourcePaneId = UUID()
+        let sourceTabId = UUID()
+        let targetTabId = UUID()
+        dispatcher.dispatchMovePaneToTab(
+            sourcePaneId: sourcePaneId,
+            sourceTabId: sourceTabId,
+            targetTabId: targetTabId
+        )
+
+        #expect(handler.movePaneRequests.count == 1)
+        #expect(handler.movePaneRequests[0].sourcePaneId == sourcePaneId)
+        #expect(handler.movePaneRequests[0].sourceTabId == sourceTabId)
+        #expect(handler.movePaneRequests[0].targetTabId == targetTabId)
     }
 
     @MainActor

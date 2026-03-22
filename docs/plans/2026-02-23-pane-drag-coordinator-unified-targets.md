@@ -4,7 +4,7 @@
 
 **Goal:** Implement a pane-type-agnostic drag targeting system so split drop targets (including left-of-pane targets) behave identically for terminal, webview, bridge, and future pane types.
 
-**Architecture:** Move drag target computation and rendering out of per-pane leaf views into a single tab-level coordinator + overlay. Keep pane content rendering generic through a shared container (`PaneLeafContainer`) and route split-drop state through one source of truth (`PaneDragCoordinator`). Preserve the existing `PaneAction -> ActionResolver -> ActionValidator -> PaneCoordinator` command path for drop commits.
+**Architecture:** Move drag target computation and rendering out of per-pane leaf views into a single tab-level coordinator + overlay. Keep pane content rendering generic through a shared container (`PaneLeafContainer`) and route split-drop state through one source of truth (`PaneDragCoordinator`). Preserve the existing `PaneActionCommand -> ActionResolver -> ActionValidator -> PaneCoordinator` command path for drop commits.
 
 **Tech Stack:** Swift 6, SwiftUI, AppKit host (`NSHostingView`), `@Observable`, Swift Testing (`import Testing`), existing split models (`DropZone`, `SplitDropPayload`, `PaneSplitTree`)
 
@@ -529,7 +529,7 @@ git commit -m "fix: eliminate NSTableView delegate reentrant operation warning"
 - Split target visibility is identical across pane types (terminal/webview/bridge/future panes).
 - Split target rendering is centralized (tab-level overlay), not per-pane-type behavior.
 - Drag targeting logic is pure, testable, and pane-type-agnostic.
-- Existing action pipeline unchanged for drop commits (`PaneAction -> ActionResolver -> ActionValidator -> PaneCoordinator`).
+- Existing action pipeline unchanged for drop commits (`PaneActionCommand -> ActionResolver -> ActionValidator -> PaneCoordinator`).
 - Full lint + tests pass.
 - Visual verification completed on debug build by PID-targeted Peekaboo.
 - No runtime warnings for `reentrant operation in its NSTableView delegate` in debug session logs.

@@ -99,7 +99,7 @@ Dynamic Views (computed, ephemeral — generates tabs)
 | `NSHostingView` / `NSHostingController` bridge | Pane overlay controls, drawer UI |
 | Surface management (Ghostty `NSView`) | All visual content and animations |
 
-One command system, multiple trigger surfaces. Every operation dispatches `PaneAction` through `PaneCoordinator`. All UI surfaces are entry points to the same pipeline.
+One command system, multiple trigger surfaces. Every operation dispatches `PaneActionCommand` through `PaneCoordinator`. All UI surfaces are entry points to the same pipeline.
 
 ---
 
@@ -532,19 +532,19 @@ The central interaction point for all window system operations. All actions rout
 
 ### Definition
 
-Multiple UI surfaces that trigger operations through the same `PaneAction` → `PaneCoordinator` pipeline. Every control dispatches typed actions — the UI is just a trigger surface.
+Multiple UI surfaces that trigger operations through the same `PaneActionCommand` → `PaneCoordinator` pipeline. Every control dispatches typed actions — the UI is just a trigger surface.
 
 ### Trigger Surface Matrix
 
 | Trigger | Surface | Pattern |
 |---|---|---|
 | Command bar (Cmd+P) | `CommandBarDataSource` → `CommandDispatcher` | Text search → action |
-| Keyboard shortcut | Menu item → `PaneAction` | Direct dispatch |
-| Right-click context menu | Tab context menu → `PaneAction` | Direct dispatch |
-| Arrangement button | Floating button under active tab → `PaneAction` | Click → action |
-| Pane management panel | SwiftUI popover from arrangement button → `PaneAction` | Click → action |
-| Pane overlay controls | SwiftUI overlays on pane → `PaneAction` | Hover → click → action |
-| Drawer icon bar | SwiftUI bar at pane bottom → `PaneAction` | Click → action |
+| Keyboard shortcut | Menu item → `PaneActionCommand` | Direct dispatch |
+| Right-click context menu | Tab context menu → `PaneActionCommand` | Direct dispatch |
+| Arrangement button | Floating button under active tab → `PaneActionCommand` | Click → action |
+| Pane management panel | SwiftUI popover from arrangement button → `PaneActionCommand` | Click → action |
+| Pane overlay controls | SwiftUI overlays on pane → `PaneActionCommand` | Hover → click → action |
+| Drawer icon bar | SwiftUI bar at pane bottom → `PaneActionCommand` | Click → action |
 
 ### Edit Mode
 

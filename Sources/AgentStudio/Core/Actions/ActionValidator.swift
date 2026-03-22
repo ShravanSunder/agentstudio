@@ -4,15 +4,16 @@ import Foundation
 /// Wrapper that proves an action has passed validation.
 /// Only ActionValidator can create instances (fileprivate init).
 struct ValidatedAction: Equatable {
-    let action: PaneAction
+    let action: PaneActionCommand
 
-    fileprivate init(_ action: PaneAction) {
+    fileprivate init(_ action: PaneActionCommand) {
         self.action = action
     }
 }
 
 /// Validation errors for rejected actions.
 enum ActionValidationError: Error, Equatable {
+    case repoNotFound(repoId: UUID)
     case tabNotFound(tabId: UUID)
     case paneNotFound(paneId: UUID, tabId: UUID)
     case worktreeNotFound(worktreeId: UUID)
@@ -31,7 +32,7 @@ enum ActionValidationError: Error, Equatable {
 enum ActionValidator {
 
     static func validate(
-        _ action: PaneAction,
+        _ action: PaneActionCommand,
         state: ActionStateSnapshot
     ) -> Result<ValidatedAction, ActionValidationError> {
         switch action {
@@ -155,12 +156,21 @@ enum ActionValidator {
             }
             return .success(ValidatedAction(action))
 
+        case .removeRepo(let repoId):
+            guard state.knownRepoIds.contains(repoId) else {
+                return .failure(.repoNotFound(repoId: repoId))
+            }
+            return .success(ValidatedAction(action))
+
         case .openWorktree(let worktreeId),
-            .openNewTerminalInTab(let worktreeId),
+            .openNewTerminalInTab(let worktreeId, _, _),
             .openWorktreeInPane(let worktreeId):
             guard state.knownWorktreeIds.contains(worktreeId) else {
                 return .failure(.worktreeNotFound(worktreeId: worktreeId))
             }
+            return .success(ValidatedAction(action))
+
+        case .openFloatingTerminal:
             return .success(ValidatedAction(action))
 
         case .toggleSplitZoom(let tabId, let paneId),

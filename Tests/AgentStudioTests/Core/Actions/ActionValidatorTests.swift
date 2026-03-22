@@ -300,7 +300,7 @@ final class ActionValidatorTests {
         let tabId = UUID()
         let tab = TabSnapshot(id: tabId, paneIds: [paneId], activePaneId: paneId)
         let snapshot = makeSnapshot(tabs: [tab])
-        let action = PaneAction.insertPane(
+        let action = PaneActionCommand.insertPane(
             source: .existingPane(paneId: paneId, sourceTabId: tabId),
             targetTabId: tabId,
             targetPaneId: paneId,
@@ -329,7 +329,7 @@ final class ActionValidatorTests {
         let sourceTab = TabSnapshot(id: sourceTabId, paneIds: [sourcePaneId], activePaneId: sourcePaneId)
         let targetTab = TabSnapshot(id: targetTabId, paneIds: [targetPaneId], activePaneId: targetPaneId)
         let snapshot = makeSnapshot(tabs: [sourceTab, targetTab])
-        let action = PaneAction.insertPane(
+        let action = PaneActionCommand.insertPane(
             source: .existingPane(paneId: sourcePaneId, sourceTabId: sourceTabId),
             targetTabId: targetTabId,
             targetPaneId: targetPaneId,
@@ -349,7 +349,7 @@ final class ActionValidatorTests {
         // Arrange
         let (tab, tabId, paneId) = makeSinglePaneTab()
         let snapshot = makeSnapshot(tabs: [tab])
-        let action = PaneAction.insertPane(
+        let action = PaneActionCommand.insertPane(
             source: .newTerminal,
             targetTabId: tabId,
             targetPaneId: paneId,
@@ -368,7 +368,7 @@ final class ActionValidatorTests {
     func test_insertPane_targetTabMissing_fails() {
         // Arrange
         let snapshot = makeSnapshot()
-        let action = PaneAction.insertPane(
+        let action = PaneActionCommand.insertPane(
             source: .newTerminal,
             targetTabId: UUID(),
             targetPaneId: UUID(),
@@ -389,7 +389,7 @@ final class ActionValidatorTests {
         // Arrange
         let (tab, tabId, _) = makeSinglePaneTab()
         let snapshot = makeSnapshot(tabs: [tab])
-        let action = PaneAction.insertPane(
+        let action = PaneActionCommand.insertPane(
             source: .newTerminal,
             targetTabId: tabId,
             targetPaneId: UUID(),
@@ -410,7 +410,7 @@ final class ActionValidatorTests {
         // Arrange
         let (tab, tabId, paneId) = makeSinglePaneTab()
         let snapshot = makeSnapshot(tabs: [tab])
-        let action = PaneAction.insertPane(
+        let action = PaneActionCommand.insertPane(
             source: .existingPane(paneId: UUID(), sourceTabId: UUID()),
             targetTabId: tabId,
             targetPaneId: paneId,
@@ -542,7 +542,7 @@ final class ActionValidatorTests {
         let (sourceTab, sourceTabId, _) = makeMultiPaneTab()
         let (targetTab, targetTabId, targetPaneIds) = makeMultiPaneTab()
         let snapshot = makeSnapshot(tabs: [sourceTab, targetTab])
-        let action = PaneAction.mergeTab(
+        let action = PaneActionCommand.mergeTab(
             sourceTabId: sourceTabId,
             targetTabId: targetTabId,
             targetPaneId: targetPaneIds[0],
@@ -562,7 +562,7 @@ final class ActionValidatorTests {
         // Arrange
         let (targetTab, targetTabId, targetPaneId) = makeSinglePaneTab()
         let snapshot = makeSnapshot(tabs: [targetTab])
-        let action = PaneAction.mergeTab(
+        let action = PaneActionCommand.mergeTab(
             sourceTabId: UUID(),
             targetTabId: targetTabId,
             targetPaneId: targetPaneId,
@@ -583,7 +583,7 @@ final class ActionValidatorTests {
         // Arrange
         let (sourceTab, sourceTabId, _) = makeMultiPaneTab()
         let snapshot = makeSnapshot(tabs: [sourceTab])
-        let action = PaneAction.mergeTab(
+        let action = PaneActionCommand.mergeTab(
             sourceTabId: sourceTabId,
             targetTabId: UUID(),
             targetPaneId: UUID(),
@@ -605,7 +605,7 @@ final class ActionValidatorTests {
         let (sourceTab, sourceTabId, _) = makeMultiPaneTab()
         let (targetTab, targetTabId, _) = makeSinglePaneTab()
         let snapshot = makeSnapshot(tabs: [sourceTab, targetTab])
-        let action = PaneAction.mergeTab(
+        let action = PaneActionCommand.mergeTab(
             sourceTabId: sourceTabId,
             targetTabId: targetTabId,
             targetPaneId: UUID(),
@@ -626,7 +626,7 @@ final class ActionValidatorTests {
         // Arrange
         let (tab, tabId, paneIds) = makeMultiPaneTab()
         let snapshot = makeSnapshot(tabs: [tab])
-        let action = PaneAction.mergeTab(
+        let action = PaneActionCommand.mergeTab(
             sourceTabId: tabId,
             targetTabId: tabId,
             targetPaneId: paneIds[0],
@@ -648,7 +648,7 @@ final class ActionValidatorTests {
     func test_expireUndoEntry_alwaysSucceeds() {
         // Arrange — empty state, no tabs at all
         let snapshot = makeSnapshot()
-        let action = PaneAction.expireUndoEntry(paneId: UUID())
+        let action = PaneActionCommand.expireUndoEntry(paneId: UUID())
 
         // Act
         let result = ActionValidator.validate(action, state: snapshot)
@@ -662,7 +662,7 @@ final class ActionValidatorTests {
     func test_repair_alwaysSucceeds() {
         // Arrange
         let snapshot = makeSnapshot()
-        let action = PaneAction.repair(.recreateSurface(paneId: UUID()))
+        let action = PaneActionCommand.repair(.recreateSurface(paneId: UUID()))
 
         // Act
         let result = ActionValidator.validate(action, state: snapshot)
@@ -792,7 +792,7 @@ final class ActionValidatorTests {
         // Arrange
         let tabId = UUID()
         let snapshot = makeSnapshot(tabs: [TabSnapshot(id: tabId, paneIds: [UUID()], activePaneId: nil)])
-        let action = PaneAction.selectTab(tabId: tabId)
+        let action = PaneActionCommand.selectTab(tabId: tabId)
 
         // Act
         let result = ActionValidator.validate(action, state: snapshot)

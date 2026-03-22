@@ -3,23 +3,6 @@ import Testing
 
 @testable import AgentStudio
 
-private final class AppEventBox: @unchecked Sendable {
-    private let lock = NSLock()
-    private var event: AppEvent?
-
-    func set(_ value: AppEvent) {
-        lock.lock()
-        event = value
-        lock.unlock()
-    }
-
-    func get() -> AppEvent? {
-        lock.lock()
-        defer { lock.unlock() }
-        return event
-    }
-}
-
 @MainActor
 @Suite(.serialized)
 struct CommandBarDataSourceTests {
@@ -27,6 +10,10 @@ struct CommandBarDataSourceTests {
 
     private func makeStore() -> WorkspaceStore {
         WorkspaceStore()
+    }
+
+    private func makeRepoCache() -> WorkspaceRepoCache {
+        WorkspaceRepoCache()
     }
 
     // MARK: - Everything Scope
@@ -86,6 +73,17 @@ struct CommandBarDataSourceTests {
     }
 
     @Test
+    func test_commandsScope_hidesUnsupportedWindowCommands() {
+        let store = makeStore()
+
+        let items = CommandBarDataSource.items(scope: .commands, store: store, dispatcher: dispatcher)
+        let ids = Set(items.map(\.id))
+
+        #expect(!ids.contains("cmd-newWindow"))
+        #expect(!ids.contains("cmd-closeWindow"))
+    }
+
+    @Test
     func test_commandsScope_hasCorrectSubgroups() {
         let store = makeStore()
 
@@ -137,6 +135,86 @@ struct CommandBarDataSourceTests {
 
         // Assert
         #expect(items.isEmpty)
+    }
+
+    @Test
+    func test_panesScope_usesProjectedWorktreeLabel() {
+        let store = makeStore()
+        let repoCache = makeRepoCache()
+        let repo = store.addRepo(at: URL(filePath: "/tmp/agent-studio"))
+        let worktree = Worktree(
+            repoId: repo.id,
+            name: "feature-name",
+            path: URL(filePath: "/tmp/agent-studio/feature-name")
+        )
+        store.reconcileDiscoveredWorktrees(repo.id, worktrees: [worktree])
+        repoCache.setWorktreeEnrichment(
+            WorktreeEnrichment(worktreeId: worktree.id, repoId: repo.id, branch: "feature/pane-labels")
+        )
+        let pane = store.createPane(
+            source: .worktree(worktreeId: worktree.id, repoId: repo.id),
+            title: "Shell title",
+            facets: PaneContextFacets(
+                repoId: repo.id,
+                repoName: repo.name,
+                worktreeId: worktree.id,
+                worktreeName: worktree.name,
+                cwd: worktree.path
+            )
+        )
+        store.appendTab(Tab(paneId: pane.id))
+
+        let items = CommandBarDataSource.items(
+            scope: .panes,
+            store: store,
+            repoCache: repoCache,
+            dispatcher: dispatcher
+        )
+
+        let tabItem = items.first { $0.id == "tab-\(store.tabs[0].id.uuidString)" }
+        let paneItem = items.first { $0.id == "pane-\(pane.id.uuidString)" }
+        #expect(tabItem?.title == "agent-studio | feature/pane-labels | feature-name")
+        #expect(paneItem?.title == "agent-studio | feature/pane-labels | feature-name")
+    }
+
+    @Test
+    func test_everythingScope_tabItem_dispatchesTargetedSelectTabCommand() {
+        let store = makeStore()
+        let pane = store.createPane(source: .floating(workingDirectory: nil, title: "Pane A"))
+        let tab = Tab(paneId: pane.id)
+        store.appendTab(tab)
+
+        let items = CommandBarDataSource.items(scope: .everything, store: store, dispatcher: dispatcher)
+        let tabItem = items.first { $0.id == "tab-\(tab.id.uuidString)" }
+
+        guard case .dispatchTargeted(let command, let target, let targetType) = tabItem?.action else {
+            Issue.record("Expected tab item to dispatch a targeted selection command")
+            return
+        }
+
+        #expect(command == .selectTab)
+        #expect(target == tab.id)
+        #expect(targetType == .tab)
+    }
+
+    @Test
+    func test_everythingScope_paneItem_dispatchesTargetedFocusPaneCommand() {
+        let store = makeStore()
+        let pane = store.createPane(source: .floating(workingDirectory: nil, title: "Pane A"))
+        let tab = Tab(paneId: pane.id)
+        store.appendTab(tab)
+
+        let items = CommandBarDataSource.items(scope: .everything, store: store, dispatcher: dispatcher)
+        let paneItem = items.first { $0.id == "pane-\(pane.id.uuidString)" }
+
+        guard case .dispatchTargeted(let command, let target, let targetType) = paneItem?.action else {
+            Issue.record("Expected pane item to dispatch a targeted focus command")
+            return
+        }
+
+        #expect(command == .focusPane)
+        #expect(target == pane.id)
+        #expect(targetType == .floatingTerminal)
     }
 
     // MARK: - Grouping
@@ -242,6 +320,44 @@ struct CommandBarDataSourceTests {
         #expect((saveItem?.hasChildren ?? true) == false)
     }
 
+    @Test
+    func test_commandsScope_newTerminalInTabHasDrillIn() {
+        let store = makeStore()
+        let pane = store.createPane(source: .floating(workingDirectory: nil, title: "Pane A"))
+        let tab = Tab(paneId: pane.id)
+        store.appendTab(tab)
+        store.setActiveTab(tab.id)
+
+        let items = CommandBarDataSource.items(scope: .commands, store: store, dispatcher: dispatcher)
+        let newTerminalInTab = items.first { $0.id == "cmd-newTerminalInTab" }
+
+        #expect(newTerminalInTab != nil)
+        #expect((newTerminalInTab?.hasChildren ?? false) == true)
+    }
+
+    @Test
+    func test_commandsScope_removeRepoHasDrillIn() {
+        let store = makeStore()
+        let repo = store.addRepo(at: URL(filePath: "/tmp/remove-repo-command"))
+        store.reconcileDiscoveredWorktrees(
+            repo.id,
+            worktrees: [
+                Worktree(
+                    repoId: repo.id,
+                    name: "main",
+                    path: URL(filePath: "/tmp/remove-repo-command"),
+                    isMainWorktree: true
+                )
+            ]
+        )
+
+        let items = CommandBarDataSource.items(scope: .commands, store: store, dispatcher: dispatcher)
+        let removeRepo = items.first { $0.id == "cmd-removeRepo" }
+
+        #expect(removeRepo != nil)
+        #expect((removeRepo?.hasChildren ?? false) == true)
+    }
+
     // MARK: - Move Pane Command
 
     @Test
@@ -295,56 +411,7 @@ struct CommandBarDataSourceTests {
             Issue.record("Expected destination tab row to dispatch custom move action")
             return
         }
-
-        let eventBox = AppEventBox()
-        let stream = await AppEventBus.shared.subscribe()
-        let captureTask = Task {
-            for await event in stream {
-                guard case .movePaneToTabRequested = event else { continue }
-                eventBox.set(event)
-                break
-            }
-        }
-        defer { captureTask.cancel() }
-
         action()
-        let didPostMoveEvent = await waitUntil {
-            eventBox.get() != nil
-        }
-        #expect(didPostMoveEvent)
-
-        guard let postedEvent = eventBox.get() else {
-            Issue.record("Expected movePaneToTabRequested event to be posted")
-            return
-        }
-        guard
-            case .movePaneToTabRequested(
-                let paneId,
-                let sourceTabId,
-                let targetTabId
-            ) = postedEvent
-        else {
-            Issue.record("Expected movePaneToTabRequested event payload")
-            return
-        }
-
-        #expect(paneId == paneA.id)
-        #expect(sourceTabId == tabA.id)
-        #expect(targetTabId == tabB.id)
-    }
-
-    private func waitUntil(
-        maxTurns: Int = 200,
-        condition: @escaping @Sendable () -> Bool
-    ) async -> Bool {
-        for _ in 0..<maxTurns {
-            if condition() {
-                return true
-            }
-            await Task.yield()
-        }
-
-        return condition()
     }
 
     // MARK: - Repos Scope

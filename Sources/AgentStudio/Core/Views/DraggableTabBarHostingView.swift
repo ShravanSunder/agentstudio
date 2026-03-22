@@ -430,12 +430,10 @@ class DraggableTabBarHostingView: NSView, NSDraggingSource {
                 return false
             }
 
-            postAppEvent(
-                .extractPaneRequested(
-                    tabId: payload.tabId,
-                    paneId: payload.paneId,
-                    targetTabIndex: targetTabIndex
-                )
+            CommandDispatcher.shared.dispatchExtractPaneToTab(
+                tabId: payload.tabId,
+                paneId: payload.paneId,
+                targetTabIndex: targetTabIndex
             )
             return true
         }

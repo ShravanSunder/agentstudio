@@ -123,14 +123,14 @@ final class RepairActionTests {
         #expect(set.count == 2)
     }
 
-    // MARK: - PaneAction Integration
+    // MARK: - PaneActionCommand Integration
 
     @Test
 
     func test_paneAction_repairCase_wrapsRepairAction() {
         let paneId = UUID()
         let repair = RepairAction.cleanupOrphan(paneId: paneId)
-        let action = PaneAction.repair(repair)
+        let action = PaneActionCommand.repair(repair)
 
         if case .repair(let wrapped) = action {
             #expect(wrapped == repair)
@@ -143,7 +143,7 @@ final class RepairActionTests {
 
     func test_paneAction_expireUndoEntry_hasPaneId() {
         let paneId = UUID()
-        let action = PaneAction.expireUndoEntry(paneId: paneId)
+        let action = PaneActionCommand.expireUndoEntry(paneId: paneId)
 
         if case .expireUndoEntry(let id) = action {
             #expect(id == paneId)

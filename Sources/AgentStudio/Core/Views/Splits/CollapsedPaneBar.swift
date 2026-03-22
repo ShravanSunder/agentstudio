@@ -7,7 +7,7 @@ struct CollapsedPaneBar: View {
     let paneId: UUID
     let tabId: UUID
     let title: String
-    let action: (PaneAction) -> Void
+    let action: (PaneActionCommand) -> Void
     let dropTargetCoordinateSpace: String?
     let useDrawerFramePreference: Bool
 
@@ -22,7 +22,7 @@ struct CollapsedPaneBar: View {
         paneId: UUID,
         tabId: UUID,
         title: String,
-        action: @escaping (PaneAction) -> Void,
+        action: @escaping (PaneActionCommand) -> Void,
         dropTargetCoordinateSpace: String? = nil,
         useDrawerFramePreference: Bool = false
     ) {
