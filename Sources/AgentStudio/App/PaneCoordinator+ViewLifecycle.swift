@@ -176,7 +176,7 @@ extension PaneCoordinator {
 
         let metadata = SurfaceMetadata(
             workingDirectory: workingDir,
-            command: shellCommand,
+            command: startupStrategy.startupCommandForSurface,
             title: worktree.name,
             worktreeId: worktree.id,
             repoId: repo.id,
@@ -278,7 +278,7 @@ extension PaneCoordinator {
 
         let metadata = SurfaceMetadata(
             workingDirectory: workingDir,
-            command: shellCommand,
+            command: startupStrategy.startupCommandForSurface,
             title: pane.metadata.title,
             contextFacets: pane.metadata.facets,
             paneId: pane.id

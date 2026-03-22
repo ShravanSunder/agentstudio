@@ -190,6 +190,12 @@ class MainWindowController: NSWindowController, NSWindowDelegate {
         awaitsLaunchMaximize = true
     }
 
+    func completeLaunchPresentation() {
+        guard let window else { return }
+        window.makeKeyAndOrderFront(nil)
+        applyLaunchMaximizeIfNeeded()
+    }
+
     private func applyLaunchMaximizeIfNeeded() {
         guard awaitsLaunchMaximize else { return }
         guard let window, let screen = window.screen ?? NSScreen.main else { return }

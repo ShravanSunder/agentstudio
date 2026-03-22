@@ -370,6 +370,8 @@ class AppDelegate: NSObject, NSApplicationDelegate {
         }
         mainWindowController?.prepareLaunchMaximizeAndRestore()
         mainWindowController?.showWindow(nil)
+        NSApp.activate(ignoringOtherApps: true)
+        mainWindowController?.completeLaunchPresentation()
         if let window = mainWindowController?.window {
             RestoreTrace.log(
                 "mainWindow showWindow frame=\(NSStringFromRect(window.frame)) content=\(NSStringFromRect(window.contentLayoutRect))"

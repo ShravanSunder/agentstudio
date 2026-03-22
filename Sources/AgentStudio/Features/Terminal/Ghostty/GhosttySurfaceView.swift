@@ -233,10 +233,16 @@ extension Ghostty {
         /// Called when the title changes (from App callback)
         func titleDidChange(_ newTitle: String) {
             self.title = newTitle
+            RestoreTrace.log(
+                "Ghostty.SurfaceView.titleDidChange title=\(newTitle) \(metricsSnapshotDescription())"
+            )
         }
 
         func pwdDidChange(_ newPwd: String?) {
             self.pwd = newPwd
+            RestoreTrace.log(
+                "Ghostty.SurfaceView.pwdDidChange pwd=\(newPwd ?? "nil") \(metricsSnapshotDescription())"
+            )
         }
 
         // MARK: - View Lifecycle
