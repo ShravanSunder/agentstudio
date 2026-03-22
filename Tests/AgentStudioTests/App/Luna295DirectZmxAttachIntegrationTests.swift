@@ -7,6 +7,15 @@ import Testing
 @MainActor
 @Suite(.serialized)
 struct Luna295DirectZmxAttachIntegrationTests {
+    private let fixtureSessionConfiguration = SessionConfiguration(
+        isEnabled: true,
+        backgroundRestorePolicy: .existingSessionsOnly,
+        zmxPath: "/tmp/fake-zmx",
+        zmxDir: "/tmp/fake-zmx-dir",
+        healthCheckInterval: 30,
+        maxCheckpointAge: 60
+    )
+
     private struct Harness {
         let store: WorkspaceStore
         let viewRegistry: ViewRegistry
@@ -32,15 +41,9 @@ struct Luna295DirectZmxAttachIntegrationTests {
             surfaceManager: surfaceManager,
             runtimeRegistry: .shared
         )
+        coordinator.sessionConfig = fixtureSessionConfiguration
         coordinator.terminalRestoreRuntime = TerminalRestoreRuntime(
-            sessionConfiguration: SessionConfiguration(
-                isEnabled: true,
-                backgroundRestorePolicy: .existingSessionsOnly,
-                zmxPath: "/tmp/fake-zmx",
-                zmxDir: "/tmp/fake-zmx-dir",
-                healthCheckInterval: 30,
-                maxCheckpointAge: 60
-            ),
+            sessionConfiguration: fixtureSessionConfiguration,
             liveSessionIdsProvider: { _ in [] }
         )
         return Harness(
@@ -70,7 +73,7 @@ struct Luna295DirectZmxAttachIntegrationTests {
 
         let config = try #require(harness.surfaceManager.lastConfig)
         #expect(config.startupStrategy.startupCommandForSurface?.contains(" attach ") == true)
-        #expect(config.environmentVariables["ZMX_DIR"] != nil)
+        #expect(config.environmentVariables["ZMX_DIR"] == fixtureSessionConfiguration.zmxDir)
     }
 
     @Test
@@ -87,7 +90,7 @@ struct Luna295DirectZmxAttachIntegrationTests {
 
         let config = try #require(harness.surfaceManager.lastConfig)
         #expect(config.startupStrategy.startupCommandForSurface?.contains(" attach ") == true)
-        #expect(config.environmentVariables["ZMX_DIR"] != nil)
+        #expect(config.environmentVariables["ZMX_DIR"] == fixtureSessionConfiguration.zmxDir)
     }
 
     @Test
@@ -104,7 +107,7 @@ struct Luna295DirectZmxAttachIntegrationTests {
 
         let config = try #require(harness.surfaceManager.lastConfig)
         #expect(config.startupStrategy.startupCommandForSurface?.contains(" attach ") == true)
-        #expect(config.environmentVariables["ZMX_DIR"] != nil)
+        #expect(config.environmentVariables["ZMX_DIR"] == fixtureSessionConfiguration.zmxDir)
     }
 
     @Test

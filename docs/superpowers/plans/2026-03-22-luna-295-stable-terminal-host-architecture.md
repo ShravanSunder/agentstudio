@@ -10,6 +10,19 @@
 
 ---
 
+## Prerequisite
+
+This plan assumes the geometry/lifecycle-store plan lands first:
+
+- `docs/superpowers/plans/2026-03-22-luna-295-lifecycle-store-geometry.md`
+
+This host refactor should consume:
+
+- `WindowLifecycleStore.terminalContainerBounds`
+- `WindowLifecycleStore.isLaunchLayoutSettled`
+
+and should not preserve the old closure chain (`terminalContainerBoundsProvider`, `onRestoreHostReady`, cached restore bounds, arm flags) as a second geometry source.
+
 ## Current Problem Model
 
 ### User-visible symptom
@@ -94,9 +107,11 @@ GhosttyFocusSynchronizer
 ```text
 PaneLeafContainer
   -> PaneViewRepresentable
-    -> TerminalPaneHostView
-      -> GhosttyMountView
-        -> Ghostty.SurfaceView
+    -> paneView.swiftUIContainer
+      -> ManagementModeContainerView
+        -> TerminalPaneHostView
+          -> GhosttyMountView
+            -> Ghostty.SurfaceView
 ```
 
 Important boundary note:
@@ -124,9 +139,11 @@ TARGET
 SwiftUI split tree
   -> PaneLeafContainer
     -> PaneViewRepresentable
-      -> TerminalPaneHostView
-        -> GhosttyMountView
-          -> Ghostty.SurfaceView
+      -> paneView.swiftUIContainer
+        -> ManagementModeContainerView
+          -> TerminalPaneHostView
+            -> GhosttyMountView
+              -> Ghostty.SurfaceView
 ```
 
 ### Why the target is safer
@@ -200,7 +217,7 @@ threads           |----------------------|
 +---------------------------------------------------------------+
 | Terminal host boundary                                        |
 |---------------------------------------------------------------|
-| TerminalPaneHostRegistry                                      |
+| ViewRegistry (stable terminal-host reuse)                     |
 | TerminalPaneHostView                                          |
 | GhosttyMountView                                              |
 | TerminalHostMetrics                                           |
@@ -239,7 +256,7 @@ actual post-layout host bounds
 split / reveal / arrangement mutation
             |
             v
-  TerminalPaneHostRegistry ensures stable hosts
+  ViewRegistry reuses stable terminal hosts
             |
             v
   AppKit layout settles host bounds
@@ -285,8 +302,6 @@ split / reveal / arrangement mutation
   Renamed/refactored successor to `AgentStudioTerminalView`.
 - `Sources/AgentStudio/Features/Terminal/Hosting/GhosttyMountView.swift`
   Dedicated mount/unmount parent for `Ghostty.SurfaceView`.
-- `Sources/AgentStudio/Features/Terminal/Hosting/TerminalPaneHostRegistry.swift`
-  Terminal-specific collaborator of `ViewRegistry`; guarantees one host per terminal `paneId`.
 - `Sources/AgentStudio/Features/Terminal/Hosting/TerminalHostMetrics.swift`
   Typed host diagnostics: measured bounds, applied size, redraw generation, focus generation, occlusion generation, parent identity, and related proof state.
 - `Sources/AgentStudio/Features/Terminal/Hosting/TerminalStructureMutationContext.swift`
@@ -297,7 +312,6 @@ split / reveal / arrangement mutation
 - `Tests/AgentStudioTests/Features/Terminal/Ghostty/GhosttyFocusSynchronizerTests.swift`
 - `Tests/AgentStudioTests/Features/Terminal/Hosting/GhosttyMountViewTests.swift`
 - `Tests/AgentStudioTests/Features/Terminal/Hosting/TerminalPaneHostViewTests.swift`
-- `Tests/AgentStudioTests/Features/Terminal/Hosting/TerminalPaneHostRegistryTests.swift`
 - `Tests/AgentStudioTests/Features/Terminal/Hosting/TerminalStructureMutationContextTests.swift`
 - `Tests/AgentStudioTests/App/TerminalHostReconciliationTests.swift`
 - `Tests/AgentStudioTests/Helpers/MockGhosttySurfaceFactory.swift`
@@ -316,6 +330,7 @@ split / reveal / arrangement mutation
 - `Sources/AgentStudio/App/PaneCoordinator+ActionExecution.swift`
 - `Sources/AgentStudio/App/Panes/PaneTabViewController.swift`
 - `Sources/AgentStudio/App/Panes/ViewRegistry.swift`
+  Keep the canonical pane-id -> pane-view map, and add stable terminal host reuse here instead of introducing a second registry.
 - `Sources/AgentStudio/Core/Views/Splits/PaneLeafContainer.swift`
 - `docs/architecture/ghostty_surface_architecture.md`
 - `docs/architecture/component_architecture.md`
@@ -352,7 +367,7 @@ PaneCoordinator creates new pane + surface metadata
   ->
 WorkspaceStore mutates layout
   ->
-TerminalPaneHostRegistry ensures stable host identity for visible terminal panes
+ViewRegistry ensures stable `TerminalPaneHostView` reuse for visible terminal panes
   ->
 SwiftUI/AppKit lays out hosts
   ->
@@ -486,7 +501,7 @@ git add Sources/AgentStudio/Features/Terminal/Ghostty \
 git commit -m "refactor: split ghostty runtime by isolation contract"
 ```
 
-## Task 2: Add Terminal Host Diagnostics And Structure-Mutation Types
+## Task 2: Add Thin Proof Types For Later Host Reconciliation
 
 **Files:**
 - Create: `Sources/AgentStudio/Features/Terminal/Hosting/TerminalHostMetrics.swift`
@@ -539,6 +554,7 @@ Required behavior:
 
 - typed generation ids for tree churn
 - metrics snapshot for host/layout/redraw/focus/occlusion proof state
+- keep the types intentionally thin and proof-oriented; they exist now because later tasks need shared vocabulary for tests and reconciliation rather than reintroducing ad hoc dictionaries
 - no UI mutation here; this task is diagnostics and coordination typing only
 
 - [ ] **Step 4: Add typed surface inspection accessors**
@@ -582,6 +598,16 @@ git commit -m "feat: add terminal host diagnostics contract"
 - Test: `Tests/AgentStudioTests/Features/Terminal/Hosting/TerminalPaneHostViewTests.swift`
 - Test Helper: `Tests/AgentStudioTests/Helpers/MockGhosttySurfaceFactory.swift`
 
+- [ ] **Step 0: Prove whether parent churn is real in the current code**
+
+Before introducing `GhosttyMountView`, add temporary diagnostics to the current path and record whether `Ghostty.SurfaceView.superview` changes during:
+
+- rapid split insert
+- arrangement switch
+- tab reveal
+
+If parent churn is not observed, keep `GhosttyMountView` only if it still earns its place as a clearer mount boundary; do not present it as if the root cause has already been proven.
+
 - [ ] **Step 1: Write failing tests for stable mount parentage**
 
 ```swift
@@ -621,7 +647,11 @@ Required behavior:
 
 Required behavior:
 
-- create a valid testable `Ghostty.SurfaceView` shape without widening production APIs to generic `NSView`
+- use a concrete, explicit strategy rather than hand-waving:
+  - either initialize a real test harness Ghostty surface, or
+  - introduce a tiny mount-target protocol / adapter boundary so mount-view tests can use a plain `NSView`-backed double
+
+Do not leave this ambiguous for the implementer.
 
 - [ ] **Step 5: Rename and refactor `AgentStudioTerminalView`**
 
@@ -667,14 +697,13 @@ git add Sources/AgentStudio/Features/Terminal/Hosting/GhosttyMountView.swift \
 git commit -m "refactor: introduce stable terminal pane host and mount view"
 ```
 
-## Task 4: Add `TerminalPaneHostRegistry` And Centralize Terminal Host Identity
+## Task 4: Add Stable Terminal Host Reuse To `ViewRegistry`
 
 **Files:**
-- Create: `Sources/AgentStudio/Features/Terminal/Hosting/TerminalPaneHostRegistry.swift`
 - Modify: `Sources/AgentStudio/App/Panes/ViewRegistry.swift`
 - Modify: `Sources/AgentStudio/App/PaneCoordinator+ViewLifecycle.swift`
 - Modify: `Sources/AgentStudio/App/Panes/PaneTabViewController.swift`
-- Test: `Tests/AgentStudioTests/Features/Terminal/Hosting/TerminalPaneHostRegistryTests.swift`
+- Test: `Tests/AgentStudioTests/App/TerminalHostReconciliationTests.swift`
 
 - [ ] **Step 1: Write failing tests for one host per terminal pane**
 
@@ -682,11 +711,11 @@ git commit -m "refactor: introduce stable terminal pane host and mount view"
 @Test
 @MainActor
 func samePaneId_returnsSameTerminalPaneHost() {
-    let registry = TerminalPaneHostRegistry()
+    let registry = ViewRegistry()
     let paneId = UUIDv7.generate()
 
-    let first = registry.host(for: paneId)
-    let second = registry.host(for: paneId)
+    let first = registry.ensureTerminalHost(for: paneId)
+    let second = registry.ensureTerminalHost(for: paneId)
 
     #expect(first === second)
 }
@@ -697,32 +726,31 @@ func samePaneId_returnsSameTerminalPaneHost() {
 Run:
 
 ```bash
-SWIFT_BUILD_DIR=".build-agent-$(uuidgen | tr -dc 'a-z0-9' | head -c 8)" swift test --build-path "$SWIFT_BUILD_DIR" --filter "TerminalPaneHostRegistryTests"
+SWIFT_BUILD_DIR=".build-agent-$(uuidgen | tr -dc 'a-z0-9' | head -c 8)" swift test --build-path "$SWIFT_BUILD_DIR" --filter "TerminalHostReconciliationTests"
 ```
 
 Expected: FAIL
 
-- [ ] **Step 3: Implement the host registry**
+- [ ] **Step 3: Add stable terminal-host reuse behavior to `ViewRegistry`**
 
 Required behavior:
 
-- one stable host per terminal `paneId`
-- terminal-specific collaborator of `ViewRegistry`, not a second app-global pane map
+- one stable terminal host per terminal `paneId`
+- no second app-global registry
 - support deferred host configuration after lookup
 
-- [ ] **Step 4: Route terminal host creation through the registry**
+- [ ] **Step 4: Route terminal host creation through `ViewRegistry`**
 
 Required behavior in `PaneCoordinator+ViewLifecycle`:
 
-- fetch host from registry
+- fetch terminal host through `ViewRegistry.ensureTerminalHost(...)`
 - configure host with pane/worktree/repo/title context
 - bind or rebind surface id and mount
-- register host in `ViewRegistry`
 - support both worktree-bound and floating-terminal paths
 
 - [ ] **Step 5: Add explicit rationale comments**
 
-Document in code that the registry exists to stabilize host identity across:
+Document in code that stable terminal-host reuse inside `ViewRegistry` exists to stabilize host identity across:
 
 - split insert
 - arrangement switch
@@ -737,7 +765,7 @@ not just to paper over one `displaySurface(...)` call
 Run:
 
 ```bash
-SWIFT_BUILD_DIR=".build-agent-$(uuidgen | tr -dc 'a-z0-9' | head -c 8)" swift test --build-path "$SWIFT_BUILD_DIR" --filter "TerminalPaneHostRegistryTests|PaneCoordinatorTests|PaneCoordinatorHardeningTests"
+SWIFT_BUILD_DIR=".build-agent-$(uuidgen | tr -dc 'a-z0-9' | head -c 8)" swift test --build-path "$SWIFT_BUILD_DIR" --filter "TerminalHostReconciliationTests|PaneCoordinatorTests|PaneCoordinatorHardeningTests"
 ```
 
 Expected: PASS
@@ -745,12 +773,11 @@ Expected: PASS
 - [ ] **Step 7: Commit**
 
 ```bash
-git add Sources/AgentStudio/Features/Terminal/Hosting/TerminalPaneHostRegistry.swift \
-        Sources/AgentStudio/App/Panes/ViewRegistry.swift \
+git add Sources/AgentStudio/App/Panes/ViewRegistry.swift \
         Sources/AgentStudio/App/PaneCoordinator+ViewLifecycle.swift \
         Sources/AgentStudio/App/Panes/PaneTabViewController.swift \
-        Tests/AgentStudioTests/Features/Terminal/Hosting/TerminalPaneHostRegistryTests.swift
-git commit -m "feat: add stable terminal host registry"
+        Tests/AgentStudioTests/App/TerminalHostReconciliationTests.swift
+git commit -m "feat: add stable terminal host reuse to view registry"
 ```
 
 ## Task 5: Reclassify All Visible Resize Paths And Make Host Layout Authoritative
@@ -804,7 +831,8 @@ This step must explicitly cover:
 - `GhosttySurfaceView.viewDidMoveToWindow()` async resend
 - `GhosttySurfaceView.viewDidChangeBackingProperties()`
 - `TerminalPaneHostView.layout()`
-- `syncToResolvedPaneFrame(...)`
+- `TerminalPaneHostView.forceGeometrySync(...)`
+- `PaneTabViewController.syncVisibleTerminalGeometry(...)`
 
 - [ ] **Step 4: Move visible resize authority into `TerminalPaneHostView.layout()`**
 
@@ -815,13 +843,14 @@ Required behavior:
 - if measured size changed, host sends visible size to Ghostty
 - size sends are de-duped by value/generation
 
-- [ ] **Step 5: Re-scope `syncToResolvedPaneFrame(...)`**
+- [ ] **Step 5: Re-scope the current geometry-sync path**
 
 Required behavior:
 
-- visible panes: record resolved geometry and trigger host reconciliation, but do not act as the final visible size authority
+- visible panes: `forceGeometrySync(...)` records/compares geometry and triggers host reconciliation, but does not act as the final visible size authority
 - startup/offscreen creation: still allowed to use initial frame sizing
 - code comments must explain how startup sizing and steady-state visible sizing coexist
+- launch/restore visible geometry should be read from `WindowLifecycleStore.terminalContainerBounds` from the prerequisite plan rather than preserving a parallel closure chain
 
 - [ ] **Step 6: Preserve scale-factor handling**
 
@@ -899,6 +928,7 @@ Expected: FAIL
 Required behavior:
 
 - tree mutation gets a generation id and reason
+- `PaneCoordinator` owns the generation and the sweep trigger
 - reconciliation runs after layout settles
 - this path is independent from `selectionChanged`
 
@@ -925,6 +955,10 @@ Required behavior:
 - start with `ghostty_surface_refresh`
 - treat refresh-first as a proof checkpoint, not a guaranteed final answer
 - escalate to `ghostty_surface_draw` only if proof shows refresh is insufficient
+
+- [ ] **Step 6a: Reuse existing `SurfaceManager.syncFocus(...)`**
+
+Do not invent a second focus fanout path. The reconciliation sweep should reuse `SurfaceManager.syncFocus(activeSurfaceId:)` unless implementation evidence shows it is insufficient.
 
 - [ ] **Step 7: Run focused tests**
 
@@ -990,6 +1024,15 @@ Explicitly rewrite:
 - `SurfaceManager.detach(...)`
 - `restoreViewsForActiveTabIfNeeded()`
 - `restoreAllViews(...)`
+
+For each method, include one sentence in code comments or the implementation note describing the exact change:
+
+- `displaySurface(...)` — route surface parenting only through `GhosttyMountView.mount(...)`
+- `reattachForViewSwitch(...)` — reuse existing host identity rather than creating or swapping terminal hosts
+- `SurfaceManager.attach(...)` — lifecycle state only, not arbitrary parent transport
+- `SurfaceManager.detach(...)` — lifecycle state only, no hidden ownership of view hierarchy
+- `restoreViewsForActiveTabIfNeeded()` — ensure stable host reuse and lifecycle-matrix reconciliation
+- `restoreAllViews(...)` — ensure launch-restore path consumes prerequisite geometry store and the same host contract
 
 Required behavior:
 
@@ -1064,7 +1107,7 @@ git commit -m "docs: describe stable terminal host and ghostty runtime boundarie
 Run:
 
 ```bash
-SWIFT_BUILD_DIR=".build-agent-$(uuidgen | tr -dc 'a-z0-9' | head -c 8)" swift test --build-path "$SWIFT_BUILD_DIR" --filter "GhosttyAppHandleTests|GhosttyCallbackRouterTests|GhosttyActionRouterTests|GhosttyFocusSynchronizerTests|GhosttyMountViewTests|TerminalPaneHostViewTests|TerminalPaneHostRegistryTests|TerminalHostReconciliationTests|PaneCoordinatorHardeningTests"
+SWIFT_BUILD_DIR=".build-agent-$(uuidgen | tr -dc 'a-z0-9' | head -c 8)" swift test --build-path "$SWIFT_BUILD_DIR" --filter "GhosttyAppHandleTests|GhosttyCallbackRouterTests|GhosttyActionRouterTests|GhosttyFocusSynchronizerTests|GhosttyMountViewTests|TerminalPaneHostViewTests|TerminalHostReconciliationTests|PaneCoordinatorHardeningTests"
 ```
 
 Expected: PASS
