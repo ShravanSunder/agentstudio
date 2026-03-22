@@ -41,7 +41,7 @@ enum PaneSource: Equatable, Hashable {
 ///
 /// "Resolved" means no "active tab" or "current pane" references —
 /// all targets are concrete UUIDs computed during the resolution step.
-enum PaneAction: Equatable, Hashable {
+enum PaneActionCommand: Equatable, Hashable {
     // Tab lifecycle
     case selectTab(tabId: UUID)
     case closeTab(tabId: UUID)
@@ -96,8 +96,10 @@ enum PaneAction: Equatable, Hashable {
 
     // Worktree actions (routed through command pipeline for validation)
     case openWorktree(worktreeId: UUID)
-    case openNewTerminalInTab(worktreeId: UUID)
+    case openNewTerminalInTab(worktreeId: UUID, cwd: URL?, title: String?)
     case openWorktreeInPane(worktreeId: UUID)
+    case openFloatingTerminal(cwd: URL?, title: String?)
+    case removeRepo(repoId: UUID)
 
     // Minimize / Expand
     case minimizePane(tabId: UUID, paneId: UUID)

@@ -10,8 +10,10 @@ import SwiftUI
 /// See docs/architecture/appkit_swiftui_architecture.md for the hosting pattern.
 struct ActiveTabContent: View {
     let store: WorkspaceStore
+    let repoCache: WorkspaceRepoCache
     let viewRegistry: ViewRegistry
-    let action: (PaneAction) -> Void
+    let appLifecycleStore: AppLifecycleStore
+    let action: (PaneActionCommand) -> Void
     let shouldAcceptDrop: (SplitDropPayload, UUID, DropZone) -> Bool
     let onDrop: (SplitDropPayload, UUID, DropZone) -> Void
 
@@ -68,7 +70,9 @@ struct ActiveTabContent: View {
                 shouldAcceptDrop: shouldAcceptDrop,
                 onDrop: onDrop,
                 store: store,
-                viewRegistry: viewRegistry
+                repoCache: repoCache,
+                viewRegistry: viewRegistry,
+                appLifecycleStore: appLifecycleStore
             )
         }
         // Empty/no-tab state handled by AppKit (PaneTabViewController toggles NSView visibility)

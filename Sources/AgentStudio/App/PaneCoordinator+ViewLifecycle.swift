@@ -132,7 +132,7 @@ extension PaneCoordinator {
         initialFrame: NSRect? = nil,
         treatAsRestoredSessionStart: Bool = false
     ) -> AgentStudioTerminalView? {
-        let workingDir = worktree.path
+        let workingDir = pane.metadata.facets.cwd ?? worktree.path
 
         let shellCommand = "\(getDefaultShell()) -i -l"
         let startupStrategy: Ghostty.SurfaceStartupStrategy
@@ -200,6 +200,9 @@ extension PaneCoordinator {
                 paneId: pane.id,
                 showsRestorePresentationDuringStartup: showsRestorePresentationDuringStartup
             )
+            view.onRepairRequested = { [weak self] paneId in
+                self?.execute(.repair(.recreateSurface(paneId: paneId)))
+            }
             view.displaySurface(managed.surface)
 
             viewRegistry.register(view, for: pane.id)
@@ -299,6 +302,9 @@ extension PaneCoordinator {
                 title: pane.metadata.title,
                 showsRestorePresentationDuringStartup: showsRestorePresentationDuringStartup
             )
+            view.onRepairRequested = { [weak self] paneId in
+                self?.execute(.repair(.recreateSurface(paneId: paneId)))
+            }
             view.displaySurface(managed.surface)
 
             viewRegistry.register(view, for: pane.id)
@@ -890,17 +896,5 @@ extension PaneCoordinator {
 
     private func getDefaultShell() -> String {
         SessionConfiguration.defaultShell()
-    }
-}
-
-extension PaneCoordinator: SurfaceLifecycleDelegate {
-    func surfaceDidClose(_ surface: ManagedSurface, processAlive: Bool) {
-        guard let paneId = surface.metadata.paneId,
-            let terminalView = viewRegistry.terminalView(for: paneId)
-        else { return }
-        RestoreTrace.log(
-            "PaneCoordinator.surfaceDidClose pane=\(paneId) surface=\(surface.id) processAlive=\(processAlive)"
-        )
-        terminalView.surfaceDidClose(processAlive: processAlive)
     }
 }

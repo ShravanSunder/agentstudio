@@ -6,7 +6,7 @@ struct ArrangementPanel: View {
     let tabId: UUID
     let panes: [TabBarPaneInfo]
     let arrangements: [TabBarArrangementInfo]
-    let onPaneAction: (PaneAction) -> Void
+    let onPaneAction: (PaneActionCommand) -> Void
     let onSaveArrangement: () -> Void
 
     @State private var renamingArrangementId: UUID?

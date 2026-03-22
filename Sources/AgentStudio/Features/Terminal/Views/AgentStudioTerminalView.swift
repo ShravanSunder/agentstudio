@@ -21,6 +21,7 @@ final class AgentStudioTerminalView: PaneView, SurfaceHealthDelegate {
     private let startupGraceDuration: Duration
     private var startupPresentationTask: Task<Void, Never>?
     private var startupPresentationActive = false
+    var onRepairRequested: ((UUID) -> Void)?
 
     /// The current terminal title
     var title: String {
@@ -79,7 +80,6 @@ final class AgentStudioTerminalView: PaneView, SurfaceHealthDelegate {
 
     isolated deinit {
         startupPresentationTask?.cancel()
-
         // Safety net: coordinator.teardownView() should have detached before dealloc.
         // If surfaceId is still set, the normal teardown path was missed.
         if let surfaceId {
@@ -122,6 +122,7 @@ final class AgentStudioTerminalView: PaneView, SurfaceHealthDelegate {
 
     func displaySurface(_ surfaceView: Ghostty.SurfaceView) {
         // Remove existing surface if any
+        ghosttySurface?.onCloseRequested = nil
         ghosttySurface?.removeFromSuperview()
         RestoreTrace.log(
             "AgentStudioTerminalView.displaySurface pane=\(paneId) surface=\(surfaceId?.uuidString ?? "nil") hostBounds=\(NSStringFromRect(bounds)) incomingSurfaceFrame=\(NSStringFromRect(surfaceView.frame)) incomingSurfaceMetrics={\(surfaceView.metricsSnapshotDescription())}"
@@ -148,9 +149,13 @@ final class AgentStudioTerminalView: PaneView, SurfaceHealthDelegate {
         self.layer?.backgroundColor = NSColor.clear.cgColor
 
         beginRestorePresentationIfNeeded()
+        surfaceView.onCloseRequested = { [weak self] processAlive in
+            self?.handleSurfaceClose(processAlive: processAlive)
+        }
     }
 
     func removeSurface() {
+        ghosttySurface?.onCloseRequested = nil
         ghosttySurface?.removeFromSuperview()
         ghosttySurface = nil
         surfaceId = nil
@@ -231,26 +236,22 @@ final class AgentStudioTerminalView: PaneView, SurfaceHealthDelegate {
         removeSurface()
 
         // Request coordinator to recreate the surface
-        postAppEvent(.repairSurfaceRequested(paneId: paneId))
+        onRepairRequested?(paneId)
         hideErrorOverlay()
     }
 
     // MARK: - Surface Close Handling
 
-    private func handleSurfaceClose() {
+    private func handleSurfaceClose(processAlive: Bool) {
         guard isProcessRunning else { return }
         isProcessRunning = false
         if startupPresentationActive {
             failRestorePresentation(health: .processExited(exitCode: nil))
         }
         RestoreTrace.log(
-            "AgentStudioTerminalView.handleSurfaceClose pane=\(paneId) surface=\(surfaceId?.uuidString ?? "nil")"
+            "AgentStudioTerminalView.handleSurfaceClose pane=\(paneId) surface=\(surfaceId?.uuidString ?? "nil") processAlive=\(processAlive)"
         )
         handleProcessTerminated(exitCode: nil)
-    }
-
-    func surfaceDidClose(processAlive _: Bool) {
-        handleSurfaceClose()
     }
 
     private func beginRestorePresentationIfNeeded() {
@@ -320,7 +321,7 @@ final class AgentStudioTerminalView: PaneView, SurfaceHealthDelegate {
     /// code (e.g. surface-level close callback / force-destroy path).
     func handleProcessTerminated(exitCode: Int32?) {
         isProcessRunning = false
-        postAppEvent(
+        AppEventBus.post(
             .terminalProcessTerminated(
                 worktreeId: worktree?.id,
                 exitCode: exitCode

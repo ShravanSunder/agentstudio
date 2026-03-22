@@ -18,9 +18,11 @@ enum ActionResolver {
         command: AppCommand,
         tabs: [T],
         activeTabId: UUID?
-    ) -> PaneAction? {
+    ) -> PaneActionCommand? {
         switch command {
         // Tab lifecycle
+        case .selectTab:
+            return nil
         case .closeTab:
             guard let tabId = activeTabId else { return nil }
             return .closeTab(tabId: tabId)
@@ -60,6 +62,8 @@ enum ActionResolver {
             }
             return .closePane(tabId: tab.id, paneId: paneId)
 
+        case .focusPane:
+            return nil
         case .extractPaneToTab:
             guard let (tab, paneId) = activeTabAndPane(tabs: tabs, activeTabId: activeTabId)
             else { return nil }
@@ -122,8 +126,8 @@ enum ActionResolver {
             else { return nil }
             return .duplicatePane(tabId: tab.id, paneId: PaneId(uuid: paneId), direction: .right)
 
-        // Non-pane commands: not resolved to PaneAction
-        case .addRepo, .addFolder, .removeRepo, .refreshWorktrees,
+        // Non-pane commands: not resolved to PaneActionCommand
+        case .addRepo, .addFolder, .removeRepo,
             .toggleSidebar, .newFloatingTerminal,
             .newTerminalInTab, .newTab, .undoCloseTab,
             .newWindow, .closeWindow,
@@ -147,7 +151,7 @@ enum ActionResolver {
         destinationTabId: UUID,
         zone: DropZone,
         state: ActionStateSnapshot
-    ) -> PaneAction? {
+    ) -> PaneActionCommand? {
         let direction = splitNewDirection(for: zone)
 
         switch payload.kind {
@@ -199,6 +203,7 @@ enum ActionResolver {
         from tabs: [T],
         activeTabId: UUID?,
         isManagementModeActive: Bool,
+        knownRepoIds: Set<UUID> = [],
         knownWorktreeIds: Set<UUID> = [],
         drawerParentByPaneId: [UUID: UUID] = [:]
     ) -> ActionStateSnapshot {
@@ -212,6 +217,7 @@ enum ActionResolver {
             },
             activeTabId: activeTabId,
             isManagementModeActive: isManagementModeActive,
+            knownRepoIds: knownRepoIds,
             knownWorktreeIds: knownWorktreeIds,
             drawerParentByPaneId: drawerParentByPaneId
         )
@@ -231,7 +237,7 @@ enum ActionResolver {
 
     private static func selectTabByIndex<T: ResolvableTab>(
         _ index: Int, tabs: [T]
-    ) -> PaneAction? {
+    ) -> PaneActionCommand? {
         guard index >= 0, index < tabs.count else { return nil }
         return .selectTab(tabId: tabs[index].id)
     }
@@ -257,7 +263,7 @@ enum ActionResolver {
     private static func resolveFocusDirection<T: ResolvableTab>(
         _ direction: SplitFocusDirection,
         tabs: [T], activeTabId: UUID?
-    ) -> PaneAction? {
+    ) -> PaneActionCommand? {
         guard let (tab, paneId) = activeTabAndPane(tabs: tabs, activeTabId: activeTabId),
             let neighborId = tab.neighborPaneId(of: paneId, direction: direction)
         else { return nil }
@@ -267,7 +273,7 @@ enum ActionResolver {
     private static func resolveSplit<T: ResolvableTab>(
         _ direction: SplitNewDirection,
         tabs: [T], activeTabId: UUID?
-    ) -> PaneAction? {
+    ) -> PaneActionCommand? {
         guard let (tab, paneId) = activeTabAndPane(tabs: tabs, activeTabId: activeTabId)
         else { return nil }
         return .insertPane(

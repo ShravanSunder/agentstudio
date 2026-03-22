@@ -45,7 +45,7 @@ struct PaneCoordinatorTests {
     func test_paneCoordinator_exposesExecuteAPI() async {
         let harness = makeHarnessCoordinator()
         defer { try? FileManager.default.removeItem(at: harness.tempDir) }
-        let action: PaneAction = .selectTab(tabId: UUID())
+        let action: PaneActionCommand = .selectTab(tabId: UUID())
         harness.coordinator.execute(action)
     }
 
@@ -397,7 +397,7 @@ struct PaneCoordinatorTests {
         )
         let tertiaryTab = Tab(paneId: tertiaryPane.id)
         store.appendTab(tertiaryTab)
-        coordinator.execute(PaneAction.selectTab(tabId: tertiaryTab.id))
+        coordinator.execute(PaneActionCommand.selectTab(tabId: tertiaryTab.id))
 
         await waitUntilFilesystemState(
             source: filesystemSource,

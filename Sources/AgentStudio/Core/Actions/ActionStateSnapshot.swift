@@ -18,6 +18,7 @@ struct ActionStateSnapshot: Equatable {
     let tabs: [TabSnapshot]
     let activeTabId: UUID?
     let isManagementModeActive: Bool
+    let knownRepoIds: Set<UUID>
     let knownWorktreeIds: Set<UUID>
     /// Drawer child -> parent layout pane mapping for drag/drop policy checks.
     let drawerParentByPaneId: [UUID: UUID]
@@ -29,12 +30,14 @@ struct ActionStateSnapshot: Equatable {
         tabs: [TabSnapshot],
         activeTabId: UUID?,
         isManagementModeActive: Bool,
+        knownRepoIds: Set<UUID> = [],
         knownWorktreeIds: Set<UUID> = [],
         drawerParentByPaneId: [UUID: UUID] = [:]
     ) {
         self.tabs = tabs
         self.activeTabId = activeTabId
         self.isManagementModeActive = isManagementModeActive
+        self.knownRepoIds = knownRepoIds
         self.knownWorktreeIds = knownWorktreeIds
         self.drawerParentByPaneId = drawerParentByPaneId
 
@@ -75,6 +78,7 @@ struct ActionStateSnapshot: Equatable {
         lhs.tabs == rhs.tabs
             && lhs.activeTabId == rhs.activeTabId
             && lhs.isManagementModeActive == rhs.isManagementModeActive
+            && lhs.knownRepoIds == rhs.knownRepoIds
             && lhs.knownWorktreeIds == rhs.knownWorktreeIds
             && lhs.drawerParentByPaneId == rhs.drawerParentByPaneId
     }

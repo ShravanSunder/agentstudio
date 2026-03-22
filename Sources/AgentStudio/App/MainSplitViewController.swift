@@ -1,15 +1,10 @@
 import AppKit
 import SwiftUI
-import os.log
-
-private let sidebarLogger = Logger(subsystem: "com.agentstudio", category: "Sidebar")
 
 /// Main split view controller with sidebar and terminal content area
 class MainSplitViewController: NSSplitViewController {
     private var sidebarHostingController: NSHostingController<AnyView>?
     private var paneTabViewController: PaneTabViewController?
-    private var notificationTasks: [Task<Void, Never>] = []
-    private var willTerminateObserver: NSObjectProtocol?
 
     // MARK: - Dependencies (injected)
 
@@ -91,6 +86,7 @@ class MainSplitViewController: NSSplitViewController {
         // Create pane tab area (pure AppKit)
         let paneTabVC = PaneTabViewController(
             store: store,
+            repoCache: repoCache,
             executor: actionExecutor,
             tabBarAdapter: tabBarAdapter,
             viewRegistry: viewRegistry
@@ -106,8 +102,6 @@ class MainSplitViewController: NSSplitViewController {
         if UserDefaults.standard.bool(forKey: Self.sidebarCollapsedKey) {
             sidebarItem.isCollapsed = true
         }
-
-        setupNotificationObservers()
     }
 
     private func saveSidebarState() {
@@ -115,55 +109,8 @@ class MainSplitViewController: NSSplitViewController {
         UserDefaults.standard.set(isCollapsed, forKey: Self.sidebarCollapsedKey)
     }
 
-    // MARK: - Notification Observers
-
-    private func setupNotificationObservers() {
-        notificationTasks.append(
-            Task { [weak self] in
-                guard let self else { return }
-                let stream = await AppEventBus.shared.subscribe()
-                for await event in stream {
-                    guard !Task.isCancelled else { break }
-                    switch event {
-                    case .openWorktreeRequested(let worktreeId):
-                        self.handleOpenWorktree(worktreeId: worktreeId)
-                    case .closeTabRequested:
-                        self.handleCloseTab()
-                    case .selectTabAtIndex(let index):
-                        self.handleSelectTab(index: index)
-                    case .toggleSidebarRequested:
-                        self.handleToggleSidebar()
-                    case .addRepoRequested, .addFolderRequested:
-                        self.expandSidebar()
-                    case .addRepoAtPathRequested:
-                        self.expandSidebar()
-                    case .openNewTerminalRequested(let worktreeId):
-                        self.handleOpenNewTerminal(worktreeId: worktreeId)
-                    case .openWorktreeInPaneRequested(let worktreeId):
-                        self.handleOpenWorktreeInPane(worktreeId: worktreeId)
-                    case .filterSidebarRequested:
-                        self.handleFilterSidebar()
-                    default:
-                        continue
-                    }
-                }
-            })
-
-        // willTerminateNotification is posted synchronously during app termination.
-        // An async stream Task may not resume before the process exits, so use a
-        // closure-based observer with queue: nil for synchronous inline execution.
-        willTerminateObserver = NotificationCenter.default.addObserver(
-            forName: NSApplication.willTerminateNotification,
-            object: nil,
-            queue: nil
-        ) { [weak self] _ in
-            // Safety: NSApplication.willTerminateNotification is delivered on the main thread.
-            // Assert that invariant before using MainActor.assumeIsolated.
-            dispatchPrecondition(condition: .onQueue(.main))
-            MainActor.assumeIsolated {
-                self?.saveSidebarState()
-            }
-        }
+    func savePersistentUIState() {
+        saveSidebarState()
     }
 
     private func handleToggleSidebar() {
@@ -177,44 +124,6 @@ class MainSplitViewController: NSSplitViewController {
     private func handleFilterSidebar() {
         guard isSidebarCollapsed else { return }
         expandSidebar()
-    }
-
-    private func handleOpenWorktree(worktreeId: UUID) {
-        guard let worktree = store.worktree(worktreeId),
-            let repo = store.repo(containing: worktreeId)
-        else {
-            sidebarLogger.error("Invalid openWorktreeRequested payload for worktree \(worktreeId.uuidString)")
-            return
-        }
-        paneTabViewController?.openTerminal(for: worktree, in: repo)
-    }
-
-    private func handleOpenNewTerminal(worktreeId: UUID) {
-        guard let worktree = store.worktree(worktreeId),
-            let repo = store.repo(containing: worktreeId)
-        else {
-            sidebarLogger.error("Invalid openNewTerminalRequested payload for worktree \(worktreeId.uuidString)")
-            return
-        }
-        paneTabViewController?.openNewTerminal(for: worktree, in: repo)
-    }
-
-    private func handleOpenWorktreeInPane(worktreeId: UUID) {
-        guard let worktree = store.worktree(worktreeId),
-            let repo = store.repo(containing: worktreeId)
-        else {
-            sidebarLogger.error("Invalid openWorktreeInPaneRequested payload for worktree \(worktreeId.uuidString)")
-            return
-        }
-        paneTabViewController?.openWorktreeInPane(for: worktree, in: repo)
-    }
-
-    private func handleCloseTab() {
-        paneTabViewController?.closeActiveTab()
-    }
-
-    private func handleSelectTab(index: Int) {
-        paneTabViewController?.selectTab(at: index)
     }
 
     // MARK: - Sidebar State
@@ -231,6 +140,25 @@ class MainSplitViewController: NSSplitViewController {
         }
     }
 
+    func toggleSidebarFromCommand() {
+        handleToggleSidebar()
+    }
+
+    func showSidebarFilter() {
+        if uiStore.isFilterVisible {
+            uiStore.setFilterVisible(false)
+            refocusActivePane()
+            return
+        }
+
+        expandSidebar()
+        uiStore.setFilterVisible(true)
+    }
+
+    func refocusActivePane() {
+        paneTabViewController?.refocusActivePane()
+    }
+
     // MARK: - Subtle Divider
 
     override func splitView(
@@ -242,7 +170,6 @@ class MainSplitViewController: NSSplitViewController {
         rect.size.width = 1
         return rect
     }
-
     override func splitViewDidResizeSubviews(_ notification: Notification) {
         super.splitViewDidResizeSubviews(notification)
         RestoreTrace.log(

@@ -56,6 +56,10 @@ extension Ghostty {
 
     /// NSView subclass that renders a Ghostty terminal surface
     final class SurfaceView: NSView {
+        var onWorkingDirectoryChanged: (@MainActor @Sendable (ObjectIdentifier, String?) -> Void)?
+        var onRendererHealthChanged: (@MainActor @Sendable (ObjectIdentifier, Bool) -> Void)?
+        var onCloseRequested: (@MainActor @Sendable (Bool) -> Void)?
+
         /// The terminal title (published for observation)
         private(set) var title: String = ""
 
@@ -87,12 +91,7 @@ extension Ghostty {
         private(set) var pwd: String? {
             didSet {
                 if pwd != oldValue {
-                    postGhosttyEvent(
-                        .workingDirectoryUpdated(
-                            surfaceViewId: ObjectIdentifier(self),
-                            rawPwd: pwd
-                        )
-                    )
+                    onWorkingDirectoryChanged?(ObjectIdentifier(self), pwd)
                 }
             }
         }
@@ -101,12 +100,7 @@ extension Ghostty {
         private(set) var healthy: Bool = true {
             didSet {
                 if healthy != oldValue {
-                    postGhosttyEvent(
-                        .rendererHealthUpdated(
-                            surfaceViewId: ObjectIdentifier(self),
-                            isHealthy: healthy
-                        )
-                    )
+                    onRendererHealthChanged?(ObjectIdentifier(self), healthy)
                 }
             }
         }
@@ -243,6 +237,10 @@ extension Ghostty {
             RestoreTrace.log(
                 "Ghostty.SurfaceView.pwdDidChange pwd=\(newPwd ?? "nil") \(metricsSnapshotDescription())"
             )
+        }
+
+        func handleCloseRequested(processAlive: Bool) {
+            onCloseRequested?(processAlive)
         }
 
         // MARK: - View Lifecycle

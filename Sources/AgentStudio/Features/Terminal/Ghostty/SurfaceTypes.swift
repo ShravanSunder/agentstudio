@@ -209,9 +209,6 @@ protocol SurfaceLifecycleDelegate: AnyObject {
     /// Called after a surface is created
     func surfaceDidCreate(_ surface: ManagedSurface)
 
-    /// Called when Ghostty requests that a surface be closed.
-    func surfaceDidClose(_ surface: ManagedSurface, processAlive: Bool)
-
     /// Called before a surface is destroyed
     func surfaceWillDestroy(_ surface: ManagedSurface)
 
@@ -236,7 +233,6 @@ protocol SurfaceHealthDelegate: AnyObject {
 extension SurfaceLifecycleDelegate {
     func surfaceWillCreate(config: inout Ghostty.SurfaceConfiguration, metadata: SurfaceMetadata) {}
     func surfaceDidCreate(_ surface: ManagedSurface) {}
-    func surfaceDidClose(_ surface: ManagedSurface, processAlive _: Bool) {}
     func surfaceWillDestroy(_ surface: ManagedSurface) {}
     func surfaceWillPersist(_ surface: ManagedSurface) -> SurfaceCheckpoint.SurfaceData? { nil }
 }

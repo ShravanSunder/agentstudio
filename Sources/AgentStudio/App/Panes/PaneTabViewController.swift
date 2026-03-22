@@ -52,9 +52,11 @@ class PaneTabViewController: NSViewController, CommandHandler {
     // MARK: - Dependencies (injected)
 
     private let store: WorkspaceStore
+    private let repoCache: WorkspaceRepoCache
     private let executor: ActionExecutor
     private let tabBarAdapter: TabBarAdapter
     private let viewRegistry: ViewRegistry
+    private var appLifecycleStore: AppLifecycleStore?
 
     // MARK: - View State
 
@@ -84,6 +86,7 @@ class PaneTabViewController: NSViewController, CommandHandler {
     /// Focus tracking — only refocus when the active tab or pane actually changes
     private var lastFocusedTabId: UUID?
     private var lastFocusedPaneId: UUID?
+    private var lastManagementModeActive = false
 
     var terminalContainerBounds: CGRect {
         terminalContainer?.bounds ?? .zero
@@ -136,10 +139,12 @@ class PaneTabViewController: NSViewController, CommandHandler {
     // MARK: - Init
 
     init(
-        store: WorkspaceStore, executor: ActionExecutor,
+        store: WorkspaceStore, repoCache: WorkspaceRepoCache = WorkspaceRepoCache(),
+        executor: ActionExecutor,
         tabBarAdapter: TabBarAdapter, viewRegistry: ViewRegistry
     ) {
         self.store = store
+        self.repoCache = repoCache
         self.executor = executor
         self.tabBarAdapter = tabBarAdapter
         self.viewRegistry = viewRegistry
@@ -151,6 +156,13 @@ class PaneTabViewController: NSViewController, CommandHandler {
     }
 
     // MARK: - View Lifecycle
+
+    func setAppLifecycleStore(_ appLifecycleStore: AppLifecycleStore) {
+        self.appLifecycleStore = appLifecycleStore
+
+        guard isViewLoaded else { return }
+        replaceSplitContentView()
+    }
 
     override func loadView() {
         let containerView = NSView()
@@ -197,7 +209,7 @@ class PaneTabViewController: NSViewController, CommandHandler {
                     ))
             },
             onOpenRepoInTab: {
-                postAppEvent(.showCommandBarRepos)
+                CommandDispatcher.shared.appCommandRouter?.showRepoCommandBar()
             }
         )
         tabBarHostingView = DraggableTabBarHostingView(rootView: tabBar)
@@ -290,46 +302,11 @@ class PaneTabViewController: NSViewController, CommandHandler {
                     switch event {
                     case .terminalProcessTerminated(let worktreeId, _):
                         self.handleProcessTerminated(worktreeId: worktreeId)
-                    case .selectTabById(let tabId, let paneId):
-                        self.handleSelectTabById(tabId: tabId, paneId: paneId)
-                    case .undoCloseTabRequested:
-                        self.handleUndoCloseTab()
-                    case .extractPaneRequested(let tabId, let paneId, let targetTabIndex):
-                        self.handleExtractPaneRequested(tabId: tabId, paneId: paneId, targetTabIndex: targetTabIndex)
-                    case .movePaneToTabRequested(let paneId, let sourceTabId, let targetTabId):
-                        self.handleMovePaneToTabRequested(
-                            paneId: paneId,
-                            sourceTabId: sourceTabId,
-                            targetTabId: targetTabId
-                        )
-                    case .repairSurfaceRequested(let paneId):
-                        self.handleRepairSurfaceRequested(paneId: paneId)
-                    case .refocusTerminalRequested:
-                        self.handleRefocusTerminal()
-                    case .openWebviewRequested:
-                        self.handleOpenWebviewRequested()
                     default:
                         continue
                     }
                 }
             })
-    }
-
-    private func handleOpenWebviewRequested() {
-        executor.openWebview()
-    }
-
-    private func handleRepairSurfaceRequested(paneId: UUID) {
-        dispatchAction(.repair(.recreateSurface(paneId: paneId)))
-    }
-
-    private func handleSelectTabById(tabId: UUID, paneId: UUID?) {
-        dispatchAction(.selectTab(tabId: tabId))
-
-        // If a specific pane was requested, focus it within the tab
-        if let paneId {
-            dispatchAction(.focusPane(tabId: tabId, paneId: paneId))
-        }
     }
 
     isolated deinit {
@@ -352,6 +329,7 @@ class PaneTabViewController: NSViewController, CommandHandler {
         withObservationTracking {
             _ = self.store.tabs
             _ = self.store.activeTabId
+            _ = ManagementModeMonitor.shared.isActive
         } onChange: {
             Task { @MainActor [weak self] in
                 self?.handleAppKitStateChange()
@@ -368,6 +346,12 @@ class PaneTabViewController: NSViewController, CommandHandler {
         if store.tabs.isEmpty && ManagementModeMonitor.shared.isActive {
             ManagementModeMonitor.shared.deactivate()
         }
+
+        let isManagementModeActive = ManagementModeMonitor.shared.isActive
+        if lastManagementModeActive && !isManagementModeActive {
+            refocusActivePane()
+        }
+        lastManagementModeActive = isManagementModeActive
 
         // Focus management: only refocus when active tab or pane actually changes
         let currentTabId = store.activeTabId
@@ -416,9 +400,13 @@ class PaneTabViewController: NSViewController, CommandHandler {
 
     /// Create the NSHostingView for ActiveTabContent once. @Observable handles all re-renders.
     private func setupSplitContentView() {
+        guard let appLifecycleStore else { return }
+
         let contentView = ActiveTabContent(
             store: store,
+            repoCache: repoCache,
             viewRegistry: viewRegistry,
+            appLifecycleStore: appLifecycleStore,
             action: { [weak self] action in self?.dispatchAction(action) },
             shouldAcceptDrop: { [weak self] payload, destPaneId, zone in
                 self?.evaluateDropAcceptance(
@@ -533,6 +521,12 @@ class PaneTabViewController: NSViewController, CommandHandler {
         onRestoreHostReady(cachedRestoreHostBounds)
     }
 
+    private func replaceSplitContentView() {
+        splitHostingView?.removeFromSuperview()
+        splitHostingView = nil
+        setupSplitContentView()
+    }
+
     /// Evaluate whether a drop is acceptable at the given pane and zone.
     private func evaluateDropAcceptance(
         payload: SplitDropPayload,
@@ -636,7 +630,7 @@ class PaneTabViewController: NSViewController, CommandHandler {
         payload: SplitDropPayload,
         destPaneId: UUID,
         zone: DropZone
-    ) -> PaneAction? {
+    ) -> PaneActionCommand? {
         let destinationPane = store.pane(destPaneId)
         let sourcePane: Pane? =
             if case .existingPane(let sourcePaneId, _) = payload.kind {
@@ -664,11 +658,11 @@ class PaneTabViewController: NSViewController, CommandHandler {
     }
 
     @objc private func addRepoAction() {
-        postAppEvent(.addRepoRequested)
+        CommandDispatcher.shared.dispatch(.addRepo)
     }
 
     @objc private func addFolderAction() {
-        postAppEvent(.addFolderRequested)
+        CommandDispatcher.shared.dispatch(.addFolder)
     }
 
     private func updateEmptyState() {
@@ -687,22 +681,38 @@ class PaneTabViewController: NSViewController, CommandHandler {
         if let activeTabId = store.activeTabId,
             let tab = store.tab(activeTabId),
             let activePaneId = tab.activePaneId,
-            let pane = store.pane(activePaneId),
-            let worktreeId = pane.worktreeId,
-            let repoId = pane.repoId,
-            let worktree = store.worktree(worktreeId),
-            let repo = store.repo(repoId)
+            let pane = store.pane(activePaneId)
         {
-            executor.openNewTerminal(for: worktree, in: repo)
+            if let worktreeId = worktreeIdForNewTab(from: pane) {
+                dispatchAction(
+                    .openNewTerminalInTab(
+                        worktreeId: worktreeId,
+                        cwd: pane.metadata.facets.cwd,
+                        title: pane.metadata.title
+                    )
+                )
+                return
+            }
+
+            dispatchAction(.openFloatingTerminal(cwd: pane.metadata.facets.cwd, title: pane.metadata.title))
             return
         }
 
         // Fallback: use the first worktree from the first repo
-        if let repo = store.repos.first,
-            let worktree = repo.worktrees.first
-        {
-            executor.openNewTerminal(for: worktree, in: repo)
+        if let worktree = store.repos.first?.worktrees.first {
+            dispatchAction(.openNewTerminalInTab(worktreeId: worktree.id, cwd: nil, title: nil))
+            return
         }
+
+        dispatchAction(.openFloatingTerminal(cwd: nil, title: nil))
+    }
+
+    private func worktreeIdForNewTab(from pane: Pane) -> UUID? {
+        if let worktreeId = pane.worktreeId {
+            return worktreeId
+        }
+
+        return store.repoAndWorktree(containing: pane.metadata.facets.cwd)?.worktree.id
     }
 
     // MARK: - Terminal Management
@@ -712,7 +722,7 @@ class PaneTabViewController: NSViewController, CommandHandler {
     }
 
     func openNewTerminal(for worktree: Worktree, in _: Repo) {
-        dispatchAction(.openNewTerminalInTab(worktreeId: worktree.id))
+        dispatchAction(.openNewTerminalInTab(worktreeId: worktree.id, cwd: nil, title: nil))
     }
 
     func openWorktreeInPane(for worktree: Worktree, in _: Repo) {
@@ -756,9 +766,9 @@ class PaneTabViewController: NSViewController, CommandHandler {
 
     // MARK: - Validated Action Pipeline
 
-    /// Central entry point: validates a PaneAction and executes it if valid.
+    /// Central entry point: validates a PaneActionCommand and executes it if valid.
     /// All input sources (keyboard, menu, drag-drop, commands) converge here.
-    private func dispatchAction(_ action: PaneAction) {
+    private func dispatchAction(_ action: PaneActionCommand) {
         let snapshot = ActionResolver.snapshot(
             from: store.tabs,
             activeTabId: store.activeTabId,
@@ -778,7 +788,7 @@ class PaneTabViewController: NSViewController, CommandHandler {
 
     /// Route tab context menu commands through the validated pipeline.
     private func handleTabCommand(_ command: AppCommand, tabId: UUID) {
-        let action: PaneAction?
+        let action: PaneActionCommand?
 
         switch command {
         case .closeTab:
@@ -877,10 +887,6 @@ class PaneTabViewController: NSViewController, CommandHandler {
         store.setActiveTab(extractedTabId)
     }
 
-    private func handleMovePaneToTabRequested(paneId: UUID, sourceTabId: UUID?, targetTabId: UUID) {
-        dispatchMovePaneToTab(sourcePaneId: paneId, sourceTabId: sourceTabId, targetTabId: targetTabId)
-    }
-
     private func dispatchMovePaneToTab(sourcePaneId: UUID, sourceTabId: UUID?, targetTabId: UUID) {
         guard
             let action = makeMovePaneToTabAction(
@@ -896,7 +902,7 @@ class PaneTabViewController: NSViewController, CommandHandler {
         sourcePaneId: UUID,
         sourceTabId: UUID?,
         targetTabId: UUID
-    ) -> PaneAction? {
+    ) -> PaneActionCommand? {
         let resolvedSourceTabId: UUID? =
             if let sourceTabId, store.tab(sourceTabId)?.paneIds.contains(sourcePaneId) == true {
                 sourceTabId
@@ -925,22 +931,22 @@ class PaneTabViewController: NSViewController, CommandHandler {
 
     // MARK: - Refocus Terminal
 
-    private func handleRefocusTerminal() {
+    func refocusActivePane() {
         guard let activeTabId = store.activeTabId,
             let tab = store.tab(activeTabId),
             let activePaneId = tab.activePaneId,
             let paneView = viewRegistry.view(for: activePaneId)
         else { return }
-        RestoreTrace.log("\(Self.self).handleRefocusTerminal tab=\(activeTabId) pane=\(activePaneId)")
+        RestoreTrace.log("\(Self.self).refocusActivePane tab=\(activeTabId) pane=\(activePaneId)")
         Task { @MainActor [weak paneView] in
             guard let paneView, paneView.window != nil else { return }
             paneView.window?.makeFirstResponder(paneView)
-            RestoreTrace.log("\(Self.self).handleRefocusTerminal async firstResponder set")
+            RestoreTrace.log("\(Self.self).refocusActivePane async firstResponder set")
 
             if let terminal = paneView as? AgentStudioTerminalView {
                 SurfaceManager.shared.syncFocus(activeSurfaceId: terminal.surfaceId)
                 RestoreTrace.log(
-                    "\(Self.self).handleRefocusTerminal syncFocus activeSurface=\(terminal.surfaceId?.uuidString ?? "nil")"
+                    "\(Self.self).refocusActivePane syncFocus activeSurface=\(terminal.surfaceId?.uuidString ?? "nil")"
                 )
             }
         }
@@ -974,12 +980,13 @@ class PaneTabViewController: NSViewController, CommandHandler {
         case .toggleManagementMode:
             ManagementModeMonitor.shared.toggle()
 
-        case .addRepo:
-            postAppEvent(.addRepoRequested)
-        case .addFolder:
-            postAppEvent(.addFolderRequested)
-        case .filterSidebar:
-            postAppEvent(.filterSidebarRequested)
+        case .newTab:
+            addNewTab()
+
+        case .undoCloseTab:
+            handleUndoCloseTab()
+        case .addRepo, .addFolder, .toggleSidebar, .filterSidebar, .signInGitHub, .signInGoogle:
+            break
         case .addDrawerPane:
             guard let tabId = store.activeTabId,
                 let tab = store.tab(tabId),
@@ -1014,18 +1021,30 @@ class PaneTabViewController: NSViewController, CommandHandler {
                     tabId: tabId, name: name, paneIds: Set(tab.paneIds)
                 ))
 
+        case .newTerminalInTab:
+            guard let activeTabId = store.activeTabId,
+                let tab = store.tab(activeTabId),
+                let targetPaneId = tab.activePaneId
+            else { break }
+            dispatchAction(
+                .insertPane(
+                    source: .newTerminal,
+                    targetTabId: activeTabId,
+                    targetPaneId: targetPaneId,
+                    direction: .right
+                ))
+        case .newFloatingTerminal:
+            let activePaneCwd = store.activeTabId
+                .flatMap { store.tab($0)?.activePaneId }
+                .flatMap { store.pane($0)?.metadata.facets.cwd }
+            dispatchAction(.openFloatingTerminal(cwd: activePaneCwd, title: nil))
         case .openWebview:
             executor.openWebview()
-        case .signInGitHub:
-            postAppEvent(.signInRequested(provider: OAuthProvider.github.rawValue))
-        case .signInGoogle:
-            postAppEvent(.signInRequested(provider: OAuthProvider.google.rawValue))
-        case .newTerminalInTab, .newFloatingTerminal,
-            .removeRepo, .refreshWorktrees,
-            .toggleSidebar, .quickFind, .commandBar,
+        case .quickFind, .commandBar,
             .openNewTerminalInTab, .openWorktree, .openWorktreeInPane,
             .switchArrangement, .deleteArrangement, .renameArrangement,
-            .navigateDrawerPane, .movePaneToTab:
+            .navigateDrawerPane, .movePaneToTab,
+            .selectTab, .focusPane:
             break  // Handled via drill-in (target selection in command bar)
         default:
             break
@@ -1033,57 +1052,12 @@ class PaneTabViewController: NSViewController, CommandHandler {
     }
 
     func execute(_ command: AppCommand, target: UUID, targetType: SearchItemType) {
-        // Build a targeted PaneAction based on the command and target
-        let action: PaneAction? = {
-            switch (command, targetType) {
-            case (.closeTab, .tab):
-                return .closeTab(tabId: target)
-            case (.breakUpTab, .tab):
-                return .breakUpTab(tabId: target)
-            case (.closePane, .pane), (.closePane, .floatingTerminal):
-                guard let tab = store.tabs.first(where: { $0.paneIds.contains(target) })
-                else { return nil }
-                return .closePane(tabId: tab.id, paneId: target)
-            case (.extractPaneToTab, .pane), (.extractPaneToTab, .floatingTerminal):
-                guard let tab = store.tabs.first(where: { $0.paneIds.contains(target) })
-                else { return nil }
-                return .extractPaneToTab(tabId: tab.id, paneId: target)
-            case (.movePaneToTab, .tab):
-                guard let activeTabId = store.activeTabId,
-                    let activePaneId = store.tab(activeTabId)?.activePaneId
-                else { return nil }
-                return makeMovePaneToTabAction(
-                    sourcePaneId: activePaneId,
-                    sourceTabId: activeTabId,
-                    targetTabId: target
-                )
-            case (.switchArrangement, .tab):
-                guard let tabId = store.activeTabId else { return nil }
-                return .switchArrangement(tabId: tabId, arrangementId: target)
-            case (.deleteArrangement, .tab):
-                guard let tabId = store.activeTabId else { return nil }
-                return .removeArrangement(tabId: tabId, arrangementId: target)
-            case (.renameArrangement, .tab):
-                // Name input will be added in a later task; for now, just select the target
-                return nil
-            case (.navigateDrawerPane, .pane):
-                guard let tabId = store.activeTabId,
-                    let tab = store.tab(tabId),
-                    let paneId = tab.activePaneId
-                else { return nil }
-                return .setActiveDrawerPane(parentPaneId: paneId, drawerPaneId: target)
-            case (.openWorktree, .worktree):
-                return .openWorktree(worktreeId: target)
-            case (.openNewTerminalInTab, .worktree):
-                return .openNewTerminalInTab(worktreeId: target)
-            case (.openWorktreeInPane, .worktree):
-                return .openWorktreeInPane(worktreeId: target)
-            default:
-                return nil
-            }
-        }()
+        if command == .focusPane && (targetType == .pane || targetType == .floatingTerminal) {
+            focusTargetedPane(target)
+            return
+        }
 
-        if let action {
+        if let action = targetedAction(command: command, target: target, targetType: targetType) {
             dispatchAction(action)
             return
         }
@@ -1095,6 +1069,87 @@ class PaneTabViewController: NSViewController, CommandHandler {
         }
     }
 
+    private func focusTargetedPane(_ paneId: UUID) {
+        guard let tab = store.tabs.first(where: { $0.paneIds.contains(paneId) }) else { return }
+        if store.activeTabId != tab.id {
+            dispatchAction(.selectTab(tabId: tab.id))
+        }
+        dispatchAction(.focusPane(tabId: tab.id, paneId: paneId))
+    }
+
+    private func targetedAction(
+        command: AppCommand,
+        target: UUID,
+        targetType: SearchItemType
+    ) -> PaneActionCommand? {
+        switch (command, targetType) {
+        case (.selectTab, .tab):
+            return .selectTab(tabId: target)
+        case (.closeTab, .tab):
+            return .closeTab(tabId: target)
+        case (.breakUpTab, .tab):
+            return .breakUpTab(tabId: target)
+        case (.closePane, .pane), (.closePane, .floatingTerminal):
+            guard let tab = store.tabs.first(where: { $0.paneIds.contains(target) }) else { return nil }
+            return .closePane(tabId: tab.id, paneId: target)
+        case (.extractPaneToTab, .pane), (.extractPaneToTab, .floatingTerminal):
+            guard let tab = store.tabs.first(where: { $0.paneIds.contains(target) }) else { return nil }
+            return .extractPaneToTab(tabId: tab.id, paneId: target)
+        case (.movePaneToTab, .tab):
+            guard let activeTabId = store.activeTabId, let activePaneId = store.tab(activeTabId)?.activePaneId
+            else { return nil }
+            return makeMovePaneToTabAction(
+                sourcePaneId: activePaneId,
+                sourceTabId: activeTabId,
+                targetTabId: target
+            )
+        case (.switchArrangement, .tab):
+            guard let tabId = store.activeTabId else { return nil }
+            return .switchArrangement(tabId: tabId, arrangementId: target)
+        case (.deleteArrangement, .tab):
+            guard let tabId = store.activeTabId else { return nil }
+            return .removeArrangement(tabId: tabId, arrangementId: target)
+        case (.navigateDrawerPane, .pane):
+            guard let tabId = store.activeTabId,
+                let tab = store.tab(tabId),
+                let paneId = tab.activePaneId
+            else { return nil }
+            return .setActiveDrawerPane(parentPaneId: paneId, drawerPaneId: target)
+        case (.newTerminalInTab, .tab):
+            guard let tab = store.tab(target), let targetPaneId = tab.activePaneId else { return nil }
+            return .insertPane(
+                source: .newTerminal,
+                targetTabId: tab.id,
+                targetPaneId: targetPaneId,
+                direction: .right
+            )
+        case (.removeRepo, .repo):
+            return .removeRepo(repoId: target)
+        case (.openWorktree, .worktree):
+            return .openWorktree(worktreeId: target)
+        case (.openNewTerminalInTab, .worktree):
+            return .openNewTerminalInTab(worktreeId: target, cwd: nil, title: nil)
+        case (.openWorktreeInPane, .worktree):
+            return .openWorktreeInPane(worktreeId: target)
+        case (.renameArrangement, .tab):
+            return nil
+        default:
+            return nil
+        }
+    }
+
+    func executeExtractPaneToTab(tabId: UUID, paneId: UUID, targetTabIndex: Int?) {
+        handleExtractPaneRequested(tabId: tabId, paneId: paneId, targetTabIndex: targetTabIndex)
+    }
+
+    func executeMovePaneToTab(sourcePaneId: UUID, sourceTabId: UUID?, targetTabId: UUID) {
+        dispatchMovePaneToTab(
+            sourcePaneId: sourcePaneId,
+            sourceTabId: sourceTabId,
+            targetTabId: targetTabId
+        )
+    }
+
     func canExecute(_ command: AppCommand) -> Bool {
         // Try resolving — if it resolves, validate it
         if let action = ActionResolver.resolve(
@@ -1104,6 +1159,7 @@ class PaneTabViewController: NSViewController, CommandHandler {
                 from: store.tabs,
                 activeTabId: store.activeTabId,
                 isManagementModeActive: ManagementModeMonitor.shared.isActive,
+                knownRepoIds: Set(store.repos.map(\.id)),
                 knownWorktreeIds: Set(store.repos.flatMap(\.worktrees).map(\.id))
             )
             switch ActionValidator.validate(action, state: snapshot) {

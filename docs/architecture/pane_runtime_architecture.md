@@ -1369,6 +1369,15 @@ enum PaneRuntimeLifecycle: Sendable {
 ///   7. Unfinished command IDs returned from shutdown() for logging/recovery
 ```
 
+#### App Shell Lifecycle Boundary
+
+Application/window lifecycle is separate from pane runtime lifecycle. AppKit ingress is owned by `ApplicationLifecycleMonitor`, which mutates two `@Observable` atomic stores with `private(set)` surfaces:
+
+- `AppLifecycleStore` for app-wide active/terminating state
+- `WindowLifecycleStore` for key/focused window identity and registration
+
+Those stores are lifecycle ingress state, not runtime coordination state. The old `AppCommand -> AppEventBus -> controller -> PaneActionCommand` chain has been removed; user-triggered workspace work now enters the validated `PaneActionCommand` pipeline directly.
+
 ### Contract 5a: Attach Readiness Policy (LUNA-295)
 
 Terminal panes require a readiness gate before zmx attach. This contract defines two normative policies based on pane visibility at attach time. Both policies implement the `sizePending → sizeReady → attaching → attached/failed` sub-states from the LUNA-295 attach lifecycle diagram above.
@@ -1780,11 +1789,11 @@ Every `ghostty_action_tag_e` case has a defined handling policy. The adapter's s
 | `childExited` | Runtime → Coordinator | Lifecycle transition to draining | critical | Shell/process exit |
 | `closeSurface` | Runtime → Coordinator | Pane close flow (with undo) | critical | User Cmd+W or process-initiated |
 | **Tab/split requests (coordinator routes)** | | | | |
-| `newTab` | Coordinator | Creates new tab via PaneAction | critical | Keyboard shortcut passthrough |
-| `closeTab` | Coordinator | Closes tab via PaneAction (with undo) | critical | Keyboard shortcut passthrough |
+| `newTab` | Coordinator | Creates new tab via PaneActionCommand | critical | Keyboard shortcut passthrough |
+| `closeTab` | Coordinator | Closes tab via PaneActionCommand (with undo) | critical | Keyboard shortcut passthrough |
 | `gotoTab` | Coordinator | Tab navigation | critical | |
 | `moveTab` | Coordinator | Tab reorder | critical | |
-| `newSplit` | Coordinator | Creates split via PaneAction | critical | |
+| `newSplit` | Coordinator | Creates split via PaneActionCommand | critical | |
 | `gotoSplit` | Coordinator | Focus navigation between splits | critical | |
 | `resizeSplit` | Coordinator | Split resize | critical | |
 | `equalizeSplits` | Coordinator | Reset split ratios | critical | |
@@ -2029,9 +2038,9 @@ enum TunnelType: String, Sendable { case ssh, zmx }
 /// Mirror of PaneEventEnvelope (outbound from runtime → coordinator).
 ///
 /// NOTE: "RuntimeCommand" is the runtime-level command vocabulary —
-/// distinct from the workspace-level `PaneAction` in `Core/Actions/`
+/// distinct from the workspace-level `PaneActionCommand` in `Core/Actions/`
 /// which handles tab/layout/arrangement mutations. RuntimeCommand tells
-/// a runtime what to DO; PaneAction tells the workspace what to CHANGE.
+/// a runtime what to DO; PaneActionCommand tells the workspace what to CHANGE.
 struct RuntimeCommandEnvelope: Sendable {
     let commandId: UUID                     // idempotency
     let correlationId: UUID?                // links workflow steps
@@ -2999,7 +3008,7 @@ The current codebase uses `NotificationCenter` and `DispatchQueue.main.async` fo
 
 **No dual-path period (data-plane actions).** When a pane runtime action is migrated to the event bus, the corresponding `NotificationCenter.post()` call is deleted in the same commit. There is no compatibility shim where both paths fire. This migration remains per-action (one `GhosttyEvent` case at a time), not big-bang.
 
-**Explicit lifecycle exception:** two `NotificationCenter.post` calls remain in `Ghostty.App` for app/window/surface lifecycle (`.ghosttyNewWindow`, `.ghosttyCloseSurface`). These are control-plane bridge points for AppKit surface/window orchestration, not pane runtime data-plane events.
+**Lifecycle ingress now has its own boundary:** App/window lifecycle is no longer modeled as runtime `NotificationCenter.post` exceptions. `ApplicationLifecycleMonitor` owns AppKit ingress and writes `AppLifecycleStore` / `WindowLifecycleStore`, while Ghostty surface close/CWD/renderer-health handling uses typed local/runtime boundaries.
 
 ---
 
@@ -3171,17 +3180,19 @@ See [Directory Structure](directory_structure.md) for the full decision process 
 
 `GhosttyEvent`, `BrowserEvent`, `DiffEvent`, `EditorEvent` are cases in the `PaneRuntimeEvent` discriminated union (Contract 2). Since `PaneRuntimeEvent` is in `Core/PaneRuntime/Contracts/` and Core cannot import Features, all per-kind event enums must also be in Core. These enums define the **domain event vocabulary** — what the system says about terminal/browser/diff/editor events. The adapters that *produce* these events from platform APIs live in Features.
 
-### Naming: RuntimeCommand vs PaneAction
+### Naming: RuntimeCommand vs PaneActionCommand
 
 Two distinct action layers exist with different scopes:
 
 | Layer | Type | Location | Purpose |
 |-------|------|----------|---------|
-| **Workspace** | `PaneAction` | `Core/Actions/` | Workspace structure mutations — selectTab, closePane, insertPane, toggleDrawer |
+| **Workspace** | `PaneActionCommand` | `Core/Actions/` | Workspace structure mutations — selectTab, closePane, insertPane, toggleDrawer |
 | **Runtime** | `RuntimeCommand` | `Core/PaneRuntime/Contracts/` | Commands to individual runtimes — sendInput, navigate, approveHunk |
 
-`PaneAction` flows: User → ActionResolver → ActionValidator → PaneCoordinator → WorkspaceStore.
+`PaneActionCommand` flows: User → ActionResolver → ActionValidator → PaneCoordinator → WorkspaceStore.
 `RuntimeCommand` flows: PaneCoordinator → RuntimeRegistry → `runtime.handleCommand(envelope)`.
+
+`AppEventBus` is reserved for app-level notifications that are not commands. `ApplicationLifecycleMonitor` owns AppKit/macOS lifecycle ingress and writes the lifecycle stores; it does not route workspace commands.
 
 ---
 

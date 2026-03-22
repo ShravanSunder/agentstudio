@@ -46,6 +46,7 @@ final class PaneCoordinator {
     let filesystemSource: any PaneCoordinatorFilesystemSourceManaging
     let paneFilesystemProjectionStore: PaneFilesystemProjectionStore
     var terminalContainerBoundsProvider: @MainActor () -> CGRect? = { nil }
+    var removeRepoHandler: @MainActor (UUID) -> Void = { _ in }
     lazy var sessionConfig = SessionConfiguration.detect()
     lazy var terminalRestoreRuntime = TerminalRestoreRuntime(sessionConfiguration: sessionConfig)
     private var cwdChangesTask: Task<Void, Never>?
@@ -114,9 +115,6 @@ final class PaneCoordinator {
         self.runtimeCommandClock = runtimeCommandClock
         self.filesystemSource = resolvedFilesystemSource
         self.paneFilesystemProjectionStore = paneFilesystemProjectionStore
-        if let concreteSurfaceManager = surfaceManager as? SurfaceManager {
-            concreteSurfaceManager.lifecycleDelegate = self
-        }
         Ghostty.App.setRuntimeRegistry(runtimeRegistry)
         subscribeToCWDChanges()
         setupPrePersistHook()
@@ -401,7 +399,7 @@ final class PaneCoordinator {
                 "Terminal control event received for pane \(sourcePaneUUID.uuidString, privacy: .public): \(String(describing: event), privacy: .public)"
             )
         case .bellRang:
-            postAppEvent(.worktreeBellRang(paneId: sourcePaneUUID))
+            AppEventBus.post(.worktreeBellRang(paneId: sourcePaneUUID))
             Self.logger.debug(
                 "Terminal bell event received for pane \(sourcePaneUUID.uuidString, privacy: .public)"
             )
@@ -455,7 +453,7 @@ final class PaneCoordinator {
         let tabs = store.tabs
         guard !tabs.isEmpty else { return }
 
-        let action: PaneAction?
+        let action: PaneActionCommand?
         switch target {
         case .previous:
             action = ActionResolver.resolve(command: .prevTab, tabs: tabs, activeTabId: sourceTabId)

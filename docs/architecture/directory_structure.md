@@ -30,7 +30,7 @@ Sources/AgentStudio/
 ├── Core/                             # Shared domain — pane system, models, stores
 │   ├── Models/                       # Pane, Layout, Tab, ViewDefinition, PaneView
 │   ├── Stores/                       # WorkspaceStore, SessionRuntime
-│   ├── Actions/                      # PaneAction, ActionResolver, ActionValidator
+│   ├── Actions/                      # PaneActionCommand, ActionResolver, ActionValidator
 │
 ├── Features/
 │   ├── Terminal/                     # Everything Ghostty-specific

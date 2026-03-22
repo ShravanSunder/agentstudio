@@ -6,21 +6,6 @@ import Testing
 @Suite(.serialized)
 @MainActor
 struct ManagementModeTests {
-    // MARK: - ManagementModeMonitor
-
-    private func waitForFlag(
-        _ flag: LockedFlag,
-        maxTurns: Int = 400
-    ) async -> Bool {
-        for _ in 0..<maxTurns {
-            if flag.value {
-                return true
-            }
-            await Task.yield()
-        }
-        return flag.value
-    }
-
     @MainActor
     @Test("defaults to inactive")
     func test_managementMode_defaultsToInactive() {
@@ -60,59 +45,29 @@ struct ManagementModeTests {
     }
 
     @MainActor
-    @Test("deactivate posts refocus event when active")
-    func test_managementMode_deactivate_postsRefocusEvent() async {
-        // Arrange
+    @Test("deactivate clears active state immediately")
+    func test_managementMode_deactivate_clearsStateSynchronously() {
         let monitor = ManagementModeMonitor.shared
         monitor.deactivate()
         monitor.toggle()
-        defer { monitor.deactivate() }
 
-        let didPostRefocus = LockedFlag()
-        let stream = await AppEventBus.shared.subscribe()
-        let captureTask = Task {
-            for await event in stream {
-                guard case .refocusTerminalRequested = event else { continue }
-                didPostRefocus.set()
-                break
-            }
-        }
-        defer { captureTask.cancel() }
-
-        // Act
         monitor.deactivate()
-        let didReceiveRefocus = await waitForFlag(didPostRefocus)
 
-        // Assert
-        #expect(didReceiveRefocus)
         #expect(!monitor.isActive)
     }
 
     @MainActor
-    @Test("toggle posts management-mode changed active event")
-    func test_managementMode_toggle_postsActiveChangedEvent() async {
-        // Arrange
+    @Test("toggle updates active state immediately")
+    func test_managementMode_toggle_updatesStateSynchronously() {
         let monitor = ManagementModeMonitor.shared
         monitor.deactivate()
         defer { monitor.deactivate() }
 
-        let didPostActive = LockedFlag()
-        let stream = await AppEventBus.shared.subscribe()
-        let captureTask = Task {
-            for await event in stream {
-                guard case .managementModeChanged(let isActive) = event, isActive else { continue }
-                didPostActive.set()
-                break
-            }
-        }
-        defer { captureTask.cancel() }
-
-        // Act
         monitor.toggle()
-        let didReceiveActive = await waitForFlag(didPostActive)
+        #expect(monitor.isActive)
 
-        // Assert
-        #expect(didReceiveActive)
+        monitor.toggle()
+        #expect(!monitor.isActive)
     }
 
     @MainActor
