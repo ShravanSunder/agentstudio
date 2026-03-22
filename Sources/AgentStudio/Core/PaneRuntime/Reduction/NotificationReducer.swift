@@ -4,7 +4,7 @@ import os.log
 /// Event scheduling reducer that splits runtime envelopes into two streams:
 /// immediate `criticalEvents` and frame-coalesced `batchedEvents` for lossy traffic.
 ///
-/// Critical events can be tier-ordered (p0...p3) when a resolver is provided.
+/// Critical events can be tier-ordered (visible first, hidden second) when a resolver is provided.
 /// Lossy events are consolidated by `(source, consolidationKey)` and emitted on a frame cadence.
 @MainActor
 final class NotificationReducer {
@@ -104,7 +104,7 @@ final class NotificationReducer {
     }
 
     private func flushCriticalBuffer() {
-        let orderedTiers: [VisibilityTier] = [.p0ActivePane, .p1ActiveDrawer, .p2VisibleActiveTab, .p3Background]
+        let orderedTiers: [VisibilityTier] = [.p0Visible, .p1Hidden]
         for visibilityTier in orderedTiers {
             let queued = (criticalBufferByTier[visibilityTier] ?? []).sorted(by: compareEnvelopes)
             guard !queued.isEmpty else { continue }
@@ -140,13 +140,13 @@ final class NotificationReducer {
     private func tier(for envelope: RuntimeEnvelope) -> VisibilityTier {
         if case .system = envelope.source {
             // Contract 12a: system events are always highest visibility priority.
-            return .p0ActivePane
+            return .p0Visible
         }
         guard
             let resolver = tierResolver,
             case .pane(let paneId) = envelope.source
         else {
-            return .p3Background
+            return .p1Hidden
         }
         return resolver.tier(for: paneId)
     }

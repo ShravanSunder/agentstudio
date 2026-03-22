@@ -38,14 +38,17 @@ final class PaneCoordinator {
     let runtime: SessionRuntime
     let surfaceManager: PaneCoordinatorSurfaceManaging
     let runtimeRegistry: RuntimeRegistry
+    let visibilityTierResolver: StoreVisibilityTierResolver
     let runtimeEventReducer: NotificationReducer
     let paneEventBus: EventBus<RuntimeEnvelope>
     let runtimeTargetResolver: RuntimeTargetResolver
     let runtimeCommandClock: ContinuousClock
     let filesystemSource: any PaneCoordinatorFilesystemSourceManaging
     let paneFilesystemProjectionStore: PaneFilesystemProjectionStore
+    var terminalContainerBoundsProvider: @MainActor () -> CGRect? = { nil }
     var removeRepoHandler: @MainActor (UUID) -> Void = { _ in }
     lazy var sessionConfig = SessionConfiguration.detect()
+    lazy var terminalRestoreRuntime = TerminalRestoreRuntime(sessionConfiguration: sessionConfig)
     private var cwdChangesTask: Task<Void, Never>?
     private var paneEventIngressTask: Task<Void, Never>?
     private var runtimeEventBridgeTasks: [PaneId: Task<Void, Never>] = [:]
@@ -99,12 +102,14 @@ final class PaneCoordinator {
                 bus: paneEventBus,
                 gitCoalescingWindow: .milliseconds(200)
             )
+        let visibilityTierResolver = StoreVisibilityTierResolver(store: store)
         self.store = store
         self.viewRegistry = viewRegistry
         self.runtime = runtime
         self.surfaceManager = surfaceManager
         self.runtimeRegistry = runtimeRegistry
-        self.runtimeEventReducer = NotificationReducer()
+        self.visibilityTierResolver = visibilityTierResolver
+        self.runtimeEventReducer = NotificationReducer(tierResolver: visibilityTierResolver)
         self.paneEventBus = paneEventBus
         self.runtimeTargetResolver = RuntimeTargetResolver(workspaceStore: store)
         self.runtimeCommandClock = runtimeCommandClock

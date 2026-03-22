@@ -7,25 +7,12 @@ extension Ghostty {
     enum SurfaceStartupStrategy: Equatable {
         /// Pass this command directly to Ghostty when creating the surface.
         case surfaceCommand(String?)
-        /// Start the shell normally, then inject this command after first sizing.
-        case deferredInShell(command: String)
 
         var startupCommandForSurface: String? {
-            switch self {
-            case .surfaceCommand(let command):
-                return command
-            case .deferredInShell:
-                return nil
-            }
-        }
-
-        var deferredStartupCommand: String? {
-            switch self {
-            case .surfaceCommand:
-                return nil
-            case .deferredInShell(let command):
+            if case .surfaceCommand(let command) = self {
                 return command
             }
+            return nil
         }
     }
 
@@ -48,17 +35,20 @@ extension Ghostty {
     struct SurfaceConfiguration {
         var workingDirectory: String?
         var startupStrategy: SurfaceStartupStrategy
+        var initialFrame: NSRect?
         var fontSize: Float?
         var environmentVariables: [String: String]
 
         init(
             workingDirectory: String? = nil,
             startupStrategy: SurfaceStartupStrategy = .surfaceCommand(nil),
+            initialFrame: NSRect? = nil,
             fontSize: Float? = nil,
             environmentVariables: [String: String] = [:]
         ) {
             self.workingDirectory = workingDirectory
             self.startupStrategy = startupStrategy
+            self.initialFrame = initialFrame
             self.fontSize = fontSize
             self.environmentVariables = environmentVariables
         }
@@ -91,6 +81,12 @@ extension Ghostty {
         /// Content size for the terminal (may differ from frame during resize)
         private var contentSize: NSSize = .zero
 
+        /// Initial content size reported by Ghostty action callbacks.
+        private(set) var reportedInitialSize: NSSize?
+
+        /// Cell size reported by Ghostty action callbacks.
+        private(set) var reportedCellSize: NSSize?
+
         /// Current working directory reported by the shell via OSC 7
         private(set) var pwd: String? {
             didSet {
@@ -111,21 +107,14 @@ extension Ghostty {
 
         /// Any error during surface initialization
         private(set) var error: Error?
-        /// Command to run after first real surface sizing (post-window attach).
-        private var deferredStartupCommand: String?
-        private var hasSentDeferredStartupCommand = false
-        private var deferredStartupWorkItem: DispatchWorkItem?
-        private let deferredStartupDelaySeconds: TimeInterval = 0.18
-
         // MARK: - Initialization
 
         init(app: App, config: SurfaceConfiguration? = nil) {
             self.ghosttyApp = app
-            self.deferredStartupCommand = config?.startupStrategy.deferredStartupCommand
-            super.init(frame: NSRect(x: 0, y: 0, width: 800, height: 600))
+            super.init(frame: config?.initialFrame ?? NSRect(x: 0, y: 0, width: 800, height: 600))
             let startupCommandForSurface = config?.startupStrategy.startupCommandForSurface
             RestoreTrace.log(
-                "Ghostty.SurfaceView.init placeholderFrame=\(NSStringFromRect(frame)) cwd=\(config?.workingDirectory ?? "nil") hasCommand=\(startupCommandForSurface != nil) hasDeferred=\(self.deferredStartupCommand != nil)"
+                "Ghostty.SurfaceView.init placeholderFrame=\(NSStringFromRect(frame)) cwd=\(config?.workingDirectory ?? "nil") hasCommand=\(startupCommandForSurface != nil)"
             )
 
             // Note: Ghostty's Metal renderer will set up the layer properly
@@ -221,6 +210,7 @@ extension Ghostty {
                 RestoreTrace.log("Ghostty.SurfaceView.init success frame=\(NSStringFromRect(frame))")
                 // Set initial size using backing coordinates
                 sizeDidChange(frame.size)
+                logSurfaceSnapshot(reason: "init")
             }
         }
 
@@ -229,7 +219,6 @@ extension Ghostty {
         }
 
         isolated deinit {
-            deferredStartupWorkItem?.cancel()
             if let surface {
                 ghostty_surface_free(surface)
             }
@@ -238,10 +227,16 @@ extension Ghostty {
         /// Called when the title changes (from App callback)
         func titleDidChange(_ newTitle: String) {
             self.title = newTitle
+            RestoreTrace.log(
+                "Ghostty.SurfaceView.titleDidChange title=\(newTitle) \(metricsSnapshotDescription())"
+            )
         }
 
         func pwdDidChange(_ newPwd: String?) {
             self.pwd = newPwd
+            RestoreTrace.log(
+                "Ghostty.SurfaceView.pwdDidChange pwd=\(newPwd ?? "nil") \(metricsSnapshotDescription())"
+            )
         }
 
         func handleCloseRequested(processAlive: Bool) {
@@ -259,6 +254,7 @@ extension Ghostty {
                 if let surface {
                     ghostty_surface_set_focus(surface, true)
                 }
+                logSurfaceSnapshot(reason: "becomeFirstResponder")
             }
             return result
         }
@@ -270,6 +266,7 @@ extension Ghostty {
                 if let surface {
                     ghostty_surface_set_focus(surface, false)
                 }
+                logSurfaceSnapshot(reason: "resignFirstResponder")
             }
             return result
         }
@@ -279,6 +276,7 @@ extension Ghostty {
             RestoreTrace.log(
                 "Ghostty.SurfaceView.viewDidMoveToWindow window=\(window != nil) frame=\(NSStringFromRect(frame)) bounds=\(NSStringFromRect(bounds))"
             )
+            logSurfaceSnapshot(reason: "viewDidMoveToWindow")
 
             if let screen = window?.screen {
                 updateScaleFactor(screen.backingScaleFactor)
@@ -301,7 +299,7 @@ extension Ghostty {
                         "Ghostty.SurfaceView.viewDidMoveToWindow async sizeDidChange size=\(NSStringFromSize(size)) frame=\(NSStringFromRect(self.frame))"
                     )
                     self.sizeDidChange(size)
-                    self.triggerDeferredStartupIfReady(source: "viewDidMoveToWindow.async")
+                    self.logSurfaceSnapshot(reason: "viewDidMoveToWindow.asyncSizeDidChange")
                 }
             }
         }
@@ -401,62 +399,40 @@ extension Ghostty {
                 UInt32(backingSize.width),
                 UInt32(backingSize.height)
             )
-            triggerDeferredStartupIfReady(source: "sizeDidChange")
+            ghostty_surface_refresh(surface)
+            logSurfaceSnapshot(reason: "sizeDidChange")
         }
 
-        private func triggerDeferredStartupIfReady(source: String) {
-            guard
-                DeferredStartupReadiness.canSchedule(
-                    hasSent: hasSentDeferredStartupCommand,
-                    deferredStartupCommand: deferredStartupCommand,
-                    hasWindow: window != nil,
-                    contentSize: contentSize
-                )
-            else { return }
-            guard let deferredStartupCommand else { return }
-
-            deferredStartupWorkItem?.cancel()
+        func updateReportedInitialSize(_ size: NSSize) {
+            reportedInitialSize = size
             RestoreTrace.log(
-                "Ghostty.SurfaceView.deferredStartup scheduling source=\(source) size=\(NSStringFromSize(contentSize)) cmd=\(deferredStartupCommand)"
+                "Ghostty.SurfaceView.initialSize reported=\(NSStringFromSize(size)) frame=\(NSStringFromRect(frame)) bounds=\(NSStringFromRect(bounds))"
             )
-            let workItem = DispatchWorkItem { [weak self] in
-                guard let self else { return }
-                defer { self.deferredStartupWorkItem = nil }
-                guard
-                    DeferredStartupReadiness.canExecute(
-                        hasSent: self.hasSentDeferredStartupCommand,
-                        deferredStartupCommand: self.deferredStartupCommand,
-                        hasWindow: self.window != nil,
-                        contentSize: self.contentSize,
-                        processExited: self.processExited
-                    )
-                else {
-                    if self.processExited {
-                        RestoreTrace.log(
-                            "Ghostty.SurfaceView.deferredStartup skipped process already exited source=\(source)")
-                    } else {
-                        RestoreTrace.log(
-                            "Ghostty.SurfaceView.deferredStartup skipped invalid readiness source=\(source)")
-                    }
-                    return
-                }
-                self.hasSentDeferredStartupCommand = true
-                // `sendText` is paste-like and may not execute pasted newlines under
-                // shell bracketed-paste protections. Send Return as a real key event.
-                // Prefix with a single space to reduce history pollution in shells
-                // that honor "leading-space means don't save to history".
-                self.sendText(" \(deferredStartupCommand)")
-                self.sendProgrammaticReturnKey()
-                ghosttyLogger.debug("Deferred startup command sent")
-                RestoreTrace.log("Ghostty.SurfaceView.deferredStartup sent source=\(source)")
+            logSurfaceSnapshot(reason: "initialSizeAction")
+        }
+
+        func updateReportedCellSize(_ size: NSSize) {
+            reportedCellSize = size
+            RestoreTrace.log(
+                "Ghostty.SurfaceView.cellSize reported=\(NSStringFromSize(size)) frame=\(NSStringFromRect(frame)) bounds=\(NSStringFromRect(bounds))"
+            )
+            logSurfaceSnapshot(reason: "cellSizeAction")
+        }
+
+        func metricsSnapshotDescription() -> String {
+            guard let surface else {
+                return "surface=nil"
             }
-            deferredStartupWorkItem = workItem
-            let delayMilliseconds = Int(deferredStartupDelaySeconds * 1000)
-            Task { @MainActor in
-                try? await Task.sleep(for: .milliseconds(delayMilliseconds))
-                guard !workItem.isCancelled else { return }
-                workItem.perform()
-            }
+
+            let metrics = ghostty_surface_size(surface)
+            let initialSizeDescription = reportedInitialSize.map(NSStringFromSize) ?? "nil"
+            let cellSizeDescription = reportedCellSize.map(NSStringFromSize) ?? "nil"
+            return
+                "frame=\(NSStringFromRect(frame)) bounds=\(NSStringFromRect(bounds)) contentSize=\(NSStringFromSize(contentSize)) initialSize=\(initialSizeDescription) cellSize=\(cellSizeDescription) columns=\(metrics.columns) rows=\(metrics.rows) widthPx=\(metrics.width_px) heightPx=\(metrics.height_px) cellWidthPx=\(metrics.cell_width_px) cellHeightPx=\(metrics.cell_height_px) focused=\(focused) window=\(window != nil)"
+        }
+
+        private func logSurfaceSnapshot(reason: String) {
+            RestoreTrace.log("Ghostty.SurfaceView.snapshot reason=\(reason) \(metricsSnapshotDescription())")
         }
 
         // MARK: - Input Handling
@@ -815,26 +791,6 @@ extension Ghostty {
             text.withCString { ptr in
                 ghostty_surface_text(surface, ptr, UInt(text.utf8.count))
             }
-        }
-
-        /// Send Return/Enter as a key event (press+release).
-        /// Needed for deferred startup commands because newline inside `sendText`
-        /// can be treated as pasted content and not execute immediately.
-        private func sendProgrammaticReturnKey() {
-            guard let surface else { return }
-            var keyDown = ghostty_input_key_s()
-            keyDown.action = GHOSTTY_ACTION_PRESS
-            keyDown.mods = GHOSTTY_MODS_NONE
-            keyDown.consumed_mods = GHOSTTY_MODS_NONE
-            keyDown.keycode = 36  // macOS Return key virtual keycode.
-            keyDown.unshifted_codepoint = 0x0D
-            keyDown.composing = false
-            keyDown.text = nil
-            ghostty_surface_key(surface, keyDown)
-
-            var keyUp = keyDown
-            keyUp.action = GHOSTTY_ACTION_RELEASE
-            ghostty_surface_key(surface, keyUp)
         }
 
         /// Request that this surface be closed

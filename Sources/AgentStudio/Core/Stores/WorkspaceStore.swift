@@ -479,7 +479,11 @@ final class WorkspaceStore {
     }
 
     func setActiveTab(_ tabId: UUID?) {
+        let previousActiveTabId = activeTabId
         activeTabId = tabId
+        RestoreTrace.log(
+            "WorkspaceStore.setActiveTab previous=\(previousActiveTabId?.uuidString ?? "nil") new=\(tabId?.uuidString ?? "nil")"
+        )
         markDirty()
     }
 
@@ -587,8 +591,13 @@ final class WorkspaceStore {
             return
         }
         let arrIndex = tabs[tabIndex].activeArrangementIndex
+        let previousRatio = tabs[tabIndex].arrangements[arrIndex].layout.ratioForSplit(splitId)
         tabs[tabIndex].arrangements[arrIndex].layout = tabs[tabIndex].arrangements[arrIndex].layout
             .resizing(splitId: splitId, ratio: ratio)
+        let newRatio = tabs[tabIndex].arrangements[arrIndex].layout.ratioForSplit(splitId)
+        RestoreTrace.log(
+            "WorkspaceStore.resizePane tab=\(tabId.uuidString) split=\(splitId.uuidString) previousRatio=\(previousRatio.map(String.init(describing:)) ?? "nil") requestedRatio=\(ratio) storedRatio=\(newRatio.map(String.init(describing:)) ?? "nil") layout=\(layoutRatioSummary(tabs[tabIndex].arrangements[arrIndex].layout))"
+        )
         markDirty()
     }
 
@@ -1555,6 +1564,9 @@ final class WorkspaceStore {
         var prunedTabs = tabs
         var prunedActiveTabId = activeTabId
         pruneInvalidPanes(from: &prunedTabs, validPaneIds: validPaneIds, activeTabId: &prunedActiveTabId)
+        RestoreTrace.log(
+            "WorkspaceStore.persistNow activeTab=\(prunedActiveTabId?.uuidString ?? "nil") tabs=\(tabPersistenceSummary(prunedTabs))"
+        )
 
         let state = WorkspacePersistor.PersistableState(
             id: workspaceId,
@@ -1581,6 +1593,29 @@ final class WorkspaceStore {
         } catch {
             storeLogger.error("Failed to persist workspace: \(error.localizedDescription)")
             return false
+        }
+    }
+
+    private func tabPersistenceSummary(_ tabs: [Tab]) -> String {
+        tabs.map { tab in
+            "tab=\(tab.id.uuidString) activePane=\(tab.activePaneId?.uuidString ?? "nil") layout=\(layoutRatioSummary(tab.layout))"
+        }.joined(separator: " | ")
+    }
+
+    private func layoutRatioSummary(_ layout: Layout) -> String {
+        guard let root = layout.root else { return "empty" }
+        return layoutRatioSummary(node: root)
+    }
+
+    private func layoutRatioSummary(node: Layout.Node) -> String {
+        switch node {
+        case .leaf(let paneId):
+            return "leaf(\(paneId.uuidString))"
+        case .split(let split):
+            let left = layoutRatioSummary(node: split.left)
+            let right = layoutRatioSummary(node: split.right)
+            return
+                "split(\(split.id.uuidString),dir=\(split.direction),ratio=\(split.ratio),left=\(left),right=\(right))"
         }
     }
 

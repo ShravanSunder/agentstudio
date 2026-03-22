@@ -15,7 +15,12 @@ final class AgentStudioTerminalView: PaneView, SurfaceHealthDelegate {
     private var ghosttySurface: Ghostty.SurfaceView?
     private(set) var isProcessRunning = false
     private var errorOverlay: SurfaceErrorOverlayView?
+    private var startupOverlay: SurfaceStartupOverlayView?
     private let fallbackTitle: String
+    private let showsRestorePresentationDuringStartup: Bool
+    private let startupGraceDuration: Duration
+    private var startupPresentationTask: Task<Void, Never>?
+    private var startupPresentationActive = false
     var onRepairRequested: ((UUID) -> Void)?
 
     /// The current terminal title
@@ -27,11 +32,20 @@ final class AgentStudioTerminalView: PaneView, SurfaceHealthDelegate {
 
     /// Primary initializer — used by PaneCoordinator for worktree-bound panes.
     /// Does NOT create a surface; caller must attach one via displaySurface().
-    init(worktree: Worktree, repo: Repo, restoredSurfaceId: UUID, paneId: UUID) {
+    init(
+        worktree: Worktree,
+        repo: Repo,
+        restoredSurfaceId: UUID,
+        paneId: UUID,
+        showsRestorePresentationDuringStartup: Bool = false,
+        startupGraceDuration: Duration = .milliseconds(100)
+    ) {
         self.worktree = worktree
         self.repo = repo
         self.surfaceId = restoredSurfaceId
         self.fallbackTitle = worktree.name
+        self.showsRestorePresentationDuringStartup = showsRestorePresentationDuringStartup
+        self.startupGraceDuration = startupGraceDuration
         super.init(paneId: paneId)
 
         // Register for health updates
@@ -41,11 +55,19 @@ final class AgentStudioTerminalView: PaneView, SurfaceHealthDelegate {
 
     /// Floating terminal initializer — used for drawers and standalone terminals.
     /// No worktree/repo context required.
-    init(restoredSurfaceId: UUID, paneId: UUID, title: String = "Terminal") {
+    init(
+        restoredSurfaceId: UUID,
+        paneId: UUID,
+        title: String = "Terminal",
+        showsRestorePresentationDuringStartup: Bool = false,
+        startupGraceDuration: Duration = .milliseconds(100)
+    ) {
         self.worktree = nil
         self.repo = nil
         self.surfaceId = restoredSurfaceId
         self.fallbackTitle = title
+        self.showsRestorePresentationDuringStartup = showsRestorePresentationDuringStartup
+        self.startupGraceDuration = startupGraceDuration
         super.init(paneId: paneId)
 
         SurfaceManager.shared.addHealthDelegate(self)
@@ -57,6 +79,7 @@ final class AgentStudioTerminalView: PaneView, SurfaceHealthDelegate {
     }
 
     isolated deinit {
+        startupPresentationTask?.cancel()
         // Safety net: coordinator.teardownView() should have detached before dealloc.
         // If surfaceId is still set, the normal teardown path was missed.
         if let surfaceId {
@@ -77,9 +100,22 @@ final class AgentStudioTerminalView: PaneView, SurfaceHealthDelegate {
         guard currentSize != lastReportedSurfaceSize else { return }
         lastReportedSurfaceSize = currentSize
         RestoreTrace.log(
-            "AgentStudioTerminalView.layout pane=\(paneId) surface=\(surfaceId?.uuidString ?? "nil") paneBounds=\(NSStringFromRect(bounds)) surfaceBounds=\(NSStringFromRect(surface.bounds))"
+            "AgentStudioTerminalView.layout pane=\(paneId) surface=\(surfaceId?.uuidString ?? "nil") paneBounds=\(NSStringFromRect(bounds)) surfaceBounds=\(NSStringFromRect(surface.bounds)) surfaceMetrics={\(surface.metricsSnapshotDescription())}"
         )
         surface.sizeDidChange(currentSize)
+    }
+
+    func forceGeometrySync(reason: StaticString) {
+        guard let surface = ghosttySurface, window != nil else { return }
+        guard bounds.size.width > 0, bounds.size.height > 0 else { return }
+        layoutSubtreeIfNeeded()
+        let actualSurfaceSize = surface.bounds.size
+        guard actualSurfaceSize.width > 0, actualSurfaceSize.height > 0 else { return }
+        lastReportedSurfaceSize = .zero
+        RestoreTrace.log(
+            "AgentStudioTerminalView.forceGeometrySync pane=\(paneId) surface=\(surfaceId?.uuidString ?? "nil") reason=\(reason) paneBounds=\(NSStringFromRect(bounds)) surfaceBounds=\(NSStringFromRect(surface.bounds)) surfaceMetrics={\(surface.metricsSnapshotDescription())}"
+        )
+        surface.sizeDidChange(actualSurfaceSize)
     }
 
     // MARK: - Surface Display
@@ -89,7 +125,7 @@ final class AgentStudioTerminalView: PaneView, SurfaceHealthDelegate {
         ghosttySurface?.onCloseRequested = nil
         ghosttySurface?.removeFromSuperview()
         RestoreTrace.log(
-            "AgentStudioTerminalView.displaySurface pane=\(paneId) surface=\(surfaceId?.uuidString ?? "nil") hostBounds=\(NSStringFromRect(bounds)) incomingSurfaceFrame=\(NSStringFromRect(surfaceView.frame))"
+            "AgentStudioTerminalView.displaySurface pane=\(paneId) surface=\(surfaceId?.uuidString ?? "nil") hostBounds=\(NSStringFromRect(bounds)) incomingSurfaceFrame=\(NSStringFromRect(surfaceView.frame)) incomingSurfaceMetrics={\(surfaceView.metricsSnapshotDescription())}"
         )
 
         surfaceView.translatesAutoresizingMaskIntoConstraints = false
@@ -105,12 +141,14 @@ final class AgentStudioTerminalView: PaneView, SurfaceHealthDelegate {
         self.ghosttySurface = surfaceView
         self.lastReportedSurfaceSize = .zero
         RestoreTrace.log(
-            "AgentStudioTerminalView.displaySurface mounted pane=\(paneId) surface=\(surfaceId?.uuidString ?? "nil")"
+            "AgentStudioTerminalView.displaySurface mounted pane=\(paneId) surface=\(surfaceId?.uuidString ?? "nil") mountedSurfaceMetrics={\(surfaceView.metricsSnapshotDescription())}"
         )
 
         // Make this view layer-backed AFTER the surface is created
         self.wantsLayer = true
         self.layer?.backgroundColor = NSColor.clear.cgColor
+
+        beginRestorePresentationIfNeeded()
         surfaceView.onCloseRequested = { [weak self] processAlive in
             self?.handleSurfaceClose(processAlive: processAlive)
         }
@@ -142,6 +180,16 @@ final class AgentStudioTerminalView: PaneView, SurfaceHealthDelegate {
     }
 
     private func updateHealthUI(_ health: SurfaceHealth) {
+        if startupPresentationActive {
+            switch health {
+            case .healthy:
+                finishRestorePresentation()
+            case .unhealthy, .processExited, .dead:
+                failRestorePresentation(health: health)
+                return
+            }
+        }
+
         if health.isHealthy {
             hideErrorOverlay()
         } else {
@@ -197,10 +245,74 @@ final class AgentStudioTerminalView: PaneView, SurfaceHealthDelegate {
     private func handleSurfaceClose(processAlive: Bool) {
         guard isProcessRunning else { return }
         isProcessRunning = false
+        if startupPresentationActive {
+            failRestorePresentation(health: .processExited(exitCode: nil))
+        }
         RestoreTrace.log(
             "AgentStudioTerminalView.handleSurfaceClose pane=\(paneId) surface=\(surfaceId?.uuidString ?? "nil") processAlive=\(processAlive)"
         )
         handleProcessTerminated(exitCode: nil)
+    }
+
+    private func beginRestorePresentationIfNeeded() {
+        guard showsRestorePresentationDuringStartup else { return }
+        startupPresentationTask?.cancel()
+        startupPresentationActive = true
+        showStartupOverlay()
+        startupPresentationTask = Task { @MainActor [weak self] in
+            guard let self else { return }
+            do {
+                try await Task.sleep(for: startupGraceDuration)
+            } catch is CancellationError {
+                return
+            } catch {
+                return
+            }
+            guard !Task.isCancelled else { return }
+            let revealState = HiddenSurfaceReadiness.revealState(
+                processExited: self.processExited,
+                startupWindowElapsed: true
+            )
+            switch revealState {
+            case .restoring:
+                self.showStartupOverlay()
+            case .reveal:
+                self.finishRestorePresentation()
+            case .failed:
+                self.failRestorePresentation(health: .processExited(exitCode: nil))
+            }
+        }
+    }
+
+    private func showStartupOverlay() {
+        if startupOverlay == nil {
+            let overlay = SurfaceStartupOverlayView()
+            overlay.translatesAutoresizingMaskIntoConstraints = false
+            addSubview(overlay)
+            NSLayoutConstraint.activate([
+                overlay.topAnchor.constraint(equalTo: topAnchor),
+                overlay.leadingAnchor.constraint(equalTo: leadingAnchor),
+                overlay.trailingAnchor.constraint(equalTo: trailingAnchor),
+                overlay.bottomAnchor.constraint(equalTo: bottomAnchor),
+            ])
+            startupOverlay = overlay
+        }
+        startupOverlay?.showRestoring()
+    }
+
+    private func finishRestorePresentation() {
+        startupPresentationTask?.cancel()
+        startupPresentationTask = nil
+        startupPresentationActive = false
+        startupOverlay?.hide()
+    }
+
+    private func failRestorePresentation(health: SurfaceHealth) {
+        startupPresentationTask?.cancel()
+        startupPresentationTask = nil
+        startupPresentationActive = false
+        startupOverlay?.hide()
+        showErrorOverlay(health: health)
     }
 
     // MARK: - Process Management

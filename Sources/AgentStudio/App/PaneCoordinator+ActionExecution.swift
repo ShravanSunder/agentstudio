@@ -161,6 +161,7 @@ extension PaneCoordinator {
 
         case .selectTab(let tabId):
             store.setActiveTab(tabId)
+            restoreViewsForActiveTabIfNeeded()
 
         case .closeTab(let tabId):
             executeCloseTab(tabId)
@@ -177,6 +178,7 @@ extension PaneCoordinator {
         case .focusPane(let tabId, let paneId):
             if let tab = store.tab(tabId), tab.minimizedPaneIds.contains(paneId) {
                 store.expandPane(paneId, inTab: tabId)
+                restoreViewsForActiveTabIfNeeded()
                 reattachForViewSwitch(paneId: paneId)
             }
             store.setActivePane(paneId, inTab: tabId)
@@ -208,6 +210,7 @@ extension PaneCoordinator {
 
         case .expandPane(let tabId, let paneId):
             store.expandPane(paneId, inTab: tabId)
+            restoreViewsForActiveTabIfNeeded()
             reattachForViewSwitch(paneId: paneId)
 
         case .resizePaneByDelta(let tabId, let paneId, let direction, let amount):
@@ -316,6 +319,7 @@ extension PaneCoordinator {
 
         case .setActiveDrawerPane(let parentPaneId, let drawerPaneId):
             store.setActiveDrawerPane(drawerPaneId, in: parentPaneId)
+            restoreViewsForActiveTabIfNeeded()
             if let terminalView = viewRegistry.terminalView(for: drawerPaneId) {
                 terminalView.window?.makeFirstResponder(terminalView)
                 surfaceManager.syncFocus(activeSurfaceId: terminalView.surfaceId)
@@ -334,6 +338,7 @@ extension PaneCoordinator {
 
         case .expandDrawerPane(let parentPaneId, let drawerPaneId):
             store.expandDrawerPane(drawerPaneId, in: parentPaneId)
+            restoreViewsForActiveTabIfNeeded()
             reattachForViewSwitch(paneId: drawerPaneId)
 
         case .insertDrawerPane(let parentPaneId, let targetDrawerPaneId, let direction):

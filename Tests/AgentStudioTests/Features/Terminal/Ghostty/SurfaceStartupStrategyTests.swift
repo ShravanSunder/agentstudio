@@ -14,23 +14,12 @@ final class SurfaceStartupStrategyTests {
 
         // Assert
         #expect(strategy.startupCommandForSurface == "/bin/zsh -i -l")
-        #expect(strategy.deferredStartupCommand == nil)
-    }
-
-    @Test
-    func test_deferredStrategy_setsDeferredCommandAndNoStartupCommand() {
-        // Arrange
-        let strategy = Ghostty.SurfaceStartupStrategy.deferredInShell(command: "zmx attach my-session")
-
-        // Assert
-        #expect(strategy.startupCommandForSurface == nil)
-        #expect(strategy.deferredStartupCommand == "zmx attach my-session")
     }
 
     @Test
     func test_surfaceConfiguration_capturesStartupStrategy() {
         // Arrange
-        let strategy = Ghostty.SurfaceStartupStrategy.deferredInShell(command: "zmx attach abc")
+        let strategy = Ghostty.SurfaceStartupStrategy.surfaceCommand("/usr/local/bin/zmx attach abc /bin/zsh -i -l")
 
         // Act
         let config = Ghostty.SurfaceConfiguration(

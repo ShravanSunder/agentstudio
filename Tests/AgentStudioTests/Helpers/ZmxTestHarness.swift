@@ -15,6 +15,7 @@ final class ZmxTestHarness: @unchecked Sendable {
     let zmxPath: String?
     private let executor: DefaultProcessExecutor
     private var spawnedProcesses: [SpawnedProcess] = []
+    private let clock = ContinuousClock()
 
     init() {
         let shortId = UUID().uuidString.prefix(8).lowercased()
@@ -115,6 +116,37 @@ final class ZmxTestHarness: @unchecked Sendable {
         // Remove the temp directory in defer.
     }
 
+    func sessionSocketPath(for sessionId: String) -> String {
+        URL(fileURLWithPath: zmxDir).appendingPathComponent(sessionId).path
+    }
+
+    func waitForSessionSocket(
+        sessionId: String,
+        exists expectedExists: Bool,
+        timeout: Duration = .seconds(10)
+    ) async -> Bool {
+        let sessionSocketPath = sessionSocketPath(for: sessionId)
+        if FileManager.default.fileExists(atPath: sessionSocketPath) == expectedExists {
+            return true
+        }
+
+        let directoryFileDescriptor = open(zmxDir, O_EVTONLY)
+        guard directoryFileDescriptor >= 0 else {
+            return await fallbackWaitForSessionSocket(
+                sessionId: sessionId,
+                exists: expectedExists,
+                timeout: timeout
+            )
+        }
+        defer { close(directoryFileDescriptor) }
+        return await awaitSessionSocketEvent(
+            fileDescriptor: directoryFileDescriptor,
+            sessionSocketPath: sessionSocketPath,
+            exists: expectedExists,
+            timeout: timeout
+        )
+    }
+
     /// Spawn a zmx attach command against a real zmx daemon.
     ///
     /// The returned process must be awaited by callers through `cleanup()`.
@@ -142,6 +174,83 @@ final class ZmxTestHarness: @unchecked Sendable {
             ))
 
         return process
+    }
+
+    private func awaitSessionSocketEvent(
+        fileDescriptor: Int32,
+        sessionSocketPath: String,
+        exists expectedExists: Bool,
+        timeout: Duration
+    ) async -> Bool {
+        final class CompletionGate: @unchecked Sendable {
+            private let lock = NSLock()
+            private var completed = false
+
+            func tryComplete() -> Bool {
+                lock.lock()
+                defer { lock.unlock() }
+                guard !completed else { return false }
+                completed = true
+                return true
+            }
+        }
+
+        return await withCheckedContinuation { continuation in
+            let completionGate = CompletionGate()
+            let eventSource = DispatchSource.makeFileSystemObjectSource(
+                fileDescriptor: fileDescriptor,
+                eventMask: [.write, .rename, .delete],
+                queue: DispatchQueue.global(qos: .userInitiated)
+            )
+            let timeoutTask = Task {
+                do {
+                    try await self.clock.sleep(for: timeout)
+                } catch {
+                    return
+                }
+                if completionGate.tryComplete() {
+                    eventSource.cancel()
+                    continuation.resume(returning: false)
+                }
+            }
+
+            let finish: @Sendable (Bool) -> Void = { result in
+                guard completionGate.tryComplete() else { return }
+                timeoutTask.cancel()
+                eventSource.cancel()
+                continuation.resume(returning: result)
+            }
+
+            eventSource.setEventHandler {
+                let currentExists = FileManager.default.fileExists(atPath: sessionSocketPath)
+                if currentExists == expectedExists {
+                    finish(true)
+                }
+            }
+            eventSource.setCancelHandler {}
+            eventSource.resume()
+
+            let currentExists = FileManager.default.fileExists(atPath: sessionSocketPath)
+            if currentExists == expectedExists {
+                finish(true)
+            }
+        }
+    }
+
+    private func fallbackWaitForSessionSocket(
+        sessionId: String,
+        exists expectedExists: Bool,
+        timeout: Duration
+    ) async -> Bool {
+        let deadline = clock.now + timeout
+        let sessionSocketPath = sessionSocketPath(for: sessionId)
+        while clock.now < deadline {
+            if FileManager.default.fileExists(atPath: sessionSocketPath) == expectedExists {
+                return true
+            }
+            await Task.yield()
+        }
+        return FileManager.default.fileExists(atPath: sessionSocketPath) == expectedExists
     }
 
     /// Walk up from the test binary to find vendor/zmx/zig-out/bin/zmx.
