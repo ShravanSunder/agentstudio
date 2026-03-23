@@ -67,7 +67,7 @@ SwiftUI split tree
 ### Current coupling problems
 
 - `AgentStudioTerminalView` is both the pane’s AppKit identity and the direct Ghostty parent.
-- `displaySurface(...)` removes and re-adds `Ghostty.SurfaceView`.
+- `displaySurface(...)` removes and re-adds `Ghostty.SurfaceView` inside the same stable terminal host.
 - The split subtree can churn structurally while terminal host identity is implicit.
 - Focus reconciliation is mostly keyed off active selection changes.
 - Visible size can currently be sent through several overlapping paths:
@@ -75,8 +75,8 @@ SwiftUI split tree
   - `GhosttySurfaceView.viewDidMoveToWindow()` async resend
   - `GhosttySurfaceView.viewDidChangeBackingProperties()`
   - `AgentStudioTerminalView.layout()`
-  - `syncToResolvedPaneFrame(...)`
-  - `PaneTabViewController.scheduleTerminalGeometrySync(...)`
+  - `AgentStudioTerminalView.forceGeometrySync(...)`
+  - `PaneTabViewController.syncVisibleTerminalGeometry(...)`
 
 ## Target Architecture
 
@@ -156,7 +156,8 @@ pane identity
   = direct Ghostty parent
 
 if split-tree structure churns,
-the renderer parent can churn too
+the renderer child can still be removed and re-added,
+and repaint timing can drift from the host lifecycle
 
 
 TARGET
@@ -167,8 +168,8 @@ pane identity
 renderer parent
   = GhosttyMountView
 
-split-tree churn resizes/repositions the host,
-but does not casually change Ghostty parentage
+split-tree churn still resizes/repositions the host,
+but renderer mount/unmount is isolated behind one explicit boundary
 ```
 
 ### Runtime responsibility split
