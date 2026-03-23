@@ -123,7 +123,11 @@ if [ -z "$RUN_ID" ]; then
 fi
 BUILD_PATH="${SWIFT_BUILD_DIR:-.build-agent-$RUN_ID}"
 echo "[build] BUILD_PATH=$BUILD_PATH"
-swift build --build-path "$BUILD_PATH"
+if command -v xcbeautify >/dev/null 2>&1; then
+  swift build --build-path "$BUILD_PATH" 2>&1 | xcbeautify ${XCB_EXTRA_ARGS:-}
+else
+  swift build --build-path "$BUILD_PATH"
+fi
 """
 
 [tasks.build-release]
@@ -138,7 +142,11 @@ if [ -z "$RUN_ID" ]; then
 fi
 BUILD_PATH="${SWIFT_BUILD_DIR:-.build-release-agent-$RUN_ID}"
 echo "[build-release] BUILD_PATH=$BUILD_PATH"
-swift build -c release --build-path "$BUILD_PATH"
+if command -v xcbeautify >/dev/null 2>&1; then
+  swift build -c release --build-path "$BUILD_PATH" 2>&1 | xcbeautify ${XCB_EXTRA_ARGS:-}
+else
+  swift build -c release --build-path "$BUILD_PATH"
+fi
 """
 
 [tasks.test]
@@ -290,8 +298,13 @@ run = """
 #!/usr/bin/env bash
 set -euo pipefail
 BUILD_PATH="${SWIFT_BUILD_DIR:-.build}"
-swift build --build-tests --build-path "$BUILD_PATH"
-AGENT_STUDIO_BENCHMARK_MODE=off swift test --skip-build --filter E2ESerializedTests --build-path "$BUILD_PATH"
+if command -v xcbeautify >/dev/null 2>&1; then
+  swift build --build-tests --build-path "$BUILD_PATH" 2>&1 | xcbeautify ${XCB_EXTRA_ARGS:-}
+  AGENT_STUDIO_BENCHMARK_MODE=off swift test --skip-build --filter E2ESerializedTests --build-path "$BUILD_PATH" 2>&1 | xcbeautify ${XCB_EXTRA_ARGS:-}
+else
+  swift build --build-tests --build-path "$BUILD_PATH"
+  AGENT_STUDIO_BENCHMARK_MODE=off swift test --skip-build --filter E2ESerializedTests --build-path "$BUILD_PATH"
+fi
 """
 
 [tasks.test-zmx-e2e]
@@ -300,8 +313,13 @@ run = """
 #!/usr/bin/env bash
 set -euo pipefail
 BUILD_PATH="${SWIFT_BUILD_DIR:-.build}"
-swift build --build-tests --build-path "$BUILD_PATH"
-AGENT_STUDIO_BENCHMARK_MODE=off swift test --skip-build --filter ZmxE2ETests --build-path "$BUILD_PATH"
+if command -v xcbeautify >/dev/null 2>&1; then
+  swift build --build-tests --build-path "$BUILD_PATH" 2>&1 | xcbeautify ${XCB_EXTRA_ARGS:-}
+  AGENT_STUDIO_BENCHMARK_MODE=off swift test --skip-build --filter ZmxE2ETests --build-path "$BUILD_PATH" 2>&1 | xcbeautify ${XCB_EXTRA_ARGS:-}
+else
+  swift build --build-tests --build-path "$BUILD_PATH"
+  AGENT_STUDIO_BENCHMARK_MODE=off swift test --skip-build --filter ZmxE2ETests --build-path "$BUILD_PATH"
+fi
 """
 
 [tasks.test-benchmark]
@@ -318,8 +336,13 @@ fi
 BUILD_PATH="${SWIFT_BUILD_DIR:-.build-agent-$RUN_ID}"
 export AGENT_STUDIO_BENCHMARK_MODE=benchmark
 
-swift test --build-path "$BUILD_PATH" --filter "PushBenchmarkSupportTests"
-swift test --build-path "$BUILD_PATH" --filter "PushPerformanceBenchmarkTests"
+if command -v xcbeautify >/dev/null 2>&1; then
+  swift test --build-path "$BUILD_PATH" --filter "PushBenchmarkSupportTests" 2>&1 | xcbeautify ${XCB_EXTRA_ARGS:-}
+  swift test --build-path "$BUILD_PATH" --filter "PushPerformanceBenchmarkTests" 2>&1 | xcbeautify ${XCB_EXTRA_ARGS:-}
+else
+  swift test --build-path "$BUILD_PATH" --filter "PushBenchmarkSupportTests"
+  swift test --build-path "$BUILD_PATH" --filter "PushPerformanceBenchmarkTests"
+fi
 """
 
 [tasks.clean]

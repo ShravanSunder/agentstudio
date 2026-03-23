@@ -8,11 +8,25 @@
 #
 # Optional variables:
 #   EXTRA_SWIFT_TEST_ARGS - Additional swift test flags (e.g. "--enable-code-coverage")
+#   XCB_EXTRA_ARGS        - Extra xcbeautify flags (e.g. "--renderer github-actions")
+
+set -o pipefail
+
+_xcb_pipe_cmd() {
+  if command -v xcbeautify >/dev/null 2>&1; then
+    # shellcheck disable=SC2086
+    echo "xcbeautify"${XCB_EXTRA_ARGS:+ $XCB_EXTRA_ARGS}
+  else
+    echo "cat"
+  fi
+}
 
 prebuild_swift_tests() {
   echo "[$LOG_PREFIX] >>> prebuild test bundles"
+  local xcb_pipe
+  xcb_pipe=$(_xcb_pipe_cmd)
   # shellcheck disable=SC2086
-  swift build --build-tests ${EXTRA_SWIFT_TEST_ARGS:-} --build-path "$BUILD_PATH"
+  swift build --build-tests ${EXTRA_SWIFT_TEST_ARGS:-} --build-path "$BUILD_PATH" 2>&1 | $xcb_pipe
 }
 
 run_swift_with_timeout() {
@@ -27,7 +41,13 @@ run_swift_with_timeout() {
   local last_heartbeat="$start_epoch"
   local timed_out=0
 
-  "$@" &
+  local xcb_pipe
+  xcb_pipe=$(_xcb_pipe_cmd)
+
+  # Run command piped through xcbeautify in a subshell so we track one PID.
+  # Subshell inherits pipefail from parent — swift exit code propagates.
+  # shellcheck disable=SC2086
+  ( "$@" 2>&1 | $xcb_pipe ) &
   local command_pid=$!
 
   while kill -0 "$command_pid" 2>/dev/null; do

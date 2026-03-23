@@ -11,6 +11,7 @@ A fresh worktree or clone cannot build or test without completing these steps fi
 - **mise** — build orchestrator: `brew install mise`
 - **swift-format** — code formatter: `brew install swift-format`
 - **swiftlint** — linter: `brew install swiftlint`
+- **xcbeautify** — beautifies swift build/test output: `brew install xcbeautify`
 
 ### Bootstrap Steps
 

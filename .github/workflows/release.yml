@@ -169,7 +169,7 @@ jobs:
       - name: Build AgentStudio
         run: |
           set -o pipefail
-          swift build -c release 2>&1 | scripts/filter-known-linker-warnings.sh
+          swift build -c release 2>&1 | scripts/filter-known-linker-warnings.sh | xcbeautify --renderer github-actions
 
       - name: Create App Bundle
         run: |

@@ -17,6 +17,7 @@ jobs:
     env:
       AGENT_RUN_ID: ci
       SWIFT_BUILD_DIR: .build-ci
+      XCB_EXTRA_ARGS: "--renderer github-actions"
 
     steps:
       - name: Checkout
@@ -139,7 +140,16 @@ jobs:
         env:
           SWIFT_TEST_WORKERS: "8"
           SWIFT_TEST_INCLUDE_E2E: "0"
+          XCB_EXTRA_ARGS: "--renderer github-actions --report junit --report-path test-results-main.xml"
         run: mise run test
+
+      - name: Upload test results
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: test-results
+          path: test-results-*.xml
+          if-no-files-found: warn
 
       - name: Benchmark tests
         run: |
