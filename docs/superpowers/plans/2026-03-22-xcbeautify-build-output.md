@@ -4,7 +4,7 @@
 
 **Goal:** Pipe all `swift build` and `swift test` output through xcbeautify for readable, colored local output and GitHub Actions annotations in CI.
 
-**Architecture:** xcbeautify acts as a pure output filter — stdin pipe, no code changes. We add it to three layers: the shared test helper script (affects all mise test tasks), the mise build tasks, and the CI/release workflows. GitHub Actions gets the `--renderer github-actions` flag for inline annotations plus JUnit XML upload.
+**Architecture:** xcbeautify acts as a pure output filter — stdin pipe, no code changes. We add it to three layers: the shared test helper script (covers `test` and `test-coverage`), the mise build/standalone-test tasks, and the CI/release workflows. GitHub Actions gets the `--renderer github-actions` flag for inline annotations. JUnit reports use per-invocation file paths to avoid clobbering across sequential test runs.
 
 **Tech Stack:** xcbeautify (Homebrew), GitHub Actions (pre-installed on macOS runners)
 
@@ -14,6 +14,7 @@
 - GitHub renderer: `--renderer github-actions` (creates inline warning/error annotations)
 - JUnit: `--report junit --report-path <file>.xml`
 - `set -o pipefail` preserves the exit code from swift, not xcbeautify
+- **Caveat:** xcbeautify was built for xcodebuild/XCTest output. Swift 6 `Testing` framework output may pass through partially unparsed. Verify during local testing (Task 1 Step 5). Worst case: output passes through unformatted, which is the same as today.
 
 ---
 
@@ -21,9 +22,9 @@
 
 | File | Action | Responsibility |
 |------|--------|----------------|
-| `scripts/swift-test-helpers.sh` | Modify | Pipe swift build/test through xcbeautify in helper functions |
-| `.mise.toml` | Modify | Pipe `swift build` in build/build-release tasks through xcbeautify |
-| `.github/workflows/ci.yml` | Modify | Add `--renderer github-actions`, JUnit report, upload test results |
+| `scripts/swift-test-helpers.sh` | Modify | Pipe swift build/test through xcbeautify in helper functions; add `pipefail` guard |
+| `.mise.toml` | Modify | Pipe `swift build` in build/build-release/test-e2e/test-zmx-e2e/test-benchmark through xcbeautify |
+| `.github/workflows/ci.yml` | Modify | Add `--renderer github-actions`, JUnit reports (per-invocation paths), upload test results |
 | `.github/workflows/release.yml` | Modify | Pipe release build through xcbeautify with github-actions renderer |
 | `docs/guides/agent_resources.md` | Modify | Add xcbeautify to local dev prerequisites |
 
@@ -31,21 +32,34 @@
 
 ### Task 1: Add xcbeautify piping to swift-test-helpers.sh
 
-The shared helper is sourced by all mise test tasks, so this single change covers `test`, `test-coverage`, `test-e2e`, `test-zmx-e2e`, and `test-benchmark`.
+The shared helper is sourced by the `test` and `test-coverage` mise tasks. Other standalone test tasks (`test-e2e`, `test-zmx-e2e`, `test-benchmark`) call swift directly and are handled in Task 2.
 
 **Files:**
 - Modify: `scripts/swift-test-helpers.sh`
 
-- [ ] **Step 1: Add xcbeautify detection at the top of the helpers**
+- [ ] **Step 1: Add pipefail guard and xcbeautify detection**
 
-Add a function that checks if xcbeautify is available and sets a pipe command variable. When unavailable (e.g. fresh CI without brew), fall back to `cat` so nothing breaks.
+The helper currently relies on callers having set `pipefail`. Make it self-contained by adding `pipefail` at the top, plus the xcbeautify detection function.
 
 ```bash
-# Add after the comment block at top of file, before prebuild_swift_tests()
+#!/usr/bin/env bash
+# Shared test helper functions for mise tasks.
+#
+# Required variables (set by caller before sourcing):
+#   LOG_PREFIX         - Log prefix, e.g. "test" or "test-coverage"
+#   TIMEOUT_SECONDS    - Timeout in seconds for swift commands
+#   BUILD_PATH         - Swift build path
+#
+# Optional variables:
+#   EXTRA_SWIFT_TEST_ARGS - Additional swift test flags (e.g. "--enable-code-coverage")
+#   XCB_EXTRA_ARGS        - Extra xcbeautify flags (e.g. "--renderer github-actions")
+
+set -o pipefail
 
 _xcb_pipe_cmd() {
   if command -v xcbeautify >/dev/null 2>&1; then
-    echo "xcbeautify ${XCB_EXTRA_ARGS:-}"
+    # shellcheck disable=SC2086
+    echo "xcbeautify"${XCB_EXTRA_ARGS:+ $XCB_EXTRA_ARGS}
   else
     echo "cat"
   fi
@@ -57,16 +71,18 @@ _xcb_pipe_cmd() {
 ```bash
 prebuild_swift_tests() {
   echo "[$LOG_PREFIX] >>> prebuild test bundles"
+  local xcb_pipe
+  xcb_pipe=$(_xcb_pipe_cmd)
   # shellcheck disable=SC2086
-  swift build --build-tests ${EXTRA_SWIFT_TEST_ARGS:-} --build-path "$BUILD_PATH" 2>&1 | $(_xcb_pipe_cmd)
+  swift build --build-tests ${EXTRA_SWIFT_TEST_ARGS:-} --build-path "$BUILD_PATH" 2>&1 | $xcb_pipe
 }
 ```
 
 - [ ] **Step 3: Pipe the command output in run_swift_with_timeout**
 
-The tricky part: `run_swift_with_timeout` backgrounds the swift command and monitors it. We need to pipe through xcbeautify while preserving the background PID and exit code. The pipe needs to be part of the backgrounded command group.
+The tricky part: `run_swift_with_timeout` backgrounds the swift command and monitors it. We pipe through xcbeautify inside a subshell so we track one PID. The subshell inherits `pipefail` from the parent (bash forks the process), so if swift fails, the subshell exit code reflects the swift failure.
 
-Replace the `"$@" &` line and the `wait` logic:
+Replace the full function:
 
 ```bash
 run_swift_with_timeout() {
@@ -84,7 +100,9 @@ run_swift_with_timeout() {
   local xcb_pipe
   xcb_pipe=$(_xcb_pipe_cmd)
 
-  # Run command piped through xcbeautify in a subshell so we track one PID
+  # Run command piped through xcbeautify in a subshell so we track one PID.
+  # Subshell inherits pipefail from parent — swift exit code propagates.
+  # shellcheck disable=SC2086
   ( "$@" 2>&1 | $xcb_pipe ) &
   local command_pid=$!
 
@@ -124,17 +142,9 @@ run_swift_with_timeout() {
 }
 ```
 
-- [ ] **Step 4: Pipe webkit retry suite output**
+- [ ] **Step 4: No change needed for run_webkit_suite_with_retry**
 
-In `run_webkit_suite_with_retry`, the output is already captured in a variable. Update the swift test invocation to pipe through xcbeautify:
-
-```bash
-    output=$(run_swift_with_timeout "$filter" "$TIMEOUT_SECONDS" \
-      env AGENT_STUDIO_BENCHMARK_MODE=off swift test ${EXTRA_SWIFT_TEST_ARGS:-} \
-      --skip-build --filter "$filter" --build-path "$BUILD_PATH" 2>&1)
-```
-
-This already goes through `run_swift_with_timeout` which now pipes through xcbeautify internally. **No change needed here** — the pipe is handled by the timeout wrapper.
+`run_webkit_suite_with_retry` calls `run_swift_with_timeout` internally, which now pipes through xcbeautify. No change needed here.
 
 - [ ] **Step 5: Verify locally**
 
@@ -146,7 +156,7 @@ brew install xcbeautify
 AGENT_RUN_ID=xcb mise run test
 ```
 
-Expected: colored, clean output with test names and pass/fail status.
+Expected: colored, clean output with test names and pass/fail status. Check specifically that Swift `Testing` framework output (`@Test`, `@Suite`) renders reasonably — if not, it passes through unformatted which is acceptable.
 
 - [ ] **Step 6: Commit**
 
@@ -157,7 +167,9 @@ git commit -m "feat: pipe swift build/test output through xcbeautify in test hel
 
 ---
 
-### Task 2: Add xcbeautify piping to mise build tasks
+### Task 2: Add xcbeautify piping to mise build and standalone test tasks
+
+The `test-e2e`, `test-zmx-e2e`, and `test-benchmark` tasks call swift directly (they don't source `swift-test-helpers.sh`), so they need explicit xcbeautify piping.
 
 **Files:**
 - Modify: `.mise.toml`
@@ -212,7 +224,72 @@ fi
 """
 ```
 
-- [ ] **Step 3: Verify build locally**
+- [ ] **Step 3: Pipe test-e2e task output**
+
+```toml
+[tasks.test-e2e]
+description = "Run E2E serialized tests only (opt-in; zmx E2E currently unstable)"
+run = """
+#!/usr/bin/env bash
+set -euo pipefail
+BUILD_PATH="${SWIFT_BUILD_DIR:-.build}"
+if command -v xcbeautify >/dev/null 2>&1; then
+  swift build --build-tests --build-path "$BUILD_PATH" 2>&1 | xcbeautify ${XCB_EXTRA_ARGS:-}
+  AGENT_STUDIO_BENCHMARK_MODE=off swift test --skip-build --filter E2ESerializedTests --build-path "$BUILD_PATH" 2>&1 | xcbeautify ${XCB_EXTRA_ARGS:-}
+else
+  swift build --build-tests --build-path "$BUILD_PATH"
+  AGENT_STUDIO_BENCHMARK_MODE=off swift test --skip-build --filter E2ESerializedTests --build-path "$BUILD_PATH"
+fi
+"""
+```
+
+- [ ] **Step 4: Pipe test-zmx-e2e task output**
+
+```toml
+[tasks.test-zmx-e2e]
+description = "Run zmx E2E tests only (opt-in; may stall)"
+run = """
+#!/usr/bin/env bash
+set -euo pipefail
+BUILD_PATH="${SWIFT_BUILD_DIR:-.build}"
+if command -v xcbeautify >/dev/null 2>&1; then
+  swift build --build-tests --build-path "$BUILD_PATH" 2>&1 | xcbeautify ${XCB_EXTRA_ARGS:-}
+  AGENT_STUDIO_BENCHMARK_MODE=off swift test --skip-build --filter ZmxE2ETests --build-path "$BUILD_PATH" 2>&1 | xcbeautify ${XCB_EXTRA_ARGS:-}
+else
+  swift build --build-tests --build-path "$BUILD_PATH"
+  AGENT_STUDIO_BENCHMARK_MODE=off swift test --skip-build --filter ZmxE2ETests --build-path "$BUILD_PATH"
+fi
+"""
+```
+
+- [ ] **Step 5: Pipe test-benchmark task output**
+
+```toml
+[tasks.test-benchmark]
+description = "Run benchmark-only bridge push tests"
+depends = ["build"]
+run = """
+#!/usr/bin/env bash
+set -euo pipefail
+RUN_ID="${AGENT_RUN_ID:-}"
+if [ -z "$RUN_ID" ]; then
+  echo "[test-benchmark] ERROR: AGENT_RUN_ID is required (example: AGENT_RUN_ID=abc123 mise run test-benchmark)"
+  exit 2
+fi
+BUILD_PATH="${SWIFT_BUILD_DIR:-.build-agent-$RUN_ID}"
+export AGENT_STUDIO_BENCHMARK_MODE=benchmark
+
+if command -v xcbeautify >/dev/null 2>&1; then
+  swift test --build-path "$BUILD_PATH" --filter "PushBenchmarkSupportTests" 2>&1 | xcbeautify ${XCB_EXTRA_ARGS:-}
+  swift test --build-path "$BUILD_PATH" --filter "PushPerformanceBenchmarkTests" 2>&1 | xcbeautify ${XCB_EXTRA_ARGS:-}
+else
+  swift test --build-path "$BUILD_PATH" --filter "PushBenchmarkSupportTests"
+  swift test --build-path "$BUILD_PATH" --filter "PushPerformanceBenchmarkTests"
+fi
+"""
+```
+
+- [ ] **Step 6: Verify build locally**
 
 ```bash
 AGENT_RUN_ID=xcb mise run build
@@ -220,11 +297,11 @@ AGENT_RUN_ID=xcb mise run build
 
 Expected: beautified compilation output.
 
-- [ ] **Step 4: Commit**
+- [ ] **Step 7: Commit**
 
 ```bash
 git add .mise.toml
-git commit -m "feat: pipe mise build tasks through xcbeautify"
+git commit -m "feat: pipe all mise build/test tasks through xcbeautify"
 ```
 
 ---
@@ -249,22 +326,24 @@ jobs:
 
 xcbeautify is pre-installed on macOS runners — no install step needed.
 
-- [ ] **Step 2: Add JUnit report generation to the Test step**
+- [ ] **Step 2: Override XCB_EXTRA_ARGS for the Test step with JUnit report**
 
-Update the Test step to also generate a JUnit XML report. We set `XCB_EXTRA_ARGS` to include the report flag for the test step specifically:
+Each `run_swift_with_timeout` invocation spawns a separate xcbeautify process. If all write to the same `--report-path`, later invocations clobber earlier results. Use a unique report path per step by setting the env only for the main test invocation (which runs the bulk of tests):
 
 ```yaml
       - name: Test
         env:
           SWIFT_TEST_WORKERS: "8"
           SWIFT_TEST_INCLUDE_E2E: "0"
-          XCB_EXTRA_ARGS: "--renderer github-actions --report junit --report-path test-results.xml"
+          XCB_EXTRA_ARGS: "--renderer github-actions --report junit --report-path test-results-main.xml"
         run: mise run test
 ```
 
+Note: The JUnit file will contain results from whichever xcbeautify invocation ran last within `mise run test` (the webkit suites or the main parallel suite, depending on ordering). This is a known limitation — xcbeautify creates a fresh report per process. For most CI purposes, the main parallel suite results (which run the bulk of tests) are sufficient. If complete aggregation is needed later, we can merge XML files in a post-step.
+
 - [ ] **Step 3: Add test results upload step**
 
-After the Test step, add a step to upload the JUnit XML as a check/artifact:
+After the Test step, upload all JUnit XML files:
 
 ```yaml
       - name: Upload test results
@@ -272,15 +351,11 @@ After the Test step, add a step to upload the JUnit XML as a check/artifact:
         uses: actions/upload-artifact@v4
         with:
           name: test-results
-          path: test-results.xml
+          path: test-results-*.xml
           if-no-files-found: warn
 ```
 
-- [ ] **Step 4: Verify the Build step also gets beautified**
-
-The Build step (`mise run build-release`) will pick up the job-level `XCB_EXTRA_ARGS: "--renderer github-actions"` automatically. No change needed to that step.
-
-- [ ] **Step 5: Commit**
+- [ ] **Step 4: Commit**
 
 ```bash
 git add .github/workflows/ci.yml
@@ -294,25 +369,18 @@ git commit -m "feat: add xcbeautify github-actions renderer and JUnit reports to
 **Files:**
 - Modify: `.github/workflows/release.yml`
 
-- [ ] **Step 1: Add XCB_EXTRA_ARGS env and pipe release build**
+- [ ] **Step 1: Pipe release build through xcbeautify**
 
 The release workflow has a standalone `swift build -c release` call that pipes through `filter-known-linker-warnings.sh`. Chain xcbeautify after the filter:
 
 ```yaml
-jobs:
-  build:
-    runs-on: macos-26
-    env:
-      XCB_EXTRA_ARGS: "--renderer github-actions"
-
-    steps:
-      # ... existing steps unchanged ...
-
       - name: Build AgentStudio
         run: |
           set -o pipefail
           swift build -c release 2>&1 | scripts/filter-known-linker-warnings.sh | xcbeautify --renderer github-actions
 ```
+
+No job-level env var needed here — the renderer flag is hardcoded since this is the only swift command in the release workflow.
 
 - [ ] **Step 2: Commit**
 
