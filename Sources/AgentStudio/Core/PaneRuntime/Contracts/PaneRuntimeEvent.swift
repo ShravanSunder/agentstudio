@@ -1,6 +1,6 @@
 import Foundation
 
-/// Discriminated union for all runtime-plane events carried on `PaneEventEnvelope`.
+/// Discriminated union for all pane-scoped runtime-plane events carried on `RuntimeEnvelope.pane`.
 ///
 /// Each case defines its own domain payload and participates in self-classifying
 /// `actionPolicy` routing through `NotificationReducer`.
@@ -54,23 +54,99 @@ enum AttachError: Error, Sendable, Equatable {
 }
 
 enum FilesystemEvent: Sendable {
+    case worktreeRegistered(worktreeId: UUID, repoId: UUID, rootPath: URL)
+    case worktreeUnregistered(worktreeId: UUID, repoId: UUID)
     case filesChanged(changeset: FileChangeset)
-    case gitStatusChanged(summary: GitStatusSummary)
-    case diffAvailable(diffId: UUID)
-    case branchChanged(from: String, to: String)
+    case gitSnapshotChanged(snapshot: GitWorkingTreeSnapshot)
+    case diffAvailable(diffId: UUID, worktreeId: UUID, repoId: UUID)
+    case branchChanged(worktreeId: UUID, repoId: UUID, from: String, to: String)
 }
 
 struct FileChangeset: Sendable {
     let worktreeId: WorktreeId
-    let paths: Set<String>
+    let repoId: UUID
+    let rootPath: URL
+    let paths: [String]
+    let containsGitInternalChanges: Bool
+    let suppressedIgnoredPathCount: Int
+    let suppressedGitInternalPathCount: Int
     let timestamp: ContinuousClock.Instant
     let batchSeq: UInt64
+
+    init(
+        worktreeId: WorktreeId,
+        repoId: UUID? = nil,
+        rootPath: URL,
+        paths: [String],
+        containsGitInternalChanges: Bool = false,
+        suppressedIgnoredPathCount: Int = 0,
+        suppressedGitInternalPathCount: Int = 0,
+        timestamp: ContinuousClock.Instant,
+        batchSeq: UInt64
+    ) {
+        self.worktreeId = worktreeId
+        self.repoId = repoId ?? worktreeId
+        self.rootPath = rootPath
+        self.paths = paths
+        self.containsGitInternalChanges = containsGitInternalChanges
+        self.suppressedIgnoredPathCount = suppressedIgnoredPathCount
+        self.suppressedGitInternalPathCount = suppressedGitInternalPathCount
+        self.timestamp = timestamp
+        self.batchSeq = batchSeq
+    }
 }
 
-struct GitStatusSummary: Sendable {
+struct GitWorkingTreeSummary: Sendable, Equatable {
     let changed: Int
     let staged: Int
     let untracked: Int
+    let linesAdded: Int
+    let linesDeleted: Int
+    let aheadCount: Int?
+    let behindCount: Int?
+    let hasUpstream: Bool?
+
+    init(
+        changed: Int,
+        staged: Int,
+        untracked: Int,
+        linesAdded: Int = 0,
+        linesDeleted: Int = 0,
+        aheadCount: Int? = nil,
+        behindCount: Int? = nil,
+        hasUpstream: Bool? = nil
+    ) {
+        self.changed = changed
+        self.staged = staged
+        self.untracked = untracked
+        self.linesAdded = linesAdded
+        self.linesDeleted = linesDeleted
+        self.aheadCount = aheadCount
+        self.behindCount = behindCount
+        self.hasUpstream = hasUpstream
+    }
+}
+
+struct GitWorkingTreeSnapshot: Sendable, Equatable {
+    let worktreeId: UUID
+    let repoId: UUID
+    let rootPath: URL
+    let summary: GitWorkingTreeSummary
+    let branch: String?
+
+    init(
+        worktreeId: UUID,
+        repoId: UUID? = nil,
+        rootPath: URL,
+        summary: GitWorkingTreeSummary,
+        branch: String?
+    ) {
+        self.worktreeId = worktreeId
+        self.repoId = repoId ?? worktreeId
+        self.rootPath = rootPath
+        self.summary = summary
+        self.branch = branch
+    }
 }
 
 enum ArtifactEvent: Sendable {

@@ -32,11 +32,11 @@ You provide your contributions on an "AS IS" basis, without warranties of any ki
 
 ### How to Sign
 
-Comment on your first pull request with:
+The CLA is accepted automatically when you submit a pull request.
 
-> I have read and agree to the [CLA](CLA.md).
+The PR template includes a "Contributor License Agreement" section at the bottom. **Do not remove or modify that section.** Keeping it intact when you open a PR constitutes your full agreement to these terms.
 
-One signature covers all future contributions.
+One agreement covers all future contributions from the same GitHub account. You do not need to sign again for subsequent PRs.
 
 ### Dual Licensing Notice
 

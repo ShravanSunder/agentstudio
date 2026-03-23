@@ -7,7 +7,7 @@
 
 ## TL;DR
 
-One `actor EventBus` on cooperative pool. Domain boundary actors (FilesystemActor, ForgeActor, ContainerActor) for off-MainActor work — each owns its transport internally. `@MainActor` runtimes for `@Observable` state. `@Observable` for UI binding, bus for coordination — same event, multiplexed. `@concurrent` for heavy one-shot per-pane work. No core actor calls another core actor for event-plane data (command-plane request-response calls are direct). Plugin sources are actors with injected `PluginContext` for mediated bus access (deferred). Swift 6.2 / macOS 26.
+One `actor EventBus<RuntimeEnvelope>` on cooperative pool. `RuntimeEnvelope` is a 3-tier discriminated union (`SystemEnvelope`, `WorktreeEnvelope`, `PaneEnvelope`). Domain boundary actors (FilesystemActor, GitWorkingDirectoryProjector, ForgeActor, ContainerActor) for off-MainActor work — each owns its transport internally. `@MainActor` runtimes for `@Observable` state. `@Observable` for UI binding, bus for coordination — same event, multiplexed. `@concurrent` for heavy one-shot per-pane work. `WorkspaceCacheCoordinator` consumes topology and enrichment events to maintain canonical stores and cache. ForgeActor is event-driven (subscribes to `.branchChanged`/`.originChanged` on bus) with fallback polling. No core actor calls another core actor for event-plane data (command-plane request-response calls are direct). Plugin sources are actors with injected `PluginContext` for mediated bus access (deferred). Swift 6.2 / macOS 26.
 
 ## Why This Exists
 
@@ -21,7 +21,7 @@ Four problems drive this design:
 
 3. **One-way data flow.** Events flow producers → bus → subscribers. Commands flow user/system → coordinator → runtime. These never share the same channel. The bus carries events only.
 
-4. **Consistent pattern.** All producers `await bus.post(envelope)`, all consumers `for await envelope in bus.subscribe()`. Whether the event originates from a Ghostty C callback, an FSEvents watcher, or a future MCP plugin — same interface.
+4. **Consistent pattern.** All producers `await bus.post(envelope)`, all consumers `for await envelope in bus.subscribe()`. Topology events (`.repoDiscovered`) and enrichment events (`.snapshotChanged`, `.branchChanged`) all flow through the same bus. The coordinator's bus subscription is the single intake for all facts.
 
 ## Relationship to Pane Runtime Architecture
 
@@ -62,13 +62,13 @@ Each contract (C1-C16) has a specific relationship to the EventBus:
 
     C callback              FSEvents callback       gh CLI / HTTP         HTTP / Docker API
     → @Sendable trampoline  → FilesystemActor       → ForgeActor          → ContainerActor
-    → MainActor translate   → debounce + git status → poll PR / checks    → poll health
+    → MainActor translate   → batch facts + git projector → poll PR / checks    → poll health
     → runtime.emit()        → bus.post(envelope)    → bus.post(envelope)  → bus.post(envelope)
          │                        │                       │                     │
          │ bus.post(envelope)     │                       │                     │
          ▼                        ▼                       ▼                     ▼
     ┌─────────────────────────────────────────────────────────────┐
-    │               actor EventBus<PaneEventEnvelope>             │
+    │               actor EventBus<RuntimeEnvelope>               │
     │                    (cooperative pool)                        │
     │                                                             │
     │   subscribers: [UUID: AsyncStream.Continuation]             │
@@ -78,17 +78,100 @@ Each contract (C1-C16) has a specific relationship to the EventBus:
     └─────────────────────────────────────────────────────────────┘
          │                  │                    │
          ▼                  ▼                    ▼
-    ┌──────────┐   ┌──────────────────┐   ┌────────────────┐
-    │ Reducer  │   │  Coordinator     │   │ Future:        │
-    │ (C12)    │   │  cross-pane      │   │ analytics,     │
-    │          │   │  workflows       │   │ workflow (C13) │
-    └──────────┘   └──────────────────┘   └────────────────┘
+    ┌──────────┐   ┌──────────────────┐   ┌──────────────────┐   ┌────────────────┐
+    │ Reducer  │   │  CacheCoord.    │   │  PaneCoord.     │   │ Future:        │
+    │ (C12)    │   │  workspace-level│   │  cross-pane     │   │ analytics,     │
+    │          │   │  enrichment     │   │  workflows      │   │ workflow (C13) │
+    └──────────┘   └──────────────────┘   └──────────────────┘   └────────────────┘
 
                     @MainActor CONSUMERS
     ─────────────────────────────────────────────────────
 ```
 
-**Actor inventory:** 4 named actors (EventBus, FilesystemActor, ForgeActor, ContainerActor) plus `@MainActor`. No core actor calls another core actor for event-plane data — all event-plane communication flows through the EventBus. Command-plane request-response calls (e.g., `forgeActor.refresh(repo:)`) are direct. Ghostty C callback translation does NOT need its own actor — the work is ~100ns (enum match + struct init), far below the actor hop cost threshold. Git CLI write commands (commit, push, stash) are stateless request-response via ProcessExecutor — no actor needed. Shared infrastructure (URLSession, ProcessExecutor) is injected utilities, not actors.
+**Actor inventory:** 5 named actors (EventBus, FilesystemActor, GitWorkingDirectoryProjector, ForgeActor, ContainerActor) plus `@MainActor`. No core actor calls another core actor for event-plane data — all event-plane communication flows through the EventBus. ForgeActor subscribes to the bus for `.branchChanged`/`.originChanged` events rather than being directly triggered by the coordinator (bus fan-out eliminates duplicate triggers). Command-plane request-response calls (e.g., `forgeActor.refresh(repo:)`) are direct. Ghostty C callback translation does NOT need its own actor — the work is ~100ns (enum match + struct init), far below the actor hop cost threshold. Git CLI write commands (commit, push, stash) are stateless request-response via ProcessExecutor — no actor needed. Shared infrastructure (URLSession, ProcessExecutor) is injected utilities, not actors.
+
+## Two Event Systems
+
+The app has two separate event buses. They serve different purposes and carry different types:
+
+| Bus | Type | Purpose | Producers | Consumers |
+|-----|------|---------|-----------|-----------|
+| `PaneRuntimeEventBus` | `EventBus<RuntimeEnvelope>` | Runtime facts: filesystem changes, git status, forge data, topology | FilesystemActor, GitProjector, ForgeActor, AppDelegate (boot topology replay) | WorkspaceCacheCoordinator, ForgeActor (fan-out) |
+| `AppEventBus` | `EventBus<AppEvent>` | App-level notifications that are not commands | App shell coordinators, terminal/viewport notifications | AppDelegate and small app-shell consumers |
+
+**These are not redundant.** `AppEventBus` carries app-level notifications such as `.worktreeBellRang` and other app-shell fan-out that is not itself a workspace command. `PaneRuntimeEventBus` carries system facts (`.repoDiscovered`, `.snapshotChanged`, `.pullRequestCountsChanged`). Workspace work does **not** route through `AppEventBus`; it uses `PaneActionCommand` and the validated coordinator pipeline directly. AppKit/macOS lifecycle ingress uses `ApplicationLifecycleMonitor` plus lifecycle stores, not either bus. A notification on `AppEventBus` may RESULT in a runtime fact on `PaneRuntimeEventBus`, but they are different events with different semantics.
+
+All topology events (`.repoDiscovered`, `.repoRemoved`) and enrichment events (`.snapshotChanged`, `.branchChanged`) flow through `PaneRuntimeEventBus`. The coordinator's bus subscription is the single intake. AppDelegate posts `.repoDiscovered` on the bus for boot replay; `FilesystemActor` posts `.repoDiscovered` and `.repoRemoved` on the bus when diffing watched-folder refreshes.
+
+> **Files:** `Core/PaneRuntime/Events/EventChannels.swift` defines `PaneRuntimeEventBus`. `App/Events/` defines `AppEvent` and `AppEventBus`.
+
+## Direct Commands Use Capability Protocols
+
+The bus is the event-plane coordination mechanism. Direct commands still exist,
+but they should use focused capability protocols rather than concrete actor or
+pipeline types.
+
+```text
+GOOD
+caller
+  |
+  v
+FocusedCapabilityProtocol
+  |
+  v
+Concrete pipeline / actor owner
+```
+
+```text
+BAD
+caller
+  |
+  v
+GenericCommandExecutor
+```
+
+```text
+BAD
+caller
+  |
+  v
+Concrete FilesystemGitPipeline
+  |
+  +-> refreshWatchedFolders
+  +-> register
+  +-> unregister
+  +-> setActivity
+  +-> start
+  +-> shutdown
+```
+
+Why:
+
+```text
+- actor isolation is about concurrency safety
+- protocol typing is about dependency boundaries
+- callers should only see the command surface they are allowed to use
+```
+
+Current example:
+
+```text
+AppDelegate
+  |
+  v
+WatchedFolderCommandHandling
+  |
+  v
+FilesystemGitPipeline
+```
+
+Composition-root rule:
+
+```text
+- composition root may own the concrete system
+- cross-feature consumers depend on focused capability protocols
+- do not add a generic command bus or generic command executor layer
+```
 
 ## The Multiplexing Rule
 
@@ -175,18 +258,47 @@ Events from pane runtimes that are informational, tolerate 1+ frame latency, and
 
 ### Category 4: System Events (strongest bus case — off-MainActor work)
 
-Events from boundary actors. Real work (filesystem scanning, network I/O) justifies actor isolation. Multiple consumers always need these.
+Events from boundary actors. Real work (filesystem scanning, network I/O) justifies actor isolation. Multiple consumers always need these. Topology events use `SystemEnvelope`; enrichment events use `WorktreeEnvelope`.
 
-| Event | Origin | Work Duration | Frequency | Bus |
-|-------|--------|---------------|-----------|-----|
-| `filesChanged` | FSEvents → `FilesystemActor` | 1-100ms (git status) | Batched, ~1/sec burst | Yes |
-| `gitStatusChanged` | `FilesystemActor` | 10-100ms (git diff) | After batch flush | Yes |
-| `branchChanged` | `FilesystemActor` | 1-10ms | Rare | Yes |
-| `diffAvailable` | `FilesystemActor` | 10-100ms (diff compute) | After git status | Yes |
-| `securityEvent` | Security backend | Varies | Rare | Yes |
-| Future: `prStatusChanged` | `ForgeActor` | 100ms-2s (`gh` CLI or HTTP) | Polling ~30-60s | Yes |
-| Future: `checksUpdated` | `ForgeActor` | 100ms-2s (`gh` CLI or HTTP) | Polling ~30-60s | Yes |
-| Future: `containerHealthChanged` | `ContainerActor` | 100ms+ (Docker API / HTTP) | Polling ~5-10s | Yes |
+| Event | Origin | Envelope | Work Duration | Frequency | Bus |
+|-------|--------|----------|---------------|-----------|-----|
+| `repoDiscovered` | `FilesystemActor` (parent scan) | `SystemEnvelope` | 1-10ms | Rare | Yes |
+| `repoRemoved` | `FilesystemActor` (parent scan) | `SystemEnvelope` | 1ms | Rare | Yes |
+| `filesChanged` | FSEvents → `FilesystemActor` | `WorktreeEnvelope` | 1-100ms (ingest + route + batch) | Batched, ~1/sec burst | Yes |
+| `snapshotChanged` | `GitWorkingDirectoryProjector` | `WorktreeEnvelope` | 10-100ms (git status) | After filesystem batch | Yes |
+| `branchChanged` | `GitWorkingDirectoryProjector` | `WorktreeEnvelope` | 1-10ms | Rare | Yes |
+| `originChanged` | `GitWorkingDirectoryProjector` | `WorktreeEnvelope` | 1-10ms | Rare | Yes |
+| `originUnavailable` | `GitWorkingDirectoryProjector` | `WorktreeEnvelope` | 1-10ms | Rare | Yes |
+| `worktreeDiscovered` | `GitWorkingDirectoryProjector` | `WorktreeEnvelope` | 1-10ms | Rare | Yes |
+| `worktreeRemoved` | `GitWorkingDirectoryProjector` | `WorktreeEnvelope` | 1ms | Rare | Yes |
+| `securityEvent` | Security backend | `WorktreeEnvelope` | Varies | Rare | Yes |
+| `pullRequestCountsChanged` | `ForgeActor` | `WorktreeEnvelope` | 100ms-2s (`gh` CLI or HTTP) | Event-driven + polling ~30-60s | Yes |
+| `checksUpdated` | `ForgeActor` | `WorktreeEnvelope` | 100ms-2s (`gh` CLI or HTTP) | Event-driven + polling ~30-60s | Yes |
+| `refreshFailed` | `ForgeActor` | `WorktreeEnvelope` | <1ms | On failure | Yes |
+| Future: `containerHealthChanged` | `ContainerActor` | `WorktreeEnvelope` | 100ms+ (Docker API / HTTP) | Polling ~5-10s | Yes |
+
+### Primary Sidebar Event/Data Invariants (LUNA-350)
+
+These invariants are required for correct primary sidebar grouping and chip rendering:
+
+1. **Origin event ownership:** `GitWorkingDirectoryProjector` is the sole producer of repo-origin facts. It emits `.originChanged` for resolved remotes and `.originUnavailable` for explicitly confirmed local-only repos.
+2. **Typed cache identity:** `WorkspaceCacheCoordinator` materializes repo cache entries as `RepoEnrichment` DU (`.awaitingOrigin` / `.resolvedLocal` / `.resolvedRemote`), not optional-field bags.
+3. **No empty-origin shortcut:** Empty origin strings do not resolve local-only identity. A repo remains `.awaitingOrigin` until the projector emits either `.originChanged(nonEmpty)` or `.originUnavailable`.
+4. **Group-key source of truth:** Sidebar primary groups use `RepoIdentity.groupKey` only from resolved cache identity. `.awaitingOrigin` repos stay in the loading section and never participate in grouping.
+5. **Repo-scoped forge mapping:** `ForgeEvent.pullRequestCountsChanged(repoId:countsByBranch:)` must be applied only to worktrees where `worktreeEnrichment.repoId == repoId`, then keyed by branch within that repo.
+
+### Filesystem → Git Projector Decision Tree
+
+1. **Need one app-wide filesystem source**
+   `FilesystemActor` owns ingestion, ownership routing, filtering, debounce, max-latency, and chunking.
+2. **Need local git state updates without overloading ingress**
+   `GitWorkingDirectoryProjector` subscribes to filesystem facts and computes derived git facts.
+3. **Need pane/worktree fan-out without duplicate subscriptions**
+   Both source and projector publish facts to the shared EventBus; stores/projectors subscribe as needed.
+4. **Need bounded behavior under bursts**
+   `FilesystemActor` batches by path, `GitWorkingDirectoryProjector` coalesces by `worktreeId` (latest wins).
+5. **Need clear ownership boundaries**
+   Local working-directory projection lives here; remote GitHub/forge status remains with forge services.
 
 ### Category 5: Lifecycle Events (bus — rare, benefit from fan-out)
 
@@ -199,11 +311,15 @@ Pane/tab lifecycle transitions. Originate on MainActor, rare, but multiple consu
 | `paneClosed` | `PaneCoordinator` | Rare | Yes |
 | `tabSwitched` | `WorkspaceStore` | Low | Yes |
 
+App shell lifecycle is intentionally separate from this bus. Application active/resign/terminate and window key/focus events are translated by `ApplicationLifecycleMonitor` into `AppLifecycleStore` and `WindowLifecycleStore` state instead of being published here.
+
 ## Actor Inventory
 
 ### `actor EventBus<Envelope: Sendable>`
 
 Cooperative pool actor. Fan-out only — no domain logic, no filtering, no transformation. The bus is a dumb pipe with subscriber management.
+
+> **Type parameter:** The bus is generic over `Envelope` and is now instantiated as `EventBus<RuntimeEnvelope>`, where `RuntimeEnvelope` is the 3-tier discriminated union (`SystemEnvelope`, `WorktreeEnvelope`, `PaneEnvelope`). The bus itself remains unchanged — only the payload type widened.
 
 ```swift
 /// Central fan-out for pane/system events.
@@ -248,62 +364,58 @@ actor EventBus<Envelope: Sendable> {
 
 **Why one bus, not per-pane:** Coordination consumers (reducer, coordinator, workflow engine) need events from ALL panes. Per-pane buses would require N subscriptions and a manual merge step — exactly the centralization problem the bus solves.
 
-### `actor FilesystemActor` (future — LUNA-349)
+### `actor FilesystemActor` (LUNA-349)
 
-App-wide singleton, keyed by worktree internally. Monitors all repos via FSEvents, owns debounce logic, git status computation, and diff production per worktree. Posts enriched `PaneEventEnvelope` to EventBus.
+App-wide singleton, keyed by worktree internally. Owns filesystem ingress only:
+FSEvents ingestion, deepest-root ownership routing, path filtering (`.git/**` + ignore policy), debounce/max-latency scheduling, and chunked `filesChanged` fact emission.
 
-**Why app-wide, not per-worktree:** One FSEvents stream can monitor multiple paths efficiently. Per-worktree actors would multiply actor hop overhead and complicate lifecycle management (create/destroy actors as worktrees appear/disappear). Internal keying gives the same isolation semantics without the actor overhead.
+### `actor GitWorkingDirectoryProjector` (LUNA-349)
 
-**Contention note:** The actor serializes entry, but the heavy git status/diff work runs via `@concurrent nonisolated static` functions. When the actor `await`s these calls, it suspends and releases its serial executor — other worktree work can enter the actor during the suspension. The actor only holds the lock for dedup/debounce logic (~microseconds), not for the 10-100ms of git work. With 5 agents across 3 worktrees, this means worktree B's git status can run concurrently with worktree A's. If profiling ever shows the dedup/debounce serialization itself becoming a bottleneck (unlikely — it's μs-scale), the escape hatch is per-worktree actors, but the lifecycle management cost makes this a last resort.
+App-wide projector actor keyed by worktree identity. Subscribes to filesystem facts and materializes local git working-directory state as facts (`snapshotChanged`, `branchChanged`, `originChanged`, `worktreeDiscovered`, `worktreeRemoved`). Part of the sequential enrichment pipeline; see [Workspace Data Architecture — Actor Responsibilities](workspace_data_architecture.md) for the full spec including error handling, coalescing policy, and event-to-action mapping.
 
 ```swift
-/// App-wide filesystem observation, keyed by worktree internally.
-/// Owns the expensive work that justifies an actor boundary:
-/// FSEvents → debounce → git status → diff.
-///
-/// The actor boundary is justified because git status + diff compute
-/// takes 1-100ms — well above the ~20μs break-even for actor hop cost.
 actor FilesystemActor {
-    private var worktrees: [WorktreeId: WorktreeState] = [:]
-    private let bus: EventBus<PaneEventEnvelope>
-    private let clock: any Clock<Duration>
+    // Ingest + route + filter + batch only.
+    func register(worktreeId: WorktreeId, rootPath: URL) async { ... }
+    func unregister(worktreeId: WorktreeId) async { ... }
+    func enqueueRawPaths(worktreeId: WorktreeId, paths: [String]) { ... }
+}
 
-    func register(worktree: WorktreeId, path: URL) { ... }
-    func unregister(worktree: WorktreeId) { ... }
-
-    /// Heavy inner work runs on cooperative pool via @concurrent nonisolated.
-    /// nonisolated is required: actor methods inherit actor isolation by default,
-    /// and @concurrent is only valid on nonisolated declarations (SE-0461).
-    @concurrent
-    nonisolated private static func computeGitStatus(
-        worktreePath: URL
-    ) async -> GitStatusSummary {
-        // Shell out to git status, parse output
-        // 10-100ms of real work
-    }
-
-    @concurrent
-    nonisolated private static func computeDiff(
-        worktreePath: URL,
-        changeset: FileChangeset
-    ) async -> DiffResult {
-        // git diff computation
-        // 10-100ms of real work
-    }
+actor GitWorkingDirectoryProjector {
+    // Consume facts, coalesce by worktree, materialize git snapshot facts.
+    func start() async { ... }
+    func shutdown() { ... }
 }
 ```
 
-### `actor ForgeActor` (future)
+### `actor ForgeActor` (LUNA-350)
 
 App-wide singleton, keyed by repo internally. Owns git forge domain: PR status, checks, reviews, merge readiness. **Transport-agnostic** — uses `ProcessExecutor` (`gh` CLI) or `URLSession` (direct API) internally, whichever fits. The actor boundary is the domain, not the transport.
+
+**Event-driven, not purely polling.** ForgeActor subscribes to the `EventBus` for `.branchChanged` and `.originChanged` events from `GitWorkingDirectoryProjector`. These trigger targeted forge API queries for the affected repo/branch. A self-driven polling timer (30-60s) serves as fallback for events that don't originate from local git changes (e.g., CI checks completing remotely, upstream PR merges).
+
+**ForgeActor triggers:**
+- `.branchChanged` (via bus subscription) → immediate PR status refresh
+- `.originChanged` (via bus subscription) → scope update + full refresh
+- Self-driven polling timer (30-60s) → fallback for remote-only events
+- Command-plane: `forgeActor.refresh(repo:)` after explicit git push
+
+**ForgeActor does NOT:**
+- Scan the filesystem
+- Discover worktrees
+- Read git config directly (receives enrichment via bus events)
+- Get triggered by `WorkspaceCacheCoordinator` for branch changes (bus fan-out handles this — no duplicate trigger)
 
 **Why separate from FilesystemActor:** Different I/O profile (network/CLI vs filesystem), different auth model (OAuth tokens vs none), different failure modes (rate limits vs disk errors), different state shape (per-repo vs per-worktree).
 
 **Plugin extensibility (deferred):** When users have their own forge (GitLab, Bitbucket, self-hosted), ForgeActor becomes the integration point. Plugin-provided forge adapters conform to a protocol; ForgeActor dispatches to the right adapter per repo remote URL.
 
+> **Authoritative spec:** [Workspace Data Architecture](workspace_data_architecture.md) defines the full enrichment pipeline and ForgeActor's place within it.
+
 ```swift
 /// App-wide forge API actor, keyed by repo internally.
-/// Polls PR/checks status and posts state changes to the EventBus.
+/// Subscribes to bus for .branchChanged/.originChanged events.
+/// Self-polls as fallback for remote-only changes.
 ///
 /// Transport-agnostic: uses ProcessExecutor (gh CLI) today,
 /// URLSession (direct HTTP) later, or both per-repo.
@@ -311,26 +423,31 @@ App-wide singleton, keyed by repo internally. Owns git forge domain: PR status, 
 actor ForgeActor {
     private var repoState: [RepoId: ForgeRepoState] = [:]
     private let processExecutor: ProcessExecutor  // injected utility
-    private let bus: EventBus<PaneEventEnvelope>
+    private let bus: EventBus<RuntimeEnvelope>
     private let clock: any Clock<Duration>
 
     func register(repo: RepoId, remote: URL) { ... }
     func unregister(repo: RepoId) { ... }
 
-    /// Self-driven polling loop — no inbound stream needed.
-    func startPolling() async {
-        for await _ in clock.timer(interval: .seconds(30)) {
-            for (repo, state) in repoState {
-                let status = await Self.fetchPRStatus(
-                    repo, using: processExecutor
-                )
-                if status != state.prStatus {
-                    repoState[repo]?.prStatus = status
-                    await bus.post(PaneEventEnvelope(
-                        source: .system(.service(.gitForge(provider: "github"))),
-                        event: .forge(.prStatusChanged(repo, status))
-                    ))
+    /// Start consuming bus events + fallback polling.
+    func start() async {
+        // Bus subscription: react to branch/origin changes
+        Task {
+            for await envelope in await bus.subscribe() {
+                guard case .worktree(let wt) = envelope else { continue }
+                switch wt.event {
+                case .gitWorkingDirectory(.branchChanged):
+                    await refreshForBranch(wt.repoId, branch: /* from event */)
+                case .gitWorkingDirectory(.originChanged):
+                    await refreshAll(wt.repoId)
+                default: break
                 }
+            }
+        }
+        // Fallback polling for remote-only events
+        for await _ in clock.timer(interval: .seconds(30)) {
+            for (repo, _) in repoState {
+                await pollIfStale(repo)
             }
         }
     }
@@ -363,21 +480,21 @@ User action → PaneCoordinator → ProcessExecutor → git commit → result
 
 No ongoing state = no actor. ProcessExecutor already offloads to `DispatchQueue.global()`. The feedback loop is natural:
 
-- **Local mutations** (commit, stash, checkout): FSEvents fires → FilesystemActor picks up → recomputes git status → `bus.post()` → consumers see updated state.
+- **Local mutations** (commit, stash, checkout): FSEvents fires → FilesystemActor picks up → GitWorkingDirectoryProjector emits updated local snapshot events → `bus.post()` → consumers see updated state.
 - **Remote mutations** (push): Coordinator signals `ForgeActor.refresh(repo:)` → ForgeActor re-polls PR status → `bus.post()` if changed.
 
 The command doesn't post to the bus directly — the reactive system handles fanout.
 
-### `@MainActor` (existing, unchanged)
+### `@MainActor` (existing, extended)
 
-All runtimes (`TerminalRuntime`, future `BridgeRuntime`, `WebviewRuntime`, `SwiftPaneRuntime`), all stores (`WorkspaceStore`, `SurfaceManager`, `SessionRuntime`), `PaneCoordinator`, `NotificationReducer`, views, `ViewRegistry`.
+All runtimes (`TerminalRuntime`, future `BridgeRuntime`, `WebviewRuntime`, `SwiftPaneRuntime`), all stores (`WorkspaceStore`, `WorkspaceRepoCache`, `WorkspaceUIStore`, `SurfaceManager`, `SessionRuntime`), `PaneCoordinator`, `WorkspaceCacheCoordinator`, `NotificationReducer`, views, `ViewRegistry`.
 
 These consume from EventBus via `for await`:
 
 ```swift
 @MainActor
 final class NotificationReducer {
-    private let bus: EventBus<PaneEventEnvelope>
+    private let bus: EventBus<RuntimeEnvelope>
 
     func startConsuming() {
         Task { @MainActor in
@@ -404,6 +521,7 @@ SE-0461 changes the default isolation behavior for `nonisolated async` functions
 - **`@concurrent nonisolated`** explicitly runs on cooperative pool. `nonisolated` opts out of the enclosing actor's isolation; `@concurrent` opts into pool execution. This is the project's preferred pattern for offloading CPU-bound work, replacing most uses of `Task.detached`.
 - **NOT `nonisolated async` alone** — in Swift 6.2, `nonisolated async` means `nonisolated(nonsending)` by default: it inherits caller isolation. A `nonisolated async` method called from `@MainActor` runs ON MainActor in 6.2. This is a behavioral change from Swift 6.0.
 - **Prefer `@concurrent` over `Task.detached`** (project policy) — `Task.detached` strips task priority, task-locals, and structured concurrency. `@concurrent` preserves all of these. Exception: `Task.detached` remains appropriate when you explicitly need to escape structured concurrency (e.g., fire-and-forget background work that must outlive the calling scope) or when you need to strip inherited task-locals intentionally.
+- **PaneRuntimeEventChannel bus bridge is an explicit exception** — pane-local subscribers + replay are synchronous and ordered; global EventBus fanout uses a fire-and-forget `Task` so runtime emit paths stay non-blocking. This accepts best-effort cross-runtime fanout (no structured backpressure on that hop) in exchange for keeping pane command handling responsive.
 - **Avoid `MainActor.run` in this architecture** — in the typical pattern of awaiting a `@concurrent nonisolated` function from a `@MainActor` caller, the compiler handles the hop back automatically. `MainActor.run` is still valid Swift when you genuinely need to hop TO MainActor from a non-MainActor isolated context (e.g., inside a `nonisolated` actor method that needs a one-off MainActor call), but in our architecture's common paths it adds unnecessary noise.
 
 ### Pattern: Runtime offloads heavy work
@@ -438,8 +556,7 @@ final class TerminalRuntime {
 | `TerminalRuntime.performSearch()` | Regex across scrollback buffer | 1-50ms, would stall UI |
 | `TerminalRuntime.extractArtifacts()` | Parse terminal output for file paths, URLs, diffs | 1-10ms per extraction |
 | `TerminalRuntime.parseLogOutput()` | Structured log parsing from agent output | 1-20ms per batch |
-| `FilesystemActor.computeGitStatus()` | Shell to `git status`, parse output | 10-100ms |
-| `FilesystemActor.computeDiff()` | Shell to `git diff`, parse hunks | 10-100ms |
+| `ShellGitWorkingTreeStatusProvider.computeStatus()` | Shell to `git status`, parse output | 10-100ms |
 | `BridgeRuntime.computeDiffHunks()` | Diff computation for bridge display | 10-50ms |
 | `BridgeRuntime.hashFileContent()` | SHA256 for file content dedup | 1-10ms per file |
 | Future: artifact extraction from any runtime | File path extraction, URL detection, code block parsing | 1-20ms |
@@ -453,23 +570,26 @@ EVENTS (one-way, producers → bus → consumers):
 
   Runtimes (@MainActor)          Domain actors                 Deferred sources
   ├── TerminalRuntime            ├── FilesystemActor          ├── ContainerActor
-  ├── BridgeRuntime              │   (app-wide, keyed by       │   (per-terminal)
-  ├── WebviewRuntime             │    worktree; FSEvents,      ├── Plugin actors
-  └── SwiftPaneRuntime           │    git status, diff)        │   (per-plugin, mediated)
-                                 ├── ForgeActor               └── SecurityBackend
+  ├── BridgeRuntime              │   (app-wide ingestion,      │   (per-terminal)
+  ├── WebviewRuntime             │    routing, batching)       ├── Plugin actors
+  └── SwiftPaneRuntime           ├── GitWorkingDirectoryProjector │   (per-plugin, mediated)
+                                 │   (local git projector       └── SecurityBackend
+                                 │    keyed by worktree)
+                                 ├── ForgeActor
                                  │   (app-wide, keyed by
                                  │    repo; PR, checks, reviews)
          │                              │                           │
          └──────────────────────────────┼───────────────────────────┘
                                         │
                                         ▼
-                              actor EventBus<PaneEventEnvelope>
+                              actor EventBus<RuntimeEnvelope>
                                         │
-                         ┌──────────────┼──────────────┐
-                         ▼              ▼              ▼
-                  NotificationReducer  PaneCoordinator  Future: WorkflowEngine,
-                  (C12: classify,      (cross-pane      analytics, plugins
-                   schedule, deliver)   workflows)
+                         ┌──────────────┼──────────────────┬─────────────┐
+                         ▼              ▼                  ▼             ▼
+                  NotificationReducer  WorkspaceCache     PaneCoord.   Future:
+                  (C12: classify,      Coordinator        (cross-pane  WorkflowEngine,
+                   schedule, deliver)  (topology +         workflows)  analytics,
+                                        enrichment)                    plugins
 
 
 COMMANDS (one-way, user/system → coordinator → runtime):
@@ -575,24 +695,33 @@ Every edge in the architecture uses one of four patterns. The choice is mechanic
 
 Same pattern applies to BridgeRuntime, WebviewRuntime, SwiftPaneRuntime — transport differs but connection patterns are identical.
 
-#### FilesystemActor (app-wide singleton, future — LUNA-349)
+#### FilesystemActor (app-wide singleton, LUNA-349)
 
 | Direction | Connection | Pattern | Why |
 |-----------|-----------|---------|-----|
-| **In** | FSEvents callback → actor | **AsyncStream** | FSEvents fires rapid bursts (50 paths in 2s). Stream provides buffering, composes with `.debounce()`. |
+| **In** | FSEvents callback → actor | **AsyncStream** | FSEvents fires rapid bursts. Stream buffers ingress and isolates callback thread from actor processing. |
 | **In** | `register(worktree:path:)` / `unregister(worktree:)` | Direct call | Coordinator manages worktree registration lifecycle. |
-| **Internal** | Debounce → `@concurrent` git status/diff (per worktree key) | Direct call (await) | Structured concurrency inside actor. One batch in, one result out. |
-| **Out** | `await bus.post(enrichedEnvelope)` | Direct call to bus | Same as every other producer. |
+| **Internal** | Route → filter → debounce/max-latency → chunk | Direct actor state transitions | Keeps ingress, batching, and suppression metadata in one place. |
+| **Out** | `await bus.post(.filesystem(.filesChanged))` | Direct call to bus | Fact emission to shared stream. |
 
-#### ForgeActor (app-wide singleton, future)
+#### GitWorkingDirectoryProjector (app-wide projector, LUNA-349)
 
 | Direction | Connection | Pattern | Why |
 |-----------|-----------|---------|-----|
-| **In** | Timer-driven polling (`clock.timer(interval:)`) | No stream needed | Actor owns its own polling loop (~30-60s). No external producer. |
-| **In** | `register(repo:remote:)` / `unregister(repo:)` | Direct call | Coordinator manages repo registration. |
+| **In** | `for await envelope in await bus.subscribe()` | **AsyncStream** | Consumes `.worktreeRegistered`/`.worktreeUnregistered`/`.filesChanged` facts. |
+| **Internal** | per-worktree coalescing + git compute | Direct call (`await`) to provider | Last-writer-wins by `worktreeId`; compute uses off-actor helper in provider. |
+| **Out** | `await bus.post(.filesystem(.gitSnapshotChanged))` | Direct call to bus | Publishes materialized local git state facts. |
+
+#### ForgeActor (app-wide singleton, LUNA-350)
+
+| Direction | Connection | Pattern | Why |
+|-----------|-----------|---------|-----|
+| **In** | `for await envelope in await bus.subscribe()` | **AsyncStream** | Consumes `.branchChanged`, `.originChanged` from GitWorkingDirectoryProjector. Event-driven triggers replace pure polling. |
+| **In** | Timer-driven fallback polling (`clock.timer(interval:)`) | No stream needed | Actor owns fallback polling loop (~30-60s) for remote-only events (CI checks, upstream merges). |
+| **In** | `register(repo:remote:)` / `unregister(repo:)` | Direct call | `WorkspaceCacheCoordinator` manages repo registration. |
 | **In** | On-demand refresh (after `git push`) | Direct call from coordinator | `await forgeActor.refresh(repo:)` — known target, request-response. |
 | **Internal** | `@concurrent nonisolated` via ProcessExecutor or URLSession | Direct call (await) | Transport-agnostic I/O. One request, one response. |
-| **Out** | `await bus.post(envelope)` | Direct call to bus | Same pattern as every other producer. |
+| **Out** | `await bus.post(envelope)` | Direct call to bus | Same pattern as every other producer. Posts `WorktreeEnvelope` with `ForgeEvent`. |
 
 #### ContainerActor (per-terminal, deferred)
 
@@ -675,7 +804,7 @@ BUS OUTBOUND (fan-out to independent consumers):
      envelope   envelope      envelope
 
 
-BURSTY OS SOURCE (FSEvents → boundary actor):
+BURSTY OS SOURCE (FSEvents → FilesystemActor → GitWorkingDirectoryProjector):
 
   macOS FSEvents (arbitrary thread, 50 paths in 2s burst)
        │
@@ -686,15 +815,26 @@ BURSTY OS SOURCE (FSEvents → boundary actor):
   ║  (buffered pipe between OS callback and actor)║
   ╚═══════════════╤═══════════════════════════════╝
                    │
-                   │  for await paths in stream.debounce(500ms)
+                   │  for await paths in stream
                    ▼
   ┌─────────────────────────────────────┐
   │      actor FilesystemActor          │
   │                                     │
-  │  dedup → batch → @concurrent git    │
-  │  status → @concurrent diff          │
+  │  route → filter → debounce/max-lat │
+  │  → chunk filesChanged facts         │
   │                                     │
-  │  await bus.post(enrichedEnvelope)   │──── direct call to bus
+  │  await bus.post(.filesChanged)      │──── direct call to bus
+  └─────────────────────────────────────┘
+                   │
+                   ▼
+  ┌─────────────────────────────────────┐
+  │ actor GitWorkingDirectoryProjector  │
+  │                                     │
+  │ consume filesChanged facts          │
+  │ coalesce by worktreeId              │
+  │ await git provider status()         │
+  │                                     │
+  │ await bus.post(.gitSnapshotChanged) │──── direct call to bus
   └─────────────────────────────────────┘
 
 
@@ -842,7 +982,7 @@ PROJECTION (C16: filesystem context → view):
   PaneFilesystemContext (@MainActor, @Observable)
   ┌──────────────────────────────────────┐
   │  private(set) var changedFiles: ...  │◄─── updated from C6 events
-  │  private(set) var gitStatus: ...     │
+  │  private(set) var gitWorkingTree: ...│
   │  private(set) var lastDiff: ...      │
   └────────────┬─────────────────────────┘
                │  @Observable binding
@@ -909,14 +1049,16 @@ CONFIG READ (C9: ExecutionBackend):
 The bus is a dumb pipe. It never transforms, enriches, or filters payloads. Enrichment happens at the boundary before posting:
 
 ```
-BOUNDARY does enrichment:
-  FSEvents → FilesystemActor → enrich(worktree, git, diff) → bus.post(enriched)
+BOUNDARIES do enrichment (sequential pipeline):
+  FSEvents → FilesystemActor → bus.post(raw filesystem facts)
+  bus → GitWorkingDirectoryProjector → bus.post(git-derived facts)
+  bus → ForgeActor → bus.post(forge-derived facts)
 
 BUS does fan-out only:
-  bus.post(enriched) → subscriber1, subscriber2, subscriber3
+  bus.post(event) → subscriber1, subscriber2, subscriber3
 ```
 
-If a sink+source needs to transform events for a different audience (e.g., CheckpointActor), it subscribes from the bus, transforms, and posts back. The bus itself never knows what the payload means.
+Each boundary actor enriches independently and posts back to the bus. FilesystemActor emits raw filesystem facts (file changes, topology). GitWorkingDirectoryProjector emits git-derived facts (branch, origin). ForgeActor emits forge-derived facts (PR counts, checks). The bus itself never knows what the payload means.
 
 ## Threading Model
 
@@ -926,7 +1068,8 @@ Concrete list of what runs where, with Swift 6.2 keywords:
 |-----------|-------|----------------|-------------------|
 | `@MainActor` | App-wide | Runtimes, stores, coordinator, views, reducer, ViewRegistry | `@MainActor` on class/func |
 | `actor EventBus` | App-wide singleton | Subscriber management, fan-out | `actor` (cooperative pool) |
-| `actor FilesystemActor` | App-wide singleton (keyed by worktree) | FSEvents, debounce, git status, diff (future) | `actor` (cooperative pool) |
+| `actor FilesystemActor` | App-wide singleton (keyed by worktree) | FSEvents, debounce, path filtering, topology scanning | `actor` (cooperative pool) |
+| `actor GitWorkingDirectoryProjector` | App-wide singleton (keyed by worktree) | Git status, branch, origin enrichment from filesystem facts | `actor` (cooperative pool) |
 | `actor ForgeActor` | App-wide singleton (keyed by repo) | Forge PR status, checks, reviews (future) | `actor` (cooperative pool) |
 | `actor ContainerActor` | Per-terminal (deferred) | Container health, devcontainer status | `actor` (cooperative pool) |
 | Plugin actors | Per-plugin (deferred) | Plugin domain work; bus access mediated via `PluginContext` struct | `actor` (cooperative pool) |
@@ -940,7 +1083,7 @@ Concrete list of what runs where, with Swift 6.2 keywords:
 2. **`nonisolated async` means `nonisolated(nonsending)` in Swift 6.2** (SE-0461). It inherits caller isolation. Do NOT use this expecting pool execution — it will run on MainActor if called from MainActor.
 3. **Prefer `@concurrent` over `Task.detached`** (project policy) — `Task.detached` strips priority and task-locals; `@concurrent` preserves structured concurrency. Exception: `Task.detached` remains appropriate when you need to escape structured concurrency scope or intentionally strip task-locals.
 4. **Avoid `MainActor.run` in this architecture's common paths** — the compiler handles actor hops when returning from `@concurrent nonisolated` to `@MainActor`. `MainActor.run` is still valid when genuinely needed (hopping TO MainActor from a non-main context), but our typical pattern doesn't require it.
-5. **All cross-boundary data is `Sendable`.** `PaneEventEnvelope`, all event types, all command types — `Sendable` is required for data that crosses actor boundaries.
+5. **All cross-boundary data is `Sendable`.** `RuntimeEnvelope`, all event types, all command types — `Sendable` is required for data that crosses actor boundaries.
 6. **C callbacks use `@Sendable` trampolines** + `MainActor.assumeIsolated` for synchronous hops or `Task { @MainActor in }` for async work. No `DispatchQueue.main.async`.
 
 ### Swift 6.2 Gotchas (quick reference)
@@ -1065,7 +1208,7 @@ Incremental, each step independently shippable:
 
 1. **Multi-subscriber fan-out on existing runtimes.** Replace single `AsyncStream.Continuation` with array of continuations. Runtime's `subscribe()` returns independent stream per caller. This is a prerequisite for the bus — it proves fan-out semantics work at the runtime level.
 
-2. **Introduce `actor EventBus<PaneEventEnvelope>`.** Central merge point. Runtimes post to bus after `@Observable` mutation. Reducer and coordinator subscribe from bus instead of per-runtime streams.
+2. **Introduce `actor EventBus<RuntimeEnvelope>`.** Central merge point. Runtimes and boundary actors post to bus after mutation/enrichment. Reducer and coordinator subscribe from bus instead of per-runtime streams.
 
 3. **Migrate consumers to bus subscriptions.** `NotificationReducer`, `PaneCoordinator`, and any future consumers subscribe to the bus. Per-runtime subscriptions become an implementation detail (runtime → bus posting).
 
@@ -1172,7 +1315,7 @@ Current codebase patterns that need migration to align with this design. Audited
 
 **~38 NotificationCenter calls** across the codebase form the current command/event dispatch system. These are the primary migration target.
 
-| File | Pattern | Events | Severity |
+| Historical File | Historical Pattern | Historical Events | Severity |
 |------|---------|--------|----------|
 | `App/Panes/PaneTabViewController.swift` | 8 `for await` consumers, 3 `.post()` producers | selectTabById, extractPane, repairSurface, processTerminated, undoClose, refocusTerminal, webviewOpen, addRepo, filterSidebar, signIn | HIGH |
 | `App/MainSplitViewController.swift` | 6 `for await` consumers, 1 `addObserver` | openWorktree, tabClose, selectTab, sidebarToggle, newTerminal, sidebarFilter, willTerminate | HIGH |
@@ -1184,7 +1327,9 @@ Current codebase patterns that need migration to align with this design. Audited
 | `App/AppDelegate.swift` | 1 `addObserver` | signIn OAuth callback | LOW |
 | `Features/Terminal/Ghostty/SurfaceManager.swift` | 1 `addObserver`, 1 `removeObserver` | Health notifications | LOW |
 
-**Target pattern:**
+This table is a historical inventory from the pre-hardening state. The current codebase has already removed the Ghostty mixed bus and the command-shaped `repairSurfaceRequested` app event path.
+
+**Historical target pattern:**
 ```swift
 // Before: untyped, stringly-keyed
 NotificationCenter.default.post(name: .selectTabById, userInfo: ["tabId": tabId])
@@ -1218,7 +1363,7 @@ These methods don't need MainActor isolation — they take immutable input and r
 | Pattern | Location | Why it's fine |
 |---------|----------|---------------|
 | `DispatchQueue.global()` | ProcessExecutor.swift | Correct: offloads blocking pipe I/O |
-| `NotificationCenter.notifications(named: .didBecomeActive)` | Ghostty.swift | System notification — stays as-is |
+| AppKit lifecycle ingress via `ApplicationLifecycleMonitor` | App shell lifecycle boundary | Current production path |
 | `FileManager` operations | WorkspacePersistor | Already not `@MainActor` |
 | `@concurrent` on plain structs | Slice.swift, EntitySlice.swift | No actor isolation to opt out of — `nonisolated` implicit |
 

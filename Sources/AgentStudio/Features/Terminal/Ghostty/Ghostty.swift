@@ -1,6 +1,7 @@
 import AppKit
 import Foundation
 import GhosttyKit
+import Observation
 import os
 
 /// Logger for Ghostty-related operations
@@ -34,11 +35,16 @@ enum Ghostty {
         sharedApp = App()
         return sharedApp?.app != nil
     }
+
+    @MainActor
+    static func bindApplicationLifecycleStore(_ appLifecycleStore: AppLifecycleStore) {
+        sharedApp?.bindApplicationLifecycleStore(appLifecycleStore)
+    }
 }
 
 extension Ghostty {
     /// Wraps the ghostty_app_t and handles app-level callbacks
-    final class App {
+    final class App: @unchecked Sendable {
         @MainActor private static var runtimeRegistryOverride: RuntimeRegistry = .shared
 
         /// The ghostty app handle
@@ -46,8 +52,9 @@ extension Ghostty {
 
         /// The ghostty configuration
         private var config: ghostty_config_t?
+        private var appLifecycleStore: AppLifecycleStore?
         private let focusAppHandleBits = OSAllocatedUnfairLock<UInt?>(initialState: nil)
-        private var activeStateTasks: [Task<Void, Never>] = []
+        private var isObservingApplicationLifecycle = false
 
         init() {
             // Load default configuration
@@ -110,45 +117,17 @@ extension Ghostty {
             ghostty_app_set_focus(app, false)
             let appHandleBits = UInt(bitPattern: app)
             focusAppHandleBits.withLock { $0 = appHandleBits }
-            let focusAppHandleBits = self.focusAppHandleBits
-
-            activeStateTasks.append(
-                Task { @MainActor in
-                    for await _ in NotificationCenter.default.notifications(
-                        named: NSApplication.didBecomeActiveNotification)
-                    {
-                        if Task.isCancelled { break }
-                        guard
-                            let appHandleBits = focusAppHandleBits.withLock({ $0 }),
-                            let app = UnsafeMutableRawPointer(bitPattern: appHandleBits)
-                        else { continue }
-                        ghostty_app_set_focus(app, true)
-                        RestoreTrace.log("Ghostty.App applicationDidBecomeActive -> ghostty_app_set_focus(true)")
-                    }
-                })
-            activeStateTasks.append(
-                Task { @MainActor in
-                    for await _ in NotificationCenter.default.notifications(
-                        named: NSApplication.didResignActiveNotification)
-                    {
-                        if Task.isCancelled { break }
-                        guard
-                            let appHandleBits = focusAppHandleBits.withLock({ $0 }),
-                            let app = UnsafeMutableRawPointer(bitPattern: appHandleBits)
-                        else { continue }
-                        ghostty_app_set_focus(app, false)
-                        RestoreTrace.log("Ghostty.App applicationDidResignActive -> ghostty_app_set_focus(false)")
-                    }
-                })
+            Task { @MainActor [weak self] in
+                guard let self else { return }
+                self.syncApplicationFocus()
+                self.observeApplicationLifecycle()
+            }
 
             ghosttyLogger.info("Ghostty app initialized successfully")
         }
 
         deinit {
             focusAppHandleBits.withLock { $0 = nil }
-            for task in activeStateTasks {
-                task.cancel()
-            }
             if let app {
                 ghostty_app_free(app)
             }
@@ -161,6 +140,45 @@ extension Ghostty {
         func tick() {
             guard let app else { return }
             ghostty_app_tick(app)
+        }
+
+        @MainActor
+        func bindApplicationLifecycleStore(_ appLifecycleStore: AppLifecycleStore) {
+            self.appLifecycleStore = appLifecycleStore
+            syncApplicationFocus()
+            observeApplicationLifecycle()
+        }
+
+        @MainActor
+        private func observeApplicationLifecycle() {
+            guard !isObservingApplicationLifecycle else { return }
+            guard let appLifecycleStore else { return }
+            isObservingApplicationLifecycle = true
+
+            withObservationTracking {
+                _ = appLifecycleStore.isActive
+            } onChange: { [weak self] in
+                Task { @MainActor [weak self] in
+                    guard let self else { return }
+                    self.isObservingApplicationLifecycle = false
+                    self.syncApplicationFocus()
+                    self.observeApplicationLifecycle()
+                }
+            }
+        }
+
+        @MainActor
+        private func syncApplicationFocus() {
+            guard
+                let appLifecycleStore,
+                let appHandleBits = focusAppHandleBits.withLock({ $0 }),
+                let app = UnsafeMutableRawPointer(bitPattern: appHandleBits)
+            else { return }
+
+            let isActive = appLifecycleStore.isActive
+            ghostty_app_set_focus(app, isActive)
+            RestoreTrace.log(
+                "Ghostty.App lifecycleStore.isActive=\(isActive) -> ghostty_app_set_focus(\(isActive))")
         }
 
         // MARK: - Static Callbacks
@@ -181,7 +199,9 @@ extension Ghostty {
                 return true
 
             case .newWindow:
-                postGhosttyEvent(.newWindowRequested)
+                ghosttyLogger.debug(
+                    "Ignoring Ghostty newWindow action because AgentStudio owns window lifecycle"
+                )
                 return true
 
             case .newTab:
@@ -303,10 +323,16 @@ extension Ghostty {
                     ),
                     target: target
                 )
+            case .initialSize:
+                updateReportedSurfaceSize(target: target, action: action, kind: .initial)
+                return routeUnhandledAction(actionTag: rawActionTag, target: target)
+            case .cellSize:
+                updateReportedSurfaceSize(target: target, action: action, kind: .cell)
+                return routeUnhandledAction(actionTag: rawActionTag, target: target)
             case .closeAllWindows, .toggleMaximize, .toggleFullscreen, .toggleTabOverview,
                 .toggleWindowDecorations, .toggleQuickTerminal, .toggleCommandPalette, .toggleVisibility,
                 .toggleBackgroundOpacity, .gotoWindow, .presentTerminal, .sizeLimit, .resetWindowSize,
-                .initialSize, .cellSize, .scrollbar, .render, .inspector, .showGtkInspector, .renderInspector,
+                .scrollbar, .render, .inspector, .showGtkInspector, .renderInspector,
                 .desktopNotification, .promptTitle, .mouseShape, .mouseVisibility, .mouseOverLink,
                 .rendererHealth, .openConfig, .quitTimer, .floatWindow, .secureInput, .keySequence, .keyTable,
                 .colorChange, .reloadConfig, .configChange, .closeWindow, .undo, .redo, .checkForUpdates,
@@ -320,6 +346,43 @@ extension Ghostty {
         @MainActor
         static func setRuntimeRegistry(_ runtimeRegistry: RuntimeRegistry) {
             runtimeRegistryOverride = runtimeRegistry
+        }
+
+        private enum ReportedSurfaceSizeKind {
+            case initial
+            case cell
+        }
+
+        private static func updateReportedSurfaceSize(
+            target: ghostty_target_s,
+            action: ghostty_action_s,
+            kind: ReportedSurfaceSizeKind
+        ) {
+            guard target.tag == GHOSTTY_TARGET_SURFACE,
+                let surface = target.target.surface,
+                let resolvedSurfaceView = surfaceView(from: surface)
+            else { return }
+
+            switch kind {
+            case .initial:
+                let size = NSSize(
+                    width: Double(action.action.initial_size.width),
+                    height: Double(action.action.initial_size.height)
+                )
+                Task { @MainActor [weak resolvedSurfaceView] in
+                    resolvedSurfaceView?.updateReportedInitialSize(size)
+                }
+            case .cell:
+                let backingSize = NSSize(
+                    width: Double(action.action.cell_size.width),
+                    height: Double(action.action.cell_size.height)
+                )
+                Task { @MainActor [weak resolvedSurfaceView] in
+                    guard let resolvedSurfaceView else { return }
+                    let logicalSize = resolvedSurfaceView.convertFromBacking(backingSize)
+                    resolvedSurfaceView.updateReportedCellSize(logicalSize)
+                }
+            }
         }
 
         @MainActor
@@ -463,16 +526,17 @@ extension Ghostty {
 
         static func readClipboard(
             _ userdata: UnsafeMutableRawPointer?, location: ghostty_clipboard_e, state: UnsafeMutableRawPointer?
-        ) {
-            guard let userdata else { return }
+        ) -> Bool {
+            guard let userdata else { return false }
             let surfaceView = Unmanaged<SurfaceView>.fromOpaque(userdata).takeUnretainedValue()
-            guard let surface = surfaceView.surface else { return }
+            guard let surface = surfaceView.surface else { return false }
 
             let pasteboard = NSPasteboard.general
             let content = pasteboard.string(forType: .string) ?? ""
             content.withCString { ptr in
                 ghostty_surface_complete_clipboard_request(surface, ptr, state, false)
             }
+            return true
         }
 
         static func confirmReadClipboard(
@@ -509,13 +573,14 @@ extension Ghostty {
             RestoreTrace.log(
                 "Ghostty.App.closeSurface view=\(ObjectIdentifier(surfaceView)) processAlive=\(processAlive)"
             )
-
-            postGhosttyEvent(
-                .closeSurface(
-                    surfaceViewId: ObjectIdentifier(surfaceView),
-                    processAlive: processAlive
+            let surfaceViewObjectId = ObjectIdentifier(surfaceView)
+            Task { @MainActor [weak surfaceView] in
+                guard let surfaceView else { return }
+                RestoreTrace.log(
+                    "Ghostty.App.closeSurface delivering direct close callback view=\(surfaceViewObjectId) processAlive=\(processAlive)"
                 )
-            )
+                surfaceView.handleCloseRequested(processAlive: processAlive)
+            }
         }
 
         static func surfaceView(from surface: ghostty_surface_t) -> SurfaceView? {

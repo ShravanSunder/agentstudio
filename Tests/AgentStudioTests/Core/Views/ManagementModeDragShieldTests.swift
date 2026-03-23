@@ -6,7 +6,7 @@ import UniformTypeIdentifiers
 
 /// Minimal stub conforming to NSDraggingInfo for unit testing drag shield behavior.
 /// Uses a custom pasteboard to control available types without polluting the system drag pasteboard.
-private final class MockDraggingInfo: NSObject, @preconcurrency NSDraggingInfo {
+private final class MockDraggingInfo: NSObject, NSDraggingInfo {
     nonisolated let draggingPasteboard: NSPasteboard
 
     @MainActor
@@ -80,82 +80,67 @@ struct ManagementModeDragShieldTests {
     // MARK: - hitTest Behavior
 
     @Test
-    func test_hitTest_alwaysReturnsNil_managementModeOff() {
-        // Arrange
-        let shield = ManagementModeDragShield(frame: NSRect(x: 0, y: 0, width: 200, height: 200))
-
-        // Assert — always transparent to mouse events (drag routing is frame-based)
-        let result = shield.hitTest(NSPoint(x: 100, y: 100))
-        #expect(result == nil)
+    func test_hitTest_alwaysReturnsNil_managementModeOff() async {
+        await withManagementModeTestLock {
+            ManagementModeMonitor.shared.deactivate()
+            let shield = ManagementModeDragShield(frame: NSRect(x: 0, y: 0, width: 200, height: 200))
+            let result = shield.hitTest(NSPoint(x: 100, y: 100))
+            #expect(result == nil)
+        }
     }
 
     @Test
-    func test_hitTest_alwaysReturnsNil_managementModeOn() {
-        // Arrange
-        let shield = ManagementModeDragShield(frame: NSRect(x: 0, y: 0, width: 200, height: 200))
-        ensureManagementModeActive()
-
-        // Assert — still nil: NSDraggingDestination uses frame-based routing,
-        // not hitTest. PaneView.hitTest handles click blocking separately.
-        let result = shield.hitTest(NSPoint(x: 100, y: 100))
-        #expect(result == nil)
-
-        // Cleanup
-        ManagementModeMonitor.shared.deactivate()
+    func test_hitTest_alwaysReturnsNil_managementModeOn() async {
+        await withManagementModeTestLock {
+            let shield = ManagementModeDragShield(frame: NSRect(x: 0, y: 0, width: 200, height: 200))
+            ensureManagementModeActive()
+            let result = shield.hitTest(NSPoint(x: 100, y: 100))
+            #expect(result == nil)
+            ManagementModeMonitor.shared.deactivate()
+        }
     }
 
     // MARK: - Dynamic Registration
 
     @Test
-    func test_registeredDragTypes_managementModeOff_isEmpty() {
-        // Arrange — explicitly force inactive to avoid relying on suite init ordering.
-        ManagementModeMonitor.shared.deactivate()
-        let shield = ManagementModeDragShield(frame: .zero)
-
-        // Assert — no types registered when management mode is off
-        let types = shield.registeredDraggedTypes
-        #expect(types.isEmpty)
+    func test_registeredDragTypes_managementModeOff_isEmpty() async {
+        await withManagementModeTestLock {
+            ManagementModeMonitor.shared.deactivate()
+            let shield = ManagementModeDragShield(frame: .zero)
+            let types = shield.registeredDraggedTypes
+            #expect(types.isEmpty)
+        }
     }
 
     @Test
-    func test_registeredDragTypes_managementModeOn_includesFileTypes() {
-        // Arrange — toggle management mode BEFORE creating shield so
-        // updateRegistration() runs synchronously during init.
-        ensureManagementModeActive()
-        let shield = ManagementModeDragShield(frame: .zero)
-
-        // Assert — file/media types registered
-        let types = shield.registeredDraggedTypes
-        #expect(types.contains(.fileURL))
-        #expect(types.contains(.URL))
-        #expect(types.contains(.tiff))
-        #expect(types.contains(.png))
-        #expect(types.contains(.string))
-        #expect(types.contains(.html))
-
-        // Assert — agent studio types NOT registered (parent .onDrop owns these)
-        #expect(!types.contains(.agentStudioTabDrop))
-        #expect(!types.contains(.agentStudioPaneDrop))
-        #expect(!types.contains(.agentStudioTabInternal))
-
-        // Cleanup
-        ManagementModeMonitor.shared.deactivate()
+    func test_registeredDragTypes_managementModeOn_includesFileTypes() async {
+        await withManagementModeTestLock {
+            ensureManagementModeActive()
+            let shield = ManagementModeDragShield(frame: .zero)
+            let types = shield.registeredDraggedTypes
+            #expect(types.contains(.fileURL))
+            #expect(types.contains(.URL))
+            #expect(types.contains(.tiff))
+            #expect(types.contains(.png))
+            #expect(types.contains(.string))
+            #expect(types.contains(.html))
+            #expect(!types.contains(.agentStudioTabDrop))
+            #expect(!types.contains(.agentStudioPaneDrop))
+            #expect(!types.contains(.agentStudioTabInternal))
+            ManagementModeMonitor.shared.deactivate()
+        }
     }
 
     @Test
-    func test_registeredDragTypes_excludesBroadSupertypes() {
-        // Arrange — supertypes like public.data match agent studio CodableRepresentation
-        // payloads, which would intercept pane/tab drags and break .onDrop.
-        ensureManagementModeActive()
-        let shield = ManagementModeDragShield(frame: .zero)
-
-        // Assert — broad supertypes are NOT registered
-        let types = shield.registeredDraggedTypes
-        #expect(!types.contains(NSPasteboard.PasteboardType("public.data")))
-        #expect(!types.contains(NSPasteboard.PasteboardType("public.content")))
-
-        // Cleanup
-        ManagementModeMonitor.shared.deactivate()
+    func test_registeredDragTypes_excludesBroadSupertypes() async {
+        await withManagementModeTestLock {
+            ensureManagementModeActive()
+            let shield = ManagementModeDragShield(frame: .zero)
+            let types = shield.registeredDraggedTypes
+            #expect(!types.contains(NSPasteboard.PasteboardType("public.data")))
+            #expect(!types.contains(NSPasteboard.PasteboardType("public.content")))
+            ManagementModeMonitor.shared.deactivate()
+        }
     }
 
     // MARK: - Shield Installation in PaneView
@@ -187,136 +172,105 @@ struct ManagementModeDragShieldTests {
     }
 
     @Test
-    func test_shieldAttach_appliesCurrentInteractionState_managementModeActive() {
-        // Arrange
-        ensureManagementModeActive()
-        let paneView = InteractionTrackingPaneView(paneId: UUID())
-
-        // Act — installing the shield should notify parent with current state.
-        _ = paneView.swiftUIContainer
-
-        // Assert
-        #expect(paneView.interactionEnabledHistory.last == false)
-
-        // Cleanup
-        ManagementModeMonitor.shared.deactivate()
+    func test_shieldAttach_appliesCurrentInteractionState_managementModeActive() async {
+        await withManagementModeTestLock {
+            ensureManagementModeActive()
+            let paneView = InteractionTrackingPaneView(paneId: UUID())
+            _ = paneView.swiftUIContainer
+            #expect(paneView.interactionEnabledHistory.last == false)
+            ManagementModeMonitor.shared.deactivate()
+        }
     }
 
     @Test
-    func test_shieldAttach_appliesCurrentInteractionState_managementModeInactive() {
-        // Arrange
-        let paneView = InteractionTrackingPaneView(paneId: UUID())
-
-        // Act — installing the shield should notify parent with current state.
-        _ = paneView.swiftUIContainer
-
-        // Assert
-        #expect(paneView.interactionEnabledHistory.last == true)
+    func test_shieldAttach_appliesCurrentInteractionState_managementModeInactive() async {
+        await withManagementModeTestLock {
+            ManagementModeMonitor.shared.deactivate()
+            let paneView = InteractionTrackingPaneView(paneId: UUID())
+            _ = paneView.swiftUIContainer
+            #expect(paneView.interactionEnabledHistory.last == true)
+        }
     }
 
     @Test
-    func test_paneViewHitTest_managementModeOn_returnsNil() {
-        // Arrange
-        let paneView = PaneView(paneId: UUID())
-        _ = paneView.swiftUIContainer  // Install shield
-        ensureManagementModeActive()
-
-        // Act
-        let result = paneView.hitTest(NSPoint(x: 100, y: 100))
-
-        // Assert — PaneView returns nil to block clicks.
-        // NSDraggingDestination on the shield uses frame-based routing (independent of hitTest).
-        #expect(result == nil)
-
-        // Cleanup
-        ManagementModeMonitor.shared.deactivate()
+    func test_paneViewHitTest_managementModeOn_returnsNil() async {
+        await withManagementModeTestLock {
+            let paneView = PaneView(paneId: UUID())
+            _ = paneView.swiftUIContainer
+            ensureManagementModeActive()
+            let result = paneView.hitTest(NSPoint(x: 100, y: 100))
+            #expect(result == nil)
+            ManagementModeMonitor.shared.deactivate()
+        }
     }
 
     @Test
-    func test_paneViewHitTest_managementModeOff_returnsNormally() {
-        // Arrange
-        let paneView = PaneView(paneId: UUID())
-        _ = paneView.swiftUIContainer  // Install shield
-
-        // Act
-        let result = paneView.hitTest(NSPoint(x: 100, y: 100))
-
-        // Assert — normal hit testing (shield is transparent, returns nil from hitTest)
-        #expect(result !== paneView.interactionShield || result == nil)
+    func test_paneViewHitTest_managementModeOff_returnsNormally() async {
+        await withManagementModeTestLock {
+            ManagementModeMonitor.shared.deactivate()
+            let paneView = PaneView(paneId: UUID())
+            _ = paneView.swiftUIContainer
+            let result = paneView.hitTest(NSPoint(x: 100, y: 100))
+            #expect(result !== paneView.interactionShield || result == nil)
+        }
     }
 
     @Test
-    func test_containerHitTest_managementModeOff_returnsSelf() {
-        // Arrange
-        let container = ManagementModeContainerView(frame: NSRect(x: 0, y: 0, width: 200, height: 200))
-
-        // Assert — normal hit testing when management mode is off
-        let result = container.hitTest(NSPoint(x: 100, y: 100))
-        #expect(result === container)
+    func test_containerHitTest_managementModeOff_returnsSelf() async {
+        await withManagementModeTestLock {
+            ManagementModeMonitor.shared.deactivate()
+            let container = ManagementModeContainerView(frame: NSRect(x: 0, y: 0, width: 200, height: 200))
+            let result = container.hitTest(NSPoint(x: 100, y: 100))
+            #expect(result === container)
+        }
     }
 
     @Test
-    func test_containerHitTest_managementModeOn_returnsNil() {
-        // Arrange
-        let container = ManagementModeContainerView(frame: NSRect(x: 0, y: 0, width: 200, height: 200))
-        ensureManagementModeActive()
-
-        // Assert — invisible to AppKit during management mode
-        let result = container.hitTest(NSPoint(x: 100, y: 100))
-        #expect(result == nil)
-
-        // Cleanup
-        ManagementModeMonitor.shared.deactivate()
+    func test_containerHitTest_managementModeOn_returnsNil() async {
+        await withManagementModeTestLock {
+            let container = ManagementModeContainerView(frame: NSRect(x: 0, y: 0, width: 200, height: 200))
+            ensureManagementModeActive()
+            let result = container.hitTest(NSPoint(x: 100, y: 100))
+            #expect(result == nil)
+            ManagementModeMonitor.shared.deactivate()
+        }
     }
 
     // MARK: - NSDraggingDestination
 
     @Test
-    func test_draggingEntered_managementModeActive_returnsGeneric() {
-        // Arrange
-        let shield = ManagementModeDragShield(frame: NSRect(x: 0, y: 0, width: 200, height: 200))
-        ensureManagementModeActive()
-        let mockDrag = MockDraggingInfo(pasteboardTypes: [.fileURL])
-
-        // Act
-        let result = shield.draggingEntered(mockDrag)
-
-        // Assert — absorbs the drag
-        #expect(result == .generic)
-
-        // Cleanup
-        ManagementModeMonitor.shared.deactivate()
+    func test_draggingEntered_managementModeActive_returnsGeneric() async {
+        await withManagementModeTestLock {
+            let shield = ManagementModeDragShield(frame: NSRect(x: 0, y: 0, width: 200, height: 200))
+            ensureManagementModeActive()
+            let mockDrag = MockDraggingInfo(pasteboardTypes: [.fileURL])
+            let result = shield.draggingEntered(mockDrag)
+            #expect(result == .generic)
+            ManagementModeMonitor.shared.deactivate()
+        }
     }
 
     @Test
-    func test_draggingEntered_managementModeInactive_returnsEmpty() {
-        // Arrange
-        ManagementModeMonitor.shared.deactivate()
-        let shield = ManagementModeDragShield(frame: NSRect(x: 0, y: 0, width: 200, height: 200))
-        let mockDrag = MockDraggingInfo(pasteboardTypes: [.fileURL])
-
-        // Act
-        let result = shield.draggingEntered(mockDrag)
-
-        // Assert — transparent when management mode is off
-        #expect(result.isEmpty)
+    func test_draggingEntered_managementModeInactive_returnsEmpty() async {
+        await withManagementModeTestLock {
+            ManagementModeMonitor.shared.deactivate()
+            let shield = ManagementModeDragShield(frame: NSRect(x: 0, y: 0, width: 200, height: 200))
+            let mockDrag = MockDraggingInfo(pasteboardTypes: [.fileURL])
+            let result = shield.draggingEntered(mockDrag)
+            #expect(result.isEmpty)
+        }
     }
 
     @Test
-    func test_draggingUpdated_managementModeActive_returnsGeneric() {
-        // Arrange
-        let shield = ManagementModeDragShield(frame: NSRect(x: 0, y: 0, width: 200, height: 200))
-        ensureManagementModeActive()
-        let mockDrag = MockDraggingInfo(pasteboardTypes: [.fileURL])
-
-        // Act
-        let result = shield.draggingUpdated(mockDrag)
-
-        // Assert
-        #expect(result == .generic)
-
-        // Cleanup
-        ManagementModeMonitor.shared.deactivate()
+    func test_draggingUpdated_managementModeActive_returnsGeneric() async {
+        await withManagementModeTestLock {
+            let shield = ManagementModeDragShield(frame: NSRect(x: 0, y: 0, width: 200, height: 200))
+            ensureManagementModeActive()
+            let mockDrag = MockDraggingInfo(pasteboardTypes: [.fileURL])
+            let result = shield.draggingUpdated(mockDrag)
+            #expect(result == .generic)
+            ManagementModeMonitor.shared.deactivate()
+        }
     }
 
     @Test

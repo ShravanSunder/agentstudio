@@ -10,20 +10,50 @@ import SwiftUI
 /// See docs/architecture/appkit_swiftui_architecture.md for the hosting pattern.
 struct ActiveTabContent: View {
     let store: WorkspaceStore
+    let repoCache: WorkspaceRepoCache
     let viewRegistry: ViewRegistry
-    let action: (PaneAction) -> Void
+    let appLifecycleStore: AppLifecycleStore
+    let action: (PaneActionCommand) -> Void
     let shouldAcceptDrop: (SplitDropPayload, UUID, DropZone) -> Bool
     let onDrop: (SplitDropPayload, UUID, DropZone) -> Void
 
+    private static func traceBody(
+        activeTabId: UUID?,
+        viewRevision: Int,
+        tabPaneCount: Int,
+        registeredPaneCount: Int,
+        hasTree: Bool
+    ) -> Int {
+        if let activeTabId {
+            RestoreTrace.log(
+                "ActiveTabContent.body activeTab=\(activeTabId) viewRevision=\(viewRevision) tabPaneCount=\(tabPaneCount) registeredPaneCount=\(registeredPaneCount) hasTree=\(hasTree)"
+            )
+        } else {
+            RestoreTrace.log(
+                "ActiveTabContent.body empty activeTab=nil viewRevision=\(viewRevision)"
+            )
+        }
+        return 0
+    }
+
     var body: some View {
         // Read viewRevision so @Observable tracks it — triggers re-render after repair
+        let currentViewRevision = store.viewRevision
+        let activeTabId = store.activeTabId
+        let tab = activeTabId.flatMap { store.tab($0) }
+        let tree = tab.flatMap { viewRegistry.renderTree(for: $0.layout) }
+        let registeredPaneCount = tab?.paneIds.filter { viewRegistry.view(for: $0) != nil }.count ?? 0
+        let tabPaneCount = tab?.paneIds.count ?? 0
         // swiftlint:disable:next redundant_discardable_let
-        let _ = store.viewRevision  // swift-format:ignore
+        let _ = Self.traceBody(
+            activeTabId: activeTabId,
+            viewRevision: currentViewRevision,
+            tabPaneCount: tabPaneCount,
+            registeredPaneCount: registeredPaneCount,
+            hasTree: tree != nil
+        )
 
-        if let activeTabId = store.activeTabId,
-            let tab = store.tab(activeTabId),
-            let tree = viewRegistry.renderTree(for: tab.layout)
-        {
+        if let activeTabId, let tab, let tree {
             let renderInfo = SplitRenderInfo.compute(
                 layout: tab.layout,
                 minimizedPaneIds: tab.minimizedPaneIds
@@ -40,7 +70,9 @@ struct ActiveTabContent: View {
                 shouldAcceptDrop: shouldAcceptDrop,
                 onDrop: onDrop,
                 store: store,
-                viewRegistry: viewRegistry
+                repoCache: repoCache,
+                viewRegistry: viewRegistry,
+                appLifecycleStore: appLifecycleStore
             )
         }
         // Empty/no-tab state handled by AppKit (PaneTabViewController toggles NSView visibility)

@@ -36,15 +36,21 @@ final class BridgePaneController {
 
     let paneId: UUID
     let page: WebPage
+    let runtime: BridgeRuntime
+    var paneState: PaneDomainState { runtime.paneState }
 
     /// Whether the bridge handshake has completed.
     /// No state pushes or commands are allowed before this becomes `true`.
     /// Gated and idempotent — once set, subsequent `bridge.ready` messages are ignored.
     private(set) var isBridgeReady = false
 
+    // MARK: - Runtime Hooks
+
+    var onRuntimeEvent: (@MainActor @Sendable (PaneRuntimeEvent, UUID?, UUID?) -> Void)?
+    var onRuntimeCommandAck: (@MainActor @Sendable (CommandAck) -> Void)?
+
     // MARK: - Domain State
 
-    let paneState = PaneDomainState()
     let revisionClock = RevisionClock()
 
     // MARK: - Push Plans
@@ -78,8 +84,23 @@ final class BridgePaneController {
     /// - Parameters:
     ///   - paneId: Unique identifier for this pane instance.
     ///   - state: Serializable bridge pane state (panel kind + source).
-    init(paneId: UUID, state: BridgePaneState) {
+    ///   - metadata: Optional runtime metadata override used by runtime registration paths.
+    init(
+        paneId: UUID,
+        state: BridgePaneState,
+        metadata: PaneMetadata? = nil
+    ) {
         self.paneId = paneId
+        let runtimePaneId = PaneId(uuid: paneId)
+        let defaultMetadata = Self.makeDefaultRuntimeMetadata(paneId: runtimePaneId, state: state)
+        let resolvedMetadata = (metadata ?? defaultMetadata).canonicalizedIdentity(
+            paneId: runtimePaneId,
+            contentType: Self.contentType(for: state)
+        )
+        self.runtime = BridgeRuntime(
+            paneId: runtimePaneId,
+            metadata: resolvedMetadata
+        )
         let blockInteraction = ManagementModeMonitor.shared.isActive
         let initialManagementScript = WebInteractionManagementScript.makeUserScript(
             blockInteraction: blockInteraction
@@ -140,7 +161,7 @@ final class BridgePaneController {
         }
 
         router.onCommandAck = { [weak self] ack in
-            self?.recordCommandAck(ack)
+            self?.handleRuntimeCommandAck(ack)
         }
         router.onResponse = { [weak self] responseJSON in
             await self?.emitRPCResponse(responseJSON)
@@ -157,6 +178,14 @@ final class BridgePaneController {
             self?.handleBridgeReady()
             return nil
         }
+
+        onRuntimeEvent = { [weak self] event, commandId, correlationId in
+            self?.runtime.ingestBridgeEvent(event, commandId: commandId, correlationId: correlationId)
+        }
+        onRuntimeCommandAck = { [weak self] ack in
+            self?.runtime.recordCommandAck(ack)
+        }
+        runtime.commandHandler = self
 
         registerNamespaceHandlers()
     }
@@ -193,7 +222,15 @@ final class BridgePaneController {
         let shouldReapplyAfterLoad = page.isLoading
 
         interactionApplyTask = Task { @MainActor in
-            _ = try? await page.callJavaScript(script)
+            do {
+                _ = try await page.callJavaScript(script)
+            } catch is CancellationError {
+                return
+            } catch {
+                bridgeControllerLogger.debug(
+                    "Failed to apply interaction script for pane \(self.paneId.uuidString, privacy: .public): \(error.localizedDescription, privacy: .public)"
+                )
+            }
 
             guard shouldReapplyAfterLoad else { return }
 
@@ -204,7 +241,15 @@ final class BridgePaneController {
             }
 
             if Task.isCancelled { return }
-            _ = try? await page.callJavaScript(script)
+            do {
+                _ = try await page.callJavaScript(script)
+            } catch is CancellationError {
+                return
+            } catch {
+                bridgeControllerLogger.debug(
+                    "Failed to reapply interaction script for pane \(self.paneId.uuidString, privacy: .public): \(error.localizedDescription, privacy: .public)"
+                )
+            }
         }
     }
 
@@ -277,7 +322,7 @@ final class BridgePaneController {
         reviewPushPlan = nil
         connectionPushPlan = nil
         agentPushPlan = nil
-        paneState.clearAcks()
+        runtime.resetForControllerTeardown()
         lastPushed.removeAll()
         isBridgeReady = false
     }
@@ -294,6 +339,22 @@ final class BridgePaneController {
     /// invoke the handshake directly without routing through WebKit message handlers.
     func handleBridgeReady() {
         guard !isBridgeReady else { return }
+        if runtime.lifecycle == .created {
+            guard runtime.transitionToReady() else {
+                bridgeControllerLogger.error(
+                    "Bridge ready handshake failed runtime transition for pane \(self.paneId.uuidString, privacy: .public)"
+                )
+                return
+            }
+        } else if runtime.lifecycle != .ready {
+            bridgeControllerLogger.error(
+                """
+                Bridge ready handshake rejected for pane \(self.paneId.uuidString, privacy: .public): \
+                runtime lifecycle \(String(describing: self.runtime.lifecycle), privacy: .public)
+                """
+            )
+            return
+        }
         isBridgeReady = true
 
         diffPushPlan = makeDiffPushPlan()
@@ -314,6 +375,15 @@ final class BridgePaneController {
     /// Separated for tests and command-handler reuse.
     func handleIncomingRPC(_ json: String) async {
         await router.dispatch(json: json, isBridgeReady: isBridgeReady)
+    }
+
+    /// Runtime-facing typed event ingress for bridge domain events.
+    func ingestRuntimeEvent(
+        _ event: PaneRuntimeEvent,
+        commandId: UUID? = nil,
+        correlationId: UUID? = nil
+    ) {
+        onRuntimeEvent?(event, commandId, correlationId)
     }
 
     // MARK: - Push Plan Factories
@@ -389,8 +459,8 @@ final class BridgePaneController {
         )
     }
 
-    private func recordCommandAck(_ ack: CommandAck) {
-        paneState.recordAck(ack)
+    private func handleRuntimeCommandAck(_ ack: CommandAck) {
+        onRuntimeCommandAck?(ack)
     }
 
     private func emitRPCResponse(_ responseJSON: String) async {
@@ -408,6 +478,33 @@ final class BridgePaneController {
             paneState.connection.setHealth(.error)
         }
     }
+
+    private static func makeDefaultRuntimeMetadata(
+        paneId: PaneId,
+        state: BridgePaneState
+    ) -> PaneMetadata {
+        let contentType = contentType(for: state)
+        let title: String
+        switch state.panelKind {
+        case .diffViewer:
+            title = "Diff"
+        }
+
+        return PaneMetadata(
+            paneId: paneId,
+            contentType: contentType,
+            source: .floating(workingDirectory: nil, title: title),
+            title: title
+        )
+    }
+
+    private static func contentType(for state: BridgePaneState) -> PaneContentType {
+        switch state.panelKind {
+        case .diffViewer:
+            return .diff
+        }
+    }
+
 }
 
 // MARK: - DedupEntry

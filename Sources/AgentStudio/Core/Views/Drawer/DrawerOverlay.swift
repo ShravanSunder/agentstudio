@@ -7,7 +7,7 @@ struct DrawerOverlay: View {
     let paneId: UUID
     let drawer: Drawer?
     let isIconBarVisible: Bool
-    let action: (PaneAction) -> Void
+    let action: (PaneActionCommand) -> Void
 
     var body: some View {
         VStack(spacing: 0) {

@@ -92,31 +92,33 @@ erDiagram
 
 ### 2.2 Repo & Worktree
 
-**`Repo`** — A git repository on disk. Contains discovered worktrees.
+Models are split across two stores. See [Workspace Data Architecture](workspace_data_architecture.md) for the full persistence tier spec and enrichment pipeline.
+
+**`Repo`** — A git repository on disk. Structure-only — no enrichment data.
 
 | Field | Type | Notes |
 |-------|------|-------|
 | `id` | `UUID` | Primary key |
 | `name` | `String` | Directory name |
 | `repoPath` | `URL` | Filesystem path |
-| `worktrees` | `[Worktree]` | Discovered git worktrees |
+| `worktrees` | `[Worktree]` | Git worktrees (each has explicit repoId FK) |
 | `createdAt` | `Date` | When the repo was added |
-| `updatedAt` | `Date` | Last modification timestamp |
-| `stableKey` | `String` | SHA-256 of path (16 hex chars), deterministic across reinstalls |
+| `stableKey` | `String` | SHA-256 of path, derived, deterministic across reinstalls |
 
-**`Worktree`** — A git worktree within a repo.
+**`Worktree`** — A git worktree within a repo. Structure-only.
 
 | Field | Type | Notes |
 |-------|------|-------|
 | `id` | `UUID` | Primary key |
-| `name` | `String` | Branch-derived display name |
+| `repoId` | `UUID` | FK to parent Repo |
+| `name` | `String` | Display name |
 | `path` | `URL` | Filesystem path |
-| `branch` | `String` | Git branch name |
-| `agent` | `AgentType?` | Which AI agent is assigned (claude, codex, gemini, aider, custom) |
-| `status` | `WorktreeStatus` | Agent status (idle, running, pendingReview, error) |
-| `stableKey` | `String` | SHA-256 of path (16 hex chars) |
+| `isMainWorktree` | `Bool` | Whether this is the main checkout |
+| `stableKey` | `String` | SHA-256 of path, derived |
 
-> **File:** `Core/Models/Repo.swift`, `Core/Models/Worktree.swift`
+All enrichment (branch, git status, origin, PR counts) lives in `WorkspaceRepoCache`, populated by the event bus. See the "Three Persistence Tiers" section in workspace_data_architecture.md.
+
+> **Files:** `Core/Models/Repo.swift`, `Core/Models/Worktree.swift`
 
 ### 2.3 TerminalSession
 
@@ -127,7 +129,7 @@ The **primary entity**. Stable identity for a terminal, independent of layout po
 | `id` | `UUID` | Immutable primary key, never changes |
 | `source` | `TerminalSource` | What this terminal is for |
 | `title` | `String` | Display title (updated from shell) |
-| `agent` | `AgentType?` | AI agent running in this terminal |
+| `content` | `PaneContent` | What this pane displays (terminal, bridge, webview) |
 | `provider` | `SessionProvider` | Backend type |
 | `lifetime` | `SessionLifetime` | Persistence behavior |
 | `residency` | `SessionResidency` | Lifecycle position |
@@ -188,7 +190,7 @@ A **named arrangement** of sessions into tabs. Multiple views can reference the 
 
 **`DynamicViewRule`** — Rules for dynamic views:
 - `.byRepo(repoId: UUID)` — All sessions for a repo
-- `.byAgent(AgentType)` — All sessions running a specific agent
+- `.byCWD` — All panes grouped by working directory
 - `.custom(name: String)` — Future: user-defined filter
 
 > **File:** `Core/Models/DynamicView.swift`
@@ -298,7 +300,7 @@ Singletons:
 └── Ghostty.shared           ← Ghostty C API wrapper
 ```
 
-> **Testability note on singletons:** These `static let shared` singletons are `@MainActor` (inferred or explicit). Under Swift 6.2, `static var` on `@MainActor` types is also MainActor-isolated (enforced since Swift 5.10). This is fine for production — they don't cross actor boundaries. However, `static let` cannot be swapped for testing. When boundary actors need these services (e.g., `FilesystemActor` needing `WorktrunkService` for worktree path resolution, or `ForgeActor` needing `ProcessExecutor` for git CLI), **inject via constructor parameter**, not via `.shared` access from inside the actor. The EventBus design already follows this pattern: `private let bus: EventBus<PaneEventEnvelope>` is constructor-injected. Apply the same to any singleton that a non-MainActor component needs.
+> **Testability note on singletons:** These `static let shared` singletons are `@MainActor` (inferred or explicit). Under Swift 6.2, `static var` on `@MainActor` types is also MainActor-isolated (enforced since Swift 5.10). This is fine for production — they don't cross actor boundaries. However, `static let` cannot be swapped for testing. When boundary actors need these services (e.g., `FilesystemActor` needing `WorktrunkService` for worktree path resolution, or `ForgeActor` needing `ProcessExecutor` for git CLI), **inject via constructor parameter**, not via `.shared` access from inside the actor. The EventBus design already follows this pattern: `private let bus: EventBus<RuntimeEnvelope>` is constructor-injected. Apply the same to any singleton that a non-MainActor component needs.
 
 ### 3.2 WorkspaceStore
 
@@ -388,11 +390,11 @@ The `PaneCoordinator` is the canonical orchestration boundary for action executi
 > **Expansion (LUNA-325):** The coordinator gains event consumption and runtime command dispatch responsibilities: it will own the `RuntimeRegistry`, subscribe to the `EventBus` (not per-runtime streams — runtimes post to the bus, coordinator consumes from bus fan-out), feed the `NotificationReducer` (priority-aware delivery), maintain per-source replay buffers, and dispatch `RuntimeCommand`s to individual runtimes via `RuntimeCommandEnvelope`. The coordinator event loop processes critical events at `.userInitiated` priority and lossy batches at `.utility`. See [Pane Runtime Architecture — Coordinator Event Loop](pane_runtime_architecture.md#coordinator-event-loop-how-it-connects) for the target design.
 
 **Two action layers flow through the coordinator:**
-- **Workspace actions** (`PaneAction` from `Core/Actions/`): workspace structure mutations (selectTab, closePane, insertPane, etc.) → resolved by `ActionResolver`, validated by `ActionValidator`, executed against `WorkspaceStore`.
+- **Workspace actions** (`PaneActionCommand` from `Core/Actions/`): workspace structure mutations (selectTab, closePane, insertPane, etc.) → resolved by `ActionResolver`, validated by `ActionValidator`, executed against `WorkspaceStore`.
 - **Runtime commands** (`RuntimeCommand` from `Core/PaneRuntime/Contracts/`): commands to individual runtimes (sendInput, navigate, approveHunk, etc.) → dispatched via `RuntimeRegistry.runtime(for:).handleCommand(envelope)`.
 
 **Key operations:**
-- `execute(_ action: PaneAction)` — dispatch workspace actions (selectTab, closeTab, closePane, insertPane, extractPaneToTab, resizePane, equalizePanes, mergeTab, breakUpTab, focusPane, repair)
+- `execute(_ action: PaneActionCommand)` — dispatch workspace actions (selectTab, closeTab, closePane, insertPane, extractPaneToTab, resizePane, equalizePanes, mergeTab, breakUpTab, focusPane, repair)
 - `openTerminal(for:in:)` — Create session + surface + tab. Rolls back session if surface creation fails.
 - `openWebview(url:)` — Open a webview pane and append it as a new tab
 - `undoCloseTab()` — pop `WorkspaceStore.CloseEntry` from undo stack, restore to store, reattach surfaces in reverse order
@@ -407,7 +409,7 @@ The `PaneCoordinator` is the canonical orchestration boundary for action executi
 - `TabCloseSnapshot` captures: `tab`, `panes`, `tabIndex`
 - Oldest entries GC'd when stack exceeds limit; orphaned sessions cleaned up
 
-**Reentrant-safety invariant:** The coordinator has both synchronous mutation methods (e.g., `execute(_ action: PaneAction)`, `closeTab()`) and an async `for await` event loop consuming from the EventBus. Since both are `@MainActor`, synchronous methods can interleave between event loop iterations — the `for await` yields at each iteration, and synchronous calls execute during the yield. This is correct and expected (same model as Python asyncio). The multiplexing rule guarantees safety: `@Observable` mutation happens synchronously on MainActor **before** `bus.post()`, so by the time the coordinator's event loop picks up an envelope, all store state is already consistent. The coordinator never sees an envelope whose corresponding `@Observable` state hasn't been applied yet. Frame-level interleaving between synchronous UI mutations and async event processing is expected and safe — UI sees updates immediately (synchronous `@Observable`), coordination consumers see complete envelopes within one frame (~16ms). This is not a race; it's the intended scheduling model.
+**Reentrant-safety invariant:** The coordinator has both synchronous mutation methods (e.g., `execute(_ action: PaneActionCommand)`, `closeTab()`) and an async `for await` event loop consuming from the EventBus. Since both are `@MainActor`, synchronous methods can interleave between event loop iterations — the `for await` yields at each iteration, and synchronous calls execute during the yield. This is correct and expected (same model as Python asyncio). The multiplexing rule guarantees safety: `@Observable` mutation happens synchronously on MainActor **before** `bus.post()`, so by the time the coordinator's event loop picks up an envelope, all store state is already consistent. The coordinator never sees an envelope whose corresponding `@Observable` state hasn't been applied yet. Frame-level interleaving between synchronous UI mutations and async event processing is expected and safe — UI sees updates immediately (synchronous `@Observable`), coordination consumers see complete envelopes within one frame (~16ms). This is not a race; it's the intended scheduling model.
 
 > **File:** `App/PaneCoordinator.swift`
 
@@ -429,11 +431,13 @@ Owned by `WorkspaceStore` as a `private let` member. Pure persistence I/O. No bu
 
 ### 3.9.1 Persistence Domain Segregation (Target)
 
+> **Authoritative spec:** [Workspace Data Architecture](workspace_data_architecture.md) defines the complete three-tier model including canonical models (`CanonicalRepo`, `CanonicalWorktree`), enrichment models (`RepoEnrichment`, `WorktreeEnrichment`), and the event-driven enrichment pipeline. This section summarizes the persistence split; the workspace data doc is the source of truth for model shapes and lifecycle flows.
+
 To keep Jotai-style store boundaries and Valtio-style source-of-truth guarantees intact, persistence is split by domain responsibility:
 
-- Canonical workspace model (`WorkspaceStore`) stays in `workspace.state.json`
-- Derived/stale-prone lookup data (git/wt/gh metadata, branch/sync/PR/diff status) moves to `workspace.cache.json`
-- Workspace-scoped UI preferences move to `workspace.ui.json`
+- Canonical workspace model (`WorkspaceStore`) stays in `workspace.state.json` — contains `watchedPaths`, `CanonicalRepo[]`, `CanonicalWorktree[]`, panes, tabs, layouts
+- Derived enrichment data (`WorkspaceRepoCache`) in `workspace.cache.json` — contains `RepoEnrichment`, `WorktreeEnrichment`, PR/notification counts. Written exclusively by `WorkspaceCacheCoordinator` via enrichment pipeline events.
+- Workspace-scoped UI preferences (`WorkspaceUIStore`) in `workspace.ui.json`
 - Global app preferences and keybindings are stored separately from workspace state
 
 This prevents derived data from silently becoming canonical truth and aligns each persisted file with exactly one reason to change.
@@ -456,7 +460,7 @@ This prevents derived data from silently becoming canonical truth and aligns eac
 #### Store Ownership
 
 - `WorkspaceStore` → canonical workspace model in `workspace.state.json`
-- `WorkspaceCacheStore` → derived git/wt/gh metadata + status in `workspace.cache.json`
+- `WorkspaceRepoCache` → derived git/wt/gh metadata + status in `workspace.cache.json`
 - `WorkspaceUIStore` → workspace-scoped UI preferences in `workspace.ui.json`
 - `PreferencesStore` → global app preferences in `preferences.global.json`
 - `KeybindingsStore` → command-to-shortcut overrides in `keybindings.json`
@@ -534,7 +538,7 @@ Required cache validity fields:
 2. Load `workspace.ui.json` into `WorkspaceUIStore`
 3. Load global preferences and keybindings into their stores
 4. Load `workspace.cache.json` only if cache revision matches canonical workspace revision
-5. Trigger async refresh pipeline (`wt`, `git`, `gh`) and patch `WorkspaceCacheStore`
+5. Trigger async refresh pipeline (`wt`, `git`, `gh`) and patch `WorkspaceRepoCache`
 
 Coordinator owns sequencing, not domain decisions:
 
@@ -584,6 +588,8 @@ Git worktree management via the `wt` CLI tool. Singleton.
 - `createWorktree()` / `removeWorktree()` — Lifecycle
 
 > **File:** `Infrastructure/WorktrunkService.swift`
+>
+> Worktree discovery flows through the enrichment pipeline: AppDelegate persists watched scope and triggers the watched-folder command → `FilesystemActor` scans and emits `.repoDiscovered` / `.repoRemoved` → `WorkspaceCacheCoordinator` registers or marks unavailable canonical entries in `WorkspaceStore` and seeds enrichment in `WorkspaceRepoCache`. See [Workspace Data Architecture](workspace_data_architecture.md) for the full pipeline.
 
 ### 3.12 Command Bar System
 
@@ -637,7 +643,7 @@ sequenceDiagram
 
     User->>PaneTabViewController: keyboard / mouse / drag
     PaneTabViewController->>PaneTabViewController: AppCommand / Notification
-    PaneTabViewController->>PC: execute(PaneAction)
+    PaneTabViewController->>PC: execute(PaneActionCommand)
     PC->>Store: mutate state (private(set))
     Store-->>Store: @Observable tracks
     Store-->>PaneTabViewController: SwiftUI re-renders
@@ -806,7 +812,7 @@ These rules are enforced by `WorkspaceStore` and model types at all times:
 | `Core/Models/Tab.swift` | Tab with layout and active session |
 | `Core/Models/DynamicView.swift` | `DynamicView`, `ViewKind`, `DynamicViewRule` |
 | `Core/Models/Repo.swift` | `Repo` entity |
-| `Core/Models/Worktree.swift` | `Worktree`, `WorktreeStatus`, `AgentType` |
+| `Core/Models/Worktree.swift` | `Worktree` (structure-only: id, repoId, name, path, isMainWorktree) |
 | `Core/Models/Templates.swift` | `WorktreeTemplate`, `TerminalTemplate`, `CreatePolicy` |
 | `Core/Models/StableKey.swift` | SHA-256 path hashing for deterministic IDs |
 | `Infrastructure/StateMachine/StateMachine.swift` | Generic state machine with effect handling |
@@ -826,14 +832,14 @@ These rules are enforced by `WorkspaceStore` and model types at all times:
 | `App/MainSplitViewController.swift` | Split view: sidebar + terminal panes |
 | `App/Panes/PaneTabViewController.swift` | Tab controller, observes store via @Observable |
 | **Core/Actions** (workspace mutations) | |
-| `Core/Actions/PaneAction.swift` | Workspace-level action enum (selectTab, closePane, insertPane, etc.) |
-| `Core/Actions/ActionResolver.swift` | Resolves user input → PaneAction |
+| `Core/Actions/PaneActionCommand.swift` | Workspace-level action enum (selectTab, closePane, insertPane, etc.) |
+| `Core/Actions/ActionResolver.swift` | Resolves user input → PaneActionCommand |
 | `Core/Actions/ActionValidator.swift` | Validates actions before execution |
 | `Core/Actions/ActionStateSnapshot.swift` | Captures state for validation |
 | **Core/PaneRuntime/** (LUNA-325) | |
 | `Core/PaneRuntime/Contracts/PaneRuntime.swift` | Per-pane runtime protocol |
 | `Core/PaneRuntime/Contracts/PaneRuntimeEvent.swift` | Typed event discriminated union + per-kind enums |
-| `Core/PaneRuntime/Contracts/PaneEventEnvelope.swift` | Outbound event envelope with routing/ordering metadata |
+| `Core/PaneRuntime/Contracts/RuntimeEnvelopeCore.swift` | 3-tier event envelope (SystemEnvelope, WorktreeEnvelope, PaneEnvelope) |
 | `Core/PaneRuntime/Contracts/RuntimeCommand.swift` | Runtime-level command enum + per-kind command enums |
 | `Core/PaneRuntime/Contracts/RuntimeCommandEnvelope.swift` | Inbound command envelope with idempotency/correlation |
 | `Core/PaneRuntime/Contracts/PaneMetadata.swift` | Rich pane identity (contentType, source, execution backend) |

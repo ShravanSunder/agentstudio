@@ -43,9 +43,11 @@ final class PushPerformanceBenchmarkTests {
                 return true
             }
 
-            let deadline = ContinuousClock().now.advanced(by: timeout)
-            while pushCount < expectedCount && ContinuousClock().now < deadline {
-                try? await Task.sleep(for: .milliseconds(10))
+            for _ in 0..<1000 {
+                if pushCount >= expectedCount {
+                    return true
+                }
+                await Task.yield()
             }
 
             return pushCount >= expectedCount

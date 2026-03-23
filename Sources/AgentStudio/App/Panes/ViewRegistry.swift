@@ -43,6 +43,11 @@ final class ViewRegistry {
         views.compactMapValues { $0 as? WebviewPaneView }
     }
 
+    /// All registered terminal pane views, keyed by pane ID.
+    var allTerminalViews: [UUID: AgentStudioTerminalView] {
+        views.compactMapValues { $0 as? AgentStudioTerminalView }
+    }
+
     /// All currently registered pane IDs.
     var registeredPaneIds: Set<UUID> {
         Set(views.keys)

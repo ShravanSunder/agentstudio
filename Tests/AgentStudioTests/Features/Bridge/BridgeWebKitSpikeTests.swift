@@ -355,8 +355,7 @@ extension WebKitSerializedTests {
         /// Polls `page.isLoading` and enforces a hard deadline so tests
         /// fail explicitly rather than asserting against an unready page.
         private func waitForPageLoad(_ page: WebPage, timeout: Duration = .seconds(5)) async throws {
-            let deadline = ContinuousClock.now + timeout
-            while ContinuousClock.now < deadline {
+            for _ in 0..<50_000 {
                 if !page.isLoading { break }
                 await Task.yield()
             }
@@ -369,8 +368,7 @@ extension WebKitSerializedTests {
             atLeast expectedCount: Int,
             timeout: Duration = .seconds(2)
         ) async -> Bool {
-            let deadline = ContinuousClock.now + timeout
-            while ContinuousClock.now < deadline {
+            for _ in 0..<20_000 {
                 if handler.receivedMessages.count >= expectedCount {
                     return true
                 }

@@ -7,6 +7,7 @@ import SwiftUI
 struct CommandBarView: View {
     @Bindable var state: CommandBarState
     let store: WorkspaceStore
+    let repoCache: WorkspaceRepoCache
     let dispatcher: CommandDispatcher
     let onDismiss: () -> Void
 
@@ -68,7 +69,12 @@ struct CommandBarView: View {
         if let level = state.currentLevel {
             return level.items
         }
-        return CommandBarDataSource.items(scope: state.activeScope, store: store, dispatcher: dispatcher)
+        return CommandBarDataSource.items(
+            scope: state.activeScope,
+            store: store,
+            repoCache: repoCache,
+            dispatcher: dispatcher
+        )
     }
 
     private var filteredItems: [CommandBarItem] {

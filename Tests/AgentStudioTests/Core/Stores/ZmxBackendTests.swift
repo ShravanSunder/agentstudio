@@ -135,6 +135,20 @@ final class ZmxBackendTests {
         #expect(id == "agentstudio--abcdef0123456789--fedcba9876543210--5566778899001122")
     }
 
+    @Test
+    func test_floatingSessionId_duplicatesCwdStableKey() {
+        // Arrange
+        let workingDirectory = URL(fileURLWithPath: "/Users/test/dev/project")
+        let paneId = UUID(uuidString: "AABBCCDD-1122-3344-5566-778899001122")!
+
+        // Act
+        let id = ZmxBackend.floatingSessionId(workingDirectory: workingDirectory, paneId: paneId)
+
+        // Assert
+        let stableKey = StableKey.fromPath(workingDirectory)
+        #expect(id == "agentstudio--\(stableKey)--\(stableKey)--5566778899001122")
+    }
+
     // MARK: - Drawer Session ID Generation
 
     @Test
@@ -252,7 +266,7 @@ final class ZmxBackendTests {
 
     func test_createPaneSession_returnsHandleWithoutCLICall() async throws {
         // Arrange
-        let worktree = makeWorktree(name: "feature-x", path: "/tmp/feature-x", branch: "feature-x")
+        let worktree = makeWorktree(name: "feature-x", path: "/tmp/feature-x")
         let repo = makeRepo()
         // Use a real temp dir so createDirectory succeeds
         let tempZmxDir = FileManager.default.temporaryDirectory
@@ -531,6 +545,26 @@ final class ZmxBackendTests {
         #expect(orphans.count == 2)
         #expect(orphans.contains("agentstudio--def--333--444"))
         #expect(orphans.contains("agentstudio--ghi--555--666"))
+        #expect(!(orphans.contains("user-session")))
+    }
+
+    @Test
+    func test_discoverOrphanSessions_parsesZmx042KeyValueFormat() async {
+        // Arrange
+        executor.enqueue(
+            ProcessResult(
+                exitCode: 0,
+                stdout:
+                    "name=agentstudio--abc--111--222\tpid=123\tclients=0\tcreated=1774059493\tstart_dir=/tmp\tcmd=/bin/sleep 300\nname=agentstudio-d--aabb--ccdd\tpid=456\tclients=0\tcreated=1774059494\tstart_dir=/tmp\tcmd=/bin/sleep 300\nname=user-session\tpid=789\tclients=0",
+                stderr: ""
+            ))
+
+        // Act
+        let orphans = await backend.discoverOrphanSessions(excluding: ["agentstudio--abc--111--222"])
+
+        // Assert
+        #expect(orphans.count == 1)
+        #expect(orphans.contains("agentstudio-d--aabb--ccdd"))
         #expect(!(orphans.contains("user-session")))
     }
 

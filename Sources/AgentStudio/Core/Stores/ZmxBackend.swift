@@ -106,8 +106,34 @@ final class ZmxBackend: SessionBackend {
     /// Default zmx directory for socket/state isolation.
     static let defaultZmxDir: String = {
         FileManager.default.homeDirectoryForCurrentUser
-            .appendingPathComponent(".agentstudio/zmx").path
+            .appendingPathComponent(".agentstudio/z").path
     }()
+
+    /// Extract a session identifier from `zmx list` output.
+    ///
+    /// Supports:
+    /// - legacy key/value lines: `session_name=<id>\t...`
+    /// - current key/value lines: `name=<id>\t...`
+    /// - short output: `<id>`
+    static func extractSessionName(from line: String) -> String? {
+        let trimmed = line.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !trimmed.isEmpty else { return nil }
+
+        let tokens = trimmed.split(whereSeparator: \.isWhitespace)
+        for token in tokens {
+            if token.hasPrefix("session_name=") {
+                let value = token.dropFirst("session_name=".count)
+                return value.isEmpty ? nil : String(value)
+            }
+            if token.hasPrefix("name=") {
+                let value = token.dropFirst("name=".count)
+                return value.isEmpty ? nil : String(value)
+            }
+        }
+
+        guard let first = tokens.first, !first.contains("=") else { return nil }
+        return String(first)
+    }
 
     private let executor: ProcessExecutor
     private let zmxPath: String
@@ -140,6 +166,17 @@ final class ZmxBackend: SessionBackend {
     static func sessionId(repoStableKey: String, worktreeStableKey: String, paneId: UUID) -> String {
         let paneSegment = paneSessionSegment(paneId)
         return "\(sessionPrefix)\(repoStableKey)--\(worktreeStableKey)--\(paneSegment)"
+    }
+
+    /// Floating top-level session ID: derive a stable key from the pane cwd and
+    /// reuse it for both repo/worktree segments so restart attach stays deterministic.
+    static func floatingSessionId(workingDirectory: URL, paneId: UUID) -> String {
+        let stableKey = StableKey.fromPath(workingDirectory)
+        return sessionId(
+            repoStableKey: stableKey,
+            worktreeStableKey: stableKey,
+            paneId: paneId
+        )
     }
 
     /// Drawer session ID: `agentstudio-d--<parentPaneId16>--<drawerPaneId16>`
@@ -298,23 +335,7 @@ final class ZmxBackend: SessionBackend {
             return result.stdout
                 .components(separatedBy: "\n")
                 .filter { !$0.isEmpty }
-                .compactMap { line -> String? in
-                    // Parse zmx list output by session_name= key (matches ZmxTestHarness.extractSessionName).
-                    // Handles both long format (session_name=<id>\tpid=...) and short format (<id>).
-                    let trimmed = line.trimmingCharacters(in: .whitespacesAndNewlines)
-                    guard !trimmed.isEmpty else { return nil }
-
-                    let tokens = trimmed.split(whereSeparator: \.isWhitespace)
-                    for token in tokens {
-                        if token.hasPrefix("session_name=") {
-                            let value = token.dropFirst("session_name=".count)
-                            return value.isEmpty ? nil : String(value)
-                        }
-                    }
-                    // Fallback for short output: first token is the raw session id
-                    guard let first = tokens.first, !first.contains("=") else { return nil }
-                    return String(first)
-                }
+                .compactMap(Self.extractSessionName(from:))
                 .filter { $0.hasPrefix(Self.sessionPrefix) || $0.hasPrefix("agentstudio-d--") }
                 .filter { !knownIds.contains($0) }
         } catch {

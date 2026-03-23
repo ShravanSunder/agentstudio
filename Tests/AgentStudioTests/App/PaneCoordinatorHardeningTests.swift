@@ -50,8 +50,8 @@ struct PaneCoordinatorHardeningTests {
         try? FileManager.default.createDirectory(at: worktreePath, withIntermediateDirectories: true)
 
         let repo = store.addRepo(at: repoPath)
-        let worktree = Worktree(name: "wt-main", path: worktreePath, branch: "main")
-        store.updateRepoWorktrees(repo.id, worktrees: [worktree])
+        let worktree = Worktree(repoId: repo.id, name: "wt-main", path: worktreePath)
+        store.reconcileDiscoveredWorktrees(repo.id, worktrees: [worktree])
         return (repo, worktree)
     }
 
@@ -193,6 +193,72 @@ struct PaneCoordinatorHardeningTests {
         #expect(Set(harness.store.panes.keys) == initialPaneIds)
         #expect(harness.store.tab(tab.id)?.paneIds == [targetPane.id])
         #expect(harness.surfaceManager.createSurfaceCallCount == 1)
+    }
+
+    @Test("insertPane newTerminal resolves worktree context from floating target cwd before surface creation")
+    func insertPaneNewTerminal_resolvesWorktreeContextFromFloatingCwd() {
+        let harness = makeHarness()
+        defer { try? FileManager.default.removeItem(at: harness.tempDir) }
+
+        let (repo, worktree) = makeRepoAndWorktree(harness.store, root: harness.tempDir)
+        let targetPane = harness.store.createPane(
+            source: .floating(workingDirectory: worktree.path.appending(path: "nested"), title: "Target"),
+            title: "Target",
+            provider: .zmx,
+            facets: PaneContextFacets(cwd: worktree.path.appending(path: "nested"))
+        )
+        let tab = Tab(paneId: targetPane.id)
+        harness.store.appendTab(tab)
+        let initialPaneIds = Set(harness.store.panes.keys)
+
+        harness.coordinator.execute(
+            .insertPane(
+                source: .newTerminal,
+                targetTabId: tab.id,
+                targetPaneId: targetPane.id,
+                direction: .right
+            )
+        )
+
+        #expect(Set(harness.store.panes.keys) == initialPaneIds)
+        #expect(harness.store.tab(tab.id)?.paneIds == [targetPane.id])
+        #expect(harness.surfaceManager.createSurfaceCallCount == 1)
+        #expect(harness.store.repo(repo.id) != nil)
+        #expect(
+            harness.surfaceManager.lastCreatedSurfaceMetadata?.workingDirectory
+                == worktree.path.appending(path: "nested"))
+    }
+
+    @Test("insertPane newTerminal falls back to floating context when target cwd does not map to a worktree")
+    func insertPaneNewTerminal_fallsBackToFloatingContext() {
+        let harness = makeHarness()
+        defer { try? FileManager.default.removeItem(at: harness.tempDir) }
+
+        let unknownCwd = harness.tempDir.appending(path: "outside-known-repos")
+        try? FileManager.default.createDirectory(at: unknownCwd, withIntermediateDirectories: true)
+        let targetPane = harness.store.createPane(
+            source: .floating(workingDirectory: unknownCwd, title: "Target"),
+            title: "Target",
+            provider: .zmx,
+            facets: PaneContextFacets(cwd: unknownCwd)
+        )
+        let tab = Tab(paneId: targetPane.id)
+        harness.store.appendTab(tab)
+        let initialPaneIds = Set(harness.store.panes.keys)
+
+        harness.coordinator.execute(
+            .insertPane(
+                source: .newTerminal,
+                targetTabId: tab.id,
+                targetPaneId: targetPane.id,
+                direction: .right
+            )
+        )
+
+        #expect(Set(harness.store.panes.keys) == initialPaneIds)
+        #expect(harness.store.tab(tab.id)?.paneIds == [targetPane.id])
+        #expect(harness.surfaceManager.createSurfaceCallCount == 1)
+        #expect(harness.surfaceManager.lastCreatedSurfaceMetadata?.workingDirectory == unknownCwd)
     }
 
     @Test("reactivatePane re-backgrounds pane if view creation fails")
@@ -481,6 +547,7 @@ private final class MockPaneCoordinatorSurfaceManager: PaneCoordinatorSurfaceMan
     private let createSurfaceResult: Result<ManagedSurface, SurfaceError>
 
     private(set) var createSurfaceCallCount = 0
+    private(set) var lastCreatedSurfaceMetadata: SurfaceMetadata?
     var onUndoClose: (() -> Void)?
     var undoCloseResult: ManagedSurface?
 
@@ -506,6 +573,7 @@ private final class MockPaneCoordinatorSurfaceManager: PaneCoordinatorSurfaceMan
         metadata: SurfaceMetadata
     ) -> Result<ManagedSurface, SurfaceError> {
         createSurfaceCallCount += 1
+        lastCreatedSurfaceMetadata = metadata
         return createSurfaceResult
     }
 

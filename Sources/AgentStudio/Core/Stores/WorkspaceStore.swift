@@ -20,6 +20,7 @@ final class WorkspaceStore {
     // MARK: - Persisted State
 
     private(set) var repos: [Repo] = []
+    private(set) var watchedPaths: [WatchedPath] = []
     private(set) var panes: [UUID: Pane] = [:]
     private(set) var tabs: [Tab] = []
     private(set) var activeTabId: UUID?
@@ -45,6 +46,7 @@ final class WorkspaceStore {
     private(set) var windowFrame: CGRect?
     private(set) var createdAt = Date()
     private(set) var updatedAt = Date()
+    private(set) var unavailableRepoIds: Set<UUID> = []
 
     // MARK: - Constants
 
@@ -100,7 +102,10 @@ final class WorkspaceStore {
     /// These are backgrounded panes waiting to be reactivated or garbage-collected.
     var orphanedPanes: [Pane] {
         let layoutPaneIds = Set(tabs.flatMap(\.panes))
-        return panes.values.filter { !layoutPaneIds.contains($0.id) && $0.residency == .backgrounded }
+        return panes.values.filter {
+            guard !layoutPaneIds.contains($0.id) else { return false }
+            return $0.residency == .backgrounded || $0.residency.isOrphaned
+        }
     }
 
     /// Remove a pane from all tab layouts and move to the background pool.
@@ -224,6 +229,66 @@ final class WorkspaceStore {
         }
     }
 
+    func repoAndWorktree(containing cwd: URL?) -> (repo: Repo, worktree: Worktree)? {
+        guard let cwd else { return nil }
+
+        struct MatchCandidate {
+            let repo: Repo
+            let worktree: Worktree
+            let normalizedWorktreePath: String
+            let repoWorktreeCount: Int
+            let repoPathMatchesWorktree: Bool
+            let isMainWorktree: Bool
+            let stableTieBreaker: String
+        }
+
+        let normalizedCwdPath = cwd.standardizedFileURL.resolvingSymlinksInPath().path
+        let candidates = repos.flatMap { repo in
+            repo.worktrees.compactMap { worktree -> MatchCandidate? in
+                let normalizedWorktreePath = worktree.path.standardizedFileURL.resolvingSymlinksInPath().path
+                let isMatch =
+                    normalizedCwdPath == normalizedWorktreePath
+                    || normalizedCwdPath.hasPrefix(normalizedWorktreePath + "/")
+                guard isMatch else { return nil }
+
+                return MatchCandidate(
+                    repo: repo,
+                    worktree: worktree,
+                    normalizedWorktreePath: normalizedWorktreePath,
+                    repoWorktreeCount: repo.worktrees.count,
+                    repoPathMatchesWorktree: repo.repoPath.standardizedFileURL.resolvingSymlinksInPath().path
+                        == normalizedWorktreePath,
+                    isMainWorktree: worktree.isMainWorktree,
+                    stableTieBreaker: "\(repo.id.uuidString)|\(worktree.id.uuidString)"
+                )
+            }
+        }
+
+        guard
+            let winner = candidates.max(by: { lhs, rhs in
+                if lhs.normalizedWorktreePath.count != rhs.normalizedWorktreePath.count {
+                    return lhs.normalizedWorktreePath.count < rhs.normalizedWorktreePath.count
+                }
+                // When two repos claim the same checkout path, prefer the repo with the
+                // larger worktree family so cwd routing matches sidebar ownership dedup.
+                if lhs.repoWorktreeCount != rhs.repoWorktreeCount {
+                    return lhs.repoWorktreeCount < rhs.repoWorktreeCount
+                }
+                if lhs.repoPathMatchesWorktree != rhs.repoPathMatchesWorktree {
+                    return !lhs.repoPathMatchesWorktree
+                }
+                if lhs.isMainWorktree != rhs.isMainWorktree {
+                    return !lhs.isMainWorktree
+                }
+                return lhs.stableTieBreaker.localizedCaseInsensitiveCompare(rhs.stableTieBreaker) == .orderedDescending
+            })
+        else {
+            return nil
+        }
+
+        return (winner.repo, winner.worktree)
+    }
+
     func panes(for worktreeId: UUID) -> [Pane] {
         panes.values.filter { $0.worktreeId == worktreeId }
     }
@@ -327,15 +392,6 @@ final class WorkspaceStore {
         markDirty()
     }
 
-    func updatePaneAgent(_ paneId: UUID, agent: AgentType?) {
-        guard panes[paneId] != nil else {
-            storeLogger.warning("updatePaneAgent: pane \(paneId) not found")
-            return
-        }
-        panes[paneId]!.metadata.updateAgentType(agent)
-        markDirty()
-    }
-
     func updatePaneWebviewState(_ paneId: UUID, state: WebviewState) {
         guard panes[paneId] != nil else {
             storeLogger.warning("updatePaneWebviewState: pane \(paneId) not found")
@@ -423,7 +479,11 @@ final class WorkspaceStore {
     }
 
     func setActiveTab(_ tabId: UUID?) {
+        let previousActiveTabId = activeTabId
         activeTabId = tabId
+        RestoreTrace.log(
+            "WorkspaceStore.setActiveTab previous=\(previousActiveTabId?.uuidString ?? "nil") new=\(tabId?.uuidString ?? "nil")"
+        )
         markDirty()
     }
 
@@ -531,8 +591,13 @@ final class WorkspaceStore {
             return
         }
         let arrIndex = tabs[tabIndex].activeArrangementIndex
+        let previousRatio = tabs[tabIndex].arrangements[arrIndex].layout.ratioForSplit(splitId)
         tabs[tabIndex].arrangements[arrIndex].layout = tabs[tabIndex].arrangements[arrIndex].layout
             .resizing(splitId: splitId, ratio: ratio)
+        let newRatio = tabs[tabIndex].arrangements[arrIndex].layout.ratioForSplit(splitId)
+        RestoreTrace.log(
+            "WorkspaceStore.resizePane tab=\(tabId.uuidString) split=\(splitId.uuidString) previousRatio=\(previousRatio.map(String.init(describing:)) ?? "nil") requestedRatio=\(ratio) storedRatio=\(newRatio.map(String.init(describing:)) ?? "nil") layout=\(layoutRatioSummary(tabs[tabIndex].arrangements[arrIndex].layout))"
+        )
         markDirty()
     }
 
@@ -1204,21 +1269,130 @@ final class WorkspaceStore {
 
     @discardableResult
     func addRepo(at path: URL) -> Repo {
-        if let existing = repos.first(where: { $0.repoPath == path }) {
+        let normalizedPath = path.standardizedFileURL
+        let incomingStableKey = StableKey.fromPath(normalizedPath)
+        if let existing = repos.first(where: {
+            $0.repoPath.standardizedFileURL == normalizedPath || $0.stableKey == incomingStableKey
+        }) {
+            unavailableRepoIds.remove(existing.id)
             return existing
         }
-        let repo = Repo(name: path.lastPathComponent, repoPath: path)
+
+        let repoId = UUID()
+        let mainWorktree = Worktree(
+            repoId: repoId,
+            name: normalizedPath.lastPathComponent,
+            path: normalizedPath,
+            isMainWorktree: true
+        )
+        let repo = Repo(
+            id: repoId,
+            name: normalizedPath.lastPathComponent,
+            repoPath: normalizedPath,
+            worktrees: [mainWorktree]
+        )
         repos.append(repo)
+        unavailableRepoIds.remove(repo.id)
         markDirty()
         return repo
     }
 
     func removeRepo(_ repoId: UUID) {
+        let previousCount = repos.count
         repos.removeAll { $0.id == repoId }
+        unavailableRepoIds.remove(repoId)
+        guard repos.count != previousCount else { return }
         markDirty()
     }
 
-    func updateRepoWorktrees(_ repoId: UUID, worktrees: [Worktree]) {
+    func markRepoUnavailable(_ repoId: UUID) {
+        guard repos.contains(where: { $0.id == repoId }) else { return }
+        guard !unavailableRepoIds.contains(repoId) else { return }
+        unavailableRepoIds.insert(repoId)
+        markDirty()
+    }
+
+    func markRepoAvailable(_ repoId: UUID) {
+        guard unavailableRepoIds.contains(repoId) else { return }
+        unavailableRepoIds.remove(repoId)
+        markDirty()
+    }
+
+    func isRepoUnavailable(_ repoId: UUID) -> Bool {
+        unavailableRepoIds.contains(repoId)
+    }
+
+    // MARK: - WatchedPath Mutations
+
+    /// Add a watched path. Deduplicates by stableKey.
+    @discardableResult
+    func addWatchedPath(_ path: URL) -> WatchedPath? {
+        let normalizedPath = path.standardizedFileURL
+        let key = StableKey.fromPath(normalizedPath)
+        guard !watchedPaths.contains(where: { $0.stableKey == key }) else {
+            return watchedPaths.first { $0.stableKey == key }
+        }
+        let watchedPath = WatchedPath(path: normalizedPath)
+        watchedPaths.append(watchedPath)
+        markDirty()
+        return watchedPath
+    }
+
+    func removeWatchedPath(_ id: UUID) {
+        watchedPaths.removeAll { $0.id == id }
+        markDirty()
+    }
+
+    @discardableResult
+    func orphanPanesForRepo(_ repoId: UUID) -> [UUID] {
+        guard let repo = repos.first(where: { $0.id == repoId }) else { return [] }
+        let unavailablePathByWorktreeId = Dictionary(
+            uniqueKeysWithValues: repo.worktrees.map { ($0.id, $0.path.path) }
+        )
+        let affectedPaneIds = panes.values
+            .filter { pane in
+                guard let worktreeId = pane.worktreeId else { return false }
+                return unavailablePathByWorktreeId[worktreeId] != nil
+            }
+            .map(\.id)
+
+        guard !affectedPaneIds.isEmpty else { return [] }
+        for paneId in affectedPaneIds {
+            guard let worktreeId = panes[paneId]?.worktreeId,
+                let missingPath = unavailablePathByWorktreeId[worktreeId]
+            else { continue }
+            guard panes[paneId]?.residency.isPendingUndo != true else { continue }
+            panes[paneId]?.residency = .orphaned(reason: .worktreeNotFound(path: missingPath))
+        }
+        markDirty()
+        return affectedPaneIds
+    }
+
+    @discardableResult
+    func reassociateRepo(_ repoId: UUID, to newPath: URL, discoveredWorktrees: [Worktree]) -> Bool {
+        guard let repoIndex = repos.firstIndex(where: { $0.id == repoId }) else { return false }
+        repos[repoIndex].name = newPath.lastPathComponent
+        repos[repoIndex].repoPath = newPath
+        unavailableRepoIds.remove(repoId)
+        reconcileDiscoveredWorktrees(repoId, worktrees: discoveredWorktrees)
+
+        let worktreeIds = Set(repos[repoIndex].worktrees.map(\.id))
+        let layoutPaneIds = Set(tabs.flatMap(\.paneIds))
+        var didRestorePaneResidency = false
+        for paneId in panes.keys {
+            guard let worktreeId = panes[paneId]?.worktreeId else { continue }
+            guard worktreeIds.contains(worktreeId) else { continue }
+            guard panes[paneId]?.residency.isOrphaned == true else { continue }
+            panes[paneId]?.residency = layoutPaneIds.contains(paneId) ? .active : .backgrounded
+            didRestorePaneResidency = true
+        }
+        if didRestorePaneResidency {
+            markDirty()
+        }
+        return true
+    }
+
+    func reconcileDiscoveredWorktrees(_ repoId: UUID, worktrees: [Worktree]) {
         guard let index = repos.firstIndex(where: { $0.id == repoId }) else { return }
         let existing = repos[index].worktrees
 
@@ -1226,14 +1400,35 @@ final class WorkspaceStore {
         // worktrees that match by path. Panes reference worktreeId, so changing
         // IDs on refresh would break active detection and lookups.
         let existingByPath = Dictionary(existing.map { ($0.path, $0) }, uniquingKeysWith: { first, _ in first })
+        let existingMain = existing.first(where: \.isMainWorktree)
+        let existingByName = Dictionary(
+            existing.map { ($0.name, $0) },
+            uniquingKeysWith: { first, _ in first }
+        )
         let merged = worktrees.map { discovered -> Worktree in
             if let existing = existingByPath[discovered.path] {
-                // Preserve ID and agent; update name/branch/status from discovery
+                // Preserve ID; update name from discovery
                 var updated = existing
                 updated.name = discovered.name
-                updated.branch = discovered.branch
-                updated.status = discovered.status
                 return updated
+            }
+            if discovered.isMainWorktree, let existingMain {
+                return Worktree(
+                    id: existingMain.id,
+                    repoId: repoId,
+                    name: discovered.name,
+                    path: discovered.path,
+                    isMainWorktree: discovered.isMainWorktree
+                )
+            }
+            if let matched = existingByName[discovered.name] {
+                return Worktree(
+                    id: matched.id,
+                    repoId: repoId,
+                    name: discovered.name,
+                    path: discovered.path,
+                    isMainWorktree: discovered.isMainWorktree
+                )
             }
             return discovered
         }
@@ -1241,7 +1436,6 @@ final class WorkspaceStore {
         guard merged != existing else { return }
 
         repos[index].worktrees = merged
-        repos[index].updatedAt = Date()
         markDirty()
     }
 
@@ -1249,23 +1443,30 @@ final class WorkspaceStore {
 
     func restore() {
         persistor.ensureDirectory()
-        if let state = persistor.load() {
+        switch persistor.load() {
+        case .loaded(let state):
             workspaceId = state.id
             workspaceName = state.name
-            repos = state.repos
+            repos = Self.runtimeRepos(
+                canonicalRepos: state.repos,
+                canonicalWorktrees: state.worktrees
+            )
+            unavailableRepoIds = state.unavailableRepoIds
             // Convert persisted pane array to dictionary
             panes = Dictionary(state.panes.map { ($0.id, $0) }, uniquingKeysWith: { _, last in last })
             tabs = state.tabs
             activeTabId = state.activeTabId
             sidebarWidth = state.sidebarWidth
             windowFrame = state.windowFrame
+            watchedPaths = state.watchedPaths
             createdAt = state.createdAt
             updatedAt = state.updatedAt
             storeLogger.info(
                 "Restored workspace '\(state.name)' with \(state.panes.count) pane(s), \(state.tabs.count) tab(s)")
-        } else if persistor.hasWorkspaceFiles() {
-            storeLogger.error("Workspace files exist on disk but failed to load — starting with empty state.")
-        } else {
+        case .corrupt(let error):
+            storeLogger.error(
+                "Workspace file exists but failed to decode — starting with empty state: \(error)")
+        case .missing:
             storeLogger.info("No workspace files found — first launch")
         }
 
@@ -1363,16 +1564,22 @@ final class WorkspaceStore {
         var prunedTabs = tabs
         var prunedActiveTabId = activeTabId
         pruneInvalidPanes(from: &prunedTabs, validPaneIds: validPaneIds, activeTabId: &prunedActiveTabId)
+        RestoreTrace.log(
+            "WorkspaceStore.persistNow activeTab=\(prunedActiveTabId?.uuidString ?? "nil") tabs=\(tabPersistenceSummary(prunedTabs))"
+        )
 
         let state = WorkspacePersistor.PersistableState(
             id: workspaceId,
             name: workspaceName,
-            repos: repos,
+            repos: Self.canonicalRepos(from: repos),
+            worktrees: Self.canonicalWorktrees(from: repos),
+            unavailableRepoIds: unavailableRepoIds,
             panes: persistablePanes,
             tabs: prunedTabs,
             activeTabId: prunedActiveTabId,
             sidebarWidth: sidebarWidth,
             windowFrame: windowFrame,
+            watchedPaths: watchedPaths,
             createdAt: createdAt,
             updatedAt: updatedAt
         )
@@ -1386,6 +1593,29 @@ final class WorkspaceStore {
         } catch {
             storeLogger.error("Failed to persist workspace: \(error.localizedDescription)")
             return false
+        }
+    }
+
+    private func tabPersistenceSummary(_ tabs: [Tab]) -> String {
+        tabs.map { tab in
+            "tab=\(tab.id.uuidString) activePane=\(tab.activePaneId?.uuidString ?? "nil") layout=\(layoutRatioSummary(tab.layout))"
+        }.joined(separator: " | ")
+    }
+
+    private func layoutRatioSummary(_ layout: Layout) -> String {
+        guard let root = layout.root else { return "empty" }
+        return layoutRatioSummary(node: root)
+    }
+
+    private func layoutRatioSummary(node: Layout.Node) -> String {
+        switch node {
+        case .leaf(let paneId):
+            return "leaf(\(paneId.uuidString))"
+        case .split(let split):
+            let left = layoutRatioSummary(node: split.left)
+            let right = layoutRatioSummary(node: split.right)
+            return
+                "split(\(split.id.uuidString),dir=\(split.direction),ratio=\(split.ratio),left=\(left),right=\(right))"
         }
     }
 
@@ -1561,6 +1791,56 @@ final class WorkspaceStore {
 
     private func findTabIndex(_ tabId: UUID) -> Int? {
         tabs.firstIndex { $0.id == tabId }
+    }
+
+    private static func canonicalRepos(from repos: [Repo]) -> [CanonicalRepo] {
+        repos.map { repo in
+            CanonicalRepo(
+                id: repo.id,
+                name: repo.name,
+                repoPath: repo.repoPath,
+                createdAt: repo.createdAt
+            )
+        }
+    }
+
+    private static func canonicalWorktrees(from repos: [Repo]) -> [CanonicalWorktree] {
+        repos.flatMap { repo in
+            repo.worktrees.map { worktree in
+                CanonicalWorktree(
+                    id: worktree.id,
+                    repoId: repo.id,
+                    name: worktree.name,
+                    path: worktree.path,
+                    isMainWorktree: worktree.isMainWorktree
+                )
+            }
+        }
+    }
+
+    private static func runtimeRepos(
+        canonicalRepos: [CanonicalRepo],
+        canonicalWorktrees: [CanonicalWorktree]
+    ) -> [Repo] {
+        let worktreesByRepoId = Dictionary(grouping: canonicalWorktrees, by: \.repoId)
+        return canonicalRepos.map { canonicalRepo in
+            let worktrees = (worktreesByRepoId[canonicalRepo.id] ?? []).map { canonicalWorktree in
+                Worktree(
+                    id: canonicalWorktree.id,
+                    repoId: canonicalRepo.id,
+                    name: canonicalWorktree.name,
+                    path: canonicalWorktree.path,
+                    isMainWorktree: canonicalWorktree.isMainWorktree
+                )
+            }
+            return Repo(
+                id: canonicalRepo.id,
+                name: canonicalRepo.name,
+                repoPath: canonicalRepo.repoPath,
+                worktrees: worktrees,
+                createdAt: canonicalRepo.createdAt
+            )
+        }
     }
 
     /// Remove pane IDs from tab layouts that are not in the valid set.

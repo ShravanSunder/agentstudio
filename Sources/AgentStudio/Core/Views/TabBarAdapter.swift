@@ -82,11 +82,13 @@ final class TabBarAdapter {
     // MARK: - Internals
 
     private let store: WorkspaceStore
+    private let repoCache: WorkspaceRepoCache
     private var isObservingManagementMode = false
     private var isObservingStore = false
 
-    init(store: WorkspaceStore) {
+    init(store: WorkspaceStore, repoCache: WorkspaceRepoCache = WorkspaceRepoCache()) {
         self.store = store
+        self.repoCache = repoCache
         observe()
     }
 
@@ -116,6 +118,7 @@ final class TabBarAdapter {
             _ = self.store.tabs
             _ = self.store.activeTabId
             _ = self.store.panes
+            _ = self.repoCache.worktreeEnrichmentByWorktreeId
         } onChange: { [weak self] in
             guard let self else { return }
             Task { @MainActor in
@@ -147,10 +150,11 @@ final class TabBarAdapter {
 
         tabs = storeTabs.map { tab in
             let paneTitles = tab.paneIds.map { paneDisplayTitle(for: $0) }
-            let displayTitle =
-                paneTitles.count > 1
-                ? paneTitles.joined(separator: " | ")
-                : paneTitles.first ?? "Terminal"
+            let displayTitle = PaneDisplayProjector.tabDisplayLabel(
+                for: tab,
+                store: store,
+                repoCache: repoCache
+            )
 
             let activeArrangement = tab.activeArrangement
             let showArrangementName = tab.arrangements.count > 1 && !activeArrangement.isDefault
@@ -196,20 +200,7 @@ final class TabBarAdapter {
     }
 
     private func paneDisplayTitle(for paneId: UUID) -> String {
-        guard let pane = store.pane(paneId) else { return "Terminal" }
-        let rawTitle = pane.title.trimmingCharacters(in: .whitespacesAndNewlines)
-        let isGenericTitle =
-            rawTitle.isEmpty || rawTitle.localizedCaseInsensitiveCompare("Terminal") == .orderedSame
-            || rawTitle.localizedCaseInsensitiveCompare("Drawer") == .orderedSame
-
-        if isGenericTitle,
-            let cwdName = pane.metadata.cwd?.lastPathComponent,
-            !cwdName.isEmpty
-        {
-            return cwdName
-        }
-
-        return rawTitle.isEmpty ? "Terminal" : rawTitle
+        PaneDisplayProjector.displayLabel(for: paneId, store: store, repoCache: repoCache)
     }
 
     private func updateOverflow() {

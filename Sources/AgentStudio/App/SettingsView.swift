@@ -4,6 +4,8 @@ struct SettingsView: View {
     @AppStorage("terminalFontSize") private var terminalFontSize: Double = 13
     @AppStorage("autoRefreshWorktrees") private var autoRefreshWorktrees: Bool = true
     @AppStorage("detachOnClose") private var detachOnClose: Bool = true
+    @AppStorage("backgroundRestorePolicy") private var backgroundRestorePolicyRawValue: String =
+        BackgroundRestorePolicy.existingSessionsOnly.rawValue
 
     var body: some View {
         TabView {
@@ -16,16 +18,12 @@ struct SettingsView: View {
             }
 
             TerminalSettingsView(
-                fontSize: $terminalFontSize
+                fontSize: $terminalFontSize,
+                backgroundRestorePolicyRawValue: $backgroundRestorePolicyRawValue
             )
             .tabItem {
                 Label("Terminal", systemImage: "terminal")
             }
-
-            AgentSettingsView()
-                .tabItem {
-                    Label("Agents", systemImage: "cpu")
-                }
 
             WebviewSettingsView()
                 .tabItem {
@@ -72,6 +70,7 @@ struct GeneralSettingsView: View {
 
 struct TerminalSettingsView: View {
     @Binding var fontSize: Double
+    @Binding var backgroundRestorePolicyRawValue: String
 
     var body: some View {
         Form {
@@ -86,6 +85,22 @@ struct TerminalSettingsView: View {
                             .foregroundStyle(.secondary)
                     }
                 }
+            }
+
+            Section("Restore") {
+                Picker(
+                    "Background Restore",
+                    selection: $backgroundRestorePolicyRawValue
+                ) {
+                    Text("Off").tag(BackgroundRestorePolicy.off.rawValue)
+                    Text("Existing Sessions Only").tag(BackgroundRestorePolicy.existingSessionsOnly.rawValue)
+                    Text("All Terminal Panes").tag(BackgroundRestorePolicy.allTerminalPanes.rawValue)
+                }
+                .pickerStyle(.menu)
+
+                Text("Default restores hidden panes only when they already have an existing zmx session.")
+                    .font(.system(size: AppStyle.textXs))
+                    .foregroundStyle(.secondary)
             }
 
             Section("Zellij") {
@@ -104,65 +119,6 @@ struct TerminalSettingsView: View {
         }
         .formStyle(.grouped)
         .padding()
-    }
-}
-
-// MARK: - Agent Settings
-
-struct AgentSettingsView: View {
-    var body: some View {
-        Form {
-            Section("Installed Agents") {
-                ForEach(AgentType.allCases, id: \.self) { agent in
-                    HStack {
-                        Circle()
-                            .fill(agent.color)
-                            .frame(width: 8, height: 8)
-
-                        Text(agent.displayName)
-
-                        Spacer()
-
-                        if isAgentInstalled(agent) {
-                            Label("Installed", systemImage: "checkmark.circle.fill")
-                                .foregroundStyle(.green)
-                                .font(.system(size: AppStyle.textXs))
-                        } else {
-                            Label("Not Found", systemImage: "xmark.circle")
-                                .foregroundStyle(.secondary)
-                                .font(.system(size: AppStyle.textXs))
-                        }
-                    }
-                }
-            }
-
-            Section {
-                Text("Agents are discovered from your PATH. Install them using their respective installers.")
-                    .font(.system(size: AppStyle.textXs))
-                    .foregroundStyle(.secondary)
-            }
-        }
-        .formStyle(.grouped)
-        .padding()
-    }
-
-    private func isAgentInstalled(_ agent: AgentType) -> Bool {
-        guard agent != .custom else { return true }
-
-        let searchPaths = [
-            "/opt/homebrew/bin",
-            "/usr/local/bin",
-            "/usr/bin",
-        ]
-
-        for path in searchPaths {
-            let fullPath = "\(path)/\(agent.command)"
-            if FileManager.default.isExecutableFile(atPath: fullPath) {
-                return true
-            }
-        }
-
-        return false
     }
 }
 

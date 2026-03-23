@@ -38,16 +38,27 @@ final class PaneCoordinator {
     let runtime: SessionRuntime
     let surfaceManager: PaneCoordinatorSurfaceManaging
     let runtimeRegistry: RuntimeRegistry
+    let visibilityTierResolver: StoreVisibilityTierResolver
     let runtimeEventReducer: NotificationReducer
-    let paneEventBus: EventBus<PaneEventEnvelope>
+    let paneEventBus: EventBus<RuntimeEnvelope>
     let runtimeTargetResolver: RuntimeTargetResolver
     let runtimeCommandClock: ContinuousClock
+    let filesystemSource: any PaneCoordinatorFilesystemSourceManaging
+    let paneFilesystemProjectionStore: PaneFilesystemProjectionStore
+    var terminalContainerBoundsProvider: @MainActor () -> CGRect? = { nil }
+    var removeRepoHandler: @MainActor (UUID) -> Void = { _ in }
     lazy var sessionConfig = SessionConfiguration.detect()
+    lazy var terminalRestoreRuntime = TerminalRestoreRuntime(sessionConfiguration: sessionConfig)
     private var cwdChangesTask: Task<Void, Never>?
     private var paneEventIngressTask: Task<Void, Never>?
     private var runtimeEventBridgeTasks: [PaneId: Task<Void, Never>] = [:]
     private var criticalRuntimeEventsTask: Task<Void, Never>?
     private var batchedRuntimeEventsTask: Task<Void, Never>?
+    var filesystemSyncTask: Task<Void, Never>?
+    var filesystemSyncRequested = false
+    var filesystemRegisteredContextsByWorktreeId: [UUID: WorktreeFilesystemContext] = [:]
+    var filesystemActivityByWorktreeId: [UUID: Bool] = [:]
+    var filesystemLastActivePaneWorktreeId: UUID?
 
     /// Unified undo stack — holds both tab and pane close entries, chronologically ordered.
     /// NOTE: Undo stack owned here (not in a store) because undo is fundamentally
@@ -80,21 +91,34 @@ final class PaneCoordinator {
         runtime: SessionRuntime,
         surfaceManager: PaneCoordinatorSurfaceManaging,
         runtimeRegistry: RuntimeRegistry,
-        paneEventBus: EventBus<PaneEventEnvelope> = PaneRuntimeEventBus.shared,
-        runtimeCommandClock: ContinuousClock = ContinuousClock()
+        paneEventBus: EventBus<RuntimeEnvelope> = PaneRuntimeEventBus.shared,
+        runtimeCommandClock: ContinuousClock = ContinuousClock(),
+        filesystemSource: (any PaneCoordinatorFilesystemSourceManaging)? = nil,
+        paneFilesystemProjectionStore: PaneFilesystemProjectionStore = PaneFilesystemProjectionStore()
     ) {
+        let resolvedFilesystemSource =
+            filesystemSource
+            ?? FilesystemGitPipeline(
+                bus: paneEventBus,
+                gitCoalescingWindow: .milliseconds(200)
+            )
+        let visibilityTierResolver = StoreVisibilityTierResolver(store: store)
         self.store = store
         self.viewRegistry = viewRegistry
         self.runtime = runtime
         self.surfaceManager = surfaceManager
         self.runtimeRegistry = runtimeRegistry
-        self.runtimeEventReducer = NotificationReducer()
+        self.visibilityTierResolver = visibilityTierResolver
+        self.runtimeEventReducer = NotificationReducer(tierResolver: visibilityTierResolver)
         self.paneEventBus = paneEventBus
         self.runtimeTargetResolver = RuntimeTargetResolver(workspaceStore: store)
         self.runtimeCommandClock = runtimeCommandClock
+        self.filesystemSource = resolvedFilesystemSource
+        self.paneFilesystemProjectionStore = paneFilesystemProjectionStore
         Ghostty.App.setRuntimeRegistry(runtimeRegistry)
         subscribeToCWDChanges()
         setupPrePersistHook()
+        setupFilesystemSourceSync()
         startPaneEventIngress()
         startRuntimeReducerConsumers()
     }
@@ -108,6 +132,58 @@ final class PaneCoordinator {
         runtimeEventBridgeTasks.removeAll()
         criticalRuntimeEventsTask?.cancel()
         batchedRuntimeEventsTask?.cancel()
+        filesystemSyncTask?.cancel()
+        let filesystemSource = filesystemSource
+        Task {
+            await filesystemSource.shutdown()
+        }
+    }
+
+    func shutdown() async {
+        let activeCWDTask = cwdChangesTask
+        let activePaneEventIngressTask = paneEventIngressTask
+        let activeCriticalRuntimeEventsTask = criticalRuntimeEventsTask
+        let activeBatchedRuntimeEventsTask = batchedRuntimeEventsTask
+        let activeFilesystemSyncTask = filesystemSyncTask
+        let activeRuntimeBridgeTasks = Array(runtimeEventBridgeTasks.values)
+
+        cwdChangesTask?.cancel()
+        cwdChangesTask = nil
+        paneEventIngressTask?.cancel()
+        paneEventIngressTask = nil
+        criticalRuntimeEventsTask?.cancel()
+        criticalRuntimeEventsTask = nil
+        batchedRuntimeEventsTask?.cancel()
+        batchedRuntimeEventsTask = nil
+        filesystemSyncTask?.cancel()
+        filesystemSyncTask = nil
+        filesystemSyncRequested = false
+
+        for task in activeRuntimeBridgeTasks {
+            task.cancel()
+        }
+        runtimeEventBridgeTasks.removeAll()
+
+        if let activeCWDTask {
+            await activeCWDTask.value
+        }
+        if let activePaneEventIngressTask {
+            await activePaneEventIngressTask.value
+        }
+        if let activeCriticalRuntimeEventsTask {
+            await activeCriticalRuntimeEventsTask.value
+        }
+        if let activeBatchedRuntimeEventsTask {
+            await activeBatchedRuntimeEventsTask.value
+        }
+        if let activeFilesystemSyncTask {
+            await activeFilesystemSyncTask.value
+        }
+        for task in activeRuntimeBridgeTasks {
+            await task.value
+        }
+
+        await filesystemSource.shutdown()
     }
 
     func appendUndoEntry(_ entry: WorkspaceStore.CloseEntry) {
@@ -232,28 +308,33 @@ final class PaneCoordinator {
         }
     }
 
-    private func handleRuntimeEnvelope(_ envelope: PaneEventEnvelope) {
-        switch envelope.source {
-        case .pane(let sourcePaneId):
-            switch envelope.event {
+    private func handleRuntimeEnvelope(_ envelope: RuntimeEnvelope) {
+        if handleFilesystemEnvelopeIfNeeded(envelope) {
+            return
+        }
+
+        switch envelope {
+        case .pane(let paneEnvelope):
+            let sourcePaneId = paneEnvelope.paneId
+            switch paneEnvelope.event {
             case .terminal(let event):
                 handleTerminalRuntimeEvent(event, sourcePaneId: sourcePaneId)
             case .error(let errorEvent):
                 Self.logger.warning(
                     "Runtime error event received from pane \(sourcePaneId.uuid.uuidString, privacy: .public): \(String(describing: errorEvent), privacy: .public)"
                 )
-            case .lifecycle, .browser, .diff, .editor, .plugin, .filesystem, .artifact, .security:
+            case .lifecycle, .browser, .diff, .editor, .plugin, .artifact, .security, .filesystem:
                 Self.logger.debug(
-                    "Runtime event family ignored by coordinator for pane \(sourcePaneId.uuid.uuidString, privacy: .public): \(String(describing: envelope.event), privacy: .public)"
+                    "Runtime event family ignored by coordinator for pane \(sourcePaneId.uuid.uuidString, privacy: .public): \(String(describing: paneEnvelope.event), privacy: .public)"
                 )
             }
-        case .system(let systemSource):
+        case .system(let systemEnvelope):
             Self.logger.debug(
-                "Runtime event ignored for system source \(String(describing: systemSource), privacy: .public) facets=\(String(describing: envelope.sourceFacets), privacy: .public): \(String(describing: envelope.event), privacy: .public)"
+                "Runtime event ignored for system source \(String(describing: systemEnvelope.source), privacy: .public): \(String(describing: systemEnvelope.event), privacy: .public)"
             )
-        case .worktree(let worktreeId):
+        case .worktree(let worktreeEnvelope):
             Self.logger.debug(
-                "Runtime event ignored for worktree source \(worktreeId.uuidString, privacy: .public) facets=\(String(describing: envelope.sourceFacets), privacy: .public): \(String(describing: envelope.event), privacy: .public)"
+                "Runtime event ignored for worktree source \(String(describing: worktreeEnvelope.worktreeId), privacy: .public): \(String(describing: worktreeEnvelope.event), privacy: .public)"
             )
         }
     }
@@ -318,7 +399,7 @@ final class PaneCoordinator {
                 "Terminal control event received for pane \(sourcePaneUUID.uuidString, privacy: .public): \(String(describing: event), privacy: .public)"
             )
         case .bellRang:
-            postAppEvent(.worktreeBellRang(paneId: sourcePaneUUID))
+            AppEventBus.post(.worktreeBellRang(paneId: sourcePaneUUID))
             Self.logger.debug(
                 "Terminal bell event received for pane \(sourcePaneUUID.uuidString, privacy: .public)"
             )
@@ -372,7 +453,7 @@ final class PaneCoordinator {
         let tabs = store.tabs
         guard !tabs.isEmpty else { return }
 
-        let action: PaneAction?
+        let action: PaneActionCommand?
         switch target {
         case .previous:
             action = ActionResolver.resolve(command: .prevTab, tabs: tabs, activeTabId: sourceTabId)

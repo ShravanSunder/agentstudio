@@ -115,6 +115,43 @@ struct PaneCoordinatorViewFactoryTests {
         #expect(viewRegistry.registeredPaneIds == Set<UUID>())
     }
 
+    @Test("createViewForContent registers runtime for bridge, webview, and code viewer panes")
+    func createViewForContent_registersNonTerminalRuntimes() {
+        let harness = makeHarness()
+        let coordinator = harness.coordinator
+        let tempDir = harness.tempDir
+        defer { try? FileManager.default.removeItem(at: tempDir) }
+
+        let webviewPane = Pane(
+            id: UUIDv7.generate(),
+            content: .webview(WebviewState(url: URL(string: "https://example.com/runtime-web")!)),
+            metadata: PaneMetadata(source: .floating(workingDirectory: nil, title: "Web"))
+        )
+        let bridgePane = Pane(
+            id: UUIDv7.generate(),
+            content: .bridgePanel(BridgePaneState(panelKind: .diffViewer, source: .commit(sha: "def456"))),
+            metadata: PaneMetadata(source: .floating(workingDirectory: nil, title: "Diff"))
+        )
+        let fileURL = FileManager.default.temporaryDirectory
+            .appending(path: "code-view-runtime-\(UUID().uuidString).swift")
+        try? "struct Runtime {}\n".write(to: fileURL, atomically: true, encoding: .utf8)
+        defer { try? FileManager.default.removeItem(at: fileURL) }
+        let codeViewerPane = Pane(
+            id: UUIDv7.generate(),
+            content: .codeViewer(CodeViewerState(filePath: fileURL, scrollToLine: 1)),
+            metadata: PaneMetadata(
+                source: .floating(workingDirectory: fileURL.deletingLastPathComponent(), title: "Code"))
+        )
+
+        _ = coordinator.createViewForContent(pane: webviewPane)
+        _ = coordinator.createViewForContent(pane: bridgePane)
+        _ = coordinator.createViewForContent(pane: codeViewerPane)
+
+        #expect(coordinator.runtimeForPane(PaneId(uuid: webviewPane.id)) is WebviewRuntime)
+        #expect(coordinator.runtimeForPane(PaneId(uuid: bridgePane.id)) is BridgeRuntime)
+        #expect(coordinator.runtimeForPane(PaneId(uuid: codeViewerPane.id)) is SwiftPaneRuntime)
+    }
+
     @Test("createViewForContent returns nil for unsupported pane content")
     func createViewForContent_unsupportedContentReturnsNil() {
         let harness = makeHarness()
@@ -134,5 +171,48 @@ struct PaneCoordinatorViewFactoryTests {
         #expect(maybeView == nil)
         #expect(viewRegistry.view(for: pane.id) == nil)
         #expect(viewRegistry.registeredPaneIds.isEmpty)
+    }
+
+    @Test("floating zmx restore uses drawer session IDs for drawer panes")
+    func floatingZmxRestoreSessionId_drawerPane_usesDrawerSessionId() {
+        let parentPaneId = UUIDv7.generate()
+        let drawerPaneId = UUIDv7.generate()
+        let pane = Pane(
+            id: drawerPaneId,
+            content: .terminal(TerminalState(provider: .zmx, lifetime: .persistent)),
+            metadata: PaneMetadata(
+                source: .floating(workingDirectory: URL(fileURLWithPath: "/Users/test"), title: "Drawer"),
+                title: "Drawer"
+            ),
+            kind: .drawerChild(parentPaneId: parentPaneId)
+        )
+
+        let sessionId = PaneCoordinator.floatingZmxRestoreSessionId(
+            for: pane,
+            workingDirectory: URL(fileURLWithPath: "/Users/test")
+        )
+
+        #expect(sessionId == ZmxBackend.drawerSessionId(parentPaneId: parentPaneId, drawerPaneId: drawerPaneId))
+    }
+
+    @Test("floating zmx restore uses floating session IDs for top-level floating panes")
+    func floatingZmxRestoreSessionId_topLevelFloatingPane_usesFloatingSessionId() {
+        let paneId = UUIDv7.generate()
+        let workingDirectory = URL(fileURLWithPath: "/Users/test/project")
+        let pane = Pane(
+            id: paneId,
+            content: .terminal(TerminalState(provider: .zmx, lifetime: .persistent)),
+            metadata: PaneMetadata(
+                source: .floating(workingDirectory: workingDirectory, title: "Floating"),
+                title: "Floating"
+            )
+        )
+
+        let sessionId = PaneCoordinator.floatingZmxRestoreSessionId(
+            for: pane,
+            workingDirectory: workingDirectory
+        )
+
+        #expect(sessionId == ZmxBackend.floatingSessionId(workingDirectory: workingDirectory, paneId: paneId))
     }
 }

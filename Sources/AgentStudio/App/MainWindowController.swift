@@ -5,12 +5,34 @@ import SwiftUI
 class MainWindowController: NSWindowController, NSWindowDelegate {
     private var splitViewController: MainSplitViewController?
     private var sidebarAccessory: NSTitlebarAccessoryViewController?
+    private var awaitsLaunchRestoreResize = false
+    private var awaitsLaunchMaximize = false
+    private var applicationLifecycleMonitor: ApplicationLifecycleMonitor!
+    private let windowId = UUID()
 
     private static let windowFrameKey = "windowFrame"
     private static let estimatedTitlebarHeight: CGFloat = 40
 
+    var terminalContainerBounds: CGRect? {
+        splitViewController?.terminalContainerBounds
+    }
+
+    var isReadyForRestore: Bool {
+        splitViewController?.isReadyForRestore ?? false
+    }
+
+    var onRestoreHostReady: ((CGRect) -> Void)? {
+        didSet {
+            splitViewController?.onRestoreHostReady = onRestoreHostReady
+        }
+    }
+
     convenience init(
-        store: WorkspaceStore, actionExecutor: ActionExecutor,
+        store: WorkspaceStore,
+        repoCache: WorkspaceRepoCache,
+        uiStore: WorkspaceUIStore,
+        actionExecutor: ActionExecutor,
+        applicationLifecycleMonitor: ApplicationLifecycleMonitor,
         tabBarAdapter: TabBarAdapter, viewRegistry: ViewRegistry
     ) {
         let window = NSWindow(
@@ -32,16 +54,21 @@ class MainWindowController: NSWindowController, NSWindowDelegate {
         }
 
         self.init(window: window)
+        self.applicationLifecycleMonitor = applicationLifecycleMonitor
         window.delegate = self
+        applicationLifecycleMonitor.handleWindowRegistered(windowId)
 
         // Create and set content view controller
         let splitVC = MainSplitViewController(
             store: store,
+            repoCache: repoCache,
+            uiStore: uiStore,
             actionExecutor: actionExecutor,
             tabBarAdapter: tabBarAdapter,
             viewRegistry: viewRegistry
         )
         self.splitViewController = splitVC
+        splitVC.onRestoreHostReady = onRestoreHostReady
         window.contentViewController = splitVC
 
         // Set up titlebar and toolbar
@@ -57,6 +84,23 @@ class MainWindowController: NSWindowController, NSWindowDelegate {
 
     func windowDidResize(_ notification: Notification) {
         saveWindowFrame()
+        guard awaitsLaunchRestoreResize else { return }
+        awaitsLaunchRestoreResize = false
+        splitViewController?.armLaunchRestoreReadiness()
+        window?.contentView?.layoutSubtreeIfNeeded()
+    }
+
+    func windowDidBecomeMain(_ notification: Notification) {
+        applyLaunchMaximizeIfNeeded()
+    }
+
+    func windowDidBecomeKey(_ notification: Notification) {
+        applyLaunchMaximizeIfNeeded()
+        applicationLifecycleMonitor.handleWindowDidBecomeKey(windowId)
+    }
+
+    func windowDidResignKey(_ notification: Notification) {
+        applicationLifecycleMonitor.handleWindowDidResignKey(windowId)
     }
 
     private func saveWindowFrame() {
@@ -145,7 +189,54 @@ class MainWindowController: NSWindowController, NSWindowDelegate {
     // MARK: - Actions
 
     func toggleSidebar() {
-        splitViewController?.toggleSidebar(nil)
+        splitViewController?.toggleSidebarFromCommand()
+    }
+
+    func showSidebarFilter() {
+        splitViewController?.showSidebarFilter()
+    }
+
+    func expandSidebar() {
+        splitViewController?.expandSidebar()
+    }
+
+    func refocusActivePane() {
+        splitViewController?.refocusActivePane()
+    }
+
+    func awaitLaunchRestoreAfterNextResize() {
+        awaitsLaunchRestoreResize = true
+    }
+
+    func prepareLaunchMaximizeAndRestore() {
+        awaitsLaunchMaximize = true
+    }
+
+    func syncVisibleTerminalGeometry(reason: StaticString) {
+        splitViewController?.syncVisibleTerminalGeometry(reason: reason)
+    }
+
+    func completeLaunchPresentation() {
+        guard let window else { return }
+        window.makeKeyAndOrderFront(nil)
+        applyLaunchMaximizeIfNeeded()
+    }
+
+    private func applyLaunchMaximizeIfNeeded() {
+        guard awaitsLaunchMaximize else { return }
+        guard let window, let screen = window.screen ?? NSScreen.main else { return }
+        awaitsLaunchMaximize = false
+        let targetFrame = screen.visibleFrame
+        RestoreTrace.log(
+            "MainWindowController.applyLaunchMaximize currentFrame=\(NSStringFromRect(window.frame)) targetFrame=\(NSStringFromRect(targetFrame))"
+        )
+        if window.frame.equalTo(targetFrame) {
+            splitViewController?.armLaunchRestoreReadiness()
+            window.contentView?.layoutSubtreeIfNeeded()
+            return
+        }
+        awaitLaunchRestoreAfterNextResize()
+        window.setFrame(targetFrame, display: true)
     }
 
     @objc private func toggleSidebarAction() {
@@ -153,7 +244,7 @@ class MainWindowController: NSWindowController, NSWindowDelegate {
     }
 
     @objc private func filterSidebarAction() {
-        postAppEvent(.filterSidebarRequested)
+        CommandDispatcher.shared.dispatch(.filterSidebar)
     }
 }
 
@@ -223,11 +314,11 @@ extension MainWindowController: NSToolbarDelegate {
     }
 
     @objc private func addRepoAction() {
-        postAppEvent(.addRepoRequested)
+        CommandDispatcher.shared.dispatch(.addRepo)
     }
 
     @objc private func addFolderAction() {
-        postAppEvent(.addFolderRequested)
+        CommandDispatcher.shared.dispatch(.addFolder)
     }
 }
 

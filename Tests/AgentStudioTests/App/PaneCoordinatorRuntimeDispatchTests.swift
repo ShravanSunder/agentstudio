@@ -290,7 +290,7 @@ struct PaneCoordinatorRuntimeDispatchTests {
         coordinator.registerRuntime(fakeRuntime)
 
         fakeRuntime.emit(
-            PaneEventEnvelope(
+            makeRuntimeEnvelope(
                 source: .pane(PaneId(uuid: sourcePane.id)),
                 paneKind: .terminal,
                 seq: 1,
@@ -347,7 +347,7 @@ struct PaneCoordinatorRuntimeDispatchTests {
         coordinator.registerRuntime(fakeRuntime)
 
         fakeRuntime.emit(
-            PaneEventEnvelope(
+            makeRuntimeEnvelope(
                 source: .pane(PaneId(uuid: sourcePane.id)),
                 paneKind: .terminal,
                 seq: 1,
@@ -397,7 +397,7 @@ struct PaneCoordinatorRuntimeDispatchTests {
         coordinator.registerRuntime(fakeRuntime)
 
         fakeRuntime.emit(
-            PaneEventEnvelope(
+            makeRuntimeEnvelope(
                 source: .pane(PaneId(uuid: sourcePane.id)),
                 paneKind: .terminal,
                 seq: 1,
@@ -409,7 +409,7 @@ struct PaneCoordinatorRuntimeDispatchTests {
             )
         )
         fakeRuntime.emit(
-            PaneEventEnvelope(
+            makeRuntimeEnvelope(
                 source: .pane(PaneId(uuid: sourcePane.id)),
                 paneKind: .terminal,
                 seq: 2,
@@ -473,7 +473,7 @@ struct PaneCoordinatorRuntimeDispatchTests {
         coordinator.registerRuntime(fakeRuntime)
 
         fakeRuntime.emit(
-            PaneEventEnvelope(
+            makeRuntimeEnvelope(
                 source: .pane(PaneId(uuid: sourcePane.id)),
                 paneKind: .terminal,
                 seq: 1,
@@ -538,7 +538,7 @@ struct PaneCoordinatorRuntimeDispatchTests {
         coordinator.registerRuntime(fakeRuntime)
 
         fakeRuntime.emit(
-            PaneEventEnvelope(
+            makeRuntimeEnvelope(
                 source: .pane(PaneId(uuid: sourcePane.id)),
                 paneKind: .terminal,
                 seq: 1,
@@ -595,7 +595,7 @@ struct PaneCoordinatorRuntimeDispatchTests {
         coordinator.registerRuntime(fakeRuntime)
 
         fakeRuntime.emit(
-            PaneEventEnvelope(
+            makeRuntimeEnvelope(
                 source: .pane(PaneId(uuid: sourcePane.id)),
                 paneKind: .terminal,
                 seq: 1,
@@ -659,7 +659,7 @@ struct PaneCoordinatorRuntimeDispatchTests {
         coordinator.registerRuntime(fakeRuntime)
 
         fakeRuntime.emit(
-            PaneEventEnvelope(
+            makeRuntimeEnvelope(
                 source: .pane(PaneId(uuid: sourcePane.id)),
                 paneKind: .terminal,
                 seq: 1,
@@ -677,7 +677,7 @@ struct PaneCoordinatorRuntimeDispatchTests {
         #expect(store.activeTabId == lastTab.id)
 
         fakeRuntime.emit(
-            PaneEventEnvelope(
+            makeRuntimeEnvelope(
                 source: .pane(PaneId(uuid: sourcePane.id)),
                 paneKind: .terminal,
                 seq: 2,
@@ -738,7 +738,7 @@ struct PaneCoordinatorRuntimeDispatchTests {
         coordinator.registerRuntime(fakeRuntime)
 
         fakeRuntime.emit(
-            PaneEventEnvelope(
+            makeRuntimeEnvelope(
                 source: .pane(PaneId(uuid: sourcePane.id)),
                 paneKind: .terminal,
                 seq: 1,
@@ -756,7 +756,7 @@ struct PaneCoordinatorRuntimeDispatchTests {
         #expect(store.activeTabId == sourceTab.id)
 
         fakeRuntime.emit(
-            PaneEventEnvelope(
+            makeRuntimeEnvelope(
                 source: .pane(PaneId(uuid: sourcePane.id)),
                 paneKind: .terminal,
                 seq: 2,
@@ -774,7 +774,7 @@ struct PaneCoordinatorRuntimeDispatchTests {
         #expect(store.activeTabId == middleTab.id)
 
         fakeRuntime.emit(
-            PaneEventEnvelope(
+            makeRuntimeEnvelope(
                 source: .pane(PaneId(uuid: sourcePane.id)),
                 paneKind: .terminal,
                 seq: 3,
@@ -792,7 +792,7 @@ struct PaneCoordinatorRuntimeDispatchTests {
         #expect(store.activeTabId == lastTab.id)
 
         fakeRuntime.emit(
-            PaneEventEnvelope(
+            makeRuntimeEnvelope(
                 source: .pane(PaneId(uuid: sourcePane.id)),
                 paneKind: .terminal,
                 seq: 4,
@@ -816,16 +816,14 @@ struct PaneCoordinatorRuntimeDispatchTests {
 @MainActor
 private func eventually(
     _ description: String,
-    maxAttempts: Int = 200,
-    pollIntervalNanoseconds: UInt64 = 5_000_000,
+    maxTurns: Int = 200,
     condition: @escaping @MainActor () -> Bool
 ) async {
-    for _ in 0..<maxAttempts {
+    for _ in 0..<maxTurns {
         if condition() {
             return
         }
         await Task.yield()
-        try? await Task.sleep(nanoseconds: pollIntervalNanoseconds)
     }
     #expect(condition(), "\(description) timed out")
 }
@@ -835,17 +833,27 @@ private final class FakePaneRuntime: PaneRuntime {
     let paneId: PaneId
     var metadata: PaneMetadata
     var lifecycle: PaneRuntimeLifecycle = .ready
-    var capabilities: Set<PaneCapability> = [.input]
-    private let stream: AsyncStream<PaneEventEnvelope>
-    private let continuation: AsyncStream<PaneEventEnvelope>.Continuation
+    var capabilities: Set<PaneCapability>
+    private let stream: AsyncStream<RuntimeEnvelope>
+    private let continuation: AsyncStream<RuntimeEnvelope>.Continuation
 
     private(set) var receivedCommands: [RuntimeCommandEnvelope] = []
     private(set) var receivedCommandIds: [UUID] = []
 
-    init(paneId: PaneId) {
+    init(
+        paneId: PaneId,
+        contentType: PaneContentType = .terminal,
+        capabilities: Set<PaneCapability> = [.input]
+    ) {
         self.paneId = paneId
-        self.metadata = PaneMetadata(source: .floating(workingDirectory: nil, title: "Fake"), title: "Fake")
-        let (stream, continuation) = AsyncStream.makeStream(of: PaneEventEnvelope.self)
+        self.metadata = PaneMetadata(
+            paneId: paneId,
+            contentType: contentType,
+            source: .floating(workingDirectory: nil, title: "Fake"),
+            title: "Fake"
+        )
+        self.capabilities = capabilities
+        let (stream, continuation) = AsyncStream.makeStream(of: RuntimeEnvelope.self)
         self.stream = stream
         self.continuation = continuation
     }
@@ -867,11 +875,11 @@ private final class FakePaneRuntime: PaneRuntime {
         return .success(commandId: envelope.commandId)
     }
 
-    func subscribe() -> AsyncStream<PaneEventEnvelope> {
+    func subscribe() -> AsyncStream<RuntimeEnvelope> {
         stream
     }
 
-    func emit(_ envelope: PaneEventEnvelope) {
+    func emit(_ envelope: RuntimeEnvelope) {
         continuation.yield(envelope)
     }
 
@@ -916,6 +924,40 @@ private final class FakePaneRuntime: PaneRuntime {
             return nil
         }
     }
+}
+
+@MainActor
+// swiftlint:disable:next function_parameter_count
+private func makeRuntimeEnvelope(
+    source: EventSource,
+    paneKind: PaneContentType?,
+    seq: UInt64,
+    commandId: UUID?,
+    correlationId: UUID?,
+    timestamp: ContinuousClock.Instant,
+    epoch _: UInt64,
+    event: PaneRuntimeEvent
+) -> RuntimeEnvelope {
+    let paneId: PaneId
+    switch source {
+    case .pane(let resolvedPaneId):
+        paneId = resolvedPaneId
+    case .system, .worktree:
+        paneId = PaneId()
+    }
+
+    return .pane(
+        PaneEnvelope(
+            source: source,
+            seq: seq,
+            timestamp: timestamp,
+            correlationId: correlationId,
+            commandId: commandId,
+            paneId: paneId,
+            paneKind: paneKind ?? .agent,
+            event: event
+        )
+    )
 }
 
 @MainActor

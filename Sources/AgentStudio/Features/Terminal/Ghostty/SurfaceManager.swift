@@ -98,7 +98,6 @@ final class SurfaceManager {
 
     /// Checkpoint file URL
     private let checkpointURL: URL
-    private var ghosttyEventTask: Task<Void, Never>?
 
     // MARK: - Initialization
 
@@ -120,7 +119,6 @@ final class SurfaceManager {
         self.checkpointURL = appSupport.appending(path: "surface-checkpoint.json")
 
         setupHealthMonitoring()
-        subscribeToGhosttyNotifications()
 
         logger.info("SurfaceManager initialized")
     }
@@ -129,7 +127,6 @@ final class SurfaceManager {
         healthCheckTimer?.invalidate()
         healthCheckTimer = nil
         cwdChangeContinuation.finish()
-        ghosttyEventTask?.cancel()
     }
 
     var surfaceCWDChanges: AsyncStream<SurfaceCWDChangeEvent> {
@@ -289,6 +286,7 @@ final class SurfaceManager {
 
         // Pause rendering
         setOcclusion(surfaceId, visible: false)
+        setFocus(surfaceId, focused: false)
 
         let previousPaneAttachmentId: UUID?
         if case .active(let cid) = managed.state {
@@ -630,28 +628,19 @@ extension SurfaceManager {
         }
     }
 
-    private func subscribeToGhosttyNotifications() {
-        ghosttyEventTask?.cancel()
-        ghosttyEventTask = Task { @MainActor [weak self] in
-            guard let self else { return }
-            let stream = await GhosttyEventBus.shared.subscribe()
-            for await event in stream {
-                guard !Task.isCancelled else { break }
-                switch event {
-                case .rendererHealthUpdated(let surfaceViewId, let isHealthy):
-                    self.onRendererHealthChanged(surfaceViewId: surfaceViewId, isHealthyOverride: isHealthy)
-                case .workingDirectoryUpdated(let surfaceViewId, let rawPwd):
-                    self.onWorkingDirectoryChanged(surfaceViewId: surfaceViewId, rawPwd: rawPwd)
-                case .newWindowRequested, .closeSurface:
-                    continue
-                }
-            }
-        }
-    }
-
     private func subscribeToSurfaceNotifications(_ surfaceView: Ghostty.SurfaceView) {
-        // Surface-specific notifications are handled via the global observer
-        // since we map surfaceView -> UUID via surfaceViewToId
+        surfaceView.onRendererHealthChanged = { [weak self] surfaceViewId, isHealthy in
+            self?.onRendererHealthChanged(
+                surfaceViewId: surfaceViewId,
+                isHealthyOverride: isHealthy
+            )
+        }
+        surfaceView.onWorkingDirectoryChanged = { [weak self] surfaceViewId, rawPwd in
+            self?.onWorkingDirectoryChanged(
+                surfaceViewId: surfaceViewId,
+                rawPwd: rawPwd
+            )
+        }
     }
 
     private func onRendererHealthChanged(
@@ -799,11 +788,11 @@ extension SurfaceManager {
 
     /// Set focus state for a surface
     func setFocus(_ surfaceId: UUID, focused: Bool) {
-        guard let managed = activeSurfaces[surfaceId],
+        guard let managed = activeSurfaces[surfaceId] ?? hiddenSurfaces[surfaceId],
             let surface = managed.surface.surface
         else {
             RestoreTrace.log(
-                "SurfaceManager.setFocus skipped surface=\(surfaceId) focused=\(focused) active=\(activeSurfaces[surfaceId] != nil)"
+                "SurfaceManager.setFocus skipped surface=\(surfaceId) focused=\(focused) known=\((activeSurfaces[surfaceId] != nil) || (hiddenSurfaces[surfaceId] != nil))"
             )
             return
         }

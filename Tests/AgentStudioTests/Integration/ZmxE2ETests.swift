@@ -13,14 +13,11 @@ import Testing
 extension E2ESerializedTests {
     @Suite(.serialized)
     struct ZmxE2ETests {
-        private let pollIntervalNanoseconds: UInt64 = 100_000_000
-        private let pollsPerSecond = 10
-
         @Test("full lifecycle create healthCheck kill verify")
         func test_fullLifecycle_create_healthCheck_kill_verify() async throws {
             try await withRealBackend { harness, backend in
                 // Arrange — create a handle
-                let worktree = makeWorktree(name: "e2e-lifecycle", path: "/tmp", branch: "e2e-lifecycle")
+                let worktree = makeWorktree(name: "e2e-lifecycle", path: "/tmp")
                 let repo = makeRepo()
                 let paneId = UUID()
                 let handle = try await backend.createPaneSession(repo: repo, worktree: worktree, paneId: paneId)
@@ -32,11 +29,9 @@ extension E2ESerializedTests {
                     commandArgs: ["/bin/sleep", "300"]
                 )
 
-                // Wait for daemon to register (poll zmx list)
-                let appeared = await pollForSession(
-                    backend: backend,
+                let appeared = await harness.waitForSessionSocket(
                     sessionId: handle.id,
-                    timeout: 10
+                    exists: true
                 )
                 #expect(appeared, "zmx daemon should start within timeout")
 
@@ -63,11 +58,10 @@ extension E2ESerializedTests {
                 // Act 2 — kill the session
                 try await backend.destroyPaneSession(handle)
 
-                // Wait for daemon to disappear
-                let disappeared = await pollForSessionGone(
-                    backend: backend,
+                let disappeared = await harness.waitForSessionSocket(
                     sessionId: handle.id,
-                    timeout: 5
+                    exists: false,
+                    timeout: .seconds(5)
                 )
                 #expect(disappeared, "Session should disappear from zmx list after kill")
 
@@ -85,8 +79,8 @@ extension E2ESerializedTests {
         func test_orphanDiscovery_findsUntrackedSession() async throws {
             try await withRealBackend { harness, backend in
                 // Arrange — spawn two sessions, only one is "known"
-                let worktree1 = makeWorktree(name: "e2e-known", path: "/tmp", branch: "e2e-known")
-                let worktree2 = makeWorktree(name: "e2e-orphan", path: "/tmp", branch: "e2e-orphan")
+                let worktree1 = makeWorktree(name: "e2e-known", path: "/tmp")
+                let worktree2 = makeWorktree(name: "e2e-orphan", path: "/tmp")
                 let repo = makeRepo()
                 let zmxPath = try #require(harness.zmxPath, "Expected zmx path to be available")
 
@@ -104,15 +98,13 @@ extension E2ESerializedTests {
                 )
 
                 // Wait for both daemons
-                let appeared1 = await pollForSession(
-                    backend: backend,
+                let appeared1 = await harness.waitForSessionSocket(
                     sessionId: handle1.id,
-                    timeout: 10
+                    exists: true
                 )
-                let appeared2 = await pollForSession(
-                    backend: backend,
+                let appeared2 = await harness.waitForSessionSocket(
                     sessionId: handle2.id,
-                    timeout: 10
+                    exists: true
                 )
                 #expect(appeared1, "zmx daemon 1 should start within timeout")
                 #expect(appeared2, "zmx daemon 2 should start within timeout")
@@ -132,7 +124,7 @@ extension E2ESerializedTests {
         func test_destroySessionById_killsLiveSession() async throws {
             try await withRealBackend { harness, backend in
                 // Arrange
-                let worktree = makeWorktree(name: "e2e-destroy", path: "/tmp", branch: "e2e-destroy")
+                let worktree = makeWorktree(name: "e2e-destroy", path: "/tmp")
                 let repo = makeRepo()
                 let handle = try await backend.createPaneSession(repo: repo, worktree: worktree, paneId: UUID())
                 let zmxPath = try #require(harness.zmxPath, "Expected zmx path to be available")
@@ -143,10 +135,9 @@ extension E2ESerializedTests {
                     commandArgs: ["/bin/sleep", "300"]
                 )
 
-                let appeared = await pollForSession(
-                    backend: backend,
+                let appeared = await harness.waitForSessionSocket(
                     sessionId: handle.id,
-                    timeout: 10
+                    exists: true
                 )
                 #expect(appeared, "zmx daemon should start before destroy")
 
@@ -154,10 +145,10 @@ extension E2ESerializedTests {
                 try await backend.destroySessionById(handle.id)
 
                 // Assert
-                let gone = await pollForSessionGone(
-                    backend: backend,
+                let gone = await harness.waitForSessionSocket(
                     sessionId: handle.id,
-                    timeout: 5
+                    exists: false,
+                    timeout: .seconds(5)
                 )
                 #expect(gone, "Session should be gone after destroySessionById")
             }
@@ -169,7 +160,7 @@ extension E2ESerializedTests {
         func test_restoreAcrossBackendRecreation_detectsAndKillsExistingSession() async throws {
             try await withRealBackend { harness, backend in
                 // Arrange — create a session and spawn a live daemon
-                let worktree = makeWorktree(name: "e2e-restore", path: "/tmp", branch: "e2e-restore")
+                let worktree = makeWorktree(name: "e2e-restore", path: "/tmp")
                 let repo = makeRepo()
                 let handle = try await backend.createPaneSession(repo: repo, worktree: worktree, paneId: UUID())
                 let zmxPath = try #require(harness.zmxPath, "Expected zmx path to be available")
@@ -180,10 +171,9 @@ extension E2ESerializedTests {
                     commandArgs: ["/bin/sleep", "300"]
                 )
 
-                let appeared = await pollForSession(
-                    backend: backend,
+                let appeared = await harness.waitForSessionSocket(
                     sessionId: handle.id,
-                    timeout: 10
+                    exists: true
                 )
                 #expect(appeared, "zmx daemon should start before recreation checks")
 
@@ -200,10 +190,10 @@ extension E2ESerializedTests {
                 )
 
                 try await recreatedBackend.destroySessionById(handle.id)
-                let gone = await pollForSessionGone(
-                    backend: recreatedBackend,
+                let gone = await harness.waitForSessionSocket(
                     sessionId: handle.id,
-                    timeout: 5
+                    exists: false,
+                    timeout: .seconds(5)
                 )
                 #expect(gone, "Session should be gone after kill from recreated backend")
             }
@@ -215,7 +205,7 @@ extension E2ESerializedTests {
         func test_socketExists_afterDaemonStarts() async throws {
             try await withRealBackend { harness, backend in
                 // Arrange
-                let worktree = makeWorktree(name: "e2e-socket", path: "/tmp", branch: "e2e-socket")
+                let worktree = makeWorktree(name: "e2e-socket", path: "/tmp")
                 let repo = makeRepo()
                 let handle = try await backend.createPaneSession(repo: repo, worktree: worktree, paneId: UUID())
                 let zmxPath = try #require(harness.zmxPath, "Expected zmx path to be available")
@@ -226,10 +216,9 @@ extension E2ESerializedTests {
                     commandArgs: ["/bin/sleep", "300"]
                 )
 
-                let appeared = await pollForSession(
-                    backend: backend,
+                let appeared = await harness.waitForSessionSocket(
                     sessionId: handle.id,
-                    timeout: 10
+                    exists: true
                 )
                 #expect(appeared, "zmx daemon should start before checking socket")
 
@@ -261,100 +250,12 @@ extension E2ESerializedTests {
             )
 
             do {
-                try await withTimeout(seconds: 30) {
-                    try await test(harness, backend)
-                }
+                try await test(harness, backend)
                 await harness.cleanup()
             } catch {
                 await harness.cleanup()
                 throw error
             }
-        }
-
-        private enum TimeoutError: Error {
-            case exceeded
-        }
-
-        private func withTimeout<T: Sendable>(
-            seconds: UInt64,
-            operation: @escaping @Sendable () async throws -> T
-        ) async throws -> T {
-            try await withThrowingTaskGroup(of: T.self) { group in
-                group.addTask {
-                    try await operation()
-                }
-                group.addTask {
-                    try await Task.sleep(for: .seconds(Double(seconds)))
-                    throw TimeoutError.exceeded
-                }
-
-                do {
-                    let result = try await group.next()!
-                    group.cancelAll()
-                    return result
-                } catch {
-                    group.cancelAll()
-                    throw error
-                }
-            }
-        }
-
-        private func pollForSession(
-            backend: ZmxBackend,
-            sessionId: String,
-            timeout: Int
-        ) async -> Bool {
-            let maxPolls = timeout * pollsPerSecond
-            for attempt in 1...maxPolls {
-                let alive = await backend.healthCheck(
-                    makePaneSessionHandle(id: sessionId)
-                )
-                if alive {
-                    let elapsedSeconds = Double(attempt) / Double(pollsPerSecond)
-                    print(
-                        "[ZmxE2E] Session \(sessionId) appeared after \(attempt)/\(maxPolls) polls (\(elapsedSeconds)s)"
-                    )
-                    return true
-                }
-                if shouldLogPollAttempt(attempt, maxPolls: maxPolls) {
-                    print("[ZmxE2E] Waiting for session \(sessionId) to appear (\(attempt)/\(maxPolls))")
-                }
-                try? await Task.sleep(nanoseconds: pollIntervalNanoseconds)
-            }
-            print("[ZmxE2E] Timed out waiting for session \(sessionId) to appear after \(maxPolls) polls")
-            return false
-        }
-
-        /// Poll `zmx list` until the given session ID disappears, up to `timeout` seconds.
-        private func pollForSessionGone(
-            backend: ZmxBackend,
-            sessionId: String,
-            timeout: Int
-        ) async -> Bool {
-            let maxPolls = timeout * pollsPerSecond
-            for attempt in 1...maxPolls {
-                let alive = await backend.healthCheck(
-                    makePaneSessionHandle(id: sessionId)
-                )
-                if !alive {
-                    let elapsedSeconds = Double(attempt) / Double(pollsPerSecond)
-                    print(
-                        "[ZmxE2E] Session \(sessionId) disappeared after \(attempt)/\(maxPolls) polls (\(elapsedSeconds)s)"
-                    )
-                    return true
-                }
-                if shouldLogPollAttempt(attempt, maxPolls: maxPolls) {
-                    print("[ZmxE2E] Waiting for session \(sessionId) to disappear (\(attempt)/\(maxPolls))")
-                }
-                try? await Task.sleep(nanoseconds: pollIntervalNanoseconds)
-            }
-            print("[ZmxE2E] Timed out waiting for session \(sessionId) to disappear after \(maxPolls) polls")
-            return false
-        }
-
-        private func shouldLogPollAttempt(_ attempt: Int, maxPolls: Int) -> Bool {
-            let heartbeatInterval = pollsPerSecond * 5
-            return attempt == 1 || attempt == maxPolls || attempt.isMultiple(of: heartbeatInterval)
         }
     }
 }

@@ -36,7 +36,6 @@ final class ManagementModeMonitor {
     /// Toggle management mode on/off.
     func toggle() {
         isActive.toggle()
-        postAppEvent(.managementModeChanged(isActive: isActive))
         if isActive {
             resignPaneFirstResponder()
         }
@@ -46,10 +45,7 @@ final class ManagementModeMonitor {
     func deactivate() {
         let wasActive = isActive
         isActive = false
-        if wasActive {
-            postAppEvent(.managementModeChanged(isActive: false))
-            postAppEvent(.refocusTerminalRequested)
-        }
+        guard wasActive else { return }
     }
 
     func stopMonitoring() {

@@ -62,7 +62,7 @@ struct CustomTabBar: View {
     var onCommand: ((AppCommand, UUID) -> Void)?
     var onTabFramesChanged: (([UUID: CGRect]) -> Void)?
     var onAdd: (() -> Void)?
-    var onPaneAction: ((PaneAction) -> Void)?
+    var onPaneAction: ((PaneActionCommand) -> Void)?
     var onSaveArrangement: ((UUID) -> Void)?
     var onOpenRepoInTab: (() -> Void)?
 
@@ -372,7 +372,7 @@ struct CustomTabBar: View {
 /// Opens the active tab's arrangement panel popover.
 private struct TabBarArrangementButton: View {
     @Bindable var adapter: TabBarAdapter
-    let onPaneAction: ((PaneAction) -> Void)?
+    let onPaneAction: ((PaneActionCommand) -> Void)?
     let onSaveArrangement: ((UUID) -> Void)?
 
     @State private var showPanel = false

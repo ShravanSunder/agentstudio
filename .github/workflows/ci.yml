@@ -1,6 +1,7 @@
 name: CI
 
 on:
+  workflow_dispatch:
   push:
     branches: [main]
   pull_request:
@@ -13,6 +14,9 @@ permissions:
 jobs:
   build:
     runs-on: macos-26
+    env:
+      AGENT_RUN_ID: ci
+      SWIFT_BUILD_DIR: .build-ci
 
     steps:
       - name: Checkout
@@ -52,6 +56,19 @@ jobs:
           ZMX_SHA=$(git -C vendor/zmx rev-parse HEAD)
           echo "ghostty_sha=$GHOSTTY_SHA" >> "$GITHUB_OUTPUT"
           echo "zmx_sha=$ZMX_SHA" >> "$GITHUB_OUTPUT"
+
+      # --- Zig compilation cache (speeds up builds on artifact cache miss) ---
+
+      - name: Cache Zig compilation
+        uses: actions/cache@v4
+        with:
+          path: |
+            ~/.cache/zig
+            vendor/ghostty/.zig-cache
+            vendor/zmx/.zig-cache
+          key: zig-compile-${{ runner.os }}-${{ steps.submodules.outputs.ghostty_sha }}-${{ steps.submodules.outputs.zmx_sha }}
+          restore-keys: |
+            zig-compile-${{ runner.os }}-
 
       # --- Cache/build Ghostty ---
 
@@ -113,13 +130,10 @@ jobs:
       - name: Cache Swift build
         uses: actions/cache@v4
         with:
-          path: .build
+          path: .build-ci
           key: swift-${{ runner.os }}-${{ hashFiles('Package.swift', 'Package.resolved') }}
           restore-keys: |
             swift-${{ runner.os }}-
-
-      - name: Build
-        run: mise run build-release
 
       - name: Test
         env:
