@@ -364,7 +364,23 @@ GHOSTTY_RES="Sources/AgentStudio/Resources/ghostty"
 # GhosttyKit framework
 cp -R Frameworks/GhosttyKit.xcframework "$APP_DIR/Frameworks/"
 
-# Sign
-codesign --force --deep --sign - AgentStudio.app
+# Sign — uses Developer ID if SIGNING_IDENTITY is set, else ad-hoc
+ENTITLEMENTS="Sources/AgentStudio/Resources/AgentStudio.entitlements"
+IDENTITY="${SIGNING_IDENTITY:--}"
+
+if [ "$IDENTITY" != "-" ]; then
+  echo "Signing with: $IDENTITY"
+  find AgentStudio.app/Contents/Frameworks -name "*.dylib" -o -name "*.framework" | while read item; do
+    codesign --force --sign "$IDENTITY" --timestamp --options runtime "$item"
+  done
+  [ -f "AgentStudio.app/Contents/MacOS/zmx" ] && \
+    codesign --force --sign "$IDENTITY" --timestamp --options runtime --entitlements "$ENTITLEMENTS" "AgentStudio.app/Contents/MacOS/zmx"
+  codesign --force --sign "$IDENTITY" --timestamp --options runtime --entitlements "$ENTITLEMENTS" AgentStudio.app
+else
+  echo "Ad-hoc signing (set SIGNING_IDENTITY for Developer ID)"
+  codesign --force --deep --sign - AgentStudio.app
+fi
+
+codesign --verify --deep --strict AgentStudio.app
 echo "AgentStudio.app created and signed"
 """

@@ -22,6 +22,52 @@ jobs:
       - name: Setup mise
         uses: jdx/mise-action@v3
 
+      # --- Import Apple Developer ID certificate into a temporary keychain ---
+
+      - name: Install Apple certificate
+        if: env.APPLE_CERTIFICATE_BASE64 != ''
+        env:
+          APPLE_CERTIFICATE_BASE64: ${{ secrets.APPLE_CERTIFICATE_BASE64 }}
+          APPLE_CERTIFICATE_PASSWORD: ${{ secrets.APPLE_CERTIFICATE_PASSWORD }}
+        run: |
+          # Create variables
+          CERTIFICATE_PATH=$RUNNER_TEMP/certificate.p12
+          KEYCHAIN_PATH=$RUNNER_TEMP/app-signing.keychain-db
+          KEYCHAIN_PASSWORD=$(openssl rand -base64 32)
+
+          # Decode certificate
+          echo "$APPLE_CERTIFICATE_BASE64" | base64 --decode -o "$CERTIFICATE_PATH"
+
+          # Create temporary keychain
+          security create-keychain -p "$KEYCHAIN_PASSWORD" "$KEYCHAIN_PATH"
+          security set-keychain-settings -lut 21600 "$KEYCHAIN_PATH"
+          security unlock-keychain -p "$KEYCHAIN_PASSWORD" "$KEYCHAIN_PATH"
+
+          # Import certificate
+          security import "$CERTIFICATE_PATH" -P "$APPLE_CERTIFICATE_PASSWORD" \
+            -A -t cert -f pkcs12 -k "$KEYCHAIN_PATH"
+          security set-key-partition-list -S apple-tool:,apple: \
+            -k "$KEYCHAIN_PASSWORD" "$KEYCHAIN_PATH"
+
+          # Add to keychain search list (prepend so it's found first)
+          security list-keychains -d user -s "$KEYCHAIN_PATH" $(security list-keychains -d user | tr -d '"')
+
+          echo "KEYCHAIN_PATH=$KEYCHAIN_PATH" >> $GITHUB_ENV
+
+      - name: Determine signing identity
+        id: signing
+        env:
+          APPLE_TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
+        run: |
+          if [ -n "$APPLE_TEAM_ID" ]; then
+            echo "identity=Developer ID Application: ($APPLE_TEAM_ID)" >> "$GITHUB_OUTPUT"
+            echo "can_sign=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "identity=-" >> "$GITHUB_OUTPUT"
+            echo "can_sign=false" >> "$GITHUB_OUTPUT"
+            echo "::warning::No APPLE_TEAM_ID secret — falling back to ad-hoc signing"
+          fi
+
       # --- Submodule commit SHAs (cache keys) ---
 
       - name: Get submodule SHAs
@@ -142,8 +188,63 @@ jobs:
           fi
           cp -R Frameworks/GhosttyKit.xcframework "$APP_DIR/Frameworks/"
 
-          codesign --force --deep --sign - AgentStudio.app
-          echo "AgentStudio.app created and signed"
+      # --- Code signing (Developer ID or ad-hoc fallback) ---
+
+      - name: Sign app bundle
+        env:
+          SIGNING_IDENTITY: ${{ steps.signing.outputs.identity }}
+          CAN_SIGN: ${{ steps.signing.outputs.can_sign }}
+        run: |
+          ENTITLEMENTS="Sources/AgentStudio/Resources/AgentStudio.entitlements"
+
+          if [ "$CAN_SIGN" = "true" ]; then
+            echo "Signing with Developer ID..."
+            # Sign embedded frameworks/binaries first (inside-out)
+            find AgentStudio.app/Contents/Frameworks -name "*.dylib" -o -name "*.framework" | while read item; do
+              codesign --force --sign "$SIGNING_IDENTITY" --timestamp --options runtime "$item"
+            done
+            # Sign zmx helper binary
+            if [ -f "AgentStudio.app/Contents/MacOS/zmx" ]; then
+              codesign --force --sign "$SIGNING_IDENTITY" --timestamp --options runtime \
+                --entitlements "$ENTITLEMENTS" "AgentStudio.app/Contents/MacOS/zmx"
+            fi
+            # Sign the main app bundle
+            codesign --force --sign "$SIGNING_IDENTITY" --timestamp --options runtime \
+              --entitlements "$ENTITLEMENTS" AgentStudio.app
+          else
+            echo "Ad-hoc signing (no Developer ID configured)..."
+            codesign --force --deep --sign - AgentStudio.app
+          fi
+
+          codesign --verify --deep --strict AgentStudio.app
+          echo "App bundle signed and verified"
+
+      # --- Notarization (only with Developer ID) ---
+
+      - name: Notarize app
+        if: steps.signing.outputs.can_sign == 'true'
+        env:
+          APPLE_ID: ${{ secrets.APPLE_ID }}
+          APPLE_TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
+          APPLE_NOTARY_PASSWORD: ${{ secrets.APPLE_NOTARY_PASSWORD }}
+        run: |
+          echo "Creating ZIP for notarization..."
+          ditto -c -k --keepParent AgentStudio.app AgentStudio-notarize.zip
+
+          echo "Submitting to Apple notary service..."
+          xcrun notarytool submit AgentStudio-notarize.zip \
+            --apple-id "$APPLE_ID" \
+            --team-id "$APPLE_TEAM_ID" \
+            --password "$APPLE_NOTARY_PASSWORD" \
+            --wait --timeout 15m
+
+          echo "Stapling notarization ticket..."
+          xcrun stapler staple AgentStudio.app
+
+          echo "Verifying notarization..."
+          spctl --assess --type execute --verbose AgentStudio.app
+
+          rm -f AgentStudio-notarize.zip
 
       - name: Create ZIP Archive
         run: |
@@ -168,3 +269,10 @@ jobs:
             **SHA256:** `${{ env.RELEASE_SHA256 }}`
         env:
           GITHUB_TOKEN: ${{ secrets.HOMEBREW_TAP_TOKEN }}
+
+      # --- Cleanup temporary keychain ---
+
+      - name: Cleanup keychain
+        if: always() && env.KEYCHAIN_PATH != ''
+        run: |
+          security delete-keychain "$KEYCHAIN_PATH" 2>/dev/null || true
