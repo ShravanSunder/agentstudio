@@ -10,6 +10,25 @@
 
 ---
 
+## Scope Assumptions
+
+This plan assumes the current single-window-per-workspace model.
+
+That means:
+- `windowFrame` is treated as workspace-scoped UX state for now
+- `sidebarCollapsed` is treated as workspace-scoped UX state for now
+
+If the product later supports multiple live windows for a single workspace, these fields will need a more specific window-scoped ownership model. That future change is out of scope here.
+
+## Non-Goals
+
+This plan does not change:
+- pane runtime / Ghostty sizing behavior
+- zmx session lifecycle or protocol
+- event bus responsibilities
+- canonical layout structure itself
+- global app preferences outside workspace-scoped UX
+
 ## Why This Plan Exists
 
 The architecture docs already describe three persistence tiers:
@@ -140,6 +159,22 @@ The reconciler must:
 - fall back to valid first/default UUIDs where policy requires one
 - never mutate canonical structure
 
+Fallback policy is deterministic:
+
+```text
+invalid selected tab
+  -> first remaining tab or nil
+
+invalid selected arrangement
+  -> tab.defaultArrangement.id
+
+invalid selected pane
+  -> first pane in the selected arrangement layout or nil
+
+invalid selected drawer pane
+  -> first remaining drawer pane or nil
+```
+
 ### Rule 6: No event bus for UX writes
 
 Correct flow:
@@ -179,6 +214,7 @@ The event bus remains for runtime/system facts only.
 
 ### Workspace-scoped UX state
 - `Sources/AgentStudio/Core/Stores/WorkspaceUIStore.swift`
+- `Sources/AgentStudio/Core/Stores/WorkspaceUISelection.swift`
 - `Sources/AgentStudio/Core/Stores/WorkspaceUISelectionReconciler.swift`
 - `Sources/AgentStudio/Core/Stores/WorkspacePersistor.swift` (`PersistableUIState`)
 - `~/.agentstudio/workspaces/<id>.workspace.ui.json`
@@ -312,6 +348,7 @@ git commit -m "feat: add workspace-scoped selection and window layout ui state"
 ## Task 2: Add an Explicit WorkspaceUISelectionReconciler
 
 **Files:**
+- Create: `Sources/AgentStudio/Core/Stores/WorkspaceUISelection.swift`
 - Create: `Sources/AgentStudio/Core/Stores/WorkspaceUISelectionReconciler.swift`
 - Create: `Tests/AgentStudioTests/Core/Stores/WorkspaceUISelectionReconcilerTests.swift`
 
@@ -373,6 +410,19 @@ Design the reconciler as a pure helper that:
 - does not touch persistence or stores directly
 
 Do not put this policy in random coordinators.
+
+Also add a dedicated selection-only type in `WorkspaceUISelection.swift`:
+
+```swift
+struct WorkspaceUISelection: Codable, Equatable {
+    var activeTabId: UUID?
+    var activePaneIdByTabId: [UUID: UUID]
+    var activeArrangementIdByTabId: [UUID: UUID]
+    var activeDrawerPaneIdByParentPaneId: [UUID: UUID]
+}
+```
+
+This keeps selection repair isolated from unrelated window/filter presentation fields.
 
 - [ ] **Step 4: Run focused tests to verify pass**
 
@@ -500,7 +550,10 @@ In `Drawer.swift`:
 
 - [ ] **Step 4: Add explicit computed selection helpers in a non-owning location**
 
-Create or extend a helper file so selected-view convenience is explicit and parameterized, for example:
+Create or extend a helper file so selected-view convenience is explicit and parameterized. Prefer a dedicated helper such as:
+- `Sources/AgentStudio/Core/Models/SelectedWorkspaceView.swift`
+
+Add helpers such as:
 - `selectedTab(tabs:selectedTabId:)`
 - `selectedArrangement(tab:selectedArrangementId:)`
 - `selectedPaneId(tab:selectedPaneId:selectedArrangementId:)`
@@ -672,6 +725,7 @@ WorkspaceUIStore mutation
 ```
 
 Do not insert `Task.yield()` or async hops between those steps.
+Do not let observers, NotificationCenter callbacks, or deferred Tasks choose fallback selection policy.
 
 - [ ] **Step 6: Add startup restore/load sequencing for the UI store**
 
