@@ -9,6 +9,10 @@ on:
 permissions:
   contents: write
 
+concurrency:
+  group: release-${{ github.ref }}
+  cancel-in-progress: true
+
 jobs:
   build:
     runs-on: macos-26
@@ -153,9 +157,10 @@ jobs:
 
       - name: Create App Bundle
         run: |
+          set -euo pipefail
           APP_DIR="AgentStudio.app/Contents"
           rm -rf AgentStudio.app
-          mkdir -p "$APP_DIR/MacOS" "$APP_DIR/Resources" "$APP_DIR/Frameworks"
+          mkdir -p "$APP_DIR/MacOS" "$APP_DIR/Resources"
 
           cp .build/release/AgentStudio "$APP_DIR/MacOS/"
           [ -f "vendor/zmx/zig-out/bin/zmx" ] && cp vendor/zmx/zig-out/bin/zmx "$APP_DIR/MacOS/"
@@ -166,7 +171,10 @@ jobs:
             mkdir -p "$APP_DIR/Resources/ghostty"
             cp -R Sources/AgentStudio/Resources/ghostty/. "$APP_DIR/Resources/ghostty/"
           fi
-          cp -R Frameworks/GhosttyKit.xcframework "$APP_DIR/Frameworks/"
+
+          # GhosttyKit is a static library (libghostty.a) — already linked into
+          # the AgentStudio binary at build time. Do NOT embed the xcframework
+          # in the app bundle; it's only needed at build time for SwiftPM.
 
       # --- Code signing (Developer ID or ad-hoc fallback) ---
 
@@ -175,43 +183,51 @@ jobs:
           SIGNING_IDENTITY: ${{ steps.signing.outputs.identity }}
           CAN_SIGN: ${{ steps.signing.outputs.can_sign }}
         run: |
+          set -euo pipefail
           ENTITLEMENTS="Sources/AgentStudio/Resources/AgentStudio.entitlements"
+          APP="AgentStudio.app"
 
           if [ "$CAN_SIGN" = "true" ]; then
             echo "Signing with: $SIGNING_IDENTITY"
 
-            # Sign embedded frameworks/libraries first (inside-out)
-            find AgentStudio.app/Contents/Frameworks \( -name "*.dylib" -o -name "*.framework" -o -name "*.xcframework" \) | while read item; do
+            # Sign any embedded dylibs or frameworks (inside-out)
+            find "$APP/Contents/Frameworks" -type d -name "*.framework" -print0 2>/dev/null | while IFS= read -r -d '' item; do
+              codesign --force --sign "$SIGNING_IDENTITY" --timestamp --options runtime "$item"
+            done
+            find "$APP/Contents/Frameworks" -type f -name "*.dylib" -print0 2>/dev/null | while IFS= read -r -d '' item; do
               codesign --force --sign "$SIGNING_IDENTITY" --timestamp --options runtime "$item"
             done
 
             # Sign zmx helper binary
-            if [ -f "AgentStudio.app/Contents/MacOS/zmx" ]; then
+            if [ -f "$APP/Contents/MacOS/zmx" ]; then
               codesign --force --sign "$SIGNING_IDENTITY" --timestamp --options runtime \
-                --entitlements "$ENTITLEMENTS" "AgentStudio.app/Contents/MacOS/zmx"
+                --entitlements "$ENTITLEMENTS" "$APP/Contents/MacOS/zmx"
             fi
 
             # Sign the main app bundle
             codesign --force --sign "$SIGNING_IDENTITY" --timestamp --options runtime \
-              --entitlements "$ENTITLEMENTS" AgentStudio.app
+              --entitlements "$ENTITLEMENTS" "$APP"
           else
             echo "Ad-hoc signing (no Developer ID configured)..."
-            codesign --force --deep --sign - AgentStudio.app
+            codesign --force --deep --sign - "$APP"
           fi
 
           # Verify
-          codesign --verify --deep --strict --verbose AgentStudio.app
+          codesign --verify --deep --strict --verbose "$APP"
           echo "App bundle signed and verified"
 
       # --- Notarization (only with Developer ID) ---
 
-      - name: Notarize app
+      - name: Submit app for notarization
         if: steps.signing.outputs.can_sign == 'true'
+        id: notarize_submit
         env:
           APPLE_ID: ${{ secrets.APPLE_ID }}
           APPLE_TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
           APPLE_NOTARY_PASSWORD: ${{ secrets.APPLE_NOTARY_PASSWORD }}
         run: |
+          set -euo pipefail
+
           echo "Creating ZIP for notarization..."
           ditto -c -k --keepParent AgentStudio.app AgentStudio-notarize.zip
 
@@ -221,26 +237,53 @@ jobs:
             --team-id "$APPLE_TEAM_ID" \
             --password "$APPLE_NOTARY_PASSWORD" \
             --output-format json | jq -r '.id')
+
+          echo "submission_id=$SUBMISSION_ID" >> "$GITHUB_OUTPUT"
           echo "Submission ID: $SUBMISSION_ID"
 
-          echo "Waiting for notarization (up to 30m)..."
+      - name: Wait for notarization
+        if: steps.signing.outputs.can_sign == 'true'
+        env:
+          APPLE_ID: ${{ secrets.APPLE_ID }}
+          APPLE_TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
+          APPLE_NOTARY_PASSWORD: ${{ secrets.APPLE_NOTARY_PASSWORD }}
+          SUBMISSION_ID: ${{ steps.notarize_submit.outputs.submission_id }}
+        run: |
+          set -euo pipefail
+
+          echo "Waiting for notarization: $SUBMISSION_ID (up to 30m)..."
           if ! xcrun notarytool wait "$SUBMISSION_ID" \
             --apple-id "$APPLE_ID" \
             --team-id "$APPLE_TEAM_ID" \
             --password "$APPLE_NOTARY_PASSWORD" \
             --timeout 30m; then
-            echo "::error::Notarization failed or timed out. Fetching log..."
-            xcrun notarytool log "$SUBMISSION_ID" \
+            echo "::error::Notarization failed or timed out."
+
+            echo "Current status:"
+            xcrun notarytool info "$SUBMISSION_ID" \
               --apple-id "$APPLE_ID" \
               --team-id "$APPLE_TEAM_ID" \
               --password "$APPLE_NOTARY_PASSWORD" || true
+
+            echo "Fetching notarization log..."
+            xcrun notarytool log "$SUBMISSION_ID" \
+              --apple-id "$APPLE_ID" \
+              --team-id "$APPLE_TEAM_ID" \
+              --password "$APPLE_NOTARY_PASSWORD" notary-log.json || true
+            test -f notary-log.json && cat notary-log.json || true
+
             exit 1
           fi
 
-          echo "Stapling notarization ticket..."
+      - name: Staple notarization ticket
+        if: steps.signing.outputs.can_sign == 'true'
+        run: |
+          set -euo pipefail
           xcrun stapler staple AgentStudio.app
-
+          spctl --assess --type execute --verbose AgentStudio.app
           rm -f AgentStudio-notarize.zip
+
+      # --- Package and release ---
 
       - name: Determine version
         id: version
