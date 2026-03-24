@@ -22,57 +22,29 @@ jobs:
       - name: Setup mise
         uses: jdx/mise-action@v3
 
-      # --- Import Apple Developer ID certificate into a temporary keychain ---
+      # --- Import Apple Developer ID certificate via official Apple action ---
 
-      - name: Install Apple certificate
-        if: env.APPLE_CERTIFICATE_BASE64 != ''
-        env:
-          APPLE_CERTIFICATE_BASE64: ${{ secrets.APPLE_CERTIFICATE_BASE64 }}
-          APPLE_CERTIFICATE_PASSWORD: ${{ secrets.APPLE_CERTIFICATE_PASSWORD }}
-        run: |
-          # Create variables
-          CERTIFICATE_PATH=$RUNNER_TEMP/certificate.p12
-          KEYCHAIN_PATH=$RUNNER_TEMP/app-signing.keychain-db
-          KEYCHAIN_PASSWORD=$(openssl rand -base64 32)
-
-          # Decode certificate
-          echo "$APPLE_CERTIFICATE_BASE64" | base64 --decode -o "$CERTIFICATE_PATH"
-
-          # Create temporary keychain
-          security create-keychain -p "$KEYCHAIN_PASSWORD" "$KEYCHAIN_PATH"
-          security set-keychain-settings -lut 21600 "$KEYCHAIN_PATH"
-          security unlock-keychain -p "$KEYCHAIN_PASSWORD" "$KEYCHAIN_PATH"
-
-          # Import certificate (must allow codesign access)
-          security import "$CERTIFICATE_PATH" -P "$APPLE_CERTIFICATE_PASSWORD" \
-            -A -f pkcs12 -k "$KEYCHAIN_PATH" -T /usr/bin/codesign
-
-          # Add to keychain search list and set as default
-          security list-keychains -d user -s "$KEYCHAIN_PATH" $(security list-keychains -d user | tr -d '"')
-          security default-keychain -s "$KEYCHAIN_PATH"
-
-          # Allow codesign to access keychain items without UI prompt
-          security set-key-partition-list -S apple-tool:,apple:,codesign: \
-            -s -k "$KEYCHAIN_PASSWORD" "$KEYCHAIN_PATH"
-
-          # Verify signing identity is available
-          echo "Available signing identities:"
-          security find-identity -v -p codesigning "$KEYCHAIN_PATH"
-
-          echo "KEYCHAIN_PATH=$KEYCHAIN_PATH" >> $GITHUB_ENV
+      - name: Import code signing certificate
+        if: ${{ secrets.APPLE_CERTIFICATE_BASE64 != '' }}
+        uses: apple-actions/import-codesign-certs@v3
+        with:
+          p12-file-base64: ${{ secrets.APPLE_CERTIFICATE_BASE64 }}
+          p12-password: ${{ secrets.APPLE_CERTIFICATE_PASSWORD }}
 
       - name: Determine signing identity
         id: signing
-        env:
-          APPLE_TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
         run: |
-          if [ -n "$APPLE_TEAM_ID" ]; then
-            echo "identity=Developer ID Application: ($APPLE_TEAM_ID)" >> "$GITHUB_OUTPUT"
+          # Dynamically discover the Developer ID identity from the keychain
+          IDENTITY=$(security find-identity -v -p codesigning | grep "Developer ID Application" | head -1 | awk -F'"' '{print $2}')
+
+          if [ -n "$IDENTITY" ]; then
+            echo "Found signing identity: $IDENTITY"
+            echo "identity=$IDENTITY" >> "$GITHUB_OUTPUT"
             echo "can_sign=true" >> "$GITHUB_OUTPUT"
           else
+            echo "::warning::No Developer ID Application certificate found — falling back to ad-hoc signing"
             echo "identity=-" >> "$GITHUB_OUTPUT"
             echo "can_sign=false" >> "$GITHUB_OUTPUT"
-            echo "::warning::No APPLE_TEAM_ID secret — falling back to ad-hoc signing"
           fi
 
       # --- Submodule commit SHAs (cache keys) ---
@@ -205,16 +177,19 @@ jobs:
           ENTITLEMENTS="Sources/AgentStudio/Resources/AgentStudio.entitlements"
 
           if [ "$CAN_SIGN" = "true" ]; then
-            echo "Signing with Developer ID..."
-            # Sign embedded frameworks/binaries first (inside-out)
+            echo "Signing with: $SIGNING_IDENTITY"
+
+            # Sign embedded frameworks first (inside-out)
             find AgentStudio.app/Contents/Frameworks -name "*.dylib" -o -name "*.framework" | while read item; do
               codesign --force --sign "$SIGNING_IDENTITY" --timestamp --options runtime "$item"
             done
+
             # Sign zmx helper binary
             if [ -f "AgentStudio.app/Contents/MacOS/zmx" ]; then
               codesign --force --sign "$SIGNING_IDENTITY" --timestamp --options runtime \
                 --entitlements "$ENTITLEMENTS" "AgentStudio.app/Contents/MacOS/zmx"
             fi
+
             # Sign the main app bundle
             codesign --force --sign "$SIGNING_IDENTITY" --timestamp --options runtime \
               --entitlements "$ENTITLEMENTS" AgentStudio.app
@@ -223,7 +198,8 @@ jobs:
             codesign --force --deep --sign - AgentStudio.app
           fi
 
-          codesign --verify --deep --strict AgentStudio.app
+          # Verify
+          codesign --verify --deep --strict --verbose AgentStudio.app
           echo "App bundle signed and verified"
 
       # --- Notarization (only with Developer ID) ---
@@ -276,10 +252,3 @@ jobs:
             **SHA256:** `${{ env.RELEASE_SHA256 }}`
         env:
           GITHUB_TOKEN: ${{ secrets.HOMEBREW_TAP_TOKEN }}
-
-      # --- Cleanup temporary keychain ---
-
-      - name: Cleanup keychain
-        if: always() && env.KEYCHAIN_PATH != ''
-        run: |
-          security delete-keychain "$KEYCHAIN_PATH" 2>/dev/null || true
