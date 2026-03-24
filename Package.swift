@@ -10,7 +10,7 @@ let package = Package(
         .executable(name: "AgentStudio", targets: ["AgentStudio"])
     ],
     dependencies: [
-        .package(url: "https://github.com/apple/swift-async-algorithms", from: "1.0.0"),
+        .package(url: "https://github.com/apple/swift-async-algorithms", from: "1.0.0")
     ],
     targets: [
         .executableTarget(
@@ -23,6 +23,7 @@ let package = Package(
             exclude: [
                 "Resources/Info.plist",
                 "Resources/terminfo-src",
+                "Resources/AgentStudio.entitlements",
             ],
             resources: [
                 .process("Resources/SidebarIcons.xcassets"),
@@ -48,7 +49,7 @@ let package = Package(
                 .linkedFramework("WebKit"),
                 .linkedFramework("AuthenticationServices"),
                 .linkedLibrary("z"),
-                .linkedLibrary("c++")
+                .linkedLibrary("c++"),
             ]
         ),
         .testTarget(
@@ -65,6 +66,6 @@ let package = Package(
         .binaryTarget(
             name: "GhosttyKit",
             path: "Frameworks/GhosttyKit.xcframework"
-        )
+        ),
     ]
 )
