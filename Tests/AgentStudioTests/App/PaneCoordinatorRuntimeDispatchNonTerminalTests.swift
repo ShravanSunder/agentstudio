@@ -20,7 +20,8 @@ struct PaneCoordinatorRuntimeDispatchNonTerminalTests {
             viewRegistry: ViewRegistry(),
             runtime: SessionRuntime(store: store),
             surfaceManager: MockPaneCoordinatorSurfaceManagerNonTerminal(),
-            runtimeRegistry: RuntimeRegistry()
+            runtimeRegistry: RuntimeRegistry(),
+            windowLifecycleStore: WindowLifecycleStore()
         )
 
         let webviewPane = store.createPane(

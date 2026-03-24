@@ -21,6 +21,7 @@ struct Luna295DirectZmxAttachIntegrationTests {
         let viewRegistry: ViewRegistry
         let runtime: SessionRuntime
         let coordinator: PaneCoordinator
+        let windowLifecycleStore: WindowLifecycleStore
         let surfaceManager: CapturingSurfaceManager
         let tempDir: URL
     }
@@ -33,13 +34,15 @@ struct Luna295DirectZmxAttachIntegrationTests {
         store.restore()
         let viewRegistry = ViewRegistry()
         let runtime = SessionRuntime(store: store)
+        let windowLifecycleStore = WindowLifecycleStore()
         let surfaceManager = CapturingSurfaceManager()
         let coordinator = PaneCoordinator(
             store: store,
             viewRegistry: viewRegistry,
             runtime: runtime,
             surfaceManager: surfaceManager,
-            runtimeRegistry: .shared
+            runtimeRegistry: .shared,
+            windowLifecycleStore: windowLifecycleStore
         )
         coordinator.sessionConfig = fixtureSessionConfiguration
         coordinator.terminalRestoreRuntime = TerminalRestoreRuntime(
@@ -51,6 +54,7 @@ struct Luna295DirectZmxAttachIntegrationTests {
             viewRegistry: viewRegistry,
             runtime: runtime,
             coordinator: coordinator,
+            windowLifecycleStore: windowLifecycleStore,
             surfaceManager: surfaceManager,
             tempDir: tempDir
         )
@@ -314,9 +318,9 @@ struct Luna295DirectZmxAttachIntegrationTests {
             sessionConfiguration: customConfig,
             liveSessionIdsProvider: { _ in [] }
         )
-        harness.coordinator.terminalContainerBoundsProvider = {
+        harness.windowLifecycleStore.recordTerminalContainerBounds(
             CGRect(x: 0, y: 0, width: 1000, height: 600)
-        }
+        )
 
         await harness.coordinator.restoreAllViews()
         #expect(harness.surfaceManager.createdPaneIds == [visiblePane.id])

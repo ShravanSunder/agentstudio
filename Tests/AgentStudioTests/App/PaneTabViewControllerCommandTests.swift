@@ -12,6 +12,7 @@ struct PaneTabViewControllerCommandTests {
         let coordinator: PaneCoordinator
         let controller: PaneTabViewController
         let surfaceManager: MockPaneTabCommandSurfaceManager
+        let windowLifecycleStore: WindowLifecycleStore
         let tempDir: URL
     }
 
@@ -26,17 +27,25 @@ struct PaneTabViewControllerCommandTests {
         let runtime = SessionRuntime(store: store)
         let surfaceManager = MockPaneTabCommandSurfaceManager(createSurfaceResult: createSurfaceResult)
         let runtimeRegistry = RuntimeRegistry()
+        let appLifecycleStore = AppLifecycleStore()
+        let windowLifecycleStore = WindowLifecycleStore()
+        let applicationLifecycleMonitor = ApplicationLifecycleMonitor(
+            appLifecycleStore: appLifecycleStore,
+            windowLifecycleStore: windowLifecycleStore
+        )
         let coordinator = PaneCoordinator(
             store: store,
             viewRegistry: viewRegistry,
             runtime: runtime,
             surfaceManager: surfaceManager,
-            runtimeRegistry: runtimeRegistry
+            runtimeRegistry: runtimeRegistry,
+            windowLifecycleStore: windowLifecycleStore
         )
         let executor = ActionExecutor(coordinator: coordinator, store: store)
         let controller = PaneTabViewController(
             store: store,
             repoCache: WorkspaceRepoCache(),
+            applicationLifecycleMonitor: applicationLifecycleMonitor,
             executor: executor,
             tabBarAdapter: TabBarAdapter(store: store, repoCache: WorkspaceRepoCache()),
             viewRegistry: viewRegistry
@@ -46,6 +55,7 @@ struct PaneTabViewControllerCommandTests {
             coordinator: coordinator,
             controller: controller,
             surfaceManager: surfaceManager,
+            windowLifecycleStore: windowLifecycleStore,
             tempDir: tempDir
         )
     }
@@ -173,6 +183,16 @@ struct PaneTabViewControllerCommandTests {
         #expect(harness.store.tab(survivingTab.id) != nil)
         #expect(harness.store.tab(terminatingTab.id) == nil)
         #expect(harness.store.pane(survivingPane.id) != nil)
+    }
+
+    @Test("command harness shares window lifecycle store across monitor and coordinator")
+    func makeHarness_sharesWindowLifecycleStoreAcrossLifecycleBoundaries() {
+        let harness = makeHarness()
+        defer { try? FileManager.default.removeItem(at: harness.tempDir) }
+
+        #expect(
+            harness.coordinator.windowLifecycleStore === harness.windowLifecycleStore
+        )
     }
 
 }

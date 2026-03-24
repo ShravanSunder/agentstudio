@@ -22,7 +22,10 @@ final class ActionExecutorTests {
         store.restore()
         viewRegistry = ViewRegistry()
         runtime = SessionRuntime(store: store)
-        coordinator = PaneCoordinator(store: store, viewRegistry: viewRegistry, runtime: runtime)
+        coordinator = PaneCoordinator(
+            store: store, viewRegistry: viewRegistry, runtime: runtime,
+            windowLifecycleStore: WindowLifecycleStore()
+        )
         executor = ActionExecutor(coordinator: coordinator, store: store)
     }
 

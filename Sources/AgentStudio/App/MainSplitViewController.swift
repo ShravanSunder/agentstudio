@@ -12,25 +12,9 @@ class MainSplitViewController: NSSplitViewController {
     private let repoCache: WorkspaceRepoCache
     private let uiStore: WorkspaceUIStore
     private let actionExecutor: ActionExecutor
+    private let applicationLifecycleMonitor: ApplicationLifecycleMonitor
     private let tabBarAdapter: TabBarAdapter
     private let viewRegistry: ViewRegistry
-    var onRestoreHostReady: ((CGRect) -> Void)? {
-        didSet {
-            paneTabViewController?.onRestoreHostReady = onRestoreHostReady
-        }
-    }
-
-    var terminalContainerBounds: CGRect? {
-        paneTabViewController?.terminalContainerBounds
-    }
-
-    var isReadyForRestore: Bool {
-        paneTabViewController?.isReadyForRestore ?? false
-    }
-
-    func armLaunchRestoreReadiness() {
-        paneTabViewController?.armLaunchRestoreReadiness()
-    }
 
     func syncVisibleTerminalGeometry(reason: StaticString) {
         paneTabViewController?.syncVisibleTerminalGeometry(reason: reason)
@@ -41,12 +25,14 @@ class MainSplitViewController: NSSplitViewController {
         repoCache: WorkspaceRepoCache,
         uiStore: WorkspaceUIStore,
         actionExecutor: ActionExecutor,
+        applicationLifecycleMonitor: ApplicationLifecycleMonitor,
         tabBarAdapter: TabBarAdapter, viewRegistry: ViewRegistry
     ) {
         self.store = store
         self.repoCache = repoCache
         self.uiStore = uiStore
         self.actionExecutor = actionExecutor
+        self.applicationLifecycleMonitor = applicationLifecycleMonitor
         self.tabBarAdapter = tabBarAdapter
         self.viewRegistry = viewRegistry
         super.init(nibName: nil, bundle: nil)
@@ -87,12 +73,12 @@ class MainSplitViewController: NSSplitViewController {
         let paneTabVC = PaneTabViewController(
             store: store,
             repoCache: repoCache,
+            applicationLifecycleMonitor: applicationLifecycleMonitor,
             executor: actionExecutor,
             tabBarAdapter: tabBarAdapter,
             viewRegistry: viewRegistry
         )
         self.paneTabViewController = paneTabVC
-        paneTabVC.onRestoreHostReady = onRestoreHostReady
 
         let paneTabItem = NSSplitViewItem(viewController: paneTabVC)
         paneTabItem.minimumThickness = 400

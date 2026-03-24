@@ -21,11 +21,15 @@ description = "Copy GhosttyKit.xcframework to Frameworks/"
 depends = ["build-ghostty"]
 run = """
 if [ -d "Frameworks/GhosttyKit.xcframework" ]; then
-  echo "GhosttyKit.xcframework already exists, skipping copy (use mise run clean to force)"
-  exit 0
+  echo "GhosttyKit.xcframework already exists, skipping copy"
+else
+  mkdir -p Frameworks
+  cp -R vendor/ghostty/macos/GhosttyKit.xcframework Frameworks/
 fi
-mkdir -p Frameworks
-cp -R vendor/ghostty/macos/GhosttyKit.xcframework Frameworks/
+# Drop vendored debug info from the static archive to avoid Apple toolchain
+# symbol-resolution warnings during app/test links. This does not affect
+# linkable symbols; it only reduces unusable third-party debug metadata.
+xcrun strip -S Frameworks/GhosttyKit.xcframework/macos-arm64/libghostty-fat.a
 """
 
 [tasks.setup-dev-resources]

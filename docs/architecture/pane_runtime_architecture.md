@@ -1374,7 +1374,7 @@ enum PaneRuntimeLifecycle: Sendable {
 Application/window lifecycle is separate from pane runtime lifecycle. AppKit ingress is owned by `ApplicationLifecycleMonitor`, which mutates two `@Observable` atomic stores with `private(set)` surfaces:
 
 - `AppLifecycleStore` for app-wide active/terminating state
-- `WindowLifecycleStore` for key/focused window identity and registration
+- `WindowLifecycleStore` for key/focused window identity, registration, transient terminal container geometry, and launch-layout-settle state
 
 Those stores are lifecycle ingress state, not runtime coordination state. The old `AppCommand -> AppEventBus -> controller -> PaneActionCommand` chain has been removed; user-triggered workspace work now enters the validated `PaneActionCommand` pipeline directly.
 

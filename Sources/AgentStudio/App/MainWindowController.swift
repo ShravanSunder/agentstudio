@@ -13,20 +13,6 @@ class MainWindowController: NSWindowController, NSWindowDelegate {
     private static let windowFrameKey = "windowFrame"
     private static let estimatedTitlebarHeight: CGFloat = 40
 
-    var terminalContainerBounds: CGRect? {
-        splitViewController?.terminalContainerBounds
-    }
-
-    var isReadyForRestore: Bool {
-        splitViewController?.isReadyForRestore ?? false
-    }
-
-    var onRestoreHostReady: ((CGRect) -> Void)? {
-        didSet {
-            splitViewController?.onRestoreHostReady = onRestoreHostReady
-        }
-    }
-
     convenience init(
         store: WorkspaceStore,
         repoCache: WorkspaceRepoCache,
@@ -64,11 +50,11 @@ class MainWindowController: NSWindowController, NSWindowDelegate {
             repoCache: repoCache,
             uiStore: uiStore,
             actionExecutor: actionExecutor,
+            applicationLifecycleMonitor: applicationLifecycleMonitor,
             tabBarAdapter: tabBarAdapter,
             viewRegistry: viewRegistry
         )
         self.splitViewController = splitVC
-        splitVC.onRestoreHostReady = onRestoreHostReady
         window.contentViewController = splitVC
 
         // Set up titlebar and toolbar
@@ -86,8 +72,8 @@ class MainWindowController: NSWindowController, NSWindowDelegate {
         saveWindowFrame()
         guard awaitsLaunchRestoreResize else { return }
         awaitsLaunchRestoreResize = false
-        splitViewController?.armLaunchRestoreReadiness()
         window?.contentView?.layoutSubtreeIfNeeded()
+        applicationLifecycleMonitor.handleLaunchLayoutSettled()
     }
 
     func windowDidBecomeMain(_ notification: Notification) {
@@ -231,8 +217,9 @@ class MainWindowController: NSWindowController, NSWindowDelegate {
             "MainWindowController.applyLaunchMaximize currentFrame=\(NSStringFromRect(window.frame)) targetFrame=\(NSStringFromRect(targetFrame))"
         )
         if window.frame.equalTo(targetFrame) {
-            splitViewController?.armLaunchRestoreReadiness()
+            RestoreTrace.log("MainWindowController.applyLaunchMaximize alreadyAtTargetFrame")
             window.contentView?.layoutSubtreeIfNeeded()
+            applicationLifecycleMonitor.handleLaunchLayoutSettled()
             return
         }
         awaitLaunchRestoreAfterNextResize()

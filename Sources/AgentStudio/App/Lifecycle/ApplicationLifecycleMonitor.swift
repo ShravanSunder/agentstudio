@@ -39,4 +39,13 @@ final class ApplicationLifecycleMonitor {
         windowLifecycleStore.recordWindowResignedKey(windowId)
         windowLifecycleStore.recordWindowResignedFocused(windowId)
     }
+
+    func handleTerminalContainerBoundsChanged(_ bounds: CGRect) {
+        guard !bounds.isEmpty else { return }
+        windowLifecycleStore.recordTerminalContainerBounds(bounds)
+    }
+
+    func handleLaunchLayoutSettled() {
+        windowLifecycleStore.recordLaunchLayoutSettled()
+    }
 }

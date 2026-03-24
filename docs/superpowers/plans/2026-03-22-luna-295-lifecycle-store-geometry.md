@@ -1,10 +1,10 @@
-# Lifecycle Store Geometry — Replace Ad-Hoc Restore Closure Chain
+# Lifecycle Store Geometry Implementation Plan
 
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
-**Goal:** Move terminal container geometry and launch-layout-settle state from ad-hoc closure chains into `WindowLifecycleStore`, written by `ApplicationLifecycleMonitor`, consumed via `@Observable` observation — eliminating the stale-geometry bug and the callback-forwarding fragility that invited the recent `@MainActor` crash.
+**Goal:** Move terminal container geometry and launch-layout-settle state from ad-hoc closure chains into `WindowLifecycleStore`, written by `ApplicationLifecycleMonitor`, consumed through a Swift 6.2-native readiness bridge — eliminating the stale-geometry bug and the callback-forwarding fragility that invited the recent `@MainActor` crash.
 
-**Architecture:** Terminal container bounds and the "launch layout has settled" signal are transient runtime facts about the physical window, same category as `isActive` and `keyWindowId`. They belong in lifecycle stores, not in closure chains across four files. The `onRestoreHostReady` callback, `terminalContainerBoundsProvider` closure, generation counter, arm flag, and 5-second timeout safety net all go away. `PaneCoordinator` observes `WindowLifecycleStore` directly. Geometry is always read live, never cached from an intermediate layout pass.
+**Architecture:** Terminal container bounds and the "launch layout has settled" signal are transient runtime facts about the physical window, same category as `isActive` and `keyWindowId`. They belong in lifecycle stores, not in closure chains across four files. The `onRestoreHostReady` callback, `terminalContainerBoundsProvider` closure, generation counter, arm flag, and 5-second timeout safety net all go away. `ApplicationLifecycleMonitor` remains synchronous AppKit ingress, `WindowLifecycleStore` remains `@MainActor @Observable`, and `AppDelegate` owns the one-shot `WindowRestoreBridge` consumer that triggers `PaneCoordinator.restoreAllViews(...)`. Geometry is always read live, never cached from an intermediate layout pass.
 
 **Tech Stack:** Swift 6.2, AppKit, `@Observable`, Swift Testing, mise build/test/lint
 
@@ -26,15 +26,29 @@ Terminal container geometry is **not persisted**. It is a transient runtime fact
 
 The `isLaunchLayoutSettled` flag is also transient — a one-shot signal per launch that transitions from false to true when the post-maximize layout has propagated. It resets implicitly if we ever support multiple windows.
 
+`isReadyForLaunchRestore` is a **derived computed property**, not persisted state. It exists only to express readiness from two transient facts already held in memory. No persistence format, cache file, or schema should ever store it separately.
+
+## Swift 6.2 Concurrency Requirements
+
+This refactor must follow the project's current Swift 6.2 rules from `AGENTS.md` and `docs/architecture/pane_runtime_eventbus_design.md`:
+
+- Keep `WindowLifecycleStore`, `ApplicationLifecycleMonitor`, `AppDelegate`, `PaneCoordinator`, and the AppKit controllers on `@MainActor`.
+- Do **not** add plain `nonisolated async` methods for readiness flow. In Swift 6.2, `nonisolated async` inherits caller isolation and would still run on `MainActor` if called from `MainActor`.
+- Do **not** add `Task.detached` or `MainActor.run` in the common restore path.
+- Use `AsyncStream.makeStream(of:)` for the one-shot readiness bridge, because AsyncStream is the project-standard async event primitive.
+- Use `withObservationTracking` only with the repo's explicit re-registration pattern. Do not use a polling loop with `Task.yield()`.
+- Do **not** add a new actor for this slice. This is an app-shell lifecycle refactor, not a boundary-actor refactor.
+- Only use `@concurrent nonisolated` if new heavy blocking work appears during implementation. This plan should not require it.
+
 ## Coordination Plane Alignment
 
 | What | Current plane | Target plane |
 |------|--------------|-------------|
 | Terminal container bounds | Pull-based closure (`terminalContainerBoundsProvider`) | `WindowLifecycleStore.terminalContainerBounds` (observable) |
 | Layout settle signal | `launchRestoreArmed` flag + generation counter in PaneTabVC | `WindowLifecycleStore.isLaunchLayoutSettled` (observable) |
-| Restore trigger | `onRestoreHostReady` closure chain across 4 files | PaneCoordinator observes `isLaunchLayoutSettled` |
+| Restore trigger | `onRestoreHostReady` closure chain across 4 files | `AppDelegate` consumes one-shot readiness from `WindowLifecycleStore.isReadyForLaunchRestore` |
 | Bounds ingress | `RestoreAwareTerminalContainerView.layout()` → closure | `ApplicationLifecycleMonitor.handleTerminalContainerBoundsChanged()` |
-| Post-maximize signal | `windowDidResize` → `armLaunchRestoreReadiness` → generation check | `ApplicationLifecycleMonitor.handleLaunchLayoutSettled()` |
+| Post-maximize signal | `windowDidResize` → `armLaunchRestoreReadiness` → generation check | `ApplicationLifecycleMonitor.handleLaunchLayoutSettled()` / `handleLaunchMaximizeCompleted(...)` |
 
 After this plan, all five rows follow the architecture's coordination plane for AppKit lifecycle ingress: `ApplicationLifecycleMonitor` writes → lifecycle store holds → consumers observe.
 
@@ -44,19 +58,25 @@ After this plan, all five rows follow the architecture's coordination plane for 
 
 - `Sources/AgentStudio/App/Lifecycle/WindowLifecycleStore.swift` — add `terminalContainerBounds` and `isLaunchLayoutSettled`
 - `Sources/AgentStudio/App/Lifecycle/ApplicationLifecycleMonitor.swift` — add ingress methods for bounds and settle
+- `Sources/AgentStudio/App/Lifecycle/WindowRestoreBridge.swift` — bridge `WindowLifecycleStore` readiness into a one-shot `AsyncStream<CGRect>` using the repo's observation re-registration pattern
 - `Sources/AgentStudio/App/MainWindowController.swift` — call monitor for maximize settle, remove `onRestoreHostReady`/`awaitsLaunchRestoreResize`/`awaitsLaunchMaximize`/`armLaunchRestoreReadiness` forwarding
 - `Sources/AgentStudio/App/MainSplitViewController.swift` — remove `onRestoreHostReady`/`terminalContainerBounds`/`isReadyForRestore`/`armLaunchRestoreReadiness` forwarding
 - `Sources/AgentStudio/App/Panes/PaneTabViewController.swift` — remove `onRestoreHostReady`, `cachedRestoreHostBounds`, `restoreHostBoundsGeneration`, `armedRestoreGeneration`, `launchRestoreArmed`, `hasReconciledInitialVisibleRestore`, `hasPublishedRestoreHostReady`, `restoreHostReadyTimeoutTask`, `reconcileRestoreHostReadinessIfNeeded`, `publishCachedRestoreHostReadinessIfNeeded`, `armLaunchRestoreReadiness`; keep `RestoreAwareTerminalContainerView` but have it call the monitor instead of a closure
-- `Sources/AgentStudio/App/AppDelegate.swift` — remove `onRestoreHostReady` wiring and `startLaunchRestoreIfNeeded`; add observation of `WindowLifecycleStore.isLaunchLayoutSettled` to trigger restore
+- `Sources/AgentStudio/App/AppDelegate.swift` — remove `onRestoreHostReady` wiring and `startLaunchRestoreIfNeeded`; consume `WindowRestoreBridge` to trigger restore exactly once
 - `Sources/AgentStudio/App/PaneCoordinator.swift` — remove `terminalContainerBoundsProvider` closure; inject `WindowLifecycleStore` reference
 - `Sources/AgentStudio/App/PaneCoordinator+ViewLifecycle.swift` — read `windowLifecycleStore.terminalContainerBounds` directly instead of calling closure
+- `AGENTS.md` — update `WindowLifecycleStore` ownership summary to include transient geometry/readiness
+- `docs/architecture/README.md` — update lifecycle-store summary to include transient geometry/readiness
+- `docs/architecture/pane_runtime_architecture.md` — update lifecycle-store description to include transient geometry/readiness
 
 ### Test files modified
 
 - `Tests/AgentStudioTests/App/Lifecycle/WindowLifecycleStoreTests.swift` — add tests for new properties
 - `Tests/AgentStudioTests/App/Lifecycle/ApplicationLifecycleMonitorTests.swift` — add tests for new ingress
+- `Tests/AgentStudioTests/App/Lifecycle/WindowRestoreBridgeTests.swift` — verify one-shot `AsyncStream` readiness bridge and observation re-registration behavior
 - `Tests/AgentStudioTests/App/PaneTabViewControllerLaunchRestoreTests.swift` — rewrite to test through lifecycle store observation instead of callback chain
 - `Tests/AgentStudioTests/App/Luna295DirectZmxAttachIntegrationTests.swift` — update harness to inject `WindowLifecycleStore` instead of `terminalContainerBoundsProvider`
+- Additional tests that construct `PaneCoordinator` will need constructor updates. Discover and update all call sites with `rg -n "PaneCoordinator\\(" Sources Tests`.
 
 ---
 
@@ -263,7 +283,118 @@ git commit -m "feat: add terminal geometry and launch settle ingress to Applicat
 
 ---
 
-### Task 3: Hard Cutover — Wire Monitor Ingress, Observe Lifecycle Store, Delete Closure Chain
+### Task 3: Add Swift 6.2 Readiness Bridge
+
+**Files:**
+- Create: `Sources/AgentStudio/App/Lifecycle/WindowRestoreBridge.swift`
+- Test: `Tests/AgentStudioTests/App/Lifecycle/WindowRestoreBridgeTests.swift`
+
+- [ ] **Step 1: Write failing tests for one-shot readiness observation**
+
+```swift
+@Test("stream yields bounds exactly once when store becomes ready")
+func streamYieldsBoundsExactlyOnce() async throws {
+    let store = WindowLifecycleStore()
+    let source = WindowRestoreBridge(windowLifecycleStore: store)
+
+    var iterator = source.stream.makeAsyncIterator()
+
+    store.recordTerminalContainerBounds(CGRect(x: 0, y: 0, width: 1140, height: 824))
+    store.recordLaunchLayoutSettled()
+
+    let bounds = try #require(await iterator.next())
+    #expect(bounds == CGRect(x: 0, y: 0, width: 1140, height: 824))
+    #expect(await iterator.next() == nil)
+}
+
+@Test("stream does not yield when only one readiness input is present")
+func streamDoesNotYieldBeforeReady() async {
+    let store = WindowLifecycleStore()
+    let source = WindowRestoreBridge(windowLifecycleStore: store)
+    var yielded = false
+    let consumeTask = Task { @MainActor in
+        var iterator = source.stream.makeAsyncIterator()
+        if await iterator.next() != nil {
+            yielded = true
+        }
+    }
+    store.recordTerminalContainerBounds(CGRect(x: 0, y: 0, width: 1140, height: 824))
+
+    await Task.yield()
+    #expect(yielded == false)
+    consumeTask.cancel()
+}
+```
+
+- [ ] **Step 2: Run tests to verify they fail**
+
+Run: `SWIFT_BUILD_DIR=".build-agent-$(uuidgen | tr -dc 'a-z0-9' | head -c 8)" swift test --build-path "$SWIFT_BUILD_DIR" --filter "WindowRestoreBridgeTests"`
+Expected: FAIL with missing type.
+
+- [ ] **Step 3: Implement the readiness source using AsyncStream + observation re-registration**
+
+```swift
+@MainActor
+final class WindowRestoreBridge {
+    let stream: AsyncStream<CGRect>
+    private let continuation: AsyncStream<CGRect>.Continuation
+    private let windowLifecycleStore: WindowLifecycleStore
+    private var finished = false
+
+    init(windowLifecycleStore: WindowLifecycleStore) {
+        let pair = AsyncStream.makeStream(
+            of: CGRect.self,
+            bufferingPolicy: .bufferingNewest(1)
+        )
+        self.stream = pair.stream
+        self.continuation = pair.continuation
+        self.windowLifecycleStore = windowLifecycleStore
+        registerObservation()
+        publishIfReady()
+    }
+
+    private func registerObservation() {
+        guard !finished else { return }
+        withObservationTracking {
+            _ = windowLifecycleStore.isReadyForLaunchRestore
+            _ = windowLifecycleStore.terminalContainerBounds
+        } onChange: { [weak self] in
+            Task { @MainActor [weak self] in
+                self?.publishIfReady()
+                self?.registerObservation()
+            }
+        }
+    }
+
+    private func publishIfReady() {
+        guard !finished, windowLifecycleStore.isReadyForLaunchRestore else { return }
+        finished = true
+        continuation.yield(windowLifecycleStore.terminalContainerBounds)
+        continuation.finish()
+    }
+
+    isolated deinit {
+        continuation.finish()
+    }
+}
+```
+
+- [ ] **Step 4: Run tests to verify they pass**
+
+Run: `SWIFT_BUILD_DIR=".build-agent-$(uuidgen | tr -dc 'a-z0-9' | head -c 8)" swift test --build-path "$SWIFT_BUILD_DIR" --filter "WindowRestoreBridgeTests"`
+Expected: PASS
+
+- [ ] **Step 5: Commit**
+
+```bash
+git add Sources/AgentStudio/App/Lifecycle/WindowRestoreBridge.swift \
+  Tests/AgentStudioTests/App/Lifecycle/WindowRestoreBridgeTests.swift
+git commit -m "feat: add lifecycle store readiness async bridge"
+```
+
+---
+
+### Task 4: Hard Cutover — Wire Monitor Ingress, Consume Readiness Source, Delete Closure Chain
 
 **Files:**
 - Modify: `Sources/AgentStudio/App/AppDelegate.swift`
@@ -339,40 +470,33 @@ func windowDidResize(_ notification: Notification) {
 }
 ```
 
-- [ ] **Step 5: Replace `onRestoreHostReady` callback in AppDelegate with observation**
+- [ ] **Step 5: Replace `onRestoreHostReady` callback in AppDelegate with `WindowRestoreBridge` consumption**
 
 Remove `startLaunchRestoreIfNeeded`, `hasStartedLaunchRestore`, and all `onRestoreHostReady` wiring. Replace with:
 
 ```swift
 private var launchRestoreObservationTask: Task<Void, Never>?
+private var windowRestoreBridge: WindowRestoreBridge?
 
 private func observeLaunchRestoreReadiness() {
-    let windowStore = windowLifecycleStore!
-    let coordinator = paneCoordinator!
-    let windowController = mainWindowController
+    let source = WindowRestoreBridge(windowLifecycleStore: windowLifecycleStore)
+    windowRestoreBridge = source
 
+    launchRestoreObservationTask?.cancel()
     launchRestoreObservationTask = Task { @MainActor [weak self] in
-        // One-shot observation loop: once isReadyForLaunchRestore transitions
-        // to true, break and trigger restore exactly once.
-        // Event-driven suspension — no timeout needed. The task suspends until
-        // @Observable tracking fires, then re-checks the derived condition.
-        while !Task.isCancelled {
-            if windowStore.isReadyForLaunchRestore { break }
-            await Task.yield()
-            try? await withObservationTracking {
-                _ = windowStore.isReadyForLaunchRestore
-            } onChange: { }
+        guard let self else { return }
+        for await bounds in source.stream {
+            guard !Task.isCancelled else { break }
+            RestoreTrace.log(
+                "launchRestore triggered bounds=\(NSStringFromRect(bounds))"
+            )
+            await self.paneCoordinator.restoreAllViews(in: bounds)
+            self.mainWindowController?.syncVisibleTerminalGeometry(reason: "postLaunchRestore")
+            RestoreTrace.log(
+                "launchRestore complete registeredViews=\(self.viewRegistry.registeredPaneIds.count)"
+            )
+            break
         }
-        guard !Task.isCancelled, let self else { return }
-        let bounds = windowStore.terminalContainerBounds
-        RestoreTrace.log(
-            "launchRestore triggered bounds=\(NSStringFromRect(bounds))"
-        )
-        await coordinator.restoreAllViews(in: bounds)
-        windowController?.syncVisibleTerminalGeometry(reason: "postLaunchRestore")
-        RestoreTrace.log(
-            "launchRestore complete registeredViews=\(self.viewRegistry.registeredPaneIds.count)"
-        )
     }
 }
 ```
@@ -414,7 +538,7 @@ Delete from `AppDelegate`:
 - `startLaunchRestoreIfNeeded(in:)`
 - `hasStartedLaunchRestore`
 - `onRestoreHostReady` wiring
-- `launchRestoreTask` (replaced by `launchRestoreObservationTask`)
+- `launchRestoreTask` (replaced by `launchRestoreObservationTask` + `windowRestoreBridge`)
 
 Delete from `PaneCoordinator`:
 - `terminalContainerBoundsProvider` closure
@@ -422,7 +546,7 @@ Delete from `PaneCoordinator`:
 - [ ] **Step 7: Run full test suite**
 
 Run: `AGENT_RUN_ID=lifecycle-cutover mise run test`
-Expected: Some existing tests will fail because they reference removed APIs. Fix in Task 4.
+Expected: Some existing tests will fail because they reference removed APIs. Fix in Task 5.
 
 - [ ] **Step 8: Commit**
 
@@ -438,11 +562,12 @@ git commit -m "refactor: hard cutover from restore callback chain to WindowLifec
 
 ---
 
-### Task 4: Rewrite Tests for the New Observation Path
+### Task 5: Rewrite Tests for the New Observation Path and Constructor Fan-Out
 
 **Files:**
 - Modify: `Tests/AgentStudioTests/App/PaneTabViewControllerLaunchRestoreTests.swift`
 - Modify: `Tests/AgentStudioTests/App/Luna295DirectZmxAttachIntegrationTests.swift`
+- Modify: all compilation-breaking `PaneCoordinator(...)` call sites in `Tests/` discovered by `rg -n "PaneCoordinator\\(" Tests`
 
 - [ ] **Step 1: Rewrite PaneTabViewControllerLaunchRestoreTests**
 
@@ -501,36 +626,26 @@ func restoreAllViews_usesLifecycleStoreBounds() async throws {
 
 - [ ] **Step 2: Add observation-triggers-restore integration test**
 
-The old tests tested the callback chain. This test verifies that the observation loop in AppDelegate actually triggers `restoreAllViews` when the lifecycle store transitions to ready.
+The old tests tested the callback chain. This test verifies that the new readiness source actually triggers exactly one restore event when the lifecycle store transitions to ready.
 
 ```swift
-@Test("lifecycle store readiness transition triggers restore")
-func lifecycleStoreReadiness_triggersRestore() async throws {
+@Test("readiness source yields once and restore uses live bounds")
+func readinessSource_triggersSingleRestoreWithLiveBounds() async throws {
     let harness = makeHarness()
     defer { cleanup(harness) }
 
-    let pane = harness.store.createPane(
-        source: .floating(workingDirectory: harness.tempDir, title: "Observation"),
-        provider: .zmx
-    )
-    let tab = Tab(paneId: pane.id, name: "Observation")
-    harness.store.appendTab(tab)
-    harness.store.setActiveTab(tab.id)
+    let source = WindowRestoreBridge(windowLifecycleStore: harness.windowLifecycleStore)
+    let firstBounds = CGRect(x: 0, y: 0, width: 900, height: 500)
+    let finalBounds = CGRect(x: 0, y: 0, width: 1000, height: 600)
 
-    // Store not ready yet — no surfaces should be created
-    #expect(harness.windowLifecycleStore.isReadyForLaunchRestore == false)
-    #expect(harness.surfaceManager.createdPaneIds.isEmpty)
-
-    // Transition to ready
-    let bounds = CGRect(x: 0, y: 0, width: 1000, height: 600)
-    harness.windowLifecycleStore.recordTerminalContainerBounds(bounds)
+    harness.windowLifecycleStore.recordTerminalContainerBounds(firstBounds)
+    harness.windowLifecycleStore.recordTerminalContainerBounds(finalBounds)
     harness.windowLifecycleStore.recordLaunchLayoutSettled()
-    #expect(harness.windowLifecycleStore.isReadyForLaunchRestore == true)
 
-    // Manually trigger restore (simulating what the observation loop does)
-    await harness.coordinator.restoreAllViews(in: bounds)
-
-    #expect(harness.surfaceManager.createdPaneIds == [pane.id])
+    var iterator = source.stream.makeAsyncIterator()
+    let yieldedBounds = try #require(await iterator.next())
+    #expect(yieldedBounds == finalBounds)
+    #expect(await iterator.next() == nil)
 }
 ```
 
@@ -544,9 +659,13 @@ windowLifecycleStore.recordTerminalContainerBounds(CGRect(x: 0, y: 0, width: 100
 // Pass windowLifecycleStore to PaneCoordinator constructor
 ```
 
-- [ ] **Step 4: Run full test suite**
+- [ ] **Step 4: Run targeted suites and then full test suite**
 
-Run: `AGENT_RUN_ID=lifecycle-tests mise run test`
+Run:
+- `SWIFT_BUILD_DIR=".build-agent-$(uuidgen | tr -dc 'a-z0-9' | head -c 8)" swift test --build-path "$SWIFT_BUILD_DIR" --filter "WindowRestoreBridgeTests"`
+- `SWIFT_BUILD_DIR=".build-agent-$(uuidgen | tr -dc 'a-z0-9' | head -c 8)" swift test --build-path "$SWIFT_BUILD_DIR" --filter "PaneTabViewControllerLaunchRestoreTests"`
+- `SWIFT_BUILD_DIR=".build-agent-$(uuidgen | tr -dc 'a-z0-9' | head -c 8)" swift test --build-path "$SWIFT_BUILD_DIR" --filter "Luna295DirectZmxAttachIntegrationTests"`
+- `AGENT_RUN_ID=lifecycle-tests mise run test`
 Expected: PASS, zero failures.
 
 - [ ] **Step 5: Commit**
@@ -559,10 +678,48 @@ git commit -m "test: rewrite restore tests for lifecycle store observation path"
 
 ---
 
-### Task 5: Full Verification
+### Task 6: Update Architecture Docs
 
 **Files:**
-- All modified files from Tasks 1-5
+- Modify: `AGENTS.md`
+- Modify: `docs/architecture/README.md`
+- Modify: `docs/architecture/pane_runtime_architecture.md`
+
+- [ ] **Step 1: Update lifecycle-store descriptions**
+
+Change the lifecycle-store summaries so they describe `WindowLifecycleStore` as owning:
+- key/focused window identity and registration
+- transient terminal container geometry
+- launch-layout-settle readiness facts
+
+Do **not** describe any of those computed/derived readiness properties as persisted state.
+
+- [ ] **Step 2: Add explicit non-persistence wording**
+
+Add one sentence in each relevant doc that:
+- `terminalContainerBounds` and `isLaunchLayoutSettled` are transient runtime facts
+- `isReadyForLaunchRestore` is derived and not persisted
+
+- [ ] **Step 3: Run architecture tests**
+
+Run: `SWIFT_BUILD_DIR=".build-agent-$(uuidgen | tr -dc 'a-z0-9' | head -c 8)" swift test --build-path "$SWIFT_BUILD_DIR" --filter "CoordinationPlaneArchitectureTests"`
+Expected: PASS
+
+- [ ] **Step 4: Commit**
+
+```bash
+git add AGENTS.md \
+  docs/architecture/README.md \
+  docs/architecture/pane_runtime_architecture.md
+git commit -m "docs: update lifecycle store ownership for launch restore geometry"
+```
+
+---
+
+### Task 7: Full Verification
+
+**Files:**
+- All modified files from Tasks 1-6
 
 - [ ] **Step 1: Run full test suite**
 
@@ -608,9 +765,13 @@ Expected: zero matches.
 
 ## Notes for the Implementer
 
-- **No coexistence.** Task 3 is a single hard cutover. The old callback chain and the new observation path never coexist in the same commit.
+- **No coexistence.** Task 4 is a single hard cutover. The old callback chain and the new observation path never coexist in the same commit.
 - **Do not add a generation counter** to the new design. The `@Observable` tracking handles dependency invalidation. If `terminalContainerBounds` changes, any consumer reading it re-evaluates automatically.
 - **Do not cache bounds.** Always read `windowLifecycleStore.terminalContainerBounds` live. The stale-geometry bug was caused by caching.
 - **`RestoreAwareTerminalContainerView`** stays — it's still the AppKit ingress point where `layout()` fires. But its callback now calls the monitor, not a closure chain.
 - **`syncVisibleTerminalGeometry`** stays — it's the resize percolation path for ongoing resize. It reads live bounds from the view hierarchy, which is correct for steady-state resize. The lifecycle store is for the launch-restore path.
-- **The `withObservationTracking` loop in AppDelegate** is intentionally simple. It checks `isReadyForLaunchRestore` and yields. A more elegant approach would use `AsyncStream` from observation, but that's unnecessary complexity for a one-shot signal.
+- **Use `AsyncStream.makeStream(of:)` for the one-shot readiness bridge.** This matches the project's standard async event primitive and avoids ad-hoc polling.
+- **Use the repo's explicit `withObservationTracking` re-registration pattern.** Do not use a polling loop with `Task.yield()`.
+- **Do not add plain `nonisolated async` methods** to this flow. In Swift 6.2, they inherit caller isolation and would not create a real off-main boundary.
+- **Do not add `Task.detached` or `MainActor.run`** in the common path.
+- **Other plans in `docs/superpowers/plans/` already depend on this contract.** Keep `WindowLifecycleStore` as the single geometry/readiness source so the stable terminal host plan and related LUNA-295 plans do not reintroduce a parallel closure path.

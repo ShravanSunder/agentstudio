@@ -7,6 +7,13 @@ final class WindowLifecycleStore {
     private(set) var registeredWindowIds: Set<UUID> = []
     private(set) var keyWindowId: UUID?
     private(set) var focusedWindowId: UUID?
+    // Transient window facts for launch restore. Never persisted.
+    private(set) var terminalContainerBounds: CGRect = .zero
+    private(set) var isLaunchLayoutSettled = false
+
+    var isReadyForLaunchRestore: Bool {
+        isLaunchLayoutSettled && !terminalContainerBounds.isEmpty
+    }
 
     func recordWindowRegistered(_ windowId: UUID) {
         registeredWindowIds.insert(windowId)
@@ -29,5 +36,13 @@ final class WindowLifecycleStore {
     func recordWindowResignedFocused(_ windowId: UUID) {
         guard focusedWindowId == windowId else { return }
         focusedWindowId = nil
+    }
+
+    func recordTerminalContainerBounds(_ bounds: CGRect) {
+        terminalContainerBounds = bounds
+    }
+
+    func recordLaunchLayoutSettled() {
+        isLaunchLayoutSettled = true
     }
 }

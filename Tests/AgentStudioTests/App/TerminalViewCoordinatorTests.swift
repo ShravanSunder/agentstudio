@@ -25,7 +25,8 @@ struct PaneCoordinatorViewFactoryTests {
         let coordinator = PaneCoordinator(
             store: store,
             viewRegistry: viewRegistry,
-            runtime: runtime
+            runtime: runtime,
+            windowLifecycleStore: WindowLifecycleStore()
         )
         return PaneCoordinatorHarness(
             store: store,

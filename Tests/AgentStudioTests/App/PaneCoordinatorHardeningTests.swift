@@ -31,7 +31,8 @@ struct PaneCoordinatorHardeningTests {
             viewRegistry: viewRegistry,
             runtime: runtime,
             surfaceManager: surfaceManager,
-            runtimeRegistry: RuntimeRegistry()
+            runtimeRegistry: RuntimeRegistry(),
+            windowLifecycleStore: WindowLifecycleStore()
         )
         return Harness(
             store: store,

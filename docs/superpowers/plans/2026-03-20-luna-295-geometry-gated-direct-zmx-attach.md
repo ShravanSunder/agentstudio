@@ -24,6 +24,28 @@ That workaround exists because earlier direct startup attempts raced against pla
 
 This slice keeps Ghostty’s proven Metal surface renderer and zmx’s proven attach relay, and fixes the actual load-bearing problem: **zmx must not start until the pane frame is known and the surface can be created with trusted geometry**.
 
+There is now a concrete reproduction of the placeholder-frame bug in the current app code, not just a theoretical race:
+
+1. `splitRight` in `PaneTabViewController` dispatches `.insertPane(source: .newTerminal, ...)`
+2. `PaneCoordinator.executeInsertPane(...)` creates the new pane immediately
+3. `createView(...)` / `createViewForContent(...)` pass `initialFrame: nil` into `Ghostty.SurfaceConfiguration`
+4. `Ghostty.SurfaceView.init` falls back to `NSRect(x: 0, y: 0, width: 800, height: 600)`
+5. only after AppKit layout churn does the surface resize to its actual host frame
+
+Observed trace evidence from the current app:
+
+- new pane `019D1F63-61E8-799B-A624-F966F8A7006B`
+  - `sizeDidChange logical={800, 600}`
+  - `createSurface success ... frame={{0, 0}, {800, 600}}`
+  - `displaySurface ... hostBounds={{0, 0}, {800, 600}}`
+  - then later resized to `2796 x 1147`
+
+- new pane `019D1F63-7681-708A-9922-5D868B994455`
+  - same initial `800x600`
+  - then later resized to about `1396 x 1147`
+
+This proves the placeholder frame is still active on the **new split-pane path**, not only on launch restore. That is in scope for this plan. A geometry-gated direct-attach design that fixes restore but still allows new panes to start at `800x600` is not acceptable.
+
 ## Current Broken Path to Replace
 
 These files define the current workaround and are the primary replacement targets:
@@ -31,7 +53,7 @@ These files define the current workaround and are the primary replacement target
 - [PaneCoordinator+ViewLifecycle.swift](/Users/shravansunder/Documents/dev/project-dev/agent-studio.luna-295-pane-attach-orchestration-priority-scheduling-anti-flicker/Sources/AgentStudio/App/PaneCoordinator+ViewLifecycle.swift)
   - currently chooses `.deferredInShell(command:)` for zmx-backed terminal creation.
 - [GhosttySurfaceView.swift](/Users/shravansunder/Documents/dev/project-dev/agent-studio.luna-295-pane-attach-orchestration-priority-scheduling-anti-flicker/Sources/AgentStudio/Features/Terminal/Ghostty/GhosttySurfaceView.swift)
-  - currently owns deferred startup command scheduling, text injection, and synthetic Return key.
+  - currently owns deferred startup command scheduling, text injection, synthetic Return key, and the concrete `initialFrame == nil ? 800x600` fallback via `super.init(frame: config?.initialFrame ?? NSRect(x: 0, y: 0, width: 800, height: 600))`.
 - [DeferredStartupReadiness.swift](/Users/shravansunder/Documents/dev/project-dev/agent-studio.luna-295-pane-attach-orchestration-priority-scheduling-anti-flicker/Sources/AgentStudio/Features/Terminal/Ghostty/DeferredStartupReadiness.swift)
   - codifies the visible-window-first workaround gate.
 - [AppDelegate.swift](/Users/shravansunder/Documents/dev/project-dev/agent-studio.luna-295-pane-attach-orchestration-priority-scheduling-anti-flicker/Sources/AgentStudio/App/AppDelegate.swift)
@@ -62,6 +84,8 @@ Out of scope for this slice:
 
 Those may be worthwhile follow-up slices once the geometry-gated direct attach path proves out.
 
+This plan also intentionally lands before the broader stable-terminal-host remodel in `2026-03-22-luna-295-stable-terminal-host-architecture.md`. That follow-up may reduce host churn during split mutations, but it must not inherit a creation path that still silently boots new zmx panes at placeholder `800x600`. This plan removes the placeholder-first creation defect first.
+
 ## Ticket Requirement Traceability
 
 | `LUNA-295` Requirement / Criterion | Covered By |
@@ -88,6 +112,7 @@ For this slice:
 - `TerminalPaneGeometryResolver` returns exact pane `CGRect` frames in logical points.
 - Ghostty derives effective cols/rows from the actual host view/frame and backing scale.
 - The restore path must give Ghostty the correct pane frame before `ghostty_surface_new` launches `zmx attach`.
+- The **new split-pane path** must do the same. Creating a new zmx pane with `initialFrame: nil` and letting `Ghostty.SurfaceView` fall back to `800x600` violates the geometry contract just as much as a bad restore does.
 
 The implementation must not treat any of these as trusted:
 
@@ -153,6 +178,7 @@ Assume Swift 6.2 and macOS 26 only. Do not add legacy timing shims unless the im
 9. No anti-flicker overlay is allowed in this design, but a truthful full-pane `Restoring terminal…` state is allowed while a pane is genuinely still restoring.
 10. New zmx panes and restored zmx panes both use direct `.surfaceCommand(zmx attach ...)`.
 11. This is a hard cutover: no dual restore paths, no compatibility shims, no feature flags for the old hack.
+12. A newly created split pane must never create its surface at placeholder `800x600` and resize later. Trusted geometry is required before surface creation on the split path too.
 
 ## Attach Outcome Transition Rule
 
@@ -182,6 +208,7 @@ The following are explicitly out of scope for this slice:
 - preserving the old deferred-shell restore path in parallel
 - changing `vendor/zmx`
 - upstream zmx library contribution work
+- the broader stable-terminal-host remodel beyond the geometry contract needed to eliminate placeholder-first zmx startup
 
 ---
 
@@ -213,7 +240,7 @@ The following are explicitly out of scope for this slice:
 - Modify: `Sources/AgentStudio/App/Panes/PaneTabViewController.swift`
   - Emit active-tab/active-pane changes so tab-switch destination pane and drawers promote immediately.
 - Modify: `Sources/AgentStudio/App/PaneCoordinator+ActionExecution.swift`
-  - Emit drawer-expanded/collapsed and active-pane transitions into the restore slice.
+  - Route split/new-pane creation through the same geometry-gated path so `.insertPane(source: .newTerminal, ...)` does not create a surface with `initialFrame: nil`.
 - Modify: `Sources/AgentStudio/Features/Terminal/Ghostty/GhosttySurfaceView.swift`
   - Accept explicit initial frame for restore-driven surface creation and publish the existing lifecycle facts needed for restore.
 - Modify: `Sources/AgentStudio/Features/Terminal/Ghostty/SurfaceManager.swift`
@@ -353,6 +380,8 @@ git commit -m "feat: add restore types and deterministic pane geometry"
 
 ```swift
 @Test func restoredSurface_usesExplicitInitialGeometry_beforeProcessLaunch()
+@Test func newSplitPane_usesExplicitInitialGeometry_beforeProcessLaunch()
+@Test func splitRight_neverCreatesSurfaceAtPlaceholder800x600()
 @Test func zmxSurface_neverUsesDeferredShellAttach()
 @Test func restoredSurface_staysHidden_untilAttachOutcomeKnown()
 @Test func hiddenAttachedSurface_clearsFocus_whenOccluded()
@@ -368,9 +397,12 @@ Expected: FAIL with missing explicit initial-geometry support.
 Requirements:
 - zmx panes get an initial frame before `ghostty_surface_new`
 - placeholder `800x600` is no longer used as restore geometry
+- placeholder `800x600` is no longer used as split/new-pane geometry
+- `initialFrame == nil` is treated as a programmer error on the zmx restore/new-pane path, not a silent fallback
 - the surface can still be occluded/hidden while preserving trusted size
 - backing-scale-aware sizing still flows through the existing `convertToBacking` path after surface creation
 - add a runtime guard that the zmx restore path never uses the placeholder frame
+- add a runtime guard that the new split-pane path never uses the placeholder frame
 
 - [ ] **Step 4: Remove the restored-zmx deferred-shell attach path**
 

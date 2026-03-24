@@ -53,6 +53,7 @@ class PaneTabViewController: NSViewController, CommandHandler {
 
     private let store: WorkspaceStore
     private let repoCache: WorkspaceRepoCache
+    private let applicationLifecycleMonitor: ApplicationLifecycleMonitor
     private let executor: ActionExecutor
     private let tabBarAdapter: TabBarAdapter
     private let viewRegistry: ViewRegistry
@@ -66,18 +67,6 @@ class PaneTabViewController: NSViewController, CommandHandler {
 
     /// SwiftUI hosting view for the split container (created once, observes store via @Observable)
     private var splitHostingView: NSHostingView<ActiveTabContent>?
-    private var hasReconciledInitialVisibleRestore = false
-    private var hasPublishedRestoreHostReady = false
-    private var cachedRestoreHostBounds: CGRect?
-    private var restoreHostBoundsGeneration = 0
-    private var launchRestoreArmed = false
-    private var armedRestoreGeneration = 0
-    private var restoreHostReadyTimeoutTask: Task<Void, Never>?
-    var onRestoreHostReady: ((CGRect) -> Void)? {
-        didSet {
-            publishCachedRestoreHostReadinessIfNeeded()
-        }
-    }
 
     /// Local event monitor for arrangement bar keyboard shortcut
     private var arrangementBarEventMonitor: Any?
@@ -88,63 +77,17 @@ class PaneTabViewController: NSViewController, CommandHandler {
     private var lastFocusedPaneId: UUID?
     private var lastManagementModeActive = false
 
-    var terminalContainerBounds: CGRect {
-        terminalContainer?.bounds ?? .zero
-    }
-
-    var isReadyForRestore: Bool {
-        guard isViewLoaded else { return false }
-        guard splitHostingView != nil else { return false }
-        return !terminalContainerBounds.isEmpty
-    }
-
-    func armLaunchRestoreReadiness() {
-        launchRestoreArmed = true
-        armedRestoreGeneration = restoreHostBoundsGeneration
-        RestoreTrace.log(
-            "PaneTabViewController armLaunchRestoreReadiness generation=\(armedRestoreGeneration) bounds=\(NSStringFromRect(terminalContainerBounds))"
-        )
-        restoreHostReadyTimeoutTask?.cancel()
-        restoreHostReadyTimeoutTask = Task { @MainActor [weak self] in
-            do {
-                try await Task.sleep(for: .seconds(5))
-            } catch is CancellationError {
-                return
-            } catch {
-                return
-            }
-            guard let self, !Task.isCancelled else { return }
-            guard launchRestoreArmed, !hasPublishedRestoreHostReady else { return }
-
-            let currentBounds = terminalContainerBounds
-            RestoreTrace.log(
-                "PaneTabViewController restoreReady timeout bounds=\(NSStringFromRect(currentBounds)) ready=\(isReadyForRestore) splitHostingReady=\(splitHostingView != nil)"
-            )
-            guard !currentBounds.isEmpty else { return }
-
-            cachedRestoreHostBounds = currentBounds
-            if !hasReconciledInitialVisibleRestore {
-                hasReconciledInitialVisibleRestore = true
-                executor.restoreVisibleViewsForActiveTabIfNeeded()
-            }
-
-            if let onRestoreHostReady {
-                hasPublishedRestoreHostReady = true
-                onRestoreHostReady(currentBounds)
-            }
-        }
-        reconcileRestoreHostReadinessIfNeeded(reason: "armLaunchRestoreReadiness")
-    }
-
     // MARK: - Init
 
     init(
         store: WorkspaceStore, repoCache: WorkspaceRepoCache = WorkspaceRepoCache(),
+        applicationLifecycleMonitor: ApplicationLifecycleMonitor,
         executor: ActionExecutor,
         tabBarAdapter: TabBarAdapter, viewRegistry: ViewRegistry
     ) {
         self.store = store
         self.repoCache = repoCache
+        self.applicationLifecycleMonitor = applicationLifecycleMonitor
         self.executor = executor
         self.tabBarAdapter = tabBarAdapter
         self.viewRegistry = viewRegistry
@@ -174,7 +117,8 @@ class PaneTabViewController: NSViewController, CommandHandler {
         terminalContainer.translatesAutoresizingMaskIntoConstraints = false
         terminalContainer.layer?.cornerRadius = 8
         terminalContainer.layer?.masksToBounds = true
-        terminalContainer.onNonEmptyLayoutBoundsChanged = { [weak self] _ in
+        terminalContainer.onNonEmptyLayoutBoundsChanged = { [weak self] bounds in
+            self?.applicationLifecycleMonitor.handleTerminalContainerBoundsChanged(bounds)
             self?.handleTerminalContainerBoundsChanged(reason: "terminalContainerLayout")
         }
         containerView.addSubview(terminalContainer)
@@ -316,7 +260,6 @@ class PaneTabViewController: NSViewController, CommandHandler {
         if let monitor = arrangementBarEventMonitor {
             NSEvent.removeMonitor(monitor)
         }
-        restoreHostReadyTimeoutTask?.cancel()
         for task in notificationTasks {
             task.cancel()
         }
@@ -343,7 +286,6 @@ class PaneTabViewController: NSViewController, CommandHandler {
 
     private func handleAppKitStateChange() {
         updateEmptyState()
-        reconcileRestoreHostReadinessIfNeeded(reason: "appKitStateChange")
 
         let isManagementModeActive = ManagementModeMonitor.shared.isActive
         if lastManagementModeActive && !isManagementModeActive {
@@ -432,15 +374,12 @@ class PaneTabViewController: NSViewController, CommandHandler {
     }
 
     private func handleTerminalContainerBoundsChanged(reason: StaticString) {
-        guard isReadyForRestore else { return }
-        cachedRestoreHostBounds = terminalContainerBounds
-        restoreHostBoundsGeneration += 1
+        let terminalContainerBounds = terminalContainer?.bounds ?? .zero
         RestoreTrace.log(
-            "PaneTabViewController terminalContainerBoundsChanged reason=\(reason) generation=\(restoreHostBoundsGeneration) bounds=\(NSStringFromRect(terminalContainerBounds)) launchRestoreArmed=\(launchRestoreArmed)"
+            "PaneTabViewController terminalContainerBoundsChanged reason=\(reason) bounds=\(NSStringFromRect(terminalContainerBounds))"
         )
         RestoreTrace.log(geometryHierarchySnapshot(reason: reason))
         syncVisibleTerminalGeometry(reason: reason)
-        reconcileRestoreHostReadinessIfNeeded(reason: reason)
     }
 
     func syncVisibleTerminalGeometry(reason: StaticString) {
@@ -466,55 +405,6 @@ class PaneTabViewController: NSViewController, CommandHandler {
         let tabBarFrame = tabBarHostingView.map { NSStringFromRect($0.frame) } ?? "nil"
         return
             "PaneTabViewController.geometry reason=\(reason) viewFrame=\(rootFrame) viewBounds=\(rootBounds) terminalFrame=\(terminalFrame) terminalBounds=\(terminalBounds) hostingFrame=\(hostingFrame) hostingBounds=\(hostingBounds) tabBarFrame=\(tabBarFrame)"
-    }
-
-    private func reconcileRestoreHostReadinessIfNeeded(reason: StaticString) {
-        guard launchRestoreArmed else {
-            RestoreTrace.log(
-                "PaneTabViewController restoreReady skipped reason=\(reason) detail=launchNotArmed generation=\(restoreHostBoundsGeneration)"
-            )
-            return
-        }
-        guard isReadyForRestore else { return }
-        guard restoreHostBoundsGeneration >= armedRestoreGeneration else {
-            RestoreTrace.log(
-                "PaneTabViewController restoreReady skipped reason=\(reason) detail=noPostArmLayout generation=\(restoreHostBoundsGeneration) armedGeneration=\(armedRestoreGeneration)"
-            )
-            return
-        }
-
-        if !hasReconciledInitialVisibleRestore {
-            hasReconciledInitialVisibleRestore = true
-            RestoreTrace.log(
-                "PaneTabViewController restoreReady visibleReconcile reason=\(reason) generation=\(restoreHostBoundsGeneration) bounds=\(NSStringFromRect(terminalContainerBounds)) activeTab=\(store.activeTabId?.uuidString ?? "nil")"
-            )
-            executor.restoreVisibleViewsForActiveTabIfNeeded()
-        }
-
-        guard onRestoreHostReady != nil else {
-            RestoreTrace.log(
-                "PaneTabViewController restoreReady cached reason=\(reason) generation=\(restoreHostBoundsGeneration) bounds=\(NSStringFromRect(terminalContainerBounds))"
-            )
-            return
-        }
-        publishCachedRestoreHostReadinessIfNeeded(reason: reason)
-    }
-
-    private func publishCachedRestoreHostReadinessIfNeeded(reason: StaticString = "callbackAssigned") {
-        guard !hasPublishedRestoreHostReady else { return }
-        guard launchRestoreArmed else {
-            RestoreTrace.log(
-                "PaneTabViewController restoreReady publishSkipped reason=\(reason) detail=launchNotArmed generation=\(restoreHostBoundsGeneration)"
-            )
-            return
-        }
-        guard let onRestoreHostReady, let cachedRestoreHostBounds, !cachedRestoreHostBounds.isEmpty else { return }
-        restoreHostReadyTimeoutTask?.cancel()
-        hasPublishedRestoreHostReady = true
-        RestoreTrace.log(
-            "PaneTabViewController restoreReady publish reason=\(reason) generation=\(restoreHostBoundsGeneration) bounds=\(NSStringFromRect(cachedRestoreHostBounds))"
-        )
-        onRestoreHostReady(cachedRestoreHostBounds)
     }
 
     private func replaceSplitContentView() {
