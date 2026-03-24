@@ -43,7 +43,7 @@ AppKit-main architecture hosting SwiftUI views. Seven `@Observable` atomic store
 | `WorkspaceRepoCache` | repo enrichment, branches, git status, PR counts | `workspace.cache.json` |
 | `WorkspaceUIStore` | expanded groups, colors, filter | `workspace.ui.json` |
 | `AppLifecycleStore` | application active/terminating state | in-memory |
-| `WindowLifecycleStore` | key/focused window identity and registration | in-memory |
+| `WindowLifecycleStore` | key/focused window identity, registration, transient terminal geometry, launch-settle facts | in-memory |
 | `SurfaceManager` | Ghostty surface lifecycle, health, undo | — |
 | `SessionRuntime` | runtime status, health checks, zmx | — |
 

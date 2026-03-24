@@ -26,33 +26,13 @@ class AppDelegate: NSObject, NSApplicationDelegate {
     // MARK: - OAuth
     private var oauthService: OAuthService!
     private var filesystemPipelineBootTask: Task<Void, Never>?
-    private var launchRestoreTask: Task<Void, Never>?
-    private var hasStartedLaunchRestore = false
+    private var launchRestoreObservationTask: Task<Void, Never>?
+    private var windowRestoreBridge: WindowRestoreBridge?
 
     private func recordBootStep(_ step: WorkspaceBootStep) {
         RestoreTrace.log("workspace.boot.step=\(step.rawValue)")
     }
 
-    private func startLaunchRestoreIfNeeded(in terminalContainerBounds: CGRect) {
-        guard !terminalContainerBounds.isEmpty else {
-            RestoreTrace.log("restoreAllViews skipped reason=emptyBounds")
-            appLogger.warning("Launch restore readiness fired with empty terminal container bounds")
-            return
-        }
-        guard !hasStartedLaunchRestore else { return }
-        hasStartedLaunchRestore = true
-        RestoreTrace.log(
-            "startLaunchRestoreIfNeeded bounds=\(NSStringFromRect(terminalContainerBounds)) windowFrame=\(NSStringFromRect(mainWindowController?.window?.frame ?? .zero)) contentRect=\(NSStringFromRect(mainWindowController?.window?.contentLayoutRect ?? .zero))"
-        )
-        launchRestoreTask?.cancel()
-        launchRestoreTask = Task { @MainActor [weak self] in
-            guard let self else { return }
-            RestoreTrace.log("restoreAllViews: start")
-            await self.paneCoordinator.restoreAllViews(in: terminalContainerBounds)
-            self.mainWindowController?.syncVisibleTerminalGeometry(reason: "postLaunchRestore")
-            RestoreTrace.log("restoreAllViews: end registeredViews=\(self.viewRegistry.registeredPaneIds.count)")
-        }
-    }
     private func executeBootStep(
         _ step: WorkspaceBootStep,
         persistor: WorkspacePersistor,
@@ -97,6 +77,30 @@ class AppDelegate: NSObject, NSApplicationDelegate {
         RestoreTrace.log(
             "store.restore complete tabs=\(store.tabs.count) panes=\(store.panes.count) activeTab=\(store.activeTabId?.uuidString ?? "nil")"
         )
+    }
+
+    private func observeLaunchRestoreReadiness() {
+        let bridge = WindowRestoreBridge(windowLifecycleStore: windowLifecycleStore)
+        windowRestoreBridge = bridge
+        launchRestoreObservationTask?.cancel()
+        launchRestoreObservationTask = Task { @MainActor [weak self] in
+            guard let self else { return }
+            for await bounds in bridge.stream {
+                guard !Task.isCancelled else { break }
+                guard !bounds.isEmpty else {
+                    RestoreTrace.log("restoreAllViews skipped reason=emptyBounds")
+                    appLogger.warning("Launch restore readiness emitted empty terminal container bounds")
+                    break
+                }
+                RestoreTrace.log(
+                    "launchRestore triggered bounds=\(NSStringFromRect(bounds)) windowFrame=\(NSStringFromRect(mainWindowController?.window?.frame ?? .zero)) contentRect=\(NSStringFromRect(mainWindowController?.window?.contentLayoutRect ?? .zero))"
+                )
+                await self.paneCoordinator.restoreAllViews(in: bounds)
+                self.mainWindowController?.syncVisibleTerminalGeometry(reason: "postLaunchRestore")
+                RestoreTrace.log("restoreAllViews: end registeredViews=\(self.viewRegistry.registeredPaneIds.count)")
+                break
+            }
+        }
     }
 
     private func bootLoadCacheStore(persistor: WorkspacePersistor) {
@@ -164,7 +168,8 @@ class AppDelegate: NSObject, NSApplicationDelegate {
             surfaceManager: SurfaceManager.shared,
             runtimeRegistry: .shared,
             paneEventBus: paneRuntimeBus,
-            filesystemSource: pipeline
+            filesystemSource: pipeline,
+            windowLifecycleStore: windowLifecycleStore
         )
         workspaceCacheCoordinator = WorkspaceCacheCoordinator(
             bus: paneRuntimeBus,
@@ -327,19 +332,15 @@ class AppDelegate: NSObject, NSApplicationDelegate {
             uiStore: workspaceUIStore,
             actionExecutor: executor,
             applicationLifecycleMonitor: applicationLifecycleMonitor,
+            windowLifecycleStore: windowLifecycleStore,
             tabBarAdapter: tabBarAdapter,
             viewRegistry: viewRegistry
         )
-        paneCoordinator.terminalContainerBoundsProvider = { [weak self] in
-            self?.mainWindowController?.terminalContainerBounds
-        }
-        mainWindowController?.onRestoreHostReady = { [weak self] terminalContainerBounds in
-            self?.startLaunchRestoreIfNeeded(in: terminalContainerBounds)
-        }
         mainWindowController?.prepareLaunchMaximizeAndRestore()
         mainWindowController?.showWindow(nil)
         NSApp.activate(ignoringOtherApps: true)
         mainWindowController?.completeLaunchPresentation()
+        observeLaunchRestoreReadiness()
         wireLifecycleConsumers()
         if let window = mainWindowController?.window {
             RestoreTrace.log(
@@ -354,7 +355,7 @@ class AppDelegate: NSObject, NSApplicationDelegate {
 
     isolated deinit {
         filesystemPipelineBootTask?.cancel()
-        launchRestoreTask?.cancel()
+        launchRestoreObservationTask?.cancel()
     }
 
     // MARK: - Dependency Check
@@ -510,6 +511,7 @@ class AppDelegate: NSObject, NSApplicationDelegate {
                 uiStore: workspaceUIStore,
                 actionExecutor: executor,
                 applicationLifecycleMonitor: applicationLifecycleMonitor,
+                windowLifecycleStore: windowLifecycleStore,
                 tabBarAdapter: tabBarAdapter,
                 viewRegistry: viewRegistry
             )

@@ -718,7 +718,8 @@ extension PaneCoordinator {
 
     func restoreViewsForActiveTabIfNeeded() {
         guard let activeTab = store.activeTab else { return }
-        guard let terminalContainerBounds = terminalContainerBoundsProvider(), !terminalContainerBounds.isEmpty else {
+        let terminalContainerBounds = windowLifecycleStore.terminalContainerBounds
+        guard !terminalContainerBounds.isEmpty else {
             RestoreTrace.log("restoreViewsForActiveTabIfNeeded skipped boundsUnavailable")
             return
         }

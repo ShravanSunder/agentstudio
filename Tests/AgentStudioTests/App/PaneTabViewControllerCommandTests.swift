@@ -26,6 +26,12 @@ struct PaneTabViewControllerCommandTests {
         let runtime = SessionRuntime(store: store)
         let surfaceManager = MockPaneTabCommandSurfaceManager(createSurfaceResult: createSurfaceResult)
         let runtimeRegistry = RuntimeRegistry()
+        let appLifecycleStore = AppLifecycleStore()
+        let windowLifecycleStore = WindowLifecycleStore()
+        let applicationLifecycleMonitor = ApplicationLifecycleMonitor(
+            appLifecycleStore: appLifecycleStore,
+            windowLifecycleStore: windowLifecycleStore
+        )
         let coordinator = PaneCoordinator(
             store: store,
             viewRegistry: viewRegistry,
@@ -37,6 +43,7 @@ struct PaneTabViewControllerCommandTests {
         let controller = PaneTabViewController(
             store: store,
             repoCache: WorkspaceRepoCache(),
+            applicationLifecycleMonitor: applicationLifecycleMonitor,
             executor: executor,
             tabBarAdapter: TabBarAdapter(store: store, repoCache: WorkspaceRepoCache()),
             viewRegistry: viewRegistry

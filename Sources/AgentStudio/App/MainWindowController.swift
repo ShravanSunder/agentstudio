@@ -8,24 +8,11 @@ class MainWindowController: NSWindowController, NSWindowDelegate {
     private var awaitsLaunchRestoreResize = false
     private var awaitsLaunchMaximize = false
     private var applicationLifecycleMonitor: ApplicationLifecycleMonitor!
+    private var windowLifecycleStore: WindowLifecycleStore!
     private let windowId = UUID()
 
     private static let windowFrameKey = "windowFrame"
     private static let estimatedTitlebarHeight: CGFloat = 40
-
-    var terminalContainerBounds: CGRect? {
-        splitViewController?.terminalContainerBounds
-    }
-
-    var isReadyForRestore: Bool {
-        splitViewController?.isReadyForRestore ?? false
-    }
-
-    var onRestoreHostReady: ((CGRect) -> Void)? {
-        didSet {
-            splitViewController?.onRestoreHostReady = onRestoreHostReady
-        }
-    }
 
     convenience init(
         store: WorkspaceStore,
@@ -33,6 +20,7 @@ class MainWindowController: NSWindowController, NSWindowDelegate {
         uiStore: WorkspaceUIStore,
         actionExecutor: ActionExecutor,
         applicationLifecycleMonitor: ApplicationLifecycleMonitor,
+        windowLifecycleStore: WindowLifecycleStore,
         tabBarAdapter: TabBarAdapter, viewRegistry: ViewRegistry
     ) {
         let window = NSWindow(
@@ -55,6 +43,7 @@ class MainWindowController: NSWindowController, NSWindowDelegate {
 
         self.init(window: window)
         self.applicationLifecycleMonitor = applicationLifecycleMonitor
+        self.windowLifecycleStore = windowLifecycleStore
         window.delegate = self
         applicationLifecycleMonitor.handleWindowRegistered(windowId)
 
@@ -64,11 +53,11 @@ class MainWindowController: NSWindowController, NSWindowDelegate {
             repoCache: repoCache,
             uiStore: uiStore,
             actionExecutor: actionExecutor,
+            applicationLifecycleMonitor: applicationLifecycleMonitor,
             tabBarAdapter: tabBarAdapter,
             viewRegistry: viewRegistry
         )
         self.splitViewController = splitVC
-        splitVC.onRestoreHostReady = onRestoreHostReady
         window.contentViewController = splitVC
 
         // Set up titlebar and toolbar
@@ -86,8 +75,9 @@ class MainWindowController: NSWindowController, NSWindowDelegate {
         saveWindowFrame()
         guard awaitsLaunchRestoreResize else { return }
         awaitsLaunchRestoreResize = false
-        splitViewController?.armLaunchRestoreReadiness()
         window?.contentView?.layoutSubtreeIfNeeded()
+        let bounds = windowLifecycleStore.terminalContainerBounds
+        applicationLifecycleMonitor.handleLaunchMaximizeCompleted(terminalContainerBounds: bounds)
     }
 
     func windowDidBecomeMain(_ notification: Notification) {
@@ -231,8 +221,9 @@ class MainWindowController: NSWindowController, NSWindowDelegate {
             "MainWindowController.applyLaunchMaximize currentFrame=\(NSStringFromRect(window.frame)) targetFrame=\(NSStringFromRect(targetFrame))"
         )
         if window.frame.equalTo(targetFrame) {
-            splitViewController?.armLaunchRestoreReadiness()
             window.contentView?.layoutSubtreeIfNeeded()
+            let bounds = windowLifecycleStore.terminalContainerBounds
+            applicationLifecycleMonitor.handleLaunchMaximizeCompleted(terminalContainerBounds: bounds)
             return
         }
         awaitLaunchRestoreAfterNextResize()

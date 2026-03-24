@@ -45,7 +45,7 @@ final class PaneCoordinator {
     let runtimeCommandClock: ContinuousClock
     let filesystemSource: any PaneCoordinatorFilesystemSourceManaging
     let paneFilesystemProjectionStore: PaneFilesystemProjectionStore
-    var terminalContainerBoundsProvider: @MainActor () -> CGRect? = { nil }
+    let windowLifecycleStore: WindowLifecycleStore
     var removeRepoHandler: @MainActor (UUID) -> Void = { _ in }
     lazy var sessionConfig = SessionConfiguration.detect()
     lazy var terminalRestoreRuntime = TerminalRestoreRuntime(sessionConfiguration: sessionConfig)
@@ -81,7 +81,8 @@ final class PaneCoordinator {
             surfaceManager: SurfaceManager.shared,
             runtimeRegistry: .shared,
             paneEventBus: PaneRuntimeEventBus.shared,
-            runtimeCommandClock: ContinuousClock()
+            runtimeCommandClock: ContinuousClock(),
+            windowLifecycleStore: WindowLifecycleStore()
         )
     }
 
@@ -94,7 +95,8 @@ final class PaneCoordinator {
         paneEventBus: EventBus<RuntimeEnvelope> = PaneRuntimeEventBus.shared,
         runtimeCommandClock: ContinuousClock = ContinuousClock(),
         filesystemSource: (any PaneCoordinatorFilesystemSourceManaging)? = nil,
-        paneFilesystemProjectionStore: PaneFilesystemProjectionStore = PaneFilesystemProjectionStore()
+        paneFilesystemProjectionStore: PaneFilesystemProjectionStore = PaneFilesystemProjectionStore(),
+        windowLifecycleStore: WindowLifecycleStore = WindowLifecycleStore()
     ) {
         let resolvedFilesystemSource =
             filesystemSource
@@ -115,6 +117,7 @@ final class PaneCoordinator {
         self.runtimeCommandClock = runtimeCommandClock
         self.filesystemSource = resolvedFilesystemSource
         self.paneFilesystemProjectionStore = paneFilesystemProjectionStore
+        self.windowLifecycleStore = windowLifecycleStore
         Ghostty.App.setRuntimeRegistry(runtimeRegistry)
         subscribeToCWDChanges()
         setupPrePersistHook()

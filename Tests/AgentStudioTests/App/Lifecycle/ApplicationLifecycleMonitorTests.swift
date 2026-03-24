@@ -58,4 +58,52 @@ struct ApplicationLifecycleMonitorTests {
         #expect(windowStore.keyWindowId == nil)
         #expect(windowStore.focusedWindowId == nil)
     }
+
+    @Test("writes terminal container bounds to the window lifecycle store")
+    func test_applicationLifecycleMonitor_writesTerminalContainerBounds() {
+        let appStore = AppLifecycleStore()
+        let windowStore = WindowLifecycleStore()
+        let monitor = ApplicationLifecycleMonitor(
+            appLifecycleStore: appStore,
+            windowLifecycleStore: windowStore
+        )
+        let bounds = CGRect(x: 0, y: 0, width: 1140, height: 824)
+
+        monitor.handleTerminalContainerBoundsChanged(bounds)
+
+        #expect(windowStore.terminalContainerBounds == bounds)
+        #expect(windowStore.isReadyForLaunchRestore == false)
+    }
+
+    @Test("marks launch layout as settled in the window lifecycle store")
+    func test_applicationLifecycleMonitor_marksLaunchLayoutSettled() {
+        let appStore = AppLifecycleStore()
+        let windowStore = WindowLifecycleStore()
+        let monitor = ApplicationLifecycleMonitor(
+            appLifecycleStore: appStore,
+            windowLifecycleStore: windowStore
+        )
+
+        monitor.handleLaunchLayoutSettled()
+
+        #expect(windowStore.isLaunchLayoutSettled == true)
+        #expect(windowStore.isReadyForLaunchRestore == false)
+    }
+
+    @Test("launch maximize completion writes bounds and settled state")
+    func test_applicationLifecycleMonitor_handlesLaunchMaximizeCompleted() {
+        let appStore = AppLifecycleStore()
+        let windowStore = WindowLifecycleStore()
+        let monitor = ApplicationLifecycleMonitor(
+            appLifecycleStore: appStore,
+            windowLifecycleStore: windowStore
+        )
+        let bounds = CGRect(x: 0, y: 0, width: 1140, height: 824)
+
+        monitor.handleLaunchMaximizeCompleted(terminalContainerBounds: bounds)
+
+        #expect(windowStore.terminalContainerBounds == bounds)
+        #expect(windowStore.isLaunchLayoutSettled == true)
+        #expect(windowStore.isReadyForLaunchRestore == true)
+    }
 }

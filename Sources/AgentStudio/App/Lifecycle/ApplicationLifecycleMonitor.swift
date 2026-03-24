@@ -39,4 +39,17 @@ final class ApplicationLifecycleMonitor {
         windowLifecycleStore.recordWindowResignedKey(windowId)
         windowLifecycleStore.recordWindowResignedFocused(windowId)
     }
+
+    func handleTerminalContainerBoundsChanged(_ bounds: CGRect) {
+        windowLifecycleStore.recordTerminalContainerBounds(bounds)
+    }
+
+    func handleLaunchLayoutSettled() {
+        windowLifecycleStore.recordLaunchLayoutSettled()
+    }
+
+    func handleLaunchMaximizeCompleted(terminalContainerBounds: CGRect) {
+        windowLifecycleStore.recordTerminalContainerBounds(terminalContainerBounds)
+        windowLifecycleStore.recordLaunchLayoutSettled()
+    }
 }
