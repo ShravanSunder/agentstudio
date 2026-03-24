@@ -116,7 +116,7 @@ description = "Debug build (run mise run setup first time)"
 run = """
 #!/usr/bin/env bash
 set -euo pipefail
-source scripts/xcb-helpers.sh
+source "${PROJECT_ROOT}/scripts/xcb-helpers.sh"
 RUN_ID="${AGENT_RUN_ID:-}"
 if [ -z "$RUN_ID" ]; then
   echo "[build] ERROR: AGENT_RUN_ID is required (example: AGENT_RUN_ID=abc123 mise run build)"
@@ -133,7 +133,7 @@ description = "Release build (run mise run setup first time)"
 run = """
 #!/usr/bin/env bash
 set -euo pipefail
-source scripts/xcb-helpers.sh
+source "${PROJECT_ROOT}/scripts/xcb-helpers.sh"
 RUN_ID="${AGENT_RUN_ID:-}"
 if [ -z "$RUN_ID" ]; then
   echo "[build-release] ERROR: AGENT_RUN_ID is required (example: AGENT_RUN_ID=abc123 mise run build-release)"
@@ -293,7 +293,7 @@ description = "Run E2E serialized tests only (opt-in; zmx E2E currently unstable
 run = """
 #!/usr/bin/env bash
 set -euo pipefail
-source scripts/xcb-helpers.sh
+source "${PROJECT_ROOT}/scripts/xcb-helpers.sh"
 BUILD_PATH="${SWIFT_BUILD_DIR:-.build}"
 xcb_pipe=$(_xcb_pipe_cmd)
 swift build --build-tests --build-path "$BUILD_PATH" 2>&1 | $xcb_pipe
@@ -305,7 +305,7 @@ description = "Run zmx E2E tests only (opt-in; may stall)"
 run = """
 #!/usr/bin/env bash
 set -euo pipefail
-source scripts/xcb-helpers.sh
+source "${PROJECT_ROOT}/scripts/xcb-helpers.sh"
 BUILD_PATH="${SWIFT_BUILD_DIR:-.build}"
 xcb_pipe=$(_xcb_pipe_cmd)
 swift build --build-tests --build-path "$BUILD_PATH" 2>&1 | $xcb_pipe
@@ -318,7 +318,7 @@ depends = ["build"]
 run = """
 #!/usr/bin/env bash
 set -euo pipefail
-source scripts/xcb-helpers.sh
+source "${PROJECT_ROOT}/scripts/xcb-helpers.sh"
 RUN_ID="${AGENT_RUN_ID:-}"
 if [ -z "$RUN_ID" ]; then
   echo "[test-benchmark] ERROR: AGENT_RUN_ID is required (example: AGENT_RUN_ID=abc123 mise run test-benchmark)"

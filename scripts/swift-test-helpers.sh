@@ -88,11 +88,14 @@ run_webkit_suite_with_retry() {
     set +e
     local output
     # Bypass xcbeautify — we need raw output to detect "unexpected signal code" for retries.
+    # Set _XCB_BYPASS on its own line: bash evaluates $() before assignments on the same line.
+    _XCB_BYPASS=1
     # shellcheck disable=SC2086
-    _XCB_BYPASS=1 output=$(run_swift_with_timeout "$filter" "$TIMEOUT_SECONDS" \
+    output=$(run_swift_with_timeout "$filter" "$TIMEOUT_SECONDS" \
       env AGENT_STUDIO_BENCHMARK_MODE=off swift test ${EXTRA_SWIFT_TEST_ARGS:-} \
       --skip-build --filter "$filter" --build-path "$BUILD_PATH" 2>&1)
     local command_status=$?
+    unset _XCB_BYPASS
     set -e
     echo "$output"
 
