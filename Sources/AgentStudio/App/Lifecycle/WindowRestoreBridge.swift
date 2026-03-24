@@ -1,6 +1,11 @@
 import Foundation
 import Observation
 
+/// Bridges `WindowLifecycleStore` launch-restore readiness into a one-shot async signal.
+/// It observes the store using the repo's explicit observation re-registration pattern,
+/// yields the current live terminal container bounds once readiness becomes true, and
+/// then finishes the stream. `AppDelegate` owns retention and consumption.
+
 @MainActor
 final class WindowRestoreBridge {
     let stream: AsyncStream<CGRect>
@@ -44,6 +49,9 @@ final class WindowRestoreBridge {
     }
 
     isolated deinit {
+        if !hasFinished {
+            RestoreTrace.log("WindowRestoreBridge deallocated before readiness")
+        }
         continuation.finish()
     }
 }

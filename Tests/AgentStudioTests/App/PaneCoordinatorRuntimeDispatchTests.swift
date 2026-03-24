@@ -17,7 +17,7 @@ struct PaneCoordinatorRuntimeDispatchTests {
         let runtime = SessionRuntime(store: store)
         let mockSurfaceManager = MockPaneCoordinatorSurfaceManager()
         let runtimeRegistry = RuntimeRegistry()
-        _ = PaneCoordinator(
+        _ = makeTestPaneCoordinator(
             store: store,
             viewRegistry: viewRegistry,
             runtime: runtime,
@@ -40,7 +40,7 @@ struct PaneCoordinatorRuntimeDispatchTests {
         let runtime = SessionRuntime(store: store)
         let mockSurfaceManager = MockPaneCoordinatorSurfaceManager()
         let runtimeRegistry = RuntimeRegistry()
-        let coordinator = PaneCoordinator(
+        let coordinator = makeTestPaneCoordinator(
             store: store,
             viewRegistry: viewRegistry,
             runtime: runtime,
@@ -75,7 +75,7 @@ struct PaneCoordinatorRuntimeDispatchTests {
         let viewRegistry = ViewRegistry()
         let runtime = SessionRuntime(store: store)
         let mockSurfaceManager = MockPaneCoordinatorSurfaceManager()
-        let coordinator = PaneCoordinator(
+        let coordinator = makeTestPaneCoordinator(
             store: store,
             viewRegistry: viewRegistry,
             runtime: runtime,
@@ -99,7 +99,7 @@ struct PaneCoordinatorRuntimeDispatchTests {
         let runtime = SessionRuntime(store: store)
         let mockSurfaceManager = MockPaneCoordinatorSurfaceManager()
         let runtimeRegistry = RuntimeRegistry()
-        let coordinator = PaneCoordinator(
+        let coordinator = makeTestPaneCoordinator(
             store: store,
             viewRegistry: viewRegistry,
             runtime: runtime,
@@ -136,7 +136,7 @@ struct PaneCoordinatorRuntimeDispatchTests {
         let runtime = SessionRuntime(store: store)
         let mockSurfaceManager = MockPaneCoordinatorSurfaceManager()
         let runtimeRegistry = RuntimeRegistry()
-        let coordinator = PaneCoordinator(
+        let coordinator = makeTestPaneCoordinator(
             store: store,
             viewRegistry: viewRegistry,
             runtime: runtime,
@@ -178,7 +178,7 @@ struct PaneCoordinatorRuntimeDispatchTests {
         let runtime = SessionRuntime(store: store)
         let mockSurfaceManager = MockPaneCoordinatorSurfaceManager()
         let runtimeRegistry = RuntimeRegistry()
-        let coordinator = PaneCoordinator(
+        let coordinator = makeTestPaneCoordinator(
             store: store,
             viewRegistry: viewRegistry,
             runtime: runtime,
@@ -228,7 +228,7 @@ struct PaneCoordinatorRuntimeDispatchTests {
         let runtime = SessionRuntime(store: store)
         let mockSurfaceManager = MockPaneCoordinatorSurfaceManager()
         let runtimeRegistry = RuntimeRegistry()
-        let coordinator = PaneCoordinator(
+        let coordinator = makeTestPaneCoordinator(
             store: store,
             viewRegistry: viewRegistry,
             runtime: runtime,
@@ -264,7 +264,7 @@ struct PaneCoordinatorRuntimeDispatchTests {
         let viewRegistry = ViewRegistry()
         let runtime = SessionRuntime(store: store)
         let mockSurfaceManager = MockPaneCoordinatorSurfaceManager()
-        let coordinator = PaneCoordinator(
+        let coordinator = makeTestPaneCoordinator(
             store: store,
             viewRegistry: viewRegistry,
             runtime: runtime,
@@ -321,7 +321,7 @@ struct PaneCoordinatorRuntimeDispatchTests {
         let viewRegistry = ViewRegistry()
         let runtime = SessionRuntime(store: store)
         let mockSurfaceManager = MockPaneCoordinatorSurfaceManager()
-        let coordinator = PaneCoordinator(
+        let coordinator = makeTestPaneCoordinator(
             store: store,
             viewRegistry: viewRegistry,
             runtime: runtime,
@@ -377,7 +377,7 @@ struct PaneCoordinatorRuntimeDispatchTests {
         let viewRegistry = ViewRegistry()
         let runtime = SessionRuntime(store: store)
         let mockSurfaceManager = MockPaneCoordinatorSurfaceManager()
-        let coordinator = PaneCoordinator(
+        let coordinator = makeTestPaneCoordinator(
             store: store,
             viewRegistry: viewRegistry,
             runtime: runtime,
@@ -441,7 +441,7 @@ struct PaneCoordinatorRuntimeDispatchTests {
         let viewRegistry = ViewRegistry()
         let runtime = SessionRuntime(store: store)
         let mockSurfaceManager = MockPaneCoordinatorSurfaceManager()
-        let coordinator = PaneCoordinator(
+        let coordinator = makeTestPaneCoordinator(
             store: store,
             viewRegistry: viewRegistry,
             runtime: runtime,
@@ -506,7 +506,7 @@ struct PaneCoordinatorRuntimeDispatchTests {
         let viewRegistry = ViewRegistry()
         let runtime = SessionRuntime(store: store)
         let mockSurfaceManager = MockPaneCoordinatorSurfaceManager()
-        let coordinator = PaneCoordinator(
+        let coordinator = makeTestPaneCoordinator(
             store: store,
             viewRegistry: viewRegistry,
             runtime: runtime,
@@ -569,7 +569,7 @@ struct PaneCoordinatorRuntimeDispatchTests {
         let viewRegistry = ViewRegistry()
         let runtime = SessionRuntime(store: store)
         let mockSurfaceManager = MockPaneCoordinatorSurfaceManager()
-        let coordinator = PaneCoordinator(
+        let coordinator = makeTestPaneCoordinator(
             store: store,
             viewRegistry: viewRegistry,
             runtime: runtime,
@@ -627,7 +627,7 @@ struct PaneCoordinatorRuntimeDispatchTests {
         let viewRegistry = ViewRegistry()
         let runtime = SessionRuntime(store: store)
         let mockSurfaceManager = MockPaneCoordinatorSurfaceManager()
-        let coordinator = PaneCoordinator(
+        let coordinator = makeTestPaneCoordinator(
             store: store,
             viewRegistry: viewRegistry,
             runtime: runtime,
@@ -706,7 +706,7 @@ struct PaneCoordinatorRuntimeDispatchTests {
         let viewRegistry = ViewRegistry()
         let runtime = SessionRuntime(store: store)
         let mockSurfaceManager = MockPaneCoordinatorSurfaceManager()
-        let coordinator = PaneCoordinator(
+        let coordinator = makeTestPaneCoordinator(
             store: store,
             viewRegistry: viewRegistry,
             runtime: runtime,
@@ -813,22 +813,6 @@ struct PaneCoordinatorRuntimeDispatchTests {
     }
 }
 
-@MainActor
-private func eventually(
-    _ description: String,
-    maxTurns: Int = 200,
-    condition: @escaping @MainActor () -> Bool
-) async {
-    for _ in 0..<maxTurns {
-        if condition() {
-            return
-        }
-        await Task.yield()
-    }
-    #expect(condition(), "\(description) timed out")
-}
-
-@MainActor
 private final class FakePaneRuntime: PaneRuntime {
     let paneId: PaneId
     var metadata: PaneMetadata

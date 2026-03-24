@@ -45,6 +45,21 @@ struct WindowRestoreBridgeTests {
         consumeTask.cancel()
         _ = await consumeTask.result
     }
+
+    @Test("stream yields immediately when store is already ready at init")
+    func test_windowRestoreBridge_streamYieldsImmediatelyWhenStoreAlreadyReady() async throws {
+        let store = WindowLifecycleStore()
+        let readyBounds = CGRect(x: 0, y: 0, width: 1140, height: 824)
+        store.recordTerminalContainerBounds(readyBounds)
+        store.recordLaunchLayoutSettled()
+
+        let bridge = WindowRestoreBridge(windowLifecycleStore: store)
+        var iterator = bridge.stream.makeAsyncIterator()
+
+        let yieldedBounds = try #require(await iterator.next())
+        #expect(yieldedBounds == readyBounds)
+        #expect(await iterator.next() == nil)
+    }
 }
 
 private actor BridgeYieldProbe {

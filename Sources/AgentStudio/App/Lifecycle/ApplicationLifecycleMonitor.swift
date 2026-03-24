@@ -41,15 +41,11 @@ final class ApplicationLifecycleMonitor {
     }
 
     func handleTerminalContainerBoundsChanged(_ bounds: CGRect) {
+        guard !bounds.isEmpty else { return }
         windowLifecycleStore.recordTerminalContainerBounds(bounds)
     }
 
     func handleLaunchLayoutSettled() {
-        windowLifecycleStore.recordLaunchLayoutSettled()
-    }
-
-    func handleLaunchMaximizeCompleted(terminalContainerBounds: CGRect) {
-        windowLifecycleStore.recordTerminalContainerBounds(terminalContainerBounds)
         windowLifecycleStore.recordLaunchLayoutSettled()
     }
 }

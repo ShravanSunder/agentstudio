@@ -29,7 +29,8 @@ final class DrawerCommandIntegrationTests {
             viewRegistry: viewRegistry,
             runtime: runtime,
             surfaceManager: surfaceManager,
-            runtimeRegistry: RuntimeRegistry()
+            runtimeRegistry: RuntimeRegistry(),
+            windowLifecycleStore: WindowLifecycleStore()
         )
         executor = ActionExecutor(coordinator: coordinator, store: store)
     }

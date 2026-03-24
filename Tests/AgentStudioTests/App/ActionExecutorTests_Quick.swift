@@ -26,7 +26,8 @@ struct ActionExecutorTestsQuick {
         let coordinator = PaneCoordinator(
             store: store,
             viewRegistry: viewRegistry,
-            runtime: runtime
+            runtime: runtime,
+            windowLifecycleStore: WindowLifecycleStore()
         )
         let executor = ActionExecutor(coordinator: coordinator, store: store)
         return ActionExecutorHarness(

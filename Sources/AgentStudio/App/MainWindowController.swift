@@ -8,7 +8,6 @@ class MainWindowController: NSWindowController, NSWindowDelegate {
     private var awaitsLaunchRestoreResize = false
     private var awaitsLaunchMaximize = false
     private var applicationLifecycleMonitor: ApplicationLifecycleMonitor!
-    private var windowLifecycleStore: WindowLifecycleStore!
     private let windowId = UUID()
 
     private static let windowFrameKey = "windowFrame"
@@ -20,7 +19,6 @@ class MainWindowController: NSWindowController, NSWindowDelegate {
         uiStore: WorkspaceUIStore,
         actionExecutor: ActionExecutor,
         applicationLifecycleMonitor: ApplicationLifecycleMonitor,
-        windowLifecycleStore: WindowLifecycleStore,
         tabBarAdapter: TabBarAdapter, viewRegistry: ViewRegistry
     ) {
         let window = NSWindow(
@@ -43,7 +41,6 @@ class MainWindowController: NSWindowController, NSWindowDelegate {
 
         self.init(window: window)
         self.applicationLifecycleMonitor = applicationLifecycleMonitor
-        self.windowLifecycleStore = windowLifecycleStore
         window.delegate = self
         applicationLifecycleMonitor.handleWindowRegistered(windowId)
 
@@ -76,8 +73,7 @@ class MainWindowController: NSWindowController, NSWindowDelegate {
         guard awaitsLaunchRestoreResize else { return }
         awaitsLaunchRestoreResize = false
         window?.contentView?.layoutSubtreeIfNeeded()
-        let bounds = windowLifecycleStore.terminalContainerBounds
-        applicationLifecycleMonitor.handleLaunchMaximizeCompleted(terminalContainerBounds: bounds)
+        applicationLifecycleMonitor.handleLaunchLayoutSettled()
     }
 
     func windowDidBecomeMain(_ notification: Notification) {
@@ -222,8 +218,7 @@ class MainWindowController: NSWindowController, NSWindowDelegate {
         )
         if window.frame.equalTo(targetFrame) {
             window.contentView?.layoutSubtreeIfNeeded()
-            let bounds = windowLifecycleStore.terminalContainerBounds
-            applicationLifecycleMonitor.handleLaunchMaximizeCompleted(terminalContainerBounds: bounds)
+            applicationLifecycleMonitor.handleLaunchLayoutSettled()
             return
         }
         awaitLaunchRestoreAfterNextResize()

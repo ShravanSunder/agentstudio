@@ -23,7 +23,10 @@ struct PaneCoordinatorTests {
         store.restore()
         let viewRegistry = ViewRegistry()
         let runtime = SessionRuntime(store: store)
-        let coordinator = PaneCoordinator(store: store, viewRegistry: viewRegistry, runtime: runtime)
+        let coordinator = PaneCoordinator(
+            store: store, viewRegistry: viewRegistry, runtime: runtime,
+            windowLifecycleStore: WindowLifecycleStore()
+        )
         return PaneCoordinatorHarness(
             store: store,
             viewRegistry: viewRegistry,
@@ -344,7 +347,8 @@ struct PaneCoordinatorTests {
             runtimeRegistry: RuntimeRegistry(),
             paneEventBus: paneEventBus,
             filesystemSource: filesystemSource,
-            paneFilesystemProjectionStore: PaneFilesystemProjectionStore()
+            paneFilesystemProjectionStore: PaneFilesystemProjectionStore(),
+            windowLifecycleStore: WindowLifecycleStore()
         )
 
         await waitUntilFilesystemState(
@@ -433,7 +437,8 @@ struct PaneCoordinatorTests {
             runtimeRegistry: RuntimeRegistry(),
             paneEventBus: paneEventBus,
             filesystemSource: filesystemSource,
-            paneFilesystemProjectionStore: PaneFilesystemProjectionStore()
+            paneFilesystemProjectionStore: PaneFilesystemProjectionStore(),
+            windowLifecycleStore: WindowLifecycleStore()
         )
 
         await waitUntilFilesystemState(
@@ -492,7 +497,8 @@ struct PaneCoordinatorTests {
             runtimeRegistry: RuntimeRegistry(),
             paneEventBus: paneEventBus,
             filesystemSource: filesystemSource,
-            paneFilesystemProjectionStore: PaneFilesystemProjectionStore()
+            paneFilesystemProjectionStore: PaneFilesystemProjectionStore(),
+            windowLifecycleStore: WindowLifecycleStore()
         )
         _ = coordinator
 

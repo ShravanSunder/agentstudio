@@ -61,7 +61,8 @@ extension E2ESerializedTests {
                 runtimeRegistry: RuntimeRegistry(),
                 paneEventBus: paneEventBus,
                 filesystemSource: filesystemSource,
-                paneFilesystemProjectionStore: paneProjectionStore
+                paneFilesystemProjectionStore: paneProjectionStore,
+                windowLifecycleStore: WindowLifecycleStore()
             )
             coordinator.syncFilesystemRootsAndActivity()
 

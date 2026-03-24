@@ -72,7 +72,8 @@ final class PaneCoordinator {
     convenience init(
         store: WorkspaceStore,
         viewRegistry: ViewRegistry,
-        runtime: SessionRuntime
+        runtime: SessionRuntime,
+        windowLifecycleStore: WindowLifecycleStore
     ) {
         self.init(
             store: store,
@@ -82,7 +83,7 @@ final class PaneCoordinator {
             runtimeRegistry: .shared,
             paneEventBus: PaneRuntimeEventBus.shared,
             runtimeCommandClock: ContinuousClock(),
-            windowLifecycleStore: WindowLifecycleStore()
+            windowLifecycleStore: windowLifecycleStore
         )
     }
 
@@ -96,7 +97,7 @@ final class PaneCoordinator {
         runtimeCommandClock: ContinuousClock = ContinuousClock(),
         filesystemSource: (any PaneCoordinatorFilesystemSourceManaging)? = nil,
         paneFilesystemProjectionStore: PaneFilesystemProjectionStore = PaneFilesystemProjectionStore(),
-        windowLifecycleStore: WindowLifecycleStore = WindowLifecycleStore()
+        windowLifecycleStore: WindowLifecycleStore
     ) {
         let resolvedFilesystemSource =
             filesystemSource

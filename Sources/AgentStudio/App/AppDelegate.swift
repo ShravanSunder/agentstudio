@@ -27,7 +27,9 @@ class AppDelegate: NSObject, NSApplicationDelegate {
     private var oauthService: OAuthService!
     private var filesystemPipelineBootTask: Task<Void, Never>?
     private var launchRestoreObservationTask: Task<Void, Never>?
+    private var launchRestoreDiagnosticTask: Task<Void, Never>?
     private var windowRestoreBridge: WindowRestoreBridge?
+    private var launchRestoreDidComplete = false
 
     private func recordBootStep(_ step: WorkspaceBootStep) {
         RestoreTrace.log("workspace.boot.step=\(step.rawValue)")
@@ -82,22 +84,46 @@ class AppDelegate: NSObject, NSApplicationDelegate {
     private func observeLaunchRestoreReadiness() {
         let bridge = WindowRestoreBridge(windowLifecycleStore: windowLifecycleStore)
         windowRestoreBridge = bridge
+        launchRestoreDidComplete = false
         launchRestoreObservationTask?.cancel()
+        launchRestoreDiagnosticTask?.cancel()
+        launchRestoreDiagnosticTask = Task { @MainActor [weak self] in
+            guard let self else { return }
+            do {
+                try await Task.sleep(for: .seconds(10))
+            } catch is CancellationError {
+                return
+            } catch {
+                return
+            }
+            guard !self.launchRestoreDidComplete else { return }
+            appLogger.error(
+                "Launch restore timed out — isSettled=\(self.windowLifecycleStore.isLaunchLayoutSettled, privacy: .public) bounds=\(NSStringFromRect(self.windowLifecycleStore.terminalContainerBounds), privacy: .public)"
+            )
+        }
         launchRestoreObservationTask = Task { @MainActor [weak self] in
             guard let self else { return }
             for await bounds in bridge.stream {
                 guard !Task.isCancelled else { break }
-                guard !bounds.isEmpty else {
-                    RestoreTrace.log("restoreAllViews skipped reason=emptyBounds")
-                    appLogger.warning("Launch restore readiness emitted empty terminal container bounds")
+                let restoreBounds =
+                    bounds.isEmpty
+                    ? self.windowLifecycleStore.terminalContainerBounds
+                    : bounds
+                guard !restoreBounds.isEmpty else {
+                    RestoreTrace.log("launchRestore skipped reason=emptyBounds")
+                    appLogger.error(
+                        "Launch restore readiness emitted empty bounds — storeBounds=\(NSStringFromRect(self.windowLifecycleStore.terminalContainerBounds), privacy: .public)"
+                    )
                     break
                 }
                 RestoreTrace.log(
-                    "launchRestore triggered bounds=\(NSStringFromRect(bounds)) windowFrame=\(NSStringFromRect(mainWindowController?.window?.frame ?? .zero)) contentRect=\(NSStringFromRect(mainWindowController?.window?.contentLayoutRect ?? .zero))"
+                    "launchRestore triggered bounds=\(NSStringFromRect(restoreBounds)) windowFrame=\(NSStringFromRect(mainWindowController?.window?.frame ?? .zero)) contentRect=\(NSStringFromRect(mainWindowController?.window?.contentLayoutRect ?? .zero))"
                 )
-                await self.paneCoordinator.restoreAllViews(in: bounds)
+                await self.paneCoordinator.restoreAllViews(in: restoreBounds)
                 self.mainWindowController?.syncVisibleTerminalGeometry(reason: "postLaunchRestore")
-                RestoreTrace.log("restoreAllViews: end registeredViews=\(self.viewRegistry.registeredPaneIds.count)")
+                self.launchRestoreDidComplete = true
+                self.launchRestoreDiagnosticTask?.cancel()
+                RestoreTrace.log("launchRestore end registeredViews=\(self.viewRegistry.registeredPaneIds.count)")
                 break
             }
         }
@@ -332,7 +358,6 @@ class AppDelegate: NSObject, NSApplicationDelegate {
             uiStore: workspaceUIStore,
             actionExecutor: executor,
             applicationLifecycleMonitor: applicationLifecycleMonitor,
-            windowLifecycleStore: windowLifecycleStore,
             tabBarAdapter: tabBarAdapter,
             viewRegistry: viewRegistry
         )
@@ -356,6 +381,7 @@ class AppDelegate: NSObject, NSApplicationDelegate {
     isolated deinit {
         filesystemPipelineBootTask?.cancel()
         launchRestoreObservationTask?.cancel()
+        launchRestoreDiagnosticTask?.cancel()
     }
 
     // MARK: - Dependency Check
@@ -511,7 +537,6 @@ class AppDelegate: NSObject, NSApplicationDelegate {
                 uiStore: workspaceUIStore,
                 actionExecutor: executor,
                 applicationLifecycleMonitor: applicationLifecycleMonitor,
-                windowLifecycleStore: windowLifecycleStore,
                 tabBarAdapter: tabBarAdapter,
                 viewRegistry: viewRegistry
             )

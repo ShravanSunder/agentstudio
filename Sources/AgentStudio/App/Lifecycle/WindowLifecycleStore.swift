@@ -7,6 +7,7 @@ final class WindowLifecycleStore {
     private(set) var registeredWindowIds: Set<UUID> = []
     private(set) var keyWindowId: UUID?
     private(set) var focusedWindowId: UUID?
+    // Transient window facts for launch restore. Never persisted.
     private(set) var terminalContainerBounds: CGRect = .zero
     private(set) var isLaunchLayoutSettled = false
 

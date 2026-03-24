@@ -37,7 +37,8 @@ struct PaneTabViewControllerCommandTests {
             viewRegistry: viewRegistry,
             runtime: runtime,
             surfaceManager: surfaceManager,
-            runtimeRegistry: runtimeRegistry
+            runtimeRegistry: runtimeRegistry,
+            windowLifecycleStore: WindowLifecycleStore()
         )
         let executor = ActionExecutor(coordinator: coordinator, store: store)
         let controller = PaneTabViewController(
