@@ -25,7 +25,6 @@ jobs:
       # --- Import Apple Developer ID certificate via official Apple action ---
 
       - name: Import code signing certificate
-        if: ${{ secrets.APPLE_CERTIFICATE_BASE64 != '' }}
         uses: apple-actions/import-codesign-certs@v3
         with:
           p12-file-base64: ${{ secrets.APPLE_CERTIFICATE_BASE64 }}
