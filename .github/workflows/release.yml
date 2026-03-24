@@ -178,8 +178,8 @@ jobs:
           if [ "$CAN_SIGN" = "true" ]; then
             echo "Signing with: $SIGNING_IDENTITY"
 
-            # Sign embedded frameworks first (inside-out)
-            find AgentStudio.app/Contents/Frameworks -name "*.dylib" -o -name "*.framework" | while read item; do
+            # Sign embedded frameworks/libraries first (inside-out)
+            find AgentStudio.app/Contents/Frameworks \( -name "*.dylib" -o -name "*.framework" -o -name "*.xcframework" \) | while read item; do
               codesign --force --sign "$SIGNING_IDENTITY" --timestamp --options runtime "$item"
             done
 
