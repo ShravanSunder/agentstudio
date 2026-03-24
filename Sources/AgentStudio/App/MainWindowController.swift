@@ -217,6 +217,7 @@ class MainWindowController: NSWindowController, NSWindowDelegate {
             "MainWindowController.applyLaunchMaximize currentFrame=\(NSStringFromRect(window.frame)) targetFrame=\(NSStringFromRect(targetFrame))"
         )
         if window.frame.equalTo(targetFrame) {
+            RestoreTrace.log("MainWindowController.applyLaunchMaximize alreadyAtTargetFrame")
             window.contentView?.layoutSubtreeIfNeeded()
             applicationLifecycleMonitor.handleLaunchLayoutSettled()
             return

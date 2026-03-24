@@ -27,9 +27,8 @@ class AppDelegate: NSObject, NSApplicationDelegate {
     private var oauthService: OAuthService!
     private var filesystemPipelineBootTask: Task<Void, Never>?
     private var launchRestoreObservationTask: Task<Void, Never>?
-    private var launchRestoreDiagnosticTask: Task<Void, Never>?
     private var windowRestoreBridge: WindowRestoreBridge?
-    private var launchRestoreDidComplete = false
+    private let launchRestoreObservationState = AppDelegateLaunchRestoreObservationState()
 
     private func recordBootStep(_ step: WorkspaceBootStep) {
         RestoreTrace.log("workspace.boot.step=\(step.rawValue)")
@@ -84,23 +83,25 @@ class AppDelegate: NSObject, NSApplicationDelegate {
     private func observeLaunchRestoreReadiness() {
         let bridge = WindowRestoreBridge(windowLifecycleStore: windowLifecycleStore)
         windowRestoreBridge = bridge
-        launchRestoreDidComplete = false
+        launchRestoreObservationState.prepareForObservation()
         launchRestoreObservationTask?.cancel()
-        launchRestoreDiagnosticTask?.cancel()
-        launchRestoreDiagnosticTask = Task { @MainActor [weak self] in
-            guard let self else { return }
-            do {
-                try await Task.sleep(for: .seconds(10))
-            } catch is CancellationError {
-                return
-            } catch {
-                return
+        launchRestoreObservationState.installDiagnosticTask(
+            Task { @MainActor [weak self] in
+                guard let self else { return }
+                do {
+                    try await Task.sleep(for: .seconds(10))
+                } catch is CancellationError {
+                    return
+                } catch {
+                    appLogger.warning("Unexpected error in launch restore diagnostic timer: \(error)")
+                    return
+                }
+                guard !self.launchRestoreObservationState.didComplete else { return }
+                appLogger.error(
+                    "Launch restore timed out — isSettled=\(self.windowLifecycleStore.isLaunchLayoutSettled, privacy: .public) bounds=\(NSStringFromRect(self.windowLifecycleStore.terminalContainerBounds), privacy: .public)"
+                )
             }
-            guard !self.launchRestoreDidComplete else { return }
-            appLogger.error(
-                "Launch restore timed out — isSettled=\(self.windowLifecycleStore.isLaunchLayoutSettled, privacy: .public) bounds=\(NSStringFromRect(self.windowLifecycleStore.terminalContainerBounds), privacy: .public)"
-            )
-        }
+        )
         launchRestoreObservationTask = Task { @MainActor [weak self] in
             guard let self else { return }
             for await bounds in bridge.stream {
@@ -114,6 +115,7 @@ class AppDelegate: NSObject, NSApplicationDelegate {
                     appLogger.error(
                         "Launch restore readiness emitted empty bounds — storeBounds=\(NSStringFromRect(self.windowLifecycleStore.terminalContainerBounds), privacy: .public)"
                     )
+                    self.launchRestoreObservationState.complete()
                     break
                 }
                 RestoreTrace.log(
@@ -121,10 +123,12 @@ class AppDelegate: NSObject, NSApplicationDelegate {
                 )
                 await self.paneCoordinator.restoreAllViews(in: restoreBounds)
                 self.mainWindowController?.syncVisibleTerminalGeometry(reason: "postLaunchRestore")
-                self.launchRestoreDidComplete = true
-                self.launchRestoreDiagnosticTask?.cancel()
+                self.launchRestoreObservationState.complete()
                 RestoreTrace.log("launchRestore end registeredViews=\(self.viewRegistry.registeredPaneIds.count)")
                 break
+            }
+            if !self.launchRestoreObservationState.didComplete {
+                self.launchRestoreObservationState.cancelDiagnostics()
             }
         }
     }
@@ -381,7 +385,7 @@ class AppDelegate: NSObject, NSApplicationDelegate {
     isolated deinit {
         filesystemPipelineBootTask?.cancel()
         launchRestoreObservationTask?.cancel()
-        launchRestoreDiagnosticTask?.cancel()
+        launchRestoreObservationState.cancelDiagnostics()
     }
 
     // MARK: - Dependency Check
