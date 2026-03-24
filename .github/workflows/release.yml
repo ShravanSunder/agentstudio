@@ -141,8 +141,9 @@ jobs:
         uses: actions/cache@v4
         with:
           path: .build
-          key: swift-${{ runner.os }}-${{ hashFiles('Package.swift', 'Package.resolved') }}
+          key: swift-${{ runner.os }}-${{ hashFiles('Package.swift', 'Package.resolved') }}-${{ hashFiles('Sources/**/*.swift') }}
           restore-keys: |
+            swift-${{ runner.os }}-${{ hashFiles('Package.swift', 'Package.resolved') }}-
             swift-${{ runner.os }}-
 
       - name: Build AgentStudio
@@ -241,10 +242,19 @@ jobs:
 
           rm -f AgentStudio-notarize.zip
 
+      - name: Determine version
+        id: version
+        run: |
+          if [[ "$GITHUB_REF" == refs/tags/* ]]; then
+            echo "version=${GITHUB_REF#refs/tags/}" >> "$GITHUB_OUTPUT"
+          else
+            echo "version=dev-$(git rev-parse --short HEAD)" >> "$GITHUB_OUTPUT"
+          fi
+
       - name: Create ZIP Archive
         run: |
-          VERSION=${GITHUB_REF#refs/tags/}
-          zip -r "AgentStudio-${VERSION}-macos.zip" AgentStudio.app
+          VERSION="${{ steps.version.outputs.version }}"
+          ditto -c -k --keepParent AgentStudio.app "AgentStudio-${VERSION}-macos.zip"
           echo "ARTIFACT_NAME=AgentStudio-${VERSION}-macos.zip" >> $GITHUB_ENV
 
       - name: Compute SHA256
@@ -253,8 +263,15 @@ jobs:
           echo "SHA256: $SHA256"
           echo "RELEASE_SHA256=$SHA256" >> $GITHUB_ENV
 
+      - name: Upload artifact as backup
+        uses: actions/upload-artifact@v4
+        with:
+          name: AgentStudio-${{ steps.version.outputs.version }}
+          path: ${{ env.ARTIFACT_NAME }}
+
       - name: Create Release
-        uses: softprops/action-gh-release@v1
+        if: startsWith(github.ref, 'refs/tags/')
+        uses: softprops/action-gh-release@v2
         with:
           files: ${{ env.ARTIFACT_NAME }}
           generate_release_notes: true
