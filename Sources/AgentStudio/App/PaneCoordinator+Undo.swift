@@ -127,7 +127,7 @@ extension PaneCoordinator {
                     return true
                 }
                 Self.logger.error("Failed to restore terminal pane \(pane.id)")
-            } else if createViewForContent(pane: pane) != nil {
+            } else if createViewForContentUsingCurrentGeometry(pane: pane) != nil {
                 return true
             } else {
                 Self.logger.error("Failed to recreate terminal pane \(pane.id)")

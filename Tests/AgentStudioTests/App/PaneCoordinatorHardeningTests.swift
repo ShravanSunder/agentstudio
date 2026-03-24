@@ -7,6 +7,8 @@ import Testing
 @MainActor
 @Suite(.serialized)
 struct PaneCoordinatorHardeningTests {
+    private let trustedBounds = CGRect(x: 0, y: 0, width: 1000, height: 600)
+
     private struct Harness {
         let store: WorkspaceStore
         let viewRegistry: ViewRegistry
@@ -77,8 +79,8 @@ struct PaneCoordinatorHardeningTests {
         )
     }
 
-    @Test("openTerminal rolls back pane and tab state when surface creation fails")
-    func openTerminal_rollsBackOnSurfaceCreationFailure() {
+    @Test("openTerminal keeps pane state and attempts geometry-gated creation when bounds exist")
+    func openTerminal_keepsPaneStateWhenSurfaceCreationFails() {
         let harness = makeHarness()
         defer { try? FileManager.default.removeItem(at: harness.tempDir) }
 
@@ -87,12 +89,12 @@ struct PaneCoordinatorHardeningTests {
             Issue.record("Expected repo to be persisted in WorkspaceStore")
             return
         }
-
+        harness.coordinator.windowLifecycleStore.recordTerminalContainerBounds(trustedBounds)
         let openedPane = harness.coordinator.openTerminal(for: worktree, in: persistedRepo)
 
-        #expect(openedPane == nil)
-        #expect(harness.store.tabs.isEmpty)
-        #expect(harness.store.panes.isEmpty)
+        #expect(openedPane != nil)
+        #expect(harness.store.tabs.count == 1)
+        #expect(harness.store.panes.count == 1)
         #expect(harness.surfaceManager.createSurfaceCallCount == 1)
     }
 
@@ -167,8 +169,8 @@ struct PaneCoordinatorHardeningTests {
         #expect(harness.viewRegistry.view(for: pane.id) == nil)
     }
 
-    @Test("insertPane newTerminal rolls back transient pane when terminal view creation fails")
-    func insertPaneNewTerminal_rollsBackOnSurfaceCreationFailure() {
+    @Test("insertPane newTerminal keeps inserted pane state when terminal view creation fails")
+    func insertPaneNewTerminal_keepsPaneStateOnSurfaceCreationFailure() {
         let harness = makeHarness()
         defer { try? FileManager.default.removeItem(at: harness.tempDir) }
 
@@ -180,6 +182,7 @@ struct PaneCoordinatorHardeningTests {
         )
         let tab = Tab(paneId: targetPane.id)
         harness.store.appendTab(tab)
+        harness.coordinator.windowLifecycleStore.recordTerminalContainerBounds(trustedBounds)
         let initialPaneIds = Set(harness.store.panes.keys)
 
         harness.coordinator.execute(
@@ -191,9 +194,9 @@ struct PaneCoordinatorHardeningTests {
             )
         )
 
-        #expect(Set(harness.store.panes.keys) == initialPaneIds)
-        #expect(harness.store.tab(tab.id)?.paneIds == [targetPane.id])
-        #expect(harness.surfaceManager.createSurfaceCallCount == 1)
+        #expect(Set(harness.store.panes.keys).count == initialPaneIds.count + 1)
+        #expect(harness.store.tab(tab.id)?.paneIds.count == 2)
+        #expect(harness.surfaceManager.createSurfaceCallCount == 2)
     }
 
     @Test("insertPane newTerminal resolves worktree context from floating target cwd before surface creation")
@@ -210,6 +213,7 @@ struct PaneCoordinatorHardeningTests {
         )
         let tab = Tab(paneId: targetPane.id)
         harness.store.appendTab(tab)
+        harness.coordinator.windowLifecycleStore.recordTerminalContainerBounds(trustedBounds)
         let initialPaneIds = Set(harness.store.panes.keys)
 
         harness.coordinator.execute(
@@ -221,9 +225,9 @@ struct PaneCoordinatorHardeningTests {
             )
         )
 
-        #expect(Set(harness.store.panes.keys) == initialPaneIds)
-        #expect(harness.store.tab(tab.id)?.paneIds == [targetPane.id])
-        #expect(harness.surfaceManager.createSurfaceCallCount == 1)
+        #expect(Set(harness.store.panes.keys).count == initialPaneIds.count + 1)
+        #expect(harness.store.tab(tab.id)?.paneIds.count == 2)
+        #expect(harness.surfaceManager.createSurfaceCallCount == 2)
         #expect(harness.store.repo(repo.id) != nil)
         #expect(
             harness.surfaceManager.lastCreatedSurfaceMetadata?.workingDirectory
@@ -245,6 +249,7 @@ struct PaneCoordinatorHardeningTests {
         )
         let tab = Tab(paneId: targetPane.id)
         harness.store.appendTab(tab)
+        harness.coordinator.windowLifecycleStore.recordTerminalContainerBounds(trustedBounds)
         let initialPaneIds = Set(harness.store.panes.keys)
 
         harness.coordinator.execute(
@@ -256,14 +261,14 @@ struct PaneCoordinatorHardeningTests {
             )
         )
 
-        #expect(Set(harness.store.panes.keys) == initialPaneIds)
-        #expect(harness.store.tab(tab.id)?.paneIds == [targetPane.id])
-        #expect(harness.surfaceManager.createSurfaceCallCount == 1)
+        #expect(Set(harness.store.panes.keys).count == initialPaneIds.count + 1)
+        #expect(harness.store.tab(tab.id)?.paneIds.count == 2)
+        #expect(harness.surfaceManager.createSurfaceCallCount == 2)
         #expect(harness.surfaceManager.lastCreatedSurfaceMetadata?.workingDirectory == unknownCwd)
     }
 
-    @Test("reactivatePane re-backgrounds pane if view creation fails")
-    func reactivatePane_rollsBackWhenViewCreationFails() {
+    @Test("reactivatePane keeps reactivated pane in canonical state if view creation fails")
+    func reactivatePane_keepsCanonicalStateWhenViewCreationFails() {
         let harness = makeHarness()
         defer { try? FileManager.default.removeItem(at: harness.tempDir) }
 
@@ -274,6 +279,7 @@ struct PaneCoordinatorHardeningTests {
 
         let backgroundPane = makeWorktreePane(harness.store, repo: repo, worktree: worktree, title: "Background")
         harness.store.setResidency(.backgrounded, for: backgroundPane.id)
+        harness.coordinator.windowLifecycleStore.recordTerminalContainerBounds(trustedBounds)
 
         harness.coordinator.execute(
             .reactivatePane(
@@ -284,12 +290,13 @@ struct PaneCoordinatorHardeningTests {
             )
         )
 
-        #expect(harness.store.pane(backgroundPane.id)?.residency == .backgrounded)
-        #expect(!(harness.store.tab(tab.id)?.paneIds.contains(backgroundPane.id) ?? false))
+        #expect(harness.store.pane(backgroundPane.id)?.residency == .active)
+        #expect(harness.store.tab(tab.id)?.paneIds.contains(backgroundPane.id) == true)
+        #expect(harness.surfaceManager.createSurfaceCallCount == 1)
     }
 
-    @Test("addDrawerPane rolls back store changes when view creation fails")
-    func addDrawerPane_rollsBackOnViewCreationFailure() {
+    @Test("addDrawerPane keeps drawer pane state when view creation fails")
+    func addDrawerPane_keepsDrawerStateOnViewCreationFailure() {
         let harness = makeHarness()
         defer { try? FileManager.default.removeItem(at: harness.tempDir) }
 
@@ -297,16 +304,18 @@ struct PaneCoordinatorHardeningTests {
         let parentPane = makeWorktreePane(harness.store, repo: repo, worktree: worktree, title: "Parent")
         let tab = Tab(paneId: parentPane.id)
         harness.store.appendTab(tab)
+        harness.coordinator.windowLifecycleStore.recordTerminalContainerBounds(trustedBounds)
 
         let paneIdsBefore = Set(harness.store.panes.keys)
         harness.coordinator.execute(.addDrawerPane(parentPaneId: parentPane.id))
 
-        #expect(Set(harness.store.panes.keys) == paneIdsBefore)
-        #expect(harness.store.pane(parentPane.id)?.drawer?.paneIds.isEmpty == true)
+        #expect(Set(harness.store.panes.keys).count == paneIdsBefore.count + 1)
+        #expect(harness.store.pane(parentPane.id)?.drawer?.paneIds.count == 1)
+        #expect(harness.surfaceManager.createSurfaceCallCount == 2)
     }
 
-    @Test("insertDrawerPane rolls back store changes when view creation fails")
-    func insertDrawerPane_rollsBackOnViewCreationFailure() {
+    @Test("insertDrawerPane keeps drawer pane state when view creation fails")
+    func insertDrawerPane_keepsDrawerStateOnViewCreationFailure() {
         let harness = makeHarness()
         defer { try? FileManager.default.removeItem(at: harness.tempDir) }
 
@@ -318,6 +327,7 @@ struct PaneCoordinatorHardeningTests {
             Issue.record("Expected initial drawer pane creation")
             return
         }
+        harness.coordinator.windowLifecycleStore.recordTerminalContainerBounds(trustedBounds)
 
         let paneIdsBefore = Set(harness.store.panes.keys)
         harness.coordinator.execute(
@@ -328,8 +338,9 @@ struct PaneCoordinatorHardeningTests {
             )
         )
 
-        #expect(Set(harness.store.panes.keys) == paneIdsBefore)
-        #expect(harness.store.pane(parentPane.id)?.drawer?.paneIds == [existingDrawerPane.id])
+        #expect(Set(harness.store.panes.keys).count == paneIdsBefore.count + 1)
+        #expect(harness.store.pane(parentPane.id)?.drawer?.paneIds.count == 2)
+        #expect(harness.surfaceManager.createSurfaceCallCount == 3)
     }
 
     @Test("repair recreateSurface does not bump viewRevision when view recreation fails")

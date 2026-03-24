@@ -399,8 +399,9 @@ final class ActionExecutorTests {
     // MARK: - OpenTerminal
 
     @Test
-    func test_openTerminal_surfaceFails_rollsBackPane() {
-        // Arrange — coordinator.createView() returns nil in tests (no Ghostty runtime)
+    func test_openTerminal_withoutTrustedGeometry_keepsPanePendingUntilBoundsExist() {
+        // Arrange — no trusted terminal container bounds are available in this harness,
+        // so zmx pane creation should defer instead of rolling back.
         let worktree = makeWorktree()
         let repo = makeRepo()
         store.addRepo(at: repo.repoPath)
@@ -408,10 +409,11 @@ final class ActionExecutorTests {
         // Act
         let pane = executor.openTerminal(for: worktree, in: repo)
 
-        // Assert — surface creation failed, pane rolled back, no tab created
-        #expect(pane == nil)
-        #expect(store.tabs.isEmpty)
-        #expect(store.panes.isEmpty)
+        // Assert — the pane exists in canonical state, but no view has been created yet.
+        #expect(pane != nil)
+        #expect(store.tabs.count == 1)
+        #expect(store.panes.count == 1)
+        #expect(pane.flatMap { viewRegistry.view(for: $0.id) } == nil)
     }
 
     @Test

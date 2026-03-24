@@ -87,11 +87,12 @@ struct PaneTabViewControllerCommandTests {
         let tab = Tab(paneId: pane.id)
         harness.store.appendTab(tab)
         harness.store.setActiveTab(tab.id)
+        harness.windowLifecycleStore.recordTerminalContainerBounds(CGRect(x: 0, y: 0, width: 1000, height: 600))
         let initialPaneIds = Set(harness.store.panes.keys)
 
         harness.controller.execute(.newTab)
 
-        #expect(Set(harness.store.panes.keys) == initialPaneIds)
+        #expect(Set(harness.store.panes.keys).count == initialPaneIds.count + 1)
         #expect(harness.surfaceManager.createSurfaceCallCount == 1)
         #expect(
             harness.surfaceManager.lastCreatedSurfaceMetadata?.workingDirectory
@@ -114,11 +115,12 @@ struct PaneTabViewControllerCommandTests {
         let tab = Tab(paneId: pane.id)
         harness.store.appendTab(tab)
         harness.store.setActiveTab(tab.id)
+        harness.windowLifecycleStore.recordTerminalContainerBounds(CGRect(x: 0, y: 0, width: 1000, height: 600))
         let initialPaneIds = Set(harness.store.panes.keys)
 
         harness.controller.execute(.newTab)
 
-        #expect(Set(harness.store.panes.keys) == initialPaneIds)
+        #expect(Set(harness.store.panes.keys).count == initialPaneIds.count + 1)
         #expect(harness.surfaceManager.createSurfaceCallCount == 1)
         #expect(harness.surfaceManager.lastCreatedSurfaceMetadata?.workingDirectory == unknownCwd)
     }

@@ -113,6 +113,7 @@ For this slice:
 - Ghostty derives effective cols/rows from the actual host view/frame and backing scale.
 - The restore path must give Ghostty the correct pane frame before `ghostty_surface_new` launches `zmx attach`.
 - The **new split-pane path** must do the same. Creating a new zmx pane with `initialFrame: nil` and letting `Ghostty.SurfaceView` fall back to `800x600` violates the geometry contract just as much as a bad restore does.
+- The same invariant should become the default mental model for **all zmx pane creation paths** that have a derivable host frame: restored panes, split/new panes, new tabs, drawer panes, and other visible layout-backed terminals. The system should not fix one call site and leave other zmx creation paths silently booting at placeholder geometry.
 
 The implementation must not treat any of these as trusted:
 
@@ -122,6 +123,7 @@ The implementation must not treat any of these as trusted:
 - persisted last-session pane geometry from an earlier run
 
 If, after startup layout stabilizes, Agent Studio cannot determine a pane’s frame from canonical app state, that is a defect to investigate and fix. It is not an accepted fallback mode for this slice.
+If a zmx pane creation request arrives before trusted geometry is available, the implementation should **defer surface creation until geometry becomes available**. It must not create Ghostty at `800x600`, must not guess, and must not fall back to a shell-first path.
 
 ## Geometry Resolver Contract
 
@@ -179,6 +181,8 @@ Assume Swift 6.2 and macOS 26 only. Do not add legacy timing shims unless the im
 10. New zmx panes and restored zmx panes both use direct `.surfaceCommand(zmx attach ...)`.
 11. This is a hard cutover: no dual restore paths, no compatibility shims, no feature flags for the old hack.
 12. A newly created split pane must never create its surface at placeholder `800x600` and resize later. Trusted geometry is required before surface creation on the split path too.
+13. If a zmx pane request occurs before trusted geometry exists, creation must wait. Deferred creation is acceptable; placeholder-first creation is not.
+14. The no-placeholder invariant should be enforced broadly across zmx creation paths, not only for launch restore and one split action call site.
 
 ## Attach Outcome Transition Rule
 
@@ -196,6 +200,7 @@ Implementation requirements:
 - the startup grace window must be explicit and test-covered
 - failure path must be immediate on early process death
 - success path must not reveal half-restored shell-intermediate content
+- keep the current startup grace at `100ms` for this slice; once geometry-first creation is stable, a follow-up can reduce it to `50ms`
 - if future Ghostty integration exposes a stronger first-render/ready signal, it can replace this heuristic in a follow-up slice
 
 ## Non-Goals
@@ -398,11 +403,12 @@ Requirements:
 - zmx panes get an initial frame before `ghostty_surface_new`
 - placeholder `800x600` is no longer used as restore geometry
 - placeholder `800x600` is no longer used as split/new-pane geometry
-- `initialFrame == nil` is treated as a programmer error on the zmx restore/new-pane path, not a silent fallback
+- `initialFrame == nil` is treated as a programmer error on the zmx path, not a silent fallback
 - the surface can still be occluded/hidden while preserving trusted size
 - backing-scale-aware sizing still flows through the existing `convertToBacking` path after surface creation
 - add a runtime guard that the zmx restore path never uses the placeholder frame
 - add a runtime guard that the new split-pane path never uses the placeholder frame
+- extend that guard posture to other zmx creation paths that should have a derivable host frame
 
 - [ ] **Step 4: Remove the restored-zmx deferred-shell attach path**
 
@@ -586,6 +592,7 @@ Responsibilities:
 - decide whether a pane is eligible for hidden restore
 - build the direct `zmx attach` surface command only after trusted geometry exists
 - surface placeholder state to views
+- provide the geometry-gated creation entrypoint for action-created zmx panes too, so split/new-pane requests wait for trusted geometry instead of creating Ghostty immediately with `initialFrame: nil`
 
 - [ ] **Step 5: Replace the current restore boot path**
 
@@ -599,6 +606,13 @@ In `AppDelegate` and `PaneCoordinator+ViewLifecycle`:
 - no shell injection path
 - no visible fallback shell on failure
 - no anti-flicker overlay path
+
+In `PaneCoordinator+ActionExecution` and related zmx pane creation paths:
+- insert the pane into canonical layout first when needed to make its post-mutation frame derivable
+- resolve trusted geometry from current terminal container bounds + updated layout
+- only then create the Ghostty surface for zmx
+- if geometry is not ready yet, defer creation until it is ready rather than falling back
+- use the same truthful `Restoring terminal…` presentation for newly created visible panes for now
 
 - [ ] **Step 6: Make startup layout timing explicit in code**
 
@@ -796,6 +810,9 @@ git commit -m "docs: capture luna-295 direct attach architecture and followups"
 - Do not compute hidden-pane frames before startup layout has stabilized.
 - Do not special-case restored zmx panes and new zmx panes into different startup strategies.
 - Do not start a zmx pane until exact/trusted geometry is available.
+- Do not treat `initialFrame == nil` on a zmx path as recoverable normal behavior. In debug/development, fail loudly enough that we notice and fix the sequencing bug.
+- If an action-created zmx pane cannot yet derive trusted geometry, defer creation and wait for geometry. Do not create Ghostty early and hope later resize saves it.
+- Failure visibility is valuable during development because it exposes invariant violations, but the target end state for this branch is that restored panes and action-created panes both work correctly under normal usage.
 
 ## Review Limitation
 

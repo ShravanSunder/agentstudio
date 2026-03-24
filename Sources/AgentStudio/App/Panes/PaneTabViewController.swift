@@ -379,6 +379,7 @@ class PaneTabViewController: NSViewController, CommandHandler {
             "PaneTabViewController terminalContainerBoundsChanged reason=\(reason) bounds=\(NSStringFromRect(terminalContainerBounds))"
         )
         RestoreTrace.log(geometryHierarchySnapshot(reason: reason))
+        executor.restoreVisibleViewsForActiveTabIfNeeded()
         syncVisibleTerminalGeometry(reason: reason)
     }
 

@@ -60,6 +60,8 @@ struct Luna295DirectZmxAttachIntegrationTests {
         )
     }
 
+    private let trustedBounds = CGRect(x: 0, y: 0, width: 1000, height: 600)
+
     @Test
     func newZmxPane_uses_directSurfaceCommand_notDeferredShell() throws {
         let harness = makeHarness()
@@ -73,7 +75,12 @@ struct Luna295DirectZmxAttachIntegrationTests {
             provider: .zmx
         )
 
-        _ = harness.coordinator.createView(for: pane, worktree: worktree, repo: repo)
+        _ = harness.coordinator.createView(
+            for: pane,
+            worktree: worktree,
+            repo: repo,
+            initialFrame: NSRect(x: 0, y: 0, width: 1000, height: 600)
+        )
 
         let config = try #require(harness.surfaceManager.lastConfig)
         #expect(config.startupStrategy.startupCommandForSurface?.contains(" attach ") == true)
@@ -90,7 +97,10 @@ struct Luna295DirectZmxAttachIntegrationTests {
             provider: .zmx
         )
 
-        _ = harness.coordinator.createViewForContent(pane: pane)
+        _ = harness.coordinator.createViewForContent(
+            pane: pane,
+            initialFrame: NSRect(x: 0, y: 0, width: 1000, height: 600)
+        )
 
         let config = try #require(harness.surfaceManager.lastConfig)
         #expect(config.startupStrategy.startupCommandForSurface?.contains(" attach ") == true)
@@ -107,7 +117,10 @@ struct Luna295DirectZmxAttachIntegrationTests {
             provider: .zmx
         )
 
-        _ = harness.coordinator.createViewForContent(pane: pane)
+        _ = harness.coordinator.createViewForContent(
+            pane: pane,
+            initialFrame: NSRect(x: 0, y: 0, width: 1000, height: 600)
+        )
 
         let config = try #require(harness.surfaceManager.lastConfig)
         #expect(config.startupStrategy.startupCommandForSurface?.contains(" attach ") == true)
@@ -149,7 +162,8 @@ struct Luna295DirectZmxAttachIntegrationTests {
             liveSessionIdsProvider: { _ in [] }
         )
 
-        await harness.coordinator.restoreAllViews()
+        harness.windowLifecycleStore.recordTerminalContainerBounds(trustedBounds)
+        await harness.coordinator.restoreAllViews(in: trustedBounds)
 
         #expect(harness.surfaceManager.createdPaneIds == [visiblePane.id])
     }
@@ -194,7 +208,8 @@ struct Luna295DirectZmxAttachIntegrationTests {
             liveSessionIdsProvider: { _ in [liveSessionId] }
         )
 
-        await harness.coordinator.restoreAllViews()
+        harness.windowLifecycleStore.recordTerminalContainerBounds(trustedBounds)
+        await harness.coordinator.restoreAllViews(in: trustedBounds)
 
         #expect(harness.surfaceManager.createdPaneIds == [visiblePane.id, hiddenPane.id])
     }
@@ -234,7 +249,8 @@ struct Luna295DirectZmxAttachIntegrationTests {
             liveSessionIdsProvider: { _ in [] }
         )
 
-        await harness.coordinator.restoreAllViews()
+        harness.windowLifecycleStore.recordTerminalContainerBounds(trustedBounds)
+        await harness.coordinator.restoreAllViews(in: trustedBounds)
 
         #expect(harness.surfaceManager.createdPaneIds == [visiblePane.id, hiddenPane.id])
     }
@@ -279,7 +295,8 @@ struct Luna295DirectZmxAttachIntegrationTests {
             liveSessionIdsProvider: { _ in [liveSessionId] }
         )
 
-        await harness.coordinator.restoreAllViews()
+        harness.windowLifecycleStore.recordTerminalContainerBounds(trustedBounds)
+        await harness.coordinator.restoreAllViews(in: trustedBounds)
 
         #expect(harness.surfaceManager.createdPaneIds == [visiblePane.id])
     }
@@ -322,7 +339,8 @@ struct Luna295DirectZmxAttachIntegrationTests {
             CGRect(x: 0, y: 0, width: 1000, height: 600)
         )
 
-        await harness.coordinator.restoreAllViews()
+        harness.windowLifecycleStore.recordTerminalContainerBounds(trustedBounds)
+        await harness.coordinator.restoreAllViews(in: trustedBounds)
         #expect(harness.surfaceManager.createdPaneIds == [visiblePane.id])
 
         harness.coordinator.execute(.selectTab(tabId: hiddenTab.id))
@@ -370,7 +388,8 @@ struct Luna295DirectZmxAttachIntegrationTests {
             liveSessionIdsProvider: { _ in [liveSessionId] }
         )
 
-        await harness.coordinator.restoreAllViews()
+        harness.windowLifecycleStore.recordTerminalContainerBounds(trustedBounds)
+        await harness.coordinator.restoreAllViews(in: trustedBounds)
 
         #expect(
             harness.surfaceManager.createdPaneIds == [visiblePane.id, hiddenParentPane.id, hiddenDrawerPane.id]
@@ -417,7 +436,8 @@ struct Luna295DirectZmxAttachIntegrationTests {
             liveSessionIdsProvider: { _ in [liveSessionId] }
         )
 
-        await harness.coordinator.restoreAllViews()
+        harness.windowLifecycleStore.recordTerminalContainerBounds(trustedBounds)
+        await harness.coordinator.restoreAllViews(in: trustedBounds)
 
         #expect(harness.surfaceManager.createdPaneIds == [visiblePane.id, hiddenDrawerPane.id])
     }
@@ -472,6 +492,99 @@ struct Luna295DirectZmxAttachIntegrationTests {
         #expect(frame.width > 0)
         #expect(frame.height > 0)
         #expect(frame.origin.y > 0)
+    }
+
+    @Test
+    func splitRight_newZmxPane_usesTrustedInitialFrame_notPlaceholderGeometry() throws {
+        let harness = makeHarness()
+        defer { try? FileManager.default.removeItem(at: harness.tempDir) }
+
+        let repo = harness.store.addRepo(at: harness.tempDir)
+        let worktree = try #require(repo.worktrees.first)
+        let existingPane = harness.store.createPane(
+            source: .worktree(worktreeId: worktree.id, repoId: repo.id),
+            provider: .zmx
+        )
+        let tab = Tab(paneId: existingPane.id, name: "Split")
+        harness.store.appendTab(tab)
+        harness.store.setActiveTab(tab.id)
+        harness.windowLifecycleStore.recordTerminalContainerBounds(
+            CGRect(x: 0, y: 0, width: 1000, height: 600)
+        )
+
+        let existingPaneIds = Set(harness.store.panes.keys)
+        harness.coordinator.execute(
+            .insertPane(
+                source: .newTerminal,
+                targetTabId: tab.id,
+                targetPaneId: existingPane.id,
+                direction: .right
+            )
+        )
+
+        let newPaneId = try #require(Set(harness.store.panes.keys).subtracting(existingPaneIds).first)
+        let config = try #require(harness.surfaceManager.createdConfigsByPaneId[newPaneId])
+        let activeTab = try #require(harness.store.activeTab)
+        let resolvedFrames = TerminalPaneGeometryResolver.resolveFrames(
+            for: activeTab.layout,
+            in: harness.windowLifecycleStore.terminalContainerBounds,
+            dividerThickness: AppStyle.paneGap,
+            minimizedPaneIds: activeTab.minimizedPaneIds
+        )
+
+        #expect(config.initialFrame != nil)
+        #expect(config.initialFrame != CGRect(x: 0, y: 0, width: 800, height: 600))
+        #expect(config.initialFrame == resolvedFrames[newPaneId])
+    }
+
+    @Test
+    func openNewTerminalTab_usesTrustedInitialFrame_notPlaceholderGeometry() throws {
+        let harness = makeHarness()
+        defer { try? FileManager.default.removeItem(at: harness.tempDir) }
+
+        let repo = harness.store.addRepo(at: harness.tempDir)
+        let worktree = try #require(repo.worktrees.first)
+        harness.windowLifecycleStore.recordTerminalContainerBounds(
+            CGRect(x: 0, y: 0, width: 1000, height: 600)
+        )
+
+        let pane = try #require(harness.coordinator.openNewTerminal(for: worktree, in: repo))
+        let config = try #require(harness.surfaceManager.createdConfigsByPaneId[pane.id])
+        let activeTab = try #require(harness.store.activeTab)
+        let resolvedFrames = TerminalPaneGeometryResolver.resolveFrames(
+            for: activeTab.layout,
+            in: harness.windowLifecycleStore.terminalContainerBounds,
+            dividerThickness: AppStyle.paneGap,
+            minimizedPaneIds: activeTab.minimizedPaneIds
+        )
+
+        #expect(config.initialFrame != nil)
+        #expect(config.initialFrame != CGRect(x: 0, y: 0, width: 800, height: 600))
+        #expect(config.initialFrame == resolvedFrames[pane.id])
+    }
+
+    @Test
+    func openFloatingTerminal_usesTrustedInitialFrame_notPlaceholderGeometry() throws {
+        let harness = makeHarness()
+        defer { try? FileManager.default.removeItem(at: harness.tempDir) }
+
+        harness.windowLifecycleStore.recordTerminalContainerBounds(
+            CGRect(x: 0, y: 0, width: 1000, height: 600)
+        )
+
+        let pane = try #require(harness.coordinator.openFloatingTerminal(cwd: harness.tempDir, title: "Floating"))
+        let config = try #require(harness.surfaceManager.createdConfigsByPaneId[pane.id])
+        let activeTab = try #require(harness.store.activeTab)
+        let resolvedFrames = TerminalPaneGeometryResolver.resolveFrames(
+            for: activeTab.layout,
+            in: harness.windowLifecycleStore.terminalContainerBounds,
+            dividerThickness: AppStyle.paneGap,
+            minimizedPaneIds: activeTab.minimizedPaneIds
+        )
+
+        #expect(config.initialFrame != nil)
+        #expect(config.initialFrame != CGRect(x: 0, y: 0, width: 800, height: 600))
+        #expect(config.initialFrame == resolvedFrames[pane.id])
     }
 }
 

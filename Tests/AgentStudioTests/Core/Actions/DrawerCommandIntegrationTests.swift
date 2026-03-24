@@ -56,11 +56,11 @@ final class DrawerCommandIntegrationTests {
         return (pane.id, tab.id)
     }
 
-    // MARK: - test_addDrawerPane_rollsBackWhenTerminalViewCreationFails
+    // MARK: - test_addDrawerPane_keepsDrawerStateWhenGeometryDeferred
 
     @Test
 
-    func test_addDrawerPane_rollsBackWhenTerminalViewCreationFails() {
+    func test_addDrawerPane_keepsDrawerStateWhenGeometryDeferred() {
         // Arrange
         let (parentPaneId, _) = createParentPaneInTab()
         let paneCountBefore = store.panes.count
@@ -68,11 +68,13 @@ final class DrawerCommandIntegrationTests {
         // Act
         executor.execute(.addDrawerPane(parentPaneId: parentPaneId))
 
-        // Assert — with a failing surface manager, command must rollback.
+        // Assert — without trusted bounds, creation defers and canonical drawer state remains.
         let parentPane = store.pane(parentPaneId)
         #expect((parentPane?.drawer) != nil)
-        #expect(parentPane!.drawer!.paneIds.isEmpty, "Drawer should remain empty after rollback")
-        #expect(store.panes.count == paneCountBefore, "No orphan drawer pane should remain in store")
+        #expect(parentPane!.drawer!.paneIds.count == 1, "Drawer pane should remain in canonical state")
+        #expect(
+            store.panes.count == paneCountBefore + 1,
+            "Drawer pane should remain in store while view creation is deferred")
     }
 
     // MARK: - test_closeDrawerPane_removesActiveDrawerPane

@@ -59,12 +59,6 @@ extension PaneCoordinator {
             residency: .active
         )
 
-        guard createView(for: pane, worktree: worktree, repo: repo) != nil else {
-            Self.logger.error("Surface creation failed for split pane — rolling back pane \(pane.id)")
-            store.removePane(pane.id)
-            return nil
-        }
-
         store.insertPane(
             pane.id,
             inTab: activeTabId,
@@ -73,6 +67,7 @@ extension PaneCoordinator {
             position: .after
         )
         store.setActivePane(pane.id, inTab: activeTabId)
+        restoreViewsForActiveTabIfNeeded()
 
         Self.logger.info("Opened worktree '\(worktree.name)' in split pane")
         return pane
@@ -112,15 +107,10 @@ extension PaneCoordinator {
             facets: PaneContextFacets(cwd: cwd)
         )
 
-        guard createViewForContent(pane: pane) != nil else {
-            Self.logger.error("Floating terminal creation failed — rolling back pane \(pane.id)")
-            store.removePane(pane.id)
-            return nil
-        }
-
         let tab = Tab(paneId: pane.id)
         store.appendTab(tab)
         store.setActiveTab(tab.id)
+        restoreViewsForActiveTabIfNeeded()
 
         Self.logger.info("Opened floating terminal pane \(pane.id)")
         return pane
@@ -286,13 +276,8 @@ extension PaneCoordinator {
                 position: position
             )
             if viewRegistry.view(for: paneId) == nil, let pane = store.pane(paneId) {
-                guard createViewForContent(pane: pane) != nil else {
-                    Self.logger.error(
-                        "reactivatePane: view creation failed for \(paneId) — rolling pane back to background"
-                    )
-                    store.backgroundPane(paneId)
-                    break
-                }
+                _ = pane
+                restoreViewsForActiveTabIfNeeded()
             }
 
         case .purgeOrphanedPane(let paneId):
@@ -302,12 +287,8 @@ extension PaneCoordinator {
 
         case .addDrawerPane(let parentPaneId):
             if let drawerPane = store.addDrawerPane(to: parentPaneId) {
-                if createViewForContent(pane: drawerPane) == nil {
-                    Self.logger.error(
-                        "addDrawerPane: view creation failed for \(drawerPane.id) — rolling back drawer pane"
-                    )
-                    rollbackDrawerPaneCreation(drawerPane.id, from: parentPaneId)
-                }
+                _ = drawerPane
+                restoreViewsForActiveTabIfNeeded()
             }
 
         case .removeDrawerPane(let parentPaneId, let drawerPaneId):
@@ -407,16 +388,10 @@ extension PaneCoordinator {
             facets: paneFacets
         )
 
-        guard createView(for: pane, worktree: worktree, repo: repo) != nil else {
-            Self.logger.error(
-                "Surface creation failed for worktree '\(worktree.name)' — rolling back pane \(pane.id)")
-            store.removePane(pane.id)
-            return nil
-        }
-
         let tab = Tab(paneId: pane.id)
         store.appendTab(tab)
         store.setActiveTab(tab.id)
+        restoreViewsForActiveTabIfNeeded()
 
         Self.logger.info("Opened terminal for worktree: \(worktree.name)")
         return pane
@@ -562,16 +537,11 @@ extension PaneCoordinator {
                     facets: targetPane?.metadata.facets ?? .empty
                 )
 
-                guard createView(for: pane, worktree: resolved.worktree, repo: resolved.repo) != nil else {
-                    Self.logger.error("Surface creation failed for new pane — rolling back pane \(pane.id)")
-                    store.removePane(pane.id)
-                    return
-                }
-
                 store.insertPane(
                     pane.id, inTab: targetTabId, at: targetPaneId,
                     direction: layoutDirection, position: position
                 )
+                restoreViewsForActiveTabIfNeeded()
                 return
             }
 
@@ -581,16 +551,11 @@ extension PaneCoordinator {
                 facets: targetPane?.metadata.facets ?? .empty
             )
 
-            guard createViewForContent(pane: pane) != nil else {
-                Self.logger.error("Floating split creation failed — rolling back pane \(pane.id)")
-                store.removePane(pane.id)
-                return
-            }
-
             store.insertPane(
                 pane.id, inTab: targetTabId, at: targetPaneId,
                 direction: layoutDirection, position: position
             )
+            restoreViewsForActiveTabIfNeeded()
         }
     }
 
@@ -630,12 +595,8 @@ extension PaneCoordinator {
             return
         }
 
-        if createViewForContent(pane: drawerPane) == nil {
-            Self.logger.error(
-                "insertDrawerPane: view creation failed for \(drawerPane.id) — rolling back drawer pane"
-            )
-            rollbackDrawerPaneCreation(drawerPane.id, from: parentPaneId)
-        }
+        _ = drawerPane
+        restoreViewsForActiveTabIfNeeded()
     }
 
     private func executeMergeTab(
@@ -664,7 +625,13 @@ extension PaneCoordinator {
                 return
             }
             teardownView(for: paneId, shouldUnregisterRuntime: false)
-            guard createViewForContent(pane: pane) != nil else {
+            let recreatedView: PaneView?
+            if case .terminal = pane.content {
+                recreatedView = createViewForContentUsingCurrentGeometry(pane: pane)
+            } else {
+                recreatedView = createViewForContent(pane: pane)
+            }
+            guard recreatedView != nil else {
                 Self.logger.error("repair recreateSurface failed for pane \(paneId)")
                 return
             }
@@ -680,7 +647,13 @@ extension PaneCoordinator {
                 Self.logger.info("repair createMissingView: pane \(paneId) already has a view")
                 return
             }
-            guard createViewForContent(pane: pane) != nil else {
+            let recreatedView: PaneView?
+            if case .terminal = pane.content {
+                recreatedView = createViewForContentUsingCurrentGeometry(pane: pane)
+            } else {
+                recreatedView = createViewForContent(pane: pane)
+            }
+            guard recreatedView != nil else {
                 Self.logger.error("repair createMissingView failed for pane \(paneId)")
                 return
             }
