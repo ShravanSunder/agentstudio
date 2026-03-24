@@ -15,6 +15,14 @@ xcuserdata/
 # macOS
 .DS_Store
 
+# Certificates and keys (prevent accidental commits)
+*.p12
+*.pem
+*.cer
+*.key
+*.pfx
+*.der
+
 # IDE
 .idea/
 *.swp
