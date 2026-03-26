@@ -11,6 +11,7 @@ struct PaneTabViewControllerCommandTests {
         let store: WorkspaceStore
         let coordinator: PaneCoordinator
         let controller: PaneTabViewController
+        let viewRegistry: ViewRegistry
         let surfaceManager: MockPaneTabCommandSurfaceManager
         let windowLifecycleStore: WindowLifecycleStore
         let tempDir: URL
@@ -54,6 +55,7 @@ struct PaneTabViewControllerCommandTests {
             store: store,
             coordinator: coordinator,
             controller: controller,
+            viewRegistry: viewRegistry,
             surfaceManager: surfaceManager,
             windowLifecycleStore: windowLifecycleStore,
             tempDir: tempDir
@@ -156,6 +158,7 @@ struct PaneTabViewControllerCommandTests {
         #expect(harness.store.tab(tab.id)?.paneIds == [primaryPane.id])
         #expect(harness.store.pane(primaryPane.id) != nil)
         #expect(harness.store.pane(terminatingPane.id) == nil)
+        #expect(harness.viewRegistry.terminalStatusPlaceholderView(for: terminatingPane.id) == nil)
     }
 
     @Test("terminated pane closes only the matching tab when multiple tabs share a worktree")

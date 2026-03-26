@@ -45,14 +45,26 @@ extension PaneCoordinator {
         let placeholder = TerminalStatusPlaceholderView(
             paneId: pane.id,
             title: pane.metadata.title,
-            mode: mode
+            mode: mode,
+            onRetryRequested: { [weak self] paneId in
+                self?.execute(.repair(.createMissingView(paneId: paneId)))
+            },
+            onDismissRequested: { [weak self] paneId in
+                self?.closePlaceholderPane(paneId)
+            }
         )
-        placeholder.onRetryRequested = { [weak self] paneId in
-            self?.execute(.repair(.createMissingView(paneId: paneId)))
-        }
         viewRegistry.register(placeholder, for: pane.id)
         store.bumpViewRevision()
         return placeholder
+    }
+
+    private func closePlaceholderPane(_ paneId: UUID) {
+        guard let tab = store.tabs.first(where: { $0.paneIds.contains(paneId) }) else { return }
+        if tab.isSplit {
+            execute(.closePane(tabId: tab.id, paneId: paneId))
+        } else {
+            execute(.closeTab(tabId: tab.id))
+        }
     }
 
     func activeTabHasMissingVisibleView(_ activeTab: Tab) -> Bool {

@@ -595,6 +595,7 @@ struct Luna295DirectZmxAttachIntegrationTests {
         #expect(harness.surfaceManager.createdConfigsByPaneId[pane.id] == nil)
         let preparingPlaceholder = try #require(harness.viewRegistry.terminalStatusPlaceholderView(for: pane.id))
         #expect(preparingPlaceholder.mode == .preparing)
+        let revisionBeforeTransition = harness.store.viewRevision
 
         harness.windowLifecycleStore.recordTerminalContainerBounds(trustedBounds)
         harness.coordinator.restoreViewsForActiveTabIfNeeded()
@@ -611,6 +612,7 @@ struct Luna295DirectZmxAttachIntegrationTests {
 
         #expect(config.initialFrame == resolvedFrames[pane.id])
         #expect(failedPlaceholder.mode == .failedToStart)
+        #expect(harness.store.viewRevision > revisionBeforeTransition)
     }
 
     @Test
@@ -626,6 +628,31 @@ struct Luna295DirectZmxAttachIntegrationTests {
 
         let placeholder = try #require(harness.viewRegistry.terminalStatusPlaceholderView(for: pane.id))
         #expect(placeholder.mode == .failedToStart)
+    }
+
+    @Test
+    func failedToStartPlaceholder_doesNotAutoRetryOnLaterBoundsChanges() throws {
+        let harness = makeHarness()
+        defer { try? FileManager.default.removeItem(at: harness.tempDir) }
+
+        let repo = harness.store.addRepo(at: harness.tempDir)
+        let worktree = try #require(repo.worktrees.first)
+        harness.windowLifecycleStore.recordTerminalContainerBounds(trustedBounds)
+
+        let pane = try #require(harness.coordinator.openNewTerminal(for: worktree, in: repo))
+        let createAttemptsBefore = harness.surfaceManager.createdPaneIds.count
+        let placeholder = try #require(harness.viewRegistry.terminalStatusPlaceholderView(for: pane.id))
+
+        #expect(placeholder.mode == .failedToStart)
+        #expect(placeholder.shouldRetryCreationWhenBoundsChange == false)
+
+        harness.windowLifecycleStore.recordTerminalContainerBounds(
+            CGRect(x: 0, y: 0, width: 1200, height: 700)
+        )
+        harness.coordinator.restoreViewsForActiveTabIfNeeded()
+
+        #expect(harness.surfaceManager.createdPaneIds.count == createAttemptsBefore)
+        #expect(harness.viewRegistry.terminalStatusPlaceholderView(for: pane.id)?.mode == .failedToStart)
     }
 
     @Test

@@ -277,10 +277,8 @@ extension PaneCoordinator {
                 direction: layoutDirection,
                 position: position
             )
-            if viewRegistry.view(for: paneId) == nil, store.pane(paneId) != nil {
-                if let pane = store.pane(paneId) {
-                    registerTerminalPlaceholderIfNeeded(for: pane, mode: .preparing)
-                }
+            if viewRegistry.view(for: paneId) == nil, let pane = store.pane(paneId) {
+                registerTerminalPlaceholderIfNeeded(for: pane, mode: .preparing)
                 restoreViewsForActiveTabIfNeeded()
             }
 

@@ -1,6 +1,9 @@
 import AppKit
 
 @MainActor
+/// Placeholder direction matters:
+/// `.preparing` is a transient waiting-for-geometry state, while
+/// `.failedToStart` is the resting startup-failure state until the user retries or closes.
 enum TerminalStatusPlaceholderMode: Equatable {
     case preparing
     case failedToStart
@@ -11,17 +14,21 @@ final class TerminalStatusPlaceholderView: PaneView {
     private let title: String
     private let startupOverlay = SurfaceStartupOverlayView()
     private let errorOverlay = SurfaceErrorOverlayView()
+    private let onRetryRequested: ((UUID) -> Void)?
+    private let onDismissRequested: ((UUID) -> Void)?
     private(set) var mode: TerminalStatusPlaceholderMode
-
-    var onRetryRequested: ((UUID) -> Void)?
 
     init(
         paneId: UUID,
         title: String,
-        mode: TerminalStatusPlaceholderMode
+        mode: TerminalStatusPlaceholderMode,
+        onRetryRequested: ((UUID) -> Void)? = nil,
+        onDismissRequested: ((UUID) -> Void)? = nil
     ) {
         self.title = title
         self.mode = mode
+        self.onRetryRequested = onRetryRequested
+        self.onDismissRequested = onDismissRequested
         super.init(paneId: paneId)
         setupSubviews()
         render(mode: mode)
@@ -58,6 +65,10 @@ final class TerminalStatusPlaceholderView: PaneView {
         errorOverlay.onRestart = { [weak self] in
             guard let self else { return }
             self.onRetryRequested?(self.paneId)
+        }
+        errorOverlay.onDismiss = { [weak self] in
+            guard let self else { return }
+            self.onDismissRequested?(self.paneId)
         }
         addSubview(errorOverlay)
         NSLayoutConstraint.activate([
