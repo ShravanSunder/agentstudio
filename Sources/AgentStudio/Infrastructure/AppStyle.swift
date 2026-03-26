@@ -364,9 +364,12 @@ enum AppStyle {
 
     // MARK: - Chrome Background
 
-    /// Dark background for window chrome: tab bar strip and pane gap dividers.
+    /// Dark background for pane gap dividers.
     /// Darker than the system window background to visually separate panes.
     static let chromeBackground = Color(nsColor: NSColor(white: 0.09, alpha: 1.0))
+
+    /// Titlebar background color. Slightly darker than the macOS system default.
+    static let titlebarBackground = NSColor(white: 0.12, alpha: 1.0)
 
     // MARK: - Layout
 

@@ -27,8 +27,12 @@ struct TerminalPaneGeometryResolverTests {
             dividerThickness: 1
         )
 
-        #expect(resolved[paneA] == CGRect(x: 2, y: 2, width: 495.5, height: 596))
-        #expect(resolved[paneB] == CGRect(x: 502.5, y: 2, width: 495.5, height: 596))
+        let gap = AppStyle.paneGap
+        let paneWidth = (1000.0 - 1) / 2 - gap * 2
+        let paneHeight = 600.0 - gap * 2
+        #expect(resolved[paneA] == CGRect(x: gap, y: gap, width: paneWidth, height: paneHeight))
+        #expect(
+            resolved[paneB] == CGRect(x: gap + paneWidth + gap + 1 + gap, y: gap, width: paneWidth, height: paneHeight))
     }
 
     @Test
