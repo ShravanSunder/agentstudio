@@ -74,6 +74,7 @@ struct ActiveTabContent: View {
                 viewRegistry: viewRegistry,
                 appLifecycleStore: appLifecycleStore
             )
+            .background(AppStyle.chromeBackground)
         }
         // Empty/no-tab state handled by AppKit (PaneTabViewController toggles NSView visibility)
     }

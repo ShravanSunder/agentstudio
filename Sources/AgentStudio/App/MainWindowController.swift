@@ -28,6 +28,7 @@ class MainWindowController: NSWindowController, NSWindowDelegate {
             defer: false
         )
         window.title = "AgentStudio"
+        window.backgroundColor = NSColor(white: 0.12, alpha: 1.0)
         window.titlebarAppearsTransparent = true
         window.titleVisibility = .hidden
         window.minSize = NSSize(width: 720, height: 600)
