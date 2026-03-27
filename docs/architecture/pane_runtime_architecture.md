@@ -149,9 +149,9 @@ RUNTIMES (per-pane, registered in RuntimeRegistry):
 ```
 VIEW (renders)          CONTROLLER (transport)     RUNTIME (PaneRuntime)        ADAPTER (boundary)
 ─────────────────────   ──────────────────────     ────────────────────────     ──────────────────
-AgentStudioTerminalView SurfaceManager (shared)    TerminalRuntime              GhosttyAdapter
-BridgePaneView          BridgePaneController       BridgeRuntime                RPCRouter
-WebviewPaneView         WebviewPaneController      WebviewRuntime               WebKit delegate
+TerminalPaneMountView   SurfaceManager (shared)    TerminalRuntime              GhosttyAdapter
+BridgePaneMountView     BridgePaneController       BridgeRuntime                RPCRouter
+WebviewPaneMountView    WebviewPaneController      WebviewRuntime               WebKit delegate
 SwiftPaneView           (direct Swift)             SwiftPaneRuntime             (none — direct calls)
 ```
 
@@ -560,14 +560,14 @@ Each pane type follows a layered pattern. The layers have distinct responsibilit
 ┌─────────────────────────────────────────────────────────────────────────────┐
 │                         TERMINAL STACK (clean pattern)                      │
 │                                                                             │
-│  View:        AgentStudioTerminalView     ← renders Ghostty surface         │
+│  View:        TerminalPaneMountView       ← renders Ghostty surface         │
 │  Controller:  SurfaceManager (shared)     ← owns Ghostty surface lifecycle  │
 │  Runtime:     TerminalRuntime             ← PaneRuntime conformer           │
 │  Adapter:     GhosttyAdapter (shared)     ← C FFI → GhosttyEvent           │
 ├─────────────────────────────────────────────────────────────────────────────┤
 │                         BRIDGE STACK (extraction needed)                    │
 │                                                                             │
-│  View:        BridgePaneView              ← hosts WKWebView                 │
+│  View:        BridgePaneMountView         ← hosts WKWebView                 │
 │  Controller:  BridgePaneController        ← WebKit page, RPC, push plans    │
 │  Runtime:     BridgeRuntime (future)      ← PaneRuntime conformer           │
 │  Adapter:     RPCRouter (per-pane)        ← JSON-RPC → typed events         │
@@ -577,7 +577,7 @@ Each pane type follows a layered pattern. The layers have distinct responsibilit
 ├─────────────────────────────────────────────────────────────────────────────┤
 │                         WEBVIEW STACK (extraction needed)                   │
 │                                                                             │
-│  View:        WebviewPaneView             ← hosts WKWebView                 │
+│  View:        WebviewPaneMountView        ← hosts WKWebView                 │
 │  Controller:  WebviewPaneController       ← WebKit page, navigation state   │
 │  Runtime:     WebviewRuntime (future)     ← PaneRuntime conformer           │
 │  Adapter:     WebKit delegate (per-pane)  ← navigation events → typed       │

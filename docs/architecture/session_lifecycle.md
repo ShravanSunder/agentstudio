@@ -415,7 +415,7 @@ stateDiagram-v2
 | `Infrastructure/StateMachine/StateMachine.swift` | Generic state machine with effect handling |
 | `Infrastructure/ProcessExecutor.swift` | Protocol + `DefaultProcessExecutor` for CLI execution |
 | `Core/Stores/ZmxBackend.swift` | zmx CLI wrapper — session ID gen, create/destroy/healthCheck |
-| `Features/Terminal/Views/AgentStudioTerminalView.swift` | Terminal view (displays surfaces, does not own them) |
+| `Features/Terminal/Hosting/TerminalPaneMountView.swift` | Terminal mounted content (displays surfaces, does not own them) |
 | `App/AppDelegate.swift` | Launch flow — restore workspace, create window |
 
 ## Related Documentation

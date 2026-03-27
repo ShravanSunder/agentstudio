@@ -328,7 +328,7 @@ class PaneTabViewController: NSViewController, CommandHandler {
                 "\(Self.self).focusActivePane async firstResponder paneClass=\(String(describing: type(of: paneView)))"
             )
 
-            if let terminal = paneView as? AgentStudioTerminalView {
+            if let terminal = viewRegistry.terminalView(for: activePaneId) {
                 SurfaceManager.shared.syncFocus(activeSurfaceId: terminal.surfaceId)
                 RestoreTrace.log(
                     "\(Self.self).focusActivePane syncFocus activeSurface=\(terminal.surfaceId?.uuidString ?? "nil")")
@@ -841,7 +841,7 @@ class PaneTabViewController: NSViewController, CommandHandler {
             paneView.window?.makeFirstResponder(paneView)
             RestoreTrace.log("\(Self.self).refocusActivePane async firstResponder set")
 
-            if let terminal = paneView as? AgentStudioTerminalView {
+            if let terminal = viewRegistry.terminalView(for: activePaneId) {
                 SurfaceManager.shared.syncFocus(activeSurfaceId: terminal.surfaceId)
                 RestoreTrace.log(
                     "\(Self.self).refocusActivePane syncFocus activeSurface=\(terminal.surfaceId?.uuidString ?? "nil")"

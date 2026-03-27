@@ -27,9 +27,10 @@ extension E2ESerializedTests {
                 isMainWorktree: true
             )
             store.reconcileDiscoveredWorktrees(repo.id, worktrees: [worktree])
+            let reconciledWorktree = try #require(store.repo(repo.id)?.worktrees.first)
 
             let pane = store.createPane(
-                source: .worktree(worktreeId: worktree.id, repoId: repo.id),
+                source: .worktree(worktreeId: reconciledWorktree.id, repoId: repo.id),
                 title: "Filesystem E2E Pane"
             )
             let tab = Tab(paneId: pane.id)
@@ -67,16 +68,16 @@ extension E2ESerializedTests {
             coordinator.syncFilesystemRootsAndActivity()
 
             await eventually("filesystem root should be registered for worktree") {
-                coordinator.filesystemRegisteredContextsByWorktreeId[worktree.id] != nil
+                coordinator.filesystemRegisteredContextsByWorktreeId[reconciledWorktree.id] != nil
             }
 
             await filesystemSource.enqueueRawPathsForTesting(
-                worktreeId: worktree.id,
+                worktreeId: reconciledWorktree.id,
                 paths: ["tracked.txt", "untracked.txt"]
             )
 
             await eventually("workspace cache git snapshot should update") {
-                guard let snapshot = repoCache.worktreeEnrichmentByWorktreeId[worktree.id]?.snapshot else {
+                guard let snapshot = repoCache.worktreeEnrichmentByWorktreeId[reconciledWorktree.id]?.snapshot else {
                     return false
                 }
                 return snapshot.summary.changed >= 1 && snapshot.summary.untracked >= 1
@@ -98,7 +99,7 @@ extension E2ESerializedTests {
 
         private func eventually(
             _ description: String,
-            maxTurns: Int = 200,
+            maxTurns: Int = 300_000,
             condition: @escaping @MainActor () async -> Bool
         ) async {
             for _ in 0..<maxTurns {

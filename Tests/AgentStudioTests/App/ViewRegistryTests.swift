@@ -20,7 +20,7 @@ struct ViewRegistryTests {
     func renderTree_withSingleLeafLayout_returnsLeaf() {
         let registry = ViewRegistry()
         let paneId = UUID()
-        let view = PaneView(paneId: paneId)
+        let view = PaneHostView(paneId: paneId)
         registry.register(view, for: paneId)
 
         let tree = registry.renderTree(for: Layout(paneId: paneId))
@@ -54,8 +54,8 @@ struct ViewRegistryTests {
         let rightPaneId = UUID()
         let splitId = UUID()
 
-        registry.register(PaneView(paneId: leftPaneId), for: leftPaneId)
-        registry.register(PaneView(paneId: rightPaneId), for: rightPaneId)
+        registry.register(PaneHostView(paneId: leftPaneId), for: leftPaneId)
+        registry.register(PaneHostView(paneId: rightPaneId), for: rightPaneId)
 
         let layout = Layout(
             root: .split(
@@ -82,7 +82,7 @@ struct ViewRegistryTests {
     func unregister_existingPane_removesFromRegistry() {
         let registry = ViewRegistry()
         let paneId = UUID()
-        let view = PaneView(paneId: paneId)
+        let view = PaneHostView(paneId: paneId)
 
         registry.register(view, for: paneId)
         #expect(registry.registeredPaneIds.contains(paneId))
@@ -98,8 +98,8 @@ struct ViewRegistryTests {
     func register_replacesExistingPaneViewForSamePaneId() {
         let registry = ViewRegistry()
         let paneId = UUID()
-        let original = PaneView(paneId: paneId)
-        let replacement = PaneView(paneId: paneId)
+        let original = PaneHostView(paneId: paneId)
+        let replacement = PaneHostView(paneId: paneId)
 
         registry.register(original, for: paneId)
         #expect(registry.view(for: paneId) === original)
@@ -115,8 +115,8 @@ struct ViewRegistryTests {
         let leftPaneId = UUID()
         let rightPaneId = UUID()
 
-        let leftView = PaneView(paneId: leftPaneId)
-        let rightView = PaneView(paneId: rightPaneId)
+        let leftView = PaneHostView(paneId: leftPaneId)
+        let rightView = PaneHostView(paneId: rightPaneId)
         registry.register(leftView, for: leftPaneId)
         registry.register(rightView, for: rightPaneId)
 
@@ -154,7 +154,7 @@ struct ViewRegistryTests {
         let registry = ViewRegistry()
         let presentPaneId = UUID()
         let missingPaneId = UUID()
-        let presentView = PaneView(paneId: presentPaneId)
+        let presentView = PaneHostView(paneId: presentPaneId)
         registry.register(presentView, for: presentPaneId)
 
         let layout = Layout(
@@ -203,7 +203,7 @@ struct ViewRegistryTests {
         let leafId = UUID()
         let missingId = UUID()
 
-        let presentView = PaneView(paneId: leafId)
+        let presentView = PaneHostView(paneId: leafId)
         registry.register(presentView, for: leafId)
 
         let layout = Layout(
@@ -242,15 +242,18 @@ struct ViewRegistryTests {
         let webviewPaneId = UUIDv7.generate()
         let normalPaneId = UUIDv7.generate()
 
-        registry.register(PaneView(paneId: terminalPaneId), for: terminalPaneId)
-        registry.register(
-            WebviewPaneView(
+        registry.register(PaneHostView(paneId: terminalPaneId), for: terminalPaneId)
+
+        let webviewHost = PaneHostView(paneId: webviewPaneId)
+        webviewHost.mountContentView(
+            WebviewPaneMountView(
                 paneId: webviewPaneId,
                 state: WebviewState(url: URL(string: "https://example.com")!)
-            ),
-            for: webviewPaneId
+            )
         )
-        registry.register(PaneView(paneId: normalPaneId), for: normalPaneId)
+        registry.register(webviewHost, for: webviewPaneId)
+
+        registry.register(PaneHostView(paneId: normalPaneId), for: normalPaneId)
 
         let allWebviews = registry.allWebviewViews
 

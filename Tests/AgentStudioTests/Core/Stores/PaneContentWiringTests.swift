@@ -168,9 +168,9 @@ final class PaneContentWiringTests {
 
     @Test
 
-    func test_viewRegistry_registersPaneView() {
+    func test_viewRegistry_registersPaneHostView() {
         let registry = ViewRegistry()
-        let view = PaneView(paneId: UUID())
+        let view = PaneHostView(paneId: UUID())
 
         registry.register(view, for: view.paneId)
 
@@ -185,20 +185,20 @@ final class PaneContentWiringTests {
         let paneId = UUID()
 
         // Non-terminal pane
-        let webView = PaneView(paneId: paneId)
+        let webView = PaneHostView(paneId: paneId)
         registry.register(webView, for: paneId)
 
         #expect((registry.view(for: paneId)) != nil)
         #expect((registry.terminalView(for: paneId)) == nil)
     }
 
-    // MARK: - PaneView base class
+    // MARK: - PaneHostView base class
 
     @Test
 
     func test_paneView_identifiable() {
         let id = UUID()
-        let view = PaneView(paneId: id)
+        let view = PaneHostView(paneId: id)
 
         #expect(view.id == id)
         #expect(view.paneId == id)
@@ -207,7 +207,7 @@ final class PaneContentWiringTests {
     @Test
 
     func test_paneView_swiftUIContainer() {
-        let view = PaneView(paneId: UUID())
+        let view = PaneHostView(paneId: UUID())
         let container = view.swiftUIContainer
 
         // Container wraps the view
@@ -279,7 +279,7 @@ final class PaneContentWiringTests {
     func test_viewRegistry_webviewView_returnsNilForNonWebview() {
         let registry = ViewRegistry()
         let paneId = UUID()
-        let view = PaneView(paneId: paneId)
+        let view = PaneHostView(paneId: paneId)
         registry.register(view, for: paneId)
 
         #expect((registry.webviewView(for: paneId)) == nil)
@@ -292,12 +292,12 @@ final class PaneContentWiringTests {
         let paneId1 = UUID()
         let paneId2 = UUID()
 
-        // Register a generic PaneView (not a webview)
-        registry.register(PaneView(paneId: paneId1), for: paneId1)
-        // Register another generic PaneView
-        registry.register(PaneView(paneId: paneId2), for: paneId2)
+        // Register a generic PaneHostView (not a webview)
+        registry.register(PaneHostView(paneId: paneId1), for: paneId1)
+        // Register another generic PaneHostView
+        registry.register(PaneHostView(paneId: paneId2), for: paneId2)
 
-        // allWebviewViews should be empty since neither is a WebviewPaneView
+        // allWebviewViews should be empty since neither host mounts a webview pane
         #expect(registry.allWebviewViews.isEmpty)
     }
 }

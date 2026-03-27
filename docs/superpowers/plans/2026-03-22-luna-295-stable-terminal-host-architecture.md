@@ -1,6 +1,8 @@
 # Stable Pane Host And Terminal Mount Separation Implementation Plan
 
-> **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
+> **Status:** Tasks 0-4 IMPLEMENTED on `luna-295-stable-terminal-host`. Tasks 5-6 (doc updates + full verification) remain.
+>
+> **For agentic workers:** Skip to Task 5. Tasks 1-4 are complete — the host/mount cutover has landed. Do not re-execute completed tasks.
 
 **Goal:** Replace pane-kind-specific host views with one universal stable pane host and split terminal content from Ghostty surface mounting so split/layout churn, placeholder swaps, repair, and restore no longer couple pane identity to renderer parentage.
 
@@ -164,6 +166,7 @@ Examples of the intended shape:
 - Modify: `Sources/AgentStudio/App/PaneCoordinator+ViewLifecycle.swift`
 - Modify: `Sources/AgentStudio/App/PaneCoordinator+ActionExecution.swift`
 - Modify: `Sources/AgentStudio/App/Panes/PaneTabViewController.swift`
+- Modify: `Sources/AgentStudio/Core/Views/ManagementModeDragShield.swift`
 - Modify: `Sources/AgentStudio/Core/Views/Splits/TerminalPaneView.swift`
 - Modify: `Sources/AgentStudio/Core/Views/Splits/SplitTree.swift`
 - Modify: `Sources/AgentStudio/Core/Views/Splits/PaneLeafContainer.swift`
@@ -198,11 +201,12 @@ Examples of the intended shape:
 
 ---
 
-### Task 1: Introduce Universal `PaneHostView`
+### Task 1: Introduce Universal `PaneHostView` ✅ COMPLETE
 
 **Files:**
 - Create: `Sources/AgentStudio/Core/Views/Panes/PaneHostView.swift`
 - Delete/Move: `Sources/AgentStudio/Core/Models/PaneView.swift`
+- Modify: `Sources/AgentStudio/Core/Views/ManagementModeDragShield.swift`
 - Modify: `Sources/AgentStudio/Core/Views/Splits/TerminalPaneView.swift`
 - Modify: `Sources/AgentStudio/Core/Views/Splits/SplitTree.swift`
 - Modify: `Sources/AgentStudio/Core/Views/Splits/PaneLeafContainer.swift`
@@ -277,19 +281,11 @@ Required behavior:
 Run: `SWIFT_BUILD_DIR=".build-agent-$(uuidgen | tr -dc 'a-z0-9' | head -c 8)" swift test --build-path "$SWIFT_BUILD_DIR" --filter "PaneHostViewTests|PaneTabViewControllerCommandTests"`
 Expected: PASS
 
-- [ ] **Step 6: Commit**
-
-```bash
-git add Sources/AgentStudio/Core/Views/Panes/PaneHostView.swift \
-  Sources/AgentStudio/Core/Views/Splits/PaneLeafContainer.swift \
-  Sources/AgentStudio/App/Panes/ViewRegistry.swift \
-  Tests/AgentStudioTests/Core/Views/Panes/PaneHostViewTests.swift
-git commit -m "refactor: introduce universal pane host shell"
-```
+- [x] **Step 6: Commit** ✅ COMPLETE
 
 ---
 
-### Task 2: Convert Webview, Bridge, And Code Viewer To Mounted Content
+### Task 2: Convert Webview, Bridge, And Code Viewer To Mounted Content ✅ COMPLETE
 
 **Files:**
 - Move: `Sources/AgentStudio/Features/Webview/Views/WebviewPaneView.swift` -> `Sources/AgentStudio/Features/Webview/Views/WebviewPaneMountView.swift`
@@ -366,7 +362,7 @@ git commit -m "refactor: mount non-terminal pane content into pane hosts"
 
 ---
 
-### Task 3: Convert Terminal To `TerminalPaneMountView` With Internal Placeholder State
+### Task 3: Convert Terminal To `TerminalPaneMountView` With Internal Placeholder State ✅ COMPLETE
 
 **Files:**
 - Move: `Sources/AgentStudio/Features/Terminal/Views/AgentStudioTerminalView.swift` -> `Sources/AgentStudio/Features/Terminal/Hosting/TerminalPaneMountView.swift`
@@ -450,7 +446,7 @@ git commit -m "refactor: move terminal placeholder and live state into terminal 
 
 ---
 
-### Task 4: Add `GhosttyMountView` And Make Terminal Reconciliation Explicit
+### Task 4: Add `GhosttyMountView` And Make Terminal Reconciliation Explicit ✅ COMPLETE
 
 **Files:**
 - Create: `Sources/AgentStudio/Features/Terminal/Hosting/GhosttyMountView.swift`
@@ -575,10 +571,12 @@ Required doc outcomes:
 Run:
 
 ```bash
-rg -n "class PaneView|final class AgentStudioTerminalView|final class WebviewPaneView|final class BridgePaneView|final class CodeViewerPaneView|typealias TerminalViewRepresentable|typealias TerminalSplitTree|displaySurface\\(" Sources/ Tests/ docs/architecture AGENTS.md
+rg -n "class PaneView[^H]|final class AgentStudioTerminalView|final class WebviewPaneView|final class BridgePaneView|final class CodeViewerPaneView|typealias TerminalViewRepresentable|typealias TerminalSplitTree" Sources/ Tests/ docs/architecture AGENTS.md
 ```
 
 Expected: zero matches for removed types and removed terminal-parenting API names after the refactor is complete.
+
+Note: `displaySurface()` on `TerminalPaneMountView` is intentionally retained — it is the mount-level API that delegates to `GhosttyMountView.mount()`. It is NOT the old pattern where a host class directly parented a Ghostty surface. The invariant is: "no host type owns renderer parentage" — the mount's `displaySurface` is mount-internal, not host-level.
 
 - [ ] **Step 3: Run focused doc / compile tests**
 

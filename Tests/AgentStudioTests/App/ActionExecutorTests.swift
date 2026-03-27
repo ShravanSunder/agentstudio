@@ -414,7 +414,7 @@ final class ActionExecutorTests {
         #expect(pane != nil)
         #expect(store.tabs.count == 1)
         #expect(store.panes.count == 1)
-        #expect(pane.flatMap { viewRegistry.view(for: $0.id) } is TerminalStatusPlaceholderView)
+        #expect(pane.flatMap { viewRegistry.terminalStatusPlaceholderView(for: $0.id) } != nil)
     }
 
     @Test
@@ -621,9 +621,9 @@ final class ActionExecutorTests {
         store.insertPane(pC.id, inTab: tab.id, at: pB.id, direction: .horizontal, position: .after)
 
         // Register stub PaneViews for all 3 panes
-        let viewA = PaneView(paneId: pA.id)
-        let viewB = PaneView(paneId: pB.id)
-        let viewC = PaneView(paneId: pC.id)
+        let viewA = PaneHostView(paneId: pA.id)
+        let viewB = PaneHostView(paneId: pB.id)
+        let viewC = PaneHostView(paneId: pC.id)
         viewRegistry.register(viewA, for: pA.id)
         viewRegistry.register(viewB, for: pB.id)
         viewRegistry.register(viewC, for: pC.id)
@@ -664,9 +664,9 @@ final class ActionExecutorTests {
         store.insertPane(pC.id, inTab: tab.id, at: pB.id, direction: .horizontal, position: .after)
 
         // Register stub PaneViews for all 3 panes
-        let viewA = PaneView(paneId: pA.id)
-        let viewB = PaneView(paneId: pB.id)
-        let viewC = PaneView(paneId: pC.id)
+        let viewA = PaneHostView(paneId: pA.id)
+        let viewB = PaneHostView(paneId: pB.id)
+        let viewC = PaneHostView(paneId: pC.id)
         viewRegistry.register(viewA, for: pA.id)
         viewRegistry.register(viewB, for: pB.id)
         viewRegistry.register(viewC, for: pC.id)
@@ -711,7 +711,7 @@ final class ActionExecutorTests {
         )
         let tab = Tab(paneId: pane.id)
         store.appendTab(tab)
-        let stubView = PaneView(paneId: pane.id)
+        let stubView = PaneHostView(paneId: pane.id)
         viewRegistry.register(stubView, for: pane.id)
         #expect(store.viewRevision == 0)
 

@@ -2755,7 +2755,7 @@ Each phase requires explicit acceptance criteria before proceeding to the next. 
 Sources/AgentStudio/Features/Bridge/
 ├── BridgePaneController.swift             # Per-pane controller: WebPage setup, PushPlan lifecycle, PushTransport conformance
 ├── BridgePaneState.swift                  # BridgePaneState, BridgePanelKind, BridgePaneSource
-├── BridgePaneView.swift                   # AppKit PaneView hosting BridgePaneContentView
+├── BridgePaneMountView.swift              # AppKit mount hosted inside PaneHostView
 ├── BridgePaneContentView.swift            # SwiftUI view: WebView(controller.page), no nav bar
 ├── RPCRouter.swift                        # Method registry + dispatch
 ├── RPCMethod.swift                        # Protocol + type-erased handler
@@ -2847,7 +2847,7 @@ The pane system is fully operational. Webview panes already work as general-purp
 | `PaneContent.webview(WebviewState)` | `App/Models/PaneContent.swift` | Discriminated union case for webview panes |
 | `WebviewState` | `App/Models/PaneContent.swift` | Serializable state: `url`, `title`, `showNavigation` |
 | `WebviewPaneController` | `Features/Webview/WebviewPaneController.swift` | Per-pane `@Observable` controller owning a `WebPage` |
-| `WebviewPaneView` | `Features/Webview/Views/WebviewPaneView.swift` | AppKit `PaneView` subclass hosting SwiftUI via `NSHostingView` |
+| `WebviewPaneMountView` | `Features/Webview/Views/WebviewPaneMountView.swift` | AppKit mounted content hosting SwiftUI via `NSHostingView` |
 | `WebviewPaneContentView` | `Features/Webview/Views/WebviewPaneContentView.swift` | SwiftUI view: nav bar + `WebView(controller.page)` |
 | `WebviewNavigationDecider` | `Features/Webview/WebviewNavigationDecider.swift` | Browser-oriented allowlist: `https`, `http`, `about`, `file`, `agentstudio` |
 | `WebviewDialogHandler` | `Features/Webview/WebviewDialogHandler.swift` | JS dialog handler (default implementations) |
@@ -2910,9 +2910,11 @@ enum BridgePaneSource: Codable, Hashable {
 ```swift
 case .bridgePanel(let state):
     let controller = BridgePaneController(paneId: pane.id, state: state, sharedState: sharedBridgeState)
-    let view = BridgePaneView(paneId: pane.id, controller: controller)
-    viewRegistry.register(view, for: pane.id)
-    return view
+    let mount = BridgePaneMountView(paneId: pane.id, controller: controller)
+    let host = PaneHostView(paneId: pane.id)
+    host.mountContentView(mount)
+    viewRegistry.register(host, for: pane.id)
+    return mount
 ```
 
 `ActionExecutor` gains a new method:
@@ -2974,7 +2976,7 @@ init(paneId: UUID, state: BridgePaneState) {
 
 ### 15.5 Pane Lifecycle
 
-- **Creation**: `PaneCoordinator.openDiffViewer()` → `PaneCoordinator.createViewForContent(.bridgePanel)` → `BridgePaneController` + `BridgePaneView` → `ViewRegistry.register`
+- **Creation**: `PaneCoordinator.openDiffViewer()` → `PaneCoordinator.createViewForContent(.bridgePanel)` → `BridgePaneController` + `BridgePaneMountView` mounted inside `PaneHostView` → `ViewRegistry.register`
 - **Active**: `BridgePaneController` owns observation loops (started on `bridge.ready`), pushes state to Zustand
 - **Teardown**: `BridgePaneController.teardown()` cancels observation tasks, releases `WebPage`. Triggered by pane removal via `WorkspaceStore.removePane` → `ViewRegistry.deregister`
 - **Persistence**: `BridgePaneState` is `Codable` — round-trips through workspace save/restore. On restore, the panel reloads from source (re-computes manifest from git)

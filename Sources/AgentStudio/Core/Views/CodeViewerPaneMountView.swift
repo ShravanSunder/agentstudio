@@ -1,15 +1,17 @@
 import AppKit
 
-final class CodeViewerPaneView: PaneView {
+final class CodeViewerPaneMountView: NSView, PaneMountedContent {
+    let paneId: UUID
     private let state: CodeViewerState
     private let initialText: String?
     private let scrollView = NSScrollView()
     private let textView = NSTextView()
 
     init(paneId: UUID, state: CodeViewerState, initialText: String? = nil) {
+        self.paneId = paneId
         self.state = state
         self.initialText = initialText
-        super.init(paneId: paneId)
+        super.init(frame: NSRect(x: 0, y: 0, width: 800, height: 600))
         setupCodeViewerSurface()
         loadFileContents()
     }
@@ -19,6 +21,10 @@ final class CodeViewerPaneView: PaneView {
     }
 
     override var acceptsFirstResponder: Bool { true }
+
+    func setContentInteractionEnabled(_ enabled: Bool) {
+        textView.isSelectable = enabled
+    }
 
     private func setupCodeViewerSurface() {
         wantsLayer = true

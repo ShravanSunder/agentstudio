@@ -69,7 +69,7 @@ struct TerminalSplitContainer: View {
                         // Zoomed: render single pane at full size
                         ZStack(alignment: .topTrailing) {
                             PaneLeafContainer(
-                                paneView: zoomedView,
+                                paneHost: zoomedView,
                                 tabId: tabId,
                                 isActive: true,
                                 isSplit: false,
@@ -250,7 +250,7 @@ struct SplitSubtreeView: View {
                 )
             } else {
                 PaneLeafContainer(
-                    paneView: paneView,
+                    paneHost: paneView,
                     tabId: tabId,
                     isActive: paneView.id == activePaneId,
                     isSplit: isSplit,

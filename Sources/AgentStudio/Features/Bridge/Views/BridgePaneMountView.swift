@@ -3,21 +3,23 @@ import SwiftUI
 
 /// Bridge pane embedding a BridgePaneController's WebPage via SwiftUI WebView.
 ///
-/// Ownership: BridgePaneView (NSView/PaneView) holds a strong reference to
+/// Ownership: BridgePaneMountView (NSView mounted under `PaneHostView`) holds a strong reference to
 /// `BridgePaneController` and its `BridgeRuntime` (@Observable @MainActor). An `NSHostingView` wraps
 /// the SwiftUI `BridgePaneContentView` which observes the controller.
 /// Controller lifetime is tied to this NSView's lifetime in the AppKit layout hierarchy.
 ///
-/// Follows the same pattern as `WebviewPaneView`.
-final class BridgePaneView: PaneView {
+/// Follows the same pattern as `WebviewPaneMountView`.
+final class BridgePaneMountView: NSView, PaneMountedContent {
+    let paneId: UUID
     let controller: BridgePaneController
     let runtime: BridgeRuntime
     private var hostingView: NSHostingView<BridgePaneContentView>?
 
     init(paneId: UUID, controller: BridgePaneController) {
+        self.paneId = paneId
         self.controller = controller
         self.runtime = controller.runtime
-        super.init(paneId: paneId)
+        super.init(frame: NSRect(x: 0, y: 0, width: 800, height: 600))
         setupHostingView()
     }
 
@@ -31,7 +33,7 @@ final class BridgePaneView: PaneView {
 
     /// Delegates management mode interaction suppression to the controller's
     /// persistent user-script pipeline (current document + future navigations).
-    override func setContentInteractionEnabled(_ enabled: Bool) {
+    func setContentInteractionEnabled(_ enabled: Bool) {
         controller.setWebContentInteractionEnabled(enabled)
     }
 

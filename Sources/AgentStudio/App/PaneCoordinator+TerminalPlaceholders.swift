@@ -1,3 +1,4 @@
+import AppKit
 import Foundation
 
 @MainActor
@@ -8,7 +9,7 @@ extension PaneCoordinator {
     func createViewForContentUsingCurrentGeometry(
         pane: Pane,
         treatAsRestoredSessionStart: Bool = false
-    ) -> PaneView? {
+    ) -> NSView? {
         let terminalContainerBounds = windowLifecycleStore.terminalContainerBounds
         guard !terminalContainerBounds.isEmpty else {
             RestoreTrace.log(
@@ -33,6 +34,26 @@ extension PaneCoordinator {
     ) -> TerminalStatusPlaceholderView? {
         guard case .terminal = pane.content, pane.provider == .zmx else { return nil }
 
+        let retryHandler: (UUID) -> Void = { [weak self] paneId in
+            self?.execute(.repair(.createMissingView(paneId: paneId)))
+        }
+        let dismissHandler: (UUID) -> Void = { [weak self] paneId in
+            self?.closePlaceholderPane(paneId)
+        }
+
+        if let terminalView = viewRegistry.terminalView(for: pane.id) {
+            let previousMode = terminalView.placeholderViewForTesting?.mode
+            let placeholder = terminalView.showPlaceholder(
+                mode: mode,
+                onRetryRequested: retryHandler,
+                onDismissRequested: dismissHandler
+            )
+            if previousMode != mode {
+                store.bumpViewRevision()
+            }
+            return placeholder
+        }
+
         if let existingPlaceholder = viewRegistry.terminalStatusPlaceholderView(for: pane.id) {
             let previousMode = existingPlaceholder.mode
             existingPlaceholder.configure(mode: mode)
@@ -42,20 +63,18 @@ extension PaneCoordinator {
             return existingPlaceholder
         }
 
-        let placeholder = TerminalStatusPlaceholderView(
+        let terminalView = TerminalPaneMountView(
             paneId: pane.id,
-            title: pane.metadata.title,
-            mode: mode,
-            onRetryRequested: { [weak self] paneId in
-                self?.execute(.repair(.createMissingView(paneId: paneId)))
-            },
-            onDismissRequested: { [weak self] paneId in
-                self?.closePlaceholderPane(paneId)
-            }
+            title: pane.metadata.title
         )
-        viewRegistry.register(placeholder, for: pane.id)
+        terminalView.showPlaceholder(
+            mode: mode,
+            onRetryRequested: retryHandler,
+            onDismissRequested: dismissHandler
+        )
+        registerHostedView(mountedView: terminalView, for: pane.id)
         store.bumpViewRevision()
-        return placeholder
+        return terminalView.placeholderViewForTesting
     }
 
     private func closePlaceholderPane(_ paneId: UUID) {

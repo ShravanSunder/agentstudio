@@ -1,3 +1,4 @@
+import AppKit
 import Foundation
 
 @MainActor
@@ -643,7 +644,7 @@ extension PaneCoordinator {
                 return
             }
             if let existingView = viewRegistry.view(for: paneId),
-                !(existingView is TerminalStatusPlaceholderView)
+                existingView.mountedContent(as: TerminalPaneMountView.self)?.placeholderViewForTesting == nil
             {
                 Self.logger.info("repair createMissingView: pane \(paneId) already has a view")
                 return
@@ -662,7 +663,7 @@ extension PaneCoordinator {
 
     /// Recreate a pane view during repair while preserving geometry requirements for terminals.
     /// Terminal panes must use trusted current geometry; non-terminal panes can be recreated directly.
-    private func createViewForRepair(for pane: Pane) -> PaneView? {
+    private func createViewForRepair(for pane: Pane) -> NSView? {
         if case .terminal = pane.content {
             return createViewForContentUsingCurrentGeometry(pane: pane)
         }

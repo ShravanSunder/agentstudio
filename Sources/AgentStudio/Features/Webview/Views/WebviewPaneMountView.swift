@@ -3,20 +3,22 @@ import SwiftUI
 
 /// Webview pane embedding a real browser via SwiftUI WebView/WebPage.
 ///
-/// Ownership: WebviewPaneView (NSView/PaneView) holds a strong reference to
+/// Ownership: WebviewPaneMountView (NSView mounted under `PaneHostView`) holds a strong reference to
 /// `WebviewPaneController` (@Observable @MainActor). An `NSHostingView` wraps
 /// the SwiftUI `WebviewPaneContentView` which observes the controller.
 /// Controller lifetime is tied to this NSView's lifetime in the AppKit layout hierarchy.
-final class WebviewPaneView: PaneView {
+final class WebviewPaneMountView: NSView, PaneMountedContent {
+    let paneId: UUID
     let controller: WebviewPaneController
     let runtime: WebviewRuntime
     private var hostingView: NSHostingView<WebviewPaneContentView>?
 
     init(paneId: UUID, state: WebviewState) {
+        self.paneId = paneId
         let controller = WebviewPaneController(paneId: paneId, state: state)
         self.controller = controller
         self.runtime = controller.runtime
-        super.init(paneId: paneId)
+        super.init(frame: NSRect(x: 0, y: 0, width: 800, height: 600))
         setupHostingView()
     }
 
@@ -51,7 +53,7 @@ final class WebviewPaneView: PaneView {
 
     /// Delegates management mode interaction suppression to the controller's
     /// persistent user-script pipeline (current document + future navigations).
-    override func setContentInteractionEnabled(_ enabled: Bool) {
+    func setContentInteractionEnabled(_ enabled: Bool) {
         controller.setWebContentInteractionEnabled(enabled)
     }
 

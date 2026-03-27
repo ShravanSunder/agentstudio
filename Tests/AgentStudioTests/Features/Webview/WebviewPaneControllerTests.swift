@@ -159,28 +159,30 @@ struct WebviewPaneControllerTests {
     func test_managementModeToggle_updatesWebviewControllerInteractionState() async {
         await withManagementModeTestLock {
             await setManagementMode(active: false)
-            let paneView = WebviewPaneView(
+            let mountedView = WebviewPaneMountView(
                 paneId: UUIDv7.generate(),
                 state: WebviewState(url: URL(string: "about:blank")!)
             )
-            _ = paneView.swiftUIContainer
+            let host = PaneHostView(paneId: mountedView.paneId)
+            host.mountContentView(mountedView)
+            _ = host.swiftUIContainer
             await settleEventLoop()
-            #expect(paneView.controller.isContentInteractionEnabled)
+            #expect(mountedView.controller.isContentInteractionEnabled)
 
             await setManagementMode(active: true)
             #expect(ManagementModeMonitor.shared.isActive)
-            #expect(!paneView.controller.isContentInteractionEnabled)
+            #expect(!mountedView.controller.isContentInteractionEnabled)
 
             await setManagementMode(active: false)
             #expect(!ManagementModeMonitor.shared.isActive)
-            #expect(paneView.controller.isContentInteractionEnabled)
+            #expect(mountedView.controller.isContentInteractionEnabled)
         }
     }
 
     @Test
     func test_webviewPaneView_resizesHostingViewToBounds() {
         // Arrange
-        let paneView = WebviewPaneView(
+        let paneView = WebviewPaneMountView(
             paneId: UUIDv7.generate(),
             state: WebviewState(url: URL(string: "about:blank")!)
         )

@@ -946,7 +946,7 @@ RUNTIME → SWIFTUI VIEW (zero-overhead binding):
                │  (compiler-generated, zero overhead)
                ▼
   ┌──────────────────────────────────────┐
-  │  AgentStudioTerminalView             │
+  │  TerminalPaneMountView               │
   │                                      │
   │  Text(runtime.title)       ← binds   │
   │  ScrollBar(runtime         ← binds   │
@@ -1322,7 +1322,7 @@ Current codebase patterns that need migration to align with this design. Audited
 | `Features/CommandBar/CommandBarDataSource.swift` | 5 `.post()` producers | selectTabById, openWorktreeRequested | HIGH |
 | `Features/Terminal/Ghostty/GhosttySurfaceView.swift` | 2 `.post()` producers | didUpdateWorkingDirectory, didUpdateRendererHealth | MEDIUM |
 | `Features/Terminal/Ghostty/Ghostty.swift` | 2 `for await` consumers, 2 `.post()` | ghosttyNewWindow, ghosttyCloseSurface, didBecomeActive, didResignActive | MEDIUM |
-| `Features/Terminal/Views/AgentStudioTerminalView.swift` | 2 `addObserver`, 2 `.post()` | surfaceClose, repairSurfaceRequested, terminalProcessTerminated | MEDIUM |
+| `Features/Terminal/Hosting/TerminalPaneMountView.swift` | 2 `addObserver`, 2 `.post()` | surfaceClose, repairSurfaceRequested, terminalProcessTerminated | MEDIUM |
 | `App/MainWindowController.swift` | 2 `.post()` | filterSidebarRequested, addRepoRequested | LOW |
 | `App/AppDelegate.swift` | 1 `addObserver` | signIn OAuth callback | LOW |
 | `Features/Terminal/Ghostty/SurfaceManager.swift` | 1 `addObserver`, 1 `removeObserver` | Health notifications | LOW |

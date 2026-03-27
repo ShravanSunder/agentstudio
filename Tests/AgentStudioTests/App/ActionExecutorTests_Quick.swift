@@ -54,7 +54,7 @@ struct ActionExecutorTestsQuick {
         #expect(pane != nil)
         #expect(store.tabs.count == 1)
         #expect(store.activeTabId == store.tabs[0].id)
-        #expect(viewRegistry.view(for: pane!.id) is WebviewPaneView)
+        #expect(viewRegistry.view(for: pane!.id) != nil)
         #expect(viewRegistry.webviewView(for: pane!.id) != nil)
     }
 

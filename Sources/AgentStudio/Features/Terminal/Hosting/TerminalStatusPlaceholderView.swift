@@ -10,7 +10,8 @@ enum TerminalStatusPlaceholderMode: Equatable {
 }
 
 @MainActor
-final class TerminalStatusPlaceholderView: PaneView {
+final class TerminalStatusPlaceholderView: NSView, PaneMountedContent {
+    let paneId: UUID
     private let title: String
     private let startupOverlay = SurfaceStartupOverlayView()
     private let errorOverlay = SurfaceErrorOverlayView()
@@ -25,11 +26,12 @@ final class TerminalStatusPlaceholderView: PaneView {
         onRetryRequested: ((UUID) -> Void)? = nil,
         onDismissRequested: ((UUID) -> Void)? = nil
     ) {
+        self.paneId = paneId
         self.title = title
         self.mode = mode
         self.onRetryRequested = onRetryRequested
         self.onDismissRequested = onDismissRequested
-        super.init(paneId: paneId)
+        super.init(frame: NSRect(x: 0, y: 0, width: 800, height: 600))
         setupSubviews()
         render(mode: mode)
     }
@@ -40,6 +42,10 @@ final class TerminalStatusPlaceholderView: PaneView {
 
     var shouldRetryCreationWhenBoundsChange: Bool {
         mode == .preparing
+    }
+
+    func setContentInteractionEnabled(_ enabled: Bool) {
+        _ = enabled
     }
 
     func configure(mode: TerminalStatusPlaceholderMode) {

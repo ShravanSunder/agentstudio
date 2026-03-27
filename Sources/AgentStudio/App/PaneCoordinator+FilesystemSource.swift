@@ -69,8 +69,8 @@ extension PaneCoordinator {
             result[worktreeId] = store.paneCount(for: worktreeId) > 0
         }
         let activePaneWorktreeId = activePaneWorktree()
-
         let existingContextsByWorktreeId = filesystemRegisteredContextsByWorktreeId
+
         let existingWorktreeIds = Set(existingContextsByWorktreeId.keys)
         let desiredWorktreeIds = Set(desiredContextsByWorktreeId.keys)
         let removedWorktreeIds = existingWorktreeIds.subtracting(desiredWorktreeIds)

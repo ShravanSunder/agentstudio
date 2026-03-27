@@ -134,9 +134,9 @@ struct PaneCoordinatorHardeningTests {
         }
         harness.store.switchArrangement(to: focusArrangementId, inTab: tab.id)
 
-        harness.viewRegistry.register(PaneView(paneId: paneA.id), for: paneA.id)
-        harness.viewRegistry.register(PaneView(paneId: paneB.id), for: paneB.id)
-        harness.viewRegistry.register(PaneView(paneId: paneC.id), for: paneC.id)
+        harness.viewRegistry.register(PaneHostView(paneId: paneA.id), for: paneA.id)
+        harness.viewRegistry.register(PaneHostView(paneId: paneB.id), for: paneB.id)
+        harness.viewRegistry.register(PaneHostView(paneId: paneC.id), for: paneC.id)
 
         harness.coordinator.execute(.closeTab(tabId: tab.id))
 
@@ -157,7 +157,7 @@ struct PaneCoordinatorHardeningTests {
         let pane = makeWebviewPane(harness.store, title: "Transient")
         let tab = Tab(paneId: pane.id)
         harness.store.appendTab(tab)
-        harness.viewRegistry.register(PaneView(paneId: pane.id), for: pane.id)
+        harness.viewRegistry.register(PaneHostView(paneId: pane.id), for: pane.id)
 
         harness.coordinator.execute(.purgeOrphanedPane(paneId: pane.id))
         #expect(harness.store.pane(pane.id) != nil)

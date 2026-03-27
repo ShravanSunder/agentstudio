@@ -5,7 +5,7 @@ import SwiftUI
 /// Handles terminal views (with surface dimming and drag handles) and
 /// non-terminal views (webview, code viewer stubs) uniformly.
 struct PaneLeafContainer: View {
-    let paneView: PaneView
+    let paneHost: PaneHostView
     let tabId: UUID
     let isActive: Bool
     let isSplit: Bool
@@ -22,7 +22,7 @@ struct PaneLeafContainer: View {
     @State private var isSplitHovered: Bool = false
 
     init(
-        paneView: PaneView,
+        paneHost: PaneHostView,
         tabId: UUID,
         isActive: Bool,
         isSplit: Bool,
@@ -32,7 +32,7 @@ struct PaneLeafContainer: View {
         dropTargetCoordinateSpace: String? = "tabContainer",
         useDrawerFramePreference: Bool = false
     ) {
-        self.paneView = paneView
+        self.paneHost = paneHost
         self.tabId = tabId
         self.isActive = isActive
         self.isSplit = isSplit
@@ -45,18 +45,18 @@ struct PaneLeafContainer: View {
 
     /// Whether this pane is a drawer child (no drag, no drop, no sub-drawer).
     private var isDrawerChild: Bool {
-        store.pane(paneView.id)?.isDrawerChild ?? false
+        store.pane(paneHost.id)?.isDrawerChild ?? false
     }
 
     /// Drawer state derived from store via @Observable tracking.
     /// Only layout panes have drawers; drawer children return nil.
     private var drawer: Drawer? {
-        store.pane(paneView.id)?.drawer
+        store.pane(paneHost.id)?.drawer
     }
 
     /// Parent pane ID for drawer children; nil for layout panes.
     private var drawerParentPaneId: UUID? {
-        store.pane(paneView.id)?.parentPaneId
+        store.pane(paneHost.id)?.parentPaneId
     }
 
     /// True when hover is active either via tracking events or by direct pointer query.
@@ -68,15 +68,15 @@ struct PaneLeafContainer: View {
 
     private var isPointerInsidePaneView: Bool {
         guard managementMode.isActive else { return false }
-        guard let window = paneView.window else { return false }
+        guard let window = paneHost.window else { return false }
         let pointInWindow = window.mouseLocationOutsideOfEventStream
-        let pointInPane = paneView.convert(pointInWindow, from: nil)
-        return paneView.bounds.contains(pointInPane)
+        let pointInPane = paneHost.convert(pointInWindow, from: nil)
+        return paneHost.bounds.contains(pointInPane)
     }
 
     /// Downcast to terminal view for terminal-specific features.
-    private var terminalView: AgentStudioTerminalView? {
-        paneView as? AgentStudioTerminalView
+    private var terminalView: TerminalPaneMountView? {
+        paneHost.mountedContent(as: TerminalPaneMountView.self)
     }
 
     private var movePaneDestinations: [(tabId: UUID, title: String)] {
@@ -102,7 +102,7 @@ struct PaneLeafContainer: View {
         GeometryReader { _ in
             ZStack(alignment: .topTrailing) {
                 // Pane content view
-                PaneViewRepresentable(paneView: paneView)
+                PaneViewRepresentable(paneHost: paneHost)
                     // In management mode, route drag targeting through the shared
                     // SwiftUI leaf container so pane type (WKWebView/Ghostty/etc.)
                     // cannot intercept drop updates differently.
@@ -159,7 +159,7 @@ struct PaneLeafContainer: View {
                         )
                         .draggable(
                             PaneDragPayload(
-                                paneId: paneView.id,
+                                paneId: paneHost.id,
                                 tabId: tabId,
                                 drawerParentPaneId: drawerParentPaneId
                             )
@@ -184,7 +184,7 @@ struct PaneLeafContainer: View {
                     VStack {
                         HStack(spacing: AppStyle.spacingStandard) {
                             Button {
-                                action(.minimizePane(tabId: tabId, paneId: paneView.id))
+                                action(.minimizePane(tabId: tabId, paneId: paneHost.id))
                             } label: {
                                 Image(systemName: "minus")
                                     .font(.system(size: AppStyle.managementActionIconSize, weight: .bold))
@@ -214,7 +214,7 @@ struct PaneLeafContainer: View {
                             .help("Minimize pane")
 
                             Button {
-                                action(.closePane(tabId: tabId, paneId: paneView.id))
+                                action(.closePane(tabId: tabId, paneId: paneHost.id))
                             } label: {
                                 Image(systemName: "xmark")
                                     .font(.system(size: AppStyle.managementActionIconSize, weight: .bold))
@@ -261,7 +261,7 @@ struct PaneLeafContainer: View {
                                     .insertPane(
                                         source: .newTerminal,
                                         targetTabId: tabId,
-                                        targetPaneId: paneView.id,
+                                        targetPaneId: paneHost.id,
                                         direction: .right
                                     ))
                             } label: {
@@ -314,7 +314,7 @@ struct PaneLeafContainer: View {
                 // Drawer icon bar (bottom of pane, layout panes only — no nested drawers)
                 if !isDrawerChild {
                     DrawerOverlay(
-                        paneId: paneView.id,
+                        paneId: paneHost.id,
                         drawer: drawer,
                         isIconBarVisible: true,
                         action: action
@@ -324,12 +324,12 @@ struct PaneLeafContainer: View {
             .contentShape(Rectangle())
             .onHover { isHovered = $0 }
             .onTapGesture {
-                action(.focusPane(tabId: tabId, paneId: paneView.id))
+                action(.focusPane(tabId: tabId, paneId: paneHost.id))
             }
             .contextMenu {
                 if managementMode.isActive && !isDrawerChild {
                     Button("Extract Pane to New Tab") {
-                        action(.extractPaneToTab(tabId: tabId, paneId: paneView.id))
+                        action(.extractPaneToTab(tabId: tabId, paneId: paneHost.id))
                     }
 
                     Menu("Move Pane to Tab") {
@@ -342,7 +342,7 @@ struct PaneLeafContainer: View {
 
                                 action(
                                     .insertPane(
-                                        source: .existingPane(paneId: paneView.id, sourceTabId: tabId),
+                                        source: .existingPane(paneId: paneHost.id, sourceTabId: tabId),
                                         targetTabId: destination.tabId,
                                         targetPaneId: targetPaneId,
                                         direction: .right
@@ -369,16 +369,16 @@ struct PaneLeafContainer: View {
                             let tabMeasuredFrame = normalizedMeasuredFrame(from: tabRawFrame)
                             Color.clear.preference(
                                 key: DrawerPaneFramePreferenceKey.self,
-                                value: [paneView.id: measuredFrame]
+                                value: [paneHost.id: measuredFrame]
                             )
                             .preference(
                                 key: PaneFramePreferenceKey.self,
-                                value: [paneView.id: tabMeasuredFrame]
+                                value: [paneHost.id: tabMeasuredFrame]
                             )
                         } else {
                             Color.clear.preference(
                                 key: PaneFramePreferenceKey.self,
-                                value: [paneView.id: measuredFrame]
+                                value: [paneHost.id: measuredFrame]
                             )
                         }
                     } else {
@@ -398,24 +398,21 @@ struct PaneLeafContainer: View {
     }
 }
 
-// MARK: - NSViewRepresentable for PaneView
+// MARK: - NSViewRepresentable for PaneHostView
 
-/// Bridges any PaneView (NSView) into SwiftUI.
+/// Bridges any PaneHostView (NSView) into SwiftUI.
 /// Returns the stable swiftUIContainer — same NSView every time, preventing IOSurface reparenting.
 struct PaneViewRepresentable: NSViewRepresentable {
-    let paneView: PaneView
+    let paneHost: PaneHostView
 
     func makeNSView(context: Context) -> NSView {
-        paneView.swiftUIContainer
+        paneHost.swiftUIContainer
     }
 
     func updateNSView(_ nsView: NSView, context: Context) {
         // Nothing — container is stable, pane manages itself
     }
 }
-
-/// Backwards-compatible alias.
-typealias TerminalViewRepresentable = PaneViewRepresentable
 
 @available(*, deprecated, renamed: "PaneLeafContainer")
 typealias TerminalPaneLeaf = PaneLeafContainer

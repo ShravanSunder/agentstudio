@@ -4,7 +4,8 @@ import GhosttyKit
 /// Terminal view wrapping Ghostty's SurfaceView via SurfaceManager.
 /// This is a host-only view — PaneCoordinator creates surfaces and
 /// passes them here via displaySurface(). The view never creates its own surfaces.
-final class AgentStudioTerminalView: PaneView, SurfaceHealthDelegate {
+final class TerminalPaneMountView: NSView, PaneMountedContent, SurfaceHealthDelegate {
+    let paneId: UUID
     let worktree: Worktree?
     let repo: Repo?
 
@@ -13,9 +14,11 @@ final class AgentStudioTerminalView: PaneView, SurfaceHealthDelegate {
     // MARK: - Private State
 
     private var ghosttySurface: Ghostty.SurfaceView?
+    private let ghosttyMountView = GhosttyMountView()
     private(set) var isProcessRunning = false
     private var errorOverlay: SurfaceErrorOverlayView?
     private var startupOverlay: SurfaceStartupOverlayView?
+    private var placeholderView: TerminalStatusPlaceholderView?
     private let fallbackTitle: String
     private let showsRestorePresentationDuringStartup: Bool
     private let startupGraceDuration: Duration
@@ -40,13 +43,15 @@ final class AgentStudioTerminalView: PaneView, SurfaceHealthDelegate {
         showsRestorePresentationDuringStartup: Bool = false,
         startupGraceDuration: Duration = .milliseconds(100)
     ) {
+        self.paneId = paneId
         self.worktree = worktree
         self.repo = repo
         self.surfaceId = restoredSurfaceId
         self.fallbackTitle = worktree.name
         self.showsRestorePresentationDuringStartup = showsRestorePresentationDuringStartup
         self.startupGraceDuration = startupGraceDuration
-        super.init(paneId: paneId)
+        super.init(frame: NSRect(x: 0, y: 0, width: 800, height: 600))
+        setupMountView()
 
         // Register for health updates
         SurfaceManager.shared.addHealthDelegate(self)
@@ -62,16 +67,34 @@ final class AgentStudioTerminalView: PaneView, SurfaceHealthDelegate {
         showsRestorePresentationDuringStartup: Bool = false,
         startupGraceDuration: Duration = .milliseconds(100)
     ) {
+        self.paneId = paneId
         self.worktree = nil
         self.repo = nil
         self.surfaceId = restoredSurfaceId
         self.fallbackTitle = title
         self.showsRestorePresentationDuringStartup = showsRestorePresentationDuringStartup
         self.startupGraceDuration = startupGraceDuration
-        super.init(paneId: paneId)
+        super.init(frame: NSRect(x: 0, y: 0, width: 800, height: 600))
+        setupMountView()
 
         SurfaceManager.shared.addHealthDelegate(self)
         self.isProcessRunning = true
+    }
+
+    /// Placeholder-only initializer used before a surface exists.
+    init(
+        paneId: UUID,
+        title: String
+    ) {
+        self.paneId = paneId
+        self.worktree = nil
+        self.repo = nil
+        self.surfaceId = nil
+        self.fallbackTitle = title
+        self.showsRestorePresentationDuringStartup = false
+        self.startupGraceDuration = .milliseconds(100)
+        super.init(frame: NSRect(x: 0, y: 0, width: 800, height: 600))
+        setupMountView()
     }
 
     required init?(coder: NSCoder) {
@@ -84,23 +107,34 @@ final class AgentStudioTerminalView: PaneView, SurfaceHealthDelegate {
         // If surfaceId is still set, the normal teardown path was missed.
         if let surfaceId {
             debugLog(
-                "[AgentStudioTerminalView] WARNING: deinit with surfaceId \(surfaceId) still attached — teardown was missed"
+                "[TerminalPaneMountView] WARNING: deinit with surfaceId \(surfaceId) still attached — teardown was missed"
             )
         }
     }
 
     // MARK: - Layout
 
+    private func setupMountView() {
+        ghosttyMountView.translatesAutoresizingMaskIntoConstraints = false
+        addSubview(ghosttyMountView)
+        NSLayoutConstraint.activate([
+            ghosttyMountView.topAnchor.constraint(equalTo: topAnchor),
+            ghosttyMountView.leadingAnchor.constraint(equalTo: leadingAnchor),
+            ghosttyMountView.trailingAnchor.constraint(equalTo: trailingAnchor),
+            ghosttyMountView.bottomAnchor.constraint(equalTo: bottomAnchor),
+        ])
+    }
+
     private var lastReportedSurfaceSize: NSSize = .zero
 
     override func layout() {
         super.layout()
         guard let surface = ghosttySurface, bounds.size.width > 0, bounds.size.height > 0 else { return }
-        let currentSize = surface.bounds.size
+        let currentSize = ghosttyMountView.bounds.size == .zero ? surface.bounds.size : ghosttyMountView.bounds.size
         guard currentSize != lastReportedSurfaceSize else { return }
         lastReportedSurfaceSize = currentSize
         RestoreTrace.log(
-            "AgentStudioTerminalView.layout pane=\(paneId) surface=\(surfaceId?.uuidString ?? "nil") paneBounds=\(NSStringFromRect(bounds)) surfaceBounds=\(NSStringFromRect(surface.bounds)) surfaceMetrics={\(surface.metricsSnapshotDescription())}"
+            "TerminalPaneMountView.layout pane=\(paneId) surface=\(surfaceId?.uuidString ?? "nil") paneBounds=\(NSStringFromRect(bounds)) surfaceBounds=\(NSStringFromRect(surface.bounds)) surfaceMetrics={\(surface.metricsSnapshotDescription())}"
         )
         surface.sizeDidChange(currentSize)
     }
@@ -109,11 +143,12 @@ final class AgentStudioTerminalView: PaneView, SurfaceHealthDelegate {
         guard let surface = ghosttySurface, window != nil else { return }
         guard bounds.size.width > 0, bounds.size.height > 0 else { return }
         layoutSubtreeIfNeeded()
-        let actualSurfaceSize = surface.bounds.size
+        let actualSurfaceSize =
+            ghosttyMountView.bounds.size == .zero ? surface.bounds.size : ghosttyMountView.bounds.size
         guard actualSurfaceSize.width > 0, actualSurfaceSize.height > 0 else { return }
         lastReportedSurfaceSize = .zero
         RestoreTrace.log(
-            "AgentStudioTerminalView.forceGeometrySync pane=\(paneId) surface=\(surfaceId?.uuidString ?? "nil") reason=\(reason) paneBounds=\(NSStringFromRect(bounds)) surfaceBounds=\(NSStringFromRect(surface.bounds)) surfaceMetrics={\(surface.metricsSnapshotDescription())}"
+            "TerminalPaneMountView.forceGeometrySync pane=\(paneId) surface=\(surfaceId?.uuidString ?? "nil") reason=\(reason) paneBounds=\(NSStringFromRect(bounds)) surfaceBounds=\(NSStringFromRect(surface.bounds)) surfaceMetrics={\(surface.metricsSnapshotDescription())}"
         )
         surface.sizeDidChange(actualSurfaceSize)
     }
@@ -123,25 +158,18 @@ final class AgentStudioTerminalView: PaneView, SurfaceHealthDelegate {
     func displaySurface(_ surfaceView: Ghostty.SurfaceView) {
         // Remove existing surface if any
         ghosttySurface?.onCloseRequested = nil
-        ghosttySurface?.removeFromSuperview()
+        ghosttyMountView.unmountCurrentSurface()
+        clearPlaceholder()
         RestoreTrace.log(
-            "AgentStudioTerminalView.displaySurface pane=\(paneId) surface=\(surfaceId?.uuidString ?? "nil") hostBounds=\(NSStringFromRect(bounds)) incomingSurfaceFrame=\(NSStringFromRect(surfaceView.frame)) incomingSurfaceMetrics={\(surfaceView.metricsSnapshotDescription())}"
+            "TerminalPaneMountView.displaySurface pane=\(paneId) surface=\(surfaceId?.uuidString ?? "nil") hostBounds=\(NSStringFromRect(bounds)) incomingSurfaceFrame=\(NSStringFromRect(surfaceView.frame)) incomingSurfaceMetrics={\(surfaceView.metricsSnapshotDescription())}"
         )
 
-        surfaceView.translatesAutoresizingMaskIntoConstraints = false
-        addSubview(surfaceView)
-
-        NSLayoutConstraint.activate([
-            surfaceView.topAnchor.constraint(equalTo: topAnchor),
-            surfaceView.leadingAnchor.constraint(equalTo: leadingAnchor),
-            surfaceView.trailingAnchor.constraint(equalTo: trailingAnchor),
-            surfaceView.bottomAnchor.constraint(equalTo: bottomAnchor),
-        ])
+        ghosttyMountView.mount(surfaceView)
 
         self.ghosttySurface = surfaceView
         self.lastReportedSurfaceSize = .zero
         RestoreTrace.log(
-            "AgentStudioTerminalView.displaySurface mounted pane=\(paneId) surface=\(surfaceId?.uuidString ?? "nil") mountedSurfaceMetrics={\(surfaceView.metricsSnapshotDescription())}"
+            "TerminalPaneMountView.displaySurface mounted pane=\(paneId) surface=\(surfaceId?.uuidString ?? "nil") mountedSurfaceMetrics={\(surfaceView.metricsSnapshotDescription())}"
         )
 
         // Make this view layer-backed AFTER the surface is created
@@ -156,9 +184,44 @@ final class AgentStudioTerminalView: PaneView, SurfaceHealthDelegate {
 
     func removeSurface() {
         ghosttySurface?.onCloseRequested = nil
-        ghosttySurface?.removeFromSuperview()
+        ghosttyMountView.unmountCurrentSurface()
         ghosttySurface = nil
         surfaceId = nil
+    }
+
+    @discardableResult
+    func showPlaceholder(
+        mode: TerminalStatusPlaceholderMode,
+        onRetryRequested: ((UUID) -> Void)? = nil,
+        onDismissRequested: ((UUID) -> Void)? = nil
+    ) -> TerminalStatusPlaceholderView {
+        if let placeholderView {
+            placeholderView.configure(mode: mode)
+            return placeholderView
+        }
+
+        let placeholder = TerminalStatusPlaceholderView(
+            paneId: paneId,
+            title: title,
+            mode: mode,
+            onRetryRequested: onRetryRequested,
+            onDismissRequested: onDismissRequested
+        )
+        placeholder.translatesAutoresizingMaskIntoConstraints = false
+        addSubview(placeholder)
+        NSLayoutConstraint.activate([
+            placeholder.topAnchor.constraint(equalTo: topAnchor),
+            placeholder.leadingAnchor.constraint(equalTo: leadingAnchor),
+            placeholder.trailingAnchor.constraint(equalTo: trailingAnchor),
+            placeholder.bottomAnchor.constraint(equalTo: bottomAnchor),
+        ])
+        placeholderView = placeholder
+        return placeholder
+    }
+
+    func clearPlaceholder() {
+        placeholderView?.removeFromSuperview()
+        placeholderView = nil
     }
 
     // MARK: - SurfaceHealthDelegate
@@ -249,7 +312,7 @@ final class AgentStudioTerminalView: PaneView, SurfaceHealthDelegate {
             failRestorePresentation(health: .processExited(exitCode: nil))
         }
         RestoreTrace.log(
-            "AgentStudioTerminalView.handleSurfaceClose pane=\(paneId) surface=\(surfaceId?.uuidString ?? "nil") processAlive=\(processAlive)"
+            "TerminalPaneMountView.handleSurfaceClose pane=\(paneId) surface=\(surfaceId?.uuidString ?? "nil") processAlive=\(processAlive)"
         )
         handleProcessTerminated()
     }
@@ -340,6 +403,10 @@ final class AgentStudioTerminalView: PaneView, SurfaceHealthDelegate {
         return SurfaceManager.shared.hasProcessExited(surfaceId)
     }
 
+    func setContentInteractionEnabled(_ enabled: Bool) {
+        _ = enabled
+    }
+
     // MARK: - First Responder
 
     override var acceptsFirstResponder: Bool { true }
@@ -350,7 +417,7 @@ final class AgentStudioTerminalView: PaneView, SurfaceHealthDelegate {
                 SurfaceManager.shared.setFocus(surfaceId, focused: true)
             }
             RestoreTrace.log(
-                "AgentStudioTerminalView.becomeFirstResponder pane=\(paneId) surface=\(surfaceId?.uuidString ?? "nil")")
+                "TerminalPaneMountView.becomeFirstResponder pane=\(paneId) surface=\(surfaceId?.uuidString ?? "nil")")
             return window.makeFirstResponder(surface)
         }
         return super.becomeFirstResponder()
@@ -361,18 +428,13 @@ final class AgentStudioTerminalView: PaneView, SurfaceHealthDelegate {
             SurfaceManager.shared.setFocus(surfaceId, focused: false)
         }
         RestoreTrace.log(
-            "AgentStudioTerminalView.resignFirstResponder pane=\(paneId) surface=\(surfaceId?.uuidString ?? "nil")")
+            "TerminalPaneMountView.resignFirstResponder pane=\(paneId) surface=\(surfaceId?.uuidString ?? "nil")")
         return super.resignFirstResponder()
     }
 
     // MARK: - Hit Testing
 
     override func hitTest(_ point: NSPoint) -> NSView? {
-        // Management mode: delegate to PaneView base class (uses interaction shield)
-        if ManagementModeMonitor.shared.isActive {
-            return super.hitTest(point)
-        }
-
         // Normal mode: custom routing for error overlay and Ghostty surface
         if let overlay = errorOverlay, !overlay.isHidden {
             let overlayPoint = convert(point, to: overlay)
@@ -387,4 +449,9 @@ final class AgentStudioTerminalView: PaneView, SurfaceHealthDelegate {
         return super.hitTest(point)
     }
 
+}
+
+@MainActor
+extension TerminalPaneMountView {
+    var placeholderViewForTesting: TerminalStatusPlaceholderView? { placeholderView }
 }

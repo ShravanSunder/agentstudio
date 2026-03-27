@@ -355,10 +355,11 @@ Manages live session state. Does **not** own sessions — reads the session list
 
 ### 3.4 ViewRegistry
 
-Maps pane IDs to live `PaneView` instances (terminal/webview/bridge). Runtime-only (not persisted). `@MainActor`.
+Maps pane IDs to live `PaneHostView` instances. Runtime-only (not persisted). `@MainActor`.
 
 - `register(view, paneId)` / `unregister(paneId)` — View lifecycle
-- `view(for: paneId)` — Lookup
+- `view(for: paneId)` — Host lookup
+- typed mount accessors — Resolve mounted content when callers need pane-kind-specific behavior
 - `renderTree(for: Layout) -> PaneSplitTree?` — Traverse a `Layout` tree, resolve each leaf to a registered pane view, return a renderable split tree. Gracefully promotes single-child splits when one side's view is missing.
 
 > **File:** `App/Panes/ViewRegistry.swift`
@@ -398,8 +399,8 @@ The `PaneCoordinator` is the canonical orchestration boundary for action executi
 - `openTerminal(for:in:)` — Create session + surface + tab. Rolls back session if surface creation fails.
 - `openWebview(url:)` — Open a webview pane and append it as a new tab
 - `undoCloseTab()` — pop `WorkspaceStore.CloseEntry` from undo stack, restore to store, reattach surfaces in reverse order
-- `createView(for:worktree:repo:)` — Create surface → attach → create `AgentStudioTerminalView` → register in `ViewRegistry`
-- `createViewForContent(pane:)` — create/register non-terminal pane views (webview/code/bridge)
+- `createView(for:worktree:repo:)` — Create surface → attach → create `TerminalPaneMountView` → mount inside `PaneHostView` → register host in `ViewRegistry`
+- `createViewForContent(pane:)` — create non-terminal mounts (webview/code/bridge), mount them inside `PaneHostView`, and register the host
 - `teardownView(for: paneId)` — Unregister → detach surface (with undo support)
 - `restoreView(for:worktree:repo:)` — Pop surface from `SurfaceManager.undoClose()` LIFO stack → reattach
 - `restoreAllViews()` — App launch: create views for all panes in active tabs

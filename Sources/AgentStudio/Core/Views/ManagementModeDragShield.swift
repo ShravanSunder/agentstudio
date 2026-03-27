@@ -4,7 +4,7 @@ import Observation
 /// Transparent overlay that suppresses file/media drag types during management mode,
 /// preventing WKWebView-backed panes from showing "Drop files to upload."
 ///
-/// Placed as the topmost subview of ``PaneView`` (above WKWebView / Ghostty content).
+/// Placed as the topmost subview of ``PaneHostView`` (above WKWebView / Ghostty content).
 ///
 /// ## Architecture: single-owner-per-drag-type
 ///
@@ -15,7 +15,7 @@ import Observation
 /// ## hitTest behavior
 ///
 /// Always returns `nil` — transparent to mouse events (clicks, hover).
-/// ``PaneView/hitTest(_:)`` handles click blocking by returning `nil` during management mode.
+/// ``PaneHostView/hitTest(_:)`` handles click blocking by returning `nil` during management mode.
 /// NSDraggingDestination routing is **frame-based** (independent of hitTest), so the shield
 /// still receives drag callbacks for its registered types.
 ///
@@ -23,7 +23,7 @@ import Observation
 ///
 /// Registers/unregisters file/media drag types when management mode toggles
 /// by observing ``ManagementModeMonitor`` directly. Also notifies the parent
-/// ``PaneView`` to apply content-level interaction changes
+/// ``PaneHostView`` to apply content-level interaction changes
 /// (e.g., CSS `pointer-events: none` for WKWebView).
 @MainActor
 final class ManagementModeDragShield: NSView {
@@ -86,7 +86,7 @@ final class ManagementModeDragShield: NSView {
         // Always transparent to mouse events.
         // The shield participates in drag routing via NSDraggingDestination
         // (bounds-based, independent of hitTest), not via hitTest.
-        // PaneView.hitTest returning nil handles click blocking.
+        // PaneHostView.hitTest returning nil handles click blocking.
         nil
     }
 
@@ -127,7 +127,7 @@ final class ManagementModeDragShield: NSView {
     }
 
     /// Dynamically register/unregister drag types based on management mode.
-    /// Also notifies the parent PaneView to apply content-level interaction changes.
+    /// Also notifies the parent PaneHostView to apply content-level interaction changes.
     private func updateRegistration() {
         let isActive = ManagementModeMonitor.shared.isActive
         if isActive {
@@ -135,8 +135,8 @@ final class ManagementModeDragShield: NSView {
         } else {
             unregisterDraggedTypes()
         }
-        // Notify parent PaneView for content-level interaction suppression
+        // Notify parent pane host for content-level interaction suppression
         // (e.g., WKWebView pointer-events:none, Ghostty mouse tracking).
-        (superview as? PaneView)?.setContentInteractionEnabled(!isActive)
+        (superview as? PaneHostView)?.setContentInteractionEnabled(!isActive)
     }
 }

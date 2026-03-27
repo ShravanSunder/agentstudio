@@ -5,8 +5,8 @@ import Testing
 @testable import AgentStudio
 
 @MainActor
-@Suite("CodeViewerPaneView")
-struct CodeViewerPaneViewTests {
+@Suite("CodeViewerPaneMountView")
+struct CodeViewerPaneMountViewTests {
     @Test("renders file contents in a read-only text view")
     func rendersFileContentsInReadOnlyTextView() throws {
         let fileURL = FileManager.default.temporaryDirectory
@@ -14,7 +14,7 @@ struct CodeViewerPaneViewTests {
         try "struct Demo {}\n".write(to: fileURL, atomically: true, encoding: .utf8)
         defer { try? FileManager.default.removeItem(at: fileURL) }
 
-        let view = CodeViewerPaneView(
+        let view = CodeViewerPaneMountView(
             paneId: UUID(),
             state: CodeViewerState(filePath: fileURL, scrollToLine: 1)
         )
@@ -35,7 +35,7 @@ struct CodeViewerPaneViewTests {
         let fileURL = FileManager.default.temporaryDirectory
             .appending(path: "missing-file-\(UUID().uuidString).swift")
 
-        let view = CodeViewerPaneView(
+        let view = CodeViewerPaneMountView(
             paneId: UUID(),
             state: CodeViewerState(filePath: fileURL, scrollToLine: nil)
         )

@@ -28,14 +28,15 @@ Sources/AgentStudio/
 │   └── PaneCoordinator.swift         # Cross-feature sequencing (imports from all)
 │
 ├── Core/                             # Shared domain — pane system, models, stores
-│   ├── Models/                       # Pane, Layout, Tab, ViewDefinition, PaneView
+│   ├── Models/                       # Pane, Layout, Tab, ViewDefinition
 │   ├── Stores/                       # WorkspaceStore, SessionRuntime
 │   ├── Actions/                      # PaneActionCommand, ActionResolver, ActionValidator
 │
 ├── Features/
 │   ├── Terminal/                     # Everything Ghostty-specific
 │   │   ├── Ghostty/                  # C API bridge, SurfaceManager, SurfaceTypes
-│   │   ├── Views/                    # AgentStudioTerminalView, SurfaceErrorOverlay
+│   │   ├── Hosting/                  # TerminalPaneMountView, GhosttyMountView, placeholder hosting
+│   │   ├── Views/                    # SurfaceErrorOverlay, SurfaceStartupOverlay
 │   │   └── GhosttyBridge.swift       # PaneBridge conformance for terminal surfaces
 │   │
 │   ├── Bridge/                       # React/WebView pane system
@@ -51,7 +52,7 @@ Sources/AgentStudio/
 │   │   │   ├── BridgeDomainState.swift
 │   │   │   ├── BridgePaneState.swift
 │   │   │   └── Push/                 # PushTransport, PushPlan, Slice, EntitySlice, RevisionClock
-│   │   ├── Views/                    # BridgePaneView, BridgePaneContentView
+│   │   ├── Views/                    # BridgePaneMountView, BridgePaneContentView
 │   │   └── BridgeNavigationDecider.swift
 │   │
 │   ├── CommandBar/                   # ⌘P command palette
@@ -196,7 +197,7 @@ Today's cross-feature coordinator is `PaneCoordinator`. It sequences operations 
 
 ### ViewRegistry → `App/Panes/`
 
-Stores views by pane ID. Doesn't care what type the view is — terminal, bridge, webview. Stores `PaneView` (the base class). Adding a new feature doesn't change ViewRegistry.
+Stores stable pane hosts by pane ID. `ViewRegistry` stores `PaneHostView` and resolves mounted content only for callers that need pane-kind-specific behavior. Adding a new pane kind does not change the split tree's host contract.
 
 **Deletion test:** passes for any single feature. **Change driver:** only changes if the pane registration mechanism itself changes, not when new pane types arrive.
 

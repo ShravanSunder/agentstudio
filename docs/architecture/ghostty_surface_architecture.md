@@ -2,7 +2,7 @@
 
 ## TL;DR
 
-Agent Studio embeds Ghostty terminal surfaces via libghostty. `SurfaceManager` (singleton) **owns** all surfaces. `AgentStudioTerminalView` only **displays** them. `PaneCoordinator` is the sole intermediary — views and the model layer never call `SurfaceManager` directly. Surfaces live in exactly one of three collections (active, hidden, undoStack), with dual-layer health monitoring and crash isolation per terminal.
+Agent Studio embeds Ghostty terminal surfaces via libghostty. `SurfaceManager` (singleton) **owns** all surfaces. `TerminalPaneMountView` only **displays** them, and it does so from inside a stable `PaneHostView`. `PaneCoordinator` is the sole intermediary — views and the model layer never call `SurfaceManager` directly. Surfaces live in exactly one of three collections (active, hidden, undoStack), with dual-layer health monitoring and crash isolation per terminal.
 
 ---
 
@@ -10,7 +10,7 @@ Agent Studio embeds Ghostty terminal surfaces via libghostty. `SurfaceManager` (
 
 The key architectural decision is **separation of ownership from display**:
 - `SurfaceManager` **owns** all surfaces (creation, lifecycle, destruction)
-- `AgentStudioTerminalView` containers only **display** surfaces
+- `TerminalPaneMountView` containers only **display** surfaces
 - `PaneCoordinator` is the sole intermediary for surface/runtime lifecycle
 
 ```
@@ -35,8 +35,8 @@ The key architectural decision is **separation of ownership from display**:
                               │
                               ▼
 ┌─────────────────────────────────────────────────────────────────────┐
-│                    AgentStudioTerminalView                          │
-│                  (DISPLAYS, does not own)                           │
+│                    TerminalPaneMountView                            │
+│          (mounted under PaneHostView, displays only)                │
 │                                                                     │
 │   paneId: UUID       ←─ single identity across all layers           │
 │   surfaceId: UUID?   ←─ which surface is displayed here             │
@@ -275,11 +275,11 @@ This document defines surface lifecycle primitives. Scheduling policy belongs to
 
 ```swift
 // WRONG: Creates orphan surface
-let view = AgentStudioTerminalView(worktree: w, project: p)
+let view = TerminalPaneMountView(worktree: w, repo: p)
 view.displaySurface(restoredSurface)  // Original surface from view is orphaned!
 
 // RIGHT: Skip surface creation for restore
-let view = AgentStudioTerminalView(worktree: w, project: p, restoredSurfaceId: id)
+let view = TerminalPaneMountView(worktree: w, repo: p, restoredSurfaceId: id)
 view.displaySurface(restoredSurface)  // No orphan, view has no surface yet
 ```
 
@@ -320,7 +320,7 @@ view.displaySurface(restoredSurface)  // No orphan, view has no surface yet
 | `Ghostty/CWDNormalizer.swift` | Pure normalizer: raw pwd string → validated file URL |
 | `Ghostty/GhosttySurfaceView.swift` | Surface view with `pwd` property (OSC 7 CWD tracking) |
 | `Ghostty/Ghostty.swift` | C API wrapper, action handler (including `GHOSTTY_ACTION_PWD`) |
-| `Views/AgentStudioTerminalView.swift` | Container, implements SurfaceHealthDelegate |
+| `Hosting/TerminalPaneMountView.swift` | Terminal mount container, implements `SurfaceHealthDelegate` |
 | `Views/SurfaceErrorOverlay.swift` | Error state UI with restart/close |
 
 ---

@@ -3,7 +3,7 @@ import os.log
 
 private let registryLogger = Logger(subsystem: "com.agentstudio", category: "ViewRegistry")
 
-/// Maps pane IDs to live PaneView instances (terminal, webview, code viewer).
+/// Maps pane IDs to live PaneHostView instances.
 /// Runtime only — not persisted. Collaborator of WorkspaceStore.
 ///
 /// NOT @Observable — views should not re-render based on surface registration.
@@ -11,10 +11,10 @@ private let registryLogger = Logger(subsystem: "com.agentstudio", category: "Vie
 /// ViewRegistry provides the NSView instances to display during those renders.
 @MainActor
 final class ViewRegistry {
-    private var views: [UUID: PaneView] = [:]
+    private var views: [UUID: PaneHostView] = [:]
 
     /// Register a view for a pane.
-    func register(_ view: PaneView, for paneId: UUID) {
+    func register(_ view: PaneHostView, for paneId: UUID) {
         views[paneId] = view
     }
 
@@ -24,33 +24,40 @@ final class ViewRegistry {
     }
 
     /// Get the view for a pane, if registered.
-    func view(for paneId: UUID) -> PaneView? {
+    func view(for paneId: UUID) -> PaneHostView? {
         views[paneId]
     }
 
     /// Get the terminal view for a pane, if it is a terminal.
-    func terminalView(for paneId: UUID) -> AgentStudioTerminalView? {
-        views[paneId] as? AgentStudioTerminalView
+    func terminalView(for paneId: UUID) -> TerminalPaneMountView? {
+        guard let view = views[paneId] else { return nil }
+        return view.mountedContent(as: TerminalPaneMountView.self)
     }
 
     /// Get the terminal status placeholder view for a pane, if it is present.
     func terminalStatusPlaceholderView(for paneId: UUID) -> TerminalStatusPlaceholderView? {
-        views[paneId] as? TerminalStatusPlaceholderView
+        guard let view = views[paneId] else { return nil }
+        return view.mountedContent(as: TerminalPaneMountView.self)?.placeholderViewForTesting
     }
 
     /// Get the webview for a pane, if it is a webview.
-    func webviewView(for paneId: UUID) -> WebviewPaneView? {
-        views[paneId] as? WebviewPaneView
+    func webviewView(for paneId: UUID) -> WebviewPaneMountView? {
+        guard let view = views[paneId] else { return nil }
+        return view.mountedContent(as: WebviewPaneMountView.self)
     }
 
     /// All registered webview pane views, keyed by pane ID.
-    var allWebviewViews: [UUID: WebviewPaneView] {
-        views.compactMapValues { $0 as? WebviewPaneView }
+    var allWebviewViews: [UUID: WebviewPaneMountView] {
+        views.compactMapValues { view in
+            view.mountedContent(as: WebviewPaneMountView.self)
+        }
     }
 
     /// All registered terminal pane views, keyed by pane ID.
-    var allTerminalViews: [UUID: AgentStudioTerminalView] {
-        views.compactMapValues { $0 as? AgentStudioTerminalView }
+    var allTerminalViews: [UUID: TerminalPaneMountView] {
+        views.compactMapValues { view in
+            view.mountedContent(as: TerminalPaneMountView.self)
+        }
     }
 
     /// All currently registered pane IDs.

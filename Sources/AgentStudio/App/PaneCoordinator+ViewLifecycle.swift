@@ -12,6 +12,17 @@ extension PaneCoordinator {
         var restoredPaneIds: Set<UUID> = []
     }
 
+    @discardableResult
+    func registerHostedView(
+        mountedView: NSView & PaneMountedContent,
+        for paneId: UUID
+    ) -> PaneHostView {
+        let host = PaneHostView(paneId: paneId)
+        host.mountContentView(mountedView)
+        viewRegistry.register(host, for: paneId)
+        return host
+    }
+
     static func floatingZmxRestoreSessionId(for pane: Pane, workingDirectory: URL) -> String {
         if let parentPaneId = pane.parentPaneId {
             return ZmxBackend.drawerSessionId(
@@ -27,12 +38,12 @@ extension PaneCoordinator {
     }
 
     /// Create a view for any pane content type. Dispatches to the appropriate factory.
-    /// Returns the created PaneView, or nil on failure.
+    /// Returns the created mounted content view, or nil on failure.
     func createViewForContent(
         pane: Pane,
         initialFrame: NSRect? = nil,
         treatAsRestoredSessionStart: Bool = false
-    ) -> PaneView? {
+    ) -> NSView? {
         switch pane.content {
         case .terminal:
             if let worktreeId = pane.worktreeId,
@@ -72,12 +83,12 @@ extension PaneCoordinator {
             }
 
         case .webview(let state):
-            let view = WebviewPaneView(paneId: pane.id, state: state)
+            let view = WebviewPaneMountView(paneId: pane.id, state: state)
             let paneId = pane.id
             view.controller.onTitleChange = { [weak self] title in
                 self?.store.updatePaneTitle(paneId, title: title)
             }
-            viewRegistry.register(view, for: pane.id)
+            registerHostedView(mountedView: view, for: pane.id)
             registerRuntimeIfNeeded(runtime: view.runtime, for: pane)
             Self.logger.info("Created webview pane \(pane.id)")
             return view
@@ -98,19 +109,19 @@ extension PaneCoordinator {
                 initialText = nil
             }
 
-            let view = CodeViewerPaneView(
+            let view = CodeViewerPaneMountView(
                 paneId: pane.id,
                 state: state,
                 initialText: initialText
             )
-            viewRegistry.register(view, for: pane.id)
+            registerHostedView(mountedView: view, for: pane.id)
             Self.logger.info("Created code viewer pane \(pane.id)")
             return view
 
         case .bridgePanel(let state):
             let controller = BridgePaneController(paneId: pane.id, state: state)
-            let view = BridgePaneView(paneId: pane.id, controller: controller)
-            viewRegistry.register(view, for: pane.id)
+            let view = BridgePaneMountView(paneId: pane.id, controller: controller)
+            registerHostedView(mountedView: view, for: pane.id)
             registerRuntimeIfNeeded(runtime: view.runtime, for: pane)
             controller.loadApp()
             Self.logger.info("Created bridge panel view for pane \(pane.id)")
@@ -131,7 +142,7 @@ extension PaneCoordinator {
         repo: Repo,
         initialFrame: NSRect? = nil,
         treatAsRestoredSessionStart: Bool = false
-    ) -> AgentStudioTerminalView? {
+    ) -> TerminalPaneMountView? {
         if pane.provider == .zmx, initialFrame == nil {
             assertionFailure("zmx pane \(pane.id) must provide trusted initialFrame before Ghostty surface creation")
             Self.logger.error(
@@ -202,7 +213,7 @@ extension PaneCoordinator {
             )
             surfaceManager.attach(managed.id, to: pane.id)
 
-            let view = AgentStudioTerminalView(
+            let view = TerminalPaneMountView(
                 worktree: worktree,
                 repo: repo,
                 restoredSurfaceId: managed.id,
@@ -214,7 +225,7 @@ extension PaneCoordinator {
             }
             view.displaySurface(managed.surface)
 
-            viewRegistry.register(view, for: pane.id)
+            registerHostedView(mountedView: view, for: pane.id)
             registerTerminalRuntimeIfNeeded(for: pane)
             runtime.markRunning(pane.id)
             RestoreTrace.log(
@@ -241,7 +252,7 @@ extension PaneCoordinator {
         for pane: Pane,
         initialFrame: NSRect? = nil,
         treatAsRestoredSessionStart: Bool = false
-    ) -> AgentStudioTerminalView? {
+    ) -> TerminalPaneMountView? {
         if pane.provider == .zmx, initialFrame == nil {
             assertionFailure(
                 "floating zmx pane \(pane.id) must provide trusted initialFrame before Ghostty surface creation")
@@ -316,7 +327,7 @@ extension PaneCoordinator {
             )
             surfaceManager.attach(managed.id, to: pane.id)
 
-            let view = AgentStudioTerminalView(
+            let view = TerminalPaneMountView(
                 restoredSurfaceId: managed.id,
                 paneId: pane.id,
                 title: pane.metadata.title,
@@ -327,7 +338,7 @@ extension PaneCoordinator {
             }
             view.displaySurface(managed.surface)
 
-            viewRegistry.register(view, for: pane.id)
+            registerHostedView(mountedView: view, for: pane.id)
             registerTerminalRuntimeIfNeeded(for: pane)
             runtime.markRunning(pane.id)
             RestoreTrace.log("createFloatingView complete pane=\(pane.id) surface=\(managed.id)")
@@ -354,7 +365,7 @@ extension PaneCoordinator {
             surfaceManager.detach(surfaceId, reason: .close)
         }
 
-        if let bridgeView = viewRegistry.view(for: paneId) as? BridgePaneView {
+        if let bridgeView = viewRegistry.view(for: paneId)?.mountedContent(as: BridgePaneMountView.self) {
             bridgeView.controller.teardown()
         }
 
@@ -501,7 +512,7 @@ extension PaneCoordinator {
         for pane: Pane,
         worktree: Worktree,
         repo: Repo
-    ) -> AgentStudioTerminalView? {
+    ) -> TerminalPaneMountView? {
         guard UUIDv7.isV7(pane.id) else {
             Self.logger.error(
                 "Unable to restore runtime for non-v7 pane id \(pane.id.uuidString, privacy: .public)"
@@ -516,7 +527,7 @@ extension PaneCoordinator {
 
         if let undone = surfaceManager.undoClose() {
             if undone.metadata.paneId == pane.id {
-                let view = AgentStudioTerminalView(
+                let view = TerminalPaneMountView(
                     worktree: worktree,
                     repo: repo,
                     restoredSurfaceId: undone.id,
@@ -524,7 +535,7 @@ extension PaneCoordinator {
                 )
                 surfaceManager.attach(undone.id, to: pane.id)
                 view.displaySurface(undone.surface)
-                viewRegistry.register(view, for: pane.id)
+                registerHostedView(mountedView: view, for: pane.id)
                 runtime.markRunning(pane.id)
                 Self.logger.info("Restored view from undo for pane \(pane.id)")
                 return view
@@ -541,7 +552,7 @@ extension PaneCoordinator {
             createViewForContentUsingCurrentGeometry(
                 pane: pane,
                 treatAsRestoredSessionStart: true
-            ) as? AgentStudioTerminalView
+            ) as? TerminalPaneMountView
         if restoredView == nil, !runtimeWasAlreadyRegistered {
             _ = unregisterRuntime(runtimePaneId)
         }

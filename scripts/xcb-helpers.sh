@@ -7,13 +7,28 @@
 
 set -o pipefail
 
-_xcb_pipe_cmd() {
+_xcb_pipe() {
+  local script_dir
+  script_dir="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+  local filter_script="${script_dir}/filter-known-linker-warnings.sh"
+
   if [ "${_XCB_BYPASS:-0}" = "1" ]; then
-    echo "cat"
-  elif command -v xcbeautify >/dev/null 2>&1; then
-    # shellcheck disable=SC2086
-    echo "xcbeautify"${XCB_EXTRA_ARGS:+ $XCB_EXTRA_ARGS}
-  else
-    echo "cat"
+    bash "$filter_script"
+    return
   fi
+
+  if command -v xcbeautify >/dev/null 2>&1; then
+    local extra_args=()
+    if [ -n "${XCB_EXTRA_ARGS:-}" ]; then
+      read -r -a extra_args <<<"${XCB_EXTRA_ARGS}"
+    fi
+    bash "$filter_script" | xcbeautify "${extra_args[@]}"
+    return
+  fi
+
+  bash "$filter_script"
+}
+
+_xcb_pipe_cmd() {
+  echo "_xcb_pipe"
 }

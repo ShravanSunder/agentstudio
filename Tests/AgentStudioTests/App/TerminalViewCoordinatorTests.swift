@@ -37,8 +37,8 @@ struct PaneCoordinatorViewFactoryTests {
         )
     }
 
-    @Test("createViewForContent registers a webview view in the registry")
-    func createViewForContent_registersWebviewView() {
+    @Test("createViewForContent registers a host whose mounted content is a webview mount")
+    func createViewForContent_registersHostedWebviewView() {
         let harness = makeHarness()
         let viewRegistry = harness.viewRegistry
         let coordinator = harness.coordinator
@@ -54,14 +54,16 @@ struct PaneCoordinatorViewFactoryTests {
         let maybeView = coordinator.createViewForContent(pane: pane)
         let registered = viewRegistry.view(for: pane.id)
 
-        #expect(maybeView is WebviewPaneView)
-        #expect(registered is WebviewPaneView)
+        #expect(maybeView is WebviewPaneMountView)
+        #expect(!(maybeView is PaneHostView))
+        #expect(registered != nil)
+        #expect(registered?.mountedContentViewForTesting is WebviewPaneMountView)
         #expect(viewRegistry.allWebviewViews.count == 1)
-        #expect(viewRegistry.allWebviewViews[pane.id] === registered as? WebviewPaneView)
+        #expect(viewRegistry.allWebviewViews[pane.id] === maybeView as? WebviewPaneMountView)
     }
 
-    @Test("createViewForContent registers a code viewer view in the registry")
-    func createViewForContent_registersCodeViewerView() {
+    @Test("createViewForContent registers a host whose mounted content is a code viewer mount")
+    func createViewForContent_registersHostedCodeViewerView() {
         let harness = makeHarness()
         let viewRegistry = harness.viewRegistry
         let coordinator = harness.coordinator
@@ -79,12 +81,14 @@ struct PaneCoordinatorViewFactoryTests {
         let maybeView = coordinator.createViewForContent(pane: pane)
         let registered = viewRegistry.view(for: pane.id)
 
-        #expect(maybeView is CodeViewerPaneView)
-        #expect(registered is CodeViewerPaneView)
+        #expect(maybeView is CodeViewerPaneMountView)
+        #expect(!(maybeView is PaneHostView))
+        #expect(registered != nil)
+        #expect(registered?.mountedContentViewForTesting is CodeViewerPaneMountView)
         #expect(viewRegistry.registeredPaneIds == Set([pane.id]))
     }
 
-    @Test("createViewForContent builds bridge view and teardown clears bridge readiness")
+    @Test("createViewForContent builds bridge mounted content under a host and teardown clears bridge readiness")
     func createViewForContent_bridgeView_tearsDownCleanly() {
         let harness = makeHarness()
         let viewRegistry = harness.viewRegistry
@@ -99,10 +103,13 @@ struct PaneCoordinatorViewFactoryTests {
         )
 
         let maybeView = coordinator.createViewForContent(pane: pane)
-        guard let bridgeView = maybeView as? BridgePaneView else {
-            Issue.record("Expected a BridgePaneView")
+        guard let bridgeView = maybeView as? BridgePaneMountView else {
+            Issue.record("Expected a BridgePaneMountView")
             return
         }
+        let registered = viewRegistry.view(for: pane.id)
+        #expect(registered != nil)
+        #expect(registered?.mountedContentViewForTesting === bridgeView)
         let bridgeController = bridgeView.controller
         #expect(bridgeController.isBridgeReady == false)
 

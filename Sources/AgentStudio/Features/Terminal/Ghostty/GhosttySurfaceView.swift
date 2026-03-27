@@ -311,7 +311,7 @@ extension Ghostty {
             // re-send dimensions so the PTY and any attached zmx session see the
             // correct terminal size.  Without this, restored sessions remain at
             // the placeholder grid size because setFrameSize may never fire if
-            // the parent PaneView was also initialized at the same placeholder.
+            // the parent PaneHostView was also initialized at the same placeholder.
             if window != nil, surface != nil {
                 Task { @MainActor [weak self] in
                     guard let self, self.window != nil else { return }

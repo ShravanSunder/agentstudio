@@ -52,7 +52,7 @@ private final class MockDraggingInfo: NSObject, NSDraggingInfo {
 }
 
 @MainActor
-private final class InteractionTrackingPaneView: PaneView {
+private final class InteractionTrackingPaneHostView: PaneHostView {
     private(set) var interactionEnabledHistory: [Bool] = []
 
     override func setContentInteractionEnabled(_ enabled: Bool) {
@@ -143,12 +143,12 @@ struct ManagementModeDragShieldTests {
         }
     }
 
-    // MARK: - Shield Installation in PaneView
+    // MARK: - Shield Installation in PaneHostView
 
     @Test
     func test_swiftUIContainer_isManagementModeContainerView() {
         // Arrange
-        let paneView = PaneView(paneId: UUID())
+        let paneView = PaneHostView(paneId: UUID())
 
         // Act
         let container = paneView.swiftUIContainer
@@ -160,14 +160,14 @@ struct ManagementModeDragShieldTests {
     @Test
     func test_shieldInstalledAsTopmostSubview() {
         // Arrange
-        let paneView = PaneView(paneId: UUID())
+        let paneView = PaneHostView(paneId: UUID())
 
         // Act — trigger lazy swiftUIContainer which installs the shield
         _ = paneView.swiftUIContainer
 
         // Assert — shield is installed
         #expect(paneView.interactionShield != nil)
-        // Assert — shield is topmost (last) subview of PaneView
+        // Assert — shield is topmost (last) subview of PaneHostView
         #expect(paneView.subviews.last is ManagementModeDragShield)
     }
 
@@ -175,7 +175,7 @@ struct ManagementModeDragShieldTests {
     func test_shieldAttach_appliesCurrentInteractionState_managementModeActive() async {
         await withManagementModeTestLock {
             ensureManagementModeActive()
-            let paneView = InteractionTrackingPaneView(paneId: UUID())
+            let paneView = InteractionTrackingPaneHostView(paneId: UUID())
             _ = paneView.swiftUIContainer
             #expect(paneView.interactionEnabledHistory.last == false)
             ManagementModeMonitor.shared.deactivate()
@@ -186,7 +186,7 @@ struct ManagementModeDragShieldTests {
     func test_shieldAttach_appliesCurrentInteractionState_managementModeInactive() async {
         await withManagementModeTestLock {
             ManagementModeMonitor.shared.deactivate()
-            let paneView = InteractionTrackingPaneView(paneId: UUID())
+            let paneView = InteractionTrackingPaneHostView(paneId: UUID())
             _ = paneView.swiftUIContainer
             #expect(paneView.interactionEnabledHistory.last == true)
         }
@@ -195,7 +195,7 @@ struct ManagementModeDragShieldTests {
     @Test
     func test_paneViewHitTest_managementModeOn_returnsNil() async {
         await withManagementModeTestLock {
-            let paneView = PaneView(paneId: UUID())
+            let paneView = PaneHostView(paneId: UUID())
             _ = paneView.swiftUIContainer
             ensureManagementModeActive()
             let result = paneView.hitTest(NSPoint(x: 100, y: 100))
@@ -208,7 +208,7 @@ struct ManagementModeDragShieldTests {
     func test_paneViewHitTest_managementModeOff_returnsNormally() async {
         await withManagementModeTestLock {
             ManagementModeMonitor.shared.deactivate()
-            let paneView = PaneView(paneId: UUID())
+            let paneView = PaneHostView(paneId: UUID())
             _ = paneView.swiftUIContainer
             let result = paneView.hitTest(NSPoint(x: 100, y: 100))
             #expect(result !== paneView.interactionShield || result == nil)

@@ -183,7 +183,7 @@ struct CoordinationPlaneArchitectureTests {
             path: "Sources/AgentStudio/Features/Terminal/Ghostty/SurfaceManager.swift"
         )
         let terminalViewPath = projectRoot.appending(
-            path: "Sources/AgentStudio/Features/Terminal/Views/AgentStudioTerminalView.swift"
+            path: "Sources/AgentStudio/Features/Terminal/Hosting/TerminalPaneMountView.swift"
         )
 
         let eventChannelsSource = try String(contentsOf: eventChannelsPath, encoding: .utf8)

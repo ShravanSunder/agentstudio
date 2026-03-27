@@ -44,6 +44,42 @@ struct PaneCoordinatorTests {
         )
     }
 
+    private func makeFilesystemSyncCoordinator(
+        store: WorkspaceStore,
+        filesystemSource: some PaneCoordinatorFilesystemSourceManaging,
+        paneEventBus: EventBus<RuntimeEnvelope>
+    ) -> PaneCoordinator {
+        PaneCoordinator(
+            store: store,
+            viewRegistry: ViewRegistry(),
+            runtime: SessionRuntime(store: store),
+            surfaceManager: MockPaneCoordinatorSurfaceManager(),
+            runtimeRegistry: RuntimeRegistry(),
+            paneEventBus: paneEventBus,
+            filesystemSource: filesystemSource,
+            paneFilesystemProjectionStore: PaneFilesystemProjectionStore(),
+            windowLifecycleStore: WindowLifecycleStore()
+        )
+    }
+
+    private func reconciledWorktree(
+        in store: WorkspaceStore,
+        repoId: UUID,
+        path: URL
+    ) throws -> Worktree {
+        try #require(store.repo(repoId)?.worktrees.first(where: { $0.path == path }))
+    }
+
+    private func appendAndActivateSingleTab(
+        for paneId: UUID,
+        in store: WorkspaceStore
+    ) -> Tab {
+        let tab = Tab(paneId: paneId)
+        store.appendTab(tab)
+        store.setActiveTab(tab.id)
+        return tab
+    }
+
     @Test
     func test_paneCoordinator_exposesExecuteAPI() async {
         let harness = makeHarnessCoordinator()
@@ -304,7 +340,7 @@ struct PaneCoordinatorTests {
     }
 
     @Test("syncRootsAndActivity")
-    func syncRootsAndActivity() async {
+    func syncRootsAndActivity() async throws {
         let tempDir = FileManager.default.temporaryDirectory
             .appending(path: "agentstudio-pane-coordinator-sync-roots-\(UUID().uuidString)")
         defer { try? FileManager.default.removeItem(at: tempDir) }
@@ -324,6 +360,11 @@ struct PaneCoordinatorTests {
             path: repo.repoPath.appending(path: "feature-a")
         )
         store.reconcileDiscoveredWorktrees(repo.id, worktrees: [primaryWorktree, secondaryWorktree])
+        let reconciledSecondaryWorktree = try reconciledWorktree(
+            in: store,
+            repoId: repo.id,
+            path: secondaryWorktree.path
+        )
 
         let primaryPane = store.createPane(
             source: .worktree(worktreeId: primaryWorktree.id, repoId: repo.id),
@@ -333,31 +374,23 @@ struct PaneCoordinatorTests {
                 cwd: primaryWorktree.path
             )
         )
-        let primaryTab = Tab(paneId: primaryPane.id)
-        store.appendTab(primaryTab)
-        store.setActiveTab(primaryTab.id)
+        let primaryTab = appendAndActivateSingleTab(for: primaryPane.id, in: store)
 
         let filesystemSource = RecordingFilesystemSource()
         let paneEventBus = EventBus<RuntimeEnvelope>()
-        let coordinator = PaneCoordinator(
+        let coordinator = makeFilesystemSyncCoordinator(
             store: store,
-            viewRegistry: ViewRegistry(),
-            runtime: SessionRuntime(store: store),
-            surfaceManager: MockPaneCoordinatorSurfaceManager(),
-            runtimeRegistry: RuntimeRegistry(),
-            paneEventBus: paneEventBus,
             filesystemSource: filesystemSource,
-            paneFilesystemProjectionStore: PaneFilesystemProjectionStore(),
-            windowLifecycleStore: WindowLifecycleStore()
+            paneEventBus: paneEventBus
         )
 
         await waitUntilFilesystemState(
             source: filesystemSource,
             timeout: .milliseconds(600)
         ) { snapshot in
-            Set(snapshot.registeredRoots.keys) == Set([primaryWorktree.id, secondaryWorktree.id])
+            Set(snapshot.registeredRoots.keys) == Set([primaryWorktree.id, reconciledSecondaryWorktree.id])
                 && snapshot.activityByWorktreeId[primaryWorktree.id] == true
-                && snapshot.activityByWorktreeId[secondaryWorktree.id] == false
+                && snapshot.activityByWorktreeId[reconciledSecondaryWorktree.id] == false
                 && snapshot.activePaneWorktreeId == primaryWorktree.id
         }
 
@@ -367,14 +400,19 @@ struct PaneCoordinatorTests {
             path: repo.repoPath.appending(path: "feature-b")
         )
         store.reconcileDiscoveredWorktrees(repo.id, worktrees: [primaryWorktree, tertiaryWorktree])
+        let reconciledTertiaryWorktree = try reconciledWorktree(
+            in: store,
+            repoId: repo.id,
+            path: tertiaryWorktree.path
+        )
         await paneEventBus.post(
             .system(
                 SystemEnvelope.test(
                     event: .topology(
                         .worktreeRegistered(
-                            worktreeId: tertiaryWorktree.id,
+                            worktreeId: reconciledTertiaryWorktree.id,
                             repoId: repo.id,
-                            rootPath: tertiaryWorktree.path
+                            rootPath: reconciledTertiaryWorktree.path
                         )
                     )
                 )
@@ -385,18 +423,18 @@ struct PaneCoordinatorTests {
             source: filesystemSource,
             timeout: .milliseconds(600)
         ) { snapshot in
-            Set(snapshot.registeredRoots.keys) == Set([primaryWorktree.id, tertiaryWorktree.id])
+            Set(snapshot.registeredRoots.keys) == Set([primaryWorktree.id, reconciledTertiaryWorktree.id])
                 && snapshot.activityByWorktreeId[primaryWorktree.id] == true
-                && snapshot.activityByWorktreeId[tertiaryWorktree.id] == false
+                && snapshot.activityByWorktreeId[reconciledTertiaryWorktree.id] == false
                 && snapshot.activePaneWorktreeId == primaryWorktree.id
         }
 
         let tertiaryPane = store.createPane(
-            source: .worktree(worktreeId: tertiaryWorktree.id, repoId: repo.id),
+            source: .worktree(worktreeId: reconciledTertiaryWorktree.id, repoId: repo.id),
             facets: PaneContextFacets(
                 repoId: repo.id,
-                worktreeId: tertiaryWorktree.id,
-                cwd: tertiaryWorktree.path
+                worktreeId: reconciledTertiaryWorktree.id,
+                cwd: reconciledTertiaryWorktree.path
             )
         )
         let tertiaryTab = Tab(paneId: tertiaryPane.id)
@@ -407,8 +445,8 @@ struct PaneCoordinatorTests {
             source: filesystemSource,
             timeout: .milliseconds(600)
         ) { snapshot in
-            snapshot.activityByWorktreeId[tertiaryWorktree.id] == true
-                && snapshot.activePaneWorktreeId == tertiaryWorktree.id
+            snapshot.activityByWorktreeId[reconciledTertiaryWorktree.id] == true
+                && snapshot.activePaneWorktreeId == reconciledTertiaryWorktree.id
         }
 
         _ = coordinator
@@ -454,7 +492,7 @@ struct PaneCoordinatorTests {
     }
 
     @Test("filesystem sync converges to latest roots when updates arrive during an in-flight pass")
-    func syncRootsAndActivityConvergesUnderInFlightUpdates() async {
+    func syncRootsAndActivityConvergesUnderInFlightUpdates() async throws {
         let tempDir = FileManager.default.temporaryDirectory
             .appending(path: "agentstudio-pane-coordinator-sync-converge-\(UUID().uuidString)")
         defer { try? FileManager.default.removeItem(at: tempDir) }
@@ -474,6 +512,9 @@ struct PaneCoordinatorTests {
             path: repo.repoPath.appending(path: "stale-branch")
         )
         store.reconcileDiscoveredWorktrees(repo.id, worktrees: [mainWorktree, staleWorktree])
+        let reconciledStaleWorktree = try #require(
+            store.repo(repo.id)?.worktrees.first(where: { $0.path == staleWorktree.path })
+        )
 
         let primaryPane = store.createPane(
             source: .worktree(worktreeId: mainWorktree.id, repoId: repo.id),
@@ -528,7 +569,7 @@ struct PaneCoordinatorTests {
             timeout: .seconds(2)
         ) { snapshot in
             Set(snapshot.registeredRoots.keys) == Set([mainWorktree.id, latestWorktree.id])
-                && snapshot.registeredRoots[staleWorktree.id] == nil
+                && snapshot.registeredRoots[reconciledStaleWorktree.id] == nil
                 && snapshot.activityByWorktreeId[mainWorktree.id] == true
                 && snapshot.activityByWorktreeId[latestWorktree.id] == false
                 && snapshot.activePaneWorktreeId == mainWorktree.id
