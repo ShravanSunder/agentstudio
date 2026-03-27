@@ -48,6 +48,16 @@ struct TerminalPaneMountViewExitBehaviorTests {
         )
     }
 
+    private func waitForAppEventBusSubscriber(countGreaterThan baseline: Int) async {
+        for _ in 0..<200 {
+            if await AppEventBus.shared.subscriberCount > baseline {
+                return
+            }
+            await Task.yield()
+        }
+        Issue.record("Timed out waiting for PaneTabViewController to subscribe to AppEventBus")
+    }
+
     private func makeProcessExitMountView(
         showsRestorePresentationDuringStartup: Bool = false
     ) -> TerminalPaneMountView {
@@ -67,6 +77,8 @@ struct TerminalPaneMountViewExitBehaviorTests {
         mountView.simulateSurfaceCloseForTesting(processAlive: false)
         #expect(mountView.isProcessRunning == false)
 
+        mountView.applyHealthUpdateForTesting(.processExited(exitCode: nil))
+
         #expect(!mountView.isShowingErrorOverlayForTesting)
     }
 
@@ -78,6 +90,7 @@ struct TerminalPaneMountViewExitBehaviorTests {
         #expect(mountView.isShowingStartupOverlayForTesting)
 
         mountView.simulateSurfaceCloseForTesting(processAlive: false)
+        mountView.applyHealthUpdateForTesting(.processExited(exitCode: nil))
 
         #expect(mountView.isProcessRunning == false)
         #expect(!mountView.isShowingStartupOverlayForTesting)
@@ -96,10 +109,12 @@ struct TerminalPaneMountViewExitBehaviorTests {
         #expect(mountView.isShowingErrorOverlayForTesting)
     }
 
-    @Test("terminal process termination closes a single-pane tab")
-    func terminalProcessTermination_closesSinglePaneTab() {
+    @Test("terminal process termination delivered through AppEventBus closes a single-pane tab")
+    func terminalProcessTermination_deliveredThroughAppEventBus_closesSinglePaneTab() async {
         let harness = makePaneTabControllerHarness()
         defer { try? FileManager.default.removeItem(at: harness.tempDir) }
+        let baselineSubscriberCount = await AppEventBus.shared.subscriberCount
+        _ = harness.controller.view
 
         let pane = harness.store.createPane(
             content: .webview(WebviewState(url: URL(string: "https://example.com/\(UUID().uuidString)")!)),
@@ -108,9 +123,39 @@ struct TerminalPaneMountViewExitBehaviorTests {
         let tab = Tab(paneId: pane.id)
         harness.store.appendTab(tab)
 
-        harness.controller.handleTerminalProcessTerminated(paneId: pane.id)
+        await waitForAppEventBusSubscriber(countGreaterThan: baselineSubscriberCount)
+        AppEventBus.post(.terminalProcessTerminated(paneId: pane.id))
 
-        #expect(harness.store.tabs.isEmpty)
+        await eventually("single-pane tab should close after AppEventBus delivery") {
+            harness.store.tabs.isEmpty
+        }
+    }
+
+    @Test("terminal process termination delivered through AppEventBus closes drawer children")
+    func terminalProcessTermination_deliveredThroughAppEventBus_closesDrawerChild() async {
+        let harness = makePaneTabControllerHarness()
+        defer { try? FileManager.default.removeItem(at: harness.tempDir) }
+        let baselineSubscriberCount = await AppEventBus.shared.subscriberCount
+        _ = harness.controller.view
+
+        let parentPane = harness.store.createPane(
+            content: .webview(WebviewState(url: URL(string: "https://example.com/\(UUID().uuidString)")!)),
+            metadata: PaneMetadata(source: .floating(workingDirectory: nil, title: "Parent"), title: "Parent")
+        )
+        let tab = Tab(paneId: parentPane.id)
+        harness.store.appendTab(tab)
+        guard let drawerPane = harness.store.addDrawerPane(to: parentPane.id) else {
+            Issue.record("Expected drawer pane creation to succeed")
+            return
+        }
+
+        await waitForAppEventBusSubscriber(countGreaterThan: baselineSubscriberCount)
+        AppEventBus.post(.terminalProcessTerminated(paneId: drawerPane.id))
+
+        await eventually("drawer child should close after AppEventBus delivery") {
+            harness.store.pane(drawerPane.id) == nil
+        }
+        #expect(harness.store.pane(parentPane.id) != nil)
     }
 }
 

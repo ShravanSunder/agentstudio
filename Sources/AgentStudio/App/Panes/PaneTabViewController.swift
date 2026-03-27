@@ -741,16 +741,29 @@ class PaneTabViewController: NSViewController, CommandHandler {
     // MARK: - Process Termination
 
     func handleTerminalProcessTerminated(paneId: UUID) {
-        if let tab = store.tabs.first(where: { $0.paneIds.contains(paneId) }) {
-            if tab.isSplit {
-                dispatchAction(.closePane(tabId: tab.id, paneId: paneId))
-            } else {
-                dispatchAction(.closeTab(tabId: tab.id))
+        if let pane = store.pane(paneId) {
+            if let parentPaneId = pane.parentPaneId,
+                store.tabContaining(paneId: parentPaneId) != nil
+            {
+                dispatchAction(.removeDrawerPane(parentPaneId: parentPaneId, drawerPaneId: paneId))
+                return
             }
+
+            if let tab = store.tabContaining(paneId: paneId) {
+                if tab.isSplit {
+                    dispatchAction(.closePane(tabId: tab.id, paneId: paneId))
+                } else {
+                    dispatchAction(.closeTab(tabId: tab.id))
+                }
+                return
+            }
+
+            RestoreTrace.log(
+                "PaneTabViewController.handleTerminalProcessTerminated deferredNoop pane=\(paneId) reason=orphanedPane"
+            )
             return
         }
 
-        guard store.pane(paneId) != nil else { return }
         RestoreTrace.log(
             "PaneTabViewController.handleTerminalProcessTerminated deferredNoop pane=\(paneId) reason=notInAnyTab"
         )
