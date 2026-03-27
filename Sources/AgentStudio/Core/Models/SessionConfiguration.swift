@@ -93,7 +93,7 @@ struct SessionConfiguration: Sendable {
         let sentinel = "/terminfo/78/xterm-ghostty"
 
         // SPM module bundle (works in both app and test contexts)
-        let moduleBundle = Bundle.module.bundlePath
+        let moduleBundle = Bundle.appResources.bundlePath
         if FileManager.default.fileExists(atPath: moduleBundle + sentinel) {
             return moduleBundle + "/ghostty"
         }
@@ -129,7 +129,7 @@ struct SessionConfiguration: Sendable {
         let sentinel = "/78/xterm-256color"
 
         // SPM module bundle (works in both app and test contexts)
-        let moduleTerminfo = Bundle.module.bundlePath + "/terminfo"
+        let moduleTerminfo = Bundle.appResources.bundlePath + "/terminfo"
         if FileManager.default.fileExists(atPath: moduleTerminfo + sentinel) {
             return moduleTerminfo
         }

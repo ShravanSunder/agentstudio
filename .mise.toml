@@ -354,7 +354,7 @@ set -e
 
 APP_DIR="AgentStudio.app/Contents"
 rm -rf AgentStudio.app
-mkdir -p "$APP_DIR/MacOS" "$APP_DIR/Resources" "$APP_DIR/Frameworks"
+mkdir -p "$APP_DIR/MacOS" "$APP_DIR/Resources"
 
 # Binary
 cp .build/release/AgentStudio "$APP_DIR/MacOS/"
@@ -374,8 +374,12 @@ TERMINFO="Sources/AgentStudio/Resources/terminfo"
 GHOSTTY_RES="Sources/AgentStudio/Resources/ghostty"
 [ -d "$GHOSTTY_RES" ] && { mkdir -p "$APP_DIR/Resources/ghostty"; cp -R "$GHOSTTY_RES/." "$APP_DIR/Resources/ghostty/"; }
 
-# GhosttyKit framework
-cp -R Frameworks/GhosttyKit.xcframework "$APP_DIR/Frameworks/"
+# GhosttyKit is a static library — already linked into the binary at build time.
+# Do NOT embed the xcframework; it's only needed at build time for SwiftPM.
+
+# SwiftPM resource bundle — Bundle.appResources looks in Contents/Resources/
+RESOURCE_BUNDLE="$(find .build -path '*/release/AgentStudio_AgentStudio.bundle' -type d | head -1)"
+[ -n "$RESOURCE_BUNDLE" ] && cp -R "$RESOURCE_BUNDLE" "$APP_DIR/Resources/"
 
 # Sign — uses Developer ID if SIGNING_IDENTITY is set, else ad-hoc
 ENTITLEMENTS="Sources/AgentStudio/Resources/AgentStudio.entitlements"
@@ -383,9 +387,11 @@ IDENTITY="${SIGNING_IDENTITY:--}"
 
 if [ "$IDENTITY" != "-" ]; then
   echo "Signing with: $IDENTITY"
-  find AgentStudio.app/Contents/Frameworks -name "*.dylib" -o -name "*.framework" | while read item; do
-    codesign --force --sign "$IDENTITY" --timestamp --options runtime "$item"
-  done
+  if [ -d "AgentStudio.app/Contents/Frameworks" ]; then
+    find AgentStudio.app/Contents/Frameworks -name "*.dylib" -o -name "*.framework" | while read item; do
+      codesign --force --sign "$IDENTITY" --timestamp --options runtime "$item"
+    done
+  fi
   [ -f "AgentStudio.app/Contents/MacOS/zmx" ] && \
     codesign --force --sign "$IDENTITY" --timestamp --options runtime --entitlements "$ENTITLEMENTS" "AgentStudio.app/Contents/MacOS/zmx"
   codesign --force --sign "$IDENTITY" --timestamp --options runtime --entitlements "$ENTITLEMENTS" AgentStudio.app

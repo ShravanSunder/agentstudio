@@ -176,10 +176,10 @@ jobs:
           # the AgentStudio binary at build time. Do NOT embed the xcframework
           # in the app bundle; it's only needed at build time for SwiftPM.
 
-          # SwiftPM resource bundle — Bundle.module looks for this at the app root
+          # SwiftPM resource bundle — Bundle.appResources looks in Contents/Resources/
           RESOURCE_BUNDLE="$(find .build -path '*/release/AgentStudio_AgentStudio.bundle' -type d | head -1)"
           if [ -n "$RESOURCE_BUNDLE" ]; then
-            cp -R "$RESOURCE_BUNDLE" AgentStudio.app/
+            cp -R "$RESOURCE_BUNDLE" "$APP_DIR/Resources/"
           else
             echo "::error::SwiftPM resource bundle not found"
             exit 1

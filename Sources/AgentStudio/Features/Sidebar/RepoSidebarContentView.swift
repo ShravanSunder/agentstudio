@@ -972,7 +972,7 @@ private final class SidebarOcticonLoader {
         }
 
         let subdirectory = "SidebarIcons.xcassets/\(name).imageset"
-        if let svgURL = Bundle.module.url(
+        if let svgURL = Bundle.appResources.url(
             forResource: name,
             withExtension: "svg",
             subdirectory: subdirectory
@@ -983,7 +983,7 @@ private final class SidebarOcticonLoader {
             return image
         }
 
-        if let pdfURL = Bundle.module.url(
+        if let pdfURL = Bundle.appResources.url(
             forResource: name,
             withExtension: "pdf",
             subdirectory: subdirectory
