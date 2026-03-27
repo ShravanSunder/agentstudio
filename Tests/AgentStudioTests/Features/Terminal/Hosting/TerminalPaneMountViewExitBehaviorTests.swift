@@ -48,28 +48,49 @@ struct TerminalPaneMountViewExitBehaviorTests {
         )
     }
 
-    private func makeProcessExitMountView() -> TerminalPaneMountView {
+    private func makeProcessExitMountView(
+        showsRestorePresentationDuringStartup: Bool = false
+    ) -> TerminalPaneMountView {
         let paneId = UUID()
-        return TerminalPaneMountView(paneId: paneId, title: "Terminal")
+        return TerminalPaneMountView(
+            restoredSurfaceId: UUID(),
+            paneId: paneId,
+            title: "Terminal",
+            showsRestorePresentationDuringStartup: showsRestorePresentationDuringStartup
+        )
     }
 
     @Test("process termination suppresses the competing process-exited overlay")
     func processTermination_suppressesProcessExitedOverlay() {
         let mountView = makeProcessExitMountView()
 
-        mountView.handleProcessTerminated()
+        mountView.simulateSurfaceCloseForTesting(processAlive: false)
         #expect(mountView.isProcessRunning == false)
-
-        mountView.applyHealthUpdateForTesting(.processExited(exitCode: nil))
 
         #expect(!mountView.isShowingErrorOverlayForTesting)
     }
 
-    @Test("fatal terminal errors still show the error overlay after termination")
-    func fatalTerminalError_stillShowsErrorOverlayAfterTermination() {
-        let mountView = makeProcessExitMountView()
+    @Test("startup restore close still auto-closes instead of showing process-exited UI")
+    func startupRestoreClose_suppressesProcessExitedOverlay() {
+        let mountView = makeProcessExitMountView(showsRestorePresentationDuringStartup: true)
 
-        mountView.handleProcessTerminated()
+        mountView.beginRestorePresentationForTesting()
+        #expect(mountView.isShowingStartupOverlayForTesting)
+
+        mountView.simulateSurfaceCloseForTesting(processAlive: false)
+
+        #expect(mountView.isProcessRunning == false)
+        #expect(!mountView.isShowingStartupOverlayForTesting)
+        #expect(!mountView.isShowingErrorOverlayForTesting)
+    }
+
+    @Test("fatal terminal errors still show the error overlay during startup restore")
+    func fatalTerminalError_stillShowsErrorOverlayDuringStartupRestore() {
+        let mountView = makeProcessExitMountView(showsRestorePresentationDuringStartup: true)
+
+        mountView.beginRestorePresentationForTesting()
+        #expect(mountView.isShowingStartupOverlayForTesting)
+
         mountView.applyHealthUpdateForTesting(.dead)
 
         #expect(mountView.isShowingErrorOverlayForTesting)

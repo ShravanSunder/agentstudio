@@ -322,9 +322,8 @@ final class TerminalPaneMountView: NSView, PaneMountedContent, SurfaceHealthDele
     private func handleSurfaceClose(processAlive: Bool) {
         guard isProcessRunning else { return }
         isProcessRunning = false
-        if startupPresentationActive {
-            failRestorePresentation(health: .processExited(exitCode: nil))
-        }
+        finishRestorePresentation()
+        hideErrorOverlay()
         RestoreTrace.log(
             "TerminalPaneMountView.handleSurfaceClose pane=\(paneId) surface=\(surfaceId?.uuidString ?? "nil") processAlive=\(processAlive)"
         )
@@ -470,8 +469,20 @@ final class TerminalPaneMountView: NSView, PaneMountedContent, SurfaceHealthDele
     extension TerminalPaneMountView {
         var placeholderViewForTesting: TerminalStatusPlaceholderView? { placeholderView }
 
+        func beginRestorePresentationForTesting() {
+            beginRestorePresentationIfNeeded()
+        }
+
+        func simulateSurfaceCloseForTesting(processAlive: Bool) {
+            handleSurfaceClose(processAlive: processAlive)
+        }
+
         func applyHealthUpdateForTesting(_ health: SurfaceHealth) {
             updateHealthUI(health)
+        }
+
+        var isShowingStartupOverlayForTesting: Bool {
+            startupOverlay?.isHidden == false
         }
 
         var isShowingErrorOverlayForTesting: Bool {
