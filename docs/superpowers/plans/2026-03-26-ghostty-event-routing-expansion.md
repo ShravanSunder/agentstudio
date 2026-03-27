@@ -74,14 +74,15 @@ These events are not silently dropped — they are explicitly documented as defe
 | `keySequence` / `keyTable` | Low | No key chord indicator HUD. | Key chord display feature |
 | `colorChange` | Rare | No theme-reactive pane chrome. | Terminal-color-aware chrome feature |
 | `reloadConfig` / `configChange` | Rare | No live Ghostty config hot-reload support. | Ghostty config hot-reload feature |
-| `showChildExited` | Rare | Already handled via `closeSurface` callback path. | Redundant with current handling |
-| `quitTimer` | Rare | AgentStudio owns quit lifecycle. | Never — intercepted permanently |
-
 ### SKIP PERMANENTLY — Intercepted, correct behavior
 
-App-level actions AgentStudio owns, or GTK/Linux-specific actions irrelevant on macOS. Current intercept-and-swallow behavior is correct and documented.
+App-level actions AgentStudio owns, redundant signals already handled by other callbacks, or GTK/Linux-specific actions irrelevant on macOS. Current intercept-and-swallow behavior is correct and documented.
 
-`quit`, `newWindow`, `closeAllWindows`, `toggleMaximize`, `toggleFullscreen`, `toggleTabOverview`, `toggleWindowDecorations`, `toggleQuickTerminal`, `toggleCommandPalette`, `toggleVisibility`, `toggleBackgroundOpacity`, `gotoWindow`, `presentTerminal`, `resetWindowSize`, `floatWindow`, `inspector`, `showGtkInspector`, `renderInspector`, `checkForUpdates`, `showOnScreenKeyboard`
+`quit`, `newWindow`, `closeAllWindows`, `toggleMaximize`, `toggleFullscreen`, `toggleTabOverview`, `toggleWindowDecorations`, `toggleQuickTerminal`, `toggleCommandPalette`, `toggleVisibility`, `toggleBackgroundOpacity`, `gotoWindow`, `presentTerminal`, `resetWindowSize`, `floatWindow`, `inspector`, `showGtkInspector`, `renderInspector`, `checkForUpdates`, `showOnScreenKeyboard`, `quitTimer`, `showChildExited`
+
+Notes:
+- `quitTimer` — AgentStudio owns quit lifecycle. Intercepted permanently.
+- `showChildExited` — Redundant. The `closeSurface` callback already delivers process termination with the same exit code. Routing this separately would cause double-notification.
 
 ## Hard-Cutover Rules
 

@@ -374,7 +374,7 @@ struct PaneCoordinatorTests {
                 cwd: primaryWorktree.path
             )
         )
-        let primaryTab = appendAndActivateSingleTab(for: primaryPane.id, in: store)
+        _ = appendAndActivateSingleTab(for: primaryPane.id, in: store)
 
         let filesystemSource = RecordingFilesystemSource()
         let paneEventBus = EventBus<RuntimeEnvelope>()
