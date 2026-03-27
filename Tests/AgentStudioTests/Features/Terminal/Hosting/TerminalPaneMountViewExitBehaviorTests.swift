@@ -13,6 +13,14 @@ struct TerminalPaneMountViewExitBehaviorTests {
         let tempDir: URL
     }
 
+    private final class WeakControllerBox {
+        weak var value: PaneTabViewController?
+
+        init(_ value: PaneTabViewController?) {
+            self.value = value
+        }
+    }
+
     private func makePaneTabControllerHarness() -> PaneTabControllerHarness {
         let tempDir = FileManager.default.temporaryDirectory
             .appending(path: "agentstudio-terminal-exit-tests-\(UUID().uuidString)")
@@ -56,6 +64,16 @@ struct TerminalPaneMountViewExitBehaviorTests {
             await Task.yield()
         }
         Issue.record("Timed out waiting for PaneTabViewController to subscribe to AppEventBus")
+    }
+
+    private func waitForAppEventBusSubscriberCount(_ expectedCount: Int) async {
+        for _ in 0..<200 {
+            if await AppEventBus.shared.subscriberCount == expectedCount {
+                return
+            }
+            await Task.yield()
+        }
+        Issue.record("Timed out waiting for AppEventBus subscriberCount == \(expectedCount)")
     }
 
     private func makeSubscribedPaneTabControllerHarness() async -> PaneTabControllerHarness {
@@ -179,8 +197,6 @@ struct TerminalPaneMountViewExitBehaviorTests {
         let harness = makePaneTabControllerHarness()
         defer { try? FileManager.default.removeItem(at: harness.tempDir) }
         let baselineSubscriberCount = await AppEventBus.shared.subscriberCount
-        _ = harness.controller.view
-
         let pane = harness.store.createPane(
             content: .webview(WebviewState(url: URL(string: "https://example.com/\(UUID().uuidString)")!)),
             metadata: PaneMetadata(source: .floating(workingDirectory: nil, title: "Solo"), title: "Solo")
@@ -201,8 +217,6 @@ struct TerminalPaneMountViewExitBehaviorTests {
         let harness = makePaneTabControllerHarness()
         defer { try? FileManager.default.removeItem(at: harness.tempDir) }
         let baselineSubscriberCount = await AppEventBus.shared.subscriberCount
-        _ = harness.controller.view
-
         let parentPane = harness.store.createPane(
             content: .webview(WebviewState(url: URL(string: "https://example.com/\(UUID().uuidString)")!)),
             metadata: PaneMetadata(source: .floating(workingDirectory: nil, title: "Parent"), title: "Parent")
@@ -221,6 +235,28 @@ struct TerminalPaneMountViewExitBehaviorTests {
             harness.store.pane(drawerPane.id) == nil
         }
         #expect(harness.store.pane(parentPane.id) != nil)
+    }
+
+    @Test("controller subscribes before view load and unregisters on teardown")
+    func controller_subscribesBeforeViewLoad_andUnregistersOnTeardown() async {
+        let baselineSubscriberCount = await AppEventBus.shared.subscriberCount
+        var harness: PaneTabControllerHarness? = makePaneTabControllerHarness()
+        let tempDir = harness?.tempDir
+        let weakController = WeakControllerBox(harness?.controller)
+
+        await waitForAppEventBusSubscriber(countGreaterThan: baselineSubscriberCount)
+        #expect(weakController.value != nil)
+
+        harness = nil
+
+        await eventually("controller should deallocate after teardown") {
+            weakController.value == nil
+        }
+        await waitForAppEventBusSubscriberCount(baselineSubscriberCount)
+
+        if let tempDir {
+            try? FileManager.default.removeItem(at: tempDir)
+        }
     }
 }
 

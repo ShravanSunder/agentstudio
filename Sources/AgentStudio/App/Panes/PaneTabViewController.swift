@@ -92,6 +92,7 @@ class PaneTabViewController: NSViewController, CommandHandler {
         self.tabBarAdapter = tabBarAdapter
         self.viewRegistry = viewRegistry
         super.init(nibName: nil, bundle: nil)
+        setupNotificationObservers()
     }
 
     required init?(coder: NSCoder) {
@@ -214,8 +215,6 @@ class PaneTabViewController: NSViewController, CommandHandler {
         updateEmptyState()
         observeForAppKitState()
 
-        setupNotificationObservers()
-
         // Cmd+E for management mode — handled via command pipeline (key event monitor)
         arrangementBarEventMonitor = NSEvent.addLocalMonitorForEvents(matching: .keyDown) { [weak self] event in
             guard self != nil else { return event }
@@ -233,19 +232,19 @@ class PaneTabViewController: NSViewController, CommandHandler {
     }
 
     private func setupNotificationObservers() {
+        guard notificationTasks.isEmpty else { return }
         setupAppNotificationObservers()
     }
 
     private func setupAppNotificationObservers() {
         notificationTasks.append(
             Task { [weak self] in
-                guard let self else { return }
                 let stream = await AppEventBus.shared.subscribe()
                 for await event in stream {
                     guard !Task.isCancelled else { break }
                     switch event {
                     case .terminalProcessTerminated(let paneId):
-                        Task { @MainActor [weak self] in
+                        await MainActor.run { [weak self] in
                             self?.handleTerminalProcessTerminated(paneId: paneId)
                         }
                     default:
