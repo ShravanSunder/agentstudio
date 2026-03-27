@@ -11,6 +11,7 @@ struct PaneLeafContainer: View {
     let isSplit: Bool
     let store: WorkspaceStore
     let repoCache: WorkspaceRepoCache
+    let closeTransitionCoordinator: PaneCloseTransitionCoordinator
     let action: (PaneActionCommand) -> Void
     let dropTargetCoordinateSpace: String?
     let useDrawerFramePreference: Bool
@@ -28,6 +29,7 @@ struct PaneLeafContainer: View {
         isSplit: Bool,
         store: WorkspaceStore,
         repoCache: WorkspaceRepoCache,
+        closeTransitionCoordinator: PaneCloseTransitionCoordinator,
         action: @escaping (PaneActionCommand) -> Void,
         dropTargetCoordinateSpace: String? = "tabContainer",
         useDrawerFramePreference: Bool = false
@@ -38,6 +40,7 @@ struct PaneLeafContainer: View {
         self.isSplit = isSplit
         self.store = store
         self.repoCache = repoCache
+        self.closeTransitionCoordinator = closeTransitionCoordinator
         self.action = action
         self.dropTargetCoordinateSpace = dropTargetCoordinateSpace
         self.useDrawerFramePreference = useDrawerFramePreference
@@ -57,6 +60,10 @@ struct PaneLeafContainer: View {
     /// Parent pane ID for drawer children; nil for layout panes.
     private var drawerParentPaneId: UUID? {
         store.pane(paneHost.id)?.parentPaneId
+    }
+
+    private var isClosing: Bool {
+        closeTransitionCoordinator.closingPaneIds.contains(paneHost.id)
     }
 
     /// True when hover is active either via tracking events or by direct pointer query.
@@ -214,7 +221,7 @@ struct PaneLeafContainer: View {
                             .help("Minimize pane")
 
                             Button {
-                                action(.closePane(tabId: tabId, paneId: paneHost.id))
+                                beginCloseTransition()
                             } label: {
                                 Image(systemName: "xmark")
                                     .font(.system(size: AppStyle.managementActionIconSize, weight: .bold))
@@ -242,6 +249,7 @@ struct PaneLeafContainer: View {
                             .buttonStyle(.plain)
                             .onHover { isCloseHovered = $0 }
                             .help("Close pane")
+                            .disabled(isClosing)
 
                             Spacer()
                         }
@@ -326,6 +334,11 @@ struct PaneLeafContainer: View {
             .onTapGesture {
                 action(.focusPane(tabId: tabId, paneId: paneHost.id))
             }
+            .opacity(isClosing ? 0.58 : 1)
+            .scaleEffect(isClosing ? 0.985 : 1)
+            .zIndex(isClosing ? 1 : 0)
+            .animation(.easeOut(duration: AppStyle.animationFast), value: isClosing)
+            .allowsHitTesting(!isClosing)
             .contextMenu {
                 if managementMode.isActive && !isDrawerChild {
                     Button("Extract Pane to New Tab") {
@@ -387,6 +400,12 @@ struct PaneLeafContainer: View {
                 }
             }
         )
+    }
+
+    func beginCloseTransition() {
+        closeTransitionCoordinator.beginClosingPane(paneHost.id) {
+            action(.closePane(tabId: tabId, paneId: paneHost.id))
+        }
     }
 
     private func tabDisplayTitle(tab: Tab) -> String {

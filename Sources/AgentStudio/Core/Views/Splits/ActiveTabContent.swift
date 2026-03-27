@@ -13,6 +13,7 @@ struct ActiveTabContent: View {
     let repoCache: WorkspaceRepoCache
     let viewRegistry: ViewRegistry
     let appLifecycleStore: AppLifecycleStore
+    let closeTransitionCoordinator: PaneCloseTransitionCoordinator
     let action: (PaneActionCommand) -> Void
     let shouldAcceptDrop: (SplitDropPayload, UUID, DropZone) -> Bool
     let onDrop: (SplitDropPayload, UUID, DropZone) -> Void
@@ -65,6 +66,7 @@ struct ActiveTabContent: View {
                 zoomedPaneId: tab.zoomedPaneId,
                 minimizedPaneIds: tab.minimizedPaneIds,
                 splitRenderInfo: renderInfo,
+                closeTransitionCoordinator: closeTransitionCoordinator,
                 action: action,
                 onPersist: nil,
                 shouldAcceptDrop: shouldAcceptDrop,

@@ -23,6 +23,7 @@ struct TerminalSplitContainer: View {
     let zoomedPaneId: UUID?
     let minimizedPaneIds: Set<UUID>
     let splitRenderInfo: SplitRenderInfo
+    let closeTransitionCoordinator: PaneCloseTransitionCoordinator
     let action: (PaneActionCommand) -> Void
     /// Called when a resize drag ends to persist the current split tree state.
     let onPersist: (() -> Void)?
@@ -49,6 +50,7 @@ struct TerminalSplitContainer: View {
                     paneId: paneId,
                     tabId: tabId,
                     title: PaneDisplayProjector.displayLabel(for: paneId, store: store, repoCache: repoCache),
+                    closeTransitionCoordinator: closeTransitionCoordinator,
                     action: action,
                     dropTargetCoordinateSpace: "tabContainer"
                 )
@@ -61,22 +63,14 @@ struct TerminalSplitContainer: View {
     var body: some View {
         GeometryReader { tabGeometry in
             let containerBounds = CGRect(origin: .zero, size: tabGeometry.size)
+            let closingPaneIds = closeTransitionCoordinator.closingPaneIds
             ZStack {
                 if let node = tree.root {
-                    if let zoomedPaneId,
-                        let zoomedView = tree.allViews.first(where: { $0.id == zoomedPaneId })
-                    {
+                    if let zoomedPaneLeaf = zoomedPaneLeafContainer() {
                         // Zoomed: render single pane at full size
                         ZStack(alignment: .topTrailing) {
-                            PaneLeafContainer(
-                                paneHost: zoomedView,
-                                tabId: tabId,
-                                isActive: true,
-                                isSplit: false,
-                                store: store,
-                                repoCache: repoCache,
-                                action: action
-                            )
+                            zoomedPaneLeaf
+                                .transition(.opacity.combined(with: .scale(scale: 0.985, anchor: .center)))
                             // Zoom indicator badge
                             Text("ZOOM")
                                 .font(.system(size: AppStyle.textSm, weight: .medium, design: .monospaced))
@@ -99,12 +93,14 @@ struct TerminalSplitContainer: View {
                             activePaneId: activePaneId,
                             minimizedPaneIds: minimizedPaneIds,
                             splitRenderInfo: splitRenderInfo,
+                            closeTransitionCoordinator: closeTransitionCoordinator,
                             action: action,
                             onPersist: onPersist,
                             store: store,
                             repoCache: repoCache
                         )
                         .id(node.structuralIdentity)  // Prevents view recreation on ratio changes
+                        .animation(.easeOut(duration: AppStyle.animationFast), value: closingPaneIds)
                     }
                 } else {
                     // Empty tree - show placeholder
@@ -121,6 +117,7 @@ struct TerminalSplitContainer: View {
                     repoCache: repoCache,
                     viewRegistry: viewRegistry,
                     appLifecycleStore: appLifecycleStore,
+                    closeTransitionCoordinator: closeTransitionCoordinator,
                     tabId: tabId,
                     paneFrames: paneFrames,
                     tabSize: tabGeometry.size,
@@ -190,6 +187,25 @@ struct TerminalSplitContainer: View {
         dropTargetWatchdogTask?.cancel()
         dropTargetWatchdogTask = nil
     }
+
+    func zoomedPaneLeafContainer() -> PaneLeafContainer? {
+        guard let zoomedPaneId,
+            let zoomedView = tree.allViews.first(where: { $0.id == zoomedPaneId })
+        else {
+            return nil
+        }
+
+        return PaneLeafContainer(
+            paneHost: zoomedView,
+            tabId: tabId,
+            isActive: true,
+            isSplit: false,
+            store: store,
+            repoCache: repoCache,
+            closeTransitionCoordinator: closeTransitionCoordinator,
+            action: action
+        )
+    }
 }
 
 /// Recursively renders a node in the split tree.
@@ -201,6 +217,7 @@ struct SplitSubtreeView: View {
     let activePaneId: UUID?
     let minimizedPaneIds: Set<UUID>
     let splitRenderInfo: SplitRenderInfo
+    let closeTransitionCoordinator: PaneCloseTransitionCoordinator
     let action: (PaneActionCommand) -> Void
     let onPersist: (() -> Void)?
     let store: WorkspaceStore
@@ -215,6 +232,7 @@ struct SplitSubtreeView: View {
         activePaneId: UUID?,
         minimizedPaneIds: Set<UUID>,
         splitRenderInfo: SplitRenderInfo,
+        closeTransitionCoordinator: PaneCloseTransitionCoordinator,
         action: @escaping (PaneActionCommand) -> Void,
         onPersist: (() -> Void)?,
         store: WorkspaceStore,
@@ -228,6 +246,7 @@ struct SplitSubtreeView: View {
         self.activePaneId = activePaneId
         self.minimizedPaneIds = minimizedPaneIds
         self.splitRenderInfo = splitRenderInfo
+        self.closeTransitionCoordinator = closeTransitionCoordinator
         self.action = action
         self.onPersist = onPersist
         self.store = store
@@ -244,6 +263,7 @@ struct SplitSubtreeView: View {
                     paneId: paneView.id,
                     tabId: tabId,
                     title: PaneDisplayProjector.displayLabel(for: paneView.id, store: store, repoCache: repoCache),
+                    closeTransitionCoordinator: closeTransitionCoordinator,
                     action: action,
                     dropTargetCoordinateSpace: dropTargetCoordinateSpace,
                     useDrawerFramePreference: useDrawerFramePreference
@@ -256,10 +276,12 @@ struct SplitSubtreeView: View {
                     isSplit: isSplit,
                     store: store,
                     repoCache: repoCache,
+                    closeTransitionCoordinator: closeTransitionCoordinator,
                     action: action,
                     dropTargetCoordinateSpace: dropTargetCoordinateSpace,
                     useDrawerFramePreference: useDrawerFramePreference
                 )
+                .transition(.opacity.combined(with: .scale(scale: 0.985, anchor: .center)))
             }
 
         case .split(let split):
@@ -354,6 +376,7 @@ struct SplitSubtreeView: View {
                 paneId: paneId,
                 tabId: tabId,
                 title: PaneDisplayProjector.displayLabel(for: paneId, store: store, repoCache: repoCache),
+                closeTransitionCoordinator: closeTransitionCoordinator,
                 action: action,
                 dropTargetCoordinateSpace: dropTargetCoordinateSpace,
                 useDrawerFramePreference: useDrawerFramePreference
@@ -383,6 +406,7 @@ struct SplitSubtreeView: View {
             activePaneId: activePaneId,
             minimizedPaneIds: minimizedPaneIds,
             splitRenderInfo: splitRenderInfo,
+            closeTransitionCoordinator: closeTransitionCoordinator,
             action: action,
             onPersist: onPersist,
             store: store,

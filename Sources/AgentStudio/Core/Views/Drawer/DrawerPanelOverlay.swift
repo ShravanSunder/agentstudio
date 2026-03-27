@@ -99,6 +99,7 @@ struct DrawerPanelOverlay: View {
     let repoCache: WorkspaceRepoCache
     let viewRegistry: ViewRegistry
     let appLifecycleStore: AppLifecycleStore
+    let closeTransitionCoordinator: PaneCloseTransitionCoordinator
     let tabId: UUID
     let paneFrames: [UUID: CGRect]
     let tabSize: CGSize
@@ -207,6 +208,7 @@ struct DrawerPanelOverlay: View {
                             activePaneId: info.drawer.activePaneId,
                             minimizedPaneIds: info.drawer.minimizedPaneIds,
                             splitRenderInfo: drawerRenderInfo,
+                            closeTransitionCoordinator: closeTransitionCoordinator,
                             height: panelHeight,
                             store: store,
                             repoCache: repoCache,

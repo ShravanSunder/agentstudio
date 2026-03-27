@@ -7,6 +7,7 @@ struct CollapsedPaneBar: View {
     let paneId: UUID
     let tabId: UUID
     let title: String
+    let closeTransitionCoordinator: PaneCloseTransitionCoordinator
     let action: (PaneActionCommand) -> Void
     let dropTargetCoordinateSpace: String?
     let useDrawerFramePreference: Bool
@@ -22,6 +23,7 @@ struct CollapsedPaneBar: View {
         paneId: UUID,
         tabId: UUID,
         title: String,
+        closeTransitionCoordinator: PaneCloseTransitionCoordinator,
         action: @escaping (PaneActionCommand) -> Void,
         dropTargetCoordinateSpace: String? = nil,
         useDrawerFramePreference: Bool = false
@@ -29,9 +31,14 @@ struct CollapsedPaneBar: View {
         self.paneId = paneId
         self.tabId = tabId
         self.title = title
+        self.closeTransitionCoordinator = closeTransitionCoordinator
         self.action = action
         self.dropTargetCoordinateSpace = dropTargetCoordinateSpace
         self.useDrawerFramePreference = useDrawerFramePreference
+    }
+
+    private var isClosing: Bool {
+        closeTransitionCoordinator.closingPaneIds.contains(paneId)
     }
 
     var body: some View {
@@ -59,7 +66,7 @@ struct CollapsedPaneBar: View {
                 Divider()
 
                 Button(role: .destructive) {
-                    action(.closePane(tabId: tabId, paneId: paneId))
+                    beginCloseTransition()
                 } label: {
                     Label("Close", systemImage: "xmark")
                 }
@@ -103,6 +110,10 @@ struct CollapsedPaneBar: View {
         .onTapGesture {
             action(.expandPane(tabId: tabId, paneId: paneId))
         }
+        .opacity(isClosing ? 0.58 : 1)
+        .scaleEffect(isClosing ? 0.985 : 1)
+        .animation(.easeOut(duration: AppStyle.animationFast), value: isClosing)
+        .allowsHitTesting(!isClosing)
         .padding(AppStyle.paneGap)
         .background(
             GeometryReader { geo in
@@ -129,5 +140,11 @@ struct CollapsedPaneBar: View {
                 }
             }
         )
+    }
+
+    private func beginCloseTransition() {
+        closeTransitionCoordinator.beginClosingPane(paneId) {
+            action(.closePane(tabId: tabId, paneId: paneId))
+        }
     }
 }

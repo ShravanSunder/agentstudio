@@ -51,6 +51,7 @@ struct DrawerPanel: View {
     let activePaneId: UUID?
     let minimizedPaneIds: Set<UUID>
     let splitRenderInfo: SplitRenderInfo
+    let closeTransitionCoordinator: PaneCloseTransitionCoordinator
     let height: CGFloat
     let store: WorkspaceStore
     let repoCache: WorkspaceRepoCache
@@ -128,6 +129,7 @@ struct DrawerPanel: View {
                             activePaneId: activePaneId,
                             minimizedPaneIds: minimizedPaneIds,
                             splitRenderInfo: splitRenderInfo,
+                            closeTransitionCoordinator: closeTransitionCoordinator,
                             action: drawerAction,
                             onPersist: nil,
                             store: store,
@@ -149,6 +151,7 @@ struct DrawerPanel: View {
                                         store: store,
                                         repoCache: repoCache
                                     ),
+                                    closeTransitionCoordinator: closeTransitionCoordinator,
                                     action: drawerAction
                                 )
                                 .frame(width: CollapsedPaneBar.barWidth)
@@ -311,6 +314,7 @@ struct DrawerPanel: View {
                     activePaneId: nil,
                     minimizedPaneIds: [],
                     splitRenderInfo: SplitRenderInfo.compute(layout: Layout(), minimizedPaneIds: []),
+                    closeTransitionCoordinator: PaneCloseTransitionCoordinator(),
                     height: 200,
                     store: WorkspaceStore(
                         persistor: WorkspacePersistor(workspacesDir: FileManager.default.temporaryDirectory)),
