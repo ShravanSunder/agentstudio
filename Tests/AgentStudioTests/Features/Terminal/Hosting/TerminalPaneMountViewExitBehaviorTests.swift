@@ -58,6 +58,14 @@ struct TerminalPaneMountViewExitBehaviorTests {
         Issue.record("Timed out waiting for PaneTabViewController to subscribe to AppEventBus")
     }
 
+    private func makeSubscribedPaneTabControllerHarness() async -> PaneTabControllerHarness {
+        let harness = makePaneTabControllerHarness()
+        let baselineSubscriberCount = await AppEventBus.shared.subscriberCount
+        _ = harness.controller.view
+        await waitForAppEventBusSubscriber(countGreaterThan: baselineSubscriberCount)
+        return harness
+    }
+
     private func makeProcessExitMountView(
         showsRestorePresentationDuringStartup: Bool = false
     ) -> TerminalPaneMountView {
@@ -70,26 +78,57 @@ struct TerminalPaneMountViewExitBehaviorTests {
         )
     }
 
-    @Test("process termination suppresses the competing process-exited overlay")
-    func processTermination_suppressesProcessExitedOverlay() {
+    @Test("process termination without subscribers keeps a visible fallback")
+    func processTermination_withoutSubscribers_showsFallbackOverlay() async {
         let mountView = makeProcessExitMountView()
 
         mountView.simulateSurfaceCloseForTesting(processAlive: false)
         #expect(mountView.isProcessRunning == false)
 
+        await eventually("fallback overlay should become visible when the close event is dropped") {
+            mountView.isShowingErrorOverlayForTesting
+        }
+
         mountView.applyHealthUpdateForTesting(.processExited(exitCode: nil))
 
+        #expect(mountView.isShowingErrorOverlayForTesting)
+    }
+
+    @Test("process termination with subscribers suppresses the competing process-exited overlay")
+    func processTermination_withSubscribers_suppressesProcessExitedOverlay() async {
+        let harness = await makeSubscribedPaneTabControllerHarness()
+        defer { try? FileManager.default.removeItem(at: harness.tempDir) }
+
+        let mountView = makeProcessExitMountView()
+
+        mountView.simulateSurfaceCloseForTesting(processAlive: false)
+
+        await eventually("close event should be observed by a subscriber") {
+            mountView.isProcessExitedOverlaySuppressedAfterTerminationForTesting
+        }
+
+        mountView.applyHealthUpdateForTesting(.processExited(exitCode: nil))
+
+        #expect(mountView.isProcessRunning == false)
         #expect(!mountView.isShowingErrorOverlayForTesting)
     }
 
-    @Test("startup restore close still auto-closes instead of showing process-exited UI")
-    func startupRestoreClose_suppressesProcessExitedOverlay() {
+    @Test("startup restore close with subscribers auto-closes without showing process-exit UI")
+    func startupRestoreClose_withSubscribersAutoClosesWithoutProcessExitedUI() async {
+        let harness = await makeSubscribedPaneTabControllerHarness()
+        defer { try? FileManager.default.removeItem(at: harness.tempDir) }
+
         let mountView = makeProcessExitMountView(showsRestorePresentationDuringStartup: true)
 
         mountView.beginRestorePresentationForTesting()
         #expect(mountView.isShowingStartupOverlayForTesting)
 
         mountView.simulateSurfaceCloseForTesting(processAlive: false)
+
+        await eventually("startup close should be observed by a subscriber") {
+            mountView.isProcessExitedOverlaySuppressedAfterTerminationForTesting
+        }
+
         mountView.applyHealthUpdateForTesting(.processExited(exitCode: nil))
 
         #expect(mountView.isProcessRunning == false)
