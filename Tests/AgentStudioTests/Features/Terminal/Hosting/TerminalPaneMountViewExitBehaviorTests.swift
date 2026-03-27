@@ -56,16 +56,6 @@ struct TerminalPaneMountViewExitBehaviorTests {
         )
     }
 
-    private func waitForAppEventBusSubscriber(countGreaterThan baseline: Int) async {
-        for _ in 0..<200 {
-            if await AppEventBus.shared.subscriberCount > baseline {
-                return
-            }
-            await Task.yield()
-        }
-        Issue.record("Timed out waiting for PaneTabViewController to subscribe to AppEventBus")
-    }
-
     private func waitForAppEventBusSubscriberCount(_ expectedCount: Int) async {
         for _ in 0..<200 {
             if await AppEventBus.shared.subscriberCount == expectedCount {
@@ -77,10 +67,9 @@ struct TerminalPaneMountViewExitBehaviorTests {
     }
 
     private func makeSubscribedPaneTabControllerHarness() async -> PaneTabControllerHarness {
-        let harness = makePaneTabControllerHarness()
         let baselineSubscriberCount = await AppEventBus.shared.subscriberCount
-        _ = harness.controller.view
-        await waitForAppEventBusSubscriber(countGreaterThan: baselineSubscriberCount)
+        let harness = makePaneTabControllerHarness()
+        await waitForAppEventBusSubscriberCount(baselineSubscriberCount + 1)
         return harness
     }
 
@@ -139,7 +128,10 @@ struct TerminalPaneMountViewExitBehaviorTests {
 
     @Test("process termination with dropped delivery restores visible fallback UI")
     func processTermination_withDroppedDelivery_restoresFallbackOverlay() async {
-        let droppedDeliverySubscriber = await makeDroppedDeliverySubscriber()
+        let baselineSubscriberCount = await AppEventBus.shared.subscriberCount
+        var droppedDeliverySubscriber: AsyncStream<AppEvent>? = await makeDroppedDeliverySubscriber()
+        #expect(droppedDeliverySubscriber != nil)
+        await waitForAppEventBusSubscriberCount(baselineSubscriberCount + 1)
         let mountView = makeProcessExitMountView()
 
         mountView.simulateSurfaceCloseForTesting(processAlive: false)
@@ -153,7 +145,8 @@ struct TerminalPaneMountViewExitBehaviorTests {
         }
         #expect(!mountView.hasObservedEffectiveTerminationDeliveryForTesting)
 
-        _ = droppedDeliverySubscriber
+        droppedDeliverySubscriber = nil
+        await waitForAppEventBusSubscriberCount(baselineSubscriberCount)
     }
 
     @Test("startup restore close with subscribers auto-closes without showing process-exit UI")
@@ -194,9 +187,9 @@ struct TerminalPaneMountViewExitBehaviorTests {
 
     @Test("terminal process termination delivered through AppEventBus closes a single-pane tab")
     func terminalProcessTermination_deliveredThroughAppEventBus_closesSinglePaneTab() async {
+        let baselineSubscriberCount = await AppEventBus.shared.subscriberCount
         let harness = makePaneTabControllerHarness()
         defer { try? FileManager.default.removeItem(at: harness.tempDir) }
-        let baselineSubscriberCount = await AppEventBus.shared.subscriberCount
         let pane = harness.store.createPane(
             content: .webview(WebviewState(url: URL(string: "https://example.com/\(UUID().uuidString)")!)),
             metadata: PaneMetadata(source: .floating(workingDirectory: nil, title: "Solo"), title: "Solo")
@@ -204,7 +197,7 @@ struct TerminalPaneMountViewExitBehaviorTests {
         let tab = Tab(paneId: pane.id)
         harness.store.appendTab(tab)
 
-        await waitForAppEventBusSubscriber(countGreaterThan: baselineSubscriberCount)
+        await waitForAppEventBusSubscriberCount(baselineSubscriberCount + 1)
         AppEventBus.post(.terminalProcessTerminated(paneId: pane.id))
 
         await eventually("single-pane tab should close after AppEventBus delivery") {
@@ -214,9 +207,9 @@ struct TerminalPaneMountViewExitBehaviorTests {
 
     @Test("terminal process termination delivered through AppEventBus closes drawer children")
     func terminalProcessTermination_deliveredThroughAppEventBus_closesDrawerChild() async {
+        let baselineSubscriberCount = await AppEventBus.shared.subscriberCount
         let harness = makePaneTabControllerHarness()
         defer { try? FileManager.default.removeItem(at: harness.tempDir) }
-        let baselineSubscriberCount = await AppEventBus.shared.subscriberCount
         let parentPane = harness.store.createPane(
             content: .webview(WebviewState(url: URL(string: "https://example.com/\(UUID().uuidString)")!)),
             metadata: PaneMetadata(source: .floating(workingDirectory: nil, title: "Parent"), title: "Parent")
@@ -228,13 +221,80 @@ struct TerminalPaneMountViewExitBehaviorTests {
             return
         }
 
-        await waitForAppEventBusSubscriber(countGreaterThan: baselineSubscriberCount)
+        await waitForAppEventBusSubscriberCount(baselineSubscriberCount + 1)
         AppEventBus.post(.terminalProcessTerminated(paneId: drawerPane.id))
 
         await eventually("drawer child should close after AppEventBus delivery") {
             harness.store.pane(drawerPane.id) == nil
         }
         #expect(harness.store.pane(parentPane.id) != nil)
+    }
+
+    @Test("terminal termination delivered through AppEventBus removes panes hidden from the active arrangement")
+    func terminalProcessTermination_deliveredThroughAppEventBus_removesHiddenOwnedPane() async {
+        let baselineSubscriberCount = await AppEventBus.shared.subscriberCount
+        let harness = makePaneTabControllerHarness()
+        defer { try? FileManager.default.removeItem(at: harness.tempDir) }
+
+        let paneA = harness.store.createPane(
+            content: .webview(WebviewState(url: URL(string: "https://example.com/a-\(UUID().uuidString)")!)),
+            metadata: PaneMetadata(source: .floating(workingDirectory: nil, title: "A"), title: "A")
+        )
+        let paneB = harness.store.createPane(
+            content: .webview(WebviewState(url: URL(string: "https://example.com/b-\(UUID().uuidString)")!)),
+            metadata: PaneMetadata(source: .floating(workingDirectory: nil, title: "B"), title: "B")
+        )
+        let hiddenPane = harness.store.createPane(
+            content: .webview(WebviewState(url: URL(string: "https://example.com/c-\(UUID().uuidString)")!)),
+            metadata: PaneMetadata(source: .floating(workingDirectory: nil, title: "Hidden"), title: "Hidden")
+        )
+
+        let tab = Tab(paneId: paneA.id)
+        harness.store.appendTab(tab)
+        harness.store.insertPane(paneB.id, inTab: tab.id, at: paneA.id, direction: .horizontal, position: .after)
+        harness.store.insertPane(hiddenPane.id, inTab: tab.id, at: paneB.id, direction: .horizontal, position: .after)
+        guard
+            let focusArrangementId = harness.store.createArrangement(
+                name: "Focus",
+                paneIds: Set([paneA.id, paneB.id]),
+                inTab: tab.id
+            )
+        else {
+            Issue.record("Expected focus arrangement creation to succeed")
+            return
+        }
+        harness.store.switchArrangement(to: focusArrangementId, inTab: tab.id)
+        #expect(harness.store.tab(tab.id)?.panes.contains(hiddenPane.id) == true)
+        #expect(harness.store.tab(tab.id)?.paneIds.contains(hiddenPane.id) == false)
+
+        await waitForAppEventBusSubscriberCount(baselineSubscriberCount + 1)
+        AppEventBus.post(.terminalProcessTerminated(paneId: hiddenPane.id))
+
+        await eventually("hidden owned pane should be removed without closing the whole tab") {
+            harness.store.pane(hiddenPane.id) == nil
+        }
+        #expect(harness.store.tab(tab.id) != nil)
+        #expect(harness.store.tab(tab.id)?.panes.contains(hiddenPane.id) == false)
+        #expect(Set(harness.store.tab(tab.id)?.paneIds ?? []) == Set([paneA.id, paneB.id]))
+    }
+
+    @Test("requestClose immediately suppresses a competing process-exited health update")
+    func requestClose_immediatelySuppressesCompetingProcessExitedOverlay() async {
+        let harness = await makeSubscribedPaneTabControllerHarness()
+        defer { try? FileManager.default.removeItem(at: harness.tempDir) }
+
+        let mountView = makeProcessExitMountView()
+
+        mountView.requestClose()
+        mountView.applyHealthUpdateForTesting(.processExited(exitCode: nil))
+
+        #expect(mountView.isProcessRunning == false)
+        #expect(!mountView.isShowingErrorOverlayForTesting)
+        #expect(mountView.isProcessExitedOverlaySuppressedAfterTerminationForTesting)
+
+        await eventually("requestClose should be effectively delivered to a subscriber") {
+            mountView.hasObservedEffectiveTerminationDeliveryForTesting
+        }
     }
 
     @Test("controller subscribes before view load and unregisters on teardown")
@@ -244,7 +304,7 @@ struct TerminalPaneMountViewExitBehaviorTests {
         let tempDir = harness?.tempDir
         let weakController = WeakControllerBox(harness?.controller)
 
-        await waitForAppEventBusSubscriber(countGreaterThan: baselineSubscriberCount)
+        await waitForAppEventBusSubscriberCount(baselineSubscriberCount + 1)
         #expect(weakController.value != nil)
 
         harness = nil

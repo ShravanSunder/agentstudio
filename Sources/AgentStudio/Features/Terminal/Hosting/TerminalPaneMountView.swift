@@ -405,6 +405,7 @@ final class TerminalPaneMountView: NSView, PaneMountedContent, SurfaceHealthDele
     func requestClose() {
         guard let surfaceId else { return }
         SurfaceManager.shared.detach(surfaceId, reason: .close)
+        isProcessRunning = false
         shouldSuppressProcessExitedOverlayAfterTermination = true
         hasObservedEffectiveTerminationDelivery = false
         postProcessTerminationEvent(processAlive: true)

@@ -57,6 +57,7 @@ class PaneTabViewController: NSViewController, CommandHandler {
     private let executor: ActionExecutor
     private let tabBarAdapter: TabBarAdapter
     private let viewRegistry: ViewRegistry
+    private let closeTransitionCoordinator: PaneCloseTransitionCoordinator
     private var appLifecycleStore = AppLifecycleStore()
 
     // MARK: - View State
@@ -80,10 +81,13 @@ class PaneTabViewController: NSViewController, CommandHandler {
     // MARK: - Init
 
     init(
-        store: WorkspaceStore, repoCache: WorkspaceRepoCache = WorkspaceRepoCache(),
+        store: WorkspaceStore,
+        repoCache: WorkspaceRepoCache = WorkspaceRepoCache(),
         applicationLifecycleMonitor: ApplicationLifecycleMonitor,
         executor: ActionExecutor,
-        tabBarAdapter: TabBarAdapter, viewRegistry: ViewRegistry
+        tabBarAdapter: TabBarAdapter,
+        viewRegistry: ViewRegistry,
+        closeTransitionCoordinator: PaneCloseTransitionCoordinator = PaneCloseTransitionCoordinator()
     ) {
         self.store = store
         self.repoCache = repoCache
@@ -91,6 +95,7 @@ class PaneTabViewController: NSViewController, CommandHandler {
         self.executor = executor
         self.tabBarAdapter = tabBarAdapter
         self.viewRegistry = viewRegistry
+        self.closeTransitionCoordinator = closeTransitionCoordinator
         super.init(nibName: nil, bundle: nil)
         setupNotificationObservers()
     }
@@ -343,6 +348,7 @@ class PaneTabViewController: NSViewController, CommandHandler {
             repoCache: repoCache,
             viewRegistry: viewRegistry,
             appLifecycleStore: appLifecycleStore,
+            closeTransitionCoordinator: closeTransitionCoordinator,
             action: { [weak self] action in self?.dispatchAction(action) },
             shouldAcceptDrop: { [weak self] payload, destPaneId, zone in
                 self?.evaluateDropAcceptance(
@@ -749,6 +755,14 @@ class PaneTabViewController: NSViewController, CommandHandler {
             }
 
             if let tab = store.tabContaining(paneId: paneId) {
+                if !tab.paneIds.contains(paneId) {
+                    if tab.panes.count > 1 {
+                        executor.executeTrusted(.closePane(tabId: tab.id, paneId: paneId))
+                    } else {
+                        executor.executeTrusted(.closeTab(tabId: tab.id))
+                    }
+                    return
+                }
                 if tab.isSplit {
                     dispatchAction(.closePane(tabId: tab.id, paneId: paneId))
                 } else {
