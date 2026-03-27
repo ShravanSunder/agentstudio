@@ -25,6 +25,7 @@ final class TerminalPaneMountView: NSView, PaneMountedContent, SurfaceHealthDele
     private var startupPresentationTask: Task<Void, Never>?
     private var startupPresentationActive = false
     private var shouldSuppressProcessExitedOverlayAfterTermination = false
+    private var hasObservedEffectiveTerminationDelivery = false
     var onRepairRequested: ((UUID) -> Void)?
 
     /// The current terminal title
@@ -178,6 +179,7 @@ final class TerminalPaneMountView: NSView, PaneMountedContent, SurfaceHealthDele
         self.ghosttySurface = surfaceView
         self.lastReportedSurfaceSize = .zero
         self.shouldSuppressProcessExitedOverlayAfterTermination = false
+        self.hasObservedEffectiveTerminationDelivery = false
         RestoreTrace.log(
             "TerminalPaneMountView.displaySurface mounted pane=\(paneId) surface=\(surfaceId?.uuidString ?? "nil") mountedSurfaceMetrics={\(surfaceView.metricsSnapshotDescription())}"
         )
@@ -198,6 +200,7 @@ final class TerminalPaneMountView: NSView, PaneMountedContent, SurfaceHealthDele
         ghosttySurface = nil
         surfaceId = nil
         shouldSuppressProcessExitedOverlayAfterTermination = false
+        hasObservedEffectiveTerminationDelivery = false
     }
 
     @discardableResult
@@ -328,6 +331,8 @@ final class TerminalPaneMountView: NSView, PaneMountedContent, SurfaceHealthDele
     private func handleSurfaceClose(processAlive: Bool) {
         guard isProcessRunning else { return }
         isProcessRunning = false
+        shouldSuppressProcessExitedOverlayAfterTermination = true
+        hasObservedEffectiveTerminationDelivery = false
         RestoreTrace.log(
             "TerminalPaneMountView.handleSurfaceClose pane=\(paneId) surface=\(surfaceId?.uuidString ?? "nil") processAlive=\(processAlive)"
         )
@@ -400,6 +405,8 @@ final class TerminalPaneMountView: NSView, PaneMountedContent, SurfaceHealthDele
     func requestClose() {
         guard let surfaceId else { return }
         SurfaceManager.shared.detach(surfaceId, reason: .close)
+        shouldSuppressProcessExitedOverlayAfterTermination = true
+        hasObservedEffectiveTerminationDelivery = false
         postProcessTerminationEvent(processAlive: true)
     }
 
@@ -409,18 +416,21 @@ final class TerminalPaneMountView: NSView, PaneMountedContent, SurfaceHealthDele
         SurfaceManager.shared.destroy(surfaceId)
         self.surfaceId = nil
         shouldSuppressProcessExitedOverlayAfterTermination = false
+        hasObservedEffectiveTerminationDelivery = false
     }
 
     private func postProcessTerminationEvent(processAlive: Bool) {
         Task { @MainActor [weak self] in
             guard let self else { return }
             let postResult = await AppEventBus.shared.post(.terminalProcessTerminated(paneId: self.paneId))
-            self.shouldSuppressProcessExitedOverlayAfterTermination = postResult.subscriberCount > 0
-            if self.shouldSuppressProcessExitedOverlayAfterTermination {
+            let hadEffectiveDelivery = postResult.subscriberCount > 0 && postResult.droppedCount == 0
+            self.hasObservedEffectiveTerminationDelivery = hadEffectiveDelivery
+            if hadEffectiveDelivery {
                 self.finishRestorePresentation()
                 self.hideErrorOverlay()
                 return
             }
+            self.shouldSuppressProcessExitedOverlayAfterTermination = false
             self.showProcessExitedFallback(processAlive: processAlive)
         }
     }
@@ -513,6 +523,10 @@ final class TerminalPaneMountView: NSView, PaneMountedContent, SurfaceHealthDele
 
         var isProcessExitedOverlaySuppressedAfterTerminationForTesting: Bool {
             shouldSuppressProcessExitedOverlayAfterTermination
+        }
+
+        var hasObservedEffectiveTerminationDeliveryForTesting: Bool {
+            hasObservedEffectiveTerminationDelivery
         }
 
         var isShowingErrorOverlayForTesting: Bool {

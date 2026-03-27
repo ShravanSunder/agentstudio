@@ -66,6 +66,10 @@ struct TerminalPaneMountViewExitBehaviorTests {
         return harness
     }
 
+    private func makeDroppedDeliverySubscriber() async -> AsyncStream<AppEvent> {
+        await AppEventBus.shared.subscribe(bufferingPolicy: .bufferingNewest(0))
+    }
+
     private func makeProcessExitMountView(
         showsRestorePresentationDuringStartup: Bool = false
     ) -> TerminalPaneMountView {
@@ -94,23 +98,44 @@ struct TerminalPaneMountViewExitBehaviorTests {
         #expect(mountView.isShowingErrorOverlayForTesting)
     }
 
-    @Test("process termination with subscribers suppresses the competing process-exited overlay")
-    func processTermination_withSubscribers_suppressesProcessExitedOverlay() async {
+    @Test("process termination with subscribers suppresses a competing process-exited health update immediately")
+    func processTermination_withSubscribers_immediatelySuppressesCompetingProcessExitedOverlay() async {
         let harness = await makeSubscribedPaneTabControllerHarness()
         defer { try? FileManager.default.removeItem(at: harness.tempDir) }
 
         let mountView = makeProcessExitMountView()
 
         mountView.simulateSurfaceCloseForTesting(processAlive: false)
-
-        await eventually("close event should be observed by a subscriber") {
-            mountView.isProcessExitedOverlaySuppressedAfterTerminationForTesting
-        }
-
         mountView.applyHealthUpdateForTesting(.processExited(exitCode: nil))
+
+        #expect(!mountView.isShowingErrorOverlayForTesting)
+        #expect(mountView.isProcessExitedOverlaySuppressedAfterTerminationForTesting)
+
+        await eventually("close event should be effectively delivered to a subscriber") {
+            mountView.hasObservedEffectiveTerminationDeliveryForTesting
+        }
 
         #expect(mountView.isProcessRunning == false)
         #expect(!mountView.isShowingErrorOverlayForTesting)
+    }
+
+    @Test("process termination with dropped delivery restores visible fallback UI")
+    func processTermination_withDroppedDelivery_restoresFallbackOverlay() async {
+        let droppedDeliverySubscriber = await makeDroppedDeliverySubscriber()
+        let mountView = makeProcessExitMountView()
+
+        mountView.simulateSurfaceCloseForTesting(processAlive: false)
+        mountView.applyHealthUpdateForTesting(.processExited(exitCode: nil))
+
+        #expect(!mountView.isShowingErrorOverlayForTesting)
+        #expect(mountView.isProcessExitedOverlaySuppressedAfterTerminationForTesting)
+
+        await eventually("fallback overlay should appear after dropped close delivery") {
+            mountView.isShowingErrorOverlayForTesting
+        }
+        #expect(!mountView.hasObservedEffectiveTerminationDeliveryForTesting)
+
+        _ = droppedDeliverySubscriber
     }
 
     @Test("startup restore close with subscribers auto-closes without showing process-exit UI")
@@ -124,12 +149,13 @@ struct TerminalPaneMountViewExitBehaviorTests {
         #expect(mountView.isShowingStartupOverlayForTesting)
 
         mountView.simulateSurfaceCloseForTesting(processAlive: false)
-
-        await eventually("startup close should be observed by a subscriber") {
-            mountView.isProcessExitedOverlaySuppressedAfterTerminationForTesting
-        }
-
         mountView.applyHealthUpdateForTesting(.processExited(exitCode: nil))
+
+        #expect(!mountView.isShowingErrorOverlayForTesting)
+
+        await eventually("startup close should be effectively delivered to a subscriber") {
+            mountView.hasObservedEffectiveTerminationDeliveryForTesting
+        }
 
         #expect(mountView.isProcessRunning == false)
         #expect(!mountView.isShowingStartupOverlayForTesting)
