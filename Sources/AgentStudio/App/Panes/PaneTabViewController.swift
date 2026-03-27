@@ -246,7 +246,6 @@ class PaneTabViewController: NSViewController, CommandHandler {
                     switch event {
                     case .terminalProcessTerminated(let paneId):
                         Task { @MainActor [weak self] in
-                            await Task.yield()
                             self?.handleTerminalProcessTerminated(paneId: paneId)
                         }
                     default:

@@ -251,6 +251,12 @@ final class TerminalPaneMountView: NSView, PaneMountedContent, SurfaceHealthDele
     }
 
     private func updateHealthUI(_ health: SurfaceHealth) {
+        if case .processExited = health, !isProcessRunning {
+            finishRestorePresentation()
+            hideErrorOverlay()
+            return
+        }
+
         if startupPresentationActive {
             switch health {
             case .healthy:
@@ -459,7 +465,17 @@ final class TerminalPaneMountView: NSView, PaneMountedContent, SurfaceHealthDele
 
 }
 
-@MainActor
-extension TerminalPaneMountView {
-    var placeholderViewForTesting: TerminalStatusPlaceholderView? { placeholderView }
-}
+#if DEBUG
+    @MainActor
+    extension TerminalPaneMountView {
+        var placeholderViewForTesting: TerminalStatusPlaceholderView? { placeholderView }
+
+        func applyHealthUpdateForTesting(_ health: SurfaceHealth) {
+            updateHealthUI(health)
+        }
+
+        var isShowingErrorOverlayForTesting: Bool {
+            errorOverlay?.isHidden == false
+        }
+    }
+#endif
