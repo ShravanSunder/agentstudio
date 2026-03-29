@@ -2332,3 +2332,662 @@ Files:
 - newly created narrow panes can still show the same prompt-row issue
 
 Those remaining issues are no longer layout corruption; they are terminal-state/render behavior after correct geometry.
+
+## Debugging Epoch 2026-03-29T20:15:00-04:00 — Narrow-Pane Cursor Bug Is Below The Layout Layer
+
+### Observation
+
+After the flat-strip cutover:
+
+- restart width corruption was gone
+- small-width panes still restored with the prompt/cursor row in the wrong place
+
+For the bad panes in the active 5-pane tab:
+
+- `019D3B13-58BA-70E2-8E9C-C4158339FF9C`
+- `019D3B13-5EA5-71E2-989D-1232E980A811`
+
+the app-side geometry was already correct and stable:
+
+```text
+logical = 347.5 x 1149
+backing = 695 x 2298
+grid    = 36 cols x 54 rows
+```
+
+The restore trace showed:
+
+```text
+init:
+  currentGrid = 41x14
+  requested   = 36x54
+
+our narrow-pane redraw nudge:
+  36x54 -> 37x54 -> 36x54
+
+after that:
+  forceGeometrySync dedupLikely=true
+  viewDidMoveToWindow dedupLikely=true
+```
+
+So the bad cursor row survives after the pane reaches its final stable size.
+
+### Grounded conclusion
+
+This remaining bug is no longer:
+
+- ratio drift
+- flat layout math
+- width corruption
+- repeated post-restore resize churn
+
+It is now localized to reattaching existing narrow sessions after correct geometry has already settled.
+
+The matching zmx session suffixes for the bad panes are:
+
+- `8e9cc4158339ff9c`
+- `989d1232e980a811`
+
+and `zmx.log` still only shows:
+
+```text
+session already exists
+attached session=...
+```
+
+### Next evidence to collect
+
+Local-only zmx instrumentation was added around the attach/resize path to log:
+
+- `session`
+- `has_pty_output`
+- `has_had_client`
+- pre-serialize `rows/cols`
+- pre-serialize cursor `{x,y,pending_wrap}`
+- serialized output length
+- post-resize `rows/cols`
+- post-resize cursor `{x,y,pending_wrap}`
+
+This instrumentation is for tracing only and is not intended for commit.
+
+The next restart should let us answer:
+
+```text
+for a bad 36-column pane,
+does zmx restore a cursor state that is already inconsistent
+before or immediately after resize?
+```
+
+## Debugging Epoch (2026-03-29T20:11:00Z): New Pane Insertion Reparents All Existing Surfaces
+
+### Problem under investigation
+
+When a new pane is created (split right/left), the LEFT (existing) pane loses its terminal prompt/content. The new pane works fine.
+
+### Grounded evidence from logs
+
+Even after the flat layout cutover, inserting a new pane causes ALL existing surfaces in the tab to go through `viewDidMoveToWindow window=false` then `viewDidMoveToWindow window=true reparent=true`.
+
+From `/tmp/agentstudio_debug.log` at 20:11:19, when a new pane is created on tab 2:
+
+```text
+5 existing surfaces go window=false in sequence:
+  viewId=...cf600 window=false  (696.5px wide, 72 cols)
+  viewId=...ced00 window=false  (697px wide, 72 cols)
+  viewId=...cf300 window=false  (347.5px wide, 36 cols)
+  viewId=...cf000 window=false  (347px wide, 36 cols)
+  viewId=...cea00 window=false  (347.5px wide, 36 cols)
+
+Then 5 surfaces from the OTHER tab appear with reparent=true:
+  viewId=...0e2100 window=true reparent=true  (697px)
+  viewId=...0e1e00 window=true reparent=true  (347.5px)
+  viewId=...0e1800 window=true reparent=true  (347.5px)
+  viewId=...0e2400 window=true reparent=true  (697px)
+  viewId=...0e1b00 window=true reparent=true  (697px)
+
+Then the new surface is created:
+  createSurface begin pane=019D3B38-5446-70D4-83F9-65945D745FC4
+
+Then the ORIGINAL 5 surfaces go window=false AGAIN and then window=true reparent=true AGAIN.
+```
+
+Total: **223 reparenting events across the entire debugging session.**
+
+### What this means
+
+SwiftUI is removing and re-adding ALL `PaneViewRepresentable` NSViews from the window hierarchy when the `FlatPaneStripContent` re-renders. This happens because:
+
+1. Layout changes (new pane inserted, ratios change)
+2. `FlatPaneStripContent.body` is inside a `GeometryReader`
+3. The `GeometryReader` re-evaluates, recomputes `FlatTabStripMetrics`
+4. `ForEach(metrics.paneSegments, id: \.paneId)` has a new item count
+5. SwiftUI rebuilds the hosting view tree, removing and re-adding NSViews
+
+Even though `ForEach` uses stable pane IDs, the addition of a new item can cause SwiftUI to restructure its internal hosting, which triggers `viewDidMoveToWindow(nil)` → `viewDidMoveToWindow(window)` on all existing surfaces.
+
+### How this relates to the LEFT pane losing its terminal
+
+During the reparenting cycle:
+
+```text
+1. Existing surface removed from window (window=false)
+   → Ghostty surface may stop rendering
+   → CVDisplayLink may stop (if visible && focused check fails)
+
+2. Surface re-added to window (window=true, reparent=true)
+   → viewDidMoveToWindow async fires sizeDidChange
+   → but the size may be the SAME as before
+   → if same size → Ghostty deduplicates → no resize → no SIGWINCH
+   → shell never redraws prompt
+   → terminal shows stale content or blank
+```
+
+This is the same pattern as the restart prompt-loss bug, but triggered by pane insertion instead of app restart.
+
+### What is NOT yet proven
+
+```text
+1. Whether the reparenting is the direct cause of the blank terminal
+   (correlation with the user's observation, but not strict causation proof)
+2. Whether preventing the reparenting would fix the issue
+3. Whether SwiftUI's ForEach actually NEEDS to reparent when item count changes
+   (it might be avoidable with different view identity or layout approach)
+```
+
+### Relationship to the restart prompt-loss bug
+
+Both bugs share the same mechanism:
+- Surface goes through window=false → window=true
+- Size may not change
+- Shell doesn't get a redraw signal
+- Prompt/content is lost
+
+The difference is the trigger:
+- Restart: surfaces reparented during app launch/restore
+- New pane: surfaces reparented during SwiftUI ForEach structural change
+
+## Debugging Epoch (2026-03-29T20:33:45Z): Pane Insertion Does NOT Reparent — Corrected Model
+
+### Evidence from new instrumentation
+
+With `PaneViewRepresentable.makeNSView`, `dismantleNSView`, and `FlatPaneStripContent.body` logging, the insertion path is now traced.
+
+**During new pane insertion (20:33:45, paneCount 3→4):**
+
+```text
+FlatPaneStripContent.body paneCount=4 segmentCount=4 geoSize={2800,1151}
+PaneViewRepresentable.makeNSView paneId=019D3B4D-7487 (NEW pane only)
+```
+
+No `dismantleNSView` for existing panes. No `viewDidMoveToWindow window=false` for existing surfaces. The `ForEach` with stable pane IDs correctly adds only the new representable.
+
+**During second insertion (20:33:49, paneCount 4→5):**
+
+```text
+FlatPaneStripContent.body paneCount=5 segmentCount=5 geoSize={2800,1151}
+PaneViewRepresentable.makeNSView paneId=019D3B4D-8605 (NEW pane only)
+```
+
+Same — only the new pane gets a `makeNSView`. Existing panes untouched.
+
+**During RESTART (20:33:36 and 20:36:21), different behavior:**
+
+```text
+FlatPaneStripContent.body paneCount=3 geoSize={512,552}   ← pre-maximize
+FlatPaneStripContent.body paneCount=3 geoSize={2800,1151} ← post-maximize
+  makeNSView × 3                                          ← creates all
+  dismantleNSView × 3                                     ← DESTROYS all
+FlatPaneStripContent.body paneCount=3 geoSize={2800,1151} ← re-evaluates
+  makeNSView × 3                                          ← RECREATES all
+```
+
+The restart dismantle→recreate cycle is triggered by GeometryReader re-evaluating as the window goes from 512px to 2800px during maximize. This is a restart-specific problem, not a pane-insertion problem.
+
+### Correction to the earlier model
+
+The earlier Epoch stated "SwiftUI reparents all pane views when a new pane is inserted." That was wrong for the current flat layout.
+
+Corrected:
+
+```text
+Pane insertion: NO reparenting of existing surfaces (ForEach stable IDs work)
+App restart:    YES reparenting of all surfaces (GeometryReader resize triggers dismantle+recreate)
+```
+
+### What this means for the "left pane goes blank on insertion" bug
+
+If existing surfaces are NOT reparented during insertion, the blank left pane has a different cause. Possible candidates:
+
+```text
+1. Focus change — the new pane takes focus, the old pane loses it
+   → CVDisplayLink stops if visible && focused is false
+   → but unfocused panes normally keep their last rendered frame
+
+2. The existing pane's frame/size changes (halved ratio) but the Ghostty surface
+   doesn't receive the resize because setFrameSize is deduped or layout hasn't settled
+
+3. SwiftUI's .offset() / .frame() modifier change causes an intermediate
+   zero-size or clipped frame on the existing pane
+
+4. The user observation might be about the NEW pane (right side) being blank,
+   not the existing (left side) — need to confirm with the user
+```
+
+These are hypotheses, not proven. Need user confirmation of which pane goes blank and additional logging of the existing pane's frame/size changes during insertion.
+
+## Debugging Epoch (2026-03-29T20:33:36Z): Why SwiftUI Dismantles And Recreates Representables On Startup
+
+### Grounded evidence
+
+From the logs, the dismantle→recreate cycle happens between the THIRD and FOURTH `FlatPaneStripContent.body` evaluation, both at the same `geoSize={2800,1151}`:
+
+```text
+body paneCount=3 geoSize={2800,1151} → makeNSView × 3
+dismantleNSView × 3
+body paneCount=3 geoSize={2800,1151} → makeNSView × 3
+```
+
+The geometry didn't change. What changed was `store.viewRevision` — bumped by `bumpViewRevision()` during the restore path after creating views.
+
+### Why viewRevision bump causes full teardown
+
+From `Sources/AgentStudio/Core/Views/Splits/ActiveTabContent.swift` line 40-73:
+
+```swift
+var body: some View {
+    let currentViewRevision = store.viewRevision  // ← @Observable tracks this
+    ...
+    if let activeTabId, let tab {
+        FlatTabStripContainer(
+            layout: tab.layout,
+            ...
+            action: action,              // ← closure
+            shouldAcceptDrop: ...,       // ← closure
+            onDrop: ...,                 // ← closure
+            ...
+        )
+    }
+}
+```
+
+`FlatTabStripContainer` takes closures (`action`, `shouldAcceptDrop`, `onDrop`). Closures cannot conform to `Equatable`. SwiftUI cannot compare two `FlatTabStripContainer` values.
+
+When `viewRevision` changes:
+1. `ActiveTabContent.body` re-evaluates (because `@Observable` tracks `viewRevision`)
+2. A new `FlatTabStripContainer` struct is created
+3. SwiftUI cannot tell if it's equal to the previous one (closures prevent comparison)
+4. SwiftUI treats it as a new view → tears down the old subtree → creates new subtree
+5. All child `PaneViewRepresentable` instances get `dismantleNSView` → `makeNSView`
+6. All Ghostty surfaces go through `viewDidMoveToWindow(nil)` → `viewDidMoveToWindow(window)`
+
+### Why ForEach stable IDs don't help
+
+`ForEach(metrics.paneSegments, id: \.paneId)` has stable IDs, but those IDs are within a `ForEach` instance. When SwiftUI recreates the parent `FlatTabStripContainer` (and its child `FlatPaneStripContent` and its child `GeometryReader`), the `ForEach` itself is a new instance. The stable IDs only prevent churn WITHIN a single `ForEach` lifetime. They don't survive parent view recreation.
+
+### What this means
+
+The dismantle→recreate cycle is not caused by geometry changes. It's caused by SwiftUI's inability to diff view structs that contain closures. Every `@Observable` property change that triggers `ActiveTabContent.body` re-evaluation causes a full teardown of the pane hosting tree.
+
+### Grounded in code
+
+```text
+1. FlatTabStripContainer takes closures → cannot be Equatable
+   → Sources/AgentStudio/Core/Views/Splits/FlatTabStripContainer.swift
+
+2. ActiveTabContent.body reads store.viewRevision → re-evaluates on bump
+   → Sources/AgentStudio/Core/Views/Splits/ActiveTabContent.swift:42
+
+3. bumpViewRevision fires during restore after creating views
+   → Sources/AgentStudio/App/PaneCoordinator+ViewLifecycle.swift
+
+4. Logs confirm dismantle→recreate at same geoSize after viewRevision bump
+   → /tmp/agentstudio_debug.log at 20:33:36
+```
+
+### What is NOT yet proven
+
+```text
+1. Whether removing closures from FlatTabStripContainer would prevent the teardown
+2. Whether using @EnvironmentObject or other indirection for action dispatch would help
+3. Whether SwiftUI has a way to mark a view subtree as "stable" despite parent identity changes
+4. Whether the dismantled NSView containers retain their Ghostty surface state correctly
+   across the dismantle→recreate cycle (the same lazy swiftUIContainer is returned)
+```
+
+## Debugging Epoch (2026-03-29): Complete Inventory Of What Can Trigger Pane Representable Teardown
+
+### The core problem
+
+`PaneViewRepresentable` wrapping Ghostty surfaces should never be dismantled and recreated. It should only receive `updateNSView` calls. But our logs show `dismantleNSView` → `makeNSView` cycles happening on startup.
+
+### Mechanism: SwiftUI view identity invalidation
+
+A `PaneViewRepresentable` is dismantled when SwiftUI considers its parent view to be a NEW view rather than an UPDATE of an existing view. This happens when SwiftUI cannot prove the parent is equal to its previous value.
+
+`FlatTabStripContainer` takes closures (`action`, `shouldAcceptDrop`, `onDrop`). Closures cannot be compared. So whenever `ActiveTabContent.body` re-evaluates and creates a new `FlatTabStripContainer`, SwiftUI treats it as a new view and rebuilds the entire subtree.
+
+### Trigger 1: `store.viewRevision` changes (bumpViewRevision)
+
+`ActiveTabContent.body` reads `store.viewRevision` at line 42. Any bump triggers body re-evaluation → new `FlatTabStripContainer` → teardown.
+
+Callers of `store.bumpViewRevision()`:
+
+```text
+PaneCoordinator+ViewLifecycle.swift:608  — after restoring visible panes (stage 1)
+PaneCoordinator+ViewLifecycle.swift:631  — after restoring hidden panes (stage 2 batch)
+PaneCoordinator+ViewLifecycle.swift:637  — after restoring hidden panes (final)
+PaneCoordinator+ViewLifecycle.swift:801  — after restoreViewsForActiveTabIfNeeded creates views
+PaneCoordinator+ActionExecution.swift:637  — after repair action
+PaneCoordinator+ActionExecution.swift:655  — after repair action
+PaneCoordinator+TerminalPlaceholders.swift:52  — after placeholder mode change
+PaneCoordinator+TerminalPlaceholders.swift:61  — after placeholder mode change
+PaneCoordinator+TerminalPlaceholders.swift:76  — after new placeholder creation
+```
+
+9 call sites. Every one can cause full pane teardown.
+
+### Trigger 2: `store.activeTabId` changes
+
+`ActiveTabContent.body` reads `store.activeTabId` at line 43. Tab switches trigger body re-evaluation → teardown.
+
+### Trigger 3: Any `@Observable` property on `store` accessed via `store.tab($0)`
+
+Line 44: `let tab = activeTabId.flatMap { store.tab($0) }`. This reads the tab's layout, activePaneId, zoomedPaneId, minimizedPaneIds. Any change to these triggers re-evaluation.
+
+### Trigger 4: `GeometryReader` size changes
+
+`FlatTabStripContainer.body` has `GeometryReader { tabGeometry in ... }` at line 27. When the terminal container resizes (window maximize, split view resize), the geometry proxy changes → body re-evaluates → child views may be recreated.
+
+### Trigger 5: `FlatPaneStripContent.body` has its own `GeometryReader`
+
+Line 18. Nested `GeometryReader` means two levels of geometry-dependent re-evaluation.
+
+### Trigger 6: `managementMode.isActive` changes
+
+`FlatTabStripContainer.body` reads `managementMode.isActive`. Toggling management mode triggers body re-evaluation.
+
+### Trigger 7: `appLifecycleStore.isActive` changes
+
+`FlatTabStripContainer.body` reads `appLifecycleStore.isActive`. App activate/deactivate triggers body re-evaluation.
+
+### Which of these actually caused the observed teardown
+
+From the logs at 20:33:36, the teardown happened between:
+
+```text
+body at geoSize={2800,1151} → makeNSView × 3  (first creation after restore)
+body at geoSize={2800,1151} → dismantleNSView × 3 → makeNSView × 3  (same size, teardown+recreate)
+```
+
+The geometry didn't change. The most likely trigger was `bumpViewRevision()` at `PaneCoordinator+ViewLifecycle.swift:801`, which fires immediately after `restoreViewsForActiveTabIfNeeded` creates views. This bump causes `ActiveTabContent.body` to re-evaluate → new `FlatTabStripContainer` (with closures SwiftUI can't compare) → full subtree teardown.
+
+### Why this shouldn't happen
+
+None of these triggers should cause `PaneViewRepresentable` teardown. The pane content didn't change. The pane IDs didn't change. Only the parent view struct was recreated because SwiftUI can't diff closures.
+
+The `ForEach(id: \.paneId)` stable IDs protect against churn WITHIN a single `ForEach` lifetime. But when the `ForEach`'s parent is torn down, the `ForEach` itself is destroyed and all its children are dismantled, regardless of stable IDs.
+
+### Relationship to the terminal bugs
+
+Every teardown→recreate cycle causes:
+1. `viewDidMoveToWindow(nil)` on all Ghostty surfaces (window goes away)
+2. `viewDidMoveToWindow(window)` when recreated (window comes back)
+3. If the size didn't change → Ghostty deduplicates → no SIGWINCH → shell doesn't redraw
+4. Prompt/content may be lost
+
+This is the shared upstream cause for:
+- Startup prompt loss (triggered by `bumpViewRevision` after restore)
+- Tab switch prompt loss (triggered by `activeTabId` change)
+- Any `@Observable` change on `WorkspaceStore` that touches tab state
+
+## Debugging Epoch (2026-03-29T20:36:22Z): Late Lifecycle Injection Is A Proven Startup Recreate Trigger
+
+The startup trace now gives us a direct trigger, not just a general SwiftUI suspicion.
+
+Evidence:
+- `AppDelegate.applicationDidFinishLaunching` calls `showWindow(nil)` and then `wireLifecycleConsumers()`
+- `wireLifecycleConsumers()` calls `paneTabViewController()?.setAppLifecycleStore(appLifecycleStore)`
+- `PaneTabViewController.setAppLifecycleStore` calls `replaceSplitContentView()` when the controller is already loaded
+- the trace shows `PaneViewRepresentable.dismantleNSView` after `mainWindow showWindow` and `appDidFinishLaunching: end`
+- the same pane bridge objects are then recreated immediately afterward
+- the same Ghostty surfaces report `viewDidMoveToWindow ... reparent=true wasDetached=true`
+
+Conclusion:
+- late `AppLifecycleStore` injection is a proven startup recreate trigger
+- the fix should remove the post-load hosting replacement path entirely
+- we should keep the terminal hosting subtree stable and update lifecycle state in place before it is built
+
+## Debugging Epoch (2026-03-29T22:55:49Z): Startup Reparenting Fixed, Tab Switch Teardown Remains
+
+### After the lifecycle injection fix
+
+With constructor injection of `AppLifecycleStore`, the startup sequence shows:
+
+```text
+grep -c "dismantleNSView" → 0 (during startup)
+grep -c "reparent=true" → 0 (during startup)
+makeNSView count = 11 (one per pane, created once, never dismantled)
+```
+
+Startup reparenting is eliminated.
+
+### Tab switch still causes dismantle→recreate
+
+After switching to a new tab, all 6 panes from the previous tab were dismantled:
+
+```text
+PaneViewRepresentable.dismantleNSView × 6
+```
+
+The ancestry chain confirms these are inside the SAME `NSHostingView<ActiveTabContent>` (id `0x...afaa1400`), which stays in the window. SwiftUI is dismantling the representables because the tab content changed, not because the hosting view moved.
+
+### Why this happens — grounded in architecture and external research
+
+Our `ActiveTabContent.body` conditionally renders the active tab's content:
+
+```swift
+if let activeTabId, let tab {
+    FlatTabStripContainer(layout: tab.layout, ...)
+}
+```
+
+This is a single-content model: one `NSHostingView` renders whichever tab is active. When the active tab changes, SwiftUI destroys the old tab's `ForEach` children and creates new ones for the incoming tab. Inactive tabs have no views in the SwiftUI tree at all.
+
+This contradicts how SwiftUI's native `TabView` works. From external research:
+
+Source: https://oleb.net/2022/swiftui-view-lifecycle/ (Ole Begemann, 2022)
+```text
+"A TabView starts the lifetime of all child views right away, even the non-visible tabs.
+onAppear and onDisappear get called repeatedly as the user switches tabs,
+but the tab view keeps the state alive for all tabs."
+```
+
+Source: https://developer.apple.com/forums/thread/683138 (Apple Developer Forums)
+```text
+Conditionally rendering views (if/else or switch on selection) does NOT preserve view state.
+.hidden() also fails because it changes the view hierarchy structure.
+```
+
+Source: https://vicegax.substack.com/p/nsviewrepresentable-breaks (2024)
+```text
+NSViewRepresentable views can become blank/unresponsive after being removed from
+and re-added to the view hierarchy. Fix: use NSViewControllerRepresentable.
+```
+
+Source: https://gist.github.com/Amzd/2eb5b941865e8c5cccf149e6e07c8810
+```text
+Community workaround for SwiftUI TabView state loss: use actual UITabBarController
+behind the scenes, with each tab having its own persistent hosting controller.
+```
+
+### What the correct architecture would be
+
+Instead of one `NSHostingView` swapping content, each tab should have its own persistent view subtree. Options:
+
+```text
+Option A: Per-tab NSHostingView
+  Each tab gets its own NSHostingView in AppKit.
+  PaneTabViewController shows/hides them at the AppKit level.
+  SwiftUI never sees a structural change — each tab's ForEach is stable.
+  Tab switch = show/hide NSViews, not create/destroy SwiftUI content.
+
+Option B: Render all tabs in SwiftUI, show/hide with opacity/offset
+  All tabs' pane strips exist in the SwiftUI tree simultaneously.
+  Non-active tabs are hidden via .opacity(0) and .allowsHitTesting(false).
+  This keeps all NSViewRepresentable instances alive.
+  But it means all terminals render simultaneously (GPU cost).
+
+Option C: Keep current model but accept the teardown
+  Live with the dismantle→recreate on tab switch.
+  Ensure the PaneViewRepresentable returns the same swiftUIContainer
+  (which it already does via the lazy property) so the NSView survives.
+  Focus on making the surface recovery after reparenting reliable.
+```
+
+### What is grounded vs hypothesis
+
+Grounded:
+```text
+1. Startup reparenting is fixed by constructor injection (0 dismantles on startup)
+2. Tab switch causes dismantle→recreate (6 dismantles observed)
+3. This is caused by conditional rendering in ActiveTabContent.body
+4. SwiftUI's native TabView preserves ALL tab children — our architecture doesn't match
+5. External research confirms this is a known SwiftUI limitation
+```
+
+Not proven:
+```text
+1. Whether per-tab NSHostingView would eliminate all terminal issues
+2. Whether the tab switch teardown is causing user-visible bugs
+   (the pane NSViews survive via the lazy container — they may re-enter the window fine)
+3. Whether Option C (accept teardown, fix recovery) is sufficient
+```
+
+## Debugging Epoch (2026-03-29T23:00:00Z): How SwiftUI TabView Actually Works — Research Findings
+
+### How TabView preserves views internally
+
+Source: Perplexity AI research with high search context, cross-referencing Apple docs, Swift Forums, and community analysis.
+
+Key findings:
+
+```text
+1. TabView keeps ALL tab content views alive simultaneously in the render tree.
+   Inactive tabs are hidden, not destroyed.
+
+2. NSViewRepresentable inside TabView is NOT dismantled on tab switch.
+   makeNSView is called once. updateNSView handles changes.
+   viewDidMoveToWindow does NOT fire on tab switch.
+   The NSView stays in the window hierarchy.
+
+3. @State preservation is via render tree identity.
+   All tabs have stable view identity because they all exist in the tree simultaneously.
+   No conditional rendering = no identity change = no state loss.
+
+4. On macOS, TabView uses SwiftUI's own hosting mechanism, NOT NSTabViewController.
+   No NSTabViewController in the view debugger hierarchy.
+
+5. For heavy stateful NSView content (terminals, web views),
+   the recommended pattern is per-tab NSHostingView at the AppKit level,
+   NOT SwiftUI TabView.
+```
+
+### Why our architecture is wrong
+
+Our `ActiveTabContent.body` does conditional rendering:
+
+```swift
+if let activeTabId, let tab {
+    FlatTabStripContainer(layout: tab.layout, ...)
+}
+```
+
+This is the OPPOSITE of what TabView does. We destroy the inactive tab's SwiftUI subtree and rebuild the active tab's subtree on every switch. TabView keeps all subtrees alive and hides inactive ones.
+
+For NSViewRepresentable, this means:
+- TabView: NSView stays in window, never leaves, no reparenting
+- Our approach: NSView removed from window, dismantled, recreated on switch
+
+### Recommended architecture for our use case
+
+For macOS apps hosting heavy stateful NSViews (Ghostty terminals, WKWebViews):
+
+```text
+Per-tab NSHostingView at the AppKit level
+
+Each tab gets its own NSHostingView (or NSViewController wrapping one).
+PaneTabViewController manages showing/hiding at the AppKit layer.
+SwiftUI inside each tab never sees structural changes.
+Tab switch = AppKit show/hide, not SwiftUI create/destroy.
+```
+
+This matches what the community UIKitTabView gist does, and is the pattern recommended for heavy NSView content.
+
+### What this means for our remaining bugs
+
+```text
+The tab switch dismantle→recreate is caused by our architecture,
+not by SwiftUI being inherently broken.
+
+SwiftUI CAN preserve NSViewRepresentable across tab switches —
+TabView proves this. We just need to adopt the same approach:
+keep all tab views alive, show/hide at the AppKit level.
+```
+
+### Sources
+
+```text
+- betterprogramming.pub: "Working Around the Shortfalls of SwiftUI's TabView"
+- forums.swift.org: "Replicating TabView view hierarchy behavior"
+- oleb.net: "Understanding SwiftUI view lifecycles" (2022)
+- developer.apple.com: WWDC 2022 session 10075
+- vicegax.substack.com: "NSViewRepresentable breaks" (2024)
+- kodeco.com: "Using SwiftUI in AppKit" (macOS Apprentice v2)
+```
+
+## Debugging Epoch (2026-03-29T23:54:17Z): Proven — Prompt Loss On Pane Insert Is zmx, Not Ghostty
+
+### Experiment
+
+Bypassed zmx entirely by forcing all terminal panes to use plain shell (`/bin/zsh -i -l`) instead of `zmx attach`. No other code changes.
+
+Code change: `PaneCoordinator+ViewLifecycle.swift` — both `createView` and `createFloatingTerminalView` zmx paths replaced with plain shell command.
+
+### Result
+
+Created 3 panes on startup, then added 2 more (3→4→5). Existing panes resized from full width to narrower widths. **All prompts survived.** No prompt loss. No blank panes.
+
+### What this proves
+
+```text
+Proven:
+  Pure Ghostty handles resize from wide→narrow correctly.
+  The terminal reflow from 146→73 cols preserves the prompt.
+  The shell (zsh) receives SIGWINCH and redraws correctly.
+
+  The prompt loss on pane insertion is caused by zmx,
+  not by Ghostty's terminal reflow or our SwiftUI hosting.
+```
+
+### What this means for the fix
+
+The remaining prompt-loss bugs (on pane insertion and on restart) are both zmx issues:
+
+```text
+1. New pane insertion: existing pane resizes → zmx receives Resize message →
+   something in zmx's resize handling corrupts the cursor/prompt state
+
+2. Restart: zmx reattach with same or different size →
+   zmx's terminal state replay + resize sequence loses the prompt
+```
+
+Both need investigation at the zmx level — specifically in `handleResize` and `handleInit` in `vendor/zmx/src/main.zig`.
+
+### What is NOT the cause
+
+```text
+- Ghostty's terminal reflow (proven by this experiment)
+- SwiftUI reparenting during pane insertion (proven by earlier logs — zero dismantles)
+- The 800x600 ghost size (that's a startup-specific issue, not pane insertion)
+- Our AppKit/SwiftUI hosting architecture (no reparenting on insert)
+```
