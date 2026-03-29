@@ -102,6 +102,9 @@ extension Ghostty {
 
         /// Cell size reported by Ghostty action callbacks.
         private(set) var reportedCellSize: NSSize?
+        /// One-time redraw nudge for narrow panes whose prompt/cursor row can land incorrectly
+        /// after restore-time replay + resize. This is an app-side workaround, not a root fix.
+        private var hasPerformedNarrowPaneRedrawNudge = false
 
         /// Current working directory reported by the shell via OSC 7
         private(set) var pwd: String? {
@@ -475,6 +478,30 @@ extension Ghostty {
                 "Ghostty.SurfaceView.cellSize reported=\(NSStringFromSize(size)) frame=\(NSStringFromRect(frame)) bounds=\(NSStringFromRect(bounds))"
             )
             logSurfaceSnapshot(reason: "cellSizeAction")
+            performNarrowPaneRedrawNudgeIfNeeded(cellSize: size)
+        }
+
+        private func performNarrowPaneRedrawNudgeIfNeeded(cellSize: NSSize) {
+            guard !hasPerformedNarrowPaneRedrawNudge else { return }
+            guard window != nil, let surface else { return }
+
+            let currentMetrics = ghostty_surface_size(surface)
+            guard currentMetrics.columns > 0, currentMetrics.columns <= 40 else { return }
+            guard contentSize.width > 0, contentSize.height > 0 else { return }
+
+            let originalSize = contentSize
+            let nudgedSize = NSSize(
+                width: originalSize.width + max(cellSize.width, 1),
+                height: originalSize.height
+            )
+
+            hasPerformedNarrowPaneRedrawNudge = true
+            RestoreTrace.log(
+                "Ghostty.SurfaceView.narrowPaneRedrawNudge columns=\(currentMetrics.columns) rows=\(currentMetrics.rows) originalSize=\(NSStringFromSize(originalSize)) nudgedSize=\(NSStringFromSize(nudgedSize))"
+            )
+            sizeDidChange(nudgedSize, source: "narrowPaneRedrawNudge.expand")
+            sizeDidChange(originalSize, source: "narrowPaneRedrawNudge.restore")
+            logSurfaceSnapshot(reason: "narrowPaneRedrawNudge.complete")
         }
 
         func metricsSnapshotDescription() -> String {

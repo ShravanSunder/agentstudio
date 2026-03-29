@@ -42,10 +42,16 @@ final class ApplicationLifecycleMonitor {
 
     func handleTerminalContainerBoundsChanged(_ bounds: CGRect) {
         guard !bounds.isEmpty else { return }
+        RestoreTrace.log(
+            "ApplicationLifecycleMonitor.handleTerminalContainerBoundsChanged bounds=\(NSStringFromRect(bounds))"
+        )
         windowLifecycleStore.recordTerminalContainerBounds(bounds)
     }
 
     func handleLaunchLayoutSettled() {
+        RestoreTrace.log(
+            "ApplicationLifecycleMonitor.handleLaunchLayoutSettled bounds=\(NSStringFromRect(windowLifecycleStore.terminalContainerBounds)) settled(before)=\(windowLifecycleStore.isLaunchLayoutSettled)"
+        )
         windowLifecycleStore.recordLaunchLayoutSettled()
     }
 }

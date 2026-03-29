@@ -73,8 +73,8 @@ class MainWindowController: NSWindowController, NSWindowDelegate {
         saveWindowFrame()
         guard awaitsLaunchRestoreResize else { return }
         awaitsLaunchRestoreResize = false
-        window?.contentView?.layoutSubtreeIfNeeded()
         applicationLifecycleMonitor.handleLaunchLayoutSettled()
+        window?.contentView?.layoutSubtreeIfNeeded()
     }
 
     func windowDidBecomeMain(_ notification: Notification) {
@@ -219,10 +219,14 @@ class MainWindowController: NSWindowController, NSWindowDelegate {
         )
         if window.frame.equalTo(targetFrame) {
             RestoreTrace.log("MainWindowController.applyLaunchMaximize alreadyAtTargetFrame")
-            window.contentView?.layoutSubtreeIfNeeded()
             applicationLifecycleMonitor.handleLaunchLayoutSettled()
+            window.contentView?.layoutSubtreeIfNeeded()
             return
         }
+        // Mark launch geometry as settled before the maximize resize begins so the
+        // first full-size terminalContainer bounds publish can immediately
+        // materialize the active tab instead of waiting for the later bridge path.
+        applicationLifecycleMonitor.handleLaunchLayoutSettled()
         awaitLaunchRestoreAfterNextResize()
         window.setFrame(targetFrame, display: true)
     }

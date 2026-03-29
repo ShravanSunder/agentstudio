@@ -45,9 +45,17 @@ final class WindowRestoreBridge {
 
     private func publishIfReady() {
         guard !hasFinished else { return }
-        guard windowLifecycleStore.isReadyForLaunchRestore else { return }
+        guard windowLifecycleStore.isReadyForLaunchRestore else {
+            RestoreTrace.log(
+                "WindowRestoreBridge.publishIfReady skipped bounds=\(NSStringFromRect(windowLifecycleStore.terminalContainerBounds)) settled=\(windowLifecycleStore.isLaunchLayoutSettled) ready=\(windowLifecycleStore.isReadyForLaunchRestore)"
+            )
+            return
+        }
 
         hasFinished = true
+        RestoreTrace.log(
+            "WindowRestoreBridge.publishIfReady yield bounds=\(NSStringFromRect(windowLifecycleStore.terminalContainerBounds))"
+        )
         continuation.yield(windowLifecycleStore.terminalContainerBounds)
         continuation.finish()
     }

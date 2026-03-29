@@ -2263,3 +2263,72 @@ The fix was:
 - pane containers are now flat strips in production code
 - the old binary tree model is no longer on the live production path
 - restart/restore regressions tied to hidden nested split ancestry are removed at the app layout layer
+
+## Debugging Epoch 2026-03-29T15:40:00-04:00 — Startup Blank Visible Tab Was Launch-Settled Ordering
+
+### Observation
+
+After the flat-strip cutover:
+
+- restart width corruption was gone
+- the active visible tab could still come up blank at startup until a manual tab switch
+
+The trace for blank startups showed:
+
+```text
+ActiveTabContent.body ... registeredPaneCount=0 hasTree=false
+terminalContainerBoundsChanged bounds=512x552
+restoreViewsForActiveTabIfNeeded skipped launchLayoutUnsettled
+terminalContainerBoundsChanged bounds=512x532
+restoreViewsForActiveTabIfNeeded skipped launchLayoutUnsettled
+terminalContainerBoundsChanged bounds=2800x1151
+restoreViewsForActiveTabIfNeeded skipped launchLayoutUnsettled
+launchRestore triggered source=windowRestoreBridge ...
+```
+
+That means the visible tab already had final usable bounds, but the active-tab restore was still gated off because `isLaunchLayoutSettled` had not been recorded yet.
+
+### Grounded root cause
+
+`MainWindowController` was marking launch settled in the wrong order:
+
+- `windowDidResize`
+- `applyLaunchMaximizeIfNeeded` when already at target frame
+
+Both paths did:
+
+```text
+1. force layoutSubtreeIfNeeded()
+2. then recordLaunchLayoutSettled()
+```
+
+That ordering let the terminal container publish its final `2800x1151` bounds while
+`WindowLifecycleStore.isLaunchLayoutSettled == false`, so
+`restoreViewsForActiveTabIfNeeded()` skipped at exactly the moment it should have succeeded.
+
+### Fix
+
+The order was reversed:
+
+```text
+1. recordLaunchLayoutSettled()
+2. then force layoutSubtreeIfNeeded()
+```
+
+Files:
+
+- `Sources/AgentStudio/App/MainWindowController.swift`
+
+### Verification
+
+- `swift test --build-path .build-agent-flatlayout-cutover2 --filter PaneTabViewControllerLaunchRestoreTests`
+  - passed
+- `swift test --build-path .build-agent-flatlayout-cutover2 --filter Luna295DirectZmxAttachIntegrationTests`
+  - passed
+
+### Remaining issues after this fix
+
+- narrow panes still show prompt/cursor-row corruption
+- newly created narrow panes can still show the same prompt-row issue
+
+Those remaining issues are no longer layout corruption; they are terminal-state/render behavior after correct geometry.
