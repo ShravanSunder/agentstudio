@@ -138,7 +138,7 @@ final class TerminalPaneMountView: NSView, PaneMountedContent, SurfaceHealthDele
         RestoreTrace.log(
             "TerminalPaneMountView.layout pane=\(paneId) surface=\(surfaceId?.uuidString ?? "nil") paneBounds=\(NSStringFromRect(bounds)) surfaceBounds=\(NSStringFromRect(surface.bounds)) surfaceMetrics={\(surface.metricsSnapshotDescription())}"
         )
-        surface.sizeDidChange(currentSize)
+        surface.sizeDidChange(currentSize, source: "mountView.layout")
     }
 
     func forceGeometrySync(reason: StaticString) {
@@ -151,7 +151,7 @@ final class TerminalPaneMountView: NSView, PaneMountedContent, SurfaceHealthDele
         RestoreTrace.log(
             "TerminalPaneMountView.forceGeometrySync pane=\(paneId) surface=\(surfaceId?.uuidString ?? "nil") reason=\(reason) paneBounds=\(NSStringFromRect(bounds)) surfaceBounds=\(NSStringFromRect(surface.bounds)) surfaceMetrics={\(surface.metricsSnapshotDescription())}"
         )
-        surface.sizeDidChange(actualSurfaceSize)
+        surface.sizeDidChange(actualSurfaceSize, source: "forceGeometrySync")
     }
 
     /// During the first layout tick after mount, AppKit can call through before

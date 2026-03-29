@@ -1,522 +1,226 @@
 import Foundation
 
-/// Pure value type split tree. Leaves reference panes by ID.
-/// No NSView references, no embedded objects. All operations are immutable.
+/// Flat pane strip layout shared by pane containers.
+/// Every pane is a direct sibling in left-to-right order with a preserved width ratio.
 struct Layout: Codable, Hashable {
-
-    /// The root of the tree. Nil indicates an empty layout.
-    let root: Node?
-
-    /// A single node in the tree is either a leaf (pane reference) or a split.
-    indirect enum Node: Codable, Hashable {
-        case leaf(paneId: UUID)
-        case split(Split)
-    }
-
-    /// A split node with two children and a resize ratio.
-    struct Split: Codable, Hashable {
-        let id: UUID
-        let direction: SplitDirection
-        /// Position of divider, clamped to 0.1–0.9.
+    struct PaneEntry: Codable, Hashable {
+        let paneId: UUID
         let ratio: Double
-        let left: Node
-        let right: Node
-
-        init(
-            id: UUID = UUID(),
-            direction: SplitDirection,
-            ratio: Double = 0.5,
-            left: Node,
-            right: Node
-        ) {
-            self.id = id
-            self.direction = direction
-            self.ratio = min(0.9, max(0.1, ratio))
-            self.left = left
-            self.right = right
-        }
     }
 
-    /// Direction of a split.
     enum SplitDirection: String, Codable, Hashable {
         case horizontal
         case vertical
     }
 
-    /// Position for inserting a new pane relative to a target.
     enum Position {
-        /// Left (horizontal) or up (vertical).
         case before
-        /// Right (horizontal) or down (vertical).
         case after
     }
 
-    // MARK: - Init
+    let panes: [PaneEntry]
+    let dividerIds: [UUID]
 
     init() {
-        self.root = nil
+        self.panes = []
+        self.dividerIds = []
     }
 
-    init(root: Node?) {
-        self.root = root
-    }
-
-    /// Single-pane layout.
     init(paneId: UUID) {
-        self.root = .leaf(paneId: paneId)
+        self.panes = [.init(paneId: paneId, ratio: 1.0)]
+        self.dividerIds = []
     }
 
-    /// Auto-tiled layout from multiple pane IDs.
-    /// Produces a balanced binary split tree alternating horizontal/vertical splits.
-    /// Empty input produces an empty layout. Single pane produces a single leaf.
+    init(panes: [PaneEntry], dividerIds: [UUID]) {
+        precondition(
+            dividerIds.count == max(panes.count - 1, 0),
+            "Layout divider count must equal pane count minus one"
+        )
+        self.panes = Self.normalized(panes)
+        self.dividerIds = dividerIds
+    }
+
+    private init(rawPanes: [PaneEntry], dividerIds: [UUID]) {
+        self.panes = rawPanes
+        self.dividerIds = dividerIds
+    }
+
     static func autoTiled(_ paneIds: [UUID]) -> Self {
         guard !paneIds.isEmpty else { return Self() }
-        return Self(root: buildTiledNode(paneIds: paneIds, horizontal: true))
+        let equalRatio = 1.0 / Double(paneIds.count)
+        return Self(
+            rawPanes: paneIds.map { PaneEntry(paneId: $0, ratio: equalRatio) },
+            dividerIds: paneIds.dropFirst().map { _ in UUID() }
+        )
     }
 
-    private static func buildTiledNode(paneIds: [UUID], horizontal: Bool) -> Node {
-        if paneIds.count == 1 {
-            return .leaf(paneId: paneIds[0])
-        }
-        let mid = paneIds.count / 2
-        let left = Array(paneIds[..<mid])
-        let right = Array(paneIds[mid...])
-        return .split(
-            Split(
-                direction: horizontal ? .horizontal : .vertical,
-                left: buildTiledNode(paneIds: left, horizontal: !horizontal),
-                right: buildTiledNode(paneIds: right, horizontal: !horizontal)
-            ))
-    }
+    var isEmpty: Bool { panes.isEmpty }
 
-    // MARK: - Properties
+    var isSplit: Bool { panes.count > 1 }
 
-    var isEmpty: Bool { root == nil }
+    var paneIds: [UUID] { panes.map(\.paneId) }
 
-    var isSplit: Bool {
-        if case .split = root { return true }
-        return false
-    }
-
-    /// All leaf pane IDs in left-to-right traversal order.
-    var paneIds: [UUID] {
-        guard let root else { return [] }
-        return root.paneIds
-    }
-
-    // MARK: - Queries
+    var ratios: [Double] { panes.map(\.ratio) }
 
     func contains(_ paneId: UUID) -> Bool {
-        root?.contains(paneId) ?? false
+        panes.contains { $0.paneId == paneId }
     }
 
-    // MARK: - Immutable Operations (return new Layout)
-
-    /// Insert a pane relative to a target pane.
     func inserting(
         paneId: UUID,
-        at target: UUID,
-        direction: SplitDirection,
+        at targetPaneId: UUID,
+        direction _: SplitDirection,
         position: Position
     ) -> Self {
-        guard let root else { return self }
-        guard
-            let newRoot = root.inserting(
-                paneId: paneId,
-                at: target,
-                direction: direction,
-                position: position
-            )
-        else {
+        guard let targetIndex = panes.firstIndex(where: { $0.paneId == targetPaneId }) else {
             return self
         }
-        return Self(root: newRoot)
+
+        let target = panes[targetIndex]
+        let splitRatio = target.ratio / 2.0
+        let newEntry = PaneEntry(paneId: paneId, ratio: splitRatio)
+        let resizedTarget = PaneEntry(paneId: target.paneId, ratio: splitRatio)
+
+        var updatedPanes = panes
+        updatedPanes[targetIndex] = resizedTarget
+
+        let insertIndex: Int
+        switch position {
+        case .before:
+            insertIndex = targetIndex
+        case .after:
+            insertIndex = targetIndex + 1
+        }
+        updatedPanes.insert(newEntry, at: insertIndex)
+
+        var updatedDividerIds = dividerIds
+        updatedDividerIds.insert(UUID(), at: max(insertIndex - 1, 0))
+        return Self(panes: updatedPanes, dividerIds: updatedDividerIds)
     }
 
-    /// Remove a pane from the layout. Returns nil if the layout becomes empty.
     func removing(paneId: UUID) -> Self? {
-        guard let root else { return nil }
-        guard let newRoot = root.removing(paneId: paneId) else {
+        guard let removedIndex = panes.firstIndex(where: { $0.paneId == paneId }) else {
+            return self
+        }
+        guard panes.count > 1 else { return nil }
+
+        var updatedPanes = panes
+        let removedRatio = updatedPanes.remove(at: removedIndex).ratio
+
+        if removedIndex < updatedPanes.count {
+            let rightNeighbor = updatedPanes[removedIndex]
+            updatedPanes[removedIndex] = PaneEntry(
+                paneId: rightNeighbor.paneId,
+                ratio: rightNeighbor.ratio + removedRatio
+            )
+        } else {
+            let leftIndex = updatedPanes.index(before: updatedPanes.endIndex)
+            let leftNeighbor = updatedPanes[leftIndex]
+            updatedPanes[leftIndex] = PaneEntry(
+                paneId: leftNeighbor.paneId,
+                ratio: leftNeighbor.ratio + removedRatio
+            )
+        }
+
+        var updatedDividerIds = dividerIds
+        if !updatedDividerIds.isEmpty {
+            let removedDividerIndex = min(removedIndex, updatedDividerIds.count - 1)
+            updatedDividerIds.remove(at: removedDividerIndex)
+        }
+        return Self(panes: updatedPanes, dividerIds: updatedDividerIds)
+    }
+
+    func resizing(splitId: UUID, ratio: Double) -> Self {
+        guard let dividerIndex = dividerIds.firstIndex(of: splitId) else { return self }
+        let clampedRatio = min(0.9, max(0.1, ratio))
+        let adjacentTotal = panes[dividerIndex].ratio + panes[dividerIndex + 1].ratio
+
+        var updatedPanes = panes
+        updatedPanes[dividerIndex] = PaneEntry(
+            paneId: panes[dividerIndex].paneId,
+            ratio: adjacentTotal * clampedRatio
+        )
+        updatedPanes[dividerIndex + 1] = PaneEntry(
+            paneId: panes[dividerIndex + 1].paneId,
+            ratio: adjacentTotal * (1.0 - clampedRatio)
+        )
+        return Self(panes: updatedPanes, dividerIds: dividerIds)
+    }
+
+    func equalized() -> Self {
+        guard !panes.isEmpty else { return self }
+        let equalRatio = 1.0 / Double(panes.count)
+        return Self(
+            rawPanes: panes.map { PaneEntry(paneId: $0.paneId, ratio: equalRatio) },
+            dividerIds: dividerIds
+        )
+    }
+
+    func resizeTarget(for paneId: UUID, direction: SplitResizeDirection) -> (splitId: UUID, increase: Bool)? {
+        guard let paneIndex = panes.firstIndex(where: { $0.paneId == paneId }) else { return nil }
+        switch direction {
+        case .left:
+            guard paneIndex > 0 else { return nil }
+            return (dividerIds[paneIndex - 1], false)
+        case .right:
+            guard paneIndex < dividerIds.count else { return nil }
+            return (dividerIds[paneIndex], true)
+        case .up, .down:
             return nil
         }
-        return Self(root: newRoot)
     }
 
-    /// Update the ratio of a split node by ID.
-    func resizing(splitId: UUID, ratio: Double) -> Self {
-        guard let root else { return self }
-        return Self(root: root.resizing(splitId: splitId, ratio: ratio))
-    }
-
-    /// Set all split ratios to 0.5.
-    func equalized() -> Self {
-        guard let root else { return self }
-        return Self(root: root.equalized())
-    }
-
-    // MARK: - Resize Target
-
-    /// Find the nearest ancestor split where the given pane can grow in the given direction.
-    /// Returns (splitId, shouldIncreaseRatio).
-    func resizeTarget(for paneId: UUID, direction: SplitResizeDirection) -> (splitId: UUID, increase: Bool)? {
-        guard let root else { return nil }
-        return root.resizeTarget(for: paneId, direction: direction)
-    }
-
-    /// Get the current ratio for a split by ID.
     func ratioForSplit(_ splitId: UUID) -> Double? {
-        root?.ratioForSplit(splitId)
+        guard let dividerIndex = dividerIds.firstIndex(of: splitId) else { return nil }
+        let leftRatio = panes[dividerIndex].ratio
+        let rightRatio = panes[dividerIndex + 1].ratio
+        let total = leftRatio + rightRatio
+        guard total > 0 else { return nil }
+        return leftRatio / total
     }
 
-    // MARK: - Navigation
-
-    /// Find the neighbor pane in the given direction.
     func neighbor(of paneId: UUID, direction: FocusDirection) -> UUID? {
-        root?.neighbor(of: paneId, direction: direction)
+        guard let paneIndex = panes.firstIndex(where: { $0.paneId == paneId }) else { return nil }
+        switch direction {
+        case .left:
+            guard paneIndex > 0 else { return nil }
+            return panes[paneIndex - 1].paneId
+        case .right:
+            guard paneIndex < panes.index(before: panes.endIndex) else { return nil }
+            return panes[paneIndex + 1].paneId
+        case .up, .down:
+            return nil
+        }
     }
 
-    /// Get the next pane in left-to-right order (wraps around).
     func next(after paneId: UUID) -> UUID? {
-        let ids = paneIds
-        guard let index = ids.firstIndex(of: paneId) else { return nil }
-        let nextIndex = (index + 1) % ids.count
-        return ids[nextIndex]
+        guard let index = panes.firstIndex(where: { $0.paneId == paneId }) else { return nil }
+        let nextIndex = (index + 1) % panes.count
+        return panes[nextIndex].paneId
     }
 
-    /// Get the previous pane in left-to-right order (wraps around).
     func previous(before paneId: UUID) -> UUID? {
-        let ids = paneIds
-        guard let index = ids.firstIndex(of: paneId) else { return nil }
-        let prevIndex = (index - 1 + ids.count) % ids.count
-        return ids[prevIndex]
+        guard let index = panes.firstIndex(where: { $0.paneId == paneId }) else { return nil }
+        let previousIndex = (index - 1 + panes.count) % panes.count
+        return panes[previousIndex].paneId
     }
 
+    private static func normalized(_ panes: [PaneEntry]) -> [PaneEntry] {
+        guard !panes.isEmpty else { return [] }
+        let total = panes.reduce(0.0) { $0 + $1.ratio }
+        guard total > 0 else {
+            let equalRatio = 1.0 / Double(panes.count)
+            return panes.map { PaneEntry(paneId: $0.paneId, ratio: equalRatio) }
+        }
+        let precision = 1_000_000_000_000.0
+        return panes.map {
+            let normalizedRatio = $0.ratio / total
+            let roundedRatio = (normalizedRatio * precision).rounded() / precision
+            return PaneEntry(paneId: $0.paneId, ratio: roundedRatio)
+        }
+    }
 }
 
-// MARK: - Focus Direction
-
-/// Direction for pane focus navigation.
 enum FocusDirection: Equatable, Hashable {
     case left, right, up, down
-}
-
-// MARK: - Node Operations
-
-extension Layout.Node {
-
-    /// All leaf pane IDs in left-to-right order.
-    var paneIds: [UUID] {
-        switch self {
-        case .leaf(let paneId):
-            return [paneId]
-        case .split(let split):
-            return split.left.paneIds + split.right.paneIds
-        }
-    }
-
-    /// Check if this node or its descendants contain a pane.
-    func contains(_ paneId: UUID) -> Bool {
-        switch self {
-        case .leaf(let id):
-            return id == paneId
-        case .split(let split):
-            return split.left.contains(paneId) || split.right.contains(paneId)
-        }
-    }
-
-    /// Insert a new pane relative to a target. Returns nil if target not found.
-    func inserting(
-        paneId: UUID,
-        at target: UUID,
-        direction: Layout.SplitDirection,
-        position: Layout.Position
-    ) -> Layout.Node? {
-        switch self {
-        case .leaf(let existingId):
-            guard existingId == target else { return nil }
-            let newLeaf = Layout.Node.leaf(paneId: paneId)
-            let existingLeaf = self
-            let isNewOnLeft = position == .before
-            return .split(
-                Layout.Split(
-                    direction: direction,
-                    left: isNewOnLeft ? newLeaf : existingLeaf,
-                    right: isNewOnLeft ? existingLeaf : newLeaf
-                ))
-
-        case .split(let split):
-            if split.left.contains(target) {
-                guard
-                    let newLeft = split.left.inserting(
-                        paneId: paneId, at: target,
-                        direction: direction, position: position
-                    )
-                else { return nil }
-                return .split(
-                    Layout.Split(
-                        id: split.id,
-                        direction: split.direction,
-                        ratio: split.ratio,
-                        left: newLeft,
-                        right: split.right
-                    ))
-            }
-            if split.right.contains(target) {
-                guard
-                    let newRight = split.right.inserting(
-                        paneId: paneId, at: target,
-                        direction: direction, position: position
-                    )
-                else { return nil }
-                return .split(
-                    Layout.Split(
-                        id: split.id,
-                        direction: split.direction,
-                        ratio: split.ratio,
-                        left: split.left,
-                        right: newRight
-                    ))
-            }
-            return nil
-        }
-    }
-
-    /// Remove a pane. Returns nil if this node should be removed entirely.
-    func removing(paneId: UUID) -> Layout.Node? {
-        switch self {
-        case .leaf(let existingId):
-            return existingId == paneId ? nil : self
-
-        case .split(let split):
-            let newLeft = split.left.removing(paneId: paneId)
-            let newRight = split.right.removing(paneId: paneId)
-
-            if let left = newLeft, let right = newRight {
-                return .split(
-                    Layout.Split(
-                        id: split.id,
-                        direction: split.direction,
-                        ratio: split.ratio,
-                        left: left,
-                        right: right
-                    ))
-            }
-            // Collapse: one side removed → promote the other
-            return newLeft ?? newRight
-        }
-    }
-
-    /// Update the ratio for a split with the given ID.
-    func resizing(splitId: UUID, ratio: Double) -> Layout.Node {
-        switch self {
-        case .leaf:
-            return self
-        case .split(let split):
-            if split.id == splitId {
-                return .split(
-                    Layout.Split(
-                        id: split.id,
-                        direction: split.direction,
-                        ratio: ratio,
-                        left: split.left,
-                        right: split.right
-                    ))
-            }
-            return .split(
-                Layout.Split(
-                    id: split.id,
-                    direction: split.direction,
-                    ratio: split.ratio,
-                    left: split.left.resizing(splitId: splitId, ratio: ratio),
-                    right: split.right.resizing(splitId: splitId, ratio: ratio)
-                ))
-        }
-    }
-
-    /// Set all split ratios to 0.5.
-    func equalized() -> Layout.Node {
-        switch self {
-        case .leaf:
-            return self
-        case .split(let split):
-            return .split(
-                Layout.Split(
-                    id: split.id,
-                    direction: split.direction,
-                    ratio: 0.5,
-                    left: split.left.equalized(),
-                    right: split.right.equalized()
-                ))
-        }
-    }
-
-    /// Get the current ratio for a split by ID.
-    func ratioForSplit(_ splitId: UUID) -> Double? {
-        switch self {
-        case .leaf: return nil
-        case .split(let split):
-            if split.id == splitId { return split.ratio }
-            return split.left.ratioForSplit(splitId) ?? split.right.ratioForSplit(splitId)
-        }
-    }
-
-    /// Find the nearest enclosing split where a pane can grow in the given direction.
-    /// Returns (splitId, shouldIncreaseRatio).
-    ///
-    /// Algorithm: Recurse into the subtree containing the pane FIRST to find the
-    /// nearest (innermost) matching split. Only if no child split handles the resize
-    /// do we check whether THIS split can handle it as a fallback.
-    func resizeTarget(for paneId: UUID, direction: SplitResizeDirection) -> (splitId: UUID, increase: Bool)? {
-        guard case .split(let split) = self else { return nil }
-
-        let inLeft = split.left.contains(paneId)
-        let inRight = split.right.contains(paneId)
-        guard inLeft || inRight else { return nil }
-
-        // Recurse into the subtree containing the pane FIRST (nearest match wins)
-        let subtree = inLeft ? split.left : split.right
-        if let result = subtree.resizeTarget(for: paneId, direction: direction) {
-            return result
-        }
-
-        // Then check if THIS split handles it as a fallback
-        if split.direction == direction.axis {
-            switch direction {
-            case .right, .down:
-                if inLeft { return (split.id, true) }
-            case .left, .up:
-                if inRight { return (split.id, false) }
-            }
-        }
-
-        return nil
-    }
-
-    /// Find the neighbor in the given direction.
-    func neighbor(of paneId: UUID, direction: FocusDirection) -> UUID? {
-        switch self {
-        case .leaf:
-            return nil
-
-        case .split(let split):
-            let leftContains = split.left.contains(paneId)
-            let rightContains = split.right.contains(paneId)
-
-            switch direction {
-            case .left:
-                if split.direction == .horizontal && rightContains {
-                    return split.left.paneIds.last
-                }
-            case .right:
-                if split.direction == .horizontal && leftContains {
-                    return split.right.paneIds.first
-                }
-            case .up:
-                if split.direction == .vertical && rightContains {
-                    return split.left.paneIds.last
-                }
-            case .down:
-                if split.direction == .vertical && leftContains {
-                    return split.right.paneIds.first
-                }
-            }
-
-            if leftContains {
-                return split.left.neighbor(of: paneId, direction: direction)
-            }
-            if rightContains {
-                return split.right.neighbor(of: paneId, direction: direction)
-            }
-            return nil
-        }
-    }
-}
-
-// MARK: - Minimize Computation
-
-extension Layout.Node {
-
-    /// Whether every leaf in this subtree is minimized.
-    func isFullyMinimized(minimizedPaneIds: Set<UUID>) -> Bool {
-        switch self {
-        case .leaf(let paneId):
-            return minimizedPaneIds.contains(paneId)
-        case .split(let split):
-            return split.left.isFullyMinimized(minimizedPaneIds: minimizedPaneIds)
-                && split.right.isFullyMinimized(minimizedPaneIds: minimizedPaneIds)
-        }
-    }
-
-    /// Effective visible weight of this subtree. Root = 1.0.
-    /// Each split scales children by ratio (left) and 1-ratio (right).
-    /// Minimized leaves contribute 0.
-    func visibleWeight(minimizedPaneIds: Set<UUID>) -> Double {
-        switch self {
-        case .leaf(let paneId):
-            return minimizedPaneIds.contains(paneId) ? 0.0 : 1.0
-        case .split(let split):
-            let lw = split.left.visibleWeight(minimizedPaneIds: minimizedPaneIds) * split.ratio
-            let rw = split.right.visibleWeight(minimizedPaneIds: minimizedPaneIds) * (1.0 - split.ratio)
-            return lw + rw
-        }
-    }
-
-    /// Count of minimized leaves in this subtree.
-    func minimizedLeafCount(minimizedPaneIds: Set<UUID>) -> Int {
-        switch self {
-        case .leaf(let paneId):
-            return minimizedPaneIds.contains(paneId) ? 1 : 0
-        case .split(let split):
-            return split.left.minimizedLeafCount(minimizedPaneIds: minimizedPaneIds)
-                + split.right.minimizedLeafCount(minimizedPaneIds: minimizedPaneIds)
-        }
-    }
-
-    /// Minimized pane IDs in left-to-right tree traversal order.
-    func orderedMinimizedPaneIds(minimizedPaneIds: Set<UUID>) -> [UUID] {
-        switch self {
-        case .leaf(let paneId):
-            return minimizedPaneIds.contains(paneId) ? [paneId] : []
-        case .split(let split):
-            return split.left.orderedMinimizedPaneIds(minimizedPaneIds: minimizedPaneIds)
-                + split.right.orderedMinimizedPaneIds(minimizedPaneIds: minimizedPaneIds)
-        }
-    }
-}
-
-// MARK: - Node Codable
-
-extension Layout.Node {
-    private enum NodeCodingKeys: String, CodingKey {
-        case paneId
-        case split
-    }
-
-    init(from decoder: Decoder) throws {
-        let container = try decoder.container(keyedBy: NodeCodingKeys.self)
-        if container.contains(.paneId) {
-            let id = try container.decode(UUID.self, forKey: .paneId)
-            self = .leaf(paneId: id)
-        } else if container.contains(.split) {
-            let split = try container.decode(Layout.Split.self, forKey: .split)
-            self = .split(split)
-        } else {
-            throw DecodingError.dataCorrupted(
-                DecodingError.Context(
-                    codingPath: decoder.codingPath,
-                    debugDescription: "No valid Layout.Node type found"
-                )
-            )
-        }
-    }
-
-    func encode(to encoder: Encoder) throws {
-        var container = encoder.container(keyedBy: NodeCodingKeys.self)
-        switch self {
-        case .leaf(let paneId):
-            try container.encode(paneId, forKey: .paneId)
-        case .split(let split):
-            try container.encode(split, forKey: .split)
-        }
-    }
 }

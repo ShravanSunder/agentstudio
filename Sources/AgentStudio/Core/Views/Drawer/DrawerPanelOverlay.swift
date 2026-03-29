@@ -130,7 +130,6 @@ struct DrawerPanelOverlay: View {
         let _ = store.viewRevision  // swift-format:ignore
 
         if let info = expandedPaneInfo, tabSize.width > 0 {
-            let drawerTree = viewRegistry.renderTree(for: info.drawer.layout)
             let panelWidth = tabSize.width * DrawerLayout.panelWidthRatio
             let panelHeight = max(
                 DrawerLayout.panelMinHeight,
@@ -197,21 +196,17 @@ struct DrawerPanelOverlay: View {
                 }
                 .overlay {
                     VStack(spacing: 0) {
-                        let drawerRenderInfo = SplitRenderInfo.compute(
-                            layout: info.drawer.layout,
-                            minimizedPaneIds: info.drawer.minimizedPaneIds
-                        )
                         DrawerPanel(
-                            tree: drawerTree ?? PaneSplitTree(),
+                            layout: info.drawer.layout,
                             parentPaneId: info.paneId,
                             tabId: tabId,
                             activePaneId: info.drawer.activePaneId,
                             minimizedPaneIds: info.drawer.minimizedPaneIds,
-                            splitRenderInfo: drawerRenderInfo,
                             closeTransitionCoordinator: closeTransitionCoordinator,
                             height: panelHeight,
                             store: store,
                             repoCache: repoCache,
+                            viewRegistry: viewRegistry,
                             action: action,
                             onResize: { delta in
                                 let newRatio = min(

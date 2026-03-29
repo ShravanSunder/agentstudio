@@ -196,7 +196,7 @@ struct PaneCoordinatorHardeningTests {
 
         #expect(Set(harness.store.panes.keys).count == initialPaneIds.count + 1)
         #expect(harness.store.tab(tab.id)?.paneIds.count == 2)
-        #expect(harness.surfaceManager.createSurfaceCallCount == 2)
+        #expect(harness.surfaceManager.createSurfaceCallCount == 1)
     }
 
     @Test("insertPane newTerminal resolves worktree context from floating target cwd before surface creation")
@@ -227,7 +227,7 @@ struct PaneCoordinatorHardeningTests {
 
         #expect(Set(harness.store.panes.keys).count == initialPaneIds.count + 1)
         #expect(harness.store.tab(tab.id)?.paneIds.count == 2)
-        #expect(harness.surfaceManager.createSurfaceCallCount == 2)
+        #expect(harness.surfaceManager.createSurfaceCallCount == 1)
         #expect(harness.store.repo(repo.id) != nil)
         #expect(
             harness.surfaceManager.lastCreatedSurfaceMetadata?.workingDirectory
@@ -263,7 +263,7 @@ struct PaneCoordinatorHardeningTests {
 
         #expect(Set(harness.store.panes.keys).count == initialPaneIds.count + 1)
         #expect(harness.store.tab(tab.id)?.paneIds.count == 2)
-        #expect(harness.surfaceManager.createSurfaceCallCount == 2)
+        #expect(harness.surfaceManager.createSurfaceCallCount == 1)
         #expect(harness.surfaceManager.lastCreatedSurfaceMetadata?.workingDirectory == unknownCwd)
     }
 
@@ -311,7 +311,7 @@ struct PaneCoordinatorHardeningTests {
 
         #expect(Set(harness.store.panes.keys).count == paneIdsBefore.count + 1)
         #expect(harness.store.pane(parentPane.id)?.drawer?.paneIds.count == 1)
-        #expect(harness.surfaceManager.createSurfaceCallCount == 2)
+        #expect(harness.surfaceManager.createSurfaceCallCount == 1)
     }
 
     @Test("insertDrawerPane keeps drawer pane state when view creation fails")
@@ -340,7 +340,7 @@ struct PaneCoordinatorHardeningTests {
 
         #expect(Set(harness.store.panes.keys).count == paneIdsBefore.count + 1)
         #expect(harness.store.pane(parentPane.id)?.drawer?.paneIds.count == 2)
-        #expect(harness.surfaceManager.createSurfaceCallCount == 3)
+        #expect(harness.surfaceManager.createSurfaceCallCount == 1)
     }
 
     @Test("repair recreateSurface registers preparing placeholder and bumps viewRevision when geometry is unavailable")

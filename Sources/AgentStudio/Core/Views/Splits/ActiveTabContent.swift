@@ -4,7 +4,7 @@ import SwiftUI
 ///
 /// Hosted by PaneTabViewController's `splitHostingView` (NSHostingView).
 /// Reads the active tab from WorkspaceStore via @Observable property tracking
-/// and renders `TerminalSplitContainer` for that tab. Re-renders automatically
+/// and renders the flat pane strip for that tab. Re-renders automatically
 /// when any accessed store property changes — no manual invalidation needed.
 ///
 /// See docs/architecture/appkit_swiftui_architecture.md for the hosting pattern.
@@ -42,7 +42,6 @@ struct ActiveTabContent: View {
         let currentViewRevision = store.viewRevision
         let activeTabId = store.activeTabId
         let tab = activeTabId.flatMap { store.tab($0) }
-        let tree = tab.flatMap { viewRegistry.renderTree(for: $0.layout) }
         let registeredPaneCount = tab?.paneIds.filter { viewRegistry.view(for: $0) != nil }.count ?? 0
         let tabPaneCount = tab?.paneIds.count ?? 0
         // swiftlint:disable:next redundant_discardable_let
@@ -51,21 +50,16 @@ struct ActiveTabContent: View {
             viewRevision: currentViewRevision,
             tabPaneCount: tabPaneCount,
             registeredPaneCount: registeredPaneCount,
-            hasTree: tree != nil
+            hasTree: tab != nil && registeredPaneCount > 0
         )
 
-        if let activeTabId, let tab, let tree {
-            let renderInfo = SplitRenderInfo.compute(
+        if let activeTabId, let tab {
+            FlatTabStripContainer(
                 layout: tab.layout,
-                minimizedPaneIds: tab.minimizedPaneIds
-            )
-            TerminalSplitContainer(
-                tree: tree,
                 tabId: activeTabId,
                 activePaneId: tab.activePaneId,
                 zoomedPaneId: tab.zoomedPaneId,
                 minimizedPaneIds: tab.minimizedPaneIds,
-                splitRenderInfo: renderInfo,
                 closeTransitionCoordinator: closeTransitionCoordinator,
                 action: action,
                 onPersist: nil,

@@ -1,7 +1,7 @@
 import Foundation
 
 /// Protocol exposing what ActionResolver needs from a tab.
-/// Decouples resolution logic from concrete TabItem/SplitTree types,
+/// Decouples resolution logic from concrete tab implementations,
 /// enabling unit testing with lightweight mocks.
 protocol ResolvableTab: Identifiable where ID == UUID {
     var id: UUID { get }

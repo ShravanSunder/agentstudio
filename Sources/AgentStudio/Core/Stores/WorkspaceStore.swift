@@ -1603,20 +1603,16 @@ final class WorkspaceStore {
     }
 
     private func layoutRatioSummary(_ layout: Layout) -> String {
-        guard let root = layout.root else { return "empty" }
-        return layoutRatioSummary(node: root)
-    }
-
-    private func layoutRatioSummary(node: Layout.Node) -> String {
-        switch node {
-        case .leaf(let paneId):
-            return "leaf(\(paneId.uuidString))"
-        case .split(let split):
-            let left = layoutRatioSummary(node: split.left)
-            let right = layoutRatioSummary(node: split.right)
-            return
-                "split(\(split.id.uuidString),dir=\(split.direction),ratio=\(split.ratio),left=\(left),right=\(right))"
-        }
+        guard !layout.panes.isEmpty else { return "empty" }
+        return layout.panes.enumerated().map { index, pane in
+            let dividerSuffix: String
+            if index < layout.dividerIds.count {
+                dividerSuffix = ",divider=\(layout.dividerIds[index].uuidString)"
+            } else {
+                dividerSuffix = ""
+            }
+            return "pane(\(pane.paneId.uuidString),ratio=\(pane.ratio)\(dividerSuffix))"
+        }.joined(separator: " -> ")
     }
 
     // MARK: - UI State

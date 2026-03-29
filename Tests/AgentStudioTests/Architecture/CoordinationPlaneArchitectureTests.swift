@@ -53,8 +53,8 @@ struct CoordinationPlaneArchitectureTests {
         let activeTabContentPath = projectRoot.appending(
             path: "Sources/AgentStudio/Core/Views/Splits/ActiveTabContent.swift"
         )
-        let terminalSplitContainerPath = projectRoot.appending(
-            path: "Sources/AgentStudio/Core/Views/Splits/TerminalSplitContainer.swift"
+        let flatTabStripContainerPath = projectRoot.appending(
+            path: "Sources/AgentStudio/Core/Views/Splits/FlatTabStripContainer.swift"
         )
         let mainWindowControllerPath = projectRoot.appending(
             path: "Sources/AgentStudio/App/MainWindowController.swift"
@@ -74,7 +74,7 @@ struct CoordinationPlaneArchitectureTests {
         let splitViewControllerSource = try String(contentsOf: splitViewControllerPath, encoding: .utf8)
         let paneTabViewControllerSource = try String(contentsOf: paneTabViewControllerPath, encoding: .utf8)
         let activeTabContentSource = try String(contentsOf: activeTabContentPath, encoding: .utf8)
-        let terminalSplitContainerSource = try String(contentsOf: terminalSplitContainerPath, encoding: .utf8)
+        let flatTabStripContainerSource = try String(contentsOf: flatTabStripContainerPath, encoding: .utf8)
         let mainWindowControllerSource = try String(contentsOf: mainWindowControllerPath, encoding: .utf8)
         let drawerPanelOverlaySource = try String(contentsOf: drawerPanelOverlayPath, encoding: .utf8)
         let drawerPanelSource = try String(contentsOf: drawerPanelPath, encoding: .utf8)
@@ -94,7 +94,7 @@ struct CoordinationPlaneArchitectureTests {
             )
         )
         #expect(activeTabContentSource.contains("let appLifecycleStore: AppLifecycleStore"))
-        #expect(terminalSplitContainerSource.contains("let appLifecycleStore: AppLifecycleStore"))
+        #expect(flatTabStripContainerSource.contains("let appLifecycleStore: AppLifecycleStore"))
         #expect(drawerPanelOverlaySource.contains("let appLifecycleStore: AppLifecycleStore"))
         #expect(drawerPanelSource.contains("let appLifecycleStore: AppLifecycleStore"))
         #expect(!ghosttySource.contains("AppLifecycleStore.shared"))

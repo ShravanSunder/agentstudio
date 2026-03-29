@@ -262,21 +262,16 @@ final class ActionExecutorTests {
             direction: .horizontal, position: .after
         )
 
-        // Get split ID
-        guard case .split(let split) = store.tabs[0].layout.root else {
-            Issue.record("Expected split layout")
+        guard let dividerId = store.tabs[0].layout.dividerIds.first else {
+            Issue.record("Expected divider")
             return
         }
 
         // Act
-        executor.execute(.resizePane(tabId: tab.id, splitId: split.id, ratio: 0.3))
+        executor.execute(.resizePane(tabId: tab.id, splitId: dividerId, ratio: 0.3))
 
         // Assert
-        guard case .split(let updatedSplit) = store.tabs[0].layout.root else {
-            Issue.record("Expected split layout")
-            return
-        }
-        #expect(abs(updatedSplit.ratio - 0.3) < 0.001)
+        #expect(abs((store.tabs[0].layout.ratioForSplit(dividerId) ?? 0.0) - 0.3) < 0.001)
     }
 
     // MARK: - Execute: equalizePanes
@@ -294,21 +289,17 @@ final class ActionExecutorTests {
         )
 
         // Resize first
-        guard case .split(let split) = store.tabs[0].layout.root else {
-            Issue.record("Expected split")
+        guard let dividerId = store.tabs[0].layout.dividerIds.first else {
+            Issue.record("Expected divider")
             return
         }
-        store.resizePane(tabId: tab.id, splitId: split.id, ratio: 0.3)
+        store.resizePane(tabId: tab.id, splitId: dividerId, ratio: 0.3)
 
         // Act
         executor.execute(.equalizePanes(tabId: tab.id))
 
         // Assert
-        guard case .split(let eqSplit) = store.tabs[0].layout.root else {
-            Issue.record("Expected split")
-            return
-        }
-        #expect(abs(eqSplit.ratio - 0.5) < 0.001)
+        #expect(abs((store.tabs[0].layout.ratioForSplit(dividerId) ?? 0.0) - 0.5) < 0.001)
     }
 
     // MARK: - Execute: closePane

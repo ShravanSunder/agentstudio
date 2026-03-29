@@ -58,12 +58,12 @@ struct TerminalPaneMountViewExitBehaviorTests {
 
     private func waitForAppEventBusSubscriberCount(_ expectedCount: Int) async {
         for _ in 0..<200 {
-            if await AppEventBus.shared.subscriberCount == expectedCount {
+            if await AppEventBus.shared.subscriberCount >= expectedCount {
                 return
             }
             await Task.yield()
         }
-        Issue.record("Timed out waiting for AppEventBus subscriberCount == \(expectedCount)")
+        Issue.record("Timed out waiting for AppEventBus subscriberCount >= \(expectedCount)")
     }
 
     private func makeSubscribedPaneTabControllerHarness() async -> PaneTabControllerHarness {

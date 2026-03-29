@@ -65,20 +65,17 @@ struct PaneCloseTransitionCoordinatorTests {
 
         let clock = TestPushClock()
         let paneId = UUID()
-        let paneHost = PaneHostView(paneId: paneId)
-        let tree = PaneSplitTree(view: paneHost)
         let coordinator = PaneCloseTransitionCoordinator(clock: clock)
         var closeActionFired = false
-        let container = TerminalSplitContainer(
-            tree: tree,
+        let viewRegistry = ViewRegistry()
+        let paneHost = PaneHostView(paneId: paneId)
+        viewRegistry.register(paneHost, for: paneId)
+        let container = FlatTabStripContainer(
+            layout: Layout(paneId: paneId),
             tabId: UUID(),
             activePaneId: paneId,
             zoomedPaneId: paneId,
             minimizedPaneIds: [],
-            splitRenderInfo: SplitRenderInfo.compute(
-                layout: Layout(paneId: paneId),
-                minimizedPaneIds: []
-            ),
             closeTransitionCoordinator: coordinator,
             action: { _ in
                 closeActionFired = true
@@ -88,7 +85,7 @@ struct PaneCloseTransitionCoordinatorTests {
             onDrop: { _, _, _ in },
             store: store,
             repoCache: WorkspaceRepoCache(),
-            viewRegistry: ViewRegistry(),
+            viewRegistry: viewRegistry,
             appLifecycleStore: AppLifecycleStore()
         )
 

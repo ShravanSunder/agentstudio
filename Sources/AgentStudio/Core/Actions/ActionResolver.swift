@@ -2,7 +2,7 @@
 import Foundation
 
 /// Resolves user intents into fully-specified PaneActions.
-/// Uses live state (including SplitTree navigation) to resolve
+/// Uses live state (including flat pane-strip navigation) to resolve
 /// "active tab", "next pane", "neighbor in direction X" into concrete IDs.
 ///
 /// Generic over `ResolvableTab` so resolution logic can be tested

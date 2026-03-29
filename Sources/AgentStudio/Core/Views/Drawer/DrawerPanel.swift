@@ -39,22 +39,22 @@ struct DrawerResizeHandle: View {
 // MARK: - DrawerPanel
 
 /// Floating drawer panel that overlays pane content.
-/// Renders the drawer's split tree (via SplitSubtreeView) in a rectangular panel
+/// Renders the drawer's flat pane strip inside a rectangular panel
 /// with a resize handle at the top and material background.
 ///
 /// Translates tab-level PaneActions dispatched by SplitSubtreeView/PaneLeafContainer
 /// into drawer-specific actions (resize, minimize, close, focus, equalize).
 struct DrawerPanel: View {
-    let tree: PaneSplitTree
+    let layout: Layout
     let parentPaneId: UUID
     let tabId: UUID
     let activePaneId: UUID?
     let minimizedPaneIds: Set<UUID>
-    let splitRenderInfo: SplitRenderInfo
     let closeTransitionCoordinator: PaneCloseTransitionCoordinator
     let height: CGFloat
     let store: WorkspaceStore
     let repoCache: WorkspaceRepoCache
+    let viewRegistry: ViewRegistry
     let action: (PaneActionCommand) -> Void
     let onResize: (CGFloat) -> Void
     let onDismiss: () -> Void
@@ -66,8 +66,8 @@ struct DrawerPanel: View {
     @Bindable private var managementMode = ManagementModeMonitor.shared
 
     /// Translates tab-level actions into drawer-specific actions.
-    /// SplitSubtreeView and PaneLeafContainer dispatch actions using tabId,
-    /// but in the drawer context these need to be routed to drawer operations.
+    /// Pane leaf interactions dispatch actions using tabId, but in the drawer
+    /// context these need to be routed to drawer operations.
     @ViewBuilder
     private var addDrawerButton: some View {
         Button {
@@ -120,46 +120,23 @@ struct DrawerPanel: View {
                     // Resize handle at top
                     DrawerResizeHandle(onDrag: onResize)
 
-                    // Drawer split tree content — padded to match inter-pane gap
-                    if let node = tree.root, !splitRenderInfo.allMinimized {
-                        SplitSubtreeView(
-                            node: node,
+                    if !layout.isEmpty {
+                        FlatPaneStripContent(
+                            layout: layout,
                             tabId: tabId,
-                            isSplit: tree.isSplit,
                             activePaneId: activePaneId,
                             minimizedPaneIds: minimizedPaneIds,
-                            splitRenderInfo: splitRenderInfo,
                             closeTransitionCoordinator: closeTransitionCoordinator,
                             action: drawerAction,
                             onPersist: nil,
                             store: store,
                             repoCache: repoCache,
-                            dropTargetCoordinateSpace: Self.drawerDropCoordinateSpace,
+                            viewRegistry: viewRegistry,
+                            coordinateSpaceName: Self.drawerDropCoordinateSpace,
                             useDrawerFramePreference: true
                         )
                         .padding(.horizontal, DrawerLayout.panelContentPadding)
                         .padding(.bottom, DrawerLayout.panelContentPadding)
-                    } else if splitRenderInfo.allMinimized {
-                        // All drawer panes minimized — show bars + add button
-                        HStack(spacing: 0) {
-                            ForEach(splitRenderInfo.allMinimizedPaneIds, id: \.self) { paneId in
-                                CollapsedPaneBar(
-                                    paneId: paneId,
-                                    tabId: tabId,
-                                    title: PaneDisplayProjector.displayLabel(
-                                        for: paneId,
-                                        store: store,
-                                        repoCache: repoCache
-                                    ),
-                                    closeTransitionCoordinator: closeTransitionCoordinator,
-                                    action: drawerAction
-                                )
-                                .frame(width: CollapsedPaneBar.barWidth)
-                            }
-                            Spacer()
-                            addDrawerButton
-                            Spacer()
-                        }
                     } else {
                         VStack(spacing: 12) {
                             Spacer()
@@ -308,17 +285,17 @@ struct DrawerPanel: View {
             VStack {
                 Spacer()
                 DrawerPanel(
-                    tree: PaneSplitTree(),
+                    layout: Layout(),
                     parentPaneId: UUID(),
                     tabId: UUID(),
                     activePaneId: nil,
                     minimizedPaneIds: [],
-                    splitRenderInfo: SplitRenderInfo.compute(layout: Layout(), minimizedPaneIds: []),
                     closeTransitionCoordinator: PaneCloseTransitionCoordinator(),
                     height: 200,
                     store: WorkspaceStore(
                         persistor: WorkspacePersistor(workspacesDir: FileManager.default.temporaryDirectory)),
                     repoCache: WorkspaceRepoCache(),
+                    viewRegistry: ViewRegistry(),
                     action: { _ in },
                     onResize: { _ in },
                     onDismiss: {},

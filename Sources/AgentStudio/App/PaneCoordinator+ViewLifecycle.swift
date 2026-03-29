@@ -747,8 +747,19 @@ extension PaneCoordinator {
         )
     }
 
-    func restoreViewsForActiveTabIfNeeded() {
+    func restoreViewsForActiveTabIfNeeded(forceWhenBoundsExist: Bool = false) {
         guard let activeTab = store.activeTab else { return }
+        if !windowLifecycleStore.isLaunchLayoutSettled {
+            let hasPreparingPlaceholder = activeTab.paneIds.contains { paneId in
+                viewRegistry.terminalStatusPlaceholderView(for: paneId)?.shouldRetryCreationWhenBoundsChange == true
+            }
+            guard forceWhenBoundsExist || hasPreparingPlaceholder || windowLifecycleStore.isReadyForLaunchRestore else {
+                RestoreTrace.log(
+                    "restoreViewsForActiveTabIfNeeded skipped launchLayoutUnsettled bounds=\(NSStringFromRect(windowLifecycleStore.terminalContainerBounds)) settled=\(windowLifecycleStore.isLaunchLayoutSettled)"
+                )
+                return
+            }
+        }
         let terminalContainerBounds = windowLifecycleStore.terminalContainerBounds
         guard !terminalContainerBounds.isEmpty else {
             RestoreTrace.log("restoreViewsForActiveTabIfNeeded skipped boundsUnavailable")

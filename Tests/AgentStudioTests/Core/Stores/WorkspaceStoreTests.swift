@@ -434,22 +434,17 @@ final class WorkspaceStoreTests {
         store.appendTab(tab)
         store.insertPane(s2.id, inTab: tab.id, at: s1.id, direction: .horizontal, position: .after)
 
-        // Get split ID and resize
-        guard case .split(let split) = store.tabs[0].layout.root else {
-            Issue.record("Expected split")
+        guard let dividerId = store.tabs[0].layout.dividerIds.first else {
+            Issue.record("Expected divider")
             return
         }
-        store.resizePane(tabId: tab.id, splitId: split.id, ratio: 0.3)
+        store.resizePane(tabId: tab.id, splitId: dividerId, ratio: 0.3)
 
         // Act
         store.equalizePanes(tabId: tab.id)
 
         // Assert
-        guard case .split(let eqSplit) = store.tabs[0].layout.root else {
-            Issue.record("Expected split")
-            return
-        }
-        #expect(abs((eqSplit.ratio) - (0.5)) <= 0.001)
+        #expect(abs((store.tabs[0].layout.ratioForSplit(dividerId) ?? 0.0) - (0.5)) <= 0.001)
     }
 
     // MARK: - Compound Operations
@@ -1456,20 +1451,16 @@ final class WorkspaceStoreTests {
         let p2 = store.createPane(source: .floating(workingDirectory: nil, title: nil))
         let tab = makeTab(paneIds: [p1.id, p2.id])
         store.appendTab(tab)
-        guard case .split(let splitData) = store.tabs[0].layout.root else {
-            Issue.record("Expected split layout")
+        guard let dividerId = store.tabs[0].layout.dividerIds.first else {
+            Issue.record("Expected divider")
             return
         }
 
         // Act
-        store.resizePane(tabId: tab.id, splitId: splitData.id, ratio: 0.7)
+        store.resizePane(tabId: tab.id, splitId: dividerId, ratio: 0.7)
 
         // Assert
-        guard case .split(let updated) = store.tabs[0].layout.root else {
-            Issue.record("Expected split layout after resize")
-            return
-        }
-        #expect(abs((updated.ratio) - (0.7)) <= 0.001)
+        #expect(abs((store.tabs[0].layout.ratioForSplit(dividerId) ?? 0.0) - (0.7)) <= 0.001)
     }
 
     // MARK: - resizePaneByDelta
@@ -1482,21 +1473,17 @@ final class WorkspaceStoreTests {
         let p2 = store.createPane(source: .floating(workingDirectory: nil, title: nil))
         let tab = makeTab(paneIds: [p1.id, p2.id])
         store.appendTab(tab)
-        guard case .split(let before) = store.tabs[0].layout.root else {
-            Issue.record("Expected split layout")
+        guard let dividerId = store.tabs[0].layout.dividerIds.first else {
+            Issue.record("Expected divider")
             return
         }
-        let ratioBefore = before.ratio
+        let ratioBefore = store.tabs[0].layout.ratioForSplit(dividerId)
 
         // Act — resize p1 to the right (increase left pane)
         store.resizePaneByDelta(tabId: tab.id, paneId: p1.id, direction: .right, amount: 10)
 
         // Assert — ratio changed
-        guard case .split(let after) = store.tabs[0].layout.root else {
-            Issue.record("Expected split layout after resize")
-            return
-        }
-        #expect(after.ratio != ratioBefore)
+        #expect(store.tabs[0].layout.ratioForSplit(dividerId) != ratioBefore)
     }
 
     @Test
@@ -1508,21 +1495,17 @@ final class WorkspaceStoreTests {
         let tab = makeTab(paneIds: [p1.id, p2.id])
         store.appendTab(tab)
         store.toggleZoom(paneId: p1.id, inTab: tab.id)
-        guard case .split(let before) = store.tabs[0].layout.root else {
-            Issue.record("Expected split layout")
+        guard let dividerId = store.tabs[0].layout.dividerIds.first else {
+            Issue.record("Expected divider")
             return
         }
-        let ratioBefore = before.ratio
+        let ratioBefore = store.tabs[0].layout.ratioForSplit(dividerId)
 
         // Act — try to resize while zoomed
         store.resizePaneByDelta(tabId: tab.id, paneId: p1.id, direction: .right, amount: 10)
 
         // Assert — ratio unchanged
-        guard case .split(let after) = store.tabs[0].layout.root else {
-            Issue.record("Expected split layout")
-            return
-        }
-        #expect(after.ratio == ratioBefore)
+        #expect(store.tabs[0].layout.ratioForSplit(dividerId) == ratioBefore)
     }
 
     // MARK: - addRepo / removeRepo

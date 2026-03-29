@@ -68,8 +68,7 @@ extension PaneCoordinator {
             position: .after
         )
         store.setActivePane(pane.id, inTab: activeTabId)
-        registerTerminalPlaceholderIfNeeded(for: pane, mode: .preparing)
-        restoreViewsForActiveTabIfNeeded()
+        ensureTerminalPaneView(pane)
 
         Self.logger.info("Opened worktree '\(worktree.name)' in split pane")
         return pane
@@ -112,8 +111,7 @@ extension PaneCoordinator {
         let tab = Tab(paneId: pane.id)
         store.appendTab(tab)
         store.setActiveTab(tab.id)
-        registerTerminalPlaceholderIfNeeded(for: pane, mode: .preparing)
-        restoreViewsForActiveTabIfNeeded()
+        ensureTerminalPaneView(pane)
 
         Self.logger.info("Opened floating terminal pane \(pane.id)")
         return pane
@@ -154,7 +152,7 @@ extension PaneCoordinator {
 
         case .selectTab(let tabId):
             store.setActiveTab(tabId)
-            restoreViewsForActiveTabIfNeeded()
+            restoreViewsForActiveTabIfNeeded(forceWhenBoundsExist: true)
 
         case .closeTab(let tabId):
             executeCloseTab(tabId)
@@ -279,8 +277,7 @@ extension PaneCoordinator {
                 position: position
             )
             if viewRegistry.view(for: paneId) == nil, let pane = store.pane(paneId) {
-                registerTerminalPlaceholderIfNeeded(for: pane, mode: .preparing)
-                restoreViewsForActiveTabIfNeeded()
+                ensureTerminalPaneView(pane)
             }
 
         case .purgeOrphanedPane(let paneId):
@@ -290,8 +287,7 @@ extension PaneCoordinator {
 
         case .addDrawerPane(let parentPaneId):
             if let drawerPane = store.addDrawerPane(to: parentPaneId) {
-                registerTerminalPlaceholderIfNeeded(for: drawerPane, mode: .preparing)
-                restoreViewsForActiveTabIfNeeded()
+                ensureTerminalPaneView(drawerPane)
             }
 
         case .removeDrawerPane(let parentPaneId, let drawerPaneId):
@@ -394,8 +390,7 @@ extension PaneCoordinator {
         let tab = Tab(paneId: pane.id)
         store.appendTab(tab)
         store.setActiveTab(tab.id)
-        registerTerminalPlaceholderIfNeeded(for: pane, mode: .preparing)
-        restoreViewsForActiveTabIfNeeded()
+        ensureTerminalPaneView(pane)
 
         Self.logger.info("Opened terminal for worktree: \(worktree.name)")
         return pane
@@ -545,8 +540,7 @@ extension PaneCoordinator {
                     pane.id, inTab: targetTabId, at: targetPaneId,
                     direction: layoutDirection, position: position
                 )
-                registerTerminalPlaceholderIfNeeded(for: pane, mode: .preparing)
-                restoreViewsForActiveTabIfNeeded()
+                ensureTerminalPaneView(pane)
                 return
             }
 
@@ -560,8 +554,7 @@ extension PaneCoordinator {
                 pane.id, inTab: targetTabId, at: targetPaneId,
                 direction: layoutDirection, position: position
             )
-            registerTerminalPlaceholderIfNeeded(for: pane, mode: .preparing)
-            restoreViewsForActiveTabIfNeeded()
+            ensureTerminalPaneView(pane)
         }
     }
 
@@ -601,8 +594,14 @@ extension PaneCoordinator {
             return
         }
 
-        registerTerminalPlaceholderIfNeeded(for: drawerPane, mode: .preparing)
-        restoreViewsForActiveTabIfNeeded()
+        ensureTerminalPaneView(drawerPane)
+    }
+
+    private func ensureTerminalPaneView(_ pane: Pane) {
+        registerTerminalPlaceholderIfNeeded(for: pane, mode: .preparing)
+        if createViewForContentUsingCurrentGeometry(pane: pane) == nil {
+            restoreViewsForActiveTabIfNeeded()
+        }
     }
 
     private func executeMergeTab(

@@ -1,0 +1,2265 @@
+# Terminal Startup, Ratio Drift, and Redraw Debugging
+
+This note records what we are trying to fix, what evidence we have from code and logs, what we changed, what did not work, and what is still only a hypothesis.
+
+The main trace source is `/tmp/agentstudio_debug.log`.
+
+Every `##` header in this document is a debugging epoch with an explicit timestamp or time window so later readers can match observations, code changes, and trace evidence to a concrete phase of the investigation.
+
+Relevant code paths:
+- `Sources/AgentStudio/App/PaneCoordinator+ViewLifecycle.swift`
+- `Sources/AgentStudio/App/AppDelegate+LaunchRestore.swift`
+- `Sources/AgentStudio/Core/Views/Splits/TerminalSplitContainer.swift`
+- `Sources/AgentStudio/Core/Views/Splits/SplitView.swift`
+- `Sources/AgentStudio/Core/Stores/WorkspaceStore.swift`
+- `Sources/AgentStudio/Features/Terminal/Hosting/TerminalPaneMountView.swift`
+- `Sources/AgentStudio/Features/Terminal/Ghostty/GhosttySurfaceView.swift`
+
+## Debugging Epoch 0 (2026-03-27 to 2026-03-29): Problem Statement
+
+There are three related but distinct problems:
+
+1. Startup launch/restore timing.
+   - Terminal surfaces must not be created from provisional startup bounds.
+
+2. Ratio drift across restarts.
+   - The split layout should round-trip stably through restart.
+   - If the user does not drag a divider, pane ratios should not change.
+
+3. Terminal redraw corruption after restore, split changes, or reparenting.
+   - The terminal prompt/current line can disappear even when pane geometry itself looks correct.
+
+The important distinction is:
+
+```text
+layout persistence bug:
+  ratios change when the user did not resize
+
+terminal redraw bug:
+  one logical geometry event produces multiple terminal resizes
+```
+
+These two bugs amplify each other, but they are not the same bug.
+
+## Debugging Epoch 1 (2026-03-27T23:47:35Z to 2026-03-27T23:54:43Z): Early Startup Restore At Tiny Bounds
+
+This was the first proven startup bug.
+
+Older runs showed:
+
+```text
+terminalContainerBoundsChanged -> 512x552
+restoreViewsForActiveTabIfNeeded fires immediately
+createView success with tiny initialSurfaceFrame widths
+applyLaunchMaximize happens later
+```
+
+That meant live terminal surfaces were being created from the first non-empty bounds instead of waiting for launch readiness.
+
+Why it happened:
+- `restoreViewsForActiveTabIfNeeded()` only required non-empty bounds.
+- It did not wait for `WindowLifecycleStore.isReadyForLaunchRestore`.
+
+What we changed:
+- Added a launch-only gate in `PaneCoordinator+ViewLifecycle.swift`:
+
+```text
+if launch layout is not settled:
+  require isReadyForLaunchRestore
+after launch settles:
+  runtime restore paths stay open
+```
+
+What the trace shows now:
+
+```text
+restoreViewsForActiveTabIfNeeded skipped launchLayoutUnsettled bounds={{0, 0}, {512, 552}} settled=false
+restoreViewsForActiveTabIfNeeded skipped launchLayoutUnsettled bounds={{0, 0}, {512, 532}} settled=false
+launchRestore triggered source=windowRestoreBridge bounds={{0, 0}, {2800, 1151}}
+```
+
+Current status:
+- This specific early-startup bug appears fixed in the newer runs.
+
+## Debugging Epoch 2 (2026-03-27 to 2026-03-28): Initial Frame Invariant
+
+We also found that Ghostty surfaces must never be created without a real initial frame.
+
+Problem:
+- `Ghostty.SurfaceView.init` previously had a hardcoded fallback frame.
+- That allowed terminal surfaces to start from invented geometry instead of caller-provided geometry.
+
+What we changed:
+- `Ghostty.SurfaceView` now requires a non-optional `SurfaceConfiguration`.
+- Surface creation now hard-fails if `initialFrame` is missing or empty.
+
+Current status:
+- This guards surface creation at the Ghostty boundary.
+- It does not, by itself, explain later ratio drift or prompt-loss bugs.
+
+## Debugging Epoch 3 (2026-03-28 to 2026-03-29): Correcting The "Full-Width Panes" Assumption
+
+At one point we misread partial-width startup panes as necessarily wrong.
+
+That was not the right model.
+
+The saved workspace state intentionally contains split layouts, so narrow panes at startup can be correct if the layout on disk is split.
+
+The real question is not:
+
+```text
+why are there split panes at startup?
+```
+
+The real questions are:
+
+```text
+are the restored ratios the same ones the user left behind?
+does the terminal render correctly inside the restored pane frame?
+```
+
+Current status:
+- The shape of the split tree can be valid even while the restored result is still wrong.
+
+## Debugging Epoch 4 (2026-03-27T23:47:35Z to 2026-03-29T13:49:38Z): Ratio Drift Across Restarts
+
+This is now one of the strongest proven issues.
+
+The key distinction:
+
+```text
+persisting ratios is normal
+persisting changed ratios that the user did not choose is the bug
+```
+
+How ratios persist in this app:
+
+```text
+TerminalSplitContainer adjustedRatioBinding setter
+  -> action(.resizePane(...))
+  -> PaneCoordinator execute
+  -> WorkspaceStore.resizePane(...)
+  -> WorkspaceStore.markDirty()
+  -> WorkspaceStore.persistNow()
+  -> workspace.state.json updated
+```
+
+So the suspicious part is not `persistNow()` itself.
+The suspicious part is that `.resizePane(...)` appears to be firing during startup or layout churn without a real user drag.
+
+What the trace showed in earlier investigation:
+- repeated `WorkspaceStore.resizePane` entries
+- ratios changing step-by-step
+- later `WorkspaceStore.persistNow` writing the new layout
+
+What this means:
+
+```text
+the disk file is not the origin of the bug
+the disk file is where an accidental in-memory mutation becomes durable
+```
+
+Current status:
+- Proven model: ratio drift is a mutation-before-persist problem.
+- Still open: which non-user path is causing the binding setter to fire.
+
+## Debugging Epoch 5 (2026-03-28T01:02:15Z to 2026-03-29T13:51:10Z): Terminal Redraw / SIGWINCH Storm
+
+The other strong finding is that a single logical restore/reparent event causes several terminal size reports.
+
+The trace shows the same surface often receiving:
+
+```text
+sizeDidChange source=init
+sizeDidChange source=mountView.layout
+sizeDidChange source=setFrameSize
+sizeDidChange source=viewDidMoveToWindow
+sizeDidChange source=forceGeometrySync
+```
+
+Example from the trace:
+
+```text
+Ghostty.SurfaceView.sizeDidChange source=mountView.layout logical={696, 1149}
+Ghostty.SurfaceView.sizeDidChange source=setFrameSize logical={696, 1149}
+Ghostty.SurfaceView.sizeDidChange source=viewDidMoveToWindow logical={696, 1149}
+Ghostty.SurfaceView.sizeDidChange source=forceGeometrySync logical={696, 1149}
+```
+
+Even when the logical size is the same, each one currently calls:
+- `ghostty_surface_set_size(...)`
+- `ghostty_surface_refresh(...)`
+
+That means one pane can send multiple resize notifications to the shell for what is effectively one geometry event.
+
+Why this matters:
+- repeated resize notifications can force repeated shell redraws
+- this matches the visible symptom where the prompt/current line disappears while earlier output remains visible
+
+Current status:
+- Proven: there is a size-report storm.
+- Still open: whether deduplicating identical backing sizes is sufficient, or whether some paths need stronger ordering guarantees.
+
+## Debugging Epoch 6 (2026-03-27 to 2026-03-28): Failed Geometry Rewrite
+
+We previously tried a broader "authoritative geometry only" rewrite.
+
+That approach:
+- suppressed some automatic resize paths
+- attempted to centralize geometry sync
+
+It made things worse:
+- startup became more fragile
+- it exposed an existing launch sequencing bug
+- it still did not solve the surviving-pane corruption
+
+Current status:
+- That experiment was backed out.
+- We are no longer using that as the primary fix direction.
+
+## Debugging Epoch 7 (2026-03-29T13:49:38Z onward): Current Best Model Before Restart-by-Restart Correlation
+
+As of now, the best model is:
+
+```text
+Problem A: startup launch timing
+  old early restore bug
+  appears fixed by launch-only readiness gate
+
+Problem B: ratio drift
+  split ratios change and persist without a real user divider drag
+
+Problem C: terminal redraw corruption
+  one logical layout event produces multiple Ghostty size updates
+```
+
+And the relationship is:
+
+```text
+ratio drift
+  -> more real pane geometry churn
+  -> more chances to hit the terminal resize storm
+
+terminal resize storm
+  -> prompt/current-line loss
+  -> but does not explain why ratios changed on disk
+```
+
+## Debugging Epoch 8 (2026-03-29T13:49:38Z onward): Next Evidence We Still Need
+
+The next debugging slice should answer two questions with logs, not guesses.
+
+### 1. Is `.resizePane(...)` firing without a real divider drag?
+
+We need logging around:
+- `TerminalSplitContainer.adjustedRatioBinding(...).set`
+- split drag begin/end
+- `WorkspaceStore.resizePane(...)`
+
+Goal:
+
+```text
+prove whether ratio mutations are happening while isSplitResizing == false
+```
+
+### 2. How many distinct backing sizes reach Ghostty for one logical event?
+
+We already know multiple size paths fire.
+The next step is to confirm whether they are:
+- exact duplicates
+- or contradictory intermediate sizes
+
+Goal:
+
+```text
+separate:
+  duplicate size spam
+from:
+  genuine rapid size sequence changes
+```
+
+### Current Working Hypotheses
+
+### Hypothesis A: Ratio drift is caused by non-user writes through the split binding
+
+This would mean:
+- SwiftUI layout/render churn is invoking the `Binding.set`
+- or some other code path is writing through the same binding path
+
+This hypothesis is not yet proven.
+
+### Hypothesis B: Prompt loss is caused by repeated terminal size updates for one event
+
+This would mean:
+- Ghostty receives too many resize notifications
+- the shell redraws repeatedly
+- the prompt/current line can be left out of the visible viewport
+
+This hypothesis is strongly supported by the trace, but the exact minimal fix is not proven yet.
+
+### What To Avoid
+
+The current evidence does not justify another broad geometry rewrite.
+
+Avoid:
+- suppressing large classes of size updates without proof
+- assuming ratio drift and redraw corruption are a single bug
+- treating persistence as the source of the problem instead of the place where bad state becomes durable
+
+The next fixes should be narrow and evidence-driven.
+
+## Debugging Epoch 9 (2026-03-29T13:49:38Z to 2026-03-29T13:50:04Z): Baseline Before Restart
+
+User action:
+- clear terminal output
+- run fresh commands
+- close the app
+
+Expected on the next launch:
+- same split layout shape
+- same pane ratios
+- prompt/current line visible in every restored terminal
+
+This baseline matters because it rules out "old garbage from a prior terminal session" as the explanation for the next restore symptom.
+
+## Debugging Epoch 10 (2026-03-29T13:50:04Z to 2026-03-29T13:50:08Z): Restart 1, Window Geometry Correct But Prompt Missing In Some Panes
+
+User observation:
+- window geometry looked correct
+- split layout looked expected
+- only some panes in both tabs were missing the prompt/current line
+
+Trace correlation:
+
+```text
+13:50:04Z restoreViewsForActiveTabIfNeeded skipped launchLayoutUnsettled
+13:50:04Z launchRestore triggered source=windowRestoreBridge bounds={{0,0},{2800,1151}}
+```
+
+The launch gate is working here. This is not the old "create surfaces at 512x552" bug.
+
+What the terminal restore paths did for the affected panes:
+
+```text
+init
+mountView.layout
+setFrameSize
+forceGeometrySync
+viewDidMoveToWindow async
+```
+
+Concrete examples from this restart:
+
+```text
+954x1149 pane:
+  init -> mountView.layout -> setFrameSize -> forceGeometrySync -> viewDidMoveToWindow
+
+526x1149 pane:
+  init -> mountView.layout -> setFrameSize -> forceGeometrySync -> viewDidMoveToWindow
+
+527x1149 pane:
+  init -> mountView.layout -> setFrameSize -> forceGeometrySync -> viewDidMoveToWindow
+
+782x1149 pane:
+  init -> mountView.layout -> setFrameSize -> forceGeometrySync -> viewDidMoveToWindow
+```
+
+What did not happen:
+
+```text
+TerminalSplitContainer.adjustedRatioBinding.set: 0
+SplitView.drag*: 0
+WorkspaceStore.resizePane: 0
+```
+
+Conclusion for Restart 1:
+- This restart corruption was not caused by ratio mutation.
+- It was a terminal restore/redraw event with multiple size reports per pane.
+- The symptom matches the prompt/current-line loss bug, not the ratio-drift bug.
+
+## Debugging Epoch 11 (2026-03-29T13:51:09Z to 2026-03-29T13:51:12Z): Restart 2, Same Restore Storm With Worse Visible Corruption
+
+User observation:
+- after another restart, pane widths looked more corrupted
+- the visual state looked worse than Restart 1
+
+Trace correlation:
+
+```text
+13:51:09Z restoreViewsForActiveTabIfNeeded skipped launchLayoutUnsettled
+13:51:09Z launchRestore triggered source=windowRestoreBridge bounds={{0,0},{2800,1151}}
+```
+
+Again, the launch gate is working. This is still not the early-startup tiny-bounds bug.
+
+The same multi-path size-report pattern appears again:
+
+```text
+696x1149 pane:
+  init -> mountView.layout -> setFrameSize -> forceGeometrySync -> viewDidMoveToWindow
+
+347x1149 pane:
+  init -> mountView.layout -> setFrameSize -> forceGeometrySync -> viewDidMoveToWindow
+
+348x1149 pane:
+  init -> mountView.layout -> setFrameSize -> forceGeometrySync -> viewDidMoveToWindow
+
+1398x1149 pane:
+  init -> mountView.layout -> setFrameSize -> forceGeometrySync -> viewDidMoveToWindow
+```
+
+What still did not happen:
+
+```text
+TerminalSplitContainer.adjustedRatioBinding.set: 0
+SplitView.drag*: 0
+WorkspaceStore.resizePane: 0
+```
+
+What did happen:
+- `WorkspaceStore.persistNow` still ran
+- but it wrote the already-existing layout shape and ratios
+- no new ratio mutation path was observed during this restart slice
+
+Conclusion for Restart 2:
+- The visual corruption on this restart also does not line up with ratio writes.
+- The most specific correlated mechanism remains repeated terminal size reporting during restore.
+
+## Debugging Epoch 12 (2026-03-29T13:50:04Z to 2026-03-29T13:51:12Z): What The Latest Restarts Rule Out
+
+The recent 2026-03-29 restart sequence is especially useful because it rules out one tempting explanation.
+
+It does **not** support:
+
+```text
+"the latest prompt-loss/corruption was caused by ratio drift during that restart"
+```
+
+Why:
+
+```text
+no SplitView drag
+no adjustedRatioBinding.set
+no WorkspaceStore.resizePane
+```
+
+So for the latest restart sequence:
+
+```text
+ratio bug:
+  not active in the traced restart
+
+terminal redraw bug:
+  definitely active in the traced restart
+```
+
+This does not mean the ratio-drift bug is gone.
+It means the most recent restart corruption can be explained without it.
+
+## Debugging Epoch 13 (2026-03-29T13:51:12Z onward): Updated Model After The Restart Sequence
+
+We now have stronger separation between the two bugs:
+
+```text
+Bug A: ratio drift across restarts
+  evidenced in earlier sessions
+  caused by non-user ratio mutation before persistence
+
+Bug B: prompt/current-line loss after restore
+  evidenced in the latest sessions
+  happens even when no ratio mutation occurs during that restart
+```
+
+This updated model is important because it changes fix ordering:
+
+1. We still need to catch the source of non-user `resizePane(...)` writes.
+2. But the currently reproducible restore corruption is primarily a terminal size-report storm problem.
+
+The latest restarts make that separation much clearer than before.
+
+## Debugging Epoch 14 (2026-03-29T13:50:04Z to 2026-03-29T13:56:33Z): Exact Duplicate Sizes Are Deduped, But Distinct Restore Sizes Still Exist
+
+### What changed in the analysis
+
+The earlier "pure SIGWINCH storm" model was too strong.
+
+The important correction is:
+
+```text
+exact duplicate backing sizes
+  are deduped by Ghostty
+```
+
+That means not every repeated Swift-side `sizeDidChange(...)` call turns into a real terminal resize.
+
+### Evidence: Ghostty deduplicates internally
+
+From `vendor/ghostty/src/Surface.zig` line 2422:
+
+```zig
+pub fn sizeCallback(self: *Surface, size: apprt.SurfaceSize) !void {
+    const new_screen_size = ...;
+    if (self.size.screen.equals(new_screen_size)) return;  // ← DEDUP
+    try self.resize(new_screen_size);
+}
+```
+
+Ghostty already deduplicates at the C level. If the backing pixel size matches what the surface already has, `resize()` is never called.
+
+This means:
+- Our repeated Swift calls only matter when they produce a new pixel size.
+- The duplicate-only version of the resize-storm model was wrong about the impact.
+
+### Evidence: zmx still applies real resize messages
+
+From zmx research (`vendor/zmx/src/main.zig`):
+- On client attach, zmx sends an `Init` message with the window size
+- zmx calls `ioctl(pty_fd, TIOCSWINSZ, &winsize)` to set the PTY size
+- zmx then calls `term.resize(...)`
+
+What this proves:
+- same-size reports are not as dangerous as we first thought
+- real size changes still propagate through the PTY path
+
+### What the latest traces still show
+
+The latest restart traces still include some genuinely different pixel sizes for the same restore sequence.
+
+Examples from `2026-03-29T13:50:04Z` and `2026-03-29T13:51:09Z`:
+
+```text
+347.125 logical width -> backing width 694.25 -> UInt32 694
+348 logical width     -> backing width 696      -> UInt32 696
+
+697.25 logical width  -> backing width 1394.5   -> UInt32 1394
+696 logical width     -> backing width 1392     -> UInt32 1392
+
+1397.5 logical width  -> backing width 2795     -> UInt32 2795
+1398 logical width    -> backing width 2796     -> UInt32 2796
+```
+
+So the remaining bug is not explained away by duplicate dedup alone.
+Some panes still see real small-step size churn during restore.
+
+### Revised model from the evidence we actually have
+
+The safest statement now is:
+
+```text
+Exact duplicate size reports:
+  mostly harmless because Ghostty dedups them
+
+Distinct pixel-size changes during restore:
+  still real
+  still candidates for prompt/current-line loss
+```
+
+So the corrected diagnosis is not:
+
+```text
+"the bug is lack of SIGWINCH, not too many"
+```
+
+The corrected diagnosis is:
+
+```text
+"the bug is not a pure duplicate-only resize storm.
+Exact duplicates are deduped, but some distinct restore sizes still occur."
+```
+
+### What is still hypothesis, not proof
+
+The following ideas are still hypotheses:
+- missing prompt because zmx attach reused the exact same size and the shell never redrew
+- prompt visibility being restored specifically by a forced size change across restart
+- a zmx-side "force redraw on attach" being the minimal fix
+
+Those are plausible, but the current local trace does not prove them yet.
+
+### What to verify next
+
+The next useful verification would be one of:
+
+```text
+1. Log at the Ghostty/zmx boundary when a Swift size report is deduped vs when it actually executes resize()
+2. Log whether zmx attach sends an init resize whose rows/cols match the previous PTY size exactly
+3. Run a controlled "same final size" vs "forced +1px size jiggle" experiment
+```
+
+Until then, the right conclusion is narrower:
+- the other agent was right to weaken the pure storm theory
+- but the trace still supports real restore-time size churn as an active bug source
+
+## Debugging Epoch 15 (2026-03-29T14:00:00Z onward): New Boundary Instrumentation And Next Restart Strategy
+
+We added one more round of instrumentation at the actual resize boundaries.
+
+### New Swift-side instrumentation
+
+In `Ghostty.SurfaceView.sizeDidChange(...)` we now log:
+
+```text
+requestedPx={w,h}
+currentPx={w,h}
+currentGrid={cols,rows}
+dedupLikely=true|false
+```
+
+This tells us whether a given Swift-side size report is likely to be dropped by Ghostty before `Surface.resize(...)` runs.
+
+### New zmx-side instrumentation
+
+In `vendor/zmx/src/main.zig` we now log:
+
+```text
+init resize prev_rows=... prev_cols=... requested_rows=... requested_cols=... changed=true|false
+resize prev_rows=... prev_cols=... requested_rows=... requested_cols=... changed=true|false
+```
+
+This tells us whether zmx is actually applying a changed terminal size on attach/resize, or just receiving an idempotent same-size message.
+
+### Verification status for the instrumentation
+
+The new instrumentation was verified with:
+
+```text
+mise run lint                           -> exit 0
+AGENT_RUN_ID=debug-boundary-0329 mise run build -> exit 0
+```
+
+### Next restart-loop strategy
+
+Use the freshly built app from the `debug-boundary-0329` build output and run the same restart loop again.
+
+For each restart, capture these two artifacts:
+
+```text
+1. /tmp/agentstudio_debug.log
+2. ~/.agentstudio/z/logs/zmx.log
+```
+
+### What we want to answer on the next run
+
+#### Question 1: Are the bad Swift size reports mostly no-ops?
+
+Interpretation:
+
+```text
+If dedupLikely=true for most restore-time sizeDidChange calls:
+  duplicate Swift calls are not the main direct cause
+
+If dedupLikely=false for many restore-time calls:
+  distinct pixel-size churn is still active at the Ghostty boundary
+```
+
+#### Question 2: Does zmx attach with a changed terminal size or not?
+
+Interpretation:
+
+```text
+If zmx init resize changed=false on prompt-missing restores:
+  same-size attach becomes a stronger hypothesis
+
+If zmx init resize changed=true on prompt-missing restores:
+  same-size attach is not sufficient to explain the bug
+```
+
+#### Question 3: Does prompt loss correlate better with same-size attach or with distinct size churn?
+
+This is the main decision point for the next diagnosis.
+
+### Decision rule after the next run
+
+After the next restart loop, we should be able to choose between two tighter models:
+
+```text
+Model A:
+  prompt-loss bug is primarily a same-size reattach / no-redraw problem
+
+Model B:
+  prompt-loss bug is primarily caused by distinct restore-time size churn
+```
+
+We do not need to guess between them now. The new logs are intended to decide that.
+
+## Debugging Epoch 16 (2026-03-29T14:21:54Z to 2026-03-29T14:23:02Z): Restart 1 On Boundary-Instrumented Build, All Terminal Prompts Missing
+
+User observation:
+- after restart, pane geometry looked correct
+- terminal content width looked correct
+- the prompt/current line disappeared in all terminal panes across both tabs
+- non-terminal panes such as Claude/Codex still looked fine
+
+This is stronger than the earlier restart observations because it removes the "only some panes are bad" ambiguity. In this run, terminal prompt loss was effectively global while pane geometry still looked stable.
+
+### Restore-trace correlation
+
+The launch gate still worked:
+
+```text
+2026-03-29T14:22:53Z restoreViewsForActiveTabIfNeeded skipped launchLayoutUnsettled bounds={{0,0},{512,552}} settled=false
+2026-03-29T14:22:53Z restoreViewsForActiveTabIfNeeded skipped launchLayoutUnsettled bounds={{0,0},{512,532}} settled=false
+2026-03-29T14:22:54Z launchRestore triggered source=windowRestoreBridge bounds={{0,0},{2800,1151}}
+```
+
+So this run is still not the old early-startup tiny-bounds bug.
+
+### Swift -> Ghostty boundary evidence
+
+The new `dedupLikely` logs show an important pattern:
+
+1. `init` calls are real changes from the placeholder state:
+
+```text
+requestedPx={1911,2298} currentPx={800,600} dedupLikely=false
+requestedPx={1561,2298} currentPx={800,600} dedupLikely=false
+requestedPx={1052,2298} currentPx={800,600} dedupLikely=false
+requestedPx={1394,2298} currentPx={800,600} dedupLikely=false
+```
+
+2. The later `viewDidMoveToWindow` and `forceGeometrySync` calls are mostly exact no-ops:
+
+```text
+source=viewDidMoveToWindow requestedPx={1908,2298} currentPx={1908,2298} dedupLikely=true
+source=viewDidMoveToWindow requestedPx={1052,2298} currentPx={1052,2298} dedupLikely=true
+source=viewDidMoveToWindow requestedPx={1054,2298} currentPx={1054,2298} dedupLikely=true
+source=viewDidMoveToWindow requestedPx={1564,2298} currentPx={1564,2298} dedupLikely=true
+
+source=forceGeometrySync requestedPx={1908,2298} currentPx={1908,2298} dedupLikely=true
+source=forceGeometrySync requestedPx={1052,2298} currentPx={1052,2298} dedupLikely=true
+source=forceGeometrySync requestedPx={1054,2298} currentPx={1054,2298} dedupLikely=true
+source=forceGeometrySync requestedPx={1564,2298} currentPx={1564,2298} dedupLikely=true
+```
+
+3. The only distinct restore-time size churn visible in this run comes from `mountView.layout` correcting fractional initial sizes to integer AppKit sizes:
+
+```text
+954 pane: currentPx={1911,2298} -> requestedPx={1908,2298} dedupLikely=false
+696 pane: currentPx={1394,2298} -> requestedPx={1392,2298} dedupLikely=false
+527 pane: currentPx={1052,2298} -> requestedPx={1054,2298} dedupLikely=false
+782 pane: currentPx={1561,2298} -> requestedPx={1564,2298} dedupLikely=false
+1398 pane: currentPx={2795,2298} -> requestedPx={2796,2298} dedupLikely=false
+348 pane: currentPx={694,2298}  -> requestedPx={696,2298}  dedupLikely=false
+```
+
+Interpretation:
+
+```text
+Most post-restore follow-up size reports are no-ops at the Ghostty boundary.
+The only real post-init size changes in this restart are small integer/fractional corrections.
+```
+
+That weakens the "huge repeated-resize storm" model substantially for this specific run.
+
+### zmx log correlation
+
+The zmx log did not show the new `init resize prev_rows=... prev_cols=... changed=...` lines we expected.
+
+What it did show:
+
+```text
+session already exists, ignoring command session=...
+attached session=...
+session unresponsive: Timeout
+```
+
+That tells us:
+- the restart is attaching to already-existing zmx sessions
+- at least some of those sessions are timing out / becoming unresponsive
+
+What it does **not** yet tell us:
+- whether attach happened with same rows/cols or changed rows/cols
+- whether zmx applied a no-op resize or a real resize on attach
+
+Two plausible reasons the new zmx resize logs are missing:
+
+```text
+1. The attach path for already-running daemons is not exercising the instrumented init/resize code we expected.
+2. The long-lived session daemons were started from an older zmx binary before the new instrumentation was built.
+```
+
+At this point, the zmx log is still useful, but it has not yet answered the attach-size question.
+
+### What this restart changes in the model
+
+This restart strongly suggests:
+
+```text
+Prompt loss can happen even when:
+  - pane geometry is correct
+  - most post-init Ghostty size reports are deduped no-ops
+```
+
+So the simplest remaining candidates are now:
+
+```text
+1. The first real attach/init size is enough to lose prompt state
+2. zmx attach/session restore is missing a redraw step
+3. session unresponsive / timeout behavior is part of the missing-prompt symptom
+```
+
+And the older "lots of repeated identical size writes are directly causing it" explanation is weaker than it was before this run.
+
+## Debugging Epoch 17 (2026-03-29T14:22:54Z to 2026-03-29T14:25:04Z): Restart 2, Pane Widths Visibly Corrupted While Boundary Pattern Stays Similar
+
+User observation:
+- after the next restart, pane widths looked visibly more corrupted
+- the layout looked worse than Restart 1
+- terminal lines came back
+- in the short-width panes, the cursor / active prompt row was restored at the wrong vertical position
+- the problem remained terminal-specific; non-terminal panes still rendered normally
+
+### Restore-trace correlation
+
+The launch gate still worked:
+
+```text
+2026-03-29T14:22:53Z restoreViewsForActiveTabIfNeeded skipped launchLayoutUnsettled bounds={{0,0},{512,552}} settled=false
+2026-03-29T14:22:53Z restoreViewsForActiveTabIfNeeded skipped launchLayoutUnsettled bounds={{0,0},{512,532}} settled=false
+2026-03-29T14:22:54Z launchRestore triggered source=windowRestoreBridge bounds={{0,0},{2800,1151}}
+```
+
+So Restart 2 is also not the old tiny-bounds startup bug.
+
+### Swift -> Ghostty boundary evidence
+
+The same general pattern remained true:
+
+1. `init` was always a real change from the placeholder state:
+
+```text
+requestedPx={1911,2298} currentPx={800,600} dedupLikely=false
+requestedPx={1561,2298} currentPx={800,600} dedupLikely=false
+requestedPx={1052,2298} currentPx={800,600} dedupLikely=false
+requestedPx={1394,2298} currentPx={800,600} dedupLikely=false
+```
+
+2. Most later follow-up reports were exact no-ops:
+
+```text
+source=viewDidMoveToWindow requestedPx={1908,2298} currentPx={1908,2298} dedupLikely=true
+source=viewDidMoveToWindow requestedPx={1052,2298} currentPx={1052,2298} dedupLikely=true
+source=viewDidMoveToWindow requestedPx={1054,2298} currentPx={1054,2298} dedupLikely=true
+source=viewDidMoveToWindow requestedPx={1564,2298} currentPx={1564,2298} dedupLikely=true
+```
+
+3. The real post-init size churn again came from fractional-to-integer correction:
+
+```text
+954 pane: currentPx={1911,2298} -> requestedPx={1908,2298} dedupLikely=false
+527 pane: currentPx={1052,2298} -> requestedPx={1054,2298} dedupLikely=false
+782 pane: currentPx={1561,2298} -> requestedPx={1564,2298} dedupLikely=false
+```
+
+So Restart 2 did not produce a fundamentally different Ghostty-boundary pattern from Restart 1. The later restore writes were still mostly dedupable no-ops, with only a small number of real pixel changes.
+
+### Workspace / ratio evidence
+
+Even in this visually more corrupted restart, the trace slice still did not show:
+
+```text
+TerminalSplitContainer.adjustedRatioBinding.set
+SplitView.drag*
+WorkspaceStore.resizePane
+```
+
+That means the visible width corruption in this restart still does not line up with a newly observed runtime divider-drag path during the restore itself.
+
+`WorkspaceStore.persistNow` continued to fire, but that only tells us state was being saved. It does not, by itself, prove a fresh ratio mutation in this restart slice.
+
+### zmx log correlation
+
+The zmx log again showed:
+
+```text
+session already exists, ignoring command session=...
+attached session=...
+session unresponsive: Timeout
+```
+
+And again, it did **not** show the new `init resize prev_rows=... prev_cols=... changed=...` lines we hoped to see.
+
+So after two instrumented restarts, the zmx-side evidence is now:
+
+```text
+proven:
+  restart attaches to already-running sessions
+  some sessions are timing out / becoming unresponsive
+
+not yet proven:
+  whether attach is same-size or changed-size at the zmx resize boundary
+```
+
+### What Restart 2 adds to the model
+
+Restart 2 matters because it shows:
+
+```text
+Worse visible pane corruption does not imply a different Ghostty boundary pattern.
+```
+
+That suggests the visible "width corruption" may not be caused by a brand-new category of size event. It may instead be:
+- the same restore-time terminal corruption expressed more severely
+- compounded by session unresponsiveness / stale restore state
+- or a higher-level pane/layout state issue that is not visible in the traced resize command path
+- or a cursor/prompt-row restore problem that only becomes obvious in short-width panes
+
+## Debugging Epoch 18 (2026-03-29T14:21:54Z to 2026-03-29T14:25:04Z): Side-By-Side Comparison Of Restart 1 And Restart 2
+
+Across the two latest instrumented restarts:
+
+### What stayed the same
+
+```text
+launch gate works
+init is always a real size change from placeholder 800x600
+most post-init writes are dedupLikely=true
+small fractional-to-integer corrections still happen
+no SplitView.drag
+no adjustedRatioBinding.set
+no WorkspaceStore.resizePane in the restore slice
+zmx logs show session reuse + timeouts, not resize-detail lines
+```
+
+### What changed
+
+```text
+Restart 1:
+  geometry looked correct
+  prompts missing everywhere
+
+Restart 2:
+  geometry looked visibly more corrupted
+  lines came back
+  short-width panes had the cursor/prompt row in the wrong place
+```
+
+### Current interpretation after both restarts
+
+The two instrumented restarts together support this reading:
+
+```text
+1. Prompt-loss is not explained by fresh ratio writes during these restarts.
+2. Prompt-loss is not well explained by large numbers of identical post-init size reports.
+3. The remaining active suspects are:
+   - the first real init/attach resize
+   - session reuse / stale state across zmx attach
+   - incorrect cursor/prompt-row restore after content replay, especially in short-width panes
+   - zmx session unresponsiveness
+   - a higher-level layout/state corruption not captured by resizePane logs
+```
+
+## Debugging Epoch 19 (2026-03-29): Upstream Ghostty and zmx Research, Grounded Against Our Logs
+
+We looked up the relevant upstream behavior in the actual Ghostty and zmx source and compared it to our traces.
+
+Upstream repositories:
+- `ghostty-org/ghostty`
+- `neurosnap/zmx`
+
+### What Ghostty upstream says
+
+From `vendor/ghostty/src/Surface.zig`:
+
+```zig
+pub fn sizeCallback(self: *Surface, size: apprt.SurfaceSize) !void {
+    const new_screen_size = .{ .width = size.width, .height = size.height };
+    if (self.size.screen.equals(new_screen_size)) return;
+    try self.resize(new_screen_size);
+}
+```
+
+Grounded conclusion:
+
+```text
+Ghostty deduplicates exact same screen pixel sizes before running Surface.resize().
+```
+
+That matches our local `dedupLikely=true` interpretation and weakens the duplicate-only resize-storm theory.
+
+From `vendor/ghostty/src/termio/Termio.zig` and `vendor/ghostty/src/terminal/Terminal.zig`:
+- a real size change still propagates into PTY/backend resize
+- then into `terminal.resize(cols, rows)`
+- and `Terminal.resize` itself also early-returns if `cols` and `rows` are unchanged
+
+Grounded conclusion:
+
+```text
+Exact duplicate pixel sizes are cheap.
+Distinct pixel-size changes still matter because they can change grid cols/rows and trigger terminal reflow.
+```
+
+### What zmx upstream says
+
+From `vendor/zmx/src/main.zig`:
+- attach to an existing session still goes through daemon/client init
+- `handleInit` serializes terminal state only when:
+  - `has_pty_output == true`
+  - `has_had_client == true`
+- `handleInit` calls `ioctl(TIOCSWINSZ)` and `term.resize(...)`
+- then serializes terminal state **after** resize, specifically to capture the correct post-resize cursor location
+
+The zmx-side rationale in source is explicit:
+
+```text
+Serialize terminal state BEFORE resize to capture correct cursor position.
+Resizing triggers reflow which can move the cursor, and the shell's
+SIGWINCH-triggered redraw will run after our snapshot is sent.
+```
+
+And then in code the snapshot is taken in the init path around the resize handling so the intended invariant is:
+
+```text
+snapshot sent to the client should already reflect the post-resize terminal state
+including cursor location
+```
+
+Grounded conclusion:
+
+```text
+zmx is designed to preserve cursor location across attach/resize by replaying
+terminal state after resize, not by relying purely on the shell to redraw later.
+```
+
+### The most important mismatch with our app behavior
+
+Our observed restart behavior is:
+
+```text
+Restart 1:
+  all terminal prompt/current lines missing
+
+Restart 2:
+  terminal lines came back
+  short-width panes had the cursor/prompt row in the wrong vertical place
+```
+
+But upstream zmx’s intended contract is:
+
+```text
+after attach + resize + replay,
+the client should receive terminal state with the correct post-resize cursor position
+```
+
+That means the symptom is no longer well described as:
+
+```text
+"shell never redrew"
+```
+
+because zmx is explicitly trying to replay a post-resize cursor state even before shell redraw completes.
+
+### What upstream research weakens
+
+The following explanations are now weaker than before:
+
+```text
+1. Pure duplicate resize storm:
+   weakened by Ghostty dedup and Terminal.resize dedup
+
+2. Pure no-SIGWINCH-on-same-size attach:
+   weakened by zmx's design to replay terminal state with post-resize cursor position
+```
+
+Those theories are not impossible, but they are no longer the strongest source-backed model.
+
+### What upstream research strengthens
+
+The following explanation is now stronger:
+
+```text
+The failing contract is likely in "state replay / cursor placement / viewport restoration"
+for restored sessions, especially in narrow panes.
+```
+
+Why:
+- Ghostty should ignore exact duplicate sizes
+- zmx should replay state after resize with the correct cursor location
+- yet our restored narrow panes can still show:
+  - visible content
+  - but wrong cursor/prompt row placement
+
+That points toward:
+- mismatch between replayed terminal state and what the Ghostty client surface ends up displaying
+- or stale / corrupted session state inside zmx for those panes
+- or attach/session-timeout behavior interfering with replay completion
+
+### How our local logs line up with that
+
+Our local logs still show:
+
+```text
+zmx:
+  session already exists
+  attached session=...
+  session unresponsive: Timeout
+```
+
+And on the app side:
+
+```text
+short-width panes:
+  do see small real pixel corrections
+  but most later writes are dedupLikely=true
+```
+
+So the current best grounded clue is:
+
+```text
+The remaining bug is less about "too many resize messages"
+and more about "after attach/replay, the restored active cursor/prompt state
+is wrong or incomplete in some terminal sessions, especially narrow ones."
+```
+
+### What remains unproven
+
+We still do **not** have direct proof of:
+- whether the missing zmx `init resize prev_rows=...` logs are absent because old daemons are still running
+- whether session timeout correlates directly with wrong cursor placement
+- whether narrow-width panes are failing because of replay ordering, replay content, or viewport math
+
+Those are still open questions.
+
+This is a better bounded problem than we had before these two runs.
+
+## Debugging Epoch 20: Why zmx Instrumentation Didn't Fire, And What The Timeout Means
+
+### Concrete finding 1: zmx daemons are old binaries
+
+Running `pgrep -fl zmx` shows the daemon processes are long-lived and were started from the pre-instrumented zmx binary:
+
+```text
+886 vendor/zmx/zig-out/bin/zmx attach agentstudio--..--89e051b9d401545d /bin/zsh -i -l
+3778 vendor/zmx/zig-out/bin/zmx attach agentstudio--..--84fcdac607cd8bba /bin/zsh -i -l
+```
+
+The zmx daemon stays alive across app restarts. When AgentStudio restarts and runs `zmx attach`, it connects to the **already running daemon** (the `session already exists` log confirms this). The daemon process is the old binary without the `init resize prev_rows=... changed=...` log line.
+
+The zmx log correctly shows zero `[debug]` level entries. The `handleInit` instrumentation uses `std.log.debug` (line 530 of main.zig), which is filtered out at the default zmx log level.
+
+```text
+grep -c "\[debug\]" zmx.log → 0
+```
+
+This is a concrete answer: the zmx-side instrumentation exists in code but is not reaching the running daemons because:
+
+```text
+1. The daemon binaries are older than the instrumented build
+2. Even if they were current, std.log.debug is filtered at runtime
+```
+
+### Concrete finding 2: timeout happens BETWEEN restarts, not during attach
+
+The zmx log timestamps for the latest restart cycle:
+
+```text
+[1774794114621] attached session=..a3638ee9ec631ab9
+[1774794115577] session unresponsive: Timeout    ← 956ms after attach
+                r/.agentstudio/z/agentstudio--..--9a177622d958de11
+```
+
+The timeout log shows a DIFFERENT session ID than the one that just attached. This means:
+
+```text
+The timeout is NOT about the session that just attached.
+It is about a DIFFERENT session that was probed and found unresponsive.
+```
+
+Looking at the attach pattern more carefully:
+
+```text
+attach session=a3638ee9ec631ab9   ← succeeds
+attach session=989b13cfaca05586   ← succeeds
+attach session=89e051b9d401545d   ← succeeds
+session unresponsive: Timeout     ← session 9a177622d958de11
+```
+
+The timeout comes from `ipc.probeSession` (ipc.zig line 181-194), which polls the daemon's socket with a 1000ms timeout. If the daemon doesn't respond to an `.Info` probe within 1 second, it's marked unresponsive.
+
+This tells us:
+
+```text
+At least one zmx daemon per restart cycle is unresponsive to probe requests.
+That session's pane would fail to attach properly.
+```
+
+### Concrete finding 3: the zmx Init path sends terminal size from STDOUT
+
+From `vendor/zmx/src/main.zig` line 1213:
+
+```zig
+const size = ipc.getTerminalSize(posix.STDOUT_FILENO);
+try ipc.appendMessage(alloc, &sock_write_buf, .Init, std.mem.asBytes(&size));
+```
+
+And `getTerminalSize` (ipc.zig line 34-40):
+
+```zig
+pub fn getTerminalSize(fd: i32) Resize {
+    var ws: cross.c.struct_winsize = undefined;
+    if (cross.c.ioctl(fd, cross.c.TIOCGWINSZ, &ws) == 0 and ws.ws_row > 0 and ws.ws_col > 0) {
+        return .{ .rows = ws.ws_row, .cols = ws.ws_col };
+    }
+    return .{ .rows = 24, .cols = 80 };  // ← fallback if ioctl fails
+}
+```
+
+The zmx client gets its terminal size from `ioctl(STDOUT, TIOCGWINSZ)`. Since the zmx process's stdout is the Ghostty surface's PTY, this returns whatever Ghostty last set via `ghostty_surface_set_size`.
+
+The question is: at the moment the zmx client calls `getTerminalSize`, has Ghostty already processed the `sizeDidChange(source=init)` call and set the PTY size? From the trace:
+
+```text
+Ghostty.SurfaceView.init → sizeDidChange source=init → ghostty_surface_set_size → PTY gets sized
+(then Ghostty creates the surface, which spawns the zmx command)
+```
+
+The init `sizeDidChange` happens BEFORE the surface is created (line 228 of GhosttySurfaceView.swift). But `ghostty_surface_set_size` requires a surface to exist. The init flow is:
+
+```text
+1. super.init(frame: config.initialFrame!) → NSView created at correct frame
+2. sizeDidChange(frame.size, source: "init") → calls ghostty_surface_set_size
+   BUT: surface is nil at this point! Guard `guard let surface` returns early!
+3. ghostty_surface_new(...) → creates the surface, spawns the zmx command
+4. The zmx command runs, calls getTerminalSize(STDOUT)
+   → ioctl(TIOCGWINSZ) on the PTY
+   → PTY size was NEVER set because step 2 was guarded out
+   → returns whatever Ghostty's default initial size is, or the fallback 24x80
+```
+
+This is a critical finding. The init `sizeDidChange` fires BEFORE the surface exists, so it's a no-op. The PTY size is set by Ghostty internally during `ghostty_surface_new`, based on the NSView's frame. But there may be a timing gap where the zmx client reads the PTY size before Ghostty finishes setting it up.
+
+### What to verify next
+
+```text
+1. Kill all zmx daemons and restart the app to test with fresh daemons
+   (eliminates the stale-binary problem)
+   Command: pkill -f "zmx attach" && sleep 1
+
+2. Change zmx log level to include debug messages
+   (makes handleInit instrumentation visible)
+
+3. Add logging at the Ghostty surface creation boundary to see
+   what PTY size is set during ghostty_surface_new
+
+4. Check whether the session that times out correlates with a
+   specific missing-prompt pane
+```
+
+### Relationship to the restart paradox
+
+The restart paradox (Restart 1: correct sizes, prompt missing; Restart 2: wrong sizes, prompt visible) may be explained by:
+
+```text
+Restart 1:
+  zmx daemon has old size from previous app session
+  new client sends Init with same size (PTY was already at that size)
+  ioctl(TIOCSWINSZ) with same size → no SIGWINCH → no shell redraw
+  zmx replays terminal state, but shell prompt is readline-managed state
+  prompt is missing
+
+Restart 2:
+  ratios drifted during Restart 1 (Bug A, unrelated)
+  new client sends Init with DIFFERENT size
+  ioctl(TIOCSWINSZ) with different size → SIGWINCH → shell redraws
+  prompt appears
+
+OR:
+
+  the timed-out session in Restart 1 corresponds to the missing-prompt pane
+  the session recovered by Restart 2 or was restarted fresh
+```
+
+Both explanations are consistent with the evidence but neither is proven yet.
+
+## Debugging Epoch 21: zmx Init Resize Evidence — The 14x41 Ghost Size
+
+### What the zmx logs now show
+
+With the rebuilt instrumented zmx binary (info-level `handleInit` logging), we can now see exactly what happens at the zmx boundary during each restart.
+
+### Restart 1 (fresh daemons, ~1774795730)
+
+14 sessions attached. 9 had `changed=true`, 5 had `changed=false`.
+
+The `changed=false` sessions (same-size reattach, no SIGWINCH):
+
+```text
+9a177622: prev=54x81  requested=54x81  changed=false
+9ee4ea3e: prev=54x36  requested=54x36  changed=false
+ac921150: prev=54x36  requested=54x36  changed=false
+a60e3448: prev=54x294 requested=54x294 changed=false
+b1298f57: prev=54x73  requested=54x73  changed=false
+```
+
+The `changed=true` sessions overwhelmingly came FROM `prev_rows=14 prev_cols=41`:
+
+```text
+84fcdac6: prev=14x41 requested=54x146 changed=true
+889f8cb2: prev=14x41 requested=54x36  changed=true
+89e051b9: prev=14x41 requested=54x54  changed=true
+9698db61: prev=14x41 requested=54x73  changed=true
+989b13cf: prev=14x41 requested=54x54  changed=true
+9a990ba2: prev=14x41 requested=54x146 changed=true
+9eb81260: prev=14x41 requested=54x36  changed=true
+ae76062e: prev=14x41 requested=54x294 changed=true
+b2595cab: prev=14x41 requested=54x146 changed=true
+```
+
+### What is 14x41?
+
+14 rows, 41 columns is NOT a real pane size. It does not correspond to any layout frame in our app.
+
+This is the PTY size that Ghostty assigns internally during `ghostty_surface_new` BEFORE the zmx client reads it via `getTerminalSize(STDOUT_FILENO)`. The zmx client calls `ioctl(STDOUT, TIOCGWINSZ)` immediately in `clientLoop`, and at that moment the Ghostty surface's PTY has not yet received its real size from our Swift code.
+
+Evidence chain:
+
+```text
+1. GhosttySurfaceView.init calls sizeDidChange(frame.size, source: "init")
+2. BUT: guard let surface returns early because surface is nil at this point
+3. ghostty_surface_new(...) creates the surface + PTY
+4. Ghostty internally sets some default PTY size (14x41)
+5. zmx command is spawned as the PTY's child
+6. zmx clientLoop calls getTerminalSize(STDOUT) → gets 14x41
+7. zmx sends Init(rows=14, cols=41) to daemon
+8. Daemon resizes from prev_size to 14x41 → SIGWINCH
+9. LATER: our Swift code sends the real size via setFrameSize/layout/forceGeometrySync
+10. zmx sends Resize with the real size → second SIGWINCH
+```
+
+This means every zmx session that was killed and restarted goes through a DOUBLE resize:
+- First to 14x41 (wrong, from the PTY default)
+- Then to the real size (from our Swift geometry sync)
+
+### Restart 2 (reattaching to daemons from Restart 1, ~1774798330)
+
+8 sessions attached. The striking pattern:
+
+```text
+SHRINKING from correct to 14x41:
+889f8cb2: prev=54x36  requested=14x41  changed=true
+9698db61: prev=54x36  requested=14x41  changed=true
+9a990ba2: prev=54x72  requested=14x41  changed=true
+9eb81260: prev=54x36  requested=14x41  changed=true
+a60e3448: prev=54x146 requested=14x41  changed=true
+ae76062e: prev=54x146 requested=14x41  changed=true
+
+SAME SIZE (no change):
+b1298f57: prev=54x36  requested=54x36  changed=false
+b2595cab: prev=54x72  requested=54x72  changed=false
+```
+
+The sessions that changed are being resized FROM their correct post-Restart-1 sizes DOWN TO 14x41 again. Then later (from our Swift geometry sync) they get resized back to the real size.
+
+This proves:
+
+```text
+Every restart cycle produces a resize storm:
+  correct size → 14x41 → correct size
+
+That is 2 SIGWINCHs + 2 terminal reflows for every session.
+The 14x41 intermediate reflow corrupts the shell's prompt/cursor state.
+```
+
+### Correlation with prompt loss
+
+The `changed=false` sessions in Restart 1 (5 sessions that kept their size) did NOT get the 14x41 intermediate resize. The `changed=true` sessions (9 sessions) DID.
+
+If the prompt loss correlates with the 14x41 intermediate, then:
+- `changed=false` sessions should have their prompt
+- `changed=true` sessions should have missing/corrupted prompt
+
+This matches the observation that "some panes lose prompt, others don't" and that the behavior varies between restarts.
+
+### Why Restart 2 sometimes shows prompt recovery
+
+In Restart 2, sessions go from correct→14x41→correct. The FINAL size is different from what the daemon had before Restart 2 started (because of ratio drift during Restart 1). So the final resize is a REAL change that triggers SIGWINCH, and the shell redraws the prompt correctly at the final size.
+
+But in Restart 1, if the final size happens to match the daemon's original size (from the previous app session), the final `sizeDidChange` is deduped by Ghostty, and the shell never gets a second SIGWINCH to recover from the 14x41 corruption.
+
+### Root cause
+
+```text
+The root cause of the prompt loss is the 14x41 ghost size.
+
+It comes from a timing gap:
+  Ghostty creates the PTY with a default grid size
+  before our Swift code can set the real size.
+
+The zmx client reads this default and sends it to the daemon.
+The daemon reflows to 14x41, corrupting the cursor/prompt position.
+The later correction to the real size may or may not trigger a shell redraw,
+depending on whether the final size matches what Ghostty already has.
+```
+
+### Fix direction
+
+The fix should prevent the zmx client from ever sending 14x41 as the Init size. Options:
+
+```text
+Option 1: Delay zmx Init until after the first real sizeDidChange
+  zmx clientLoop could wait for a Resize message before sending Init
+  but this requires zmx protocol changes
+
+Option 2: Set the PTY size BEFORE ghostty_surface_new
+  if we can ioctl(TIOCSWINSZ) on the PTY fd before the zmx process reads it
+  but we don't have the PTY fd at the Swift level
+
+Option 3: Pass the real size in the zmx command itself
+  add --cols=N --rows=M to the zmx attach command
+  zmx uses those for Init instead of getTerminalSize(STDOUT)
+  this is the simplest change — it keeps the real size in the command string
+
+Option 4: Have the Ghostty surface set its real size synchronously during creation
+  modify the SurfaceView.init to call sizeDidChange AFTER surface creation
+  instead of before (where it's guarded out by nil surface)
+```
+
+Option 4 is the most correct — it fixes the timing gap at the source. But Option 3 is the most practical and doesn't require Ghostty changes.
+
+## Debugging Epoch 20 (2026-03-29T15:32:06Z to 2026-03-29T15:32:23Z): Launch-Empty Active Tab, Then Wrong Cursor Row In Short Panes
+
+This restart surfaced a second restore bug very clearly.
+
+### User observation
+
+At app launch:
+
+```text
+the main selected tab showed no panes at all
+```
+
+After clicking a tab:
+
+```text
+the panes appeared
+the terminal restore bug was still present
+short-width panes still had the cursor/prompt row in the wrong place
+```
+
+So this cycle had two separate visible failures:
+
+```text
+1. launch-empty active tab
+2. restored narrow-pane cursor/prompt-row corruption
+```
+
+### Correlated app logs for the empty-tab symptom
+
+Before the user clicked anything:
+
+```text
+2026-03-29T15:32:06Z ActiveTabContent.body activeTab=E1D45A9A-9806-40B8-BB57-977C4C09547E viewRevision=0 tabPaneCount=4 registeredPaneCount=0 hasTree=false
+2026-03-29T15:32:06Z launchRestore triggered source=windowRestoreBridge bounds={{0,0},{2800,1151}}
+```
+
+This is direct evidence that:
+
+```text
+the active tab already had 4 panes in model state
+but the visible tree had not been materialized yet
+registeredPaneCount = 0
+hasTree = false
+```
+
+Then, after the user clicked a different tab:
+
+```text
+2026-03-29T15:32:10Z WorkspaceStore.setActiveTab previous=E1D45A9A-9806-40B8-BB57-977C4C09547E new=83962C36-F413-4D88-963A-AFF8CC614116
+2026-03-29T15:32:10Z SurfaceManager.createSurface begin pane=...
+2026-03-29T15:32:10Z createView success pane=...
+2026-03-29T15:32:10Z SurfaceManager.attach requested surface=...
+2026-03-29T15:32:10Z TerminalPaneMountView.displaySurface pane=...
+2026-03-29T15:32:10Z ActiveTabContent.body activeTab=83962C36-F413-4D88-963A-AFF8CC614116 viewRevision=1 tabPaneCount=4 registeredPaneCount=4 hasTree=true
+```
+
+Grounded conclusion:
+
+```text
+The launch-empty-tab symptom is real.
+It is not just "terminals failed to render."
+The active tab tree itself starts out unregistered/absent and becomes visible only after a tab switch.
+```
+
+### Correlated app logs for the terminal-state symptom
+
+Once panes did appear, the narrow-pane pattern remained the same:
+
+```text
+short panes:
+  347 wide -> currentGrid {36,54}
+  348 wide -> currentGrid {36,54}
+
+later after additional layout churn:
+  325 wide -> currentGrid {33,54}
+  326 wide -> currentGrid {33,54}
+
+wider neighbor:
+  652 / 653 wide -> currentGrid {68,54}
+  1307 / 1308 wide -> currentGrid {137,54}
+```
+
+The short panes are still the ones most associated with the wrong cursor/prompt-row placement.
+
+And the same pattern remains true at the Ghostty boundary:
+
+```text
+most post-init writes:
+  dedupLikely=true
+
+meaningful changes:
+  small integer/fractional corrections such as
+  2795 -> 2794
+  694  -> 696
+  648  -> 650
+  653  -> 652
+  2614 -> 2616
+```
+
+Grounded conclusion:
+
+```text
+This cycle does not revive the "fresh ratio write during restore" theory.
+It still looks like:
+  pane/materialization timing bug at launch
+plus
+  narrow-pane terminal-state restore bug after panes appear
+```
+
+### How this changes the overall model
+
+This restart means the "main quest" is now clearly two restore failures that can happen in sequence:
+
+```text
++--------------------------------------+
+| Restore Failure A                    |
+| active tab launches with no visible  |
+| pane tree even though model has panes|
++-------------------+------------------+
+                    |
+                    | user changes tab / tab state advances
+                    v
++--------------------------------------+
+| Restore Failure B                    |
+| terminals appear, but short-width    |
+| panes restore cursor/prompt row      |
+| incorrectly                           |
++--------------------------------------+
+```
+
+That is a better description of the current behavior than treating everything as a single "terminal redraw" bug.
+
+### What remains supported after this cycle
+
+Still supported:
+
+```text
+1. The old early-startup tiny-bounds bug is fixed by the launch gate.
+2. Fresh ratio writes were not observed in the restore slice.
+3. Exact duplicate size writes are mostly deduped.
+4. zmx attach/reuse remains involved.
+5. Short-width panes remain the most fragile cases.
+```
+
+Newly strengthened:
+
+```text
+The app has an additional launch-time pane-tree materialization bug
+that is separate from the terminal cursor/prompt-row restore bug.
+```
+
+## Debugging Epoch 24 (2026-03-29): Visual Layout Mental Model vs Actual Data Structure
+
+This epoch records an important modeling correction.
+
+### User mental model
+
+The visible UI can look like a single flat row of panes:
+
+```text
+[A][B][C][D][E]
+```
+
+From that perspective, it is natural to think:
+
+```text
+"we only have proportions"
+"this is a single-level split"
+```
+
+### Actual persisted/rendered model
+
+Grounded in code:
+- `Sources/AgentStudio/Core/Models/Layout.swift`
+- `Sources/AgentStudio/Core/Views/Splits/SplitTree.swift`
+
+Both define a binary recursive structure:
+
+```swift
+indirect enum Node {
+    case leaf(...)
+    case split(Split)
+}
+
+struct Split {
+    let id: UUID
+    let direction: ...
+    let ratio: Double
+    let left: Node
+    let right: Node
+}
+```
+
+So the actual data structure is:
+
+```text
+binary split tree
+```
+
+not:
+
+```text
+flat list of panes with one shared proportions array
+```
+
+### Why a flat row still appears flat
+
+This is the key visual/model mismatch.
+
+Multiple nested horizontal binary splits still render as one flat horizontal row.
+
+Example:
+
+```text
+Visual row:
+[A][B][C][D]
+
+Actual model:
+
+        split
+       /     \
+      A      split
+            /     \
+           B      split
+                 /     \
+                C       D
+```
+
+Because each nested `SplitView(horizontal, ...)` draws inside the right child of the previous split, the UI still looks like one flat row.
+
+### Why this matters for the restore bug
+
+This modeling detail explains why the problem starts showing up once pane count and subdivision increase.
+
+It is not just:
+
+```text
+more panes
+```
+
+It is:
+
+```text
+deeper binary subdivision of the row
+-> smaller leaf widths
+-> narrower terminal grids
+```
+
+That matches our logs:
+
+```text
+~697/698 px  -> ~72/73 cols
+~347/348 px  -> ~36 cols
+~325/326 px  -> ~33 cols
+~172/173 px  -> ~17 cols
+```
+
+So the threshold is better described as:
+
+```text
+restore becomes fragile once the binary split tree produces very narrow leaves
+```
+
+not merely:
+
+```text
+"3 panes is bad"
+```
+
+### Correlation to restore code
+
+The path is:
+
+```text
+workspace.state.json
+  -> Layout.Node tree
+  -> resolveInitialFramesByTabId(...)
+  -> recursive frame assignment per split ratio
+  -> Ghostty surfaces created at those leaf frames
+  -> zmx attach/replay occurs inside those restored leaf sizes
+```
+
+So a visually flat row of panes is still restored through nested binary geometry decisions.
+
+### Grounded conclusion
+
+This matters because it changes the main quest from:
+
+```text
+"some arbitrary pane count breaks restore"
+```
+
+to:
+
+```text
+"deep binary split restore creates narrow leaves, and those narrow leaves are where
+cursor/prompt-row restoration becomes unstable"
+```
+
+That is a stronger and more code-grounded framing than the earlier flat-row intuition.
+
+## Debugging Epoch 23 (2026-03-29): Steelman And Counterarguments For The Current Leading Root-Cause Theory
+
+This epoch does not replace any earlier section. It records the strongest version of the current leading theory and the strongest grounded counterarguments against treating it as proven root cause.
+
+### Steelman of the current leading theory
+
+The strongest current theory is:
+
+```text
+zmx replays terminal state before the attach resize settles,
+then Ghostty resize/reflow changes prompt/input placement,
+and narrow panes are where that mismatch becomes visible.
+```
+
+This theory fits several grounded facts:
+
+```text
+1. zmx handleInit serializes terminal state before calling ioctl(TIOCSWINSZ) and term.resize
+2. Ghostty Screen.resize can clear prompt/input lines when prompt_redraw is enabled
+3. narrow panes are consistently the ones with wrong cursor/prompt-row placement
+4. exact duplicate post-init size writes are mostly deduped, so the bug is not well explained by
+   "lots of identical resize spam"
+5. zmx logs show attach/reuse/timeouts, so session state is definitely part of the picture
+```
+
+ASCII view:
+
+```text
++-------------------------------+
+| existing zmx session          |
+| old cursor / old prompt row   |
++---------------+---------------+
+                |
+                | handleInit
+                v
++-------------------------------+
+| zmx serializes terminal state |
+| before resize                  |
++---------------+---------------+
+                |
+                | replay to client
+                v
++-------------------------------+
+| Ghostty client paints replay  |
++---------------+---------------+
+                |
+                | then resize/reflow
+                v
++-------------------------------+
+| prompt/input lines can move   |
+| or be cleared for redraw      |
++---------------+---------------+
+                |
+                v
++-------------------------------+
+| content visible               |
+| cursor/prompt row wrong       |
+| worst in short-width panes    |
++-------------------------------+
+```
+
+If this theory is right, the failing contract is:
+
+```text
+replayed terminal state cursor position
+!=
+post-resize prompt/input position that Ghostty ends up expecting
+```
+
+### Counterargument 1: the 14x41 / 24x80-style ghost-size explanation is still not sufficient
+
+Earlier sections identify a "ghost size" path and argue it may be the root cause.
+
+The strongest grounded objection is:
+
+```text
+the latest restart slices show the active bug even when most later writes are dedupLikely=true,
+and the symptom has evolved from "prompt missing" to "cursor row wrong in short panes"
+```
+
+That means the ghost-size story is a plausible contributor, but it does not yet explain the full symptom set by itself.
+
+Grounded evidence:
+
+```text
+Restart 1:
+  prompts missing globally
+
+Restart 2:
+  lines came back
+  short-width panes had wrong cursor/prompt row placement
+```
+
+If the root cause were only "a bad initial ghost size", the doc would still need to explain why the symptom shape changes that much across restarts.
+
+### Counterargument 2: old daemons are not a complete explanation for missing zmx instrumentation
+
+An earlier section attributes missing zmx boundary logs to old long-lived daemons.
+
+That is now too strong as a complete explanation.
+
+Grounded evidence from current `zmx.log`:
+
+```text
+creating session=...ae76062e0d304adc
+creating session=...a60e34486802fbbe
+creating session=...b2595cabde65439b
+creating session=...b1298f57139e2ac3
+creating session=...889f8cb21d2a3197
+creating session=...9a990ba28780f9f4
+creating session=...9698db61ef426f5d
+creating session=...9eb81260a99e2c91
+```
+
+That means:
+
+```text
+at least some current workspace sessions are being created with the current build,
+not only inherited from stale daemons
+```
+
+So the absence of expected zmx boundary logs still needs explanation.
+
+### Counterargument 3: there is clearly a second restore bug before terminal replay is even visible
+
+We now have direct evidence for:
+
+```text
+ActiveTabContent.body ... tabPaneCount=4 registeredPaneCount=0 hasTree=false
+```
+
+That is a separate launch-time failure:
+
+```text
+model has panes
+UI tree absent
+no terminal-state replay can be visible yet because the pane tree is not materialized
+```
+
+So any single-cause explanation focused only on zmx replay or Ghostty resize is incomplete.
+
+ASCII split of the problem:
+
+```text
++------------------------------------+     +------------------------------------+
+| Failure A                          |     | Failure B                          |
+| active tab launches empty          | --> | panes visible, but narrow terminal |
+| registeredPaneCount=0, hasTree=false|    | cursor/prompt row restored wrong   |
++------------------------------------+     +------------------------------------+
+```
+
+### Counterargument 4: zmx timeouts matter, but the direct linkage is still unproven
+
+Grounded evidence:
+
+```text
+session unresponsive: Timeout
+probe slow (Timeout), proceeding to attach session=...
+stale socket found, cleaning up session=...
+```
+
+This is enough to say:
+
+```text
+zmx session health is unstable during our restart cycles
+```
+
+But it is not yet enough to say:
+
+```text
+the exact session that timed out is the exact pane with wrong cursor row
+```
+
+We do not yet have a strict pane/session-to-symptom correlation proving that.
+
+### Current bounded conclusion
+
+The best grounded statement after steelmanning and pushback is:
+
+```text
+The leading theory is still "replay-before-resize plus prompt/cursor restore mismatch,"
+especially in narrow panes.
+
+But it is not proven as the sole root cause because:
+1. launch-empty active tab is a separate failure,
+2. some zmx sessions are fresh, so stale-daemon explanations are incomplete,
+3. timeout correlation to a specific bad pane is not proven,
+4. the symptom changes across restarts in a way the simple ghost-size story does not fully explain.
+```
+
+### What would move this from theory to proof
+
+We need one of these forms of evidence:
+
+```text
+1. zmx handleInit logs showing pre-serialize cursor/cols/rows and post-resize cursor/cols/rows
+   for the exact bad narrow pane
+
+2. a direct pane/session mapping between:
+   - session unresponsive / probe slow
+   - wrong cursor/prompt-row pane
+
+3. proof that the empty-active-tab bug and the narrow-pane cursor bug share one upstream cause,
+   or proof that they do not
+```
+
+Until then, the root cause is not fully settled.
+
+## Debugging Epoch 22: Grounded Source Of The 14x41 Ghost Grid
+
+### Where 14x41 comes from — exact code references
+
+The zmx logs show `prev_rows=14 prev_cols=41` for fresh daemon sessions. This section traces where that number originates, with exact file:line references.
+
+**Step 1: Ghostty Surface.init hardcodes 800x600**
+
+File: `vendor/ghostty/src/apprt/embedded.zig` line 465-477
+
+```zig
+pub fn init(self: *Surface, app: *App, opts: Options) !void {
+    self.* = .{
+        .app = app,
+        .platform = try .init(opts.platform_tag, opts.platform),
+        .userdata = opts.userdata,
+        .core_surface = undefined,
+        .content_scale = .{
+            .x = @floatCast(opts.scale_factor),
+            .y = @floatCast(opts.scale_factor),
+        },
+        .size = .{ .width = 800, .height = 600 },   // ← line 475
+        ...
+    };
+```
+
+Every `ghostty_surface_new` call goes through this init. The surface starts at 800x600 pixels regardless of what NSView frame was set on the Swift side.
+
+**Step 2: Our Swift init — surface creation then sizeDidChange**
+
+File: `Sources/AgentStudio/Features/Terminal/Ghostty/GhosttySurfaceView.swift`
+
+```text
+line 152: super.init(frame: config.initialFrame!)
+          → NSView frame = correct size (e.g. 954x1149)
+
+line 186: self.surface = ghostty_surface_new(ghosttyApp, &surfaceConfig)
+          → Ghostty creates the surface at its hardcoded 800x600 (embedded.zig:475)
+          → Ghostty creates PTY with grid computed from 800x600
+          → Ghostty spawns the zmx command as the PTY's child process
+          → zmx process starts running CONCURRENTLY
+
+line 250: sizeDidChange(frame.size, source: "init")
+          → surface IS non-nil at this point (set at line 186)
+          → ghostty_surface_set_size(surface, realWidth, realHeight)
+          → Ghostty resizes PTY to real grid
+```
+
+The `sizeDidChange(source: "init")` at line 250 DOES fire with a live surface and DOES send the real size. But between line 186 (zmx spawned) and line 250 (real size sent), the zmx process has already started and may have already called `getTerminalSize(STDOUT)` — reading the 800x600-derived 14x41 grid from the PTY before Ghostty received the real size.
+
+This is a race condition: the zmx child process and the Swift init code run concurrently. The zmx process reads the PTY size (14x41) before line 250 sends the real size to Ghostty.
+
+**Step 3: zmx reads the PTY size — gets the 800x600-derived grid**
+
+File: `vendor/zmx/src/main.zig` lines 346-356
+
+```zig
+fn spawnPty(self: *Daemon) !c_int {
+    const size = ipc.getTerminalSize(posix.STDOUT_FILENO);  // ← line 347
+    var ws: cross.c.struct_winsize = .{
+        .ws_row = size.rows,    // ← 14
+        .ws_col = size.cols,    // ← 41
+        .ws_xpixel = 0,
+        .ws_ypixel = 0,
+    };
+    const pid = cross.forkpty(&master_fd, null, null, &ws);  // ← PTY at 14x41
+```
+
+The zmx daemon's STDOUT is the Ghostty surface's PTY. At this moment, the PTY has the 800x600-derived grid (14 rows, ~41 cols with padding). zmx creates its own PTY at that size and spawns the shell.
+
+File: `vendor/zmx/src/main.zig` lines 1360-1365
+
+```zig
+const init_size = ipc.getTerminalSize(pty_fd);  // ← reads 14x41 from zmx PTY
+var term = try ghostty_vt.Terminal.init(daemon.alloc, .{
+    .cols = init_size.cols,   // ← 41
+    .rows = init_size.rows,   // ← 14
+    .max_scrollback = daemon.cfg.max_scrollback,
+});
+```
+
+**Step 4: the real size arrives later**
+
+After `ghostty_surface_new` returns, AppKit layout runs and `setFrameSize` fires with the correct size. That calls `sizeDidChange` which now reaches `ghostty_surface_set_size` (because surface is no longer nil). Ghostty resizes the PTY. zmx receives a Resize message and resizes its terminal.
+
+But by then, the zmx daemon has already initialized at 14x41 and potentially replayed session state at that wrong grid.
+
+### The math
+
+With observed font metrics from our traces (cellWidthPx=19, cellHeightPx=42):
+
+```text
+800px / 19px per cell = 42.1 → with padding → ~41 cols
+600px / 42px per cell = 14.3 → 14 rows
+```
+
+This matches `prev_rows=14 prev_cols=41` in the zmx logs exactly.
+
+### What is grounded vs what is still hypothesis
+
+Grounded in code:
+
+```text
+1. Ghostty Surface.init hardcodes .size = { 800, 600 }
+   → vendor/ghostty/src/apprt/embedded.zig:475
+
+2. Our sizeDidChange(source: "init") fires AFTER surface exists (line 250) and DOES send the real size.
+   But ghostty_surface_new at line 186 already spawned the zmx child process before line 250 runs.
+   This is a race: zmx reads the PTY size before our sizeDidChange corrects it.
+   → Sources/AgentStudio/Features/Terminal/Ghostty/GhosttySurfaceView.swift:186, 250
+
+3. zmx reads the 800x600-derived grid via getTerminalSize(STDOUT)
+   → vendor/zmx/src/main.zig:347
+
+4. zmx initializes its terminal at 14x41
+   → vendor/zmx/src/main.zig:1360-1363
+
+5. The zmx logs show prev_rows=14 prev_cols=41 for fresh sessions
+   → ~/.agentstudio/z/logs/*.log
+```
+
+Still hypothesis (not proven):
+
+```text
+1. Whether the 14x41 intermediate grid directly causes the prompt loss
+2. Whether the timing gap between surface creation and first real setFrameSize
+   is long enough for zmx to replay session state at the wrong size
+3. Whether fixing this timing gap would fix the prompt loss
+```
+
+## Debugging Epoch 24: Quantitative Log Evidence For The 800x600 → 14x41 Race
+
+This epoch adds quantitative evidence from the actual log data, not theory.
+
+### Fact 1: 71 out of 71 init sizeDidChange entries show currentPx={800,600}
+
+Every `sizeDidChange source=init` entry with `currentPx` instrumentation shows the same pattern:
+
+```text
+grep -c "sizeDidChange source=init.*currentPx" /tmp/agentstudio_debug.log → 71
+grep "sizeDidChange source=init.*currentPx" ... | grep -v "currentPx={800,600}" → 0
+```
+
+100% of surface inits start from `currentPx={800,600} currentGrid={41,14}`. Zero exceptions across 71 entries spanning multiple restart cycles (14:21:54 through 16:03:12).
+
+This is not a one-off. It is the universal starting state for every Ghostty surface in our app.
+
+### Fact 2: Two zmx sessions from the same restart show the race winning both ways
+
+Session `8358261bb70812b1` (from `~/.agentstudio/z/logs/`):
+
+```text
+pty spawned pid=9681
+daemon started pty_fd=6
+client connected fd=7
+init resize prev_rows=54 prev_cols=294 requested_rows=54 requested_cols=294 changed=false
+```
+
+The daemon's PTY started at 54x294 — the CORRECT size. `changed=false` — no resize needed.
+This means `spawnPty → getTerminalSize(STDOUT)` read the PTY AFTER Ghostty had already set the real size.
+
+Session `ae5bfc7fa93e7c7d` (from `~/.agentstudio/z/logs/`):
+
+```text
+pty spawned pid=17965
+daemon started pty_fd=6
+client connected fd=7
+init resize prev_rows=14 prev_cols=41 requested_rows=54 requested_cols=294 changed=true
+```
+
+The daemon's PTY started at 14x41 — the 800x600-derived WRONG size. `changed=true` — resize applied.
+This means `spawnPty → getTerminalSize(STDOUT)` read the PTY BEFORE Ghostty had set the real size.
+
+Both sessions are from the same app launch. The difference is timing: one zmx process read the PTY size before `sizeDidChange(source=init)` at GhosttySurfaceView.swift:250 executed, the other read it after.
+
+This is direct evidence of a race condition, not a theory.
+
+### Fact 3: The session that got 14x41 then experienced rapid connect/disconnect churn
+
+Session `ae5bfc7fa93e7c7d` continued:
+
+```text
+client disconnected fd=7 remaining=0
+client connected fd=7 total=1
+client disconnected fd=7 remaining=0
+client connected fd=7 total=1
+client disconnected fd=7 remaining=0
+client connected fd=7 total=1
+client disconnected fd=7 remaining=0
+client connected fd=7 total=1
+client disconnected fd=7 remaining=0
+```
+
+5 connect/disconnect cycles after the first client. Each cycle is a zmx client attaching and immediately exiting. This matches the "Process Exited" crash loop visible in the user's screenshot (11ms runtime).
+
+Session `8358261bb70812b1` (the one that got the correct size) shows no such churn — just one client connection that stayed stable.
+
+### Fact 4: The app-side log confirms repeated surface creation for the same pane
+
+```text
+grep "createSurface begin" /tmp/agentstudio_debug.log | sed 's/.*pane=//' | sed 's/ .*//' | sort | uniq -c | sort -rn | head -5
+
+  32 019D30DA-D746-7A49-AD6D-E9550C9B11AA
+  32 019D2F70-36E0-78F9-989B-13CFACA05586
+  32 019D2F6F-3076-728E-9A17-7622D958DE11
+  32 019D2F6F-2E6F-72B0-A363-8EE9EC631AB9
+  29 019D31B9-C920-737B-84FC-DAC607CD8BBA
+```
+
+Some panes had their surface created 32 times across the debugging session. Each creation starts from `currentPx={800,600}`, sends the real size, but the zmx child process has already raced to read the PTY.
+
+### What this evidence proves
+
+```text
+Proven:
+1. Every Ghostty surface starts at 800x600 internally (embedded.zig:475)
+   — 71/71 init entries confirm this
+2. The zmx daemon can read either the correct or incorrect PTY size depending on timing
+   — two sessions from the same launch demonstrate both outcomes
+3. The session that got the wrong size experienced immediate client churn
+   — 5 rapid connect/disconnect cycles
+4. The app recreates surfaces many times per pane
+   — up to 32 times for a single pane ID
+```
+
+### What this evidence does NOT prove
+
+```text
+Not proven:
+1. Whether the 14x41 starting grid directly causes the prompt/cursor loss
+   (the session that got correct size — did it have a correct prompt? we don't have that correlation)
+2. Whether the connect/disconnect churn is caused by the wrong size or by something else
+   (correlation is not causation — the zmx binary was also rebuilt in Debug mode)
+3. Whether fixing the race would fix all three bugs
+   (launch-empty-tab, prompt loss, and ratio drift are still not proven to share one root cause)
+```
+
+### What the other agent's counterarguments mean in light of this data
+
+Epoch 23 raised four counterarguments. Here is how this new evidence interacts with each:
+
+```text
+Counterargument 1: "ghost size doesn't explain changing symptoms across restarts"
+  Still valid. The 14x41 race is real, but the varying symptom shape (missing prompt vs wrong cursor row)
+  is not explained by the race alone. The race produces a consistent starting condition (14x41),
+  but what happens AFTER the correction (reflow, replay, cursor placement) may vary.
+
+Counterargument 2: "some sessions are fresh, so stale-daemon is incomplete"
+  Strengthened by this data. Session ae5bfc7f was a FRESH daemon (pty spawned in this run)
+  and still got 14x41. The race is in the fresh-daemon path too, not only in stale reattach.
+
+Counterargument 3: "there is a separate empty-tab bug"
+  Unchanged. The 14x41 race does not explain registeredPaneCount=0 / hasTree=false.
+  That is still a separate pane-tree materialization failure.
+
+Counterargument 4: "timeout-to-pane correlation is unproven"
+  Unchanged. We still don't have a strict mapping from "session X timed out" to "pane Y has wrong cursor."
+```
+## Debugging Epoch 2026-03-29T15:10:00-04:00 — Hard Cutover To Flat Pane Strips
+
+This epoch replaced the binary split-tree layout model with a flat ordered pane-strip model for pane containers.
+
+### What changed
+
+- `Sources/AgentStudio/Core/Models/Layout.swift`
+  - replaced recursive `Node/Split` tree structure with:
+    - ordered `panes`
+    - ordered `dividerIds`
+    - preserved sibling `ratio` values
+- `Sources/AgentStudio/Features/Terminal/Restore/TerminalPaneGeometryResolver.swift`
+  - switched pane-frame resolution from recursive split subdivision to one-pass flat strip allocation
+- `Sources/AgentStudio/Core/Models/FlatTabStripMetrics.swift`
+  - new shared geometry helper for flat pane-strip frames and divider frames
+- `Sources/AgentStudio/Core/Views/Splits/FlatPaneStripContent.swift`
+  - new shared flat strip renderer for pane containers
+- `Sources/AgentStudio/Core/Views/Splits/FlatTabStripContainer.swift`
+  - tab container now renders from flat strip metrics instead of recursive split tree
+- `Sources/AgentStudio/Core/Views/Drawer/DrawerPanel.swift`
+  - drawer container now renders from the same flat strip primitive
+
+### What was removed from the production pane-layout path
+
+- `Sources/AgentStudio/Core/Views/Splits/TerminalSplitContainer.swift`
+- `Sources/AgentStudio/Core/Views/Splits/SplitTree.swift`
+- `Sources/AgentStudio/Core/Views/Splits/TerminalPaneView.swift`
+- `Sources/AgentStudio/Core/Models/SplitRenderInfo.swift`
+- `ViewRegistry.renderTree(for:)`
+
+This was an intentional hard cutover. No compatibility layer was kept for the old binary tree model.
+
+### Grounded verification
+
+- `swift build --build-path .build-agent-flatlayout-cutover2`
+  - exit `0`
+- `swift test --build-path .build-agent-flatlayout-cutover2 --filter LayoutFlatStripTests`
+  - passed
+- `swift test --build-path .build-agent-flatlayout-cutover2 --filter WorkspaceStoreDrawerTests`
+  - passed
+- `swift test --build-path .build-agent-flatlayout-cutover2 --filter TerminalPaneGeometryResolverTests`
+  - passed
+- `swift test --build-path .build-agent-flatlayout-cutover2 --filter ActionExecutorTests`
+  - passed
+- `swift test --build-path .build-agent-flatlayout-cutover2 --filter PaneCloseTransitionCoordinatorTests`
+  - passed
+- `swift test --build-path .build-agent-flatlayout-cutover2 --filter PaneCoordinatorHardeningTests`
+  - passed
+- `swift test --build-path .build-agent-flatlayout-cutover2 --filter PaneTabViewControllerCommandTests`
+  - passed
+- `swift test --build-path .build-agent-flatlayout-cutover2 --filter Luna295DirectZmxAttachIntegrationTests`
+  - passed
+- `mise run lint`
+  - exit `0`
+- `AGENT_RUN_ID=flatcutover0329g mise run test`
+  - exit `0`
+  - non-E2E/default parallel suite block passed in `3.772s`
+  - serialized WebKit suites passed
+  - `E2ESerializedTests` and `ZmxE2ETests` were skipped by task configuration
+
+### Important behavior change in command-driven pane creation
+
+During the cutover, command-driven pane creation initially regressed because new terminal / drawer pane commands still relied on `restoreViewsForActiveTabIfNeeded()` to materialize views after inserting panes into canonical state.
+
+That caused:
+
+- no immediate surface creation when trusted bounds already existed
+- no later creation on reveal/bounds in some cases because the launch gate still guarded the retry path
+
+The fix was:
+
+- command-driven pane creation now uses `createViewForContentUsingCurrentGeometry(pane:)` first
+- if geometry is unavailable, it leaves the `.preparing` placeholder and falls back to `restoreViewsForActiveTabIfNeeded()`
+- `restoreViewsForActiveTabIfNeeded(forceWhenBoundsExist:)` now allows command/reveal-driven restores without weakening the startup launch gate globally
+
+### Current status after cutover
+
+- pane containers are now flat strips in production code
+- the old binary tree model is no longer on the live production path
+- restart/restore regressions tied to hidden nested split ancestry are removed at the app layout layer

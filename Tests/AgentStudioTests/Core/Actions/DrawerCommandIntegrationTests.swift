@@ -224,23 +224,17 @@ final class DrawerCommandIntegrationTests {
         store.addDrawerPane(to: parentPaneId)
 
         let drawer = store.pane(parentPaneId)!.drawer!
-        // Find the split node ID in the drawer layout
-        guard case .split(let split) = drawer.layout.root else {
-            Issue.record("Expected a split node in 2-pane drawer layout")
+        guard let dividerId = drawer.layout.dividerIds.first else {
+            Issue.record("Expected a divider in 2-pane drawer layout")
             return
         }
-        let splitId = split.id
 
         // Act
-        executor.execute(.resizeDrawerPane(parentPaneId: parentPaneId, splitId: splitId, ratio: 0.7))
+        executor.execute(.resizeDrawerPane(parentPaneId: parentPaneId, splitId: dividerId, ratio: 0.7))
 
         // Assert
         let updated = store.pane(parentPaneId)!.drawer!
-        guard case .split(let updatedSplit) = updated.layout.root else {
-            Issue.record("Expected split node after resize")
-            return
-        }
-        #expect(abs((updatedSplit.ratio) - (0.7)) <= 0.001)
+        #expect(abs((updated.layout.ratioForSplit(dividerId) ?? 0.0) - (0.7)) <= 0.001)
     }
 
     @Test
@@ -252,22 +246,18 @@ final class DrawerCommandIntegrationTests {
         store.addDrawerPane(to: parentPaneId)
 
         let drawer = store.pane(parentPaneId)!.drawer!
-        guard case .split(let split) = drawer.layout.root else {
-            Issue.record("Expected split")
+        guard let dividerId = drawer.layout.dividerIds.first else {
+            Issue.record("Expected divider")
             return
         }
-        store.resizeDrawerPane(parentPaneId: parentPaneId, splitId: split.id, ratio: 0.8)
+        store.resizeDrawerPane(parentPaneId: parentPaneId, splitId: dividerId, ratio: 0.8)
 
         // Act
         executor.execute(.equalizeDrawerPanes(parentPaneId: parentPaneId))
 
         // Assert
         let updated = store.pane(parentPaneId)!.drawer!
-        guard case .split(let eqSplit) = updated.layout.root else {
-            Issue.record("Expected split after equalize")
-            return
-        }
-        #expect(abs((eqSplit.ratio) - (0.5)) <= 0.001)
+        #expect(abs((updated.layout.ratioForSplit(dividerId) ?? 0.0) - (0.5)) <= 0.001)
     }
 
     // MARK: - Multi-Pane Drawer Lifecycle
