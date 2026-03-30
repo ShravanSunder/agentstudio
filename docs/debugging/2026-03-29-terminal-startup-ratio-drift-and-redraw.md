@@ -3773,12 +3773,570 @@ All scroll-to-bottom code has been reverted from GhosttySurfaceView and SurfaceM
 The zmx prompt_redraw patches in `handleInit` and `handleResize` remain as they are
 independently correct (prevent daemon terminal state corruption).
 
+### Deeper log correlation (same run)
+
+Correlated zmx daemon logs with Ghostty surface callbacks for all 6 panes.
+
+**All 6 surfaces received pwdDidChange and titleDidChange callbacks**, grouped by
+column width (82, 45, 36, 22). The shell is running, producing OSC escape sequences
+(pwd, title), and Ghostty is processing them.
+
+This means:
+- zmx bytes arrive at Ghostty ✓
+- Ghostty's terminal state processes the bytes (OSC callbacks fire) ✓
+- The shell prompt (which comes before/with the OSC sequences) IS in the buffer ✓
+- But the visual rendering shows nothing on some panes ✗
+
+The problem is between Ghostty's terminal state and its renderer. The terminal
+has the content. The renderer is not showing it.
+
 ### Next investigation direction
 
-The problem manifests during fresh shell startup through zmx. Need to investigate:
+The terminal buffer has the prompt (proven by OSC callbacks). The renderer is not
+showing it. This could be:
 
-1. Race between surface creation, window attachment, and zmx shell output
-2. Whether the shell prompt bytes arrive before the surface is fully initialized
-3. Whether Ghostty drops or ignores input that arrives before the surface has a window
-4. The timing relationship between `ghostty_surface_set_size` and when the PTY
-   output actually renders
+1. **Metal renderer not updating** — surface might not be getting
+   `ghostty_surface_draw` calls, or the render is stale
+2. **Surface occlusion** — Ghostty might think the surface is occluded/hidden
+   and skip rendering
+3. **Layer/compositing issue** — the NSView layer might not be
+   properly composited after reparenting or window attachment
+4. **Focus-related rendering** — unfocused surfaces might not get
+   initial render passes
+
+Need to investigate: does `ghostty_surface_draw` get called? Is the surface
+marked as visible/occluded? What triggers the first render pass?
+
+## Debugging Epoch 18 (2026-03-30 ~12:30): DeepWiki Research — Ghostty Rendering Contract
+
+### Research findings (ghostty-org/ghostty via DeepWiki)
+
+**Ghostty's embedded rendering contract requires:**
+
+1. `ghostty_surface_set_size(surface, width_px, height_px)` — non-zero pixels required
+2. `ghostty_surface_set_content_scale(surface, scale_x, scale_y)` — must match display DPI
+3. `ghostty_surface_set_focus(surface, true/false)` — when focus changes
+4. `ghostty_surface_set_occlusion(surface, true)` — when view becomes visible
+5. `ghostty_surface_refresh(surface)` or `ghostty_surface_draw(surface)` — to trigger render
+
+**Critical contract violation found in our code:**
+
+The renderer does NOT auto-render when occlusion changes. After calling
+`ghostty_surface_set_occlusion(surface, true)`, we must ALSO call
+`ghostty_surface_refresh(surface)` to wake the renderer.
+
+**No `ghostty_surface_draw` calls exist anywhere in our codebase.** We rely
+entirely on `ghostty_surface_refresh` from `sizeDidChange`.
+
+**Ghostty does NOT have session restore primitives.** No terminal state
+serialization/deserialization in the C API. Surfaces always start fresh with
+a new PTY. The `initial_input` config sends bytes to stdin after shell starts.
+
+### Surface lifecycle timing issue
+
+From log evidence, the startup sequence for each surface is:
+
+```
+1. createSurface → surface in hiddenSurfaces (no occlusion call)
+2. attach(fromHidden) → setOcclusion(visible: true) → BUT window=false
+3. displaySurface → mount NSView → still window=false
+4. viewDidMoveToWindow → window=true (later, async)
+5. sizeDidChange(viewDidMoveToWindow) → ghostty_surface_refresh
+```
+
+The occlusion flip at step 2 happens while `window=false` — the CAMetalLayer
+may not be ready. The `ghostty_surface_refresh` at step 5 is the only thing
+that could wake the renderer, but it only fires if `viewDidMoveToWindow` triggers
+a size change.
+
+**Missing calls after occlusion change:**
+- `ghostty_surface_refresh` is NOT called after `setOcclusion(visible: true)`
+- If the grid doesn't change between steps 2-5, no refresh fires
+
+**PTY output timing:**
+PTY output is buffered internally by Ghostty's Termio even before the
+CAMetalLayer is ready. Once the layer IS ready and the renderer runs, it
+renders the buffered content. But the renderer must be explicitly woken up.
+
+### Hypothesis
+
+Some surfaces never get their first render pass because:
+1. Occlusion flips to visible before the Metal layer is ready
+2. No explicit `ghostty_surface_refresh` follows the occlusion change
+3. PTY output arrives and updates terminal state, but renderer is asleep
+4. If no subsequent size change triggers `sizeDidChange` → `refresh`, blank
+
+This explains why it's intermittent — depends on timing of when the NSView
+gets added to the window vs when the occlusion flip happens vs when the
+sizeDidChange cascade reaches a stable state.
+
+### Proposed fix direction (SUPERSEDED — see Epoch 19)
+
+Add `ghostty_surface_refresh(surface)` after every `setOcclusion(visible: true)`
+call. This ensures the renderer wakes up to draw the buffered content once
+the surface is marked visible. Also consider adding a `ghostty_surface_refresh`
+in `viewDidMoveToWindow` when transitioning from no-window to has-window.
+
+**NOTE:** This hypothesis was disproved by another agent's validation pass and
+by the Epoch 19 finding below.
+
+## Debugging Epoch 19 (2026-03-30 ~13:00): The Bug Reproduces in Upstream Ghostty App
+
+### Critical finding
+
+The prompt loss bug **reproduces in Ghostty's own macOS app** when using zmx.
+This was confirmed by manual testing in Ghostty.app (not Agent Studio).
+
+Steps to reproduce in Ghostty.app:
+1. Create 2 panes (splits) in Ghostty
+2. Attach zmx terminals in each pane
+3. Resize a pane
+4. The terminal prompt disappears in the resized pane
+5. Pressing Enter makes it reappear
+
+Filed as: https://github.com/neurosnap/zmx/issues/111
+
+### What this proves
+
+1. **It's NOT our hosting code.** Our lifecycle churn, extra refreshes, surface
+   management, occlusion handling — none of that is the cause. Ghostty's own
+   upstream AppKit host, which we've been comparing against, has the same bug.
+
+2. **It's NOT our embedding.** The problem is not in how Agent Studio embeds
+   Ghostty. Ghostty's native app with its own surface management reproduces it.
+
+3. **It IS a zmx + Ghostty interaction.** Something about how zmx mediates
+   the PTY (daemon → client → stdout) causes the prompt to disappear after
+   resize, regardless of which host application is used.
+
+### What this invalidates
+
+All investigation paths focused on our host-side behavior are now irrelevant
+to this specific bug:
+
+- Occlusion state management — not the cause
+- Extra ghostty_surface_refresh calls — not the cause
+- Surface lifecycle churn (init, mountView.layout, setFrameSize, etc.) — not the cause
+- viewDidMoveToWindow timing — not the cause
+- SwiftUI reparenting / ForEach identity — not the cause (for this bug)
+
+### What remains valid
+
+The zmx prompt_redraw patches in `handleInit` and `handleResize` are still
+independently correct — they prevent the zmx daemon's internal terminal state
+from being corrupted during resize. But they don't fix the visual rendering
+issue because that's happening in the Ghostty renderer's interaction with
+zmx's PTY forwarding model.
+
+### Remaining questions for zmx
+
+1. When zmx receives a SIGWINCH and forwards the resize to the daemon, the
+   daemon resizes its internal terminal and the PTY. The shell responds with
+   a redraw via PTY output. This output flows daemon → client → stdout →
+   Ghostty. Is there a timing issue where the resize reaches Ghostty (via
+   SIGWINCH on the client PTY) before the shell's redraw output arrives?
+
+2. zmx's client process sits between Ghostty's PTY and the actual shell.
+   When Ghostty resizes its PTY (SIGWINCH), that signal goes to zmx client,
+   not to the shell. zmx client forwards the resize to the daemon over IPC.
+   Is there a window where Ghostty's terminal has already reflowed to the
+   new size but the shell's redraw output (which comes through zmx's forwarding
+   path) hasn't arrived yet?
+
+3. Does the zmx client properly forward SIGWINCH timing, or does it batch/delay
+   the resize notification?
+
+### Impact on architecture decisions
+
+This finding significantly changes the cost/benefit of the "remove zmx from
+the live data path" architecture. If the bug is in zmx itself (not our hosting),
+then the options are:
+
+1. **Fix zmx upstream** — file the issue (done), wait for or contribute a fix
+2. **Remove zmx from the live path** — use Ghostty's native PTY for live
+   operation, zmx only for session state capture/restore
+3. **Work around in our host** — but this is now known to be fighting a bug
+   in an upstream dependency, not fixing our own code
+
+## Debugging Epoch 20 (2026-03-30 ~14:00): Root Cause Confirmed and Fix Validated
+
+### The definitive root cause
+
+OSC 133 shell integration sequences flow raw through zmx from the inner shell
+to the outer terminal. The key sequence is `\x1b]133;A\x07` (prompt start).
+When Ghostty processes this, it sets `shell_redraws_prompt = .true` on its
+terminal, meaning Ghostty will clear prompt lines during resize and expect
+the shell to redraw them.
+
+But from the outer terminal's perspective, the "process" on its PTY is zmx
+client, not the shell. zmx client cannot redraw prompts. The shell's SIGWINCH
+redraw goes through zmx's IPC path:
+
+```
+Shell SIGWINCH redraw → PTY-B → zmx daemon → IPC → zmx client → stdout → Ghostty
+```
+
+The shell's cursor movements in the redraw are relative to the inner PTY-B's
+post-reflow state. But Ghostty has independently cleared prompt rows and
+moved its cursor during its own resize. The cursor coordinates diverge:
+
+- Ghostty cursor: at cleared prompt-start position (rows are empty)
+- Shell redraw: cursor movements relative to uncleared inner PTY state
+
+Result: the shell's prompt is drawn at the wrong row in Ghostty → appears blank.
+
+### Why Enter/Ctrl-L fix it
+
+Both bypass relative cursor movements:
+- **Enter**: shell outputs newline (absolute), draws fresh prompt from new position
+- **Ctrl-L**: shell emits `\x1b[H\x1b[2J` (absolute clear+home), redraws everything
+
+### Why tmux doesn't have this bug
+
+tmux parses all PTY output and does NOT forward OSC 133 to the outer terminal.
+The outer terminal never sees shell integration sequences, never sets
+`shell_redraws_prompt`, and never clears prompt rows on resize.
+
+### The fix: rewrite OSC 133;A to include `redraw=0`
+
+The Kitty terminal protocol defines a `redraw` parameter on OSC 133;A:
+- `redraw=1` (default): shell CAN redraw prompts on resize → terminal clears them
+- `redraw=0`: shell CANNOT redraw → terminal leaves prompt rows alone
+
+From the outer terminal's perspective, zmx client indeed cannot redraw prompts.
+Setting `redraw=0` is semantically correct.
+
+**Implementation:** In the zmx daemon's PTY output broadcast path, scan for
+`\x1b]133;A` sequences and inject `;redraw=0` before the string terminator.
+If `redraw=` already exists with a different value, replace it with `0`.
+
+Code changes (vendor/zmx/src/):
+- `util.zig`: Added `rewritePromptRedraw()` — scans byte buffer for OSC 133;A,
+  injects `redraw=0` parameter. Returns null (no allocation) if no rewrite needed.
+- `main.zig:1474`: Daemon broadcast path calls `rewritePromptRedraw()` before
+  sending PTY output to clients.
+
+### Evidence chain
+
+1. **Bug reproduced in Ghostty's own app** — not Agent Studio specific (Epoch 19)
+2. **Ghostty source confirms** `shell_redraws_prompt` behavior:
+   - `Terminal.zig:86`: defaults to `.true`
+   - `Terminal.zig:1192`: set by OSC 133;A `redraw` option
+   - `Terminal.zig:2841`: passed to `Screen.resize()` as `prompt_redraw`
+   - `Screen.zig:1708-1750`: clears prompt rows when `prompt_redraw != .false`
+3. **Ghostty parses `redraw=0`** — test at `semantic_prompt.zig:865` confirms
+   `"133;A;redraw=0"` → `readOption(.redraw) == .false`
+4. **Fix validated by manual testing** — built zmx with the rewrite, launched
+   Agent Studio, created multiple panes, resized them. **No prompt loss observed.**
+   Zero errors in logs. All surfaces got pwd/title callbacks.
+
+### What the fix preserves
+
+- Shell integration features (prompt navigation, semantic zones, command tracking)
+  are preserved — only the `redraw` parameter changes
+- The daemon's internal ghostty_vt terminal is unaffected (still has its own
+  `prompt_redraw` disabled via the earlier patch)
+- Session restore via `serializeTerminalState` is unaffected
+- No changes to Agent Studio's hosting code
+
+### Summary of all zmx changes (vendor/zmx/src/)
+
+| Change | File | Purpose |
+|--------|------|---------|
+| handleInit: serialize before resize | main.zig:498-514 | Capture cursor position before reflow |
+| handleInit: prompt_redraw disabled | main.zig:530-532 | Prevent daemon state corruption |
+| handleResize: prompt_redraw disabled | main.zig:553-555 | Same protection during live resize |
+| Byte-flow logging | main.zig:1318,1344,1348 | Instrumentation (daemon/client) |
+| OSC 133;A redraw=0 rewrite | util.zig:190-257, main.zig:1474 | **THE FIX** — prevents outer terminal prompt clearing |
+
+### Upstream contribution path
+
+These changes should be proposed to neurosnap/zmx:
+1. The `redraw=0` rewrite is the primary fix (issue #111)
+2. The handleInit ordering fix addresses the comment/code mismatch in upstream
+3. The prompt_redraw disable prevents daemon state corruption
+4. Issue #99 (focus toggle prompt loss) likely has the same root cause
+
+---
+
+## Change Inventory (as of 2026-03-30)
+
+### What changed where
+
+```
+agent-studio repo (fix/terminal-exit-close-and-redraw branch)
+├── Sources/AgentStudio/          ← ZERO CHANGES (all workarounds reverted)
+├── vendor/ghostty/               ← ZERO CHANGES (unmodified submodule)
+├── vendor/zmx/src/main.zig      ← 4 patches (+34 lines, -6 lines)
+├── vendor/zmx/src/util.zig      ← 1 new function (+82 lines)
+└── docs/debugging/...redraw.md  ← Investigation log (+280 lines)
+```
+
+### Detailed zmx patch inventory
+
+#### Patch 1: OSC 133;A `redraw=0` rewrite (THE FIX)
+
+**Files:** `util.zig` (new function), `main.zig` (two call sites)
+
+**What:** Rewrites `\x1b]133;A\x07` → `\x1b]133;A;redraw=0\x07` in all PTY
+output before forwarding to clients.
+
+**Where applied:**
+- `main.zig:1475` — live broadcast path (daemon reads PTY → sends to clients)
+- `main.zig:508` — session restore path (serializeTerminalState → send to re-attaching client)
+
+**Why:** OSC 133;A tells the outer terminal "this shell redraws prompts on resize."
+But from the outer terminal's perspective, the foreground process is zmx client,
+which cannot redraw. Setting `redraw=0` tells the outer terminal to leave prompt
+rows alone on resize. This is a standard Kitty protocol extension, not a hack.
+
+```
+Without fix:
+  Shell → OSC 133;A\x07 → zmx daemon → zmx client → Ghostty
+  Ghostty sets shell_redraws_prompt = true
+  On resize: Ghostty clears prompt rows → cursor desync → blank prompt
+
+With fix:
+  Shell → OSC 133;A\x07 → zmx daemon rewrites → OSC 133;A;redraw=0\x07 → client → Ghostty
+  Ghostty sets shell_redraws_prompt = false
+  On resize: Ghostty leaves prompt rows alone → no desync → prompt visible
+```
+
+#### Patch 2: handleInit prompt_redraw disable
+
+**File:** `main.zig:530-532`
+
+**What:** Saves, disables, and defers restore of `term.flags.shell_redraws_prompt`
+around `term.resize()` in handleInit.
+
+**Why:** The daemon's internal ghostty_vt terminal would otherwise clear prompt
+rows during resize — corrupting its own state. Since the daemon's terminal never
+shows anything to a user (it's a shadow tracker), this clearing is always wrong.
+The shell's actual redraw comes through the PTY output path.
+
+#### Patch 3: handleResize prompt_redraw disable
+
+**File:** `main.zig:553-555`
+
+**What:** Same save/disable/defer pattern in handleResize.
+
+**Why:** Same reason — prevent daemon internal state corruption during live resize.
+
+#### Patch 4: Byte-flow instrumentation logging
+
+**File:** `main.zig:1320, 1348-1352`
+
+**What:** Logs bytes received from daemon, bytes written to stdout, and WouldBlock events.
+
+**Why:** Diagnostic instrumentation added during investigation. Proved that bytes
+flow correctly through zmx (no buffering/delay issues). Should be changed to
+`debug` level before upstreaming.
+
+### Data flow diagram
+
+```
+┌─────────────────────────────────────────────────────────┐
+│                    Agent Studio                          │
+│                                                          │
+│  ┌──────────────┐     ┌──────────────┐                  │
+│  │ Ghostty      │     │ Ghostty      │                  │
+│  │ Surface A    │     │ Surface B    │  ... N surfaces  │
+│  │ (PTY-A)      │     │ (PTY-A)      │                  │
+│  └──────┬───────┘     └──────┬───────┘                  │
+│         │                    │                           │
+│         │ stdin/stdout       │ stdin/stdout              │
+└─────────┼────────────────────┼───────────────────────────┘
+          │                    │
+          ▼                    ▼
+   ┌──────────────┐     ┌──────────────┐
+   │ zmx client A │     │ zmx client B │   Each pane has its
+   │ (process)    │     │ (process)    │   own zmx session
+   └──────┬───────┘     └──────┬───────┘
+          │ IPC socket         │ IPC socket
+          ▼                    ▼
+   ┌──────────────┐     ┌──────────────┐
+   │ zmx daemon A │     │ zmx daemon B │   Daemons persist
+   │ (background) │     │ (background) │   across app restarts
+   │              │     │              │
+   │ ┌──────────┐ │     │ ┌──────────┐ │
+   │ │ghostty_vt│ │     │ │ghostty_vt│ │   Shadow terminal
+   │ │(tracker) │ │     │ │(tracker) │ │   for state capture
+   │ └──────────┘ │     │ └──────────┘ │
+   │              │     │              │
+   │ PTY-B master │     │ PTY-B master │
+   └──────┬───────┘     └──────┬───────┘
+          │                    │
+          ▼                    ▼
+   ┌──────────────┐     ┌──────────────┐
+   │  Shell (zsh) │     │  Shell (zsh) │   Real shells
+   │  + agents    │     │  + agents    │   (persist!)
+   └──────────────┘     └──────────────┘
+```
+
+**The rewrite happens at the daemon level** (★):
+
+```
+PTY-B output (from shell):
+  \x1b]133;A\x07  (prompt start, implies redraw=1)
+       │
+       ▼
+  zmx daemon reads PTY
+       │
+  ★ rewritePromptRedraw()
+       │
+       ▼
+  \x1b]133;A;redraw=0\x07  (prompt start, explicit no-redraw)
+       │
+       ▼
+  IPC → zmx client → stdout → Ghostty
+```
+
+### What we do NOT change
+
+- **Ghostty source** — zero modifications. We use its existing `redraw=0` protocol.
+- **Agent Studio hosting code** — zero modifications. All GhosttySurfaceView,
+  SurfaceManager, PaneCoordinator code is unchanged.
+- **zmx IPC protocol** — no new message types. We modify byte content, not the
+  protocol itself.
+- **Shell integration** — OSC 133 sequences still reach Ghostty. Only the `redraw`
+  parameter changes. Prompt navigation, semantic zones, command tracking all work.
+
+### What zmx gives us (why we keep it)
+
+1. **Process persistence** — daemon keeps the shell alive across app restarts.
+   Agent tasks survive app crashes/restarts.
+2. **State capture** — daemon's ghostty_vt terminal tracks full screen state
+   (scrollback, cursor, modes). `serializeTerminalState()` exports as VT sequences.
+3. **Session restore** — on re-attach, serialized state replays into the new
+   Ghostty surface. Terminal looks the same as before restart.
+4. **Session identity** — deterministic session IDs from repo+worktree+pane keys.
+   Same pane always reconnects to the same daemon.
+
+### Is IPC still worthwhile?
+
+**Yes.** zmx's architecture is correct for our use case:
+
+- The daemon MUST own the PTY to persist the shell process
+- The client MUST relay bytes to/from the outer terminal
+- IPC (Unix socket) is the right transport between them
+- The `redraw=0` rewrite is a one-time fix, not ongoing maintenance burden
+
+The alternative (removing zmx from the live path) would require:
+- Building our own process persistence mechanism
+- Building our own state capture/serialization
+- Duplicating what zmx already does correctly
+
+The `redraw=0` fix addresses the only bug we found. zmx's data path is proven
+correct (byte-flow instrumentation showed zero delays, zero losses). The bug
+was not in zmx's IPC — it was in how raw OSC 133 sequences interact with the
+outer terminal's resize behavior. A protocol-level fix, not an architecture change.
+
+### Upstream status
+
+| Item | Status |
+|------|--------|
+| zmx issue #111 (resize prompt loss) | Filed, fix ready to propose |
+| zmx issue #99 (focus toggle prompt loss) | Open, likely same root cause |
+| handleInit ordering (upstream has bug) | Fixed in our vendor, not yet proposed |
+| redraw=0 rewrite | Ready to propose as PR |
+
+### Counsel review findings (addressed)
+
+| Finding | Severity | Status |
+|---------|----------|--------|
+| Session restore path missing rewrite | P1 | Fixed (main.zig:508) |
+| Lifetime safety (appendMessage copies?) | P1 | Verified safe (copies via appendSlice) |
+| Buffer capacity too small (+32) | P2 | Fixed (changed to +200) |
+| Split sequences across reads | P2 | Accepted (extremely rare, <8 byte sequence in 4KB reads) |
+
+## Debugging Epoch 21 (2026-03-30 ~15:30): Review Amendment — What Is Proven vs What Is Still A Workaround
+
+This amendment is a critical review of the current `redraw=0` patch and the
+surrounding narrative. It exists so later readers do not confuse a promising,
+manually validated workaround with a fully proven root-cause closure.
+
+### What is directly grounded
+
+1. **Ghostty behavior is grounded in source**
+   - `OSC 133;A;redraw=0` is parsed by Ghostty and sets
+     `shell_redraws_prompt = .false`.
+   - `Terminal.resize()` passes that flag into `Screen.resize()`.
+   - `Screen.resize()` clears prompt/input rows only when
+     `prompt_redraw != .false`.
+
+2. **The zmx patch really rewrites prompt markers**
+   - `rewritePromptRedraw()` rewrites `OSC 133;A` markers in both:
+     - the live PTY broadcast path
+     - the serialized restore snapshot path
+
+3. **The current patch was manually validated**
+   - In the reported manual run, prompt loss was not observed after applying
+     the rewrite.
+   - `zig build test` for `vendor/zmx` still passes after the code changes.
+
+### What is NOT fully proven
+
+1. **"The definitive root cause" is too strong**
+   - The current evidence strongly supports the `OSC 133` / `prompt_redraw`
+     interaction as the best explanation for the Ghostty + zmx resize bug.
+   - But the evidence does not yet prove it is the only cause in all failing
+     scenarios.
+
+2. **The tmux comparison is suggestive, not fully established**
+   - The note currently says tmux does not forward `OSC 133` and therefore
+     does not have this bug.
+   - That may be true, but it was not proven from tmux source in this
+     investigation and should be treated as an informed comparison, not a
+     grounded result from this repo.
+
+3. **"Zero errors in logs" is not proof of correctness**
+   - The absence of error logs only shows that the current instrumentation did
+     not record failures.
+   - It does not prove that the terminal state and renderer were perfectly
+     synchronized in every case.
+
+### Critical implementation tradeoffs
+
+1. **The patch intentionally overrides shell-provided redraw policy**
+   - This is not a passive metadata fix.
+   - If the shell emits `redraw=last` or `redraw=1`, zmx now rewrites that to
+     `redraw=0` for the outer terminal.
+   - That may be the correct workaround for zmx's architecture, but it is a
+     behavioral override and should be described honestly.
+
+2. **The rewrite is chunk-local**
+   - `rewritePromptRedraw()` only rewrites a prompt marker if the full
+     `OSC 133;A ... BEL/ST` sequence is present in the current byte slice.
+   - If a prompt marker is split across PTY reads, it passes through
+     unchanged.
+   - This may be rare in practice, but it means the fix is not yet
+     structurally complete.
+
+3. **There are no targeted tests for the rewrite function yet**
+   - The current patch does not include dedicated tests for:
+     - insert when no `redraw=` exists
+     - replace `redraw=1`
+     - replace `redraw=last`
+     - BEL vs ST terminators
+     - multiple prompt markers in one buffer
+     - split-marker no-op behavior
+
+### Updated judgement
+
+The current `redraw=0` change should be understood as:
+
+```text
+a strong, code-grounded workaround hypothesis
+with successful manual validation
+but not yet a fully closed root-cause proof
+```
+
+### Recommended next hardening steps
+
+1. Add unit tests for `rewritePromptRedraw()`.
+2. Reduce the certainty level in any upstream issue / PR description from
+   "definitive root cause" to "best current explanation backed by source and
+   manual repro."
+3. Keep the upstream/local distinction explicit:
+   - upstream zmx still has the `handleInit` ordering bug
+   - our local vendor already fixed that independently of the `redraw=0` work
