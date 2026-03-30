@@ -121,6 +121,11 @@ struct PaneLeafContainer: View {
             ZStack(alignment: .topTrailing) {
                 // Pane content view
                 PaneViewRepresentable(paneHost: paneHost)
+                    // Force SwiftUI to recreate the representable when the host
+                    // instance changes (e.g. after repair or placeholder retry).
+                    // Without this, updateNSView is a no-op and the old NSView
+                    // stays mounted.
+                    .id(paneHost.hostIdentity)
                     // In management mode, route drag targeting through the shared
                     // SwiftUI leaf container so pane type (WKWebView/Ghostty/etc.)
                     // cannot intercept drop updates differently.
@@ -443,7 +448,10 @@ struct PaneViewRepresentable: NSViewRepresentable {
     }
 
     func updateNSView(_ nsView: NSView, context: Context) {
-        // Nothing — container is stable, pane manages itself
+        // Nothing — container is stable, pane manages itself.
+        // Host replacement is handled by .id(paneHost.hostIdentity) on the
+        // PaneViewRepresentable call site, which forces SwiftUI to dismantle
+        // and recreate when the host instance changes.
     }
 
     static func dismantleNSView(_ nsView: NSView, coordinator: ()) {

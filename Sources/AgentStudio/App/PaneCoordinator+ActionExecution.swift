@@ -643,7 +643,7 @@ extension PaneCoordinator {
                 return
             }
             if let existingView = viewRegistry.view(for: paneId),
-                existingView.mountedContent(as: TerminalPaneMountView.self)?.placeholderViewForTesting == nil
+                existingView.mountedContent(as: TerminalPaneMountView.self)?.currentPlaceholderView == nil
             {
                 Self.logger.info("repair createMissingView: pane \(paneId) already has a view")
                 return

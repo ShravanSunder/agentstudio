@@ -479,46 +479,41 @@ final class PaneCoordinator {
         }
     }
 
+    /// Map Ghostty split direction to layout direction.
+    /// The flat pane strip only supports horizontal layout, so vertical
+    /// directions are mapped to their horizontal equivalents.
     private func mapSplitDirection(_ direction: GhosttySplitDirection) -> SplitNewDirection {
         switch direction {
-        case .left:
+        case .left, .up:
             return .left
-        case .right:
+        case .right, .down:
             return .right
-        case .up:
-            return .up
-        case .down:
-            return .down
         }
     }
 
+    /// Map Ghostty resize direction to layout resize direction.
+    /// Vertical resize is mapped to horizontal (flat strip only).
     private func mapResizeSplitDirection(_ direction: GhosttyResizeSplitDirection) -> SplitResizeDirection {
         switch direction {
-        case .left:
+        case .left, .up:
             return .left
-        case .right:
+        case .right, .down:
             return .right
-        case .up:
-            return .up
-        case .down:
-            return .down
         }
     }
 
+    /// Map Ghostty goto-split direction to an app command.
+    /// Vertical focus is mapped to horizontal (flat strip only).
     private func mapGotoSplitDirection(_ direction: GhosttyGotoSplitDirection) -> AppCommand? {
         switch direction {
         case .previous:
             return .focusPrevPane
         case .next:
             return .focusNextPane
-        case .left:
+        case .left, .up:
             return .focusPaneLeft
-        case .right:
+        case .right, .down:
             return .focusPaneRight
-        case .up:
-            return .focusPaneUp
-        case .down:
-            return .focusPaneDown
         }
     }
 }

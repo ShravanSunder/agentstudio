@@ -28,6 +28,11 @@ class PaneHostView: NSView, Identifiable {
     nonisolated let paneId: UUID
     nonisolated var id: UUID { paneId }
 
+    /// Stable identity for this specific host instance. Changes when the host
+    /// is replaced (repair, placeholder retry), forcing SwiftUI to recreate
+    /// the NSViewRepresentable and remount the new view.
+    var hostIdentity: ObjectIdentifier { ObjectIdentifier(self) }
+
     private(set) var interactionShield: ManagementModeDragShield?
     private let contentContainerView = NSView(frame: .zero)
 

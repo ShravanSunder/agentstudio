@@ -42,7 +42,7 @@ extension PaneCoordinator {
         }
 
         if let terminalView = viewRegistry.terminalView(for: pane.id) {
-            let previousMode = terminalView.placeholderViewForTesting?.mode
+            let previousMode = terminalView.currentPlaceholderView?.mode
             let placeholder = terminalView.showPlaceholder(
                 mode: mode,
                 onRetryRequested: retryHandler,
@@ -74,7 +74,7 @@ extension PaneCoordinator {
         )
         registerHostedView(mountedView: terminalView, for: pane.id)
         store.bumpViewRevision()
-        return terminalView.placeholderViewForTesting
+        return terminalView.currentPlaceholderView
     }
 
     private func closePlaceholderPane(_ paneId: UUID) {

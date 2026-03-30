@@ -34,7 +34,7 @@ final class ViewRegistry {
     /// Get the terminal status placeholder view for a pane, if it is present.
     func terminalStatusPlaceholderView(for paneId: UUID) -> TerminalStatusPlaceholderView? {
         guard let view = views[paneId] else { return nil }
-        return view.mountedContent(as: TerminalPaneMountView.self)?.placeholderViewForTesting
+        return view.mountedContent(as: TerminalPaneMountView.self)?.currentPlaceholderView
     }
 
     /// Get the webview for a pane, if it is a webview.

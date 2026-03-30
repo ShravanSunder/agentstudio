@@ -499,6 +499,9 @@ final class TerminalPaneMountView: NSView, PaneMountedContent, SurfaceHealthDele
         return super.hitTest(point)
     }
 
+    /// The current placeholder view, if one is shown. Used by coordinators
+    /// to check placeholder state during repair and re-registration flows.
+    var currentPlaceholderView: TerminalStatusPlaceholderView? { placeholderView }
 }
 
 #if DEBUG
