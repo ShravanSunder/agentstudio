@@ -2991,3 +2991,110 @@ Both need investigation at the zmx level — specifically in `handleResize` and 
 - The 800x600 ghost size (that's a startup-specific issue, not pane insertion)
 - Our AppKit/SwiftUI hosting architecture (no reparenting on insert)
 ```
+
+## Debugging Epoch (2026-03-29T23:55:00Z): Root Cause Found — zmx prompt_redraw + Missing State Serialization
+
+### Evidence chain
+
+Three code research agents traced the full path through zmx and Ghostty VT. Combined with the pure-Ghostty experiment (zero prompt loss without zmx), the root cause is now grounded in specific code.
+
+### The mechanism, with file:line references
+
+```text
+1. Our app calls ghostty_surface_set_size(new_width, new_height)
+   → Ghostty surface resizes its terminal immediately
+
+2. SIGWINCH reaches zmx client → client sends Resize(73, 54) to daemon
+
+3. Daemon handleResize (vendor/zmx/src/main.zig:571-606):
+   → ioctl(TIOCSWINSZ) on shell PTY (line 584)
+   → term.resize(alloc, 73, 54) (line 585)
+
+4. term.resize calls Terminal.resize (vendor/ghostty/src/terminal/Terminal.zig:2820-2865):
+   → calls Screen.resize with prompt_redraw = self.flags.shell_redraws_prompt
+
+5. Screen.resize (vendor/ghostty/src/terminal/Screen.zig:1698-1750):
+   → BEFORE reflow, checks:
+     if prompt_redraw != .false AND cursor.semantic_content != .output
+   → If cursor is on a prompt/input line: CLEARS the prompt cells
+   → THEN performs reflow at new column count (line 1753)
+
+6. The daemon's internal terminal now has:
+   → Cleared prompt cells
+   → Reflowed content at 73 cols
+   → Updated cursor position
+
+7. Shell receives SIGWINCH → outputs redraw sequences
+
+8. Daemon reads shell output, feeds through vt_stream.nextSlice(),
+   broadcasts RAW bytes to client
+
+9. Client's Ghostty terminal processes the shell output
+   BUT: client never received the daemon's post-resize terminal state
+   Client's terminal may be at a different reflow state than the daemon
+```
+
+### Why this causes prompt loss
+
+The daemon's `Screen.resize()` clears prompt lines at step 5 BEFORE reflow. This is designed for direct terminal emulators where the shell's SIGWINCH redraw arrives at the SAME terminal that cleared the prompt. The clear + redraw are atomic.
+
+In zmx, the daemon clears the prompt in ITS terminal, but the CLIENT's Ghostty terminal never sees that clear. When the shell's redraw output arrives at the client, the client processes it against a terminal state that doesn't match the daemon's — they're desynchronized.
+
+### The specific code gap
+
+`handleResize` (vendor/zmx/src/main.zig:571-606) does NOT serialize and send terminal state to clients after resize. Compare:
+
+```text
+handleInit (lines 487-569):
+  1. Serialize terminal state via serializeTerminalState() → send to client
+  2. THEN resize (ioctl + term.resize)
+  Result: client gets consistent state
+
+handleResize (lines 571-606):
+  1. Resize (ioctl + term.resize)
+  2. Return — sends NOTHING to client
+  Result: client state diverges from daemon
+```
+
+The serialization function already exists (vendor/zmx/src/util.zig:211-239) and captures full screen content, cursor, modes, scrolling region.
+
+### Fix options
+
+```text
+Option 1: Serialize after resize
+  After term.resize(), call serializeTerminalState() and send to client.
+  This resynchronizes the client with the daemon's post-resize state.
+  Same pattern as handleInit.
+
+Option 2: Disable prompt_redraw in zmx
+  When zmx calls term.resize(), set shell_redraws_prompt = false first.
+  This prevents Screen.resize from clearing prompt lines.
+  The shell's SIGWINCH response handles the redraw naturally.
+  Simpler but may miss other state that prompt_redraw affects.
+
+Option 3: Both
+  Disable prompt_redraw to prevent intermediate corruption,
+  AND serialize state for full resync.
+  Most robust.
+```
+
+### Grounded vs hypothesis
+
+```text
+Grounded in code:
+1. Screen.resize clears prompt lines when prompt_redraw is enabled
+   → vendor/ghostty/src/terminal/Screen.zig:1698-1750
+2. handleResize does NOT send state to client
+   → vendor/zmx/src/main.zig:571-606
+3. handleInit DOES send state to client
+   → vendor/zmx/src/main.zig:520-536
+4. serializeTerminalState captures full screen + cursor + modes
+   → vendor/zmx/src/util.zig:211-239
+5. Pure Ghostty without zmx does NOT lose prompts on resize
+   → proven by experiment at 23:54:17
+
+Hypothesis (not yet tested):
+1. Whether adding state serialization to handleResize fixes the bug
+2. Whether disabling prompt_redraw alone is sufficient
+3. Whether there are other state divergence issues beyond prompt clearing
+```
