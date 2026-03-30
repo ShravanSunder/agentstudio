@@ -270,54 +270,6 @@ struct DrawerPanel: View {
 
     private static let drawerDropCoordinateSpace = "drawerContainer"
 
-    private func shouldAcceptDrawerDrop(
-        payload: SplitDropPayload,
-        destPaneId: UUID,
-        zone: DropZone
-    ) -> Bool {
-        guard managementMode.isActive else { return false }
-        guard let drawer = store.pane(parentPaneId)?.drawer else { return false }
-        guard drawer.layout.contains(destPaneId) else { return false }
-
-        guard case .existingPane(let sourcePaneId, _) = payload.kind else { return false }
-        guard sourcePaneId != destPaneId else { return false }
-        guard let sourcePane = store.pane(sourcePaneId) else { return false }
-        guard sourcePane.parentPaneId == parentPaneId else { return false }
-
-        let snapshot = ActionResolver.snapshot(
-            from: store.tabs,
-            activeTabId: store.activeTabId,
-            isManagementModeActive: managementMode.isActive,
-            knownWorktreeIds: Set(store.repos.flatMap(\.worktrees).map(\.id))
-        )
-        let action = PaneActionCommand.moveDrawerPane(
-            parentPaneId: parentPaneId,
-            drawerPaneId: sourcePaneId,
-            targetDrawerPaneId: destPaneId,
-            direction: Self.splitDirection(for: zone)
-        )
-        if case .success = ActionValidator.validate(action, state: snapshot) {
-            return true
-        }
-        return false
-    }
-
-    private func handleDrawerDrop(payload: SplitDropPayload, destPaneId: UUID, zone: DropZone) {
-        guard case .existingPane(let sourcePaneId, _) = payload.kind else { return }
-        guard sourcePaneId != destPaneId else { return }
-        guard let sourcePane = store.pane(sourcePaneId) else { return }
-        guard sourcePane.parentPaneId == parentPaneId else { return }
-
-        action(
-            .moveDrawerPane(
-                parentPaneId: parentPaneId,
-                drawerPaneId: sourcePaneId,
-                targetDrawerPaneId: destPaneId,
-                direction: Self.splitDirection(for: zone)
-            )
-        )
-    }
-
     private static func splitDirection(for zone: DropZone) -> SplitNewDirection {
         switch zone {
         case .left: return .left

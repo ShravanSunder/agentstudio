@@ -9,7 +9,14 @@ struct SingleTabContent: View {
     let closeTransitionCoordinator: PaneCloseTransitionCoordinator
     let actionDispatcher: PaneActionDispatching
 
+    private static func traceMissingTab(tabId: UUID) -> Int {
+        RestoreTrace.log("SingleTabContent.body missingTab tabId=\(tabId)")
+        return 0
+    }
+
     var body: some View {
+        // swiftlint:disable:next redundant_discardable_let
+        let _ = store.tab(tabId) == nil ? Self.traceMissingTab(tabId: tabId) : 0
         if let tab = store.tab(tabId) {
             FlatTabStripContainer(
                 layout: tab.layout,
@@ -25,8 +32,6 @@ struct SingleTabContent: View {
                 appLifecycleStore: appLifecycleStore
             )
             .background(AppStyle.chromeBackground)
-        } else {
-            _ = RestoreTrace.log("SingleTabContent.body missingTab tabId=\(tabId)")
         }
     }
 }

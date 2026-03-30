@@ -219,6 +219,7 @@ struct DrawerPanelOverlay: View {
                             },
                             appLifecycleStore: appLifecycleStore
                         )
+                        .id(info.paneId)
                         .frame(width: panelWidth)
 
                         // Connector space (visual bridge from panel to icon bar)
