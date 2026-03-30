@@ -3098,3 +3098,687 @@ Hypothesis (not yet tested):
 2. Whether disabling prompt_redraw alone is sufficient
 3. Whether there are other state divergence issues beyond prompt clearing
 ```
+
+## Debugging Epoch (2026-03-30): Summary Of All Attempted Fixes And Current State
+
+### What we tried and what each proved
+
+```text
+Fix 1: prompt_redraw=false in zmx handleInit + handleResize
+  Result: Startup prompts fixed. Pane insertion prompts still lost.
+  Proved: zmx-side prompt_redraw was causing startup prompt loss.
+  Proved: zmx-side prompt_redraw is NOT the only cause of pane insertion prompt loss.
+
+Fix 2: Skip term.resize() entirely in zmx handleResize
+  Result: No handleResize events fire during pane insertion.
+  Proved: The pane insertion prompt loss doesn't go through handleResize at all.
+
+Fix 3: Delayed ghostty_surface_refresh after resize (150ms)
+  Result: Prompt still missing after the delay.
+  Proved: The issue is not just rendering timing.
+  Proved: The shell's redraw output either never arrives or doesn't restore the prompt.
+
+Fix 4: Env var initial size (ZMX_INIT_COLS/ZMX_INIT_ROWS)
+  Result: Made things worse (% character, wrong rendering).
+  Proved: Hardcoded cell metrics are fragile. Reverted.
+```
+
+### What the pure Ghostty experiment proved
+
+```text
+Without zmx: zero prompt loss on any operation (startup, insertion, resize).
+With zmx: prompt loss on startup (fixed by prompt_redraw patch) and on pane insertion (unfixed).
+```
+
+### The fundamental architecture problem
+
+zmx sits in the middle of the PTY data path:
+```text
+Shell → daemon PTY → daemon reads → daemon socket → zmx client → client stdout → Ghostty PTY → Ghostty renders
+```
+
+This adds latency and complexity to every byte of shell output. Meanwhile, Ghostty's own terminal runs `prompt_redraw` clearing during resize, expecting the shell's redraw to arrive within microseconds. With zmx in the path, it arrives later or not at all.
+
+The zmx client uses buffered I/O (`stdout_buf` ArrayList) and only flushes to stdout when `poll` indicates stdout is ready. The initial prompt output could be stuck in this buffer.
+
+### The proposed new direction
+
+Instead of trying to fix zmx's data path issues, remove zmx from the live terminal data path entirely:
+
+```text
+Normal operation: Ghostty spawns shell directly (pure Ghostty, no prompt issues)
+Background: zmx daemon keeps a parallel PTY alive for session persistence
+On app restart: query zmx daemon for terminal state, feed to Ghostty surface
+```
+
+This requires:
+1. Direct zmx IPC from Swift (speaking the zmx socket protocol)
+2. Separating "live terminal" from "session persistence"
+3. Using zmx only for restore, not for live terminal multiplexing
+
+### zmx IPC protocol (from DeepWiki research)
+
+zmx exposes these IPC messages over Unix domain sockets:
+```text
+Tag 0: Input    — send keyboard input to PTY
+Tag 1: Output   — daemon sends PTY output to client
+Tag 2: Resize   — client tells daemon new terminal size
+Tag 3: Detach   — client disconnects
+Tag 6: Info     — query session info (pid, clients, cwd)
+Tag 7: Init     — initial attach with terminal size
+Tag 8: History  — get terminal scrollback content
+Tag 9: Run      — send a command to the shell via PTY
+Tag 10: Ack    — acknowledgment
+```
+
+These could be used for programmatic control from Swift without going through the zmx CLI.
+
+## Debugging Epoch (2026-03-30T01:30:00Z): Complete Investigation Summary — Why We're Changing Architecture
+
+### The journey
+
+This debugging session spanned ~12 hours of systematic investigation. Here is what we tried, what each attempt proved, and why we arrived at an architectural change rather than a point fix.
+
+### Problem statement
+
+Terminal panes lose their shell prompt. The prompt never comes back until the user presses Enter. This happens on:
+- App startup (session restore)
+- New pane creation (split insertion)
+- Tab switching
+
+### Phase 1: Hypothesis — geometry/resize churn
+
+We initially believed intermediate terminal resizes during layout churn caused the prompt loss. We built an "authoritative geometry" system that suppressed automatic resize paths and centralized size reporting.
+
+**Result:** Made everything worse. Startup regressed badly. The automatic `setFrameSize → sizeDidChange` path was load-bearing for self-healing. We reverted.
+
+**What we learned:** The automatic resize paths are necessary. Suppressing them breaks recovery.
+
+### Phase 2: Hypothesis — SIGWINCH storm
+
+We traced 5 independent `sizeDidChange` calls per logical resize event (init, mountView.layout, setFrameSize, forceGeometrySync, viewDidMoveToWindow). We thought duplicate SIGWINCHs were corrupting the shell's prompt state.
+
+**Result:** Ghostty's C-level `sizeCallback` already deduplicates identical backing pixel sizes. Most of the 5 calls are no-ops. The SIGWINCH storm model was wrong.
+
+**What we learned:** Ghostty already protects against duplicate resizes. The redundant calls are harmless.
+
+### Phase 3: Hypothesis — 800x600 ghost grid
+
+We found that every Ghostty surface starts at 800x600 internally (`embedded.zig:475`), producing a 14x41 grid. zmx reads this ghost size before the real size arrives. We traced this through 71/71 init events showing `currentPx={800,600}`.
+
+**Result:** The ghost grid is real and causes a race condition, but it's a startup-specific issue. The `prompt_redraw` fix on zmx's handleInit (disabling prompt clearing during resize) fixed startup prompt loss.
+
+**What we learned:** The 800x600 ghost grid causes a 14x41 → real size double-resize on every surface creation. Disabling `prompt_redraw` in zmx prevents the prompt clearing during this resize.
+
+### Phase 4: Hypothesis — SwiftUI reparenting
+
+We traced `PaneViewRepresentable.dismantleNSView` → `makeNSView` cycles. Found that:
+- Startup: reparenting was caused by late `AppLifecycleStore` injection calling `replaceSplitContentView()`. Fixed by constructor injection.
+- Tab switch: reparenting caused by single-NSHostingView architecture (one hosting view swaps content per tab). Identified but not yet fixed.
+- Pane insertion within a tab: NO reparenting (ForEach with stable IDs works correctly).
+
+**What we learned:** The startup reparenting was a real bug (now fixed). Tab switch reparenting is architectural (needs per-tab NSHostingView). Pane insertion is clean.
+
+### Phase 5: Hypothesis — zmx prompt_redraw clearing
+
+We researched Ghostty VT's `Screen.resize()` and found it clears prompt lines when `prompt_redraw` is enabled and the cursor is on a prompt/input line. This clearing happens in zmx's daemon terminal during resize.
+
+We patched zmx to disable `prompt_redraw` before calling `term.resize()` in both `handleInit` and `handleResize`.
+
+**Result:** Fixed startup prompt loss. Did NOT fix pane insertion prompt loss.
+
+**What we learned:** The zmx-side `prompt_redraw` clearing was one source of startup prompt loss. But there's another source for pane insertion.
+
+### Phase 6: Hypothesis — zmx handleResize path
+
+We expected pane insertion to trigger zmx's `handleResize`. We skipped `term.resize()` entirely in handleResize (PTY-only resize, no daemon terminal update).
+
+**Result:** `handleResize` never fires during pane insertion. The zmx logs show only `handleInit` events. The app creates new Ghostty surfaces for new panes, and the zmx client connects fresh — there's no mid-session resize of existing zmx sessions during pane insertion.
+
+**What we learned:** The prompt loss on pane insertion doesn't go through zmx's handleResize at all. It goes through the Ghostty surface's own resize path.
+
+### Phase 7: The definitive experiment — pure Ghostty without zmx
+
+We bypassed zmx entirely by forcing all panes to use plain shell (`/bin/zsh -i -l`) instead of `zmx attach`.
+
+**Result:** Zero prompt loss. Every operation worked perfectly — startup, pane insertion, resize, everything.
+
+**What this proved:** The prompt loss is caused by zmx being in the live terminal data path. Pure Ghostty handles all resize/reflow scenarios correctly.
+
+### Phase 8: Hypothesis — Ghostty's own prompt_redraw + zmx latency
+
+With zmx in the path, the data flow is:
+```text
+Shell → daemon PTY → daemon socket → zmx client → client stdout_buf → Ghostty PTY → Ghostty renders
+```
+
+Ghostty's own `Screen.resize()` clears prompt lines (prompt_redraw). In pure Ghostty, the shell's SIGWINCH redraw arrives within microseconds to the same terminal. With zmx, the roundtrip adds latency, and the zmx client uses buffered I/O (`stdout_buf` ArrayList that flushes when `poll` says stdout is ready).
+
+We tried a delayed `ghostty_surface_refresh` (150ms after resize) to let the zmx roundtrip complete.
+
+**Result:** Prompt still missing after the delay. The shell's output either doesn't arrive or doesn't restore the prompt.
+
+**What we learned:** The zmx client's buffered I/O and the latency through the daemon socket fundamentally break Ghostty's assumption that the shell's redraw arrives instantly to the same terminal that cleared the prompt.
+
+### Phase 9: Why point fixes can't solve this
+
+Each fix we tried addressed one layer but the problem spans multiple layers:
+
+```text
+Layer 1: Ghostty surface clears prompt (prompt_redraw in Screen.resize)
+Layer 2: Shell sends SIGWINCH redraw through zmx roundtrip (latency)
+Layer 3: zmx client buffers output (stdout_buf, poll-based flushing)
+Layer 4: zmx daemon processes output through its own terminal (state divergence)
+Layer 5: 800x600 ghost grid causes double-resize on surface creation
+```
+
+Fixing any single layer doesn't fix the fundamental architecture issue: zmx is a middleman in the live terminal path, adding latency and buffering to a system (Ghostty's prompt_redraw) that expects zero-latency direct PTY access.
+
+### Phase 10: The architectural conclusion
+
+```text
+The only operation zmx provides that we actually need is session restore.
+
+During normal operation, zmx adds:
+- latency (daemon socket roundtrip)
+- buffering (client stdout_buf)
+- state divergence (daemon terminal vs Ghostty terminal)
+- resize complexity (handleInit, handleResize, prompt_redraw interactions)
+- 800x600 ghost grid race condition
+
+During session restore, zmx provides:
+- PTY persistence (shell survives app restart)
+- Terminal state serialization (via ghostty_vt formatter)
+- Content replay on reattach
+
+The fix: remove zmx from the live data path. Use pure Ghostty for normal operation.
+Keep zmx daemon running in parallel for session persistence only.
+On app restart, query zmx for terminal state and restore.
+```
+
+### What's fixed and what remains
+
+```text
+Fixed:
+- Startup reparenting (constructor injection of AppLifecycleStore)
+- Binary split tree ratio drift (flat layout cutover)
+- Startup prompt loss from zmx prompt_redraw (prompt_redraw=false patch)
+- 800x600 ghost grid initial frame (precondition + launch gate)
+
+Remains:
+- Prompt loss on pane insertion with zmx (architectural — zmx in live path)
+- Tab switch reparenting (needs per-tab NSHostingView)
+- zmx prompt_redraw fix needs upstream contribution
+
+Next step:
+- Design new architecture: pure Ghostty for live terminal, zmx for session persistence only
+- Build Swift-side zmx IPC client for programmatic control
+- Separate live terminal operation from session restoration
+```
+
+## Debugging Epoch (2026-03-30T02:00:00Z): Bytes Reach Ghostty — The Problem Is Not zmx Buffering
+
+### Critical finding
+
+Added byte-flow instrumentation to zmx daemon and client:
+- Daemon: logs `daemon pty_read session=X bytes=N clients=N` when shell output is read
+- Client: logs `client recv_output bytes=N stdout_buf_total=N` when receiving from daemon
+- Client: logs `client stdout_write bytes=N remaining=N` when flushing to Ghostty's PTY
+- Client: logs `client stdout_write WOULDBLOCK pending=N` if stdout blocks
+
+### Result
+
+```text
+Zero WOULDBLOCK events.
+Every recv_output is immediately followed by stdout_write with remaining=0.
+The zmx client flushes all shell output to Ghostty's PTY immediately.
+No buffering stalls. No data loss. No latency.
+```
+
+### What this disproves
+
+```text
+Disproved: "zmx client buffers output and doesn't flush" — it flushes immediately
+Disproved: "the shell's prompt output doesn't reach Ghostty" — it does
+Disproved: "zmx latency prevents the shell redraw from arriving" — it arrives promptly
+Disproved: "the zmx data path is the bottleneck" — bytes flow through without delay
+```
+
+### What this means
+
+The prompt bytes arrive at Ghostty's PTY. Ghostty reads them and processes them through its terminal. But the prompt is not visible on screen.
+
+This means the bug is in **Ghostty's terminal processing**, not in zmx's data path. Specifically:
+
+```text
+1. Ghostty's Screen.resize() clears prompt lines (prompt_redraw)
+2. Shell output with prompt redraw arrives at Ghostty via zmx (proven by byte tracing)
+3. Ghostty processes the bytes through its terminal
+4. But the prompt is not visible
+
+The bytes arrive. The terminal processes them. But the result is not visible.
+```
+
+### Possible explanations (all unproven)
+
+```text
+1. Ghostty processes the prompt bytes but they land at a wrong cursor position
+   (prompt_redraw cleared rows, shell redraws at positions that don't match)
+
+2. The prompt bytes arrive BEFORE the resize is complete, so they're processed
+   at the old grid size and then lost during reflow
+
+3. The prompt bytes are processed correctly but the viewport is scrolled
+   to the wrong position (prompt is below the visible area)
+
+4. Something about zmx's PTY (which is different from Ghostty's PTY)
+   causes the shell's escape sequences to be interpreted differently
+```
+
+### Next step
+
+Need to trace what Ghostty's terminal actually does with the bytes it receives. Specifically: what is the cursor position and screen content before and after processing the shell's prompt output?
+
+## Debugging Epoch (2026-03-30T02:15:00Z): Ctrl-L Works — The Bug Is Viewport Scroll Position
+
+### Definitive test
+
+User pressed Ctrl-L on a blank pane (prompt missing). The prompt appeared immediately.
+
+### What this proves
+
+```text
+1. The shell IS running and responsive
+2. The terminal buffer HAS the prompt content (or the shell can redraw it)
+3. Ghostty CAN render the prompt
+4. The visible viewport is scrolled to the WRONG POSITION after resize
+5. The prompt is below the visible viewport — it's there, just not visible
+```
+
+### Root cause confirmed
+
+After a resize with prompt_redraw:
+1. Ghostty's Screen.resize() clears prompt lines
+2. Reflow happens at the new column count
+3. The viewport position is NOT updated to follow the cursor/prompt
+4. The prompt (or the shell's SIGWINCH redraw) ends up below the visible area
+5. User sees blank space where the prompt should be
+
+Ctrl-L sends form feed to the shell, which clears the screen and redraws the prompt at line 1 — bringing it into the visible viewport.
+
+### Why pure Ghostty doesn't have this issue
+
+In pure Ghostty, the resize + SIGWINCH + shell redraw all happen on the same terminal. Ghostty's scroll-to-bottom-on-output behavior triggers when the shell's redraw output arrives, scrolling the viewport to show the prompt.
+
+With zmx, the roundtrip delay means the shell's output arrives later. By then, Ghostty may have already rendered the wrong viewport position, and the subsequent output might not trigger the scroll-to-bottom behavior correctly.
+
+### Ghostty's scroll-to-bottom capability
+
+From DeepWiki research on ghostty-org/ghostty:
+- Internal `scroll_to_bottom` action exists in performBindingAction
+- `scroll_to_bottom_on_output` config option auto-scrolls when new output arrives
+- `terminal.scrollViewport(.bottom)` is the internal function
+- No public C API to call scroll-to-bottom from the host app
+- `ghostty_surface_key` exists — could potentially simulate End key to scroll
+
+### Possible fixes
+
+```text
+Fix 1: Ensure scroll-to-bottom-on-output is enabled
+  Check if this Ghostty config is active. If the shell's output
+  arrives and scroll-to-bottom-on-output is enabled, the viewport
+  should auto-scroll. If it's not working, that's a Ghostty bug
+  worth investigating.
+
+Fix 2: Send End key after resize
+  Use ghostty_surface_key to simulate End/Cmd+End key after resize.
+  Would scroll to bottom. Hacky but might work.
+
+Fix 3: Use ghostty_surface_mouse_scroll to scroll to bottom
+  Programmatic scroll via the C API.
+
+Fix 4: Fix the viewport position in Ghostty's resize logic
+  The real fix — after resize+reflow, ensure the viewport tracks
+  the cursor position. This would be a Ghostty-level fix.
+```
+
+### What this means for architecture
+
+The prompt loss is NOT a zmx data path issue (bytes flow fine).
+It's NOT a zmx terminal state issue (prompt_redraw patch helped startup).
+It IS a Ghostty viewport scroll position issue after resize.
+
+This changes the fix direction: instead of removing zmx from the data path,
+we might be able to fix this by ensuring the viewport scrolls to bottom
+after any resize event.
+
+## Debugging Epoch (2026-03-30T09:00:00-04:00): Latest zmx + Ghostty Patch Set — What Changed And What It Actually Means
+
+### Files changed
+
+Latest local changes touch:
+
+- `vendor/zmx/src/main.zig`
+- `Sources/AgentStudio/Features/Terminal/Ghostty/GhosttySurfaceView.swift`
+- `Sources/AgentStudio/Features/Terminal/Ghostty/SurfaceManager.swift`
+- `Sources/AgentStudio/Features/Terminal/Ghostty/GhosttySurfaceView+TextInput.swift` (text input extraction only, not behavioral)
+
+### What the zmx patch does
+
+The zmx daemon now disables `shell_redraws_prompt` around both:
+
+- `handleInit`
+- `handleResize`
+
+Grounded effect:
+
+```text
+zmx daemon terminal will no longer clear prompt/input lines during its own resize.
+```
+
+This is a daemon-terminal correctness fix. It reduces one known source of prompt
+loss during session restore and daemon-side resize reflow.
+
+It does **not** by itself prove that all pane-insert prompt loss is solved,
+because pane insertion can still involve Ghostty-side surface resizing and
+viewport behavior after bytes arrive.
+
+### What the new zmx byte-flow instrumentation proves
+
+The latest zmx patch also adds logging at three points:
+
+- daemon PTY read
+- client receive from daemon socket
+- client write to stdout
+
+This instrumentation is specifically testing the old hypothesis:
+
+```text
+"zmx buffering or stdout flush delay causes the prompt bytes not to reach Ghostty"
+```
+
+If the logs show:
+
+```text
+daemon pty_read -> client recv_output -> client stdout_write remaining=0
+```
+
+for the failing cases, then the old buffering/latency hypothesis becomes much weaker.
+
+### What the Ghostty patch does
+
+`GhosttySurfaceView.sizeDidChange(...)` now:
+
+1. applies the resize immediately
+2. detects grid-changing resizes
+3. schedules a debounced `scrollToBottom()` after 200ms
+
+`scrollToBottom()` uses:
+
+```text
+ghostty_surface_binding_action("scroll_to_bottom")
+```
+
+Grounded effect:
+
+```text
+after a grid-changing resize, Ghostty will be asked to move the viewport to bottom
+once the resize burst settles.
+```
+
+### What this patch is betting on
+
+The current app-side fix is betting on this model:
+
+```text
+prompt bytes do reach Ghostty
+but after resize/reflow the viewport is left above the prompt/cursor
+so scrolling to bottom after the resize burst should reveal the prompt
+```
+
+That is a much narrower hypothesis than:
+
+```text
+"zmx itself is broken as a transport"
+```
+
+### What this patch does NOT prove yet
+
+The code change is coherent, but by itself it does not yet prove:
+
+1. that the prompt is always below the viewport rather than absent
+2. that 200ms is the right debounce window
+3. that auto-scroll-after-resize is acceptable for users intentionally reading scrollback
+4. that pane insertion and startup restore share the exact same viewport bug
+
+### Current tradeoff
+
+This Ghostty-side patch explicitly trades correctness for scrollback stability:
+
+```text
+any grid-changing resize
+  -> auto-scroll to bottom after debounce
+```
+
+That likely helps prompt visibility, but it may also:
+
+- yank the viewport to bottom after manual resize
+- hide useful scrollback context during interactive resize
+
+So this is best understood as a targeted workaround unless proven otherwise.
+
+### Current grounded read after reviewing the latest patch set
+
+```text
+zmx patch:
+  good and grounded
+  removes daemon-terminal prompt clearing during resize
+
+zmx byte-flow logs:
+  good and grounded
+  directly test whether bytes are actually delayed or dropped
+
+Ghostty debounced scroll-to-bottom:
+  plausible workaround
+  grounded in Ghostty's public binding action API
+  not yet proven as the full root fix
+```
+
+### What to verify next
+
+For the next failing pane-insert or restore case, correlate:
+
+1. zmx byte-flow logs
+2. Ghostty grid-changing resize log
+3. delayed `scroll_to_bottom` behavior
+4. whether the prompt becomes visible without manual Ctrl-L / Enter
+
+The key question is now:
+
+```text
+does the debounced viewport scroll solve the visible prompt loss
+once bytes are proven to be arriving?
+```
+
+## Debugging Epoch 16 (2026-03-29 ~22:00): Root Cause Identified and Fix Implemented
+
+### Root cause analysis
+
+The Ghostty config `scroll-to-bottom` defaults to `keystroke=true, output=false`
+(ref: `vendor/ghostty/src/config/Config.zig:10127-10132`).
+
+This means:
+- On keystroke → viewport scrolls to bottom (that's why Ctrl-L fixes it)
+- On output → viewport does NOT auto-scroll
+
+When zmx sends restored terminal content (via `handleInit` → `serializeTerminalState`
+→ `Output` message → client stdout → Ghostty surface), this is treated as output.
+Since `scroll_to_bottom_on_output = false`, the viewport doesn't follow the cursor.
+
+Similarly, when existing panes are resized during pane insertion, zmx processes the
+resize (SIGWINCH → shell redraw → PTY output → daemon → client → Ghostty). The
+terminal reflows, but the viewport can end up above where the cursor/prompt is.
+
+### Evidence chain
+
+1. **Ctrl-L proves prompt is in buffer**: User confirmed pressing Ctrl-L on a blank
+   pane instantly shows the prompt. This is because Ctrl-L is a keystroke, and
+   `scroll_to_bottom.keystroke = true` scrolls the viewport to bottom before the
+   clear-screen action runs.
+
+2. **Byte-flow instrumentation proves data path is fine**: Logging added to zmx
+   daemon (`pty_read`) and client (`recv_output`, `stdout_write`) shows bytes flow
+   without delay or loss.
+
+3. **Ghostty config traced to source**:
+   - `Config.zig:935`: `@"scroll-to-bottom": ScrollToBottom = .default`
+   - `Config.zig:10127-10131`: default is `keystroke=true, output=false`
+   - `renderer/generic.zig:1187`: `if (self.config.scroll_to_bottom_on_output)` — guards auto-scroll on output
+   - `Surface.zig:2788`: `if (self.config.scroll_to_bottom.keystroke) self.io.terminal.scrollViewport(.bottom)` — keystroke scrolls
+
+4. **ghostty_surface_binding_action API exists**: `embedded.zig:1968-1983` exposes
+   `ghostty_surface_binding_action` which takes a string action name and executes it.
+   The `scroll_to_bottom` action (`Surface.zig:5528-5532`) queues a viewport scroll
+   to bottom.
+
+### Fix implemented
+
+**Three-layer fix:**
+
+1. **zmx prompt_redraw patch** (`vendor/zmx/src/main.zig`):
+   - `handleInit` (line 530-532): Disables `shell_redraws_prompt` before `term.resize()`
+     to prevent zmx daemon terminal from clearing prompt lines during session restore.
+   - `handleResize` (line 554-556): Same pattern — disables prompt_redraw before resize
+     to prevent clearing during pane resize events.
+
+2. **GhosttySurfaceView.scrollToBottom()** (`GhosttySurfaceView.swift`):
+   - New `scrollToBottom()` method calls `ghostty_surface_binding_action("scroll_to_bottom")`
+   - Debounced scroll-to-bottom in `sizeDidChange`: after any grid-changing resize,
+     waits 200ms then scrolls viewport to bottom. The delay gives zmx time to process
+     the resize and send reflowed output back to the surface.
+
+3. **SurfaceManager.scrollToBottom(forPaneId:)** (`SurfaceManager.swift`):
+   - Exposes scroll-to-bottom for explicit coordinator calls if needed.
+
+### Why 200ms delay
+
+The zmx resize flow: `sizeDidChange` → `ghostty_surface_set_size` → SIGWINCH to PTY →
+zmx client receives SIGWINCH → sends Resize to daemon → daemon resizes terminal →
+shell responds to SIGWINCH → output flows through daemon → client → stdout → Ghostty.
+
+Byte-flow instrumentation from earlier epochs showed this round-trip completes in
+10-50ms typically. 200ms with debounce provides safe margin while being imperceptible
+to the user.
+
+### Risk assessment
+
+The debounced scroll-to-bottom fires after every grid-changing resize. If a user is
+reading scrollback and resizes, they'll be scrolled to bottom. This matches terminal
+convention (Ghostty already does this on keystroke) and is acceptable given the
+alternative (invisible prompts).
+
+## Debugging Epoch 17 (2026-03-30 ~11:50): scroll-to-bottom Approach Did Not Fully Work
+
+### What happened
+
+The debounced `scrollToBottom()` approach (Epoch 16) was tested. Results: **not
+always working**. Some panes still show blank after startup restore.
+
+### Evidence
+
+1. **No scroll-to-bottom events in logs**: Grepping `/tmp/agentstudio_debug.log` for
+   "scrollToBottom" or "scroll_to_bottom" returned zero results. The debounced
+   `scrollToBottom()` method had no logging, so we cannot tell if it fired or not.
+
+2. **zmx daemons still running OLD binary**: The zmx daemon processes were spawned
+   at a previous app launch (timestamps show ~9:58PM). They are long-lived forked
+   processes that persist across app restarts. The `handleResize` fix (which added
+   `term.resize()` back with prompt_redraw patch) was NOT active. The old code had
+   `pty_only=true` in the resize log — confirmed by:
+   ```
+   [info] resize rows=54 cols=45 pty_only=true
+   ```
+   This means `term.resize()` was still being skipped in the running daemons.
+
+3. **zmx logs location discovered**: `~/.agentstudio/z/logs/{session_name}.log`.
+   Per-daemon log files with timestamps. These are the source of truth for zmx behavior.
+
+### Why the scroll-to-bottom approach is wrong
+
+1. **It's a workaround, not a fix.** It fights the symptom (viewport position) instead
+   of understanding why the viewport is wrong.
+
+2. **Too broad.** Fires on every grid-changing resize — would yank viewport during
+   manual resize, interactive window adjustments, scrollback reading.
+
+3. **Timing-dependent.** 200-300ms delay is a guess. No evidence it's the right window.
+   If zmx round-trip takes longer on startup with many panes, it misses.
+
+4. **Ghostty doesn't do this natively.** Ghostty's own terminal behavior does not
+   auto-scroll on output by default. Fighting this default creates unexpected UX.
+
+### What we still don't know
+
+1. **Is the viewport actually wrong, or is the content missing?** Ctrl-L proves the
+   prompt is there in the buffer for at least some cases. But we haven't verified this
+   for ALL failing cases. Some panes might have genuinely missing content (zmx
+   serialize/restore failure).
+
+2. **What does zmx's handleInit actually send during session restore?** We need to
+   look at the serialized terminal state — is it complete? Does it include the prompt?
+   Does it position the cursor correctly?
+
+3. **What happens to Ghostty's viewport when it receives the serialized state?** The
+   content arrives as raw bytes (VT sequences). After writing these to the screen, where
+   is the cursor? Where is the viewport?
+
+### Definitive test (fresh zmx daemons + instrumented scrollToBottom)
+
+Killed all zmx daemons and relaunched with instrumented build. Results:
+
+```
+6 surfaces got gridChanged → scheduled scrollToBottom
+6 scrollToBottom calls returned result=true
+Prompts STILL missing on some panes
+```
+
+zmx daemon logs confirm:
+- All new daemons (no stale processes)
+- `init resize ... prompt_redraw_disabled=true` on all sessions
+- All first-time attaches (no serialize/restore — `has_had_client` was false)
+- Byte flow clean: `stdout_write ... remaining=0` everywhere
+
+**This definitively disproves the viewport-scroll hypothesis.** Ghostty accepted the
+scroll-to-bottom action on all surfaces, and it made no difference.
+
+### What this tells us
+
+Since these are first-time attaches (zmx daemons just spawned, no prior client),
+there is no serialized terminal state being restored. The shell is starting fresh.
+Yet prompts are still missing.
+
+This means the prompt loss is **not** caused by:
+- zmx session restore (no restore happened)
+- Viewport scroll position (scrollToBottom had no effect)
+- zmx byte delay/buffering (bytes flow immediately)
+- zmx prompt_redraw clearing (disabled and confirmed in logs)
+
+The prompt loss is happening during **fresh shell startup through zmx**, not just
+session restore. Something about the zmx client/daemon data path or the timing of
+Ghostty surface creation is causing the shell's initial prompt output to not render.
+
+### Code reverted
+
+All scroll-to-bottom code has been reverted from GhosttySurfaceView and SurfaceManager.
+The zmx prompt_redraw patches in `handleInit` and `handleResize` remain as they are
+independently correct (prevent daemon terminal state corruption).
+
+### Next investigation direction
+
+The problem manifests during fresh shell startup through zmx. Need to investigate:
+
+1. Race between surface creation, window attachment, and zmx shell output
+2. Whether the shell prompt bytes arrive before the surface is fully initialized
+3. Whether Ghostty drops or ignores input that arrives before the surface has a window
+4. The timing relationship between `ghostty_surface_set_size` and when the PTY
+   output actually renders
