@@ -25,6 +25,8 @@ struct SingleTabContent: View {
                 appLifecycleStore: appLifecycleStore
             )
             .background(AppStyle.chromeBackground)
+        } else {
+            _ = RestoreTrace.log("SingleTabContent.body missingTab tabId=\(tabId)")
         }
     }
 }

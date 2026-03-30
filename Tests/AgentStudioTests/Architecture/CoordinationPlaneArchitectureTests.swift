@@ -82,7 +82,9 @@ struct CoordinationPlaneArchitectureTests {
                 encoding: .utf8
             ),
             paneTabActionDispatcherSource: String(
-                contentsOf: projectRoot.appending(path: "Sources/AgentStudio/App/Panes/PaneTabActionDispatcher.swift"),
+                contentsOf: projectRoot.appending(
+                    path: "Sources/AgentStudio/Core/Actions/PaneTabActionDispatcher.swift"
+                ),
                 encoding: .utf8
             ),
             ghosttySource: String(
@@ -175,7 +177,7 @@ struct CoordinationPlaneArchitectureTests {
             path: "Sources/AgentStudio/Core/Actions/PaneActionDispatching.swift"
         )
         let paneTabActionDispatcherPath = projectRoot.appending(
-            path: "Sources/AgentStudio/App/Panes/PaneTabActionDispatcher.swift"
+            path: "Sources/AgentStudio/Core/Actions/PaneTabActionDispatcher.swift"
         )
         let ghosttyPath = projectRoot.appending(
             path: "Sources/AgentStudio/Features/Terminal/Ghostty/Ghostty.swift"

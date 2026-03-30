@@ -1,22 +1,18 @@
 import SwiftUI
 
-/// SwiftUI root for the main terminal content area.
+/// Legacy active-tab SwiftUI root preserved for diagnostics and transitional tests.
 ///
-/// Hosted by PaneTabViewController's `splitHostingView` (NSHostingView).
-/// Reads the active tab from WorkspaceStore via @Observable property tracking
-/// and renders the flat pane strip for that tab. Re-renders automatically
-/// when any accessed store property changes — no manual invalidation needed.
-///
-/// See docs/architecture/appkit_swiftui_architecture.md for the hosting pattern.
+/// The production `PaneTabViewController` no longer hosts this view directly; it now
+/// creates one persistent `SingleTabContent` host per tab at the AppKit layer.
+/// This type remains as a compatibility shim for tests and debug-only investigation.
+@available(*, deprecated, message: "PaneTabViewController now uses per-tab SingleTabContent hosts")
 struct ActiveTabContent: View {
     let store: WorkspaceStore
     let repoCache: WorkspaceRepoCache
     let viewRegistry: ViewRegistry
     let appLifecycleStore: AppLifecycleStore
     let closeTransitionCoordinator: PaneCloseTransitionCoordinator
-    let action: (PaneActionCommand) -> Void
-    let shouldAcceptDrop: (SplitDropPayload, UUID, DropZone) -> Bool
-    let onDrop: (SplitDropPayload, UUID, DropZone) -> Void
+    let actionDispatcher: PaneActionDispatching
 
     private static func traceBody(
         activeTabId: UUID?,
@@ -61,11 +57,7 @@ struct ActiveTabContent: View {
                 zoomedPaneId: tab.zoomedPaneId,
                 minimizedPaneIds: tab.minimizedPaneIds,
                 closeTransitionCoordinator: closeTransitionCoordinator,
-                actionDispatcher: PaneTabActionDispatcher(
-                    dispatch: action,
-                    shouldAcceptDrop: shouldAcceptDrop,
-                    handleDrop: onDrop
-                ),
+                actionDispatcher: actionDispatcher,
                 store: store,
                 repoCache: repoCache,
                 viewRegistry: viewRegistry,

@@ -6,8 +6,6 @@ final class PersistentTabHostView: NSView {
     let tabId: UUID
     let hostingView: NSHostingView<SingleTabContent>
 
-    var containerView: NSView { self }
-
     init(
         tabId: UUID,
         rootView: SingleTabContent
@@ -16,6 +14,7 @@ final class PersistentTabHostView: NSView {
         self.hostingView = NSHostingView(rootView: rootView)
         super.init(frame: .zero)
         translatesAutoresizingMaskIntoConstraints = false
+        hostingView.sizingOptions = [.minSize]
         hostingView.translatesAutoresizingMaskIntoConstraints = false
         addSubview(hostingView)
         NSLayoutConstraint.activate([

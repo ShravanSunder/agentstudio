@@ -64,13 +64,31 @@ class PaneTabViewController: NSViewController, CommandHandler {
     private let closeTransitionCoordinator: PaneCloseTransitionCoordinator
     private lazy var actionDispatcher = PaneTabActionDispatcher(
         dispatch: { [weak self] action in
-            self?.dispatchAction(action)
+            guard let self else {
+                RestoreTrace.log(
+                    "PaneTabActionDispatcher.dispatch dropped ownerReleased action=\(String(describing: action))"
+                )
+                return
+            }
+            self.dispatchAction(action)
         },
         shouldAcceptDrop: { [weak self] payload, destPaneId, zone in
-            self?.evaluateDropAcceptance(payload: payload, destPaneId: destPaneId, zone: zone) ?? false
+            guard let self else {
+                RestoreTrace.log(
+                    "PaneTabActionDispatcher.shouldAcceptDrop dropped ownerReleased destPaneId=\(destPaneId) zone=\(zone)"
+                )
+                return false
+            }
+            return self.evaluateDropAcceptance(payload: payload, destPaneId: destPaneId, zone: zone)
         },
         handleDrop: { [weak self] payload, destPaneId, zone in
-            self?.handleSplitDrop(payload: payload, destPaneId: destPaneId, zone: zone)
+            guard let self else {
+                RestoreTrace.log(
+                    "PaneTabActionDispatcher.handleDrop dropped ownerReleased destPaneId=\(destPaneId) zone=\(zone)"
+                )
+                return
+            }
+            self.handleSplitDrop(payload: payload, destPaneId: destPaneId, zone: zone)
         }
     )
 
@@ -80,7 +98,9 @@ class PaneTabViewController: NSViewController, CommandHandler {
     private var terminalContainer: RestoreAwareTerminalContainerView!
     private var emptyStateView: NSView?
     private var tabContentHosts: [UUID: PersistentTabHostView] = [:]
-    private(set) var paneRepresentableDismantleCount = 0
+    #if DEBUG
+        private(set) var paneRepresentableDismantleCount = 0
+    #endif
 
     /// Local event monitor for arrangement bar keyboard shortcut
     private var arrangementBarEventMonitor: Any?
@@ -119,9 +139,11 @@ class PaneTabViewController: NSViewController, CommandHandler {
         fatalError("init(coder:) not supported")
     }
 
-    func recordPaneRepresentableDismantleForTesting() {
-        paneRepresentableDismantleCount += 1
-    }
+    #if DEBUG
+        func recordPaneRepresentableDismantleForTesting() {
+            paneRepresentableDismantleCount += 1
+        }
+    #endif
 
     // MARK: - View Lifecycle
 
@@ -290,8 +312,8 @@ class PaneTabViewController: NSViewController, CommandHandler {
     // MARK: - Store Observation (AppKit-Level Concerns)
 
     /// Observe store for AppKit-level state: empty state visibility and focus management.
-    /// SwiftUI rendering is handled by ActiveTabContent via @Observable — this method
-    /// only handles things that live outside the SwiftUI tree (NSView visibility, firstResponder).
+    /// SwiftUI rendering is handled by per-tab SingleTabContent hosts — this method
+    /// only handles things that live outside the SwiftUI tree (host visibility, firstResponder).
     private func observeForAppKitState() {
         withObservationTracking {
             _ = self.store.tabs
@@ -377,6 +399,7 @@ class PaneTabViewController: NSViewController, CommandHandler {
 
     private func syncTabContentHosts() {
         let liveTabIds = Set(store.tabs.map(\.id))
+        guard liveTabIds != Set(tabContentHosts.keys) else { return }
 
         for tab in store.tabs where tabContentHosts[tab.id] == nil {
             let host = buildTabContentHost(for: tab.id)

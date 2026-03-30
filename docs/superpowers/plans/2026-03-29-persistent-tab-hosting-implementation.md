@@ -15,7 +15,7 @@
 **Files:**
 - Create: `Sources/AgentStudio/App/Panes/PersistentTabHostView.swift`
   Responsibility: AppKit-owned persistent host for one tab, containing one pinned `NSHostingView<SingleTabContent>`.
-- Create: `Sources/AgentStudio/App/Panes/PaneTabActionDispatcher.swift`
+- Create: `Sources/AgentStudio/Core/Actions/PaneTabActionDispatcher.swift`
   Responsibility: stable `@MainActor` reference type that exposes pane action dispatch, split-resize finalization, and drop-routing methods without closure recreation.
 - Create: `Sources/AgentStudio/Core/Views/Splits/SingleTabContent.swift`
   Responsibility: SwiftUI root for exactly one tab ID; renders one visible tab subtree without reading `store.activeTabId`.
@@ -468,7 +468,7 @@ Expected: still FAIL on the within-tab no-dismantle test because the closure-hea
 ### Task 3: Replace Closure Props Through The Full Visible Tab Tree
 
 **Files:**
-- Create: `Sources/AgentStudio/App/Panes/PaneTabActionDispatcher.swift`
+- Create: `Sources/AgentStudio/Core/Actions/PaneTabActionDispatcher.swift`
 - Modify: `Sources/AgentStudio/Core/Views/Splits/FlatTabStripContainer.swift`
 - Modify: `Sources/AgentStudio/Core/Views/Splits/FlatPaneStripContent.swift`
 - Modify: `Sources/AgentStudio/Core/Views/Splits/PaneLeafContainer.swift`
@@ -522,7 +522,7 @@ Expected: FAIL to compile because the dispatcher type and propagated API do not 
 
 - [ ] **Step 3: Implement the stable dispatcher and propagate it to every hot-path child**
 
-Create `Sources/AgentStudio/App/Panes/PaneTabActionDispatcher.swift`:
+Create `Sources/AgentStudio/Core/Actions/PaneTabActionDispatcher.swift`:
 
 ```swift
 import Foundation
@@ -679,7 +679,7 @@ Expected: PASS. Both cross-tab and within-tab no-dismantle tests should pass.
 - [ ] **Step 5: Commit the dispatcher propagation**
 
 ```bash
-git add Sources/AgentStudio/App/Panes/PaneTabActionDispatcher.swift Sources/AgentStudio/Core/Views/Splits/FlatTabStripContainer.swift Sources/AgentStudio/Core/Views/Splits/FlatPaneStripContent.swift Sources/AgentStudio/Core/Views/Splits/PaneLeafContainer.swift Sources/AgentStudio/Core/Views/Splits/CollapsedPaneBar.swift Sources/AgentStudio/Core/Views/Splits/SplitContainerDropCaptureOverlay.swift Sources/AgentStudio/Core/Views/Drawer/DrawerPanelOverlay.swift Sources/AgentStudio/App/Panes/PaneTabViewController.swift Tests/AgentStudioTests/App/PaneTabViewControllerTabRetentionTests.swift
+git add Sources/AgentStudio/Core/Actions/PaneTabActionDispatcher.swift Sources/AgentStudio/Core/Views/Splits/FlatTabStripContainer.swift Sources/AgentStudio/Core/Views/Splits/FlatPaneStripContent.swift Sources/AgentStudio/Core/Views/Splits/PaneLeafContainer.swift Sources/AgentStudio/Core/Views/Splits/CollapsedPaneBar.swift Sources/AgentStudio/Core/Views/Splits/SplitContainerDropCaptureOverlay.swift Sources/AgentStudio/Core/Views/Drawer/DrawerPanelOverlay.swift Sources/AgentStudio/App/Panes/PaneTabViewController.swift Tests/AgentStudioTests/App/PaneTabViewControllerTabRetentionTests.swift
 git commit -m "refactor: remove closure churn from visible tab subtree"
 ```
 

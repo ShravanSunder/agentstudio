@@ -72,7 +72,10 @@ struct PaneTabViewControllerTabRetentionTests {
     @Test
     func switchingTabs_reusesPersistentHosts() throws {
         let harness = makeHarness()
-        defer { try? FileManager.default.removeItem(at: harness.tempDir) }
+        defer {
+            PaneViewRepresentable.onDismantleForTesting = nil
+            try? FileManager.default.removeItem(at: harness.tempDir)
+        }
 
         let firstPane = harness.store.createPane(
             source: .floating(workingDirectory: harness.tempDir, title: "First"),
@@ -96,6 +99,8 @@ struct PaneTabViewControllerTabRetentionTests {
         harness.store.setActiveTab(secondTab.id)
         harness.controller.view.layoutSubtreeIfNeeded()
         let secondHost = try #require(harness.controller.tabHostViewForTesting(tabId: secondTab.id))
+        #expect(firstHost.isHidden)
+        #expect(secondHost.isHidden == false)
 
         harness.store.setActiveTab(firstTab.id)
         harness.controller.view.layoutSubtreeIfNeeded()
@@ -105,12 +110,17 @@ struct PaneTabViewControllerTabRetentionTests {
 
         #expect(firstHostAfterRoundTrip === firstHost)
         #expect(secondHost !== firstHost)
+        #expect(firstHostAfterRoundTrip.isHidden == false)
+        #expect(secondHost.isHidden)
     }
 
     @Test
     func activeTabChanges_doNotDismantleStillExistingTabHosts() throws {
         let harness = makeHarness()
-        defer { try? FileManager.default.removeItem(at: harness.tempDir) }
+        defer {
+            PaneViewRepresentable.onDismantleForTesting = nil
+            try? FileManager.default.removeItem(at: harness.tempDir)
+        }
 
         let firstPane = harness.store.createPane(
             source: .floating(workingDirectory: harness.tempDir, title: "First"),
@@ -142,7 +152,10 @@ struct PaneTabViewControllerTabRetentionTests {
     @Test
     func withinTabStateChanges_doNotDismantleRepresentables() throws {
         let harness = makeHarness()
-        defer { try? FileManager.default.removeItem(at: harness.tempDir) }
+        defer {
+            PaneViewRepresentable.onDismantleForTesting = nil
+            try? FileManager.default.removeItem(at: harness.tempDir)
+        }
 
         let pane = harness.store.createPane(
             source: .floating(workingDirectory: harness.tempDir, title: "Focused"),
@@ -161,6 +174,82 @@ struct PaneTabViewControllerTabRetentionTests {
 
         #expect(
             harness.controller.paneRepresentableDismantleCountForTesting == dismantleCountBeforeMutation
+        )
+    }
+
+    @Test
+    func closingTab_removesPersistentHost() throws {
+        let harness = makeHarness()
+        defer {
+            PaneViewRepresentable.onDismantleForTesting = nil
+            try? FileManager.default.removeItem(at: harness.tempDir)
+        }
+
+        let firstPane = harness.store.createPane(
+            source: .floating(workingDirectory: harness.tempDir, title: "First"),
+            provider: .zmx
+        )
+        let secondPane = harness.store.createPane(
+            source: .floating(workingDirectory: harness.tempDir, title: "Second"),
+            provider: .zmx
+        )
+        let firstTab = Tab(paneId: firstPane.id, name: "First")
+        let secondTab = Tab(paneId: secondPane.id, name: "Second")
+        harness.store.appendTab(firstTab)
+        harness.store.appendTab(secondTab)
+        registerPaneHost(firstPane.id, in: harness)
+        registerPaneHost(secondPane.id, in: harness)
+        harness.store.setActiveTab(firstTab.id)
+        harness.controller.view.layoutSubtreeIfNeeded()
+
+        #expect(harness.controller.tabHostViewForTesting(tabId: secondTab.id) != nil)
+
+        harness.store.removeTab(secondTab.id)
+        harness.controller.view.layoutSubtreeIfNeeded()
+
+        #expect(harness.controller.tabHostViewForTesting(tabId: secondTab.id) == nil)
+        #expect(harness.controller.tabHostViewForTesting(tabId: firstTab.id) != nil)
+    }
+
+    @Test
+    func addingTab_createsPersistentHostWithoutReplacingExistingHost() throws {
+        let harness = makeHarness()
+        defer {
+            PaneViewRepresentable.onDismantleForTesting = nil
+            try? FileManager.default.removeItem(at: harness.tempDir)
+        }
+
+        let firstPane = harness.store.createPane(
+            source: .floating(workingDirectory: harness.tempDir, title: "First"),
+            provider: .zmx
+        )
+        let firstTab = Tab(paneId: firstPane.id, name: "First")
+        harness.store.appendTab(firstTab)
+        registerPaneHost(firstPane.id, in: harness)
+        harness.store.setActiveTab(firstTab.id)
+        harness.controller.view.layoutSubtreeIfNeeded()
+
+        let firstHost = try #require(harness.controller.tabHostViewForTesting(tabId: firstTab.id))
+        let dismantleCountBeforeAdd = harness.controller.paneRepresentableDismantleCountForTesting
+
+        let secondPane = harness.store.createPane(
+            source: .floating(workingDirectory: harness.tempDir, title: "Second"),
+            provider: .zmx
+        )
+        let secondTab = Tab(paneId: secondPane.id, name: "Second")
+        harness.store.appendTab(secondTab)
+        registerPaneHost(secondPane.id, in: harness)
+        harness.store.setActiveTab(secondTab.id)
+        harness.controller.view.layoutSubtreeIfNeeded()
+
+        let firstHostAfterAdd = try #require(harness.controller.tabHostViewForTesting(tabId: firstTab.id))
+        let secondHost = try #require(harness.controller.tabHostViewForTesting(tabId: secondTab.id))
+
+        #expect(firstHostAfterAdd === firstHost)
+        #expect(firstHostAfterAdd.isHidden)
+        #expect(secondHost.isHidden == false)
+        #expect(
+            harness.controller.paneRepresentableDismantleCountForTesting == dismantleCountBeforeAdd
         )
     }
 }

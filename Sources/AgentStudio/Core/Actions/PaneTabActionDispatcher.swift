@@ -17,6 +17,9 @@ final class PaneTabActionDispatcher: PaneActionDispatching {
     }
 
     func dispatch(_ action: PaneActionCommand) {
+        if Thread.isMainThread == false {
+            RestoreTrace.log("PaneTabActionDispatcher.dispatch offMainThread action=\(String(describing: action))")
+        }
         dispatchClosure(action)
     }
 
@@ -25,7 +28,8 @@ final class PaneTabActionDispatcher: PaneActionDispatching {
         destinationPaneId: UUID,
         zone: DropZone
     ) -> Bool {
-        shouldAcceptDropClosure(payload, destinationPaneId, zone)
+        let result = shouldAcceptDropClosure(payload, destinationPaneId, zone)
+        return result
     }
 
     func handleDrop(
