@@ -19,7 +19,9 @@ class MainWindowController: NSWindowController, NSWindowDelegate {
         uiStore: WorkspaceUIStore,
         actionExecutor: ActionExecutor,
         applicationLifecycleMonitor: ApplicationLifecycleMonitor,
-        tabBarAdapter: TabBarAdapter, viewRegistry: ViewRegistry
+        appLifecycleStore: AppLifecycleStore,
+        tabBarAdapter: TabBarAdapter,
+        viewRegistry: ViewRegistry
     ) {
         let window = NSWindow(
             contentRect: NSRect(x: 0, y: 0, width: 1200, height: 800),
@@ -52,6 +54,7 @@ class MainWindowController: NSWindowController, NSWindowDelegate {
             uiStore: uiStore,
             actionExecutor: actionExecutor,
             applicationLifecycleMonitor: applicationLifecycleMonitor,
+            appLifecycleStore: appLifecycleStore,
             tabBarAdapter: tabBarAdapter,
             viewRegistry: viewRegistry
         )

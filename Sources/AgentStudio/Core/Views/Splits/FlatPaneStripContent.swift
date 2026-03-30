@@ -23,6 +23,10 @@ struct FlatPaneStripContent: View {
                 minimizedPaneIds: minimizedPaneIds,
                 collapsedPaneWidth: CollapsedPaneBar.barWidth
             )
+            // swiftlint:disable:next redundant_discardable_let
+            let _ = RestoreTrace.log(
+                "FlatPaneStripContent.body paneCount=\(layout.panes.count) segmentCount=\(metrics.paneSegments.count) geoSize=\(NSStringFromSize(geometry.size))"
+            )
 
             if metrics.allMinimized {
                 HStack(spacing: 0) {

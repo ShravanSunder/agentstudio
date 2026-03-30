@@ -13,6 +13,7 @@ struct PaneTabViewControllerLaunchRestoreTests {
         let runtime: SessionRuntime
         let coordinator: PaneCoordinator
         let executor: ActionExecutor
+        let appLifecycleStore: AppLifecycleStore
         let windowLifecycleStore: WindowLifecycleStore
         let applicationLifecycleMonitor: ApplicationLifecycleMonitor
         let controller: PaneTabViewController
@@ -48,6 +49,7 @@ struct PaneTabViewControllerLaunchRestoreTests {
         let controller = PaneTabViewController(
             store: store,
             applicationLifecycleMonitor: applicationLifecycleMonitor,
+            appLifecycleStore: appLifecycleStore,
             executor: executor,
             tabBarAdapter: TabBarAdapter(store: store),
             viewRegistry: viewRegistry
@@ -68,6 +70,7 @@ struct PaneTabViewControllerLaunchRestoreTests {
             runtime: runtime,
             coordinator: coordinator,
             executor: executor,
+            appLifecycleStore: appLifecycleStore,
             windowLifecycleStore: windowLifecycleStore,
             applicationLifecycleMonitor: applicationLifecycleMonitor,
             controller: controller,
@@ -154,6 +157,27 @@ struct PaneTabViewControllerLaunchRestoreTests {
         #expect(
             config.initialFrame
                 == CGRect(x: gap, y: gap, width: containerWidth - gap * 2, height: containerHeight - gap * 2))
+    }
+
+    @Test
+    func appLifecycleChanges_doNotReplaceSplitHostingView() throws {
+        let harness = makeHarness()
+        defer { try? FileManager.default.removeItem(at: harness.tempDir) }
+
+        let originalSplitHostingView = try #require(harness.controller.splitHostingViewForTesting)
+        #expect(harness.controller.appLifecycleStoreForTesting === harness.appLifecycleStore)
+
+        harness.applicationLifecycleMonitor.handleApplicationDidBecomeActive()
+        harness.controller.view.layoutSubtreeIfNeeded()
+
+        let updatedSplitHostingView = try #require(harness.controller.splitHostingViewForTesting)
+        #expect(updatedSplitHostingView === originalSplitHostingView)
+
+        harness.applicationLifecycleMonitor.handleApplicationDidResignActive()
+        harness.controller.view.layoutSubtreeIfNeeded()
+
+        let splitHostingViewAfterResign = try #require(harness.controller.splitHostingViewForTesting)
+        #expect(splitHostingViewAfterResign === originalSplitHostingView)
     }
 }
 

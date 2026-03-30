@@ -309,6 +309,7 @@ class AppDelegate: NSObject, NSApplicationDelegate {
             uiStore: workspaceUIStore,
             actionExecutor: executor,
             applicationLifecycleMonitor: applicationLifecycleMonitor,
+            appLifecycleStore: appLifecycleStore,
             tabBarAdapter: tabBarAdapter,
             viewRegistry: viewRegistry
         )
@@ -488,6 +489,7 @@ class AppDelegate: NSObject, NSApplicationDelegate {
                 uiStore: workspaceUIStore,
                 actionExecutor: executor,
                 applicationLifecycleMonitor: applicationLifecycleMonitor,
+                appLifecycleStore: appLifecycleStore,
                 tabBarAdapter: tabBarAdapter,
                 viewRegistry: viewRegistry
             )

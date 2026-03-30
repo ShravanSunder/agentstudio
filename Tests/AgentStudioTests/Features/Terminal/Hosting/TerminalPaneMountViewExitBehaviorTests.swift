@@ -37,14 +37,17 @@ struct TerminalPaneMountViewExitBehaviorTests {
             runtimeRegistry: RuntimeRegistry()
         )
         let executor = ActionExecutor(coordinator: coordinator, store: store)
+        let appLifecycleStore = AppLifecycleStore()
+        let windowLifecycleStore = WindowLifecycleStore()
         let applicationLifecycleMonitor = ApplicationLifecycleMonitor(
-            appLifecycleStore: AppLifecycleStore(),
-            windowLifecycleStore: WindowLifecycleStore()
+            appLifecycleStore: appLifecycleStore,
+            windowLifecycleStore: windowLifecycleStore
         )
         let controller = PaneTabViewController(
             store: store,
             repoCache: WorkspaceRepoCache(),
             applicationLifecycleMonitor: applicationLifecycleMonitor,
+            appLifecycleStore: appLifecycleStore,
             executor: executor,
             tabBarAdapter: TabBarAdapter(store: store, repoCache: WorkspaceRepoCache()),
             viewRegistry: viewRegistry

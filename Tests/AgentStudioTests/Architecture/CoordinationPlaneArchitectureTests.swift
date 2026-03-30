@@ -89,10 +89,17 @@ struct CoordinationPlaneArchitectureTests {
         #expect(appDelegateSource.contains("var applicationLifecycleMonitor: ApplicationLifecycleMonitor"))
         #expect(appDelegateRoutingSource.contains("Ghostty.bindApplicationLifecycleStore(appLifecycleStore)"))
         #expect(
-            paneTabViewControllerSource.contains(
+            paneTabViewControllerSource.contains("private let appLifecycleStore: AppLifecycleStore")
+        )
+        #expect(
+            !paneTabViewControllerSource.contains(
                 "func setAppLifecycleStore(_ appLifecycleStore: AppLifecycleStore)"
             )
         )
+        #expect(!paneTabViewControllerSource.contains("replaceSplitContentView()"))
+        #expect(mainWindowControllerSource.contains("appLifecycleStore: AppLifecycleStore"))
+        #expect(splitViewControllerSource.contains("appLifecycleStore: AppLifecycleStore"))
+        #expect(!appDelegateRoutingSource.contains("setAppLifecycleStore(appLifecycleStore)"))
         #expect(activeTabContentSource.contains("let appLifecycleStore: AppLifecycleStore"))
         #expect(flatTabStripContainerSource.contains("let appLifecycleStore: AppLifecycleStore"))
         #expect(drawerPanelOverlaySource.contains("let appLifecycleStore: AppLifecycleStore"))

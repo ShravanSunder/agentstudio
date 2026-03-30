@@ -322,8 +322,18 @@ extension Ghostty {
             super.viewDidMoveToWindow()
             let isReparent = wasDetachedFromWindow && window != nil
             let viewId = ObjectIdentifier(self)
+            let superviewInfo: String
+            if let sv = superview {
+                superviewInfo = "class=\(type(of: sv)) id=\(ObjectIdentifier(sv))"
+            } else {
+                superviewInfo = "nil"
+            }
+            let hierarchyDescription =
+                (window == nil || isReparent)
+                ? " ancestry=\(viewHierarchyDescription())"
+                : ""
             RestoreTrace.log(
-                "Ghostty.SurfaceView.viewDidMoveToWindow viewId=\(viewId) window=\(window != nil) reparent=\(isReparent) wasDetached=\(wasDetachedFromWindow) frame=\(NSStringFromRect(frame)) bounds=\(NSStringFromRect(bounds)) superview=\(superview != nil) hidden=\(isHidden)"
+                "Ghostty.SurfaceView.viewDidMoveToWindow viewId=\(viewId) window=\(window != nil) reparent=\(isReparent) wasDetached=\(wasDetachedFromWindow) frame=\(NSStringFromRect(frame)) bounds=\(NSStringFromRect(bounds)) superview=\(superviewInfo) hidden=\(isHidden)\(hierarchyDescription)"
             )
             if window == nil {
                 wasDetachedFromWindow = true
@@ -430,6 +440,16 @@ extension Ghostty {
             CATransaction.commit()
 
             ghostty_surface_set_content_scale(surface, Double(scaleFactor), Double(scaleFactor))
+        }
+
+        private func viewHierarchyDescription() -> String {
+            var nodes: [String] = []
+            var current: NSView? = self
+            while let currentView = current {
+                nodes.append("class=\(type(of: currentView)) id=\(ObjectIdentifier(currentView))")
+                current = currentView.superview
+            }
+            return nodes.joined(separator: " -> ")
         }
 
         override func setFrameSize(_ newSize: NSSize) {

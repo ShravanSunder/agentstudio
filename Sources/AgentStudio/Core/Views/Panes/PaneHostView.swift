@@ -9,6 +9,13 @@ final class ManagementModeContainerView: NSView {
         guard !ManagementModeMonitor.shared.isActive else { return nil }
         return super.hitTest(point)
     }
+
+    override func viewDidMoveToWindow() {
+        super.viewDidMoveToWindow()
+        RestoreTrace.log(
+            "ManagementModeContainerView.viewDidMoveToWindow window=\(window != nil) id=\(ObjectIdentifier(self)) superview=\(superview != nil)"
+        )
+    }
 }
 
 @MainActor
@@ -52,6 +59,13 @@ class PaneHostView: NSView, Identifiable {
     override func hitTest(_ point: NSPoint) -> NSView? {
         guard !ManagementModeMonitor.shared.isActive else { return nil }
         return super.hitTest(point)
+    }
+
+    override func viewDidMoveToWindow() {
+        super.viewDidMoveToWindow()
+        RestoreTrace.log(
+            "PaneHostView.viewDidMoveToWindow paneId=\(paneId) window=\(window != nil) id=\(ObjectIdentifier(self)) superview=\(superview != nil)"
+        )
     }
 
     func mountContentView(_ mountedView: NSView & PaneMountedContent) {

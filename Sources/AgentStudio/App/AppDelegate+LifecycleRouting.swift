@@ -25,7 +25,6 @@ extension AppDelegate {
 
     func wireLifecycleConsumers() {
         Ghostty.bindApplicationLifecycleStore(appLifecycleStore)
-        paneTabViewController()?.setAppLifecycleStore(appLifecycleStore)
     }
 
     func paneTabViewController() -> PaneTabViewController? {

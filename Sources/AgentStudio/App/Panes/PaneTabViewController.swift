@@ -19,6 +19,9 @@ private final class RestoreAwareTerminalContainerView: NSView {
 
     override func viewDidMoveToWindow() {
         super.viewDidMoveToWindow()
+        RestoreTrace.log(
+            "RestoreAwareTerminalContainerView.viewDidMoveToWindow window=\(window != nil) id=\(ObjectIdentifier(self)) superview=\(superview != nil) bounds=\(NSStringFromRect(bounds))"
+        )
         logBoundsChangeIfNeeded(reason: "viewDidMoveToWindow")
         publishNonEmptyLayoutBoundsChangedIfNeeded()
     }
@@ -54,11 +57,11 @@ class PaneTabViewController: NSViewController, CommandHandler {
     private let store: WorkspaceStore
     private let repoCache: WorkspaceRepoCache
     private let applicationLifecycleMonitor: ApplicationLifecycleMonitor
+    private let appLifecycleStore: AppLifecycleStore
     private let executor: ActionExecutor
     private let tabBarAdapter: TabBarAdapter
     private let viewRegistry: ViewRegistry
     private let closeTransitionCoordinator: PaneCloseTransitionCoordinator
-    private var appLifecycleStore = AppLifecycleStore()
 
     // MARK: - View State
 
@@ -84,6 +87,7 @@ class PaneTabViewController: NSViewController, CommandHandler {
         store: WorkspaceStore,
         repoCache: WorkspaceRepoCache = WorkspaceRepoCache(),
         applicationLifecycleMonitor: ApplicationLifecycleMonitor,
+        appLifecycleStore: AppLifecycleStore,
         executor: ActionExecutor,
         tabBarAdapter: TabBarAdapter,
         viewRegistry: ViewRegistry,
@@ -92,6 +96,7 @@ class PaneTabViewController: NSViewController, CommandHandler {
         self.store = store
         self.repoCache = repoCache
         self.applicationLifecycleMonitor = applicationLifecycleMonitor
+        self.appLifecycleStore = appLifecycleStore
         self.executor = executor
         self.tabBarAdapter = tabBarAdapter
         self.viewRegistry = viewRegistry
@@ -105,13 +110,6 @@ class PaneTabViewController: NSViewController, CommandHandler {
     }
 
     // MARK: - View Lifecycle
-
-    func setAppLifecycleStore(_ appLifecycleStore: AppLifecycleStore) {
-        self.appLifecycleStore = appLifecycleStore
-
-        guard isViewLoaded else { return }
-        replaceSplitContentView()
-    }
 
     override func loadView() {
         let containerView = NSView()
@@ -410,12 +408,6 @@ class PaneTabViewController: NSViewController, CommandHandler {
         let tabBarFrame = tabBarHostingView.map { NSStringFromRect($0.frame) } ?? "nil"
         return
             "PaneTabViewController.geometry reason=\(reason) viewFrame=\(rootFrame) viewBounds=\(rootBounds) terminalFrame=\(terminalFrame) terminalBounds=\(terminalBounds) hostingFrame=\(hostingFrame) hostingBounds=\(hostingBounds) tabBarFrame=\(tabBarFrame)"
-    }
-
-    private func replaceSplitContentView() {
-        splitHostingView?.removeFromSuperview()
-        splitHostingView = nil
-        setupSplitContentView()
     }
 
     /// Evaluate whether a drop is acceptable at the given pane and zone.
@@ -1094,3 +1086,10 @@ class PaneTabViewController: NSViewController, CommandHandler {
         return true
     }
 }
+
+#if DEBUG
+    extension PaneTabViewController {
+        var splitHostingViewForTesting: NSHostingView<ActiveTabContent>? { splitHostingView }
+        var appLifecycleStoreForTesting: AppLifecycleStore { appLifecycleStore }
+    }
+#endif

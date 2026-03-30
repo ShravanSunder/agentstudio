@@ -1,6 +1,17 @@
 import AppKit
 import SwiftUI
 
+@MainActor
+private func ancestorChainDescription(for view: NSView) -> String {
+    var nodes: [String] = []
+    var current: NSView? = view
+    while let currentView = current {
+        nodes.append("class=\(type(of: currentView)) id=\(ObjectIdentifier(currentView))")
+        current = currentView.superview
+    }
+    return nodes.joined(separator: " -> ")
+}
+
 /// Renders a single pane leaf container.
 /// Handles terminal views (with surface dimming and drag handles) and
 /// non-terminal views (webview, code viewer stubs) uniformly.
@@ -425,11 +436,20 @@ struct PaneViewRepresentable: NSViewRepresentable {
     let paneHost: PaneHostView
 
     func makeNSView(context: Context) -> NSView {
-        paneHost.swiftUIContainer
+        RestoreTrace.log(
+            "PaneViewRepresentable.makeNSView paneId=\(paneHost.paneId) containerId=\(ObjectIdentifier(paneHost.swiftUIContainer)) hostId=\(ObjectIdentifier(paneHost))"
+        )
+        return paneHost.swiftUIContainer
     }
 
     func updateNSView(_ nsView: NSView, context: Context) {
         // Nothing — container is stable, pane manages itself
+    }
+
+    static func dismantleNSView(_ nsView: NSView, coordinator: ()) {
+        RestoreTrace.log(
+            "PaneViewRepresentable.dismantleNSView viewId=\(ObjectIdentifier(nsView)) superview=\(nsView.superview != nil) window=\(nsView.window != nil) ancestry=\(ancestorChainDescription(for: nsView))"
+        )
     }
 }
 
