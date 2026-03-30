@@ -3098,3 +3098,26 @@ Hypothesis (not yet tested):
 2. Whether disabling prompt_redraw alone is sufficient
 3. Whether there are other state divergence issues beyond prompt clearing
 ```
+
+## Debugging Epoch (2026-03-29T23:03:46Z onward): Tab Switch Churn Is The Single-Host Active-Tab Architecture
+
+Startup relaunch and new-pane insertion can be clean while tab switch still churns.
+
+The remaining issue is architectural:
+
+```text
+one NSHostingView<ActiveTabContent>
+  -> one active tab subtree at a time
+  -> tab switch removes leaving-tab pane representables
+  -> ordinary within-tab state changes can still churn if closure-heavy parent views rebuild
+```
+
+The chosen fix is per-tab persistent AppKit hosting plus stable dispatcher references:
+
+```text
+PaneTabViewController
+  -> one persistent host per tab
+  -> show/hide on selection change
+  -> no tab-switch detach for still-existing tabs
+  -> no within-tab representable teardown from closure churn
+```

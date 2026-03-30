@@ -61,10 +61,11 @@ struct ActiveTabContent: View {
                 zoomedPaneId: tab.zoomedPaneId,
                 minimizedPaneIds: tab.minimizedPaneIds,
                 closeTransitionCoordinator: closeTransitionCoordinator,
-                action: action,
-                onPersist: nil,
-                shouldAcceptDrop: shouldAcceptDrop,
-                onDrop: onDrop,
+                actionDispatcher: PaneTabActionDispatcher(
+                    dispatch: action,
+                    shouldAcceptDrop: shouldAcceptDrop,
+                    handleDrop: onDrop
+                ),
                 store: store,
                 repoCache: repoCache,
                 viewRegistry: viewRegistry,

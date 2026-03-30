@@ -62,15 +62,25 @@ class PaneTabViewController: NSViewController, CommandHandler {
     private let tabBarAdapter: TabBarAdapter
     private let viewRegistry: ViewRegistry
     private let closeTransitionCoordinator: PaneCloseTransitionCoordinator
+    private lazy var actionDispatcher = PaneTabActionDispatcher(
+        dispatch: { [weak self] action in
+            self?.dispatchAction(action)
+        },
+        shouldAcceptDrop: { [weak self] payload, destPaneId, zone in
+            self?.evaluateDropAcceptance(payload: payload, destPaneId: destPaneId, zone: zone) ?? false
+        },
+        handleDrop: { [weak self] payload, destPaneId, zone in
+            self?.handleSplitDrop(payload: payload, destPaneId: destPaneId, zone: zone)
+        }
+    )
 
     // MARK: - View State
 
     private var tabBarHostingView: DraggableTabBarHostingView!
     private var terminalContainer: RestoreAwareTerminalContainerView!
     private var emptyStateView: NSView?
-
-    /// SwiftUI hosting view for the split container (created once, observes store via @Observable)
-    private var splitHostingView: NSHostingView<ActiveTabContent>?
+    private var tabContentHosts: [UUID: PersistentTabHostView] = [:]
+    private(set) var paneRepresentableDismantleCount = 0
 
     /// Local event monitor for arrangement bar keyboard shortcut
     private var arrangementBarEventMonitor: Any?
@@ -107,6 +117,10 @@ class PaneTabViewController: NSViewController, CommandHandler {
 
     required init?(coder: NSCoder) {
         fatalError("init(coder:) not supported")
+    }
+
+    func recordPaneRepresentableDismantleForTesting() {
+        paneRepresentableDismantleCount += 1
     }
 
     // MARK: - View Lifecycle
@@ -210,9 +224,8 @@ class PaneTabViewController: NSViewController, CommandHandler {
         // Register as command handler
         CommandDispatcher.shared.handler = self
 
-        // Create stable SwiftUI content view — observes store directly via @Observable.
-        // Created once; @Observable tracking handles all re-renders automatically.
-        setupSplitContentView()
+        syncTabContentHosts()
+        updateVisibleTabHost()
 
         // Observe store for AppKit-level concerns (empty state visibility, focus management)
         updateEmptyState()
@@ -232,6 +245,13 @@ class PaneTabViewController: NSViewController, CommandHandler {
             return event
         }
 
+    }
+
+    override func viewWillLayout() {
+        super.viewWillLayout()
+        syncTabContentHosts()
+        updateVisibleTabHost()
+        updateEmptyState()
     }
 
     private func setupNotificationObservers() {
@@ -286,6 +306,8 @@ class PaneTabViewController: NSViewController, CommandHandler {
     }
 
     private func handleAppKitStateChange() {
+        syncTabContentHosts()
+        updateVisibleTabHost()
         updateEmptyState()
 
         let isManagementModeActive = ManagementModeMonitor.shared.isActive
@@ -337,42 +359,53 @@ class PaneTabViewController: NSViewController, CommandHandler {
         }
     }
 
-    // MARK: - Split Content View Setup
+    // MARK: - Tab Content Hosts
 
-    /// Create the NSHostingView for ActiveTabContent once. @Observable handles all re-renders.
-    private func setupSplitContentView() {
-        let contentView = ActiveTabContent(
+    private func buildTabContentHost(for tabId: UUID) -> PersistentTabHostView {
+        let contentView = SingleTabContent(
+            tabId: tabId,
             store: store,
             repoCache: repoCache,
             viewRegistry: viewRegistry,
             appLifecycleStore: appLifecycleStore,
             closeTransitionCoordinator: closeTransitionCoordinator,
-            action: { [weak self] action in self?.dispatchAction(action) },
-            shouldAcceptDrop: { [weak self] payload, destPaneId, zone in
-                self?.evaluateDropAcceptance(
-                    payload: payload,
-                    destPaneId: destPaneId,
-                    zone: zone
-                ) ?? false
-            },
-            onDrop: { [weak self] payload, destPaneId, zone in
-                self?.handleSplitDrop(payload: payload, destPaneId: destPaneId, zone: zone)
-            }
+            actionDispatcher: actionDispatcher
         )
 
-        let hostingView = NSHostingView(rootView: contentView)
-        hostingView.sizingOptions = [.minSize]
-        hostingView.translatesAutoresizingMaskIntoConstraints = false
-        terminalContainer.addSubview(hostingView)
+        return PersistentTabHostView(tabId: tabId, rootView: contentView)
+    }
 
-        NSLayoutConstraint.activate([
-            hostingView.topAnchor.constraint(equalTo: terminalContainer.topAnchor),
-            hostingView.leadingAnchor.constraint(equalTo: terminalContainer.leadingAnchor),
-            hostingView.trailingAnchor.constraint(equalTo: terminalContainer.trailingAnchor),
-            hostingView.bottomAnchor.constraint(equalTo: terminalContainer.bottomAnchor),
-        ])
+    private func syncTabContentHosts() {
+        let liveTabIds = Set(store.tabs.map(\.id))
 
-        splitHostingView = hostingView
+        for tab in store.tabs where tabContentHosts[tab.id] == nil {
+            let host = buildTabContentHost(for: tab.id)
+            terminalContainer.addSubview(host)
+            NSLayoutConstraint.activate([
+                host.topAnchor.constraint(equalTo: terminalContainer.topAnchor),
+                host.leadingAnchor.constraint(equalTo: terminalContainer.leadingAnchor),
+                host.trailingAnchor.constraint(equalTo: terminalContainer.trailingAnchor),
+                host.bottomAnchor.constraint(equalTo: terminalContainer.bottomAnchor),
+            ])
+            tabContentHosts[tab.id] = host
+        }
+
+        for (tabId, host) in tabContentHosts where !liveTabIds.contains(tabId) {
+            host.removeFromSuperview()
+            tabContentHosts.removeValue(forKey: tabId)
+        }
+    }
+
+    private func updateVisibleTabHost() {
+        let activeTabId = store.activeTabId
+        for (tabId, host) in tabContentHosts {
+            host.isHidden = tabId != activeTabId
+        }
+    }
+
+    private func activeTabHost() -> PersistentTabHostView? {
+        guard let activeTabId = store.activeTabId else { return nil }
+        return tabContentHosts[activeTabId]
     }
 
     private func handleTerminalContainerBoundsChanged(reason: StaticString) {
@@ -386,9 +419,13 @@ class PaneTabViewController: NSViewController, CommandHandler {
     }
 
     func syncVisibleTerminalGeometry(reason: StaticString) {
-        let visibleTerminalViews = viewRegistry.allTerminalViews.values.filter { terminalView in
-            terminalView.window != nil && !terminalView.isHidden
-        }
+        guard let activeTabId = store.activeTabId else { return }
+        let visibleTerminalViews =
+            store.tab(activeTabId)?.paneIds.compactMap {
+                viewRegistry.terminalView(for: $0)
+            }.filter { terminalView in
+                terminalView.window != nil && !terminalView.isHidden
+            } ?? []
         guard !visibleTerminalViews.isEmpty else { return }
         RestoreTrace.log(
             "PaneTabViewController.syncVisibleTerminalGeometry reason=\(reason) count=\(visibleTerminalViews.count)"
@@ -403,8 +440,8 @@ class PaneTabViewController: NSViewController, CommandHandler {
         let rootBounds = isViewLoaded ? NSStringFromRect(view.bounds) : "nil"
         let terminalFrame = terminalContainer.map { NSStringFromRect($0.frame) } ?? "nil"
         let terminalBounds = terminalContainer.map { NSStringFromRect($0.bounds) } ?? "nil"
-        let hostingFrame = splitHostingView.map { NSStringFromRect($0.frame) } ?? "nil"
-        let hostingBounds = splitHostingView.map { NSStringFromRect($0.bounds) } ?? "nil"
+        let hostingFrame = activeTabHost().map { NSStringFromRect($0.frame) } ?? "nil"
+        let hostingBounds = activeTabHost().map { NSStringFromRect($0.bounds) } ?? "nil"
         let tabBarFrame = tabBarHostingView.map { NSStringFromRect($0.frame) } ?? "nil"
         return
             "PaneTabViewController.geometry reason=\(reason) viewFrame=\(rootFrame) viewBounds=\(rootBounds) terminalFrame=\(terminalFrame) terminalBounds=\(terminalBounds) hostingFrame=\(hostingFrame) hostingBounds=\(hostingBounds) tabBarFrame=\(tabBarFrame)"
@@ -1089,7 +1126,13 @@ class PaneTabViewController: NSViewController, CommandHandler {
 
 #if DEBUG
     extension PaneTabViewController {
-        var splitHostingViewForTesting: NSHostingView<ActiveTabContent>? { splitHostingView }
+        var splitHostingViewForTesting: NSView? { activeTabHost()?.hostingView }
         var appLifecycleStoreForTesting: AppLifecycleStore { appLifecycleStore }
+        func tabHostViewForTesting(tabId: UUID) -> NSView? {
+            tabContentHosts[tabId]
+        }
+        var paneRepresentableDismantleCountForTesting: Int {
+            paneRepresentableDismantleCount
+        }
     }
 #endif

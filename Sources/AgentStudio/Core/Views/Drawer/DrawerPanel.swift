@@ -112,6 +112,18 @@ struct DrawerPanel: View {
         }
     }
 
+    private var drawerActionDispatcher: PaneTabActionDispatcher {
+        PaneTabActionDispatcher(
+            dispatch: drawerAction,
+            shouldAcceptDrop: { payload, destPaneId, zone in
+                shouldAcceptDrawerDrop(payload: payload, destPaneId: destPaneId, zone: zone)
+            },
+            handleDrop: { payload, destPaneId, zone in
+                handleDrawerDrop(payload: payload, destPaneId: destPaneId, zone: zone)
+            }
+        )
+    }
+
     var body: some View {
         GeometryReader { drawerGeometry in
             let containerBounds = CGRect(origin: .zero, size: drawerGeometry.size)
@@ -127,8 +139,7 @@ struct DrawerPanel: View {
                             activePaneId: activePaneId,
                             minimizedPaneIds: minimizedPaneIds,
                             closeTransitionCoordinator: closeTransitionCoordinator,
-                            action: drawerAction,
-                            onPersist: nil,
+                            actionDispatcher: drawerActionDispatcher,
                             store: store,
                             repoCache: repoCache,
                             viewRegistry: viewRegistry,
@@ -162,8 +173,7 @@ struct DrawerPanel: View {
                     containerBounds: containerBounds,
                     target: $dropTarget,
                     isManagementModeActive: managementMode.isActive,
-                    shouldAcceptDrop: shouldAcceptDrawerDrop,
-                    onDrop: handleDrawerDrop
+                    actionDispatcher: drawerActionDispatcher
                 )
             }
             .onPreferenceChange(DrawerPaneFramePreferenceKey.self) { drawerPaneFrames = $0 }

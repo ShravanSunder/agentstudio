@@ -11,8 +11,7 @@ struct SplitContainerDropCaptureOverlay: NSViewRepresentable {
     let containerBounds: CGRect
     @Binding var target: PaneDropTarget?
     let isManagementModeActive: Bool
-    let shouldAcceptDrop: (SplitDropPayload, UUID, DropZone) -> Bool
-    let onDrop: (SplitDropPayload, UUID, DropZone) -> Void
+    let actionDispatcher: PaneActionDispatching
 
     static let supportedPasteboardTypes: [NSPasteboard.PasteboardType] = [
         .agentStudioTabDrop,
@@ -24,8 +23,7 @@ struct SplitContainerDropCaptureOverlay: NSViewRepresentable {
     func makeCoordinator() -> Coordinator {
         Coordinator(
             targetBinding: $target,
-            shouldAcceptDrop: shouldAcceptDrop,
-            onDrop: onDrop
+            actionDispatcher: actionDispatcher
         )
     }
 
@@ -34,8 +32,7 @@ struct SplitContainerDropCaptureOverlay: NSViewRepresentable {
         view.coordinator = context.coordinator
         context.coordinator.updateHandlers(
             targetBinding: $target,
-            shouldAcceptDrop: shouldAcceptDrop,
-            onDrop: onDrop
+            actionDispatcher: actionDispatcher
         )
         context.coordinator.updateLayout(
             paneFrames: paneFrames,
@@ -50,8 +47,7 @@ struct SplitContainerDropCaptureOverlay: NSViewRepresentable {
         nsView.coordinator = context.coordinator
         context.coordinator.updateHandlers(
             targetBinding: $target,
-            shouldAcceptDrop: shouldAcceptDrop,
-            onDrop: onDrop
+            actionDispatcher: actionDispatcher
         )
         context.coordinator.updateLayout(
             paneFrames: paneFrames,
@@ -67,8 +63,7 @@ struct SplitContainerDropCaptureOverlay: NSViewRepresentable {
     @MainActor
     final class Coordinator {
         private var targetBinding: Binding<PaneDropTarget?>
-        private var shouldAcceptDrop: (SplitDropPayload, UUID, DropZone) -> Bool
-        private var onDrop: (SplitDropPayload, UUID, DropZone) -> Void
+        private var actionDispatcher: PaneActionDispatching
 
         private(set) var paneFrames: [UUID: CGRect] = [:]
         private(set) var containerBounds: CGRect = .zero
@@ -77,22 +72,18 @@ struct SplitContainerDropCaptureOverlay: NSViewRepresentable {
 
         init(
             targetBinding: Binding<PaneDropTarget?>,
-            shouldAcceptDrop: @escaping (SplitDropPayload, UUID, DropZone) -> Bool,
-            onDrop: @escaping (SplitDropPayload, UUID, DropZone) -> Void
+            actionDispatcher: PaneActionDispatching
         ) {
             self.targetBinding = targetBinding
-            self.shouldAcceptDrop = shouldAcceptDrop
-            self.onDrop = onDrop
+            self.actionDispatcher = actionDispatcher
         }
 
         func updateHandlers(
             targetBinding: Binding<PaneDropTarget?>,
-            shouldAcceptDrop: @escaping (SplitDropPayload, UUID, DropZone) -> Bool,
-            onDrop: @escaping (SplitDropPayload, UUID, DropZone) -> Void
+            actionDispatcher: PaneActionDispatching
         ) {
             self.targetBinding = targetBinding
-            self.shouldAcceptDrop = shouldAcceptDrop
-            self.onDrop = onDrop
+            self.actionDispatcher = actionDispatcher
         }
 
         func updateLayout(
@@ -131,7 +122,7 @@ struct SplitContainerDropCaptureOverlay: NSViewRepresentable {
                 containerBounds: containerBounds,
                 currentTarget: targetBinding.wrappedValue,
                 shouldAcceptDrop: { paneId, zone in
-                    shouldAcceptDrop(payload, paneId, zone)
+                    actionDispatcher.shouldAcceptDrop(payload, destinationPaneId: paneId, zone: zone)
                 }
             )
         }
@@ -167,7 +158,11 @@ struct SplitContainerDropCaptureOverlay: NSViewRepresentable {
 
             let candidate = DragSessionCandidate(payload: payload, target: resolvedTarget)
             dragSession = .committing(candidate: candidate)
-            onDrop(payload, resolvedTarget.paneId, resolvedTarget.zone)
+            actionDispatcher.handleDrop(
+                payload,
+                destinationPaneId: resolvedTarget.paneId,
+                zone: resolvedTarget.zone
+            )
             dragSession = .teardown
             return true
         }

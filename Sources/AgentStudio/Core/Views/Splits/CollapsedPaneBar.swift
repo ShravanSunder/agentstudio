@@ -8,7 +8,7 @@ struct CollapsedPaneBar: View {
     let tabId: UUID
     let title: String
     let closeTransitionCoordinator: PaneCloseTransitionCoordinator
-    let action: (PaneActionCommand) -> Void
+    let actionDispatcher: PaneActionDispatching
     let dropTargetCoordinateSpace: String?
     let useDrawerFramePreference: Bool
 
@@ -24,7 +24,7 @@ struct CollapsedPaneBar: View {
         tabId: UUID,
         title: String,
         closeTransitionCoordinator: PaneCloseTransitionCoordinator,
-        action: @escaping (PaneActionCommand) -> Void,
+        actionDispatcher: PaneActionDispatching,
         dropTargetCoordinateSpace: String? = nil,
         useDrawerFramePreference: Bool = false
     ) {
@@ -32,7 +32,7 @@ struct CollapsedPaneBar: View {
         self.tabId = tabId
         self.title = title
         self.closeTransitionCoordinator = closeTransitionCoordinator
-        self.action = action
+        self.actionDispatcher = actionDispatcher
         self.dropTargetCoordinateSpace = dropTargetCoordinateSpace
         self.useDrawerFramePreference = useDrawerFramePreference
     }
@@ -45,7 +45,7 @@ struct CollapsedPaneBar: View {
         VStack(spacing: 4) {
             // Expand button (top)
             Button {
-                action(.expandPane(tabId: tabId, paneId: paneId))
+                actionDispatcher.dispatch(.expandPane(tabId: tabId, paneId: paneId))
             } label: {
                 Image(systemName: "arrow.right.to.line")
                     .font(.system(size: AppStyle.textXs, weight: .medium))
@@ -58,7 +58,7 @@ struct CollapsedPaneBar: View {
             // Hamburger menu
             Menu {
                 Button {
-                    action(.expandPane(tabId: tabId, paneId: paneId))
+                    actionDispatcher.dispatch(.expandPane(tabId: tabId, paneId: paneId))
                 } label: {
                     Label("Expand", systemImage: "arrow.up.left.and.arrow.down.right")
                 }
@@ -108,7 +108,7 @@ struct CollapsedPaneBar: View {
         .contentShape(Rectangle())
         .onHover { isHovered = $0 }
         .onTapGesture {
-            action(.expandPane(tabId: tabId, paneId: paneId))
+            actionDispatcher.dispatch(.expandPane(tabId: tabId, paneId: paneId))
         }
         .opacity(isClosing ? 0.58 : 1)
         .scaleEffect(isClosing ? 0.985 : 1)
@@ -144,7 +144,7 @@ struct CollapsedPaneBar: View {
 
     private func beginCloseTransition() {
         closeTransitionCoordinator.beginClosingPane(paneId) {
-            action(.closePane(tabId: tabId, paneId: paneId))
+            actionDispatcher.dispatch(.closePane(tabId: tabId, paneId: paneId))
         }
     }
 }

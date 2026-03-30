@@ -104,7 +104,7 @@ struct DrawerPanelOverlay: View {
     let paneFrames: [UUID: CGRect]
     let tabSize: CGSize
     let iconBarFrame: CGRect
-    let action: (PaneActionCommand) -> Void
+    let actionDispatcher: PaneActionDispatching
 
     @AppStorage("drawerHeightRatio") private var heightRatio: Double = DrawerLayout.heightRatioMax
 
@@ -192,7 +192,7 @@ struct DrawerPanelOverlay: View {
                     eoFill: true
                 )
                 .onTapGesture {
-                    action(.toggleDrawer(paneId: info.paneId))
+                    actionDispatcher.dispatch(.toggleDrawer(paneId: info.paneId))
                 }
                 .overlay {
                     VStack(spacing: 0) {
@@ -207,7 +207,7 @@ struct DrawerPanelOverlay: View {
                             store: store,
                             repoCache: repoCache,
                             viewRegistry: viewRegistry,
-                            action: action,
+                            action: actionDispatcher.dispatch,
                             onResize: { delta in
                                 let newRatio = min(
                                     DrawerLayout.heightRatioMax,
@@ -215,7 +215,7 @@ struct DrawerPanelOverlay: View {
                                 heightRatio = newRatio
                             },
                             onDismiss: {
-                                action(.toggleDrawer(paneId: info.paneId))
+                                actionDispatcher.dispatch(.toggleDrawer(paneId: info.paneId))
                             },
                             appLifecycleStore: appLifecycleStore
                         )

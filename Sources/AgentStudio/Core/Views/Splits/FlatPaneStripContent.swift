@@ -6,8 +6,7 @@ struct FlatPaneStripContent: View {
     let activePaneId: UUID?
     let minimizedPaneIds: Set<UUID>
     let closeTransitionCoordinator: PaneCloseTransitionCoordinator
-    let action: (PaneActionCommand) -> Void
-    let onPersist: (() -> Void)?
+    let actionDispatcher: PaneActionDispatching
     let store: WorkspaceStore
     let repoCache: WorkspaceRepoCache
     let viewRegistry: ViewRegistry
@@ -36,7 +35,7 @@ struct FlatPaneStripContent: View {
                             tabId: tabId,
                             title: PaneDisplayProjector.displayLabel(for: paneId, store: store, repoCache: repoCache),
                             closeTransitionCoordinator: closeTransitionCoordinator,
-                            action: action,
+                            actionDispatcher: actionDispatcher,
                             dropTargetCoordinateSpace: coordinateSpaceName,
                             useDrawerFramePreference: useDrawerFramePreference
                         )
@@ -61,8 +60,7 @@ struct FlatPaneStripContent: View {
                             layout: layout,
                             store: store,
                             tabId: tabId,
-                            action: action,
-                            onPersist: onPersist
+                            actionDispatcher: actionDispatcher
                         )
                     }
                 }
@@ -78,7 +76,7 @@ struct FlatPaneStripContent: View {
                 tabId: tabId,
                 title: PaneDisplayProjector.displayLabel(for: segment.paneId, store: store, repoCache: repoCache),
                 closeTransitionCoordinator: closeTransitionCoordinator,
-                action: action,
+                actionDispatcher: actionDispatcher,
                 dropTargetCoordinateSpace: coordinateSpaceName,
                 useDrawerFramePreference: useDrawerFramePreference
             )
@@ -91,7 +89,7 @@ struct FlatPaneStripContent: View {
                 store: store,
                 repoCache: repoCache,
                 closeTransitionCoordinator: closeTransitionCoordinator,
-                action: action,
+                actionDispatcher: actionDispatcher,
                 dropTargetCoordinateSpace: coordinateSpaceName,
                 useDrawerFramePreference: useDrawerFramePreference
             )
@@ -110,8 +108,7 @@ struct FlatPaneDivider: View {
     let layout: Layout
     let store: WorkspaceStore
     let tabId: UUID
-    let action: (PaneActionCommand) -> Void
-    let onPersist: (() -> Void)?
+    let actionDispatcher: PaneActionDispatching
 
     private let splitterHitSize: CGFloat = 6
     private let minSize: CGFloat = AppStyle.splitMinimumPaneSize
@@ -138,12 +135,11 @@ struct FlatPaneDivider: View {
                             leftPaneWidth + rightPaneWidth - minSize
                         )
                         let localRatio = clampedLeftWidth / (leftPaneWidth + rightPaneWidth)
-                        action(.resizePane(tabId: tabId, splitId: dividerId, ratio: localRatio))
+                        actionDispatcher.dispatch(.resizePane(tabId: tabId, splitId: dividerId, ratio: localRatio))
                     }
                     .onEnded { _ in
                         hasStartedResize = false
                         store.isSplitResizing = false
-                        onPersist?()
                     }
             )
     }

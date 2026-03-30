@@ -72,7 +72,7 @@ Each AppKit controller that hosts SwiftUI creates NSHostingView(s) **once** at s
 | NSHostingView | SwiftUI Root | Purpose |
 |---|---|---|
 | `tabBarHostingView` | `CustomTabBar` | Tab bar (top strip) |
-| `splitHostingView` | `ActiveTabContent` → `TerminalSplitContainer` | Main content area — renders the active tab's split tree via `PaneLeafContainer` leaves |
+| `PersistentTabHostView.hostingView` | `SingleTabContent` | Main content area — one persistent hosting view per tab, shown/hidden by AppKit while all tabs stay alive |
 | `arrangementButtonHostingView` | `ArrangementFloatingButton` | Floating arrangement button |
 | _(pure AppKit)_ | `emptyStateView` | Empty state when no tabs exist |
 
@@ -102,6 +102,17 @@ AppDelegate
     └── MainSplitViewController
         └── PaneTabViewController
 ```
+
+### Per-Tab Persistent Hosting
+
+The main pane area keeps one persistent AppKit content host per tab.
+
+- `PaneTabViewController` owns the tab-host lifecycle
+- each tab host contains one `NSHostingView<SingleTabContent>`
+- inactive tabs are hidden at the AppKit level, not removed from the SwiftUI tree
+- pane actions and drop routing flow through stable dispatcher references instead of fresh closures in the visible tab subtree
+
+This replaces the older single-host `ActiveTabContent` pattern, which rendered only the active tab and caused `NSViewRepresentable` teardown on tab switch.
 
 See [Component Architecture — Service Layer](component_architecture.md#3-service-layer) for detailed descriptions of each service.
 
