@@ -1,5 +1,8 @@
 import AppKit
 import Observation
+import os.log
+
+private let viewRegistryLogger = Logger(subsystem: "com.agentstudio", category: "ViewRegistry")
 
 /// Maps pane IDs to live PaneHostView instances via per-pane observable slots.
 /// Runtime only — not persisted. Collaborator of WorkspaceStore.
@@ -29,6 +32,10 @@ final class ViewRegistry {
         fileprivate(set) var host: PaneHostView?
     }
 
+    #if DEBUG
+        static var suppressLazyFallbackAssertionForTesting = false
+    #endif
+
     private var slots: [UUID: PaneViewSlot] = [:]
 
     /// Create the slot proactively when a pane enters workspace structure.
@@ -55,8 +62,17 @@ final class ViewRegistry {
 
         // Safety net: slot should have been created proactively via ensureSlot().
         // If we get here, the pane creation path missed the ensureSlot call.
+        let message = "ViewRegistry.slot(for:) lazy fallback paneId=\(paneId) — ensureSlot was not called"
+        #if DEBUG
+            if !Self.suppressLazyFallbackAssertionForTesting {
+                assertionFailure(message)
+            }
+        #endif
+        viewRegistryLogger.error(
+            "ViewRegistry.slot(for:) lazy fallback paneId=\(paneId.uuidString, privacy: .public) — ensureSlot was not called"
+        )
         RestoreTrace.log(
-            "ViewRegistry.slot(for:) lazy fallback paneId=\(paneId) — ensureSlot was not called"
+            message
         )
         let newSlot = PaneViewSlot()
         slots[paneId] = newSlot

@@ -300,4 +300,60 @@ final class PaneContentWiringTests {
         // allWebviewViews should be empty since neither host mounts a webview pane
         #expect(registry.allWebviewViews.isEmpty)
     }
+
+    @Test
+    func test_viewRegistry_ensureSlot_isIdempotent() {
+        let registry = ViewRegistry()
+        let paneId = UUID()
+
+        let firstSlot = registry.ensureSlot(for: paneId)
+        let secondSlot = registry.ensureSlot(for: paneId)
+
+        #expect(firstSlot === secondSlot)
+    }
+
+    @Test
+    func test_viewRegistry_unregister_preservesSlotIdentity_forReregistration() {
+        let registry = ViewRegistry()
+        let paneId = UUID()
+        let firstHost = PaneHostView(paneId: paneId)
+        registry.register(firstHost, for: paneId)
+        let slotBeforeUnregister = registry.slot(for: paneId)
+
+        registry.unregister(paneId)
+        let secondHost = PaneHostView(paneId: paneId)
+        registry.register(secondHost, for: paneId)
+
+        let slotAfterReregister = registry.slot(for: paneId)
+        #expect(slotBeforeUnregister === slotAfterReregister)
+        #expect(slotAfterReregister.host === secondHost)
+    }
+
+    @Test
+    func test_viewRegistry_removeSlot_deletesSlotIdentity() {
+        let registry = ViewRegistry()
+        let paneId = UUID()
+
+        let originalSlot = registry.ensureSlot(for: paneId)
+        registry.removeSlot(for: paneId)
+        let recreatedSlot = registry.ensureSlot(for: paneId)
+
+        #expect(originalSlot !== recreatedSlot)
+    }
+
+    @Test
+    func test_viewRegistry_slotLazyFallback_createsObservableSlot() {
+        let registry = ViewRegistry()
+        let paneId = UUID()
+
+        ViewRegistry.suppressLazyFallbackAssertionForTesting = true
+        defer {
+            ViewRegistry.suppressLazyFallbackAssertionForTesting = false
+        }
+
+        let lazySlot = registry.slot(for: paneId)
+
+        #expect(lazySlot.host == nil)
+        #expect(registry.slot(for: paneId) === lazySlot)
+    }
 }

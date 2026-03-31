@@ -31,6 +31,9 @@ extension PaneCoordinator {
 
     private func undoTabClose(_ snapshot: WorkspaceStore.TabCloseSnapshot) {
         store.restoreFromSnapshot(snapshot)
+        for pane in snapshot.panes {
+            viewRegistry.ensureSlot(for: pane.id)
+        }
         var failedPaneIds: [UUID] = []
 
         // Restore views via lifecycle layer — iterate in reverse to match the LIFO
@@ -76,6 +79,9 @@ extension PaneCoordinator {
 
     private func undoPaneClose(_ snapshot: WorkspaceStore.PaneCloseSnapshot) {
         store.restoreFromPaneSnapshot(snapshot)
+        for pane in [snapshot.pane] + snapshot.drawerChildPanes {
+            viewRegistry.ensureSlot(for: pane.id)
+        }
         var failedPaneIds: [UUID] = []
 
         // Restore views for the pane and its drawer children.
@@ -169,12 +175,14 @@ extension PaneCoordinator {
     private func removeFailedRestoredPane(_ paneId: UUID, fromTab tabId: UUID) {
         guard let pane = store.pane(paneId) else {
             teardownView(for: paneId)
+            viewRegistry.removeSlot(for: paneId)
             return
         }
 
         if pane.isDrawerChild, let parentPaneId = pane.parentPaneId {
             teardownView(for: paneId)
             store.removeDrawerPane(paneId, from: parentPaneId)
+            viewRegistry.removeSlot(for: paneId)
             return
         }
 
@@ -182,5 +190,6 @@ extension PaneCoordinator {
         teardownView(for: paneId)
         store.removePaneFromLayout(paneId, inTab: tabId)
         store.removePane(paneId)
+        viewRegistry.removeSlot(for: paneId)
     }
 }

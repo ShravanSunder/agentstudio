@@ -133,7 +133,7 @@ struct FlatTabStripContainer: View {
     }
 
     func zoomedPaneLeafContainer() -> PaneLeafContainer? {
-        guard let zoomedPaneId, let zoomedView = viewRegistry.slot(for: zoomedPaneId).host else {
+        guard let zoomedPaneId, let zoomedView = viewRegistry.view(for: zoomedPaneId) else {
             return nil
         }
 

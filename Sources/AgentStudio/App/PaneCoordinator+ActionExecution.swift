@@ -414,6 +414,9 @@ extension PaneCoordinator {
         }
 
         if let tab = store.tab(tabId) {
+            // Close-tab keeps pane models alive for undo snapshots, so teardown only
+            // unregisters hosts. Slots are intentionally preserved until the panes
+            // are permanently purged from the store.
             for paneId in tab.panes {
                 teardownDrawerPanes(for: paneId)
                 teardownView(for: paneId)
