@@ -4340,3 +4340,112 @@ but not yet a fully closed root-cause proof
 3. Keep the upstream/local distinction explicit:
    - upstream zmx still has the `handleInit` ordering bug
    - our local vendor already fixed that independently of the `redraw=0` work
+
+## Debugging Epoch 21 (2026-03-30 ~15:30): Cursor Position Bug at Narrow Widths
+
+### Problem
+
+After the `redraw=0` fix resolved prompt disappearance, a separate cursor
+position bug was observed: in narrow panes, the cursor lands a few columns
+off from where it should be after the prompt. The prompt is visible (the
+disappearance bug is fixed), but the cursor position is wrong.
+
+This reproduces in Ghostty app with zmx (not Agent Studio specific). It does
+NOT happen without zmx — plain Ghostty handles narrow panes correctly.
+
+### Why this happens
+
+zmx has two terminals processing the same bytes:
+
+```
+Outer terminal (Ghostty)         Inner terminal (zmx daemon's ghostty_vt)
+  Both receive the same PTY output
+  Both wrap text based on column count
+  But they may disagree on:
+    - exact column count (rounding, font metrics)
+    - unicode character widths (emoji, CJK)
+    - when exactly the resize takes effect
+```
+
+The shell computes cursor position relative to the inner PTY. When the prompt
+wraps at narrow widths, a 1-column difference between the two terminals changes
+which row the cursor lands on.
+
+### Experiment: skip internal terminal resize during live operation
+
+**Branch:** `ShravanSunder/zmx:experiment/skip-resize-internal-terminal`
+
+**Hypothesis:** The daemon's `term.resize()` in `handleResize` is a source of
+divergence. The internal terminal only needs correct dimensions at serialization
+time (during `handleInit` re-attach), not during every live resize.
+
+**Change:** In `handleResize`, skip `term.resize()` entirely — only call
+`ioctl(TIOCSWINSZ)` to resize the real PTY. The internal terminal stays at
+whatever size it was, just tracking bytes.
+
+**Result:** Improved but not fully fixed. The cursor offset is smaller and the
+prompt renders better at narrow widths. But a few-cols offset remains on resize.
+
+### Why the residual offset exists
+
+The remaining offset is due to **SIGWINCH relay latency**. When the user resizes:
+
+```
+1. Ghostty resizes PTY-A instantly     → outer terminal is now 30 cols
+2. Shell still thinks it's 45 cols     → hasn't received SIGWINCH yet
+3. Shell draws for 45 cols             → wraps wrong on 30-col display
+4. SIGWINCH arrives (via zmx relay):
+     Ghostty → zmx client → IPC → daemon → ioctl(PTY-B) → kernel → shell
+5. Shell redraws for 30 cols           → but stale chars from step 3 remain
+```
+
+In a direct terminal (no zmx), steps 1-2 happen atomically on the same PTY.
+With zmx, the SIGWINCH takes 3 extra hops before reaching the shell. During
+that window, the outer terminal has already resized but the shell is drawing
+for the old width.
+
+This is inherent to zmx's relay architecture. tmux doesn't have this problem
+because tmux IS the terminal — there's no outer terminal that resizes first.
+
+### Architectural insight
+
+The deeper question: **why does zmx's internal terminal need to resize at all?**
+
+For session restore, the internal terminal needs to track screen content and
+cursor position. But it only needs accurate dimensions at serialization time
+(when a new client attaches via `handleInit`). During live operation, nobody
+reads the internal terminal.
+
+`handleInit` already resizes the internal terminal to the new client's
+dimensions before serializing. So `handleResize` calling `term.resize()` is
+redundant for session restore — it only serves `zmx history` (minor CLI
+feature) at the cost of introducing divergence bugs.
+
+**The ideal zmx architecture:**
+1. Internal terminal tracks bytes passively — no prompt_redraw, no clearing
+2. Live resize: only `ioctl(TIOCSWINSZ)` on the real PTY
+3. On re-attach: resize internal terminal to match new client, then serialize
+4. All forwarded bytes go to client unmodified (except `redraw=0` rewrite)
+
+This would eliminate both the prompt disappearance bug (already fixed with
+`redraw=0`) and the cursor position divergence (partially improved by
+skipping `term.resize()`).
+
+### What remains unfixable without architecture changes
+
+The SIGWINCH relay latency is inherent to zmx's architecture. As long as
+zmx sits between the terminal and the shell, there will be a window during
+resize where the outer terminal has changed size but the shell hasn't caught
+up. This manifests as brief cursor offset or stale characters during resize.
+
+This is cosmetic — it auto-corrects on the next prompt — and is the accepted
+cost of process persistence through a relay multiplexer.
+
+### Summary of all zmx fixes and experiments
+
+| Fix | Status | Impact |
+|-----|--------|--------|
+| `redraw=0` rewrite (OSC 133;A) | **Merged** (PR #112) | Fixes prompt disappearance on resize |
+| `prompt_redraw` disable in daemon resize | **Merged** (PR #112) | Prevents daemon state corruption |
+| Skip internal `term.resize()` | **Experiment** | Improves cursor position at narrow widths |
+| SIGWINCH relay latency | **Unfixable** in current architecture | Cosmetic, auto-corrects |
