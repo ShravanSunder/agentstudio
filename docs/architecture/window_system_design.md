@@ -734,6 +734,49 @@ Populated drawer:
 
 ---
 
+## Implementation Notes
+
+These are architectural details discovered during implementation that affect the window system design.
+
+### Flat Strip Direction Mapping
+
+The current layout is a horizontal flat pane strip — vertical splits are not supported. Ghostty's keybindings emit vertical split/focus/resize directions (up, down) which are mapped to horizontal equivalents in `PaneCoordinator`:
+
+| Ghostty direction | Mapped to | Applies to |
+|-------------------|-----------|------------|
+| `up` | `left` | split, resize, focus |
+| `down` | `right` | split, resize, focus |
+| `left` | `left` | unchanged |
+| `right` | `right` | unchanged |
+| `previous` / `next` | `focusPrevPane` / `focusNextPane` | focus only |
+
+This mapping lives in `mapSplitDirection`, `mapResizeSplitDirection`, and `mapGotoSplitDirection` in `PaneCoordinator.swift`.
+
+### Drawer Pane Tab Resolution
+
+`ActionStateSnapshot` builds a reverse lookup `paneToTab: [UUID: UUID]` for O(1) pane-to-tab resolution. Drawer panes are included via their parent: `lookup[drawerPaneId] = lookup[parentPaneId]`. A drawer cannot exist without its parent (hard invariant), so the parent is always in the lookup when drawer entries are added.
+
+Without this, action validation could reject drawer close actions because the drawer pane ID wouldn't resolve to any tab.
+
+### Terminal Process Termination Routing
+
+When a terminal process exits, `PaneTabViewController.handleTerminalProcessTerminated` routes the close action differently based on pane state:
+
+| Pane state | Routing |
+|-----------|---------|
+| Drawer child | `removeDrawerPane(parentPaneId:, drawerPaneId:)` |
+| Visible in active arrangement | Normal validated `closePane` / `closeTab` |
+| Hidden by active arrangement | `executor.executeTrusted()` — bypasses arrangement validation |
+| Orphaned (not in any tab) | Logged and ignored |
+
+The `executeTrusted` path exists because arrangement validation rejects close actions for hidden panes, but process termination must still clean up the underlying pane regardless of arrangement visibility.
+
+### Close Transitions
+
+`PaneCloseTransitionCoordinator` provides visual feedback before actual close. When a pane close begins, the pane is marked as "closing" (opacity 0.58, scale 0.985, non-interactive) and the actual `closePane` action dispatches after a short delay. This prevents the jarring instant-removal that AppKit split layout changes produce.
+
+---
+
 ## Invariants
 
 ### By Construction (compiler-enforced)
