@@ -8,10 +8,7 @@ struct FlatTabStripContainer: View {
     let zoomedPaneId: UUID?
     let minimizedPaneIds: Set<UUID>
     let closeTransitionCoordinator: PaneCloseTransitionCoordinator
-    let action: (PaneActionCommand) -> Void
-    let onPersist: (() -> Void)?
-    let shouldAcceptDrop: (SplitDropPayload, UUID, DropZone) -> Bool
-    let onDrop: (SplitDropPayload, UUID, DropZone) -> Void
+    let actionDispatcher: PaneActionDispatching
     let store: WorkspaceStore
     let repoCache: WorkspaceRepoCache
     let viewRegistry: ViewRegistry
@@ -39,6 +36,7 @@ struct FlatTabStripContainer: View {
                 if let zoomedPane = zoomedPaneLeafContainer() {
                     ZStack(alignment: .topTrailing) {
                         zoomedPane
+                            .id(zoomedPaneId)
                             .transition(.opacity.combined(with: .scale(scale: 0.985, anchor: .center)))
                         Text("ZOOM")
                             .font(.system(size: AppStyle.textSm, weight: .medium, design: .monospaced))
@@ -58,7 +56,7 @@ struct FlatTabStripContainer: View {
                                 title: PaneDisplayProjector.displayLabel(
                                     for: paneId, store: store, repoCache: repoCache),
                                 closeTransitionCoordinator: closeTransitionCoordinator,
-                                action: action,
+                                actionDispatcher: actionDispatcher,
                                 dropTargetCoordinateSpace: "tabContainer"
                             )
                             .frame(width: CollapsedPaneBar.barWidth)
@@ -72,8 +70,7 @@ struct FlatTabStripContainer: View {
                         activePaneId: activePaneId,
                         minimizedPaneIds: minimizedPaneIds,
                         closeTransitionCoordinator: closeTransitionCoordinator,
-                        action: action,
-                        onPersist: onPersist,
+                        actionDispatcher: actionDispatcher,
                         store: store,
                         repoCache: repoCache,
                         viewRegistry: viewRegistry,
@@ -93,7 +90,7 @@ struct FlatTabStripContainer: View {
                     paneFrames: paneFrames,
                     tabSize: tabGeometry.size,
                     iconBarFrame: iconBarFrame,
-                    action: action
+                    actionDispatcher: actionDispatcher
                 )
 
                 if managementMode.isActive {
@@ -106,8 +103,7 @@ struct FlatTabStripContainer: View {
                     containerBounds: containerBounds,
                     target: $dropTarget,
                     isManagementModeActive: managementMode.isActive,
-                    shouldAcceptDrop: shouldAcceptDrop,
-                    onDrop: onDrop
+                    actionDispatcher: actionDispatcher
                 )
             }
             .onPreferenceChange(PaneFramePreferenceKey.self) { paneFrames = $0 }
@@ -149,7 +145,7 @@ struct FlatTabStripContainer: View {
             store: store,
             repoCache: repoCache,
             closeTransitionCoordinator: closeTransitionCoordinator,
-            action: action
+            actionDispatcher: actionDispatcher
         )
     }
 

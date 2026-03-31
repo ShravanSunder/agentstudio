@@ -59,6 +59,7 @@ extension PaneCoordinator {
             lifetime: .persistent,
             residency: .active
         )
+        viewRegistry.ensureSlot(for: pane.id)
 
         store.insertPane(
             pane.id,
@@ -83,10 +84,12 @@ extension PaneCoordinator {
             content: .webview(state),
             metadata: PaneMetadata(source: .floating(workingDirectory: nil, title: host), title: host)
         )
+        viewRegistry.ensureSlot(for: pane.id)
 
         guard createViewForContent(pane: pane) != nil else {
             Self.logger.error("Webview creation failed — rolling back pane \(pane.id)")
             store.removePane(pane.id)
+            viewRegistry.removeSlot(for: pane.id)
             return nil
         }
 
@@ -107,6 +110,7 @@ extension PaneCoordinator {
             provider: .zmx,
             facets: PaneContextFacets(cwd: cwd)
         )
+        viewRegistry.ensureSlot(for: pane.id)
 
         let tab = Tab(paneId: pane.id)
         store.appendTab(tab)
@@ -276,6 +280,7 @@ extension PaneCoordinator {
                 direction: layoutDirection,
                 position: position
             )
+            viewRegistry.ensureSlot(for: paneId)
             if viewRegistry.view(for: paneId) == nil, let pane = store.pane(paneId) {
                 ensureTerminalPaneView(pane)
             }
@@ -284,15 +289,18 @@ extension PaneCoordinator {
             guard let pane = store.pane(paneId), pane.residency == .backgrounded else { break }
             teardownView(for: paneId)
             store.purgeOrphanedPane(paneId)
+            viewRegistry.removeSlot(for: paneId)
 
         case .addDrawerPane(let parentPaneId):
             if let drawerPane = store.addDrawerPane(to: parentPaneId) {
+                viewRegistry.ensureSlot(for: drawerPane.id)
                 ensureTerminalPaneView(drawerPane)
             }
 
         case .removeDrawerPane(let parentPaneId, let drawerPaneId):
             teardownView(for: drawerPaneId)
             store.removeDrawerPane(drawerPaneId, from: parentPaneId)
+            viewRegistry.removeSlot(for: drawerPaneId)
 
         case .toggleDrawer(let paneId):
             store.toggleDrawer(for: paneId)
@@ -386,6 +394,7 @@ extension PaneCoordinator {
             residency: .active,
             facets: paneFacets
         )
+        viewRegistry.ensureSlot(for: pane.id)
 
         let tab = Tab(paneId: pane.id)
         store.appendTab(tab)
@@ -406,6 +415,9 @@ extension PaneCoordinator {
         }
 
         if let tab = store.tab(tabId) {
+            // Close-tab keeps pane models alive for undo snapshots, so teardown only
+            // unregisters hosts. Slots are intentionally preserved until the panes
+            // are permanently purged from the store.
             for paneId in tab.panes {
                 teardownDrawerPanes(for: paneId)
                 teardownView(for: paneId)
@@ -432,6 +444,7 @@ extension PaneCoordinator {
             for pane in expiredPanes where !allOwnedPaneIds.contains(pane.id) {
                 teardownView(for: pane.id)
                 store.removePane(pane.id)
+                viewRegistry.removeSlot(for: pane.id)
                 Self.logger.debug("GC'd orphaned pane \(pane.id) from expired undo entry")
             }
         }
@@ -474,8 +487,10 @@ extension PaneCoordinator {
             teardownView(for: paneId)
             if let parentPaneId = closingPane.parentPaneId {
                 store.removeDrawerPane(paneId, from: parentPaneId)
+                viewRegistry.removeSlot(for: paneId)
             } else {
                 store.removePane(paneId)
+                viewRegistry.removeSlot(for: paneId)
             }
             expireOldUndoEntries()
             return
@@ -488,11 +503,13 @@ extension PaneCoordinator {
 
         for drawerPaneId in drawerChildIds {
             store.removeDrawerPane(drawerPaneId, from: paneId)
+            viewRegistry.removeSlot(for: drawerPaneId)
         }
 
         let allOwnedPaneIds = currentOwnedPaneIds()
         if !allOwnedPaneIds.contains(paneId) {
             store.removePane(paneId)
+            viewRegistry.removeSlot(for: paneId)
         }
 
         expireOldUndoEntries()
@@ -535,6 +552,7 @@ extension PaneCoordinator {
                     provider: .zmx,
                     facets: targetPane?.metadata.facets ?? .empty
                 )
+                viewRegistry.ensureSlot(for: pane.id)
 
                 store.insertPane(
                     pane.id, inTab: targetTabId, at: targetPaneId,
@@ -549,6 +567,7 @@ extension PaneCoordinator {
                 provider: .zmx,
                 facets: targetPane?.metadata.facets ?? .empty
             )
+            viewRegistry.ensureSlot(for: pane.id)
 
             store.insertPane(
                 pane.id, inTab: targetTabId, at: targetPaneId,
@@ -594,12 +613,14 @@ extension PaneCoordinator {
             return
         }
 
+        viewRegistry.ensureSlot(for: drawerPane.id)
         ensureTerminalPaneView(drawerPane)
     }
 
     private func ensureTerminalPaneView(_ pane: Pane) {
         registerTerminalPlaceholderIfNeeded(for: pane, mode: .preparing)
         if createViewForContentUsingCurrentGeometry(pane: pane) == nil {
+            RestoreTrace.log("ensureTerminalPaneView deferred pane=\(pane.id)")
             restoreViewsForActiveTabIfNeeded()
         }
     }
@@ -634,7 +655,6 @@ extension PaneCoordinator {
                 Self.logger.error("repair recreateSurface failed for pane \(paneId)")
                 return
             }
-            store.bumpViewRevision()
             Self.logger.info("Repaired view for pane \(paneId)")
 
         case .createMissingView(let paneId):
@@ -652,7 +672,6 @@ extension PaneCoordinator {
                 Self.logger.error("repair createMissingView failed for pane \(paneId)")
                 return
             }
-            store.bumpViewRevision()
             Self.logger.info("Created missing view for pane \(paneId)")
 
         case .reattachZmx, .markSessionFailed, .cleanupOrphan:

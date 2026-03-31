@@ -23,7 +23,7 @@ struct PaneLeafContainer: View {
     let store: WorkspaceStore
     let repoCache: WorkspaceRepoCache
     let closeTransitionCoordinator: PaneCloseTransitionCoordinator
-    let action: (PaneActionCommand) -> Void
+    let actionDispatcher: PaneActionDispatching
     let dropTargetCoordinateSpace: String?
     let useDrawerFramePreference: Bool
 
@@ -41,7 +41,7 @@ struct PaneLeafContainer: View {
         store: WorkspaceStore,
         repoCache: WorkspaceRepoCache,
         closeTransitionCoordinator: PaneCloseTransitionCoordinator,
-        action: @escaping (PaneActionCommand) -> Void,
+        actionDispatcher: PaneActionDispatching,
         dropTargetCoordinateSpace: String? = "tabContainer",
         useDrawerFramePreference: Bool = false
     ) {
@@ -52,7 +52,7 @@ struct PaneLeafContainer: View {
         self.store = store
         self.repoCache = repoCache
         self.closeTransitionCoordinator = closeTransitionCoordinator
-        self.action = action
+        self.actionDispatcher = actionDispatcher
         self.dropTargetCoordinateSpace = dropTargetCoordinateSpace
         self.useDrawerFramePreference = useDrawerFramePreference
     }
@@ -207,7 +207,7 @@ struct PaneLeafContainer: View {
                     VStack {
                         HStack(spacing: AppStyle.spacingStandard) {
                             Button {
-                                action(.minimizePane(tabId: tabId, paneId: paneHost.id))
+                                actionDispatcher.dispatch(.minimizePane(tabId: tabId, paneId: paneHost.id))
                             } label: {
                                 Image(systemName: "minus")
                                     .font(.system(size: AppStyle.managementActionIconSize, weight: .bold))
@@ -281,7 +281,7 @@ struct PaneLeafContainer: View {
                         HStack {
                             Spacer()
                             Button {
-                                action(
+                                actionDispatcher.dispatch(
                                     .insertPane(
                                         source: .newTerminal,
                                         targetTabId: tabId,
@@ -341,14 +341,14 @@ struct PaneLeafContainer: View {
                         paneId: paneHost.id,
                         drawer: drawer,
                         isIconBarVisible: true,
-                        action: action
+                        action: actionDispatcher.dispatch
                     )
                 }
             }
             .contentShape(Rectangle())
             .onHover { isHovered = $0 }
             .onTapGesture {
-                action(.focusPane(tabId: tabId, paneId: paneHost.id))
+                actionDispatcher.dispatch(.focusPane(tabId: tabId, paneId: paneHost.id))
             }
             .opacity(isClosing ? 0.58 : 1)
             .scaleEffect(isClosing ? 0.985 : 1)
@@ -358,7 +358,7 @@ struct PaneLeafContainer: View {
             .contextMenu {
                 if managementMode.isActive && !isDrawerChild {
                     Button("Extract Pane to New Tab") {
-                        action(.extractPaneToTab(tabId: tabId, paneId: paneHost.id))
+                        actionDispatcher.dispatch(.extractPaneToTab(tabId: tabId, paneId: paneHost.id))
                     }
 
                     Menu("Move Pane to Tab") {
@@ -369,7 +369,7 @@ struct PaneLeafContainer: View {
                                     let targetPaneId = targetTab.activePaneId ?? targetTab.paneIds.first
                                 else { return }
 
-                                action(
+                                actionDispatcher.dispatch(
                                     .insertPane(
                                         source: .existingPane(paneId: paneHost.id, sourceTabId: tabId),
                                         targetTabId: destination.tabId,
@@ -420,7 +420,7 @@ struct PaneLeafContainer: View {
 
     func beginCloseTransition() {
         closeTransitionCoordinator.beginClosingPane(paneHost.id) {
-            action(.closePane(tabId: tabId, paneId: paneHost.id))
+            actionDispatcher.dispatch(.closePane(tabId: tabId, paneId: paneHost.id))
         }
     }
 
@@ -440,6 +440,10 @@ struct PaneLeafContainer: View {
 struct PaneViewRepresentable: NSViewRepresentable {
     let paneHost: PaneHostView
 
+    #if DEBUG
+        static var onDismantleForTesting: (() -> Void)?
+    #endif
+
     func makeNSView(context: Context) -> NSView {
         RestoreTrace.log(
             "PaneViewRepresentable.makeNSView paneId=\(paneHost.paneId) containerId=\(ObjectIdentifier(paneHost.swiftUIContainer)) hostId=\(ObjectIdentifier(paneHost))"
@@ -458,6 +462,9 @@ struct PaneViewRepresentable: NSViewRepresentable {
         RestoreTrace.log(
             "PaneViewRepresentable.dismantleNSView viewId=\(ObjectIdentifier(nsView)) superview=\(nsView.superview != nil) window=\(nsView.window != nil) ancestry=\(ancestorChainDescription(for: nsView))"
         )
+        #if DEBUG
+            onDismantleForTesting?()
+        #endif
     }
 }
 

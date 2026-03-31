@@ -104,7 +104,7 @@ struct DrawerPanelOverlay: View {
     let paneFrames: [UUID: CGRect]
     let tabSize: CGSize
     let iconBarFrame: CGRect
-    let action: (PaneActionCommand) -> Void
+    let actionDispatcher: PaneActionDispatching
 
     @AppStorage("drawerHeightRatio") private var heightRatio: Double = DrawerLayout.heightRatioMax
 
@@ -125,10 +125,6 @@ struct DrawerPanelOverlay: View {
     private var isExpanded: Bool { expandedPaneInfo != nil }
 
     var body: some View {
-        // Read viewRevision so @Observable tracks it — triggers re-render after repair
-        // swiftlint:disable:next redundant_discardable_let
-        let _ = store.viewRevision  // swift-format:ignore
-
         if let info = expandedPaneInfo, tabSize.width > 0 {
             let panelWidth = tabSize.width * DrawerLayout.panelWidthRatio
             let panelHeight = max(
@@ -192,7 +188,7 @@ struct DrawerPanelOverlay: View {
                     eoFill: true
                 )
                 .onTapGesture {
-                    action(.toggleDrawer(paneId: info.paneId))
+                    actionDispatcher.dispatch(.toggleDrawer(paneId: info.paneId))
                 }
                 .overlay {
                     VStack(spacing: 0) {
@@ -207,7 +203,7 @@ struct DrawerPanelOverlay: View {
                             store: store,
                             repoCache: repoCache,
                             viewRegistry: viewRegistry,
-                            action: action,
+                            action: actionDispatcher.dispatch,
                             onResize: { delta in
                                 let newRatio = min(
                                     DrawerLayout.heightRatioMax,
@@ -215,10 +211,11 @@ struct DrawerPanelOverlay: View {
                                 heightRatio = newRatio
                             },
                             onDismiss: {
-                                action(.toggleDrawer(paneId: info.paneId))
+                                actionDispatcher.dispatch(.toggleDrawer(paneId: info.paneId))
                             },
                             appLifecycleStore: appLifecycleStore
                         )
+                        .id(info.paneId)
                         .frame(width: panelWidth)
 
                         // Connector space (visual bridge from panel to icon bar)

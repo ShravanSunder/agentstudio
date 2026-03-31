@@ -585,6 +585,22 @@ extension PaneCoordinator {
             return
         }
 
+        // Seed slots for all panes before creating any views.
+        // Panes already exist in the store from store.restore().
+        // SwiftUI body may run before restoreAllViews completes,
+        // so slots must exist before the first createViewForContent call.
+        let allPaneIds = store.tabs.flatMap(\.paneIds)
+        for paneId in allPaneIds {
+            viewRegistry.ensureSlot(for: paneId)
+        }
+        for pane in store.panes.values {
+            if let drawer = pane.drawer {
+                for drawerPaneId in drawer.layout.paneIds {
+                    viewRegistry.ensureSlot(for: drawerPaneId)
+                }
+            }
+        }
+
         let visiblePaneIds = orderedPaneIds.filter {
             visibilityTierResolver.tier(for: PaneId(uuid: $0)) == .p0Visible
         }
@@ -603,9 +619,6 @@ extension PaneCoordinator {
                 liveHiddenSessionIds: liveHiddenSessionIds,
                 progress: &progress
             )
-        }
-        if !visiblePaneIds.isEmpty {
-            store.bumpViewRevision()
         }
 
         if let activeTab = store.activeTab,
@@ -628,13 +641,8 @@ extension PaneCoordinator {
                 progress: &progress
             )
             if index.isMultiple(of: 2) {
-                store.bumpViewRevision()
                 await Task.yield()
             }
-        }
-
-        if !hiddenPaneIds.isEmpty {
-            store.bumpViewRevision()
         }
 
         Self.logger.info(
@@ -777,7 +785,6 @@ extension PaneCoordinator {
         .filter { visibilityTierResolver.tier(for: $0) == .p0Visible }
         .map(\.uuid)
 
-        var createdAnyViews = false
         for paneId in visiblePaneIds {
             guard let pane = store.pane(paneId) else { continue }
             guard store.tabContaining(paneId: pane.parentPaneId ?? pane.id)?.id == activeTab.id else {
@@ -788,17 +795,11 @@ extension PaneCoordinator {
             } else if viewRegistry.view(for: paneId) != nil {
                 continue
             }
-            if createViewForContent(
+            _ = createViewForContent(
                 pane: pane,
                 initialFrame: initialFrame(for: pane, resolvedPaneFramesByTabId: resolvedPaneFramesByTabId),
                 treatAsRestoredSessionStart: true
-            ) != nil {
-                createdAnyViews = true
-            }
-        }
-
-        if createdAnyViews {
-            store.bumpViewRevision()
+            )
         }
     }
 

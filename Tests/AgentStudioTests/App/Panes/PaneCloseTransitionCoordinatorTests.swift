@@ -70,6 +70,13 @@ struct PaneCloseTransitionCoordinatorTests {
         let viewRegistry = ViewRegistry()
         let paneHost = PaneHostView(paneId: paneId)
         viewRegistry.register(paneHost, for: paneId)
+        let dispatcher = PaneTabActionDispatcher(
+            dispatch: { _ in
+                closeActionFired = true
+            },
+            shouldAcceptDrop: { _, _, _ in false },
+            handleDrop: { _, _, _ in }
+        )
         let container = FlatTabStripContainer(
             layout: Layout(paneId: paneId),
             tabId: UUID(),
@@ -77,12 +84,7 @@ struct PaneCloseTransitionCoordinatorTests {
             zoomedPaneId: paneId,
             minimizedPaneIds: [],
             closeTransitionCoordinator: coordinator,
-            action: { _ in
-                closeActionFired = true
-            },
-            onPersist: nil,
-            shouldAcceptDrop: { _, _, _ in false },
-            onDrop: { _, _, _ in },
+            actionDispatcher: dispatcher,
             store: store,
             repoCache: WorkspaceRepoCache(),
             viewRegistry: viewRegistry,

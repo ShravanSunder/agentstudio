@@ -14,7 +14,7 @@ private final class ObservationFlag: @unchecked Sendable {
 ///
 /// These tests verify that WorkspaceStore's @Observable macro correctly
 /// triggers `withObservationTracking` callbacks when properties mutate.
-/// This is the core contract the migration depends on — ActiveTabContent,
+/// This is the core contract the migration depends on — SingleTabContent,
 /// TabBarAdapter, and PaneTabViewController's observeForAppKitState() all rely on this.
 @MainActor
 @Suite(.serialized)
@@ -257,13 +257,13 @@ final class ObservableStoreTests {
         #expect(adapter.tabs.count == 1, "Adapter should still have 1 tab after drawer change")
     }
 
-    // MARK: - ActiveTabContent Data Derivation
+    // MARK: - SingleTabContent Data Derivation
 
-    /// Tests the exact data path ActiveTabContent.body uses:
+    /// Tests the exact data path SingleTabContent.body uses:
     /// store.activeTabId → store.tab(id) → tab properties.
 
     @Test
-    func test_activeTabContent_dataPath_resolvesCorrectly() {
+    func test_singleTabContent_dataPath_resolvesCorrectly() {
         // Arrange
         let p1 = store.createPane(source: .floating(workingDirectory: nil, title: "Pane1"))
         let p2 = store.createPane(source: .floating(workingDirectory: nil, title: "Pane2"))
@@ -273,7 +273,7 @@ final class ObservableStoreTests {
         store.appendTab(tab2)
         store.setActiveTab(tab1.id)
 
-        // Act — follow ActiveTabContent's body path
+        // Act — follow SingleTabContent's body path
         let activeTabId = store.activeTabId
         let tab = activeTabId.flatMap { store.tab($0) }
 
@@ -287,19 +287,19 @@ final class ObservableStoreTests {
 
     @Test
 
-    func test_activeTabContent_dataPath_nilWhenNoTabs() {
-        // Act — follow ActiveTabContent's body path with empty store
+    func test_singleTabContent_dataPath_nilWhenNoTabs() {
+        // Act — follow SingleTabContent's body path with empty store
         let activeTabId = store.activeTabId
         let tab = activeTabId.flatMap { store.tab($0) }
 
-        // Assert — ActiveTabContent renders nothing (empty state handled by AppKit)
+        // Assert — SingleTabContent renders nothing (empty state handled by AppKit)
         #expect((activeTabId) == nil)
         #expect((tab) == nil)
     }
 
     @Test
 
-    func test_activeTabContent_dataPath_updatesOnTabSwitch() {
+    func test_singleTabContent_dataPath_updatesOnTabSwitch() {
         // Arrange
         let p1 = store.createPane(source: .floating(workingDirectory: nil, title: nil))
         let p2 = store.createPane(source: .floating(workingDirectory: nil, title: nil))
@@ -312,7 +312,7 @@ final class ObservableStoreTests {
         // Act — switch tabs
         store.setActiveTab(tab2.id)
 
-        // Assert — same path ActiveTabContent uses
+        // Assert — same path SingleTabContent uses
         let resolvedTab = store.activeTabId.flatMap { store.tab($0) }
         #expect(resolvedTab?.id == tab2.id)
         #expect(resolvedTab?.activePaneId == p2.id)

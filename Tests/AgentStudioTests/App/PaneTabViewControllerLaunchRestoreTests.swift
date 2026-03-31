@@ -160,24 +160,33 @@ struct PaneTabViewControllerLaunchRestoreTests {
     }
 
     @Test
-    func appLifecycleChanges_doNotReplaceSplitHostingView() throws {
+    func appLifecycleChanges_doNotReplaceActiveTabHost() throws {
         let harness = makeHarness()
         defer { try? FileManager.default.removeItem(at: harness.tempDir) }
 
-        let originalSplitHostingView = try #require(harness.controller.splitHostingViewForTesting)
+        let pane = harness.store.createPane(
+            source: .floating(workingDirectory: harness.tempDir, title: "Lifecycle"),
+            provider: .zmx
+        )
+        let tab = Tab(paneId: pane.id, name: "Lifecycle")
+        harness.store.appendTab(tab)
+        harness.store.setActiveTab(tab.id)
+        harness.controller.view.layoutSubtreeIfNeeded()
+
+        let originalTabHost = try #require(harness.controller.tabHostViewForTesting(tabId: tab.id))
         #expect(harness.controller.appLifecycleStoreForTesting === harness.appLifecycleStore)
 
         harness.applicationLifecycleMonitor.handleApplicationDidBecomeActive()
         harness.controller.view.layoutSubtreeIfNeeded()
 
-        let updatedSplitHostingView = try #require(harness.controller.splitHostingViewForTesting)
-        #expect(updatedSplitHostingView === originalSplitHostingView)
+        let updatedTabHost = try #require(harness.controller.tabHostViewForTesting(tabId: tab.id))
+        #expect(updatedTabHost === originalTabHost)
 
         harness.applicationLifecycleMonitor.handleApplicationDidResignActive()
         harness.controller.view.layoutSubtreeIfNeeded()
 
-        let splitHostingViewAfterResign = try #require(harness.controller.splitHostingViewForTesting)
-        #expect(splitHostingViewAfterResign === originalSplitHostingView)
+        let tabHostAfterResign = try #require(harness.controller.tabHostViewForTesting(tabId: tab.id))
+        #expect(tabHostAfterResign === originalTabHost)
     }
 }
 
