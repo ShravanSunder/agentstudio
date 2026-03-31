@@ -16,98 +16,176 @@ zmx daemons already expose a binary IPC protocol over Unix sockets. The same pro
 1. Replace all CLI shell-outs in `ZmxBackend` with direct socket IPC
 2. Add on-demand terminal state snapshot capability (History)
 3. Improve health check reliability and speed
-4. Lay groundwork for future checkpoint/restore features
-5. Make zmx integration testable with mock sockets
+4. Make zmx integration testable with mock sockets
 
 ## Non-Goals
 
 - Replacing the zmx attach flow (Ghostty owns the PTY process)
 - Modifying the zmx daemon or its protocol
-- Implementing checkpoint/restore (future work, stubs only)
+- Persistent socket connections (see Design Decisions)
+- Implementing checkpoint/restore (future work)
+- Direct resize control via IPC
+
+## Design Decisions
+
+### D1: One-shot connections, not persistent pool
+
+**Why:** In zmx, every connected socket becomes a real session client. The daemon
+broadcasts ALL PTY output to every connected client (vendor/zmx/src/main.zig:1452).
+A persistent "control-only" connection would:
+- Receive continuous PTY output it doesn't want
+- Inflate `clients_len` in Info responses
+- Require a background drain loop to prevent daemon buffer bloat
+- Add concurrency complexity (no request IDs in the protocol)
+
+zmx's own `probeSession()` (vendor/zmx/src/ipc.zig:181) uses connect → send → read → close.
+We follow the same pattern. Unix socket connect is microseconds on localhost.
+
+**Implication:** All IPC operations are stateless: connect, send request, read response, close.
+No connection pool. No drain loop. No concurrency hazards.
+
+### D2: IPC client in Infrastructure, event integration in SessionRuntime
+
+The IPC client is a pure protocol speaker — it knows sockets and bytes. Session
+lifecycle semantics (health transitions, debounce, event emission) belong in
+`SessionRuntime` which already owns session status tracking. The IPC client
+provides data; `SessionRuntime` interprets it and feeds the event bus.
+
+### D3: Events follow existing pane runtime architecture
+
+zmx session facts are pane-scoped (one session per pane) and flow through the
+existing three data flow planes:
+
+- **Event plane:** `SessionRuntime` detects state transitions → wraps in `PaneEnvelope` → posts to `PaneRuntimeEventBus`
+- **Command plane:** Kill/History are direct calls via `ZmxBackend`. Commands never go through the bus.
+- **UI plane:** `SessionRuntime.statuses` is `@Observable`. Health transitions update `@Observable` first (synchronous), then post to bus (async). Follows the multiplexing rule.
+
+### D4: No new command abstractions needed
+
+The existing `RuntimeCommand.requestSnapshot` covers the one command-plane case
+(requesting a terminal state snapshot). Kill and health operations are internal
+to `ZmxBackend`/`SessionRuntime` — no external part of the system sends commands
+for these. New zmx session facts use the existing `PaneRuntimeEvent` discriminated union.
 
 ## Architecture
 
 ```
-┌─────────────────────────────────────────────────────────────┐
-│                     Agent Studio                            │
-│                                                             │
-│  SessionRuntime ──► ZmxBackend (Core/Stores/)               │
-│                       │                                     │
-│                       ├─ attachCommand() → string (unchanged)│
-│                       ├─ kill() ────────────┐               │
-│                       ├─ healthCheck() ─────┤               │
-│                       ├─ discover() ────────┤               │
-│                       └─ history() ─────────┤               │
-│                                             ▼               │
-│                    ZmxIPCConnectionPool (@MainActor)         │
-│                    (Infrastructure/ZmxIPC/)                  │
-│                       │                                     │
-│                       ├─ clients: [String: ZmxIPCClient]    │
-│                       ├─ client(for:) → lazy connect        │
-│                       ├─ disconnectAll()                    │
-│                       └─ probeAll(in:) → discovery          │
-│                              │                              │
-│              ┌───────────────┼───────────────┐              │
-│              ▼               ▼               ▼              │
-│        ZmxIPCClient    ZmxIPCClient    ZmxIPCClient         │
-│        (nonisolated)   (nonisolated)   (nonisolated)        │
-│           │                │                │               │
-└───────────┼────────────────┼────────────────┼───────────────┘
-            │                │                │
-            ▼                ▼                ▼
-     ┌────────────┐   ┌────────────┐   ┌────────────┐
-     │ zmx daemon │   │ zmx daemon │   │ zmx daemon │
-     │ (Unix sock)│   │ (Unix sock)│   │ (Unix sock)│
-     └────────────┘   └────────────┘   └────────────┘
+┌─────────────────────────────────────────────────────────────────┐
+│                        Agent Studio                             │
+│                                                                 │
+│  SessionRuntime (@MainActor, @Observable)                       │
+│    ├─ health check timer (30s)                                  │
+│    ├─ compares current vs previous probe results                │
+│    ├─ debounces unhealthy transitions (15s)                     │
+│    ├─ updates @Observable state (UI plane, synchronous)         │
+│    └─ posts SessionBackendEvent to PaneRuntimeEventBus          │
+│         │                                                       │
+│         ▼                                                       │
+│  PaneRuntimeEventBus ──► WorkspaceCacheCoordinator              │
+│                      ──► PaneCoordinator (repair flows)         │
+│                      ──► NotificationReducer                    │
+│                      ──► Future agent orchestrator              │
+│                                                                 │
+│  ZmxBackend (Core/Stores/)                                      │
+│    ├─ attachCommand() → string (unchanged)                      │
+│    ├─ kill() → ZmxIPCClient.kill(socketPath:)                   │
+│    ├─ healthCheck() → ZmxIPCClient.info(socketPath:)            │
+│    ├─ discover() → enumerate zmxDir + ZmxIPCClient.probe()      │
+│    └─ history() → ZmxIPCClient.history(socketPath:, format:)    │
+│                        │                                        │
+│                        ▼                                        │
+│              ZmxIPCClient (Infrastructure/ZmxIPC/)              │
+│                Static one-shot methods                          │
+│                connect → send → read → close                    │
+│                                                                 │
+└────────────────────────┼────────────────────────────────────────┘
+                         │  Unix socket (one-shot)
+                         ▼
+                  ┌────────────┐
+                  │ zmx daemon │
+                  └────────────┘
 ```
 
 ## Components
 
 ### ZmxIPCClient (`Infrastructure/ZmxIPC/ZmxIPCClient.swift`)
 
-Single responsibility: speak the zmx binary protocol over one Unix socket connection.
+Single responsibility: speak the zmx binary protocol over one-shot Unix socket connections.
 
-**Properties:**
-- `socketPath: String` — path to the daemon's Unix socket
-- `fd: Int32?` — connected socket file descriptor (nil when disconnected)
-- `isConnected: Bool`
+**All methods are static, async, and `@concurrent nonisolated`** — no instance state, no
+shared socket, no concurrency hazards. Each call opens its own connection.
 
-**Implemented methods:**
-- `connect()` — open Unix socket, establish persistent connection
-- `disconnect()` — close fd
-- `kill()` — send Kill message, expect socket closure
-- `info() -> ZmxSessionInfo` — send Info, parse response struct
-- `history(format: ZmxHistoryFormat) -> Data` — send History, read response payload
-- `probe() -> Bool` — connect + info with short timeout, true if daemon responds
+```swift
+enum ZmxIPCClient {
+    /// Kill a zmx session. Daemon shuts down, socket closes.
+    static func kill(socketPath: String) async throws
 
-**Future stubs (not implemented):**
-- `checkpoint() -> Data` — periodic state snapshot for crash recovery
-- `resize(rows: UInt16, cols: UInt16)` — direct resize control
+    /// Query session metadata. Returns parsed Info struct.
+    static func info(socketPath: String, timeout: Duration = .seconds(1)) async throws -> ZmxSessionInfo
 
-**Concurrency:** `nonisolated`, `Sendable`. All socket I/O uses `@concurrent` to avoid blocking the caller's actor. Methods are `async` and suspend while socket operations execute on the cooperative thread pool.
+    /// Request terminal state snapshot.
+    static func history(socketPath: String, format: ZmxHistoryFormat, timeout: Duration = .seconds(5)) async throws -> Data
 
-**Reconnection:** On unexpected disconnect, auto-reconnect with backoff:
-- Immediate first retry
-- Then 100ms, 250ms, 500ms delays
-- After 3 failures: mark as dead, throw `.disconnected`
-- No reconnect after `kill()` (disconnection is expected)
+    /// Quick liveness check. Returns true if daemon responds to Info.
+    static func probe(socketPath: String, timeout: Duration = .seconds(1)) async -> Bool
 
-### ZmxIPCConnectionPool (`Infrastructure/ZmxIPC/ZmxIPCConnectionPool.swift`)
+    /// Discover all live sessions in a directory.
+    static func probeAll(directory: String, prefix: String) async -> [String: ZmxSessionInfo]
+}
+```
 
-Owns all `ZmxIPCClient` instances. Provides lookup, lifecycle management, and bulk operations.
+**Concurrency model:** Each method does its own connect → send → read → close.
+`@concurrent nonisolated` ensures blocking socket I/O runs on the cooperative thread pool,
+not the caller's actor. No shared state means no races.
 
-**Properties:**
-- `clients: [String: ZmxIPCClient]` — keyed by session ID
-- `zmxDir: String` — socket directory path
+### ZmxIPCProtocol (`Infrastructure/ZmxIPC/ZmxIPCProtocol.swift`)
 
-**Methods:**
-- `client(for sessionId: String) -> ZmxIPCClient` — returns existing or creates new (lazy connect)
-- `disconnect(sessionId: String)` — close and remove one client
-- `disconnectAll()` — close all connections (app shutdown)
-- `probeAll() -> [String: ZmxSessionInfo]` — enumerate socket dir, probe each, return live sessions
-- `killOrphans(excluding: Set<String>)` — find and kill sessions not in known set
+Binary encoding/decoding for the zmx wire format.
 
-**Concurrency:** `@MainActor`. Dictionary operations are fast. Individual client calls go async to the thread pool.
+```swift
+/// 5-byte header: tag (u8) + length (u32 LE). Zig packed struct, no padding.
+struct ZmxIPCHeader { ... }
+
+/// Message tags matching vendor/zmx/src/ipc.zig:6-21
+enum ZmxIPCTag: UInt8 { ... }
+
+/// Parsed Info response matching vendor/zmx/src/ipc.zig:45-55
+struct ZmxSessionInfo: Sendable {
+    let clientsLen: Int
+    let pid: Int32
+    let cmd: String
+    let cwd: String
+    let createdAt: UInt64
+    let taskEndedAt: UInt64
+    let taskExitCode: UInt8
+}
+
+enum ZmxHistoryFormat: UInt8 {
+    case plain = 0
+    case vt = 1
+    case html = 2
+}
+```
+
+### SessionBackendEvent (new case in `PaneRuntimeEvent`)
+
+```swift
+// Added to existing PaneRuntimeEvent discriminated union:
+enum PaneRuntimeEvent: Sendable {
+    case lifecycle(PaneLifecycleEvent)
+    case terminal(GhosttyEvent)
+    case session(SessionBackendEvent)    // ← new
+    ...
+}
+
+enum SessionBackendEvent: Sendable {
+    case healthChanged(healthy: Bool, info: ZmxSessionInfo?)
+    case cwdChanged(cwd: String)
+    case taskCompleted(exitCode: UInt8)
+    case sessionLost
+    case sessionRestored
+}
+```
 
 ### ZmxBackend changes (`Core/Stores/ZmxBackend.swift`)
 
@@ -115,21 +193,41 @@ Replace internals, keep public API unchanged.
 
 | Method | Before | After |
 |--------|--------|-------|
-| `destroyPaneSession` | `ProcessExecutor` → `zmx kill` | `pool.client(for:).kill()` |
-| `healthCheck` | `ProcessExecutor` → `zmx list` + parse | `pool.client(for:).probe()` |
-| `discoverOrphanSessions` | `ProcessExecutor` → `zmx list` + parse | `pool.probeAll()` + filter prefix |
-| `destroySessionById` | `ProcessExecutor` → `zmx kill` | `pool.client(for:).kill()` |
-| `sessionExists` | calls `healthCheck` | `pool.client(for:).probe()` |
+| `destroyPaneSession` | `ProcessExecutor` → `zmx kill` | `ZmxIPCClient.kill(socketPath:)` |
+| `healthCheck` | `ProcessExecutor` → `zmx list` + parse | `ZmxIPCClient.probe(socketPath:)` |
+| `discoverOrphanSessions` | `ProcessExecutor` → `zmx list` + parse | `ZmxIPCClient.probeAll(directory:prefix:)` |
+| `destroySessionById` | `ProcessExecutor` → `zmx kill` | `ZmxIPCClient.kill(socketPath:)` |
+| `sessionExists` | calls `healthCheck` | `ZmxIPCClient.probe(socketPath:)` |
 | `attachCommand` | string construction | **unchanged** |
 | `createPaneSession` | builds handle | **unchanged** |
 
-**Removed:** `ProcessExecutor` dependency, `executeWithRetry`, retry policy (reconnect handled by client).
+**Removed:** `ProcessExecutor` dependency, `executeWithRetry`, `ZmxCommandRetryPolicy`.
+
+### SessionRuntime changes (`Core/Stores/SessionRuntime.swift`)
+
+Health check loop gains richer data from `ZmxSessionInfo`:
+
+```
+Timer fires (30s)
+  │
+  for each tracked session:
+  │  info = await ZmxIPCClient.info(socketPath)
+  │  compare with previousInfo:
+  │    ├─ was healthy, now unreachable → start 15s debounce timer
+  │    ├─ debounce expired, still unreachable → emit .sessionLost
+  │    ├─ was unhealthy, now responds → emit .sessionRestored (immediate)
+  │    ├─ cwd changed → emit .cwdChanged
+  │    └─ taskExitCode changed → emit .taskCompleted
+  │
+  │  update @Observable statuses (UI plane, synchronous)
+  │  post PaneEnvelope to bus (event plane, async)
+```
 
 ## Binary Protocol
 
 ### Wire Format
 
-All communication uses this framing (from `vendor/zmx/src/ipc.zig`):
+From `vendor/zmx/src/ipc.zig`:
 
 ```
 ┌─────────┬──────────┬─────────────────────┐
@@ -138,335 +236,239 @@ All communication uses this framing (from `vendor/zmx/src/ipc.zig`):
 │ u8      │ u32 LE   │ raw bytes            │
 └─────────┴──────────┴─────────────────────┘
 
-Total header: 5 bytes (Zig packed struct, no padding)
-Byte order: little-endian (native arm64)
+Header: 5 bytes (Zig packed struct, no padding)
+Byte order: little-endian (native arm64 macOS)
 ```
 
 ### Message Tags
 
-```swift
-enum ZmxIPCTag: UInt8 {
-    case input     = 0   // Client → daemon: keystrokes
-    case output    = 1   // Daemon → client: PTY output (broadcast to all)
-    case resize    = 2   // Client → daemon: terminal dimensions
-    case detach    = 3   // Client → daemon: disconnect
-    case detachAll = 4   // Client → daemon: disconnect all
-    case kill      = 5   // Client → daemon: terminate session
-    case info      = 6   // Client → daemon: query metadata
-    case initialize = 7  // Client → daemon: attach with dimensions
-    case history   = 8   // Client → daemon: request terminal state
-    case run       = 9   // Client → daemon: execute command
-    case ack       = 10  // Daemon → client: acknowledge
-}
-```
+| Tag | Value | Direction | Payload |
+|-----|-------|-----------|---------|
+| Input | 0 | Client → daemon | Raw keystroke bytes |
+| Output | 1 | Daemon → client | Raw PTY output (broadcast) |
+| Resize | 2 | Client → daemon | rows: u16, cols: u16 |
+| Detach | 3 | Client → daemon | empty |
+| DetachAll | 4 | Client → daemon | empty |
+| Kill | 5 | Client → daemon | empty |
+| Info | 6 | Bidirectional | empty (request) / Info struct (response) |
+| Init | 7 | Client → daemon | rows: u16, cols: u16 |
+| History | 8 | Bidirectional | format: u8 (request) / terminal state (response) |
+| Run | 9 | Client → daemon | command bytes |
+| Ack | 10 | Daemon → client | empty |
 
-### Message Payloads
+### Message Flows (what we use)
 
 **Kill (tag 5):**
 ```
 Send:    Header(tag: 5, len: 0)
 Receive: nothing — daemon shuts down, socket closes
-         Client detects EOF on next read
+         Client detects EOF
 ```
 
 **Info (tag 6):**
 ```
 Send:    Header(tag: 6, len: 0)
-Receive: Header(tag: 6, len: 552) + Info struct bytes
-```
+Receive: Header(tag: 6, len: sizeof(Info)) + Info struct bytes
 
-Info struct layout (C ABI extern struct, arm64 macOS):
-```
-Offset  Size   Type        Field
-0       8      UInt64      clientsLen     (usize = 8 bytes on 64-bit)
-8       4      Int32       pid
-12      2      UInt16      cmdLen
-14      2      UInt16      cwdLen
-16      256    [UInt8]     cmd            (MAX_CMD_LEN = 256)
-272     256    [UInt8]     cwd            (MAX_CWD_LEN = 256)
-528     8      UInt64      createdAt      (unix timestamp)
-536     8      UInt64      taskEndedAt    (0 if not applicable)
-544     1      UInt8       taskExitCode   (0 if not applicable)
-545     7      -           padding        (struct aligned to 8 bytes)
-─────────────────────────────────────────
-Total:  552 bytes (expected, verify at test time)
-
-Note: The daemon validates `msg.payload.len == @sizeOf(Info)`. The exact
-size depends on Zig's C ABI layout for arm64. Integration tests should
-verify the expected size against a real daemon response before hardcoding.
+Info struct (C ABI extern struct, arm64 macOS):
+  Offset  Size   Field
+  0       8      clientsLen  (usize)
+  8       4      pid         (i32)
+  12      2      cmdLen      (u16)
+  14      2      cwdLen      (u16)
+  16      256    cmd         ([256]u8)
+  272     256    cwd         ([256]u8)
+  528     8      createdAt   (u64)
+  536     8      taskEndedAt (u64)
+  544     1      taskExitCode (u8)
+  545     7      padding     (struct alignment to 8)
+  Total:  552 bytes (verify against real daemon in integration tests)
 ```
 
 **History (tag 8):**
 ```
-Send:    Header(tag: 8, len: 1) + format byte
-         format: 0 = plain text, 1 = VT sequences, 2 = HTML
-Receive: Header(tag: 8, len: N) + serialized terminal state
-         Single message with full state (can be large)
+Send:    Header(tag: 8, len: 1) + format byte (0=plain, 1=VT, 2=HTML)
+Receive: Header(tag: 8, len: N) + serialized terminal state (single message)
 ```
 
-**Resize (tag 2):**
+**Probe (Info with short timeout):**
 ```
-Send:    Header(tag: 2, len: 4) + Resize struct
-         Resize: rows (u16 LE) + cols (u16 LE)
-Receive: nothing (fire-and-forget)
-```
-
-### Output Message Handling
-
-**Critical design constraint:** The daemon broadcasts ALL PTY output to ALL connected clients. There is no subscription filtering. A control-only client (our `ZmxIPCClient`) will receive a continuous stream of Output messages (tag 1) containing terminal bytes.
-
-**Our approach:** The client must read and discard Output messages to prevent the daemon's per-client write buffer from growing unbounded. The read loop:
-
-```
-Read message from socket:
-  if tag == .info    → parse Info struct, deliver to caller
-  if tag == .history → deliver payload to caller
-  if tag == .output  → discard (drain the pipe)
-  if tag == .ack     → discard
-  if EOF             → connection closed
+Connect to socket → send Info → read with 1s timeout
+  Success → alive, parse ZmxSessionInfo
+  Timeout / refused / EOF → dead
+Close socket either way
 ```
 
-This drain loop runs on a background thread as part of the persistent connection, not on-demand per request.
+### Important Protocol Constraint
+
+A one-shot connection may still receive Output messages (tag 1) between
+connecting and receiving the Info/History response. The read loop must
+skip Output messages until it finds the expected response tag:
+
+```
+Read message:
+  if tag == expected response → return payload
+  if tag == .output → discard, read next
+  if tag == .ack → discard, read next
+  if EOF → throw error
+  if timeout → throw error
+```
+
+This only matters for the brief window between connect and response.
+Since we close immediately after, no sustained drain is needed.
 
 ### Socket Path Construction
 
 ```
 socketPath = zmxDir + "/" + sessionId
 
-zmxDir: ~/.agentstudio/z  (from ZmxBackend.defaultZmxDir)
+zmxDir: ~/.agentstudio/z  (ZmxBackend.defaultZmxDir)
 sessionId: agentstudio--<repoKey16>--<wtKey16>--<pane16>
 
-Example:
-  ~/.agentstudio/z/agentstudio--809c4428faf0d071--809c4428faf0d071--84806b4385774da7
+Max path: 104 bytes (platform sockaddr_un.sun_path - 1)
 ```
 
-Maximum path length: 104 bytes (platform sockaddr_un.sun_path - 1).
+## Event Integration
 
-## Data Flow
-
-### Health Check (replaces `zmx list` + parse)
+### Where zmx events fit in the existing architecture
 
 ```
-SessionRuntime timer fires
-  │
-  ▼
-ZmxBackend.healthCheck(handle)
-  │
-  ▼
-pool.client(for: handle.id)
-  │
-  ├─ client exists and connected → reuse
-  └─ client missing → create, lazy connect
-  │
-  ▼
-client.probe()  [async, @concurrent, off main actor]
-  │
-  ├─ send Header(tag: 6, len: 0)
-  ├─ read response (1s timeout)
-  │    ├─ got Info response → return true
-  │    ├─ timeout → return false
-  │    └─ connection refused → return false
-  │
-  ▼
-SessionRuntime updates status
+Three Data Flow Planes (from pane_runtime_architecture.md):
+
+EVENT PLANE:
+  SessionRuntime detects state change from IPC probe
+    → wraps in PaneEnvelope(paneId, .session(SessionBackendEvent))
+    → posts to PaneRuntimeEventBus
+    → consumed by WorkspaceCacheCoordinator, PaneCoordinator, etc.
+
+COMMAND PLANE:
+  Kill, History are direct calls: coordinator → ZmxBackend → ZmxIPCClient
+  requestSnapshot already exists as RuntimeCommand (RuntimeCommand.swift:17)
+  No new command types needed.
+
+UI PLANE:
+  SessionRuntime.statuses is @Observable
+  @Observable updated FIRST (synchronous), bus post SECOND (async)
+  Follows the multiplexing rule: UI is never stale relative to bus consumers.
 ```
 
-### Kill Session (replaces `zmx kill <session>`)
+### Event consumers
+
+| Consumer | Event | Action |
+|----------|-------|--------|
+| PaneCoordinator | `.sessionLost` | Trigger repair/placeholder flow |
+| PaneCoordinator | `.sessionRestored` | Remove placeholder, resume |
+| WorkspaceCacheCoordinator | `.cwdChanged` | Update worktree associations |
+| NotificationReducer | `.taskCompleted` | Show completion notification |
+| Future agent orchestrator | `.taskCompleted` | Workflow sequencing |
+
+### Health transition debounce
 
 ```
-User closes pane → undo TTL expires
-  │
-  ▼
-ZmxBackend.destroyPaneSession(handle)
-  │
-  ▼
-pool.client(for: handle.id).kill()  [async, @concurrent]
-  │
-  ├─ send Header(tag: 5, len: 0)
-  ├─ daemon shuts down, socket closes
-  ├─ client detects EOF
-  │
-  ▼
-pool.disconnect(sessionId: handle.id)
+Probe succeeds after failure:
+  → emit .sessionRestored immediately (good news travels fast)
+
+Probe fails after success:
+  → start 15s debounce timer
+  → if still failing after 15s → emit .sessionLost
+  → if recovers during debounce → cancel timer, no event emitted
 ```
 
-### Orphan Discovery (replaces `zmx list` + prefix filter)
-
-```
-App startup or periodic cleanup
-  │
-  ▼
-ZmxBackend.discoverOrphanSessions(excluding: knownIds)
-  │
-  ▼
-pool.probeAll()  [async]
-  │
-  ├─ enumerate zmxDir for socket files
-  ├─ for each socket file:
-  │    ├─ filename starts with "agentstudio--" ? → probe it
-  │    └─ connect, send Info, parse response
-  │
-  ▼
-filter: sessions NOT in knownIds → orphans
-  │
-  ▼
-kill each orphan via pool.client(for:).kill()
-```
-
-### Terminal State Snapshot (new capability)
-
-```
-Agent orchestrator or checkpoint timer
-  │
-  ▼
-ZmxBackend.history(handle, format: .vt) → Data
-  │
-  ▼
-pool.client(for: handle.id).history(format: .vt)  [async, @concurrent]
-  │
-  ├─ send Header(tag: 8, len: 1) + [0x01]
-  ├─ read History response
-  │    └─ payload = VT escape sequences (full terminal state)
-  │
-  ▼
-return Data  (caller can inspect, save to disk, or replay)
-```
+This prevents UI churn from transient daemon busy states.
 
 ## Error Handling
 
 ```swift
 enum ZmxIPCError: Error {
-    case notAvailable        // socket file missing or connection refused
-    case timeout             // read timed out after all retries
-    case protocolError       // malformed response (wrong size, unexpected tag)
-    case disconnected        // daemon gone after reconnect attempts
+    case notAvailable      // socket missing or connection refused
+    case timeout           // read timed out
+    case protocolError     // malformed response (wrong size, unexpected tag)
 }
 ```
 
-**Reconnect policy:**
-
-```
-Attempt 1: immediate retry
-Attempt 2: wait 100ms, retry
-Attempt 3: wait 250ms, retry
-Attempt 4: wait 500ms, retry (final)
-  │
-  └─ all failed → throw .disconnected
-     pool marks client as dead
-     next access creates fresh client
-```
-
-**Error mapping to existing API:**
+Error mapping to existing API:
 
 | ZmxIPCError | SessionBackendError |
 |-------------|-------------------|
 | `.notAvailable` | `.notAvailable` |
 | `.timeout` | `.timeout` |
 | `.protocolError` | `.operationFailed(detail)` |
-| `.disconnected` | `.notAvailable` |
 
-Consumers of `ZmxBackend` see the same error types as before. The transport change is invisible.
+Consumers of `ZmxBackend` see the same error types as before.
 
 ## Testing Strategy
 
 ### Unit Tests (fast, no zmx process)
 
-**Protocol encoding/decoding:**
-```
-ZmxIPCProtocolTests
-  ├─ test_encodeHeader_correctBytes
-  ├─ test_decodeHeader_fromBytes
-  ├─ test_encodeResize_littleEndian
-  ├─ test_decodeInfoStruct_correctFieldOffsets
-  ├─ test_decodeInfoStruct_extractsCmdAndCwd
-  ├─ test_decodeInfoStruct_handlesMaxLengthStrings
-  └─ test_decodeInfoStruct_handlesTruncatedCmd
-```
+**Protocol encoding/decoding** (`ZmxIPCProtocolTests`):
+- Encode/decode header bytes (tag + u32 LE length)
+- Encode resize struct (2× u16 LE)
+- Decode Info struct (verify field offsets, extract cmd/cwd strings)
+- Handle truncated/empty cmd and cwd fields
+- Handle max-length strings
 
-**Client with mock socketpair:**
-```
-ZmxIPCClientTests
-  ├─ test_probe_returnsTrue_whenDaemonResponds
-  ├─ test_probe_returnsFalse_onTimeout
-  ├─ test_probe_returnsFalse_onConnectionRefused
-  ├─ test_kill_closesConnection
-  ├─ test_info_parsesResponse
-  ├─ test_history_returnsVTData
-  ├─ test_reconnect_onUnexpectedDisconnect
-  ├─ test_reconnect_givesUpAfterMaxAttempts
-  ├─ test_outputMessages_areDrained
-  └─ test_concurrentRequests_dontCorrupt
-```
+**IPC client with mock socketpair** (`ZmxIPCClientTests`):
 
-Mock approach: use `socketpair(AF_UNIX, SOCK_STREAM, 0)` to create a connected pair. One end is the "daemon" (test controls it), the other is passed to `ZmxIPCClient`.
+Use `socketpair(AF_UNIX, SOCK_STREAM, 0)` — one end is the mock daemon
+(test controls it), the other is passed to `ZmxIPCClient`.
 
-**Connection pool:**
-```
-ZmxIPCConnectionPoolTests
-  ├─ test_clientFor_createsOnFirstAccess
-  ├─ test_clientFor_reusesExistingClient
-  ├─ test_disconnect_removesClient
-  ├─ test_disconnectAll_closesEverything
-  ├─ test_probeAll_enumeratesSocketDir
-  └─ test_killOrphans_killsUnknownSessions
-```
+- `probe()` returns true when mock sends valid Info response
+- `probe()` returns false on timeout (mock doesn't respond)
+- `probe()` returns false when socket doesn't exist
+- `kill()` sends Kill header, mock verifies bytes
+- `info()` parses mock Info response correctly
+- `history()` reads VT payload from mock
+- Output messages between connect and response are skipped
+- Connection refused → `.notAvailable`
+- Malformed response → `.protocolError`
 
 ### Integration Tests (real zmx daemon)
 
-```
-ZmxIPCIntegrationTests
-  ├─ test_connectToRealDaemon
-  ├─ test_infoFromRealDaemon_returnsPid
-  ├─ test_historyFromRealDaemon_returnsVTState
-  ├─ test_killRealDaemon_terminatesProcess
-  ├─ test_probeAll_findsRunningSessions
-  └─ test_reconnectAfterDaemonRestart
-```
+Replace current flaky E2E tests that shell out to `zmx` CLI.
 
-These replace the current flaky E2E tests that shell out to `zmx` and parse stdout with timing-dependent waits.
+- Connect to real daemon, verify `info()` returns valid PID
+- `history(format: .vt)` returns non-empty VT state
+- `kill()` terminates daemon process
+- `probeAll()` discovers running sessions
+- Probe dead socket returns false
 
-## Future Capabilities (Stubs Only)
+### What becomes testable that wasn't before
 
-These methods will exist on `ZmxIPCClient` with `fatalError("not implemented")` bodies:
-
-**Checkpoint/Restore:**
-- `checkpoint() -> Data` — snapshot terminal state to disk periodically
-- Could enable visual restoration after computer restart
-- The History VT format provides the raw data; checkpoint adds scheduling and persistence
-
-**Direct Resize:**
-- `resize(rows: UInt16, cols: UInt16)` — send resize directly to daemon
-- Could improve resize coordination, but has double-SIGWINCH concern
-- Current SIGWINCH relay path works after the redraw=0 fix
+- Health check is a typed struct parse, not stdout string matching
+- Kill is a socket write, not process exit code
+- Discovery is socket enumeration, not CLI output parsing
+- History is binary response, not previously untested
 
 ## Migration Plan
 
-1. Implement `ZmxIPCClient` and `ZmxIPCConnectionPool` in `Infrastructure/ZmxIPC/`
+1. Implement `ZmxIPCProtocol` and `ZmxIPCClient` in `Infrastructure/ZmxIPC/`
 2. Add unit tests with mock socketpair
-3. Add `ZmxIPCConnectionPool` to `ZmxBackend` alongside `ProcessExecutor`
-4. Migrate operations one at a time: probe first, then kill, then discover
+3. Add `SessionBackendEvent` to `PaneRuntimeEvent` enum
+4. Migrate `ZmxBackend` operations one at a time: probe → kill → discover
 5. Add integration tests against real zmx daemons
-6. Remove `ProcessExecutor` from `ZmxBackend` after all operations migrated
-7. Wire up History capability for on-demand inspection
+6. Remove `ProcessExecutor` from `ZmxBackend`
+7. Wire up History for on-demand inspection via `RuntimeCommand.requestSnapshot`
+8. Add health transition debounce and event emission to `SessionRuntime`
 
 ## File Inventory
 
 | File | Location | Purpose |
 |------|----------|---------|
-| `ZmxIPCClient.swift` | `Infrastructure/ZmxIPC/` | Binary protocol, socket I/O, reconnect |
-| `ZmxIPCConnectionPool.swift` | `Infrastructure/ZmxIPC/` | Connection lifecycle, bulk operations |
-| `ZmxIPCProtocol.swift` | `Infrastructure/ZmxIPC/` | Header/tag/struct types, encode/decode |
+| `ZmxIPCClient.swift` | `Infrastructure/ZmxIPC/` | One-shot socket operations |
+| `ZmxIPCProtocol.swift` | `Infrastructure/ZmxIPC/` | Header/tag/struct encode/decode |
 | `ZmxIPCError.swift` | `Infrastructure/ZmxIPC/` | Error types |
-| `ZmxIPCProtocolTests.swift` | `Tests/.../Infrastructure/ZmxIPC/` | Protocol encode/decode tests |
-| `ZmxIPCClientTests.swift` | `Tests/.../Infrastructure/ZmxIPC/` | Client tests with mock socketpair |
-| `ZmxIPCConnectionPoolTests.swift` | `Tests/.../Infrastructure/ZmxIPC/` | Pool lifecycle tests |
+| `ZmxIPCProtocolTests.swift` | `Tests/.../Infrastructure/ZmxIPC/` | Protocol encode/decode |
+| `ZmxIPCClientTests.swift` | `Tests/.../Infrastructure/ZmxIPC/` | Client with mock socketpair |
 | `ZmxIPCIntegrationTests.swift` | `Tests/.../Infrastructure/ZmxIPC/` | Real daemon tests |
 | `ZmxBackend.swift` | `Core/Stores/` | Modified — swap transport |
+| `SessionRuntime.swift` | `Core/Stores/` | Modified — richer health, event emission |
+| `PaneRuntimeEvent.swift` | `Core/PaneRuntime/Contracts/` | Modified — add `.session(SessionBackendEvent)` |
 
 ## Constraints
 
-- **macOS 26+ arm64 only** — usize is always 8 bytes, alignment is natural
-- **Unix socket path limit** — 104 bytes max (sockaddr_un.sun_path - 1)
+- **macOS 26+ arm64 only** — usize is always 8 bytes
+- **Unix socket path limit** — 104 bytes max
 - **No zmx protocol changes** — we speak the existing protocol exactly
-- **Output drain required** — daemon broadcasts to all clients, we must read and discard
+- **One-shot connections only** — avoid Output broadcast drain obligation
 - **Swift 6.2 concurrency** — `@concurrent nonisolated` for blocking socket I/O
+- **Multiplexing rule** — `@Observable` updated before bus post, always
