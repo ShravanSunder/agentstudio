@@ -280,6 +280,7 @@ extension PaneCoordinator {
                 direction: layoutDirection,
                 position: position
             )
+            viewRegistry.ensureSlot(for: paneId)
             if viewRegistry.view(for: paneId) == nil, let pane = store.pane(paneId) {
                 ensureTerminalPaneView(pane)
             }
@@ -619,6 +620,7 @@ extension PaneCoordinator {
     private func ensureTerminalPaneView(_ pane: Pane) {
         registerTerminalPlaceholderIfNeeded(for: pane, mode: .preparing)
         if createViewForContentUsingCurrentGeometry(pane: pane) == nil {
+            RestoreTrace.log("ensureTerminalPaneView deferred pane=\(pane.id)")
             restoreViewsForActiveTabIfNeeded()
         }
     }

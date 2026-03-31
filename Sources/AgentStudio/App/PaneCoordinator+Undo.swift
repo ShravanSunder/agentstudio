@@ -186,10 +186,14 @@ extension PaneCoordinator {
             return
         }
 
+        let drawerChildIds = pane.drawer?.paneIds ?? []
         teardownDrawerPanes(for: paneId)
         teardownView(for: paneId)
         store.removePaneFromLayout(paneId, inTab: tabId)
         store.removePane(paneId)
+        for drawerPaneId in drawerChildIds {
+            viewRegistry.removeSlot(for: drawerPaneId)
+        }
         viewRegistry.removeSlot(for: paneId)
     }
 }

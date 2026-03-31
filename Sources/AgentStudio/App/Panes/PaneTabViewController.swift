@@ -808,6 +808,10 @@ class PaneTabViewController: NSViewController, CommandHandler {
 
             if let tab = store.tabContaining(paneId: paneId) {
                 if !tab.paneIds.contains(paneId) {
+                    // The pane still belongs to the tab's canonical model, but it is hidden by
+                    // the active arrangement. The trusted path bypasses validation so process
+                    // termination can still close the underlying pane/tab even though the
+                    // current arrangement would reject a user-initiated close for that hidden pane.
                     if tab.panes.count > 1 {
                         executor.executeTrusted(.closePane(tabId: tab.id, paneId: paneId))
                     } else {
