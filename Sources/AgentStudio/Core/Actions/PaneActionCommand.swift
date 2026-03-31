@@ -1,7 +1,7 @@
 import Foundation
 
-/// Direction for inserting a new pane into a split.
-/// Standalone type decoupled from SplitTree's generic parameter.
+/// Direction for inserting a new pane into a pane strip.
+/// Standalone type decoupled from any concrete view implementation.
 enum SplitNewDirection: Equatable, Codable, Hashable {
     case left, right, up, down
 }

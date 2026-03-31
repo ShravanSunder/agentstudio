@@ -47,6 +47,7 @@ struct PaneTabViewControllerCommandTests {
             store: store,
             repoCache: WorkspaceRepoCache(),
             applicationLifecycleMonitor: applicationLifecycleMonitor,
+            appLifecycleStore: appLifecycleStore,
             executor: executor,
             tabBarAdapter: TabBarAdapter(store: store, repoCache: WorkspaceRepoCache()),
             viewRegistry: viewRegistry

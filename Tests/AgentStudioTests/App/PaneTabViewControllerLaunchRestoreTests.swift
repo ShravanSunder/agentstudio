@@ -13,6 +13,7 @@ struct PaneTabViewControllerLaunchRestoreTests {
         let runtime: SessionRuntime
         let coordinator: PaneCoordinator
         let executor: ActionExecutor
+        let appLifecycleStore: AppLifecycleStore
         let windowLifecycleStore: WindowLifecycleStore
         let applicationLifecycleMonitor: ApplicationLifecycleMonitor
         let controller: PaneTabViewController
@@ -48,6 +49,7 @@ struct PaneTabViewControllerLaunchRestoreTests {
         let controller = PaneTabViewController(
             store: store,
             applicationLifecycleMonitor: applicationLifecycleMonitor,
+            appLifecycleStore: appLifecycleStore,
             executor: executor,
             tabBarAdapter: TabBarAdapter(store: store),
             viewRegistry: viewRegistry
@@ -68,6 +70,7 @@ struct PaneTabViewControllerLaunchRestoreTests {
             runtime: runtime,
             coordinator: coordinator,
             executor: executor,
+            appLifecycleStore: appLifecycleStore,
             windowLifecycleStore: windowLifecycleStore,
             applicationLifecycleMonitor: applicationLifecycleMonitor,
             controller: controller,
@@ -104,6 +107,29 @@ struct PaneTabViewControllerLaunchRestoreTests {
     }
 
     @Test
+    func restoreViewsForActiveTabIfNeeded_doesNotCreateViewsBeforeLaunchLayoutSettles() {
+        let harness = makeHarness()
+        defer { try? FileManager.default.removeItem(at: harness.tempDir) }
+
+        let pane = harness.store.createPane(
+            source: .floating(workingDirectory: harness.tempDir, title: "Early Restore"),
+            provider: .zmx
+        )
+        let tab = Tab(paneId: pane.id, name: "Early Restore")
+        harness.store.appendTab(tab)
+        harness.store.setActiveTab(tab.id)
+
+        harness.windowLifecycleStore.recordTerminalContainerBounds(
+            CGRect(x: 0, y: 0, width: 512, height: 552)
+        )
+        #expect(harness.windowLifecycleStore.isReadyForLaunchRestore == false)
+
+        harness.coordinator.restoreViewsForActiveTabIfNeeded()
+
+        #expect(harness.surfaceManager.createdPaneIds.isEmpty)
+    }
+
+    @Test
     func restoreAllViews_usesLifecycleStoreBounds() async throws {
         let harness = makeHarness()
         defer { try? FileManager.default.removeItem(at: harness.tempDir) }
@@ -131,6 +157,36 @@ struct PaneTabViewControllerLaunchRestoreTests {
         #expect(
             config.initialFrame
                 == CGRect(x: gap, y: gap, width: containerWidth - gap * 2, height: containerHeight - gap * 2))
+    }
+
+    @Test
+    func appLifecycleChanges_doNotReplaceActiveTabHost() throws {
+        let harness = makeHarness()
+        defer { try? FileManager.default.removeItem(at: harness.tempDir) }
+
+        let pane = harness.store.createPane(
+            source: .floating(workingDirectory: harness.tempDir, title: "Lifecycle"),
+            provider: .zmx
+        )
+        let tab = Tab(paneId: pane.id, name: "Lifecycle")
+        harness.store.appendTab(tab)
+        harness.store.setActiveTab(tab.id)
+        harness.controller.view.layoutSubtreeIfNeeded()
+
+        let originalTabHost = try #require(harness.controller.tabHostViewForTesting(tabId: tab.id))
+        #expect(harness.controller.appLifecycleStoreForTesting === harness.appLifecycleStore)
+
+        harness.applicationLifecycleMonitor.handleApplicationDidBecomeActive()
+        harness.controller.view.layoutSubtreeIfNeeded()
+
+        let updatedTabHost = try #require(harness.controller.tabHostViewForTesting(tabId: tab.id))
+        #expect(updatedTabHost === originalTabHost)
+
+        harness.applicationLifecycleMonitor.handleApplicationDidResignActive()
+        harness.controller.view.layoutSubtreeIfNeeded()
+
+        let tabHostAfterResign = try #require(harness.controller.tabHostViewForTesting(tabId: tab.id))
+        #expect(tabHostAfterResign === originalTabHost)
     }
 }
 

@@ -39,21 +39,22 @@ struct DrawerResizeHandle: View {
 // MARK: - DrawerPanel
 
 /// Floating drawer panel that overlays pane content.
-/// Renders the drawer's split tree (via SplitSubtreeView) in a rectangular panel
+/// Renders the drawer's flat pane strip inside a rectangular panel
 /// with a resize handle at the top and material background.
 ///
-/// Translates tab-level PaneActions dispatched by SplitSubtreeView/PaneLeafContainer
+/// Translates tab-level PaneActions dispatched by pane leaves
 /// into drawer-specific actions (resize, minimize, close, focus, equalize).
 struct DrawerPanel: View {
-    let tree: PaneSplitTree
+    let layout: Layout
     let parentPaneId: UUID
     let tabId: UUID
     let activePaneId: UUID?
     let minimizedPaneIds: Set<UUID>
-    let splitRenderInfo: SplitRenderInfo
+    let closeTransitionCoordinator: PaneCloseTransitionCoordinator
     let height: CGFloat
     let store: WorkspaceStore
     let repoCache: WorkspaceRepoCache
+    let viewRegistry: ViewRegistry
     let action: (PaneActionCommand) -> Void
     let onResize: (CGFloat) -> Void
     let onDismiss: () -> Void
@@ -62,11 +63,114 @@ struct DrawerPanel: View {
     @State private var drawerPaneFrames: [UUID: CGRect] = [:]
     @State private var dropTarget: PaneDropTarget?
     @State private var dropTargetWatchdogTask: Task<Void, Never>?
+    @State private var drawerActionDispatcher: PaneTabActionDispatcher
     @Bindable private var managementMode = ManagementModeMonitor.shared
 
+    init(
+        layout: Layout,
+        parentPaneId: UUID,
+        tabId: UUID,
+        activePaneId: UUID?,
+        minimizedPaneIds: Set<UUID>,
+        closeTransitionCoordinator: PaneCloseTransitionCoordinator,
+        height: CGFloat,
+        store: WorkspaceStore,
+        repoCache: WorkspaceRepoCache,
+        viewRegistry: ViewRegistry,
+        action: @escaping (PaneActionCommand) -> Void,
+        onResize: @escaping (CGFloat) -> Void,
+        onDismiss: @escaping () -> Void,
+        appLifecycleStore: AppLifecycleStore
+    ) {
+        self.layout = layout
+        self.parentPaneId = parentPaneId
+        self.tabId = tabId
+        self.activePaneId = activePaneId
+        self.minimizedPaneIds = minimizedPaneIds
+        self.closeTransitionCoordinator = closeTransitionCoordinator
+        self.height = height
+        self.store = store
+        self.repoCache = repoCache
+        self.viewRegistry = viewRegistry
+        self.action = action
+        self.onResize = onResize
+        self.onDismiss = onDismiss
+        self.appLifecycleStore = appLifecycleStore
+        self._drawerActionDispatcher = State(
+            initialValue: PaneTabActionDispatcher(
+                dispatch: { paneAction in
+                    switch paneAction {
+                    case .resizePane(_, let splitId, let ratio):
+                        action(.resizeDrawerPane(parentPaneId: parentPaneId, splitId: splitId, ratio: ratio))
+                    case .equalizePanes:
+                        action(.equalizeDrawerPanes(parentPaneId: parentPaneId))
+                    case .minimizePane(_, let paneId):
+                        action(.minimizeDrawerPane(parentPaneId: parentPaneId, drawerPaneId: paneId))
+                    case .expandPane(_, let paneId):
+                        action(.expandDrawerPane(parentPaneId: parentPaneId, drawerPaneId: paneId))
+                    case .closePane(_, let paneId):
+                        action(.removeDrawerPane(parentPaneId: parentPaneId, drawerPaneId: paneId))
+                    case .insertPane(_, _, let targetPaneId, let direction):
+                        action(
+                            .insertDrawerPane(
+                                parentPaneId: parentPaneId,
+                                targetDrawerPaneId: targetPaneId,
+                                direction: direction
+                            )
+                        )
+                    case .focusPane(_, let paneId):
+                        action(.setActiveDrawerPane(parentPaneId: parentPaneId, drawerPaneId: paneId))
+                    default:
+                        action(paneAction)
+                    }
+                },
+                shouldAcceptDrop: { payload, destPaneId, zone in
+                    guard let drawer = store.pane(parentPaneId)?.drawer else { return false }
+                    guard drawer.layout.contains(destPaneId) else { return false }
+                    guard case .existingPane(let sourcePaneId, _) = payload.kind else { return false }
+                    guard sourcePaneId != destPaneId else { return false }
+                    guard let sourcePane = store.pane(sourcePaneId) else { return false }
+                    guard sourcePane.parentPaneId == parentPaneId else { return false }
+
+                    let snapshot = ActionResolver.snapshot(
+                        from: store.tabs,
+                        activeTabId: store.activeTabId,
+                        isManagementModeActive: ManagementModeMonitor.shared.isActive,
+                        knownWorktreeIds: Set(store.repos.flatMap(\.worktrees).map(\.id))
+                    )
+                    let moveAction = PaneActionCommand.moveDrawerPane(
+                        parentPaneId: parentPaneId,
+                        drawerPaneId: sourcePaneId,
+                        targetDrawerPaneId: destPaneId,
+                        direction: Self.splitDirection(for: zone)
+                    )
+                    if case .success = ActionValidator.validate(moveAction, state: snapshot) {
+                        return true
+                    }
+                    return false
+                },
+                handleDrop: { payload, destPaneId, zone in
+                    guard case .existingPane(let sourcePaneId, _) = payload.kind else { return }
+                    guard sourcePaneId != destPaneId else { return }
+                    guard let sourcePane = store.pane(sourcePaneId) else { return }
+                    guard sourcePane.parentPaneId == parentPaneId else { return }
+
+                    action(
+                        .moveDrawerPane(
+                            parentPaneId: parentPaneId,
+                            drawerPaneId: sourcePaneId,
+                            targetDrawerPaneId: destPaneId,
+                            direction: Self.splitDirection(for: zone)
+                        )
+                    )
+                }
+            )
+        )
+    }
+
     /// Translates tab-level actions into drawer-specific actions.
-    /// SplitSubtreeView and PaneLeafContainer dispatch actions using tabId,
-    /// but in the drawer context these need to be routed to drawer operations.
+    /// Pane leaf interactions dispatch actions using tabId, but in the drawer
+    /// context these need to be routed to drawer operations.
     @ViewBuilder
     private var addDrawerButton: some View {
         Button {
@@ -85,32 +189,6 @@ struct DrawerPanel: View {
         .help("Add a drawer terminal")
     }
 
-    private var drawerAction: (PaneActionCommand) -> Void {
-        { paneAction in
-            switch paneAction {
-            case .resizePane(_, let splitId, let ratio):
-                action(.resizeDrawerPane(parentPaneId: parentPaneId, splitId: splitId, ratio: ratio))
-            case .equalizePanes:
-                action(.equalizeDrawerPanes(parentPaneId: parentPaneId))
-            case .minimizePane(_, let paneId):
-                action(.minimizeDrawerPane(parentPaneId: parentPaneId, drawerPaneId: paneId))
-            case .expandPane(_, let paneId):
-                action(.expandDrawerPane(parentPaneId: parentPaneId, drawerPaneId: paneId))
-            case .closePane(_, let paneId):
-                action(.removeDrawerPane(parentPaneId: parentPaneId, drawerPaneId: paneId))
-            case .insertPane(_, _, let targetPaneId, let direction):
-                action(
-                    .insertDrawerPane(
-                        parentPaneId: parentPaneId, targetDrawerPaneId: targetPaneId, direction: direction))
-            case .focusPane(_, let paneId):
-                action(.setActiveDrawerPane(parentPaneId: parentPaneId, drawerPaneId: paneId))
-            default:
-                // Pass through any other actions (e.g., toggleDrawer)
-                action(paneAction)
-            }
-        }
-    }
-
     var body: some View {
         GeometryReader { drawerGeometry in
             let containerBounds = CGRect(origin: .zero, size: drawerGeometry.size)
@@ -119,44 +197,22 @@ struct DrawerPanel: View {
                     // Resize handle at top
                     DrawerResizeHandle(onDrag: onResize)
 
-                    // Drawer split tree content — padded to match inter-pane gap
-                    if let node = tree.root, !splitRenderInfo.allMinimized {
-                        SplitSubtreeView(
-                            node: node,
+                    if !layout.isEmpty {
+                        FlatPaneStripContent(
+                            layout: layout,
                             tabId: tabId,
-                            isSplit: tree.isSplit,
                             activePaneId: activePaneId,
                             minimizedPaneIds: minimizedPaneIds,
-                            splitRenderInfo: splitRenderInfo,
-                            action: drawerAction,
-                            onPersist: nil,
+                            closeTransitionCoordinator: closeTransitionCoordinator,
+                            actionDispatcher: drawerActionDispatcher,
                             store: store,
                             repoCache: repoCache,
-                            dropTargetCoordinateSpace: Self.drawerDropCoordinateSpace,
+                            viewRegistry: viewRegistry,
+                            coordinateSpaceName: Self.drawerDropCoordinateSpace,
                             useDrawerFramePreference: true
                         )
                         .padding(.horizontal, DrawerLayout.panelContentPadding)
                         .padding(.bottom, DrawerLayout.panelContentPadding)
-                    } else if splitRenderInfo.allMinimized {
-                        // All drawer panes minimized — show bars + add button
-                        HStack(spacing: 0) {
-                            ForEach(splitRenderInfo.allMinimizedPaneIds, id: \.self) { paneId in
-                                CollapsedPaneBar(
-                                    paneId: paneId,
-                                    tabId: tabId,
-                                    title: PaneDisplayProjector.displayLabel(
-                                        for: paneId,
-                                        store: store,
-                                        repoCache: repoCache
-                                    ),
-                                    action: drawerAction
-                                )
-                                .frame(width: CollapsedPaneBar.barWidth)
-                            }
-                            Spacer()
-                            addDrawerButton
-                            Spacer()
-                        }
                     } else {
                         VStack(spacing: 12) {
                             Spacer()
@@ -182,8 +238,7 @@ struct DrawerPanel: View {
                     containerBounds: containerBounds,
                     target: $dropTarget,
                     isManagementModeActive: managementMode.isActive,
-                    shouldAcceptDrop: shouldAcceptDrawerDrop,
-                    onDrop: handleDrawerDrop
+                    actionDispatcher: drawerActionDispatcher
                 )
             }
             .onPreferenceChange(DrawerPaneFramePreferenceKey.self) { drawerPaneFrames = $0 }
@@ -215,55 +270,7 @@ struct DrawerPanel: View {
 
     private static let drawerDropCoordinateSpace = "drawerContainer"
 
-    private func shouldAcceptDrawerDrop(
-        payload: SplitDropPayload,
-        destPaneId: UUID,
-        zone: DropZone
-    ) -> Bool {
-        guard managementMode.isActive else { return false }
-        guard let drawer = store.pane(parentPaneId)?.drawer else { return false }
-        guard drawer.layout.contains(destPaneId) else { return false }
-
-        guard case .existingPane(let sourcePaneId, _) = payload.kind else { return false }
-        guard sourcePaneId != destPaneId else { return false }
-        guard let sourcePane = store.pane(sourcePaneId) else { return false }
-        guard sourcePane.parentPaneId == parentPaneId else { return false }
-
-        let snapshot = ActionResolver.snapshot(
-            from: store.tabs,
-            activeTabId: store.activeTabId,
-            isManagementModeActive: managementMode.isActive,
-            knownWorktreeIds: Set(store.repos.flatMap(\.worktrees).map(\.id))
-        )
-        let action = PaneActionCommand.moveDrawerPane(
-            parentPaneId: parentPaneId,
-            drawerPaneId: sourcePaneId,
-            targetDrawerPaneId: destPaneId,
-            direction: splitDirection(for: zone)
-        )
-        if case .success = ActionValidator.validate(action, state: snapshot) {
-            return true
-        }
-        return false
-    }
-
-    private func handleDrawerDrop(payload: SplitDropPayload, destPaneId: UUID, zone: DropZone) {
-        guard case .existingPane(let sourcePaneId, _) = payload.kind else { return }
-        guard sourcePaneId != destPaneId else { return }
-        guard let sourcePane = store.pane(sourcePaneId) else { return }
-        guard sourcePane.parentPaneId == parentPaneId else { return }
-
-        action(
-            .moveDrawerPane(
-                parentPaneId: parentPaneId,
-                drawerPaneId: sourcePaneId,
-                targetDrawerPaneId: destPaneId,
-                direction: splitDirection(for: zone)
-            )
-        )
-    }
-
-    private func splitDirection(for zone: DropZone) -> SplitNewDirection {
+    private static func splitDirection(for zone: DropZone) -> SplitNewDirection {
         switch zone {
         case .left: return .left
         case .right: return .right
@@ -305,16 +312,17 @@ struct DrawerPanel: View {
             VStack {
                 Spacer()
                 DrawerPanel(
-                    tree: PaneSplitTree(),
+                    layout: Layout(),
                     parentPaneId: UUID(),
                     tabId: UUID(),
                     activePaneId: nil,
                     minimizedPaneIds: [],
-                    splitRenderInfo: SplitRenderInfo.compute(layout: Layout(), minimizedPaneIds: []),
+                    closeTransitionCoordinator: PaneCloseTransitionCoordinator(),
                     height: 200,
                     store: WorkspaceStore(
                         persistor: WorkspacePersistor(workspacesDir: FileManager.default.temporaryDirectory)),
                     repoCache: WorkspaceRepoCache(),
+                    viewRegistry: ViewRegistry(),
                     action: { _ in },
                     onResize: { _ in },
                     onDismiss: {},

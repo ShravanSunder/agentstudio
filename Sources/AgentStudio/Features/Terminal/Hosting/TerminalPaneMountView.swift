@@ -24,6 +24,8 @@ final class TerminalPaneMountView: NSView, PaneMountedContent, SurfaceHealthDele
     private let startupGraceDuration: Duration
     private var startupPresentationTask: Task<Void, Never>?
     private var startupPresentationActive = false
+    private var shouldSuppressProcessExitedOverlayAfterTermination = false
+    private var hasObservedEffectiveTerminationDelivery = false
     var onRepairRequested: ((UUID) -> Void)?
 
     /// The current terminal title
@@ -136,7 +138,7 @@ final class TerminalPaneMountView: NSView, PaneMountedContent, SurfaceHealthDele
         RestoreTrace.log(
             "TerminalPaneMountView.layout pane=\(paneId) surface=\(surfaceId?.uuidString ?? "nil") paneBounds=\(NSStringFromRect(bounds)) surfaceBounds=\(NSStringFromRect(surface.bounds)) surfaceMetrics={\(surface.metricsSnapshotDescription())}"
         )
-        surface.sizeDidChange(currentSize)
+        surface.sizeDidChange(currentSize, source: "mountView.layout")
     }
 
     func forceGeometrySync(reason: StaticString) {
@@ -149,7 +151,7 @@ final class TerminalPaneMountView: NSView, PaneMountedContent, SurfaceHealthDele
         RestoreTrace.log(
             "TerminalPaneMountView.forceGeometrySync pane=\(paneId) surface=\(surfaceId?.uuidString ?? "nil") reason=\(reason) paneBounds=\(NSStringFromRect(bounds)) surfaceBounds=\(NSStringFromRect(surface.bounds)) surfaceMetrics={\(surface.metricsSnapshotDescription())}"
         )
-        surface.sizeDidChange(actualSurfaceSize)
+        surface.sizeDidChange(actualSurfaceSize, source: "forceGeometrySync")
     }
 
     /// During the first layout tick after mount, AppKit can call through before
@@ -176,6 +178,8 @@ final class TerminalPaneMountView: NSView, PaneMountedContent, SurfaceHealthDele
 
         self.ghosttySurface = surfaceView
         self.lastReportedSurfaceSize = .zero
+        self.shouldSuppressProcessExitedOverlayAfterTermination = false
+        self.hasObservedEffectiveTerminationDelivery = false
         RestoreTrace.log(
             "TerminalPaneMountView.displaySurface mounted pane=\(paneId) surface=\(surfaceId?.uuidString ?? "nil") mountedSurfaceMetrics={\(surfaceView.metricsSnapshotDescription())}"
         )
@@ -195,6 +199,8 @@ final class TerminalPaneMountView: NSView, PaneMountedContent, SurfaceHealthDele
         ghosttyMountView.unmountCurrentSurface()
         ghosttySurface = nil
         surfaceId = nil
+        shouldSuppressProcessExitedOverlayAfterTermination = false
+        hasObservedEffectiveTerminationDelivery = false
     }
 
     @discardableResult
@@ -251,6 +257,15 @@ final class TerminalPaneMountView: NSView, PaneMountedContent, SurfaceHealthDele
     }
 
     private func updateHealthUI(_ health: SurfaceHealth) {
+        if case .processExited = health,
+            !isProcessRunning,
+            shouldSuppressProcessExitedOverlayAfterTermination
+        {
+            finishRestorePresentation()
+            hideErrorOverlay()
+            return
+        }
+
         if startupPresentationActive {
             switch health {
             case .healthy:
@@ -316,13 +331,12 @@ final class TerminalPaneMountView: NSView, PaneMountedContent, SurfaceHealthDele
     private func handleSurfaceClose(processAlive: Bool) {
         guard isProcessRunning else { return }
         isProcessRunning = false
-        if startupPresentationActive {
-            failRestorePresentation(health: .processExited(exitCode: nil))
-        }
+        shouldSuppressProcessExitedOverlayAfterTermination = true
+        hasObservedEffectiveTerminationDelivery = false
         RestoreTrace.log(
             "TerminalPaneMountView.handleSurfaceClose pane=\(paneId) surface=\(surfaceId?.uuidString ?? "nil") processAlive=\(processAlive)"
         )
-        handleProcessTerminated()
+        postProcessTerminationEvent(processAlive: processAlive)
     }
 
     private func beginRestorePresentationIfNeeded() {
@@ -388,15 +402,13 @@ final class TerminalPaneMountView: NSView, PaneMountedContent, SurfaceHealthDele
 
     // MARK: - Process Management
 
-    func handleProcessTerminated() {
-        isProcessRunning = false
-        AppEventBus.post(.terminalProcessTerminated(paneId: paneId))
-    }
-
     func requestClose() {
         guard let surfaceId else { return }
         SurfaceManager.shared.detach(surfaceId, reason: .close)
-        handleProcessTerminated()
+        isProcessRunning = false
+        shouldSuppressProcessExitedOverlayAfterTermination = true
+        hasObservedEffectiveTerminationDelivery = false
+        postProcessTerminationEvent(processAlive: true)
     }
 
     func terminateProcess() {
@@ -404,6 +416,36 @@ final class TerminalPaneMountView: NSView, PaneMountedContent, SurfaceHealthDele
         isProcessRunning = false
         SurfaceManager.shared.destroy(surfaceId)
         self.surfaceId = nil
+        shouldSuppressProcessExitedOverlayAfterTermination = false
+        hasObservedEffectiveTerminationDelivery = false
+    }
+
+    private func postProcessTerminationEvent(processAlive: Bool) {
+        Task { @MainActor [weak self] in
+            guard let self else { return }
+            let postResult = await AppEventBus.shared.post(.terminalProcessTerminated(paneId: self.paneId))
+            let hadEffectiveDelivery = postResult.subscriberCount > 0 && postResult.droppedCount == 0
+            self.hasObservedEffectiveTerminationDelivery = hadEffectiveDelivery
+            if hadEffectiveDelivery {
+                self.finishRestorePresentation()
+                self.hideErrorOverlay()
+                return
+            }
+            self.shouldSuppressProcessExitedOverlayAfterTermination = false
+            self.showProcessExitedFallback(processAlive: processAlive)
+        }
+    }
+
+    private func showProcessExitedFallback(processAlive: Bool) {
+        let fallbackHealth: SurfaceHealth = .processExited(exitCode: nil)
+        if startupPresentationActive {
+            failRestorePresentation(health: fallbackHealth)
+        } else {
+            showErrorOverlay(health: fallbackHealth)
+        }
+        RestoreTrace.log(
+            "TerminalPaneMountView.showProcessExitedFallback pane=\(paneId) surface=\(surfaceId?.uuidString ?? "nil") processAlive=\(processAlive)"
+        )
     }
 
     var processExited: Bool {
@@ -457,9 +499,42 @@ final class TerminalPaneMountView: NSView, PaneMountedContent, SurfaceHealthDele
         return super.hitTest(point)
     }
 
+    /// The current placeholder view, if one is shown. Used by coordinators
+    /// to check placeholder state during repair and re-registration flows.
+    var currentPlaceholderView: TerminalStatusPlaceholderView? { placeholderView }
 }
 
-@MainActor
-extension TerminalPaneMountView {
-    var placeholderViewForTesting: TerminalStatusPlaceholderView? { placeholderView }
-}
+#if DEBUG
+    @MainActor
+    extension TerminalPaneMountView {
+        var placeholderViewForTesting: TerminalStatusPlaceholderView? { placeholderView }
+
+        func beginRestorePresentationForTesting() {
+            beginRestorePresentationIfNeeded()
+        }
+
+        func simulateSurfaceCloseForTesting(processAlive: Bool) {
+            handleSurfaceClose(processAlive: processAlive)
+        }
+
+        func applyHealthUpdateForTesting(_ health: SurfaceHealth) {
+            updateHealthUI(health)
+        }
+
+        var isShowingStartupOverlayForTesting: Bool {
+            startupOverlay?.isHidden == false
+        }
+
+        var isProcessExitedOverlaySuppressedAfterTerminationForTesting: Bool {
+            shouldSuppressProcessExitedOverlayAfterTermination
+        }
+
+        var hasObservedEffectiveTerminationDeliveryForTesting: Bool {
+            hasObservedEffectiveTerminationDelivery
+        }
+
+        var isShowingErrorOverlayForTesting: Bool {
+            errorOverlay?.isHidden == false
+        }
+    }
+#endif

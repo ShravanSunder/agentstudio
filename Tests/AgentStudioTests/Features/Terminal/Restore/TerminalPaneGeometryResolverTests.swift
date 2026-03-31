@@ -11,14 +11,11 @@ struct TerminalPaneGeometryResolverTests {
         let paneA = UUID()
         let paneB = UUID()
         let layout = Layout(
-            root: .split(
-                Layout.Split(
-                    direction: .horizontal,
-                    ratio: 0.5,
-                    left: .leaf(paneId: paneA),
-                    right: .leaf(paneId: paneB)
-                )
-            )
+            panes: [
+                .init(paneId: paneA, ratio: 0.5),
+                .init(paneId: paneB, ratio: 0.5),
+            ],
+            dividerIds: [UUID()]
         )
 
         let containerWidth: CGFloat = 1000

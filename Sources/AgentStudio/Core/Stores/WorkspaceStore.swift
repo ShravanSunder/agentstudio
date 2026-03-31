@@ -32,12 +32,6 @@ final class WorkspaceStore {
     var tabFrames: [UUID: CGRect] = [:]
     var isSplitResizing: Bool = false
 
-    /// Incremented when a view is replaced in ViewRegistry without a store mutation
-    /// (e.g., repair actions). SwiftUI views read this to register @Observable tracking,
-    /// ensuring re-renders pick up the new view from ViewRegistry.
-    /// Runtime-only — not persisted.
-    private(set) var viewRevision: Int = 0
-
     // MARK: - Internal State
 
     private(set) var workspaceId = UUID()
@@ -1603,20 +1597,16 @@ final class WorkspaceStore {
     }
 
     private func layoutRatioSummary(_ layout: Layout) -> String {
-        guard let root = layout.root else { return "empty" }
-        return layoutRatioSummary(node: root)
-    }
-
-    private func layoutRatioSummary(node: Layout.Node) -> String {
-        switch node {
-        case .leaf(let paneId):
-            return "leaf(\(paneId.uuidString))"
-        case .split(let split):
-            let left = layoutRatioSummary(node: split.left)
-            let right = layoutRatioSummary(node: split.right)
-            return
-                "split(\(split.id.uuidString),dir=\(split.direction),ratio=\(split.ratio),left=\(left),right=\(right))"
-        }
+        guard !layout.panes.isEmpty else { return "empty" }
+        return layout.panes.enumerated().map { index, pane in
+            let dividerSuffix: String
+            if index < layout.dividerIds.count {
+                dividerSuffix = ",divider=\(layout.dividerIds[index].uuidString)"
+            } else {
+                dividerSuffix = ""
+            }
+            return "pane(\(pane.paneId.uuidString),ratio=\(pane.ratio)\(dividerSuffix))"
+        }.joined(separator: " -> ")
     }
 
     // MARK: - UI State
@@ -1629,13 +1619,6 @@ final class WorkspaceStore {
     func setWindowFrame(_ frame: CGRect?) {
         windowFrame = frame
         // Transient — saved on quit only via flush()
-    }
-
-    /// Signal that a view was replaced in ViewRegistry without a corresponding store mutation.
-    /// Called after repair actions so SwiftUI views that read `viewRevision` re-render
-    /// and pick up the new view from ViewRegistry.
-    func bumpViewRevision() {
-        viewRevision += 1
     }
 
     // MARK: - Undo

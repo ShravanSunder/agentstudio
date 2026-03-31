@@ -41,9 +41,15 @@ final class WindowLifecycleStore {
     func recordTerminalContainerBounds(_ bounds: CGRect) {
         guard !bounds.isEmpty else { return }
         terminalContainerBounds = bounds
+        RestoreTrace.log(
+            "WindowLifecycleStore.recordTerminalContainerBounds bounds=\(NSStringFromRect(bounds)) settled=\(isLaunchLayoutSettled) ready=\(isReadyForLaunchRestore)"
+        )
     }
 
     func recordLaunchLayoutSettled() {
         isLaunchLayoutSettled = true
+        RestoreTrace.log(
+            "WindowLifecycleStore.recordLaunchLayoutSettled bounds=\(NSStringFromRect(terminalContainerBounds)) settled=\(isLaunchLayoutSettled) ready=\(isReadyForLaunchRestore)"
+        )
     }
 }

@@ -82,4 +82,10 @@ final class ActionExecutor {
             )
         }
     }
+
+    /// Trusted system-originated actions may need to operate on canonical tab ownership
+    /// rather than only the currently active arrangement.
+    func executeTrusted(_ action: PaneActionCommand) {
+        coordinator.execute(action)
+    }
 }

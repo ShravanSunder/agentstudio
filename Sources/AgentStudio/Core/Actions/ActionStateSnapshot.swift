@@ -47,6 +47,12 @@ struct ActionStateSnapshot: Equatable {
                 lookup[paneId] = tab.id
             }
         }
+        // Drawer panes belong to the same tab as their parent layout pane.
+        // A drawer cannot exist without its parent, so the parent is always
+        // in the lookup by this point.
+        for (drawerPaneId, parentPaneId) in drawerParentByPaneId {
+            lookup[drawerPaneId] = lookup[parentPaneId]
+        }
         self.paneToTab = lookup
     }
 

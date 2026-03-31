@@ -70,12 +70,15 @@ final class MinimizeLayoutIntegrationTests {
         #expect(updated.minimizedPaneIds == Set(paneIds))
         #expect((updated.activePaneId) == nil)
 
-        let renderInfo = SplitRenderInfo.compute(
+        let renderInfo = FlatTabStripMetrics.compute(
             layout: updated.layout,
-            minimizedPaneIds: updated.minimizedPaneIds
+            in: CGRect(x: 0, y: 0, width: 1200, height: 700),
+            dividerThickness: AppStyle.paneGap,
+            minimizedPaneIds: updated.minimizedPaneIds,
+            collapsedPaneWidth: CollapsedPaneBar.barWidth
         )
         #expect(renderInfo.allMinimized)
-        #expect(renderInfo.allMinimizedPaneIds.count == 3)
+        #expect(renderInfo.paneSegments.count == 3)
     }
 
     // MARK: - Minimize All Drawer Panes
@@ -102,9 +105,12 @@ final class MinimizeLayoutIntegrationTests {
         let drawer = store.pane(pane.id)!.drawer!
         #expect(drawer.minimizedPaneIds == Set([d1.id, d2.id]))
 
-        let renderInfo = SplitRenderInfo.compute(
+        let renderInfo = FlatTabStripMetrics.compute(
             layout: drawer.layout,
-            minimizedPaneIds: drawer.minimizedPaneIds
+            in: CGRect(x: 0, y: 0, width: 1200, height: 300),
+            dividerThickness: AppStyle.paneGap,
+            minimizedPaneIds: drawer.minimizedPaneIds,
+            collapsedPaneWidth: CollapsedPaneBar.barWidth
         )
         #expect(renderInfo.allMinimized)
     }
@@ -132,9 +138,12 @@ final class MinimizeLayoutIntegrationTests {
         #expect(updated.minimizedPaneIds.contains(paneIds[1]))
         #expect(updated.activePaneId == paneIds[0])
 
-        let renderInfo = SplitRenderInfo.compute(
+        let renderInfo = FlatTabStripMetrics.compute(
             layout: updated.layout,
-            minimizedPaneIds: updated.minimizedPaneIds
+            in: CGRect(x: 0, y: 0, width: 1200, height: 700),
+            dividerThickness: AppStyle.paneGap,
+            minimizedPaneIds: updated.minimizedPaneIds,
+            collapsedPaneWidth: CollapsedPaneBar.barWidth
         )
         #expect(!(renderInfo.allMinimized))
     }
@@ -166,36 +175,27 @@ final class MinimizeLayoutIntegrationTests {
         #expect((updated.activePaneId) == nil)
     }
 
-    // MARK: - SplitRenderInfo Nested Proportional Ratios
+    // MARK: - Flat Strip Metrics Preserve Visible Dividers
 
     @Test
 
-    func test_splitRenderInfo_nestedMinimize_proportionalRatios() {
-        // Arrange: 3 panes — A | (B | C), minimize B
+    func test_flatStripMetrics_minimize_preservesVisibleDividerAccounting() {
         let (tab, paneIds) = createTabWithPanes(3)
         let b = paneIds[1]
 
         store.minimizePane(b, inTab: tab.id)
 
-        // Act
         let updated = store.tab(tab.id)!
-        let renderInfo = SplitRenderInfo.compute(
+        let renderInfo = FlatTabStripMetrics.compute(
             layout: updated.layout,
-            minimizedPaneIds: updated.minimizedPaneIds
+            in: CGRect(x: 0, y: 0, width: 1200, height: 700),
+            dividerThickness: AppStyle.paneGap,
+            minimizedPaneIds: updated.minimizedPaneIds,
+            collapsedPaneWidth: CollapsedPaneBar.barWidth
         )
 
-        // Assert: not all minimized, has split info entries
         #expect(!(renderInfo.allMinimized))
-        #expect(!(renderInfo.splitInfo.isEmpty))
-
-        // Find the inner split (B|C) — one side should be fully minimized
-        let innerSplitInfo = renderInfo.splitInfo.values.first {
-            $0.leftFullyMinimized || $0.rightFullyMinimized
-        }
-        #expect((innerSplitInfo) != nil)
-        let minimizedCount =
-            (innerSplitInfo?.leftMinimizedPaneIds.count ?? 0)
-            + (innerSplitInfo?.rightMinimizedPaneIds.count ?? 0)
-        #expect(minimizedCount == 1, "Exactly one pane should be in the minimized IDs")
+        #expect(renderInfo.dividerSegments.isEmpty)
+        #expect(renderInfo.paneSegments.filter(\.isMinimized).count == 1)
     }
 }

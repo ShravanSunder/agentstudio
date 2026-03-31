@@ -132,6 +132,7 @@ class AppDelegate: NSObject, NSApplicationDelegate {
         runtime = SessionRuntime(store: store)
         cleanupOrphanZmxSessions()
         viewRegistry = ViewRegistry()
+        seedSlotsForRestoredPanes()
         let pipeline = FilesystemGitPipeline(
             bus: paneRuntimeBus,
             fseventStreamClient: DarwinFSEventStreamClient()
@@ -240,6 +241,17 @@ class AppDelegate: NSObject, NSApplicationDelegate {
         }
     }
 
+    /// Seed pane slots immediately after canonical restore and before any hosting controller exists.
+    /// Restored panes already live in `store.panes`; creating their slots here ensures the first
+    /// SwiftUI read during tab-host creation sees stable slot identity instead of the lazy fallback.
+    func seedSlotsForRestoredPanes() {
+        guard store != nil, viewRegistry != nil else { return }
+        for paneId in store.panes.keys {
+            viewRegistry.ensureSlot(for: paneId)
+        }
+        RestoreTrace.log("seedSlotsForRestoredPanes count=\(store.panes.count)")
+    }
+
     private static var nextTopologySeq: UInt64 = 0
 
     /// Build a canonical `.repoDiscovered` topology envelope.
@@ -309,6 +321,7 @@ class AppDelegate: NSObject, NSApplicationDelegate {
             uiStore: workspaceUIStore,
             actionExecutor: executor,
             applicationLifecycleMonitor: applicationLifecycleMonitor,
+            appLifecycleStore: appLifecycleStore,
             tabBarAdapter: tabBarAdapter,
             viewRegistry: viewRegistry
         )
@@ -488,6 +501,7 @@ class AppDelegate: NSObject, NSApplicationDelegate {
                 uiStore: workspaceUIStore,
                 actionExecutor: executor,
                 applicationLifecycleMonitor: applicationLifecycleMonitor,
+                appLifecycleStore: appLifecycleStore,
                 tabBarAdapter: tabBarAdapter,
                 viewRegistry: viewRegistry
             )

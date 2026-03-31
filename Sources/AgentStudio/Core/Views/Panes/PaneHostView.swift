@@ -9,6 +9,13 @@ final class ManagementModeContainerView: NSView {
         guard !ManagementModeMonitor.shared.isActive else { return nil }
         return super.hitTest(point)
     }
+
+    override func viewDidMoveToWindow() {
+        super.viewDidMoveToWindow()
+        RestoreTrace.log(
+            "ManagementModeContainerView.viewDidMoveToWindow window=\(window != nil) id=\(ObjectIdentifier(self)) superview=\(superview != nil)"
+        )
+    }
 }
 
 @MainActor
@@ -20,6 +27,11 @@ protocol PaneMountedContent: NSView {
 class PaneHostView: NSView, Identifiable {
     nonisolated let paneId: UUID
     nonisolated var id: UUID { paneId }
+
+    /// Stable identity for this specific host instance. Changes when the host
+    /// is replaced (repair, placeholder retry), forcing SwiftUI to recreate
+    /// the NSViewRepresentable and remount the new view.
+    var hostIdentity: ObjectIdentifier { ObjectIdentifier(self) }
 
     private(set) var interactionShield: ManagementModeDragShield?
     private let contentContainerView = NSView(frame: .zero)
@@ -52,6 +64,13 @@ class PaneHostView: NSView, Identifiable {
     override func hitTest(_ point: NSPoint) -> NSView? {
         guard !ManagementModeMonitor.shared.isActive else { return nil }
         return super.hitTest(point)
+    }
+
+    override func viewDidMoveToWindow() {
+        super.viewDidMoveToWindow()
+        RestoreTrace.log(
+            "PaneHostView.viewDidMoveToWindow paneId=\(paneId) window=\(window != nil) id=\(ObjectIdentifier(self)) superview=\(superview != nil)"
+        )
     }
 
     func mountContentView(_ mountedView: NSView & PaneMountedContent) {

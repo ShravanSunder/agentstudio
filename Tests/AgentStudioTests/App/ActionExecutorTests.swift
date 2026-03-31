@@ -262,21 +262,16 @@ final class ActionExecutorTests {
             direction: .horizontal, position: .after
         )
 
-        // Get split ID
-        guard case .split(let split) = store.tabs[0].layout.root else {
-            Issue.record("Expected split layout")
+        guard let dividerId = store.tabs[0].layout.dividerIds.first else {
+            Issue.record("Expected divider")
             return
         }
 
         // Act
-        executor.execute(.resizePane(tabId: tab.id, splitId: split.id, ratio: 0.3))
+        executor.execute(.resizePane(tabId: tab.id, splitId: dividerId, ratio: 0.3))
 
         // Assert
-        guard case .split(let updatedSplit) = store.tabs[0].layout.root else {
-            Issue.record("Expected split layout")
-            return
-        }
-        #expect(abs(updatedSplit.ratio - 0.3) < 0.001)
+        #expect(abs((store.tabs[0].layout.ratioForSplit(dividerId) ?? 0.0) - 0.3) < 0.001)
     }
 
     // MARK: - Execute: equalizePanes
@@ -294,21 +289,17 @@ final class ActionExecutorTests {
         )
 
         // Resize first
-        guard case .split(let split) = store.tabs[0].layout.root else {
-            Issue.record("Expected split")
+        guard let dividerId = store.tabs[0].layout.dividerIds.first else {
+            Issue.record("Expected divider")
             return
         }
-        store.resizePane(tabId: tab.id, splitId: split.id, ratio: 0.3)
+        store.resizePane(tabId: tab.id, splitId: dividerId, ratio: 0.3)
 
         // Act
         executor.execute(.equalizePanes(tabId: tab.id))
 
         // Assert
-        guard case .split(let eqSplit) = store.tabs[0].layout.root else {
-            Issue.record("Expected split")
-            return
-        }
-        #expect(abs(eqSplit.ratio - 0.5) < 0.001)
+        #expect(abs((store.tabs[0].layout.ratioForSplit(dividerId) ?? 0.0) - 0.5) < 0.001)
     }
 
     // MARK: - Execute: closePane
@@ -694,16 +685,10 @@ final class ActionExecutorTests {
         #expect(Set(updatedTab.paneIds) == Set([pA.id, pB.id, pC.id]))
     }
 
-    // MARK: - Execute: repair (viewRevision)
+    // MARK: - Execute: repair
 
     @Test
-    func test_viewRevision_defaultsToZero() {
-        // Assert
-        #expect(store.viewRevision == 0)
-    }
-
-    @Test
-    func test_executeRepair_recreateSurface_bumpsViewRevision() {
+    func test_executeRepair_recreateSurface_replacesExistingView() {
         // Arrange
         let pane = store.createPane(
             content: .webview(WebviewState(url: URL(string: "https://example.com/recreate")!)),
@@ -713,17 +698,18 @@ final class ActionExecutorTests {
         store.appendTab(tab)
         let stubView = PaneHostView(paneId: pane.id)
         viewRegistry.register(stubView, for: pane.id)
-        #expect(store.viewRevision == 0)
 
         // Act
         executor.execute(.repair(.recreateSurface(paneId: pane.id)))
 
         // Assert
-        #expect(store.viewRevision == 1)
+        let repairedView = viewRegistry.view(for: pane.id)
+        #expect(repairedView != nil)
+        #expect(repairedView !== stubView)
     }
 
     @Test
-    func test_executeRepair_createMissingView_bumpsViewRevision() {
+    func test_executeRepair_createMissingView_registersView() {
         // Arrange
         let pane = store.createPane(
             content: .webview(WebviewState(url: URL(string: "https://example.com/missing")!)),
@@ -731,25 +717,25 @@ final class ActionExecutorTests {
         )
         let tab = Tab(paneId: pane.id)
         store.appendTab(tab)
-        #expect(store.viewRevision == 0)
+        #expect(viewRegistry.view(for: pane.id) == nil)
 
         // Act
         executor.execute(.repair(.createMissingView(paneId: pane.id)))
 
         // Assert
-        #expect(store.viewRevision == 1)
+        #expect(viewRegistry.view(for: pane.id) != nil)
     }
 
     @Test
-    func test_executeRepair_unknownPane_doesNotBumpViewRevision() {
+    func test_executeRepair_unknownPane_doesNotRegisterView() {
         // Arrange
         let unknownId = UUID()
-        #expect(store.viewRevision == 0)
+        #expect(viewRegistry.view(for: unknownId) == nil)
 
         // Act
         executor.execute(.repair(.recreateSurface(paneId: unknownId)))
 
-        // Assert — guard early-returns, no bump
-        #expect(store.viewRevision == 0)
+        // Assert — guard early-returns, no registration
+        #expect(viewRegistry.view(for: unknownId) == nil)
     }
 }

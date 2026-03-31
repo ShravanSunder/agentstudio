@@ -1,6 +1,17 @@
 import AppKit
 import SwiftUI
 
+@MainActor
+private func ancestorChainDescription(for view: NSView) -> String {
+    var nodes: [String] = []
+    var current: NSView? = view
+    while let currentView = current {
+        nodes.append("class=\(type(of: currentView)) id=\(ObjectIdentifier(currentView))")
+        current = currentView.superview
+    }
+    return nodes.joined(separator: " -> ")
+}
+
 /// Renders a single pane leaf container.
 /// Handles terminal views (with surface dimming and drag handles) and
 /// non-terminal views (webview, code viewer stubs) uniformly.
@@ -11,7 +22,8 @@ struct PaneLeafContainer: View {
     let isSplit: Bool
     let store: WorkspaceStore
     let repoCache: WorkspaceRepoCache
-    let action: (PaneActionCommand) -> Void
+    let closeTransitionCoordinator: PaneCloseTransitionCoordinator
+    let actionDispatcher: PaneActionDispatching
     let dropTargetCoordinateSpace: String?
     let useDrawerFramePreference: Bool
 
@@ -28,7 +40,8 @@ struct PaneLeafContainer: View {
         isSplit: Bool,
         store: WorkspaceStore,
         repoCache: WorkspaceRepoCache,
-        action: @escaping (PaneActionCommand) -> Void,
+        closeTransitionCoordinator: PaneCloseTransitionCoordinator,
+        actionDispatcher: PaneActionDispatching,
         dropTargetCoordinateSpace: String? = "tabContainer",
         useDrawerFramePreference: Bool = false
     ) {
@@ -38,7 +51,8 @@ struct PaneLeafContainer: View {
         self.isSplit = isSplit
         self.store = store
         self.repoCache = repoCache
-        self.action = action
+        self.closeTransitionCoordinator = closeTransitionCoordinator
+        self.actionDispatcher = actionDispatcher
         self.dropTargetCoordinateSpace = dropTargetCoordinateSpace
         self.useDrawerFramePreference = useDrawerFramePreference
     }
@@ -57,6 +71,10 @@ struct PaneLeafContainer: View {
     /// Parent pane ID for drawer children; nil for layout panes.
     private var drawerParentPaneId: UUID? {
         store.pane(paneHost.id)?.parentPaneId
+    }
+
+    private var isClosing: Bool {
+        closeTransitionCoordinator.closingPaneIds.contains(paneHost.id)
     }
 
     /// True when hover is active either via tracking events or by direct pointer query.
@@ -103,6 +121,11 @@ struct PaneLeafContainer: View {
             ZStack(alignment: .topTrailing) {
                 // Pane content view
                 PaneViewRepresentable(paneHost: paneHost)
+                    // Force SwiftUI to recreate the representable when the host
+                    // instance changes (e.g. after repair or placeholder retry).
+                    // Without this, updateNSView is a no-op and the old NSView
+                    // stays mounted.
+                    .id(paneHost.hostIdentity)
                     // In management mode, route drag targeting through the shared
                     // SwiftUI leaf container so pane type (WKWebView/Ghostty/etc.)
                     // cannot intercept drop updates differently.
@@ -184,7 +207,7 @@ struct PaneLeafContainer: View {
                     VStack {
                         HStack(spacing: AppStyle.spacingStandard) {
                             Button {
-                                action(.minimizePane(tabId: tabId, paneId: paneHost.id))
+                                actionDispatcher.dispatch(.minimizePane(tabId: tabId, paneId: paneHost.id))
                             } label: {
                                 Image(systemName: "minus")
                                     .font(.system(size: AppStyle.managementActionIconSize, weight: .bold))
@@ -214,7 +237,7 @@ struct PaneLeafContainer: View {
                             .help("Minimize pane")
 
                             Button {
-                                action(.closePane(tabId: tabId, paneId: paneHost.id))
+                                beginCloseTransition()
                             } label: {
                                 Image(systemName: "xmark")
                                     .font(.system(size: AppStyle.managementActionIconSize, weight: .bold))
@@ -242,6 +265,7 @@ struct PaneLeafContainer: View {
                             .buttonStyle(.plain)
                             .onHover { isCloseHovered = $0 }
                             .help("Close pane")
+                            .disabled(isClosing)
 
                             Spacer()
                         }
@@ -257,7 +281,7 @@ struct PaneLeafContainer: View {
                         HStack {
                             Spacer()
                             Button {
-                                action(
+                                actionDispatcher.dispatch(
                                     .insertPane(
                                         source: .newTerminal,
                                         targetTabId: tabId,
@@ -317,19 +341,24 @@ struct PaneLeafContainer: View {
                         paneId: paneHost.id,
                         drawer: drawer,
                         isIconBarVisible: true,
-                        action: action
+                        action: actionDispatcher.dispatch
                     )
                 }
             }
             .contentShape(Rectangle())
             .onHover { isHovered = $0 }
             .onTapGesture {
-                action(.focusPane(tabId: tabId, paneId: paneHost.id))
+                actionDispatcher.dispatch(.focusPane(tabId: tabId, paneId: paneHost.id))
             }
+            .opacity(isClosing ? 0.58 : 1)
+            .scaleEffect(isClosing ? 0.985 : 1)
+            .zIndex(isClosing ? 1 : 0)
+            .animation(.easeOut(duration: AppStyle.animationFast), value: isClosing)
+            .allowsHitTesting(!isClosing)
             .contextMenu {
                 if managementMode.isActive && !isDrawerChild {
                     Button("Extract Pane to New Tab") {
-                        action(.extractPaneToTab(tabId: tabId, paneId: paneHost.id))
+                        actionDispatcher.dispatch(.extractPaneToTab(tabId: tabId, paneId: paneHost.id))
                     }
 
                     Menu("Move Pane to Tab") {
@@ -340,7 +369,7 @@ struct PaneLeafContainer: View {
                                     let targetPaneId = targetTab.activePaneId ?? targetTab.paneIds.first
                                 else { return }
 
-                                action(
+                                actionDispatcher.dispatch(
                                     .insertPane(
                                         source: .existingPane(paneId: paneHost.id, sourceTabId: tabId),
                                         targetTabId: destination.tabId,
@@ -389,6 +418,12 @@ struct PaneLeafContainer: View {
         )
     }
 
+    func beginCloseTransition() {
+        closeTransitionCoordinator.beginClosingPane(paneHost.id) {
+            actionDispatcher.dispatch(.closePane(tabId: tabId, paneId: paneHost.id))
+        }
+    }
+
     private func tabDisplayTitle(tab: Tab) -> String {
         PaneDisplayProjector.tabDisplayLabel(for: tab, store: store, repoCache: repoCache)
     }
@@ -405,12 +440,31 @@ struct PaneLeafContainer: View {
 struct PaneViewRepresentable: NSViewRepresentable {
     let paneHost: PaneHostView
 
+    #if DEBUG
+        static var onDismantleForTesting: (() -> Void)?
+    #endif
+
     func makeNSView(context: Context) -> NSView {
-        paneHost.swiftUIContainer
+        RestoreTrace.log(
+            "PaneViewRepresentable.makeNSView paneId=\(paneHost.paneId) containerId=\(ObjectIdentifier(paneHost.swiftUIContainer)) hostId=\(ObjectIdentifier(paneHost))"
+        )
+        return paneHost.swiftUIContainer
     }
 
     func updateNSView(_ nsView: NSView, context: Context) {
-        // Nothing — container is stable, pane manages itself
+        // Nothing — container is stable, pane manages itself.
+        // Host replacement is handled by .id(paneHost.hostIdentity) on the
+        // PaneViewRepresentable call site, which forces SwiftUI to dismantle
+        // and recreate when the host instance changes.
+    }
+
+    static func dismantleNSView(_ nsView: NSView, coordinator: ()) {
+        RestoreTrace.log(
+            "PaneViewRepresentable.dismantleNSView viewId=\(ObjectIdentifier(nsView)) superview=\(nsView.superview != nil) window=\(nsView.window != nil) ancestry=\(ancestorChainDescription(for: nsView))"
+        )
+        #if DEBUG
+            onDismantleForTesting?()
+        #endif
     }
 }
 

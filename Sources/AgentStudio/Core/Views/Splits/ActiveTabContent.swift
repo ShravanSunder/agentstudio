@@ -1,74 +1,57 @@
 import SwiftUI
 
-/// SwiftUI root for the main terminal content area.
+/// Legacy active-tab SwiftUI root preserved for diagnostics and transitional tests.
 ///
-/// Hosted by PaneTabViewController's `splitHostingView` (NSHostingView).
-/// Reads the active tab from WorkspaceStore via @Observable property tracking
-/// and renders `TerminalSplitContainer` for that tab. Re-renders automatically
-/// when any accessed store property changes — no manual invalidation needed.
-///
-/// See docs/architecture/appkit_swiftui_architecture.md for the hosting pattern.
+/// The production `PaneTabViewController` no longer hosts this view directly; it now
+/// creates one persistent `SingleTabContent` host per tab at the AppKit layer.
+/// This type remains as a compatibility shim for tests and debug-only investigation.
+@available(*, deprecated, message: "PaneTabViewController now uses per-tab SingleTabContent hosts")
 struct ActiveTabContent: View {
     let store: WorkspaceStore
     let repoCache: WorkspaceRepoCache
     let viewRegistry: ViewRegistry
     let appLifecycleStore: AppLifecycleStore
-    let action: (PaneActionCommand) -> Void
-    let shouldAcceptDrop: (SplitDropPayload, UUID, DropZone) -> Bool
-    let onDrop: (SplitDropPayload, UUID, DropZone) -> Void
+    let closeTransitionCoordinator: PaneCloseTransitionCoordinator
+    let actionDispatcher: PaneActionDispatching
 
     private static func traceBody(
         activeTabId: UUID?,
-        viewRevision: Int,
         tabPaneCount: Int,
         registeredPaneCount: Int,
         hasTree: Bool
     ) -> Int {
         if let activeTabId {
             RestoreTrace.log(
-                "ActiveTabContent.body activeTab=\(activeTabId) viewRevision=\(viewRevision) tabPaneCount=\(tabPaneCount) registeredPaneCount=\(registeredPaneCount) hasTree=\(hasTree)"
+                "ActiveTabContent.body activeTab=\(activeTabId) tabPaneCount=\(tabPaneCount) registeredPaneCount=\(registeredPaneCount) hasTree=\(hasTree)"
             )
         } else {
-            RestoreTrace.log(
-                "ActiveTabContent.body empty activeTab=nil viewRevision=\(viewRevision)"
-            )
+            RestoreTrace.log("ActiveTabContent.body empty activeTab=nil")
         }
         return 0
     }
 
     var body: some View {
-        // Read viewRevision so @Observable tracks it — triggers re-render after repair
-        let currentViewRevision = store.viewRevision
         let activeTabId = store.activeTabId
         let tab = activeTabId.flatMap { store.tab($0) }
-        let tree = tab.flatMap { viewRegistry.renderTree(for: $0.layout) }
         let registeredPaneCount = tab?.paneIds.filter { viewRegistry.view(for: $0) != nil }.count ?? 0
         let tabPaneCount = tab?.paneIds.count ?? 0
         // swiftlint:disable:next redundant_discardable_let
         let _ = Self.traceBody(
             activeTabId: activeTabId,
-            viewRevision: currentViewRevision,
             tabPaneCount: tabPaneCount,
             registeredPaneCount: registeredPaneCount,
-            hasTree: tree != nil
+            hasTree: tab != nil && registeredPaneCount > 0
         )
 
-        if let activeTabId, let tab, let tree {
-            let renderInfo = SplitRenderInfo.compute(
+        if let activeTabId, let tab {
+            FlatTabStripContainer(
                 layout: tab.layout,
-                minimizedPaneIds: tab.minimizedPaneIds
-            )
-            TerminalSplitContainer(
-                tree: tree,
                 tabId: activeTabId,
                 activePaneId: tab.activePaneId,
                 zoomedPaneId: tab.zoomedPaneId,
                 minimizedPaneIds: tab.minimizedPaneIds,
-                splitRenderInfo: renderInfo,
-                action: action,
-                onPersist: nil,
-                shouldAcceptDrop: shouldAcceptDrop,
-                onDrop: onDrop,
+                closeTransitionCoordinator: closeTransitionCoordinator,
+                actionDispatcher: actionDispatcher,
                 store: store,
                 repoCache: repoCache,
                 viewRegistry: viewRegistry,

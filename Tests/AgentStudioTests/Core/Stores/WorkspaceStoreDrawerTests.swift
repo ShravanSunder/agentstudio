@@ -279,19 +279,18 @@ final class WorkspaceStoreDrawerTests {
         _ = store.addDrawerPane(to: pane.id)!
         _ = store.addDrawerPane(to: pane.id)!
 
-        // Find the split ID
         let drawer = store.pane(pane.id)!.drawer!
-        guard case .split(let split) = drawer.layout.root else {
-            Issue.record("Expected split layout with 2 drawer panes")
+        guard let dividerId = drawer.layout.dividerIds.first else {
+            Issue.record("Expected drawer layout divider")
             return
         }
 
         // Act
-        store.resizeDrawerPane(parentPaneId: pane.id, splitId: split.id, ratio: 0.7)
+        store.resizeDrawerPane(parentPaneId: pane.id, splitId: dividerId, ratio: 0.7)
 
         // Assert
         let updated = store.pane(pane.id)!.drawer!
-        #expect(abs((updated.layout.ratioForSplit(split.id) ?? 0) - (0.7)) <= 0.01)
+        #expect(abs((updated.layout.ratioForSplit(dividerId) ?? 0) - (0.7)) <= 0.01)
     }
 
     @Test
@@ -303,18 +302,18 @@ final class WorkspaceStoreDrawerTests {
         _ = store.addDrawerPane(to: pane.id)
 
         let drawer = store.pane(pane.id)!.drawer!
-        guard case .split(let split) = drawer.layout.root else {
-            Issue.record("Expected split layout")
+        guard let dividerId = drawer.layout.dividerIds.first else {
+            Issue.record("Expected drawer layout divider")
             return
         }
-        store.resizeDrawerPane(parentPaneId: pane.id, splitId: split.id, ratio: 0.8)
+        store.resizeDrawerPane(parentPaneId: pane.id, splitId: dividerId, ratio: 0.8)
 
         // Act
         store.equalizeDrawerPanes(parentPaneId: pane.id)
 
         // Assert
         let updated = store.pane(pane.id)!.drawer!
-        #expect(abs((updated.layout.ratioForSplit(split.id) ?? 0) - (0.5)) <= 0.01)
+        #expect(abs((updated.layout.ratioForSplit(dividerId) ?? 0) - (0.5)) <= 0.01)
     }
 
     // MARK: - minimizeDrawerPane / expandDrawerPane

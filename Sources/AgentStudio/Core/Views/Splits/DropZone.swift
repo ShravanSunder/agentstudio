@@ -14,8 +14,8 @@ enum DropZone: String, Equatable, CaseIterable {
         return relX < 0.5 ? .left : .right
     }
 
-    /// Convert to SplitTree.NewDirection for insertion.
-    var newDirection: PaneSplitTree.NewDirection {
+    /// Convert to pane insertion direction for flat strip insertion.
+    var newDirection: SplitNewDirection {
         switch self {
         case .left: return .left
         case .right: return .right

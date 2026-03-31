@@ -39,6 +39,18 @@ extension Ghostty {
         var fontSize: Float?
         var environmentVariables: [String: String]
 
+        var hasValidInitialFrameForSurfaceCreation: Bool {
+            guard let initialFrame else { return false }
+            return !initialFrame.isEmpty
+        }
+
+        func requireInitialFrameForSurfaceCreation() {
+            precondition(
+                hasValidInitialFrameForSurfaceCreation,
+                "Ghostty terminal surfaces must not start without a non-empty initialFrame"
+            )
+        }
+
         init(
             workingDirectory: String? = nil,
             startupStrategy: SurfaceStartupStrategy = .surfaceCommand(nil),
@@ -59,6 +71,10 @@ extension Ghostty {
         var onWorkingDirectoryChanged: (@MainActor @Sendable (ObjectIdentifier, String?) -> Void)?
         var onRendererHealthChanged: (@MainActor @Sendable (ObjectIdentifier, Bool) -> Void)?
         var onCloseRequested: (@MainActor @Sendable (Bool) -> Void)?
+
+        /// Tracks whether the surface was previously detached from a window.
+        /// Used for instrumentation: distinguishes reparenting (nil→window) from initial attachment.
+        private var wasDetachedFromWindow = false
 
         /// The terminal title (published for observation)
         private(set) var title: String = ""
@@ -86,6 +102,9 @@ extension Ghostty {
 
         /// Cell size reported by Ghostty action callbacks.
         private(set) var reportedCellSize: NSSize?
+        /// One-time redraw nudge for narrow panes whose prompt/cursor row can land incorrectly
+        /// after restore-time replay + resize. This is an app-side workaround, not a root fix.
+        private var hasPerformedNarrowPaneRedrawNudge = false
 
         /// Current working directory reported by the shell via OSC 7
         private(set) var pwd: String? {
@@ -126,11 +145,17 @@ extension Ghostty {
         // MARK: - Initialization
 
         init(app: App, config: SurfaceConfiguration? = nil) {
+            guard let config else {
+                preconditionFailure(
+                    "Ghostty SurfaceView requires a SurfaceConfiguration with initialFrame"
+                )
+            }
+            config.requireInitialFrameForSurfaceCreation()
             self.ghosttyApp = app
-            super.init(frame: config?.initialFrame ?? NSRect(x: 0, y: 0, width: 800, height: 600))
-            let startupCommandForSurface = config?.startupStrategy.startupCommandForSurface
+            super.init(frame: config.initialFrame!)
+            let startupCommandForSurface = config.startupStrategy.startupCommandForSurface
             RestoreTrace.log(
-                "Ghostty.SurfaceView.init placeholderFrame=\(NSStringFromRect(frame)) cwd=\(config?.workingDirectory ?? "nil") hasCommand=\(startupCommandForSurface != nil)"
+                "Ghostty.SurfaceView.init placeholderFrame=\(NSStringFromRect(frame)) cwd=\(config.workingDirectory ?? "nil") hasCommand=\(startupCommandForSurface != nil)"
             )
 
             // Note: Ghostty's Metal renderer will set up the layer properly
@@ -150,11 +175,11 @@ extension Ghostty {
                     nsview: Unmanaged.passUnretained(self).toOpaque()
                 ))
             surfaceConfig.scale_factor = Double(NSScreen.main?.backingScaleFactor ?? 2.0)
-            surfaceConfig.font_size = config?.fontSize ?? 0
+            surfaceConfig.font_size = config.fontSize ?? 0
 
             let createSurfaceWithStrings: () -> Void = {
                 // Set working directory/command if provided.
-                if let wd = config?.workingDirectory {
+                if let wd = config.workingDirectory {
                     wd.withCString { wdPtr in
                         surfaceConfig.working_directory = wdPtr
 
@@ -177,7 +202,7 @@ extension Ghostty {
                 }
             }
 
-            let envVars = config?.environmentVariables ?? [:]
+            let envVars = config.environmentVariables
             if envVars.isEmpty {
                 createSurfaceWithStrings()
             } else {
@@ -225,7 +250,7 @@ extension Ghostty {
                 ghosttyLogger.info("Ghostty surface created successfully")
                 RestoreTrace.log("Ghostty.SurfaceView.init success frame=\(NSStringFromRect(frame))")
                 // Set initial size using backing coordinates
-                sizeDidChange(frame.size)
+                sizeDidChange(frame.size, source: "init")
                 logSurfaceSnapshot(reason: "init")
             }
         }
@@ -295,9 +320,24 @@ extension Ghostty {
 
         override func viewDidMoveToWindow() {
             super.viewDidMoveToWindow()
+            let isReparent = wasDetachedFromWindow && window != nil
+            let viewId = ObjectIdentifier(self)
+            let superviewInfo: String
+            if let sv = superview {
+                superviewInfo = "class=\(type(of: sv)) id=\(ObjectIdentifier(sv))"
+            } else {
+                superviewInfo = "nil"
+            }
+            let hierarchyDescription =
+                (window == nil || isReparent)
+                ? " ancestry=\(viewHierarchyDescription())"
+                : ""
             RestoreTrace.log(
-                "Ghostty.SurfaceView.viewDidMoveToWindow window=\(window != nil) frame=\(NSStringFromRect(frame)) bounds=\(NSStringFromRect(bounds))"
+                "Ghostty.SurfaceView.viewDidMoveToWindow viewId=\(viewId) window=\(window != nil) reparent=\(isReparent) wasDetached=\(wasDetachedFromWindow) frame=\(NSStringFromRect(frame)) bounds=\(NSStringFromRect(bounds)) superview=\(superviewInfo) hidden=\(isHidden)\(hierarchyDescription)"
             )
+            if window == nil {
+                wasDetachedFromWindow = true
+            }
             logSurfaceSnapshot(reason: "viewDidMoveToWindow")
 
             if let screen = window?.screen {
@@ -320,7 +360,7 @@ extension Ghostty {
                     RestoreTrace.log(
                         "Ghostty.SurfaceView.viewDidMoveToWindow async sizeDidChange size=\(NSStringFromSize(size)) frame=\(NSStringFromRect(self.frame))"
                     )
-                    self.sizeDidChange(size)
+                    self.sizeDidChange(size, source: "viewDidMoveToWindow")
                     self.logSurfaceSnapshot(reason: "viewDidMoveToWindow.asyncSizeDidChange")
                 }
             }
@@ -379,6 +419,9 @@ extension Ghostty {
             // Refresh size using contentSize (official pattern)
             if contentSize.width > 0 && contentSize.height > 0 {
                 let scaledSize = convertToBacking(contentSize)
+                RestoreTrace.log(
+                    "Ghostty.SurfaceView.viewDidChangeBackingProperties set_size backing=\(NSStringFromSize(scaledSize)) contentSize=\(NSStringFromSize(contentSize))"
+                )
                 ghostty_surface_set_size(
                     surface,
                     UInt32(scaledSize.width),
@@ -399,13 +442,23 @@ extension Ghostty {
             ghostty_surface_set_content_scale(surface, Double(scaleFactor), Double(scaleFactor))
         }
 
+        private func viewHierarchyDescription() -> String {
+            var nodes: [String] = []
+            var current: NSView? = self
+            while let currentView = current {
+                nodes.append("class=\(type(of: currentView)) id=\(ObjectIdentifier(currentView))")
+                current = currentView.superview
+            }
+            return nodes.joined(separator: " -> ")
+        }
+
         override func setFrameSize(_ newSize: NSSize) {
             super.setFrameSize(newSize)
             RestoreTrace.log("Ghostty.SurfaceView.setFrameSize newSize=\(NSStringFromSize(newSize))")
-            sizeDidChange(newSize)
+            sizeDidChange(newSize, source: "setFrameSize")
         }
 
-        func sizeDidChange(_ size: NSSize) {
+        func sizeDidChange(_ size: NSSize, source: StaticString = "unknown") {
             guard let surface else { return }
             guard size.width > 0 && size.height > 0 else { return }
 
@@ -413,16 +466,22 @@ extension Ghostty {
             contentSize = size
 
             let backingSize = convertToBacking(size)
+            let requestedBackingWidth = UInt32(backingSize.width)
+            let requestedBackingHeight = UInt32(backingSize.height)
+            let currentSurfaceSize = ghostty_surface_size(surface)
+            let layerState =
+                layer.map { "contentsScale=\($0.contentsScale) layerBounds=\(NSStringFromRect($0.bounds))" }
+                ?? "noLayer"
             RestoreTrace.log(
-                "Ghostty.SurfaceView.sizeDidChange logical=\(NSStringFromSize(size)) backing=\(NSStringFromSize(backingSize)) window=\(window != nil)"
+                "Ghostty.SurfaceView.sizeDidChange source=\(source) logical=\(NSStringFromSize(size)) backing=\(NSStringFromSize(backingSize)) requestedPx={\(requestedBackingWidth),\(requestedBackingHeight)} currentPx={\(currentSurfaceSize.width_px),\(currentSurfaceSize.height_px)} currentGrid={\(currentSurfaceSize.columns),\(currentSurfaceSize.rows)} dedupLikely=\(currentSurfaceSize.width_px == requestedBackingWidth && currentSurfaceSize.height_px == requestedBackingHeight) window=\(window != nil) superview=\(superview != nil) hidden=\(isHidden) \(layerState)"
             )
             ghostty_surface_set_size(
                 surface,
-                UInt32(backingSize.width),
-                UInt32(backingSize.height)
+                requestedBackingWidth,
+                requestedBackingHeight
             )
             ghostty_surface_refresh(surface)
-            logSurfaceSnapshot(reason: "sizeDidChange")
+            logSurfaceSnapshot(reason: "sizeDidChange.\(source)")
         }
 
         func updateReportedInitialSize(_ size: NSSize) {
@@ -439,6 +498,30 @@ extension Ghostty {
                 "Ghostty.SurfaceView.cellSize reported=\(NSStringFromSize(size)) frame=\(NSStringFromRect(frame)) bounds=\(NSStringFromRect(bounds))"
             )
             logSurfaceSnapshot(reason: "cellSizeAction")
+            performNarrowPaneRedrawNudgeIfNeeded(cellSize: size)
+        }
+
+        private func performNarrowPaneRedrawNudgeIfNeeded(cellSize: NSSize) {
+            guard !hasPerformedNarrowPaneRedrawNudge else { return }
+            guard window != nil, let surface else { return }
+
+            let currentMetrics = ghostty_surface_size(surface)
+            guard currentMetrics.columns > 0, currentMetrics.columns <= 40 else { return }
+            guard contentSize.width > 0, contentSize.height > 0 else { return }
+
+            let originalSize = contentSize
+            let nudgedSize = NSSize(
+                width: originalSize.width + max(cellSize.width, 1),
+                height: originalSize.height
+            )
+
+            hasPerformedNarrowPaneRedrawNudge = true
+            RestoreTrace.log(
+                "Ghostty.SurfaceView.narrowPaneRedrawNudge columns=\(currentMetrics.columns) rows=\(currentMetrics.rows) originalSize=\(NSStringFromSize(originalSize)) nudgedSize=\(NSStringFromSize(nudgedSize))"
+            )
+            sizeDidChange(nudgedSize, source: "narrowPaneRedrawNudge.expand")
+            sizeDidChange(originalSize, source: "narrowPaneRedrawNudge.restore")
+            logSurfaceSnapshot(reason: "narrowPaneRedrawNudge.complete")
         }
 
         func metricsSnapshotDescription() -> String {

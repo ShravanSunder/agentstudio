@@ -7,7 +7,8 @@ struct CollapsedPaneBar: View {
     let paneId: UUID
     let tabId: UUID
     let title: String
-    let action: (PaneActionCommand) -> Void
+    let closeTransitionCoordinator: PaneCloseTransitionCoordinator
+    let actionDispatcher: PaneActionDispatching
     let dropTargetCoordinateSpace: String?
     let useDrawerFramePreference: Bool
 
@@ -22,23 +23,29 @@ struct CollapsedPaneBar: View {
         paneId: UUID,
         tabId: UUID,
         title: String,
-        action: @escaping (PaneActionCommand) -> Void,
+        closeTransitionCoordinator: PaneCloseTransitionCoordinator,
+        actionDispatcher: PaneActionDispatching,
         dropTargetCoordinateSpace: String? = nil,
         useDrawerFramePreference: Bool = false
     ) {
         self.paneId = paneId
         self.tabId = tabId
         self.title = title
-        self.action = action
+        self.closeTransitionCoordinator = closeTransitionCoordinator
+        self.actionDispatcher = actionDispatcher
         self.dropTargetCoordinateSpace = dropTargetCoordinateSpace
         self.useDrawerFramePreference = useDrawerFramePreference
+    }
+
+    private var isClosing: Bool {
+        closeTransitionCoordinator.closingPaneIds.contains(paneId)
     }
 
     var body: some View {
         VStack(spacing: 4) {
             // Expand button (top)
             Button {
-                action(.expandPane(tabId: tabId, paneId: paneId))
+                actionDispatcher.dispatch(.expandPane(tabId: tabId, paneId: paneId))
             } label: {
                 Image(systemName: "arrow.right.to.line")
                     .font(.system(size: AppStyle.textXs, weight: .medium))
@@ -51,7 +58,7 @@ struct CollapsedPaneBar: View {
             // Hamburger menu
             Menu {
                 Button {
-                    action(.expandPane(tabId: tabId, paneId: paneId))
+                    actionDispatcher.dispatch(.expandPane(tabId: tabId, paneId: paneId))
                 } label: {
                     Label("Expand", systemImage: "arrow.up.left.and.arrow.down.right")
                 }
@@ -59,7 +66,7 @@ struct CollapsedPaneBar: View {
                 Divider()
 
                 Button(role: .destructive) {
-                    action(.closePane(tabId: tabId, paneId: paneId))
+                    beginCloseTransition()
                 } label: {
                     Label("Close", systemImage: "xmark")
                 }
@@ -101,8 +108,12 @@ struct CollapsedPaneBar: View {
         .contentShape(Rectangle())
         .onHover { isHovered = $0 }
         .onTapGesture {
-            action(.expandPane(tabId: tabId, paneId: paneId))
+            actionDispatcher.dispatch(.expandPane(tabId: tabId, paneId: paneId))
         }
+        .opacity(isClosing ? 0.58 : 1)
+        .scaleEffect(isClosing ? 0.985 : 1)
+        .animation(.easeOut(duration: AppStyle.animationFast), value: isClosing)
+        .allowsHitTesting(!isClosing)
         .padding(AppStyle.paneGap)
         .background(
             GeometryReader { geo in
@@ -129,5 +140,11 @@ struct CollapsedPaneBar: View {
                 }
             }
         )
+    }
+
+    private func beginCloseTransition() {
+        closeTransitionCoordinator.beginClosingPane(paneId) {
+            actionDispatcher.dispatch(.closePane(tabId: tabId, paneId: paneId))
+        }
     }
 }

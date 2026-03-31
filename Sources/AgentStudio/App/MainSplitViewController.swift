@@ -13,6 +13,7 @@ class MainSplitViewController: NSSplitViewController {
     private let uiStore: WorkspaceUIStore
     private let actionExecutor: ActionExecutor
     private let applicationLifecycleMonitor: ApplicationLifecycleMonitor
+    private let appLifecycleStore: AppLifecycleStore
     private let tabBarAdapter: TabBarAdapter
     private let viewRegistry: ViewRegistry
 
@@ -26,13 +27,16 @@ class MainSplitViewController: NSSplitViewController {
         uiStore: WorkspaceUIStore,
         actionExecutor: ActionExecutor,
         applicationLifecycleMonitor: ApplicationLifecycleMonitor,
-        tabBarAdapter: TabBarAdapter, viewRegistry: ViewRegistry
+        appLifecycleStore: AppLifecycleStore,
+        tabBarAdapter: TabBarAdapter,
+        viewRegistry: ViewRegistry
     ) {
         self.store = store
         self.repoCache = repoCache
         self.uiStore = uiStore
         self.actionExecutor = actionExecutor
         self.applicationLifecycleMonitor = applicationLifecycleMonitor
+        self.appLifecycleStore = appLifecycleStore
         self.tabBarAdapter = tabBarAdapter
         self.viewRegistry = viewRegistry
         super.init(nibName: nil, bundle: nil)
@@ -74,6 +78,7 @@ class MainSplitViewController: NSSplitViewController {
             store: store,
             repoCache: repoCache,
             applicationLifecycleMonitor: applicationLifecycleMonitor,
+            appLifecycleStore: appLifecycleStore,
             executor: actionExecutor,
             tabBarAdapter: tabBarAdapter,
             viewRegistry: viewRegistry

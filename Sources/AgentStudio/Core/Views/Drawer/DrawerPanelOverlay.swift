@@ -99,11 +99,12 @@ struct DrawerPanelOverlay: View {
     let repoCache: WorkspaceRepoCache
     let viewRegistry: ViewRegistry
     let appLifecycleStore: AppLifecycleStore
+    let closeTransitionCoordinator: PaneCloseTransitionCoordinator
     let tabId: UUID
     let paneFrames: [UUID: CGRect]
     let tabSize: CGSize
     let iconBarFrame: CGRect
-    let action: (PaneActionCommand) -> Void
+    let actionDispatcher: PaneActionDispatching
 
     @AppStorage("drawerHeightRatio") private var heightRatio: Double = DrawerLayout.heightRatioMax
 
@@ -124,12 +125,7 @@ struct DrawerPanelOverlay: View {
     private var isExpanded: Bool { expandedPaneInfo != nil }
 
     var body: some View {
-        // Read viewRevision so @Observable tracks it — triggers re-render after repair
-        // swiftlint:disable:next redundant_discardable_let
-        let _ = store.viewRevision  // swift-format:ignore
-
         if let info = expandedPaneInfo, tabSize.width > 0 {
-            let drawerTree = viewRegistry.renderTree(for: info.drawer.layout)
             let panelWidth = tabSize.width * DrawerLayout.panelWidthRatio
             let panelHeight = max(
                 DrawerLayout.panelMinHeight,
@@ -192,25 +188,22 @@ struct DrawerPanelOverlay: View {
                     eoFill: true
                 )
                 .onTapGesture {
-                    action(.toggleDrawer(paneId: info.paneId))
+                    actionDispatcher.dispatch(.toggleDrawer(paneId: info.paneId))
                 }
                 .overlay {
                     VStack(spacing: 0) {
-                        let drawerRenderInfo = SplitRenderInfo.compute(
-                            layout: info.drawer.layout,
-                            minimizedPaneIds: info.drawer.minimizedPaneIds
-                        )
                         DrawerPanel(
-                            tree: drawerTree ?? PaneSplitTree(),
+                            layout: info.drawer.layout,
                             parentPaneId: info.paneId,
                             tabId: tabId,
                             activePaneId: info.drawer.activePaneId,
                             minimizedPaneIds: info.drawer.minimizedPaneIds,
-                            splitRenderInfo: drawerRenderInfo,
+                            closeTransitionCoordinator: closeTransitionCoordinator,
                             height: panelHeight,
                             store: store,
                             repoCache: repoCache,
-                            action: action,
+                            viewRegistry: viewRegistry,
+                            action: actionDispatcher.dispatch,
                             onResize: { delta in
                                 let newRatio = min(
                                     DrawerLayout.heightRatioMax,
@@ -218,10 +211,11 @@ struct DrawerPanelOverlay: View {
                                 heightRatio = newRatio
                             },
                             onDismiss: {
-                                action(.toggleDrawer(paneId: info.paneId))
+                                actionDispatcher.dispatch(.toggleDrawer(paneId: info.paneId))
                             },
                             appLifecycleStore: appLifecycleStore
                         )
+                        .id(info.paneId)
                         .frame(width: panelWidth)
 
                         // Connector space (visual bridge from panel to icon bar)
