@@ -25,10 +25,6 @@ final class PersistentTabHostView: NSView {
         ])
     }
 
-    func update(rootView: SingleTabContent) {
-        hostingView.rootView = rootView
-    }
-
     @available(*, unavailable)
     required init?(coder: NSCoder) {
         fatalError("init(coder:) not supported")

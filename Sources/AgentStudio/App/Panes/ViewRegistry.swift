@@ -20,7 +20,6 @@ import Observation
 ///
 /// Slots have pane-lifetime identity, not host-lifetime identity. This ensures
 /// SwiftUI observers survive across unregister/re-register cycles (repair, undo).
-@Observable
 @MainActor
 final class ViewRegistry {
     /// Per-pane observable slot. SwiftUI views read `slot(for:).host`
@@ -30,10 +29,7 @@ final class ViewRegistry {
         fileprivate(set) var host: PaneHostView?
     }
 
-    var onPaneRegistrationChanged: (@MainActor (UUID) -> Void)?
-
     private var slots: [UUID: PaneViewSlot] = [:]
-    private var registrationEpochs: [UUID: Int] = [:]
 
     /// Create the slot proactively when a pane enters workspace structure.
     /// Called by PaneCoordinator before any SwiftUI body can read the slot.
@@ -71,29 +67,17 @@ final class ViewRegistry {
     /// SwiftUI views observing this pane's slot.
     func register(_ view: PaneHostView, for paneId: UUID) {
         ensureSlot(for: paneId).host = view
-        registrationEpochs[paneId, default: 0] += 1
-        onPaneRegistrationChanged?(paneId)
     }
 
     /// Unregister a view for a pane. Clears host but preserves slot identity
     /// so SwiftUI observers survive across unregister/re-register cycles.
     func unregister(_ paneId: UUID) {
         slots[paneId]?.host = nil
-        registrationEpochs[paneId, default: 0] += 1
-        onPaneRegistrationChanged?(paneId)
     }
 
     /// Remove the slot entirely when a pane is permanently removed from workspace structure.
     func removeSlot(for paneId: UUID) {
         slots.removeValue(forKey: paneId)
-        registrationEpochs.removeValue(forKey: paneId)
-    }
-
-    /// Registration epoch for one pane.
-    /// SwiftUI views can read this to observe late register/unregister events
-    /// without depending on the slot object itself for invalidation.
-    func registrationEpoch(for paneId: UUID) -> Int {
-        registrationEpochs[paneId, default: 0]
     }
 
     /// Get the view for a pane, if registered.

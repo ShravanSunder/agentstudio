@@ -110,7 +110,6 @@ class PaneTabViewController: NSViewController, CommandHandler {
     private var lastFocusedTabId: UUID?
     private var lastFocusedPaneId: UUID?
     private var lastManagementModeActive = false
-    private var lastRenderedPaneRegistrationSignatureByTabId: [UUID: Int] = [:]
 
     // MARK: - Init
 
@@ -133,9 +132,6 @@ class PaneTabViewController: NSViewController, CommandHandler {
         self.viewRegistry = viewRegistry
         self.closeTransitionCoordinator = closeTransitionCoordinator
         super.init(nibName: nil, bundle: nil)
-        self.viewRegistry.onPaneRegistrationChanged = { [weak self] paneId in
-            self?.handlePaneRegistrationChanged(paneId: paneId)
-        }
         setupNotificationObservers()
     }
 
@@ -276,7 +272,6 @@ class PaneTabViewController: NSViewController, CommandHandler {
     override func viewWillLayout() {
         super.viewWillLayout()
         syncTabContentHosts()
-        refreshTabContentHostsIfNeeded()
         updateVisibleTabHost()
         updateEmptyState()
     }
@@ -321,13 +316,8 @@ class PaneTabViewController: NSViewController, CommandHandler {
     /// only handles things that live outside the SwiftUI tree (host visibility, firstResponder).
     private func observeForAppKitState() {
         withObservationTracking {
-            let tabs = self.store.tabs
+            _ = self.store.tabs
             _ = self.store.activeTabId
-            for tab in tabs {
-                for paneId in tab.paneIds {
-                    _ = self.viewRegistry.registrationEpoch(for: paneId)
-                }
-            }
             _ = ManagementModeMonitor.shared.isActive
         } onChange: {
             Task { @MainActor [weak self] in
@@ -339,7 +329,6 @@ class PaneTabViewController: NSViewController, CommandHandler {
 
     private func handleAppKitStateChange() {
         syncTabContentHosts()
-        refreshTabContentHostsIfNeeded()
         updateVisibleTabHost()
         updateEmptyState()
 
@@ -395,13 +384,7 @@ class PaneTabViewController: NSViewController, CommandHandler {
     // MARK: - Tab Content Hosts
 
     private func buildTabContentHost(for tabId: UUID) -> PersistentTabHostView {
-        let contentView = buildTabContentRoot(for: tabId)
-
-        return PersistentTabHostView(tabId: tabId, rootView: contentView)
-    }
-
-    private func buildTabContentRoot(for tabId: UUID) -> SingleTabContent {
-        SingleTabContent(
+        let contentView = SingleTabContent(
             tabId: tabId,
             store: store,
             repoCache: repoCache,
@@ -410,6 +393,8 @@ class PaneTabViewController: NSViewController, CommandHandler {
             closeTransitionCoordinator: closeTransitionCoordinator,
             actionDispatcher: actionDispatcher
         )
+
+        return PersistentTabHostView(tabId: tabId, rootView: contentView)
     }
 
     private func syncTabContentHosts() {
@@ -431,7 +416,6 @@ class PaneTabViewController: NSViewController, CommandHandler {
         for (tabId, host) in tabContentHosts where !liveTabIds.contains(tabId) {
             host.removeFromSuperview()
             tabContentHosts.removeValue(forKey: tabId)
-            lastRenderedPaneRegistrationSignatureByTabId.removeValue(forKey: tabId)
         }
     }
 
@@ -439,44 +423,6 @@ class PaneTabViewController: NSViewController, CommandHandler {
         let activeTabId = store.activeTabId
         for (tabId, host) in tabContentHosts {
             host.isHidden = tabId != activeTabId
-        }
-    }
-
-    private func refreshTabContentHostsIfNeeded() {
-        for tab in store.tabs {
-            let registrationSignature = tab.paneIds.reduce(into: 0) { partialResult, paneId in
-                partialResult += viewRegistry.registrationEpoch(for: paneId)
-            }
-            let lastSignature = lastRenderedPaneRegistrationSignatureByTabId[tab.id]
-            guard lastSignature != registrationSignature else { continue }
-
-            if tabContentHostNeedsRefresh(tabId: tab.id) {
-                tabContentHosts[tab.id]?.update(rootView: buildTabContentRoot(for: tab.id))
-            }
-
-            lastRenderedPaneRegistrationSignatureByTabId[tab.id] = registrationSignature
-        }
-    }
-
-    private func handlePaneRegistrationChanged(paneId: UUID) {
-        guard let tab = store.tabContaining(paneId: paneId) else { return }
-
-        let registrationSignature = tab.paneIds.reduce(into: 0) { partialResult, paneId in
-            partialResult += viewRegistry.registrationEpoch(for: paneId)
-        }
-
-        if tabContentHostNeedsRefresh(tabId: tab.id) {
-            tabContentHosts[tab.id]?.update(rootView: buildTabContentRoot(for: tab.id))
-        }
-
-        lastRenderedPaneRegistrationSignatureByTabId[tab.id] = registrationSignature
-    }
-
-    private func tabContentHostNeedsRefresh(tabId: UUID) -> Bool {
-        guard let tab = store.tab(tabId) else { return false }
-        return tab.paneIds.contains { paneId in
-            guard let paneHost = viewRegistry.view(for: paneId) else { return false }
-            return paneHost.window == nil
         }
     }
 
