@@ -177,6 +177,25 @@ final class PaneRemovalCascadeTests {
     }
 
     @Test
+    func test_removePaneFromLayout_whenActiveArrangementBecomesEmpty_switchesBackToDefault() {
+        let (tab, paneIds) = createTabWithPanes(2)
+
+        let soloArrangementId = store.createArrangement(
+            name: "Solo",
+            paneIds: Set([paneIds[1]]),
+            inTab: tab.id
+        )!
+        store.switchArrangement(to: soloArrangementId, inTab: tab.id)
+
+        store.removePaneFromLayout(paneIds[1], inTab: tab.id)
+
+        let updatedTab = store.tab(tab.id)!
+        #expect(updatedTab.activeArrangementId == updatedTab.defaultArrangement.id)
+        #expect(updatedTab.activePaneId == paneIds[0])
+        #expect(updatedTab.defaultArrangement.layout.contains(paneIds[0]))
+    }
+
+    @Test
 
     func test_removePaneFromLayout_resetsActivePaneId() {
         let (tab, paneIds) = createTabWithPanes(2)

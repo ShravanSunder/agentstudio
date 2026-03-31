@@ -233,6 +233,88 @@ struct PaneTabViewControllerCommandTests {
         #expect(harness.executor.undoStack.isEmpty)
     }
 
+    @Test("terminated pane in a background tab does not create undo")
+    func handleTerminalProcessTerminated_backgroundTabPaneClosesWithoutUndoEntry() {
+        let harness = makeHarness()
+        defer { try? FileManager.default.removeItem(at: harness.tempDir) }
+
+        let firstPane = harness.store.createPane(
+            source: .floating(workingDirectory: nil, title: "First"),
+            title: "First",
+            provider: .zmx
+        )
+        let secondPane = harness.store.createPane(
+            source: .floating(workingDirectory: nil, title: "Second"),
+            title: "Second",
+            provider: .zmx
+        )
+        let foregroundPane = harness.store.createPane(
+            source: .floating(workingDirectory: nil, title: "Foreground"),
+            title: "Foreground",
+            provider: .zmx
+        )
+        let backgroundTab = Tab(paneId: firstPane.id, name: "Background")
+        let foregroundTab = Tab(paneId: foregroundPane.id, name: "Foreground")
+        harness.store.appendTab(backgroundTab)
+        harness.store.insertPane(
+            secondPane.id,
+            inTab: backgroundTab.id,
+            at: firstPane.id,
+            direction: .horizontal,
+            position: .after
+        )
+        harness.store.appendTab(foregroundTab)
+        harness.store.setActiveTab(foregroundTab.id)
+
+        harness.controller.handleTerminalProcessTerminated(paneId: firstPane.id)
+
+        #expect(harness.store.pane(firstPane.id) == nil)
+        #expect(harness.store.tab(backgroundTab.id) != nil)
+        #expect(harness.executor.undoStack.isEmpty)
+    }
+
+    @Test("terminated drawer child under a hidden parent does not create undo")
+    func handleTerminalProcessTerminated_hiddenDrawerChildClosesWithoutUndoEntry() {
+        let harness = makeHarness()
+        defer { try? FileManager.default.removeItem(at: harness.tempDir) }
+
+        let parentPane = harness.store.createPane(
+            source: .floating(workingDirectory: nil, title: "Parent"),
+            title: "Parent",
+            provider: .zmx
+        )
+        let visiblePane = harness.store.createPane(
+            source: .floating(workingDirectory: nil, title: "Visible"),
+            title: "Visible",
+            provider: .zmx
+        )
+        let tab = Tab(paneId: parentPane.id)
+        harness.store.appendTab(tab)
+        harness.store.insertPane(
+            visiblePane.id,
+            inTab: tab.id,
+            at: parentPane.id,
+            direction: .horizontal,
+            position: .after
+        )
+        guard let drawerPane = harness.store.addDrawerPane(to: parentPane.id) else {
+            Issue.record("Expected drawer pane creation")
+            return
+        }
+        let focusedVisibleArrangementId = harness.store.createArrangement(
+            name: "Visible only",
+            paneIds: Set([visiblePane.id]),
+            inTab: tab.id
+        )!
+        harness.store.switchArrangement(to: focusedVisibleArrangementId, inTab: tab.id)
+
+        harness.controller.handleTerminalProcessTerminated(paneId: drawerPane.id)
+
+        #expect(harness.store.pane(drawerPane.id) == nil)
+        #expect(harness.store.pane(parentPane.id) != nil)
+        #expect(harness.executor.undoStack.isEmpty)
+    }
+
     @Test("command harness shares window lifecycle store across monitor and coordinator")
     func makeHarness_sharesWindowLifecycleStoreAcrossLifecycleBoundaries() {
         let harness = makeHarness()

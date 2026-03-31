@@ -477,14 +477,25 @@ extension PaneCoordinator {
             return
         }
 
-        if let tab = store.tab(tabId), closingPane.isDrawerChild || tab.paneIds.contains(paneId) {
+        let shouldCreateUndoEntry: Bool
+        if let tab = store.tab(tabId), tab.id == store.activeTabId {
+            if closingPane.isDrawerChild {
+                shouldCreateUndoEntry = closingPane.parentPaneId.map { tab.paneIds.contains($0) } ?? false
+            } else {
+                shouldCreateUndoEntry = tab.paneIds.contains(paneId)
+            }
+        } else {
+            shouldCreateUndoEntry = false
+        }
+
+        if shouldCreateUndoEntry {
             if let snapshot = store.snapshotForPaneClose(paneId: paneId, inTab: tabId) {
                 appendUndoEntry(.pane(snapshot))
             } else {
                 Self.logger.warning("closePane: snapshot failed for pane \(paneId) in tab \(tabId)")
             }
         } else {
-            Self.logger.debug("closePane: skipping undo snapshot for hidden pane \(paneId) in tab \(tabId)")
+            Self.logger.debug("closePane: skipping undo snapshot for non-visible pane \(paneId) in tab \(tabId)")
         }
 
         if closingPane.isDrawerChild {

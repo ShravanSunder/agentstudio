@@ -559,6 +559,14 @@ final class WorkspaceStore {
             tabs[tabIndex].activePaneId = remainingVisiblePaneIds.first
         }
 
+        if tabs[tabIndex].activeArrangement.layout.isEmpty && !tabs[tabIndex].defaultArrangement.layout.isEmpty {
+            tabs[tabIndex].activeArrangementId = tabs[tabIndex].defaultArrangement.id
+            let fallbackVisiblePaneIds = tabs[tabIndex].activeArrangement.layout.paneIds.filter {
+                !tabs[tabIndex].minimizedPaneIds.contains($0)
+            }
+            tabs[tabIndex].activePaneId = fallbackVisiblePaneIds.first
+        }
+
         // Remove from tab's pane list
         tabs[tabIndex].panes.removeAll { $0 == paneId }
 
