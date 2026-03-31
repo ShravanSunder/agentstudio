@@ -218,9 +218,13 @@ enum ActionValidator {
                 return .failure(.paneNotFound(paneId: parentPaneId, tabId: state.activeTabId ?? UUID()))
             }
             return .success(ValidatedAction(action))
-        case .removeDrawerPane(let parentPaneId, _),
-            .toggleDrawer(let parentPaneId):
+        case .removeDrawerPane(let parentPaneId, _):
             guard state.tabOwning(paneId: parentPaneId) != nil else {
+                return .failure(.paneNotFound(paneId: parentPaneId, tabId: state.activeTabId ?? UUID()))
+            }
+            return .success(ValidatedAction(action))
+        case .toggleDrawer(let parentPaneId):
+            guard state.tabShowing(paneId: parentPaneId) != nil else {
                 return .failure(.paneNotFound(paneId: parentPaneId, tabId: state.activeTabId ?? UUID()))
             }
             return .success(ValidatedAction(action))

@@ -483,6 +483,8 @@ extension PaneCoordinator {
             } else {
                 Self.logger.warning("closePane: snapshot failed for pane \(paneId) in tab \(tabId)")
             }
+        } else {
+            Self.logger.debug("closePane: skipping undo snapshot for hidden pane \(paneId) in tab \(tabId)")
         }
 
         if closingPane.isDrawerChild {

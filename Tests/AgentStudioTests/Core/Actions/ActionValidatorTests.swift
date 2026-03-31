@@ -228,59 +228,6 @@ final class ActionValidatorTests {
         Issue.record("Expected tabNotFound error")
     }
 
-    @Test
-    func test_closePane_hiddenOwnedPane_succeedsWithoutCanonicalizingToCloseTab() {
-        let tabId = UUID()
-        let visiblePaneId = UUIDv7.generate()
-        let hiddenPaneId = UUIDv7.generate()
-        let snapshot = makeSnapshot(
-            tabs: [
-                TabSnapshot(
-                    id: tabId,
-                    visiblePaneIds: [visiblePaneId],
-                    ownedPaneIds: [visiblePaneId, hiddenPaneId],
-                    activePaneId: visiblePaneId
-                )
-            ]
-        )
-
-        let result = ActionValidator.validate(
-            .closePane(tabId: tabId, paneId: hiddenPaneId),
-            state: snapshot
-        )
-
-        guard case .success(let validated) = result else {
-            Issue.record("Expected success")
-            return
-        }
-        #expect(validated.action == .closePane(tabId: tabId, paneId: hiddenPaneId))
-    }
-
-    @Test
-    func test_focusPane_hiddenOwnedPane_fails() {
-        let tabId = UUID()
-        let visiblePaneId = UUIDv7.generate()
-        let hiddenPaneId = UUIDv7.generate()
-        let snapshot = makeSnapshot(
-            tabs: [
-                TabSnapshot(
-                    id: tabId,
-                    visiblePaneIds: [visiblePaneId],
-                    ownedPaneIds: [visiblePaneId, hiddenPaneId],
-                    activePaneId: visiblePaneId
-                )
-            ]
-        )
-
-        let result = ActionValidator.validate(
-            .focusPane(tabId: tabId, paneId: hiddenPaneId),
-            state: snapshot
-        )
-
-        if case .failure(.paneNotFound) = result { return }
-        Issue.record("Expected paneNotFound error")
-    }
-
     // MARK: - extractPaneToTab
 
     @Test

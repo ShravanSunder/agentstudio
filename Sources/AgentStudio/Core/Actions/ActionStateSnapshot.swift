@@ -67,7 +67,8 @@ struct ActionStateSnapshot: Equatable {
         // A drawer cannot exist without its parent, so the parent is always
         // in the lookup by this point.
         for (drawerPaneId, parentPaneId) in drawerParentByPaneId {
-            ownedLookup[drawerPaneId] = ownedLookup[parentPaneId]
+            guard let parentTabId = ownedLookup[parentPaneId] else { continue }
+            ownedLookup[drawerPaneId] = parentTabId
         }
         self.ownedPaneToTab = ownedLookup
         self.visiblePaneToTab = visibleLookup
