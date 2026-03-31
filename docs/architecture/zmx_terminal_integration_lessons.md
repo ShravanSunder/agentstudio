@@ -237,3 +237,13 @@ correct — the bug reproduced in Ghostty's own app, proving it was a zmx issue.
 | Prompt loss on focus toggle | neurosnap/zmx#99 | Likely fixed by #112 |
 | Skip internal term.resize | experiment branch | Validated, not proposed yet |
 | Cursor offset at narrow widths | Not filed | Cosmetic, inherent to relay |
+
+## Related documentation
+
+| Document | Relevance |
+|----------|-----------|
+| [Session Lifecycle](session_lifecycle.md) | zmx IPC protocol, binary format, session name derivation, restore flow |
+| [Zmx Restore and Sizing](zmx_restore_and_sizing.md) | Deferred attach sequencing, geometry readiness, SIGWINCH relay path |
+| [Remote zmx Architecture Ideas](remote_zmx_architecture_ideas.md) | Future: SSH tunnel architecture, fork strategy, security model |
+| [Surface Architecture](ghostty_surface_architecture.md) | Ghostty surface lifecycle, C API primitives |
+| [ZmxIPCClient Design Spec](../superpowers/specs/2026-03-30-zmx-ipc-client-design.md) | Future: direct IPC replacing CLI shell-outs |

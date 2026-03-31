@@ -4,11 +4,21 @@ import Foundation
 /// Contains ONLY IDs and counts — no NSView references.
 struct TabSnapshot: Equatable {
     let id: UUID
-    let paneIds: [UUID]
+    let visiblePaneIds: [UUID]
+    let ownedPaneIds: [UUID]
     let activePaneId: UUID?
 
-    var isSplit: Bool { paneIds.count > 1 }
-    var paneCount: Int { paneIds.count }
+    var isSplit: Bool { visiblePaneIds.count > 1 }
+    var visiblePaneCount: Int { visiblePaneIds.count }
+    var ownedPaneCount: Int { ownedPaneIds.count }
+
+    func ownsPane(_ paneId: UUID) -> Bool {
+        ownedPaneIds.contains(paneId)
+    }
+
+    func showsPane(_ paneId: UUID) -> Bool {
+        visiblePaneIds.contains(paneId)
+    }
 }
 
 /// Lightweight, pure-value snapshot of tab/pane state for validation.
@@ -23,8 +33,10 @@ struct ActionStateSnapshot: Equatable {
     /// Drawer child -> parent layout pane mapping for drag/drop policy checks.
     let drawerParentByPaneId: [UUID: UUID]
 
-    /// Reverse lookup: paneId → tabId for O(1) resolution.
-    private let paneToTab: [UUID: UUID]
+    /// Reverse lookup: owned paneId → tabId for O(1) resolution.
+    private let ownedPaneToTab: [UUID: UUID]
+    /// Reverse lookup: visible paneId → tabId for O(1) resolution.
+    private let visiblePaneToTab: [UUID: UUID]
 
     init(
         tabs: [TabSnapshot],
@@ -41,31 +53,46 @@ struct ActionStateSnapshot: Equatable {
         self.knownWorktreeIds = knownWorktreeIds
         self.drawerParentByPaneId = drawerParentByPaneId
 
-        var lookup: [UUID: UUID] = [:]
+        var ownedLookup: [UUID: UUID] = [:]
+        var visibleLookup: [UUID: UUID] = [:]
         for tab in tabs {
-            for paneId in tab.paneIds {
-                lookup[paneId] = tab.id
+            for paneId in tab.ownedPaneIds {
+                ownedLookup[paneId] = tab.id
+            }
+            for paneId in tab.visiblePaneIds {
+                visibleLookup[paneId] = tab.id
             }
         }
         // Drawer panes belong to the same tab as their parent layout pane.
         // A drawer cannot exist without its parent, so the parent is always
         // in the lookup by this point.
         for (drawerPaneId, parentPaneId) in drawerParentByPaneId {
-            lookup[drawerPaneId] = lookup[parentPaneId]
+            guard let parentTabId = ownedLookup[parentPaneId] else { continue }
+            ownedLookup[drawerPaneId] = parentTabId
         }
-        self.paneToTab = lookup
+        self.ownedPaneToTab = ownedLookup
+        self.visiblePaneToTab = visibleLookup
     }
 
     func tab(_ id: UUID) -> TabSnapshot? {
         tabs.first { $0.id == id }
     }
 
-    func tabContainsPane(_ tabId: UUID, paneId: UUID) -> Bool {
-        paneToTab[paneId] == tabId
+    func tabOwnsPane(_ tabId: UUID, paneId: UUID) -> Bool {
+        ownedPaneToTab[paneId] == tabId
     }
 
-    func tabContaining(paneId: UUID) -> TabSnapshot? {
-        guard let tabId = paneToTab[paneId] else { return nil }
+    func tabShowsPane(_ tabId: UUID, paneId: UUID) -> Bool {
+        visiblePaneToTab[paneId] == tabId
+    }
+
+    func tabOwning(paneId: UUID) -> TabSnapshot? {
+        guard let tabId = ownedPaneToTab[paneId] else { return nil }
+        return tab(tabId)
+    }
+
+    func tabShowing(paneId: UUID) -> TabSnapshot? {
+        guard let tabId = visiblePaneToTab[paneId] else { return nil }
         return tab(tabId)
     }
 
@@ -76,8 +103,8 @@ struct ActionStateSnapshot: Equatable {
     var tabCount: Int { tabs.count }
 
     /// All pane IDs across all tabs. Used for cardinality validation.
-    var allPaneIds: Set<UUID> {
-        Set(tabs.flatMap(\.paneIds))
+    var allOwnedPaneIds: Set<UUID> {
+        Set(tabs.flatMap(\.ownedPaneIds))
     }
 
     static func == (lhs: Self, rhs: Self) -> Bool {

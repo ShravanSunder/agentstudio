@@ -24,7 +24,12 @@ final class PaneDropPlannerTests {
     func drawerPane_toTabBar_returnsIneligible() {
         let sourceTabId = UUID()
         let sourcePaneId = UUID()
-        let sourceTab = TabSnapshot(id: sourceTabId, paneIds: [sourcePaneId], activePaneId: sourcePaneId)
+        let sourceTab = TabSnapshot(
+            id: sourceTabId,
+            visiblePaneIds: [sourcePaneId],
+            ownedPaneIds: [sourcePaneId],
+            activePaneId: sourcePaneId
+        )
         let state = makeSnapshot(
             tabs: [sourceTab],
             activeTabId: sourceTabId,
@@ -46,8 +51,18 @@ final class PaneDropPlannerTests {
         let sourceTabId = UUID()
         let sourcePaneId = UUID()
         let targetTabId = UUID()
-        let sourceTab = TabSnapshot(id: sourceTabId, paneIds: [sourcePaneId], activePaneId: sourcePaneId)
-        let targetTab = TabSnapshot(id: targetTabId, paneIds: [UUID()], activePaneId: nil)
+        let sourceTab = TabSnapshot(
+            id: sourceTabId,
+            visiblePaneIds: [sourcePaneId],
+            ownedPaneIds: [sourcePaneId],
+            activePaneId: sourcePaneId
+        )
+        let targetTab = TabSnapshot(
+            id: targetTabId,
+            visiblePaneIds: [UUID()],
+            ownedPaneIds: [UUID()],
+            activePaneId: nil
+        )
         let state = makeSnapshot(tabs: [sourceTab, targetTab], activeTabId: sourceTabId)
         let payload = SplitDropPayload(kind: .existingPane(paneId: sourcePaneId, sourceTabId: sourceTabId))
 
@@ -66,8 +81,18 @@ final class PaneDropPlannerTests {
         let sourcePaneA = UUID()
         let sourcePaneB = UUID()
         let targetTabId = UUID()
-        let sourceTab = TabSnapshot(id: sourceTabId, paneIds: [sourcePaneA, sourcePaneB], activePaneId: sourcePaneA)
-        let targetTab = TabSnapshot(id: targetTabId, paneIds: [UUID()], activePaneId: nil)
+        let sourceTab = TabSnapshot(
+            id: sourceTabId,
+            visiblePaneIds: [sourcePaneA, sourcePaneB],
+            ownedPaneIds: [sourcePaneA, sourcePaneB],
+            activePaneId: sourcePaneA
+        )
+        let targetTab = TabSnapshot(
+            id: targetTabId,
+            visiblePaneIds: [UUID()],
+            ownedPaneIds: [UUID()],
+            activePaneId: nil
+        )
         let state = makeSnapshot(tabs: [sourceTab, targetTab], activeTabId: sourceTabId)
         let payload = SplitDropPayload(kind: .existingPane(paneId: sourcePaneA, sourceTabId: sourceTabId))
 
@@ -97,7 +122,8 @@ final class PaneDropPlannerTests {
         let destinationPaneId = UUID()
         let sourceTab = TabSnapshot(
             id: sourceTabId,
-            paneIds: [parentPaneId, sourcePaneId, destinationPaneId],
+            visiblePaneIds: [parentPaneId, sourcePaneId, destinationPaneId],
+            ownedPaneIds: [parentPaneId, sourcePaneId, destinationPaneId],
             activePaneId: parentPaneId
         )
         let state = makeSnapshot(
@@ -145,7 +171,8 @@ final class PaneDropPlannerTests {
         let destinationPaneId = UUID()
         let sourceTab = TabSnapshot(
             id: sourceTabId,
-            paneIds: [sourceParent, destinationParent, sourcePaneId, destinationPaneId],
+            visiblePaneIds: [sourceParent, destinationParent, sourcePaneId, destinationPaneId],
+            ownedPaneIds: [sourceParent, destinationParent, sourcePaneId, destinationPaneId],
             activePaneId: sourceParent
         )
         let state = makeSnapshot(
@@ -179,8 +206,18 @@ final class PaneDropPlannerTests {
         let sourcePaneId = UUID()
         let targetPaneId = UUID()
 
-        let sourceTab = TabSnapshot(id: sourceTabId, paneIds: [sourcePaneId], activePaneId: sourcePaneId)
-        let targetTab = TabSnapshot(id: targetTabId, paneIds: [targetPaneId], activePaneId: targetPaneId)
+        let sourceTab = TabSnapshot(
+            id: sourceTabId,
+            visiblePaneIds: [sourcePaneId],
+            ownedPaneIds: [sourcePaneId],
+            activePaneId: sourcePaneId
+        )
+        let targetTab = TabSnapshot(
+            id: targetTabId,
+            visiblePaneIds: [targetPaneId],
+            ownedPaneIds: [targetPaneId],
+            activePaneId: targetPaneId
+        )
         let state = makeSnapshot(tabs: [sourceTab, targetTab], activeTabId: targetTabId)
         let payload = SplitDropPayload(kind: .existingPane(paneId: sourcePaneId, sourceTabId: sourceTabId))
 
@@ -216,7 +253,12 @@ final class PaneDropPlannerTests {
         let targetPaneId = UUID()
         let missingSourceTabId = UUID()
         let sourcePaneId = UUID()
-        let targetTab = TabSnapshot(id: targetTabId, paneIds: [targetPaneId], activePaneId: targetPaneId)
+        let targetTab = TabSnapshot(
+            id: targetTabId,
+            visiblePaneIds: [targetPaneId],
+            ownedPaneIds: [targetPaneId],
+            activePaneId: targetPaneId
+        )
         let state = makeSnapshot(tabs: [targetTab], activeTabId: targetTabId)
         let payload = SplitDropPayload(kind: .existingPane(paneId: sourcePaneId, sourceTabId: missingSourceTabId))
 
@@ -241,9 +283,18 @@ final class PaneDropPlannerTests {
         let sourcePaneId = UUID()
         let existingTargetPaneId = UUID()
         let missingTargetPaneId = UUID()
-        let sourceTab = TabSnapshot(id: sourceTabId, paneIds: [sourcePaneId], activePaneId: sourcePaneId)
+        let sourceTab = TabSnapshot(
+            id: sourceTabId,
+            visiblePaneIds: [sourcePaneId],
+            ownedPaneIds: [sourcePaneId],
+            activePaneId: sourcePaneId
+        )
         let targetTab = TabSnapshot(
-            id: targetTabId, paneIds: [existingTargetPaneId], activePaneId: existingTargetPaneId)
+            id: targetTabId,
+            visiblePaneIds: [existingTargetPaneId],
+            ownedPaneIds: [existingTargetPaneId],
+            activePaneId: existingTargetPaneId
+        )
         let state = makeSnapshot(tabs: [sourceTab, targetTab], activeTabId: targetTabId)
         let payload = SplitDropPayload(kind: .existingPane(paneId: sourcePaneId, sourceTabId: sourceTabId))
 
@@ -265,7 +316,7 @@ final class PaneDropPlannerTests {
     func selfInsert_split_returnsIneligible() {
         let tabId = UUID()
         let paneId = UUID()
-        let tab = TabSnapshot(id: tabId, paneIds: [paneId], activePaneId: paneId)
+        let tab = TabSnapshot(id: tabId, visiblePaneIds: [paneId], ownedPaneIds: [paneId], activePaneId: paneId)
         let state = makeSnapshot(tabs: [tab], activeTabId: tabId)
         let payload = SplitDropPayload(kind: .existingPane(paneId: paneId, sourceTabId: tabId))
 
@@ -288,7 +339,12 @@ final class PaneDropPlannerTests {
         let tabId = UUID()
         let paneA = UUID()
         let paneB = UUID()
-        let tab = TabSnapshot(id: tabId, paneIds: [paneA, paneB], activePaneId: paneA)
+        let tab = TabSnapshot(
+            id: tabId,
+            visiblePaneIds: [paneA, paneB],
+            ownedPaneIds: [paneA, paneB],
+            activePaneId: paneA
+        )
         let state = makeSnapshot(tabs: [tab], activeTabId: tabId)
         let payload = SplitDropPayload(kind: .existingTab(tabId: tabId))
 
@@ -312,8 +368,18 @@ final class PaneDropPlannerTests {
         let targetTabId = UUID()
         let sourcePaneId = UUID()
         let targetPaneId = UUID()
-        let sourceTab = TabSnapshot(id: sourceTabId, paneIds: [sourcePaneId], activePaneId: sourcePaneId)
-        let targetTab = TabSnapshot(id: targetTabId, paneIds: [targetPaneId], activePaneId: targetPaneId)
+        let sourceTab = TabSnapshot(
+            id: sourceTabId,
+            visiblePaneIds: [sourcePaneId],
+            ownedPaneIds: [sourcePaneId],
+            activePaneId: sourcePaneId
+        )
+        let targetTab = TabSnapshot(
+            id: targetTabId,
+            visiblePaneIds: [targetPaneId],
+            ownedPaneIds: [targetPaneId],
+            activePaneId: targetPaneId
+        )
         let state = makeSnapshot(
             tabs: [sourceTab, targetTab],
             activeTabId: targetTabId,

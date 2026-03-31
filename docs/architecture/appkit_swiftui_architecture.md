@@ -94,7 +94,7 @@ Services are created in `AppDelegate.applicationDidFinishLaunching()` in depende
 AppDelegate
 ├── WorkspaceStore      ← @Observable, restore from disk
 ├── SessionRuntime      ← runtime health tracking
-├── ViewRegistry        ← paneId → NSView mapping (not @Observable)
+├── ViewRegistry        ← paneId → PaneViewSlot mapping (@Observable per-pane slots)
 ├── PaneCoordinator     ← action dispatch + model↔view↔surface orchestration
 ├── TabBarAdapter       ← bridges @Observable store via withObservationTracking
 ├── CommandBarPanelController ← command bar lifecycle (⌘P/⌘⇧P/⌘⌥P)
@@ -113,6 +113,42 @@ The main pane area keeps one persistent AppKit content host per tab.
 - pane actions and drop routing flow through stable dispatcher references instead of fresh closures in the visible tab subtree
 
 This replaces the older single-host `ActiveTabContent` pattern, which rendered only the active tab and caused `NSViewRepresentable` teardown on tab switch.
+
+### ViewRegistry Slot Model
+
+`ViewRegistry` provides per-pane `@Observable PaneViewSlot` objects for scoped SwiftUI invalidation. Each slot holds an optional `host: PaneHostView?`. SwiftUI views read `slot(for: paneId).host` and get automatic, pane-scoped re-render when the host changes — no global invalidation.
+
+**Slot lifecycle:**
+
+| Method | When | Effect |
+|--------|------|--------|
+| `ensureSlot(for:)` | Pane enters workspace structure (create, restore) | Creates slot proactively. Idempotent. |
+| `register(view, for:)` | Host view created | Sets `slot.host` — triggers SwiftUI observation |
+| `unregister(paneId)` | Close/undo teardown | Clears `slot.host = nil` — slot object survives |
+| `removeSlot(for:)` | Pane permanently removed | Deletes the slot entirely |
+
+Slots have **pane-lifetime identity**, not host-lifetime identity. This ensures SwiftUI observers survive across unregister/re-register cycles (repair, undo). The old `viewRevision` global invalidation bridge has been removed.
+
+**Slot seeding on restore:** `AppDelegate.seedSlotsForRestoredPanes()` calls `ensureSlot` for every restored pane *before* `PersistentTabHostView` creation. `PaneCoordinator.restoreAllViews()` also seeds slots for all layout and drawer panes before the first `createViewForContent` call, because SwiftUI body evaluation may run before restore completes.
+
+### PaneHostView Identity
+
+`PaneHostView.hostIdentity` returns `ObjectIdentifier(self)` — a stable identity for the specific host instance. `PaneLeafContainer` applies `.id(paneHost.hostIdentity)` on `PaneViewRepresentable`. When the host is replaced (repair, placeholder retry), the identity changes, forcing SwiftUI to dismantle the old representable and create a new one. Without this, `updateNSView` is a no-op and stale views stay mounted.
+
+### PaneActionDispatching Protocol
+
+`PaneActionDispatching` extracts the action dispatch and drop handling interface from scattered closure parameters. `PaneTabActionDispatcher` implements it with stable references (`dispatch`, `shouldAcceptDrop`, `handleDrop`) passed through the per-tab SwiftUI subtree. This replaced fresh closure captures that caused unnecessary re-renders.
+
+### Terminal Exit Hardening
+
+Terminal process termination routes through `PaneTabViewController.handleTerminalProcessTerminated`:
+- **Drawer children**: dispatches `removeDrawerPane` to parent
+- **Arrangement-visible panes**: normal validated `closePane`/`closeTab`
+- **Arrangement-hidden panes**: uses `executor.executeTrusted()` to bypass arrangement validation, since the pane is hidden by the active arrangement but still exists in the tab's canonical model
+
+### Close Transitions
+
+`PaneCloseTransitionCoordinator` provides fast visual feedback on pane close. It marks a pane as "closing" (opacity 0.58, scale 0.985) then dispatches the actual close action after a short delay. `PaneLeafContainer` reads `closingPaneIds` and applies the transition. The pane is non-interactive during the transition.
 
 See [Component Architecture — Service Layer](component_architecture.md#3-service-layer) for detailed descriptions of each service.
 

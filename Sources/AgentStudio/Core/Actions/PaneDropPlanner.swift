@@ -65,7 +65,7 @@ enum PaneDropPlanner {
             return .ineligible
         }
 
-        if sourceTab.paneCount == 1 {
+        if sourceTab.visiblePaneCount == 1 {
             let action = PaneActionCommand.moveTab(tabId: sourceTabId, delta: 0)
             guard isActionValid(action, state: state) else {
                 return .ineligible
