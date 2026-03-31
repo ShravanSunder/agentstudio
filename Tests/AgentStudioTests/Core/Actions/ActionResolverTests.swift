@@ -20,12 +20,12 @@ final class ActionResolverTests {
     }
 
     private func makeSinglePaneTab(tabId: UUID = UUID(), paneId: UUID = UUIDv7.generate()) -> TabSnapshot {
-        TabSnapshot(id: tabId, paneIds: [paneId], activePaneId: paneId)
+        TabSnapshot(id: tabId, visiblePaneIds: [paneId], ownedPaneIds: [paneId], activePaneId: paneId)
     }
 
     private func makeMultiPaneTab(tabId: UUID = UUID(), paneIds: [UUID]? = nil) -> TabSnapshot {
         let ids = paneIds ?? [UUIDv7.generate(), UUIDv7.generate()]
-        return TabSnapshot(id: tabId, paneIds: ids, activePaneId: ids.first)
+        return TabSnapshot(id: tabId, visiblePaneIds: ids, ownedPaneIds: ids, activePaneId: ids.first)
     }
 
     // MARK: - resolveDrop: Multi-pane tab → mergeTab
@@ -597,8 +597,8 @@ final class ActionResolverTests {
         // Assert
         #expect(snapshot.tabCount == 2)
         #expect(snapshot.activeTabId == tab1Id)
-        #expect(snapshot.tab(tab1Id)?.paneIds == [pane1])
-        #expect(snapshot.tab(tab2Id)?.paneIds == [pane2a, pane2b])
+        #expect(snapshot.tab(tab1Id)?.visiblePaneIds == [pane1])
+        #expect(snapshot.tab(tab2Id)?.visiblePaneIds == [pane2a, pane2b])
         #expect(snapshot.tab(tab2Id)?.activePaneId == pane2a)
         #expect(snapshot.tab(tab2Id)?.isSplit == true)
         #expect(!(snapshot.tab(tab1Id)?.isSplit == true))

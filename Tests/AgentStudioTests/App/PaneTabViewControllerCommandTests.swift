@@ -10,6 +10,7 @@ struct PaneTabViewControllerCommandTests {
     private struct Harness {
         let store: WorkspaceStore
         let coordinator: PaneCoordinator
+        let executor: ActionExecutor
         let controller: PaneTabViewController
         let viewRegistry: ViewRegistry
         let surfaceManager: MockPaneTabCommandSurfaceManager
@@ -55,6 +56,7 @@ struct PaneTabViewControllerCommandTests {
         return Harness(
             store: store,
             coordinator: coordinator,
+            executor: executor,
             controller: controller,
             viewRegistry: viewRegistry,
             surfaceManager: surfaceManager,
@@ -189,6 +191,46 @@ struct PaneTabViewControllerCommandTests {
         #expect(harness.store.tab(survivingTab.id) != nil)
         #expect(harness.store.tab(terminatingTab.id) == nil)
         #expect(harness.store.pane(survivingPane.id) != nil)
+    }
+
+    @Test("terminated hidden pane closes without removing visible sibling or creating undo")
+    func handleTerminalProcessTerminated_hiddenPaneClosesWithoutUndoEntry() {
+        let harness = makeHarness()
+        defer { try? FileManager.default.removeItem(at: harness.tempDir) }
+
+        let (repo, worktree) = makeRepoAndWorktree(harness.store, root: harness.tempDir)
+        let visiblePane = harness.store.createPane(
+            source: .worktree(worktreeId: worktree.id, repoId: repo.id),
+            title: "Visible",
+            provider: .zmx
+        )
+        let hiddenPane = harness.store.createPane(
+            source: .worktree(worktreeId: worktree.id, repoId: repo.id),
+            title: "Hidden",
+            provider: .zmx
+        )
+        let tab = Tab(paneId: visiblePane.id)
+        harness.store.appendTab(tab)
+        harness.store.insertPane(
+            hiddenPane.id,
+            inTab: tab.id,
+            at: visiblePane.id,
+            direction: .horizontal,
+            position: .after
+        )
+        let focusArrangementId = harness.store.createArrangement(
+            name: "Focus Visible",
+            paneIds: [visiblePane.id],
+            inTab: tab.id
+        )!
+        harness.store.switchArrangement(to: focusArrangementId, inTab: tab.id)
+
+        harness.controller.handleTerminalProcessTerminated(paneId: hiddenPane.id)
+
+        #expect(harness.store.pane(visiblePane.id) != nil)
+        #expect(harness.store.pane(hiddenPane.id) == nil)
+        #expect(harness.store.tab(tab.id)?.visiblePaneIds == [visiblePane.id])
+        #expect(harness.executor.undoStack.isEmpty)
     }
 
     @Test("command harness shares window lifecycle store across monitor and coordinator")

@@ -22,13 +22,23 @@ final class ActionValidatorTests {
 
     private func makeSinglePaneTab(tabId: UUID = UUID(), paneId: UUID = UUIDv7.generate()) -> (TabSnapshot, UUID, UUID)
     {
-        let tab = TabSnapshot(id: tabId, paneIds: [paneId], activePaneId: paneId)
+        let tab = TabSnapshot(
+            id: tabId,
+            visiblePaneIds: [paneId],
+            ownedPaneIds: [paneId],
+            activePaneId: paneId
+        )
         return (tab, tabId, paneId)
     }
 
     private func makeMultiPaneTab(tabId: UUID = UUID(), paneIds: [UUID]? = nil) -> (TabSnapshot, UUID, [UUID]) {
         let ids = paneIds ?? [UUIDv7.generate(), UUIDv7.generate()]
-        let tab = TabSnapshot(id: tabId, paneIds: ids, activePaneId: ids.first)
+        let tab = TabSnapshot(
+            id: tabId,
+            visiblePaneIds: ids,
+            ownedPaneIds: ids,
+            activePaneId: ids.first
+        )
         return (tab, tabId, ids)
     }
 
@@ -39,7 +49,9 @@ final class ActionValidatorTests {
     func test_selectTab_existingTab_succeeds() {
         // Arrange
         let tabId = UUID()
-        let snapshot = makeSnapshot(tabs: [TabSnapshot(id: tabId, paneIds: [UUID()], activePaneId: nil)])
+        let snapshot = makeSnapshot(
+            tabs: [TabSnapshot(id: tabId, visiblePaneIds: [UUID()], ownedPaneIds: [UUID()], activePaneId: nil)]
+        )
 
         // Act
         let result = ActionValidator.validate(.selectTab(tabId: tabId), state: snapshot)
@@ -71,7 +83,9 @@ final class ActionValidatorTests {
     func test_closeTab_existingTab_succeeds() {
         // Arrange
         let tabId = UUID()
-        let snapshot = makeSnapshot(tabs: [TabSnapshot(id: tabId, paneIds: [UUID()], activePaneId: nil)])
+        let snapshot = makeSnapshot(
+            tabs: [TabSnapshot(id: tabId, visiblePaneIds: [UUID()], ownedPaneIds: [UUID()], activePaneId: nil)]
+        )
 
         // Act
         let result = ActionValidator.validate(.closeTab(tabId: tabId), state: snapshot)
@@ -214,6 +228,59 @@ final class ActionValidatorTests {
         Issue.record("Expected tabNotFound error")
     }
 
+    @Test
+    func test_closePane_hiddenOwnedPane_succeedsWithoutCanonicalizingToCloseTab() {
+        let tabId = UUID()
+        let visiblePaneId = UUIDv7.generate()
+        let hiddenPaneId = UUIDv7.generate()
+        let snapshot = makeSnapshot(
+            tabs: [
+                TabSnapshot(
+                    id: tabId,
+                    visiblePaneIds: [visiblePaneId],
+                    ownedPaneIds: [visiblePaneId, hiddenPaneId],
+                    activePaneId: visiblePaneId
+                )
+            ]
+        )
+
+        let result = ActionValidator.validate(
+            .closePane(tabId: tabId, paneId: hiddenPaneId),
+            state: snapshot
+        )
+
+        guard case .success(let validated) = result else {
+            Issue.record("Expected success")
+            return
+        }
+        #expect(validated.action == .closePane(tabId: tabId, paneId: hiddenPaneId))
+    }
+
+    @Test
+    func test_focusPane_hiddenOwnedPane_fails() {
+        let tabId = UUID()
+        let visiblePaneId = UUIDv7.generate()
+        let hiddenPaneId = UUIDv7.generate()
+        let snapshot = makeSnapshot(
+            tabs: [
+                TabSnapshot(
+                    id: tabId,
+                    visiblePaneIds: [visiblePaneId],
+                    ownedPaneIds: [visiblePaneId, hiddenPaneId],
+                    activePaneId: visiblePaneId
+                )
+            ]
+        )
+
+        let result = ActionValidator.validate(
+            .focusPane(tabId: tabId, paneId: hiddenPaneId),
+            state: snapshot
+        )
+
+        if case .failure(.paneNotFound) = result { return }
+        Issue.record("Expected paneNotFound error")
+    }
+
     // MARK: - extractPaneToTab
 
     @Test
@@ -259,7 +326,7 @@ final class ActionValidatorTests {
         // Arrange
         let paneId = UUID()
         let tabId = UUID()
-        let tab = TabSnapshot(id: tabId, paneIds: [paneId], activePaneId: paneId)
+        let tab = TabSnapshot(id: tabId, visiblePaneIds: [paneId], ownedPaneIds: [paneId], activePaneId: paneId)
         let snapshot = makeSnapshot(tabs: [tab])
 
         // Act
@@ -298,7 +365,7 @@ final class ActionValidatorTests {
         // Arrange — THE BUG: dragging a pane onto itself
         let paneId = UUID()
         let tabId = UUID()
-        let tab = TabSnapshot(id: tabId, paneIds: [paneId], activePaneId: paneId)
+        let tab = TabSnapshot(id: tabId, visiblePaneIds: [paneId], ownedPaneIds: [paneId], activePaneId: paneId)
         let snapshot = makeSnapshot(tabs: [tab])
         let action = PaneActionCommand.insertPane(
             source: .existingPane(paneId: paneId, sourceTabId: tabId),
@@ -326,8 +393,18 @@ final class ActionValidatorTests {
         let targetPaneId = UUID()
         let sourceTabId = UUID()
         let targetTabId = UUID()
-        let sourceTab = TabSnapshot(id: sourceTabId, paneIds: [sourcePaneId], activePaneId: sourcePaneId)
-        let targetTab = TabSnapshot(id: targetTabId, paneIds: [targetPaneId], activePaneId: targetPaneId)
+        let sourceTab = TabSnapshot(
+            id: sourceTabId,
+            visiblePaneIds: [sourcePaneId],
+            ownedPaneIds: [sourcePaneId],
+            activePaneId: sourcePaneId
+        )
+        let targetTab = TabSnapshot(
+            id: targetTabId,
+            visiblePaneIds: [targetPaneId],
+            ownedPaneIds: [targetPaneId],
+            activePaneId: targetPaneId
+        )
         let snapshot = makeSnapshot(tabs: [sourceTab, targetTab])
         let action = PaneActionCommand.insertPane(
             source: .existingPane(paneId: sourcePaneId, sourceTabId: sourceTabId),
@@ -679,7 +756,12 @@ final class ActionValidatorTests {
         // Arrange
         let existingPaneId = UUID()
         let newPaneId = UUID()
-        let tab = TabSnapshot(id: UUID(), paneIds: [existingPaneId], activePaneId: existingPaneId)
+        let tab = TabSnapshot(
+            id: UUID(),
+            visiblePaneIds: [existingPaneId],
+            ownedPaneIds: [existingPaneId],
+            activePaneId: existingPaneId
+        )
         let snapshot = makeSnapshot(tabs: [tab])
 
         // Act
@@ -696,7 +778,12 @@ final class ActionValidatorTests {
     func test_paneCardinality_duplicatePane_fails() {
         // Arrange
         let paneId = UUID()
-        let tab = TabSnapshot(id: UUID(), paneIds: [paneId], activePaneId: paneId)
+        let tab = TabSnapshot(
+            id: UUID(),
+            visiblePaneIds: [paneId],
+            ownedPaneIds: [paneId],
+            activePaneId: paneId
+        )
         let snapshot = makeSnapshot(tabs: [tab])
 
         // Act
@@ -735,7 +822,12 @@ final class ActionValidatorTests {
         // Arrange
         let paneId = UUIDv7.generate()
         let tabId = UUID()
-        let tab = TabSnapshot(id: tabId, paneIds: [paneId], activePaneId: paneId)
+        let tab = TabSnapshot(
+            id: tabId,
+            visiblePaneIds: [paneId],
+            ownedPaneIds: [paneId],
+            activePaneId: paneId
+        )
         let snapshot = makeSnapshot(tabs: [tab])
 
         // Act
@@ -791,7 +883,9 @@ final class ActionValidatorTests {
     func test_validatedAction_preservesOriginalAction() {
         // Arrange
         let tabId = UUID()
-        let snapshot = makeSnapshot(tabs: [TabSnapshot(id: tabId, paneIds: [UUID()], activePaneId: nil)])
+        let snapshot = makeSnapshot(
+            tabs: [TabSnapshot(id: tabId, visiblePaneIds: [UUID()], ownedPaneIds: [UUID()], activePaneId: nil)]
+        )
         let action = PaneActionCommand.selectTab(tabId: tabId)
 
         // Act

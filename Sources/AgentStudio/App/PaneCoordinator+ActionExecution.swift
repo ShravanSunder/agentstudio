@@ -477,10 +477,12 @@ extension PaneCoordinator {
             return
         }
 
-        if let snapshot = store.snapshotForPaneClose(paneId: paneId, inTab: tabId) {
-            appendUndoEntry(.pane(snapshot))
-        } else {
-            Self.logger.warning("closePane: snapshot failed for pane \(paneId) in tab \(tabId)")
+        if let tab = store.tab(tabId), closingPane.isDrawerChild || tab.paneIds.contains(paneId) {
+            if let snapshot = store.snapshotForPaneClose(paneId: paneId, inTab: tabId) {
+                appendUndoEntry(.pane(snapshot))
+            } else {
+                Self.logger.warning("closePane: snapshot failed for pane \(paneId) in tab \(tabId)")
+            }
         }
 
         if closingPane.isDrawerChild {

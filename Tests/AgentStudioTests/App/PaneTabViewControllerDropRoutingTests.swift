@@ -105,8 +105,18 @@ struct PaneTabViewControllerDropRoutingTests {
         let sourcePaneId = UUIDv7.generate()
         let targetPaneId = UUIDv7.generate()
 
-        let sourceTab = TabSnapshot(id: sourceTabId, paneIds: [sourcePaneId], activePaneId: sourcePaneId)
-        let targetTab = TabSnapshot(id: targetTabId, paneIds: [targetPaneId], activePaneId: targetPaneId)
+        let sourceTab = TabSnapshot(
+            id: sourceTabId,
+            visiblePaneIds: [sourcePaneId],
+            ownedPaneIds: [sourcePaneId],
+            activePaneId: sourcePaneId
+        )
+        let targetTab = TabSnapshot(
+            id: targetTabId,
+            visiblePaneIds: [targetPaneId],
+            ownedPaneIds: [targetPaneId],
+            activePaneId: targetPaneId
+        )
         let state = makeSnapshot(tabs: [sourceTab, targetTab], activeTabId: targetTabId)
         let payload = SplitDropPayload(kind: .existingPane(paneId: sourcePaneId, sourceTabId: sourceTabId))
         let destinationPane = makePane(id: targetPaneId)
@@ -153,7 +163,11 @@ struct PaneTabViewControllerDropRoutingTests {
         let state = makeSnapshot(
             tabs: [
                 TabSnapshot(
-                    id: tabId, paneIds: [parentPaneId, sourcePaneId, destinationPaneId], activePaneId: parentPaneId)
+                    id: tabId,
+                    visiblePaneIds: [parentPaneId, sourcePaneId, destinationPaneId],
+                    ownedPaneIds: [parentPaneId, sourcePaneId, destinationPaneId],
+                    activePaneId: parentPaneId
+                )
             ],
             activeTabId: tabId,
             drawerParentByPaneId: [
@@ -203,7 +217,8 @@ struct PaneTabViewControllerDropRoutingTests {
             tabs: [
                 TabSnapshot(
                     id: tabId,
-                    paneIds: [sourceParentPaneId, destinationParentPaneId, sourcePaneId, destinationPaneId],
+                    visiblePaneIds: [sourceParentPaneId, destinationParentPaneId, sourcePaneId, destinationPaneId],
+                    ownedPaneIds: [sourceParentPaneId, destinationParentPaneId, sourcePaneId, destinationPaneId],
                     activePaneId: sourceParentPaneId
                 )
             ],

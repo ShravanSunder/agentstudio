@@ -149,6 +149,34 @@ final class PaneRemovalCascadeTests {
     }
 
     @Test
+    func test_removePaneFromLayout_removesPaneFromAllCustomArrangements() {
+        let (tab, paneIds) = createTabWithPanes(3)
+
+        let focusLeftId = store.createArrangement(
+            name: "Focus Left",
+            paneIds: Set([paneIds[0], paneIds[1]]),
+            inTab: tab.id
+        )!
+        let focusRightId = store.createArrangement(
+            name: "Focus Right",
+            paneIds: Set([paneIds[1], paneIds[2]]),
+            inTab: tab.id
+        )!
+        store.switchArrangement(to: focusLeftId, inTab: tab.id)
+
+        store.removePaneFromLayout(paneIds[1], inTab: tab.id)
+
+        let updatedTab = store.tab(tab.id)!
+        let leftArrangement = updatedTab.arrangements.first { $0.id == focusLeftId }!
+        let rightArrangement = updatedTab.arrangements.first { $0.id == focusRightId }!
+
+        #expect(!(leftArrangement.layout.contains(paneIds[1])))
+        #expect(!(leftArrangement.visiblePaneIds.contains(paneIds[1])))
+        #expect(!(rightArrangement.layout.contains(paneIds[1])))
+        #expect(!(rightArrangement.visiblePaneIds.contains(paneIds[1])))
+    }
+
+    @Test
 
     func test_removePaneFromLayout_resetsActivePaneId() {
         let (tab, paneIds) = createTabWithPanes(2)

@@ -61,11 +61,11 @@ enum ActionValidator {
             guard let tab = state.tab(tabId) else {
                 return .failure(.tabNotFound(tabId: tabId))
             }
-            guard tab.paneIds.contains(paneId) else {
+            guard tab.ownsPane(paneId) else {
                 return .failure(.paneNotFound(paneId: paneId, tabId: tabId))
             }
             // Canonicalize single-pane close requests into closeTab before execution.
-            if tab.paneCount <= 1 {
+            if tab.ownedPaneCount <= 1 {
                 return .success(ValidatedAction(.closeTab(tabId: tabId)))
             }
             return .success(ValidatedAction(action))
@@ -74,10 +74,10 @@ enum ActionValidator {
             guard let tab = state.tab(tabId) else {
                 return .failure(.tabNotFound(tabId: tabId))
             }
-            guard tab.paneIds.contains(paneId) else {
+            guard tab.showsPane(paneId) else {
                 return .failure(.paneNotFound(paneId: paneId, tabId: tabId))
             }
-            guard tab.paneCount > 1 else {
+            guard tab.visiblePaneCount > 1 else {
                 return .failure(.singlePaneTab(tabId: tabId))
             }
             return .success(ValidatedAction(action))
@@ -86,7 +86,7 @@ enum ActionValidator {
             guard let tab = state.tab(tabId) else {
                 return .failure(.tabNotFound(tabId: tabId))
             }
-            guard tab.paneIds.contains(paneId) else {
+            guard tab.showsPane(paneId) else {
                 return .failure(.paneNotFound(paneId: paneId, tabId: tabId))
             }
             return .success(ValidatedAction(action))
@@ -95,11 +95,11 @@ enum ActionValidator {
             guard state.tab(targetTabId) != nil else {
                 return .failure(.tabNotFound(tabId: targetTabId))
             }
-            guard state.tabContainsPane(targetTabId, paneId: targetPaneId) else {
+            guard state.tabShowsPane(targetTabId, paneId: targetPaneId) else {
                 return .failure(.paneNotFound(paneId: targetPaneId, tabId: targetTabId))
             }
             if case .existingPane(let sourcePaneId, let sourceTabId) = source {
-                guard state.tabContainsPane(sourceTabId, paneId: sourcePaneId) else {
+                guard state.tabOwnsPane(sourceTabId, paneId: sourcePaneId) else {
                     return .failure(
                         .sourcePaneNotFound(
                             paneId: sourcePaneId, sourceTabId: sourceTabId))
@@ -139,7 +139,7 @@ enum ActionValidator {
             guard state.tab(targetTabId) != nil else {
                 return .failure(.tabNotFound(tabId: targetTabId))
             }
-            guard state.tabContainsPane(targetTabId, paneId: targetPaneId) else {
+            guard state.tabShowsPane(targetTabId, paneId: targetPaneId) else {
                 return .failure(.paneNotFound(paneId: targetPaneId, tabId: targetTabId))
             }
             guard sourceTabId != targetTabId else {
@@ -151,7 +151,7 @@ enum ActionValidator {
             guard let tab = state.tab(tabId) else {
                 return .failure(.tabNotFound(tabId: tabId))
             }
-            guard tab.paneIds.contains(paneId.uuid) else {
+            guard tab.showsPane(paneId.uuid) else {
                 return .failure(.paneNotFound(paneId: paneId.uuid, tabId: tabId))
             }
             return .success(ValidatedAction(action))
@@ -206,7 +206,7 @@ enum ActionValidator {
             guard state.tab(targetTabId) != nil else {
                 return .failure(.tabNotFound(tabId: targetTabId))
             }
-            guard state.tabContainsPane(targetTabId, paneId: targetPaneId) else {
+            guard state.tabShowsPane(targetTabId, paneId: targetPaneId) else {
                 return .failure(.paneNotFound(paneId: targetPaneId, tabId: targetTabId))
             }
             return .success(ValidatedAction(action))
@@ -214,25 +214,25 @@ enum ActionValidator {
         // Drawer actions — validate parent pane is in an active tab layout.
         // Store-level guards provide additional safety for panes in non-active arrangements.
         case .addDrawerPane(let parentPaneId):
-            guard state.tabContaining(paneId: parentPaneId) != nil else {
+            guard state.tabShowing(paneId: parentPaneId) != nil else {
                 return .failure(.paneNotFound(paneId: parentPaneId, tabId: state.activeTabId ?? UUID()))
             }
             return .success(ValidatedAction(action))
         case .removeDrawerPane(let parentPaneId, _),
-            .setActiveDrawerPane(let parentPaneId, _),
+            .toggleDrawer(let parentPaneId):
+            guard state.tabOwning(paneId: parentPaneId) != nil else {
+                return .failure(.paneNotFound(paneId: parentPaneId, tabId: state.activeTabId ?? UUID()))
+            }
+            return .success(ValidatedAction(action))
+        case .setActiveDrawerPane(let parentPaneId, _),
             .resizeDrawerPane(let parentPaneId, _, _),
             .equalizeDrawerPanes(let parentPaneId),
             .minimizeDrawerPane(let parentPaneId, _),
             .expandDrawerPane(let parentPaneId, _),
             .insertDrawerPane(let parentPaneId, _, _),
             .moveDrawerPane(let parentPaneId, _, _, _):
-            guard state.tabContaining(paneId: parentPaneId) != nil else {
+            guard state.tabShowing(paneId: parentPaneId) != nil else {
                 return .failure(.paneNotFound(paneId: parentPaneId, tabId: state.activeTabId ?? UUID()))
-            }
-            return .success(ValidatedAction(action))
-        case .toggleDrawer(let paneId):
-            guard state.tabContaining(paneId: paneId) != nil else {
-                return .failure(.paneNotFound(paneId: paneId, tabId: state.activeTabId ?? UUID()))
             }
             return .success(ValidatedAction(action))
 
@@ -249,7 +249,7 @@ enum ActionValidator {
         guard let tab = state.tab(tabId) else {
             return .tabNotFound(tabId: tabId)
         }
-        guard tab.paneIds.contains(paneId) else {
+        guard tab.showsPane(paneId) else {
             return .paneNotFound(paneId: paneId, tabId: tabId)
         }
         return nil
@@ -261,7 +261,7 @@ enum ActionValidator {
         paneId: UUID,
         state: ActionStateSnapshot
     ) -> Result<Void, ActionValidationError> {
-        if state.allPaneIds.contains(paneId) {
+        if state.allOwnedPaneIds.contains(paneId) {
             return .failure(.paneAlreadyInLayout(paneId: paneId))
         }
         return .success(())

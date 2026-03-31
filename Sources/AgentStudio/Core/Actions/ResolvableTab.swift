@@ -6,7 +6,8 @@ import Foundation
 protocol ResolvableTab: Identifiable where ID == UUID {
     var id: UUID { get }
     var activePaneId: UUID? { get }
-    var allPaneIds: [UUID] { get }
+    var visiblePaneIds: [UUID] { get }
+    var ownedPaneIds: [UUID] { get }
     var isSplit: Bool { get }
 
     /// Find the neighbor pane ID in the given direction.
@@ -22,7 +23,8 @@ protocol ResolvableTab: Identifiable where ID == UUID {
 // MARK: - Tab Conformance
 
 extension Tab: ResolvableTab {
-    var allPaneIds: [UUID] { paneIds }
+    var visiblePaneIds: [UUID] { paneIds }
+    var ownedPaneIds: [UUID] { panes }
 
     func neighborPaneId(of paneId: UUID, direction: SplitFocusDirection) -> UUID? {
         layout.neighbor(of: paneId, direction: direction.toFocusDirection)
