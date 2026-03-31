@@ -34,6 +34,10 @@ final class ViewRegistry {
 
     #if DEBUG
         static var suppressLazyFallbackAssertionForTesting = false
+
+        var slotPaneIdsForTesting: Set<UUID> {
+            Set(slots.keys)
+        }
     #endif
 
     private var slots: [UUID: PaneViewSlot] = [:]

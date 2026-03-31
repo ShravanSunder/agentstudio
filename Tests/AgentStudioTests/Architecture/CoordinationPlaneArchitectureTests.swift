@@ -181,6 +181,16 @@ struct CoordinationPlaneArchitectureTests {
         #expect(sources.viewRegistrySource.contains("@Observable"))
         #expect(sources.viewRegistrySource.contains("ensureSlot"))
         #expect(sources.viewRegistrySource.contains("removeSlot"))
+        #expect(sources.appDelegateSource.contains("seedSlotsForRestoredPanes()"))
+        if let seedCallRange = sources.appDelegateSource.range(of: "seedSlotsForRestoredPanes()"),
+            let windowCreationRange = sources.appDelegateSource.range(
+                of: "mainWindowController = MainWindowController("
+            )
+        {
+            #expect(seedCallRange.lowerBound < windowCreationRange.lowerBound)
+        } else {
+            Issue.record("Expected AppDelegate to seed restored pane slots before main window creation")
+        }
         #expect(!sources.ghosttySource.contains("AppLifecycleStore.shared"))
         #expect(!sources.appLifecycleStoreSource.contains("static let shared"))
         #expect(!sources.windowLifecycleStoreSource.contains("static let shared"))
