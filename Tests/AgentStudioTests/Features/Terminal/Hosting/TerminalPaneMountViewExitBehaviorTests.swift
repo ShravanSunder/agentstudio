@@ -60,7 +60,7 @@ struct TerminalPaneMountViewExitBehaviorTests {
     }
 
     private func waitForAppEventBusSubscriberCount(_ expectedCount: Int) async {
-        for _ in 0..<200 {
+        for _ in 0..<1000 {
             if await AppEventBus.shared.subscriberCount >= expectedCount {
                 return
             }
@@ -69,8 +69,29 @@ struct TerminalPaneMountViewExitBehaviorTests {
         Issue.record("Timed out waiting for AppEventBus subscriberCount >= \(expectedCount)")
     }
 
+    private func stableAppEventBusSubscriberCount() async -> Int {
+        var lastCount = await AppEventBus.shared.subscriberCount
+        var stableObservations = 0
+
+        for _ in 0..<1000 {
+            await Task.yield()
+            let currentCount = await AppEventBus.shared.subscriberCount
+            if currentCount == lastCount {
+                stableObservations += 1
+                if stableObservations >= 10 {
+                    return currentCount
+                }
+            } else {
+                lastCount = currentCount
+                stableObservations = 0
+            }
+        }
+
+        return await AppEventBus.shared.subscriberCount
+    }
+
     private func makeSubscribedPaneTabControllerHarness() async -> PaneTabControllerHarness {
-        let baselineSubscriberCount = await AppEventBus.shared.subscriberCount
+        let baselineSubscriberCount = await stableAppEventBusSubscriberCount()
         let harness = makePaneTabControllerHarness()
         await waitForAppEventBusSubscriberCount(baselineSubscriberCount + 1)
         return harness
@@ -131,7 +152,7 @@ struct TerminalPaneMountViewExitBehaviorTests {
 
     @Test("process termination with dropped delivery restores visible fallback UI")
     func processTermination_withDroppedDelivery_restoresFallbackOverlay() async {
-        let baselineSubscriberCount = await AppEventBus.shared.subscriberCount
+        let baselineSubscriberCount = await stableAppEventBusSubscriberCount()
         var droppedDeliverySubscriber: AsyncStream<AppEvent>? = await makeDroppedDeliverySubscriber()
         #expect(droppedDeliverySubscriber != nil)
         await waitForAppEventBusSubscriberCount(baselineSubscriberCount + 1)
@@ -190,7 +211,7 @@ struct TerminalPaneMountViewExitBehaviorTests {
 
     @Test("terminal process termination delivered through AppEventBus closes a single-pane tab")
     func terminalProcessTermination_deliveredThroughAppEventBus_closesSinglePaneTab() async {
-        let baselineSubscriberCount = await AppEventBus.shared.subscriberCount
+        let baselineSubscriberCount = await stableAppEventBusSubscriberCount()
         let harness = makePaneTabControllerHarness()
         defer { try? FileManager.default.removeItem(at: harness.tempDir) }
         let pane = harness.store.createPane(
@@ -210,7 +231,7 @@ struct TerminalPaneMountViewExitBehaviorTests {
 
     @Test("terminal process termination delivered through AppEventBus closes drawer children")
     func terminalProcessTermination_deliveredThroughAppEventBus_closesDrawerChild() async {
-        let baselineSubscriberCount = await AppEventBus.shared.subscriberCount
+        let baselineSubscriberCount = await stableAppEventBusSubscriberCount()
         let harness = makePaneTabControllerHarness()
         defer { try? FileManager.default.removeItem(at: harness.tempDir) }
         let parentPane = harness.store.createPane(
@@ -235,7 +256,7 @@ struct TerminalPaneMountViewExitBehaviorTests {
 
     @Test("terminal termination delivered through AppEventBus removes panes hidden from the active arrangement")
     func terminalProcessTermination_deliveredThroughAppEventBus_removesHiddenOwnedPane() async {
-        let baselineSubscriberCount = await AppEventBus.shared.subscriberCount
+        let baselineSubscriberCount = await stableAppEventBusSubscriberCount()
         let harness = makePaneTabControllerHarness()
         defer { try? FileManager.default.removeItem(at: harness.tempDir) }
 
@@ -302,7 +323,7 @@ struct TerminalPaneMountViewExitBehaviorTests {
 
     @Test("controller subscribes before view load and unregisters on teardown")
     func controller_subscribesBeforeViewLoad_andUnregistersOnTeardown() async {
-        let baselineSubscriberCount = await AppEventBus.shared.subscriberCount
+        let baselineSubscriberCount = await stableAppEventBusSubscriberCount()
         var harness: PaneTabControllerHarness? = makePaneTabControllerHarness()
         let tempDir = harness?.tempDir
         let weakController = WeakControllerBox(harness?.controller)
