@@ -46,9 +46,23 @@ struct FlatPaneStripContent: View {
             } else {
                 ZStack(alignment: .topLeading) {
                     ForEach(metrics.paneSegments, id: \.paneId) { segment in
-                        paneSegmentView(segment)
-                            .frame(width: segment.frame.width, height: segment.frame.height)
-                            .offset(x: segment.frame.minX, y: segment.frame.minY)
+                        let paneSlot = viewRegistry.slot(for: segment.paneId)
+                        PaneSegmentSlotView(
+                            segment: segment,
+                            tabId: tabId,
+                            activePaneId: activePaneId,
+                            layout: layout,
+                            closeTransitionCoordinator: closeTransitionCoordinator,
+                            actionDispatcher: actionDispatcher,
+                            store: store,
+                            repoCache: repoCache,
+                            coordinateSpaceName: coordinateSpaceName,
+                            useDrawerFramePreference: useDrawerFramePreference,
+                            paneSlot: paneSlot
+                        )
+                        .id("\(segment.paneId.uuidString)-registered=\(paneSlot.host != nil)")
+                        .frame(width: segment.frame.width, height: segment.frame.height)
+                        .offset(x: segment.frame.minX, y: segment.frame.minY)
                     }
 
                     ForEach(metrics.dividerSegments, id: \.dividerId) { divider in
@@ -67,9 +81,22 @@ struct FlatPaneStripContent: View {
             }
         }
     }
+}
 
-    @ViewBuilder
-    private func paneSegmentView(_ segment: FlatTabStripMetrics.PaneSegment) -> some View {
+private struct PaneSegmentSlotView: View {
+    let segment: FlatTabStripMetrics.PaneSegment
+    let tabId: UUID
+    let activePaneId: UUID?
+    let layout: Layout
+    let closeTransitionCoordinator: PaneCloseTransitionCoordinator
+    let actionDispatcher: PaneActionDispatching
+    let store: WorkspaceStore
+    let repoCache: WorkspaceRepoCache
+    let coordinateSpaceName: String?
+    let useDrawerFramePreference: Bool
+    @Bindable var paneSlot: ViewRegistry.PaneViewSlot
+
+    var body: some View {
         if segment.isMinimized {
             CollapsedPaneBar(
                 paneId: segment.paneId,
@@ -80,7 +107,7 @@ struct FlatPaneStripContent: View {
                 dropTargetCoordinateSpace: coordinateSpaceName,
                 useDrawerFramePreference: useDrawerFramePreference
             )
-        } else if let paneHost = viewRegistry.view(for: segment.paneId) {
+        } else if let paneHost = paneSlot.host {
             PaneLeafContainer(
                 paneHost: paneHost,
                 tabId: tabId,

@@ -125,10 +125,6 @@ struct DrawerPanelOverlay: View {
     private var isExpanded: Bool { expandedPaneInfo != nil }
 
     var body: some View {
-        // Read viewRevision so @Observable tracks it — triggers re-render after repair
-        // swiftlint:disable:next redundant_discardable_let
-        let _ = store.viewRevision  // swift-format:ignore
-
         if let info = expandedPaneInfo, tabSize.width > 0 {
             let panelWidth = tabSize.width * DrawerLayout.panelWidthRatio
             let panelHeight = max(

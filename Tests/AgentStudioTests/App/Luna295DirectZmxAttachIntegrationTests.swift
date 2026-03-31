@@ -600,7 +600,6 @@ struct Luna295DirectZmxAttachIntegrationTests {
         #expect(harness.surfaceManager.createdConfigsByPaneId[pane.id] == nil)
         let preparingPlaceholder = try #require(harness.viewRegistry.terminalStatusPlaceholderView(for: pane.id))
         #expect(preparingPlaceholder.mode == .preparing)
-        let revisionBeforeTransition = harness.store.viewRevision
 
         harness.windowLifecycleStore.recordTerminalContainerBounds(trustedBounds)
         harness.coordinator.restoreViewsForActiveTabIfNeeded()
@@ -617,7 +616,6 @@ struct Luna295DirectZmxAttachIntegrationTests {
 
         #expect(config.initialFrame == resolvedFrames[pane.id])
         #expect(failedPlaceholder.mode == .failedToStart)
-        #expect(harness.store.viewRevision > revisionBeforeTransition)
     }
 
     @Test

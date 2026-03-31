@@ -83,13 +83,11 @@ struct ActionExecutorTestsQuick {
 
         viewRegistry.unregister(pane.id)
 
-        let revisionBefore = store.viewRevision
         executor.execute(.repair(.recreateSurface(paneId: pane.id)))
 
         let afterView = viewRegistry.view(for: pane.id)
         #expect(afterView != nil)
         #expect(afterView !== beforeView)
-        #expect(store.viewRevision == revisionBefore + 1)
     }
 
     @Test("minimizePane hides pane and expandPane restores active pane")

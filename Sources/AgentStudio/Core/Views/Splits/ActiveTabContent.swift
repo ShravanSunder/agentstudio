@@ -16,26 +16,21 @@ struct ActiveTabContent: View {
 
     private static func traceBody(
         activeTabId: UUID?,
-        viewRevision: Int,
         tabPaneCount: Int,
         registeredPaneCount: Int,
         hasTree: Bool
     ) -> Int {
         if let activeTabId {
             RestoreTrace.log(
-                "ActiveTabContent.body activeTab=\(activeTabId) viewRevision=\(viewRevision) tabPaneCount=\(tabPaneCount) registeredPaneCount=\(registeredPaneCount) hasTree=\(hasTree)"
+                "ActiveTabContent.body activeTab=\(activeTabId) tabPaneCount=\(tabPaneCount) registeredPaneCount=\(registeredPaneCount) hasTree=\(hasTree)"
             )
         } else {
-            RestoreTrace.log(
-                "ActiveTabContent.body empty activeTab=nil viewRevision=\(viewRevision)"
-            )
+            RestoreTrace.log("ActiveTabContent.body empty activeTab=nil")
         }
         return 0
     }
 
     var body: some View {
-        // Read viewRevision so @Observable tracks it — triggers re-render after repair
-        let currentViewRevision = store.viewRevision
         let activeTabId = store.activeTabId
         let tab = activeTabId.flatMap { store.tab($0) }
         let registeredPaneCount = tab?.paneIds.filter { viewRegistry.view(for: $0) != nil }.count ?? 0
@@ -43,7 +38,6 @@ struct ActiveTabContent: View {
         // swiftlint:disable:next redundant_discardable_let
         let _ = Self.traceBody(
             activeTabId: activeTabId,
-            viewRevision: currentViewRevision,
             tabPaneCount: tabPaneCount,
             registeredPaneCount: registeredPaneCount,
             hasTree: tab != nil && registeredPaneCount > 0

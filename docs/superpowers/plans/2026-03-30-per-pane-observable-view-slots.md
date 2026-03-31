@@ -155,12 +155,16 @@ Slots have **pane-lifetime identity**, not host-lifetime identity. This is criti
 │           SLOT OBJECT SURVIVES with stable identity          │
 │                                                              │
 │ REMOVED:  when pane is permanently removed from workspace    │
-│           PaneCoordinator calls viewRegistry.removeSlot()    │
-│           after all references are gone                       │
+│           viewRegistry.removeSlot() called AFTER BOTH:       │
+│             1. pane removed from store layout (ForEach drops  │
+│                the segment → SwiftUI no longer observes slot) │
+│             2. pane removed from canonical store structure    │
+│                (store.removePane)                             │
+│           Called in the same synchronous @MainActor method.   │
 └──────────────────────────────────────────────────────────────┘
 ```
 
-**Why slot identity must be stable (not deleted on unregister):**
+### Why slot identity must be stable (not deleted on unregister)
 
 ```
 BAD: delete slot on unregister
@@ -182,7 +186,104 @@ GOOD: keep slot, clear host
     → re-render picks up the new host ✅
 ```
 
-**Why proactive creation (not lazy-on-read):**
+### removeSlot ordering contract
+
+`removeSlot()` deletes the slot object entirely. It is safe **only when both conditions are true**:
+
+1. **Pane is no longer in any tab's layout** — the store layout mutation has already fired, SwiftUI's ForEach has dropped the segment, and no view is observing the slot anymore.
+2. **Pane is removed from canonical WorkspaceStore structure** — `store.removePane(paneId)` has been called.
+
+```
+SAFE ordering (what PaneCoordinator does):
+
+  store.removePaneFromLayout(paneId, inTab: tabId)
+    → store @Observable fires synchronously
+    → ForEach drops pane segment
+    → SwiftUI dismantles PaneViewRepresentable
+    → no SwiftUI view observes slot(paneId) anymore
+
+  viewRegistry.unregister(paneId)           ← slot.host = nil (harmless)
+  store.removePane(paneId)                  ← pane gone from store
+  viewRegistry.removeSlot(for: paneId)      ← slot object deleted (safe)
+
+  All four steps are in the same synchronous @MainActor method.
+  SwiftUI cannot observe the slot between layout removal and
+  slot deletion because there is no yield point.
+
+UNSAFE (would break):
+
+  viewRegistry.removeSlot(for: paneId)      ← slot deleted
+  store.removePaneFromLayout(paneId, ...)   ← ForEach still has segment
+  → SwiftUI reads slot(paneId) → lazy fallback creates NEW slot
+  → identity split → observation broken
+```
+
+**Close transitions (animated close):** During the animation, `PaneViewRepresentable` is still mounted but it holds the `PaneHostView` directly (from the initial `makeNSView`), not through the slot. The slot is not re-read during animation. `removeSlot` is called after the close action completes and the segment is dismantled, so it is safe.
+
+**Undo close:** Close removes the slot. Undo creates a new pane entry in the store, which triggers `ensureSlot` → creates a fresh slot. SwiftUI creates a new ForEach segment which reads the fresh slot. No identity collision because it's a new structural position.
+
+### All slot-seeding entry points
+
+Panes enter workspace structure through four paths. Each path must call `ensureSlot` before any SwiftUI body can read the slot.
+
+```
+┌──────────────────────────────────────────────────────────────┐
+│ ENTRY POINT 1: Normal creation (split, new tab, new drawer)  │
+│                                                              │
+│ PaneCoordinator:                                             │
+│   store.createPane(...)                                      │
+│   viewRegistry.ensureSlot(for: pane.id)  ← explicit          │
+│   ensureTerminalPaneView(pane)           ← calls register()  │
+│                                                              │
+│ Ordering: ensureSlot runs synchronously before register().   │
+│ SwiftUI body runs after store @Observable fires, by which    │
+│ time the slot already exists.                                │
+├──────────────────────────────────────────────────────────────┤
+│ ENTRY POINT 2: App launch / workspace hydration              │
+│                                                              │
+│ store.restore() loads panes from persisted JSON.             │
+│ Panes exist in store BEFORE PaneCoordinator runs.            │
+│ SwiftUI body may run BETWEEN store.restore() and             │
+│ restoreAllViews().                                           │
+│                                                              │
+│ Fix: add bulk ensureSlot at the top of restoreAllViews():    │
+│                                                              │
+│ PaneCoordinator.restoreAllViews():                           │
+│   // Seed slots for all panes before creating any views      │
+│   for paneId in allPaneIds {                                 │
+│     viewRegistry.ensureSlot(for: paneId)                     │
+│   }                                                          │
+│   // Then create views (register sets slot.host)             │
+│   for pane in orderedPanes {                                 │
+│     createViewForContent(pane: pane, ...)                     │
+│   }                                                          │
+│                                                              │
+│ This ensures slots exist before the first SwiftUI body read  │
+│ during restore. Without this, the lazy fallback would fire   │
+│ for every pane on launch — correct but noisy.                │
+├──────────────────────────────────────────────────────────────┤
+│ ENTRY POINT 3: Undo close (tab or pane)                      │
+│                                                              │
+│ PaneCoordinator.undoCloseTab():                              │
+│   restores pane to store                                     │
+│   creates new view → register() → ensureSlot internally      │
+│                                                              │
+│ Covered: register() calls ensureSlot() as belt-and-suspenders│
+├──────────────────────────────────────────────────────────────┤
+│ ENTRY POINT 4: Repair / recreate surface                     │
+│                                                              │
+│ PaneCoordinator.executeRepair():                             │
+│   tears down old view (unregister, slot.host = nil)          │
+│   creates new view → register() → ensureSlot internally      │
+│                                                              │
+│ Covered: slot already exists from original creation.          │
+│ register() finds existing slot and sets host.                │
+└──────────────────────────────────────────────────────────────┘
+```
+
+**Lazy fallback:** If a slot is somehow missed by all four paths, `slot(for:)` creates one lazily with a `RestoreTrace` warning. This is a safety net, not a design path. If the warning fires during normal operation, it means an `ensureSlot` call was missed and should be added.
+
+### Why proactive creation (not lazy-on-read)
 
 ```
 LAZY: slot(for:) creates on first SwiftUI body read
@@ -204,18 +305,22 @@ PROACTIVE: slot created when pane enters workspace structure
     → ForEach body reads slot(paneId).host
     → slot already exists from step 2
 
-  If a slot is somehow missed, slot(for:) falls back to lazy
-  creation with a RestoreTrace warning — safe but noisy.
+  Restore path:
+    1. store.restore()                  ← panes loaded from disk
+    2. restoreAllViews() bulk ensureSlot ← all slots ready
+    3. (SwiftUI body reads slot.host)    ← pure read
+    4. createViewForContent() → register ← sets slot.host
 ```
 
-**API summary:**
+### API summary
 
 ```
 ViewRegistry:
   ensureSlot(for: paneId)     ← proactive creation, called by PaneCoordinator
+                                 in all four entry points listed above
   register(host, for: paneId) ← sets slot.host (calls ensureSlot internally)
   unregister(paneId)          ← sets slot.host = nil, slot survives
-  removeSlot(for: paneId)     ← deletes slot, called when pane permanently removed
+  removeSlot(for: paneId)     ← deletes slot AFTER layout removal + store removal
   slot(for: paneId)           ← returns existing slot (lazy fallback with warning)
   view(for: paneId)           ← imperative accessor, no observation, unchanged API
 ```
@@ -586,53 +691,99 @@ Co-Authored-By: Claude Opus 4.6 (1M context) <noreply@anthropic.com>"
 
 ---
 
-### Task 2: Add proactive ensureSlot calls in PaneCoordinator
+### Task 2: Add proactive ensureSlot/removeSlot calls in PaneCoordinator
 
 **Files:**
 - Modify: `Sources/AgentStudio/App/PaneCoordinator+ViewLifecycle.swift`
 - Modify: `Sources/AgentStudio/App/PaneCoordinator+ActionExecution.swift`
 
-**Why:** Slots must exist before SwiftUI reads them. The proactive path ensures `ensureSlot` runs in every code path that creates a pane, before `register()` and before any SwiftUI body evaluation.
+**Why:** Slots must exist before SwiftUI reads them. The proactive path ensures `ensureSlot` runs in every code path that creates or restores a pane, before `register()` and before any SwiftUI body evaluation. `removeSlot` must run after both layout removal and store removal, in the same synchronous `@MainActor` method.
 
-- [ ] **Step 1: Add ensureSlot calls in pane creation paths**
+There are four entry points where panes enter workspace structure (see "All slot-seeding entry points" above). This task covers all four.
 
-Find every code path where a new pane is created via `store.createPane()` and add `viewRegistry.ensureSlot(for: pane.id)` immediately after. Also find paths where drawer panes are created.
+- [ ] **Step 1: Add bulk ensureSlot at the top of restoreAllViews (Entry Point 2: hydration)**
 
-In `PaneCoordinator+ViewLifecycle.swift`, in the `registerHostedView` method (~line 22), `ensureSlot` is already called by `register()` internally, so no change needed there. But for pane restore paths where `createViewForContent()` is called, ensure the slot exists before the view is created.
+In `PaneCoordinator+ViewLifecycle.swift`, in `restoreAllViews()`, add a bulk seeding loop **before** any view creation. This is the most important seeding point because panes exist in the store (from `store.restore()`) before `restoreAllViews()` runs, and SwiftUI may read slot(for:) between those two steps.
 
-In `PaneCoordinator+ActionExecution.swift`, in `executeInsertPane` (~line 530-557), after `store.createPane()` and before `ensureTerminalPaneView()`, add:
+Find the beginning of `restoreAllViews()` and add before the first view creation loop:
+
+```swift
+// Seed slots for all panes before creating any views.
+// Panes already exist in the store from store.restore().
+// SwiftUI body may run before restoreAllViews completes,
+// so slots must exist before the first createViewForContent call.
+let allPaneIds = store.tabs.flatMap(\.paneIds)
+for paneId in allPaneIds {
+    viewRegistry.ensureSlot(for: paneId)
+}
+// Also seed drawer pane slots
+for pane in store.panes.values {
+    if let drawer = pane.drawer {
+        for drawerPaneId in drawer.layout.paneIds {
+            viewRegistry.ensureSlot(for: drawerPaneId)
+        }
+    }
+}
+```
+
+- [ ] **Step 2: Add ensureSlot calls in pane creation paths (Entry Point 1: normal creation)**
+
+Find every code path where a new pane is created via `store.createPane()` and add `viewRegistry.ensureSlot(for: pane.id)` immediately after. The `register()` call in `registerHostedView` also calls `ensureSlot` internally (belt-and-suspenders), but the explicit call documents the intent and ensures the slot exists even if view creation is deferred.
+
+In `PaneCoordinator+ActionExecution.swift`, in `executeInsertPane` (~line 530-557), after each `store.createPane()` and before `ensureTerminalPaneView()`:
 ```swift
 viewRegistry.ensureSlot(for: pane.id)
 ```
 
-Search for all `store.createPane()` call sites and add `viewRegistry.ensureSlot(for: pane.id)` after each one. The `register()` call in `registerHostedView` will also call `ensureSlot` internally, making this belt-and-suspenders — but the explicit call documents the intent and ensures the slot exists even if view creation is deferred.
+Search for all `store.createPane()` call sites across the coordinator and add `viewRegistry.ensureSlot(for: pane.id)` after each one.
 
-- [ ] **Step 2: Add removeSlot calls in pane permanent removal paths**
+Entry Points 3 (undo) and 4 (repair) are covered automatically because `register()` calls `ensureSlot` internally, and the slot either already exists (repair) or is freshly created by `register` (undo creates a new pane).
 
-Find every code path where `store.removePane(paneId)` is called and add `viewRegistry.removeSlot(for: paneId)` nearby. This should be after the `unregister` call that already exists in those paths.
+- [ ] **Step 3: Add removeSlot calls in pane permanent removal paths**
 
-In `PaneCoordinator+ViewLifecycle.swift` (~lines 210, 324, 372), after `viewRegistry.unregister(pane.id)`, add:
+Find every code path where `store.removePane(paneId)` is called and add `viewRegistry.removeSlot(for: paneId)` **after** the unregister call and **after** `store.removePane()`. The ordering must be:
+
+```
+store.removePaneFromLayout(paneId, inTab:)   ← ForEach drops segment
+viewRegistry.unregister(paneId)               ← slot.host = nil
+store.removePane(paneId)                      ← pane gone from store
+viewRegistry.removeSlot(for: paneId)          ← slot object deleted (LAST)
+```
+
+All four steps must be in the same synchronous `@MainActor` method with no yield points between them.
+
+In `PaneCoordinator+ViewLifecycle.swift` (~lines 210, 324, 372), after `viewRegistry.unregister(pane.id)` and after any `store.removePane()`:
 ```swift
 viewRegistry.removeSlot(for: pane.id)
 ```
 
-In `PaneCoordinator+ActionExecution.swift`, in pane close paths where `store.removePane(paneId)` is called (~lines 434, 478, 495), add `viewRegistry.removeSlot(for: paneId)` after the unregister.
+In `PaneCoordinator+ActionExecution.swift`, in pane close paths where `store.removePane(paneId)` is called (~lines 434, 478, 495):
+```swift
+viewRegistry.removeSlot(for: paneId)
+```
 
-- [ ] **Step 3: Verify build compiles**
+**Important:** Do NOT add `removeSlot` after plain `unregister()` calls that are part of repair/teardown-for-recreation flows. Only add it when the pane is being **permanently** removed (the code path also calls `store.removePane`).
+
+- [ ] **Step 4: Verify build compiles**
 
 Run: `mise run build`
 Expected: PASS
 
-- [ ] **Step 4: Commit**
+- [ ] **Step 5: Commit**
 
 ```bash
 git add Sources/AgentStudio/App/PaneCoordinator+ViewLifecycle.swift \
        Sources/AgentStudio/App/PaneCoordinator+ActionExecution.swift
 git commit -m "feat: add proactive ensureSlot/removeSlot calls in PaneCoordinator
 
-Slots are created when panes enter workspace structure and removed when
-panes are permanently deleted. This ensures slots have pane-lifetime
-identity and exist before any SwiftUI body reads them.
+Slots are seeded in all four pane entry points:
+1. Normal creation: ensureSlot after store.createPane()
+2. App launch hydration: bulk ensureSlot at top of restoreAllViews()
+3. Undo restore: covered by register() calling ensureSlot internally
+4. Repair: covered by existing slot surviving unregister()
+
+removeSlot runs only on permanent removal, after both layout removal
+and store.removePane(), in the same synchronous @MainActor method.
 
 Co-Authored-By: Claude Opus 4.6 (1M context) <noreply@anthropic.com>"
 ```
@@ -1078,4 +1229,5 @@ After this plan is complete:
 5. **Automatic invalidation** — no manual bridge needed. `register()` → slot mutation → `@Observable` fires → SwiftUI mounts the view.
 6. **Two independent mechanisms** — store `@Observable` drives structure/layout, slot `@Observable` drives host availability. They never conflict.
 7. **Pane-lifetime slot identity** — slots survive unregister/re-register cycles. Created proactively via `ensureSlot`, removed only on permanent pane deletion via `removeSlot`.
-8. **No mutation during SwiftUI body evaluation** — slots are created proactively by PaneCoordinator before any SwiftUI body reads them. Lazy fallback exists as a safety net with a logged warning.
+8. **No mutation during SwiftUI body evaluation** — slots are created proactively by PaneCoordinator in all four entry points (creation, hydration, undo, repair) before any SwiftUI body reads them. Lazy fallback exists as a safety net with a logged warning — if it fires in normal operation, an `ensureSlot` call was missed.
+9. **removeSlot ordering** — `removeSlot(for:)` is called only after the pane's ForEach segment has been dropped (layout removal) AND `store.removePane()` has been called, in the same synchronous `@MainActor` method. Never called on plain unregister (repair/teardown-for-recreation).

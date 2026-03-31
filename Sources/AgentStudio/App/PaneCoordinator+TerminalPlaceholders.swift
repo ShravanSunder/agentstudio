@@ -42,24 +42,15 @@ extension PaneCoordinator {
         }
 
         if let terminalView = viewRegistry.terminalView(for: pane.id) {
-            let previousMode = terminalView.placeholderViewForTesting?.mode
-            let placeholder = terminalView.showPlaceholder(
+            return terminalView.showPlaceholder(
                 mode: mode,
                 onRetryRequested: retryHandler,
                 onDismissRequested: dismissHandler
             )
-            if previousMode != mode {
-                store.bumpViewRevision()
-            }
-            return placeholder
         }
 
         if let existingPlaceholder = viewRegistry.terminalStatusPlaceholderView(for: pane.id) {
-            let previousMode = existingPlaceholder.mode
             existingPlaceholder.configure(mode: mode)
-            if previousMode != mode {
-                store.bumpViewRevision()
-            }
             return existingPlaceholder
         }
 
@@ -73,7 +64,6 @@ extension PaneCoordinator {
             onDismissRequested: dismissHandler
         )
         registerHostedView(mountedView: terminalView, for: pane.id)
-        store.bumpViewRevision()
         return terminalView.placeholderViewForTesting
     }
 

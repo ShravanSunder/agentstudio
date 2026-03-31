@@ -16,6 +16,7 @@ struct CoordinationPlaneArchitectureTests {
         let paneLeafContainerSource: String
         let drawerPanelOverlaySource: String
         let drawerPanelSource: String
+        let viewRegistrySource: String
         let paneActionDispatchingSource: String
         let paneTabActionDispatcherSource: String
         let ghosttySource: String
@@ -77,6 +78,10 @@ struct CoordinationPlaneArchitectureTests {
                 contentsOf: projectRoot.appending(path: "Sources/AgentStudio/Core/Views/Drawer/DrawerPanel.swift"),
                 encoding: .utf8
             ),
+            viewRegistrySource: String(
+                contentsOf: projectRoot.appending(path: "Sources/AgentStudio/App/Panes/ViewRegistry.swift"),
+                encoding: .utf8
+            ),
             paneActionDispatchingSource: String(
                 contentsOf: projectRoot.appending(path: "Sources/AgentStudio/Core/Actions/PaneActionDispatching.swift"),
                 encoding: .utf8
@@ -130,10 +135,6 @@ struct CoordinationPlaneArchitectureTests {
     @Test("AppDelegate owns lifecycle composition and MainSplitViewController stays out of direct lifecycle ingress")
     func lifecycleCompositionRoot_staysInAppDelegate() throws {
         let projectRoot = URL(fileURLWithPath: TestPathResolver.projectRoot(from: #filePath))
-        let appDelegatePath = projectRoot.appending(path: "Sources/AgentStudio/App/AppDelegate.swift")
-        let appDelegateRoutingPath = projectRoot.appending(
-            path: "Sources/AgentStudio/App/AppDelegate+LifecycleRouting.swift"
-        )
         let applicationLifecycleMonitorPath = projectRoot.appending(
             path: "Sources/AgentStudio/App/Lifecycle/ApplicationLifecycleMonitor.swift"
         )
@@ -142,45 +143,6 @@ struct CoordinationPlaneArchitectureTests {
         )
         let windowLifecycleStorePath = projectRoot.appending(
             path: "Sources/AgentStudio/App/Lifecycle/WindowLifecycleStore.swift"
-        )
-        let splitViewControllerPath = projectRoot.appending(
-            path: "Sources/AgentStudio/App/MainSplitViewController.swift"
-        )
-        let paneTabViewControllerPath = projectRoot.appending(
-            path: "Sources/AgentStudio/App/Panes/PaneTabViewController.swift"
-        )
-        let activeTabContentPath = projectRoot.appending(
-            path: "Sources/AgentStudio/Core/Views/Splits/ActiveTabContent.swift"
-        )
-        let singleTabContentPath = projectRoot.appending(
-            path: "Sources/AgentStudio/Core/Views/Splits/SingleTabContent.swift"
-        )
-        let flatTabStripContainerPath = projectRoot.appending(
-            path: "Sources/AgentStudio/Core/Views/Splits/FlatTabStripContainer.swift"
-        )
-        let flatPaneStripContentPath = projectRoot.appending(
-            path: "Sources/AgentStudio/Core/Views/Splits/FlatPaneStripContent.swift"
-        )
-        let paneLeafContainerPath = projectRoot.appending(
-            path: "Sources/AgentStudio/Core/Views/Splits/PaneLeafContainer.swift"
-        )
-        let mainWindowControllerPath = projectRoot.appending(
-            path: "Sources/AgentStudio/App/MainWindowController.swift"
-        )
-        let drawerPanelOverlayPath = projectRoot.appending(
-            path: "Sources/AgentStudio/Core/Views/Drawer/DrawerPanelOverlay.swift"
-        )
-        let drawerPanelPath = projectRoot.appending(
-            path: "Sources/AgentStudio/Core/Views/Drawer/DrawerPanel.swift"
-        )
-        let paneActionDispatchingPath = projectRoot.appending(
-            path: "Sources/AgentStudio/Core/Actions/PaneActionDispatching.swift"
-        )
-        let paneTabActionDispatcherPath = projectRoot.appending(
-            path: "Sources/AgentStudio/Core/Actions/PaneTabActionDispatcher.swift"
-        )
-        let ghosttyPath = projectRoot.appending(
-            path: "Sources/AgentStudio/Features/Terminal/Ghostty/Ghostty.swift"
         )
 
         let sources = try loadLifecycleCompositionSources(projectRoot: projectRoot)
@@ -215,6 +177,10 @@ struct CoordinationPlaneArchitectureTests {
         #expect(sources.flatTabStripContainerSource.contains("let appLifecycleStore: AppLifecycleStore"))
         #expect(sources.drawerPanelOverlaySource.contains("let appLifecycleStore: AppLifecycleStore"))
         #expect(sources.drawerPanelSource.contains("let appLifecycleStore: AppLifecycleStore"))
+        #expect(sources.viewRegistrySource.contains("PaneViewSlot"))
+        #expect(sources.viewRegistrySource.contains("@Observable"))
+        #expect(sources.viewRegistrySource.contains("ensureSlot"))
+        #expect(sources.viewRegistrySource.contains("removeSlot"))
         #expect(!sources.ghosttySource.contains("AppLifecycleStore.shared"))
         #expect(!sources.appLifecycleStoreSource.contains("static let shared"))
         #expect(!sources.windowLifecycleStoreSource.contains("static let shared"))

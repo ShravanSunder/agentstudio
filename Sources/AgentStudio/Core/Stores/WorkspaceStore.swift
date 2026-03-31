@@ -32,12 +32,6 @@ final class WorkspaceStore {
     var tabFrames: [UUID: CGRect] = [:]
     var isSplitResizing: Bool = false
 
-    /// Incremented when a view is replaced in ViewRegistry without a store mutation
-    /// (e.g., repair actions). SwiftUI views read this to register @Observable tracking,
-    /// ensuring re-renders pick up the new view from ViewRegistry.
-    /// Runtime-only — not persisted.
-    private(set) var viewRevision: Int = 0
-
     // MARK: - Internal State
 
     private(set) var workspaceId = UUID()
@@ -1625,13 +1619,6 @@ final class WorkspaceStore {
     func setWindowFrame(_ frame: CGRect?) {
         windowFrame = frame
         // Transient — saved on quit only via flush()
-    }
-
-    /// Signal that a view was replaced in ViewRegistry without a corresponding store mutation.
-    /// Called after repair actions so SwiftUI views that read `viewRevision` re-render
-    /// and pick up the new view from ViewRegistry.
-    func bumpViewRevision() {
-        viewRevision += 1
     }
 
     // MARK: - Undo

@@ -343,7 +343,7 @@ struct PaneCoordinatorHardeningTests {
         #expect(harness.surfaceManager.createSurfaceCallCount == 1)
     }
 
-    @Test("repair recreateSurface registers preparing placeholder and bumps viewRevision when geometry is unavailable")
+    @Test("repair recreateSurface registers preparing placeholder when geometry is unavailable")
     func repairRecreateSurface_registersPreparingPlaceholderWhenGeometryUnavailable() {
         let harness = makeHarness()
         defer { try? FileManager.default.removeItem(at: harness.tempDir) }
@@ -352,11 +352,8 @@ struct PaneCoordinatorHardeningTests {
         let pane = makeWorktreePane(harness.store, repo: repo, worktree: worktree, title: "Repair")
         let tab = Tab(paneId: pane.id)
         harness.store.appendTab(tab)
-        let revisionBefore = harness.store.viewRevision
-
         harness.coordinator.execute(.repair(.recreateSurface(paneId: pane.id)))
 
-        #expect(harness.store.viewRevision == revisionBefore + 1)
         let placeholder = harness.viewRegistry.terminalStatusPlaceholderView(for: pane.id)
         #expect(placeholder?.mode == .preparing)
     }

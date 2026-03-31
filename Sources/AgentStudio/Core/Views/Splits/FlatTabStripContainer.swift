@@ -36,6 +36,7 @@ struct FlatTabStripContainer: View {
                 if let zoomedPane = zoomedPaneLeafContainer() {
                     ZStack(alignment: .topTrailing) {
                         zoomedPane
+                            .id(zoomedPaneId)
                             .transition(.opacity.combined(with: .scale(scale: 0.985, anchor: .center)))
                         Text("ZOOM")
                             .font(.system(size: AppStyle.textSm, weight: .medium, design: .monospaced))
@@ -132,7 +133,7 @@ struct FlatTabStripContainer: View {
     }
 
     func zoomedPaneLeafContainer() -> PaneLeafContainer? {
-        guard let zoomedPaneId, let zoomedView = viewRegistry.view(for: zoomedPaneId) else {
+        guard let zoomedPaneId, let zoomedView = viewRegistry.slot(for: zoomedPaneId).host else {
             return nil
         }
 

@@ -1,64 +1,141 @@
 import AppKit
+import Observation
 
-/// Maps pane IDs to live PaneHostView instances.
+/// Maps pane IDs to live PaneHostView instances via per-pane observable slots.
 /// Runtime only — not persisted. Collaborator of WorkspaceStore.
 ///
-/// NOT @Observable — views should not re-render based on surface registration.
-/// Store mutations (via @Observable WorkspaceStore) trigger SwiftUI re-renders;
-/// ViewRegistry provides the NSView instances to display during those renders.
+/// ## Observation contract
+///
+/// Each pane gets its own `@Observable PaneViewSlot`. SwiftUI views read
+/// `slot(for: paneId).host` to get automatic, scoped invalidation when
+/// `register()` fires. Imperative callers (PaneCoordinator, PaneTabViewController)
+/// use `view(for:)` which does a plain lookup with no observation overhead.
+///
+/// ## Slot lifecycle
+///
+/// - `ensureSlot(for:)`: creates a slot proactively when a pane enters workspace structure
+/// - `register(_, for:)`: sets `slot.host` — auto-invalidates SwiftUI observers
+/// - `unregister(_)`: clears `slot.host = nil` — slot object survives with stable identity
+/// - `removeSlot(for:)`: deletes the slot when the pane is permanently removed
+///
+/// Slots have pane-lifetime identity, not host-lifetime identity. This ensures
+/// SwiftUI observers survive across unregister/re-register cycles (repair, undo).
+@Observable
 @MainActor
 final class ViewRegistry {
-    private var views: [UUID: PaneHostView] = [:]
-
-    /// Register a view for a pane.
-    func register(_ view: PaneHostView, for paneId: UUID) {
-        views[paneId] = view
+    /// Per-pane observable slot. SwiftUI views read `slot(for:).host`
+    /// to get automatic, scoped invalidation when `register()` fires.
+    @Observable
+    final class PaneViewSlot {
+        fileprivate(set) var host: PaneHostView?
     }
 
-    /// Unregister a view for a pane.
+    var onPaneRegistrationChanged: (@MainActor (UUID) -> Void)?
+
+    private var slots: [UUID: PaneViewSlot] = [:]
+    private var registrationEpochs: [UUID: Int] = [:]
+
+    /// Create the slot proactively when a pane enters workspace structure.
+    /// Called by PaneCoordinator before any SwiftUI body can read the slot.
+    /// Idempotent — safe to call multiple times for the same paneId.
+    @discardableResult
+    func ensureSlot(for paneId: UUID) -> PaneViewSlot {
+        if let existing = slots[paneId] {
+            return existing
+        }
+
+        let newSlot = PaneViewSlot()
+        slots[paneId] = newSlot
+        return newSlot
+    }
+
+    /// Get the observable slot for a pane.
+    /// SwiftUI views read `slot(for: paneId).host` to get per-pane observation.
+    /// Falls back to lazy creation with a warning if `ensureSlot` was not called.
+    func slot(for paneId: UUID) -> PaneViewSlot {
+        if let existing = slots[paneId] {
+            return existing
+        }
+
+        // Safety net: slot should have been created proactively via ensureSlot().
+        // If we get here, the pane creation path missed the ensureSlot call.
+        RestoreTrace.log(
+            "ViewRegistry.slot(for:) lazy fallback paneId=\(paneId) — ensureSlot was not called"
+        )
+        let newSlot = PaneViewSlot()
+        slots[paneId] = newSlot
+        return newSlot
+    }
+
+    /// Register a view for a pane. Automatically invalidates only
+    /// SwiftUI views observing this pane's slot.
+    func register(_ view: PaneHostView, for paneId: UUID) {
+        ensureSlot(for: paneId).host = view
+        registrationEpochs[paneId, default: 0] += 1
+        onPaneRegistrationChanged?(paneId)
+    }
+
+    /// Unregister a view for a pane. Clears host but preserves slot identity
+    /// so SwiftUI observers survive across unregister/re-register cycles.
     func unregister(_ paneId: UUID) {
-        views.removeValue(forKey: paneId)
+        slots[paneId]?.host = nil
+        registrationEpochs[paneId, default: 0] += 1
+        onPaneRegistrationChanged?(paneId)
+    }
+
+    /// Remove the slot entirely when a pane is permanently removed from workspace structure.
+    func removeSlot(for paneId: UUID) {
+        slots.removeValue(forKey: paneId)
+        registrationEpochs.removeValue(forKey: paneId)
+    }
+
+    /// Registration epoch for one pane.
+    /// SwiftUI views can read this to observe late register/unregister events
+    /// without depending on the slot object itself for invalidation.
+    func registrationEpoch(for paneId: UUID) -> Int {
+        registrationEpochs[paneId, default: 0]
     }
 
     /// Get the view for a pane, if registered.
+    /// Imperative callers use this — no observation tracking.
     func view(for paneId: UUID) -> PaneHostView? {
-        views[paneId]
+        slots[paneId]?.host
     }
 
     /// Get the terminal view for a pane, if it is a terminal.
     func terminalView(for paneId: UUID) -> TerminalPaneMountView? {
-        guard let view = views[paneId] else { return nil }
+        guard let view = slots[paneId]?.host else { return nil }
         return view.mountedContent(as: TerminalPaneMountView.self)
     }
 
     /// Get the terminal status placeholder view for a pane, if it is present.
     func terminalStatusPlaceholderView(for paneId: UUID) -> TerminalStatusPlaceholderView? {
-        guard let view = views[paneId] else { return nil }
+        guard let view = slots[paneId]?.host else { return nil }
         return view.mountedContent(as: TerminalPaneMountView.self)?.placeholderViewForTesting
     }
 
     /// Get the webview for a pane, if it is a webview.
     func webviewView(for paneId: UUID) -> WebviewPaneMountView? {
-        guard let view = views[paneId] else { return nil }
+        guard let view = slots[paneId]?.host else { return nil }
         return view.mountedContent(as: WebviewPaneMountView.self)
     }
 
     /// All registered webview pane views, keyed by pane ID.
     var allWebviewViews: [UUID: WebviewPaneMountView] {
-        views.compactMapValues { view in
-            view.mountedContent(as: WebviewPaneMountView.self)
+        slots.compactMapValues { slot in
+            slot.host?.mountedContent(as: WebviewPaneMountView.self)
         }
     }
 
     /// All registered terminal pane views, keyed by pane ID.
     var allTerminalViews: [UUID: TerminalPaneMountView] {
-        views.compactMapValues { view in
-            view.mountedContent(as: TerminalPaneMountView.self)
+        slots.compactMapValues { slot in
+            slot.host?.mountedContent(as: TerminalPaneMountView.self)
         }
     }
 
     /// All currently registered pane IDs.
     var registeredPaneIds: Set<UUID> {
-        Set(views.keys)
+        Set(slots.compactMap { $0.value.host != nil ? $0.key : nil })
     }
 }
