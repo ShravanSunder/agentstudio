@@ -676,7 +676,7 @@ class PaneTabViewController: NSViewController, CommandHandler {
         // Find the tab containing this worktree
         guard
             let tab = store.tabs.first(where: { tab in
-                tab.paneIds.contains { id in
+                tab.panes.contains { id in
                     store.pane(id)?.worktreeId == worktreeId
                 }
             })
@@ -684,9 +684,9 @@ class PaneTabViewController: NSViewController, CommandHandler {
 
         // Single-pane tab: close the whole tab (ActionValidator rejects .closePane
         // for single-pane tabs). Multi-pane: close just the pane.
-        if tab.isSplit {
+        if tab.panes.count > 1 {
             guard
-                let matchedPaneId = tab.paneIds.first(where: { id in
+                let matchedPaneId = tab.panes.first(where: { id in
                     store.pane(id)?.worktreeId == worktreeId
                 })
             else { return }
@@ -807,19 +807,7 @@ class PaneTabViewController: NSViewController, CommandHandler {
             }
 
             if let tab = store.tabContaining(paneId: paneId) {
-                if !tab.paneIds.contains(paneId) {
-                    // The pane still belongs to the tab's canonical model, but it is hidden by
-                    // the active arrangement. The trusted path bypasses validation so process
-                    // termination can still close the underlying pane/tab even though the
-                    // current arrangement would reject a user-initiated close for that hidden pane.
-                    if tab.panes.count > 1 {
-                        executor.executeTrusted(.closePane(tabId: tab.id, paneId: paneId))
-                    } else {
-                        executor.executeTrusted(.closeTab(tabId: tab.id))
-                    }
-                    return
-                }
-                if tab.isSplit {
+                if tab.panes.count > 1 {
                     dispatchAction(.closePane(tabId: tab.id, paneId: paneId))
                 } else {
                     dispatchAction(.closeTab(tabId: tab.id))

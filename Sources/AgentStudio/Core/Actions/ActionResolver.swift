@@ -57,7 +57,7 @@ enum ActionResolver {
         case .closePane:
             guard let (tab, paneId) = activeTabAndPane(tabs: tabs, activeTabId: activeTabId)
             else { return nil }
-            if tab.allPaneIds.count <= 1 {
+            if tab.visiblePaneIds.count <= 1 {
                 return .closeTab(tabId: tab.id)
             }
             return .closePane(tabId: tab.id, paneId: paneId)
@@ -169,7 +169,7 @@ enum ActionResolver {
                 )
             } else {
                 // Single pane: move individual pane
-                guard let firstPaneId = sourceTab.paneIds.first else { return nil }
+                guard let firstPaneId = sourceTab.visiblePaneIds.first else { return nil }
                 return .insertPane(
                     source: .existingPane(paneId: firstPaneId, sourceTabId: tabId),
                     targetTabId: destinationTabId,
@@ -211,7 +211,8 @@ enum ActionResolver {
             tabs: tabs.map { tab in
                 TabSnapshot(
                     id: tab.id,
-                    paneIds: tab.allPaneIds,
+                    visiblePaneIds: tab.visiblePaneIds,
+                    ownedPaneIds: tab.ownedPaneIds,
                     activePaneId: tab.activePaneId
                 )
             },

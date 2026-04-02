@@ -68,8 +68,11 @@ extension PaneCoordinator {
     }
 
     private func closePlaceholderPane(_ paneId: UUID) {
-        guard let tab = store.tabs.first(where: { $0.paneIds.contains(paneId) }) else { return }
-        if tab.isSplit {
+        guard let tab = store.tabs.first(where: { $0.panes.contains(paneId) }) else {
+            Self.logger.warning("closePlaceholderPane: pane \(paneId) has no owning tab")
+            return
+        }
+        if tab.panes.count > 1 {
             execute(.closePane(tabId: tab.id, paneId: paneId))
         } else {
             execute(.closeTab(tabId: tab.id))

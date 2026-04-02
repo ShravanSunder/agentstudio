@@ -533,7 +533,6 @@ final class WorkspaceStore {
             storeLogger.warning("removePaneFromLayout: tab \(tabId) not found")
             return
         }
-        let arrIndex = tabs[tabIndex].activeArrangementIndex
 
         // Clear zoom if the zoomed pane is being removed
         if tabs[tabIndex].zoomedPaneId == paneId {
@@ -543,29 +542,29 @@ final class WorkspaceStore {
         // Clear minimized state for the removed pane
         tabs[tabIndex].minimizedPaneIds.remove(paneId)
 
-        if let newLayout = tabs[tabIndex].arrangements[arrIndex].layout.removing(paneId: paneId) {
-            tabs[tabIndex].arrangements[arrIndex].layout = newLayout
-            tabs[tabIndex].arrangements[arrIndex].visiblePaneIds.remove(paneId)
-            // Update active pane if removed
-            if tabs[tabIndex].activePaneId == paneId {
-                let remaining = newLayout.paneIds.filter { !tabs[tabIndex].minimizedPaneIds.contains($0) }
-                tabs[tabIndex].activePaneId = remaining.first
+        for arrangementIndex in tabs[tabIndex].arrangements.indices {
+            if let newLayout = tabs[tabIndex].arrangements[arrangementIndex].layout.removing(paneId: paneId) {
+                tabs[tabIndex].arrangements[arrangementIndex].layout = newLayout
+            } else {
+                tabs[tabIndex].arrangements[arrangementIndex].layout = Layout()
             }
-        } else {
-            tabs[tabIndex].arrangements[arrIndex].layout = Layout()
-            tabs[tabIndex].arrangements[arrIndex].visiblePaneIds.remove(paneId)
-            tabs[tabIndex].activePaneId = nil
+            tabs[tabIndex].arrangements[arrangementIndex].visiblePaneIds.remove(paneId)
         }
 
-        // Also remove from default arrangement if active is not default
-        if !tabs[tabIndex].arrangements[arrIndex].isDefault {
-            let defIdx = tabs[tabIndex].defaultArrangementIndex
-            tabs[tabIndex].arrangements[defIdx].visiblePaneIds.remove(paneId)
-            if let newDefLayout = tabs[tabIndex].arrangements[defIdx].layout.removing(paneId: paneId) {
-                tabs[tabIndex].arrangements[defIdx].layout = newDefLayout
-            } else {
-                tabs[tabIndex].arrangements[defIdx].layout = Layout()
+        // Update active pane if removed
+        if tabs[tabIndex].activePaneId == paneId {
+            let remainingVisiblePaneIds = tabs[tabIndex].activeArrangement.layout.paneIds.filter {
+                !tabs[tabIndex].minimizedPaneIds.contains($0)
             }
+            tabs[tabIndex].activePaneId = remainingVisiblePaneIds.first
+        }
+
+        if tabs[tabIndex].activeArrangement.layout.isEmpty && !tabs[tabIndex].defaultArrangement.layout.isEmpty {
+            tabs[tabIndex].activeArrangementId = tabs[tabIndex].defaultArrangement.id
+            let fallbackVisiblePaneIds = tabs[tabIndex].activeArrangement.layout.paneIds.filter {
+                !tabs[tabIndex].minimizedPaneIds.contains($0)
+            }
+            tabs[tabIndex].activePaneId = fallbackVisiblePaneIds.first
         }
 
         // Remove from tab's pane list

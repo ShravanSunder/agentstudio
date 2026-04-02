@@ -19,7 +19,8 @@ final class ActionResolverTabConformanceTests {
 
         // Assert — basic properties
         #expect(tab.activePaneId == paneId)
-        #expect(tab.allPaneIds == [paneId])
+        #expect(tab.visiblePaneIds == [paneId])
+        #expect(tab.ownedPaneIds == [paneId])
         #expect(!(tab.isSplit))
     }
 
@@ -32,7 +33,8 @@ final class ActionResolverTabConformanceTests {
 
         // Assert
         #expect(tab.isSplit)
-        #expect(Set(tab.allPaneIds) == Set(ids))
+        #expect(Set(tab.visiblePaneIds) == Set(ids))
+        #expect(Set(tab.ownedPaneIds) == Set(ids))
     }
 
     @Test
@@ -319,7 +321,8 @@ final class ActionResolverTabConformanceTests {
         #expect(snapshot.tabCount == 2)
         #expect(snapshot.activeTabId == tab1.id)
         #expect(snapshot.tab(tab1.id)?.activePaneId == ids1[0])
-        #expect(Set(snapshot.tab(tab1.id)!.paneIds) == Set(ids1))
+        #expect(Set(snapshot.tab(tab1.id)!.visiblePaneIds) == Set(ids1))
+        #expect(Set(snapshot.tab(tab1.id)!.ownedPaneIds) == Set(ids1))
         #expect(snapshot.tab(tab1.id)?.isSplit == true)
         #expect(!(snapshot.tab(tab2.id)?.isSplit == true))
     }
