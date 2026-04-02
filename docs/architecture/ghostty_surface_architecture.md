@@ -145,35 +145,49 @@ User presses Cmd+Shift+T
 
 ---
 
+## Embedded Ghostty Host Composition
+
+`Ghostty.shared` remains the subsystem entrypoint. The local `Ghostty.App` type is now a thin composition root that wires four focused host-side responsibilities:
+
+- `Ghostty.AppHandle` owns `ghostty_app_t` and config lifetime.
+- `Ghostty.CallbackRouter` owns the C callback table (`wakeup_cb`, `action_cb`, clipboard callbacks, `close_surface_cb`) and reconstructs Swift objects from userdata.
+- `Ghostty.ActionRouter` owns the action-tag switch, surface lookup, and runtime routing.
+- `Ghostty.AppFocusSynchronizer` observes `AppLifecycleStore.isActive` and mirrors app-level focus into `ghostty_app_set_focus`.
+
+The boundary is intentionally split by isolation contract: callback trampolines stay nonisolated and capture stable identity synchronously; surface updates and runtime routing hop to `@MainActor`.
+
+---
+
 ## CWD Propagation Architecture
 
-When a user `cd`s in a terminal, the shell's OSC 7 integration reports the new working directory. Ghostty's core parses this and emits `GHOSTTY_ACTION_PWD`. Agent Studio captures this and propagates it through a 5-stage notification pipeline.
+When a user `cd`s in a terminal, the shell's OSC 7 integration reports the new working directory. Ghostty's core parses this and emits `GHOSTTY_ACTION_PWD`. Agent Studio captures this and propagates it through a 5-stage pipeline.
 
-> **Migration target (LUNA-325):** This pipeline will be replaced by `GhosttyAdapter` → `GhosttyEvent.cwdChanged` → `TerminalRuntime` → `PaneEventEnvelope` on the typed coordination stream. `DispatchQueue.main.async` becomes `MainActor.assumeIsolated`, and `NotificationCenter` posts become typed event emission.
+> **Current state:** Surface-local CWD changes already use the modern host-side path: callback router → `SurfaceView` closure callback → `SurfaceManager.surfaceCWDChanges` `AsyncStream` → `PaneCoordinator` → `WorkspaceStore`.
 >
-> **Deprecation status:** The NotificationCenter CWD path below is legacy documentation only and is deprecated for new paths. Migration follows the no-dual-path invariant in `pane_runtime_architecture.md`.
+> **Future routing target (LUNA-325):** This can still collapse further into `GhosttyAdapter` → `GhosttyEvent.cwdChanged` → `TerminalRuntime` → `PaneEventEnvelope` when the remaining runtime event expansion lands.
 
 ```
 Terminal shell (cd /foo)
     │ OSC 7
     ▼
 ① Ghostty C API                             [GHOSTTY_ACTION_PWD]
-    │ Ghostty.App.handleAction()
+    │ Ghostty.CallbackRouter.action_cb
+    │   └─► Ghostty.ActionRouter.handleAction()
     │ guard target == surface, safe C→String
-    │ DispatchQueue.main.async { surfaceView.pwdDidChange(pwd) }
+    │ Task { @MainActor in surfaceView.pwdDidChange(pwd) }
     ▼
 ② SurfaceView.pwd: String? didSet           [GhosttySurfaceView.swift]
     │ guard pwd != oldValue (dedup)
-    │ NotificationCenter.post(.didUpdateWorkingDirectory)
+    │ onWorkingDirectoryChanged?(surfaceViewId, pwd)
     ▼
 ③ SurfaceManager.onWorkingDirectoryChanged() [SurfaceManager.swift]
     │ SurfaceView → surfaceId (via surfaceViewToId)
     │ CWDNormalizer: String? → URL? (validates absolute path)
     │ SurfaceMetadata.workingDirectory = url
-    │ post .surfaceCWDChanged (surfaceId + URL)
+    │ AsyncStream yield SurfaceCWDChangeEvent(surfaceId, paneId, cwd)
     ▼
 ④ PaneCoordinator                          [PaneCoordinator.swift]
-    │ surfaceId → paneId (via metadata.paneId)
+    │ for await event in surfaceManager.surfaceCWDChanges
     │ store.updatePaneCWD(paneId, url)
     ▼
 ⑤ WorkspaceStore                            [WorkspaceStore.swift]
@@ -188,7 +202,7 @@ UI consumers (search by CWD, breadcrumbs, grouping)
 - **1 pane = 1 surface = 1 CWD**. Layout splits create separate panes, so each pane tracks its own CWD independently.
 - **`CWDNormalizer`** (`Ghostty/CWDNormalizer.swift`): Pure function — `nil → nil`, `"" → nil`, non-absolute → nil, valid path → `URL.standardizedFileURL`. Defense-in-depth on top of Ghostty's own OSC 7 URI validation.
 - **Dual storage**: `SurfaceMetadata.workingDirectory` (surface-level truth) + `PaneMetadata.cwd` (model-level, persisted). Both update synchronously on main thread.
-- **Thread safety**: The C callback may fire off-main; the handler wraps in `DispatchQueue.main.async` (matches `SET_TITLE` pattern).
+- **Thread safety**: The C callback may fire off-main; the callback router captures stable identity synchronously, then uses `Task { @MainActor ... }` before touching `SurfaceView` or runtime state.
 - **Dedup**: Both `SurfaceView.pwd` (didSet guard) and `WorkspaceStore.updatePaneCWD` (equality check) skip redundant updates.
 - **Persistence**: `PaneMetadata.cwd: URL?` is Codable. Old persisted panes missing this field decode as `nil` (Swift optional auto-default).
 
@@ -319,7 +333,11 @@ view.displaySurface(restoredSurface)  // No orphan, view has no surface yet
 | `Ghostty/SurfaceTypes.swift` | SurfaceState, ManagedSurface, SurfaceMetadata, protocols |
 | `Ghostty/CWDNormalizer.swift` | Pure normalizer: raw pwd string → validated file URL |
 | `Ghostty/GhosttySurfaceView.swift` | Surface view with `pwd` property (OSC 7 CWD tracking) |
-| `Ghostty/Ghostty.swift` | C API wrapper, action handler (including `GHOSTTY_ACTION_PWD`) |
+| `Ghostty/Ghostty.swift` | Thin composition root for the embedded Ghostty host |
+| `Ghostty/GhosttyAppHandle.swift` | Owns `ghostty_app_t` and config lifetime |
+| `Ghostty/GhosttyCallbackRouter.swift` | Owns the C callback table and userdata reconstruction |
+| `Ghostty/GhosttyActionRouter.swift` | Owns Ghostty action routing and runtime lookup |
+| `Ghostty/GhosttyAppFocusSynchronizer.swift` | Mirrors app lifecycle focus into `ghostty_app_set_focus` |
 | `Hosting/TerminalPaneMountView.swift` | Terminal mount container, implements `SurfaceHealthDelegate` |
 | `Views/SurfaceErrorOverlay.swift` | Error state UI with restart/close |
 

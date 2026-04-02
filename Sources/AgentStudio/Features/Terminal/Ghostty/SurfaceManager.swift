@@ -899,7 +899,6 @@ extension SurfaceManager {
 
 #if DEBUG
     extension SurfaceManager {
-
         /// Test crash isolation - use in development only
         func testCrash(_ surfaceId: UUID, thread: CrashThread) {
             _ = withSurface(surfaceId) { surface in
