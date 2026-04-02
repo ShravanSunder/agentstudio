@@ -7,8 +7,8 @@ extension Ghostty {
     final class AppHandle {
         private var handle: (app: ghostty_app_t, config: ghostty_config_t)?
 
-        var app: ghostty_app_t {
-            handle!.app
+        var app: ghostty_app_t? {
+            handle?.app
         }
 
         init?(runtimeConfig: ghostty_runtime_config_s) {
@@ -38,6 +38,7 @@ extension Ghostty {
         }
 
         func tick() {
+            guard let app else { return }
             ghostty_app_tick(app)
         }
     }

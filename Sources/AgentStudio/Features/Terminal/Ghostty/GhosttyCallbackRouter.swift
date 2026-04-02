@@ -4,9 +4,9 @@ import GhosttyKit
 
 extension Ghostty {
     /// Owns the embedded Ghostty callback table and reconstructs Swift objects
-    /// from userdata for wakeup, clipboard, and close-surface callbacks before
-    /// handing work back to the main actor. `action_cb` forwards the app pointer
-    /// directly into `ActionRouter`.
+    /// from userdata. `wakeup_cb` and `close_surface_cb` hop back to
+    /// `@MainActor`, clipboard callbacks execute synchronously at the C boundary,
+    /// and `action_cb` forwards the app pointer directly into `ActionRouter`.
     enum CallbackRouter {
         static func runtimeConfig(userdataPointer: UnsafeMutableRawPointer) -> ghostty_runtime_config_s {
             ghostty_runtime_config_s(
@@ -21,7 +21,10 @@ extension Ghostty {
                     // closure crosses the Sendable boundary without carrying the pointer value.
                     let userdataBits = UInt(bitPattern: userdata)
                     Task { @MainActor in
-                        let userdata = UnsafeMutableRawPointer(bitPattern: userdataBits)!
+                        guard let userdata = UnsafeMutableRawPointer(bitPattern: userdataBits) else {
+                            ghosttyLogger.error("Ghostty wakeup callback dropped: userdata bits could not be restored")
+                            return
+                        }
                         let app = Unmanaged<App>.fromOpaque(userdata).takeUnretainedValue()
                         app.tick()
                     }
@@ -54,7 +57,7 @@ extension Ghostty {
             )
         }
 
-        private static func readClipboard(
+        static func readClipboard(
             _ userdata: UnsafeMutableRawPointer?, location: ghostty_clipboard_e, state: UnsafeMutableRawPointer?
         ) -> Bool {
             guard let userdata else {
@@ -75,14 +78,6 @@ extension Ghostty {
             return true
         }
 
-        #if DEBUG
-            static func readClipboardForTesting(
-                _ userdata: UnsafeMutableRawPointer?, location: ghostty_clipboard_e, state: UnsafeMutableRawPointer?
-            ) -> Bool {
-                Self.readClipboard(userdata, location: location, state: state)
-            }
-        #endif
-
         private static func confirmReadClipboard(
             _ userdata: UnsafeMutableRawPointer?, string: UnsafePointer<CChar>?, state: UnsafeMutableRawPointer?,
             request: ghostty_clipboard_request_e
@@ -99,6 +94,12 @@ extension Ghostty {
 
             if let str = string {
                 ghostty_surface_complete_clipboard_request(surface, str, state, true)
+            } else {
+                ghosttyLogger.warning(
+                    "Ghostty confirmReadClipboard callback received nil string; completing with empty payload")
+                "".withCString { emptyPtr in
+                    ghostty_surface_complete_clipboard_request(surface, emptyPtr, state, true)
+                }
             }
         }
 
@@ -117,7 +118,10 @@ extension Ghostty {
 
             let pasteboard = NSPasteboard.general
             let item = content[0]
-            guard let data = item.data else { return }
+            guard let data = item.data else {
+                ghosttyLogger.warning("Ghostty writeClipboard callback dropped: clipboard item data was nil")
+                return
+            }
             let str = String(cString: data)
 
             pasteboard.clearContents()

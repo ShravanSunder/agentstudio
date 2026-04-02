@@ -15,10 +15,8 @@ typealias GhosttyActionRoutingLookupProvider = @MainActor () -> any GhosttyActio
 extension Ghostty {
     /// Owns Ghostty action-tag handling and routes surface-scoped actions into
     /// SurfaceManager and TerminalRuntime on the main actor.
-    final class ActionRouter {
+    enum ActionRouter {
         @MainActor private static var runtimeRegistryOverride: RuntimeRegistry = .shared
-
-        private init() {}
 
         // Exhaustive action-tag switch is intentionally long to guarantee compile-time
         // coverage when Ghostty adds new action tags.

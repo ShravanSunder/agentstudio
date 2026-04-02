@@ -70,13 +70,16 @@ extension Ghostty {
             )
 
             guard let appHandle else {
+                ghosttyLogger.error("Ghostty.App init failed: AppHandle creation returned nil")
                 return
             }
 
             focusSynchronizer.updateAppHandle(appHandle.app)
 
             // Start unfocused; activation notifications synchronize real app focus state.
-            ghostty_app_set_focus(appHandle.app, false)
+            if let app = appHandle.app {
+                ghostty_app_set_focus(app, false)
+            }
 
             ghosttyLogger.info("Ghostty app initialized successfully")
         }
